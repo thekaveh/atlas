@@ -38,6 +38,7 @@ services:
       - "${HOST_BIND_IP:-}${SPARK_MASTER_UI_PORT}:8080"
     environment:
       SPARK_MASTER_HOST: spark-master
+      SPARK_KAFKA_BOOTSTRAP_SERVERS: ${SPARK_KAFKA_BOOTSTRAP_SERVERS:-}
       SPARK_MASTER_OPTS: >-
         -Dspark.master.rest.enabled=true
         -Dspark.master.rest.host=spark-master
@@ -93,6 +94,7 @@ services:
       AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
       AWS_REGION: ${MINIO_REGION:-us-east-1}
       AWS_ENDPOINT_URL_S3: http://minio:9000
+      SPARK_KAFKA_BOOTSTRAP_SERVERS: ${SPARK_KAFKA_BOOTSTRAP_SERVERS:-}
     entrypoint: ["/bin/bash", "-lc"]
     command:
       - |
@@ -149,6 +151,8 @@ services:
     # the scheduler) reach it at `sc://spark-connect:15002` via the
     # backend-network. External client access can be added later by
     # publishing the port; not in scope for the in-stack-only baseline.
+    environment:
+      SPARK_KAFKA_BOOTSTRAP_SERVERS: ${SPARK_KAFKA_BOOTSTRAP_SERVERS:-}
     command:
       - /opt/spark/sbin/start-connect-server.sh
       # `--wait` is the first arg → start-connect-server.sh shifts it and
@@ -240,6 +244,7 @@ services:
     environment:
       # NOTE: dual-write per project_runtime_sc_vs_compose_env_dual_write.md.
       # Same SPARK_HISTORY_OPTS must appear in service.yml::runtime_sc.
+      SPARK_KAFKA_BOOTSTRAP_SERVERS: ${SPARK_KAFKA_BOOTSTRAP_SERVERS:-}
       SPARK_HISTORY_OPTS: >-
         -Dspark.history.fs.logDirectory=s3a://spark-history/
         -Dspark.hadoop.fs.s3a.endpoint=http://minio:9000

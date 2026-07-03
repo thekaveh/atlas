@@ -137,6 +137,7 @@ Use it as a template for your own notebooks.
 |---|---|
 | iceberg-rest | data |
 | minio | data |
+| redpanda | data |
 | spark | data |
 | supabase | data |
 

@@ -45,6 +45,7 @@ services:
       MINIO_REGION: us-east-1
       MINIO_ROOT_PASSWORD: ''
       MINIO_ROOT_USER: minioadmin
+      SPARK_KAFKA_BOOTSTRAP_SERVERS: ''
       SPARK_MASTER_URL: spark://spark-master:7077
     healthcheck:
       interval: 30s
@@ -168,6 +169,7 @@ services:
       MINIO_REGION: us-east-1
       MINIO_ROOT_PASSWORD: ''
       MINIO_ROOT_USER: minioadmin
+      SPARK_KAFKA_BOOTSTRAP_SERVERS: ''
       SPARK_MASTER_URL: spark://spark-master:7077
     healthcheck:
       interval: 30s
@@ -236,6 +238,7 @@ services:
       MINIO_REGION: us-east-1
       MINIO_ROOT_PASSWORD: ''
       MINIO_ROOT_USER: minioadmin
+      SPARK_KAFKA_BOOTSTRAP_SERVERS: ''
       SPARK_MASTER_URL: spark://spark-master:7077
     healthcheck:
       interval: 30s
@@ -258,7 +261,7 @@ services:
     ports:
     - mode: ingress
       protocol: tcp
-      published: '63060'
+      published: '63070'
       target: 8080
     restart: unless-stopped
     volumes:
@@ -370,7 +373,7 @@ services:
     ports:
     - mode: ingress
       protocol: tcp
-      published: '63083'
+      published: '63093'
       target: 8000
     restart: unless-stopped
     volumes:
@@ -544,8 +547,7 @@ services:
       start_period: 45s
       test:
       - CMD-SHELL
-      - celery -A celery_app:celery_app inspect ping -d atlas-worker@$$HOSTNAME --timeout=5
-        | grep -q pong
+      - celery -A celery_app:celery_app inspect ping -d atlas-worker@$$HOSTNAME --timeout=5 | grep -q pong
       timeout: 10s
     image: atlas-backend-celery:local
     logging:
@@ -661,7 +663,7 @@ services:
     ports:
     - mode: ingress
       protocol: tcp
-      published: '63042'
+      published: '63052'
       target: 18188
     restart: unless-stopped
     volumes:
@@ -747,7 +749,7 @@ services:
     ports:
     - mode: ingress
       protocol: tcp
-      published: '63040'
+      published: '63050'
       target: 11235
     read_only: true
     restart: unless-stopped
@@ -804,7 +806,7 @@ services:
     ports:
     - mode: ingress
       protocol: tcp
-      published: '63061'
+      published: '63071'
       target: 5555
     restart: unless-stopped
   grafana:
@@ -901,8 +903,7 @@ services:
       start_period: 1m0s
       test:
       - CMD-SHELL
-      - 'curl --fail --silent --show-error -H "Authorization: Bearer $$API_SERVER_KEY"
-        http://127.0.0.1:8642/v1/models >/dev/null'
+      - 'curl --fail --silent --show-error -H "Authorization: Bearer $$API_SERVER_KEY" http://127.0.0.1:8642/v1/models >/dev/null'
       timeout: 10s
     image: nousresearch/hermes-agent:v2026.6.19
     labels:
@@ -919,11 +920,11 @@ services:
     ports:
     - mode: ingress
       protocol: tcp
-      published: '63062'
+      published: '63072'
       target: 8642
     - mode: ingress
       protocol: tcp
-      published: '63063'
+      published: '63073'
       target: 9119
     restart: unless-stopped
     volumes:
@@ -1029,7 +1030,7 @@ services:
     ports:
     - mode: ingress
       protocol: tcp
-      published: '63020'
+      published: '63022'
       target: 8181
     restart: unless-stopped
   iceberg-rest-init:
@@ -1106,7 +1107,7 @@ services:
     ports:
     - mode: ingress
       protocol: tcp
-      published: '63080'
+      published: '63090'
       target: 8080
     restart: unless-stopped
     volumes:
@@ -1182,6 +1183,7 @@ services:
       RAY_ADDRESS: ''
       REDIS_URL: redis://:redis_password@redis:6379/3
       SEARXNG_URL: http://searxng:8080
+      SPARK_KAFKA_BOOTSTRAP_SERVERS: ''
       SPARK_REMOTE: sc://spark-connect:15002
       STT_ENDPOINT: ''
       SUPABASE_ANON_KEY: ''
@@ -1215,7 +1217,7 @@ services:
     ports:
     - mode: ingress
       protocol: tcp
-      published: '63084'
+      published: '63094'
       target: 8888
     restart: unless-stopped
     volumes:
@@ -1374,7 +1376,7 @@ services:
     ports:
     - mode: ingress
       protocol: tcp
-      published: '63081'
+      published: '63091'
       target: 8080
     restart: unless-stopped
     volumes:
@@ -1733,8 +1735,8 @@ services:
       - CMD
       - python
       - -c
-      - import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://localhost:9621/health',
-        timeout=5).status == 200 else 1)
+      - import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://localhost:9621/health', timeout=5).status
+        == 200 else 1)
       timeout: 8s
     image: ghcr.io/hkuds/lightrag:v1.5.4
     logging:
@@ -1747,7 +1749,7 @@ services:
     ports:
     - mode: ingress
       protocol: tcp
-      published: '63064'
+      published: '63074'
       target: 9621
     restart: unless-stopped
     volumes:
@@ -1848,8 +1850,8 @@ services:
       - CMD
       - python
       - -c
-      - import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://localhost:4000/health/liveliness',
-        timeout=3).status == 200 else 1)
+      - import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://localhost:4000/health/liveliness', timeout=3).status
+        == 200 else 1)
       timeout: 5s
     image: ghcr.io/berriai/litellm:v1.83.14-stable.patch.2
     logging:
@@ -1862,7 +1864,7 @@ services:
     ports:
     - mode: ingress
       protocol: tcp
-      published: '63030'
+      published: '63040'
       target: 4000
     restart: unless-stopped
     tmpfs:
@@ -1995,8 +1997,8 @@ services:
       - CMD
       - python
       - -c
-      - import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health',
-        timeout=5).status == 200 else 1)
+      - import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health', timeout=5).status
+        == 200 else 1)
       timeout: 8s
     logging:
       driver: json-file
@@ -2062,7 +2064,7 @@ services:
     ports:
     - mode: ingress
       protocol: tcp
-      published: '63085'
+      published: '63095'
       target: 8080
     restart: unless-stopped
   local-deep-researcher:
@@ -2107,7 +2109,7 @@ services:
     ports:
     - mode: ingress
       protocol: tcp
-      published: '63087'
+      published: '63097'
       target: 2024
     restart: unless-stopped
     volumes:
@@ -2200,7 +2202,7 @@ services:
     - host_ip: 127.0.0.1
       mode: ingress
       protocol: tcp
-      published: '63068'
+      published: '63078'
       target: 8000
     restart: unless-stopped
   minio:
@@ -2239,11 +2241,11 @@ services:
     ports:
     - mode: ingress
       protocol: tcp
-      published: '63018'
+      published: '63020'
       target: 9000
     - mode: ingress
       protocol: tcp
-      published: '63019'
+      published: '63021'
       target: 9001
     restart: unless-stopped
     volumes:
@@ -2319,7 +2321,7 @@ services:
     - s3://mlflow
     - --serve-artifacts
     - --allowed-hosts
-    - mlflow,mlflow:5000,localhost,localhost:63082,mlflow.localhost,mlflow.localhost:63000
+    - mlflow,mlflow:5000,localhost,localhost:63092,mlflow.localhost,mlflow.localhost:63000
     container_name: atlas-mlflow
     depends_on:
       mlflow-init:
@@ -2357,7 +2359,7 @@ services:
     ports:
     - mode: ingress
       protocol: tcp
-      published: '63082'
+      published: '63092'
       target: 5000
     restart: unless-stopped
   mlflow-init:
@@ -2507,7 +2509,7 @@ services:
     ports:
     - mode: ingress
       protocol: tcp
-      published: '63065'
+      published: '63075'
       target: 5678
     restart: unless-stopped
     volumes:
@@ -2651,11 +2653,11 @@ services:
     ports:
     - mode: ingress
       protocol: tcp
-      published: '63021'
+      published: '63023'
       target: 7687
     - mode: ingress
       protocol: tcp
-      published: '63022'
+      published: '63024'
       target: 7474
     restart: unless-stopped
     volumes:
@@ -2817,7 +2819,7 @@ services:
     ports:
     - mode: ingress
       protocol: tcp
-      published: '63086'
+      published: '63096'
       target: 8080
     restart: unless-stopped
     volumes:
@@ -2927,11 +2929,11 @@ services:
     ports:
     - mode: ingress
       protocol: tcp
-      published: '63066'
+      published: '63076'
       target: 18789
     - mode: ingress
       protocol: tcp
-      published: '63067'
+      published: '63077'
       target: 18790
     restart: unless-stopped
     volumes:
@@ -2950,15 +2952,12 @@ services:
     entrypoint:
     - sh
     - -c
-    - "set -e\napk add --no-cache jq > /dev/null\nCONFIG=/home/node/.openclaw/openclaw.json\n\
-      PATCH='{\"gateway\":{\"controlUi\":{\"dangerouslyAllowHostHeaderOriginFallback\"\
-      :true}}}'\n# Write via tmp + mv on BOTH branches: `> \"$$CONFIG\"` truncates\n\
-      # the target before jq runs, so a missing/failed jq used to\n# leave a 0-byte\
-      \ config the gateway chokes on (and re-runs\n# could not self-heal \u2014 jq\
-      \ errors on the empty file).\nif [ -s \"$$CONFIG\" ]; then\n  jq --argjson patch\
-      \ \"$$PATCH\" '. * $$patch' \"$$CONFIG\" > \"$$CONFIG.tmp\" && mv \"$$CONFIG.tmp\"\
-      \ \"$$CONFIG\"\nelse\n  echo \"$$PATCH\" | jq . > \"$$CONFIG.tmp\" && mv \"\
-      $$CONFIG.tmp\" \"$$CONFIG\"\nfi\nchown -R 1000:1000 /home/node/.openclaw\n"
+    - "set -e\napk add --no-cache jq > /dev/null\nCONFIG=/home/node/.openclaw/openclaw.json\nPATCH='{\"gateway\":{\"controlUi\"\
+      :{\"dangerouslyAllowHostHeaderOriginFallback\":true}}}'\n# Write via tmp + mv on BOTH branches: `> \"$$CONFIG\"` truncates\n\
+      # the target before jq runs, so a missing/failed jq used to\n# leave a 0-byte config the gateway chokes on (and re-runs\n\
+      # could not self-heal \u2014 jq errors on the empty file).\nif [ -s \"$$CONFIG\" ]; then\n  jq --argjson patch \"$$PATCH\"\
+      \ '. * $$patch' \"$$CONFIG\" > \"$$CONFIG.tmp\" && mv \"$$CONFIG.tmp\" \"$$CONFIG\"\nelse\n  echo \"$$PATCH\" | jq .\
+      \ > \"$$CONFIG.tmp\" && mv \"$$CONFIG.tmp\" \"$$CONFIG\"\nfi\nchown -R 1000:1000 /home/node/.openclaw\n"
     image: alpine:3.24.1
     networks:
       backend-network: null
@@ -3043,7 +3042,7 @@ services:
     ports:
     - mode: ingress
       protocol: tcp
-      published: '63011'
+      published: '63013'
       target: 9187
     restart: unless-stopped
   prometheus:
@@ -3101,8 +3100,8 @@ services:
     command:
     - bash
     - -c
-    - "ray start --head \\\n  --dashboard-host 0.0.0.0 \\\n  --port 6379 \\\n  --ray-client-server-port\
-      \ 10001 \\\n  --dashboard-port 8265 \\\n  --block\n"
+    - "ray start --head \\\n  --dashboard-host 0.0.0.0 \\\n  --port 6379 \\\n  --ray-client-server-port 10001 \\\n  --dashboard-port\
+      \ 8265 \\\n  --block\n"
     container_name: atlas-ray-head
     deploy:
       replicas: 0
@@ -3201,7 +3200,7 @@ services:
     ports:
     - mode: ingress
       protocol: tcp
-      published: '63023'
+      published: '63025'
       target: 6379
     restart: unless-stopped
     volumes:
@@ -3231,16 +3230,122 @@ services:
     ports:
     - mode: ingress
       protocol: tcp
-      published: '63024'
+      published: '63026'
       target: 9121
     restart: unless-stopped
+  redpanda:
+    command:
+    - redpanda
+    - start
+    - --mode
+    - dev-container
+    - --smp
+    - '1'
+    - --memory
+    - 1G
+    - --reserve-memory
+    - 0M
+    - --overprovisioned
+    - --node-id
+    - '0'
+    - --check=false
+    - --kafka-addr
+    - internal://0.0.0.0:9092,external://0.0.0.0:19092
+    - --advertise-kafka-addr
+    - internal://redpanda:9092,external://localhost:63010
+    - --rpc-addr
+    - redpanda:33145
+    - --advertise-rpc-addr
+    - redpanda:33145
+    container_name: atlas-redpanda
+    deploy:
+      replicas: 0
+    healthcheck:
+      interval: 10s
+      retries: 12
+      start_period: 20s
+      test:
+      - CMD-SHELL
+      - rpk cluster info -X brokers=localhost:9092 >/dev/null 2>&1
+      timeout: 5s
+    image: docker.redpanda.com/redpandadata/redpanda:v26.1.12
+    logging:
+      driver: json-file
+      options:
+        max-file: '3'
+        max-size: 10m
+    networks:
+      backend-network: null
+    ports:
+    - mode: ingress
+      protocol: tcp
+      published: '63010'
+      target: 19092
+    restart: unless-stopped
+    volumes:
+    - source: redpanda-data
+      target: /var/lib/redpanda/data
+      type: volume
+      volume: {}
+  redpanda-console:
+    container_name: atlas-redpanda-console
+    depends_on:
+      redpanda:
+        condition: service_healthy
+        required: true
+    deploy:
+      replicas: 0
+    environment:
+      KAFKA_BROKERS: redpanda:9092
+    image: docker.redpanda.com/redpandadata/console:v3.8.0
+    logging:
+      driver: json-file
+      options:
+        max-file: '3'
+        max-size: 10m
+    networks:
+      backend-network: null
+    ports:
+    - mode: ingress
+      protocol: tcp
+      published: '63011'
+      target: 8080
+    restart: unless-stopped
+  redpanda-init:
+    container_name: atlas-redpanda-init
+    depends_on:
+      redpanda:
+        condition: service_healthy
+        required: true
+    deploy:
+      replicas: 0
+    entrypoint:
+    - /bin/bash
+    - /scripts/init-redpanda.sh
+    environment:
+      REDPANDA_DEMO_TOPICS: atlas_stream_events
+    image: docker.redpanda.com/redpandadata/redpanda:v26.1.12
+    logging:
+      driver: json-file
+      options:
+        max-file: '3'
+        max-size: 10m
+    networks:
+      backend-network: null
+    restart: 'no'
+    volumes:
+    - bind: {}
+      read_only: true
+      source: '{REPO_ROOT}/services/redpanda/init/scripts'
+      target: /scripts
+      type: bind
   searxng:
     container_name: atlas-searxng
     deploy:
       replicas: 1
     environment:
       FORCE_OWNERSHIP: '1'
-      SEARXNG_BASE_URL: http://localhost:63044
+      SEARXNG_BASE_URL: http://localhost:63054
       SEARXNG_SECRET: ''
     healthcheck:
       interval: 30s
@@ -3265,7 +3370,7 @@ services:
     ports:
     - mode: ingress
       protocol: tcp
-      published: '63044'
+      published: '63054'
       target: 8080
     restart: unless-stopped
     volumes:
@@ -3336,6 +3441,8 @@ services:
         required: true
     deploy:
       replicas: 0
+    environment:
+      SPARK_KAFKA_BOOTSTRAP_SERVERS: ''
     image: atlas-spark:local
     logging:
       driver: json-file
@@ -3363,8 +3470,8 @@ services:
       replicas: 0
     environment:
       SPARK_HISTORY_OPTS: -Dspark.history.fs.logDirectory=s3a://spark-history/ -Dspark.hadoop.fs.s3a.endpoint=http://minio:9000
-        -Dspark.hadoop.fs.s3a.access.key=minioadmin -Dspark.hadoop.fs.s3a.secret.key=
-        -Dspark.hadoop.fs.s3a.path.style.access=true
+        -Dspark.hadoop.fs.s3a.access.key=minioadmin -Dspark.hadoop.fs.s3a.secret.key= -Dspark.hadoop.fs.s3a.path.style.access=true
+      SPARK_KAFKA_BOOTSTRAP_SERVERS: ''
     image: atlas-spark:local
     logging:
       driver: json-file
@@ -3376,7 +3483,7 @@ services:
     ports:
     - mode: ingress
       protocol: tcp
-      published: '63026'
+      published: '63028'
       target: 18080
     restart: unless-stopped
   spark-init:
@@ -3426,9 +3533,9 @@ services:
           cpus: 1
           memory: '2147483648'
     environment:
+      SPARK_KAFKA_BOOTSTRAP_SERVERS: ''
       SPARK_MASTER_HOST: spark-master
-      SPARK_MASTER_OPTS: -Dspark.master.rest.enabled=true -Dspark.master.rest.host=spark-master
-        -Dspark.master.rest.port=6066
+      SPARK_MASTER_OPTS: -Dspark.master.rest.enabled=true -Dspark.master.rest.host=spark-master -Dspark.master.rest.port=6066
     healthcheck:
       interval: 30s
       retries: 5
@@ -3450,7 +3557,7 @@ services:
     ports:
     - mode: ingress
       protocol: tcp
-      published: '63025'
+      published: '63027'
       target: 8080
     restart: unless-stopped
   spark-worker:
@@ -3460,16 +3567,12 @@ services:
       context: '{REPO_ROOT}/services/spark/build'
       dockerfile: Dockerfile
     command:
-    - "set -euo pipefail\nexport HADOOP_CONF_DIR=/tmp/atlas-spark-hadoop-conf\nmkdir\
-      \ -p \"$${HADOOP_CONF_DIR}\"\ncat > \"$${HADOOP_CONF_DIR}/core-site.xml\" <<EOF\n\
-      <configuration>\n  <property><name>fs.s3a.endpoint</name><value>http://minio:9000</value></property>\n\
-      \  <property><name>fs.s3a.endpoint.region</name><value>us-east-1</value></property>\n\
-      \  <property><name>fs.s3a.path.style.access</name><value>true</value></property>\n\
-      \  <property><name>fs.s3a.connection.ssl.enabled</name><value>false</value></property>\n\
-      \  <property><name>fs.s3a.aws.credentials.provider</name><value>org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider</value></property>\n\
-      \  <property><name>fs.s3a.access.key</name><value>minioadmin</value></property>\n\
-      \  <property><name>fs.s3a.secret.key</name><value></value></property>\n</configuration>\n\
-      EOF\nexec /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077\
+    - "set -euo pipefail\nexport HADOOP_CONF_DIR=/tmp/atlas-spark-hadoop-conf\nmkdir -p \"$${HADOOP_CONF_DIR}\"\ncat > \"\
+      $${HADOOP_CONF_DIR}/core-site.xml\" <<EOF\n<configuration>\n  <property><name>fs.s3a.endpoint</name><value>http://minio:9000</value></property>\n\
+      \  <property><name>fs.s3a.endpoint.region</name><value>us-east-1</value></property>\n  <property><name>fs.s3a.path.style.access</name><value>true</value></property>\n\
+      \  <property><name>fs.s3a.connection.ssl.enabled</name><value>false</value></property>\n  <property><name>fs.s3a.aws.credentials.provider</name><value>org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider</value></property>\n\
+      \  <property><name>fs.s3a.access.key</name><value>minioadmin</value></property>\n  <property><name>fs.s3a.secret.key</name><value></value></property>\n\
+      </configuration>\nEOF\nexec /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077\
       \ --webui-port 8081\n"
     depends_on:
       spark-master:
@@ -3489,6 +3592,7 @@ services:
       AWS_ENDPOINT_URL_S3: http://minio:9000
       AWS_REGION: us-east-1
       AWS_SECRET_ACCESS_KEY: ''
+      SPARK_KAFKA_BOOTSTRAP_SERVERS: ''
     image: atlas-spark:local
     logging:
       driver: json-file
@@ -3521,7 +3625,7 @@ services:
     ports:
     - mode: ingress
       protocol: tcp
-      published: '63015'
+      published: '63017'
       target: 3000
     restart: unless-stopped
   supabase-auth:
@@ -3563,7 +3667,7 @@ services:
     ports:
     - mode: ingress
       protocol: tcp
-      published: '63014'
+      published: '63016'
       target: 9999
     restart: unless-stopped
   supabase-db:
@@ -3591,7 +3695,7 @@ services:
     ports:
     - mode: ingress
       protocol: tcp
-      published: '63010'
+      published: '63012'
       target: 5432
     restart: unless-stopped
     volumes:
@@ -3649,7 +3753,7 @@ services:
     ports:
     - mode: ingress
       protocol: tcp
-      published: '63012'
+      published: '63014'
       target: 8080
     restart: unless-stopped
   supabase-realtime:
@@ -3696,7 +3800,7 @@ services:
     ports:
     - mode: ingress
       protocol: tcp
-      published: '63016'
+      published: '63018'
       target: 4000
     restart: unless-stopped
   supabase-storage:
@@ -3731,7 +3835,7 @@ services:
     ports:
     - mode: ingress
       protocol: tcp
-      published: '63013'
+      published: '63015'
       target: 5000
     restart: unless-stopped
     volumes:
@@ -3793,15 +3897,14 @@ services:
     ports:
     - mode: ingress
       protocol: tcp
-      published: '63017'
+      published: '63019'
       target: 3000
     restart: unless-stopped
   supavisor:
     command:
     - /bin/sh
     - -c
-    - /app/bin/migrate && /app/bin/supavisor eval "$$(cat /etc/pooler/pooler.exs)"
-      && /app/bin/server
+    - /app/bin/migrate && /app/bin/supavisor eval "$$(cat /etc/pooler/pooler.exs)" && /app/bin/server
     container_name: atlas-supavisor
     depends_on:
       supabase-db-init:
@@ -3897,7 +4000,7 @@ services:
     ports:
     - mode: ingress
       protocol: tcp
-      published: '63031'
+      published: '63041'
       target: 80
     restart: unless-stopped
     volumes:
@@ -3970,7 +4073,7 @@ services:
     ports:
     - mode: ingress
       protocol: tcp
-      published: '63045'
+      published: '63055'
       target: 9998
     restart: unless-stopped
     security_opt:
@@ -4002,16 +4105,16 @@ services:
       backend-network: null
     ports:
     - mode: ingress
-      target: 8080
-      published: '63027'
       protocol: tcp
+      published: '63029'
+      target: 8080
     restart: unless-stopped
     volumes:
-    - type: bind
+    - bind: {}
+      read_only: true
       source: '{REPO_ROOT}/services/trino/catalog'
       target: /etc/trino/catalog
-      read_only: true
-      bind: {}
+      type: bind
   verba:
     container_name: atlas-verba
     depends_on:
@@ -4054,7 +4157,7 @@ services:
     ports:
     - mode: ingress
       protocol: tcp
-      published: '63088'
+      published: '63098'
       target: 8000
     restart: unless-stopped
     volumes:
@@ -4126,11 +4229,11 @@ services:
     ports:
     - mode: ingress
       protocol: tcp
-      published: '63028'
+      published: '63030'
       target: 8080
     - mode: ingress
       protocol: tcp
-      published: '63029'
+      published: '63031'
       target: 50051
     restart: unless-stopped
     volumes:
@@ -4210,19 +4313,17 @@ services:
       MINIO_ROOT_PASSWORD: ''
       MINIO_ROOT_USER: minioadmin
       SPARK_HOME: /opt/spark
+      SPARK_KAFKA_BOOTSTRAP_SERVERS: ''
       SPARK_MASTER: spark://spark-master:7077
-      SPARK_SUBMIT_OPTIONS: --conf spark.submit.deployMode=client --conf spark.driver.bindAddress=0.0.0.0
-        --conf spark.driver.host=zeppelin --conf spark.hadoop.fs.s3a.endpoint=http://minio:9000
-        --conf spark.hadoop.fs.s3a.access.key=minioadmin --conf spark.hadoop.fs.s3a.secret.key=
-        --conf spark.hadoop.fs.s3a.path.style.access=true --conf spark.hadoop.fs.s3a.endpoint.region=us-east-1
-        --conf spark.hadoop.fs.s3a.connection.ssl.enabled=false --conf spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions
-        --conf spark.sql.catalog.lakehouse=org.apache.iceberg.spark.SparkCatalog --conf
-        spark.sql.catalog.lakehouse.type=rest --conf spark.sql.catalog.lakehouse.uri=http://iceberg-rest:8181
-        --conf spark.sql.catalog.lakehouse.warehouse=s3a://lakehouse/ --conf spark.sql.catalog.lakehouse.io-impl=org.apache.iceberg.aws.s3.S3FileIO
+      SPARK_SUBMIT_OPTIONS: --conf spark.submit.deployMode=client --conf spark.driver.bindAddress=0.0.0.0 --conf spark.driver.host=zeppelin
+        --conf spark.hadoop.fs.s3a.endpoint=http://minio:9000 --conf spark.hadoop.fs.s3a.access.key=minioadmin --conf spark.hadoop.fs.s3a.secret.key=
+        --conf spark.hadoop.fs.s3a.path.style.access=true --conf spark.hadoop.fs.s3a.endpoint.region=us-east-1 --conf spark.hadoop.fs.s3a.connection.ssl.enabled=false
+        --conf spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions --conf spark.sql.catalog.lakehouse=org.apache.iceberg.spark.SparkCatalog
+        --conf spark.sql.catalog.lakehouse.type=rest --conf spark.sql.catalog.lakehouse.uri=http://iceberg-rest:8181 --conf
+        spark.sql.catalog.lakehouse.warehouse=s3a://lakehouse/ --conf spark.sql.catalog.lakehouse.io-impl=org.apache.iceberg.aws.s3.S3FileIO
         --conf spark.sql.catalog.lakehouse.s3.endpoint=http://minio:9000 --conf spark.sql.catalog.lakehouse.s3.path-style-access=true
-        --conf spark.sql.catalog.lakehouse.s3.access-key-id= --conf spark.sql.catalog.lakehouse.s3.secret-access-key=
-        --conf spark.sql.catalog.lakehouse.client.region=us-east-1 --conf spark.eventLog.enabled=true
-        --conf spark.eventLog.dir=s3a://spark-history/
+        --conf spark.sql.catalog.lakehouse.s3.access-key-id= --conf spark.sql.catalog.lakehouse.s3.secret-access-key= --conf
+        spark.sql.catalog.lakehouse.client.region=us-east-1 --conf spark.eventLog.enabled=true --conf spark.eventLog.dir=s3a://spark-history/
       ZEPPELIN_JDBC_POSTGRES_PASSWORD: password
       ZEPPELIN_JDBC_POSTGRES_URL: jdbc:postgresql://supabase-db:5432/postgres
       ZEPPELIN_JDBC_POSTGRES_USER: supabase_admin
@@ -4250,7 +4351,7 @@ services:
     ports:
     - mode: ingress
       protocol: tcp
-      published: '63089'
+      published: '63099'
       target: 8080
     restart: unless-stopped
     volumes:
@@ -4380,6 +4481,9 @@ volumes:
   redis-data:
     driver: local
     name: atlas-redis-data
+  redpanda-data:
+    driver: local
+    name: atlas-redpanda-data
   searxng-data:
     driver: local
     name: atlas-searxng-data

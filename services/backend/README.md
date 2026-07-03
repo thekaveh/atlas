@@ -12,7 +12,7 @@ Source: `services/backend/app/`. The FastAPI app boots in `app/main.py`, mounts 
 
 | Path | URL | Notes |
 |---|---|---|
-| Direct | `http://localhost:${BACKEND_PORT}` (default `63080`) | Always exposed when the container is up. |
+| Direct | `http://localhost:${BACKEND_PORT}` (default `63093`) | Always exposed when the container is up. |
 | Kong | `http://api.localhost:${KONG_HTTP_PORT}` | Requires `./start.sh --setup-hosts`. Recommended for browser-side calls. |
 | Health | `GET /health` | Returns a minimal `{status, version}` response. |
 
@@ -24,7 +24,7 @@ The backend has no source-variants beyond `container`. Customization happens thr
 
 ```bash
 BACKEND_SOURCE=container          # only value
-BACKEND_PORT=63080                # computed by topology.py from BASE_PORT
+BACKEND_PORT=63093                # computed by topology.py from BASE_PORT
 ```
 
 LangMem long-term memory:

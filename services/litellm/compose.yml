@@ -95,7 +95,7 @@ services:
     extra_hosts:
       - "host.docker.internal:${HOST_GATEWAY_IP}"
     ports:
-      - "${HOST_BIND_IP:-}${LITELLM_PORT:-63030}:4000"
+      - "${HOST_BIND_IP:-}${LITELLM_PORT:-63040}:4000"
     environment:
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
       DATABASE_URL: postgresql://${SUPABASE_DB_USER}:${SUPABASE_DB_PASSWORD}@supabase-db:5432/${LITELLM_DB_NAME:-litellm}

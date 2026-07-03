@@ -129,6 +129,7 @@ This pattern — agent runtime → orchestrated workflow — pairs Hermes's reac
 | minio | data |
 | neo4j | data |
 | redis | data |
+| redpanda | data |
 | spark | data |
 | supabase | data |
 | weaviate | data |

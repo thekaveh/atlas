@@ -12,7 +12,7 @@ Image: `python:3.11.15-slim` (the build script clones the upstream repo and runs
 
 | Path | URL | Notes |
 |---|---|---|
-| Direct | `http://localhost:${LOCAL_DEEP_RESEARCHER_PORT}` (default `63083`) | LangGraph dev-server REST API. |
+| Direct | `http://localhost:${LOCAL_DEEP_RESEARCHER_PORT}` (default `63097`) | LangGraph dev-server REST API. |
 | Kong | `http://research.localhost:63000` | Route generated from `LOCAL_DEEP_RESEARCHER_SOURCE` (needs the `--setup-hosts` entries). |
 | LangGraph API | `POST /threads`, `POST /threads/{id}/runs/stream` | Standard LangGraph dev-server endpoints. |
 
@@ -22,7 +22,7 @@ Canonical port table: [Ports and Routes](../../docs/deployment/ports-and-routes.
 
 ```bash
 LOCAL_DEEP_RESEARCHER_SOURCE=container       # container | disabled
-LOCAL_DEEP_RESEARCHER_PORT=63083             # computed by topology.py
+LOCAL_DEEP_RESEARCHER_PORT=63097             # computed by topology.py
 LOCAL_DEEP_RESEARCHER_LOOPS=3                # max research iterations
 LOCAL_DEEP_RESEARCHER_SEARCH_API=searxng     # only searxng is wired today; tavily/perplexity supported upstream
 LOCAL_DEEP_RESEARCHER_WORKERS=3              # langgraph dev --n-workers

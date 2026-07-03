@@ -65,11 +65,11 @@ PROJECT_NAME=myproject  # Change from 'atlas' to your project name
 ### 2.4 Access Services
 
 Services are accessible on ports starting from 63000 (base port):
-- **Supabase DB**: http://localhost:63010 (base + 10)
-- **Supabase Studio**: http://localhost:63017 (base + 17)
+- **Supabase DB**: http://localhost:63012 (base + 12)
+- **Supabase Studio**: http://localhost:63019 (base + 19)
 - **Kong API Gateway**: http://localhost:63000 (base + 0)
-- **N8N**: http://localhost:63064 (base + 64)
-- **LiteLLM Gateway** (LLM front door): http://localhost:63030 (base + 30)
+- **N8N**: http://localhost:63075 (base + 75)
+- **LiteLLM Gateway** (LLM front door): http://localhost:63040 (base + 40)
 
 See the startup output for the complete port mapping of all services.
 
@@ -291,10 +291,10 @@ Access services directly via their exposed ports:
 import os
 
 # Development configuration
-LITELLM_BASE_URL = os.getenv("LITELLM_BASE_URL", "http://localhost:63030")
+LITELLM_BASE_URL = os.getenv("LITELLM_BASE_URL", "http://localhost:63040")
 LITELLM_API_KEY = os.getenv("LITELLM_API_KEY")  # equals LITELLM_MASTER_KEY
-SUPABASE_URL = os.getenv("SUPABASE_URL", "http://localhost:63015")  # SUPABASE_API_PORT
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:63022")
+SUPABASE_URL = os.getenv("SUPABASE_URL", "http://localhost:63017")  # SUPABASE_API_PORT
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:63025")
 ```
 
 ### 6.4 Pattern 4: Service Extension

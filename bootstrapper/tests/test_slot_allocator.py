@@ -19,7 +19,7 @@ def _manifest_with_ports(name, category, port_vars, requires=None):
 
 
 def test_slot_allocator_assigns_within_category_block():
-    """Data manifests get ports in the 63010-63029 range; LLM in 63030-63039."""
+    """Data manifests get ports in the 63010-63039 range; LLM in 63040-63049."""
     from services.topology import _allocate_slots
     manifests = [
         _manifest_with_ports("redis", "data", ["REDIS_PORT"]),
@@ -28,7 +28,7 @@ def test_slot_allocator_assigns_within_category_block():
     canonical = ["redis", "litellm"]
     defaults = _allocate_slots(manifests, canonical, base_port=63000)
     assert defaults["REDIS_PORT"] == 63010
-    assert defaults["LITELLM_PORT"] == 63030
+    assert defaults["LITELLM_PORT"] == 63040
 
 
 def test_slot_allocator_multi_port_manifest_contiguous():

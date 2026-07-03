@@ -1,6 +1,6 @@
 # Open WebUI
 
-**Port:** 63082
+**Port:** 63096
 **SOURCE variable:** `OPEN_WEB_UI_SOURCE`
 **SOURCE options:** container, disabled
 
@@ -12,7 +12,7 @@ Main browser chat UI. It adapts to the configured LLM provider and related stack
 
 | Path | URL | Notes |
 |---|---|---|
-| Direct | http://localhost:63082 | Works when the service is enabled in container mode and the port is exposed. |
+| Direct | http://localhost:63096 | Works when the service is enabled in container mode and the port is exposed. |
 | Kong | http://chat.localhost:63000 | Requires `./start.sh --setup-hosts`; only available for services with Kong routes. |
 
 See the canonical port table at [Ports and Routes](../../docs/deployment/ports-and-routes.md).

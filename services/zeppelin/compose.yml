@@ -24,6 +24,7 @@ services:
       JAVA_HOME: /opt/java/openjdk
       SPARK_HOME: /opt/spark
       SPARK_MASTER: spark://spark-master:7077
+      SPARK_KAFKA_BOOTSTRAP_SERVERS: ${SPARK_KAFKA_BOOTSTRAP_SERVERS:-}
       MINIO_ENDPOINT: http://minio:9000
       MINIO_REGION: ${MINIO_REGION:-us-east-1}
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}

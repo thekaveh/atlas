@@ -55,7 +55,7 @@ tracks:
     display_name: Data Engineering
     description: Batch + lakehouse + graph + vector with orchestration.
     services: [spark, airflow, jupyterhub, zeppelin, jenkins, supavisor, minio, iceberg-rest, trino,
-               weaviate, neo4j]
+               redpanda, weaviate, neo4j]
 
   - key: all
     display_name: All / Custom

@@ -6,7 +6,7 @@ This guide covers common issues and their solutions when using Atlas.
 
 If you're upgrading from a pre-LiteLLM `.env` you may see startup errors about missing variables. Apply these changes:
 
-- Rename `LLM_PROVIDER_PORT` to `LITELLM_PORT` (default is now `63030` under the topology-v1 port layout — the slot belongs to the LiteLLM gateway, not Ollama).
+- Rename `LLM_PROVIDER_PORT` to `LITELLM_PORT` (default is now `63040` under the current topology layout — the slot belongs to the LiteLLM gateway, not Ollama).
 - Remove `OLLAMA_ENDPOINT` and any `OLLAMA_BASE_URL` lines — consumers now read `LITELLM_BASE_URL` and `LITELLM_API_KEY` (where `LITELLM_API_KEY=$LITELLM_MASTER_KEY`).
 - If you previously set `LLM_PROVIDER_SOURCE=api` or `LLM_PROVIDER_SOURCE=disabled`, change it to `LLM_PROVIDER_SOURCE=none` and enable at least one of `CLOUD_OPENAI_SOURCE`, `CLOUD_ANTHROPIC_SOURCE`, `CLOUD_OPENROUTER_SOURCE`.
 
@@ -36,10 +36,10 @@ Inspect it after a failed launch — it captures everything the log pane showed,
 ./start.sh --base-port 64000  # Use different port range
 
 # Find what's using the port
-lsof -i :63082
+lsof -i :63096
 
 # Kill process using the port (if safe)
-kill -9 $(lsof -t -i:63082)
+kill -9 $(lsof -t -i:63096)
 ```
 
 ### 3.2 Memory Issues
@@ -81,10 +81,10 @@ chmod +x start.sh stop.sh
 **LiteLLM not responding / consumers can't reach LLMs:**
 ```bash
 # Liveness check (no auth required)
-curl http://localhost:63030/health/liveliness
+curl http://localhost:63040/health/liveliness
 
 # List registered models (auth required)
-curl -H "Authorization: Bearer $LITELLM_MASTER_KEY" http://localhost:63030/v1/models
+curl -H "Authorization: Bearer $LITELLM_MASTER_KEY" http://localhost:63040/v1/models
 
 # Inspect LiteLLM logs
 docker logs ${PROJECT_NAME}-litellm -f
@@ -104,7 +104,7 @@ ollama pull qwen3.6:latest
 ollama pull qwen3-embedding:0.6b
 ```
 
-Reminder: Ollama no longer has a host port mapping. Reach it via LiteLLM (`http://localhost:63030/v1`) or via `docker exec` for direct `/api/*` calls.
+Reminder: Ollama no longer has a host port mapping. Reach it via LiteLLM (`http://localhost:63040/v1`) or via `docker exec` for direct `/api/*` calls.
 
 **Out of memory during model loading:**
 ```bash
@@ -146,7 +146,7 @@ curl http://localhost:63041  # Direct port access
 docker logs ${PROJECT_NAME}-n8n -f
 
 # Try direct access
-curl http://localhost:63064
+curl http://localhost:63075
 
 # Check Kong routing
 curl -H "Host: n8n.localhost" http://localhost:63000/
@@ -259,8 +259,8 @@ echo "127.0.0.1 n8n.localhost comfyui.localhost search.localhost api.localhost c
 
 ```bash
 # Check if ports are accessible
-telnet localhost 63082
-nc -zv localhost 63082
+telnet localhost 63096
+nc -zv localhost 63096
 
 # For localhost services, check host firewall
 sudo ufw status  # Ubuntu/Debian
@@ -334,7 +334,7 @@ docker exec ${PROJECT_NAME}-litellm curl http://${PROJECT_NAME}-ollama:11434/api
 docker exec ${PROJECT_NAME}-kong-api-gateway curl http://${PROJECT_NAME}-supabase-api:3000/health
 
 # Test external access
-curl http://localhost:63082
+curl http://localhost:63096
 curl -H "Host: n8n.localhost" http://localhost:63000/
 ```
 

@@ -440,6 +440,7 @@ For the current high-level stack diagram, see [Architecture Diagram](../../docs/
 | iceberg-rest | data |
 | minio | data |
 | neo4j | data |
+| redpanda | data |
 | spark | data |
 | supabase | data |
 | weaviate | data |

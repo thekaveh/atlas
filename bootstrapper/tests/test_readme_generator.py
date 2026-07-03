@@ -41,7 +41,9 @@ def test_generate_block_contains_all_category_labels_in_order():
 
 
 def test_generate_block_contains_known_row():
-    """The Supabase DB row is a stable anchor: data category, default port 63010."""
+    """Redpanda and Supabase DB are stable anchors in the expanded data band."""
     block = generate_block(_REPO_ROOT / "services")
+    assert "Redpanda Console" in block
+    assert "63011" in block
     assert "Supabase DB" in block
-    assert "63010" in block
+    assert "63012" in block
