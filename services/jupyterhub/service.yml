@@ -83,6 +83,7 @@ runtime_adaptive:
     - tts_provider
     - doc_processor
     - ray
+    - mlflow
     environment_adaptation:
       LITELLM_BASE_URL: http://litellm:4000
       LITELLM_API_KEY: ${LITELLM_MASTER_KEY}
@@ -93,6 +94,7 @@ runtime_adaptive:
       TTS_ENDPOINT: ${TTS_ENDPOINT}
       DOCLING_ENDPOINT: ${DOCLING_ENDPOINT}
       RAY_ADDRESS: ${RAY_ADDRESS}
+      MLFLOW_TRACKING_URI: ${MLFLOW_TRACKING_URI}
     extra_hosts_adaptation: inherit from llm_provider
 
 runtime_deps:
@@ -110,9 +112,10 @@ runtime_deps:
     - minio
     - iceberg-rest
     - spark
+    - mlflow
     info_message: JupyterHub enabled - will connect to available optional services
       (neo4j, searxng, n8n, weaviate, comfyui, parakeet, speaches, chatterbox, docling,
-      minio, iceberg-rest, spark)
+      minio, iceberg-rest, spark, mlflow)
 
 data_flow:
   # Mirrors the compose-injected env surface the bundled notebooks use:
@@ -134,3 +137,4 @@ data_flow:
     - searxng
     - minio
     - iceberg-rest
+    - mlflow

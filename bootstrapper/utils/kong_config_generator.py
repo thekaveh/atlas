@@ -241,6 +241,10 @@ class KongConfigGenerator:
         if langfuse_service:
             services.append(langfuse_service)
 
+        mlflow_service = self.generate_mlflow_service()
+        if mlflow_service:
+            services.append(mlflow_service)
+
         spark_master_service = self.generate_spark_master_service()
         if spark_master_service:
             services.append(spark_master_service)
@@ -1239,6 +1243,28 @@ class KongConfigGenerator:
                     'strip_path': False,
                     'preserve_host': True,
                     'hosts': ['langfuse.localhost'],
+                }
+            ],
+            'plugins': [
+                {'name': 'cors'},
+                {'name': 'basic-auth'},
+                {'name': 'acl', 'config': {'allow': ['dashboard_user']}},
+            ],
+        }
+
+    def generate_mlflow_service(self) -> Optional[Dict[str, Any]]:
+        """Kong route for the MLflow UI/API."""
+        if self.get_env_value('MLFLOW_SOURCE') != 'container':
+            return None
+        return {
+            'name': 'mlflow',
+            'url': 'http://mlflow:5000/',
+            'routes': [
+                {
+                    'name': 'mlflow-all',
+                    'strip_path': False,
+                    'preserve_host': True,
+                    'hosts': ['mlflow.localhost'],
                 }
             ],
             'plugins': [

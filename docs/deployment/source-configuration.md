@@ -30,6 +30,7 @@ This matrix lists every `*_SOURCE` variable currently exposed in `.env.example`.
 | `SEARXNG_SOURCE` | `container` | `container`, `disabled` | User-facing | Privacy metasearch. |
 | `MCP_SERVERS_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Curated MCP package exposing read-oriented Postgres, Neo4j, and SearXNG tools. Hard-gated on Neo4j and SearXNG. |
 | `LANGFUSE_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | LLM trace, prompt, eval, latency, and cost observability for LiteLLM-routed calls. Hard-gated on MinIO. |
+| `MLFLOW_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Experiment tracking and MinIO-backed artifacts for the ML Engineering track. Hard-gated on MinIO. |
 | `OPENCLAW_SOURCE` | `disabled` | `container`, `localhost`, `disabled` | User-facing | AI messaging agent. |
 | `HERMES_SOURCE` | `container` | `container`, `localhost`, `disabled` | User-facing | Programmable AI agent runtime (Nous Research). Routes reasoning through LiteLLM and appears as the `hermes-agent` model to every consumer. |
 | `STT_PROVIDER_SOURCE` | `speaches-container-cpu` | `speaches-container-cpu`, `speaches-container-gpu`, `parakeet-container-gpu`, `parakeet-localhost`, `whisper-cpp-localhost`, `disabled` | User-facing optional | Speech-to-text provider. Speaches is the CPU-friendly default; Parakeet remains for SOTA NVIDIA; whisper.cpp is the best Apple Silicon native option. |
@@ -674,6 +675,31 @@ LANGFUSE_SECRET_KEY=...      # auto-generated on first bootstrap
 - **Cons**: Adds a stateful ClickHouse volume plus web/worker containers; only LiteLLM-routed calls are traced in the first slice.
 - **Containers**: `langfuse-init` (one-shot), `langfuse-web`, `langfuse-worker`, `langfuse-clickhouse`.
 - **Requirements**: Supabase Postgres and Redis are always-on; `MINIO_SOURCE=container` is required.
+
+### 4.18 MLFLOW_SOURCE
+
+MLflow is Atlas' optional experiment tracking and artifact registry surface for the ML Engineering track. When enabled, Atlas runs a tracking server backed by a dedicated Supabase Postgres database and a scoped MinIO artifact bucket. JupyterHub receives `MLFLOW_TRACKING_URI=http://mlflow:5000` so notebooks can log runs, metrics, parameters, and artifacts without direct MinIO credentials.
+
+#### 4.18.1 `disabled` (Default)
+```bash
+MLFLOW_SOURCE=disabled
+```
+- **Use case**: Default safe startup with no experiment tracking UI/API.
+- **Pros**: Zero footprint; no persisted ML run history.
+- **Cons**: Notebook experiments remain local to the notebook session unless users configure an external tracker.
+- **Requirements**: None.
+
+#### 4.18.2 `container`
+```bash
+MLFLOW_SOURCE=container
+MINIO_SOURCE=container       # REQUIRED — MLflow stores run artifacts in MinIO
+MLFLOW_TRACKING_URI=...      # auto-managed as http://mlflow:5000
+```
+- **Use case**: Durable experiment tracking for JupyterHub notebooks and future backend/n8n workflows.
+- **Pros**: Kong-aliased UI/API at `mlflow.localhost`, Postgres-backed run metadata, MinIO-backed artifact persistence, generated DB and MinIO credentials, notebook-friendly tracking URI.
+- **Cons**: Adds an app container plus one-shot DB init; model promotion automations and serving are out of scope for the first slice.
+- **Containers**: `mlflow-init` (one-shot), `mlflow`.
+- **Requirements**: Supabase Postgres is always-on; `MINIO_SOURCE=container` is required.
 
 ## 5. Configuration Patterns
 

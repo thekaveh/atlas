@@ -55,6 +55,7 @@ include:
   - services/local-deep-researcher/compose.yml
   - services/jupyterhub/compose.yml
   - services/jenkins/compose.yml
+  - services/mlflow/compose.yml
   - services/openclaw/compose.yml
   - services/hermes/compose.yml
   - services/lightrag/compose.yml

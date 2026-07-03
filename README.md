@@ -299,11 +299,12 @@ _Engine-only manifests (speaches, chatterbox) are not listed — they're selecte
 | Agents & Workflows | OpenClaw | 63065 | openclaw.localhost |
 | Agents & Workflows | Curated MCP Servers | 63067 | mcp.localhost |
 | Apps & UIs | Jenkins | 63080 | jenkins.localhost |
-| Apps & UIs | Backend API | 63081 | api.localhost |
-| Apps & UIs | JupyterHub | 63082 | jupyter.localhost |
-| Apps & UIs | Open WebUI | 63083 | chat.localhost |
-| Apps & UIs | Local Deep Researcher | 63084 | research.localhost |
-| Apps & UIs | Apache Zeppelin | 63085 | zeppelin.localhost |
+| Apps & UIs | MLflow | 63081 | mlflow.localhost |
+| Apps & UIs | Backend API | 63082 | api.localhost |
+| Apps & UIs | JupyterHub | 63083 | jupyter.localhost |
+| Apps & UIs | Open WebUI | 63084 | chat.localhost |
+| Apps & UIs | Local Deep Researcher | 63085 | research.localhost |
+| Apps & UIs | Apache Zeppelin | 63086 | zeppelin.localhost |
 <!-- TOPOLOGY:END -->
 
 ## 4. Core Services
