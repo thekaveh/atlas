@@ -2,7 +2,7 @@
 
 **Port:** 63081
 **Category:** Application Tier
-**Dependencies:** PostgreSQL, Redis, LiteLLM (gateway to Ollama / cloud LLMs), Weaviate, Neo4j
+**Dependencies:** PostgreSQL, Redis, LiteLLM (gateway to Ollama / cloud LLMs), Weaviate, Neo4j, MinIO, Iceberg REST, Spark
 
 ---
 
@@ -35,6 +35,7 @@ JUPYTERHUB_SOURCE=disabled
 
 - **Pre-installed AI Libraries**: OpenAI SDK (pointed at LiteLLM), LangChain, LlamaIndex, Transformers
 - **Database Clients**: Weaviate, Neo4j, PostgreSQL, Redis, Supabase
+- **Lakehouse Clients**: PySpark Connect, `boto3`, `s3fs`, `pyiceberg`, `pyarrow`, and `duckdb` for MinIO + Iceberg REST workflows
 - **Sample Notebooks**: 11 ready-to-use notebooks (00-10) demonstrating service integration
 - **Persistent Storage**: All notebooks saved in Docker volumes
 - **Environment Variables**: Auto-configured connections to all services
@@ -152,6 +153,66 @@ spark = SparkSession.builder.remote(
     os.getenv("SPARK_REMOTE", "sc://spark-connect:15002")
 ).getOrCreate()
 spark.range(5).show()
+```
+
+### 6.5 Query the lakehouse from Python
+
+The image includes the Python lakehouse clients used by Atlas data tracks:
+`boto3`, `s3fs`, `pyiceberg[s3fs]`, `pyarrow`, and `duckdb`. Compose injects
+scoped Jupyter MinIO credentials, `AWS_ENDPOINT_URL_S3=http://minio:9000`,
+`ICEBERG_REST_URI=http://iceberg-rest:8181`, and
+`ICEBERG_WAREHOUSE=s3://lakehouse/` by default. The MinIO calls work whenever
+MinIO is enabled; the Iceberg catalog smoke requires `ICEBERG_REST_SOURCE=container`.
+
+```python
+import os
+import boto3
+import duckdb
+from pyiceberg.catalog import load_catalog
+
+s3 = boto3.client(
+    "s3",
+    endpoint_url=os.environ["AWS_ENDPOINT_URL_S3"],
+    aws_access_key_id=os.environ["AWS_ACCESS_KEY_ID"],
+    aws_secret_access_key=os.environ["AWS_SECRET_ACCESS_KEY"],
+    region_name=os.environ.get("AWS_DEFAULT_REGION", "us-east-1"),
+)
+print([bucket["Name"] for bucket in s3.list_buckets()["Buckets"]])
+
+catalog = load_catalog(
+    "rest",
+    uri=os.environ["ICEBERG_REST_URI"],
+    warehouse=os.environ["ICEBERG_WAREHOUSE"],
+)
+print(catalog.list_namespaces())
+
+arrow_table = catalog.load_table(("default", "example")).scan().to_arrow()
+print(duckdb.sql("select count(*) from arrow_table").fetchone())
+```
+
+Import smoke:
+
+```bash
+docker exec ${PROJECT_NAME}-jupyterhub python - <<'PY'
+import boto3, s3fs, pyarrow, duckdb
+from pyiceberg.catalog import load_catalog
+print("lakehouse imports ok")
+PY
+```
+
+Catalog smoke:
+
+```bash
+docker exec ${PROJECT_NAME}-jupyterhub python - <<'PY'
+import os
+from pyiceberg.catalog import load_catalog
+catalog = load_catalog(
+    "rest",
+    uri=os.environ["ICEBERG_REST_URI"],
+    warehouse=os.environ["ICEBERG_WAREHOUSE"],
+)
+print(catalog.list_namespaces())
+PY
 ```
 
 ## 7. Data Persistence
@@ -348,7 +409,7 @@ The Scala toolchain (JDK 17 + Coursier + both Almond kernels) adds **~600 MB** t
 
 ## 12. Architecture
 
-JupyterHub runs inside the Docker Compose network and receives environment variables for the services that are enabled. It reaches LLMs through the always-on LiteLLM gateway (`LITELLM_BASE_URL` / `LITELLM_API_KEY`, also exported as `OPENAI_API_BASE` / `OPENAI_API_KEY`) and connects directly to Weaviate, Neo4j, PostgreSQL/Supabase, Redis, ComfyUI, n8n, STT/TTS, and document-processing services when those services are available.
+JupyterHub runs inside the Docker Compose network and receives environment variables for the services that are enabled. It reaches LLMs through the always-on LiteLLM gateway (`LITELLM_BASE_URL` / `LITELLM_API_KEY`, also exported as `OPENAI_API_BASE` / `OPENAI_API_KEY`) and connects directly to Weaviate, Neo4j, PostgreSQL/Supabase, Redis, MinIO, Iceberg REST, Spark Connect, ComfyUI, n8n, STT/TTS, and document-processing services when those services are available.
 
 For the current high-level stack diagram, see [Architecture Diagram](../../docs/diagrams/architecture.svg).
 
@@ -376,6 +437,8 @@ For the current high-level stack diagram, see [Architecture Diagram](../../docs/
 | Service | Category |
 |---|---|
 | ray | infra |
+| iceberg-rest | data |
+| minio | data |
 | neo4j | data |
 | spark | data |
 | supabase | data |
@@ -401,7 +464,6 @@ For the current high-level stack diagram, see [Architecture Diagram](../../docs/
 
 ### 15.4 Future — Missing pair integrations
 
-- **jupyterhub ↔ minio** — *Why:* notebooks need durable artifact storage (datasets, model weights, parquet shards) instead of an isolated Docker volume. *Mechanism:* inject `AWS_S3_ENDPOINT_URL=http://minio:9000` plus `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` and pre-install `s3fs`/`boto3` so `pd.read_parquet("s3://...")` works. *Effort:* small. *Confidence:* high.
 - **jupyterhub ↔ backend** — *Why:* the FastAPI backend already aggregates LiteLLM, Weaviate, Neo4j, ComfyUI, and Hermes so notebooks should reuse it instead of hand-rolling per-upstream clients. *Mechanism:* adaptive env `BACKEND_BASE_URL=http://backend:8000` consumed via `httpx` against `/v1/...` routes. *Effort:* small. *Confidence:* high.
 - **jupyterhub ↔ hermes** — *Why:* researchers want to drive the tool-using agent runtime from notebooks (chain prompts, inspect intermediate tool calls) without going through Open WebUI. *Mechanism:* `HERMES_AGENT_MODEL=hermes-agent` env hint plus a sample notebook calling the existing `OPENAI_API_BASE` LiteLLM alias. *Effort:* small. *Confidence:* high.
 - **jupyterhub ↔ local-deep-researcher** — *Why:* long LangGraph deep-research runs should be launchable from a notebook and streamable into a dataframe. *Mechanism:* `DEEP_RESEARCHER_BASE_URL=http://local-deep-researcher:2024` plus an SSE client snippet against LangGraph's `/runs/stream`. *Effort:* medium. *Confidence:* medium.

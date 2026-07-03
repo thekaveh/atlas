@@ -51,6 +51,25 @@ services:
       # in-stack sidecar (needs SPARK_SOURCE != disabled); override to point a
       # notebook at a remote/managed Spark Connect server (e.g. EMR Serverless).
       SPARK_REMOTE: ${SPARK_REMOTE:-sc://spark-connect:15002}
+      # Lakehouse clients. The packages are installed in the image, and these
+      # env vars let notebooks use MinIO + Iceberg REST without local config.
+      # Catalog smoke tests require ICEBERG_REST_SOURCE=container; imports and
+      # MinIO SDK calls remain useful without the REST catalog.
+      MINIO_ENDPOINT: http://minio:9000
+      AWS_ENDPOINT_URL_S3: http://minio:9000
+      AWS_ACCESS_KEY_ID: ${MINIO_JUPYTER_ACCESS_KEY}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_JUPYTER_SECRET_KEY}
+      AWS_DEFAULT_REGION: ${MINIO_REGION:-us-east-1}
+      ICEBERG_REST_URI: http://iceberg-rest:8181
+      ICEBERG_WAREHOUSE: s3://${MINIO_BUCKET_ICEBERG_LAKEHOUSE:-lakehouse}/
+      PYICEBERG_CATALOG__REST__TYPE: rest
+      PYICEBERG_CATALOG__REST__URI: http://iceberg-rest:8181
+      PYICEBERG_CATALOG__REST__WAREHOUSE: s3://${MINIO_BUCKET_ICEBERG_LAKEHOUSE:-lakehouse}/
+      PYICEBERG_CATALOG__REST__S3__ENDPOINT: http://minio:9000
+      PYICEBERG_CATALOG__REST__S3__ACCESS_KEY_ID: ${MINIO_JUPYTER_ACCESS_KEY}
+      PYICEBERG_CATALOG__REST__S3__SECRET_ACCESS_KEY: ${MINIO_JUPYTER_SECRET_KEY}
+      PYICEBERG_CATALOG__REST__S3__REGION: ${MINIO_REGION:-us-east-1}
+      PYICEBERG_CATALOG__REST__S3__FORCE_VIRTUAL_ADDRESSING: "false"
       # Hermes Agent — direct path for `from openai import OpenAI` users.
       # Empty when HERMES_SOURCE=disabled.
       HERMES_ENDPOINT: ${HERMES_ENDPOINT:-}

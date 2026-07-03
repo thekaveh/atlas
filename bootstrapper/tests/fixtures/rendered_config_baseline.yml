@@ -838,6 +838,10 @@ services:
     deploy:
       replicas: 1
     environment:
+      AWS_ACCESS_KEY_ID: ''
+      AWS_DEFAULT_REGION: us-east-1
+      AWS_ENDPOINT_URL_S3: http://minio:9000
+      AWS_SECRET_ACCESS_KEY: ''
       BACKEND_API_URL: http://backend:8000
       COMFYUI_BASE_URL: http://comfyui:18188
       DATABASE_URL: postgresql://supabase_admin:password@supabase-db:5432/postgres
@@ -845,15 +849,26 @@ services:
       GRANT_SUDO: 'yes'
       HERMES_API_KEY: ''
       HERMES_ENDPOINT: ''
+      ICEBERG_REST_URI: http://iceberg-rest:8181
+      ICEBERG_WAREHOUSE: s3://lakehouse/
       JUPYTER_ALLOW_ORIGIN: '*'
       JUPYTER_ENABLE_LAB: 'yes'
       JUPYTER_TOKEN: ''
       LITELLM_API_KEY: ''
       LITELLM_BASE_URL: http://litellm:4000
+      MINIO_ENDPOINT: http://minio:9000
       N8N_BASE_URL: http://n8n:5678
       NEO4J_PASSWORD: neo4j_password
       NEO4J_URI: bolt://neo4j-graph-db:7687
       NEO4J_USER: neo4j
+      PYICEBERG_CATALOG__REST__S3__ACCESS_KEY_ID: ''
+      PYICEBERG_CATALOG__REST__S3__ENDPOINT: http://minio:9000
+      PYICEBERG_CATALOG__REST__S3__FORCE_VIRTUAL_ADDRESSING: 'false'
+      PYICEBERG_CATALOG__REST__S3__REGION: us-east-1
+      PYICEBERG_CATALOG__REST__S3__SECRET_ACCESS_KEY: ''
+      PYICEBERG_CATALOG__REST__TYPE: rest
+      PYICEBERG_CATALOG__REST__URI: http://iceberg-rest:8181
+      PYICEBERG_CATALOG__REST__WAREHOUSE: s3://lakehouse/
       RAY_ADDRESS: ''
       REDIS_URL: redis://:redis_password@redis:6379/3
       SEARXNG_URL: http://searxng:8080

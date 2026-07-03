@@ -9,6 +9,7 @@ JupyterHub provides a Jupyter Lab environment with pre-installed libraries for:
 - Vector databases (Weaviate)
 - Graph databases (Neo4j)
 - Relational databases (PostgreSQL via Supabase)
+- Lakehouse storage and catalogs (MinIO, Iceberg REST, DuckDB)
 - Image generation (ComfyUI)
 - Workflow automation (n8n)
 
@@ -68,6 +69,9 @@ JUPYTERHUB_TOKEN=               # Optional: authentication token
 ### Data Science
 - `pandas` - Data manipulation
 - `numpy` - Numerical computing
+- `boto3` / `s3fs` - S3-compatible MinIO access with scoped Jupyter credentials
+- `pyiceberg` / `pyarrow` - Iceberg REST catalog and Arrow table access
+- `duckdb` - In-process SQL over Arrow, Parquet, and local dataframes
 - `matplotlib` - Plotting
 - `seaborn` - Statistical visualization
 - `plotly` - Interactive visualizations
@@ -162,6 +166,61 @@ with engine.connect() as conn:
     print(result.fetchone())
 ```
 
+### Lakehouse (MinIO + Iceberg REST + DuckDB)
+
+JupyterHub includes `boto3`, `s3fs`, `pyiceberg[s3fs]`, `pyarrow`, and `duckdb`.
+The container receives scoped MinIO credentials (`MINIO_JUPYTER_*` in `.env`,
+exported as `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`) plus the Iceberg REST
+catalog URL. The PyIceberg catalog smoke requires `ICEBERG_REST_SOURCE=container`;
+MinIO SDK calls only require MinIO.
+
+```python
+import os
+import boto3
+import duckdb
+from pyiceberg.catalog import load_catalog
+
+s3 = boto3.client(
+    "s3",
+    endpoint_url=os.environ["AWS_ENDPOINT_URL_S3"],
+    aws_access_key_id=os.environ["AWS_ACCESS_KEY_ID"],
+    aws_secret_access_key=os.environ["AWS_SECRET_ACCESS_KEY"],
+    region_name=os.environ.get("AWS_DEFAULT_REGION", "us-east-1"),
+)
+print([bucket["Name"] for bucket in s3.list_buckets()["Buckets"]])
+
+catalog = load_catalog(
+    "rest",
+    uri=os.environ["ICEBERG_REST_URI"],
+    warehouse=os.environ["ICEBERG_WAREHOUSE"],
+)
+print(catalog.list_namespaces())
+
+arrow_table = catalog.load_table(("default", "example")).scan().to_arrow()
+print(duckdb.sql("select count(*) from arrow_table").fetchone())
+```
+
+Validation commands:
+
+```bash
+docker exec ${PROJECT_NAME}-jupyterhub python - <<'PY'
+import boto3, s3fs, pyarrow, duckdb
+from pyiceberg.catalog import load_catalog
+print("lakehouse imports ok")
+PY
+
+docker exec ${PROJECT_NAME}-jupyterhub python - <<'PY'
+import os
+from pyiceberg.catalog import load_catalog
+catalog = load_catalog(
+    "rest",
+    uri=os.environ["ICEBERG_REST_URI"],
+    warehouse=os.environ["ICEBERG_WAREHOUSE"],
+)
+print(catalog.list_namespaces())
+PY
+```
+
 ## Data Persistence
 
 ### Work Directory
@@ -199,6 +258,8 @@ import os
 print("LiteLLM:", os.getenv("LITELLM_BASE_URL"), "/", os.getenv("OPENAI_API_BASE"))
 print("Weaviate:", os.getenv("WEAVIATE_URL"))
 print("Neo4j:", os.getenv("NEO4J_URI"))
+print("MinIO:", os.getenv("AWS_ENDPOINT_URL_S3"))
+print("Iceberg REST:", os.getenv("ICEBERG_REST_URI"))
 ```
 
 ### Token not working

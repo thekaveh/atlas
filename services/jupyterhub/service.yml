@@ -44,7 +44,10 @@ depends_on:
     - supabase
     - redis
     - litellm
-  optional: []
+  optional:
+    - minio
+    - iceberg-rest
+    - spark
 
 rows:
   - display_name: "JupyterHub"
@@ -52,7 +55,7 @@ rows:
     port_var: JUPYTERHUB_PORT
     scale_var: JUPYTERHUB_SCALE
     alias: jupyter.localhost
-    description: "DS/ML and LLM notebooks."
+    description: "DS/ML, lakehouse, and LLM notebooks."
 
 exports: []
 
@@ -104,15 +107,19 @@ runtime_deps:
     - speaches
     - chatterbox
     - docling
+    - minio
+    - iceberg-rest
+    - spark
     info_message: JupyterHub enabled - will connect to available optional services
-      (neo4j, searxng, n8n, weaviate, comfyui, parakeet, speaches, chatterbox, docling)
+      (neo4j, searxng, n8n, weaviate, comfyui, parakeet, speaches, chatterbox, docling,
+      minio, iceberg-rest, spark)
 
 data_flow:
   # Mirrors the compose-injected env surface the bundled notebooks use:
   # litellm (01/08), comfyui (05), n8n (06), neo4j (03), supabase (04),
-  # weaviate (02), ray (07), spark (09 via SPARK_REMOTE), backend + searxng
-  # (00 env check), hermes (direct-path env for user code). MinIO is NOT
-  # wired (no env, no notebook) — do not re-add without compose env + a notebook.
+  # weaviate (02), ray (07), spark (09 via SPARK_REMOTE), minio + iceberg-rest
+  # (lakehouse Python clients), backend + searxng (00 env check), hermes
+  # (direct-path env for user code).
   calls:
     - litellm
     - hermes
@@ -125,3 +132,5 @@ data_flow:
     - n8n
     - backend
     - searxng
+    - minio
+    - iceberg-rest
