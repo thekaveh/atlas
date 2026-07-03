@@ -29,6 +29,7 @@ This matrix lists every `*_SOURCE` variable currently exposed in `.env.example`.
 | `N8N_SOURCE` | `container` | `container`, `disabled` | User-facing | Workflow automation. |
 | `SEARXNG_SOURCE` | `container` | `container`, `disabled` | User-facing | Privacy metasearch. |
 | `CRAWL4AI_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Browser-backed extraction API for Local Deep Researcher and n8n HTTP workflows. Token-protected and disabled by default. |
+| `CELERY_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Redis-backed async backend worker tier plus Flower monitor for long-running memory/research-style jobs. |
 | `MCP_SERVERS_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Curated MCP package exposing read-oriented Postgres, Neo4j, and SearXNG tools. Hard-gated on Neo4j and SearXNG. |
 | `LANGFUSE_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | LLM trace, prompt, eval, latency, and cost observability for LiteLLM-routed calls. Hard-gated on MinIO. |
 | `MLFLOW_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Experiment tracking and MinIO-backed artifacts for the ML Engineering track. Hard-gated on MinIO. |

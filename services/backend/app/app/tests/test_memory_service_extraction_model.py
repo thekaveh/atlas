@@ -43,7 +43,7 @@ class TestGetExtractionModel(unittest.TestCase):
         return svc
 
     def _run(self, coro):
-        return asyncio.get_event_loop().run_until_complete(coro)
+        return asyncio.run(coro)
 
     def test_explicit_extraction_model_returned(self):
         """When self.extraction_model is set, it is returned immediately."""

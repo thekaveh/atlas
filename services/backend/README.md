@@ -1,6 +1,6 @@
 # Backend API (FastAPI)
 
-Always-on adaptive FastAPI service that orchestrates the rest of the stack. It is the only "apps"-tier service that explicitly declares itself as a hub: at runtime it calls Supabase (Postgres + Storage), Weaviate, LiteLLM, ComfyUI, n8n, Ray, and Local Deep Researcher; Redis/Neo4j/Hermes env wiring is injected for future use but unconsumed by backend code today (STT/TTS/doc-processor likewise sit behind "future proxy" env). Health checks, LangMem-backed long-term memory, file uploads, and orchestration endpoints all live here.
+Always-on adaptive FastAPI service that orchestrates the rest of the stack. It is the only "apps"-tier service that explicitly declares itself as a hub: at runtime it calls Supabase (Postgres + Storage), Weaviate, LiteLLM, ComfyUI, n8n, Ray, Local Deep Researcher, and the optional Celery worker tier; Neo4j/Hermes env wiring is injected for future use but unconsumed by backend code today (STT/TTS/doc-processor likewise sit behind "future proxy" env). Health checks, LangMem-backed long-term memory, async jobs, file uploads, and orchestration endpoints all live here.
 
 The backend is `_SOURCE`-trivial — it has only one variant, `container` — because nothing in the design contemplates running FastAPI off-stack or as an external dependency. Instead, the variability lives in *what* the backend talks to: adaptive logic in `runtime_adaptive.backend.adapts_to` flips capabilities on or off based on the active `LLM_PROVIDER_SOURCE`, `WEAVIATE_SOURCE`, `STT_PROVIDER_SOURCE`, `TTS_PROVIDER_SOURCE`, `DOC_PROCESSOR_SOURCE`, `RAY_SOURCE`, and `LIGHTRAG_SOURCE`.
 
@@ -56,6 +56,9 @@ NEO4J_PASSWORD=${GRAPH_DB_PASSWORD}
 KONG_URL=http://kong-api-gateway:8000
 SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
 REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+CELERY_SOURCE=disabled
+CELERY_BROKER_URL=                 # auto-managed when CELERY_SOURCE=container
+CELERY_RESULT_BACKEND=             # auto-managed when CELERY_SOURCE=container
 ```
 
 Adaptive listing comes from `runtime_adaptive.backend.adapts_to` in `services/backend/service.yml`.
@@ -73,7 +76,7 @@ Adaptive listing comes from `runtime_adaptive.backend.adapts_to` in `services/ba
 
 **Required hard dependencies** (from `depends_on.required`):
 - `supabase` — Postgres (LangMem facts, public tables) and Storage (file uploads default to 100 MiB via `MAX_UPLOAD_BYTES`). The backend uses Supabase service credentials for outbound storage/database work, but it does **not** validate inbound Supabase JWTs today; add gateway or application auth before exposing backend routes beyond a trusted local host.
-- `redis` — declared required (ordering + future use); `REDIS_URL` is injected into the container but no backend code consumes it today.
+- `redis` — declared required; `REDIS_URL` is injected for shared cache/queue plumbing, and the optional Celery worker tier uses Redis database 4 for async job broker/result state.
 - `litellm` — gated `service_healthy` in compose; backend's startup performs first-call probes against the gateway.
 
 **Optional adaptive dependencies** (from `runtime_deps.backend.optional`):
@@ -104,6 +107,7 @@ When `LIGHTRAG_SOURCE != disabled`, the backend receives `LIGHTRAG_ENDPOINT` and
 | weaviate | data |
 | litellm | llm |
 | comfyui | media |
+| celery | agents |
 | n8n ↔ | agents |
 | local-deep-researcher | apps |
 

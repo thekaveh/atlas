@@ -1,0 +1,105 @@
+# Celery + Flower (async jobs)
+
+Redis-backed backend worker tier for Atlas long-running jobs. It starts disabled by default:
+
+```bash
+CELERY_SOURCE=disabled
+```
+
+Set `CELERY_SOURCE=container` from the setup wizard or CLI to run one backend Celery worker plus Flower. The worker reuses `services/backend/app`, talks to Supabase, LiteLLM, and Weaviate for the first memory-consolidation task, and stores broker/result state in existing Redis database 4.
+
+## 1. Overview
+
+The first async job is memory consolidation. `POST /memory/consolidate?async_job=true` returns a Celery job id immediately instead of holding the FastAPI request open while the LangMem consolidation loop performs database reads and LLM calls. Use `GET /jobs/{job_id}` to inspect pending, running, success, retry, failure, or revoked state.
+
+The old synchronous `POST /memory/consolidate` path remains available for compatibility. Research start is deferred because it already has a separate database-backed session lifecycle, and moving it first would mix two lifecycle models in one change.
+
+## 2. Access
+
+| Surface | URL | Notes |
+|---|---|---|
+| Flower via Kong | `http://flower.localhost:${KONG_HTTP_PORT}` | Requires `./start.sh --setup-hosts`; protected by Kong dashboard basic-auth/ACL and Flower basic-auth. |
+| Flower direct | `http://localhost:${FLOWER_PORT}` | Uses Flower basic-auth. |
+| Worker | none | No public port. The worker consumes Redis queue messages only. |
+
+## 3. Configuration
+
+```bash
+CELERY_SOURCE=container
+CELERY_QUEUE=atlas
+CELERY_WORKER_CONCURRENCY=2
+CELERY_WORKER_PREFETCH_MULTIPLIER=1
+CELERY_TASK_SOFT_TIME_LIMIT_SECONDS=840
+CELERY_TASK_TIME_LIMIT_SECONDS=900
+CELERY_BROKER_VISIBILITY_TIMEOUT_SECONDS=3600
+```
+
+The bootstrapper computes these when enabled:
+
+```bash
+CELERY_BROKER_URL=redis://:${REDIS_PASSWORD}@redis:6379/4
+CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD}@redis:6379/4
+CELERY_WORKER_SCALE=1
+FLOWER_SCALE=1
+```
+
+Redis database 4 is reserved for Celery broker/result state. It is operational state, not the durable memory store; memory facts remain in Supabase/pgvector.
+
+## 4. Architecture & Wiring
+
+```text
+FastAPI backend
+  └─ enqueue task -> Redis db 4 -> celery-worker
+                                     ├─ Supabase/Postgres memory tables
+                                     ├─ LiteLLM for consolidation prompts
+                                     └─ Weaviate for memory vector updates
+
+Flower -> Redis db 4 -> worker/task inspection
+Kong   -> flower.localhost -> Flower
+```
+
+`CELERY_SOURCE=container` belongs to the `gen-ai-rag`, `gen-ai-eng`, and `all` tracks. The service category is `agents` because it provides asynchronous workflow execution rather than a public infrastructure primitive. It is not included in ML/data-only tracks until those tracks have concrete backend async consumers.
+
+## 5. Retry, Timeout, And Failure Behavior
+
+The worker uses JSON task/result serialization and Redis as both broker and result backend. Memory consolidation tasks run with a soft time limit before the hard time limit so failures are captured instead of leaving a request open indefinitely. The job endpoint surfaces Celery failure state and error text from Redis; raw tracebacks stay in worker logs and Flower for operators rather than the public backend API.
+
+Redis visibility timeout is intentionally longer than the hard task time limit. If a worker is killed before acknowledging a task, Redis can redeliver it after the visibility timeout; tasks should therefore remain idempotent or tolerate a retry. Memory consolidation deactivates/updates memory rows through existing service logic, so future tasks that mutate external systems must be reviewed before being added to the queue.
+
+## 6. Dependencies & Integrations
+
+> Auto-generated section — the **Current** subsections are derived from `services/celery/service.yml`'s `data_flow.calls` field (and inverse passes). Re-run `python -m bootstrapper.docs.regen celery` after manifest changes.
+
+### 6.1 Current — Upstream (this service calls)
+
+| Service | Category |
+|---|---|
+| redis | data |
+| supabase | data |
+| weaviate | data |
+| litellm | llm |
+
+### 6.2 Current — Downstream (services that call this)
+
+| Service | Category |
+|---|---|
+| backend | apps |
+
+### 6.3 Architecture diagram
+
+![celery architecture](./architecture.svg)
+
+[Open the interactive HTML diagram](./architecture.html) for a full-screen view.
+
+### 6.4 Future — Missing pair integrations
+
+- **celery ↔ research start** — Move the Local Deep Researcher start/wait loop into a task once the existing research session model can persist the Celery job id without confusing remote and local session ids.
+- **celery ↔ ComfyUI generation** — Add async image-generation tasks for callers that currently use `wait_for_completion=true`.
+
+### 6.5 Future — Candidate new services
+
+- **Celery Beat** — Add only when Atlas has scheduled jobs that cannot be expressed more clearly in Airflow or n8n.
+
+### 6.6 Future — Unused features in this service
+
+- Flower's task mutation APIs are exposed only behind auth and should not become a public automation surface.

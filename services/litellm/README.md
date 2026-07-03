@@ -300,6 +300,7 @@ curl -sX POST http://localhost:${LITELLM_PORT}/v1/chat/completions \
 | prometheus | infra |
 | weaviate | data |
 | airflow | agents |
+| celery | agents |
 | hermes ↔ | agents |
 | lightrag ↔ | agents |
 | n8n | agents |

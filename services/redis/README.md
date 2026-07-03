@@ -71,6 +71,7 @@ _No upstream calls._
 | prometheus | infra |
 | litellm | llm |
 | airflow | agents |
+| celery | agents |
 | lightrag | agents |
 | n8n | agents |
 | open-webui | apps |

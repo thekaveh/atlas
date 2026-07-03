@@ -302,6 +302,14 @@ services:
     deploy:
       replicas: 1
     environment:
+      CELERY_BROKER_URL: ''
+      CELERY_BROKER_VISIBILITY_TIMEOUT_SECONDS: '3600'
+      CELERY_QUEUE: atlas
+      CELERY_RESULT_BACKEND: ''
+      CELERY_SOURCE: disabled
+      CELERY_TASK_SOFT_TIME_LIMIT_SECONDS: '840'
+      CELERY_TASK_TIME_LIMIT_SECONDS: '900'
+      CELERY_WORKER_PREFETCH_MULTIPLIER: '1'
       COMFYUI_BASE_URL: http://comfyui:18188
       COMFYUI_ENABLED: 'true'
       COMFYUI_MANIFEST_PATH: /comfyui-manifest/selected-models.yaml
@@ -457,6 +465,95 @@ services:
       source: /dev/disk/
       target: /dev/disk
       type: bind
+  celery-worker:
+    build:
+      args:
+        BASE_IMAGE: python:3.12.13
+      context: '{REPO_ROOT}/services/backend/app'
+      dockerfile: Dockerfile
+    command:
+    - celery
+    - -A
+    - celery_app:celery_app
+    - worker
+    - --loglevel=INFO
+    - --hostname=atlas-worker@%h
+    - --queues=atlas
+    - --concurrency=2
+    container_name: atlas-celery-worker
+    depends_on:
+      backend:
+        condition: service_started
+        required: true
+      litellm:
+        condition: service_healthy
+        required: true
+      redis:
+        condition: service_healthy
+        required: true
+      supabase-db-init:
+        condition: service_completed_successfully
+        required: true
+    deploy:
+      replicas: 0
+    environment:
+      CELERY_BROKER_URL: ''
+      CELERY_BROKER_VISIBILITY_TIMEOUT_SECONDS: '3600'
+      CELERY_QUEUE: atlas
+      CELERY_RESULT_BACKEND: ''
+      CELERY_SOURCE: disabled
+      CELERY_TASK_SOFT_TIME_LIMIT_SECONDS: '840'
+      CELERY_TASK_TIME_LIMIT_SECONDS: '900'
+      CELERY_WORKER_PREFETCH_MULTIPLIER: '1'
+      COMFYUI_BASE_URL: http://comfyui:18188
+      DATABASE_URL: postgresql://supabase_admin:password@supabase-db:5432/postgres
+      LANGMEM_EMBEDDING_MODEL: ''
+      LANGMEM_ENABLED: 'true'
+      LANGMEM_EXTRACTION_MODEL: ''
+      LANGMEM_MAX_FACTS_PER_USER: '1000'
+      LANGMEM_NAMESPACE: default
+      LITELLM_API_KEY: ''
+      LITELLM_BASE_URL: http://litellm:4000
+      LITELLM_DEFAULT_MODEL: ollama/qwen3.6:latest
+      LITELLM_EMBEDDING_MODEL: ollama/nomic-embed-text
+      LITELLM_MODEL: ''
+      N8N_BASE_URL: http://n8n:5678
+      PROJECT_NAME: atlas
+      WEAVIATE_ENABLED: 'true'
+      WEAVIATE_URL: http://weaviate:8080
+    extra_hosts:
+    - host.docker.internal=
+    healthcheck:
+      interval: 30s
+      retries: 5
+      start_period: 45s
+      test:
+      - CMD-SHELL
+      - celery -A celery_app:celery_app inspect ping -d atlas-worker@$$HOSTNAME --timeout=5
+        | grep -q pong
+      timeout: 10s
+    image: atlas-backend-celery:local
+    logging:
+      driver: json-file
+      options:
+        max-file: '3'
+        max-size: 10m
+    networks:
+      backend-network: null
+    restart: unless-stopped
+    volumes:
+    - bind: {}
+      source: '{REPO_ROOT}/services/backend/app/app'
+      target: /app
+      type: bind
+    - source: backend-data
+      target: /app/data
+      type: volume
+      volume: {}
+    - source: weaviate-shared-config
+      target: /shared
+      type: volume
+      volume: {}
   cloudflared:
     command:
     - tunnel
@@ -647,6 +744,54 @@ services:
     - /var/lib/redis
     - /var/lib/crawl4ai/outputs:mode=0700
     - /home/appuser/.cache
+  flower:
+    command:
+    - celery
+    - --broker=
+    - flower
+    - --address=0.0.0.0
+    - --port=5555
+    - --basic-auth=kong_admin:kong_password
+    container_name: atlas-flower
+    depends_on:
+      celery-worker:
+        condition: service_started
+        required: true
+      redis:
+        condition: service_healthy
+        required: true
+    deploy:
+      replicas: 0
+    environment:
+      CELERY_BROKER_URL: ''
+    healthcheck:
+      interval: 30s
+      retries: 5
+      start_period: 30s
+      test:
+      - CMD-SHELL
+      - 'python - <<''PY''
+
+        import urllib.request
+
+        urllib.request.urlopen(''http://localhost:5555/healthcheck'', timeout=5).read()
+
+        PY'
+      timeout: 10s
+    image: mher/flower:2.0.1
+    logging:
+      driver: json-file
+      options:
+        max-file: '3'
+        max-size: 10m
+    networks:
+      backend-network: null
+    ports:
+    - mode: ingress
+      protocol: tcp
+      published: '63061'
+      target: 5555
+    restart: unless-stopped
   grafana:
     container_name: atlas-grafana
     depends_on:
@@ -759,11 +904,11 @@ services:
     ports:
     - mode: ingress
       protocol: tcp
-      published: '63061'
+      published: '63062'
       target: 8642
     - mode: ingress
       protocol: tcp
-      published: '63062'
+      published: '63063'
       target: 9119
     restart: unless-stopped
     volumes:
@@ -1484,7 +1629,7 @@ services:
     ports:
     - mode: ingress
       protocol: tcp
-      published: '63063'
+      published: '63064'
       target: 9621
     restart: unless-stopped
     volumes:
@@ -1770,7 +1915,7 @@ services:
     - host_ip: 127.0.0.1
       mode: ingress
       protocol: tcp
-      published: '63067'
+      published: '63068'
       target: 8000
     restart: unless-stopped
   minio:
@@ -2070,7 +2215,7 @@ services:
     ports:
     - mode: ingress
       protocol: tcp
-      published: '63064'
+      published: '63065'
       target: 5678
     restart: unless-stopped
     volumes:
@@ -2486,11 +2631,11 @@ services:
     ports:
     - mode: ingress
       protocol: tcp
-      published: '63065'
+      published: '63066'
       target: 18789
     - mode: ingress
       protocol: tcp
-      published: '63066'
+      published: '63067'
       target: 18790
     restart: unless-stopped
     volumes:

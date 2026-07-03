@@ -56,6 +56,7 @@ depends_on:
   optional:
     - weaviate
     - kong
+    - celery
 
 rows:
   - display_name: "Backend API"
@@ -106,8 +107,9 @@ runtime_deps:
     - speaches
     - chatterbox
     - docling
+    - celery
     info_message: Backend enabled - will connect to available optional services (neo4j,
-      searxng, n8n, weaviate, parakeet, speaches, chatterbox, docling)
+      searxng, n8n, weaviate, parakeet, speaches, chatterbox, docling, celery)
 
 data_flow:
   calls:
@@ -118,4 +120,4 @@ data_flow:
     - n8n
     - ray
     - local-deep-researcher
-
+    - celery

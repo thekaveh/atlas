@@ -294,11 +294,13 @@ _Engine-only manifests (speaches, chatterbox) are not listed — they're selecte
 | Media | SearxNG | 63044 | search.localhost |
 | Media | TTS Provider | 63045 | tts.localhost |
 | Agents & Workflows | Apache Airflow | 63060 | airflow.localhost |
-| Agents & Workflows | Hermes Agent | 63061 | hermes.localhost |
-| Agents & Workflows | LightRAG | 63063 | lightrag.localhost |
-| Agents & Workflows | n8n | 63064 | n8n.localhost |
-| Agents & Workflows | OpenClaw | 63065 | openclaw.localhost |
-| Agents & Workflows | Curated MCP Servers | 63067 | mcp.localhost |
+| Agents & Workflows | Celery Worker | — | — |
+| Agents & Workflows | Flower | 63061 | flower.localhost |
+| Agents & Workflows | Hermes Agent | 63062 | hermes.localhost |
+| Agents & Workflows | LightRAG | 63064 | lightrag.localhost |
+| Agents & Workflows | n8n | 63065 | n8n.localhost |
+| Agents & Workflows | OpenClaw | 63066 | openclaw.localhost |
+| Agents & Workflows | Curated MCP Servers | 63068 | mcp.localhost |
 | Apps & UIs | Jenkins | 63080 | jenkins.localhost |
 | Apps & UIs | MLflow | 63081 | mlflow.localhost |
 | Apps & UIs | Backend API | 63082 | api.localhost |
