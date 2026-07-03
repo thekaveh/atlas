@@ -28,7 +28,7 @@ tracks:
     services: [open-webui, supavisor, weaviate, neo4j, lightrag, doc-processor,
                tei-reranker, searxng, mcp-servers, langfuse,
                otel-collector, tempo, loki,
-               local-deep-researcher, crawl4ai, tika, llm-graph-builder, celery]
+               local-deep-researcher, crawl4ai, tika, llm-graph-builder, verba, celery]
 
   - key: gen-ai-eng
     display_name: Generative AI · Engineering

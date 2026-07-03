@@ -249,6 +249,10 @@ class KongConfigGenerator:
         if label_studio_service:
             services.append(label_studio_service)
 
+        verba_service = self.generate_verba_service()
+        if verba_service:
+            services.append(verba_service)
+
         crawl4ai_service = self.generate_crawl4ai_service()
         if crawl4ai_service:
             services.append(crawl4ai_service)
@@ -1305,6 +1309,28 @@ class KongConfigGenerator:
                     'strip_path': False,
                     'preserve_host': True,
                     'hosts': ['label-studio.localhost'],
+                }
+            ],
+            'plugins': [
+                {'name': 'cors'},
+                {'name': 'basic-auth'},
+                {'name': 'acl', 'config': {'allow': ['dashboard_user']}},
+            ],
+        }
+
+    def generate_verba_service(self) -> Optional[Dict[str, Any]]:
+        """Kong route for the archived Verba RAG demo UI."""
+        if self.get_env_value('VERBA_SOURCE') != 'container':
+            return None
+        return {
+            'name': 'verba',
+            'url': 'http://verba:8000/',
+            'routes': [
+                {
+                    'name': 'verba-all',
+                    'strip_path': False,
+                    'preserve_host': True,
+                    'hosts': ['verba.localhost'],
                 }
             ],
             'plugins': [

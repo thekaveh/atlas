@@ -89,10 +89,10 @@ data_flow:
     - zeppelin
     - lightrag
     - tei-reranker
+    - verba
     # Observability routes (kong_config_generator.py:206-212, 932) — Kong
     # fronts grafana.localhost / prometheus.localhost / ray.localhost
     # when each service is enabled.
     - grafana
     - prometheus
     - ray
-

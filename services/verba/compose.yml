@@ -1,0 +1,45 @@
+# services/verba/compose.yml - archived Weaviate Verba RAG demo UI
+services:
+  verba:
+    image: ${VERBA_IMAGE:-semitechnologies/verba@sha256:0947d289ebff2c9814941c8d4282ee994dc79598e76162ae82e6efda4682b0b7}
+    container_name: ${PROJECT_NAME}-verba
+    restart: unless-stopped
+    deploy:
+      replicas: ${VERBA_SCALE:-0}
+    depends_on:
+      weaviate:
+        condition: service_healthy
+      litellm:
+        condition: service_started
+    ports:
+      - "${HOST_BIND_IP:-}${VERBA_PORT}:8000"
+    environment:
+      WEAVIATE_URL_VERBA: ${VERBA_WEAVIATE_URL:-http://weaviate:8080}
+      OPENAI_API_KEY: ${LITELLM_MASTER_KEY}
+      OPENAI_BASE_URL: http://litellm:4000/v1
+      OPENAI_EMBED_API_KEY: ${LITELLM_MASTER_KEY}
+      OPENAI_EMBED_BASE_URL: http://litellm:4000/v1
+      OPENAI_CUSTOM_EMBED: "true"
+      OPENAI_MODEL: ${VERBA_OPENAI_MODEL:-}
+      OPENAI_EMBED_MODEL: ${VERBA_OPENAI_EMBED_MODEL:-}
+      DEFAULT_DEPLOYMENT: ${VERBA_DEFAULT_DEPLOYMENT:-Docker}
+      UNSTRUCTURED_API_URL: ""
+      UNSTRUCTURED_API_KEY: ""
+    volumes:
+      - verba-data:/data
+    networks:
+      - backend-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=3 --spider http://localhost:8000 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    logging:
+      driver: json-file
+      options:
+        max-size: "${LOG_MAX_SIZE:-10m}"
+        max-file: "${LOG_MAX_FILE:-3}"
+
+volumes:
+  verba-data:

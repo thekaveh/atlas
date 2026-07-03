@@ -314,7 +314,8 @@ _Engine-only manifests (speaches, chatterbox) are not listed — they're selecte
 | Apps & UIs | Neo4j LLM Graph Builder | 63085 | graphbuilder.localhost |
 | Apps & UIs | Open WebUI | 63086 | chat.localhost |
 | Apps & UIs | Local Deep Researcher | 63087 | research.localhost |
-| Apps & UIs | Apache Zeppelin | 63088 | zeppelin.localhost |
+| Apps & UIs | Verba | 63088 | verba.localhost |
+| Apps & UIs | Apache Zeppelin | 63089 | zeppelin.localhost |
 <!-- TOPOLOGY:END -->
 
 ## 4. Core Services

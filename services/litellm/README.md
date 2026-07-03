@@ -311,6 +311,7 @@ curl -sX POST http://localhost:${LITELLM_PORT}/v1/chat/completions \
 | llm-graph-builder | apps |
 | local-deep-researcher | apps |
 | open-webui | apps |
+| verba | apps |
 
 ### 14.3 Architecture diagram
 

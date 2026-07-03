@@ -51,6 +51,7 @@ class SourceOverrideManager:
             'jupyterhub_source': 'JUPYTERHUB_SOURCE',
             'mlflow_source': 'MLFLOW_SOURCE',
             'label_studio_source': 'LABEL_STUDIO_SOURCE',
+            'verba_source': 'VERBA_SOURCE',
             'open_web_ui_source': 'OPEN_WEB_UI_SOURCE',
             'local_deep_researcher_source': 'LOCAL_DEEP_RESEARCHER_SOURCE',
             'stt_provider_source': 'STT_PROVIDER_SOURCE',

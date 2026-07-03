@@ -39,6 +39,7 @@ This matrix lists every `*_SOURCE` variable currently exposed in `.env.example`.
 | `TEMPO_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Internal-only Grafana Tempo trace store with local development storage and Grafana datasource provisioning. No Kong route in v1. |
 | `LOKI_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Internal-only Grafana Loki log store with short local retention and Grafana datasource provisioning. Log shipping remains a follow-up. |
 | `MLFLOW_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Experiment tracking and MinIO-backed artifacts for the ML Engineering track. Hard-gated on MinIO. |
+| `VERBA_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Archived/discontinued Weaviate RAG demo UI for the RAG track. Disabled by default; hard-gated on Weaviate and wired to LiteLLM. |
 | `OPENCLAW_SOURCE` | `disabled` | `container`, `localhost`, `disabled` | User-facing | AI messaging agent. |
 | `HERMES_SOURCE` | `container` | `container`, `localhost`, `disabled` | User-facing | Programmable AI agent runtime (Nous Research). Routes reasoning through LiteLLM and appears as the `hermes-agent` model to every consumer. |
 | `STT_PROVIDER_SOURCE` | `speaches-container-cpu` | `speaches-container-cpu`, `speaches-container-gpu`, `parakeet-container-gpu`, `parakeet-localhost`, `whisper-cpp-localhost`, `disabled` | User-facing optional | Speech-to-text provider. Speaches is the CPU-friendly default; Parakeet remains for SOTA NVIDIA; whisper.cpp is the best Apple Silicon native option. |
@@ -794,6 +795,31 @@ LABEL_STUDIO_API_URL=...     # auto-managed as http://label-studio:8080
 - **Cons**: Adds an app container plus one-shot DB init; Label Studio CE has its own auth model, so broad multi-user usage should wait for SSO/permissions work.
 - **Containers**: `label-studio-init` (one-shot), `label-studio`.
 - **Requirements**: Supabase Postgres is always-on; `MINIO_SOURCE=container` is required.
+
+### 4.22 VERBA_SOURCE
+
+Verba is Atlas' optional Weaviate RAG demo UI for the RAG track. It is useful as a visible sample ingest/query path over Atlas Weaviate and LiteLLM, but upstream Verba is archived and discontinued, so Atlas keeps it disabled by default and documents it as a reference UI rather than a maintained strategic runtime.
+
+#### 4.22.1 `disabled` (Default)
+```bash
+VERBA_SOURCE=disabled
+```
+- **Use case**: Default safe startup with no archived RAG UI.
+- **Pros**: Zero footprint; no extra single-user UI or Verba-managed Weaviate classes.
+- **Cons**: Users must rely on Open WebUI, LightRAG, notebooks, or other RAG surfaces for interactive demos.
+- **Requirements**: None.
+
+#### 4.22.2 `container`
+```bash
+VERBA_SOURCE=container
+WEAVIATE_SOURCE=container    # REQUIRED — localhost Weaviate is also supported
+VERBA_ENDPOINT=...           # auto-managed as http://verba:8000
+```
+- **Use case**: A browser-based sample ingest/query path that exercises Weaviate and LiteLLM with Verba-managed classes such as `VERBA_Document`.
+- **Pros**: Kong-aliased UI at `verba.localhost`, isolated Verba-owned Weaviate classes, LiteLLM OpenAI-compatible generator/embedding wiring, and an explicit sample workflow for RAG demos.
+- **Cons**: Upstream is archived/discontinued, single-user, and latest-only on Docker Hub; Atlas pins the observed image digest and does not treat Verba as a secure multi-user product surface.
+- **Containers**: `verba`.
+- **Requirements**: LiteLLM is always-on; `WEAVIATE_SOURCE` must be `container` or `localhost`. Docling is optional and documented as a manual pre-processing path, not a hard dependency.
 
 ## 5. Configuration Patterns
 

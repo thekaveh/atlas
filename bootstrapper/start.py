@@ -936,6 +936,7 @@ class AtlasStarter:
             'JENKINS_PORT',
             'MLFLOW_PORT',
             'LABEL_STUDIO_PORT',
+            'VERBA_PORT',
             # PR #29 / PR #35 additions: ray + spark + airflow + zeppelin
             # + prometheus + grafana. Without these the previous-run
             # exports silently shadow the freshly-computed slots.
@@ -2177,6 +2178,9 @@ class AtlasStarter:
 @click.option('--label-studio-source',
               type=click.Choice(['container', 'disabled'], case_sensitive=False),
               help='Override LABEL_STUDIO_SOURCE — annotation review UI with MinIO media storage.')
+@click.option('--verba-source',
+              type=click.Choice(['container', 'disabled'], case_sensitive=False),
+              help='Override VERBA_SOURCE — archived Weaviate RAG demo UI.')
 @click.option('--airflow-source',
               type=click.Choice(['container', 'disabled'], case_sensitive=False),
               help='Override AIRFLOW_SOURCE — code-defined DAG orchestrator (LocalExecutor + LLM operators).')
@@ -2224,6 +2228,7 @@ def main(project_name, base_port, track, list_tracks, cold, setup_hosts, skip_ho
          jenkins_source,
          mlflow_source,
          label_studio_source,
+         verba_source,
          airflow_source,
          iceberg_rest_source,
          no_tui, no_splash, no_port_migrate, profile):
@@ -2297,6 +2302,7 @@ def main(project_name, base_port, track, list_tracks, cold, setup_hosts, skip_ho
                     'jenkins_source': jenkins_source,
                     'mlflow_source': mlflow_source,
                     'label_studio_source': label_studio_source,
+                    'verba_source': verba_source,
                     'airflow_source': airflow_source,
                     'iceberg_rest_source': iceberg_rest_source,
                 }
@@ -2519,6 +2525,7 @@ def main(project_name, base_port, track, list_tracks, cold, setup_hosts, skip_ho
             'jenkins_source': jenkins_source,
             'mlflow_source': mlflow_source,
             'label_studio_source': label_studio_source,
+            'verba_source': verba_source,
             'airflow_source': airflow_source,
             'iceberg_rest_source': iceberg_rest_source,
         }
