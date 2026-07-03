@@ -103,6 +103,7 @@ class UnknownTrackServiceError(TracksLoadError):
 # through unchanged.
 _FAMILY_KEY_ALIASES: dict[str, str] = {
     "ray-head": "ray",
+    "celery-worker": "celery",
     "spark-master": "spark",
     "airflow-webserver": "airflow",
     "langfuse-web": "langfuse",

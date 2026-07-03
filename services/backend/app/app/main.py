@@ -1,8 +1,9 @@
 from fastapi import FastAPI, HTTPException, status, UploadFile, File
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, Field
 from storage3 import SyncStorageClient as StorageClient
-from typing import Optional, cast, Dict, Any, List
+from typing import Optional, cast, Dict, Any, List, Union
 from contextlib import asynccontextmanager
 import os
 import asyncio
@@ -23,6 +24,8 @@ from memory_models import (
     MemoryListResponse, MemoryHealthResponse,
 )
 from ray_routes import router as ray_router
+from celery_app import celery_is_enabled, get_celery_job_status
+from celery_tasks import memory_consolidate_task
 
 
 def _validate_uuid_param(value: str, name: str = "parameter"):
@@ -127,6 +130,25 @@ class HealthResponse(BaseModel):
     version: str
 
 
+class AsyncJobQueuedResponse(BaseModel):
+    job_id: str
+    status: str
+    message: str
+    task: str
+    request: Dict[str, Any]
+
+
+class JobStatusResponse(BaseModel):
+    job_id: str
+    status: str
+    ready: bool
+    successful: bool
+    failed: bool
+    result: Optional[Any] = None
+    error: Optional[str] = None
+    traceback: Optional[str] = None
+
+
 class StorageResponse(BaseModel):
     bucket: str
     path: str
@@ -149,6 +171,24 @@ async def root():
         "message": f"Welcome to the {PROJECT_NAME} Backend API",
         "docs_url": "/docs",
     }
+
+
+@app.get("/jobs/{job_id}", response_model=JobStatusResponse)
+async def get_job_status(job_id: str):
+    """Get Celery async-job state from the result backend."""
+    if not celery_is_enabled():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Celery worker tier is disabled",
+        )
+    try:
+        payload = await asyncio.to_thread(get_celery_job_status, job_id)
+        return JobStatusResponse(**payload)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get job status: {str(e)}",
+        )
 
 
 # Initialize n8n client
@@ -847,9 +887,41 @@ async def memory_recall(request: MemoryRecallRequest):
         )
 
 
-@app.post("/memory/consolidate", response_model=MemoryConsolidateResponse)
-async def memory_consolidate(request: MemoryConsolidateRequest):
+@app.post(
+    "/memory/consolidate",
+    response_model=Union[MemoryConsolidateResponse, AsyncJobQueuedResponse],
+)
+async def memory_consolidate(
+    request: MemoryConsolidateRequest, async_job: bool = False
+):
     """Consolidate and deduplicate user memories."""
+    if async_job:
+        if not celery_is_enabled():
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Celery worker tier is disabled",
+            )
+        try:
+            task = await asyncio.to_thread(
+                memory_consolidate_task.apply_async,
+                kwargs={"user_id": request.user_id}
+            )
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=f"Failed to queue memory consolidation: {str(e)}",
+            )
+        return JSONResponse(
+            status_code=status.HTTP_202_ACCEPTED,
+            content=AsyncJobQueuedResponse(
+                job_id=task.id,
+                status="pending",
+                message="Memory consolidation queued",
+                task="memory_consolidate",
+                request={"user_id": request.user_id},
+            ).model_dump(),
+        )
+
     try:
         result = await memory_service.consolidate(user_id=request.user_id)
         return MemoryConsolidateResponse(**result)

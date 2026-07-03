@@ -261,6 +261,7 @@ _No upstream calls._
 | litellm | llm |
 | comfyui | media |
 | airflow | agents |
+| celery | agents |
 | lightrag | agents |
 | mcp-servers | agents |
 | n8n | agents |

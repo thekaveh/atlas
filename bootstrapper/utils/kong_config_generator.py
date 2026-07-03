@@ -249,6 +249,10 @@ class KongConfigGenerator:
         if crawl4ai_service:
             services.append(crawl4ai_service)
 
+        flower_service = self.generate_flower_service()
+        if flower_service:
+            services.append(flower_service)
+
         spark_master_service = self.generate_spark_master_service()
         if spark_master_service:
             services.append(spark_master_service)
@@ -1296,6 +1300,28 @@ class KongConfigGenerator:
                     'strip_path': False,
                     'preserve_host': True,
                     'hosts': ['crawl4ai.localhost'],
+                }
+            ],
+            'plugins': [
+                {'name': 'cors'},
+                {'name': 'basic-auth'},
+                {'name': 'acl', 'config': {'allow': ['dashboard_user']}},
+            ],
+        }
+
+    def generate_flower_service(self) -> Optional[Dict[str, Any]]:
+        """Kong route for Flower, the Celery worker monitor."""
+        if self.get_env_value('CELERY_SOURCE') != 'container':
+            return None
+        return {
+            'name': 'flower',
+            'url': 'http://flower:5555/',
+            'routes': [
+                {
+                    'name': 'flower-all',
+                    'strip_path': False,
+                    'preserve_host': True,
+                    'hosts': ['flower.localhost'],
                 }
             ],
             'plugins': [

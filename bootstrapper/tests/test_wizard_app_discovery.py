@@ -95,6 +95,11 @@ EXPECTED_DISCOVERED = frozenset({
     # MLflow (added 2026-07-03) — disabled-by-default experiment tracking
     # and MinIO-backed artifacts for the ML Engineering track.
     "MLflow",
+    # Celery + Flower (added 2026-07-03) — disabled-by-default async
+    # backend worker tier. Multi-container family (worker + Flower), so
+    # discovery uses the `celery_worker_source` shim while the real flag
+    # remains `--celery-source`.
+    "Celery Worker",
     # TEI Reranker (added 2026-06-05) — GPU-accelerated reranker inference.
     # Single-container family; wired via 'tei_reranker_source' in
     # source_mapping with container-cpu / container-gpu / localhost / disabled.

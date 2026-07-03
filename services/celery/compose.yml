@@ -1,0 +1,118 @@
+# services/celery/compose.yml — backend Celery worker + Flower monitor
+services:
+  celery-worker:
+    build:
+      context: ../backend/app
+      args:
+        BASE_IMAGE: ${BACKEND_IMAGE}
+    image: ${PROJECT_NAME}-backend-celery:local
+    container_name: ${PROJECT_NAME}-celery-worker
+    restart: unless-stopped
+    deploy:
+      replicas: ${CELERY_WORKER_SCALE:-0}
+    depends_on:
+      redis:
+        condition: service_healthy
+      supabase-db-init:
+        condition: service_completed_successfully
+      litellm:
+        condition: service_healthy
+      backend:
+        condition: service_started
+    extra_hosts:
+      - "host.docker.internal:${HOST_GATEWAY_IP}"
+    environment:
+      PROJECT_NAME: ${PROJECT_NAME}
+      DATABASE_URL: postgresql://${SUPABASE_DB_USER}:${SUPABASE_DB_PASSWORD}@supabase-db:5432/${SUPABASE_DB_NAME}
+      LITELLM_BASE_URL: http://litellm:4000
+      LITELLM_API_KEY: ${LITELLM_MASTER_KEY}
+      LITELLM_EMBEDDING_MODEL: ${LITELLM_EMBEDDING_MODEL:-ollama/nomic-embed-text}
+      LITELLM_DEFAULT_MODEL: ${LITELLM_DEFAULT_MODEL:-}
+      LITELLM_MODEL: ${LITELLM_MODEL:-}
+      LANGMEM_ENABLED: ${LANGMEM_ENABLED:-true}
+      LANGMEM_NAMESPACE: ${LANGMEM_MEMORY_NAMESPACE:-default}
+      LANGMEM_MAX_FACTS_PER_USER: ${LANGMEM_MAX_FACTS_PER_USER:-1000}
+      LANGMEM_EXTRACTION_MODEL: ${LANGMEM_EXTRACTION_MODEL:-}
+      LANGMEM_EMBEDDING_MODEL: ${LANGMEM_EMBEDDING_MODEL:-}
+      WEAVIATE_URL: ${WEAVIATE_URL:-http://weaviate:8080}
+      WEAVIATE_ENABLED: true
+      COMFYUI_BASE_URL: ${COMFYUI_ENDPOINT:-http://comfyui:18188}
+      N8N_BASE_URL: http://n8n:5678
+      CELERY_SOURCE: ${CELERY_SOURCE:-disabled}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-}
+      CELERY_QUEUE: ${CELERY_QUEUE:-atlas}
+      CELERY_WORKER_PREFETCH_MULTIPLIER: ${CELERY_WORKER_PREFETCH_MULTIPLIER:-1}
+      CELERY_TASK_TIME_LIMIT_SECONDS: ${CELERY_TASK_TIME_LIMIT_SECONDS:-900}
+      CELERY_TASK_SOFT_TIME_LIMIT_SECONDS: ${CELERY_TASK_SOFT_TIME_LIMIT_SECONDS:-840}
+      CELERY_BROKER_VISIBILITY_TIMEOUT_SECONDS: ${CELERY_BROKER_VISIBILITY_TIMEOUT_SECONDS:-3600}
+    volumes:
+      - ../backend/app/app:/app
+      - backend-data:/app/data
+      - weaviate-shared-config:/shared
+    command:
+      - celery
+      - -A
+      - celery_app:celery_app
+      - worker
+      - --loglevel=INFO
+      - --hostname=atlas-worker@%h
+      - --queues=${CELERY_QUEUE:-atlas}
+      - --concurrency=${CELERY_WORKER_CONCURRENCY:-2}
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A celery_app:celery_app inspect ping -d atlas-worker@$$HOSTNAME --timeout=5 | grep -q pong"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 45s
+    logging:
+      driver: json-file
+      options:
+        max-size: "${LOG_MAX_SIZE:-10m}"
+        max-file: "${LOG_MAX_FILE:-3}"
+    networks:
+      - backend-network
+
+  flower:
+    image: ${FLOWER_IMAGE:-mher/flower:2.0.1}
+    container_name: ${PROJECT_NAME}-flower
+    restart: unless-stopped
+    deploy:
+      replicas: ${FLOWER_SCALE:-0}
+    depends_on:
+      redis:
+        condition: service_healthy
+      celery-worker:
+        condition: service_started
+    environment:
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-}
+    command:
+      - celery
+      - --broker=${CELERY_BROKER_URL:-}
+      - flower
+      - --address=0.0.0.0
+      - --port=5555
+      - --basic-auth=${DASHBOARD_USERNAME}:${DASHBOARD_PASSWORD}
+    ports:
+      - "${HOST_BIND_IP:-}${FLOWER_PORT}:5555"
+    healthcheck:
+      test: ["CMD-SHELL", "python - <<'PY'\nimport urllib.request\nurllib.request.urlopen('http://localhost:5555/healthcheck', timeout=5).read()\nPY"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "${LOG_MAX_SIZE:-10m}"
+        max-file: "${LOG_MAX_FILE:-3}"
+    networks:
+      - backend-network
+
+volumes:
+  backend-data:
+    name: ${PROJECT_NAME}-backend-data
+    driver: local
+  weaviate-shared-config:
+    name: ${PROJECT_NAME}-weaviate-shared-config
+    driver: local

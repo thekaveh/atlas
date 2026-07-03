@@ -1,0 +1,114 @@
+# services/celery/service.yml — Redis-backed backend async worker tier
+name: celery
+label: "Celery + Flower (async jobs)"
+category: agents
+docs: services/celery/README.md
+
+containers:
+  - celery-worker
+  - flower
+
+images:
+  - var: FLOWER_IMAGE
+    default: "mher/flower:2.0.1"
+    container: flower
+
+sources:
+  var: CELERY_SOURCE
+  default: disabled
+  options:
+    - id: container
+      label: "Container (backend Celery worker + Flower monitor)"
+    - id: disabled
+      label: "Disabled"
+
+env:
+  - name: CELERY_SOURCE
+    default: disabled
+    description: "Deployment mode: container (backend worker + Flower) or disabled."
+  - name: CELERY_WORKER_SCALE
+    auto_managed: true
+  - name: FLOWER_SCALE
+    auto_managed: true
+  - name: FLOWER_PORT
+    description: "Host port for Flower (in-container 5555)."
+  - name: CELERY_BROKER_URL
+    auto_managed: true
+    description: "Redis broker URL; Atlas uses Redis database 4 for Celery."
+  - name: CELERY_RESULT_BACKEND
+    auto_managed: true
+    description: "Redis result backend URL; Atlas uses Redis database 4 for Celery task state."
+  - name: CELERY_QUEUE
+    default: atlas
+    description: "Default Celery queue consumed by the Atlas backend worker."
+  - name: CELERY_WORKER_CONCURRENCY
+    default: 2
+    description: "Worker process concurrency for backend async jobs."
+  - name: CELERY_WORKER_PREFETCH_MULTIPLIER
+    default: 1
+    description: "Conservative prefetch to reduce head-of-line blocking for long tasks."
+  - name: CELERY_TASK_TIME_LIMIT_SECONDS
+    default: 900
+    description: "Hard per-task limit. Worker kills tasks that run beyond this budget."
+  - name: CELERY_TASK_SOFT_TIME_LIMIT_SECONDS
+    default: 840
+    description: "Soft per-task limit. Tasks can catch this before the hard kill."
+  - name: CELERY_BROKER_VISIBILITY_TIMEOUT_SECONDS
+    default: 3600
+    description: "Redis broker visibility timeout. Keep longer than task hard limit."
+
+depends_on:
+  required:
+    - redis
+    - backend
+    - supabase
+    - litellm
+  optional:
+    - weaviate
+
+rows:
+  - display_name: "Celery Worker"
+    source_var: CELERY_SOURCE
+    scale_var: CELERY_WORKER_SCALE
+    description: "Backend async worker for long-running jobs."
+  - display_name: "Flower"
+    source_var: CELERY_SOURCE
+    port_var: FLOWER_PORT
+    scale_var: FLOWER_SCALE
+    alias: flower.localhost
+    description: "Celery worker monitor and task inspection UI."
+
+runtime_sc:
+  celery-worker:
+    container:
+      scale: 1
+      environment:
+        CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis:6379/4
+        CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD}@redis:6379/4
+      deploy: {}
+      extra_hosts: []
+    disabled:
+      scale: 0
+      environment:
+        CELERY_BROKER_URL: ''
+        CELERY_RESULT_BACKEND: ''
+      deploy: {}
+      extra_hosts: []
+  flower:
+    container:
+      scale: 1
+      environment: {}
+      deploy: {}
+      extra_hosts: []
+    disabled:
+      scale: 0
+      environment: {}
+      deploy: {}
+      extra_hosts: []
+
+data_flow:
+  calls:
+    - redis
+    - supabase
+    - litellm
+    - weaviate

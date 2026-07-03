@@ -175,6 +175,7 @@ class ServiceConfig:
         # itself is enabled, even if LDR full-page mode is disabled.
         env_vars.update(self._generate_local_deep_researcher_extraction_config())
         env_vars.update(self._generate_crawl4ai_config())
+        env_vars.update(self._generate_celery_config())
 
         # Generate Ray cluster configuration
         ray_source = self.service_sources.get("RAY_SOURCE", "disabled")
@@ -1034,6 +1035,23 @@ class ServiceConfig:
         return {
             "CRAWL4AI_SCALE": "1",
             "CRAWL4AI_ENDPOINT": "http://crawl4ai:11235",
+        }
+
+    def _generate_celery_config(self) -> dict:
+        """Generate Celery worker/Flower scales and Redis URLs."""
+        source = self.service_sources.get("CELERY_SOURCE", "disabled")
+        if source == "disabled":
+            return {
+                "CELERY_WORKER_SCALE": "0",
+                "FLOWER_SCALE": "0",
+                "CELERY_BROKER_URL": "",
+                "CELERY_RESULT_BACKEND": "",
+            }
+        return {
+            "CELERY_WORKER_SCALE": "1",
+            "FLOWER_SCALE": "1",
+            "CELERY_BROKER_URL": "redis://:${REDIS_PASSWORD}@redis:6379/4",
+            "CELERY_RESULT_BACKEND": "redis://:${REDIS_PASSWORD}@redis:6379/4",
         }
 
     def _generate_local_deep_researcher_extraction_config(self) -> dict:

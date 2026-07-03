@@ -49,6 +49,7 @@ include:
 
   # App tier
   - services/backend/compose.yml
+  - services/celery/compose.yml
   - services/open-webui/compose.yml
   - services/n8n/compose.yml
   - services/searxng/compose.yml
