@@ -51,6 +51,7 @@ WORKDIR /home/jovyan
 
 # Copy requirements file
 COPY requirements.txt /tmp/requirements.txt
+COPY atlas_finance /home/jovyan/atlas_finance
 
 # PyG family packages (torch-scatter, torch-sparse, etc.) use legacy setup.py builds
 # that require `torch` to be importable at metadata-generation time. Install torch
@@ -64,6 +65,8 @@ RUN pip install --no-cache-dir -r /tmp/requirements.txt
 # Tier-A notebooks. ~14 MB total.
 RUN python -m spacy download en_core_web_sm \
  && python -c "import nltk; nltk.download('vader_lexicon', quiet=True)"
+
+ENV PYTHONPATH=/home/jovyan:${PYTHONPATH}
 
 # Install Almond Scala kernels for both Scala 2.13 and Scala 3. Each kernel
 # materialises ~150-200 MB of dependencies under ~/.cache/coursier; total
@@ -85,7 +88,7 @@ RUN chmod +x /usr/local/bin/startup.sh
 RUN mkdir -p /home/jovyan/work \
     /home/jovyan/notebooks \
     /shared && \
-    chown -R ${NB_UID}:${NB_GID} /home/jovyan/work /home/jovyan/notebooks
+    chown -R ${NB_UID}:${NB_GID} /home/jovyan/work /home/jovyan/notebooks /home/jovyan/atlas_finance
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \

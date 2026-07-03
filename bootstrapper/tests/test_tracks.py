@@ -30,8 +30,16 @@ def test_load_tracks_default_path():
     """Default path = bootstrapper/tracks.yml; returns a TrackRegistry."""
     reg = load_tracks()
     assert isinstance(reg, TrackRegistry)
-    assert len(reg.tracks) >= 6
-    expected = {"gen-ai-rag", "gen-ai-eng", "gen-ai-creative", "ml-eng", "data-eng", "all"}
+    assert len(reg.tracks) >= 7
+    expected = {
+        "gen-ai-rag",
+        "gen-ai-eng",
+        "gen-ai-creative",
+        "ml-eng",
+        "data-eng",
+        "trading",
+        "all",
+    }
     assert {t.key for t in reg.tracks} >= expected
     assert reg.tracks[0].key == "gen-ai-rag"
     assert reg.tracks[-1].key == "all"

@@ -130,7 +130,7 @@ For agentic-app engineering:
 ./start.sh --track gen-ai-eng
 ```
 
-Other tracks: `gen-ai-creative`, `ml-eng`, `data-eng`. Run `./start.sh --list-tracks` to see service membership for each.
+Other tracks: `gen-ai-creative`, `ml-eng`, `data-eng`, `trading`. Run `./start.sh --list-tracks` to see service membership for each.
 
 Omit `--track` entirely to get the full interactive wizard (with the
 track picker as step 1). Pass `--track all` to skip the picker and
@@ -159,6 +159,7 @@ Atlas is a self-hosted engineering platform — designed for the breadth of mode
 - `gen-ai-creative` — multimodal generation (image, voice, vision, doc)
 - `ml-eng` — distributed training/inference + notebooks + experiment storage
 - `data-eng` — batch + lakehouse + graph + vector with orchestration
+- `trading` — read-only financial research and paper portfolios in notebooks
 - `all` — every configurable service, full wizard, no filtering
 
 Key technical traits:

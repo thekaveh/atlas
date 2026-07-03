@@ -10,6 +10,7 @@ JupyterHub provides a Jupyter Lab environment with pre-installed libraries for:
 - Graph databases (Neo4j)
 - Relational databases (PostgreSQL via Supabase)
 - Lakehouse storage and catalogs (MinIO, Iceberg REST, DuckDB)
+- Financial research (OpenBB, CCXT, paper portfolios; no live trading)
 - Image generation (ComfyUI)
 - Workflow automation (n8n)
 
@@ -72,6 +73,8 @@ JUPYTERHUB_TOKEN=               # Optional: authentication token
 - `boto3` / `s3fs` - S3-compatible MinIO access with scoped Jupyter credentials
 - `pyiceberg` / `pyarrow` - Iceberg REST catalog and Arrow table access
 - `duckdb` - In-process SQL over Arrow, Parquet, and local dataframes
+- `openbb` / `openbb-yfinance` - Read-only financial data research packages for notebooks
+- `ccxt` - Unified public exchange-data client; private/trading methods are blocked by Atlas helpers
 - `matplotlib` - Plotting
 - `seaborn` - Statistical visualization
 - `plotly` - Interactive visualizations
@@ -92,6 +95,7 @@ JUPYTERHUB_TOKEN=               # Optional: authentication token
 | `08_scala_basics.ipynb` | Scala basics on the scala3 kernel |
 | `09_spark_connect.ipynb` | Spark Connect (gRPC) from Python |
 | `10_spark_scala.ipynb` | Spark with the Scala kernel |
+| `11_financial_research_kit.ipynb` | Read-only OpenBB/CCXT research and paper portfolios |
 
 ## Service Integration
 

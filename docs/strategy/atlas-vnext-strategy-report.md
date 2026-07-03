@@ -27,13 +27,14 @@ Current-state evidence inventory:
 
 - Repo inventory snapshot for this report pass: `34` `services/*/service.yml` manifests, `21` integration research row files in `docs/research/rows/`, and `34` candidate one-pagers in `docs/research/candidates/`.
 - `docs/research/integration-matrix.md` currently indexes `21` service research rows across categories and `34` candidate services, which gives later sections a repo-local starting point before any external validation.
-- Current track registry in `bootstrapper/tracks.yml` defines six track keys: `gen-ai-rag`, `gen-ai-eng`, `gen-ai-creative`, `ml-eng`, `data-eng`, and `all`.
+- Current track registry in `bootstrapper/tracks.yml` defines seven track keys: `gen-ai-rag`, `gen-ai-eng`, `gen-ai-creative`, `ml-eng`, `data-eng`, `trading`, and `all`.
 - Scoped track membership snapshot:
   - `gen-ai-rag`: `open-webui`, `weaviate`, `neo4j`, `lightrag`, `doc-processor`, `tei-reranker`, `searxng`, `local-deep-researcher`
   - `gen-ai-eng`: `open-webui`, `n8n`, `hermes`, `openclaw`, `jupyterhub`, `comfyui`, `stt-provider`, `tts-provider`, `searxng`, `local-deep-researcher`
   - `gen-ai-creative`: `open-webui`, `comfyui`, `stt-provider`, `tts-provider`, `multi2vec-clip`, `doc-processor`
   - `ml-eng`: `spark`, `ray`, `jupyterhub`, `zeppelin`, `open-webui`, `minio`, `tei-reranker`
   - `data-eng`: `spark`, `airflow`, `jupyterhub`, `zeppelin`, `minio`, `iceberg-rest`, `trino`, `redpanda`, `weaviate`, `neo4j`
+  - `trading`: `jupyterhub`, `minio`, `mlflow`, `langfuse`
   - `all`: no filtering; every configurable service remains available
 - Track-context note for later analysis: the registry already expresses broad AI, RAG, creative, ML, and data personas, but only as service-selection profiles; later tasks should assess whether those profiles feel productized enough for onboarding and roadmap positioning.
 
@@ -47,7 +48,7 @@ Atlas already has a coherent platform grammar. The repo does not read like an ac
 
 - **Mature manifest, compose-fragment, and docs-generation discipline.** Atlas' internal architecture is explicitly standardized around per-service contracts and generated artifacts. `docs/CONTRIBUTING-services.md` documents the per-service folder contract (`service.yml`, `compose.yml`, local subdirectories), the top-level compose file is intentionally thin, and the contribution workflow requires a regen-and-lint chain before landing changes. The repo guidance also points to concrete safety rails: manifest validation, compose equivalence checks, docs drift tests, Kong route audits, and source-dependency audits. That investment lowers the cost of continuing to expand the platform.
 
-- **Tracks turn breadth into persona-oriented presets.** `bootstrapper/tracks.yml` defines six track keys covering RAG, agent engineering, creative multimodal work, ML engineering, data engineering, and a full-custom mode. The README exposes those tracks directly in quickstart commands and in the wizard flow. This is strategically important: Atlas is broad, but it is not forcing every user to boot every domain at once. The track system is an early productization layer over a large service catalog.
+- **Tracks turn breadth into persona-oriented presets.** `bootstrapper/tracks.yml` defines seven track keys covering RAG, agent engineering, creative multimodal work, ML engineering, data engineering, read-only financial research, and a full-custom mode. The README exposes those tracks directly in quickstart commands and in the wizard flow. This is strategically important: Atlas is broad, but it is not forcing every user to boot every domain at once. The track system is an early productization layer over a large service catalog.
 
 - **Strong self-host primitives across the core workload categories.** The shipped stack already covers the hard infrastructure a serious local AI platform needs: Supabase, Redis, LiteLLM, Kong, MinIO, Weaviate, Neo4j, n8n, Open WebUI, JupyterHub, Ray, Spark, Airflow, Prometheus, and Grafana are all represented in the repo's docs, manifests, and service READMEs. `docs/ROADMAP.md` also distinguishes between what is shipped and what remains candidate work, which makes the current-state boundary legible. The result is that Atlas already spans chat, automation, retrieval, storage, notebooks, distributed compute, and observability without depending on a single hosted control plane.
 
@@ -65,7 +66,7 @@ Atlas already has a coherent platform grammar. The repo does not read like an ac
 
 - **The stack's breadth still risks onboarding overload without a dashboard and stronger guided paths.** The repo inventory for this report pass includes 35 service manifests spread across six categories, while the route docs enumerate a long list of hostnames, direct ports, and auth modes. The wizard and tracks help, and that is a real mitigation, but the user still needs to understand a substantial amount of infrastructure vocabulary to orient themselves. The current docs are good; the experience is still cognitively dense.
 
-- **Vertical-track ambition is ahead of first-class productization.** The roadmap already frames 3D/game-generation, financial/trading-AI, and RAG-enhancement as strategic tracks, but `bootstrapper/tracks.yml` only exposes the current six general-purpose track keys. That gap matters. Atlas has a credible multi-domain substrate, yet its most opinionated future verticals are still roadmap narratives rather than selectable, onboarding-ready product modes. The vision is visible; the product surface has not caught up.
+- **Vertical-track ambition is only partly productized.** The roadmap frames 3D/game-generation, financial/trading-AI, and RAG-enhancement as strategic tracks, and `bootstrapper/tracks.yml` now exposes a guarded `trading` track for read-only notebook research. The larger gap remains: heavier vertical engines still need onboarding-ready product modes, clearer safety boundaries, and service integrations before they become default experiences.
 
 ## 3. Competitor Landscape
 
@@ -291,8 +292,8 @@ Recommendation: build a **financial research and paper-trading track** first. At
 
 First wave:
 
-- Add OpenBB and CCXT as notebook/backend libraries for read-only data acquisition, research, and portfolio analysis.
-- Add an explicit paper-trading notebook path using JupyterHub, MinIO datasets, MLflow experiment runs, and LiteLLM summaries.
+- Add OpenBB and CCXT as notebook libraries for read-only data acquisition, research, and portfolio analysis.
+- Add an explicit paper-portfolio notebook path using JupyterHub, MinIO datasets, MLflow experiment runs, and LiteLLM summaries.
 - Add Infisical before any exchange-key workflow so credentials are not scattered through `.env`, notebooks, and n8n nodes.
 - Evaluate TimescaleDB as a Postgres extension path for tick/order-book/time-series storage; prefer isolated schemas and clear retention policies.
 
@@ -389,7 +390,7 @@ Build later means useful, but the prerequisites or product commitments are not m
 1. **Graphiti:** temporal graph memory after a concrete Hermes/backend workflow is selected.
 2. **SigLIP 2 vectorizer upgrade:** opt-in migration path after revectorization tooling is clear.
 3. **Iceberg + DuckDB + Lakekeeper evaluation:** after MinIO artifact analytics has sample data and ownership.
-4. **OpenBB + CCXT financial research kit:** after secrets handling and read-only/paper guardrails are ready.
+4. **OpenBB + CCXT financial research kit:** first guarded notebook slice has moved into implementation; keep exchange-key and live/sandbox execution workflows deferred until secrets handling and risk controls are ready.
 5. **Blender MCP + glTF-Transform:** after asset storage, dashboard links, and safety notes are in place.
 6. **imgproxy, NocoDB, NeoDash, WhisperX:** each is useful, but each benefits from an earlier dashboard/auth/data-foundation pass.
 7. **Dagster and Superset:** wait for real lakehouse demand and a clear Airflow/BI coexistence model.
@@ -402,6 +403,7 @@ Build later means useful, but the prerequisites or product commitments are not m
 - **OpenLIT:** defer as a standalone candidate because Langfuse plus the OTel Collector/Tempo/Loki path already covers the first observability slice with less UI overlap.
 - **Live trading services:** defer Hummingbot, Freqtrade, and NautilusTrader live execution. Reconsider only after paper mode, secrets, audit logs, and explicit operator risk controls exist.
 - **FinRL and FinGPT:** keep in notebooks/research. Do not present them as production trading intelligence.
+- **OpenBB + CCXT:** shipped only as a read-only JupyterHub research kit with paper portfolios; keep private exchange credentials, private CCXT methods, and execution engines out of this first slice.
 - **Hunyuan3D, TRELLIS/TRELLIS.2, Nerfstudio, Unreal MCP, and LiveKit:** watchlist for the 3D/game track, but not before the asset pipeline and MCP safety posture are real.
 - **Voicebox, OmniVoice, and Unmute:** defer as voice-stack watchlist items; Voicebox lacks the OpenAI-compatible endpoint Atlas needs, OmniVoice would require Atlas to own a young HTTP wrapper, and Unmute is still too early for Atlas to standardize on as a core realtime speech layer.
 - **Honcho:** defer because Atlas already has LangMem and Graphiti is a lighter first experiment; Honcho's AGPL posture and separate memory service are not yet justified.
