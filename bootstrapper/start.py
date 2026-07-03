@@ -906,6 +906,7 @@ class AtlasStarter:
             'LITELLM_PORT',
             'LOCAL_DEEP_RESEARCHER_PORT',
             'SEARXNG_PORT',
+            'CRAWL4AI_PORT',
             'OPEN_WEB_UI_PORT',
             'BACKEND_PORT',
             'N8N_PORT',
@@ -1897,6 +1898,7 @@ class AtlasStarter:
             ("kong-api-gateway", "8443", env_vars.get("KONG_HTTPS_PORT", ""), None, None),
             ("n8n", "5678", env_vars.get("N8N_PORT", ""), "N8N_SOURCE", "N8N_SCALE"),
             ("searxng", "8080", env_vars.get("SEARXNG_PORT", ""), "SEARXNG_SOURCE", "SEARXNG_SCALE"),
+            ("crawl4ai", "11235", env_vars.get("CRAWL4AI_PORT", ""), "CRAWL4AI_SOURCE", "CRAWL4AI_SCALE"),
             ("jupyterhub", "8888", env_vars.get("JUPYTERHUB_PORT", ""), "JUPYTERHUB_SOURCE", "JUPYTERHUB_SCALE"),
         ]
         services_to_check = [
@@ -2054,6 +2056,9 @@ class AtlasStarter:
 @click.option('--searxng-source',
               type=click.Choice(['container', 'disabled'], case_sensitive=False),
               help='Override SEARXNG_SOURCE')
+@click.option('--crawl4ai-source',
+              type=click.Choice(['container', 'disabled'], case_sensitive=False),
+              help='Override CRAWL4AI_SOURCE — token-protected browser-backed extraction API.')
 @click.option('--mcp-servers-source',
               type=click.Choice(['container', 'disabled'], case_sensitive=False),
               help='Override MCP_SERVERS_SOURCE')
@@ -2173,7 +2178,7 @@ def main(project_name, base_port, track, list_tracks, cold, setup_hosts, skip_ho
          ollama_models, ollama_custom_models,
          comfyui_models, comfyui_custom_models_file,
          comfyui_source, weaviate_source, minio_source, n8n_source, searxng_source,
-         mcp_servers_source,
+         crawl4ai_source, mcp_servers_source,
          jupyterhub_source, open_web_ui_source, local_deep_researcher_source,
          stt_provider_source, tts_provider_source,
          doc_processor_source, openclaw_source, hermes_source,
@@ -2230,6 +2235,7 @@ def main(project_name, base_port, track, list_tracks, cold, setup_hosts, skip_ho
                     'minio_source': minio_source,
                     'n8n_source': n8n_source,
                     'searxng_source': searxng_source,
+                    'crawl4ai_source': crawl4ai_source,
                     'mcp_servers_source': mcp_servers_source,
                     'jupyterhub_source': jupyterhub_source,
                     'open_web_ui_source': open_web_ui_source,
@@ -2443,6 +2449,7 @@ def main(project_name, base_port, track, list_tracks, cold, setup_hosts, skip_ho
             'minio_source': minio_source,
             'n8n_source': n8n_source,
             'searxng_source': searxng_source,
+            'crawl4ai_source': crawl4ai_source,
             'mcp_servers_source': mcp_servers_source,
             'jupyterhub_source': jupyterhub_source,
             'open_web_ui_source': open_web_ui_source,

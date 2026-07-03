@@ -338,6 +338,10 @@ class KeyGenerator:
         """
         return _cli_safe_token_urlsafe(32)
 
+    def generate_crawl4ai_api_token(self) -> str:
+        """Crawl4AI Docker API bearer token. Stable unless missing."""
+        return _cli_safe_token_urlsafe(32)
+
     def generate_and_update_hermes_api_key(self, force: bool = False) -> bool:
         """Generate HERMES_API_KEY when absent. Idempotent: existing keys are
         preserved so already-running Hermes sessions / saved Open WebUI client
@@ -348,6 +352,13 @@ class KeyGenerator:
             return True
         new_key = self.generate_hermes_api_key()
         return self.update_env_key('HERMES_API_KEY', new_key)
+
+    def generate_and_update_crawl4ai_api_token(self, force: bool = False) -> bool:
+        """Generate CRAWL4AI_API_TOKEN when absent. Existing tokens stick."""
+        current_value = self.get_current_env_value('CRAWL4AI_API_TOKEN')
+        if not force and current_value:
+            return True
+        return self.update_env_key('CRAWL4AI_API_TOKEN', self.generate_crawl4ai_api_token())
 
     def generate_lightrag_api_key(self) -> str:
         """Bearer key for LightRAG /api endpoints. Forwarded to LiteLLM."""
@@ -815,6 +826,10 @@ class KeyGenerator:
         # references it via os.environ/HERMES_API_KEY, so rotating it
         # without restarting the LiteLLM container would break routing.
         results['HERMES_API_KEY'] = self.generate_and_update_hermes_api_key(force=False)
+
+        # Crawl4AI Docker API bearer token — generated even when disabled so
+        # enabling the service later does not require a manual secret edit.
+        results['CRAWL4AI_API_TOKEN'] = self.generate_and_update_crawl4ai_api_token(force=False)
 
         # LightRAG API bearer key + JWT token secret — only generate when
         # LIGHTRAG_SOURCE != disabled and the keys are absent. Same

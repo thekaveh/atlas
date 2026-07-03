@@ -25,6 +25,7 @@ Active aliases (every `*-localhost` source also routes through `host.docker.inte
 - `api.localhost` → Backend API (always-on adaptive)
 - `chat.localhost` → Open WebUI (`OPEN_WEB_UI_SOURCE != disabled`)
 - `comfyui.localhost` → ComfyUI (`COMFYUI_SOURCE != disabled`)
+- `crawl4ai.localhost` → Crawl4AI extraction API (`CRAWL4AI_SOURCE=container`; Kong basic-auth/ACL plus Crawl4AI bearer token for API calls)
 - `docling.localhost` → Document processor (`DOC_PROCESSOR_SOURCE != disabled`)
 - `graph.localhost` → Neo4j Browser (`NEO4J_GRAPH_DB_SOURCE != disabled`)
 - `hermes.localhost` → Hermes Agent dashboard (`HERMES_SOURCE != disabled` AND `HERMES_DASHBOARD_ENABLED=true`)

@@ -41,6 +41,7 @@ include:
   # AI tier
   - services/weaviate/compose.yml
   - services/comfyui/compose.yml
+  - services/crawl4ai/compose.yml
   - services/parakeet/compose.yml
   - services/speaches/compose.yml
   - services/chatterbox/compose.yml

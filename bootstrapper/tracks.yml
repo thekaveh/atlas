@@ -27,7 +27,7 @@ tracks:
     description: Retrieval-augmented generation — vectors, graph, reranker, doc ingest, web search.
     services: [open-webui, weaviate, neo4j, lightrag, doc-processor,
                tei-reranker, searxng, mcp-servers, langfuse,
-               local-deep-researcher]
+               local-deep-researcher, crawl4ai]
 
   - key: gen-ai-eng
     display_name: Generative AI · Engineering

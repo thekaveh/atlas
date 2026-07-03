@@ -549,7 +549,7 @@ services:
     ports:
     - mode: ingress
       protocol: tcp
-      published: '63041'
+      published: '63042'
       target: 18188
     restart: unless-stopped
     volumes:
@@ -606,6 +606,47 @@ services:
       source: '{REPO_ROOT}/volumes/comfyui'
       target: /comfyui-manifest
       type: bind
+  crawl4ai:
+    cap_drop:
+    - ALL
+    container_name: atlas-crawl4ai
+    deploy:
+      replicas: 0
+    environment:
+      CRAWL4AI_ALLOW_INTERNAL_URLS: 'false'
+      CRAWL4AI_API_TOKEN: ''
+    healthcheck:
+      interval: 30s
+      retries: 5
+      start_period: 1m0s
+      test:
+      - CMD-SHELL
+      - curl -fsS http://localhost:11235/health || exit 1
+      timeout: 10s
+    image: unclecode/crawl4ai:0.9.0
+    logging:
+      driver: json-file
+      options:
+        max-file: '3'
+        max-size: 10m
+    networks:
+      backend-network: null
+    pids_limit: 512
+    ports:
+    - mode: ingress
+      protocol: tcp
+      published: '63040'
+      target: 11235
+    read_only: true
+    restart: unless-stopped
+    security_opt:
+    - no-new-privileges:true
+    shm_size: '1073741824'
+    tmpfs:
+    - /tmp
+    - /var/lib/redis
+    - /var/lib/crawl4ai/outputs:mode=0700
+    - /home/appuser/.cache
   grafana:
     container_name: atlas-grafana
     depends_on:
@@ -1648,9 +1689,15 @@ services:
     deploy:
       replicas: 1
     environment:
+      CRAWL4AI_API_TOKEN: ''
+      CRAWL4AI_ENDPOINT: ''
+      CRAWL4AI_MAX_CHARS: '60000'
+      CRAWL4AI_TIMEOUT_SECONDS: '30'
+      FETCH_FULL_PAGE: 'false'
       LITELLM_API_KEY: ''
       LITELLM_BASE_URL: http://litellm:4000
       LITELLM_DEFAULT_MODEL: ollama/qwen3.6:latest
+      LOCAL_DEEP_RESEARCHER_FULL_PAGE_MODE: disabled
       LOCAL_DEEP_RESEARCHER_WORKERS: '3'
       MAX_WEB_RESEARCH_LOOPS: '3'
       SEARCH_API: searxng
@@ -1951,6 +1998,8 @@ services:
     deploy:
       replicas: 1
     environment:
+      CRAWL4AI_API_TOKEN: ''
+      CRAWL4AI_ENDPOINT: ''
       DB_POSTGRESDB_DATABASE: postgres
       DB_POSTGRESDB_HOST: supabase-db
       DB_POSTGRESDB_PASSWORD: password
@@ -2083,6 +2132,8 @@ services:
     deploy:
       replicas: 1
     environment:
+      CRAWL4AI_API_TOKEN: ''
+      CRAWL4AI_ENDPOINT: ''
       DB_POSTGRESDB_DATABASE: postgres
       DB_POSTGRESDB_HOST: supabase-db
       DB_POSTGRESDB_PASSWORD: password
@@ -2711,7 +2762,7 @@ services:
       replicas: 1
     environment:
       FORCE_OWNERSHIP: '1'
-      SEARXNG_BASE_URL: http://localhost:63043
+      SEARXNG_BASE_URL: http://localhost:63044
       SEARXNG_SECRET: ''
     healthcheck:
       interval: 30s
@@ -2736,7 +2787,7 @@ services:
     ports:
     - mode: ingress
       protocol: tcp
-      published: '63043'
+      published: '63044'
       target: 8080
     restart: unless-stopped
     volumes:

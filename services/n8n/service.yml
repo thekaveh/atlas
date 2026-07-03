@@ -132,12 +132,15 @@ runtime_adaptive:
     - doc_processor
     - lightrag
     - hermes
+    - crawl4ai
     environment_adaptation:
       STT_ENDPOINT: ${STT_ENDPOINT}
       TTS_ENDPOINT: ${TTS_ENDPOINT}
       DOCLING_ENDPOINT: ${DOCLING_ENDPOINT}
       LIGHTRAG_ENDPOINT: ${LIGHTRAG_ENDPOINT}
       LIGHTRAG_API_KEY: ${LIGHTRAG_API_KEY}
+      CRAWL4AI_ENDPOINT: ${CRAWL4AI_ENDPOINT}
+      CRAWL4AI_API_TOKEN: ${CRAWL4AI_API_TOKEN}
       # n8n + n8n-worker compose blocks inject these (services/n8n/
       # compose.yml lines ~75-77 / ~138-141). Declaring them here keeps
       # the auto-generated diagram and §N.x dependency tables in sync
@@ -181,3 +184,4 @@ data_flow:
     - tts-provider
     - searxng
     - lightrag
+    - crawl4ai

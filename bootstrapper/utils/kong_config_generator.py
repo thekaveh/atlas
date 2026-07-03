@@ -245,6 +245,10 @@ class KongConfigGenerator:
         if mlflow_service:
             services.append(mlflow_service)
 
+        crawl4ai_service = self.generate_crawl4ai_service()
+        if crawl4ai_service:
+            services.append(crawl4ai_service)
+
         spark_master_service = self.generate_spark_master_service()
         if spark_master_service:
             services.append(spark_master_service)
@@ -1265,6 +1269,33 @@ class KongConfigGenerator:
                     'strip_path': False,
                     'preserve_host': True,
                     'hosts': ['mlflow.localhost'],
+                }
+            ],
+            'plugins': [
+                {'name': 'cors'},
+                {'name': 'basic-auth'},
+                {'name': 'acl', 'config': {'allow': ['dashboard_user']}},
+            ],
+        }
+
+    def generate_crawl4ai_service(self) -> Optional[Dict[str, Any]]:
+        """Kong route for the Crawl4AI UI/API.
+
+        Kong adds the same local dashboard auth wrapper as Langfuse/MLflow.
+        Crawl4AI's own bearer-token requirement remains in force for every
+        endpoint except /health.
+        """
+        if self.get_env_value('CRAWL4AI_SOURCE') != 'container':
+            return None
+        return {
+            'name': 'crawl4ai',
+            'url': 'http://crawl4ai:11235/',
+            'routes': [
+                {
+                    'name': 'crawl4ai-all',
+                    'strip_path': False,
+                    'preserve_host': True,
+                    'hosts': ['crawl4ai.localhost'],
                 }
             ],
             'plugins': [

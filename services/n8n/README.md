@@ -101,6 +101,7 @@ When `LIGHTRAG_SOURCE != disabled`, the env vars `LIGHTRAG_ENDPOINT` and `LIGHTR
 | supabase | data |
 | weaviate | data |
 | litellm | llm |
+| crawl4ai | media |
 | doc-processor | media |
 | searxng | media |
 | stt-provider | media |

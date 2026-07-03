@@ -1,0 +1,38 @@
+# services/crawl4ai/compose.yml — Crawl4AI extraction API
+services:
+  crawl4ai:
+    image: ${CRAWL4AI_IMAGE:-unclecode/crawl4ai:0.9.0}
+    container_name: ${PROJECT_NAME}-crawl4ai
+    restart: unless-stopped
+    deploy:
+      replicas: ${CRAWL4AI_SCALE:-0}
+    shm_size: "1gb"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 512
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/lib/redis
+      - /var/lib/crawl4ai/outputs:mode=0700
+      - /home/appuser/.cache
+    environment:
+      CRAWL4AI_API_TOKEN: ${CRAWL4AI_API_TOKEN}
+      CRAWL4AI_ALLOW_INTERNAL_URLS: ${CRAWL4AI_ALLOW_INTERNAL_URLS:-false}
+    ports:
+      - "${HOST_BIND_IP:-}${CRAWL4AI_PORT}:11235"
+    healthcheck:
+      test: "curl -fsS http://localhost:11235/health || exit 1"
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    logging:
+      driver: json-file
+      options:
+        max-size: "${LOG_MAX_SIZE:-10m}"
+        max-file: "${LOG_MAX_FILE:-3}"
+    networks:
+      - backend-network

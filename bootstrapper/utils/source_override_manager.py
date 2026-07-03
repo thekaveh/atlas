@@ -32,6 +32,7 @@ class SourceOverrideManager:
             'minio_source': 'MINIO_SOURCE',
             'n8n_source': 'N8N_SOURCE',
             'searxng_source': 'SEARXNG_SOURCE',
+            'crawl4ai_source': 'CRAWL4AI_SOURCE',
             'mcp_servers_source': 'MCP_SERVERS_SOURCE',
             'langfuse_source': 'LANGFUSE_SOURCE',
             # Langfuse is a multi-container family (init + web + worker +

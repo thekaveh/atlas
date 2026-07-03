@@ -28,6 +28,7 @@ This matrix lists every `*_SOURCE` variable currently exposed in `.env.example`.
 | `MINIO_SOURCE` | `container` | `container`, `disabled` | User-facing | S3-compatible artifact-tier object storage. |
 | `N8N_SOURCE` | `container` | `container`, `disabled` | User-facing | Workflow automation. |
 | `SEARXNG_SOURCE` | `container` | `container`, `disabled` | User-facing | Privacy metasearch. |
+| `CRAWL4AI_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Browser-backed extraction API for Local Deep Researcher and n8n HTTP workflows. Token-protected and disabled by default. |
 | `MCP_SERVERS_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Curated MCP package exposing read-oriented Postgres, Neo4j, and SearXNG tools. Hard-gated on Neo4j and SearXNG. |
 | `LANGFUSE_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | LLM trace, prompt, eval, latency, and cost observability for LiteLLM-routed calls. Hard-gated on MinIO. |
 | `MLFLOW_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Experiment tracking and MinIO-backed artifacts for the ML Engineering track. Hard-gated on MinIO. |
@@ -650,11 +651,37 @@ SEARXNG_SOURCE=container          # REQUIRED
 - **Cons**: Tool output is untrusted and may include sensitive local data; clients need explicit operator consent and credentials.
 - **Requirements**: `NEO4J_GRAPH_DB_SOURCE=container` and `SEARXNG_SOURCE=container`.
 
-### 4.17 LANGFUSE_SOURCE
+### 4.17 CRAWL4AI_SOURCE
+
+Crawl4AI is Atlas' optional browser-backed extraction API. When enabled, Atlas runs the upstream Docker server on port 11235, publishes `crawl4ai.localhost`, generates `CRAWL4AI_API_TOKEN`, and exposes `CRAWL4AI_ENDPOINT=http://crawl4ai:11235` to Local Deep Researcher and n8n.
+
+#### 4.17.1 `disabled` (Default)
+```bash
+CRAWL4AI_SOURCE=disabled
+LOCAL_DEEP_RESEARCHER_FULL_PAGE_MODE=disabled
+```
+- **Use case**: Default safe startup with no browser crawler.
+- **Pros**: Zero footprint; no browser sandbox, shared memory, or crawling surface.
+- **Cons**: Local Deep Researcher uses snippets unless `LOCAL_DEEP_RESEARCHER_FULL_PAGE_MODE=builtin` is selected.
+- **Requirements**: None.
+
+#### 4.17.2 `container`
+```bash
+CRAWL4AI_SOURCE=container
+LOCAL_DEEP_RESEARCHER_FULL_PAGE_MODE=crawl4ai  # optional consumer mode
+CRAWL4AI_API_TOKEN=...                         # auto-generated on first bootstrap
+```
+- **Use case**: Render JavaScript-heavy pages and return markdown for research or ingestion workflows.
+- **Pros**: Kong-aliased UI/API at `crawl4ai.localhost`, bearer-token protected API, n8n HTTP Request compatibility, Local Deep Researcher full-page adapter.
+- **Cons**: Adds a Playwright/Chromium-based container; crawling arbitrary internal URLs remains disabled unless `CRAWL4AI_ALLOW_INTERNAL_URLS=true` is deliberately set.
+- **Containers**: `crawl4ai`.
+- **Requirements**: None for the service itself. `LOCAL_DEEP_RESEARCHER_FULL_PAGE_MODE=crawl4ai` requires `CRAWL4AI_SOURCE=container` and fails early otherwise.
+
+### 4.18 LANGFUSE_SOURCE
 
 Langfuse is Atlas' optional LLM observability surface. When enabled, Atlas runs Langfuse web, worker, and ClickHouse containers; provisions a dedicated Supabase Postgres database plus Langfuse object-store credentials; and wires LiteLLM with Langfuse tracing keys so OpenAI-compatible requests through LiteLLM produce traces, latency, and cost records. It appears in the AI and ML tracks (`gen-ai-rag`, `gen-ai-eng`, `gen-ai-creative`, `ml-eng`, `all`) and stays out of the data-engineering track unless a future data-quality/eval workflow needs it directly.
 
-#### 4.17.1 `disabled` (Default)
+#### 4.18.1 `disabled` (Default)
 ```bash
 LANGFUSE_SOURCE=disabled
 ```
@@ -663,7 +690,7 @@ LANGFUSE_SOURCE=disabled
 - **Cons**: LiteLLM requests are not captured in Langfuse.
 - **Requirements**: None.
 
-#### 4.17.2 `container`
+#### 4.18.2 `container`
 ```bash
 LANGFUSE_SOURCE=container
 MINIO_SOURCE=container       # REQUIRED — Langfuse uses S3-compatible blob storage
@@ -676,11 +703,11 @@ LANGFUSE_SECRET_KEY=...      # auto-generated on first bootstrap
 - **Containers**: `langfuse-init` (one-shot), `langfuse-web`, `langfuse-worker`, `langfuse-clickhouse`.
 - **Requirements**: Supabase Postgres and Redis are always-on; `MINIO_SOURCE=container` is required.
 
-### 4.18 MLFLOW_SOURCE
+### 4.19 MLFLOW_SOURCE
 
 MLflow is Atlas' optional experiment tracking and artifact registry surface for the ML Engineering track. When enabled, Atlas runs a tracking server backed by a dedicated Supabase Postgres database and a scoped MinIO artifact bucket. JupyterHub receives `MLFLOW_TRACKING_URI=http://mlflow:5000` so notebooks can log runs, metrics, parameters, and artifacts without direct MinIO credentials.
 
-#### 4.18.1 `disabled` (Default)
+#### 4.19.1 `disabled` (Default)
 ```bash
 MLFLOW_SOURCE=disabled
 ```
@@ -689,7 +716,7 @@ MLFLOW_SOURCE=disabled
 - **Cons**: Notebook experiments remain local to the notebook session unless users configure an external tracker.
 - **Requirements**: None.
 
-#### 4.18.2 `container`
+#### 4.19.2 `container`
 ```bash
 MLFLOW_SOURCE=container
 MINIO_SOURCE=container       # REQUIRED — MLflow stores run artifacts in MinIO
