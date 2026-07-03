@@ -1,0 +1,64 @@
+# services/loki/service.yml — Grafana Loki local log store
+name: loki
+label: "Loki (queryable log store)"
+category: infra
+docs: services/loki/README.md
+
+containers:
+  - loki
+
+images:
+  - var: LOKI_IMAGE
+    default: "grafana/loki:3.7.0"
+    container: loki
+
+sources:
+  var: LOKI_SOURCE
+  default: disabled
+  options:
+    - id: container
+      label: "Container (local log store)"
+    - id: disabled
+      label: "Disabled"
+
+env:
+  - name: LOKI_SOURCE
+    default: disabled
+  - name: LOKI_SCALE
+    auto_managed: true
+  - name: LOKI_ENDPOINT
+    auto_managed: true
+    description: "Internal Loki API endpoint consumed by Grafana."
+  - name: LOKI_RETENTION_PERIOD
+    default: "24h"
+    description: "Short local retention period for Loki compactor-managed log deletion."
+
+depends_on:
+  required:
+    - kong
+    - ray
+  optional: []
+
+rows:
+  - display_name: "Loki"
+    source_var: LOKI_SOURCE
+    scale_var: LOKI_SCALE
+    description: "Grafana-native log store; log shipping remains a follow-up."
+
+runtime_sc:
+  loki:
+    container:
+      scale: 1
+      environment:
+        LOKI_ENDPOINT: http://loki:3100
+      deploy: {}
+      extra_hosts: []
+    disabled:
+      scale: 0
+      environment:
+        LOKI_ENDPOINT: ''
+      deploy: {}
+      extra_hosts: []
+
+data_flow:
+  calls: []

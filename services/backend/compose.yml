@@ -79,6 +79,14 @@ services:
       # LightRAG — graph-augmented RAG endpoint (empty when LIGHTRAG_SOURCE=disabled)
       LIGHTRAG_ENDPOINT: ${LIGHTRAG_ENDPOINT:-}
       LIGHTRAG_API_KEY: ${LIGHTRAG_API_KEY:-}
+      # OpenTelemetry tracing — no-op unless ATLAS_OTEL_ENABLED=true and the
+      # collector endpoint is populated by the bootstrapper.
+      ATLAS_OTEL_ENABLED: ${ATLAS_OTEL_ENABLED:-false}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_COLLECTOR_OTLP_HTTP_ENDPOINT:-}
+      OTEL_SERVICE_NAME: backend
+      OTEL_TRACES_EXPORTER: otlp
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_PYTHON_FASTAPI_EXCLUDED_URLS: /metrics,/health
       # Ray — distributed compute (empty when RAY_SOURCE=disabled). The
       # runtime_adaptive declaration in service.yml writes .env only; this
       # block is the actual injection point (dual-write rule) — without

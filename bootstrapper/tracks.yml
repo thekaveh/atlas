@@ -27,6 +27,7 @@ tracks:
     description: Retrieval-augmented generation — vectors, graph, reranker, doc ingest, web search.
     services: [open-webui, supavisor, weaviate, neo4j, lightrag, doc-processor,
                tei-reranker, searxng, mcp-servers, langfuse,
+               otel-collector, tempo, loki,
                local-deep-researcher, crawl4ai, tika, celery]
 
   - key: gen-ai-eng
@@ -34,19 +35,21 @@ tracks:
     description: Agentic apps + workflows with voice, vision, and search.
     services: [open-webui, supavisor, n8n, hermes, openclaw, jupyterhub, comfyui, neo4j,
                stt-provider, tts-provider, searxng, mcp-servers,
-               langfuse, local-deep-researcher, tika, celery]
+               langfuse, otel-collector, tempo, loki,
+               local-deep-researcher, tika, celery]
 
   - key: gen-ai-creative
     display_name: Generative AI · Creative
     description: Multimodal generation — image, voice, vision, doc.
     services: [open-webui, comfyui, stt-provider, tts-provider,
-               multi2vec-clip, doc-processor, langfuse]
+               multi2vec-clip, doc-processor, langfuse,
+               otel-collector, tempo, loki]
 
   - key: ml-eng
     display_name: ML Engineering
     description: Distributed training/inference + notebooks + experiment storage.
     services: [spark, ray, jupyterhub, zeppelin, open-webui, supavisor, minio, tei-reranker,
-               langfuse, mlflow]
+               langfuse, otel-collector, tempo, loki, mlflow]
 
   - key: data-eng
     display_name: Data Engineering

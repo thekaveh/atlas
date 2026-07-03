@@ -1,0 +1,30 @@
+# services/tempo/compose.yml — Grafana Tempo
+services:
+  tempo:
+    image: ${TEMPO_IMAGE:-grafana/tempo:3.0.0}
+    container_name: ${PROJECT_NAME}-tempo
+    restart: unless-stopped
+    deploy:
+      replicas: ${TEMPO_SCALE:-0}
+    command: ["-config.file=/etc/tempo/tempo.yaml", "-config.expand-env=true"]
+    volumes:
+      - ./config/tempo.yaml:/etc/tempo/tempo.yaml:ro
+      - tempo-data:/var/tempo
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3200/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "${LOG_MAX_SIZE:-10m}"
+        max-file: "${LOG_MAX_FILE:-3}"
+    networks:
+      - backend-network
+
+volumes:
+  tempo-data:
+    name: ${PROJECT_NAME}-tempo-data
+    driver: local

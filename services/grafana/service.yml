@@ -87,3 +87,5 @@ runtime_sc:
 data_flow:
   calls:
     - prometheus
+    - tempo
+    - loki

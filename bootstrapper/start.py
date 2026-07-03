@@ -2144,6 +2144,15 @@ class AtlasStarter:
 @click.option('--langfuse-source',
               type=click.Choice(['container', 'disabled'], case_sensitive=False),
               help='Override LANGFUSE_SOURCE — LLM traces and prompt/eval observability.')
+@click.option('--otel-collector-source',
+              type=click.Choice(['container', 'disabled'], case_sensitive=False),
+              help='Override OTEL_COLLECTOR_SOURCE — internal OpenTelemetry ingest.')
+@click.option('--tempo-source',
+              type=click.Choice(['container', 'disabled'], case_sensitive=False),
+              help='Override TEMPO_SOURCE — local trace store for Grafana.')
+@click.option('--loki-source',
+              type=click.Choice(['container', 'disabled'], case_sensitive=False),
+              help='Override LOKI_SOURCE — local log store for Grafana.')
 @click.option('--spark-source',
               type=click.Choice(['container', 'disabled'], case_sensitive=False),
               help='Override SPARK_SOURCE — standalone Spark cluster (master + workers + history).')
@@ -2200,6 +2209,7 @@ def main(project_name, base_port, track, list_tracks, cold, setup_hosts, skip_ho
          ray_source, ray_worker_count,
          prometheus_source, prometheus_retention_days, grafana_source,
          langfuse_source,
+         otel_collector_source, tempo_source, loki_source,
          spark_source, spark_workers,
          zeppelin_source,
          jenkins_source,
@@ -2268,6 +2278,9 @@ def main(project_name, base_port, track, list_tracks, cold, setup_hosts, skip_ho
                     'prometheus_source': prometheus_source,
                     'grafana_source': grafana_source,
                     'langfuse_source': langfuse_source,
+                    'otel_collector_source': otel_collector_source,
+                    'tempo_source': tempo_source,
+                    'loki_source': loki_source,
                     'spark_source': spark_source,
                     'zeppelin_source': zeppelin_source,
                     'jenkins_source': jenkins_source,
@@ -2485,6 +2498,9 @@ def main(project_name, base_port, track, list_tracks, cold, setup_hosts, skip_ho
             'prometheus_source': prometheus_source,
             'grafana_source': grafana_source,
             'langfuse_source': langfuse_source,
+            'otel_collector_source': otel_collector_source,
+            'tempo_source': tempo_source,
+            'loki_source': loki_source,
             'spark_source': spark_source,
             'zeppelin_source': zeppelin_source,
             'jenkins_source': jenkins_source,

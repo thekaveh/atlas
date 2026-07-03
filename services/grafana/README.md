@@ -63,7 +63,9 @@ All dashboards reference the `Prometheus` datasource by name (UID = `Prometheus`
 
 | Service | Category |
 |---|---|
+| loki | infra |
 | prometheus ↔ | infra |
+| tempo | infra |
 
 ### 5.2 Current — Downstream (services that call this)
 

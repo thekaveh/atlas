@@ -33,6 +33,9 @@ include:
   - services/prometheus/compose.yml
   - services/grafana/compose.yml
   - services/langfuse/compose.yml
+  - services/tempo/compose.yml
+  - services/loki/compose.yml
+  - services/otel-collector/compose.yml
 
   # LLM tier (cloud-providers + tts-provider are virtual; no compose fragment)
   - services/litellm/compose.yml

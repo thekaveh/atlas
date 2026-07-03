@@ -1,0 +1,77 @@
+# services/otel-collector/service.yml — OpenTelemetry Collector telemetry ingest
+name: otel-collector
+label: "OpenTelemetry Collector (telemetry ingest)"
+category: infra
+docs: services/otel-collector/README.md
+
+containers:
+  - otel-collector
+
+images:
+  - var: OTEL_COLLECTOR_IMAGE
+    default: "otel/opentelemetry-collector-contrib:0.154.0"
+    container: otel-collector
+
+sources:
+  var: OTEL_COLLECTOR_SOURCE
+  default: disabled
+  options:
+    - id: container
+      label: "Container (OTLP ingest)"
+    - id: disabled
+      label: "Disabled"
+
+env:
+  - name: OTEL_COLLECTOR_SOURCE
+    default: disabled
+  - name: OTEL_COLLECTOR_SCALE
+    auto_managed: true
+  - name: OTEL_COLLECTOR_ENDPOINT
+    auto_managed: true
+    description: "Preferred internal OTLP HTTP endpoint for Atlas services."
+  - name: OTEL_COLLECTOR_OTLP_HTTP_ENDPOINT
+    auto_managed: true
+    description: "Internal OTLP HTTP endpoint (`http://otel-collector:4318`) when enabled."
+  - name: OTEL_COLLECTOR_OTLP_GRPC_ENDPOINT
+    auto_managed: true
+    description: "Internal OTLP gRPC endpoint (`http://otel-collector:4317`) when enabled."
+  - name: ATLAS_OTEL_ENABLED
+    auto_managed: true
+    description: "Boolean string consumed by backend and LiteLLM tracing toggles."
+
+depends_on:
+  required:
+    - tempo
+  optional:
+    - loki
+
+rows:
+  - display_name: "OpenTelemetry Collector"
+    source_var: OTEL_COLLECTOR_SOURCE
+    scale_var: OTEL_COLLECTOR_SCALE
+    description: "Vendor-neutral telemetry ingest for traces now and logs later."
+
+runtime_sc:
+  otel-collector:
+    container:
+      scale: 1
+      environment:
+        OTEL_COLLECTOR_ENDPOINT: http://otel-collector:4318
+        OTEL_COLLECTOR_OTLP_HTTP_ENDPOINT: http://otel-collector:4318
+        OTEL_COLLECTOR_OTLP_GRPC_ENDPOINT: http://otel-collector:4317
+        ATLAS_OTEL_ENABLED: "true"
+      deploy: {}
+      extra_hosts: []
+    disabled:
+      scale: 0
+      environment:
+        OTEL_COLLECTOR_ENDPOINT: ''
+        OTEL_COLLECTOR_OTLP_HTTP_ENDPOINT: ''
+        OTEL_COLLECTOR_OTLP_GRPC_ENDPOINT: ''
+        ATLAS_OTEL_ENABLED: "false"
+      deploy: {}
+      extra_hosts: []
+
+data_flow:
+  calls:
+    - tempo

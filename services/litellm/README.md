@@ -284,6 +284,7 @@ curl -sX POST http://localhost:${LITELLM_PORT}/v1/chat/completions \
 
 | Service | Category |
 |---|---|
+| otel-collector | infra |
 | redis | data |
 | supabase | data |
 | cloud-providers | llm |

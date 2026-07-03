@@ -1,0 +1,19 @@
+apiVersion: 1
+
+datasources:
+  - name: Tempo
+    uid: Tempo
+    type: tempo
+    access: proxy
+    url: ${TEMPO_ENDPOINT}
+    editable: false
+    jsonData:
+      httpMethod: GET
+      serviceMap:
+        datasourceUid: Prometheus
+  - name: Loki
+    uid: Loki
+    type: loki
+    access: proxy
+    url: ${LOKI_ENDPOINT}
+    editable: false

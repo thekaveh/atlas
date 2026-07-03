@@ -68,6 +68,9 @@ class SourceOverrideManager:
             'ray_head_source': 'RAY_SOURCE',
             'prometheus_source': 'PROMETHEUS_SOURCE',
             'grafana_source': 'GRAFANA_SOURCE',
+            'otel_collector_source': 'OTEL_COLLECTOR_SOURCE',
+            'tempo_source': 'TEMPO_SOURCE',
+            'loki_source': 'LOKI_SOURCE',
             'spark_source': 'SPARK_SOURCE',
             # Spark's runtime_sc carries four containers (spark-master +
             # spark-worker + spark-history + spark-connect) so

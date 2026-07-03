@@ -130,6 +130,16 @@ services:
       LANGFUSE_BASE_URL: ${LANGFUSE_ENDPOINT:-}
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
       LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      # OpenTelemetry v2 traces — opt-in through ATLAS_OTEL_ENABLED and sent
+      # to the internal OTel Collector. Prometheus metrics and Langfuse
+      # callbacks remain independent.
+      LITELLM_OTEL_V2: ${ATLAS_OTEL_ENABLED:-false}
+      OTEL_EXPORTER: otlp_http
+      OTEL_ENDPOINT: ${OTEL_COLLECTOR_OTLP_HTTP_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_COLLECTOR_OTLP_HTTP_ENDPOINT:-}
+      OTEL_SERVICE_NAME: litellm
+      OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT: no_content
+      OTEL_PYTHON_FASTAPI_EXCLUDED_URLS: /health,/metrics,/ui
       # Prometheus multi-worker dir — LiteLLM emits metrics from each
       # uvicorn worker; the aggregator needs a shared tmpfs to merge
       # per-worker counters before /metrics returns the union. Upstream
