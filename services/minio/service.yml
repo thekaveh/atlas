@@ -1,7 +1,8 @@
 # services/minio/service.yml — MinIO (S3-compatible artifact storage)
 #
 # Artifact-tier object storage complementing Supabase Storage. Five
-# pre-provisioned buckets (comfyui, backend, n8n, jupyter, docling), each
+# pre-provisioned buckets (comfyui, backend, n8n, jupyter, docling, Iceberg
+# lakehouse), each
 # with its own scoped service-account credential. minio-init runs `mc`
 # commands idempotently to create buckets + IAM policies on every start.
 name: minio
@@ -124,6 +125,22 @@ env:
     default: ""
     secret: true
     description: "Auto-generated scoped MinIO secret key for the docling bucket."
+  - name: MINIO_BUCKET_ICEBERG_LAKEHOUSE
+    default: lakehouse
+  - name: MINIO_BUCKET_ICEBERG_JARS
+    default: jars
+  - name: MINIO_BUCKET_ICEBERG_CHECKPOINTS
+    default: checkpoints
+  - name: MINIO_BUCKET_ICEBERG_LANDING
+    default: landing
+  - name: MINIO_ICEBERG_ACCESS_KEY
+    default: ""
+    secret: true
+    description: "Auto-generated scoped MinIO access key for the Iceberg lakehouse buckets."
+  - name: MINIO_ICEBERG_SECRET_KEY
+    default: ""
+    secret: true
+    description: "Auto-generated scoped MinIO secret key for the Iceberg lakehouse buckets."
 
 depends_on:
   # ORDERING-ONLY: the compose fragment has no supabase depends_on and

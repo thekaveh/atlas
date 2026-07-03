@@ -71,6 +71,10 @@ EXPECTED_DISCOVERED = frozenset({
     # SourceOverrideManager.source_mapping (same pattern as Ray's
     # ray_head_source / Spark's spark_master_source).
     "Apache Airflow",
+    # Iceberg REST Catalog (added 2026-07-03) — durable lakehouse catalog
+    # for the data-eng track. Single-container family; wired via
+    # 'iceberg_rest_source' in source_mapping.
+    "Apache Iceberg REST Catalog",
     # TEI Reranker (added 2026-06-05) — GPU-accelerated reranker inference.
     # Single-container family; wired via 'tei_reranker_source' in
     # source_mapping with container-cpu / container-gpu / localhost / disabled.
@@ -196,6 +200,7 @@ def test_source_mapping_includes_app_service_flags() -> None:
         "spark_source",
         "zeppelin_source",
         "airflow_source",
+        "iceberg_rest_source",
     ):
         assert cli_key in mgr.source_mapping, (
             f"{cli_key} missing from SourceOverrideManager.source_mapping — "

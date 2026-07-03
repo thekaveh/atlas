@@ -40,7 +40,7 @@ def _cli_safe_token_urlsafe(nbytes: int) -> str:
 class KeyGenerator:
     """Generates and manages encryption keys for Atlas services."""
 
-    MINIO_CONSUMERS = ("COMFYUI", "BACKEND", "N8N", "JUPYTER", "DOCLING")
+    MINIO_CONSUMERS = ("COMFYUI", "BACKEND", "N8N", "JUPYTER", "DOCLING", "ICEBERG")
 
     # `.env.example` ships placeholders for credential vars whose canonical
     # generators rotate-when-absent only. Treating these literal placeholders
@@ -621,6 +621,10 @@ class KeyGenerator:
         """Postgres role password for the dedicated airflow role/database."""
         return _cli_safe_token_urlsafe(24)
 
+    def generate_iceberg_db_password(self) -> str:
+        """Postgres role password for the dedicated Iceberg catalog database."""
+        return _cli_safe_token_urlsafe(24)
+
     def generate_and_update_airflow_fernet_key(self, force: bool = False) -> bool:
         """Generate and update AIRFLOW_FERNET_KEY in .env file.
 
@@ -683,6 +687,18 @@ class KeyGenerator:
         if not force and current:
             return True
         return self.update_env_key('AIRFLOW_DB_PASSWORD', self.generate_airflow_db_password())
+
+    def generate_and_update_iceberg_db_password(self, force: bool = False) -> bool:
+        """Generate and update ICEBERG_DB_PASSWORD in .env.
+
+        The iceberg-rest init container re-applies the role password on each
+        run, so rotations are recoverable after the next ./start.sh. Preserve
+        existing values by default to avoid surprising a running catalog.
+        """
+        current = self.get_current_env_value('ICEBERG_DB_PASSWORD')
+        if not force and current:
+            return True
+        return self.update_env_key('ICEBERG_DB_PASSWORD', self.generate_iceberg_db_password())
 
     def generate_missing_keys(self, force_regenerate: bool = False) -> Dict[str, bool]:
         """
@@ -751,6 +767,7 @@ class KeyGenerator:
         results['AIRFLOW_SECRET_KEY'] = self.generate_and_update_airflow_secret_key(force=False)
         results['AIRFLOW_ADMIN_PASSWORD'] = self.generate_and_update_airflow_admin_password(force=False)
         results['AIRFLOW_DB_PASSWORD'] = self.generate_and_update_airflow_db_password(force=False)
+        results['ICEBERG_DB_PASSWORD'] = self.generate_and_update_iceberg_db_password(force=False)
 
         # Infrastructure password placeholders shipped in `.env.example`.
         # Each rotator upgrades the well-known default value only — see

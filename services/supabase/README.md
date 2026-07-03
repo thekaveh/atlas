@@ -256,6 +256,7 @@ _No upstream calls._
 | backup | infra |
 | kong | infra |
 | prometheus | infra |
+| iceberg-rest | data |
 | litellm | llm |
 | comfyui | media |
 | airflow | agents |

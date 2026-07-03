@@ -189,6 +189,10 @@ class ServiceConfig:
         airflow_config = self._generate_airflow_config()
         env_vars.update(airflow_config)
 
+        # Generate Iceberg REST catalog configuration (REST + DB init scales)
+        iceberg_config = self._generate_iceberg_rest_config()
+        env_vars.update(iceberg_config)
+
         # Generate observability bundle (Prometheus family + cross-manifest
         # sidecar exporter scales for postgres-exporter and redis-exporter).
         prometheus_source = self.service_sources.get("PROMETHEUS_SOURCE", "disabled")
@@ -887,6 +891,34 @@ class ServiceConfig:
             "AIRFLOW_SCHEDULER_SCALE": "1",
             "AIRFLOW_DAG_PROCESSOR_SCALE": "1",
             "AIRFLOW_INIT_SCALE": "1",
+        }
+
+    def _generate_iceberg_rest_config(self) -> dict:
+        """Generate ICEBERG_REST_*_SCALE based on ICEBERG_REST_SOURCE.
+
+        The REST service needs MinIO buckets/service-account provisioning and
+        Supabase Postgres. Supabase is locked always-on; MinIO is configurable,
+        so fail early when the catalog is enabled without object storage.
+        """
+        source_value = self.service_sources.get("ICEBERG_REST_SOURCE", "disabled")
+        if source_value == "disabled":
+            return {
+                "ICEBERG_REST_SCALE": "0",
+                "ICEBERG_REST_INIT_SCALE": "0",
+            }
+
+        minio_source = self.service_sources.get("MINIO_SOURCE", "disabled")
+        if minio_source == "disabled":
+            raise ValueError(
+                "Iceberg REST Catalog requires MinIO to be enabled. "
+                "Either pass --minio-source container alongside "
+                "--iceberg-rest-source container, or set "
+                "--iceberg-rest-source disabled."
+            )
+
+        return {
+            "ICEBERG_REST_SCALE": "1",
+            "ICEBERG_REST_INIT_SCALE": "1",
         }
 
     def _generate_prometheus_config(self, source_value: str, shared_env: dict) -> dict:
