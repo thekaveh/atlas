@@ -36,7 +36,7 @@ sources:
   default: container
   options:
     - id: container
-      label: "Container (in-stack MinIO)"
+      label: "Container (S3-compatible object storage)"
     - id: disabled
       label: "Disabled"
 

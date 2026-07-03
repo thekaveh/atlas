@@ -537,7 +537,7 @@ def _build_steps_and_rows(
             return [
                 PromptOption(
                     value=opt,
-                    label=opt,
+                    label=_svc.option_labels.get(opt, opt),
                     hint=_option_hint(opt),
                     badges=_badges_for_option(opt, recommended=(opt == _svc.current_value)),
                     secondary_number=(

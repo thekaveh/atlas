@@ -37,6 +37,7 @@ class ServiceInfo:
     display_name: str
     description: str
     options: List[str]
+    option_labels: dict[str, str]
     current_value: str
     env_var_name: str
 
@@ -51,6 +52,7 @@ class ServiceDiscovery:
         # Get the set of Click parameter keys that have CLI flags
         override_manager = SourceOverrideManager(config_parser)
         self._cli_param_keys = set(override_manager.source_mapping.keys())
+        self._source_option_labels = self._load_source_option_labels()
 
     def discover(self) -> List[ServiceInfo]:
         """
@@ -119,6 +121,11 @@ class ServiceDiscovery:
             env_var_name = target_source_var
             current_value = env_vars.get(env_var_name, '')
             options = list(config.keys())
+            manifest_labels = self._source_option_labels.get(target_source_var, {})
+            option_labels = {
+                opt: manifest_labels.get(opt, opt)
+                for opt in options
+            }
 
             description = ""
             for r in topology.rows:
@@ -131,11 +138,26 @@ class ServiceDiscovery:
                 display_name=self._get_display_name(key),
                 description=description,
                 options=options,
+                option_labels=option_labels,
                 current_value=current_value,
                 env_var_name=env_var_name,
             ))
 
         return services
+
+    def _load_source_option_labels(self) -> dict[str, dict[str, str]]:
+        """Map SOURCE env var -> option id -> wizard-facing label."""
+        from services.manifests import load_manifests
+
+        labels: dict[str, dict[str, str]] = {}
+        for manifest in load_manifests(self.config_parser.root_dir / "services"):
+            if manifest.sources is None:
+                continue
+            labels[manifest.sources.var] = {
+                opt.id: opt.label
+                for opt in manifest.sources.options
+            }
+        return labels
 
     @staticmethod
     def _has_source_options(config: dict) -> bool:

@@ -33,7 +33,7 @@ Current-state evidence inventory:
   - `gen-ai-eng`: `open-webui`, `n8n`, `hermes`, `openclaw`, `jupyterhub`, `comfyui`, `stt-provider`, `tts-provider`, `searxng`, `local-deep-researcher`
   - `gen-ai-creative`: `open-webui`, `comfyui`, `stt-provider`, `tts-provider`, `multi2vec-clip`, `doc-processor`
   - `ml-eng`: `spark`, `ray`, `jupyterhub`, `zeppelin`, `open-webui`, `minio`, `tei-reranker`
-  - `data-eng`: `spark`, `airflow`, `jupyterhub`, `zeppelin`, `minio`, `weaviate`, `neo4j`
+  - `data-eng`: `spark`, `airflow`, `jupyterhub`, `zeppelin`, `minio`, `iceberg-rest`, `weaviate`, `neo4j`
   - `all`: no filtering; every configurable service remains available
 - Track-context note for later analysis: the registry already expresses broad AI, RAG, creative, ML, and data personas, but only as service-selection profiles; later tasks should assess whether those profiles feel productized enough for onboarding and roadmap positioning.
 

@@ -17,7 +17,7 @@ sources:
   default: container
   options:
     - id: container
-      label: "Container"
+      label: "Container (lakehouse + DS/ML notebooks)"
     - id: disabled
       label: "Disabled"
 
