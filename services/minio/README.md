@@ -186,6 +186,7 @@ _No upstream calls._
 | iceberg-rest | data |
 | spark | data |
 | airflow | agents |
+| jupyterhub | apps |
 | zeppelin | apps |
 
 ### 10.3 Architecture diagram
