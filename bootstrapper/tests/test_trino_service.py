@@ -197,10 +197,18 @@ def test_trino_kong_route_and_docs_contract() -> None:
         "TRINO_SOURCE=disabled",
         "trino.localhost",
         "lakehouse.bronze",
-        "%jdbc(trino)",
+        "%trino",
         "http://trino:8080",
+        "jdbc:trino://trino:8080/lakehouse",
+        "io.trino.jdbc.TrinoDriver",
+        "io.trino:trino-jdbc:482",
+        "trino.dbapi.connect",
+        "CREATE TABLE lakehouse.gold.atlas_trino_ctas_smoke",
+        "TRINO_PORT",
         "Iceberg REST",
         "MinIO",
         "trinodb/trino:482",
     ):
         assert expected in readme
+    assert "For a future seeded interpreter" not in readme
+    assert "Seed a Zeppelin JDBC interpreter" not in readme

@@ -49,14 +49,58 @@ SHOW TABLES FROM lakehouse.bronze;
 SELECT * FROM lakehouse.bronze.<table_name> LIMIT 10;
 ```
 
-Zeppelin can use its JDBC interpreter with:
+Atlas seeds a Zeppelin JDBC interpreter when both `ZEPPELIN_SOURCE=container` and `TRINO_SOURCE=container`. Use the named Zeppelin 0.12.1 prefix `%trino`:
 
 ```text
-%jdbc(trino)
+%trino
 SHOW TABLES FROM lakehouse.bronze;
 ```
 
-For a future seeded interpreter, use JDBC URL `jdbc:trino://trino:8080/lakehouse` and driver class `io.trino.jdbc.TrinoDriver`.
+The seeded profile uses JDBC URL `jdbc:trino://trino:8080/lakehouse`, driver class `io.trino.jdbc.TrinoDriver`, and Maven dependency `io.trino:trino-jdbc:482`. Zeppelin's generic JDBC docs still describe `%jdbc(prefix)` for multiple connections; Atlas uses the named interpreter prefix because Zeppelin 0.12.1 created JDBC profiles run as `%trino` in this stack.
+
+Python clients inside the Docker network can use the official `trino` DB-API package:
+
+```python
+import trino
+
+conn = trino.dbapi.connect(
+    host="trino",
+    port=8080,
+    user="atlas",
+    catalog="lakehouse",
+    schema="gold",
+)
+cur = conn.cursor()
+cur.execute("SHOW SCHEMAS FROM lakehouse")
+print(cur.fetchall())
+```
+
+Host-side Python clients use the assigned host port:
+
+```python
+import os
+import trino
+
+conn = trino.dbapi.connect(
+    host="localhost",
+    port=int(os.environ["TRINO_PORT"]),
+    user="atlas",
+    catalog="lakehouse",
+    schema="gold",
+)
+```
+
+Live CTAS smoke after the lakehouse path is up:
+
+```sql
+CREATE SCHEMA IF NOT EXISTS lakehouse.gold;
+CREATE TABLE lakehouse.gold.atlas_trino_ctas_smoke AS
+SELECT 1 AS id, 'atlas' AS note;
+SELECT * FROM lakehouse.gold.atlas_trino_ctas_smoke;
+DROP TABLE lakehouse.gold.atlas_trino_ctas_smoke;
+```
+
+Atlas does not create bronze/silver/gold namespaces at stack startup; data-eng-lab or the operator owns those namespaces. The `CREATE SCHEMA` line is part of the live smoke only.
 
 ## 5. Dependencies & Integrations
 
@@ -71,7 +115,9 @@ For a future seeded interpreter, use JDBC URL `jdbc:trino://trino:8080/lakehouse
 
 ### 5.2 Current — Downstream (services that call this)
 
-_No downstream consumers._
+| Service | Category |
+|---|---|
+| zeppelin | apps |
 
 ### 5.3 Architecture diagram
 
@@ -81,7 +127,7 @@ _No downstream consumers._
 
 ### 5.4 Future — Missing pair integrations
 
-Seed a Zeppelin JDBC interpreter and add notebook examples that create a Spark-written Iceberg table and query it through Trino.
+Add richer notebook examples that create a Spark-written Iceberg table and query it through Trino.
 
 ### 5.5 Future — Candidate new services
 

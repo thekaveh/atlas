@@ -49,6 +49,7 @@ depends_on:
     - minio
     - iceberg-rest
     - redpanda
+    - trino
     # litellm: removed (was aspirational). No env vars are wired to the
     # gateway in zeppelin's compose/runtime_sc and the README says users
     # wire LiteLLM themselves. Re-add only if zeppelin starts injecting
@@ -84,6 +85,12 @@ runtime_sc:
         MINIO_ICEBERG_ACCESS_KEY: ${MINIO_ICEBERG_ACCESS_KEY}
         MINIO_ICEBERG_SECRET_KEY: ${MINIO_ICEBERG_SECRET_KEY}
         ICEBERG_REST_URI: http://iceberg-rest:8181
+        TRINO_SOURCE: ${TRINO_SOURCE:-disabled}
+        TRINO_ENDPOINT: http://trino:8080
+        TRINO_JDBC_URL: jdbc:trino://trino:8080/lakehouse
+        TRINO_JDBC_USER: atlas
+        TRINO_JDBC_DRIVER: io.trino.jdbc.TrinoDriver
+        TRINO_JDBC_DEPENDENCY: io.trino:trino-jdbc:482
         SPARK_SUBMIT_OPTIONS: >-
           --conf spark.submit.deployMode=client
           --conf spark.driver.bindAddress=0.0.0.0
@@ -134,6 +141,12 @@ runtime_sc:
         MINIO_ICEBERG_SECRET_KEY: ${MINIO_ICEBERG_SECRET_KEY}
         ICEBERG_REST_URI: http://iceberg-rest:8181
         ICEBERG_REST_SOURCE: ${ICEBERG_REST_SOURCE:-disabled}
+        TRINO_SOURCE: ${TRINO_SOURCE:-disabled}
+        TRINO_ENDPOINT: http://trino:8080
+        TRINO_JDBC_URL: jdbc:trino://trino:8080/lakehouse
+        TRINO_JDBC_USER: atlas
+        TRINO_JDBC_DRIVER: io.trino.jdbc.TrinoDriver
+        TRINO_JDBC_DEPENDENCY: io.trino:trino-jdbc:482
       deploy: {}
       extra_hosts: []
     disabled:
@@ -155,3 +168,4 @@ data_flow:
     - minio
     - iceberg-rest
     - redpanda
+    - trino
