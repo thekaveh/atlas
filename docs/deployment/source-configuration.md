@@ -39,6 +39,7 @@ This matrix lists every `*_SOURCE` variable currently exposed in `.env.example`.
 | `AIRFLOW_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Workflow orchestration with seeded Connections and SparkSubmit/S3A lakehouse smoke. |
 | `SPARK_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Spark master/workers + Connect sidecar + history server; lakehouse-ready when Iceberg REST is enabled. |
 | `ZEPPELIN_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Zeppelin notebooks; seeded for standalone Spark (`spark://spark-master:7077`) plus MinIO/Iceberg (hard-gated on `SPARK_SOURCE=container`). |
+| `JENKINS_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Jenkins controller with Maven and MinIO JAR publishing seam for data-eng Spark apps. |
 | `ICEBERG_REST_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Internal Iceberg REST catalog backed by Supabase Postgres and MinIO lakehouse buckets. |
 | `MULTI2VEC_CLIP_SOURCE` | `container-cpu` | `container-cpu`, `container-gpu`, `disabled` | User-facing optional | Multimodal Weaviate vectorizer. |
 | `LIGHTRAG_SOURCE` | `disabled` | `container`, `localhost`, `disabled` | User-facing optional | Graph-augmented RAG server. Storage adapts to Supabase pgvector, Neo4j, Redis. |
@@ -568,11 +569,36 @@ SPARK_SOURCE=container   # REQUIRED — Zeppelin hard-fails without Spark
 - **Containers**: `zeppelin`, `zeppelin-init` (one-shot — seeds and restarts the Spark interpreter when Atlas-owned settings drift)
 - **Requirements**: `SPARK_SOURCE=container`
 
-### 4.14 AIRFLOW_SOURCE
+### 4.14 JENKINS_SOURCE
+
+Jenkins is the optional Maven Spark app builder for the data-eng track. Atlas provides the Jenkins controller, JCasC configuration, Maven runtime, MinIO `mc` client, and generated admin login. Downstream projects provide repositories, Jenkinsfiles, seed jobs, and project credentials. **Hard-gated on MinIO** — `JENKINS_SOURCE=container` with `MINIO_SOURCE=disabled` errors out at bootstrap because publishing to the `jars` bucket is part of the service contract.
+
+#### 4.14.1 `disabled` (Default)
+```bash
+JENKINS_SOURCE=disabled
+```
+- **Use case**: No in-stack CI builder; downstream projects can use external CI or GitHub Actions
+- **Pros**: Zero footprint
+- **Cons**: No local Maven build/publish UI for Spark app JARs
+- **Requirements**: None
+
+#### 4.14.2 `container`
+```bash
+JENKINS_SOURCE=container
+MINIO_SOURCE=container     # REQUIRED — Jenkins publishes artifacts to MinIO
+JENKINS_ADMIN_PASSWORD=... # auto-generated on first bootstrap; persisted to .env
+```
+- **Use case**: Local Jenkins controller for `mvn -q package` and `mc cp target/*.jar` to `s3a://jars/<app>/<version>/app.jar`
+- **Pros**: JCasC-managed admin user, Kong-aliased UI at `jenkins.localhost`, Maven + MinIO client baked into the image, persistent Jenkins home
+- **Cons**: Adds controller image/build time and a persistent volume; Atlas intentionally ships no downstream project jobs
+- **Containers**: `jenkins`
+- **Requirements**: `MINIO_SOURCE=container`
+
+### 4.15 AIRFLOW_SOURCE
 
 Airflow is a code-defined DAG orchestrator running LocalExecutor (no Celery / Redis broker — the metadata DB is Supabase Postgres). The image bundles `apache-airflow-providers-openai` (LiteLLM-wired) — LangChain support runs via `langchain-openai` + `PythonOperator`; there is no `apache-airflow-providers-langchain` package on PyPI. It also installs Java 17, exposes PySpark's `spark-submit`, and carries S3A/Iceberg jars so `SparkSubmitOperator` can submit a JAR from `s3a://jars/...` to `spark://spark-master:7077`. The documented lakehouse path uses `deploy_mode="cluster"` so the driver runs on Atlas Spark workers while Airflow acts as the submit client. `airflow-init` seeds Connection objects per sibling source: `postgres_supabase`, `litellm_default`, and `redis_default` (always-on — required deps and locked-source services), `spark_default` (gated on `SPARK_SOURCE=container`, seeded for cluster SparkSubmit), `minio_default` (gated on `MINIO_SOURCE=container`), `weaviate_default` (gated on `WEAVIATE_SOURCE=container`), `neo4j_default` (gated on `NEO4J_GRAPH_DB_SOURCE=container`). See [Airflow service README](../../services/airflow/README.md) §4 for the full seeded Connections matrix, the example DAG, and the `lakehouse_spark_submit_smoke` validation DAG.
 
-#### 4.14.1 `disabled` (Default)
+#### 4.15.1 `disabled` (Default)
 ```bash
 AIRFLOW_SOURCE=disabled
 ```
@@ -581,7 +607,7 @@ AIRFLOW_SOURCE=disabled
 - **Cons**: No scheduled DAGs; no Hermes → Airflow trigger pattern
 - **Requirements**: None
 
-#### 4.14.2 `container`
+#### 4.15.2 `container`
 ```bash
 AIRFLOW_SOURCE=container
 # Username is hardcoded `admin` — there is no AIRFLOW_ADMIN_USERNAME knob.

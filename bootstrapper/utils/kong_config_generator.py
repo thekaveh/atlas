@@ -7,12 +7,26 @@ Replaces static kong.yml/kong-local.yml with dynamic service routing.
 
 import yaml
 import socket
-import json
 from typing import Dict, Any, List, Optional
 from pathlib import Path
 from urllib.parse import urlparse
 
 from core.config_parser import DEFAULT_BASE_PORT
+
+
+def _lua_long_string(value: str) -> str:
+    """Embed text in a Lua long-bracket string.
+
+    Kong's pre-function plugin runs under Lua 5.1, whose quoted strings do
+    not understand JSON-style ``\\u003c`` escapes. Long-bracket strings keep
+    generated HTML literal and avoid per-character escaping drift.
+    """
+    for delimiter_width in range(1, 8):
+        equals = "=" * delimiter_width
+        close = f"]{equals}]"
+        if close not in value:
+            return f"[{equals}[{value}]{equals}]"
+    raise ValueError("could not find a safe Lua long-string delimiter")
 
 
 class KongConfigGenerator:
@@ -256,7 +270,7 @@ class KongConfigGenerator:
             overridden_services=getattr(self, "overridden_services", frozenset()),
             hosts_configured=self._hosts_look_configured(),
         ))
-        lua_html = json.dumps(html)
+        lua_html = _lua_long_string(html)
         return {
             'name': 'atlas-root-dashboard',
             # The route's pre-function exits before proxying. Kong's
@@ -366,6 +380,12 @@ class KongConfigGenerator:
                 # No localhost source variant defined; the factory is
                 # unreachable in practice. Returning None keeps the row
                 # skippable if a future manifest adds one without a URL.
+                lambda _src: None,
+            ),
+            (
+                "jenkins.localhost", "jenkins",
+                "JENKINS_SOURCE",
+                lambda _src: "http://jenkins:8080/",
                 lambda _src: None,
             ),
             (

@@ -1,0 +1,23 @@
+jenkins:
+  systemMessage: "Atlas Jenkins controller. Atlas provides the server, JCasC, Maven, and MinIO publishing seam; downstream projects provide jobs."
+  numExecutors: 2
+  mode: NORMAL
+  securityRealm:
+    local:
+      allowsSignup: false
+      users:
+        - id: "${JENKINS_ADMIN_USER:-admin}"
+          password: "${JENKINS_ADMIN_PASSWORD}"
+  authorizationStrategy:
+    loggedInUsersCanDoAnything:
+      allowAnonymousRead: false
+
+unclassified:
+  location:
+    url: "http://jenkins.localhost:${KONG_HTTP_PORT:-63000}/"
+
+tool:
+  maven:
+    installations:
+      - name: "system-maven"
+        home: "/usr/share/maven"

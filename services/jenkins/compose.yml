@@ -1,0 +1,53 @@
+# services/jenkins/compose.yml — Jenkins Maven Spark app builder
+services:
+  jenkins:
+    build:
+      context: ./build
+      args:
+        BASE_IMAGE: ${JENKINS_IMAGE:-jenkins/jenkins:lts-jdk21}
+    image: ${PROJECT_NAME}-jenkins:local
+    container_name: ${PROJECT_NAME}-jenkins
+    restart: unless-stopped
+    deploy:
+      replicas: ${JENKINS_SCALE:-0}
+      resources:
+        limits:
+          memory: ${JENKINS_MEMORY_LIMIT:-3g}
+          cpus: "${JENKINS_CPU_LIMIT:-2.0}"
+    environment:
+      CASC_JENKINS_CONFIG: /var/jenkins_home/casc/jenkins.yaml
+      JENKINS_ADMIN_USER: ${JENKINS_ADMIN_USER:-admin}
+      JENKINS_ADMIN_PASSWORD: ${JENKINS_ADMIN_PASSWORD}
+      KONG_HTTP_PORT: ${KONG_HTTP_PORT}
+      JENKINS_OPTS: "--httpPort=8080"
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_REGION: ${MINIO_REGION:-us-east-1}
+      MINIO_BUCKET_ICEBERG_JARS: ${MINIO_BUCKET_ICEBERG_JARS:-jars}
+      MINIO_ICEBERG_ACCESS_KEY: ${MINIO_ICEBERG_ACCESS_KEY}
+      MINIO_ICEBERG_SECRET_KEY: ${MINIO_ICEBERG_SECRET_KEY}
+    ports:
+      - "${HOST_BIND_IP:-}${JENKINS_PORT}:8080"
+    volumes:
+      - jenkins-home:/var/jenkins_home
+      - ./casc:/var/jenkins_home/casc:ro
+    depends_on:
+      minio-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/login >/dev/null"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+    logging:
+      driver: json-file
+      options:
+        max-size: "${LOG_MAX_SIZE:-10m}"
+        max-file: "${LOG_MAX_FILE:-3}"
+    networks:
+      - backend-network
+
+volumes:
+  jenkins-home:
+    name: ${PROJECT_NAME}-jenkins-home
+    driver: local

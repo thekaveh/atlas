@@ -186,6 +186,7 @@ _No upstream calls._
 | iceberg-rest | data |
 | spark | data |
 | airflow | agents |
+| jenkins | apps |
 | jupyterhub | apps |
 | zeppelin | apps |
 

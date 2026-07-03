@@ -48,7 +48,7 @@ tracks:
   - key: data-eng
     display_name: Data Engineering
     description: Batch + lakehouse + graph + vector with orchestration.
-    services: [spark, airflow, jupyterhub, zeppelin, minio, iceberg-rest,
+    services: [spark, airflow, jupyterhub, zeppelin, jenkins, minio, iceberg-rest,
                weaviate, neo4j]
 
   - key: all

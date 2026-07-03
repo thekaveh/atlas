@@ -185,6 +185,10 @@ class ServiceConfig:
         zeppelin_config = self._generate_zeppelin_config()
         env_vars.update(zeppelin_config)
 
+        # Generate Jenkins configuration (hard-gated on MinIO artifact storage)
+        jenkins_config = self._generate_jenkins_config()
+        env_vars.update(jenkins_config)
+
         # Generate Airflow configuration (3-container family scales)
         airflow_config = self._generate_airflow_config()
         env_vars.update(airflow_config)
@@ -874,6 +878,28 @@ class ServiceConfig:
             "ZEPPELIN_SCALE": "1",
             "ZEPPELIN_INIT_SCALE": "1",
         }
+
+    def _generate_jenkins_config(self) -> dict:
+        """Generate JENKINS_SCALE.
+
+        Jenkins is optional, but its Atlas contract is specifically the Maven
+        builder plus MinIO JAR publishing seam. Running it without MinIO would
+        boot a UI that cannot satisfy the advertised artifact path, so fail
+        early instead of letting compose wait on minio-init forever.
+        """
+        source = self.service_sources.get("JENKINS_SOURCE", "disabled")
+        if source == "disabled":
+            return {"JENKINS_SCALE": "0"}
+
+        minio_source = self.service_sources.get("MINIO_SOURCE", "disabled")
+        if minio_source == "disabled":
+            raise ValueError(
+                "Jenkins requires MinIO to be enabled for artifact publishing. "
+                "Either pass --minio-source container alongside "
+                "--jenkins-source container, or set --jenkins-source disabled."
+            )
+
+        return {"JENKINS_SCALE": "1"}
 
     def _generate_airflow_config(self) -> dict:
         """Generate AIRFLOW_*_SCALE based on AIRFLOW_SOURCE.

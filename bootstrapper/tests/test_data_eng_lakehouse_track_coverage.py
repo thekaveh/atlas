@@ -22,19 +22,21 @@ LAKEHOUSE_SERVICES = {
     "iceberg-rest",
 }
 
+DATA_ENG_IMPLEMENTED_SERVICES = LAKEHOUSE_SERVICES | {"jenkins"}
+
 
 def _manifest(service: str) -> dict:
     return yaml.safe_load((REPO_ROOT / "services" / service / "service.yml").read_text())
 
 
-def test_data_eng_track_includes_lakehouse_but_not_future_backlog_services() -> None:
+def test_data_eng_track_includes_lakehouse_builder_but_not_future_backlog_services() -> None:
     registry = load_tracks()
     data_eng = registry.by_key["data-eng"]
 
-    for service in LAKEHOUSE_SERVICES:
+    for service in DATA_ENG_IMPLEMENTED_SERVICES:
         assert is_in_track(data_eng, service, always_on=registry.always_on), service
 
-    for deferred_service in ("jenkins", "trino", "redpanda"):
+    for deferred_service in ("trino", "redpanda"):
         assert not is_in_track(
             data_eng,
             deferred_service,
