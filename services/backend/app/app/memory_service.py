@@ -13,9 +13,9 @@ import logging
 from typing import Optional, List, Dict, Any
 from uuid import UUID, uuid4
 
-import asyncpg
 import httpx
 
+from db_connection import connect_postgres
 from memory_store import MemoryStore, _to_uuid
 
 logger = logging.getLogger("memory_service")
@@ -152,7 +152,7 @@ class MemoryService:
         session_uuid = uuid4()
         session_id = str(session_uuid)
         conv_uuid = _to_uuid(conversation_id)
-        conn = await asyncpg.connect(self.database_url, timeout=10, command_timeout=30)
+        conn = await connect_postgres(self.database_url)
 
         try:
             # Create extraction session
@@ -354,7 +354,7 @@ Extract the facts as JSON:"""
         )
 
         # Fetch full fact records from PostgreSQL
-        conn = await asyncpg.connect(self.database_url, timeout=10, command_timeout=30)
+        conn = await connect_postgres(self.database_url)
         try:
             memories = []
             for result in similar:
@@ -433,7 +433,7 @@ Extract the facts as JSON:"""
         if user_id:
             user_ids = [user_id]
         else:
-            conn = await asyncpg.connect(self.database_url, timeout=10, command_timeout=30)
+            conn = await connect_postgres(self.database_url)
             try:
                 rows = await conn.fetch(
                     """
@@ -454,7 +454,7 @@ Extract the facts as JSON:"""
             # Fetch facts under a brief connection; release before the
             # LLM call so the connection slot is free during the round-
             # trip (up to 60s per user).
-            conn = await asyncpg.connect(self.database_url, timeout=10, command_timeout=30)
+            conn = await connect_postgres(self.database_url)
             try:
                 facts = await conn.fetch(
                     """
@@ -511,7 +511,7 @@ Extract the facts as JSON:"""
                 continue
 
             # Apply consolidation actions under a fresh connection.
-            conn = await asyncpg.connect(self.database_url, timeout=10, command_timeout=30)
+            conn = await connect_postgres(self.database_url)
             try:
                 for action_data in actions:
                     action = action_data.get("action", "")
@@ -622,7 +622,7 @@ Extract the facts as JSON:"""
         self._check_enabled()
         await self._ensure_initialized()
 
-        conn = await asyncpg.connect(self.database_url, timeout=10, command_timeout=30)
+        conn = await connect_postgres(self.database_url)
         try:
             facts = await conn.fetch(
                 """
@@ -692,7 +692,7 @@ Extract the facts as JSON:"""
         """List all memories for a user."""
         self._check_enabled()
 
-        conn = await asyncpg.connect(self.database_url, timeout=10, command_timeout=30)
+        conn = await connect_postgres(self.database_url)
         try:
             rows = await conn.fetch(
                 """
@@ -750,7 +750,7 @@ Extract the facts as JSON:"""
         await self._ensure_initialized()
 
         memory_uuid = _to_uuid(memory_id)
-        conn = await asyncpg.connect(self.database_url, timeout=10, command_timeout=30)
+        conn = await connect_postgres(self.database_url)
         try:
             # Check if fact exists
             row = await conn.fetchrow(
@@ -828,7 +828,7 @@ Extract the facts as JSON:"""
         await self._ensure_initialized()
 
         memory_uuid = _to_uuid(memory_id)
-        conn = await asyncpg.connect(self.database_url, timeout=10, command_timeout=30)
+        conn = await connect_postgres(self.database_url)
         try:
             row = await conn.fetchrow(
                 "SELECT weaviate_id FROM public.memory_facts WHERE id = $1",
@@ -873,7 +873,7 @@ Extract the facts as JSON:"""
         try:
             await self._ensure_initialized()
 
-            conn = await asyncpg.connect(self.database_url, timeout=10, command_timeout=30)
+            conn = await connect_postgres(self.database_url)
             try:
                 count = await conn.fetchval(
                     "SELECT COUNT(*) FROM public.memory_facts WHERE is_active = true"

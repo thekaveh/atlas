@@ -57,6 +57,7 @@ depends_on:
     - weaviate
     - kong
     - celery
+    - supavisor
 
 rows:
   - display_name: "Backend API"
@@ -84,6 +85,7 @@ runtime_adaptive:
     - doc_processor
     - ray
     - lightrag
+    - supavisor
     environment_adaptation:
       LITELLM_BASE_URL: http://litellm:4000
       LITELLM_API_KEY: ${LITELLM_MASTER_KEY}
@@ -109,7 +111,7 @@ runtime_deps:
     - docling
     - celery
     info_message: Backend enabled - will connect to available optional services (neo4j,
-      searxng, n8n, weaviate, parakeet, speaches, chatterbox, docling, celery)
+      searxng, n8n, weaviate, parakeet, speaches, chatterbox, docling, celery, supavisor)
 
 data_flow:
   calls:
@@ -121,3 +123,4 @@ data_flow:
     - ray
     - local-deep-researcher
     - celery
+    - supavisor

@@ -176,6 +176,7 @@ class ServiceConfig:
         env_vars.update(self._generate_local_deep_researcher_extraction_config())
         env_vars.update(self._generate_crawl4ai_config())
         env_vars.update(self._generate_celery_config())
+        env_vars.update(self._generate_supavisor_config())
 
         # Generate Ray cluster configuration
         ray_source = self.service_sources.get("RAY_SOURCE", "disabled")
@@ -1052,6 +1053,37 @@ class ServiceConfig:
             "FLOWER_SCALE": "1",
             "CELERY_BROKER_URL": "redis://:${REDIS_PASSWORD}@redis:6379/4",
             "CELERY_RESULT_BACKEND": "redis://:${REDIS_PASSWORD}@redis:6379/4",
+        }
+
+    def _generate_supavisor_config(self) -> dict:
+        """Generate Supavisor scale plus client DB connection envs.
+
+        Disabled mode intentionally emits direct Postgres values. Compose
+        fragments consume these vars with direct fallbacks, so rollback is a
+        SOURCE flip rather than a manual compose edit.
+        """
+        source = self.service_sources.get("SUPAVISOR_SOURCE", "disabled")
+        if source == "disabled":
+            return {
+                "SUPAVISOR_SCALE": "0",
+                "SUPAVISOR_DB_HOST": "supabase-db",
+                "SUPAVISOR_DB_PORT_VALUE": "5432",
+                "SUPAVISOR_DB_USER": "${SUPABASE_DB_USER}",
+                "SUPAVISOR_DATABASE_URL": (
+                    "postgresql://${SUPABASE_DB_USER}:${SUPABASE_DB_PASSWORD}"
+                    "@supabase-db:5432/${SUPABASE_DB_NAME}"
+                ),
+            }
+
+        return {
+            "SUPAVISOR_SCALE": "1",
+            "SUPAVISOR_DB_HOST": "supavisor",
+            "SUPAVISOR_DB_PORT_VALUE": "6543",
+            "SUPAVISOR_DB_USER": "${SUPABASE_DB_USER}.${SUPAVISOR_TENANT_ID}",
+            "SUPAVISOR_DATABASE_URL": (
+                "postgresql://${SUPABASE_DB_USER}.${SUPAVISOR_TENANT_ID}:"
+                "${SUPABASE_DB_PASSWORD}@supavisor:6543/${SUPABASE_DB_NAME}"
+            ),
         }
 
     def _generate_local_deep_researcher_extraction_config(self) -> dict:

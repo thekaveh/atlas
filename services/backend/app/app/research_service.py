@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 import json
 from uuid import UUID, uuid4
 
+from db_connection import connect_postgres
 from research_client import (
     ResearchClient,
     ResearchRequest,
@@ -60,7 +61,7 @@ class ResearchService:
         let a hung Postgres bouncer or stuck migration pin a uvicorn
         worker indefinitely.
         """
-        return await asyncpg.connect(self.db_url, timeout=10, command_timeout=30)
+        return await connect_postgres(self.db_url)
 
     async def start_research(
         self, 

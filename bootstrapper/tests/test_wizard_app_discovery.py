@@ -100,6 +100,9 @@ EXPECTED_DISCOVERED = frozenset({
     # discovery uses the `celery_worker_source` shim while the real flag
     # remains `--celery-source`.
     "Celery Worker",
+    # Supavisor (added 2026-07-03) — disabled-by-default internal
+    # Supabase Postgres transaction pooler for selected app clients.
+    "Supavisor",
     # TEI Reranker (added 2026-06-05) — GPU-accelerated reranker inference.
     # Single-container family; wired via 'tei_reranker_source' in
     # source_mapping with container-cpu / container-gpu / localhost / disabled.
@@ -229,6 +232,7 @@ def test_source_mapping_includes_app_service_flags() -> None:
         "langfuse_source",
         "langfuse_web_source",
         "mlflow_source",
+        "supavisor_source",
     ):
         assert cli_key in mgr.source_mapping, (
             f"{cli_key} missing from SourceOverrideManager.source_mapping — "

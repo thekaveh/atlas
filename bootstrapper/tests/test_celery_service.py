@@ -45,12 +45,13 @@ def test_celery_manifest_admission_contract() -> None:
         "supabase",
         "litellm",
     ]
-    assert manifest["depends_on"].get("optional", []) == ["weaviate"]
+    assert manifest["depends_on"].get("optional", []) == ["weaviate", "supavisor"]
     assert manifest["data_flow"]["calls"] == [
         "redis",
         "supabase",
         "litellm",
         "weaviate",
+        "supavisor",
     ]
 
     env_vars = {entry["name"]: entry for entry in manifest["env"]}
@@ -166,7 +167,9 @@ def test_celery_compose_contract() -> None:
     assert worker["depends_on"]["supabase-db-init"]["condition"] == "service_completed_successfully"
     assert worker["environment"]["CELERY_BROKER_URL"] == "${CELERY_BROKER_URL:-}"
     assert worker["environment"]["CELERY_RESULT_BACKEND"] == "${CELERY_RESULT_BACKEND:-}"
-    assert worker["environment"]["DATABASE_URL"].startswith("postgresql://")
+    assert worker["environment"]["DATABASE_URL"] == (
+        "${SUPAVISOR_DATABASE_URL:-postgresql://${SUPABASE_DB_USER}:${SUPABASE_DB_PASSWORD}@supabase-db:5432/${SUPABASE_DB_NAME}}"
+    )
     assert "celery_app:celery_app" in " ".join(worker["command"])
     assert "--queues=${CELERY_QUEUE:-atlas}" in worker["command"]
 

@@ -258,6 +258,7 @@ _No upstream calls._
 | langfuse | infra |
 | prometheus | infra |
 | iceberg-rest | data |
+| supavisor | data |
 | litellm | llm |
 | comfyui | media |
 | airflow | agents |
