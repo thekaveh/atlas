@@ -153,6 +153,7 @@ def test_normalize_service_key_family_aliases():
     assert normalize_service_key("ray-head") == "ray"
     assert normalize_service_key("spark-master") == "spark"
     assert normalize_service_key("airflow-webserver") == "airflow"
+    assert normalize_service_key("langfuse-web") == "langfuse"
 
 
 def test_normalize_service_key_runtime_sc_divergence():
@@ -213,6 +214,7 @@ def test_is_in_track_explicit_member_via_alias():
     ml = reg.by_key["ml-eng"]
     assert is_in_track(ml, "ray-head", always_on=reg.always_on)
     assert is_in_track(ml, "spark-master", always_on=reg.always_on)
+    assert is_in_track(ml, "langfuse-web", always_on=reg.always_on)
     # neo4j divergence — gen-ai-rag and data-eng list `neo4j` (folder)
     # but the wizard passes `neo4j-graph-db` (runtime_sc key).
     rag = reg.by_key["gen-ai-rag"]

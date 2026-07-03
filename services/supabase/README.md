@@ -255,6 +255,7 @@ _No upstream calls._
 |---|---|
 | backup | infra |
 | kong | infra |
+| langfuse | infra |
 | prometheus | infra |
 | iceberg-rest | data |
 | litellm | llm |

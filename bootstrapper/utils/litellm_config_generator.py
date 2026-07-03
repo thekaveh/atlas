@@ -48,7 +48,7 @@ class LiteLLMConfigGenerator:
         self.config_parser = config_parser
 
     def generate_config(self) -> Dict[str, Any]:
-        return {"model_list": [], **base_settings()}
+        return {"model_list": [], **base_settings(self.config_parser.parse_env_file())}
 
     # Sentinel header written by ``services/litellm/init/scripts/init.py``. When
     # we see this on an existing file, the file is the "real" config

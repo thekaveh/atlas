@@ -15,7 +15,7 @@
 # names via tracks.py::_FAMILY_KEY_ALIASES before lookup. Two classes of
 # divergence are aliased today:
 #   1. Multi-container family heads (`ray-head`, `spark-master`,
-#      `airflow-webserver`) — wizard discovery surfaces these because they
+#      `airflow-webserver`, `langfuse-web`) — wizard discovery surfaces these because they
 #      are the head container's runtime_sc key.
 #   2. Single-container runtime_sc divergences (`neo4j-graph-db`,
 #      `open-web-ui`) plus underscore-form virtual-manifest keys
@@ -26,25 +26,27 @@ tracks:
     display_name: Generative AI · RAG
     description: Retrieval-augmented generation — vectors, graph, reranker, doc ingest, web search.
     services: [open-webui, weaviate, neo4j, lightrag, doc-processor,
-               tei-reranker, searxng, mcp-servers, local-deep-researcher]
+               tei-reranker, searxng, mcp-servers, langfuse,
+               local-deep-researcher]
 
   - key: gen-ai-eng
     display_name: Generative AI · Engineering
     description: Agentic apps + workflows with voice, vision, and search.
     services: [open-webui, n8n, hermes, openclaw, jupyterhub, comfyui, neo4j,
                stt-provider, tts-provider, searxng, mcp-servers,
-               local-deep-researcher]
+               langfuse, local-deep-researcher]
 
   - key: gen-ai-creative
     display_name: Generative AI · Creative
     description: Multimodal generation — image, voice, vision, doc.
     services: [open-webui, comfyui, stt-provider, tts-provider,
-               multi2vec-clip, doc-processor]
+               multi2vec-clip, doc-processor, langfuse]
 
   - key: ml-eng
     display_name: ML Engineering
     description: Distributed training/inference + notebooks + experiment storage.
-    services: [spark, ray, jupyterhub, zeppelin, open-webui, minio, tei-reranker]
+    services: [spark, ray, jupyterhub, zeppelin, open-webui, minio, tei-reranker,
+               langfuse]
 
   - key: data-eng
     display_name: Data Engineering

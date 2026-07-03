@@ -922,6 +922,7 @@ class AtlasStarter:
             'HERMES_API_PORT',
             'HERMES_DASHBOARD_PORT',
             'MCP_SERVERS_PORT',
+            'LANGFUSE_PORT',
             'TEI_RERANKER_PORT',
             'LIGHTRAG_API_PORT',
             'ICEBERG_REST_PORT',
@@ -2122,6 +2123,9 @@ class AtlasStarter:
 @click.option('--grafana-source',
               type=click.Choice(['container', 'disabled'], case_sensitive=False),
               help='Override GRAFANA_SOURCE — observability dashboards + alerting UI.')
+@click.option('--langfuse-source',
+              type=click.Choice(['container', 'disabled'], case_sensitive=False),
+              help='Override LANGFUSE_SOURCE — LLM traces and prompt/eval observability.')
 @click.option('--spark-source',
               type=click.Choice(['container', 'disabled'], case_sensitive=False),
               help='Override SPARK_SOURCE — standalone Spark cluster (master + workers + history).')
@@ -2174,6 +2178,7 @@ def main(project_name, base_port, track, list_tracks, cold, setup_hosts, skip_ho
          multi2vec_clip_source,
          ray_source, ray_worker_count,
          prometheus_source, prometheus_retention_days, grafana_source,
+         langfuse_source,
          spark_source, spark_workers,
          zeppelin_source,
          jenkins_source,
@@ -2236,6 +2241,7 @@ def main(project_name, base_port, track, list_tracks, cold, setup_hosts, skip_ho
                     'ray_source': ray_source,
                     'prometheus_source': prometheus_source,
                     'grafana_source': grafana_source,
+                    'langfuse_source': langfuse_source,
                     'spark_source': spark_source,
                     'zeppelin_source': zeppelin_source,
                     'jenkins_source': jenkins_source,
@@ -2447,6 +2453,7 @@ def main(project_name, base_port, track, list_tracks, cold, setup_hosts, skip_ho
             'ray_source': ray_source,
             'prometheus_source': prometheus_source,
             'grafana_source': grafana_source,
+            'langfuse_source': langfuse_source,
             'spark_source': spark_source,
             'zeppelin_source': zeppelin_source,
             'jenkins_source': jenkins_source,

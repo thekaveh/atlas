@@ -31,6 +31,7 @@ include:
   # Observability (infra)
   - services/prometheus/compose.yml
   - services/grafana/compose.yml
+  - services/langfuse/compose.yml
 
   # LLM tier (cloud-providers + tts-provider are virtual; no compose fragment)
   - services/litellm/compose.yml

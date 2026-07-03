@@ -237,6 +237,10 @@ class KongConfigGenerator:
         if grafana_service:
             services.append(grafana_service)
 
+        langfuse_service = self.generate_langfuse_service()
+        if langfuse_service:
+            services.append(langfuse_service)
+
         spark_master_service = self.generate_spark_master_service()
         if spark_master_service:
             services.append(spark_master_service)
@@ -1212,6 +1216,35 @@ class KongConfigGenerator:
             ],
             'plugins': [
                 {'name': 'cors'},
+            ],
+        }
+
+    def generate_langfuse_service(self) -> Optional[Dict[str, Any]]:
+        """Kong route for Langfuse UI/API.
+
+        Langfuse has its own login/project model, but the first Atlas slice
+        still fronts the browser route with the same dashboard-user
+        basic-auth/ACL guard as Supabase Studio and the MCP endpoint. This
+        keeps the disabled-by-default observability surface private on local
+        stacks while preserving Host for app redirects.
+        """
+        if self.get_env_value('LANGFUSE_SOURCE') != 'container':
+            return None
+        return {
+            'name': 'langfuse',
+            'url': 'http://langfuse-web:3000/',
+            'routes': [
+                {
+                    'name': 'langfuse-all',
+                    'strip_path': False,
+                    'preserve_host': True,
+                    'hosts': ['langfuse.localhost'],
+                }
+            ],
+            'plugins': [
+                {'name': 'cors'},
+                {'name': 'basic-auth'},
+                {'name': 'acl', 'config': {'allow': ['dashboard_user']}},
             ],
         }
 
