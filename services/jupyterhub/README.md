@@ -449,6 +449,7 @@ For the current high-level stack diagram, see [Architecture Diagram](../../docs/
 | hermes | agents |
 | n8n | agents |
 | backend | apps |
+| mlflow | apps |
 
 ### 15.2 Current — Downstream (services that call this)
 

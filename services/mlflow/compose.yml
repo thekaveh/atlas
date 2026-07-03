@@ -1,0 +1,74 @@
+# services/mlflow/compose.yml — MLflow tracking server + init
+services:
+  mlflow-init:
+    build:
+      context: ./init
+      args:
+        BASE_IMAGE: ${MLFLOW_INIT_IMAGE:-alpine:3.22}
+    image: ${PROJECT_NAME}-mlflow-init:local
+    container_name: ${PROJECT_NAME}-mlflow-init
+    restart: "no"
+    deploy:
+      replicas: ${MLFLOW_INIT_SCALE:-0}
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    environment:
+      PGHOST: supabase-db
+      PGPORT: 5432
+      PGUSER: ${SUPABASE_DB_USER}
+      PGPASSWORD: ${SUPABASE_DB_PASSWORD}
+      MLFLOW_DB_NAME: ${MLFLOW_DB_NAME:-mlflow}
+      MLFLOW_DB_USER: ${MLFLOW_DB_USER:-mlflow}
+      MLFLOW_DB_PASSWORD: ${MLFLOW_DB_PASSWORD}
+    volumes:
+      - ./init/scripts:/scripts:ro
+    entrypoint: ["/bin/sh", "/scripts/init-mlflow.sh"]
+    networks:
+      - backend-network
+
+  mlflow:
+    image: ${MLFLOW_IMAGE:-ghcr.io/mlflow/mlflow:v3.14.0}
+    container_name: ${PROJECT_NAME}-mlflow
+    restart: unless-stopped
+    deploy:
+      replicas: ${MLFLOW_SCALE:-0}
+    depends_on:
+      mlflow-init:
+        condition: service_completed_successfully
+    ports:
+      - "${HOST_BIND_IP:-}${MLFLOW_PORT}:5000"
+    environment:
+      MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+      AWS_ACCESS_KEY_ID: ${MINIO_MLFLOW_ACCESS_KEY}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_MLFLOW_SECRET_KEY}
+      AWS_DEFAULT_REGION: ${MINIO_REGION:-us-east-1}
+    command:
+      - mlflow
+      - server
+      - --host
+      - 0.0.0.0
+      - --port
+      - "5000"
+      - --backend-store-uri
+      - postgresql://${MLFLOW_DB_USER}:${MLFLOW_DB_PASSWORD}@supabase-db:5432/${MLFLOW_DB_NAME:-mlflow}
+      - --artifacts-destination
+      - s3://${MINIO_BUCKET_MLFLOW:-mlflow}
+      - --serve-artifacts
+      - --allowed-hosts
+      - mlflow,mlflow:5000,localhost,localhost:${MLFLOW_PORT},mlflow.localhost,mlflow.localhost:${KONG_HTTP_PORT}
+    healthcheck:
+      test: ["CMD-SHELL", "python - <<'PY'\nimport urllib.request\nurllib.request.urlopen('http://localhost:5000/health', timeout=5).read()\nPY"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+    logging:
+      driver: json-file
+      options:
+        max-size: "${LOG_MAX_SIZE:-10m}"
+        max-file: "${LOG_MAX_FILE:-3}"
+    networks:
+      - backend-network

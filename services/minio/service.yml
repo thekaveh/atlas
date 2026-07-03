@@ -135,6 +135,16 @@ env:
     default: ""
     secret: true
     description: "Auto-generated scoped MinIO secret key for the langfuse bucket."
+  - name: MINIO_BUCKET_MLFLOW
+    default: mlflow
+  - name: MINIO_MLFLOW_ACCESS_KEY
+    default: ""
+    secret: true
+    description: "Auto-generated scoped MinIO access key for the mlflow bucket."
+  - name: MINIO_MLFLOW_SECRET_KEY
+    default: ""
+    secret: true
+    description: "Auto-generated scoped MinIO secret key for the mlflow bucket."
   - name: MINIO_BUCKET_ICEBERG_LAKEHOUSE
     default: lakehouse
   - name: MINIO_BUCKET_ICEBERG_JARS

@@ -51,6 +51,8 @@ services:
       # in-stack sidecar (needs SPARK_SOURCE != disabled); override to point a
       # notebook at a remote/managed Spark Connect server (e.g. EMR Serverless).
       SPARK_REMOTE: ${SPARK_REMOTE:-sc://spark-connect:15002}
+      # MLflow tracking server. Empty when MLFLOW_SOURCE=disabled.
+      MLFLOW_TRACKING_URI: ${MLFLOW_TRACKING_URI:-}
       # Lakehouse clients. The packages are installed in the image, and these
       # env vars let notebooks use MinIO + Iceberg REST without local config.
       # Catalog smoke tests require ICEBERG_REST_SOURCE=container; imports and

@@ -47,6 +47,7 @@ class KeyGenerator:
         "JUPYTER",
         "DOCLING",
         "LANGFUSE",
+        "MLFLOW",
         "ICEBERG",
     )
 
@@ -681,6 +682,10 @@ class KeyGenerator:
         """Jenkins admin login password. 24 chars URL-safe random."""
         return _cli_safe_token_urlsafe(18)
 
+    def generate_mlflow_db_password(self) -> str:
+        """Postgres role password for the dedicated MLflow database."""
+        return _cli_safe_token_urlsafe(24)
+
     def generate_airflow_db_password(self) -> str:
         """Postgres role password for the dedicated airflow role/database."""
         return _cli_safe_token_urlsafe(24)
@@ -748,6 +753,13 @@ class KeyGenerator:
         if not force and current:
             return True
         return self.update_env_key('JENKINS_ADMIN_PASSWORD', self.generate_jenkins_admin_password())
+
+    def generate_and_update_mlflow_db_password(self, force: bool = False) -> bool:
+        """Generate and update MLFLOW_DB_PASSWORD in .env."""
+        current = self.get_current_env_value('MLFLOW_DB_PASSWORD')
+        if not force and current:
+            return True
+        return self.update_env_key('MLFLOW_DB_PASSWORD', self.generate_mlflow_db_password())
 
     def generate_and_update_airflow_db_password(self, force: bool = False) -> bool:
         """Generate and update AIRFLOW_DB_PASSWORD in .env file.
@@ -847,6 +859,7 @@ class KeyGenerator:
         results['AIRFLOW_SECRET_KEY'] = self.generate_and_update_airflow_secret_key(force=False)
         results['AIRFLOW_ADMIN_PASSWORD'] = self.generate_and_update_airflow_admin_password(force=False)
         results['JENKINS_ADMIN_PASSWORD'] = self.generate_and_update_jenkins_admin_password(force=False)
+        results['MLFLOW_DB_PASSWORD'] = self.generate_and_update_mlflow_db_password(force=False)
         results['AIRFLOW_DB_PASSWORD'] = self.generate_and_update_airflow_db_password(force=False)
         results['ICEBERG_DB_PASSWORD'] = self.generate_and_update_iceberg_db_password(force=False)
 

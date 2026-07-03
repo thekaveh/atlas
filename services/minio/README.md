@@ -189,6 +189,7 @@ _No upstream calls._
 | airflow | agents |
 | jenkins | apps |
 | jupyterhub | apps |
+| mlflow | apps |
 | zeppelin | apps |
 
 ### 10.3 Architecture diagram

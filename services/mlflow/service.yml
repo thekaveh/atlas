@@ -1,0 +1,97 @@
+# services/mlflow/service.yml — MLflow experiment tracking
+name: mlflow
+label: "MLflow (experiment tracking + artifacts)"
+category: apps
+docs: services/mlflow/README.md
+
+containers:
+  - mlflow-init
+  - mlflow
+
+images:
+  - var: MLFLOW_IMAGE
+    default: "ghcr.io/mlflow/mlflow:v3.14.0"
+    container: mlflow
+  - var: MLFLOW_INIT_IMAGE
+    default: "alpine:3.22"
+    container: mlflow-init
+
+sources:
+  var: MLFLOW_SOURCE
+  default: disabled
+  options:
+    - id: container
+      label: "Container (MLflow tracking server + MinIO artifacts)"
+    - id: disabled
+      label: "Disabled"
+
+env:
+  - name: MLFLOW_SOURCE
+    default: disabled
+  - name: MLFLOW_PORT
+    description: "Host port for the MLflow UI/API (in-container 5000)."
+  - name: MLFLOW_ENDPOINT
+    auto_managed: true
+    description: "In-network URL for Atlas services and notebooks."
+  - name: MLFLOW_TRACKING_URI
+    auto_managed: true
+    description: "Tracking URI injected into JupyterHub when MLflow is enabled."
+  - name: MLFLOW_SCALE
+    auto_managed: true
+  - name: MLFLOW_INIT_SCALE
+    auto_managed: true
+  - name: MLFLOW_DB_NAME
+    default: mlflow
+  - name: MLFLOW_DB_USER
+    default: mlflow
+  - name: MLFLOW_DB_PASSWORD
+    default: ""
+    secret: true
+    description: "Auto-generated Postgres password for the dedicated MLflow database role."
+depends_on:
+  required:
+    - supabase
+    - minio
+  optional:
+    - jupyterhub
+
+rows:
+  - display_name: "MLflow"
+    source_var: MLFLOW_SOURCE
+    port_var: MLFLOW_PORT
+    scale_var: MLFLOW_SCALE
+    alias: mlflow.localhost
+    description: "Experiment tracking, model registry metadata, and MinIO-backed artifacts."
+
+runtime_sc:
+  mlflow-init:
+    container:
+      scale: 1
+      environment: {}
+      deploy: {}
+      extra_hosts: []
+    disabled:
+      scale: 0
+      environment: {}
+      deploy: {}
+      extra_hosts: []
+  mlflow:
+    container:
+      scale: 1
+      environment:
+        MLFLOW_ENDPOINT: http://mlflow:5000
+        MLFLOW_TRACKING_URI: http://mlflow:5000
+      deploy: {}
+      extra_hosts: []
+    disabled:
+      scale: 0
+      environment:
+        MLFLOW_ENDPOINT: ''
+        MLFLOW_TRACKING_URI: ''
+      deploy: {}
+      extra_hosts: []
+
+data_flow:
+  calls:
+    - supabase
+    - minio

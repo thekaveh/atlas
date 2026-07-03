@@ -350,7 +350,7 @@ services:
     ports:
     - mode: ingress
       protocol: tcp
-      published: '63081'
+      published: '63082'
       target: 8000
     restart: unless-stopped
     volumes:
@@ -962,6 +962,7 @@ services:
       LITELLM_API_KEY: ''
       LITELLM_BASE_URL: http://litellm:4000
       MINIO_ENDPOINT: http://minio:9000
+      MLFLOW_TRACKING_URI: ''
       N8N_BASE_URL: http://n8n:5678
       NEO4J_PASSWORD: neo4j_password
       NEO4J_URI: bolt://neo4j-graph-db:7687
@@ -1010,7 +1011,7 @@ services:
     ports:
     - mode: ingress
       protocol: tcp
-      published: '63082'
+      published: '63083'
       target: 8888
     restart: unless-stopped
     volumes:
@@ -1666,7 +1667,7 @@ services:
     ports:
     - mode: ingress
       protocol: tcp
-      published: '63084'
+      published: '63085'
       target: 2024
     restart: unless-stopped
     volumes:
@@ -1796,6 +1797,7 @@ services:
       MINIO_BUCKET_ICEBERG_LANDING: landing
       MINIO_BUCKET_JUPYTER: jupyter
       MINIO_BUCKET_LANGFUSE: langfuse
+      MINIO_BUCKET_MLFLOW: mlflow
       MINIO_BUCKET_N8N: n8n
       MINIO_COMFYUI_ACCESS_KEY: ''
       MINIO_COMFYUI_SECRET_KEY: ''
@@ -1807,6 +1809,8 @@ services:
       MINIO_JUPYTER_SECRET_KEY: ''
       MINIO_LANGFUSE_ACCESS_KEY: ''
       MINIO_LANGFUSE_SECRET_KEY: ''
+      MINIO_MLFLOW_ACCESS_KEY: ''
+      MINIO_MLFLOW_SECRET_KEY: ''
       MINIO_N8N_ACCESS_KEY: ''
       MINIO_N8N_SECRET_KEY: ''
       MINIO_ROOT_PASSWORD: ''
@@ -1819,6 +1823,98 @@ services:
     - bind: {}
       read_only: true
       source: '{REPO_ROOT}/services/minio/init/scripts'
+      target: /scripts
+      type: bind
+  mlflow:
+    command:
+    - mlflow
+    - server
+    - --host
+    - 0.0.0.0
+    - --port
+    - '5000'
+    - --backend-store-uri
+    - postgresql://mlflow:@supabase-db:5432/mlflow
+    - --artifacts-destination
+    - s3://mlflow
+    - --serve-artifacts
+    - --allowed-hosts
+    - mlflow,mlflow:5000,localhost,localhost:63081,mlflow.localhost,mlflow.localhost:63000
+    container_name: atlas-mlflow
+    depends_on:
+      mlflow-init:
+        condition: service_completed_successfully
+        required: true
+    deploy:
+      replicas: 0
+    environment:
+      AWS_ACCESS_KEY_ID: ''
+      AWS_DEFAULT_REGION: us-east-1
+      AWS_SECRET_ACCESS_KEY: ''
+      MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+    healthcheck:
+      interval: 30s
+      retries: 10
+      start_period: 1m0s
+      test:
+      - CMD-SHELL
+      - 'python - <<''PY''
+
+        import urllib.request
+
+        urllib.request.urlopen(''http://localhost:5000/health'', timeout=5).read()
+
+        PY'
+      timeout: 10s
+    image: ghcr.io/mlflow/mlflow:v3.14.0
+    logging:
+      driver: json-file
+      options:
+        max-file: '3'
+        max-size: 10m
+    networks:
+      backend-network: null
+    ports:
+    - mode: ingress
+      protocol: tcp
+      published: '63081'
+      target: 5000
+    restart: unless-stopped
+  mlflow-init:
+    build:
+      args:
+        BASE_IMAGE: alpine:3.22
+      context: '{REPO_ROOT}/services/mlflow/init'
+      dockerfile: Dockerfile
+    container_name: atlas-mlflow-init
+    depends_on:
+      minio-init:
+        condition: service_completed_successfully
+        required: true
+      supabase-db:
+        condition: service_healthy
+        required: true
+    deploy:
+      replicas: 0
+    entrypoint:
+    - /bin/sh
+    - /scripts/init-mlflow.sh
+    environment:
+      MLFLOW_DB_NAME: mlflow
+      MLFLOW_DB_PASSWORD: ''
+      MLFLOW_DB_USER: mlflow
+      PGHOST: supabase-db
+      PGPASSWORD: password
+      PGPORT: '5432'
+      PGUSER: supabase_admin
+    image: atlas-mlflow-init:local
+    networks:
+      backend-network: null
+    restart: 'no'
+    volumes:
+    - bind: {}
+      read_only: true
+      source: '{REPO_ROOT}/services/mlflow/init/scripts'
       target: /scripts
       type: bind
   multi2vec-clip:
@@ -2229,7 +2325,7 @@ services:
     ports:
     - mode: ingress
       protocol: tcp
-      published: '63083'
+      published: '63084'
       target: 8080
     restart: unless-stopped
     volumes:
@@ -3406,7 +3502,7 @@ services:
     ports:
     - mode: ingress
       protocol: tcp
-      published: '63085'
+      published: '63086'
       target: 8080
     restart: unless-stopped
     volumes:

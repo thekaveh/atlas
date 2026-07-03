@@ -189,6 +189,9 @@ class ServiceConfig:
         jenkins_config = self._generate_jenkins_config()
         env_vars.update(jenkins_config)
 
+        # Generate MLflow configuration (hard-gated on MinIO artifact storage)
+        env_vars.update(self._generate_mlflow_config())
+
         # Generate curated MCP servers configuration (hard-gated on graph/search targets)
         mcp_servers_config = self._generate_mcp_servers_config()
         env_vars.update(mcp_servers_config)
@@ -908,6 +911,37 @@ class ServiceConfig:
             )
 
         return {"JENKINS_SCALE": "1"}
+
+    def _generate_mlflow_config(self) -> dict:
+        """Generate MLflow scales and tracking endpoint.
+
+        MLflow's Atlas contract is a tracking server backed by Supabase
+        Postgres plus MinIO artifacts. Running it without MinIO would boot a
+        UI that cannot persist artifacts, so fail before compose starts.
+        """
+        source = self.service_sources.get("MLFLOW_SOURCE", "disabled")
+        if source == "disabled":
+            return {
+                "MLFLOW_INIT_SCALE": "0",
+                "MLFLOW_SCALE": "0",
+                "MLFLOW_ENDPOINT": "",
+                "MLFLOW_TRACKING_URI": "",
+            }
+
+        minio_source = self.service_sources.get("MINIO_SOURCE", "disabled")
+        if minio_source == "disabled":
+            raise ValueError(
+                "MLflow requires MinIO to be enabled for artifact storage. "
+                "Either pass --minio-source container alongside "
+                "--mlflow-source container, or set --mlflow-source disabled."
+            )
+
+        return {
+            "MLFLOW_INIT_SCALE": "1",
+            "MLFLOW_SCALE": "1",
+            "MLFLOW_ENDPOINT": "http://mlflow:5000",
+            "MLFLOW_TRACKING_URI": "http://mlflow:5000",
+        }
 
     def _generate_mcp_servers_config(self) -> dict:
         """Generate MCP_SERVERS_SCALE.
