@@ -44,7 +44,7 @@ Active aliases (every `*-localhost` source also routes through `host.docker.inte
 - `spark-history.localhost` → Spark History Server UI — routes to in-container `spark-history:18080` (`SPARK_SOURCE != disabled`)
 - `stt.localhost` → STT engine — container resolves to `parakeet-gpu` or `speaches`; localhost routes via `host.docker.internal`
 - `localhost` → Atlas service directory and health dashboard (generated from topology, SOURCE state, route aliases, auth notes, and lightweight browser reachability checks)
-- `studio.localhost` → Supabase Studio dashboard (basic-auth: `DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD` from `.env`)
+- `supabase-studio.localhost` → Supabase Studio dashboard (basic-auth: `DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD` from `.env`)
 - `tts.localhost` → TTS engine — container resolves to `speaches:8000` or `chatterbox:4123`; localhost routes via `host.docker.internal`
 - `weaviate.localhost` → Weaviate REST API (`WEAVIATE_SOURCE != disabled`)
 - `zeppelin.localhost` → Zeppelin notebook UI — routes to in-container `zeppelin:8080` (`ZEPPELIN_SOURCE != disabled`; gated on `SPARK_SOURCE != disabled`)

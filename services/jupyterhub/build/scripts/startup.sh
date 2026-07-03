@@ -121,7 +121,7 @@ print(resp.choices[0].message.content)
 
 See the per-service READMEs in the Atlas repo. Service URLs are
 printed in your terminal after `./start.sh` — including the `*.localhost`
-aliases (`studio.localhost`, `graph.localhost`, `weaviate.localhost`, …)
+aliases (`supabase-studio.localhost`, `graph.localhost`, `weaviate.localhost`, …)
 when you've run `./start.sh --setup-hosts`.
 EOF
     echo "Welcome README created"

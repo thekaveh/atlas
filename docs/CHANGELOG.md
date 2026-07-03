@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added — 2026-07-03 — Atlas root dashboard
 
-- **Kong root now serves Atlas instead of Supabase Studio.** The bare gateway root (`http://localhost:${KONG_HTTP_PORT}`) returns a generated Atlas service directory with SOURCE state, track context, direct/Kong links, auth notes, warnings, and browser-side reachability probes. Supabase Studio remains available through its explicit `studio.localhost` route and keeps the existing Kong basic-auth gate.
+- **Kong root now serves Atlas instead of Supabase Studio.** The bare gateway root (`http://localhost:${KONG_HTTP_PORT}`) returns a generated Atlas service directory with SOURCE state, track context, direct/Kong links, auth notes, warnings, and browser-side reachability probes. Supabase Studio remains available through its explicit `supabase-studio.localhost` route and keeps the existing Kong basic-auth gate.
 
 ### Fixed — 2026-07-02 — overnight maintenance hardening
 

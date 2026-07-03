@@ -292,7 +292,7 @@ class KongConfigGenerator:
             hosts_text = Path("/etc/hosts").read_text(encoding="utf-8")
         except OSError:
             return False
-        needed = {"studio.localhost", "chat.localhost", "api.localhost"}
+        needed = {"supabase-studio.localhost", "chat.localhost", "api.localhost"}
         present = set()
         for line in hosts_text.splitlines():
             stripped = line.strip()
@@ -613,7 +613,7 @@ class KongConfigGenerator:
                         # etc.) silently fell through to Studio. The
                         # bare gateway hostname is now owned by the Atlas
                         # root dashboard.
-                        'hosts': ['studio.localhost'],
+                        'hosts': ['supabase-studio.localhost'],
                     }
                 ],
                 # basic-auth + ACL, like the /pg/ meta route above and

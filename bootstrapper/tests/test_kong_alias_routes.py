@@ -62,8 +62,8 @@ def test_supabase_studio_route_is_restricted_to_studio_alias():
     dashboard_routes = dashboard["routes"]
     assert len(dashboard_routes) == 1
     hosts = set(dashboard_routes[0].get("hosts") or [])
-    assert hosts == {"studio.localhost"}, (
-        f"dashboard route should be locked to studio.localhost, got {hosts}"
+    assert hosts == {"supabase-studio.localhost"}, (
+        f"dashboard route should be locked to supabase-studio.localhost, got {hosts}"
     )
 
 
@@ -72,7 +72,8 @@ def test_atlas_root_dashboard_owns_bare_localhost_route():
     config = _generate("")
     by_host = _hosts_to_service(config)
     assert by_host["localhost"] == "atlas-root-dashboard"
-    assert by_host["studio.localhost"] == "dashboard"
+    assert by_host["supabase-studio.localhost"] == "dashboard"
+    assert "studio.localhost" not in by_host
 
     svc = next(s for s in config["services"] if s["name"] == "atlas-root-dashboard")
     route = svc["routes"][0]

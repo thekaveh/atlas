@@ -37,7 +37,7 @@ Plain `python3 scripts/check-kong-routes.py` works too if `PyYAML` is on your sy
 - `/realtime/v1/` → Supabase Realtime
 - `/storage/v1/` → Supabase Storage
 - `/pg/` → Supabase Meta service
-- `studio.localhost` → Supabase Studio dashboard
+- `supabase-studio.localhost` → Supabase Studio dashboard
 
 ### 3.2 Dynamic Routes (Based on SOURCE)
 - `comfyui.localhost` → ComfyUI service (if enabled)
@@ -51,7 +51,7 @@ Plain `python3 scripts/check-kong-routes.py` works too if `PyYAML` is on your sy
 - `litellm.localhost` → LiteLLM gateway + admin dashboard (always-on; same alias exposes `/ui/`, `/v1/*`, and `/spend/*`)
 - `minio.localhost` → MinIO admin console (if `MINIO_SOURCE != disabled`)
 - `s3.minio.localhost` → MinIO S3 API (if `MINIO_SOURCE != disabled`; clients can also use the direct `MINIO_PORT`)
-- `studio.localhost` → Supabase Studio dashboard
+- `supabase-studio.localhost` → Supabase Studio dashboard
 - `graph.localhost` → Neo4j Browser (`NEO4J_GRAPH_DB_SOURCE != disabled`)
 - `weaviate.localhost` → Weaviate REST API (`WEAVIATE_SOURCE != disabled`)
 - `ollama.localhost` → Ollama upstream (`LLM_PROVIDER_SOURCE ∈ {ollama-container-*, ollama-localhost}`)

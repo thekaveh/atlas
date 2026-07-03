@@ -329,7 +329,7 @@ def _disabled_reason(
 
 def _auth_note(name: str, alias: str | None) -> str:
     name_l = name.lower()
-    if alias == "studio.localhost" or alias == "ray.localhost":
+    if alias == "supabase-studio.localhost" or alias == "ray.localhost":
         return "Kong basic-auth"
     if "minio" in name_l:
         return "MinIO credentials"

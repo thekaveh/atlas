@@ -38,7 +38,7 @@ git clone https://github.com/thekaveh/atlas && cd atlas
 # Optional Kong host routes after ./start.sh --setup-hosts:
 # Chat:                  http://chat.localhost:63000
 # n8n:                   http://n8n.localhost:63000
-# Supabase Studio:       http://studio.localhost:63000
+# Supabase Studio:       http://supabase-studio.localhost:63000
 # ComfyUI:               http://comfyui.localhost:63000
 # LiteLLM Dashboard:     http://litellm.localhost:63000/ui/
 # MinIO Console:         http://minio.localhost:63000
@@ -274,7 +274,7 @@ _Engine-only manifests (speaches, chatterbox) are not listed — they're selecte
 | Data | Supabase Auth | 63014 | — |
 | Data | Supabase API | 63015 | — |
 | Data | Supabase Realtime | 63016 | — |
-| Data | Supabase Studio | 63017 | studio.localhost |
+| Data | Supabase Studio | 63017 | supabase-studio.localhost |
 | Data | MinIO Console | 63019 | minio.localhost |
 | Data | Neo4j Graph DB | 63021 | graph.localhost |
 | Data | Redis | 63022 | — |
@@ -311,7 +311,7 @@ _Engine-only manifests (speaches, chatterbox) are not listed — they're selecte
 | **Atlas Dashboard** | http://localhost:63000 | http://localhost:63000 | Generated service directory with SOURCE state, track context, route links, auth notes, and browser-side reachability checks | None |
 | **Open WebUI** | http://localhost:63082 | http://chat.localhost:63000 | AI chat interface | Create account |
 | **n8n** | http://localhost:63064 | http://n8n.localhost:63000 | Workflow automation | Owner setup on first visit |
-| **Supabase Studio** | http://localhost:63017 | http://studio.localhost:63000 | Database management | Kong route: `kong_admin` / `DASHBOARD_PASSWORD` from `.env` (direct port is ungated) |
+| **Supabase Studio** | http://localhost:63017 | http://supabase-studio.localhost:63000 | Database management | Kong route: `kong_admin` / `DASHBOARD_PASSWORD` from `.env` (direct port is ungated) |
 | **ComfyUI** | http://localhost:63041 | http://comfyui.localhost:63000 | Image generation | None |
 | **SearxNG** | http://localhost:63043 | http://search.localhost:63000 | Privacy search | None |
 | **JupyterHub** | http://localhost:63081 | http://jupyter.localhost:63000 | Data science IDE — ships Python + Scala 2.13 + Scala 3 kernels; configured for VS Code remote-Jupyter (see [services/jupyterhub/README.md](services/jupyterhub/README.md) §10). | Token (optional; auto-generated if `JUPYTERHUB_TOKEN` is empty — grep from `docker logs ${PROJECT_NAME}-jupyterhub`) |

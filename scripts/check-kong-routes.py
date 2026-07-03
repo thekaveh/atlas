@@ -61,7 +61,7 @@ EXPECTED_HOST_ROUTES = {
     "litellm.localhost": "http://litellm:4000/",
     # Remaining default-on routes (previously unlisted — regressions in
     # these hosts passed this script silently):
-    "studio.localhost": "http://supabase-studio:3000/",
+    "supabase-studio.localhost": "http://supabase-studio:3000/",
     # Bare gateway root is a generated Atlas service directory. The
     # pre-function route exits before proxying; the loopback URL only
     # satisfies Kong's declarative service schema.

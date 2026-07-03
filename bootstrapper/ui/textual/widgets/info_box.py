@@ -8,7 +8,7 @@ Mockup 003 layout:
     │                                                                 │
     │ █  ⌕  Filter services...                                        │
     │ █  ▸ ● supabase-db   INFRA  supabase.localhost  :63010 …        │
-    │ █  · ● supabase-stu  INFRA  studio.localhost    :63016 …        │
+    │ █  · ● supabase-stu  INFRA  supabase-stu…       :63016 …        │
     │ █                                                               │
     │ █  Command:  ./start.sh --llm-provider-source ollama  [▶ copy]  │
     │ 14 container · 2 local · 1 gpu · 2 off                          │
