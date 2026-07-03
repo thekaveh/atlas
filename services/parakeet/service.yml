@@ -68,10 +68,10 @@ env:
     default: float16
   - name: PARAKEET_LOCALHOST_PORT
     default: "63042"
-    description: "Host port for the localhost source variant (defaults to the freed STT_PROVIDER_PORT slot). URL is derived at compose-render time as http://host.docker.internal:63042."
+    description: "Host port for the parakeet-localhost source variant. URL is derived at compose-render time as http://host.docker.internal:63042."
   - name: WHISPER_CPP_LOCALHOST_PORT
     default: "63042"
-    description: "Host port for the localhost source variant (defaults to the freed STT_PROVIDER_PORT slot, same as parakeet — the two modes are mutually exclusive). URL is derived at compose-render time as http://host.docker.internal:63042."
+    description: "Host port for the whisper-cpp-localhost source variant, same as parakeet because the two modes are mutually exclusive. URL is derived at compose-render time as http://host.docker.internal:63042."
   - name: HUGGING_FACE_HUB_TOKEN
     default: ""
     secret: true
@@ -174,4 +174,3 @@ runtime_sc:
 
 data_flow:
   calls: []
-

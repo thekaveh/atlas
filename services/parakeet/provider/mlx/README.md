@@ -51,7 +51,7 @@ curl -X POST http://localhost:63042/v1/audio/transcriptions \
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PARAKEET_MODEL` | `mlx-community/parakeet-tdt-0.6b-v3` | HuggingFace model ID |
-| `STT_PROVIDER_PORT` | `63042` | Wizard display slot (auto-adjusts with --base-port flag) |
+| `PARAKEET_LOCALHOST_PORT` | `63042` | Host port Atlas containers use for `parakeet-localhost`. |
 
 ## API Endpoints
 
@@ -143,7 +143,6 @@ python -m uvicorn mlx.api_server:app --host 0.0.0.0 --port 63099
 # Update .env to match (URL is derived inline as
 # http://host.docker.internal:${PARAKEET_LOCALHOST_PORT:-63042})
 PARAKEET_LOCALHOST_PORT=63099
-STT_PROVIDER_PORT=63099
 ```
 
 ## References

@@ -249,6 +249,10 @@ class KongConfigGenerator:
         if crawl4ai_service:
             services.append(crawl4ai_service)
 
+        tika_service = self.generate_tika_service()
+        if tika_service:
+            services.append(tika_service)
+
         flower_service = self.generate_flower_service()
         if flower_service:
             services.append(flower_service)
@@ -1306,6 +1310,33 @@ class KongConfigGenerator:
                 {'name': 'cors'},
                 {'name': 'basic-auth'},
                 {'name': 'acl', 'config': {'allow': ['dashboard_user']}},
+            ],
+        }
+
+    def generate_tika_service(self) -> Optional[Dict[str, Any]]:
+        """Kong route for the Apache Tika fallback extractor."""
+        source = self.get_env_value("TIKA_SOURCE")
+        if source == "container":
+            url = "http://tika:9998/"
+        elif source == "tika-localhost":
+            url = self._localhost_url("TIKA_LOCALHOST_PORT", "9998")
+        else:
+            return None
+        return {
+            "name": "tika",
+            "url": url,
+            "routes": [
+                {
+                    "name": "tika-all",
+                    "strip_path": False,
+                    "preserve_host": True,
+                    "hosts": ["tika.localhost"],
+                }
+            ],
+            "plugins": [
+                {"name": "cors"},
+                {"name": "basic-auth"},
+                {"name": "acl", "config": {"allow": ["dashboard_user"]}},
             ],
         }
 

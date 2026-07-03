@@ -1,0 +1,32 @@
+# services/tika/compose.yml - Apache Tika fallback extractor
+services:
+  tika:
+    image: ${TIKA_IMAGE:-apache/tika:3.3.1.0}
+    container_name: ${PROJECT_NAME}-tika
+    restart: unless-stopped
+    deploy:
+      replicas: ${TIKA_SCALE:-0}
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 512
+    tmpfs:
+      - /tmp:mode=1777
+    environment:
+      JAVA_TOOL_OPTIONS: ${TIKA_JAVA_TOOL_OPTIONS:--Xmx768m}
+    ports:
+      - "${HOST_BIND_IP:-}${TIKA_PORT}:9998"
+    healthcheck:
+      test: "curl -fsS http://localhost:9998/tika || exit 1"
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    logging:
+      driver: json-file
+      options:
+        max-size: "${LOG_MAX_SIZE:-10m}"
+        max-file: "${LOG_MAX_FILE:-3}"
+    networks:
+      - backend-network

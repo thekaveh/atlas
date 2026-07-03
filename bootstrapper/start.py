@@ -907,6 +907,7 @@ class AtlasStarter:
             'LOCAL_DEEP_RESEARCHER_PORT',
             'SEARXNG_PORT',
             'CRAWL4AI_PORT',
+            'TIKA_PORT',
             'FLOWER_PORT',
             'OPEN_WEB_UI_PORT',
             'BACKEND_PORT',
@@ -2061,6 +2062,9 @@ class AtlasStarter:
 @click.option('--crawl4ai-source',
               type=click.Choice(['container', 'disabled'], case_sensitive=False),
               help='Override CRAWL4AI_SOURCE — token-protected browser-backed extraction API.')
+@click.option('--tika-source',
+              type=click.Choice(['container', 'tika-localhost', 'disabled'], case_sensitive=False),
+              help='Override TIKA_SOURCE — Apache Tika fallback extractor.')
 @click.option('--celery-source',
               type=click.Choice(['container', 'disabled'], case_sensitive=False),
               help='Override CELERY_SOURCE — backend async worker tier with Flower monitor.')
@@ -2186,7 +2190,7 @@ def main(project_name, base_port, track, list_tracks, cold, setup_hosts, skip_ho
          ollama_models, ollama_custom_models,
          comfyui_models, comfyui_custom_models_file,
          comfyui_source, weaviate_source, minio_source, n8n_source, searxng_source,
-         crawl4ai_source, celery_source, supavisor_source, mcp_servers_source,
+         crawl4ai_source, tika_source, celery_source, supavisor_source, mcp_servers_source,
          jupyterhub_source, open_web_ui_source, local_deep_researcher_source,
          stt_provider_source, tts_provider_source,
          doc_processor_source, openclaw_source, hermes_source,
@@ -2244,6 +2248,7 @@ def main(project_name, base_port, track, list_tracks, cold, setup_hosts, skip_ho
                     'n8n_source': n8n_source,
                     'searxng_source': searxng_source,
                     'crawl4ai_source': crawl4ai_source,
+                    'tika_source': tika_source,
                     'celery_source': celery_source,
                     'supavisor_source': supavisor_source,
                     'mcp_servers_source': mcp_servers_source,
@@ -2460,6 +2465,7 @@ def main(project_name, base_port, track, list_tracks, cold, setup_hosts, skip_ho
             'n8n_source': n8n_source,
             'searxng_source': searxng_source,
             'crawl4ai_source': crawl4ai_source,
+            'tika_source': tika_source,
             'celery_source': celery_source,
             'supavisor_source': supavisor_source,
             'mcp_servers_source': mcp_servers_source,

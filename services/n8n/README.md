@@ -106,6 +106,7 @@ When `LIGHTRAG_SOURCE != disabled`, the env vars `LIGHTRAG_ENDPOINT` and `LIGHTR
 | doc-processor | media |
 | searxng | media |
 | stt-provider | media |
+| tika | media |
 | tts-provider | media |
 | hermes | agents |
 | lightrag | agents |

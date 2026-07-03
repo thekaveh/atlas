@@ -27,14 +27,14 @@ tracks:
     description: Retrieval-augmented generation — vectors, graph, reranker, doc ingest, web search.
     services: [open-webui, supavisor, weaviate, neo4j, lightrag, doc-processor,
                tei-reranker, searxng, mcp-servers, langfuse,
-               local-deep-researcher, crawl4ai, celery]
+               local-deep-researcher, crawl4ai, tika, celery]
 
   - key: gen-ai-eng
     display_name: Generative AI · Engineering
     description: Agentic apps + workflows with voice, vision, and search.
     services: [open-webui, supavisor, n8n, hermes, openclaw, jupyterhub, comfyui, neo4j,
                stt-provider, tts-provider, searxng, mcp-servers,
-               langfuse, local-deep-researcher, celery]
+               langfuse, local-deep-researcher, tika, celery]
 
   - key: gen-ai-creative
     display_name: Generative AI · Creative

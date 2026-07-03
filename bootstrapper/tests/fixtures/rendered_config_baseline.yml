@@ -342,6 +342,9 @@ services:
       STT_ENDPOINT: ''
       SUPABASE_ANON_KEY: ''
       SUPABASE_SERVICE_KEY: ''
+      TIKA_ENDPOINT: ''
+      TIKA_MAX_FILE_SIZE: '52428800'
+      TIKA_TIMEOUT_SECONDS: '30'
       TTS_ENDPOINT: ''
       WEAVIATE_ENABLED: 'true'
       WEAVIATE_URL: http://weaviate:8080
@@ -2195,6 +2198,7 @@ services:
       QUEUE_BULL_REDIS_PORT: '6379'
       QUEUE_HEALTH_CHECK_ACTIVE: 'true'
       STT_ENDPOINT: ''
+      TIKA_ENDPOINT: ''
       TTS_ENDPOINT: ''
       VUE_APP_URL_BASE_API: http://n8n.localhost:63000/
       WEAVIATE_URL: http://weaviate:8080
@@ -2318,6 +2322,7 @@ services:
       QUEUE_BULL_REDIS_PORT: '6379'
       QUEUE_HEALTH_CHECK_ACTIVE: 'true'
       STT_ENDPOINT: ''
+      TIKA_ENDPOINT: ''
       TTS_ENDPOINT: ''
       WEAVIATE_URL: http://weaviate:8080
     image: n8nio/n8n:2.28.2
@@ -3580,6 +3585,41 @@ services:
       source: tei-reranker-data
       target: /data
       volume: {}
+  tika:
+    cap_drop:
+    - ALL
+    container_name: atlas-tika
+    deploy:
+      replicas: 0
+    environment:
+      JAVA_TOOL_OPTIONS: -Xmx768m
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - curl -fsS http://localhost:9998/tika || exit 1
+      timeout: 10s
+      interval: 30s
+      retries: 5
+      start_period: 1m0s
+    image: apache/tika:3.3.1.0
+    logging:
+      driver: json-file
+      options:
+        max-file: '3'
+        max-size: 10m
+    networks:
+      backend-network: null
+    pids_limit: 512
+    ports:
+    - mode: ingress
+      target: 9998
+      published: '63045'
+      protocol: tcp
+    restart: unless-stopped
+    security_opt:
+    - no-new-privileges:true
+    tmpfs:
+    - /tmp:mode=1777
   weaviate:
     container_name: atlas-weaviate
     depends_on:

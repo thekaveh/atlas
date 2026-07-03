@@ -27,12 +27,12 @@ git clone https://github.com/thekaveh/atlas && cd atlas
 
 # 3. Wait ~5 minutes for AI models to download, then access:
 # Atlas Dashboard:       http://localhost:63000
-# Open WebUI (Chat):     http://localhost:63082
-# n8n (Workflows):       http://localhost:63064
+# Open WebUI (Chat):     http://localhost:63084
+# n8n (Workflows):       http://localhost:63065
 # Supabase Studio:       http://localhost:63017
-# SearxNG (Search):      http://localhost:63043
-# ComfyUI:               http://localhost:63041
-# JupyterHub (IDE):      http://localhost:63081
+# SearxNG (Search):      http://localhost:63044
+# ComfyUI:               http://localhost:63042
+# JupyterHub (IDE):      http://localhost:63083
 # MinIO Console:         http://localhost:63019
 #
 # Optional Kong host routes after ./start.sh --setup-hosts:
@@ -293,7 +293,8 @@ _Engine-only manifests (speaches, chatterbox) are not listed — they're selecte
 | Media | ComfyUI | 63042 | comfyui.localhost |
 | Media | STT Provider | 63043 | stt.localhost |
 | Media | SearxNG | 63044 | search.localhost |
-| Media | TTS Provider | 63045 | tts.localhost |
+| Media | Apache Tika | 63045 | tika.localhost |
+| Media | TTS Provider | 63046 | tts.localhost |
 | Agents & Workflows | Apache Airflow | 63060 | airflow.localhost |
 | Agents & Workflows | Celery Worker | — | — |
 | Agents & Workflows | Flower | 63061 | flower.localhost |
@@ -318,23 +319,24 @@ _Engine-only manifests (speaches, chatterbox) are not listed — they're selecte
 | Service | Direct URL | Kong URL | Purpose | Auth required |
 |---------|------------|----------|---------|---------------|
 | **Atlas Dashboard** | http://localhost:63000 | http://localhost:63000 | Generated service directory with SOURCE state, track context, route links, auth notes, and browser-side reachability checks | None |
-| **Open WebUI** | http://localhost:63082 | http://chat.localhost:63000 | AI chat interface | Create account |
-| **n8n** | http://localhost:63064 | http://n8n.localhost:63000 | Workflow automation | Owner setup on first visit |
+| **Open WebUI** | http://localhost:63084 | http://chat.localhost:63000 | AI chat interface | Create account |
+| **n8n** | http://localhost:63065 | http://n8n.localhost:63000 | Workflow automation | Owner setup on first visit |
 | **Supabase Studio** | http://localhost:63017 | http://supabase-studio.localhost:63000 | Database management | Kong route: `kong_admin` / `DASHBOARD_PASSWORD` from `.env` (direct port is ungated) |
-| **ComfyUI** | http://localhost:63041 | http://comfyui.localhost:63000 | Image generation | None |
-| **SearxNG** | http://localhost:63043 | http://search.localhost:63000 | Privacy search | None |
-| **JupyterHub** | http://localhost:63081 | http://jupyter.localhost:63000 | Data science IDE — ships Python + Scala 2.13 + Scala 3 kernels; configured for VS Code remote-Jupyter (see [services/jupyterhub/README.md](services/jupyterhub/README.md) §10). | Token (optional; auto-generated if `JUPYTERHUB_TOKEN` is empty — grep from `docker logs ${PROJECT_NAME}-jupyterhub`) |
+| **ComfyUI** | http://localhost:63042 | http://comfyui.localhost:63000 | Image generation | None |
+| **SearxNG** | http://localhost:63044 | http://search.localhost:63000 | Privacy search | None |
+| **JupyterHub** | http://localhost:63083 | http://jupyter.localhost:63000 | Data science IDE — ships Python + Scala 2.13 + Scala 3 kernels; configured for VS Code remote-Jupyter (see [services/jupyterhub/README.md](services/jupyterhub/README.md) §10). | Token (optional; auto-generated if `JUPYTERHUB_TOKEN` is empty — grep from `docker logs ${PROJECT_NAME}-jupyterhub`) |
 | **Neo4j Browser** | http://localhost:63021 | http://graph.localhost:63000 | Graph database | `neo4j` / `GRAPH_DB_PASSWORD` from `.env` |
-| **Backend API** | http://localhost:63080 | http://api.localhost:63000 | REST API | None by default (local/dev surface; add gateway auth before exposing beyond a trusted host) |
+| **Backend API** | http://localhost:63082 | http://api.localhost:63000 | REST API | None by default (local/dev surface; add gateway auth before exposing beyond a trusted host) |
 | **LiteLLM Gateway** | http://localhost:63030 | http://litellm.localhost:63000 | OpenAI-compatible LLM front door (Ollama + cloud). The same alias 302-redirects `/` → `/ui/` (admin dashboard). | API: `LITELLM_MASTER_KEY` (Bearer). Dashboard: `admin` / `${LITELLM_MASTER_KEY}` |
-| **Audio (TTS + STT)** | TTS: http://localhost:63044, STT: http://localhost:63042 | http://tts.localhost:63000, http://stt.localhost:63000 | Default install: Speaches serves both `/v1/audio/speech` (Kokoro/Piper) and `/v1/audio/transcriptions` (Faster-Whisper). Engine-specific overrides — Chatterbox on `:63045`, Speaches on `:63046`, host-side variants resolved via `*_LOCALHOST_PORT`. See [services/tts-provider/README.md](services/tts-provider/README.md) and [services/stt-provider/README.md](services/stt-provider/README.md). | None |
-| **Docling Processor** | http://localhost:63040 | http://docling.localhost:63000 | Document processing | None |
-| **OpenClaw Agent** | http://localhost:63065 | http://openclaw.localhost:63000 | AI agent (messaging) | Token (optional) |
-| **Hermes Agent** | http://localhost:63061 (API), http://localhost:63062 (dashboard) | http://hermes.localhost:63000 | Programmable AI agent runtime (Nous Research) | `HERMES_API_KEY` (Bearer) |
+| **Audio (TTS + STT)** | TTS: http://localhost:63046, STT: http://localhost:63043 | http://tts.localhost:63000, http://stt.localhost:63000 | Default install: Speaches serves both `/v1/audio/speech` (Kokoro/Piper) and `/v1/audio/transcriptions` (Faster-Whisper). Engine-specific overrides — Chatterbox on `:63047`, Speaches on `:63048`, host-side variants resolved via `*_LOCALHOST_PORT`. See [services/tts-provider/README.md](services/tts-provider/README.md) and [services/stt-provider/README.md](services/stt-provider/README.md). | None |
+| **Docling Processor** | http://localhost:63041 | http://docling.localhost:63000 | Document processing | None |
+| **Apache Tika** | http://localhost:63045 | http://tika.localhost:63000 | Long-tail fallback text extraction for formats Docling should not own | Kong route: `kong_admin` / `DASHBOARD_PASSWORD` from `.env` (direct port is ungated) |
+| **OpenClaw Agent** | http://localhost:63066 | http://openclaw.localhost:63000 | AI agent (messaging) | Token (optional) |
+| **Hermes Agent** | http://localhost:63062 (API), http://localhost:63063 (dashboard) | http://hermes.localhost:63000 | Programmable AI agent runtime (Nous Research) | `HERMES_API_KEY` (Bearer) |
 | **MinIO Console** | http://localhost:63019 | http://minio.localhost:63000 | S3-compatible object storage admin UI (gated on `MINIO_SOURCE != disabled`). S3 API at `:63018` is NOT aliased — S3 clients use the direct port. | `minioadmin` / `MINIO_ROOT_PASSWORD` |
 | **Ray Dashboard** | http://localhost:63002 | http://ray.localhost:63000 | Distributed-compute substrate (cluster head + workers). Disabled by default; opt-in via `--ray-source ray-container-cpu` / `ray-container-gpu`. | None |
 | **Apache Spark** | http://localhost:63024 | http://spark.localhost:63000 | Standalone Spark cluster for batch / SQL / DataFrame work. Spark Connect on `:15002`. Disabled by default; opt-in via `--spark-source container --spark-workers N`. | None |
-| **Apache Zeppelin** | http://localhost:63084 | http://zeppelin.localhost:63000 | Spark-first notebook UI. Spark interpreter pre-configured for the in-stack standalone Spark master plus MinIO S3A and Iceberg REST; JDBC interpreter ships with credentials in env vars but needs a one-time UI-driven `postgres` profile setup. Requires Spark (gated). Disabled by default. | None |
+| **Apache Zeppelin** | http://localhost:63086 | http://zeppelin.localhost:63000 | Spark-first notebook UI. Spark interpreter pre-configured for the in-stack standalone Spark master plus MinIO S3A and Iceberg REST; JDBC interpreter ships with credentials in env vars but needs a one-time UI-driven `postgres` profile setup. Requires Spark (gated). Disabled by default. | None |
 | **Apache Airflow** | http://localhost:63060 | http://airflow.localhost:63000 | Code-defined DAG orchestrator. LocalExecutor + AI/ML SDK with LiteLLM-wired LLM operators. Disabled by default. | `admin` / auto-generated `AIRFLOW_ADMIN_PASSWORD` |
 | **Prometheus** | http://localhost:63005 | http://prometheus.localhost:63000 | Metrics scraper + TSDB. Disabled by default; opt-in via `--prometheus-source container`. Bundled with `node-exporter` and `cAdvisor`. 13 scrape jobs cover the application + infra tiers — see [services/prometheus/README.md](services/prometheus/README.md). | None |
 | **Grafana** | http://localhost:63008 | http://grafana.localhost:63000 | Observability dashboards + unified alerting on top of Prometheus. Disabled by default; opt-in via `--grafana-source container`. 7 starter dashboards ship pre-provisioned. | `admin` / auto-generated `GRAFANA_ADMIN_PASSWORD` (first-run) |

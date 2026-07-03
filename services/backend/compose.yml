@@ -69,6 +69,9 @@ services:
       STT_ENDPOINT: ${STT_ENDPOINT}
       TTS_ENDPOINT: ${TTS_ENDPOINT}
       DOCLING_ENDPOINT: ${DOCLING_ENDPOINT}
+      TIKA_ENDPOINT: ${TIKA_ENDPOINT:-}
+      TIKA_MAX_FILE_SIZE: ${TIKA_MAX_FILE_SIZE:-52428800}
+      TIKA_TIMEOUT_SECONDS: ${TIKA_TIMEOUT_SECONDS:-30}
       # Hermes Agent — optional direct path (LiteLLM-routed `hermes-agent`
       # model is the default surface). Empty when HERMES_SOURCE=disabled.
       HERMES_ENDPOINT: ${HERMES_ENDPOINT:-}

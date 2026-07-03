@@ -43,9 +43,9 @@ preload the Kokoro model:
 ./start.sh
 # Speaches is healthy as soon as Uvicorn is up, but has no model yet.
 # Download the Kokoro ONNX build (one-time; persists in the speaches-cache volume):
-curl -X POST http://localhost:63046/v1/models/speaches-ai/Kokoro-82M-v1.0-ONNX
+curl -X POST http://localhost:63048/v1/models/speaches-ai/Kokoro-82M-v1.0-ONNX
 # Now synthesize:
-curl http://localhost:63046/v1/audio/speech \
+curl http://localhost:63048/v1/audio/speech \
   -X POST -H "Content-Type: application/json" \
   -d '{"model":"speaches-ai/Kokoro-82M-v1.0-ONNX","input":"hello world","voice":"af_heart"}' \
   --output /tmp/hello.wav
@@ -88,17 +88,17 @@ for the full Chatterbox-on-host walkthrough.
 | Variable | Default | Notes |
 |---|---|---|
 | `TTS_PROVIDER_SOURCE` | `speaches-container-cpu` | The single dial that drives everything below. |
-| `TTS_PROVIDER_PORT` | `63044` | Wizard display port; bootstrapper rewrites this to match the active container. |
+| `TTS_PROVIDER_PORT` | `63046` | Wizard display port; bootstrapper rewrites this to match the active container. |
 | `TTS_ENDPOINT` | (auto) | Internal URL containers reach the TTS service on. Read by Open WebUI / n8n / backend / JupyterHub. |
 | `TTS_PROVIDER_SCALE` | (auto) | 1 when any container variant is active, else 0. |
 | `SPEACHES_IMAGE` | `ghcr.io/speaches-ai/speaches:0.9.0-rc.3-cpu` | Override to pin a different release. |
 | `SPEACHES_GPU_IMAGE` | `ghcr.io/speaches-ai/speaches:0.9.0-rc.3-cuda` | CUDA build pin. |
 | `SPEACHES_TTS_MODEL` | `hexgrad/Kokoro-82M` | Model id Open WebUI sends to Speaches' `/v1/audio/speech`. ⚠ The shipped default is the PyTorch Kokoro repo, which Speaches' Kokoro executor rejects (it requires the ONNX build `speaches-ai/Kokoro-82M-v1.0-ONNX`, or the alias `tts-1`). See the preload note below. |
-| `SPEACHES_PORT` | `63046` | Speaches container external port. |
+| `SPEACHES_PORT` | `63048` | Speaches container external port. |
 | `SPEACHES_SCALE` | (auto) | 1 when speaches is active. |
 | `CHATTERBOX_IMAGE` | `travisvn/chatterbox-tts-api:gpu` | GPU build tag. No version-locked GPU tag yet — pin to a digest for production. |
-| `CHATTERBOX_PORT` | `63045` | Chatterbox container external port. |
-| `CHATTERBOX_LOCALHOST_PORT` | `63044` | Port the stack reaches your host's chatterbox-tts-api on — defaults to the freed `TTS_PROVIDER_PORT` slot (the container `CHATTERBOX_PORT` is 63045). URL is derived as `http://host.docker.internal:${CHATTERBOX_LOCALHOST_PORT}` at compose-render time. |
+| `CHATTERBOX_PORT` | `63047` | Chatterbox container external port. |
+| `CHATTERBOX_LOCALHOST_PORT` | `63044` | Port the stack reaches your host's chatterbox-tts-api on — defaults to the freed host-side slot (the container `CHATTERBOX_PORT` is 63047). URL is derived as `http://host.docker.internal:${CHATTERBOX_LOCALHOST_PORT}` at compose-render time. |
 
 > ⚠ **Speaches ships with no preloaded models and does not auto-download them.**
 > Verified against `speaches @ v0.9.0-rc.3`: `/v1/audio/*` handlers do a

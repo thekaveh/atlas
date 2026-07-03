@@ -77,13 +77,13 @@ for the whisper.cpp walkthrough and Linux build instructions, or
 | Variable | Default | Notes |
 |---|---|---|
 | `STT_PROVIDER_SOURCE` | `speaches-container-cpu` | Engine selector. |
-| `STT_PROVIDER_PORT` | `63042` | Wizard display port; bootstrapper rewrites to match the active container. |
+| `STT_PROVIDER_PORT` | `63043` | Wizard display port; bootstrapper rewrites to match the active container. |
 | `STT_ENDPOINT` | (auto) | Internal URL containers reach STT on. |
 | `STT_PROVIDER_SCALE` | (auto) | 1 when any container variant is active. |
 | `SPEACHES_STT_MODEL` | `Systran/faster-distil-whisper-large-v3` | HuggingFace repo of the model to preload. ⚠ Not wired into Open WebUI (it hardcodes `AUDIO_STT_MODEL: whisper-1`), and Speaches aliases `whisper-1` → `Systran/faster-whisper-large-v3` (the non-distil build) — so preload **that** id, not the distil one, to satisfy a `whisper-1` request. |
 | `PARAKEET_MODEL` | `nvidia/parakeet-tdt-0.6b-v3` | Or `…-v2` for English-only (slightly faster). |
 | `PARAKEET_GPU_IMAGE` | `nvcr.io/nvidia/pytorch:26.06-py3` | Base for the Parakeet GPU Dockerfile. |
-| `PARAKEET_LOCALHOST_PORT` | `63042` | Host port where a host-side Parakeet server listens (defaults to the freed `STT_PROVIDER_PORT` slot). URL is derived as `http://host.docker.internal:63042`. |
+| `PARAKEET_LOCALHOST_PORT` | `63042` | Host port where a host-side Parakeet server listens. URL is derived as `http://host.docker.internal:63042`. |
 | `WHISPER_CPP_LOCALHOST_PORT` | `63042` | Host port where a host-side whisper.cpp server listens (same freed slot as parakeet — the two modes are mutually exclusive). URL is derived as `http://host.docker.internal:63042`. |
 | `HUGGING_FACE_HUB_TOKEN` | (empty) | For gated models. |
 

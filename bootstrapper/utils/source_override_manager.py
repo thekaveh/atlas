@@ -33,6 +33,7 @@ class SourceOverrideManager:
             'n8n_source': 'N8N_SOURCE',
             'searxng_source': 'SEARXNG_SOURCE',
             'crawl4ai_source': 'CRAWL4AI_SOURCE',
+            'tika_source': 'TIKA_SOURCE',
             'celery_source': 'CELERY_SOURCE',
             'celery_worker_source': 'CELERY_SOURCE',
             'supavisor_source': 'SUPAVISOR_SOURCE',

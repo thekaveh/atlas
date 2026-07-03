@@ -60,6 +60,7 @@ services:
       STT_ENDPOINT: ${STT_ENDPOINT}
       TTS_ENDPOINT: ${TTS_ENDPOINT}
       DOCLING_ENDPOINT: ${DOCLING_ENDPOINT}
+      TIKA_ENDPOINT: ${TIKA_ENDPOINT:-}
       WEAVIATE_URL: ${WEAVIATE_URL:-http://weaviate:8080}
       # Prometheus metrics endpoint — n8n exposes /metrics on its main
       # port (5678) when N8N_METRICS=true. Scraped by the observability
@@ -171,6 +172,7 @@ services:
       STT_ENDPOINT: ${STT_ENDPOINT}
       TTS_ENDPOINT: ${TTS_ENDPOINT}
       DOCLING_ENDPOINT: ${DOCLING_ENDPOINT}
+      TIKA_ENDPOINT: ${TIKA_ENDPOINT:-}
       WEAVIATE_URL: ${WEAVIATE_URL:-http://weaviate:8080}
       HERMES_ENDPOINT: ${HERMES_ENDPOINT:-}
       HERMES_API_KEY: ${HERMES_API_KEY:-}
