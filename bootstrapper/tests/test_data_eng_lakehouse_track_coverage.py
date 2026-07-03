@@ -20,6 +20,7 @@ LAKEHOUSE_SERVICES = {
     "zeppelin",
     "minio",
     "iceberg-rest",
+    "trino",
 }
 
 DATA_ENG_IMPLEMENTED_SERVICES = LAKEHOUSE_SERVICES | {"jenkins"}
@@ -36,7 +37,7 @@ def test_data_eng_track_includes_lakehouse_builder_but_not_future_backlog_servic
     for service in DATA_ENG_IMPLEMENTED_SERVICES:
         assert is_in_track(data_eng, service, always_on=registry.always_on), service
 
-    for deferred_service in ("trino", "redpanda"):
+    for deferred_service in ("redpanda",):
         assert not is_in_track(
             data_eng,
             deferred_service,
@@ -52,6 +53,7 @@ def test_data_eng_track_no_tui_synthesis_keeps_lakehouse_and_disables_off_track(
         "zeppelin_source": None,
         "minio_source": None,
         "iceberg_rest_source": None,
+        "trino_source": None,
         "comfyui_source": None,
         "n8n_source": None,
     }
@@ -70,6 +72,7 @@ def test_data_eng_track_no_tui_synthesis_keeps_lakehouse_and_disables_off_track(
         "zeppelin_source",
         "minio_source",
         "iceberg_rest_source",
+        "trino_source",
     ):
         assert source_args[cli_key] is None, cli_key
     assert source_args["comfyui_source"] == "disabled"
@@ -87,6 +90,7 @@ def test_data_eng_lakehouse_services_have_cli_flags_and_wizard_copy() -> None:
         "zeppelin_source": ("zeppelin", "container", "Spark-first"),
         "minio_source": ("minio", "container", "object storage"),
         "iceberg_rest_source": ("iceberg-rest", "container", "Iceberg"),
+        "trino_source": ("trino", "container", "SQL"),
     }
 
     for cli_key, (wizard_key, source_value, label_fragment) in expected.items():
@@ -109,6 +113,7 @@ def test_data_eng_lakehouse_categories_and_ports_use_topology() -> None:
         "zeppelin": "apps",
         "minio": "data",
         "iceberg-rest": "data",
+        "trino": "data",
     }
 
     for service, category in expected_categories.items():
@@ -125,5 +130,5 @@ def test_strategy_report_current_snapshot_mentions_iceberg_rest_in_data_eng() ->
 
     assert (
         "`data-eng`: `spark`, `airflow`, `jupyterhub`, `zeppelin`, "
-        "`minio`, `iceberg-rest`, `weaviate`, `neo4j`"
+        "`minio`, `iceberg-rest`, `trino`, `weaviate`, `neo4j`"
     ) in report

@@ -108,6 +108,7 @@ _PERMUTATIONS = [
     ("SPARK_SOURCE", ["container", "disabled"]),
     ("ZEPPELIN_SOURCE", ["container", "disabled"]),
     ("AIRFLOW_SOURCE", ["container", "disabled"]),
+    ("TRINO_SOURCE", ["container", "disabled"]),
 ]
 
 

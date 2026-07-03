@@ -225,6 +225,10 @@ class KongConfigGenerator:
         if minio_s3_service:
             services.append(minio_s3_service)
 
+        trino_service = self.generate_trino_service()
+        if trino_service:
+            services.append(trino_service)
+
         ray_service = self.generate_ray_service()
         if ray_service:
             services.append(ray_service)
@@ -1102,6 +1106,29 @@ class KongConfigGenerator:
                 }
             ],
             'plugins': [{'name': 'cors'}]
+        }
+
+    def generate_trino_service(self) -> Optional[Dict[str, Any]]:
+        """Generate Trino coordinator UI/API route based on SOURCE."""
+        if self.get_env_value('TRINO_SOURCE') != 'container':
+            return None
+
+        return {
+            'name': 'trino',
+            'url': 'http://trino:8080/',
+            'routes': [
+                {
+                    'name': 'trino-all',
+                    'strip_path': False,
+                    'preserve_host': True,
+                    'hosts': ['trino.localhost'],
+                }
+            ],
+            'plugins': [
+                {'name': 'cors'},
+                {'name': 'basic-auth'},
+                {'name': 'acl', 'config': {'allow': ['dashboard_user']}},
+            ],
         }
 
     def generate_ray_service(self) -> Optional[Dict[str, Any]]:

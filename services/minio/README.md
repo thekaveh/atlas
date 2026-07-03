@@ -186,6 +186,7 @@ _No upstream calls._
 | prometheus | infra |
 | iceberg-rest | data |
 | spark | data |
+| trino | data |
 | airflow | agents |
 | jenkins | apps |
 | jupyterhub | apps |

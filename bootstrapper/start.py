@@ -930,6 +930,7 @@ class AtlasStarter:
             'TEI_RERANKER_PORT',
             'LIGHTRAG_API_PORT',
             'ICEBERG_REST_PORT',
+            'TRINO_PORT',
             'MINIO_PORT',
             'MINIO_CONSOLE_PORT',
             'JUPYTERHUB_PORT',
@@ -2187,6 +2188,9 @@ class AtlasStarter:
 @click.option('--iceberg-rest-source',
               type=click.Choice(['container', 'disabled'], case_sensitive=False),
               help='Override ICEBERG_REST_SOURCE — durable Iceberg REST catalog over MinIO.')
+@click.option('--trino-source',
+              type=click.Choice(['container', 'disabled'], case_sensitive=False),
+              help='Override TRINO_SOURCE — SQL query engine over the Iceberg lakehouse.')
 @click.option('--no-tui', is_flag=True,
               help='Disable the TUI (wizard + Textual log app). Falls back to the legacy '
                    'linear flow with passthrough docker output. Useful for log capture, '
@@ -2231,6 +2235,7 @@ def main(project_name, base_port, track, list_tracks, cold, setup_hosts, skip_ho
          verba_source,
          airflow_source,
          iceberg_rest_source,
+         trino_source,
          no_tui, no_splash, no_port_migrate, profile):
     """Start Atlas — the self-hosted engineering platform."""
 
@@ -2305,6 +2310,7 @@ def main(project_name, base_port, track, list_tracks, cold, setup_hosts, skip_ho
                     'verba_source': verba_source,
                     'airflow_source': airflow_source,
                     'iceberg_rest_source': iceberg_rest_source,
+                    'trino_source': trino_source,
                 }
                 for cli_key, value in _flag_values.items():
                     if value is None or value == "disabled":
@@ -2528,6 +2534,7 @@ def main(project_name, base_port, track, list_tracks, cold, setup_hosts, skip_ho
             'verba_source': verba_source,
             'airflow_source': airflow_source,
             'iceberg_rest_source': iceberg_rest_source,
+            'trino_source': trino_source,
         }
         # Ray non-SOURCE settings (worker count) get plumbed via
         # update_env_file the same way the cloud-API keys do. Clamp 0-64 to

@@ -24,6 +24,7 @@ include:
   - services/redis/compose.yml
   - services/minio/compose.yml
   - services/iceberg-rest/compose.yml
+  - services/trino/compose.yml
   - services/neo4j/compose.yml
 
   # Compute substrate (infra)

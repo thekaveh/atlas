@@ -3977,6 +3977,41 @@ services:
     - no-new-privileges:true
     tmpfs:
     - /tmp:mode=1777
+  trino:
+    container_name: atlas-trino
+    depends_on:
+      iceberg-rest:
+        condition: service_healthy
+        required: true
+      minio-init:
+        condition: service_completed_successfully
+        required: true
+    deploy:
+      replicas: 0
+    environment:
+      MINIO_ICEBERG_ACCESS_KEY: ''
+      MINIO_ICEBERG_SECRET_KEY: ''
+      MINIO_REGION: us-east-1
+    image: trinodb/trino:482
+    logging:
+      driver: json-file
+      options:
+        max-file: '3'
+        max-size: 10m
+    networks:
+      backend-network: null
+    ports:
+    - mode: ingress
+      target: 8080
+      published: '63027'
+      protocol: tcp
+    restart: unless-stopped
+    volumes:
+    - type: bind
+      source: '{REPO_ROOT}/services/trino/catalog'
+      target: /etc/trino/catalog
+      read_only: true
+      bind: {}
   verba:
     container_name: atlas-verba
     depends_on:
@@ -4091,11 +4126,11 @@ services:
     ports:
     - mode: ingress
       protocol: tcp
-      published: '63027'
+      published: '63028'
       target: 8080
     - mode: ingress
       protocol: tcp
-      published: '63028'
+      published: '63029'
       target: 50051
     restart: unless-stopped
     volumes:

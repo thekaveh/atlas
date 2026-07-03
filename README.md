@@ -286,7 +286,8 @@ _Engine-only manifests (speaches, chatterbox) are not listed — they're selecte
 | Data | Apache Spark | 63025 | spark.localhost |
 | Data | Apache Spark — History Server | 63026 | spark-history.localhost |
 | Data | Supavisor | — | — |
-| Data | Weaviate | 63027 | weaviate.localhost |
+| Data | Trino | 63027 | trino.localhost |
+| Data | Weaviate | 63028 | weaviate.localhost |
 | Data | Multi2Vec CLIP | — | — |
 | LLM Core | LiteLLM | 63030 | litellm.localhost |
 | LLM Core | LLM Engine | — | ollama.localhost |
@@ -342,6 +343,7 @@ _Engine-only manifests (speaches, chatterbox) are not listed — they're selecte
 | **MinIO Console** | http://localhost:63019 | http://minio.localhost:63000 | S3-compatible object storage admin UI (gated on `MINIO_SOURCE != disabled`). S3 API at `:63018` is NOT aliased — S3 clients use the direct port. | `minioadmin` / `MINIO_ROOT_PASSWORD` |
 | **Ray Dashboard** | http://localhost:63002 | http://ray.localhost:63000 | Distributed-compute substrate (cluster head + workers). Disabled by default; opt-in via `--ray-source ray-container-cpu` / `ray-container-gpu`. | None |
 | **Apache Spark** | http://localhost:63024 | http://spark.localhost:63000 | Standalone Spark cluster for batch / SQL / DataFrame work. Spark Connect on `:15002`. Disabled by default; opt-in via `--spark-source container --spark-workers N`. | None |
+| **Trino** | http://localhost:63027 | http://trino.localhost:63000 | SQL query engine over the Iceberg REST + MinIO lakehouse catalog. Disabled by default; opt-in via `--trino-source container --iceberg-rest-source container --minio-source container`. | Kong route: `kong_admin` / `DASHBOARD_PASSWORD` from `.env` (direct port is ungated) |
 | **Apache Zeppelin** | http://localhost:63086 | http://zeppelin.localhost:63000 | Spark-first notebook UI. Spark interpreter pre-configured for the in-stack standalone Spark master plus MinIO S3A and Iceberg REST; JDBC interpreter ships with credentials in env vars but needs a one-time UI-driven `postgres` profile setup. Requires Spark (gated). Disabled by default. | None |
 | **Apache Airflow** | http://localhost:63060 | http://airflow.localhost:63000 | Code-defined DAG orchestrator. LocalExecutor + AI/ML SDK with LiteLLM-wired LLM operators. Disabled by default. | `admin` / auto-generated `AIRFLOW_ADMIN_PASSWORD` |
 | **Prometheus** | http://localhost:63005 | http://prometheus.localhost:63000 | Metrics scraper + TSDB. Disabled by default; opt-in via `--prometheus-source container`. Bundled with `node-exporter` and `cAdvisor`. 13 scrape jobs cover the application + infra tiers — see [services/prometheus/README.md](services/prometheus/README.md). | None |

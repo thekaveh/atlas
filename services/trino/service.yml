@@ -1,0 +1,80 @@
+# services/trino/service.yml - Trino SQL query engine
+name: trino
+label: "Trino"
+category: data
+docs: services/trino/README.md
+
+containers:
+  - trino
+
+images:
+  - var: TRINO_IMAGE
+    default: "trinodb/trino:482"
+    container: trino
+    notes: "Pinned to the current Trino release tag validated against the Iceberg REST + MinIO catalog contract."
+
+sources:
+  var: TRINO_SOURCE
+  default: disabled
+  options:
+    - id: container
+      label: "Container (federated SQL over Iceberg REST + MinIO lakehouse)"
+    - id: disabled
+      label: "Disabled"
+
+env:
+  - name: TRINO_SOURCE
+    default: disabled
+  - name: TRINO_PORT
+    description: "Host port for the Trino coordinator UI/API (in-container 8080)."
+  - name: TRINO_SCALE
+    auto_managed: true
+
+depends_on:
+  required:
+    - minio
+    - iceberg-rest
+  optional:
+    - spark
+    - zeppelin
+    - jupyterhub
+    - airflow
+
+rows:
+  - display_name: "Trino"
+    source_var: TRINO_SOURCE
+    port_var: TRINO_PORT
+    scale_var: TRINO_SCALE
+    alias: trino.localhost
+    description: "Federated SQL query engine over the Atlas Iceberg lakehouse."
+
+exports: []
+
+runtime_sc:
+  trino:
+    container:
+      scale: 1
+      environment: {}
+      deploy: {}
+      extra_hosts: []
+    disabled:
+      scale: 0
+      environment: {}
+      deploy: {}
+      extra_hosts: []
+
+runtime_deps:
+  trino:
+    requires:
+      - minio
+      - iceberg-rest
+    optional:
+      - spark
+      - zeppelin
+      - jupyterhub
+      - airflow
+
+data_flow:
+  calls:
+    - iceberg-rest
+    - minio

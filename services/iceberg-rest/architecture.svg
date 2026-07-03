@@ -47,10 +47,11 @@
   <text x="630" y="78" fill="#a78bfa" font-size="9" font-weight="700"
         text-anchor="start" style="letter-spacing:0.06em;text-transform:uppercase;">data</text>
   <text x="850" y="78" fill="#a78bfa" font-size="9" font-weight="600"
-        text-anchor="end">1</text>
+        text-anchor="end">2</text>
 </g>
 
 <g><rect x="628" y="88" width="108" height="22" rx="4" fill="#0f172a"/><rect x="628" y="88" width="108" height="22" rx="4" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1"/><text x="682" y="103" fill="white" font-size="10" text-anchor="middle">spark</text></g>
+<g><rect x="740" y="88" width="108" height="22" rx="4" fill="#0f172a"/><rect x="740" y="88" width="108" height="22" rx="4" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1"/><text x="794" y="103" fill="white" font-size="10" text-anchor="middle">trino</text></g>
 <g class="cluster">
   <rect x="620" y="132" width="240" height="58" rx="8"
         fill="rgba(30,41,59,0.35)"
