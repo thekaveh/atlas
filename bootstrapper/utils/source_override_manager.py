@@ -34,6 +34,11 @@ class SourceOverrideManager:
             'searxng_source': 'SEARXNG_SOURCE',
             'crawl4ai_source': 'CRAWL4AI_SOURCE',
             'tika_source': 'TIKA_SOURCE',
+            'llm_graph_builder_source': 'LLM_GRAPH_BUILDER_SOURCE',
+            # Graph Builder is a two-container family. The frontend is the
+            # wizard discovery anchor, while the user-facing flag stays
+            # family-level (`--llm-graph-builder-source`).
+            'llm_graph_builder_frontend_source': 'LLM_GRAPH_BUILDER_SOURCE',
             'celery_source': 'CELERY_SOURCE',
             'celery_worker_source': 'CELERY_SOURCE',
             'supavisor_source': 'SUPAVISOR_SOURCE',

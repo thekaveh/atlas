@@ -230,6 +230,7 @@ _No upstream calls._
 | lightrag | agents |
 | mcp-servers | agents |
 | jupyterhub | apps |
+| llm-graph-builder | apps |
 
 ### 13.3 Architecture diagram
 

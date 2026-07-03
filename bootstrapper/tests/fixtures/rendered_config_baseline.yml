@@ -1835,6 +1835,129 @@ services:
       target: /atlas-models/litellm-models.yaml
       read_only: true
       bind: {}
+  llm-graph-builder-backend:
+    build:
+      context: https://github.com/neo4j-labs/llm-graph-builder.git#4a412f4688cf4096976045c019edc0a7f6ddcb6b:backend
+      dockerfile: Dockerfile
+    container_name: atlas-llm-graph-builder-backend
+    depends_on:
+      litellm:
+        condition: service_healthy
+        required: true
+      neo4j-graph-db:
+        condition: service_healthy
+        required: true
+    deploy:
+      replicas: 0
+      resources:
+        limits:
+          cpus: 4
+          memory: '8589934592'
+    environment:
+      AUTHENTICATION_REQUIRED: 'false'
+      DEFAULT_DIFFBOT_CHAT_MODEL: atlas_litellm
+      DIFFBOT_API_KEY: ''
+      EMBEDDING_MODEL: all-MiniLM-L6-v2
+      EMBEDDING_PROVIDER: sentence-transformer
+      ENABLE_USER_AGENT: 'true'
+      ENTITY_EMBEDDING: 'false'
+      GCP_LOG_METRICS_ENABLED: 'False'
+      GCS_FILE_CACHE: 'False'
+      GOOGLE_APPLICATION_CREDENTIALS: /root/.config/gcloud/application_default_credentials.json
+      GOOGLE_CLOUD_PROJECT: ''
+      GRAPH_CLEANUP_MODEL: atlas_litellm
+      IS_EMBEDDING: 'true'
+      KNN_MIN_SCORE: '0.94'
+      LLM_MODEL_CONFIG_ATLAS_LITELLM: ''
+      MAX_TOKEN_CHUNK_SIZE: '10000'
+      NEO4J_DATABASE: neo4j
+      NEO4J_PASSWORD: neo4j_password
+      NEO4J_URI: ''
+      NEO4J_USERNAME: neo4j
+      OPENAI_API_KEY: ''
+      TRACK_USER_USAGE: 'false'
+      UPDATE_GRAPH_CHUNKS_PROCESSED: '20'
+      USER_AGENT: Atlas-LLM-Graph-Builder
+    extra_hosts:
+    - host.docker.internal=
+    healthcheck:
+      test:
+      - CMD
+      - python
+      - -c
+      - import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health',
+        timeout=5).status == 200 else 1)
+      timeout: 8s
+      interval: 30s
+      retries: 5
+      start_period: 5m0s
+    logging:
+      driver: json-file
+      options:
+        max-file: '3'
+        max-size: 10m
+    networks:
+      backend-network: null
+    restart: unless-stopped
+  llm-graph-builder-frontend:
+    build:
+      context: https://github.com/neo4j-labs/llm-graph-builder.git#4a412f4688cf4096976045c019edc0a7f6ddcb6b:frontend
+      dockerfile: Dockerfile
+      args:
+        DEPLOYMENT_ENV: local
+        VITE_AUTH0_CLIENT_ID: ''
+        VITE_AUTH0_DOMAIN: ''
+        VITE_BACKEND_API_URL: http://graphbuilder-api.localhost:63000
+        VITE_BATCH_SIZE: '2'
+        VITE_CHAT_MODES: vector,graph_vector,graph,fulltext,graph_vector_fulltext,entity_vector,global_vector
+        VITE_CHUNK_OVERLAP: '20'
+        VITE_CHUNK_SIZE: '5242880'
+        VITE_CHUNK_TO_COMBINE: '1'
+        VITE_ENV: PROD
+        VITE_GOOGLE_CLIENT_ID: ''
+        VITE_LARGE_FILE_SIZE: '5242880'
+        VITE_LLM_MODELS: atlas_litellm
+        VITE_LLM_MODELS_PROD: atlas_litellm
+        VITE_REACT_APP_SOURCES: local,wiki,web
+        VITE_SKIP_AUTH: 'true'
+        VITE_TIME_PER_PAGE: '50'
+        VITE_TOKENS_PER_CHUNK: '200'
+    container_name: atlas-llm-graph-builder-frontend
+    depends_on:
+      llm-graph-builder-backend:
+        condition: service_healthy
+        required: true
+    deploy:
+      replicas: 0
+      resources:
+        limits:
+          cpus: 1
+          memory: '805306368'
+    healthcheck:
+      test:
+      - CMD
+      - wget
+      - -q
+      - -O
+      - '-'
+      - http://localhost:8080/
+      timeout: 5s
+      interval: 30s
+      retries: 5
+      start_period: 1m0s
+    logging:
+      driver: json-file
+      options:
+        max-file: '3'
+        max-size: 10m
+    networks:
+      backend-network: null
+    ports:
+    - mode: ingress
+      target: 8080
+      published: '63084'
+      protocol: tcp
+    restart: unless-stopped
   local-deep-researcher:
     build:
       context: '{REPO_ROOT}/services/local-deep-researcher/build'
@@ -1877,7 +2000,7 @@ services:
     ports:
     - mode: ingress
       target: 2024
-      published: '63085'
+      published: '63086'
       protocol: tcp
     restart: unless-stopped
     volumes:
@@ -2584,7 +2707,7 @@ services:
     ports:
     - mode: ingress
       target: 8080
-      published: '63084'
+      published: '63085'
       protocol: tcp
     restart: unless-stopped
     volumes:
@@ -3932,7 +4055,7 @@ services:
     ports:
     - mode: ingress
       target: 8080
-      published: '63086'
+      published: '63087'
       protocol: tcp
     restart: unless-stopped
     volumes:

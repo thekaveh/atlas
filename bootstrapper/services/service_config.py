@@ -176,6 +176,7 @@ class ServiceConfig:
         env_vars.update(self._generate_local_deep_researcher_extraction_config())
         env_vars.update(self._generate_crawl4ai_config())
         env_vars.update(self._generate_tika_config())
+        env_vars.update(self._generate_llm_graph_builder_config())
         env_vars.update(self._generate_celery_config())
         env_vars.update(self._generate_supavisor_config())
 
@@ -1098,6 +1099,56 @@ class ServiceConfig:
         return {
             "TIKA_SCALE": "1",
             "TIKA_ENDPOINT": "http://tika:9998",
+        }
+
+    def _generate_llm_graph_builder_config(self) -> dict:
+        """Generate Neo4j LLM Graph Builder scales/endpoints/model config.
+
+        The first Atlas slice uses the in-stack Neo4j container deliberately:
+        the compose fragment has a real lifecycle dependency on
+        ``neo4j-graph-db`` and the upstream app is most predictable when the
+        advertised Bolt URI is Docker-internal. A later localhost source can
+        relax this once it has its own route and lifecycle tests.
+        """
+        source = self.service_sources.get("LLM_GRAPH_BUILDER_SOURCE", "disabled")
+        if source == "disabled":
+            return {
+                "LLM_GRAPH_BUILDER_BACKEND_SCALE": "0",
+                "LLM_GRAPH_BUILDER_FRONTEND_SCALE": "0",
+                "LLM_GRAPH_BUILDER_ENDPOINT": "",
+                "LLM_GRAPH_BUILDER_BACKEND_ENDPOINT": "",
+                "LLM_GRAPH_BUILDER_LITELLM_MODEL_CONFIG": "",
+            }
+
+        neo4j_source = self.service_sources.get("NEO4J_GRAPH_DB_SOURCE", "container")
+        if neo4j_source == "disabled":
+            raise ValueError(
+                "Neo4j LLM Graph Builder requires Neo4j. Either pass "
+                "--neo4j-graph-db-source container alongside "
+                "--llm-graph-builder-source container, or set "
+                "--llm-graph-builder-source disabled."
+            )
+        if neo4j_source != "container":
+            raise ValueError(
+                "Neo4j LLM Graph Builder requires in-stack Neo4j for v1 "
+                "because its compose fragment depends on neo4j-graph-db. "
+                "Use --neo4j-graph-db-source container or keep "
+                "--llm-graph-builder-source disabled."
+            )
+
+        current_env = self.config_parser.parse_env_file()
+        model = (
+            current_env.get("LLM_GRAPH_BUILDER_LLM_MODEL")
+            or current_env.get("LITELLM_DEFAULT_MODEL")
+            or "gpt-4o-mini"
+        )
+        model_config = f"{model},http://litellm:4000/v1,${{LITELLM_MASTER_KEY}}"
+        return {
+            "LLM_GRAPH_BUILDER_BACKEND_SCALE": "1",
+            "LLM_GRAPH_BUILDER_FRONTEND_SCALE": "1",
+            "LLM_GRAPH_BUILDER_ENDPOINT": "http://llm-graph-builder-frontend:8080",
+            "LLM_GRAPH_BUILDER_BACKEND_ENDPOINT": "http://llm-graph-builder-backend:8000",
+            "LLM_GRAPH_BUILDER_LITELLM_MODEL_CONFIG": model_config,
         }
 
     def _generate_celery_config(self) -> dict:

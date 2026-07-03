@@ -1,0 +1,144 @@
+# services/llm-graph-builder/service.yml
+# Neo4j Labs LLM Knowledge Graph Builder — document-to-graph UI/backend.
+name: llm-graph-builder
+label: "Neo4j LLM Graph Builder"
+category: apps
+docs: services/llm-graph-builder/README.md
+
+containers:
+  - llm-graph-builder-backend
+  - llm-graph-builder-frontend
+
+extra_kong_aliases:
+  - graphbuilder-api.localhost
+
+sources:
+  var: LLM_GRAPH_BUILDER_SOURCE
+  default: disabled
+  options:
+    - id: container
+      label: "Container (pinned source build)"
+    - id: disabled
+      label: "Disabled"
+
+env:
+  - name: LLM_GRAPH_BUILDER_SOURCE
+    default: disabled
+  - name: LLM_GRAPH_BUILDER_REF
+    default: "4a412f4688cf4096976045c019edc0a7f6ddcb6b"
+    description: "Pinned upstream neo4j-labs/llm-graph-builder git ref used by the source-build containers."
+  - name: LLM_GRAPH_BUILDER_PORT
+    description: "Host port for the Graph Builder frontend (in-container 8080)."
+  - name: LLM_GRAPH_BUILDER_MODEL_ID
+    default: atlas_litellm
+    description: "Model id shown in the Graph Builder UI. Atlas maps this id to LiteLLM's OpenAI-compatible endpoint."
+  - name: LLM_GRAPH_BUILDER_LLM_MODEL
+    default: ""
+    description: "LiteLLM model alias used behind atlas_litellm. Empty = use LITELLM_DEFAULT_MODEL."
+  - name: LLM_GRAPH_BUILDER_NEO4J_DATABASE
+    default: neo4j
+    description: "Neo4j database name for Graph Builder data. Use a dedicated database on editions that support it."
+  - name: LLM_GRAPH_BUILDER_REACT_APP_SOURCES
+    default: local,wiki,web
+    description: "Comma-separated upstream source picker values compiled into the frontend."
+  - name: LLM_GRAPH_BUILDER_CHAT_MODES
+    default: vector,graph_vector,graph,fulltext,graph_vector_fulltext,entity_vector,global_vector
+    description: "Comma-separated chat modes compiled into the frontend."
+  - name: LLM_GRAPH_BUILDER_TIME_PER_PAGE
+    default: 50
+  - name: LLM_GRAPH_BUILDER_CHUNK_SIZE
+    default: 5242880
+  - name: LLM_GRAPH_BUILDER_LARGE_FILE_SIZE
+    default: 5242880
+  - name: LLM_GRAPH_BUILDER_BATCH_SIZE
+    default: 2
+  - name: LLM_GRAPH_BUILDER_CHUNK_OVERLAP
+    default: 20
+  - name: LLM_GRAPH_BUILDER_TOKENS_PER_CHUNK
+    default: 200
+  - name: LLM_GRAPH_BUILDER_CHUNK_TO_COMBINE
+    default: 1
+  - name: LLM_GRAPH_BUILDER_MAX_TOKEN_CHUNK_SIZE
+    default: 10000
+  - name: LLM_GRAPH_BUILDER_KNN_MIN_SCORE
+    default: "0.94"
+  - name: LLM_GRAPH_BUILDER_UPDATE_GRAPH_CHUNKS_PROCESSED
+    default: 20
+  - name: LLM_GRAPH_BUILDER_ENTITY_EMBEDDING
+    default: "false"
+  - name: LLM_GRAPH_BUILDER_ENABLE_USER_AGENT
+    default: "true"
+  - name: LLM_GRAPH_BUILDER_USER_AGENT
+    default: Atlas-LLM-Graph-Builder
+  - name: LLM_GRAPH_BUILDER_TRACK_USER_USAGE
+    default: "false"
+  - name: LLM_GRAPH_BUILDER_AUTHENTICATION_REQUIRED
+    default: "false"
+  - name: LLM_GRAPH_BUILDER_BACKEND_SCALE
+    auto_managed: true
+  - name: LLM_GRAPH_BUILDER_FRONTEND_SCALE
+    auto_managed: true
+  - name: LLM_GRAPH_BUILDER_ENDPOINT
+    auto_managed: true
+    description: "Internal frontend URL."
+  - name: LLM_GRAPH_BUILDER_BACKEND_ENDPOINT
+    auto_managed: true
+    description: "Internal backend API URL."
+  - name: LLM_GRAPH_BUILDER_LITELLM_MODEL_CONFIG
+    auto_managed: true
+    description: "Model config consumed as LLM_MODEL_CONFIG_ATLAS_LITELLM by the upstream backend."
+
+depends_on:
+  required:
+    - neo4j
+    - litellm
+    - kong
+  optional:
+    - minio
+    - docling
+
+rows:
+  - display_name: "Neo4j LLM Graph Builder"
+    source_var: LLM_GRAPH_BUILDER_SOURCE
+    port_var: LLM_GRAPH_BUILDER_PORT
+    scale_var: LLM_GRAPH_BUILDER_FRONTEND_SCALE
+    alias: graphbuilder.localhost
+    description: "Neo4j Labs document-to-knowledge-graph builder and chat UI."
+    localhost_endpoint_var: LLM_GRAPH_BUILDER_ENDPOINT
+
+exports: []
+
+runtime_sc:
+  llm-graph-builder-frontend:
+    container:
+      scale: 1
+      environment:
+        LLM_GRAPH_BUILDER_ENDPOINT: "http://llm-graph-builder-frontend:8080"
+      deploy: {}
+      extra_hosts: []
+    disabled:
+      scale: 0
+      environment:
+        LLM_GRAPH_BUILDER_ENDPOINT: ""
+      deploy: {}
+      extra_hosts: []
+  llm-graph-builder-backend:
+    container:
+      scale: 1
+      environment:
+        LLM_GRAPH_BUILDER_BACKEND_ENDPOINT: "http://llm-graph-builder-backend:8000"
+      deploy: {}
+      extra_hosts: []
+    disabled:
+      scale: 0
+      environment:
+        LLM_GRAPH_BUILDER_BACKEND_ENDPOINT: ""
+      deploy: {}
+      extra_hosts: []
+
+data_flow:
+  calls:
+    - neo4j
+    - litellm
+    - minio
+    - docling

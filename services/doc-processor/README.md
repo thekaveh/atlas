@@ -497,6 +497,7 @@ _No upstream calls._
 | kong | infra |
 | lightrag | agents |
 | n8n | agents |
+| llm-graph-builder | apps |
 
 ### 16.3 Architecture diagram
 
