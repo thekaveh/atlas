@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -16,6 +17,7 @@ DOCKERFILE = SERVICE_DIR / "build" / "Dockerfile"
 MANIFEST = SERVICE_DIR / "service.yml"
 INIT_SCRIPT = SERVICE_DIR / "init" / "scripts" / "seed-spark-interpreter.py"
 README = SERVICE_DIR / "README.md"
+NOTEBOOK = SERVICE_DIR / "notebooks" / "spark_basics.zpln"
 
 
 def _manifest() -> dict:
@@ -43,12 +45,14 @@ def test_zeppelin_manifest_declares_lakehouse_init_family() -> None:
         "ZEPPELIN_INIT_IMAGE",
     }
     assert "iceberg-rest" in manifest["depends_on"]["optional"]
+    assert "trino" in manifest["depends_on"]["optional"]
     assert manifest["data_flow"]["calls"] == [
         "spark",
         "supabase",
         "minio",
         "iceberg-rest",
         "redpanda",
+        "trino",
     ]
 
     env_vars = {entry["name"]: entry for entry in manifest["env"]}
@@ -89,12 +93,21 @@ def test_zeppelin_compose_builds_spark_enabled_image_and_init_companion() -> Non
         "environment"
     ]["SPARK_SUBMIT_OPTIONS"]
     assert "MINIO_ICEBERG_ACCESS_KEY" in zeppelin["environment"]
+    assert zeppelin["environment"]["TRINO_SOURCE"] == "${TRINO_SOURCE:-disabled}"
+    assert zeppelin["environment"]["TRINO_JDBC_URL"] == "jdbc:trino://trino:8080/lakehouse"
+    assert zeppelin["environment"]["TRINO_JDBC_DRIVER"] == "io.trino.jdbc.TrinoDriver"
+    assert zeppelin["environment"]["TRINO_JDBC_DEPENDENCY"] == "io.trino:trino-jdbc:482"
 
     assert init["image"] == "${ZEPPELIN_INIT_IMAGE:-python:3.12-alpine}"
     assert init["deploy"]["replicas"] == "${ZEPPELIN_INIT_SCALE:-0}"
     assert init["depends_on"]["zeppelin"]["condition"] == "service_healthy"
     assert init["depends_on"]["spark-init"]["condition"] == "service_completed_successfully"
     assert init["depends_on"]["minio-init"]["condition"] == "service_completed_successfully"
+    assert init["environment"]["TRINO_SOURCE"] == "${TRINO_SOURCE:-disabled}"
+    assert init["environment"]["TRINO_ENDPOINT"] == "http://trino:8080"
+    assert init["environment"]["TRINO_JDBC_URL"] == "jdbc:trino://trino:8080/lakehouse"
+    assert init["environment"]["TRINO_JDBC_DRIVER"] == "io.trino.jdbc.TrinoDriver"
+    assert init["environment"]["TRINO_JDBC_DEPENDENCY"] == "io.trino:trino-jdbc:482"
     assert "ports" not in init
     assert init["entrypoint"] == ["python", "/scripts/seed-spark-interpreter.py"]
 
@@ -180,6 +193,80 @@ def test_zeppelin_seed_merge_preserves_non_atlas_properties_and_restarts() -> No
     assert seed.needs_restart(merged, merged) is False
 
 
+def test_zeppelin_trino_jdbc_seed_contract_is_version_pinned() -> None:
+    seed = _load_seed_module()
+
+    props = seed.build_trino_jdbc_properties(
+        {
+            "TRINO_JDBC_URL": "jdbc:trino://trino:8080/lakehouse",
+            "TRINO_JDBC_USER": "atlas",
+            "TRINO_JDBC_DRIVER": "io.trino.jdbc.TrinoDriver",
+        }
+    )
+    setting = seed.build_trino_jdbc_setting({"properties": {}})
+
+    assert seed.should_seed_trino({"TRINO_SOURCE": "disabled"}) is False
+    assert seed.should_seed_trino({"TRINO_SOURCE": "container"}) is True
+    assert props == {
+        "default.driver": "io.trino.jdbc.TrinoDriver",
+        "default.url": "jdbc:trino://trino:8080/lakehouse",
+        "default.user": "atlas",
+    }
+    assert setting["name"] == "trino"
+    assert setting["group"] == "jdbc"
+    assert setting["dependencies"] == [
+        {
+            "groupArtifactVersion": "io.trino:trino-jdbc:482",
+            "local": False,
+        }
+    ]
+    assert setting["properties"]["default.url"]["value"] == "jdbc:trino://trino:8080/lakehouse"
+
+
+def test_zeppelin_trino_jdbc_seed_preserves_user_owned_properties() -> None:
+    seed = _load_seed_module()
+
+    setting = seed.build_trino_jdbc_setting(
+        {
+            "properties": {
+                "custom.session-property": {
+                    "name": "custom.session-property",
+                    "value": "kept",
+                    "type": "string",
+                },
+                "spark.remote": {
+                    "name": "spark.remote",
+                    "value": "user-owned-jdbc-property",
+                    "type": "string",
+                },
+            },
+            "dependencies": [
+                {
+                    "groupArtifactVersion": "example:custom-driver:1",
+                    "local": False,
+                }
+            ],
+        }
+    )
+
+    assert setting["properties"]["custom.session-property"]["value"] == "kept"
+    assert setting["properties"]["spark.remote"]["value"] == "user-owned-jdbc-property"
+    assert {
+        "groupArtifactVersion": "example:custom-driver:1",
+        "local": False,
+    } in setting["dependencies"]
+
+
+def test_zeppelin_starter_notebook_includes_trino_metadata_smoke() -> None:
+    notebook = json.loads(NOTEBOOK.read_text())
+    texts = "\n".join(paragraph.get("text") or "" for paragraph in notebook["paragraphs"])
+
+    assert "%trino" in texts
+    assert "SHOW CATALOGS" in texts
+    assert "SHOW SCHEMAS FROM lakehouse" in texts
+    assert "TRINO_SOURCE=container" in texts
+
+
 def test_zeppelin_docs_describe_zero_touch_lakehouse_seed() -> None:
     readme = README.read_text()
 
@@ -187,4 +274,7 @@ def test_zeppelin_docs_describe_zero_touch_lakehouse_seed() -> None:
     assert "spark.master=spark://spark-master:7077" in readme
     assert "zeppelin.spark.enableSupportedVersionCheck=false" in readme
     assert "SHOW NAMESPACES IN lakehouse" in readme
+    assert "%trino" in readme
+    assert "io.trino:trino-jdbc:482" in readme
+    assert "jdbc:trino://trino:8080/lakehouse" in readme
     assert "spark.remote=sc://spark-connect:15002" not in readme

@@ -4324,6 +4324,12 @@ services:
         --conf spark.sql.catalog.lakehouse.s3.endpoint=http://minio:9000 --conf spark.sql.catalog.lakehouse.s3.path-style-access=true
         --conf spark.sql.catalog.lakehouse.s3.access-key-id= --conf spark.sql.catalog.lakehouse.s3.secret-access-key= --conf
         spark.sql.catalog.lakehouse.client.region=us-east-1 --conf spark.eventLog.enabled=true --conf spark.eventLog.dir=s3a://spark-history/
+      TRINO_ENDPOINT: http://trino:8080
+      TRINO_JDBC_DEPENDENCY: io.trino:trino-jdbc:482
+      TRINO_JDBC_DRIVER: io.trino.jdbc.TrinoDriver
+      TRINO_JDBC_URL: jdbc:trino://trino:8080/lakehouse
+      TRINO_JDBC_USER: atlas
+      TRINO_SOURCE: disabled
       ZEPPELIN_JDBC_POSTGRES_PASSWORD: password
       ZEPPELIN_JDBC_POSTGRES_URL: jdbc:postgresql://supabase-db:5432/postgres
       ZEPPELIN_JDBC_POSTGRES_USER: supabase_admin
@@ -4393,6 +4399,12 @@ services:
       MINIO_ROOT_USER: minioadmin
       SPARK_HOME: /opt/spark
       SPARK_MASTER: spark://spark-master:7077
+      TRINO_ENDPOINT: http://trino:8080
+      TRINO_JDBC_DEPENDENCY: io.trino:trino-jdbc:482
+      TRINO_JDBC_DRIVER: io.trino.jdbc.TrinoDriver
+      TRINO_JDBC_URL: jdbc:trino://trino:8080/lakehouse
+      TRINO_JDBC_USER: atlas
+      TRINO_SOURCE: disabled
       ZEPPELIN_URL: http://zeppelin:8080
     image: python:3.12-alpine
     networks:

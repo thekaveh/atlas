@@ -8,7 +8,7 @@
     },
     {
       "title": "Markdown — intro",
-      "text": "%md\n# Spark + MinIO + Postgres quickstart\n\nThis notebook confirms the three integrations are wired:\n1. `%spark` — Scala against the in-stack cluster\n2. S3A read/write via MinIO (`s3a://spark-history/...`)\n3. JDBC read against Supabase Postgres\n",
+      "text": "%md\n# Spark + MinIO + Postgres + Trino quickstart\n\nThis notebook confirms the core integrations are wired:\n1. `%spark` — Scala against the in-stack cluster\n2. S3A read/write via MinIO (`s3a://spark-history/...`)\n3. `%trino` — JDBC metadata query when `TRINO_SOURCE=container`\n4. JDBC read against Supabase Postgres\n",
       "user": "anonymous",
       "config": {"editorSetting": {"language": "markdown"}}
     },
@@ -16,6 +16,12 @@
       "title": "MinIO round-trip via S3A",
       "text": "%spark\nval df = Seq((1, \"alice\"), (2, \"bob\")).toDF(\"id\", \"name\")\ndf.write.mode(\"overwrite\").parquet(\"s3a://spark-history/_test_round_trip\")\nspark.read.parquet(\"s3a://spark-history/_test_round_trip\").show()",
       "user": "anonymous"
+    },
+    {
+      "title": "Trino JDBC metadata smoke",
+      "text": "%trino\nSHOW CATALOGS;\nSHOW SCHEMAS FROM lakehouse;",
+      "user": "anonymous",
+      "config": {"editorSetting": {"language": "sql"}}
     },
     {
       "title": "Postgres JDBC read",

@@ -33,6 +33,12 @@ services:
       MINIO_ICEBERG_ACCESS_KEY: ${MINIO_ICEBERG_ACCESS_KEY}
       MINIO_ICEBERG_SECRET_KEY: ${MINIO_ICEBERG_SECRET_KEY}
       ICEBERG_REST_URI: http://iceberg-rest:8181
+      TRINO_SOURCE: ${TRINO_SOURCE:-disabled}
+      TRINO_ENDPOINT: http://trino:8080
+      TRINO_JDBC_URL: jdbc:trino://trino:8080/lakehouse
+      TRINO_JDBC_USER: atlas
+      TRINO_JDBC_DRIVER: io.trino.jdbc.TrinoDriver
+      TRINO_JDBC_DEPENDENCY: io.trino:trino-jdbc:482
       SPARK_SUBMIT_OPTIONS: >-
         --conf spark.submit.deployMode=client
         --conf spark.driver.bindAddress=0.0.0.0
@@ -112,6 +118,12 @@ services:
       MINIO_ICEBERG_SECRET_KEY: ${MINIO_ICEBERG_SECRET_KEY}
       ICEBERG_REST_URI: http://iceberg-rest:8181
       ICEBERG_REST_SOURCE: ${ICEBERG_REST_SOURCE:-disabled}
+      TRINO_SOURCE: ${TRINO_SOURCE:-disabled}
+      TRINO_ENDPOINT: http://trino:8080
+      TRINO_JDBC_URL: jdbc:trino://trino:8080/lakehouse
+      TRINO_JDBC_USER: atlas
+      TRINO_JDBC_DRIVER: io.trino.jdbc.TrinoDriver
+      TRINO_JDBC_DEPENDENCY: io.trino:trino-jdbc:482
     volumes:
       - ./init/scripts:/scripts:ro
     entrypoint: ["python", "/scripts/seed-spark-interpreter.py"]
