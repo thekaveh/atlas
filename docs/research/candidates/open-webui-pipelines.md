@@ -15,7 +15,12 @@ upstream: https://github.com/open-webui/pipelines
 First-party plugin server that runs Python "pipes" and "filters" in front of any OpenAI-compatible client, enabling rate-limiting, content filtering, custom RAG, function-calling handlers, and third-party tracing (Langfuse, Opik) without forking Open WebUI.
 
 ## Problem it solves
-Open WebUI's in-app Python Tools and Functions run in the WebUI process, are per-tool, and cannot intercept the request/response stream across providers. Pipelines provides a sidecar OpenAI-compatible endpoint that LiteLLM and Open WebUI can both target, so cross-cutting concerns (logging, redaction, quota, A/B routing) live in one place and apply uniformly.
+The original candidate aimed to centralize cross-cutting chat middleware such as logging, redaction, quota checks, and A/B routing in one OpenAI-compatible sidecar that LiteLLM and Open WebUI could both target. That sidecar model is no longer the conservative default for Atlas because current Open WebUI Filter Functions cover the first redaction/inspection slice without adding another worker container.
+
+## Atlas 2026 update
+Open WebUI's current documentation marks Pipelines as legacy for new deployments and recommends in-process Functions, Tools, OpenAPI servers, or MCP servers instead, so standalone Pipelines are intentionally not added in the current Atlas slice. The Atlas implementation follows that guidance with the disabled-by-default `Atlas Safe Prompt Middleware` Filter Function under `services/open-webui/extras/functions/`.
+
+The function path preserves the useful part of this candidate - a middleware hook for redaction before Open WebUI calls LiteLLM - without adding a Pipelines SOURCE env var, a new compose service, a new port, or a Kong alias. LiteLLM + Langfuse remains the stack-wide observability path, and OpenLIT remains deferred as a standalone service/UI.
 
 ## Stack wiring sketch
 - open-webui → pipelines via `OPENAI_API_BASE_URLS=http://pipelines:9099` (added alongside the existing LiteLLM URL, or fronted by litellm)
