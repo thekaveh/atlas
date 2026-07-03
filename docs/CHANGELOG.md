@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — 2026-07-03 — Atlas root dashboard
+
+- **Kong root now serves Atlas instead of Supabase Studio.** The bare gateway root (`http://localhost:${KONG_HTTP_PORT}`) returns a generated Atlas service directory with SOURCE state, track context, direct/Kong links, auth notes, warnings, and browser-side reachability probes. Supabase Studio remains available through its explicit `studio.localhost` route and keeps the existing Kong basic-auth gate.
+
 ### Fixed — 2026-07-02 — overnight maintenance hardening
 
 - **Startup and init resilience:** `./start.sh --setup-hosts` now requests privilege only for the hosts-file write instead of asking operators to run the whole launcher under `sudo`, `local-deep-researcher` bounds each LiteLLM health-poll attempt with `curl --max-time`, `lightrag-init` fails fast when no chat model can be resolved, and the launcher waits for one-shot init containers so failures surface before the stack is reported ready.

@@ -47,11 +47,13 @@ def _hosts_to_service(config: dict) -> dict[str, str]:
     return index
 
 
-def test_dashboard_catch_all_is_restricted_to_studio_and_bare_localhost():
-    """The Studio dashboard route must not be a global wildcard.
+def test_supabase_studio_route_is_restricted_to_studio_alias():
+    """Supabase Studio must not be a global or bare-root catch-all.
 
     Regression: it used to match ``paths: ['/']`` with no host filter,
     so every unaliased *.localhost request fell through to Studio.
+    Atlas now owns the bare ``localhost`` root dashboard, while Studio
+    remains available at its explicit alias.
     """
     config = _generate("")
     dashboard = next(
@@ -60,10 +62,32 @@ def test_dashboard_catch_all_is_restricted_to_studio_and_bare_localhost():
     dashboard_routes = dashboard["routes"]
     assert len(dashboard_routes) == 1
     hosts = set(dashboard_routes[0].get("hosts") or [])
-    assert hosts == {"studio.localhost", "localhost"}, (
-        f"dashboard route should be locked to studio.localhost + localhost, "
-        f"got {hosts}"
+    assert hosts == {"studio.localhost"}, (
+        f"dashboard route should be locked to studio.localhost, got {hosts}"
     )
+
+
+def test_atlas_root_dashboard_owns_bare_localhost_route():
+    """The gateway root should be an Atlas entrypoint, not Studio."""
+    config = _generate("")
+    by_host = _hosts_to_service(config)
+    assert by_host["localhost"] == "atlas-root-dashboard"
+    assert by_host["studio.localhost"] == "dashboard"
+
+    svc = next(s for s in config["services"] if s["name"] == "atlas-root-dashboard")
+    route = svc["routes"][0]
+    assert route["hosts"] == ["localhost"]
+    assert route["paths"] == ["/"]
+    route_plugins = route.get("plugins", [])
+    assert any(p["name"] == "pre-function" for p in route_plugins)
+    access_code = "\n".join(
+        line
+        for plugin in route_plugins
+        if plugin["name"] == "pre-function"
+        for line in plugin["config"]["access"]
+    )
+    assert "Atlas" in access_code
+    assert "service directory" in access_code
 
 
 def test_alias_only_services_route_to_expected_containers():

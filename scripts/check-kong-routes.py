@@ -60,9 +60,12 @@ EXPECTED_HOST_ROUTES = {
     # just the dashboard path.
     "litellm.localhost": "http://litellm:4000/",
     # Remaining default-on routes (previously unlisted — regressions in
-    # these 8 hosts passed this script silently):
+    # these hosts passed this script silently):
     "studio.localhost": "http://supabase-studio:3000/",
-    "localhost": "http://supabase-studio:3000/",
+    # Bare gateway root is a generated Atlas service directory. The
+    # pre-function route exits before proxying; the loopback URL only
+    # satisfies Kong's declarative service schema.
+    "localhost": "http://127.0.0.1:1/",
     "graph.localhost": "http://neo4j-graph-db:7474/",
     "weaviate.localhost": "http://weaviate:8080/",
     "ollama.localhost": "http://ollama:11434/",

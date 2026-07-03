@@ -199,6 +199,8 @@ class AtlasStarter:
         self.service_config = ServiceConfig(self.config_parser)
         self.dependency_manager = DependencyManager(self.config_parser)
         self.source_override_manager = SourceOverrideManager(self.config_parser)
+        self.active_track = None
+        self.active_track_overrides = frozenset()
 
 
     def show_banner(self):
@@ -1351,6 +1353,10 @@ class AtlasStarter:
         try:
             from utils.kong_config_generator import KongConfigGenerator
             generator = KongConfigGenerator(self.config_parser)
+            generator.track_key = getattr(self, "active_track", None)
+            generator.overridden_services = getattr(
+                self, "active_track_overrides", frozenset()
+            )
             # Pre-flight: same root-owned-from-prior-container guard as
             # the litellm bind-mount uses (kong-api-gateway also writes
             # nothing into volumes/api but the bootstrapper drops the
@@ -2496,6 +2502,8 @@ def main(project_name, base_port, track, list_tracks, cold, setup_hosts, skip_ho
                     registry=_rg2,
                     force_disable=not wizard_requested,
                 )
+        starter.active_track = track
+        starter.active_track_overrides = frozenset(overridden_services)
 
         # Detect legacy `external` source values left in .env from versions
         # before PR #(observability bundle). These options have been removed

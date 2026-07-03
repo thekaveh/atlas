@@ -26,6 +26,7 @@ git clone https://github.com/thekaveh/atlas && cd atlas
 ./start.sh
 
 # 3. Wait ~5 minutes for AI models to download, then access:
+# Atlas Dashboard:       http://localhost:63000
 # Open WebUI (Chat):     http://localhost:63082
 # n8n (Workflows):       http://localhost:63064
 # Supabase Studio:       http://localhost:63017
@@ -37,6 +38,7 @@ git clone https://github.com/thekaveh/atlas && cd atlas
 # Optional Kong host routes after ./start.sh --setup-hosts:
 # Chat:                  http://chat.localhost:63000
 # n8n:                   http://n8n.localhost:63000
+# Supabase Studio:       http://studio.localhost:63000
 # ComfyUI:               http://comfyui.localhost:63000
 # LiteLLM Dashboard:     http://litellm.localhost:63000/ui/
 # MinIO Console:         http://minio.localhost:63000
@@ -306,6 +308,7 @@ _Engine-only manifests (speaches, chatterbox) are not listed — they're selecte
 
 | Service | Direct URL | Kong URL | Purpose | Auth required |
 |---------|------------|----------|---------|---------------|
+| **Atlas Dashboard** | http://localhost:63000 | http://localhost:63000 | Generated service directory with SOURCE state, track context, route links, auth notes, and browser-side reachability checks | None |
 | **Open WebUI** | http://localhost:63082 | http://chat.localhost:63000 | AI chat interface | Create account |
 | **n8n** | http://localhost:63064 | http://n8n.localhost:63000 | Workflow automation | Owner setup on first visit |
 | **Supabase Studio** | http://localhost:63017 | http://studio.localhost:63000 | Database management | Kong route: `kong_admin` / `DASHBOARD_PASSWORD` from `.env` (direct port is ungated) |
