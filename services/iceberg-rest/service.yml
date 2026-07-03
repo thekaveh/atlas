@@ -22,7 +22,7 @@ sources:
   default: disabled
   options:
     - id: container
-      label: "Container (Supabase JDBC catalog + MinIO warehouse)"
+      label: "Container (Iceberg REST + Supabase JDBC catalog + MinIO warehouse)"
     - id: disabled
       label: "Disabled"
 

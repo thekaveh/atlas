@@ -19,7 +19,7 @@ sources:
   default: disabled
   options:
     - id: container
-      label: "Container (LocalExecutor + Supabase Postgres)"
+      label: "Container (LocalExecutor + SparkSubmit lakehouse jobs)"
     - id: disabled
       label: "Disabled"
 
