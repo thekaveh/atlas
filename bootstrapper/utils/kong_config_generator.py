@@ -193,6 +193,10 @@ class KongConfigGenerator:
         if searxng_service:
             services.append(searxng_service)
 
+        mcp_servers_service = self.generate_mcp_servers_service()
+        if mcp_servers_service:
+            services.append(mcp_servers_service)
+
         jupyterhub_service = self.generate_jupyterhub_service()
         if jupyterhub_service:
             services.append(jupyterhub_service)
@@ -773,6 +777,29 @@ class KongConfigGenerator:
                     }
                 }
             ]
+        }
+
+    def generate_mcp_servers_service(self) -> Optional[Dict[str, Any]]:
+        """Generate curated MCP service route based on SOURCE."""
+        if self.get_env_value('MCP_SERVERS_SOURCE') != 'container':
+            return None
+
+        return {
+            'name': 'mcp-servers',
+            'url': 'http://mcp-servers:8000/',
+            'routes': [
+                {
+                    'name': 'mcp-servers-all',
+                    'strip_path': False,
+                    'preserve_host': True,
+                    'hosts': ['mcp.localhost'],
+                }
+            ],
+            'plugins': [
+                {'name': 'cors'},
+                {'name': 'basic-auth'},
+                {'name': 'acl', 'config': {'allow': ['dashboard_user']}},
+            ],
         }
 
     def generate_jupyterhub_service(self) -> Optional[Dict[str, Any]]:

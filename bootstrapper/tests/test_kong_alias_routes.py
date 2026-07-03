@@ -103,6 +103,7 @@ def test_alias_only_services_route_to_expected_containers():
         "DOC_PROCESSOR_SOURCE=docling-container-gpu\n"
         "LOCAL_DEEP_RESEARCHER_SOURCE=container\n"
         "JENKINS_SOURCE=container\n"
+        "MCP_SERVERS_SOURCE=container\n"
         "STT_PROVIDER_SOURCE=speaches-container-cpu\n"
         "TTS_PROVIDER_SOURCE=speaches-container-cpu\n"
     )
@@ -110,13 +111,21 @@ def test_alias_only_services_route_to_expected_containers():
     for alias in [
         "graph.localhost", "weaviate.localhost", "ollama.localhost",
         "docling.localhost", "research.localhost",
-        "jenkins.localhost", "stt.localhost", "tts.localhost",
+        "jenkins.localhost", "mcp.localhost", "stt.localhost", "tts.localhost",
     ]:
         assert alias in by_host, f"missing Kong route for {alias}: {sorted(by_host)}"
 
     assert by_host["jenkins.localhost"] == "jenkins"
     jenkins = next(svc for svc in config["services"] if svc["name"] == "jenkins")
     assert jenkins["url"] == "http://jenkins:8080/"
+    assert by_host["mcp.localhost"] == "mcp-servers"
+    mcp = next(svc for svc in config["services"] if svc["name"] == "mcp-servers")
+    assert mcp["url"] == "http://mcp-servers:8000/"
+    assert {plugin["name"] for plugin in mcp["plugins"]} >= {
+        "basic-auth",
+        "acl",
+        "cors",
+    }
 
 
 def test_localhost_source_routes_via_host_docker_internal():
@@ -198,11 +207,12 @@ def test_localhost_port_env_override_is_honored():
 def test_disabled_source_skips_kong_route():
     """Disabled service: no Kong route."""
     config = _generate(
-        "WEAVIATE_SOURCE=disabled\nDOC_PROCESSOR_SOURCE=disabled\n"
+        "WEAVIATE_SOURCE=disabled\nDOC_PROCESSOR_SOURCE=disabled\nMCP_SERVERS_SOURCE=disabled\n"
     )
     by_host = _hosts_to_service(config)
     assert "weaviate.localhost" not in by_host
     assert "docling.localhost" not in by_host
+    assert "mcp.localhost" not in by_host
 
 
 def test_prometheus_kong_route_only_when_container():

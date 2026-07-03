@@ -32,6 +32,7 @@ class SourceOverrideManager:
             'minio_source': 'MINIO_SOURCE',
             'n8n_source': 'N8N_SOURCE',
             'searxng_source': 'SEARXNG_SOURCE',
+            'mcp_servers_source': 'MCP_SERVERS_SOURCE',
             'jupyterhub_source': 'JUPYTERHUB_SOURCE',
             'open_web_ui_source': 'OPEN_WEB_UI_SOURCE',
             'local_deep_researcher_source': 'LOCAL_DEEP_RESEARCHER_SOURCE',

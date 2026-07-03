@@ -1442,6 +1442,53 @@ services:
       source: local-deep-researcher-repo
       target: /app/repo
       volume: {}
+  mcp-servers:
+    build:
+      context: '{REPO_ROOT}/services/mcp-servers/runtime'
+      dockerfile: ../build/Dockerfile
+      args:
+        BASE_IMAGE: python:3.12-slim
+    container_name: atlas-mcp-servers
+    depends_on:
+      neo4j-graph-db:
+        condition: service_started
+        required: true
+      searxng:
+        condition: service_started
+        required: true
+      supabase-db-init:
+        condition: service_completed_successfully
+        required: true
+    deploy:
+      replicas: 0
+    environment:
+      GRAPH_DB_PASSWORD: neo4j_password
+      GRAPH_DB_USER: neo4j
+      MCP_POSTGRES_MAX_ROWS: '50'
+      MCP_SEARXNG_MAX_RESULTS: '5'
+      MCP_TOOL_TIMEOUT_SECONDS: '15'
+      NEO4J_URI: bolt://neo4j-graph-db:7687
+      SEARXNG_URL: http://searxng:8080
+      SUPABASE_DB_HOST: supabase-db
+      SUPABASE_DB_NAME: postgres
+      SUPABASE_DB_PASSWORD: password
+      SUPABASE_DB_PORT: '5432'
+      SUPABASE_DB_USER: supabase_admin
+    image: atlas-mcp-servers:local
+    logging:
+      driver: json-file
+      options:
+        max-file: '3'
+        max-size: 10m
+    networks:
+      backend-network: null
+    ports:
+    - mode: ingress
+      host_ip: 127.0.0.1
+      target: 8000
+      published: '63067'
+      protocol: tcp
+    restart: unless-stopped
   minio:
     command:
     - server

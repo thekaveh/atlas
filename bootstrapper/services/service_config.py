@@ -189,6 +189,10 @@ class ServiceConfig:
         jenkins_config = self._generate_jenkins_config()
         env_vars.update(jenkins_config)
 
+        # Generate curated MCP servers configuration (hard-gated on graph/search targets)
+        mcp_servers_config = self._generate_mcp_servers_config()
+        env_vars.update(mcp_servers_config)
+
         # Generate Airflow configuration (3-container family scales)
         airflow_config = self._generate_airflow_config()
         env_vars.update(airflow_config)
@@ -900,6 +904,45 @@ class ServiceConfig:
             )
 
         return {"JENKINS_SCALE": "1"}
+
+    def _generate_mcp_servers_config(self) -> dict:
+        """Generate MCP_SERVERS_SCALE.
+
+        The curated MCP package is only useful when its initial target set is
+        available. Supabase is locked always-on, but Neo4j and SearXNG are
+        source-configurable, so fail before compose if the operator enables
+        MCP without the graph or search backends it advertises.
+        """
+        source = self.service_sources.get("MCP_SERVERS_SOURCE", "disabled")
+        if source == "disabled":
+            return {"MCP_SERVERS_SCALE": "0"}
+
+        neo4j_source = self.service_sources.get("NEO4J_GRAPH_DB_SOURCE", "container")
+        if neo4j_source == "disabled":
+            raise ValueError(
+                "MCP Servers require Neo4j to be enabled for graph tools. "
+                "Either pass --neo4j-graph-db-source container alongside "
+                "--mcp-servers-source container, or set "
+                "--mcp-servers-source disabled."
+            )
+        if neo4j_source != "container":
+            raise ValueError(
+                "MCP Servers require in-stack Neo4j for v1 because the MCP "
+                "compose fragment depends on the Neo4j container lifecycle. "
+                "Use --neo4j-graph-db-source container or keep "
+                "--mcp-servers-source disabled."
+            )
+
+        searxng_source = self.service_sources.get("SEARXNG_SOURCE", "container")
+        if searxng_source == "disabled":
+            raise ValueError(
+                "MCP Servers require SearXNG to be enabled for search tools. "
+                "Either pass --searxng-source container alongside "
+                "--mcp-servers-source container, or set "
+                "--mcp-servers-source disabled."
+            )
+
+        return {"MCP_SERVERS_SCALE": "1"}
 
     def _generate_airflow_config(self) -> dict:
         """Generate AIRFLOW_*_SCALE based on AIRFLOW_SOURCE.

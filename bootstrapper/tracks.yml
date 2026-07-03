@@ -26,13 +26,14 @@ tracks:
     display_name: Generative AI · RAG
     description: Retrieval-augmented generation — vectors, graph, reranker, doc ingest, web search.
     services: [open-webui, weaviate, neo4j, lightrag, doc-processor,
-               tei-reranker, searxng, local-deep-researcher]
+               tei-reranker, searxng, mcp-servers, local-deep-researcher]
 
   - key: gen-ai-eng
     display_name: Generative AI · Engineering
     description: Agentic apps + workflows with voice, vision, and search.
-    services: [open-webui, n8n, hermes, openclaw, jupyterhub, comfyui,
-               stt-provider, tts-provider, searxng, local-deep-researcher]
+    services: [open-webui, n8n, hermes, openclaw, jupyterhub, comfyui, neo4j,
+               stt-provider, tts-provider, searxng, mcp-servers,
+               local-deep-researcher]
 
   - key: gen-ai-creative
     display_name: Generative AI · Creative
