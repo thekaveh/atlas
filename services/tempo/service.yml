@@ -1,0 +1,61 @@
+# services/tempo/service.yml — Grafana Tempo local trace store
+name: tempo
+label: "Tempo (distributed trace store)"
+category: infra
+docs: services/tempo/README.md
+
+containers:
+  - tempo
+
+images:
+  - var: TEMPO_IMAGE
+    default: "grafana/tempo:3.0.0"
+    container: tempo
+
+sources:
+  var: TEMPO_SOURCE
+  default: disabled
+  options:
+    - id: container
+      label: "Container (local trace store)"
+    - id: disabled
+      label: "Disabled"
+
+env:
+  - name: TEMPO_SOURCE
+    default: disabled
+  - name: TEMPO_SCALE
+    auto_managed: true
+  - name: TEMPO_ENDPOINT
+    auto_managed: true
+    description: "Internal Tempo query/API endpoint consumed by Grafana."
+
+depends_on:
+  required:
+    - kong
+    - ray
+  optional: []
+
+rows:
+  - display_name: "Tempo"
+    source_var: TEMPO_SOURCE
+    scale_var: TEMPO_SCALE
+    description: "Grafana-native distributed trace store for local development."
+
+runtime_sc:
+  tempo:
+    container:
+      scale: 1
+      environment:
+        TEMPO_ENDPOINT: http://tempo:3200
+      deploy: {}
+      extra_hosts: []
+    disabled:
+      scale: 0
+      environment:
+        TEMPO_ENDPOINT: ''
+      deploy: {}
+      extra_hosts: []
+
+data_flow:
+  calls: []

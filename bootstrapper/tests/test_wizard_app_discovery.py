@@ -92,6 +92,12 @@ EXPECTED_DISCOVERED = frozenset({
     # `langfuse_web_source` shim while the real flag remains
     # `--langfuse-source`.
     "Langfuse",
+    # OpenTelemetry / Tempo / Loki (added 2026-07-03) — disabled-by-default
+    # internal observability services. They are surfaced as optional wizard
+    # prompts but remain internal-only and Grafana-centered by default.
+    "OpenTelemetry Collector",
+    "Tempo",
+    "Loki",
     # MLflow (added 2026-07-03) — disabled-by-default experiment tracking
     # and MinIO-backed artifacts for the ML Engineering track.
     "MLflow",

@@ -102,6 +102,7 @@ When `LIGHTRAG_SOURCE != disabled`, the backend receives `LIGHTRAG_ENDPOINT` and
 
 | Service | Category |
 |---|---|
+| otel-collector | infra |
 | ray | infra |
 | supabase | data |
 | supavisor | data |

@@ -1,0 +1,30 @@
+# services/otel-collector/compose.yml — OpenTelemetry Collector
+services:
+  otel-collector:
+    image: ${OTEL_COLLECTOR_IMAGE:-otel/opentelemetry-collector-contrib:0.154.0}
+    container_name: ${PROJECT_NAME}-otel-collector
+    restart: unless-stopped
+    deploy:
+      replicas: ${OTEL_COLLECTOR_SCALE:-0}
+    command: ["--config=/etc/otelcol/config.yaml"]
+    depends_on:
+      tempo:
+        condition: service_healthy
+      loki:
+        condition: service_started
+        required: false
+    volumes:
+      - ./config/config.yaml:/etc/otelcol/config.yaml:ro
+    healthcheck:
+      test: ["CMD", "/otelcol-contrib", "components"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "${LOG_MAX_SIZE:-10m}"
+        max-file: "${LOG_MAX_FILE:-3}"
+    networks:
+      - backend-network

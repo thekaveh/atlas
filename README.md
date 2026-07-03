@@ -267,8 +267,11 @@ _Engine-only manifests (speaches, chatterbox) are not listed — they're selecte
 | Infra | Cloudflare Tunnel | — | — |
 | Infra | Ray | 63002 | ray.localhost |
 | Infra | Langfuse | 63005 | langfuse.localhost |
+| Infra | Loki | — | — |
 | Infra | Prometheus | 63006 | prometheus.localhost |
 | Infra | Grafana | 63009 | grafana.localhost |
+| Infra | Tempo | — | — |
+| Infra | OpenTelemetry Collector | — | — |
 | Data | Supabase DB | 63010 | — |
 | Data | Supabase Meta | 63012 | — |
 | Data | Supabase Storage | 63013 | — |

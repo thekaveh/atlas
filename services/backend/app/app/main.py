@@ -71,6 +71,9 @@ app = FastAPI(
     lifespan=_lifespan,
 )
 
+from observability import configure_otel  # noqa: E402
+configure_otel(app)
+
 # Prometheus metrics — emits standard HTTP server metrics
 # (http_request_duration_seconds, http_requests_total by route/method/status).
 # Scraped by the observability bundle's Prometheus at backend:8000/metrics.

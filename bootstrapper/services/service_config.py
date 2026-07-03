@@ -210,6 +210,10 @@ class ServiceConfig:
         langfuse_config = self._generate_langfuse_config()
         env_vars.update(langfuse_config)
 
+        # Generate OpenTelemetry / Tempo / Loki tracing and log-store configuration.
+        otel_config = self._generate_otel_tempo_loki_config()
+        env_vars.update(otel_config)
+
         # Generate Airflow configuration (3-container family scales)
         airflow_config = self._generate_airflow_config()
         env_vars.update(airflow_config)
@@ -1024,6 +1028,43 @@ class ServiceConfig:
             "LANGFUSE_WORKER_SCALE": "1",
             "LANGFUSE_CLICKHOUSE_SCALE": "1",
             "LANGFUSE_ENDPOINT": "http://langfuse-web:3000",
+        }
+
+    def _generate_otel_tempo_loki_config(self) -> dict:
+        """Generate disabled-by-default tracing/log-store scales and endpoints.
+
+        OTel Collector is the ingest point, but the first Atlas slice exports
+        only traces to Tempo. Loki is admitted as an internal log store and
+        Grafana datasource; log shipping stays a follow-up until traces are
+        proven. Enabling the collector without Tempo would silently drop spans,
+        so fail before compose starts.
+        """
+        otel_source = self.service_sources.get("OTEL_COLLECTOR_SOURCE", "disabled")
+        tempo_source = self.service_sources.get("TEMPO_SOURCE", "disabled")
+        loki_source = self.service_sources.get("LOKI_SOURCE", "disabled")
+
+        if otel_source == "container" and tempo_source != "container":
+            raise ValueError(
+                "OTel Collector requires Tempo to be enabled for trace export. "
+                "Either pass --tempo-source container alongside "
+                "--otel-collector-source container, or set "
+                "--otel-collector-source disabled."
+            )
+
+        otel_on = otel_source == "container"
+        tempo_on = tempo_source == "container"
+        loki_on = loki_source == "container"
+
+        return {
+            "OTEL_COLLECTOR_SCALE": "1" if otel_on else "0",
+            "OTEL_COLLECTOR_ENDPOINT": "http://otel-collector:4318" if otel_on else "",
+            "OTEL_COLLECTOR_OTLP_HTTP_ENDPOINT": "http://otel-collector:4318" if otel_on else "",
+            "OTEL_COLLECTOR_OTLP_GRPC_ENDPOINT": "http://otel-collector:4317" if otel_on else "",
+            "TEMPO_SCALE": "1" if tempo_on else "0",
+            "TEMPO_ENDPOINT": "http://tempo:3200" if tempo_on else "",
+            "LOKI_SCALE": "1" if loki_on else "0",
+            "LOKI_ENDPOINT": "http://loki:3100" if loki_on else "",
+            "ATLAS_OTEL_ENABLED": "true" if otel_on else "false",
         }
 
     def _generate_crawl4ai_config(self) -> dict:

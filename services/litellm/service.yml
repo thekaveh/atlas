@@ -92,3 +92,4 @@ data_flow:
     - cloud-providers
     - hermes
     - lightrag
+    - otel-collector
