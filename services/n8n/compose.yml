@@ -77,6 +77,9 @@ services:
       # LightRAG — graph-augmented RAG endpoint (empty when LIGHTRAG_SOURCE=disabled)
       LIGHTRAG_ENDPOINT: ${LIGHTRAG_ENDPOINT:-}
       LIGHTRAG_API_KEY: ${LIGHTRAG_API_KEY:-}
+      # Crawl4AI — token-protected extraction API for HTTP Request workflows
+      CRAWL4AI_ENDPOINT: ${CRAWL4AI_ENDPOINT:-}
+      CRAWL4AI_API_TOKEN: ${CRAWL4AI_API_TOKEN:-}
     ports:
       - "${HOST_BIND_IP:-}${N8N_PORT}:5678"
     volumes:
@@ -167,6 +170,8 @@ services:
       HERMES_API_KEY: ${HERMES_API_KEY:-}
       LIGHTRAG_ENDPOINT: ${LIGHTRAG_ENDPOINT:-}
       LIGHTRAG_API_KEY: ${LIGHTRAG_API_KEY:-}
+      CRAWL4AI_ENDPOINT: ${CRAWL4AI_ENDPOINT:-}
+      CRAWL4AI_API_TOKEN: ${CRAWL4AI_API_TOKEN:-}
     volumes:
       - n8n-data:/home/node/.n8n
     logging:

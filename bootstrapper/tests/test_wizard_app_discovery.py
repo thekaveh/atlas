@@ -83,6 +83,9 @@ EXPECTED_DISCOVERED = frozenset({
     # tool package for Postgres, Neo4j, and SearXNG. Single-container
     # family; wired via 'mcp_servers_source' in source_mapping.
     "Curated MCP Servers",
+    # Crawl4AI (added 2026-07-03) — disabled-by-default browser-backed
+    # extraction API for Local Deep Researcher and n8n HTTP workflows.
+    "Crawl4AI",
     # Langfuse (added 2026-07-03) — disabled-by-default LLM trace and
     # eval observability for LiteLLM-routed calls. Multi-container family
     # (web + worker + ClickHouse + init), so wizard discovery uses the

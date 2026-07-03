@@ -32,6 +32,11 @@ env:
     default: searxng
   - name: LOCAL_DEEP_RESEARCHER_WORKERS
     default: 3
+  - name: LOCAL_DEEP_RESEARCHER_FULL_PAGE_MODE
+    default: disabled
+    description: "Full-page extraction mode: disabled, builtin, or crawl4ai. The crawl4ai mode requires CRAWL4AI_SOURCE=container."
+  - name: FETCH_FULL_PAGE
+    auto_managed: true
   - name: LOCAL_DEEP_RESEARCHER_SCALE
     auto_managed: true
 
@@ -39,7 +44,8 @@ depends_on:
   required:
     - searxng
     - litellm
-  optional: []
+  optional:
+    - crawl4ai
 
 rows:
   - display_name: "Local Deep Researcher"
@@ -91,8 +97,9 @@ runtime_deps:
     - speaches
     - chatterbox
     - docling
+    - crawl4ai
     info_message: Local Deep Researcher enabled - will connect to available optional
-      services (neo4j, searxng, n8n, weaviate, parakeet, speaches, chatterbox, docling)
+      services (neo4j, searxng, n8n, weaviate, parakeet, speaches, chatterbox, docling, crawl4ai)
 
 data_flow:
   calls:
@@ -104,4 +111,4 @@ data_flow:
     # LITELLM_DEFAULT_MODEL (set by litellm-init).
     - litellm
     - searxng
-
+    - crawl4ai

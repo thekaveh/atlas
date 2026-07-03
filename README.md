@@ -287,11 +287,12 @@ _Engine-only manifests (speaches, chatterbox) are not listed — they're selecte
 | LLM Core | LiteLLM | 63030 | litellm.localhost |
 | LLM Core | LLM Engine | — | ollama.localhost |
 | LLM Core | TEI Reranker | 63031 | rerank.localhost |
-| Media | Document Processor | 63040 | docling.localhost |
-| Media | ComfyUI | 63041 | comfyui.localhost |
-| Media | STT Provider | 63042 | stt.localhost |
-| Media | SearxNG | 63043 | search.localhost |
-| Media | TTS Provider | 63044 | tts.localhost |
+| Media | Crawl4AI | 63040 | crawl4ai.localhost |
+| Media | Document Processor | 63041 | docling.localhost |
+| Media | ComfyUI | 63042 | comfyui.localhost |
+| Media | STT Provider | 63043 | stt.localhost |
+| Media | SearxNG | 63044 | search.localhost |
+| Media | TTS Provider | 63045 | tts.localhost |
 | Agents & Workflows | Apache Airflow | 63060 | airflow.localhost |
 | Agents & Workflows | Hermes Agent | 63061 | hermes.localhost |
 | Agents & Workflows | LightRAG | 63063 | lightrag.localhost |

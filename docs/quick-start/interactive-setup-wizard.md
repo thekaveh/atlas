@@ -387,6 +387,7 @@ The wizard automatically discovers all configurable services from each `services
 | Hermes Agent | container, localhost, disabled |
 | n8n | container, disabled |
 | SearxNG | container, disabled |
+| Crawl4AI | container, disabled |
 | JupyterHub | container, disabled |
 | LightRAG | container, localhost, disabled |
 | Ray | ray-container-cpu, ray-container-gpu, disabled (with inline `RAY_WORKER_COUNT` input on container variants) |

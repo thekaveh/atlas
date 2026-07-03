@@ -73,6 +73,7 @@ DOCLING_ENDPOINT=...
 | Service | Category |
 |---|---|
 | litellm | llm |
+| crawl4ai | media |
 | searxng | media |
 
 ### 5.2 Current — Downstream (services that call this)

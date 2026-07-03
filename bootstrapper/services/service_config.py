@@ -169,6 +169,13 @@ class ServiceConfig:
         # Generate LightRAG configuration
         env_vars.update(self._generate_lightrag_config())
 
+        # Generate Local Deep Researcher extraction mode and Crawl4AI API
+        # configuration. Crawl4AI runs after the LDR mode helper so the
+        # service-level endpoint remains available to n8n whenever the service
+        # itself is enabled, even if LDR full-page mode is disabled.
+        env_vars.update(self._generate_local_deep_researcher_extraction_config())
+        env_vars.update(self._generate_crawl4ai_config())
+
         # Generate Ray cluster configuration
         ray_source = self.service_sources.get("RAY_SOURCE", "disabled")
         ray_config = self._generate_ray_config(
@@ -1014,6 +1021,64 @@ class ServiceConfig:
             "LANGFUSE_WORKER_SCALE": "1",
             "LANGFUSE_CLICKHOUSE_SCALE": "1",
             "LANGFUSE_ENDPOINT": "http://langfuse-web:3000",
+        }
+
+    def _generate_crawl4ai_config(self) -> dict:
+        """Generate Crawl4AI scale and in-network endpoint."""
+        source = self.service_sources.get("CRAWL4AI_SOURCE", "disabled")
+        if source == "disabled":
+            return {
+                "CRAWL4AI_SCALE": "0",
+                "CRAWL4AI_ENDPOINT": "",
+            }
+        return {
+            "CRAWL4AI_SCALE": "1",
+            "CRAWL4AI_ENDPOINT": "http://crawl4ai:11235",
+        }
+
+    def _generate_local_deep_researcher_extraction_config(self) -> dict:
+        """Resolve Local Deep Researcher's full-page extraction mode.
+
+        This is intentionally a MODE value, not a *_SOURCE selector, because
+        Atlas validates every *_SOURCE as a service source. Crawl4AI itself is
+        the only source-configurable service in this integration.
+        """
+        env = self.config_parser.parse_env_file()
+        mode = (
+            env.get("LOCAL_DEEP_RESEARCHER_FULL_PAGE_MODE", "disabled")
+            or "disabled"
+        ).strip().lower()
+        valid_modes = {"disabled", "builtin", "crawl4ai"}
+        if mode not in valid_modes:
+            raise ValueError(
+                "LOCAL_DEEP_RESEARCHER_FULL_PAGE_MODE must be one of: "
+                + ", ".join(sorted(valid_modes))
+            )
+
+        if mode == "disabled":
+            return {
+                "FETCH_FULL_PAGE": "false",
+                "LOCAL_DEEP_RESEARCHER_FULL_PAGE_MODE": "disabled",
+                "CRAWL4AI_ENDPOINT": "",
+            }
+
+        if mode == "builtin":
+            return {
+                "FETCH_FULL_PAGE": "true",
+                "LOCAL_DEEP_RESEARCHER_FULL_PAGE_MODE": "builtin",
+                "CRAWL4AI_ENDPOINT": "",
+            }
+
+        if self.service_sources.get("CRAWL4AI_SOURCE", "disabled") != "container":
+            raise ValueError(
+                "Local Deep Researcher Crawl4AI full-page extraction requires "
+                "Crawl4AI to be enabled. Set CRAWL4AI_SOURCE=container or "
+                "LOCAL_DEEP_RESEARCHER_FULL_PAGE_MODE=disabled."
+            )
+        return {
+            "FETCH_FULL_PAGE": "true",
+            "LOCAL_DEEP_RESEARCHER_FULL_PAGE_MODE": "crawl4ai",
+            "CRAWL4AI_ENDPOINT": "http://crawl4ai:11235",
         }
 
     def _generate_airflow_config(self) -> dict:
