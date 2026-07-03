@@ -268,6 +268,7 @@ _No upstream calls._
 | n8n | agents |
 | backend | apps |
 | jupyterhub | apps |
+| label-studio | apps |
 | mlflow | apps |
 | open-webui | apps |
 | zeppelin | apps |

@@ -145,6 +145,16 @@ env:
     default: ""
     secret: true
     description: "Auto-generated scoped MinIO secret key for the mlflow bucket."
+  - name: MINIO_BUCKET_LABEL_STUDIO
+    default: label-studio
+  - name: MINIO_LABEL_STUDIO_ACCESS_KEY
+    default: ""
+    secret: true
+    description: "Auto-generated scoped MinIO access key for the label-studio bucket."
+  - name: MINIO_LABEL_STUDIO_SECRET_KEY
+    default: ""
+    secret: true
+    description: "Auto-generated scoped MinIO secret key for the label-studio bucket."
   - name: MINIO_BUCKET_ICEBERG_LAKEHOUSE
     default: lakehouse
   - name: MINIO_BUCKET_ICEBERG_JARS

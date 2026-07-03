@@ -1,0 +1,82 @@
+# services/label-studio/compose.yml — Label Studio annotation UI/API + init
+services:
+  label-studio-init:
+    build:
+      context: ./init
+      args:
+        BASE_IMAGE: ${LABEL_STUDIO_INIT_IMAGE:-alpine:3.22}
+    image: ${PROJECT_NAME}-label-studio-init:local
+    container_name: ${PROJECT_NAME}-label-studio-init
+    restart: "no"
+    deploy:
+      replicas: ${LABEL_STUDIO_INIT_SCALE:-0}
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    environment:
+      PGHOST: supabase-db
+      PGPORT: 5432
+      PGUSER: ${SUPABASE_DB_USER}
+      PGPASSWORD: ${SUPABASE_DB_PASSWORD}
+      LABEL_STUDIO_DB_NAME: ${LABEL_STUDIO_DB_NAME:-label_studio}
+      LABEL_STUDIO_DB_USER: ${LABEL_STUDIO_DB_USER:-label_studio}
+      LABEL_STUDIO_DB_PASSWORD: ${LABEL_STUDIO_DB_PASSWORD}
+    volumes:
+      - ./init/scripts:/scripts:ro
+    entrypoint: ["/bin/sh", "/scripts/init-label-studio.sh"]
+    networks:
+      - backend-network
+
+  label-studio:
+    image: ${LABEL_STUDIO_IMAGE:-heartexlabs/label-studio:1.23.0}
+    container_name: ${PROJECT_NAME}-label-studio
+    restart: unless-stopped
+    deploy:
+      replicas: ${LABEL_STUDIO_SCALE:-0}
+    depends_on:
+      label-studio-init:
+        condition: service_completed_successfully
+    ports:
+      - "${HOST_BIND_IP:-}${LABEL_STUDIO_PORT}:8080"
+    environment:
+      DJANGO_DB: default
+      POSTGRE_NAME: ${LABEL_STUDIO_DB_NAME:-label_studio}
+      POSTGRE_USER: ${LABEL_STUDIO_DB_USER:-label_studio}
+      POSTGRE_PASSWORD: ${LABEL_STUDIO_DB_PASSWORD}
+      POSTGRE_HOST: supabase-db
+      POSTGRE_PORT: "5432"
+      LABEL_STUDIO_HOST: http://label-studio.localhost:${KONG_HTTP_PORT:-63000}
+      CSRF_TRUSTED_ORIGINS: http://label-studio.localhost:${KONG_HTTP_PORT:-63000}
+      USERNAME: ${LABEL_STUDIO_USERNAME:-admin@atlas.local}
+      PASSWORD: ${LABEL_STUDIO_PASSWORD}
+      USER_TOKEN: ${LABEL_STUDIO_USER_TOKEN}
+      LABEL_STUDIO_ENABLE_LEGACY_API_TOKEN: "true"
+      SECRET_KEY: ${LABEL_STUDIO_SECRET_KEY}
+      DISABLE_SIGNUP_WITHOUT_LINK: "true"
+      STORAGE_TYPE: s3
+      STORAGE_AWS_ENDPOINT_URL: http://minio:9000
+      STORAGE_AWS_BUCKET_NAME: ${MINIO_BUCKET_LABEL_STUDIO:-label-studio}
+      STORAGE_AWS_ACCESS_KEY_ID: ${MINIO_LABEL_STUDIO_ACCESS_KEY}
+      STORAGE_AWS_SECRET_ACCESS_KEY: ${MINIO_LABEL_STUDIO_SECRET_KEY}
+      STORAGE_AWS_S3_USE_SSL: "false"
+      STORAGE_AWS_REGION_NAME: ${MINIO_REGION:-us-east-1}
+    volumes:
+      - label-studio-data:/label-studio/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "${LOG_MAX_SIZE:-10m}"
+        max-file: "${LOG_MAX_FILE:-3}"
+    networks:
+      - backend-network
+    healthcheck:
+      test: ["CMD-SHELL", "python - <<'PY'\nimport urllib.request\nurllib.request.urlopen('http://localhost:8080/health', timeout=5).read()\nPY"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 90s
+
+volumes:
+  label-studio-data:

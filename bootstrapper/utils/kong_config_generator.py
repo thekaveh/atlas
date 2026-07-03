@@ -245,6 +245,10 @@ class KongConfigGenerator:
         if mlflow_service:
             services.append(mlflow_service)
 
+        label_studio_service = self.generate_label_studio_service()
+        if label_studio_service:
+            services.append(label_studio_service)
+
         crawl4ai_service = self.generate_crawl4ai_service()
         if crawl4ai_service:
             services.append(crawl4ai_service)
@@ -1279,6 +1283,28 @@ class KongConfigGenerator:
                     'strip_path': False,
                     'preserve_host': True,
                     'hosts': ['mlflow.localhost'],
+                }
+            ],
+            'plugins': [
+                {'name': 'cors'},
+                {'name': 'basic-auth'},
+                {'name': 'acl', 'config': {'allow': ['dashboard_user']}},
+            ],
+        }
+
+    def generate_label_studio_service(self) -> Optional[Dict[str, Any]]:
+        """Kong route for the Label Studio UI/API."""
+        if self.get_env_value('LABEL_STUDIO_SOURCE') != 'container':
+            return None
+        return {
+            'name': 'label-studio',
+            'url': 'http://label-studio:8080/',
+            'routes': [
+                {
+                    'name': 'label-studio-all',
+                    'strip_path': False,
+                    'preserve_host': True,
+                    'hosts': ['label-studio.localhost'],
                 }
             ],
             'plugins': [

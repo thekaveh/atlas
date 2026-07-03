@@ -770,6 +770,31 @@ MLFLOW_TRACKING_URI=...      # auto-managed as http://mlflow:5000
 - **Containers**: `mlflow-init` (one-shot), `mlflow`.
 - **Requirements**: Supabase Postgres is always-on; `MINIO_SOURCE=container` is required.
 
+### 4.21 LABEL_STUDIO_SOURCE
+
+Label Studio is Atlas' optional dataset review and annotation surface for the ML Engineering track. When enabled, Atlas runs Label Studio CE with a dedicated Supabase Postgres database and a scoped MinIO bucket for S3-compatible media/upload storage. JupyterHub receives `LABEL_STUDIO_URL`, `LABEL_STUDIO_API_URL`, and `LABEL_STUDIO_API_KEY` so notebooks can create projects, push tasks, export annotations, and then hand reviewed outputs to MLflow or Weaviate.
+
+#### 4.21.1 `disabled` (Default)
+```bash
+LABEL_STUDIO_SOURCE=disabled
+```
+- **Use case**: Default safe startup with no annotation UI/API.
+- **Pros**: Zero footprint; no separate Label Studio auth surface or review data.
+- **Cons**: Dataset review remains a notebook/manual workflow.
+- **Requirements**: None.
+
+#### 4.21.2 `container`
+```bash
+LABEL_STUDIO_SOURCE=container
+MINIO_SOURCE=container       # REQUIRED — Label Studio stores media/uploads in MinIO
+LABEL_STUDIO_API_URL=...     # auto-managed as http://label-studio:8080
+```
+- **Use case**: Human review and annotation loops for ML, RAG, and creative datasets.
+- **Pros**: Kong-aliased UI/API at `label-studio.localhost`, Postgres-backed app metadata, MinIO-backed media storage, generated admin/API credentials, notebook-friendly SDK path.
+- **Cons**: Adds an app container plus one-shot DB init; Label Studio CE has its own auth model, so broad multi-user usage should wait for SSO/permissions work.
+- **Containers**: `label-studio-init` (one-shot), `label-studio`.
+- **Requirements**: Supabase Postgres is always-on; `MINIO_SOURCE=container` is required.
+
 ## 5. Configuration Patterns
 
 ### 5.1 Development Setup

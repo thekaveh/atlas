@@ -48,6 +48,7 @@ class KeyGenerator:
         "DOCLING",
         "LANGFUSE",
         "MLFLOW",
+        "LABEL_STUDIO",
         "ICEBERG",
     )
 
@@ -735,6 +736,10 @@ class KeyGenerator:
         """Postgres role password for the dedicated MLflow database."""
         return _cli_safe_token_urlsafe(24)
 
+    def generate_label_studio_secret(self) -> str:
+        """Django/app secret for Label Studio."""
+        return _cli_safe_token_urlsafe(32)
+
     def generate_airflow_db_password(self) -> str:
         """Postgres role password for the dedicated airflow role/database."""
         return _cli_safe_token_urlsafe(24)
@@ -809,6 +814,23 @@ class KeyGenerator:
         if not force and current:
             return True
         return self.update_env_key('MLFLOW_DB_PASSWORD', self.generate_mlflow_db_password())
+
+    def generate_and_update_label_studio_secrets(self, force: bool = False) -> Dict[str, bool]:
+        """Generate Label Studio DB, admin, API token, and app secrets."""
+        return {
+            "LABEL_STUDIO_DB_PASSWORD": self._generate_and_update_when_absent(
+                "LABEL_STUDIO_DB_PASSWORD", lambda: _cli_safe_token_urlsafe(24), force=force
+            ),
+            "LABEL_STUDIO_PASSWORD": self._generate_and_update_when_absent(
+                "LABEL_STUDIO_PASSWORD", lambda: _cli_safe_token_urlsafe(18), force=force
+            ),
+            "LABEL_STUDIO_USER_TOKEN": self._generate_and_update_when_absent(
+                "LABEL_STUDIO_USER_TOKEN", lambda: _cli_safe_token_urlsafe(24), force=force
+            ),
+            "LABEL_STUDIO_SECRET_KEY": self._generate_and_update_when_absent(
+                "LABEL_STUDIO_SECRET_KEY", self.generate_label_studio_secret, force=force
+            ),
+        }
 
     def generate_and_update_airflow_db_password(self, force: bool = False) -> bool:
         """Generate and update AIRFLOW_DB_PASSWORD in .env file.
@@ -917,6 +939,7 @@ class KeyGenerator:
         results['AIRFLOW_ADMIN_PASSWORD'] = self.generate_and_update_airflow_admin_password(force=False)
         results['JENKINS_ADMIN_PASSWORD'] = self.generate_and_update_jenkins_admin_password(force=False)
         results['MLFLOW_DB_PASSWORD'] = self.generate_and_update_mlflow_db_password(force=False)
+        results.update(self.generate_and_update_label_studio_secrets(force=False))
         results['AIRFLOW_DB_PASSWORD'] = self.generate_and_update_airflow_db_password(force=False)
         results['ICEBERG_DB_PASSWORD'] = self.generate_and_update_iceberg_db_password(force=False)
 

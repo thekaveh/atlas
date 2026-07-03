@@ -101,6 +101,10 @@ EXPECTED_DISCOVERED = frozenset({
     # MLflow (added 2026-07-03) — disabled-by-default experiment tracking
     # and MinIO-backed artifacts for the ML Engineering track.
     "MLflow",
+    # Label Studio (added 2026-07-03) — disabled-by-default annotation
+    # review loop for ML/RAG datasets. Single-container app family wired via
+    # `label_studio_source` in source_mapping.
+    "Label Studio",
     # Celery + Flower (added 2026-07-03) — disabled-by-default async
     # backend worker tier. Multi-container family (worker + Flower), so
     # discovery uses the `celery_worker_source` shim while the real flag
