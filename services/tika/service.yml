@@ -1,0 +1,94 @@
+# services/tika/service.yml - Apache Tika fallback extractor
+name: tika
+label: "Apache Tika (fallback extractor)"
+category: media
+docs: services/tika/README.md
+
+containers:
+  - tika
+
+images:
+  - var: TIKA_IMAGE
+    default: "apache/tika:3.3.1.0"
+    container: tika
+
+sources:
+  var: TIKA_SOURCE
+  default: disabled
+  options:
+    - id: container
+      label: "Container"
+    - id: tika-localhost
+      label: "Host (existing Tika server)"
+      profiles: [default]
+    - id: disabled
+      label: "Disabled"
+
+env:
+  - name: TIKA_SOURCE
+    default: disabled
+  - name: TIKA_PORT
+    # default removed - computed by services/topology.py slot allocator
+  - name: TIKA_LOCALHOST_PORT
+    default: "9998"
+    description: "Host port for the tika-localhost source variant."
+  - name: TIKA_JAVA_TOOL_OPTIONS
+    default: "-Xmx768m"
+    description: "JVM memory cap for the Tika server container."
+  - name: TIKA_MAX_FILE_SIZE
+    default: 52428800
+    description: "Backend maximum bytes accepted for Docling/Tika extraction."
+  - name: TIKA_TIMEOUT_SECONDS
+    default: 30
+    description: "Backend timeout for Tika fallback extraction calls."
+  - name: TIKA_SCALE
+    auto_managed: true
+  - name: TIKA_ENDPOINT
+    auto_managed: true
+
+depends_on:
+  required: []
+  optional:
+    - backend
+    - n8n
+
+rows:
+  - display_name: "Apache Tika"
+    source_var: TIKA_SOURCE
+    port_var: TIKA_PORT
+    scale_var: TIKA_SCALE
+    alias: tika.localhost
+    description: "Long-tail document text fallback."
+    localhost_endpoint_var: TIKA_ENDPOINT
+    localhost_port_var: TIKA_LOCALHOST_PORT
+
+exports:
+  - name: TIKA_ENDPOINT
+    consumers:
+      - backend
+      - n8n
+
+runtime_sc:
+  tika:
+    container:
+      scale: 1
+      environment:
+        TIKA_ENDPOINT: http://tika:9998
+      deploy: {}
+      extra_hosts: []
+    tika-localhost:
+      scale: 0
+      environment:
+        TIKA_ENDPOINT: http://host.docker.internal:${TIKA_LOCALHOST_PORT:-9998}
+      deploy: {}
+      extra_hosts:
+        - host.docker.internal:host-gateway
+    disabled:
+      scale: 0
+      environment:
+        TIKA_ENDPOINT: ''
+      deploy: {}
+      extra_hosts: []
+
+data_flow:
+  calls: []

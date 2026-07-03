@@ -103,6 +103,9 @@ EXPECTED_DISCOVERED = frozenset({
     # Supavisor (added 2026-07-03) — disabled-by-default internal
     # Supabase Postgres transaction pooler for selected app clients.
     "Supavisor",
+    # Apache Tika (added 2026-07-03) — disabled-by-default fallback
+    # extractor for long-tail document formats.
+    "Apache Tika",
     # TEI Reranker (added 2026-06-05) — GPU-accelerated reranker inference.
     # Single-container family; wired via 'tei_reranker_source' in
     # source_mapping with container-cpu / container-gpu / localhost / disabled.
@@ -233,6 +236,7 @@ def test_source_mapping_includes_app_service_flags() -> None:
         "langfuse_web_source",
         "mlflow_source",
         "supavisor_source",
+        "tika_source",
     ):
         assert cli_key in mgr.source_mapping, (
             f"{cli_key} missing from SourceOverrideManager.source_mapping — "

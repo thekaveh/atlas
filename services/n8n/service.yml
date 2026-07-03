@@ -131,6 +131,7 @@ runtime_adaptive:
     - stt_provider
     - tts_provider
     - doc_processor
+    - tika
     - lightrag
     - hermes
     - crawl4ai
@@ -139,6 +140,7 @@ runtime_adaptive:
       STT_ENDPOINT: ${STT_ENDPOINT}
       TTS_ENDPOINT: ${TTS_ENDPOINT}
       DOCLING_ENDPOINT: ${DOCLING_ENDPOINT}
+      TIKA_ENDPOINT: ${TIKA_ENDPOINT}
       LIGHTRAG_ENDPOINT: ${LIGHTRAG_ENDPOINT}
       LIGHTRAG_API_KEY: ${LIGHTRAG_API_KEY}
       CRAWL4AI_ENDPOINT: ${CRAWL4AI_ENDPOINT}
@@ -180,6 +182,7 @@ data_flow:
     # README Future-pairs note).
     - backend
     - doc-processor
+    - tika
     - hermes
     - litellm
     - stt-provider

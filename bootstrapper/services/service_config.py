@@ -175,6 +175,7 @@ class ServiceConfig:
         # itself is enabled, even if LDR full-page mode is disabled.
         env_vars.update(self._generate_local_deep_researcher_extraction_config())
         env_vars.update(self._generate_crawl4ai_config())
+        env_vars.update(self._generate_tika_config())
         env_vars.update(self._generate_celery_config())
         env_vars.update(self._generate_supavisor_config())
 
@@ -1036,6 +1037,26 @@ class ServiceConfig:
         return {
             "CRAWL4AI_SCALE": "1",
             "CRAWL4AI_ENDPOINT": "http://crawl4ai:11235",
+        }
+
+    def _generate_tika_config(self) -> dict:
+        """Generate Apache Tika scale and in-network/localhost endpoint."""
+        source = self.service_sources.get("TIKA_SOURCE", "disabled")
+        if source == "disabled":
+            return {
+                "TIKA_SCALE": "0",
+                "TIKA_ENDPOINT": "",
+            }
+        if source == "tika-localhost":
+            current_env = self.config_parser.parse_env_file()
+            port = current_env.get("TIKA_LOCALHOST_PORT", "9998")
+            return {
+                "TIKA_SCALE": "0",
+                "TIKA_ENDPOINT": f"http://{self.localhost_host}:{port}",
+            }
+        return {
+            "TIKA_SCALE": "1",
+            "TIKA_ENDPOINT": "http://tika:9998",
         }
 
     def _generate_celery_config(self) -> dict:

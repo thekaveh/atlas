@@ -112,6 +112,15 @@ class LocalhostValidator:
             'service_name': 'Docling Document Processor',
             'default_port': 63040
         },
+        'TIKA_SOURCE': {
+            'source_values': ['tika-localhost'],
+            'check_type': 'http',
+            'port_env_var': 'TIKA_LOCALHOST_PORT',
+            'health_path': '/tika',
+            'service_name': 'Apache Tika',
+            'default_port': 9998,
+            'hint': 'Start the Apache Tika server and ensure it listens on TIKA_LOCALHOST_PORT.',
+        },
         'OPENCLAW_SOURCE': {
             'source_values': ['localhost'],
             'check_type': 'http',

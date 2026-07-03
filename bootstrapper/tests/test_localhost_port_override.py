@@ -15,6 +15,7 @@ import pytest
 LOCALHOST_WIRING = [
     ("ComfyUI",            "localhost",            "COMFYUI_LOCALHOST_PORT",     "8000"),
     ("Document Processor", "docling-localhost",    "DOCLING_LOCALHOST_PORT",     "63040"),
+    ("Apache Tika",        "tika-localhost",       "TIKA_LOCALHOST_PORT",        "9998"),
     ("Hermes Agent",       "localhost",            "HERMES_LOCALHOST_PORT",      "63028"),
     ("OpenClaw",           "localhost",            "OPENCLAW_LOCALHOST_PORT",    "63065"),
     ("LLM Engine",         "ollama-localhost",     "OLLAMA_LOCALHOST_PORT",      "11434"),

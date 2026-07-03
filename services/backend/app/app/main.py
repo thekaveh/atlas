@@ -26,6 +26,12 @@ from memory_models import (
 from ray_routes import router as ray_router
 from celery_app import celery_is_enabled, get_celery_job_status
 from celery_tasks import memory_consolidate_task
+from document_extraction import (
+    DocumentExtractionError,
+    DocumentExtractor,
+    DocumentTooLargeError,
+    ExtractionUnavailableError,
+)
 
 
 def _validate_uuid_param(value: str, name: str = "parameter"):
@@ -200,6 +206,9 @@ research_service = ResearchService()
 # Initialize LangMem memory service
 memory_service = MemoryService()
 
+# Initialize document extractor facade (Docling first, Tika fallback)
+document_extractor = DocumentExtractor()
+
 
 
 class WorkflowResponse(BaseModel):
@@ -313,6 +322,39 @@ async def upload_file(file: UploadFile = File(...), bucket: str = "default"):
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+        )
+
+
+@app.post("/documents/extract")
+async def extract_document(file: UploadFile = File(...)):
+    """Extract text for RAG ingestion using Docling first, then Tika fallback."""
+    if not file.filename:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="File must have a filename",
+        )
+    content = await file.read()
+    try:
+        result = await document_extractor.extract(
+            content=content,
+            filename=file.filename,
+            content_type=file.content_type,
+        )
+        return result.to_dict()
+    except DocumentTooLargeError as e:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=str(e),
+        )
+    except ExtractionUnavailableError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(e),
+        )
+    except DocumentExtractionError as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(e),
         )
 
 

@@ -79,6 +79,7 @@ _PERMUTATIONS = [
     ("MINIO_SOURCE", ["container", "disabled"]),
     ("N8N_SOURCE", ["container", "disabled"]),
     ("SEARXNG_SOURCE", ["container", "disabled"]),
+    ("TIKA_SOURCE", ["container", "tika-localhost", "disabled"]),
     ("OPEN_WEB_UI_SOURCE", ["container", "disabled"]),
     ("JUPYTERHUB_SOURCE", ["container", "disabled"]),
     ("LOCAL_DEEP_RESEARCHER_SOURCE", ["container", "disabled"]),

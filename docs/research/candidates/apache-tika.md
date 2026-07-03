@@ -26,7 +26,7 @@ Docling is excellent for PDFs, Office files, and images but explicitly does not 
 (Every bullet names a real service in the current topology.)
 
 ## Effort
-small — Tika ships a stock `apache/tika:latest` server image, single port (9998), no auth, no GPU. The only work is the manifest, Kong alias, and the fallback branch in the backend doc endpoint.
+small — Tika ships a stock server image, single port (9998), no auth, no GPU. Atlas should pin the stable 3.x image (`apache/tika:3.3.1.0` in the first implementation) rather than `latest`; Tika 4.x server changes should be evaluated separately before adoption. The core work is the manifest, Kong alias, and the fallback branch in the backend doc endpoint.
 
 ## Risks & open questions
 - Java footprint: Tika is JVM-based and idle-uses ~300 MB; non-trivial on small dev boxes. Mitigated by making it `disabled` by default.

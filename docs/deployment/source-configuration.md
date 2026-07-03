@@ -29,6 +29,7 @@ This matrix lists every `*_SOURCE` variable currently exposed in `.env.example`.
 | `N8N_SOURCE` | `container` | `container`, `disabled` | User-facing | Workflow automation. |
 | `SEARXNG_SOURCE` | `container` | `container`, `disabled` | User-facing | Privacy metasearch. |
 | `CRAWL4AI_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Browser-backed extraction API for Local Deep Researcher and n8n HTTP workflows. Token-protected and disabled by default. |
+| `TIKA_SOURCE` | `disabled` | `container`, `tika-localhost`, `disabled` | User-facing optional | Apache Tika fallback extractor for long-tail document formats. Disabled by default and degraded/plain-text by design. |
 | `CELERY_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Redis-backed async backend worker tier plus Flower monitor for long-running memory/research-style jobs. |
 | `SUPAVISOR_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Internal-only Supabase Postgres transaction pooler for selected app clients; no Kong alias or host slot-allocated port in v1. |
 | `MCP_SERVERS_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Curated MCP package exposing read-oriented Postgres, Neo4j, and SearXNG tools. Hard-gated on Neo4j and SearXNG. |
@@ -91,6 +92,7 @@ These services can run on your host machine instead of in containers:
 | **TEI Reranker** | `TEI_RERANKER_SOURCE` | `localhost` | Use a host-installed TEI reranker process |
 | **TTS Provider** | `TTS_PROVIDER_SOURCE` | `chatterbox-localhost` | Run Chatterbox voice cloning natively (macOS MPS / Linux) |
 | **Document Processor** | `DOC_PROCESSOR_SOURCE` | `docling-localhost` | Use a host Docling service |
+| **Apache Tika** | `TIKA_SOURCE` | `tika-localhost` | Use a host Tika server for long-tail fallback extraction |
 
 ### 3.2 Container-Only or Stack-Managed Services
 
@@ -679,11 +681,45 @@ CRAWL4AI_API_TOKEN=...                         # auto-generated on first bootstr
 - **Containers**: `crawl4ai`.
 - **Requirements**: None for the service itself. `LOCAL_DEEP_RESEARCHER_FULL_PAGE_MODE=crawl4ai` requires `CRAWL4AI_SOURCE=container` and fails early otherwise.
 
-### 4.18 LANGFUSE_SOURCE
+### 4.18 TIKA_SOURCE
+
+Apache Tika is Atlas' optional fallback text extractor for long-tail document formats. When enabled, Atlas exposes `TIKA_ENDPOINT` to the Backend and n8n. The Backend keeps Docling first for supported/unknown formats and uses Tika only for explicit unsupported-format responses or known long-tail formats such as EML, MSG, RTF, ODT, ODS, ODP, ZIP, TAR, GZIP, and BZIP2.
+
+#### 4.18.1 `disabled` (Default)
+```bash
+TIKA_SOURCE=disabled
+```
+- **Use case**: Default safe startup with no JVM parser for untrusted documents.
+- **Pros**: Zero footprint; no additional document parsing attack surface.
+- **Cons**: Docling unsupported-format failures do not have an in-stack plain-text fallback.
+- **Requirements**: None.
+
+#### 4.18.2 `container`
+```bash
+TIKA_SOURCE=container
+TIKA_ENDPOINT=http://tika:9998   # auto-managed
+```
+- **Use case**: Add a local fallback extractor for email, RTF/OpenDocument, archives, and obscure MIME types.
+- **Pros**: Kong alias `tika.localhost`, direct host port via `TIKA_PORT`, backend/n8n env wiring, bounded backend size and timeout controls.
+- **Cons**: Plain-text-only degraded extraction; no malware scanning or archive quarantine in v1.
+- **Containers**: `tika`.
+- **Requirements**: None.
+
+#### 4.18.3 `tika-localhost`
+```bash
+TIKA_SOURCE=tika-localhost
+TIKA_LOCALHOST_PORT=9998
+```
+- **Use case**: Reuse an existing host-running Tika server.
+- **Pros**: No Tika container footprint; Kong still routes `tika.localhost` through `host.docker.internal`.
+- **Cons**: Operator must keep the host Tika process patched and running.
+- **Requirements**: Host Tika server listening on `TIKA_LOCALHOST_PORT`.
+
+### 4.19 LANGFUSE_SOURCE
 
 Langfuse is Atlas' optional LLM observability surface. When enabled, Atlas runs Langfuse web, worker, and ClickHouse containers; provisions a dedicated Supabase Postgres database plus Langfuse object-store credentials; and wires LiteLLM with Langfuse tracing keys so OpenAI-compatible requests through LiteLLM produce traces, latency, and cost records. It appears in the AI and ML tracks (`gen-ai-rag`, `gen-ai-eng`, `gen-ai-creative`, `ml-eng`, `all`) and stays out of the data-engineering track unless a future data-quality/eval workflow needs it directly.
 
-#### 4.18.1 `disabled` (Default)
+#### 4.19.1 `disabled` (Default)
 ```bash
 LANGFUSE_SOURCE=disabled
 ```
@@ -692,7 +728,7 @@ LANGFUSE_SOURCE=disabled
 - **Cons**: LiteLLM requests are not captured in Langfuse.
 - **Requirements**: None.
 
-#### 4.18.2 `container`
+#### 4.19.2 `container`
 ```bash
 LANGFUSE_SOURCE=container
 MINIO_SOURCE=container       # REQUIRED — Langfuse uses S3-compatible blob storage
@@ -705,11 +741,11 @@ LANGFUSE_SECRET_KEY=...      # auto-generated on first bootstrap
 - **Containers**: `langfuse-init` (one-shot), `langfuse-web`, `langfuse-worker`, `langfuse-clickhouse`.
 - **Requirements**: Supabase Postgres and Redis are always-on; `MINIO_SOURCE=container` is required.
 
-### 4.19 MLFLOW_SOURCE
+### 4.20 MLFLOW_SOURCE
 
 MLflow is Atlas' optional experiment tracking and artifact registry surface for the ML Engineering track. When enabled, Atlas runs a tracking server backed by a dedicated Supabase Postgres database and a scoped MinIO artifact bucket. JupyterHub receives `MLFLOW_TRACKING_URI=http://mlflow:5000` so notebooks can log runs, metrics, parameters, and artifacts without direct MinIO credentials.
 
-#### 4.19.1 `disabled` (Default)
+#### 4.20.1 `disabled` (Default)
 ```bash
 MLFLOW_SOURCE=disabled
 ```
@@ -718,7 +754,7 @@ MLFLOW_SOURCE=disabled
 - **Cons**: Notebook experiments remain local to the notebook session unless users configure an external tracker.
 - **Requirements**: None.
 
-#### 4.19.2 `container`
+#### 4.20.2 `container`
 ```bash
 MLFLOW_SOURCE=container
 MINIO_SOURCE=container       # REQUIRED — MLflow stores run artifacts in MinIO
