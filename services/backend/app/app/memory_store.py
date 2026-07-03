@@ -11,8 +11,9 @@ import logging
 from typing import Optional, List, Dict, Any, Union
 from uuid import UUID
 
-import asyncpg
 import httpx
+
+from db_connection import connect_postgres
 
 
 def _to_uuid(value: Union[str, UUID, None]) -> Optional[UUID]:
@@ -305,7 +306,7 @@ class MemoryStore:
     async def _store_pgvector(self, fact_id: str, content: str):
         """Store embedding in pgvector column."""
         embedding = await self._generate_embedding(content)
-        conn = await asyncpg.connect(self.database_url, timeout=10, command_timeout=30)
+        conn = await connect_postgres(self.database_url)
         try:
             await conn.execute(
                 "UPDATE public.memory_facts SET embedding = $1 WHERE id = $2",
@@ -409,7 +410,7 @@ class MemoryStore:
     ) -> List[Dict[str, Any]]:
         """Search pgvector for similar memories using cosine similarity."""
         embedding = await self._generate_embedding(query)
-        conn = await asyncpg.connect(self.database_url, timeout=10, command_timeout=30)
+        conn = await connect_postgres(self.database_url)
         try:
             rows = await conn.fetch(
                 """

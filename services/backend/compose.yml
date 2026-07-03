@@ -22,6 +22,9 @@ services:
         condition: service_started
       litellm:
         condition: service_healthy
+      supavisor:
+        condition: service_healthy
+        required: false
       # Wait for weaviate-init to write /shared/weaviate-config.env
       # before configure-backend.sh tries to source it. Without this,
       # backend starts in parallel with weaviate-init, finds the file
@@ -37,7 +40,7 @@ services:
     environment:
       PROJECT_NAME: ${PROJECT_NAME}
       KONG_URL: http://kong-api-gateway:8000
-      DATABASE_URL: postgresql://${SUPABASE_DB_USER}:${SUPABASE_DB_PASSWORD}@supabase-db:5432/${SUPABASE_DB_NAME}
+      DATABASE_URL: ${SUPAVISOR_DATABASE_URL:-postgresql://${SUPABASE_DB_USER}:${SUPABASE_DB_PASSWORD}@supabase-db:5432/${SUPABASE_DB_NAME}}
       LITELLM_BASE_URL: http://litellm:4000
       LITELLM_API_KEY: ${LITELLM_MASTER_KEY}
       LITELLM_EMBEDDING_MODEL: ${LITELLM_EMBEDDING_MODEL:-ollama/nomic-embed-text}

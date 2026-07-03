@@ -76,6 +76,7 @@ Redis visibility timeout is intentionally longer than the hard task time limit. 
 |---|---|
 | redis | data |
 | supabase | data |
+| supavisor | data |
 | weaviate | data |
 | litellm | llm |
 

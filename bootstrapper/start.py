@@ -2064,6 +2064,9 @@ class AtlasStarter:
 @click.option('--celery-source',
               type=click.Choice(['container', 'disabled'], case_sensitive=False),
               help='Override CELERY_SOURCE — backend async worker tier with Flower monitor.')
+@click.option('--supavisor-source',
+              type=click.Choice(['container', 'disabled'], case_sensitive=False),
+              help='Override SUPAVISOR_SOURCE — internal Supabase Postgres transaction pooler.')
 @click.option('--mcp-servers-source',
               type=click.Choice(['container', 'disabled'], case_sensitive=False),
               help='Override MCP_SERVERS_SOURCE')
@@ -2183,7 +2186,7 @@ def main(project_name, base_port, track, list_tracks, cold, setup_hosts, skip_ho
          ollama_models, ollama_custom_models,
          comfyui_models, comfyui_custom_models_file,
          comfyui_source, weaviate_source, minio_source, n8n_source, searxng_source,
-         crawl4ai_source, celery_source, mcp_servers_source,
+         crawl4ai_source, celery_source, supavisor_source, mcp_servers_source,
          jupyterhub_source, open_web_ui_source, local_deep_researcher_source,
          stt_provider_source, tts_provider_source,
          doc_processor_source, openclaw_source, hermes_source,
@@ -2242,6 +2245,7 @@ def main(project_name, base_port, track, list_tracks, cold, setup_hosts, skip_ho
                     'searxng_source': searxng_source,
                     'crawl4ai_source': crawl4ai_source,
                     'celery_source': celery_source,
+                    'supavisor_source': supavisor_source,
                     'mcp_servers_source': mcp_servers_source,
                     'jupyterhub_source': jupyterhub_source,
                     'open_web_ui_source': open_web_ui_source,
@@ -2457,6 +2461,7 @@ def main(project_name, base_port, track, list_tracks, cold, setup_hosts, skip_ho
             'searxng_source': searxng_source,
             'crawl4ai_source': crawl4ai_source,
             'celery_source': celery_source,
+            'supavisor_source': supavisor_source,
             'mcp_servers_source': mcp_servers_source,
             'jupyterhub_source': jupyterhub_source,
             'open_web_ui_source': open_web_ui_source,

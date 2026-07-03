@@ -25,14 +25,14 @@ tracks:
   - key: gen-ai-rag
     display_name: Generative AI · RAG
     description: Retrieval-augmented generation — vectors, graph, reranker, doc ingest, web search.
-    services: [open-webui, weaviate, neo4j, lightrag, doc-processor,
+    services: [open-webui, supavisor, weaviate, neo4j, lightrag, doc-processor,
                tei-reranker, searxng, mcp-servers, langfuse,
                local-deep-researcher, crawl4ai, celery]
 
   - key: gen-ai-eng
     display_name: Generative AI · Engineering
     description: Agentic apps + workflows with voice, vision, and search.
-    services: [open-webui, n8n, hermes, openclaw, jupyterhub, comfyui, neo4j,
+    services: [open-webui, supavisor, n8n, hermes, openclaw, jupyterhub, comfyui, neo4j,
                stt-provider, tts-provider, searxng, mcp-servers,
                langfuse, local-deep-researcher, celery]
 
@@ -45,13 +45,13 @@ tracks:
   - key: ml-eng
     display_name: ML Engineering
     description: Distributed training/inference + notebooks + experiment storage.
-    services: [spark, ray, jupyterhub, zeppelin, open-webui, minio, tei-reranker,
+    services: [spark, ray, jupyterhub, zeppelin, open-webui, supavisor, minio, tei-reranker,
                langfuse, mlflow]
 
   - key: data-eng
     display_name: Data Engineering
     description: Batch + lakehouse + graph + vector with orchestration.
-    services: [spark, airflow, jupyterhub, zeppelin, jenkins, minio, iceberg-rest,
+    services: [spark, airflow, jupyterhub, zeppelin, jenkins, supavisor, minio, iceberg-rest,
                weaviate, neo4j]
 
   - key: all

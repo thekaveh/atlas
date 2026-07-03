@@ -104,6 +104,7 @@ When `LIGHTRAG_SOURCE != disabled`, the backend receives `LIGHTRAG_ENDPOINT` and
 |---|---|
 | ray | infra |
 | supabase | data |
+| supavisor | data |
 | weaviate | data |
 | litellm | llm |
 | comfyui | media |

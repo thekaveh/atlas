@@ -282,6 +282,7 @@ _Engine-only manifests (speaches, chatterbox) are not listed — they're selecte
 | Data | Redis | 63023 | — |
 | Data | Apache Spark | 63025 | spark.localhost |
 | Data | Apache Spark — History Server | 63026 | spark-history.localhost |
+| Data | Supavisor | — | — |
 | Data | Weaviate | 63027 | weaviate.localhost |
 | Data | Multi2Vec CLIP | — | — |
 | LLM Core | LiteLLM | 63030 | litellm.localhost |

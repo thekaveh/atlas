@@ -342,6 +342,14 @@ class KeyGenerator:
         """Crawl4AI Docker API bearer token. Stable unless missing."""
         return _cli_safe_token_urlsafe(32)
 
+    def generate_supavisor_secret_key_base(self) -> str:
+        """Phoenix SECRET_KEY_BASE for Supavisor."""
+        return _cli_safe_token_urlsafe(96)
+
+    def generate_supavisor_vault_enc_key(self) -> str:
+        """Supavisor VAULT_ENC_KEY must be exactly 32 bytes."""
+        return secrets.token_hex(16)
+
     def generate_and_update_hermes_api_key(self, force: bool = False) -> bool:
         """Generate HERMES_API_KEY when absent. Idempotent: existing keys are
         preserved so already-running Hermes sessions / saved Open WebUI client
@@ -359,6 +367,36 @@ class KeyGenerator:
         if not force and current_value:
             return True
         return self.update_env_key('CRAWL4AI_API_TOKEN', self.generate_crawl4ai_api_token())
+
+    def generate_and_update_supavisor_secrets(self, force: bool = False) -> Dict[str, bool]:
+        """Generate Supavisor local-stack secrets when absent.
+
+        Existing values stick; rotating these changes tenant API/metrics
+        signing and vault encryption state, so it should be an explicit
+        operator action outside the default bootstrap path.
+        """
+        return {
+            "SUPAVISOR_SECRET_KEY_BASE": self._generate_and_update_when_absent(
+                "SUPAVISOR_SECRET_KEY_BASE",
+                self.generate_supavisor_secret_key_base,
+                force=force,
+            ),
+            "SUPAVISOR_VAULT_ENC_KEY": self._generate_and_update_when_absent(
+                "SUPAVISOR_VAULT_ENC_KEY",
+                self.generate_supavisor_vault_enc_key,
+                force=force,
+            ),
+            "SUPAVISOR_API_JWT_SECRET": self._generate_and_update_when_absent(
+                "SUPAVISOR_API_JWT_SECRET",
+                lambda: self.generate_password(32),
+                force=force,
+            ),
+            "SUPAVISOR_METRICS_JWT_SECRET": self._generate_and_update_when_absent(
+                "SUPAVISOR_METRICS_JWT_SECRET",
+                lambda: self.generate_password(32),
+                force=force,
+            ),
+        }
 
     def generate_lightrag_api_key(self) -> str:
         """Bearer key for LightRAG /api endpoints. Forwarded to LiteLLM."""
@@ -830,6 +868,10 @@ class KeyGenerator:
         # Crawl4AI Docker API bearer token — generated even when disabled so
         # enabling the service later does not require a manual secret edit.
         results['CRAWL4AI_API_TOKEN'] = self.generate_and_update_crawl4ai_api_token(force=False)
+
+        # Supavisor local pooler secrets — generated even when disabled so a
+        # later SUPAVISOR_SOURCE=container flip has the required values.
+        results.update(self.generate_and_update_supavisor_secrets(force=False))
 
         # LightRAG API bearer key + JWT token secret — only generate when
         # LIGHTRAG_SOURCE != disabled and the keys are absent. Same

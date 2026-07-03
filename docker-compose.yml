@@ -20,6 +20,7 @@
 include:
   # Data tier
   - services/supabase/compose.yml
+  - services/supavisor/compose.yml
   - services/redis/compose.yml
   - services/minio/compose.yml
   - services/iceberg-rest/compose.yml
