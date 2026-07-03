@@ -53,6 +53,7 @@ This matrix lists every `*_SOURCE` variable currently exposed in `.env.example`.
 | `ZEPPELIN_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Zeppelin notebooks; seeded for standalone Spark (`spark://spark-master:7077`) plus MinIO/Iceberg (hard-gated on `SPARK_SOURCE=container`). |
 | `JENKINS_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Jenkins controller with Maven and MinIO JAR publishing seam for data-eng Spark apps. |
 | `ICEBERG_REST_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Internal Iceberg REST catalog backed by Supabase Postgres and MinIO lakehouse buckets. |
+| `TRINO_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | SQL query engine over the Iceberg REST + MinIO lakehouse path. Hard-gated on MinIO and Iceberg REST. |
 | `MULTI2VEC_CLIP_SOURCE` | `container-cpu` | `container-cpu`, `container-gpu`, `disabled` | User-facing optional | Multimodal Weaviate vectorizer. |
 | `LIGHTRAG_SOURCE` | `disabled` | `container`, `localhost`, `disabled` | User-facing optional | Graph-augmented RAG server. Storage adapts to Supabase pgvector, Neo4j, Redis. |
 | `LOCAL_DEEP_RESEARCHER_SOURCE` | `container` | `container`, `disabled` | User-facing optional | Local research/orchestration service. |

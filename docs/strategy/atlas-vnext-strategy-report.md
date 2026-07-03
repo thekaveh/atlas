@@ -33,7 +33,7 @@ Current-state evidence inventory:
   - `gen-ai-eng`: `open-webui`, `n8n`, `hermes`, `openclaw`, `jupyterhub`, `comfyui`, `stt-provider`, `tts-provider`, `searxng`, `local-deep-researcher`
   - `gen-ai-creative`: `open-webui`, `comfyui`, `stt-provider`, `tts-provider`, `multi2vec-clip`, `doc-processor`
   - `ml-eng`: `spark`, `ray`, `jupyterhub`, `zeppelin`, `open-webui`, `minio`, `tei-reranker`
-  - `data-eng`: `spark`, `airflow`, `jupyterhub`, `zeppelin`, `minio`, `iceberg-rest`, `weaviate`, `neo4j`
+  - `data-eng`: `spark`, `airflow`, `jupyterhub`, `zeppelin`, `minio`, `iceberg-rest`, `trino`, `weaviate`, `neo4j`
   - `all`: no filtering; every configurable service remains available
 - Track-context note for later analysis: the registry already expresses broad AI, RAG, creative, ML, and data personas, but only as service-selection profiles; later tasks should assess whether those profiles feel productized enough for onboarding and roadmap positioning.
 
@@ -257,7 +257,7 @@ Ranking principle: Atlas should prefer additions that make the existing stack mo
 | 19 | **OpenBB + CCXT financial research kit** | A financial track should start with data and research, not live trading. OpenBB provides finance data/application APIs and CCXT provides a unified crypto exchange library, both notebook-friendly. | Medium | High | JupyterHub, LiteLLM, MinIO datasets, Infisical for API keys, optional TimescaleDB | Add notebooks and env scaffolding for read-only market data and paper portfolios; explicitly block live exchange keys in the first slice. |
 | 20 | **Blender MCP + glTF-Transform asset bridge** | The 3D track should first automate a host desktop tool and optimize assets, not ship large 3D foundation models. Blender MCP is useful but unsafe by default; glTF-Transform is a safer first server-side asset utility. | Medium | High | Host Blender, MCP clients, MinIO asset buckets, ComfyUI, imgproxy, optional Godot | Add a disabled localhost-only Blender MCP profile plus a containerized glTF-Transform postprocess job for GLB inspection/optimization. |
 
-Strong candidates intentionally below the top 20: `imgproxy` is small and useful but follows the dashboard/asset-browser work; `NocoDB` is attractive for human-in-the-loop queues but waits on SSO; `NeoDash` waits until more services write useful graph data; `WhisperX` waits until meeting/audio ingestion becomes a first-class RAG flow; `Dagster`, `Trino`, and `Superset` wait until the MinIO/Iceberg foundation has proven demand; `TimescaleDB` is best treated as part of the trading data slice rather than a standalone platform bet.
+Strong candidates intentionally below the top 20: `imgproxy` is small and useful but follows the dashboard/asset-browser work; `NocoDB` is attractive for human-in-the-loop queues but waits on SSO; `NeoDash` waits until more services write useful graph data; `WhisperX` waits until meeting/audio ingestion becomes a first-class RAG flow; `Dagster` and `Superset` wait until the MinIO/Iceberg/Trino foundation has proven demand; `TimescaleDB` is best treated as part of the trading data slice rather than a standalone platform bet.
 
 ## 8. Track Expansion
 
@@ -346,7 +346,7 @@ First wave:
 Later wave:
 
 - Evaluate Dagster as an asset-aware orchestrator only after deciding how it coexists with Airflow. It should not become a second scheduler with no clear ownership.
-- Evaluate Trino once Iceberg tables exist and users need multi-user SQL over object storage. Until then, DuckDB in notebooks is enough.
+- Trino has moved into the first data-eng lakehouse implementation slice as a disabled-by-default SQL query engine over Iceberg REST and MinIO.
 - Evaluate Superset after Trino/Iceberg or Postgres analytics schemas have useful datasets and SSO is available.
 - Evaluate Redpanda only when event streaming becomes a demonstrated bottleneck. Kafka-compatible streaming is powerful but too large as a speculative default.
 
@@ -392,7 +392,7 @@ Build later means useful, but the prerequisites or product commitments are not m
 4. **OpenBB + CCXT financial research kit:** after secrets handling and read-only/paper guardrails are ready.
 5. **Blender MCP + glTF-Transform:** after asset storage, dashboard links, and safety notes are in place.
 6. **imgproxy, NocoDB, NeoDash, WhisperX:** each is useful, but each benefits from an earlier dashboard/auth/data-foundation pass.
-7. **Dagster, Trino, Superset:** wait for real lakehouse demand and a clear Airflow coexistence model.
+7. **Dagster and Superset:** wait for real lakehouse demand and a clear Airflow/BI coexistence model.
 
 ### 9.4 Reject Or Defer For Now
 
@@ -482,7 +482,7 @@ Task 5 vNext ranking notes (candidate corpus plus current outside sources checke
 | NeoDash | Watchlist | Useful once Atlas has richer graph-native application data to present. |
 | WhisperX | Watchlist | Worth revisiting when meeting/audio ingestion becomes a first-class RAG workflow. |
 | Dagster | Watchlist | Strong orchestrator, but waits on proven lakehouse demand and a clean coexistence story with Airflow. |
-| Trino | Watchlist | Follows Iceberg plus DuckDB once multi-user SQL over object storage becomes real. |
+| Trino | Already shipped | Disabled-by-default data-eng SQL query engine over Iceberg REST and MinIO. |
 | Superset | Watchlist | Best added after Trino or analytics schemas have meaningful datasets and SSO. |
 | TimescaleDB | Watchlist | Best treated as part of a later trading-data slice, not a standalone platform bet. |
 | OpenBao | Watchlist | Stronger Vault-lineage option than Atlas needs in the first secrets-management slice. |

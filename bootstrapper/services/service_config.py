@@ -225,6 +225,10 @@ class ServiceConfig:
         iceberg_config = self._generate_iceberg_rest_config()
         env_vars.update(iceberg_config)
 
+        # Generate Trino query-engine configuration (hard-gated on lakehouse)
+        trino_config = self._generate_trino_config()
+        env_vars.update(trino_config)
+
         # Generate observability bundle (Prometheus family + cross-manifest
         # sidecar exporter scales for postgres-exporter and redis-exporter).
         prometheus_source = self.service_sources.get("PROMETHEUS_SOURCE", "disabled")
@@ -1357,6 +1361,37 @@ class ServiceConfig:
             "ICEBERG_REST_SCALE": "1",
             "ICEBERG_REST_INIT_SCALE": "1",
         }
+
+    def _generate_trino_config(self) -> dict:
+        """Generate TRINO_SCALE based on TRINO_SOURCE.
+
+        Trino's first Atlas integration is the Iceberg lakehouse query path.
+        It needs both MinIO object storage and the Iceberg REST catalog to be
+        running; otherwise the coordinator would boot without the advertised
+        `lakehouse` catalog. Fail during source resolution instead of letting
+        users discover the broken catalog from the UI.
+        """
+        source_value = self.service_sources.get("TRINO_SOURCE", "disabled")
+        if source_value == "disabled":
+            return {"TRINO_SCALE": "0"}
+
+        minio_source = self.service_sources.get("MINIO_SOURCE", "disabled")
+        if minio_source == "disabled":
+            raise ValueError(
+                "Trino requires MinIO to be enabled for the Iceberg warehouse. "
+                "Either pass --minio-source container alongside "
+                "--trino-source container, or set --trino-source disabled."
+            )
+
+        iceberg_source = self.service_sources.get("ICEBERG_REST_SOURCE", "disabled")
+        if iceberg_source == "disabled":
+            raise ValueError(
+                "Trino requires Iceberg REST Catalog to be enabled. "
+                "Either pass --iceberg-rest-source container alongside "
+                "--trino-source container, or set --trino-source disabled."
+            )
+
+        return {"TRINO_SCALE": "1"}
 
     def _generate_prometheus_config(self, source_value: str, shared_env: dict) -> dict:
         """Resolve scales for the prometheus family + cross-manifest exporter sidecars.

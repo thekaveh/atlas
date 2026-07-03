@@ -129,6 +129,9 @@ EXPECTED_DISCOVERED = frozenset({
     # Verba (added 2026-07-03) — archived, disabled-by-default Weaviate RAG
     # demo UI for the RAG track.
     "Verba",
+    # Trino (added 2026-07-03) — disabled-by-default SQL query engine over
+    # the Iceberg REST + MinIO lakehouse path for the data-eng track.
+    "Trino",
 })
 
 
