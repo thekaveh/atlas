@@ -22,12 +22,10 @@ integrations:
 
 This DAG is intentionally tiny — replace with your own DAGs.
 
-The smoke-test design rationale: the spec called for `SparkSubmitOperator`
-but submitting a real Spark application from the init/airflow image would
-require either (a) bundling the JAR in `services/airflow/dags/` or
-(b) bind-mounting a separate scripts directory. Neither is in scope for
-the v1 sample. Spark Connect via a tiny Python step gives the same
-"connection is alive" smoke without owning a JAR build.
+The smoke-test design rationale: this daily DAG stays lightweight and uses
+Spark Connect so it can confirm the cluster is reachable without launching a
+batch JAR. For the full `SparkSubmitOperator` + S3A + Iceberg validation path,
+trigger the manual `lakehouse_spark_submit_smoke` DAG.
 
 Model selection: the LLM step defaults to ``ollama/qwen3.6:latest``,
 which assumes the stack's default Ollama-mode catalog. If you run with

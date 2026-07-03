@@ -38,6 +38,10 @@ services:
       - "${HOST_BIND_IP:-}${SPARK_MASTER_UI_PORT}:8080"
     environment:
       SPARK_MASTER_HOST: spark-master
+      SPARK_MASTER_OPTS: >-
+        -Dspark.master.rest.enabled=true
+        -Dspark.master.rest.host=spark-master
+        -Dspark.master.rest.port=6066
     command:
       - /opt/spark/bin/spark-class
       - org.apache.spark.deploy.master.Master
@@ -81,12 +85,32 @@ services:
         limits:
           memory: ${SPARK_WORKER_MEMORY_LIMIT:-4g}
           cpus: "${SPARK_WORKER_CPU_LIMIT:-2.0}"
+    environment:
+      # Standalone cluster mode downloads the application JAR on the worker
+      # before the driver process exists. Keep S3A credentials available at
+      # the daemon level so s3a://jars/... applications can cold-start.
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+      AWS_REGION: ${MINIO_REGION:-us-east-1}
+      AWS_ENDPOINT_URL_S3: http://minio:9000
+    entrypoint: ["/bin/bash", "-lc"]
     command:
-      - /opt/spark/bin/spark-class
-      - org.apache.spark.deploy.worker.Worker
-      - spark://spark-master:7077
-      - --webui-port
-      - "8081"
+      - |
+        set -euo pipefail
+        export HADOOP_CONF_DIR=/tmp/atlas-spark-hadoop-conf
+        mkdir -p "$${HADOOP_CONF_DIR}"
+        cat > "$${HADOOP_CONF_DIR}/core-site.xml" <<EOF
+        <configuration>
+          <property><name>fs.s3a.endpoint</name><value>http://minio:9000</value></property>
+          <property><name>fs.s3a.endpoint.region</name><value>${MINIO_REGION:-us-east-1}</value></property>
+          <property><name>fs.s3a.path.style.access</name><value>true</value></property>
+          <property><name>fs.s3a.connection.ssl.enabled</name><value>false</value></property>
+          <property><name>fs.s3a.aws.credentials.provider</name><value>org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider</value></property>
+          <property><name>fs.s3a.access.key</name><value>${MINIO_ROOT_USER}</value></property>
+          <property><name>fs.s3a.secret.key</name><value>${MINIO_ROOT_PASSWORD}</value></property>
+        </configuration>
+        EOF
+        exec /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077 --webui-port 8081
     depends_on:
       spark-master:
         condition: service_healthy

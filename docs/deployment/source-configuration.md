@@ -36,7 +36,7 @@ This matrix lists every `*_SOURCE` variable currently exposed in `.env.example`.
 | `DOC_PROCESSOR_SOURCE` | `disabled` | `docling-container-gpu`, `docling-localhost`, `disabled` | User-facing optional | Document processing provider. |
 | `JUPYTERHUB_SOURCE` | `container` | `container`, `disabled` | User-facing optional | Data science, PySpark, and PyIceberg lakehouse notebooks; adaptive integrations. |
 | `RAY_SOURCE` | `disabled` | `ray-container-cpu`, `ray-container-gpu`, `disabled` | User-facing optional | Distributed compute cluster (head + workers). Backend `/api/ray/*` and notebook 07 light up when enabled. |
-| `AIRFLOW_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Workflow orchestration (scheduler, dag-processor, api-server, worker). |
+| `AIRFLOW_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Workflow orchestration with seeded Connections and SparkSubmit/S3A lakehouse smoke. |
 | `SPARK_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Spark master/workers + Connect sidecar + history server; lakehouse-ready when Iceberg REST is enabled. |
 | `ZEPPELIN_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Zeppelin notebooks; pairs with Spark via Spark Connect (hard-gated on `SPARK_SOURCE=container`). |
 | `ICEBERG_REST_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Internal Iceberg REST catalog backed by Supabase Postgres and MinIO lakehouse buckets. |
@@ -570,7 +570,7 @@ SPARK_SOURCE=container   # REQUIRED — Zeppelin hard-fails without Spark
 
 ### 4.14 AIRFLOW_SOURCE
 
-Airflow is a code-defined DAG orchestrator running LocalExecutor (no Celery / Redis broker — the metadata DB is Supabase Postgres). The image bundles `apache-airflow-providers-openai` (LiteLLM-wired) — LangChain support runs via `langchain-openai` + `PythonOperator`; there is no `apache-airflow-providers-langchain` package on PyPI. `airflow-init` seeds Connection objects per sibling source: `postgres_supabase`, `litellm_default`, and `redis_default` (always-on — required deps and locked-source services), `spark_default` (gated on `SPARK_SOURCE=container`), `minio_default` (gated on `MINIO_SOURCE=container`), `weaviate_default` (gated on `WEAVIATE_SOURCE=container`), `neo4j_default` (gated on `NEO4J_GRAPH_DB_SOURCE=container`). See [Airflow service README](../../services/airflow/README.md) §4 for the full seeded Connections matrix and the example DAG.
+Airflow is a code-defined DAG orchestrator running LocalExecutor (no Celery / Redis broker — the metadata DB is Supabase Postgres). The image bundles `apache-airflow-providers-openai` (LiteLLM-wired) — LangChain support runs via `langchain-openai` + `PythonOperator`; there is no `apache-airflow-providers-langchain` package on PyPI. It also installs Java 17, exposes PySpark's `spark-submit`, and carries S3A/Iceberg jars so `SparkSubmitOperator` can submit a JAR from `s3a://jars/...` to `spark://spark-master:7077`. The documented lakehouse path uses `deploy_mode="cluster"` so the driver runs on Atlas Spark workers while Airflow acts as the submit client. `airflow-init` seeds Connection objects per sibling source: `postgres_supabase`, `litellm_default`, and `redis_default` (always-on — required deps and locked-source services), `spark_default` (gated on `SPARK_SOURCE=container`, seeded for cluster SparkSubmit), `minio_default` (gated on `MINIO_SOURCE=container`), `weaviate_default` (gated on `WEAVIATE_SOURCE=container`), `neo4j_default` (gated on `NEO4J_GRAPH_DB_SOURCE=container`). See [Airflow service README](../../services/airflow/README.md) §4 for the full seeded Connections matrix, the example DAG, and the `lakehouse_spark_submit_smoke` validation DAG.
 
 #### 4.14.1 `disabled` (Default)
 ```bash
@@ -591,8 +591,8 @@ AIRFLOW_SECRET_KEY=...                  # auto-generated; AIRFLOW__API__SECRET_K
 AIRFLOW_DB_USER=airflow                 # Postgres role on supabase-db
 AIRFLOW_DB_PASSWORD=...                 # auto-generated
 ```
-- **Use case**: Scheduled / triggered DAG runs (ETL, model fine-tunes, scheduled LLM evals) with first-class LiteLLM-wired LLM operators
-- **Pros**: LocalExecutor (no broker), Supabase Postgres metadata DB, Kong-aliased UI at `airflow.localhost`, REST API under the same alias at `/api/v2/`, 7 Connections auto-seeded (`postgres_supabase` / `litellm_default` / `redis_default` always; `spark_default` / `minio_default` / `weaviate_default` / `neo4j_default` gated on the matching sibling being `container`-sourced)
+- **Use case**: Scheduled / triggered DAG runs (ETL, model fine-tunes, scheduled LLM evals) with first-class LiteLLM-wired LLM operators and SparkSubmit lakehouse jobs
+- **Pros**: LocalExecutor (no broker), Supabase Postgres metadata DB, Kong-aliased UI at `airflow.localhost`, REST API under the same alias at `/api/v2/`, 7 Connections auto-seeded (`postgres_supabase` / `litellm_default` / `redis_default` always; `spark_default` / `minio_default` / `weaviate_default` / `neo4j_default` gated on the matching sibling being `container`-sourced), manual `lakehouse_spark_submit_smoke` DAG submits a validation JAR from `s3a://jars/` and records Spark History when Spark + MinIO + Iceberg REST are enabled
 - **Cons**: ~2 GB image disk + ~1.5 GB RAM for the webserver + scheduler + dag-processor combo
 - **Containers**: `airflow-init` (one-shot), `airflow-webserver`, `airflow-scheduler`, `airflow-dag-processor` (Airflow 3.x REQUIRES a standalone DAG processor — the scheduler no longer parses DAGs in-process)
 - **Requirements**: Supabase Postgres reachable (always-on)

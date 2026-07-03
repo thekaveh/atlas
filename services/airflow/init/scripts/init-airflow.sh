@@ -125,7 +125,12 @@ done
 # service (services/redis/service.yml).
 
 if [ "${SPARK_SOURCE}" = "container" ]; then
-  add_conn spark_default --conn-type spark --conn-host spark-master --conn-port 7077
+  deploy_mode="${ATLAS_LAKEHOUSE_SPARK_DEPLOY_MODE:-cluster}"
+  add_conn spark_default \
+    --conn-type spark \
+    --conn-host spark-master \
+    --conn-port 7077 \
+    --conn-extra "{\"deploy-mode\": \"${deploy_mode}\", \"spark-binary\": \"spark-submit\"}"
 fi
 
 if [ "${MINIO_SOURCE}" = "container" ]; then

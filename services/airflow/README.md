@@ -4,7 +4,7 @@ Airflow runs as a 4-container family in the stack's `agents` band: `airflow-webs
 
 ## 1. Overview
 
-Image: `apache/airflow:3.2.2` (Apache 2.0), wrapped by a local `services/airflow/build/Dockerfile` that adds the 9-provider bundle needed for the cross-stack integrations (apache-spark, amazon, postgres, redis, common-sql, weaviate, neo4j, openai, fab) plus `pyspark[connect]==4.1.2` (the `[connect]` extra pulls grpcio + companions; the Spark Connect smoke step in the sample DAG needs it). LocalExecutor is the only supported executor in v1 — tasks run in the scheduler's process pool. Metadata DB lives in a new `airflow` database on Supabase Postgres, created by `airflow-init` on first start.
+Image: `apache/airflow:3.2.2` (Apache 2.0), wrapped by a local `services/airflow/build/Dockerfile` that adds the 9-provider bundle needed for the cross-stack integrations (apache-spark, amazon, postgres, redis, common-sql, weaviate, neo4j, openai, fab) plus `pyspark[connect]==4.1.2` (the `[connect]` extra pulls grpcio + companions; the Spark Connect smoke step in the sample DAG needs it). The image also installs Java 17, exposes PySpark's `spark-submit` on `PATH`, bakes the matching S3A/Iceberg jars into PySpark's jars directory, and builds `/opt/airflow/atlas-jars/atlas-lakehouse-smoke.jar` from source for the manual SparkSubmit lakehouse smoke. LocalExecutor is the only supported executor in v1 — tasks run in the scheduler's process pool. Metadata DB lives in a new `airflow` database on Supabase Postgres, created by `airflow-init` on first start.
 
 ## 2. Access
 
@@ -40,7 +40,7 @@ Auto-managed (resolved by the bootstrapper from `AIRFLOW_SOURCE`; do not hand-ed
 | `postgres_supabase` | postgres | `supabase-db:5432/${SUPABASE_DB_NAME}` | always (required dep) |
 | `litellm_default` | openai | `http://litellm:4000/v1` with `LITELLM_MASTER_KEY` (the `/v1` lives in conn.host because OpenAIHook ignores `api_base` extras) | always (LiteLLM is locked always-on) |
 | `redis_default` | redis | `redis:6379` with `REDIS_PASSWORD` | always (Redis ships container-only always-on, auth-on by default) |
-| `spark_default` | spark | `spark://spark-master:7077` | `SPARK_SOURCE=container` |
+| `spark_default` | spark | `spark://spark-master:7077` with `deploy-mode=cluster`, `spark-binary=spark-submit` | `SPARK_SOURCE=container` |
 | `minio_default` | aws (S3-compat) | `http://minio:9000` with root creds, path-style addressing, region `us-east-1` | `MINIO_SOURCE=container` |
 | `weaviate_default` | weaviate | host `weaviate`, port `8080`, gRPC `weaviate:50051` (via extra) | `WEAVIATE_SOURCE=container` (NOT `localhost` — the in-Compose DNS does not resolve in host-mode) |
 | `neo4j_default` | neo4j | host `neo4j-graph-db`, port `7687`, login `${GRAPH_DB_USER}`, password `${GRAPH_DB_PASSWORD}` (Hook prepends `bolt://`) | `NEO4J_GRAPH_DB_SOURCE=container` (same caveat) |
@@ -58,6 +58,40 @@ Connection seeding is idempotent — `airflow-init` deletes-then-adds each Conne
 A commented LangChain block at the bottom of the file shows the recommended pattern for chain-based LLM steps via `PythonOperator` (Apache has no published `apache-airflow-providers-langchain` package — wrap chains in a Python callable instead).
 
 Use it as a template. Drop your own DAGs into `services/airflow/dags/` — they're bind-mounted into the container.
+
+### 5.1 Lakehouse SparkSubmit smoke
+
+`services/airflow/dags/lakehouse_spark_submit_smoke.py` is a manual DAG (`schedule=None`) for the data-engineering track. It prepares a tiny landing object, uploads the image-built validation JAR to `s3a://jars/atlas/lakehouse-smoke/latest/atlas-lakehouse-smoke.jar`, and runs `SparkSubmitOperator` with `deploy_mode="cluster"` against `spark://spark-master:7077`.
+
+Cluster deploy mode is the Atlas default for this path because the Spark driver runs on a Spark worker that already carries the S3A and Iceberg runtime jars. Airflow still carries Java, `spark-submit`, `hadoop-aws`, the AWS SDK v2 bundle, and Iceberg jars so the submit client can resolve S3A resources and so client-mode experiments do not immediately fail on missing classes. The DAG passes explicit S3A, Iceberg REST, and Spark event-log config:
+
+```python
+SparkSubmitOperator(
+    task_id="submit_lakehouse_s3a_jar",
+    conn_id="spark_default",
+    application="s3a://jars/atlas/lakehouse-smoke/latest/atlas-lakehouse-smoke.jar",
+    java_class="com.atlas.spark.LakehouseSmoke",
+    deploy_mode="cluster",
+    conf={
+        "spark.hadoop.fs.s3a.endpoint": "http://minio:9000",
+        "spark.sql.catalog.lakehouse.uri": "http://iceberg-rest:8181",
+        "spark.eventLog.enabled": "true",
+        "spark.eventLog.dir": "s3a://spark-history/",
+    },
+)
+```
+
+Validation flow:
+
+```bash
+./start.sh --track data-eng \
+  --airflow-source container \
+  --spark-source container \
+  --iceberg-rest-source container \
+  --minio-source container
+```
+
+Trigger `lakehouse_spark_submit_smoke` from the UI at `http://airflow.localhost:${KONG_HTTP_PORT}` or use the Airflow REST API token flow shown in section 6. The Spark task should finish successfully, create/update `lakehouse.bronze.airflow_spark_submit_smoke`, and leave an event log visible in Spark History at `http://spark-history.localhost:${KONG_HTTP_PORT}`. If the DAG fails before submission, check that `minio_default` and `spark_default` were seeded by `airflow-init`; if it fails during Spark execution, inspect the Spark driver in the master UI and the completed app in Spark History.
 
 ## 6. Hermes → Airflow integration
 
@@ -91,6 +125,7 @@ This pattern — agent runtime → orchestrated workflow — pairs Hermes's reac
 
 | Service | Category |
 |---|---|
+| iceberg-rest | data |
 | minio | data |
 | neo4j | data |
 | redis | data |

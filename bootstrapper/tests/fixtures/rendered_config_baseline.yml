@@ -29,6 +29,19 @@ services:
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:@supabase-db:5432/airflow
       AIRFLOW__FAB__AUTH_BACKENDS: airflow.providers.fab.auth_manager.api.auth.backend.basic_auth
       AIRFLOW_UID: '50000'
+      ATLAS_LAKEHOUSE_SMOKE_JAR_PATH: /opt/airflow/atlas-jars/atlas-lakehouse-smoke.jar
+      ATLAS_LAKEHOUSE_SPARK_DEPLOY_MODE: cluster
+      ICEBERG_REST_URI: http://iceberg-rest:8181
+      MINIO_BUCKET_ICEBERG_JARS: jars
+      MINIO_BUCKET_ICEBERG_LAKEHOUSE: lakehouse
+      MINIO_BUCKET_ICEBERG_LANDING: landing
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ICEBERG_ACCESS_KEY: ''
+      MINIO_ICEBERG_SECRET_KEY: ''
+      MINIO_REGION: us-east-1
+      MINIO_ROOT_PASSWORD: ''
+      MINIO_ROOT_USER: minioadmin
+      SPARK_MASTER_URL: spark://spark-master:7077
     healthcheck:
       test:
       - CMD-SHELL
@@ -82,8 +95,10 @@ services:
       AIRFLOW_DB_PASSWORD: ''
       AIRFLOW_DB_USER: airflow
       AIRFLOW_UID: '50000'
+      ATLAS_LAKEHOUSE_SPARK_DEPLOY_MODE: cluster
       GRAPH_DB_PASSWORD: neo4j_password
       GRAPH_DB_USER: neo4j
+      ICEBERG_REST_SOURCE: disabled
       LITELLM_MASTER_KEY: ''
       MINIO_ROOT_PASSWORD: ''
       MINIO_ROOT_USER: minioadmin
@@ -137,6 +152,19 @@ services:
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:@supabase-db:5432/airflow
       AIRFLOW__FAB__AUTH_BACKENDS: airflow.providers.fab.auth_manager.api.auth.backend.basic_auth
       AIRFLOW_UID: '50000'
+      ATLAS_LAKEHOUSE_SMOKE_JAR_PATH: /opt/airflow/atlas-jars/atlas-lakehouse-smoke.jar
+      ATLAS_LAKEHOUSE_SPARK_DEPLOY_MODE: cluster
+      ICEBERG_REST_URI: http://iceberg-rest:8181
+      MINIO_BUCKET_ICEBERG_JARS: jars
+      MINIO_BUCKET_ICEBERG_LAKEHOUSE: lakehouse
+      MINIO_BUCKET_ICEBERG_LANDING: landing
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ICEBERG_ACCESS_KEY: ''
+      MINIO_ICEBERG_SECRET_KEY: ''
+      MINIO_REGION: us-east-1
+      MINIO_ROOT_PASSWORD: ''
+      MINIO_ROOT_USER: minioadmin
+      SPARK_MASTER_URL: spark://spark-master:7077
     healthcheck:
       test:
       - CMD-SHELL
@@ -192,6 +220,19 @@ services:
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:@supabase-db:5432/airflow
       AIRFLOW__FAB__AUTH_BACKENDS: airflow.providers.fab.auth_manager.api.auth.backend.basic_auth
       AIRFLOW_UID: '50000'
+      ATLAS_LAKEHOUSE_SMOKE_JAR_PATH: /opt/airflow/atlas-jars/atlas-lakehouse-smoke.jar
+      ATLAS_LAKEHOUSE_SPARK_DEPLOY_MODE: cluster
+      ICEBERG_REST_URI: http://iceberg-rest:8181
+      MINIO_BUCKET_ICEBERG_JARS: jars
+      MINIO_BUCKET_ICEBERG_LAKEHOUSE: lakehouse
+      MINIO_BUCKET_ICEBERG_LANDING: landing
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ICEBERG_ACCESS_KEY: ''
+      MINIO_ICEBERG_SECRET_KEY: ''
+      MINIO_REGION: us-east-1
+      MINIO_ROOT_PASSWORD: ''
+      MINIO_ROOT_USER: minioadmin
+      SPARK_MASTER_URL: spark://spark-master:7077
     healthcheck:
       test:
       - CMD
@@ -2413,6 +2454,8 @@ services:
           memory: '2147483648'
     environment:
       SPARK_MASTER_HOST: spark-master
+      SPARK_MASTER_OPTS: -Dspark.master.rest.enabled=true -Dspark.master.rest.host=spark-master
+        -Dspark.master.rest.port=6066
     healthcheck:
       test:
       - CMD
@@ -2444,11 +2487,17 @@ services:
       args:
         BASE_IMAGE: apache/spark:4.1.2
     command:
-    - /opt/spark/bin/spark-class
-    - org.apache.spark.deploy.worker.Worker
-    - spark://spark-master:7077
-    - --webui-port
-    - '8081'
+    - "set -euo pipefail\nexport HADOOP_CONF_DIR=/tmp/atlas-spark-hadoop-conf\nmkdir\
+      \ -p \"$${HADOOP_CONF_DIR}\"\ncat > \"$${HADOOP_CONF_DIR}/core-site.xml\" <<EOF\n\
+      <configuration>\n  <property><name>fs.s3a.endpoint</name><value>http://minio:9000</value></property>\n\
+      \  <property><name>fs.s3a.endpoint.region</name><value>us-east-1</value></property>\n\
+      \  <property><name>fs.s3a.path.style.access</name><value>true</value></property>\n\
+      \  <property><name>fs.s3a.connection.ssl.enabled</name><value>false</value></property>\n\
+      \  <property><name>fs.s3a.aws.credentials.provider</name><value>org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider</value></property>\n\
+      \  <property><name>fs.s3a.access.key</name><value>minioadmin</value></property>\n\
+      \  <property><name>fs.s3a.secret.key</name><value></value></property>\n</configuration>\n\
+      EOF\nexec /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077\
+      \ --webui-port 8081\n"
     depends_on:
       spark-master:
         condition: service_healthy
@@ -2459,6 +2508,14 @@ services:
         limits:
           cpus: 2
           memory: '4294967296'
+    entrypoint:
+    - /bin/bash
+    - -lc
+    environment:
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_ENDPOINT_URL_S3: http://minio:9000
+      AWS_REGION: us-east-1
+      AWS_SECRET_ACCESS_KEY: ''
     image: atlas-spark:local
     logging:
       driver: json-file
