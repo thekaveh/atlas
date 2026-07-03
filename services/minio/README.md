@@ -189,6 +189,7 @@ _No upstream calls._
 | airflow | agents |
 | jenkins | apps |
 | jupyterhub | apps |
+| llm-graph-builder | apps |
 | mlflow | apps |
 | zeppelin | apps |
 

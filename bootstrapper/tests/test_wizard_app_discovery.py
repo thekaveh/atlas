@@ -112,6 +112,9 @@ EXPECTED_DISCOVERED = frozenset({
     # Apache Tika (added 2026-07-03) — disabled-by-default fallback
     # extractor for long-tail document formats.
     "Apache Tika",
+    # Neo4j LLM Graph Builder (added 2026-07-03) — disabled-by-default
+    # document-to-knowledge-graph UI/API for the RAG track.
+    "Neo4j LLM Graph Builder",
     # TEI Reranker (added 2026-06-05) — GPU-accelerated reranker inference.
     # Single-container family; wired via 'tei_reranker_source' in
     # source_mapping with container-cpu / container-gpu / localhost / disabled.

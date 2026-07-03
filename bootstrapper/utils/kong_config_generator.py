@@ -253,6 +253,8 @@ class KongConfigGenerator:
         if tika_service:
             services.append(tika_service)
 
+        services.extend(self.generate_llm_graph_builder_services())
+
         flower_service = self.generate_flower_service()
         if flower_service:
             services.append(flower_service)
@@ -1339,6 +1341,45 @@ class KongConfigGenerator:
                 {"name": "acl", "config": {"allow": ["dashboard_user"]}},
             ],
         }
+
+    def generate_llm_graph_builder_services(self) -> List[Dict[str, Any]]:
+        """Kong routes for Neo4j LLM Graph Builder UI and browser API."""
+        if self.get_env_value("LLM_GRAPH_BUILDER_SOURCE") != "container":
+            return []
+
+        plugins = [
+            {"name": "cors"},
+            {"name": "basic-auth"},
+            {"name": "acl", "config": {"allow": ["dashboard_user"]}},
+        ]
+        return [
+            {
+                "name": "llm-graph-builder",
+                "url": "http://llm-graph-builder-frontend:8080/",
+                "routes": [
+                    {
+                        "name": "llm-graph-builder-all",
+                        "strip_path": False,
+                        "preserve_host": True,
+                        "hosts": ["graphbuilder.localhost"],
+                    }
+                ],
+                "plugins": plugins,
+            },
+            {
+                "name": "llm-graph-builder-api",
+                "url": "http://llm-graph-builder-backend:8000/",
+                "routes": [
+                    {
+                        "name": "llm-graph-builder-api-all",
+                        "strip_path": False,
+                        "preserve_host": True,
+                        "hosts": ["graphbuilder-api.localhost"],
+                    }
+                ],
+                "plugins": plugins,
+            },
+        ]
 
     def generate_flower_service(self) -> Optional[Dict[str, Any]]:
         """Kong route for Flower, the Celery worker monitor."""

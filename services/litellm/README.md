@@ -308,6 +308,7 @@ curl -sX POST http://localhost:${LITELLM_PORT}/v1/chat/completions \
 | openclaw | agents |
 | backend | apps |
 | jupyterhub | apps |
+| llm-graph-builder | apps |
 | local-deep-researcher | apps |
 | open-webui | apps |
 

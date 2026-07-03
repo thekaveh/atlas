@@ -39,6 +39,7 @@ _No upstream calls._
 | kong | infra |
 | lightrag | agents |
 | n8n | agents |
+| llm-graph-builder | apps |
 
 ### 2.3 Architecture diagram
 

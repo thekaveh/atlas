@@ -60,6 +60,7 @@ include:
   - services/searxng/compose.yml
   - services/mcp-servers/compose.yml
   - services/local-deep-researcher/compose.yml
+  - services/llm-graph-builder/compose.yml
   - services/jupyterhub/compose.yml
   - services/jenkins/compose.yml
   - services/mlflow/compose.yml

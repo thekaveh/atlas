@@ -63,6 +63,7 @@ _FAMILY_FLAG_STEM = {
     "spark-master": "spark",
     "airflow-webserver": "airflow",
     "langfuse-web": "langfuse",
+    "llm-graph-builder-frontend": "llm-graph-builder",
     "celery-worker": "celery",
 }
 

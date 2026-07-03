@@ -30,6 +30,7 @@ This matrix lists every `*_SOURCE` variable currently exposed in `.env.example`.
 | `SEARXNG_SOURCE` | `container` | `container`, `disabled` | User-facing | Privacy metasearch. |
 | `CRAWL4AI_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Browser-backed extraction API for Local Deep Researcher and n8n HTTP workflows. Token-protected and disabled by default. |
 | `TIKA_SOURCE` | `disabled` | `container`, `tika-localhost`, `disabled` | User-facing optional | Apache Tika fallback extractor for long-tail document formats. Disabled by default and degraded/plain-text by design. |
+| `LLM_GRAPH_BUILDER_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Neo4j Labs document-to-knowledge-graph builder UI/API for the RAG track. Requires in-stack Neo4j and LiteLLM. |
 | `CELERY_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Redis-backed async backend worker tier plus Flower monitor for long-running memory/research-style jobs. |
 | `SUPAVISOR_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Internal-only Supabase Postgres transaction pooler for selected app clients; no Kong alias or host slot-allocated port in v1. |
 | `MCP_SERVERS_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Curated MCP package exposing read-oriented Postgres, Neo4j, and SearXNG tools. Hard-gated on Neo4j and SearXNG. |
