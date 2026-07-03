@@ -62,6 +62,7 @@ _FAMILY_FLAG_STEM = {
     "ray-head": "ray",
     "spark-master": "spark",
     "airflow-webserver": "airflow",
+    "langfuse-web": "langfuse",
 }
 
 

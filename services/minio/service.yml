@@ -125,6 +125,16 @@ env:
     default: ""
     secret: true
     description: "Auto-generated scoped MinIO secret key for the docling bucket."
+  - name: MINIO_BUCKET_LANGFUSE
+    default: langfuse
+  - name: MINIO_LANGFUSE_ACCESS_KEY
+    default: ""
+    secret: true
+    description: "Auto-generated scoped MinIO access key for the langfuse bucket."
+  - name: MINIO_LANGFUSE_SECRET_KEY
+    default: ""
+    secret: true
+    description: "Auto-generated scoped MinIO secret key for the langfuse bucket."
   - name: MINIO_BUCKET_ICEBERG_LAKEHOUSE
     default: lakehouse
   - name: MINIO_BUCKET_ICEBERG_JARS

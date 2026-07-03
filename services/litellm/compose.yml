@@ -55,6 +55,9 @@ services:
       LIGHTRAG_SOURCE: ${LIGHTRAG_SOURCE:-disabled}
       LIGHTRAG_ENDPOINT: ${LIGHTRAG_ENDPOINT:-}
       LIGHTRAG_API_KEY: ${LIGHTRAG_API_KEY:-}
+      # Langfuse tracing toggle — init.py reads this when rendering
+      # litellm_settings.success_callback.
+      LANGFUSE_SOURCE: ${LANGFUSE_SOURCE:-disabled}
     extra_hosts:
       # Required for OLLAMA_AUTO_IMPORT_LOCAL_MODELS=true with
       # LLM_PROVIDER_SOURCE=ollama-localhost — the script needs to
@@ -121,6 +124,12 @@ services:
       # services/litellm/init/scripts/init.py when HERMES_SOURCE != disabled) references
       # ``os.environ/HERMES_API_KEY`` for its bearer token.
       HERMES_API_KEY: ${HERMES_API_KEY:-}
+      # Langfuse gateway tracing — litellm-init adds success_callback:
+      # ["langfuse"] only when LANGFUSE_SOURCE=container. These env vars are
+      # harmless when the callback is absent.
+      LANGFUSE_BASE_URL: ${LANGFUSE_ENDPOINT:-}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
       # Prometheus multi-worker dir — LiteLLM emits metrics from each
       # uvicorn worker; the aggregator needs a shared tmpfs to merge
       # per-worker counters before /metrics returns the union. Upstream

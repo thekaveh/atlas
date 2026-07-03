@@ -67,6 +67,7 @@ _No upstream calls._
 
 | Service | Category |
 |---|---|
+| langfuse | infra |
 | prometheus | infra |
 | litellm | llm |
 | airflow | agents |

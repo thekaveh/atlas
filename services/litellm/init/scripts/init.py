@@ -68,7 +68,7 @@ def _load_shared_settings():
     module = importlib.util.module_from_spec(spec)
     sys.modules["litellm_settings"] = module
     spec.loader.exec_module(module)  # type: ignore[union-attr]
-    return module.base_settings()
+    return module.base_settings(os.environ)
 
 
 # ─── env ──────────────────────────────────────────────────────────────

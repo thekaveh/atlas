@@ -105,6 +105,7 @@ _FAMILY_KEY_ALIASES: dict[str, str] = {
     "ray-head": "ray",
     "spark-master": "spark",
     "airflow-webserver": "airflow",
+    "langfuse-web": "langfuse",
     "neo4j-graph-db": "neo4j",
     "open-web-ui": "open-webui",
     # Virtual-manifest services: Click CLI param names use underscores

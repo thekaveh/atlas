@@ -16,10 +16,10 @@ without the other.
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, Mapping
 
 
-def base_settings() -> Dict[str, Any]:
+def base_settings(env: Mapping[str, str] | None = None) -> Dict[str, Any]:
     """Return the LiteLLM ``litellm_settings`` / ``router_settings`` /
     ``general_settings`` dict. Caller adds ``model_list`` separately.
 
@@ -27,23 +27,28 @@ def base_settings() -> Dict[str, Any]:
     ``os.environ/...`` form so they're read from the LiteLLM
     container's environment, not baked into the YAML at render time.
     """
-    return {
-        "litellm_settings": {
-            "cache": True,
-            "cache_params": {
-                "type": "redis",
-                "host": "os.environ/REDIS_HOST",
-                "port": "os.environ/REDIS_PORT",
-                "password": "os.environ/REDIS_PASSWORD",
-            },
-            "drop_params": True,
-            # Prometheus metrics — emits per-model request/token/cost/latency
-            # series on /metrics (same port as the proxy, 4000). Scraped by
-            # the observability bundle's Prometheus when PROMETHEUS_SOURCE=container.
-            # When disabled, the callback still loads but its emissions just sit
-            # idle — no consumer hits /metrics. Harmless overhead.
-            "callbacks": ["prometheus"],
+    source = (env or {}).get("LANGFUSE_SOURCE", "").strip().lower()
+    litellm_settings: Dict[str, Any] = {
+        "cache": True,
+        "cache_params": {
+            "type": "redis",
+            "host": "os.environ/REDIS_HOST",
+            "port": "os.environ/REDIS_PORT",
+            "password": "os.environ/REDIS_PASSWORD",
         },
+        "drop_params": True,
+        # Prometheus metrics — emits per-model request/token/cost/latency
+        # series on /metrics (same port as the proxy, 4000). Scraped by
+        # the observability bundle's Prometheus when PROMETHEUS_SOURCE=container.
+        # When disabled, the callback still loads but its emissions just sit
+        # idle — no consumer hits /metrics. Harmless overhead.
+        "callbacks": ["prometheus"],
+    }
+    if source == "container":
+        litellm_settings["success_callback"] = ["langfuse"]
+
+    return {
+        "litellm_settings": litellm_settings,
         "router_settings": {
             "redis_host": "os.environ/REDIS_HOST",
             "redis_port": "os.environ/REDIS_PORT",

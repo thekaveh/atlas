@@ -40,7 +40,15 @@ def _cli_safe_token_urlsafe(nbytes: int) -> str:
 class KeyGenerator:
     """Generates and manages encryption keys for Atlas services."""
 
-    MINIO_CONSUMERS = ("COMFYUI", "BACKEND", "N8N", "JUPYTER", "DOCLING", "ICEBERG")
+    MINIO_CONSUMERS = (
+        "COMFYUI",
+        "BACKEND",
+        "N8N",
+        "JUPYTER",
+        "DOCLING",
+        "LANGFUSE",
+        "ICEBERG",
+    )
 
     # `.env.example` ships placeholders for credential vars whose canonical
     # generators rotate-when-absent only. Treating these literal placeholders
@@ -565,6 +573,58 @@ class KeyGenerator:
         new_value = self.generate_grafana_admin_password()
         return self.update_env_key('GRAFANA_ADMIN_PASSWORD', new_value)
 
+    def generate_langfuse_encryption_key(self) -> str:
+        """Langfuse ENCRYPTION_KEY — 64 hex chars per upstream compose note."""
+        return secrets.token_hex(32)
+
+    def generate_langfuse_public_key(self) -> str:
+        """Initial Langfuse project public key for LiteLLM tracing."""
+        return f"pk-lf-{_cli_safe_token_urlsafe(24)}"
+
+    def generate_langfuse_secret_key(self) -> str:
+        """Initial Langfuse project secret key for LiteLLM tracing."""
+        return f"sk-lf-{_cli_safe_token_urlsafe(32)}"
+
+    def _generate_and_update_when_absent(
+        self,
+        var_name: str,
+        generator,
+        force: bool = False,
+    ) -> bool:
+        current = self.get_current_env_value(var_name)
+        if not force and current:
+            return True
+        return self.update_env_key(var_name, generator())
+
+    def generate_and_update_langfuse_secrets(self, force: bool = False) -> Dict[str, bool]:
+        """Generate Langfuse local-stack secrets when absent.
+
+        Existing values stick so project keys remain stable across restarts.
+        """
+        return {
+            "LANGFUSE_SALT": self._generate_and_update_when_absent(
+                "LANGFUSE_SALT", lambda: self.generate_password(24), force=force
+            ),
+            "LANGFUSE_ENCRYPTION_KEY": self._generate_and_update_when_absent(
+                "LANGFUSE_ENCRYPTION_KEY", self.generate_langfuse_encryption_key, force=force
+            ),
+            "LANGFUSE_NEXTAUTH_SECRET": self._generate_and_update_when_absent(
+                "LANGFUSE_NEXTAUTH_SECRET", lambda: self.generate_password(32), force=force
+            ),
+            "LANGFUSE_PUBLIC_KEY": self._generate_and_update_when_absent(
+                "LANGFUSE_PUBLIC_KEY", self.generate_langfuse_public_key, force=force
+            ),
+            "LANGFUSE_SECRET_KEY": self._generate_and_update_when_absent(
+                "LANGFUSE_SECRET_KEY", self.generate_langfuse_secret_key, force=force
+            ),
+            "LANGFUSE_INIT_USER_PASSWORD": self._generate_and_update_when_absent(
+                "LANGFUSE_INIT_USER_PASSWORD", lambda: self.generate_password(18), force=force
+            ),
+            "LANGFUSE_CLICKHOUSE_PASSWORD": self._generate_and_update_when_absent(
+                "LANGFUSE_CLICKHOUSE_PASSWORD", lambda: self.generate_password(24), force=force
+            ),
+        }
+
     def generate_and_update_minio_root_password(self, force: bool = False) -> bool:
         """Generate MINIO_ROOT_PASSWORD when absent. Hand-edits stick unless force=True."""
         current_value = self.get_current_env_value('MINIO_ROOT_PASSWORD')
@@ -769,6 +829,10 @@ class KeyGenerator:
         # generate when absent; force-overwriting would sign out every
         # logged-in operator session.
         results['GRAFANA_ADMIN_PASSWORD'] = self.generate_and_update_grafana_admin_password(force=False)
+
+        # Langfuse local observability stack secrets. Generate even when
+        # disabled so enabling LANGFUSE_SOURCE later has stable project keys.
+        results.update(self.generate_and_update_langfuse_secrets(force=False))
 
         # MinIO per-consumer service-account credentials — only generate when absent.
         # Rotating these means re-running minio-init, which is a deliberate operator action.

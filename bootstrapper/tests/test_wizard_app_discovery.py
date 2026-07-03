@@ -83,6 +83,12 @@ EXPECTED_DISCOVERED = frozenset({
     # tool package for Postgres, Neo4j, and SearXNG. Single-container
     # family; wired via 'mcp_servers_source' in source_mapping.
     "Curated MCP Servers",
+    # Langfuse (added 2026-07-03) — disabled-by-default LLM trace and
+    # eval observability for LiteLLM-routed calls. Multi-container family
+    # (web + worker + ClickHouse + init), so wizard discovery uses the
+    # `langfuse_web_source` shim while the real flag remains
+    # `--langfuse-source`.
+    "Langfuse",
     # TEI Reranker (added 2026-06-05) — GPU-accelerated reranker inference.
     # Single-container family; wired via 'tei_reranker_source' in
     # source_mapping with container-cpu / container-gpu / localhost / disabled.
@@ -209,6 +215,8 @@ def test_source_mapping_includes_app_service_flags() -> None:
         "zeppelin_source",
         "airflow_source",
         "iceberg_rest_source",
+        "langfuse_source",
+        "langfuse_web_source",
     ):
         assert cli_key in mgr.source_mapping, (
             f"{cli_key} missing from SourceOverrideManager.source_mapping — "

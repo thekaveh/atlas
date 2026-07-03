@@ -29,6 +29,7 @@ This matrix lists every `*_SOURCE` variable currently exposed in `.env.example`.
 | `N8N_SOURCE` | `container` | `container`, `disabled` | User-facing | Workflow automation. |
 | `SEARXNG_SOURCE` | `container` | `container`, `disabled` | User-facing | Privacy metasearch. |
 | `MCP_SERVERS_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Curated MCP package exposing read-oriented Postgres, Neo4j, and SearXNG tools. Hard-gated on Neo4j and SearXNG. |
+| `LANGFUSE_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | LLM trace, prompt, eval, latency, and cost observability for LiteLLM-routed calls. Hard-gated on MinIO. |
 | `OPENCLAW_SOURCE` | `disabled` | `container`, `localhost`, `disabled` | User-facing | AI messaging agent. |
 | `HERMES_SOURCE` | `container` | `container`, `localhost`, `disabled` | User-facing | Programmable AI agent runtime (Nous Research). Routes reasoning through LiteLLM and appears as the `hermes-agent` model to every consumer. |
 | `STT_PROVIDER_SOURCE` | `speaches-container-cpu` | `speaches-container-cpu`, `speaches-container-gpu`, `parakeet-container-gpu`, `parakeet-localhost`, `whisper-cpp-localhost`, `disabled` | User-facing optional | Speech-to-text provider. Speaches is the CPU-friendly default; Parakeet remains for SOTA NVIDIA; whisper.cpp is the best Apple Silicon native option. |
@@ -647,6 +648,32 @@ SEARXNG_SOURCE=container          # REQUIRED
 - **Pros**: One curated endpoint for Postgres, Neo4j, and SearXNG; no one-server-per-service sprawl; Kong alias `mcp.localhost`.
 - **Cons**: Tool output is untrusted and may include sensitive local data; clients need explicit operator consent and credentials.
 - **Requirements**: `NEO4J_GRAPH_DB_SOURCE=container` and `SEARXNG_SOURCE=container`.
+
+### 4.17 LANGFUSE_SOURCE
+
+Langfuse is Atlas' optional LLM observability surface. When enabled, Atlas runs Langfuse web, worker, and ClickHouse containers; provisions a dedicated Supabase Postgres database plus Langfuse object-store credentials; and wires LiteLLM with Langfuse tracing keys so OpenAI-compatible requests through LiteLLM produce traces, latency, and cost records. It appears in the AI and ML tracks (`gen-ai-rag`, `gen-ai-eng`, `gen-ai-creative`, `ml-eng`, `all`) and stays out of the data-engineering track unless a future data-quality/eval workflow needs it directly.
+
+#### 4.17.1 `disabled` (Default)
+```bash
+LANGFUSE_SOURCE=disabled
+```
+- **Use case**: Default safe startup with no tracing datastore or extra UI.
+- **Pros**: Zero footprint; no persisted LLM trace records.
+- **Cons**: LiteLLM requests are not captured in Langfuse.
+- **Requirements**: None.
+
+#### 4.17.2 `container`
+```bash
+LANGFUSE_SOURCE=container
+MINIO_SOURCE=container       # REQUIRED — Langfuse uses S3-compatible blob storage
+LANGFUSE_PUBLIC_KEY=...      # auto-generated on first bootstrap
+LANGFUSE_SECRET_KEY=...      # auto-generated on first bootstrap
+```
+- **Use case**: Inspect LLM traces, prompt experiments, evals, latency, and spend for LiteLLM-routed calls from Open WebUI, Backend, Hermes, Airflow, notebooks, and other Atlas consumers.
+- **Pros**: Kong-aliased UI/API at `langfuse.localhost`, generated first-run credentials, dedicated ClickHouse analytics store, dedicated Supabase Postgres database, dedicated MinIO bucket and service account, automatic LiteLLM `success_callback` tracing.
+- **Cons**: Adds a stateful ClickHouse volume plus web/worker containers; only LiteLLM-routed calls are traced in the first slice.
+- **Containers**: `langfuse-init` (one-shot), `langfuse-web`, `langfuse-worker`, `langfuse-clickhouse`.
+- **Requirements**: Supabase Postgres and Redis are always-on; `MINIO_SOURCE=container` is required.
 
 ## 5. Configuration Patterns
 

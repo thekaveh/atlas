@@ -193,6 +193,10 @@ class ServiceConfig:
         mcp_servers_config = self._generate_mcp_servers_config()
         env_vars.update(mcp_servers_config)
 
+        # Generate Langfuse LLM observability configuration (hard-gated on MinIO)
+        langfuse_config = self._generate_langfuse_config()
+        env_vars.update(langfuse_config)
+
         # Generate Airflow configuration (3-container family scales)
         airflow_config = self._generate_airflow_config()
         env_vars.update(airflow_config)
@@ -943,6 +947,40 @@ class ServiceConfig:
             )
 
         return {"MCP_SERVERS_SCALE": "1"}
+
+    def _generate_langfuse_config(self) -> dict:
+        """Generate Langfuse family scales and endpoint.
+
+        Langfuse v3 requires S3/blob storage for ingestion payloads. Atlas
+        reuses MinIO for that layer, so enabling Langfuse while MinIO is
+        disabled would boot a UI that cannot ingest traces. Fail before
+        compose starts and before LiteLLM renders a stale callback.
+        """
+        source = self.service_sources.get("LANGFUSE_SOURCE", "disabled")
+        if source == "disabled":
+            return {
+                "LANGFUSE_INIT_SCALE": "0",
+                "LANGFUSE_WEB_SCALE": "0",
+                "LANGFUSE_WORKER_SCALE": "0",
+                "LANGFUSE_CLICKHOUSE_SCALE": "0",
+                "LANGFUSE_ENDPOINT": "",
+            }
+
+        minio_source = self.service_sources.get("MINIO_SOURCE", "container")
+        if minio_source == "disabled":
+            raise ValueError(
+                "Langfuse requires MinIO to be enabled for S3-backed trace "
+                "ingestion. Either pass --minio-source container alongside "
+                "--langfuse-source container, or set --langfuse-source disabled."
+            )
+
+        return {
+            "LANGFUSE_INIT_SCALE": "1",
+            "LANGFUSE_WEB_SCALE": "1",
+            "LANGFUSE_WORKER_SCALE": "1",
+            "LANGFUSE_CLICKHOUSE_SCALE": "1",
+            "LANGFUSE_ENDPOINT": "http://langfuse-web:3000",
+        }
 
     def _generate_airflow_config(self) -> dict:
         """Generate AIRFLOW_*_SCALE based on AIRFLOW_SOURCE.

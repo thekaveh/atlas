@@ -33,6 +33,11 @@ class SourceOverrideManager:
             'n8n_source': 'N8N_SOURCE',
             'searxng_source': 'SEARXNG_SOURCE',
             'mcp_servers_source': 'MCP_SERVERS_SOURCE',
+            'langfuse_source': 'LANGFUSE_SOURCE',
+            # Langfuse is a multi-container family (init + web + worker +
+            # ClickHouse), so runtime_sc is keyed by langfuse-web while the
+            # user-facing knob stays family-level LANGFUSE_SOURCE.
+            'langfuse_web_source': 'LANGFUSE_SOURCE',
             'jupyterhub_source': 'JUPYTERHUB_SOURCE',
             'open_web_ui_source': 'OPEN_WEB_UI_SOURCE',
             'local_deep_researcher_source': 'LOCAL_DEEP_RESEARCHER_SOURCE',

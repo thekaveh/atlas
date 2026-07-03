@@ -7,7 +7,7 @@ services:
     image: ${REDIS_IMAGE}
     container_name: ${PROJECT_NAME}-redis
     restart: unless-stopped
-    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD} --maxmemory-policy noeviction
     volumes:
       - redis-data:/data
     ports:

@@ -1,11 +1,15 @@
 name: atlas
+networks:
+  backend-network:
+    driver: bridge
+    name: atlas-network
 services:
   airflow-dag-processor:
     build:
-      context: '{REPO_ROOT}/services/airflow/build'
-      dockerfile: Dockerfile
       args:
         BASE_IMAGE: apache/airflow:3.2.2
+      context: '{REPO_ROOT}/services/airflow/build'
+      dockerfile: Dockerfile
     command:
     - airflow
     - dag-processor
@@ -21,6 +25,7 @@ services:
           cpus: 1
           memory: '2147483648'
     environment:
+      AIRFLOW_UID: '50000'
       AIRFLOW__API__SECRET_KEY: ''
       AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
@@ -28,7 +33,6 @@ services:
       AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:@supabase-db:5432/airflow
       AIRFLOW__FAB__AUTH_BACKENDS: airflow.providers.fab.auth_manager.api.auth.backend.basic_auth
-      AIRFLOW_UID: '50000'
       ATLAS_LAKEHOUSE_SMOKE_JAR_PATH: /opt/airflow/atlas-jars/atlas-lakehouse-smoke.jar
       ATLAS_LAKEHOUSE_SPARK_DEPLOY_MODE: cluster
       ICEBERG_REST_URI: http://iceberg-rest:8181
@@ -43,13 +47,13 @@ services:
       MINIO_ROOT_USER: minioadmin
       SPARK_MASTER_URL: spark://spark-master:7077
     healthcheck:
+      interval: 30s
+      retries: 5
+      start_period: 1m30s
       test:
       - CMD-SHELL
       - airflow jobs check --job-type DagProcessorJob --hostname "$$(hostname)"
       timeout: 10s
-      interval: 30s
-      retries: 5
-      start_period: 1m30s
     image: atlas-airflow:local
     logging:
       driver: json-file
@@ -60,20 +64,20 @@ services:
       backend-network: null
     restart: unless-stopped
     volumes:
-    - type: bind
+    - bind: {}
       source: '{REPO_ROOT}/services/airflow/dags'
       target: /opt/airflow/dags
-      bind: {}
-    - type: volume
-      source: airflow-logs
+      type: bind
+    - source: airflow-logs
       target: /opt/airflow/logs
+      type: volume
       volume: {}
   airflow-init:
     build:
-      context: '{REPO_ROOT}/services/airflow/build'
-      dockerfile: Dockerfile
       args:
         BASE_IMAGE: apache/airflow:3.2.2
+      context: '{REPO_ROOT}/services/airflow/build'
+      dockerfile: Dockerfile
     command:
     - bash
     - /scripts/init-airflow.sh
@@ -85,16 +89,16 @@ services:
     deploy:
       replicas: 0
     environment:
+      AIRFLOW_ADMIN_PASSWORD: ''
+      AIRFLOW_DB_PASSWORD: ''
+      AIRFLOW_DB_USER: airflow
+      AIRFLOW_UID: '50000'
       AIRFLOW__API__SECRET_KEY: ''
       AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
       AIRFLOW__CORE__FERNET_KEY: ''
       AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:@supabase-db:5432/airflow
       AIRFLOW__FAB__AUTH_BACKENDS: airflow.providers.fab.auth_manager.api.auth.backend.basic_auth
-      AIRFLOW_ADMIN_PASSWORD: ''
-      AIRFLOW_DB_PASSWORD: ''
-      AIRFLOW_DB_USER: airflow
-      AIRFLOW_UID: '50000'
       ATLAS_LAKEHOUSE_SPARK_DEPLOY_MODE: cluster
       GRAPH_DB_PASSWORD: neo4j_password
       GRAPH_DB_USER: neo4j
@@ -114,21 +118,21 @@ services:
     networks:
       backend-network: null
     volumes:
-    - type: bind
+    - bind: {}
       source: '{REPO_ROOT}/services/airflow/dags'
       target: /opt/airflow/dags
-      bind: {}
-    - type: bind
+      type: bind
+    - bind: {}
+      read_only: true
       source: '{REPO_ROOT}/services/airflow/init/scripts'
       target: /scripts
-      read_only: true
-      bind: {}
+      type: bind
   airflow-scheduler:
     build:
-      context: '{REPO_ROOT}/services/airflow/build'
-      dockerfile: Dockerfile
       args:
         BASE_IMAGE: apache/airflow:3.2.2
+      context: '{REPO_ROOT}/services/airflow/build'
+      dockerfile: Dockerfile
     command:
     - airflow
     - scheduler
@@ -144,6 +148,7 @@ services:
           cpus: 1
           memory: '2147483648'
     environment:
+      AIRFLOW_UID: '50000'
       AIRFLOW__API__SECRET_KEY: ''
       AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
@@ -151,7 +156,6 @@ services:
       AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:@supabase-db:5432/airflow
       AIRFLOW__FAB__AUTH_BACKENDS: airflow.providers.fab.auth_manager.api.auth.backend.basic_auth
-      AIRFLOW_UID: '50000'
       ATLAS_LAKEHOUSE_SMOKE_JAR_PATH: /opt/airflow/atlas-jars/atlas-lakehouse-smoke.jar
       ATLAS_LAKEHOUSE_SPARK_DEPLOY_MODE: cluster
       ICEBERG_REST_URI: http://iceberg-rest:8181
@@ -166,13 +170,13 @@ services:
       MINIO_ROOT_USER: minioadmin
       SPARK_MASTER_URL: spark://spark-master:7077
     healthcheck:
+      interval: 30s
+      retries: 5
+      start_period: 1m30s
       test:
       - CMD-SHELL
       - airflow jobs check --job-type SchedulerJob --hostname "$$(hostname)"
       timeout: 10s
-      interval: 30s
-      retries: 5
-      start_period: 1m30s
     image: atlas-airflow:local
     logging:
       driver: json-file
@@ -183,20 +187,20 @@ services:
       backend-network: null
     restart: unless-stopped
     volumes:
-    - type: bind
+    - bind: {}
       source: '{REPO_ROOT}/services/airflow/dags'
       target: /opt/airflow/dags
-      bind: {}
-    - type: volume
-      source: airflow-logs
+      type: bind
+    - source: airflow-logs
       target: /opt/airflow/logs
+      type: volume
       volume: {}
   airflow-webserver:
     build:
-      context: '{REPO_ROOT}/services/airflow/build'
-      dockerfile: Dockerfile
       args:
         BASE_IMAGE: apache/airflow:3.2.2
+      context: '{REPO_ROOT}/services/airflow/build'
+      dockerfile: Dockerfile
     command:
     - airflow
     - api-server
@@ -212,6 +216,7 @@ services:
           cpus: 1
           memory: '2147483648'
     environment:
+      AIRFLOW_UID: '50000'
       AIRFLOW__API__SECRET_KEY: ''
       AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
@@ -219,7 +224,6 @@ services:
       AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:@supabase-db:5432/airflow
       AIRFLOW__FAB__AUTH_BACKENDS: airflow.providers.fab.auth_manager.api.auth.backend.basic_auth
-      AIRFLOW_UID: '50000'
       ATLAS_LAKEHOUSE_SMOKE_JAR_PATH: /opt/airflow/atlas-jars/atlas-lakehouse-smoke.jar
       ATLAS_LAKEHOUSE_SPARK_DEPLOY_MODE: cluster
       ICEBERG_REST_URI: http://iceberg-rest:8181
@@ -234,15 +238,15 @@ services:
       MINIO_ROOT_USER: minioadmin
       SPARK_MASTER_URL: spark://spark-master:7077
     healthcheck:
+      interval: 30s
+      retries: 5
+      start_period: 1m0s
       test:
       - CMD
       - curl
       - -fsS
       - http://localhost:8080/api/v2/monitor/health
       timeout: 10s
-      interval: 30s
-      retries: 5
-      start_period: 1m0s
     image: atlas-airflow:local
     logging:
       driver: json-file
@@ -253,25 +257,25 @@ services:
       backend-network: null
     ports:
     - mode: ingress
-      target: 8080
-      published: '63060'
       protocol: tcp
+      published: '63060'
+      target: 8080
     restart: unless-stopped
     volumes:
-    - type: bind
+    - bind: {}
       source: '{REPO_ROOT}/services/airflow/dags'
       target: /opt/airflow/dags
-      bind: {}
-    - type: volume
-      source: airflow-logs
+      type: bind
+    - source: airflow-logs
       target: /opt/airflow/logs
+      type: volume
       volume: {}
   backend:
     build:
-      context: '{REPO_ROOT}/services/backend/app'
-      dockerfile: Dockerfile
       args:
         BASE_IMAGE: python:3.12.13
+      context: '{REPO_ROOT}/services/backend/app'
+      dockerfile: Dockerfile
     container_name: atlas-backend
     depends_on:
       kong-api-gateway:
@@ -345,28 +349,28 @@ services:
       backend-network: null
     ports:
     - mode: ingress
-      target: 8000
-      published: '63081'
       protocol: tcp
+      published: '63081'
+      target: 8000
     restart: unless-stopped
     volumes:
-    - type: bind
+    - bind: {}
       source: '{REPO_ROOT}/services/backend/app/app'
       target: /app
-      bind: {}
-    - type: volume
-      source: backend-data
+      type: bind
+    - source: backend-data
       target: /app/data
+      type: volume
       volume: {}
-    - type: volume
-      source: weaviate-shared-config
+    - source: weaviate-shared-config
       target: /shared
+      type: volume
       volume: {}
-    - type: bind
+    - bind: {}
+      read_only: true
       source: '{REPO_ROOT}/volumes/comfyui'
       target: /comfyui-manifest
-      read_only: true
-      bind: {}
+      type: bind
   backup:
     command:
     - /scripts/backup-all.sh
@@ -389,25 +393,25 @@ services:
       backend-network: null
     restart: 'no'
     volumes:
-    - type: bind
+    - bind: {}
+      read_only: true
       source: '{REPO_ROOT}/services/backup/init/scripts'
       target: /scripts
-      read_only: true
-      bind: {}
-    - type: volume
+      type: bind
+    - read_only: true
       source: supabase-storage-data
       target: /volumes/supabase-storage
-      read_only: true
+      type: volume
       volume: {}
-    - type: volume
+    - read_only: true
       source: graph-db-data
       target: /volumes/graph-db
-      read_only: true
+      type: volume
       volume: {}
-    - type: volume
+    - read_only: true
       source: weaviate-data
       target: /volumes/weaviate
-      read_only: true
+      type: volume
       volume: {}
   cadvisor:
     container_name: atlas-cadvisor
@@ -423,36 +427,36 @@ services:
       backend-network: null
     ports:
     - mode: ingress
-      target: 8080
-      published: '63007'
       protocol: tcp
+      published: '63008'
+      target: 8080
     restart: unless-stopped
     volumes:
-    - type: bind
+    - bind: {}
+      read_only: true
       source: /
       target: /rootfs
+      type: bind
+    - bind: {}
       read_only: true
-      bind: {}
-    - type: bind
       source: /var/run/docker.sock
       target: /var/run/docker.sock
+      type: bind
+    - bind: {}
       read_only: true
-      bind: {}
-    - type: bind
       source: /sys
       target: /sys
+      type: bind
+    - bind: {}
       read_only: true
-      bind: {}
-    - type: bind
       source: /var/lib/docker/
       target: /var/lib/docker
+      type: bind
+    - bind: {}
       read_only: true
-      bind: {}
-    - type: bind
       source: /dev/disk/
       target: /dev/disk
-      read_only: true
-      bind: {}
+      type: bind
   cloudflared:
     command:
     - tunnel
@@ -469,6 +473,9 @@ services:
       TUNNEL_METRICS: 0.0.0.0:2000
       TUNNEL_TOKEN: ''
     healthcheck:
+      interval: 30s
+      retries: 3
+      start_period: 20s
       test:
       - CMD
       - cloudflared
@@ -477,9 +484,6 @@ services:
       - 0.0.0.0:2000
       - ready
       timeout: 10s
-      interval: 30s
-      retries: 3
-      start_period: 20s
     image: cloudflare/cloudflared:2026.6.1
     logging:
       driver: json-file
@@ -520,15 +524,15 @@ services:
       SUPABASE_URL: http://kong-api-gateway:8000/comfyui
       WEB_ENABLE_AUTH: 'false'
     healthcheck:
+      interval: 30s
+      retries: 5
+      start_period: 2m0s
       test:
       - CMD
       - curl
       - -f
       - http://localhost:18188/system_stats
       timeout: 10s
-      interval: 30s
-      retries: 5
-      start_period: 2m0s
     image: ghcr.io/ai-dock/comfyui:v2-cpu-22.04-v0.2.7
     labels:
       com.atlas.category: ai
@@ -544,31 +548,31 @@ services:
     platform: linux/amd64
     ports:
     - mode: ingress
-      target: 18188
-      published: '63041'
       protocol: tcp
+      published: '63041'
+      target: 18188
     restart: unless-stopped
     volumes:
-    - type: volume
-      source: comfyui-models
+    - source: comfyui-models
       target: /opt/ComfyUI/models
+      type: volume
       volume: {}
-    - type: volume
-      source: comfyui-output
+    - source: comfyui-output
       target: /opt/ComfyUI/output
+      type: volume
       volume: {}
-    - type: volume
-      source: comfyui-input
+    - source: comfyui-input
       target: /opt/ComfyUI/input
+      type: volume
       volume: {}
-    - type: volume
-      source: comfyui-custom-nodes
+    - source: comfyui-custom-nodes
       target: /opt/ComfyUI/custom_nodes
+      type: volume
       volume: {}
-    - type: bind
+    - bind: {}
       source: '{HOME}/Documents/ComfyUI/models'
       target: /host_models
-      bind: {}
+      type: bind
   comfyui-init:
     container_name: atlas-comfyui-init
     depends_on:
@@ -589,19 +593,19 @@ services:
       backend-network: null
     restart: 'no'
     volumes:
-    - type: bind
+    - bind: {}
       source: '{REPO_ROOT}/services/comfyui/init/scripts'
       target: /scripts
-      bind: {}
-    - type: volume
-      source: comfyui-models
+      type: bind
+    - source: comfyui-models
       target: /models
+      type: volume
       volume: {}
-    - type: bind
+    - bind: {}
+      read_only: true
       source: '{REPO_ROOT}/volumes/comfyui'
       target: /comfyui-manifest
-      read_only: true
-      bind: {}
+      type: bind
   grafana:
     container_name: atlas-grafana
     depends_on:
@@ -618,13 +622,13 @@ services:
       GF_USERS_ALLOW_SIGN_UP: 'false'
       PROMETHEUS_ENDPOINT: http://prometheus:9090
     healthcheck:
+      interval: 30s
+      retries: 3
+      start_period: 30s
       test:
       - CMD-SHELL
       - wget -q -O- http://localhost:3000/api/health | grep -q ok
       timeout: 10s
-      interval: 30s
-      retries: 3
-      start_period: 30s
     image: grafana/grafana:11.4.3
     logging:
       driver: json-file
@@ -635,25 +639,25 @@ services:
       backend-network: null
     ports:
     - mode: ingress
-      target: 3000
-      published: '63008'
       protocol: tcp
+      published: '63009'
+      target: 3000
     restart: unless-stopped
     volumes:
-    - type: volume
-      source: grafana-data
+    - source: grafana-data
       target: /var/lib/grafana
+      type: volume
       volume: {}
-    - type: bind
+    - bind: {}
+      read_only: true
       source: '{REPO_ROOT}/services/grafana/config/grafana.ini'
       target: /etc/grafana/grafana.ini
+      type: bind
+    - bind: {}
       read_only: true
-      bind: {}
-    - type: bind
       source: '{REPO_ROOT}/services/grafana/config/provisioning'
       target: /etc/grafana/provisioning
-      read_only: true
-      bind: {}
+      type: bind
   hermes:
     command:
     - gateway
@@ -691,14 +695,14 @@ services:
     extra_hosts:
     - host.docker.internal=
     healthcheck:
+      interval: 30s
+      retries: 5
+      start_period: 1m0s
       test:
       - CMD-SHELL
       - 'curl --fail --silent --show-error -H "Authorization: Bearer $$API_SERVER_KEY"
         http://127.0.0.1:8642/v1/models >/dev/null'
       timeout: 10s
-      interval: 30s
-      retries: 5
-      start_period: 1m0s
     image: nousresearch/hermes-agent:v2026.6.19
     labels:
       com.atlas.agent: hermes
@@ -713,18 +717,18 @@ services:
       backend-network: null
     ports:
     - mode: ingress
-      target: 8642
+      protocol: tcp
       published: '63061'
-      protocol: tcp
+      target: 8642
     - mode: ingress
-      target: 9119
-      published: '63062'
       protocol: tcp
+      published: '63062'
+      target: 9119
     restart: unless-stopped
     volumes:
-    - type: volume
-      source: hermes-data
+    - source: hermes-data
       target: /opt/data
+      type: volume
       volume: {}
   hermes-init:
     container_name: atlas-hermes-init
@@ -759,27 +763,27 @@ services:
       backend-network: null
     restart: 'no'
     volumes:
-    - type: volume
-      source: hermes-data
+    - source: hermes-data
       target: /opt/data
+      type: volume
       volume: {}
-    - type: bind
+    - bind: {}
+      read_only: true
       source: '{REPO_ROOT}/services/hermes/init/scripts'
       target: /scripts
+      type: bind
+    - bind: {}
       read_only: true
-      bind: {}
-    - type: bind
       source: '{REPO_ROOT}/services/hermes/init/templates'
       target: /templates
-      read_only: true
-      bind: {}
+      type: bind
   iceberg-rest:
     build:
-      context: '{REPO_ROOT}/services/iceberg-rest/build'
-      dockerfile: Dockerfile
       args:
         BASE_IMAGE: apache/iceberg-rest-fixture:1.10.1
         POSTGRES_JDBC_VERSION: 42.7.12
+      context: '{REPO_ROOT}/services/iceberg-rest/build'
+      dockerfile: Dockerfile
     container_name: atlas-iceberg-rest
     depends_on:
       iceberg-rest-init:
@@ -804,15 +808,15 @@ services:
       CATALOG_WAREHOUSE: s3://lakehouse/
       REST_PORT: '8181'
     healthcheck:
+      interval: 10s
+      retries: 10
+      start_period: 30s
       test:
       - CMD
       - curl
       - --fail
       - http://localhost:8181/v1/config
       timeout: 5s
-      interval: 10s
-      retries: 10
-      start_period: 30s
     image: atlas-iceberg-rest:local
     logging:
       driver: json-file
@@ -823,9 +827,9 @@ services:
       backend-network: null
     ports:
     - mode: ingress
-      target: 8181
-      published: '63020'
       protocol: tcp
+      published: '63020'
+      target: 8181
     restart: unless-stopped
   iceberg-rest-init:
     container_name: atlas-iceberg-rest-init
@@ -849,17 +853,17 @@ services:
       backend-network: null
     restart: 'no'
     volumes:
-    - type: bind
+    - bind: {}
+      read_only: true
       source: '{REPO_ROOT}/services/iceberg-rest/init/scripts'
       target: /scripts
-      read_only: true
-      bind: {}
+      type: bind
   jenkins:
     build:
-      context: '{REPO_ROOT}/services/jenkins/build'
-      dockerfile: Dockerfile
       args:
         BASE_IMAGE: jenkins/jenkins:lts-jdk21
+      context: '{REPO_ROOT}/services/jenkins/build'
+      dockerfile: Dockerfile
     container_name: atlas-jenkins
     depends_on:
       minio-init:
@@ -883,13 +887,13 @@ services:
       MINIO_ICEBERG_SECRET_KEY: ''
       MINIO_REGION: us-east-1
     healthcheck:
+      interval: 30s
+      retries: 10
+      start_period: 2m0s
       test:
       - CMD-SHELL
       - curl -fsS http://localhost:8080/login >/dev/null
       timeout: 10s
-      interval: 30s
-      retries: 10
-      start_period: 2m0s
     image: atlas-jenkins:local
     logging:
       driver: json-file
@@ -900,26 +904,26 @@ services:
       backend-network: null
     ports:
     - mode: ingress
-      target: 8080
-      published: '63080'
       protocol: tcp
+      published: '63080'
+      target: 8080
     restart: unless-stopped
     volumes:
-    - type: volume
-      source: jenkins-home
+    - source: jenkins-home
       target: /var/jenkins_home
+      type: volume
       volume: {}
-    - type: bind
+    - bind: {}
+      read_only: true
       source: '{REPO_ROOT}/services/jenkins/casc'
       target: /var/jenkins_home/casc
-      read_only: true
-      bind: {}
+      type: bind
   jupyterhub:
     build:
-      context: '{REPO_ROOT}/services/jupyterhub/build'
-      dockerfile: Dockerfile
       args:
         BASE_IMAGE: quay.io/jupyter/datascience-notebook:python-3.11.10
+      context: '{REPO_ROOT}/services/jupyterhub/build'
+      dockerfile: Dockerfile
     command:
     - start-notebook.sh
     - --ServerApp.allow_origin=*
@@ -983,15 +987,15 @@ services:
     extra_hosts:
     - host.docker.internal=
     healthcheck:
+      interval: 30s
+      retries: 3
+      start_period: 30s
       test:
       - CMD
       - curl
       - -f
       - http://localhost:8888/api
       timeout: 10s
-      interval: 30s
-      retries: 3
-      start_period: 30s
     labels:
       com.atlas.category: application
       com.atlas.service: jupyterhub
@@ -1005,24 +1009,24 @@ services:
       backend-network: null
     ports:
     - mode: ingress
-      target: 8888
-      published: '63082'
       protocol: tcp
+      published: '63082'
+      target: 8888
     restart: unless-stopped
     volumes:
-    - type: volume
-      source: jupyterhub-data
+    - source: jupyterhub-data
       target: /home/jovyan/work
+      type: volume
       volume: {}
-    - type: bind
+    - bind: {}
+      read_only: true
       source: '{REPO_ROOT}/services/jupyterhub/build/notebooks'
       target: /home/jovyan/notebooks
-      read_only: true
-      bind: {}
-    - type: volume
+      type: bind
+    - read_only: true
       source: weaviate-shared-config
       target: /shared
-      read_only: true
+      type: volume
       volume: {}
   kong-api-gateway:
     container_name: atlas-kong-api-gateway
@@ -1058,9 +1062,9 @@ services:
       KONG_NGINX_HTTP_UPSTREAM_KEEPALIVE_TIMEOUT: 60s
       KONG_NGINX_PROXY_CHUNKED_TRANSFER_ENCODING: 'on'
       KONG_NGINX_PROXY_KEEPALIVE_TIMEOUT: '300'
-      KONG_NGINX_PROXY_PROXY_BUFFER_SIZE: 160k
       KONG_NGINX_PROXY_PROXY_BUFFERING: 'off'
       KONG_NGINX_PROXY_PROXY_BUFFERS: 64 160k
+      KONG_NGINX_PROXY_PROXY_BUFFER_SIZE: 160k
       KONG_NGINX_PROXY_PROXY_CACHE: 'off'
       KONG_NGINX_PROXY_TCP_NODELAY: 'on'
       KONG_NGINX_PROXY_TCP_NOPUSH: 'on'
@@ -1078,13 +1082,13 @@ services:
     extra_hosts:
     - host.docker.internal=
     healthcheck:
+      interval: 30s
+      retries: 3
+      start_period: 30s
       test:
       - CMD-SHELL
       - kong health
       timeout: 10s
-      interval: 30s
-      retries: 3
-      start_period: 30s
     image: kong:3.9.3
     logging:
       driver: json-file
@@ -1095,21 +1099,249 @@ services:
       backend-network: null
     ports:
     - mode: ingress
-      target: 8000
+      protocol: tcp
       published: '63000'
-      protocol: tcp
+      target: 8000
     - mode: ingress
-      target: 8443
-      published: '63001'
       protocol: tcp
+      published: '63001'
+      target: 8443
     restart: unless-stopped
     volumes:
-    - type: bind
+    - bind:
+        selinux: z
+      read_only: true
       source: '{REPO_ROOT}/volumes/api/kong-dynamic.yml'
       target: /home/kong/kong.yml
+      type: bind
+  langfuse-clickhouse:
+    container_name: atlas-langfuse-clickhouse
+    deploy:
+      replicas: 0
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_PASSWORD: ''
+      CLICKHOUSE_USER: clickhouse
+      TZ: UTC
+    healthcheck:
+      interval: 5s
+      retries: 20
+      start_period: 10s
+      test:
+      - CMD
+      - wget
+      - --no-verbose
+      - --tries=1
+      - --spider
+      - http://localhost:8123/ping
+      timeout: 5s
+    image: clickhouse/clickhouse-server:25.8
+    logging:
+      driver: json-file
+      options:
+        max-file: '3'
+        max-size: 10m
+    networks:
+      backend-network: null
+    restart: unless-stopped
+    user: 101:101
+    volumes:
+    - source: langfuse-clickhouse-data
+      target: /var/lib/clickhouse
+      type: volume
+      volume: {}
+    - source: langfuse-clickhouse-logs
+      target: /var/log/clickhouse-server
+      type: volume
+      volume: {}
+  langfuse-init:
+    build:
+      args:
+        BASE_IMAGE: alpine:3.22
+      context: '{REPO_ROOT}/services/langfuse/init'
+      dockerfile: Dockerfile
+    container_name: atlas-langfuse-init
+    depends_on:
+      minio-init:
+        condition: service_completed_successfully
+        required: true
+      supabase-db:
+        condition: service_healthy
+        required: true
+    deploy:
+      replicas: 0
+    entrypoint:
+    - /bin/sh
+    - /scripts/init-langfuse.sh
+    environment:
+      LANGFUSE_DB_NAME: langfuse
+      PGHOST: supabase-db
+      PGPASSWORD: password
+      PGPORT: '5432'
+      PGUSER: supabase_admin
+    image: atlas-langfuse-init:local
+    networks:
+      backend-network: null
+    restart: 'no'
+    volumes:
+    - bind: {}
       read_only: true
-      bind:
-        selinux: z
+      source: '{REPO_ROOT}/services/langfuse/init/scripts'
+      target: /scripts
+      type: bind
+  langfuse-web:
+    container_name: atlas-langfuse-web
+    depends_on:
+      langfuse-clickhouse:
+        condition: service_healthy
+        required: true
+      langfuse-init:
+        condition: service_completed_successfully
+        required: true
+      redis:
+        condition: service_healthy
+        required: true
+    deploy:
+      replicas: 0
+    environment:
+      CLICKHOUSE_CLUSTER_ENABLED: 'false'
+      CLICKHOUSE_MIGRATION_URL: clickhouse://langfuse-clickhouse:9000
+      CLICKHOUSE_PASSWORD: ''
+      CLICKHOUSE_URL: http://langfuse-clickhouse:8123
+      CLICKHOUSE_USER: clickhouse
+      DATABASE_URL: postgresql://supabase_admin:password@supabase-db:5432/langfuse
+      ENCRYPTION_KEY: ''
+      LANGFUSE_INIT_ORG_ID: atlas
+      LANGFUSE_INIT_ORG_NAME: Atlas
+      LANGFUSE_INIT_PROJECT_ID: atlas-default
+      LANGFUSE_INIT_PROJECT_NAME: Atlas Default
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: ''
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: ''
+      LANGFUSE_INIT_USER_EMAIL: admin@atlas.localhost
+      LANGFUSE_INIT_USER_NAME: Atlas Admin
+      LANGFUSE_INIT_USER_PASSWORD: ''
+      LANGFUSE_S3_BATCH_EXPORT_ACCESS_KEY_ID: ''
+      LANGFUSE_S3_BATCH_EXPORT_BUCKET: langfuse
+      LANGFUSE_S3_BATCH_EXPORT_ENABLED: 'false'
+      LANGFUSE_S3_BATCH_EXPORT_ENDPOINT: http://minio:9000
+      LANGFUSE_S3_BATCH_EXPORT_FORCE_PATH_STYLE: 'true'
+      LANGFUSE_S3_BATCH_EXPORT_PREFIX: exports/
+      LANGFUSE_S3_BATCH_EXPORT_REGION: us-east-1
+      LANGFUSE_S3_BATCH_EXPORT_SECRET_ACCESS_KEY: ''
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: ''
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://minio:9000
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: 'true'
+      LANGFUSE_S3_EVENT_UPLOAD_PREFIX: events/
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: us-east-1
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ''
+      LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: ''
+      LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://minio:9000
+      LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: 'true'
+      LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: media/
+      LANGFUSE_S3_MEDIA_UPLOAD_REGION: us-east-1
+      LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: ''
+      NEXTAUTH_SECRET: ''
+      NEXTAUTH_URL: http://langfuse.localhost:63000
+      REDIS_AUTH: redis_password
+      REDIS_HOST: redis
+      REDIS_PORT: '6379'
+      SALT: ''
+      TELEMETRY_ENABLED: 'false'
+    healthcheck:
+      interval: 15s
+      retries: 20
+      start_period: 1m0s
+      test:
+      - CMD
+      - node
+      - -e
+      - fetch('http://localhost:3000/api/public/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))
+      timeout: 5s
+    image: langfuse/langfuse:3
+    logging:
+      driver: json-file
+      options:
+        max-file: '3'
+        max-size: 10m
+    networks:
+      backend-network: null
+    ports:
+    - mode: ingress
+      protocol: tcp
+      published: '63005'
+      target: 3000
+    restart: unless-stopped
+  langfuse-worker:
+    container_name: atlas-langfuse-worker
+    depends_on:
+      langfuse-clickhouse:
+        condition: service_healthy
+        required: true
+      langfuse-init:
+        condition: service_completed_successfully
+        required: true
+      redis:
+        condition: service_healthy
+        required: true
+    deploy:
+      replicas: 0
+    environment:
+      CLICKHOUSE_CLUSTER_ENABLED: 'false'
+      CLICKHOUSE_MIGRATION_URL: clickhouse://langfuse-clickhouse:9000
+      CLICKHOUSE_PASSWORD: ''
+      CLICKHOUSE_URL: http://langfuse-clickhouse:8123
+      CLICKHOUSE_USER: clickhouse
+      DATABASE_URL: postgresql://supabase_admin:password@supabase-db:5432/langfuse
+      ENCRYPTION_KEY: ''
+      LANGFUSE_INIT_ORG_ID: atlas
+      LANGFUSE_INIT_ORG_NAME: Atlas
+      LANGFUSE_INIT_PROJECT_ID: atlas-default
+      LANGFUSE_INIT_PROJECT_NAME: Atlas Default
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: ''
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: ''
+      LANGFUSE_INIT_USER_EMAIL: admin@atlas.localhost
+      LANGFUSE_INIT_USER_NAME: Atlas Admin
+      LANGFUSE_INIT_USER_PASSWORD: ''
+      LANGFUSE_S3_BATCH_EXPORT_ACCESS_KEY_ID: ''
+      LANGFUSE_S3_BATCH_EXPORT_BUCKET: langfuse
+      LANGFUSE_S3_BATCH_EXPORT_ENABLED: 'false'
+      LANGFUSE_S3_BATCH_EXPORT_ENDPOINT: http://minio:9000
+      LANGFUSE_S3_BATCH_EXPORT_FORCE_PATH_STYLE: 'true'
+      LANGFUSE_S3_BATCH_EXPORT_PREFIX: exports/
+      LANGFUSE_S3_BATCH_EXPORT_REGION: us-east-1
+      LANGFUSE_S3_BATCH_EXPORT_SECRET_ACCESS_KEY: ''
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: ''
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://minio:9000
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: 'true'
+      LANGFUSE_S3_EVENT_UPLOAD_PREFIX: events/
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: us-east-1
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ''
+      LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: ''
+      LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://minio:9000
+      LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: 'true'
+      LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: media/
+      LANGFUSE_S3_MEDIA_UPLOAD_REGION: us-east-1
+      LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: ''
+      NEXTAUTH_SECRET: ''
+      NEXTAUTH_URL: http://langfuse.localhost:63000
+      REDIS_AUTH: redis_password
+      REDIS_HOST: redis
+      REDIS_PORT: '6379'
+      SALT: ''
+      TELEMETRY_ENABLED: 'false'
+    image: langfuse/langfuse-worker:3
+    logging:
+      driver: json-file
+      options:
+        max-file: '3'
+        max-size: 10m
+    networks:
+      backend-network: null
+    restart: unless-stopped
   lightrag:
     container_name: atlas-lightrag
     depends_on:
@@ -1189,6 +1421,9 @@ services:
     extra_hosts:
     - host.docker.internal=
     healthcheck:
+      interval: 30s
+      retries: 5
+      start_period: 5m0s
       test:
       - CMD
       - python
@@ -1196,9 +1431,6 @@ services:
       - import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://localhost:9621/health',
         timeout=5).status == 200 else 1)
       timeout: 8s
-      interval: 30s
-      retries: 5
-      start_period: 5m0s
     image: ghcr.io/hkuds/lightrag:v1.5.4
     logging:
       driver: json-file
@@ -1209,14 +1441,14 @@ services:
       backend-network: null
     ports:
     - mode: ingress
-      target: 9621
-      published: '63063'
       protocol: tcp
+      published: '63063'
+      target: 9621
     restart: unless-stopped
     volumes:
-    - type: volume
-      source: lightrag-data
+    - source: lightrag-data
       target: /app/data
+      type: volume
       volume: {}
   lightrag-init:
     container_name: atlas-lightrag-init
@@ -1248,14 +1480,14 @@ services:
       backend-network: null
     restart: 'no'
     volumes:
-    - type: bind
+    - bind: {}
+      read_only: true
       source: '{REPO_ROOT}/services/lightrag/init/scripts'
       target: /scripts
-      read_only: true
-      bind: {}
-    - type: volume
-      source: lightrag-data
+      type: bind
+    - source: lightrag-data
       target: /app/data
+      type: volume
       volume: {}
   litellm:
     command:
@@ -1280,6 +1512,9 @@ services:
       ANTHROPIC_API_KEY: ''
       DATABASE_URL: postgresql://supabase_admin:password@supabase-db:5432/litellm
       HERMES_API_KEY: ''
+      LANGFUSE_BASE_URL: ''
+      LANGFUSE_PUBLIC_KEY: ''
+      LANGFUSE_SECRET_KEY: ''
       LITELLM_MASTER_KEY: ''
       OPENAI_API_KEY: ''
       OPENROUTER_API_KEY: ''
@@ -1294,6 +1529,9 @@ services:
     extra_hosts:
     - host.docker.internal=
     healthcheck:
+      interval: 10s
+      retries: 12
+      start_period: 30s
       test:
       - CMD
       - python
@@ -1301,9 +1539,6 @@ services:
       - import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://localhost:4000/health/liveliness',
         timeout=3).status == 200 else 1)
       timeout: 5s
-      interval: 10s
-      retries: 12
-      start_period: 30s
     image: ghcr.io/berriai/litellm:v1.83.14-stable.patch.2
     logging:
       driver: json-file
@@ -1314,18 +1549,18 @@ services:
       backend-network: null
     ports:
     - mode: ingress
-      target: 4000
-      published: '63030'
       protocol: tcp
+      published: '63030'
+      target: 4000
     restart: unless-stopped
     tmpfs:
     - /tmp/litellm_metrics:rw,size=64m
     volumes:
-    - type: bind
+    - bind: {}
+      read_only: true
       source: '{REPO_ROOT}/volumes/litellm/config.yaml'
       target: /app/config.yaml
-      read_only: true
-      bind: {}
+      type: bind
   litellm-init:
     build:
       context: '{REPO_ROOT}/services/litellm/init'
@@ -1343,6 +1578,7 @@ services:
       ATLAS_MODELS_DIR: /atlas-models
       HERMES_ENDPOINT: ''
       HERMES_SOURCE: container
+      LANGFUSE_SOURCE: disabled
       LIGHTRAG_API_KEY: ''
       LIGHTRAG_ENDPOINT: ''
       LIGHTRAG_SOURCE: disabled
@@ -1370,36 +1606,36 @@ services:
       backend-network: null
     restart: 'no'
     volumes:
-    - type: bind
+    - bind: {}
+      read_only: true
       source: '{REPO_ROOT}/services/litellm/init/scripts'
       target: /scripts
-      read_only: true
-      bind: {}
-    - type: bind
+      type: bind
+    - bind: {}
       source: '{REPO_ROOT}/volumes/litellm'
       target: /litellm-config
-      bind: {}
-    - type: bind
+      type: bind
+    - bind: {}
+      read_only: true
       source: '{REPO_ROOT}/bootstrapper/utils'
       target: /catalog
+      type: bind
+    - bind: {}
       read_only: true
-      bind: {}
-    - type: bind
       source: '{REPO_ROOT}/services/ollama/models.yaml'
       target: /atlas-models/ollama-models.yaml
+      type: bind
+    - bind: {}
       read_only: true
-      bind: {}
-    - type: bind
       source: '{REPO_ROOT}/services/litellm/models.yaml'
       target: /atlas-models/litellm-models.yaml
-      read_only: true
-      bind: {}
+      type: bind
   local-deep-researcher:
     build:
-      context: '{REPO_ROOT}/services/local-deep-researcher/build'
-      dockerfile: Dockerfile
       args:
         BASE_IMAGE: python:3.11.15-slim
+      context: '{REPO_ROOT}/services/local-deep-researcher/build'
+      dockerfile: Dockerfile
     container_name: atlas-local-deep-researcher
     depends_on:
       litellm:
@@ -1429,25 +1665,25 @@ services:
       backend-network: null
     ports:
     - mode: ingress
-      target: 2024
-      published: '63084'
       protocol: tcp
+      published: '63084'
+      target: 2024
     restart: unless-stopped
     volumes:
-    - type: volume
-      source: local-deep-researcher-data
+    - source: local-deep-researcher-data
       target: /app/data
+      type: volume
       volume: {}
-    - type: volume
-      source: local-deep-researcher-repo
+    - source: local-deep-researcher-repo
       target: /app/repo
+      type: volume
       volume: {}
   mcp-servers:
     build:
-      context: '{REPO_ROOT}/services/mcp-servers/runtime'
-      dockerfile: ../build/Dockerfile
       args:
         BASE_IMAGE: python:3.12-slim
+      context: '{REPO_ROOT}/services/mcp-servers/runtime'
+      dockerfile: ../build/Dockerfile
     container_name: atlas-mcp-servers
     depends_on:
       neo4j-graph-db:
@@ -1483,11 +1719,11 @@ services:
     networks:
       backend-network: null
     ports:
-    - mode: ingress
-      host_ip: 127.0.0.1
-      target: 8000
-      published: '63067'
+    - host_ip: 127.0.0.1
+      mode: ingress
       protocol: tcp
+      published: '63067'
+      target: 8000
     restart: unless-stopped
   minio:
     command:
@@ -1505,15 +1741,15 @@ services:
       MINIO_ROOT_PASSWORD: ''
       MINIO_ROOT_USER: minioadmin
     healthcheck:
+      interval: 30s
+      retries: 3
+      start_period: 30s
       test:
       - CMD
       - curl
       - -f
       - http://localhost:9000/minio/health/live
       timeout: 10s
-      interval: 30s
-      retries: 3
-      start_period: 30s
     image: minio/minio:RELEASE.2025-09-07T16-13-09Z
     logging:
       driver: json-file
@@ -1524,18 +1760,18 @@ services:
       backend-network: null
     ports:
     - mode: ingress
-      target: 9000
+      protocol: tcp
       published: '63018'
-      protocol: tcp
+      target: 9000
     - mode: ingress
-      target: 9001
-      published: '63019'
       protocol: tcp
+      published: '63019'
+      target: 9001
     restart: unless-stopped
     volumes:
-    - type: volume
-      source: minio-data
+    - source: minio-data
       target: /data
+      type: volume
       volume: {}
   minio-init:
     container_name: atlas-minio-init
@@ -1559,6 +1795,7 @@ services:
       MINIO_BUCKET_ICEBERG_LAKEHOUSE: lakehouse
       MINIO_BUCKET_ICEBERG_LANDING: landing
       MINIO_BUCKET_JUPYTER: jupyter
+      MINIO_BUCKET_LANGFUSE: langfuse
       MINIO_BUCKET_N8N: n8n
       MINIO_COMFYUI_ACCESS_KEY: ''
       MINIO_COMFYUI_SECRET_KEY: ''
@@ -1568,6 +1805,8 @@ services:
       MINIO_ICEBERG_SECRET_KEY: ''
       MINIO_JUPYTER_ACCESS_KEY: ''
       MINIO_JUPYTER_SECRET_KEY: ''
+      MINIO_LANGFUSE_ACCESS_KEY: ''
+      MINIO_LANGFUSE_SECRET_KEY: ''
       MINIO_N8N_ACCESS_KEY: ''
       MINIO_N8N_SECRET_KEY: ''
       MINIO_ROOT_PASSWORD: ''
@@ -1577,11 +1816,11 @@ services:
       backend-network: null
     restart: 'no'
     volumes:
-    - type: bind
+    - bind: {}
+      read_only: true
       source: '{REPO_ROOT}/services/minio/init/scripts'
       target: /scripts
-      read_only: true
-      bind: {}
+      type: bind
   multi2vec-clip:
     container_name: atlas-multi2vec-clip
     depends_on:
@@ -1666,15 +1905,15 @@ services:
       WEAVIATE_URL: http://weaviate:8080
       WEBHOOK_URL: http://n8n.localhost:63000/
     healthcheck:
+      interval: 15s
+      retries: 10
+      start_period: 1m30s
       test:
       - CMD
       - wget
       - -qO-
       - http://127.0.0.1:5678/healthz
       timeout: 5s
-      interval: 15s
-      retries: 10
-      start_period: 1m30s
     image: n8nio/n8n:2.28.2
     logging:
       driver: json-file
@@ -1685,14 +1924,14 @@ services:
       backend-network: null
     ports:
     - mode: ingress
-      target: 5678
-      published: '63064'
       protocol: tcp
+      published: '63064'
+      target: 5678
     restart: unless-stopped
     volumes:
-    - type: volume
-      source: n8n-data
+    - source: n8n-data
       target: /home/node/.n8n
+      type: volume
       volume: {}
   n8n-init:
     container_name: atlas-n8n-init
@@ -1716,17 +1955,17 @@ services:
       backend-network: null
     restart: 'no'
     volumes:
-    - type: bind
+    - bind: {}
       source: '{REPO_ROOT}/services/n8n/init/scripts'
       target: /scripts
-      bind: {}
-    - type: bind
+      type: bind
+    - bind: {}
       source: '{REPO_ROOT}/services/n8n/init/config'
       target: /config
-      bind: {}
-    - type: volume
-      source: n8n-data
+      type: bind
+    - source: n8n-data
       target: /n8n-data
+      type: volume
       volume: {}
   n8n-worker:
     command:
@@ -1791,16 +2030,16 @@ services:
       backend-network: null
     restart: unless-stopped
     volumes:
-    - type: volume
-      source: n8n-data
+    - source: n8n-data
       target: /home/node/.n8n
+      type: volume
       volume: {}
   neo4j-graph-db:
     build:
-      context: '{REPO_ROOT}/services/neo4j/build'
-      dockerfile: Dockerfile
       args:
         BASE_IMAGE: neo4j:5.26.27
+      context: '{REPO_ROOT}/services/neo4j/build'
+      dockerfile: Dockerfile
     container_name: atlas-neo4j-graph-db
     deploy:
       replicas: 1
@@ -1823,26 +2062,26 @@ services:
       backend-network: null
     ports:
     - mode: ingress
-      target: 7687
+      protocol: tcp
       published: '63021'
-      protocol: tcp
+      target: 7687
     - mode: ingress
-      target: 7474
-      published: '63022'
       protocol: tcp
+      published: '63022'
+      target: 7474
     restart: unless-stopped
     volumes:
-    - type: bind
+    - bind: {}
       source: '{REPO_ROOT}/services/neo4j/build/scripts'
       target: /scripts
-      bind: {}
-    - type: bind
+      type: bind
+    - bind: {}
       source: '{REPO_ROOT}/services/neo4j/build/snapshot'
       target: /snapshot
-      bind: {}
-    - type: volume
-      source: graph-db-data
+      type: bind
+    - source: graph-db-data
       target: /data
+      type: volume
       volume: {}
   node-exporter:
     command:
@@ -1863,26 +2102,26 @@ services:
       backend-network: null
     ports:
     - mode: ingress
-      target: 9100
-      published: '63006'
       protocol: tcp
+      published: '63007'
+      target: 9100
     restart: unless-stopped
     volumes:
-    - type: bind
+    - bind: {}
+      read_only: true
       source: /proc
       target: /host/proc
+      type: bind
+    - bind: {}
       read_only: true
-      bind: {}
-    - type: bind
       source: /sys
       target: /host/sys
+      type: bind
+    - bind: {}
       read_only: true
-      bind: {}
-    - type: bind
       source: /
       target: /rootfs
-      read_only: true
-      bind: {}
+      type: bind
   ollama:
     container_name: atlas-ollama
     deploy:
@@ -1899,9 +2138,9 @@ services:
       backend-network: null
     restart: unless-stopped
     volumes:
-    - type: volume
-      source: llm-provider-data
+    - source: llm-provider-data
       target: /root/.ollama
+      type: volume
       volume: {}
   ollama-pull:
     container_name: atlas-ollama-pull
@@ -1927,11 +2166,11 @@ services:
       backend-network: null
     restart: 'no'
     volumes:
-    - type: bind
+    - bind: {}
+      read_only: true
       source: '{REPO_ROOT}/services/ollama/pull/scripts'
       target: /scripts
-      read_only: true
-      bind: {}
+      type: bind
   open-web-ui:
     container_name: atlas-open-web-ui
     depends_on:
@@ -1989,29 +2228,29 @@ services:
       backend-network: null
     ports:
     - mode: ingress
-      target: 8080
-      published: '63083'
       protocol: tcp
+      published: '63083'
+      target: 8080
     restart: unless-stopped
     volumes:
-    - type: volume
-      source: open-web-ui-data
+    - source: open-web-ui-data
       target: /app/backend/data
+      type: volume
       volume: {}
-    - type: bind
+    - bind: {}
       source: '{REPO_ROOT}/services/open-webui/extras/tools'
       target: /app/backend/data/tools
-      bind: {}
-    - type: bind
+      type: bind
+    - bind: {}
       source: '{REPO_ROOT}/services/open-webui/extras/functions'
       target: /app/backend/data/functions
-      bind: {}
+      type: bind
   open-webui-init:
     build:
-      context: '{REPO_ROOT}/services/open-webui/init'
-      dockerfile: Dockerfile
       args:
         BASE_IMAGE: python:3.12.7-slim
+      context: '{REPO_ROOT}/services/open-webui/init'
+      dockerfile: Dockerfile
     container_name: atlas-open-webui-init
     depends_on:
       open-web-ui:
@@ -2035,16 +2274,16 @@ services:
       backend-network: null
     restart: 'no'
     volumes:
-    - type: bind
+    - bind: {}
+      read_only: true
       source: '{REPO_ROOT}/services/open-webui/extras/tools'
       target: /tools
+      type: bind
+    - bind: {}
       read_only: true
-      bind: {}
-    - type: bind
       source: '{REPO_ROOT}/services/open-webui/extras/functions'
       target: /functions
-      read_only: true
-      bind: {}
+      type: bind
   openclaw-gateway:
     command:
     - node
@@ -2076,15 +2315,15 @@ services:
     extra_hosts:
     - host.docker.internal=
     healthcheck:
+      interval: 30s
+      retries: 5
+      start_period: 20s
       test:
       - CMD
       - curl
       - -f
       - http://localhost:18789/healthz
       timeout: 10s
-      interval: 30s
-      retries: 5
-      start_period: 20s
     image: ghcr.io/openclaw/openclaw:2026.6.10
     labels:
       com.atlas.agent: openclaw
@@ -2099,22 +2338,22 @@ services:
       backend-network: null
     ports:
     - mode: ingress
-      target: 18789
+      protocol: tcp
       published: '63065'
-      protocol: tcp
+      target: 18789
     - mode: ingress
-      target: 18790
-      published: '63066'
       protocol: tcp
+      published: '63066'
+      target: 18790
     restart: unless-stopped
     volumes:
-    - type: volume
-      source: openclaw-config
+    - source: openclaw-config
       target: /home/node/.openclaw
+      type: volume
       volume: {}
-    - type: volume
-      source: openclaw-workspace
+    - source: openclaw-workspace
       target: /home/node/.openclaw/workspace
+      type: volume
       volume: {}
   openclaw-init:
     container_name: atlas-openclaw-init
@@ -2137,13 +2376,13 @@ services:
       backend-network: null
     restart: 'no'
     volumes:
-    - type: volume
-      source: openclaw-config
+    - source: openclaw-config
       target: /home/node/.openclaw
+      type: volume
       volume: {}
-    - type: volume
-      source: openclaw-workspace
+    - source: openclaw-workspace
       target: /home/node/.openclaw/workspace
+      type: volume
       volume: {}
   postgres-exporter:
     container_name: atlas-postgres-exporter
@@ -2158,6 +2397,9 @@ services:
       PG_EXPORTER_AUTO_DISCOVER_DATABASES: 'true'
       PG_EXPORTER_DISABLE_SETTINGS_METRICS: 'true'
     healthcheck:
+      interval: 30s
+      retries: 3
+      start_period: 30s
       test:
       - CMD
       - wget
@@ -2165,9 +2407,6 @@ services:
       - --spider
       - http://localhost:9187/metrics
       timeout: 10s
-      interval: 30s
-      retries: 3
-      start_period: 30s
     image: prometheuscommunity/postgres-exporter:v0.19.1
     logging:
       driver: json-file
@@ -2178,9 +2417,9 @@ services:
       backend-network: null
     ports:
     - mode: ingress
-      target: 9187
-      published: '63011'
       protocol: tcp
+      published: '63011'
+      target: 9187
     restart: unless-stopped
   prometheus:
     command:
@@ -2194,6 +2433,9 @@ services:
     deploy:
       replicas: 0
     healthcheck:
+      interval: 30s
+      retries: 3
+      start_period: 30s
       test:
       - CMD
       - wget
@@ -2201,9 +2443,6 @@ services:
       - --spider
       - http://localhost:9090/-/healthy
       timeout: 10s
-      interval: 30s
-      retries: 3
-      start_period: 30s
     image: prom/prometheus:v2.55.1
     logging:
       driver: json-file
@@ -2214,24 +2453,24 @@ services:
       backend-network: null
     ports:
     - mode: ingress
-      target: 9090
-      published: '63005'
       protocol: tcp
+      published: '63006'
+      target: 9090
     restart: unless-stopped
     volumes:
-    - type: bind
+    - bind: {}
+      read_only: true
       source: '{REPO_ROOT}/services/prometheus/config/prometheus.yml'
       target: /etc/prometheus/prometheus.yml
+      type: bind
+    - bind: {}
       read_only: true
-      bind: {}
-    - type: bind
       source: '{REPO_ROOT}/services/prometheus/config/rules'
       target: /etc/prometheus/rules
-      read_only: true
-      bind: {}
-    - type: volume
-      source: prometheus-data
+      type: bind
+    - source: prometheus-data
       target: /prometheus
+      type: volume
       volume: {}
   ray-head:
     command:
@@ -2246,15 +2485,15 @@ services:
         limits:
           cpus: 2
           memory: '4294967296'
-    hostname: ray-head
     healthcheck:
+      interval: 30s
+      retries: 5
+      start_period: 1m0s
       test:
       - CMD-SHELL
       - wget -q --spider http://localhost:8265/api/version || exit 1
       timeout: 10s
-      interval: 30s
-      retries: 5
-      start_period: 1m0s
+    hostname: ray-head
     image: rayproject/ray:2.55.1
     logging:
       driver: json-file
@@ -2265,17 +2504,17 @@ services:
       backend-network: null
     ports:
     - mode: ingress
-      target: 8265
+      protocol: tcp
       published: '63002'
-      protocol: tcp
+      target: 8265
     - mode: ingress
-      target: 6379
+      protocol: tcp
       published: '63003'
-      protocol: tcp
+      target: 6379
     - mode: ingress
-      target: 10001
-      published: '63004'
       protocol: tcp
+      published: '63004'
+      target: 10001
     restart: unless-stopped
     shm_size: '8589934592'
   ray-worker:
@@ -2312,8 +2551,13 @@ services:
     - 'yes'
     - --requirepass
     - redis_password
+    - --maxmemory-policy
+    - noeviction
     container_name: atlas-redis
     healthcheck:
+      interval: 30s
+      retries: 3
+      start_period: 30s
       test:
       - CMD
       - redis-cli
@@ -2321,9 +2565,6 @@ services:
       - redis_password
       - ping
       timeout: 10s
-      interval: 30s
-      retries: 3
-      start_period: 30s
     image: redis:7.2.14-alpine
     logging:
       driver: json-file
@@ -2334,14 +2575,14 @@ services:
       backend-network: null
     ports:
     - mode: ingress
-      target: 6379
-      published: '63023'
       protocol: tcp
+      published: '63023'
+      target: 6379
     restart: unless-stopped
     volumes:
-    - type: volume
-      source: redis-data
+    - source: redis-data
       target: /data
+      type: volume
       volume: {}
   redis-exporter:
     container_name: atlas-redis-exporter
@@ -2364,9 +2605,9 @@ services:
       backend-network: null
     ports:
     - mode: ingress
-      target: 9121
-      published: '63024'
       protocol: tcp
+      published: '63024'
+      target: 9121
     restart: unless-stopped
   searxng:
     container_name: atlas-searxng
@@ -2377,6 +2618,9 @@ services:
       SEARXNG_BASE_URL: http://localhost:63043
       SEARXNG_SECRET: ''
     healthcheck:
+      interval: 30s
+      retries: 3
+      start_period: 30s
       test:
       - CMD
       - wget
@@ -2385,9 +2629,6 @@ services:
       - '--header=X-Forwarded-For: 127.0.0.1'
       - http://localhost:8080/healthz
       timeout: 10s
-      interval: 30s
-      retries: 3
-      start_period: 30s
     image: searxng/searxng:2026.6.28-357662d86
     logging:
       driver: json-file
@@ -2398,25 +2639,25 @@ services:
       backend-network: null
     ports:
     - mode: ingress
-      target: 8080
-      published: '63043'
       protocol: tcp
+      published: '63043'
+      target: 8080
     restart: unless-stopped
     volumes:
-    - type: bind
+    - bind: {}
       source: '{REPO_ROOT}/services/searxng/config'
       target: /etc/searxng
-      bind: {}
-    - type: volume
-      source: searxng-data
+      type: bind
+    - source: searxng-data
       target: /var/cache/searxng
+      type: volume
       volume: {}
   spark-connect:
     build:
-      context: '{REPO_ROOT}/services/spark/build'
-      dockerfile: Dockerfile
       args:
         BASE_IMAGE: apache/spark:4.1.2
+      context: '{REPO_ROOT}/services/spark/build'
+      dockerfile: Dockerfile
     command:
     - /opt/spark/sbin/start-connect-server.sh
     - --wait
@@ -2481,10 +2722,10 @@ services:
     restart: unless-stopped
   spark-history:
     build:
-      context: '{REPO_ROOT}/services/spark/build'
-      dockerfile: Dockerfile
       args:
         BASE_IMAGE: apache/spark:4.1.2
+      context: '{REPO_ROOT}/services/spark/build'
+      dockerfile: Dockerfile
     command:
     - /opt/spark/bin/spark-class
     - org.apache.spark.deploy.history.HistoryServer
@@ -2509,9 +2750,9 @@ services:
       backend-network: null
     ports:
     - mode: ingress
-      target: 18080
-      published: '63026'
       protocol: tcp
+      published: '63026'
+      target: 18080
     restart: unless-stopped
   spark-init:
     command:
@@ -2539,10 +2780,10 @@ services:
       backend-network: null
   spark-master:
     build:
-      context: '{REPO_ROOT}/services/spark/build'
-      dockerfile: Dockerfile
       args:
         BASE_IMAGE: apache/spark:4.1.2
+      context: '{REPO_ROOT}/services/spark/build'
+      dockerfile: Dockerfile
     command:
     - /opt/spark/bin/spark-class
     - org.apache.spark.deploy.master.Master
@@ -2564,15 +2805,15 @@ services:
       SPARK_MASTER_OPTS: -Dspark.master.rest.enabled=true -Dspark.master.rest.host=spark-master
         -Dspark.master.rest.port=6066
     healthcheck:
+      interval: 30s
+      retries: 5
+      start_period: 45s
       test:
       - CMD
       - curl
       - -fsS
       - http://localhost:8080/
       timeout: 10s
-      interval: 30s
-      retries: 5
-      start_period: 45s
     image: atlas-spark:local
     logging:
       driver: json-file
@@ -2583,16 +2824,16 @@ services:
       backend-network: null
     ports:
     - mode: ingress
-      target: 8080
-      published: '63025'
       protocol: tcp
+      published: '63025'
+      target: 8080
     restart: unless-stopped
   spark-worker:
     build:
-      context: '{REPO_ROOT}/services/spark/build'
-      dockerfile: Dockerfile
       args:
         BASE_IMAGE: apache/spark:4.1.2
+      context: '{REPO_ROOT}/services/spark/build'
+      dockerfile: Dockerfile
     command:
     - "set -euo pipefail\nexport HADOOP_CONF_DIR=/tmp/atlas-spark-hadoop-conf\nmkdir\
       \ -p \"$${HADOOP_CONF_DIR}\"\ncat > \"$${HADOOP_CONF_DIR}/core-site.xml\" <<EOF\n\
@@ -2654,9 +2895,9 @@ services:
       backend-network: null
     ports:
     - mode: ingress
-      target: 3000
-      published: '63015'
       protocol: tcp
+      published: '63015'
+      target: 3000
     restart: unless-stopped
   supabase-auth:
     container_name: atlas-supabase-auth
@@ -2696,9 +2937,9 @@ services:
       backend-network: null
     ports:
     - mode: ingress
-      target: 9999
-      published: '63014'
       protocol: tcp
+      published: '63014'
+      target: 9999
     restart: unless-stopped
   supabase-db:
     container_name: atlas-supabase-db
@@ -2708,12 +2949,12 @@ services:
       POSTGRES_PASSWORD: password
       POSTGRES_USER: supabase_admin
     healthcheck:
+      interval: 10s
+      retries: 5
       test:
       - CMD-SHELL
       - pg_isready -U supabase_admin -d postgres
       timeout: 5s
-      interval: 10s
-      retries: 5
     image: supabase/postgres:17.6.1.139
     logging:
       driver: json-file
@@ -2724,19 +2965,19 @@ services:
       backend-network: null
     ports:
     - mode: ingress
-      target: 5432
-      published: '63010'
       protocol: tcp
+      published: '63010'
+      target: 5432
     restart: unless-stopped
     volumes:
-    - type: volume
-      source: supabase-db-data
+    - source: supabase-db-data
       target: /var/lib/postgresql/data
+      type: volume
       volume: {}
-    - type: bind
+    - bind: {}
       source: '{REPO_ROOT}/services/supabase/db/snapshot'
       target: /snapshot
-      bind: {}
+      type: bind
   supabase-db-init:
     container_name: atlas-supabase-db-init
     depends_on:
@@ -2755,10 +2996,10 @@ services:
       backend-network: null
     restart: 'no'
     volumes:
-    - type: bind
+    - bind: {}
       source: '{REPO_ROOT}/services/supabase/db/scripts'
       target: /scripts
-      bind: {}
+      type: bind
   supabase-meta:
     container_name: atlas-supabase-meta
     depends_on:
@@ -2782,9 +3023,9 @@ services:
       backend-network: null
     ports:
     - mode: ingress
-      target: 8080
-      published: '63012'
       protocol: tcp
+      published: '63012'
+      target: 8080
     restart: unless-stopped
   supabase-realtime:
     container_name: atlas-supabase-realtime
@@ -2829,9 +3070,9 @@ services:
       backend-network: null
     ports:
     - mode: ingress
-      target: 4000
-      published: '63016'
       protocol: tcp
+      published: '63016'
+      target: 4000
     restart: unless-stopped
   supabase-storage:
     container_name: atlas-supabase-storage
@@ -2864,14 +3105,14 @@ services:
       backend-network: null
     ports:
     - mode: ingress
-      target: 5000
-      published: '63013'
       protocol: tcp
+      published: '63013'
+      target: 5000
     restart: unless-stopped
     volumes:
-    - type: volume
-      source: supabase-storage-data
+    - source: supabase-storage-data
       target: /var/lib/storage
+      type: volume
       volume: {}
   supabase-studio:
     container_name: atlas-supabase-studio
@@ -2909,13 +3150,13 @@ services:
       SUPABASE_SERVICE_KEY: ''
       SUPABASE_URL: http://kong-api-gateway:8000
     healthcheck:
+      interval: 30s
+      retries: 5
+      start_period: 30s
       test:
       - CMD-SHELL
       - node -e 'require("net").createConnection({port:3000,host:"localhost"},()=>process.exit(0)).on("error",()=>process.exit(1))'
       timeout: 10s
-      interval: 30s
-      retries: 5
-      start_period: 30s
     image: supabase/studio:2026.06.22-sha-2207d7f
     logging:
       driver: json-file
@@ -2926,9 +3167,9 @@ services:
       backend-network: null
     ports:
     - mode: ingress
-      target: 3000
-      published: '63017'
       protocol: tcp
+      published: '63017'
+      target: 3000
     restart: unless-stopped
   tei-reranker:
     command:
@@ -2949,15 +3190,15 @@ services:
     extra_hosts:
     - host.docker.internal=
     healthcheck:
+      interval: 30s
+      retries: 5
+      start_period: 2m0s
       test:
       - CMD
       - curl
       - -fs
       - http://localhost/health
       timeout: 5s
-      interval: 30s
-      retries: 5
-      start_period: 2m0s
     image: __TEI_RERANKER_CPU_IMAGE__
     logging:
       driver: json-file
@@ -2968,14 +3209,14 @@ services:
       backend-network: null
     ports:
     - mode: ingress
-      target: 80
-      published: '63031'
       protocol: tcp
+      published: '63031'
+      target: 80
     restart: unless-stopped
     volumes:
-    - type: volume
-      source: tei-reranker-data
+    - source: tei-reranker-data
       target: /data
+      type: volume
       volume: {}
   weaviate:
     container_name: atlas-weaviate
@@ -3021,6 +3262,8 @@ services:
     extra_hosts:
     - host.docker.internal=
     healthcheck:
+      interval: 10s
+      retries: 5
       test:
       - CMD
       - wget
@@ -3028,8 +3271,6 @@ services:
       - -q
       - http://localhost:8080/v1/.well-known/ready
       timeout: 5s
-      interval: 10s
-      retries: 5
     image: cr.weaviate.io/semitechnologies/weaviate:1.38.2
     logging:
       driver: json-file
@@ -3040,27 +3281,27 @@ services:
       backend-network: null
     ports:
     - mode: ingress
-      target: 8080
+      protocol: tcp
       published: '63027'
-      protocol: tcp
+      target: 8080
     - mode: ingress
-      target: 50051
-      published: '63028'
       protocol: tcp
+      published: '63028'
+      target: 50051
     restart: unless-stopped
     volumes:
-    - type: volume
-      source: weaviate-data
+    - source: weaviate-data
       target: /var/lib/weaviate
+      type: volume
       volume: {}
-    - type: volume
-      source: weaviate-shared-config
+    - source: weaviate-shared-config
       target: /shared
+      type: volume
       volume: {}
-    - type: bind
+    - bind: {}
       source: '{REPO_ROOT}/services/weaviate/init/scripts'
       target: /scripts
-      bind: {}
+      type: bind
   weaviate-init:
     container_name: atlas-weaviate-init
     depends_on:
@@ -3085,21 +3326,21 @@ services:
       backend-network: null
     restart: 'no'
     volumes:
-    - type: bind
+    - bind: {}
       source: '{REPO_ROOT}/services/weaviate/init/scripts'
       target: /scripts
-      bind: {}
-    - type: volume
-      source: weaviate-shared-config
+      type: bind
+    - source: weaviate-shared-config
       target: /shared
+      type: volume
       volume: {}
   zeppelin:
     build:
-      context: '{REPO_ROOT}/services/zeppelin/build'
-      dockerfile: Dockerfile
       args:
         BASE_IMAGE: apache/zeppelin:0.12.1
         SPARK_IMAGE: apache/spark:4.1.2
+      context: '{REPO_ROOT}/services/zeppelin/build'
+      dockerfile: Dockerfile
     container_name: atlas-zeppelin
     depends_on:
       spark-init:
@@ -3145,15 +3386,15 @@ services:
       ZEPPELIN_NOTEBOOK_DIR: /notebook
       ZEPPELIN_PORT: '8080'
     healthcheck:
+      interval: 30s
+      retries: 5
+      start_period: 1m0s
       test:
       - CMD
       - curl
       - -fsS
       - http://localhost:8080/
       timeout: 10s
-      interval: 30s
-      retries: 5
-      start_period: 1m0s
     image: atlas-zeppelin:local
     logging:
       driver: json-file
@@ -3164,18 +3405,18 @@ services:
       backend-network: null
     ports:
     - mode: ingress
-      target: 8080
-      published: '63085'
       protocol: tcp
+      published: '63085'
+      target: 8080
     restart: unless-stopped
     volumes:
-    - type: bind
+    - bind: {}
       source: '{REPO_ROOT}/services/zeppelin/notebooks'
       target: /notebook
-      bind: {}
-    - type: volume
-      source: zeppelin-logs
+      type: bind
+    - source: zeppelin-logs
       target: /logs
+      type: volume
       volume: {}
   zeppelin-init:
     container_name: atlas-zeppelin-init
@@ -3213,98 +3454,100 @@ services:
       backend-network: null
     restart: 'no'
     volumes:
-    - type: bind
+    - bind: {}
+      read_only: true
       source: '{REPO_ROOT}/services/zeppelin/init/scripts'
       target: /scripts
-      read_only: true
-      bind: {}
-networks:
-  backend-network:
-    name: atlas-network
-    driver: bridge
+      type: bind
 volumes:
   airflow-logs:
+    driver: local
     name: atlas-airflow-logs
-    driver: local
   backend-data:
+    driver: local
     name: atlas-backend-data
-    driver: local
   comfyui-custom-nodes:
+    driver: local
     name: atlas-comfyui-custom-nodes
-    driver: local
   comfyui-input:
+    driver: local
     name: atlas-comfyui-input
-    driver: local
   comfyui-models:
+    driver: local
     name: atlas-comfyui-models
-    driver: local
   comfyui-output:
+    driver: local
     name: atlas-comfyui-output
-    driver: local
   grafana-data:
+    driver: local
     name: atlas-grafana-data
-    driver: local
   graph-db-data:
+    driver: local
     name: atlas-graph-db-data
-    driver: local
   hermes-data:
+    driver: local
     name: atlas-hermes-data
-    driver: local
   jenkins-home:
+    driver: local
     name: atlas-jenkins-home
-    driver: local
   jupyterhub-data:
-    name: atlas-jupyterhub-data
     driver: local
+    name: atlas-jupyterhub-data
+  langfuse-clickhouse-data:
+    driver: local
+    name: atlas-langfuse-clickhouse-data
+  langfuse-clickhouse-logs:
+    driver: local
+    name: atlas-langfuse-clickhouse-logs
   lightrag-data:
     name: atlas-lightrag-data
   llm-provider-data:
+    driver: local
     name: atlas-llm-provider-data
-    driver: local
   local-deep-researcher-data:
+    driver: local
     name: atlas-local-deep-researcher-data
-    driver: local
   local-deep-researcher-repo:
+    driver: local
     name: atlas-local-deep-researcher-repo
-    driver: local
   minio-data:
+    driver: local
     name: atlas-minio-data
-    driver: local
   n8n-data:
+    driver: local
     name: atlas-n8n-data
-    driver: local
   open-web-ui-data:
+    driver: local
     name: atlas-open-web-ui-data
-    driver: local
   openclaw-config:
+    driver: local
     name: atlas-openclaw-config
-    driver: local
   openclaw-workspace:
+    driver: local
     name: atlas-openclaw-workspace
-    driver: local
   prometheus-data:
+    driver: local
     name: atlas-prometheus-data
-    driver: local
   redis-data:
+    driver: local
     name: atlas-redis-data
-    driver: local
   searxng-data:
+    driver: local
     name: atlas-searxng-data
-    driver: local
   supabase-db-data:
+    driver: local
     name: atlas-supabase-db-data
-    driver: local
   supabase-storage-data:
-    name: atlas-supabase-storage-data
     driver: local
+    name: atlas-supabase-storage-data
   tei-reranker-data:
     name: atlas-tei-reranker-data
   weaviate-data:
+    driver: local
     name: atlas-weaviate-data
-    driver: local
   weaviate-shared-config:
+    driver: local
     name: atlas-weaviate-shared-config
-    driver: local
   zeppelin-logs:
-    name: atlas-zeppelin-logs
     driver: local
+    name: atlas-zeppelin-logs
