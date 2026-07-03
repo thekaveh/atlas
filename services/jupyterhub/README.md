@@ -36,7 +36,8 @@ JUPYTERHUB_SOURCE=disabled
 - **Pre-installed AI Libraries**: OpenAI SDK (pointed at LiteLLM), LangChain, LlamaIndex, Transformers
 - **Database Clients**: Weaviate, Neo4j, PostgreSQL, Redis, Supabase
 - **Lakehouse Clients**: PySpark Connect, `boto3`, `s3fs`, `pyiceberg`, `pyarrow`, and `duckdb` for MinIO + Iceberg REST workflows
-- **Sample Notebooks**: 11 ready-to-use notebooks (00-10) demonstrating service integration
+- **Financial Research Kit**: OpenBB + CCXT libraries and a guarded paper-portfolio notebook for read-only market research
+- **Sample Notebooks**: 12 ready-to-use notebooks (00-11) demonstrating service integration
 - **Persistent Storage**: All notebooks saved in Docker volumes
 - **Environment Variables**: Auto-configured connections to all services
 - **Multi-kernel runtime**: Python 3 (default) plus **Scala 2.13** and **Scala 3** kernels via Almond. Pick one from JupyterLab's launcher or VS Code's kernel picker. See §11.
@@ -81,6 +82,7 @@ JUPYTERHUB_TOKEN=               # Optional: authentication token
 | `08_scala_basics.ipynb` | Scala 3 syntax, `import $ivy` dependency loading, calling LiteLLM from Scala, Scala-3 enums + extension methods. Opens on the `scala3` kernel. |
 | `09_spark_connect.ipynb` | Distributed Spark via the `spark-connect` sidecar (DataFrame/SQL + an s3a MinIO round-trip). Requires `SPARK_SOURCE != disabled`. |
 | `10_spark_scala.ipynb` | The Scala counterpart to 09 — Spark Connect from the **Scala 2.13** kernel via `import $ivy.\`org.apache.spark::spark-connect-client-jvm:4.1.2\``. |
+| `11_financial_research_kit.ipynb` | Read-only OpenBB + CCXT market research, paper portfolio analytics, optional MinIO datasets, MLflow paper-run metrics, and LiteLLM summaries. No live trading. |
 
 ## 6. Service Integration Examples
 

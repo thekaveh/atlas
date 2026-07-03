@@ -57,6 +57,11 @@ tracks:
     services: [spark, airflow, jupyterhub, zeppelin, jenkins, supavisor, minio, iceberg-rest, trino,
                redpanda, weaviate, neo4j]
 
+  - key: trading
+    display_name: Trading / Financial Research
+    description: Read-only financial research and paper portfolios in notebooks; no live trading.
+    services: [jupyterhub, minio, mlflow, langfuse]
+
   - key: all
     display_name: All / Custom
     description: Every configurable service — full wizard, no filtering.

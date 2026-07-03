@@ -35,7 +35,7 @@ def test_list_tracks_exits_zero():
 def test_list_tracks_lists_every_track():
     r = _run("--list-tracks")
     for key in ("gen-ai-rag", "gen-ai-eng", "gen-ai-creative",
-                "ml-eng", "data-eng", "all"):
+                "ml-eng", "data-eng", "trading", "all"):
         assert key in r.stdout, f"--list-tracks must mention {key}; stdout={r.stdout!r}"
 
 

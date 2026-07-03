@@ -257,6 +257,10 @@ EXPECTED_IN_TRACK: dict[str, set[str]] = {
         "minio", "weaviate", "neo4j-graph-db",
         "llm-provider", "prometheus", "grafana",
     },
+    "trading": {
+        "jupyterhub", "minio",
+        "llm-provider", "prometheus", "grafana",
+    },
 }
 
 ALL_DISCOVERED: set[str] = set().union(*EXPECTED_IN_TRACK.values())

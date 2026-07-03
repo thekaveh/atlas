@@ -130,7 +130,7 @@ Pin the submodule to a release **tag** rather than tracking `main`, so infra upg
 | **`BASE_PORT`** | Moves the entire host-published port block (default `63000`). `./start.sh --base-port 64000`. Does not affect in-network addresses. | `.env` / flag |
 | **`BRAND_*`** | Rebrands the wizard/banner (name, tagline, author, repo URL, license) — make Atlas present as your platform. | `.env` (`BRAND_*` block) |
 | **`*_SOURCE`** | Enable/disable each service or pick its backend (`container` / `container-gpu` / `localhost` / `disabled`). LLMs use `ollama-container-*` / `ollama-localhost` / `none`; cloud providers toggle via the separate `CLOUD_*_SOURCE` vars. Disable what your showcase doesn't use. | `.env` / `--<svc>-source` |
-| **`--track`** | Start a curated subset (`gen-ai-rag`, `gen-ai-eng`, `gen-ai-creative`, `ml-eng`, `data-eng`, `all`). `--track gen-ai-rag` is the natural fit for a RAG showcase. | flag |
+| **`--track`** | Start a curated subset (`gen-ai-rag`, `gen-ai-eng`, `gen-ai-creative`, `ml-eng`, `data-eng`, `trading`, `all`). `--track gen-ai-rag` is the natural fit for a RAG showcase. | flag |
 | **`services/_user/` overlay** | Drop your own co-located service into `services/_user/<name>/compose.yml` (gitignored upstream, so it never leaks into Atlas PRs); the bootstrapper auto-merges and launches it. | [§6.1](#61-extending-the-stack-via-services_user) |
 | **`BACKEND_PLUGINS_DIR` plugin seam** | Mount a directory of FastAPI route packages into the backend app to add your own API routes — no fork of `services/backend/` required. | [§6.2](#62-adding-backend-api-routes-via-the-plugin-seam) |
 
