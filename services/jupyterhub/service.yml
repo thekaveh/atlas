@@ -84,6 +84,7 @@ runtime_adaptive:
     - doc_processor
     - ray
     - mlflow
+    - label-studio
     environment_adaptation:
       LITELLM_BASE_URL: http://litellm:4000
       LITELLM_API_KEY: ${LITELLM_MASTER_KEY}
@@ -95,6 +96,9 @@ runtime_adaptive:
       DOCLING_ENDPOINT: ${DOCLING_ENDPOINT}
       RAY_ADDRESS: ${RAY_ADDRESS}
       MLFLOW_TRACKING_URI: ${MLFLOW_TRACKING_URI}
+      LABEL_STUDIO_URL: ${LABEL_STUDIO_ENDPOINT}
+      LABEL_STUDIO_API_URL: ${LABEL_STUDIO_API_URL}
+      LABEL_STUDIO_API_KEY: ${LABEL_STUDIO_USER_TOKEN}
     extra_hosts_adaptation: inherit from llm_provider
 
 runtime_deps:
@@ -113,9 +117,10 @@ runtime_deps:
     - iceberg-rest
     - spark
     - mlflow
+    - label-studio
     info_message: JupyterHub enabled - will connect to available optional services
       (neo4j, searxng, n8n, weaviate, comfyui, parakeet, speaches, chatterbox, docling,
-      minio, iceberg-rest, spark, mlflow)
+      minio, iceberg-rest, spark, mlflow, label-studio)
 
 data_flow:
   # Mirrors the compose-injected env surface the bundled notebooks use:
@@ -138,3 +143,4 @@ data_flow:
     - minio
     - iceberg-rest
     - mlflow
+    - label-studio

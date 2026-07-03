@@ -1,0 +1,114 @@
+# services/label-studio/service.yml — Label Studio annotation UI/API
+name: label-studio
+label: "Label Studio (dataset review + annotation)"
+category: apps
+docs: services/label-studio/README.md
+
+containers:
+  - label-studio-init
+  - label-studio
+
+images:
+  - var: LABEL_STUDIO_IMAGE
+    default: "heartexlabs/label-studio:1.23.0"
+    container: label-studio
+  - var: LABEL_STUDIO_INIT_IMAGE
+    default: "alpine:3.22"
+    container: label-studio-init
+
+sources:
+  var: LABEL_STUDIO_SOURCE
+  default: disabled
+  options:
+    - id: container
+      label: "Container (Label Studio annotation UI + API)"
+    - id: disabled
+      label: "Disabled"
+
+env:
+  - name: LABEL_STUDIO_SOURCE
+    default: disabled
+  - name: LABEL_STUDIO_PORT
+    description: "Host port for the Label Studio UI/API (in-container 8080)."
+  - name: LABEL_STUDIO_ENDPOINT
+    auto_managed: true
+    description: "In-network URL for Atlas services and notebooks."
+  - name: LABEL_STUDIO_API_URL
+    auto_managed: true
+    description: "Notebook/backend API URL; empty when Label Studio is disabled."
+  - name: LABEL_STUDIO_SCALE
+    auto_managed: true
+  - name: LABEL_STUDIO_INIT_SCALE
+    auto_managed: true
+  - name: LABEL_STUDIO_DB_NAME
+    default: label_studio
+  - name: LABEL_STUDIO_DB_USER
+    default: label_studio
+  - name: LABEL_STUDIO_DB_PASSWORD
+    default: ""
+    secret: true
+    description: "Auto-generated Postgres password for the dedicated Label Studio database role."
+  - name: LABEL_STUDIO_USERNAME
+    default: admin@atlas.local
+    description: "Initial Label Studio admin email passed to upstream USERNAME."
+  - name: LABEL_STUDIO_PASSWORD
+    default: ""
+    secret: true
+    description: "Auto-generated initial Label Studio admin password."
+  - name: LABEL_STUDIO_USER_TOKEN
+    default: ""
+    secret: true
+    description: "Auto-generated legacy API token for notebook/API smoke paths."
+  - name: LABEL_STUDIO_SECRET_KEY
+    default: ""
+    secret: true
+    description: "Django SECRET_KEY used by the Label Studio container."
+
+depends_on:
+  required:
+    - supabase
+    - minio
+  optional:
+    - jupyterhub
+    - mlflow
+
+rows:
+  - display_name: "Label Studio"
+    source_var: LABEL_STUDIO_SOURCE
+    port_var: LABEL_STUDIO_PORT
+    scale_var: LABEL_STUDIO_SCALE
+    alias: label-studio.localhost
+    description: "Human review, labeling, and annotation loops for ML/RAG datasets."
+
+runtime_sc:
+  label-studio-init:
+    container:
+      scale: 1
+      environment: {}
+      deploy: {}
+      extra_hosts: []
+    disabled:
+      scale: 0
+      environment: {}
+      deploy: {}
+      extra_hosts: []
+  label-studio:
+    container:
+      scale: 1
+      environment:
+        LABEL_STUDIO_ENDPOINT: http://label-studio:8080
+        LABEL_STUDIO_API_URL: http://label-studio:8080
+      deploy: {}
+      extra_hosts: []
+    disabled:
+      scale: 0
+      environment:
+        LABEL_STUDIO_ENDPOINT: ''
+        LABEL_STUDIO_API_URL: ''
+      deploy: {}
+      extra_hosts: []
+
+data_flow:
+  calls:
+    - supabase
+    - minio

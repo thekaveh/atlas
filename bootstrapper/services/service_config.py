@@ -202,6 +202,7 @@ class ServiceConfig:
 
         # Generate MLflow configuration (hard-gated on MinIO artifact storage)
         env_vars.update(self._generate_mlflow_config())
+        env_vars.update(self._generate_label_studio_config())
 
         # Generate curated MCP servers configuration (hard-gated on graph/search targets)
         mcp_servers_config = self._generate_mcp_servers_config()
@@ -956,6 +957,33 @@ class ServiceConfig:
             "MLFLOW_SCALE": "1",
             "MLFLOW_ENDPOINT": "http://mlflow:5000",
             "MLFLOW_TRACKING_URI": "http://mlflow:5000",
+        }
+
+    def _generate_label_studio_config(self) -> dict:
+        """Generate Label Studio scales and notebook/API endpoint."""
+        source = self.service_sources.get("LABEL_STUDIO_SOURCE", "disabled")
+        if source == "disabled":
+            return {
+                "LABEL_STUDIO_INIT_SCALE": "0",
+                "LABEL_STUDIO_SCALE": "0",
+                "LABEL_STUDIO_ENDPOINT": "",
+                "LABEL_STUDIO_API_URL": "",
+            }
+
+        minio_source = self.service_sources.get("MINIO_SOURCE", "disabled")
+        if minio_source == "disabled":
+            raise ValueError(
+                "Label Studio requires MinIO to be enabled for S3-compatible "
+                "media and export storage. Either pass --minio-source container "
+                "alongside --label-studio-source container, or set "
+                "--label-studio-source disabled."
+            )
+
+        return {
+            "LABEL_STUDIO_INIT_SCALE": "1",
+            "LABEL_STUDIO_SCALE": "1",
+            "LABEL_STUDIO_ENDPOINT": "http://label-studio:8080",
+            "LABEL_STUDIO_API_URL": "http://label-studio:8080",
         }
 
     def _generate_mcp_servers_config(self) -> dict:

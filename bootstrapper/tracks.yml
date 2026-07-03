@@ -49,7 +49,7 @@ tracks:
     display_name: ML Engineering
     description: Distributed training/inference + notebooks + experiment storage.
     services: [spark, ray, jupyterhub, zeppelin, open-webui, supavisor, minio, tei-reranker,
-               langfuse, otel-collector, tempo, loki, mlflow]
+               langfuse, otel-collector, tempo, loki, mlflow, label-studio]
 
   - key: data-eng
     display_name: Data Engineering
