@@ -34,6 +34,19 @@ services:
       AIRFLOW__FAB__AUTH_BACKENDS: airflow.providers.fab.auth_manager.api.auth.backend.basic_auth
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
       AIRFLOW_UID: "50000"
+      SPARK_MASTER_URL: spark://spark-master:7077
+      ATLAS_LAKEHOUSE_SPARK_DEPLOY_MODE: cluster
+      ATLAS_LAKEHOUSE_SMOKE_JAR_PATH: /opt/airflow/atlas-jars/atlas-lakehouse-smoke.jar
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_REGION: ${MINIO_REGION:-us-east-1}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_BUCKET_ICEBERG_JARS: ${MINIO_BUCKET_ICEBERG_JARS:-jars}
+      MINIO_BUCKET_ICEBERG_LANDING: ${MINIO_BUCKET_ICEBERG_LANDING:-landing}
+      MINIO_BUCKET_ICEBERG_LAKEHOUSE: ${MINIO_BUCKET_ICEBERG_LAKEHOUSE:-lakehouse}
+      MINIO_ICEBERG_ACCESS_KEY: ${MINIO_ICEBERG_ACCESS_KEY}
+      MINIO_ICEBERG_SECRET_KEY: ${MINIO_ICEBERG_SECRET_KEY}
+      ICEBERG_REST_URI: http://iceberg-rest:8181
     volumes:
       - ./dags:/opt/airflow/dags
       - airflow-logs:/opt/airflow/logs
@@ -107,6 +120,19 @@ services:
       AIRFLOW__FAB__AUTH_BACKENDS: airflow.providers.fab.auth_manager.api.auth.backend.basic_auth
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
       AIRFLOW_UID: "50000"
+      SPARK_MASTER_URL: spark://spark-master:7077
+      ATLAS_LAKEHOUSE_SPARK_DEPLOY_MODE: cluster
+      ATLAS_LAKEHOUSE_SMOKE_JAR_PATH: /opt/airflow/atlas-jars/atlas-lakehouse-smoke.jar
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_REGION: ${MINIO_REGION:-us-east-1}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_BUCKET_ICEBERG_JARS: ${MINIO_BUCKET_ICEBERG_JARS:-jars}
+      MINIO_BUCKET_ICEBERG_LANDING: ${MINIO_BUCKET_ICEBERG_LANDING:-landing}
+      MINIO_BUCKET_ICEBERG_LAKEHOUSE: ${MINIO_BUCKET_ICEBERG_LAKEHOUSE:-lakehouse}
+      MINIO_ICEBERG_ACCESS_KEY: ${MINIO_ICEBERG_ACCESS_KEY}
+      MINIO_ICEBERG_SECRET_KEY: ${MINIO_ICEBERG_SECRET_KEY}
+      ICEBERG_REST_URI: http://iceberg-rest:8181
     volumes:
       - ./dags:/opt/airflow/dags
       - airflow-logs:/opt/airflow/logs
@@ -163,6 +189,19 @@ services:
       AIRFLOW__FAB__AUTH_BACKENDS: airflow.providers.fab.auth_manager.api.auth.backend.basic_auth
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
       AIRFLOW_UID: "50000"
+      SPARK_MASTER_URL: spark://spark-master:7077
+      ATLAS_LAKEHOUSE_SPARK_DEPLOY_MODE: cluster
+      ATLAS_LAKEHOUSE_SMOKE_JAR_PATH: /opt/airflow/atlas-jars/atlas-lakehouse-smoke.jar
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_REGION: ${MINIO_REGION:-us-east-1}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_BUCKET_ICEBERG_JARS: ${MINIO_BUCKET_ICEBERG_JARS:-jars}
+      MINIO_BUCKET_ICEBERG_LANDING: ${MINIO_BUCKET_ICEBERG_LANDING:-landing}
+      MINIO_BUCKET_ICEBERG_LAKEHOUSE: ${MINIO_BUCKET_ICEBERG_LAKEHOUSE:-lakehouse}
+      MINIO_ICEBERG_ACCESS_KEY: ${MINIO_ICEBERG_ACCESS_KEY}
+      MINIO_ICEBERG_SECRET_KEY: ${MINIO_ICEBERG_SECRET_KEY}
+      ICEBERG_REST_URI: http://iceberg-rest:8181
     volumes:
       - ./dags:/opt/airflow/dags
       - airflow-logs:/opt/airflow/logs
@@ -222,8 +261,10 @@ services:
       # NEO4J_GRAPH_DB_SOURCE is the canonical name (NEO4J_SOURCE does not exist).
       SPARK_SOURCE: ${SPARK_SOURCE:-disabled}
       MINIO_SOURCE: ${MINIO_SOURCE:-disabled}
+      ICEBERG_REST_SOURCE: ${ICEBERG_REST_SOURCE:-disabled}
       WEAVIATE_SOURCE: ${WEAVIATE_SOURCE:-disabled}
       NEO4J_GRAPH_DB_SOURCE: ${NEO4J_GRAPH_DB_SOURCE:-disabled}
+      ATLAS_LAKEHOUSE_SPARK_DEPLOY_MODE: cluster
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}

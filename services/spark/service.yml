@@ -98,6 +98,10 @@ runtime_sc:
       scale: 1
       environment:
         SPARK_MASTER_HOST: spark-master
+        SPARK_MASTER_OPTS: >-
+          -Dspark.master.rest.enabled=true
+          -Dspark.master.rest.host=spark-master
+          -Dspark.master.rest.port=6066
       deploy: {}
       extra_hosts: []
     disabled:
@@ -108,7 +112,11 @@ runtime_sc:
   spark-worker:
     container:
       scale: 2   # overridden by SPARK_WORKER_COUNT via auto_managed SPARK_WORKER_SCALE
-      environment: {}
+      environment:
+        AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+        AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+        AWS_REGION: ${MINIO_REGION:-us-east-1}
+        AWS_ENDPOINT_URL_S3: http://minio:9000
       deploy: {}
       extra_hosts: []
     disabled:

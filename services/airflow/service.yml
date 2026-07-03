@@ -86,6 +86,7 @@ depends_on:
   optional:
     - spark
     - minio
+    - iceberg-rest
     - weaviate
     - neo4j
     # NOTE: prometheus integration is documented as a Known follow-up
@@ -100,7 +101,7 @@ rows:
     port_var: AIRFLOW_PORT
     scale_var: AIRFLOW_WEBSERVER_SCALE
     alias: airflow.localhost
-    description: "Code-defined DAG orchestrator. LocalExecutor + LLM operators."
+    description: "Code-defined DAG orchestrator. LocalExecutor + SparkSubmit lakehouse jobs."
 
 exports: []
 
@@ -121,6 +122,19 @@ runtime_sc:
         AIRFLOW__FAB__AUTH_BACKENDS: "airflow.providers.fab.auth_manager.api.auth.backend.basic_auth"
         AIRFLOW__CORE__LOAD_EXAMPLES: "false"
         AIRFLOW_UID: "50000"
+        SPARK_MASTER_URL: spark://spark-master:7077
+        ATLAS_LAKEHOUSE_SPARK_DEPLOY_MODE: cluster
+        ATLAS_LAKEHOUSE_SMOKE_JAR_PATH: /opt/airflow/atlas-jars/atlas-lakehouse-smoke.jar
+        MINIO_ENDPOINT: http://minio:9000
+        MINIO_REGION: ${MINIO_REGION:-us-east-1}
+        MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+        MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+        MINIO_BUCKET_ICEBERG_JARS: ${MINIO_BUCKET_ICEBERG_JARS:-jars}
+        MINIO_BUCKET_ICEBERG_LANDING: ${MINIO_BUCKET_ICEBERG_LANDING:-landing}
+        MINIO_BUCKET_ICEBERG_LAKEHOUSE: ${MINIO_BUCKET_ICEBERG_LAKEHOUSE:-lakehouse}
+        MINIO_ICEBERG_ACCESS_KEY: ${MINIO_ICEBERG_ACCESS_KEY}
+        MINIO_ICEBERG_SECRET_KEY: ${MINIO_ICEBERG_SECRET_KEY}
+        ICEBERG_REST_URI: http://iceberg-rest:8181
       deploy: {}
       extra_hosts: []
     disabled:
@@ -145,6 +159,19 @@ runtime_sc:
         AIRFLOW__FAB__AUTH_BACKENDS: "airflow.providers.fab.auth_manager.api.auth.backend.basic_auth"
         AIRFLOW__CORE__LOAD_EXAMPLES: "false"
         AIRFLOW_UID: "50000"
+        SPARK_MASTER_URL: spark://spark-master:7077
+        ATLAS_LAKEHOUSE_SPARK_DEPLOY_MODE: cluster
+        ATLAS_LAKEHOUSE_SMOKE_JAR_PATH: /opt/airflow/atlas-jars/atlas-lakehouse-smoke.jar
+        MINIO_ENDPOINT: http://minio:9000
+        MINIO_REGION: ${MINIO_REGION:-us-east-1}
+        MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+        MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+        MINIO_BUCKET_ICEBERG_JARS: ${MINIO_BUCKET_ICEBERG_JARS:-jars}
+        MINIO_BUCKET_ICEBERG_LANDING: ${MINIO_BUCKET_ICEBERG_LANDING:-landing}
+        MINIO_BUCKET_ICEBERG_LAKEHOUSE: ${MINIO_BUCKET_ICEBERG_LAKEHOUSE:-lakehouse}
+        MINIO_ICEBERG_ACCESS_KEY: ${MINIO_ICEBERG_ACCESS_KEY}
+        MINIO_ICEBERG_SECRET_KEY: ${MINIO_ICEBERG_SECRET_KEY}
+        ICEBERG_REST_URI: http://iceberg-rest:8181
       deploy: {}
       extra_hosts: []
     disabled:
@@ -166,6 +193,19 @@ runtime_sc:
         AIRFLOW__FAB__AUTH_BACKENDS: "airflow.providers.fab.auth_manager.api.auth.backend.basic_auth"
         AIRFLOW__CORE__LOAD_EXAMPLES: "false"
         AIRFLOW_UID: "50000"
+        SPARK_MASTER_URL: spark://spark-master:7077
+        ATLAS_LAKEHOUSE_SPARK_DEPLOY_MODE: cluster
+        ATLAS_LAKEHOUSE_SMOKE_JAR_PATH: /opt/airflow/atlas-jars/atlas-lakehouse-smoke.jar
+        MINIO_ENDPOINT: http://minio:9000
+        MINIO_REGION: ${MINIO_REGION:-us-east-1}
+        MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+        MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+        MINIO_BUCKET_ICEBERG_JARS: ${MINIO_BUCKET_ICEBERG_JARS:-jars}
+        MINIO_BUCKET_ICEBERG_LANDING: ${MINIO_BUCKET_ICEBERG_LANDING:-landing}
+        MINIO_BUCKET_ICEBERG_LAKEHOUSE: ${MINIO_BUCKET_ICEBERG_LAKEHOUSE:-lakehouse}
+        MINIO_ICEBERG_ACCESS_KEY: ${MINIO_ICEBERG_ACCESS_KEY}
+        MINIO_ICEBERG_SECRET_KEY: ${MINIO_ICEBERG_SECRET_KEY}
+        ICEBERG_REST_URI: http://iceberg-rest:8181
       deploy: {}
       extra_hosts: []
     disabled:
@@ -198,8 +238,10 @@ runtime_sc:
         # NEO4J_GRAPH_DB_SOURCE is the canonical name (not NEO4J_SOURCE).
         SPARK_SOURCE: ${SPARK_SOURCE:-disabled}
         MINIO_SOURCE: ${MINIO_SOURCE:-disabled}
+        ICEBERG_REST_SOURCE: ${ICEBERG_REST_SOURCE:-disabled}
         WEAVIATE_SOURCE: ${WEAVIATE_SOURCE:-disabled}
         NEO4J_GRAPH_DB_SOURCE: ${NEO4J_GRAPH_DB_SOURCE:-disabled}
+        ATLAS_LAKEHOUSE_SPARK_DEPLOY_MODE: cluster
         # Credentials passed through to airflow-init for use by the
         # connection-seeding helper (litellm + minio + supabase + the
         # dedicated airflow Postgres role).
@@ -243,6 +285,7 @@ data_flow:
     - supabase
     - spark
     - minio
+    - iceberg-rest
     - litellm
     - weaviate
     - neo4j
