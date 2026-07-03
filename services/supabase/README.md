@@ -261,6 +261,7 @@ _No upstream calls._
 | comfyui | media |
 | airflow | agents |
 | lightrag | agents |
+| mcp-servers | agents |
 | n8n | agents |
 | backend | apps |
 | jupyterhub | apps |

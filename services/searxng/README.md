@@ -75,6 +75,7 @@ _No upstream calls._
 |---|---|
 | kong | infra |
 | hermes | agents |
+| mcp-servers | agents |
 | n8n | agents |
 | jupyterhub | apps |
 | local-deep-researcher | apps |

@@ -79,6 +79,10 @@ EXPECTED_DISCOVERED = frozenset({
     # track. Single-container family; wired via 'jenkins_source' in
     # source_mapping.
     "Jenkins",
+    # Curated MCP Servers (added 2026-07-03) — disabled-by-default MCP
+    # tool package for Postgres, Neo4j, and SearXNG. Single-container
+    # family; wired via 'mcp_servers_source' in source_mapping.
+    "Curated MCP Servers",
     # TEI Reranker (added 2026-06-05) — GPU-accelerated reranker inference.
     # Single-container family; wired via 'tei_reranker_source' in
     # source_mapping with container-cpu / container-gpu / localhost / disabled.

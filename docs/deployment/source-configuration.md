@@ -28,6 +28,7 @@ This matrix lists every `*_SOURCE` variable currently exposed in `.env.example`.
 | `MINIO_SOURCE` | `container` | `container`, `disabled` | User-facing | S3-compatible artifact-tier object storage. |
 | `N8N_SOURCE` | `container` | `container`, `disabled` | User-facing | Workflow automation. |
 | `SEARXNG_SOURCE` | `container` | `container`, `disabled` | User-facing | Privacy metasearch. |
+| `MCP_SERVERS_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Curated MCP package exposing read-oriented Postgres, Neo4j, and SearXNG tools. Hard-gated on Neo4j and SearXNG. |
 | `OPENCLAW_SOURCE` | `disabled` | `container`, `localhost`, `disabled` | User-facing | AI messaging agent. |
 | `HERMES_SOURCE` | `container` | `container`, `localhost`, `disabled` | User-facing | Programmable AI agent runtime (Nous Research). Routes reasoning through LiteLLM and appears as the `hermes-agent` model to every consumer. |
 | `STT_PROVIDER_SOURCE` | `speaches-container-cpu` | `speaches-container-cpu`, `speaches-container-gpu`, `parakeet-container-gpu`, `parakeet-localhost`, `whisper-cpp-localhost`, `disabled` | User-facing optional | Speech-to-text provider. Speaches is the CPU-friendly default; Parakeet remains for SOTA NVIDIA; whisper.cpp is the best Apple Silicon native option. |
@@ -622,6 +623,30 @@ AIRFLOW_DB_PASSWORD=...                 # auto-generated
 - **Cons**: ~2 GB image disk + ~1.5 GB RAM for the webserver + scheduler + dag-processor combo
 - **Containers**: `airflow-init` (one-shot), `airflow-webserver`, `airflow-scheduler`, `airflow-dag-processor` (Airflow 3.x REQUIRES a standalone DAG processor — the scheduler no longer parses DAGs in-process)
 - **Requirements**: Supabase Postgres reachable (always-on)
+
+### 4.16 MCP_SERVERS_SOURCE
+
+Curated MCP Servers expose Atlas' first Model Context Protocol tool surface. The first slice is intentionally narrow: read-only Postgres queries, Neo4j schema/read Cypher, and SearXNG web search over Streamable HTTP at `/mcp`. Open WebUI and Hermes should consume it directly where possible; LiteLLM MCP Gateway remains an explicit opt-in path for model-facing tools under LiteLLM policy.
+
+#### 4.16.1 `disabled` (Default)
+```bash
+MCP_SERVERS_SOURCE=disabled
+```
+- **Use case**: Default safe startup; no shared tool surface is exposed.
+- **Pros**: No extra credential or prompt-injection surface.
+- **Cons**: MCP-native clients do not get Atlas database/search tools.
+- **Requirements**: None.
+
+#### 4.16.2 `container`
+```bash
+MCP_SERVERS_SOURCE=container
+NEO4J_GRAPH_DB_SOURCE=container   # REQUIRED
+SEARXNG_SOURCE=container          # REQUIRED
+```
+- **Use case**: Give MCP-native clients a small, reviewed Atlas tool package.
+- **Pros**: One curated endpoint for Postgres, Neo4j, and SearXNG; no one-server-per-service sprawl; Kong alias `mcp.localhost`.
+- **Cons**: Tool output is untrusted and may include sensitive local data; clients need explicit operator consent and credentials.
+- **Requirements**: `NEO4J_GRAPH_DB_SOURCE=container` and `SEARXNG_SOURCE=container`.
 
 ## 5. Configuration Patterns
 

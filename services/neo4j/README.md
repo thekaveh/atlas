@@ -228,6 +228,7 @@ _No upstream calls._
 | kong | infra |
 | airflow | agents |
 | lightrag | agents |
+| mcp-servers | agents |
 | jupyterhub | apps |
 
 ### 13.3 Architecture diagram

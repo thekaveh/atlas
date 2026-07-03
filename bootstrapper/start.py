@@ -921,6 +921,7 @@ class AtlasStarter:
             'OPENCLAW_BRIDGE_PORT',
             'HERMES_API_PORT',
             'HERMES_DASHBOARD_PORT',
+            'MCP_SERVERS_PORT',
             'TEI_RERANKER_PORT',
             'LIGHTRAG_API_PORT',
             'ICEBERG_REST_PORT',
@@ -2051,6 +2052,9 @@ class AtlasStarter:
 @click.option('--searxng-source',
               type=click.Choice(['container', 'disabled'], case_sensitive=False),
               help='Override SEARXNG_SOURCE')
+@click.option('--mcp-servers-source',
+              type=click.Choice(['container', 'disabled'], case_sensitive=False),
+              help='Override MCP_SERVERS_SOURCE')
 @click.option('--jupyterhub-source',
               type=click.Choice(['container', 'disabled'], case_sensitive=False),
               help='Override JUPYTERHUB_SOURCE')
@@ -2161,6 +2165,7 @@ def main(project_name, base_port, track, list_tracks, cold, setup_hosts, skip_ho
          ollama_models, ollama_custom_models,
          comfyui_models, comfyui_custom_models_file,
          comfyui_source, weaviate_source, minio_source, n8n_source, searxng_source,
+         mcp_servers_source,
          jupyterhub_source, open_web_ui_source, local_deep_researcher_source,
          stt_provider_source, tts_provider_source,
          doc_processor_source, openclaw_source, hermes_source,
@@ -2215,6 +2220,7 @@ def main(project_name, base_port, track, list_tracks, cold, setup_hosts, skip_ho
                     'minio_source': minio_source,
                     'n8n_source': n8n_source,
                     'searxng_source': searxng_source,
+                    'mcp_servers_source': mcp_servers_source,
                     'jupyterhub_source': jupyterhub_source,
                     'open_web_ui_source': open_web_ui_source,
                     'local_deep_researcher_source': local_deep_researcher_source,
@@ -2425,6 +2431,7 @@ def main(project_name, base_port, track, list_tracks, cold, setup_hosts, skip_ho
             'minio_source': minio_source,
             'n8n_source': n8n_source,
             'searxng_source': searxng_source,
+            'mcp_servers_source': mcp_servers_source,
             'jupyterhub_source': jupyterhub_source,
             'open_web_ui_source': open_web_ui_source,
             'local_deep_researcher_source': local_deep_researcher_source,

@@ -231,13 +231,15 @@ def test_predicate_unknown_track_does_not_skip():
 EXPECTED_IN_TRACK: dict[str, set[str]] = {
     "gen-ai-rag": {
         "open-web-ui", "weaviate", "neo4j-graph-db", "lightrag",
-        "doc-processor", "tei-reranker", "searxng", "local-deep-researcher",
+        "doc-processor", "tei-reranker", "searxng", "mcp-servers",
+        "local-deep-researcher",
         # always-on:
         "llm-provider", "prometheus", "grafana",
     },
     "gen-ai-eng": {
         "open-web-ui", "n8n", "hermes", "openclaw", "jupyterhub", "comfyui",
-        "stt-provider", "tts-provider", "searxng", "local-deep-researcher",
+        "neo4j-graph-db", "stt-provider", "tts-provider", "searxng",
+        "mcp-servers", "local-deep-researcher",
         "llm-provider", "prometheus", "grafana",
     },
     "gen-ai-creative": {

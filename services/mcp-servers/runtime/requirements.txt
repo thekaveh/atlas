@@ -1,0 +1,4 @@
+mcp>=1.8,<2
+neo4j==5.28.2
+psycopg[binary]==3.2.9
+requests==2.32.4

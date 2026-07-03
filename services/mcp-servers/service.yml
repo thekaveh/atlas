@@ -1,0 +1,78 @@
+# services/mcp-servers/service.yml — curated MCP servers package
+name: mcp-servers
+label: "Curated MCP Servers"
+category: agents
+docs: services/mcp-servers/README.md
+
+containers:
+  - mcp-servers
+
+images:
+  - var: MCP_SERVERS_IMAGE
+    default: "python:3.12-slim"
+    container: mcp-servers
+    notes: "Used as build-arg BASE_IMAGE in build/Dockerfile."
+
+sources:
+  var: MCP_SERVERS_SOURCE
+  default: disabled
+  options:
+    - id: container
+      label: "Container (read-only Postgres, Neo4j, SearXNG tools)"
+    - id: disabled
+      label: "Disabled"
+
+env:
+  - name: MCP_SERVERS_SOURCE
+    default: disabled
+    description: "Curated MCP package source. Disabled by default because MCP tools can reach stack internals."
+  - name: MCP_SERVERS_PORT
+    description: "Host port for the curated MCP Streamable HTTP endpoint (container port 8000)."
+  - name: MCP_SERVERS_SCALE
+    auto_managed: true
+    description: "Replicas: 1 when MCP_SERVERS_SOURCE=container, else 0."
+  - name: MCP_POSTGRES_MAX_ROWS
+    default: "50"
+    description: "Maximum rows returned by the Postgres MCP query tool."
+  - name: MCP_SEARXNG_MAX_RESULTS
+    default: "5"
+    description: "Maximum SearXNG results returned by the web-search MCP tool."
+  - name: MCP_TOOL_TIMEOUT_SECONDS
+    default: "15"
+    description: "Timeout for upstream database/search calls made by MCP tools."
+
+depends_on:
+  required:
+    - supabase
+    - neo4j
+    - searxng
+  optional: []
+
+exports: []
+
+rows:
+  - display_name: "Curated MCP Servers"
+    source_var: MCP_SERVERS_SOURCE
+    port_var: MCP_SERVERS_PORT
+    scale_var: MCP_SERVERS_SCALE
+    alias: mcp.localhost
+    description: "Read-oriented Postgres, Neo4j, and SearXNG MCP tools."
+
+runtime_sc:
+  mcp-servers:
+    container:
+      scale: 1
+      environment: {}
+      deploy: {}
+      extra_hosts: []
+    disabled:
+      scale: 0
+      environment: {}
+      deploy: {}
+      extra_hosts: []
+
+data_flow:
+  calls:
+    - supabase
+    - neo4j
+    - searxng
