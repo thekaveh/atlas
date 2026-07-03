@@ -59,10 +59,12 @@ def test_zeppelin_manifest_currently_stays_existing_service_shape() -> None:
         "disabled",
     ]
     assert manifest["depends_on"]["required"] == ["spark"]
+    assert "iceberg-rest" in manifest["depends_on"]["optional"]
     assert manifest["rows"][0]["alias"] == "zeppelin.localhost"
     assert manifest["runtime_sc"]["zeppelin"]["container"]["environment"][
         "SPARK_MASTER"
     ] == "spark://spark-master:7077"
+    assert manifest["runtime_sc"]["zeppelin-init"]["container"]["scale"] == 1
 
 
 def test_zeppelin_readme_no_longer_claims_connect_is_happy_path() -> None:
@@ -80,10 +82,9 @@ def test_zeppelin_compose_comments_follow_backend_decision() -> None:
     compose = COMPOSE.read_text()
     compact = _compact(compose)
 
-    assert "The #247 backend" in compact
-    assert "decision keeps Zeppelin on the documented spark-submit" in compact
-    assert "#211 must provide SPARK_HOME" in compact
-    assert "Do not treat `spark.remote` /" in compact
-    assert "Spark Connect as the Zeppelin happy path" in compact
+    assert "SPARK_HOME: /opt/spark" in compose
+    assert "SPARK_MASTER: spark://spark-master:7077" in compose
+    assert "spark.sql.catalog.lakehouse.uri=http://iceberg-rest:8181" in compact
+    assert "zeppelin-init" in compose
     assert "supported out-of-the-box route is Spark Connect" not in compose
     assert "Users who want to drive Connect from Zeppelin" not in compose

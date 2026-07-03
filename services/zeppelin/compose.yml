@@ -1,18 +1,12 @@
 # services/zeppelin/compose.yml — Spark-first notebook UI
 services:
   zeppelin:
-    # Stock apache/zeppelin:0.12.1. The image does NOT bundle a full
-    # Spark distribution — its `interpreter/spark/` dir contains only
-    # the interpreter shim (spark-interpreter-0.12.0.jar +
-    # scala-2.13/), no spark-core, no SPARK_HOME. The #247 backend
-    # decision keeps Zeppelin on the documented spark-submit /
-    # standalone-cluster path, so #211 must provide SPARK_HOME plus
-    # seeded interpreter settings before fresh %spark lakehouse
-    # notebooks are zero-touch. Do not treat `spark.remote` /
-    # Spark Connect as the Zeppelin happy path; Spark 4 rejects that
-    # when Zeppelin's stock launcher also passes master/deploy-mode
-    # configuration.
-    image: ${ZEPPELIN_IMAGE:-apache/zeppelin:0.12.1}
+    build:
+      context: ./build
+      args:
+        BASE_IMAGE: ${ZEPPELIN_IMAGE:-apache/zeppelin:0.12.1}
+        SPARK_IMAGE: ${SPARK_IMAGE:-apache/spark:4.1.2}
+    image: ${PROJECT_NAME}-zeppelin:local
     container_name: ${PROJECT_NAME}-zeppelin
     restart: unless-stopped
     deploy:
@@ -27,21 +21,38 @@ services:
       ZEPPELIN_PORT: "8080"
       ZEPPELIN_LOG_DIR: /logs
       ZEPPELIN_NOTEBOOK_DIR: /notebook
-      # SPARK_MASTER / SPARK_SUBMIT_OPTIONS apply on the spark-submit
-      # launch path, which still needs SPARK_HOME inside the Zeppelin
-      # runtime. #211 is expected to make this complete by adding a
-      # bundled/mounted Spark runtime and idempotent lakehouse
-      # interpreter seeding.
+      JAVA_HOME: /opt/java/openjdk
+      SPARK_HOME: /opt/spark
       SPARK_MASTER: spark://spark-master:7077
-      # NOTE: Zeppelin's Spark interpreter does NOT read
-      # SPARK_CONNECT_URL — `SparkInterpreterLauncher` only honors the
-      # spark-submit style settings. Keep Spark Connect for clients such
-      # as JupyterHub that use the Spark Connect API directly.
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_REGION: ${MINIO_REGION:-us-east-1}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_BUCKET_ICEBERG_LAKEHOUSE: ${MINIO_BUCKET_ICEBERG_LAKEHOUSE:-lakehouse}
+      MINIO_ICEBERG_ACCESS_KEY: ${MINIO_ICEBERG_ACCESS_KEY}
+      MINIO_ICEBERG_SECRET_KEY: ${MINIO_ICEBERG_SECRET_KEY}
+      ICEBERG_REST_URI: http://iceberg-rest:8181
       SPARK_SUBMIT_OPTIONS: >-
+        --conf spark.submit.deployMode=client
+        --conf spark.driver.bindAddress=0.0.0.0
+        --conf spark.driver.host=zeppelin
         --conf spark.hadoop.fs.s3a.endpoint=http://minio:9000
         --conf spark.hadoop.fs.s3a.access.key=${MINIO_ROOT_USER}
         --conf spark.hadoop.fs.s3a.secret.key=${MINIO_ROOT_PASSWORD}
         --conf spark.hadoop.fs.s3a.path.style.access=true
+        --conf spark.hadoop.fs.s3a.endpoint.region=${MINIO_REGION:-us-east-1}
+        --conf spark.hadoop.fs.s3a.connection.ssl.enabled=false
+        --conf spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions
+        --conf spark.sql.catalog.lakehouse=org.apache.iceberg.spark.SparkCatalog
+        --conf spark.sql.catalog.lakehouse.type=rest
+        --conf spark.sql.catalog.lakehouse.uri=http://iceberg-rest:8181
+        --conf spark.sql.catalog.lakehouse.warehouse=s3a://${MINIO_BUCKET_ICEBERG_LAKEHOUSE:-lakehouse}/
+        --conf spark.sql.catalog.lakehouse.io-impl=org.apache.iceberg.aws.s3.S3FileIO
+        --conf spark.sql.catalog.lakehouse.s3.endpoint=http://minio:9000
+        --conf spark.sql.catalog.lakehouse.s3.path-style-access=true
+        --conf spark.sql.catalog.lakehouse.s3.access-key-id=${MINIO_ICEBERG_ACCESS_KEY}
+        --conf spark.sql.catalog.lakehouse.s3.secret-access-key=${MINIO_ICEBERG_SECRET_KEY}
+        --conf spark.sql.catalog.lakehouse.client.region=${MINIO_REGION:-us-east-1}
         --conf spark.eventLog.enabled=true
         --conf spark.eventLog.dir=s3a://spark-history/
       ZEPPELIN_JDBC_POSTGRES_URL: jdbc:postgresql://supabase-db:5432/${SUPABASE_DB_NAME}
@@ -70,6 +81,39 @@ services:
       options:
         max-size: "${LOG_MAX_SIZE:-10m}"
         max-file: "${LOG_MAX_FILE:-3}"
+    networks:
+      - backend-network
+
+  zeppelin-init:
+    image: ${ZEPPELIN_INIT_IMAGE:-python:3.12-alpine}
+    container_name: ${PROJECT_NAME}-zeppelin-init
+    restart: "no"
+    deploy:
+      replicas: ${ZEPPELIN_INIT_SCALE:-0}
+    depends_on:
+      zeppelin:
+        condition: service_healthy
+      spark-init:
+        condition: service_completed_successfully
+      minio-init:
+        condition: service_completed_successfully
+    environment:
+      ZEPPELIN_URL: http://zeppelin:8080
+      JAVA_HOME: /opt/java/openjdk
+      SPARK_HOME: /opt/spark
+      SPARK_MASTER: spark://spark-master:7077
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_REGION: ${MINIO_REGION:-us-east-1}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_BUCKET_ICEBERG_LAKEHOUSE: ${MINIO_BUCKET_ICEBERG_LAKEHOUSE:-lakehouse}
+      MINIO_ICEBERG_ACCESS_KEY: ${MINIO_ICEBERG_ACCESS_KEY}
+      MINIO_ICEBERG_SECRET_KEY: ${MINIO_ICEBERG_SECRET_KEY}
+      ICEBERG_REST_URI: http://iceberg-rest:8181
+      ICEBERG_REST_SOURCE: ${ICEBERG_REST_SOURCE:-disabled}
+    volumes:
+      - ./init/scripts:/scripts:ro
+    entrypoint: ["python", "/scripts/seed-spark-interpreter.py"]
     networks:
       - backend-network
 

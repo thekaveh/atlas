@@ -5,11 +5,15 @@ docs: services/zeppelin/README.md
 
 containers:
   - zeppelin
+  - zeppelin-init
 
 images:
   - var: ZEPPELIN_IMAGE
     default: "apache/zeppelin:0.12.1"
     container: zeppelin
+  - var: ZEPPELIN_INIT_IMAGE
+    default: "python:3.12-alpine"
+    container: zeppelin-init
 
 sources:
   var: ZEPPELIN_SOURCE
@@ -28,6 +32,8 @@ env:
     description: "Host port for the Zeppelin Web UI (in-container 8080)."
   - name: ZEPPELIN_SCALE
     auto_managed: true
+  - name: ZEPPELIN_INIT_SCALE
+    auto_managed: true
   - name: ZEPPELIN_MEMORY_LIMIT
     default: 2g
     description: "Container memory limit for the zeppelin container (deploy.resources.limits.memory). Zeppelin's JVM-based interpreter host typically uses under 1 g for a single-user session; 2 g leaves comfortable headroom on a 32 GB host."
@@ -41,6 +47,7 @@ depends_on:
   optional:
     - supabase
     - minio
+    - iceberg-rest
     # litellm: removed (was aspirational). No env vars are wired to the
     # gateway in zeppelin's compose/runtime_sc and the README says users
     # wire LiteLLM themselves. Re-add only if zeppelin starts injecting
@@ -64,17 +71,67 @@ runtime_sc:
         ZEPPELIN_PORT: "8080"
         ZEPPELIN_LOG_DIR: /logs
         ZEPPELIN_NOTEBOOK_DIR: /notebook
+        JAVA_HOME: /opt/java/openjdk
+        SPARK_HOME: /opt/spark
         SPARK_MASTER: "spark://spark-master:7077"
+        MINIO_ENDPOINT: http://minio:9000
+        MINIO_REGION: ${MINIO_REGION:-us-east-1}
+        MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+        MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+        MINIO_BUCKET_ICEBERG_LAKEHOUSE: ${MINIO_BUCKET_ICEBERG_LAKEHOUSE:-lakehouse}
+        MINIO_ICEBERG_ACCESS_KEY: ${MINIO_ICEBERG_ACCESS_KEY}
+        MINIO_ICEBERG_SECRET_KEY: ${MINIO_ICEBERG_SECRET_KEY}
+        ICEBERG_REST_URI: http://iceberg-rest:8181
         SPARK_SUBMIT_OPTIONS: >-
+          --conf spark.submit.deployMode=client
+          --conf spark.driver.bindAddress=0.0.0.0
+          --conf spark.driver.host=zeppelin
           --conf spark.hadoop.fs.s3a.endpoint=http://minio:9000
           --conf spark.hadoop.fs.s3a.access.key=${MINIO_ROOT_USER}
           --conf spark.hadoop.fs.s3a.secret.key=${MINIO_ROOT_PASSWORD}
           --conf spark.hadoop.fs.s3a.path.style.access=true
+          --conf spark.hadoop.fs.s3a.endpoint.region=${MINIO_REGION:-us-east-1}
+          --conf spark.hadoop.fs.s3a.connection.ssl.enabled=false
+          --conf spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions
+          --conf spark.sql.catalog.lakehouse=org.apache.iceberg.spark.SparkCatalog
+          --conf spark.sql.catalog.lakehouse.type=rest
+          --conf spark.sql.catalog.lakehouse.uri=http://iceberg-rest:8181
+          --conf spark.sql.catalog.lakehouse.warehouse=s3a://${MINIO_BUCKET_ICEBERG_LAKEHOUSE:-lakehouse}/
+          --conf spark.sql.catalog.lakehouse.io-impl=org.apache.iceberg.aws.s3.S3FileIO
+          --conf spark.sql.catalog.lakehouse.s3.endpoint=http://minio:9000
+          --conf spark.sql.catalog.lakehouse.s3.path-style-access=true
+          --conf spark.sql.catalog.lakehouse.s3.access-key-id=${MINIO_ICEBERG_ACCESS_KEY}
+          --conf spark.sql.catalog.lakehouse.s3.secret-access-key=${MINIO_ICEBERG_SECRET_KEY}
+          --conf spark.sql.catalog.lakehouse.client.region=${MINIO_REGION:-us-east-1}
           --conf spark.eventLog.enabled=true
           --conf spark.eventLog.dir=s3a://spark-history/
         ZEPPELIN_JDBC_POSTGRES_URL: "jdbc:postgresql://supabase-db:5432/${SUPABASE_DB_NAME}"
         ZEPPELIN_JDBC_POSTGRES_USER: "${SUPABASE_DB_USER}"
         ZEPPELIN_JDBC_POSTGRES_PASSWORD: "${SUPABASE_DB_PASSWORD}"
+      deploy: {}
+      extra_hosts: []
+    disabled:
+      scale: 0
+      environment: {}
+      deploy: {}
+      extra_hosts: []
+  zeppelin-init:
+    container:
+      scale: 1
+      environment:
+        ZEPPELIN_URL: http://zeppelin:8080
+        JAVA_HOME: /opt/java/openjdk
+        SPARK_HOME: /opt/spark
+        SPARK_MASTER: "spark://spark-master:7077"
+        MINIO_ENDPOINT: http://minio:9000
+        MINIO_REGION: ${MINIO_REGION:-us-east-1}
+        MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+        MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+        MINIO_BUCKET_ICEBERG_LAKEHOUSE: ${MINIO_BUCKET_ICEBERG_LAKEHOUSE:-lakehouse}
+        MINIO_ICEBERG_ACCESS_KEY: ${MINIO_ICEBERG_ACCESS_KEY}
+        MINIO_ICEBERG_SECRET_KEY: ${MINIO_ICEBERG_SECRET_KEY}
+        ICEBERG_REST_URI: http://iceberg-rest:8181
+        ICEBERG_REST_SOURCE: ${ICEBERG_REST_SOURCE:-disabled}
       deploy: {}
       extra_hosts: []
     disabled:
@@ -94,3 +151,4 @@ data_flow:
     - spark
     - supabase
     - minio
+    - iceberg-rest

@@ -40,6 +40,7 @@ Atlas builds a small local image from `ICEBERG_REST_IMAGE` because the upstream 
 | spark | data |
 | airflow | agents |
 | jupyterhub | apps |
+| zeppelin | apps |
 
 ### 5.3 Architecture diagram
 

@@ -38,7 +38,7 @@ This matrix lists every `*_SOURCE` variable currently exposed in `.env.example`.
 | `RAY_SOURCE` | `disabled` | `ray-container-cpu`, `ray-container-gpu`, `disabled` | User-facing optional | Distributed compute cluster (head + workers). Backend `/api/ray/*` and notebook 07 light up when enabled. |
 | `AIRFLOW_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Workflow orchestration with seeded Connections and SparkSubmit/S3A lakehouse smoke. |
 | `SPARK_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Spark master/workers + Connect sidecar + history server; lakehouse-ready when Iceberg REST is enabled. |
-| `ZEPPELIN_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Zeppelin notebooks; pairs with Spark via Spark Connect (hard-gated on `SPARK_SOURCE=container`). |
+| `ZEPPELIN_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Zeppelin notebooks; seeded for standalone Spark (`spark://spark-master:7077`) plus MinIO/Iceberg (hard-gated on `SPARK_SOURCE=container`). |
 | `ICEBERG_REST_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Internal Iceberg REST catalog backed by Supabase Postgres and MinIO lakehouse buckets. |
 | `MULTI2VEC_CLIP_SOURCE` | `container-cpu` | `container-cpu`, `container-gpu`, `disabled` | User-facing optional | Multimodal Weaviate vectorizer. |
 | `LIGHTRAG_SOURCE` | `disabled` | `container`, `localhost`, `disabled` | User-facing optional | Graph-augmented RAG server. Storage adapts to Supabase pgvector, Neo4j, Redis. |
@@ -513,7 +513,7 @@ GRAFANA_ADMIN_PASSWORD=...       # auto-generated on first bootstrap; persisted 
 
 ### 4.11 SPARK_SOURCE
 
-Spark is a standalone Apache Spark cluster (master + N workers + history server + dedicated `spark-connect` gRPC sidecar + one-shot `spark-init`) sitting in the `data` band. It exposes a Spark Connect endpoint on `:15002` via the sidecar for in-stack thin clients. JupyterHub receives `SPARK_REMOTE=sc://spark-connect:15002` for PySpark Connect notebooks, Zeppelin receives the same endpoint for its Spark interpreter, and backend wiring remains a future service-level integration. Spark master URL (`spark://spark-master:7077`) and the Spark Connect URL (`sc://spark-connect:15002`) are baked into the Zeppelin interpreter env at compose-render time. The local Spark image also bakes `iceberg-spark-runtime-4.1_2.13:1.11.0` plus `iceberg-aws-bundle:1.11.0` and preconfigures a `lakehouse` Iceberg REST catalog at `http://iceberg-rest:8181`, including MinIO S3FileIO endpoint, scoped Iceberg service-account credentials, path-style access, and `client.region=us-east-1`; this catalog is active when `ICEBERG_REST_SOURCE=container` and inert for ML-only Spark users who leave Iceberg REST disabled. JupyterHub also carries `boto3`, `s3fs`, `pyiceberg[s3fs]`, `pyarrow`, and `duckdb` with MinIO and Iceberg REST env so Python notebooks can list buckets, load the REST catalog, and query Arrow data locally. See [Spark service README](../../services/spark/README.md) and [JupyterHub service README](../../services/jupyterhub/README.md) for the client paths.
+Spark is a standalone Apache Spark cluster (master + N workers + history server + dedicated `spark-connect` gRPC sidecar + one-shot `spark-init`) sitting in the `data` band. It exposes a Spark Connect endpoint on `:15002` via the sidecar for in-stack thin clients. JupyterHub receives `SPARK_REMOTE=sc://spark-connect:15002` for PySpark Connect notebooks, while Zeppelin is seeded for the stock standalone Spark interpreter path (`spark.master=spark://spark-master:7077`) because Zeppelin's launcher uses `spark-submit`. Backend wiring remains a future service-level integration. The local Spark image also bakes `iceberg-spark-runtime-4.1_2.13:1.11.0` plus `iceberg-aws-bundle:1.11.0` and preconfigures a `lakehouse` Iceberg REST catalog at `http://iceberg-rest:8181`, including MinIO S3FileIO endpoint, scoped Iceberg service-account credentials, path-style access, and `client.region=us-east-1`; this catalog is active when `ICEBERG_REST_SOURCE=container` and inert for ML-only Spark users who leave Iceberg REST disabled. JupyterHub also carries `boto3`, `s3fs`, `pyiceberg[s3fs]`, `pyarrow`, and `duckdb` with MinIO and Iceberg REST env so Python notebooks can list buckets, load the REST catalog, and query Arrow data locally. See [Spark service README](../../services/spark/README.md), [JupyterHub service README](../../services/jupyterhub/README.md), and [Zeppelin service README](../../services/zeppelin/README.md) for the client paths.
 
 #### 4.11.1 `disabled` (Default)
 ```bash
@@ -546,7 +546,7 @@ Cross-encoder reranker inference server (default model `mixedbread-ai/mxbai-rera
 
 ### 4.13 ZEPPELIN_SOURCE
 
-Zeppelin is the Spark-first notebook UI. The Spark interpreter is pre-configured against the in-cluster master + Spark Connect; the JDBC interpreter ships with Supabase Postgres credentials in env vars but requires a one-time UI-driven `postgres` profile setup (see [Zeppelin service README](../../services/zeppelin/README.md) §4). **Hard-gated on Spark** — `ZEPPELIN_SOURCE=container` with `SPARK_SOURCE=disabled` errors out at bootstrap.
+Zeppelin is the Spark-first notebook UI. `zeppelin-init` pre-configures the stock Spark interpreter against the in-cluster standalone master (`spark.master=spark://spark-master:7077`) plus MinIO S3A and the Iceberg REST `lakehouse` catalog; Spark Connect remains the JupyterHub/direct-client path. The JDBC interpreter ships with Supabase Postgres credentials in env vars but requires a one-time UI-driven `postgres` profile setup (see [Zeppelin service README](../../services/zeppelin/README.md) §4). **Hard-gated on Spark** — `ZEPPELIN_SOURCE=container` with `SPARK_SOURCE=disabled` errors out at bootstrap.
 
 #### 4.13.1 `disabled` (Default)
 ```bash
@@ -563,9 +563,9 @@ ZEPPELIN_SOURCE=container
 SPARK_SOURCE=container   # REQUIRED — Zeppelin hard-fails without Spark
 ```
 - **Use case**: Web-based notebook authoring against the in-cluster Spark master
-- **Pros**: Pre-configured Spark interpreter (master RPC + Spark Connect gRPC + MinIO S3A), Kong-aliased UI at `zeppelin.localhost`, persists notebooks to a named volume. JDBC interpreter ships with credentials in env but needs a one-time UI setup.
+- **Pros**: Pre-configured Spark interpreter (standalone master RPC + MinIO S3A + Iceberg REST catalog), Kong-aliased UI at `zeppelin.localhost`, persists notebooks to a named volume. JDBC interpreter ships with credentials in env but needs a one-time UI setup.
 - **Cons**: Adds ~1.5 GB image disk + ~512 MB RAM
-- **Containers**: `zeppelin`
+- **Containers**: `zeppelin`, `zeppelin-init` (one-shot — seeds and restarts the Spark interpreter when Atlas-owned settings drift)
 - **Requirements**: `SPARK_SOURCE=container`
 
 ### 4.14 AIRFLOW_SOURCE

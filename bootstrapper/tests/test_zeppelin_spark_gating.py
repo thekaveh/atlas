@@ -9,6 +9,7 @@ def test_zeppelin_disabled_returns_scale_zero():
     sc.service_sources = {"ZEPPELIN_SOURCE": "disabled", "SPARK_SOURCE": "disabled"}
     out = sc._generate_zeppelin_config()
     assert out["ZEPPELIN_SCALE"] == "0"
+    assert out["ZEPPELIN_INIT_SCALE"] == "0"
 
 
 def test_zeppelin_container_with_spark_container_returns_scale_one():
@@ -16,6 +17,7 @@ def test_zeppelin_container_with_spark_container_returns_scale_one():
     sc.service_sources = {"ZEPPELIN_SOURCE": "container", "SPARK_SOURCE": "container"}
     out = sc._generate_zeppelin_config()
     assert out["ZEPPELIN_SCALE"] == "1"
+    assert out["ZEPPELIN_INIT_SCALE"] == "1"
 
 
 def test_zeppelin_container_with_spark_disabled_raises():
