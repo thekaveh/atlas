@@ -69,6 +69,7 @@ depends_on:
   optional:
     - supabase
     - iceberg-rest
+    - redpanda
 
 rows:
   - display_name: "Apache Spark"
@@ -98,6 +99,7 @@ runtime_sc:
       scale: 1
       environment:
         SPARK_MASTER_HOST: spark-master
+        SPARK_KAFKA_BOOTSTRAP_SERVERS: ${SPARK_KAFKA_BOOTSTRAP_SERVERS:-}
         SPARK_MASTER_OPTS: >-
           -Dspark.master.rest.enabled=true
           -Dspark.master.rest.host=spark-master
@@ -117,6 +119,7 @@ runtime_sc:
         AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
         AWS_REGION: ${MINIO_REGION:-us-east-1}
         AWS_ENDPOINT_URL_S3: http://minio:9000
+        SPARK_KAFKA_BOOTSTRAP_SERVERS: ${SPARK_KAFKA_BOOTSTRAP_SERVERS:-}
       deploy: {}
       extra_hosts: []
     disabled:
@@ -128,6 +131,7 @@ runtime_sc:
     container:
       scale: 1
       environment:
+        SPARK_KAFKA_BOOTSTRAP_SERVERS: ${SPARK_KAFKA_BOOTSTRAP_SERVERS:-}
         SPARK_HISTORY_OPTS: >-
           -Dspark.history.fs.logDirectory=s3a://spark-history/
           -Dspark.hadoop.fs.s3a.endpoint=http://minio:9000
@@ -148,7 +152,8 @@ runtime_sc:
     # listener. Backend-only; no host port.
     container:
       scale: 1
-      environment: {}
+      environment:
+        SPARK_KAFKA_BOOTSTRAP_SERVERS: ${SPARK_KAFKA_BOOTSTRAP_SERVERS:-}
       deploy: {}
       extra_hosts: []
     disabled:
@@ -169,3 +174,4 @@ data_flow:
   calls:
     - minio      # s3a:// history + user data
     - iceberg-rest  # lakehouse REST catalog when enabled
+    - redpanda  # optional Kafka API broker for Structured Streaming jobs

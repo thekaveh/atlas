@@ -132,6 +132,10 @@ EXPECTED_DISCOVERED = frozenset({
     # Trino (added 2026-07-03) — disabled-by-default SQL query engine over
     # the Iceberg REST + MinIO lakehouse path for the data-eng track.
     "Trino",
+    # Redpanda (added 2026-07-03) — disabled-by-default Kafka API streaming
+    # broker + console for the data-eng track. Single-row family wired via
+    # 'redpanda_source' in source_mapping.
+    "Redpanda Console",
 })
 
 

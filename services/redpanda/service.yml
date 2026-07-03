@@ -1,0 +1,123 @@
+# services/redpanda/service.yml - Redpanda Kafka-compatible streaming broker
+name: redpanda
+label: "Redpanda (Kafka API streaming)"
+category: data
+docs: services/redpanda/README.md
+
+containers:
+  - redpanda
+  - redpanda-init
+  - redpanda-console
+
+images:
+  - var: REDPANDA_IMAGE
+    default: "docker.redpanda.com/redpandadata/redpanda:v26.1.12"
+    container: redpanda
+    notes: "Pinned to the latest Redpanda 26.1.x maintenance release verified for multi-arch Docker images."
+  - var: REDPANDA_CONSOLE_IMAGE
+    default: "docker.redpanda.com/redpandadata/console:v3.8.0"
+    container: redpanda-console
+    notes: "Pinned to the latest Redpanda Console 3.8.x release."
+
+sources:
+  var: REDPANDA_SOURCE
+  default: disabled
+  options:
+    - id: container
+      label: "Container (Kafka API broker + console + demo topics)"
+    - id: disabled
+      label: "Disabled"
+
+env:
+  - name: REDPANDA_SOURCE
+    default: disabled
+  - name: REDPANDA_KAFKA_PORT
+    description: "Host port for the Redpanda Kafka API external listener (in-container 19092)."
+  - name: REDPANDA_CONSOLE_PORT
+    description: "Host port for Redpanda Console (in-container 8080)."
+  - name: REDPANDA_DEMO_TOPICS
+    default: atlas_stream_events
+    description: "Comma-separated Kafka topics created idempotently by redpanda-init."
+  - name: REDPANDA_SCALE
+    auto_managed: true
+  - name: REDPANDA_INIT_SCALE
+    auto_managed: true
+  - name: REDPANDA_CONSOLE_SCALE
+    auto_managed: true
+  - name: REDPANDA_BROKERS
+    auto_managed: true
+    description: "In-network Kafka bootstrap servers for Atlas services."
+  - name: SPARK_KAFKA_BOOTSTRAP_SERVERS
+    auto_managed: true
+    description: "Spark Structured Streaming Kafka bootstrap servers; blank when Redpanda is disabled."
+
+depends_on:
+  required: []
+  optional:
+    - spark
+    - jupyterhub
+    - zeppelin
+    - airflow
+    - iceberg-rest
+    - minio
+
+rows:
+  - display_name: "Redpanda Console"
+    source_var: REDPANDA_SOURCE
+    port_var: REDPANDA_CONSOLE_PORT
+    scale_var: REDPANDA_CONSOLE_SCALE
+    alias: redpanda.localhost
+    description: "Kafka-compatible streaming broker console for data-engineering pipelines."
+
+exports: []
+
+runtime_sc:
+  redpanda:
+    container:
+      scale: 1
+      environment:
+        REDPANDA_BROKERS: redpanda:9092
+      deploy: {}
+      extra_hosts: []
+    disabled:
+      scale: 0
+      environment:
+        REDPANDA_BROKERS: ''
+      deploy: {}
+      extra_hosts: []
+  redpanda-init:
+    container:
+      scale: 1
+      environment: {}
+      deploy: {}
+      extra_hosts: []
+    disabled:
+      scale: 0
+      environment: {}
+      deploy: {}
+      extra_hosts: []
+  redpanda-console:
+    container:
+      scale: 1
+      environment: {}
+      deploy: {}
+      extra_hosts: []
+    disabled:
+      scale: 0
+      environment: {}
+      deploy: {}
+      extra_hosts: []
+
+runtime_deps:
+  redpanda:
+    requires: []
+    optional:
+      - spark
+      - jupyterhub
+      - zeppelin
+      - airflow
+      - iceberg-rest
+      - minio
+
+data_flow:
+  calls: []

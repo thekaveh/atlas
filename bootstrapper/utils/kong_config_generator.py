@@ -229,6 +229,10 @@ class KongConfigGenerator:
         if trino_service:
             services.append(trino_service)
 
+        redpanda_service = self.generate_redpanda_service()
+        if redpanda_service:
+            services.append(redpanda_service)
+
         ray_service = self.generate_ray_service()
         if ray_service:
             services.append(ray_service)
@@ -1122,6 +1126,29 @@ class KongConfigGenerator:
                     'strip_path': False,
                     'preserve_host': True,
                     'hosts': ['trino.localhost'],
+                }
+            ],
+            'plugins': [
+                {'name': 'cors'},
+                {'name': 'basic-auth'},
+                {'name': 'acl', 'config': {'allow': ['dashboard_user']}},
+            ],
+        }
+
+    def generate_redpanda_service(self) -> Optional[Dict[str, Any]]:
+        """Generate authenticated Redpanda Console route based on SOURCE."""
+        if self.get_env_value('REDPANDA_SOURCE') != 'container':
+            return None
+
+        return {
+            'name': 'redpanda-console',
+            'url': 'http://redpanda-console:8080/',
+            'routes': [
+                {
+                    'name': 'redpanda-console-all',
+                    'strip_path': False,
+                    'preserve_host': True,
+                    'hosts': ['redpanda.localhost'],
                 }
             ],
             'plugins': [

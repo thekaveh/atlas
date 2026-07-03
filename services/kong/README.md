@@ -62,6 +62,7 @@ Plain `python3 scripts/check-kong-routes.py` works too if `PyYAML` is on your sy
 - `spark.localhost` → Spark Master Web UI (`SPARK_SOURCE != disabled`; routes to in-container `spark-master:8080`)
 - `spark-history.localhost` → Spark History Server UI (`SPARK_SOURCE != disabled`; routes to in-container `spark-history:18080`)
 - `trino.localhost` → Trino coordinator UI/API (`TRINO_SOURCE=container`; routes to in-container `trino:8080`)
+- `redpanda.localhost` → Redpanda Console (`REDPANDA_SOURCE=container`; routes to in-container `redpanda-console:8080`; Kafka API is direct/in-network, not Kong)
 - `zeppelin.localhost` → Zeppelin notebook UI (`ZEPPELIN_SOURCE != disabled`; routes to in-container `zeppelin:8080`; hard-gated on `SPARK_SOURCE != disabled`)
 - `airflow.localhost` → Airflow Web UI + REST API (`AIRFLOW_SOURCE != disabled`; routes to in-container `airflow-webserver:8080`; same alias serves UI at `/` and REST API under `/api/v2/`)
 - `lightrag.localhost` → http://lightrag:9621/ (LightRAG WebUI + API; `preserve_host` enabled)
@@ -182,6 +183,7 @@ curl -H "Host: minio.localhost" http://localhost:63000/
 curl -H "Host: spark.localhost" http://localhost:63000/
 curl -H "Host: spark-history.localhost" http://localhost:63000/
 curl -u "${DASHBOARD_USERNAME}:${DASHBOARD_PASSWORD}" -H "Host: trino.localhost" http://localhost:63000/
+curl -u "${DASHBOARD_USERNAME}:${DASHBOARD_PASSWORD}" -H "Host: redpanda.localhost" http://localhost:63000/
 curl -H "Host: zeppelin.localhost" http://localhost:63000/
 curl -H "Host: airflow.localhost" http://localhost:63000/
 # Airflow REST API (same alias). 3.x is JWT-only — exchange password

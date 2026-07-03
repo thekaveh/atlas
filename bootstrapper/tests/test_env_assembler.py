@@ -61,8 +61,8 @@ def test_omits_default_for_auto_managed_vars(
     assert "OLLAMA_SCALE=" in out
     assert "auto_managed" in out.lower() or "auto-managed" in out.lower()
     # Non-auto-managed port value comes from topology slot allocator, not manifest default.
-    # llm category, first slot: base_port=63000 + llm_offset=30 + slot=0 → 63030.
-    assert "OLLAMA_PORT=63030" in out
+    # llm category, first slot: base_port=63000 + llm_offset=40 + slot=0 → 63040.
+    assert "OLLAMA_PORT=63040" in out
 
 
 def test_emits_image_vars(services_root, write_manifest, full_manifest_dict):

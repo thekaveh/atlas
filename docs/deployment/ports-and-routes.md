@@ -39,6 +39,7 @@ Active aliases (every `*-localhost` source also routes through `host.docker.inte
 - `ollama.localhost` → Ollama upstream (`LLM_PROVIDER_SOURCE` is `ollama-container-*` or `ollama-localhost`)
 - `openclaw.localhost` → OpenClaw gateway (`OPENCLAW_SOURCE != disabled`)
 - `ray.localhost` → Ray dashboard (`RAY_SOURCE != disabled`)
+- `redpanda.localhost` → Redpanda Console (`REDPANDA_SOURCE=container`; Kafka API clients use direct `REDPANDA_KAFKA_PORT` or in-network `redpanda:9092`, not Kong)
 - `rerank.localhost` → TEI rerank API (`TEI_RERANKER_SOURCE != disabled`)
 - `research.localhost` → Local Deep Researcher (`LOCAL_DEEP_RESEARCHER_SOURCE != disabled`)
 - `search.localhost` → SearxNG (`SEARXNG_SOURCE != disabled`)

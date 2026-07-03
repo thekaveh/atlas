@@ -84,14 +84,14 @@ CATEGORY_FILLS: dict[str, str] = {
 #
 # Each category gets a contiguous range relative to BASE_PORT:
 #   infra:  BASE_PORT + 0..9      (Kong: HTTP+HTTPS take slots 0-1; 8 free)
-#   data:   BASE_PORT + 10..29    (Supabase 7 + MinIO 2 + Neo4j 2 + Redis 1 +
-#                                  Spark 2 + Weaviate 2 = 16; 4 free)
-#   llm:    BASE_PORT + 30..39    (LiteLLM: 1; 9 free)
-#   media:  BASE_PORT + 40..59    (ComfyUI/STT/TTS/Doc/Searx/Speaches/
+#   data:   BASE_PORT + 10..39    (Supabase, Redis, MinIO, Iceberg, Trino,
+#                                  Redpanda, Spark, Weaviate, Neo4j)
+#   llm:    BASE_PORT + 40..49    (LiteLLM + inference helpers)
+#   media:  BASE_PORT + 50..69    (ComfyUI/STT/TTS/Doc/Searx/Speaches/
 #                                  Chatterbox; ~7; 13 free)
-#   agents: BASE_PORT + 60..79    (Airflow + Hermes 2 + n8n + OpenClaw 2 = 6;
+#   agents: BASE_PORT + 70..89    (Airflow + Hermes 2 + n8n + OpenClaw 2 = 6;
 #                                  14 free)
-#   apps:   BASE_PORT + 80..99    (Backend + Open WebUI + JupyterHub + LDR +
+#   apps:   BASE_PORT + 90..109   (Backend + Open WebUI + JupyterHub + LDR +
 #                                  Zeppelin = 5; 15 free)
 #
 # Reserve generously — adding a new service inside a category shifts
@@ -99,11 +99,11 @@ CATEGORY_FILLS: dict[str, str] = {
 # Block sizes give ~2x headroom over today's ~33 used slots.
 CATEGORY_SLOTS: dict[str, tuple[int, int]] = {
     "infra":  (0,  10),
-    "data":   (10, 20),
-    "llm":    (30, 10),
-    "media":  (40, 20),
-    "agents": (60, 20),
-    "apps":   (80, 20),
+    "data":   (10, 30),
+    "llm":    (40, 10),
+    "media":  (50, 20),
+    "agents": (70, 20),
+    "apps":   (90, 20),
 }
 
 

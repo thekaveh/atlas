@@ -80,6 +80,7 @@ Caveats (why it's a documented helper, not a wired source):
 |---|---|
 | iceberg-rest | data |
 | minio | data |
+| redpanda | data |
 
 ### 5.2 Current — Downstream (services that call this)
 

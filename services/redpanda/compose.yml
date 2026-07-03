@@ -1,0 +1,98 @@
+# services/redpanda/compose.yml - Redpanda Kafka API broker + console
+services:
+  redpanda:
+    image: ${REDPANDA_IMAGE:-docker.redpanda.com/redpandadata/redpanda:v26.1.12}
+    container_name: ${PROJECT_NAME}-redpanda
+    restart: unless-stopped
+    deploy:
+      replicas: ${REDPANDA_SCALE:-0}
+    command:
+      - redpanda
+      - start
+      - --mode
+      - dev-container
+      - --smp
+      - "1"
+      - --memory
+      - 1G
+      - --reserve-memory
+      - 0M
+      - --overprovisioned
+      - --node-id
+      - "0"
+      - --check=false
+      - --kafka-addr
+      - internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr
+      - internal://redpanda:9092,external://localhost:${REDPANDA_KAFKA_PORT}
+      - --rpc-addr
+      - redpanda:33145
+      - --advertise-rpc-addr
+      - redpanda:33145
+    ports:
+      - "${HOST_BIND_IP:-}${REDPANDA_KAFKA_PORT}:19092"
+    volumes:
+      - redpanda-data:/var/lib/redpanda/data
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster info -X brokers=localhost:9092 >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "${LOG_MAX_SIZE:-10m}"
+        max-file: "${LOG_MAX_FILE:-3}"
+    networks:
+      - backend-network
+
+  redpanda-init:
+    image: ${REDPANDA_IMAGE:-docker.redpanda.com/redpandadata/redpanda:v26.1.12}
+    container_name: ${PROJECT_NAME}-redpanda-init
+    restart: "no"
+    deploy:
+      replicas: ${REDPANDA_INIT_SCALE:-0}
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    environment:
+      REDPANDA_DEMO_TOPICS: ${REDPANDA_DEMO_TOPICS:-atlas_stream_events}
+    entrypoint:
+      - /bin/bash
+      - /scripts/init-redpanda.sh
+    volumes:
+      - ./init/scripts:/scripts:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "${LOG_MAX_SIZE:-10m}"
+        max-file: "${LOG_MAX_FILE:-3}"
+    networks:
+      - backend-network
+
+  redpanda-console:
+    image: ${REDPANDA_CONSOLE_IMAGE:-docker.redpanda.com/redpandadata/console:v3.8.0}
+    container_name: ${PROJECT_NAME}-redpanda-console
+    restart: unless-stopped
+    deploy:
+      replicas: ${REDPANDA_CONSOLE_SCALE:-0}
+    ports:
+      - "${HOST_BIND_IP:-}${REDPANDA_CONSOLE_PORT}:8080"
+    environment:
+      KAFKA_BROKERS: redpanda:9092
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: "${LOG_MAX_SIZE:-10m}"
+        max-file: "${LOG_MAX_FILE:-3}"
+    networks:
+      - backend-network
+
+volumes:
+  redpanda-data:
+    name: ${PROJECT_NAME}-redpanda-data
+    driver: local

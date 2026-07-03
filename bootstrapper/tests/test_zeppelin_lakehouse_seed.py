@@ -48,6 +48,7 @@ def test_zeppelin_manifest_declares_lakehouse_init_family() -> None:
         "supabase",
         "minio",
         "iceberg-rest",
+        "redpanda",
     ]
 
     env_vars = {entry["name"]: entry for entry in manifest["env"]}

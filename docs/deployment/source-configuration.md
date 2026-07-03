@@ -54,6 +54,7 @@ This matrix lists every `*_SOURCE` variable currently exposed in `.env.example`.
 | `JENKINS_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Jenkins controller with Maven and MinIO JAR publishing seam for data-eng Spark apps. |
 | `ICEBERG_REST_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Internal Iceberg REST catalog backed by Supabase Postgres and MinIO lakehouse buckets. |
 | `TRINO_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | SQL query engine over the Iceberg REST + MinIO lakehouse path. Hard-gated on MinIO and Iceberg REST. |
+| `REDPANDA_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Kafka-compatible streaming broker and Console for the data-eng track. Spark receives `SPARK_KAFKA_BOOTSTRAP_SERVERS=redpanda:9092` when enabled. |
 | `MULTI2VEC_CLIP_SOURCE` | `container-cpu` | `container-cpu`, `container-gpu`, `disabled` | User-facing optional | Multimodal Weaviate vectorizer. |
 | `LIGHTRAG_SOURCE` | `disabled` | `container`, `localhost`, `disabled` | User-facing optional | Graph-augmented RAG server. Storage adapts to Supabase pgvector, Neo4j, Redis. |
 | `LOCAL_DEEP_RESEARCHER_SOURCE` | `container` | `container`, `disabled` | User-facing optional | Local research/orchestration service. |
@@ -312,10 +313,10 @@ WEAVIATE_SOURCE=disabled
 ```bash
 MINIO_SOURCE=container
 MINIO_ENDPOINT=http://minio:9000
-MINIO_PUBLIC_ENDPOINT=http://localhost:63018
+MINIO_PUBLIC_ENDPOINT=http://localhost:63020
 ```
 - **Use case**: S3-compatible artifact-tier object storage (ComfyUI outputs, Backend blobs, n8n files, JupyterHub datasets, Doc Processor output)
-- **Pros**: Five pre-provisioned buckets with scoped service-account credentials; complements Supabase Storage; admin console at `http://localhost:63019` (S3 API on `:63018`)
+- **Pros**: Five pre-provisioned buckets with scoped service-account credentials; complements Supabase Storage; admin console at `http://localhost:63021` (S3 API on `:63020`)
 - **Cons**: Container resource usage
 - **Requirements**: None
 
@@ -971,7 +972,7 @@ Understanding which services depend on others:
 ```bash
 # Check if service is running locally
 curl http://localhost:11434/api/tags  # Ollama (LiteLLM upstream when LLM_PROVIDER_SOURCE=ollama-localhost)
-curl http://localhost:63030/health/liveliness  # LiteLLM gateway (always-on)
+curl http://localhost:63040/health/liveliness  # LiteLLM gateway (always-on)
 curl http://localhost:8000/           # ComfyUI default localhost URL
 curl http://localhost:8188/           # ComfyUI if you overrode COMFYUI_LOCALHOST_PORT to 8188
 
@@ -985,7 +986,7 @@ docker logs ${PROJECT_NAME}-backend -f
 ./start.sh --base-port 64000
 
 # Check port usage (Open WebUI default; substitute your conflicting port)
-lsof -i :63082
+lsof -i :63096
 ```
 
 **Kong routing not working**:

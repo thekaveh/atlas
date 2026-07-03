@@ -25,6 +25,7 @@ include:
   - services/minio/compose.yml
   - services/iceberg-rest/compose.yml
   - services/trino/compose.yml
+  - services/redpanda/compose.yml
   - services/neo4j/compose.yml
 
   # Compute substrate (infra)

@@ -229,6 +229,10 @@ class ServiceConfig:
         trino_config = self._generate_trino_config()
         env_vars.update(trino_config)
 
+        # Generate Redpanda Kafka API broker + Spark streaming endpoint.
+        redpanda_config = self._generate_redpanda_config()
+        env_vars.update(redpanda_config)
+
         # Generate observability bundle (Prometheus family + cross-manifest
         # sidecar exporter scales for postgres-exporter and redis-exporter).
         prometheus_source = self.service_sources.get("PROMETHEUS_SOURCE", "disabled")
@@ -1392,6 +1396,26 @@ class ServiceConfig:
             )
 
         return {"TRINO_SCALE": "1"}
+
+    def _generate_redpanda_config(self) -> dict:
+        """Generate Redpanda scales and in-network Kafka endpoints."""
+        source_value = self.service_sources.get("REDPANDA_SOURCE", "disabled")
+        if source_value == "disabled":
+            return {
+                "REDPANDA_SCALE": "0",
+                "REDPANDA_INIT_SCALE": "0",
+                "REDPANDA_CONSOLE_SCALE": "0",
+                "REDPANDA_BROKERS": "",
+                "SPARK_KAFKA_BOOTSTRAP_SERVERS": "",
+            }
+
+        return {
+            "REDPANDA_SCALE": "1",
+            "REDPANDA_INIT_SCALE": "1",
+            "REDPANDA_CONSOLE_SCALE": "1",
+            "REDPANDA_BROKERS": "redpanda:9092",
+            "SPARK_KAFKA_BOOTSTRAP_SERVERS": "redpanda:9092",
+        }
 
     def _generate_prometheus_config(self, source_value: str, shared_env: dict) -> dict:
         """Resolve scales for the prometheus family + cross-manifest exporter sidecars.

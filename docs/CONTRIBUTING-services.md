@@ -192,16 +192,16 @@ Every user-configurable service has an `<SVC>_SOURCE` env var. The wizard reads 
 
 **How it works:**
 - `BASE_PORT` (default `63000`) is the bottom of the port range. Users can override with `./start.sh --base-port 64000`.
-- `CATEGORY_SLOTS` in `bootstrapper/services/topology.py` assigns each category an `(offset, block_size)` tuple. Current values (accurate as of 2026-05-24):
+- `CATEGORY_SLOTS` in `bootstrapper/services/topology.py` assigns each category an `(offset, block_size)` tuple. Current values:
 
   | Category | Offset | Block size | Resolved range with default `BASE_PORT=63000` |
   |---|---:|---:|---|
   | `infra` | 0 | 10 | 63000-63009 |
-  | `data` | 10 | 20 | 63010-63029 |
-  | `llm` | 30 | 10 | 63030-63039 |
-  | `media` | 40 | 20 | 63040-63059 |
-  | `agents` | 60 | 20 | 63060-63079 |
-  | `apps` | 80 | 20 | 63080-63099 |
+  | `data` | 10 | 30 | 63010-63039 |
+  | `llm` | 40 | 10 | 63040-63049 |
+  | `media` | 50 | 20 | 63050-63069 |
+  | `agents` | 70 | 20 | 63070-63089 |
+  | `apps` | 90 | 20 | 63090-63109 |
 
 - Within each category block, services consume slots in **topological order** (driven by `depends_on.required` — see Decision 5). Multi-port services (e.g. Supabase's 8 containers, Weaviate's HTTP + gRPC pair, MinIO's API + Console pair) get a contiguous run.
 - A category-overflow lint trips if you blow past your block. Fixes: move manifests to a different category (rare), or extend the block size in `CATEGORY_SLOTS` (also rare — coordinate with maintainers).

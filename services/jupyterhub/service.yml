@@ -48,6 +48,7 @@ depends_on:
     - minio
     - iceberg-rest
     - spark
+    - redpanda
 
 rows:
   - display_name: "JupyterHub"
@@ -69,6 +70,8 @@ runtime_sc:
   jupyterhub:
     container:
       scale: 1
+      environment:
+        SPARK_KAFKA_BOOTSTRAP_SERVERS: ${SPARK_KAFKA_BOOTSTRAP_SERVERS:-}
     disabled:
       scale: 0
 
@@ -95,6 +98,7 @@ runtime_adaptive:
       TTS_ENDPOINT: ${TTS_ENDPOINT}
       DOCLING_ENDPOINT: ${DOCLING_ENDPOINT}
       RAY_ADDRESS: ${RAY_ADDRESS}
+      SPARK_KAFKA_BOOTSTRAP_SERVERS: ${SPARK_KAFKA_BOOTSTRAP_SERVERS}
       MLFLOW_TRACKING_URI: ${MLFLOW_TRACKING_URI}
       LABEL_STUDIO_URL: ${LABEL_STUDIO_ENDPOINT}
       LABEL_STUDIO_API_URL: ${LABEL_STUDIO_API_URL}
@@ -116,11 +120,12 @@ runtime_deps:
     - minio
     - iceberg-rest
     - spark
+    - redpanda
     - mlflow
     - label-studio
     info_message: JupyterHub enabled - will connect to available optional services
       (neo4j, searxng, n8n, weaviate, comfyui, parakeet, speaches, chatterbox, docling,
-      minio, iceberg-rest, spark, mlflow, label-studio)
+      minio, iceberg-rest, spark, redpanda, mlflow, label-studio)
 
 data_flow:
   # Mirrors the compose-injected env surface the bundled notebooks use:
@@ -136,6 +141,7 @@ data_flow:
     - supabase
     - ray
     - spark
+    - redpanda
     - comfyui
     - n8n
     - backend

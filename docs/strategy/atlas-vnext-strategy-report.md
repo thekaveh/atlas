@@ -33,7 +33,7 @@ Current-state evidence inventory:
   - `gen-ai-eng`: `open-webui`, `n8n`, `hermes`, `openclaw`, `jupyterhub`, `comfyui`, `stt-provider`, `tts-provider`, `searxng`, `local-deep-researcher`
   - `gen-ai-creative`: `open-webui`, `comfyui`, `stt-provider`, `tts-provider`, `multi2vec-clip`, `doc-processor`
   - `ml-eng`: `spark`, `ray`, `jupyterhub`, `zeppelin`, `open-webui`, `minio`, `tei-reranker`
-  - `data-eng`: `spark`, `airflow`, `jupyterhub`, `zeppelin`, `minio`, `iceberg-rest`, `trino`, `weaviate`, `neo4j`
+  - `data-eng`: `spark`, `airflow`, `jupyterhub`, `zeppelin`, `minio`, `iceberg-rest`, `trino`, `redpanda`, `weaviate`, `neo4j`
   - `all`: no filtering; every configurable service remains available
 - Track-context note for later analysis: the registry already expresses broad AI, RAG, creative, ML, and data personas, but only as service-selection profiles; later tasks should assess whether those profiles feel productized enough for onboarding and roadmap positioning.
 
@@ -63,7 +63,7 @@ Atlas already has a coherent platform grammar. The repo does not read like an ac
 
 - **LLM observability, trace correlation, and evaluation loops lag behind the stack's service breadth.** Atlas has solid infrastructure observability today: the README and roadmap document a shipped Prometheus + Grafana bundle with 13 scrape jobs and 7 starter dashboards. But the same repo evidence is explicit that this is not the whole story. `docs/ROADMAP.md` positions Langfuse as the missing LLM-specific layer for traces, prompts, evals, and cost attribution, and both the roadmap and the Prometheus/Grafana READMEs mark Loki, Tempo, and OpenTelemetry as future work. In other words, Atlas can observe containers and system metrics better than it can observe cross-service LLM behavior.
 
-- **The stack's breadth still risks onboarding overload without a dashboard and stronger guided paths.** The repo inventory for this report pass includes 34 service manifests spread across six categories, while the route docs enumerate a long list of hostnames, direct ports, and auth modes. The wizard and tracks help, and that is a real mitigation, but the user still needs to understand a substantial amount of infrastructure vocabulary to orient themselves. The current docs are good; the experience is still cognitively dense.
+- **The stack's breadth still risks onboarding overload without a dashboard and stronger guided paths.** The repo inventory for this report pass includes 35 service manifests spread across six categories, while the route docs enumerate a long list of hostnames, direct ports, and auth modes. The wizard and tracks help, and that is a real mitigation, but the user still needs to understand a substantial amount of infrastructure vocabulary to orient themselves. The current docs are good; the experience is still cognitively dense.
 
 - **Vertical-track ambition is ahead of first-class productization.** The roadmap already frames 3D/game-generation, financial/trading-AI, and RAG-enhancement as strategic tracks, but `bootstrapper/tracks.yml` only exposes the current six general-purpose track keys. That gap matters. Atlas has a credible multi-domain substrate, yet its most opinionated future verticals are still roadmap narratives rather than selectable, onboarding-ready product modes. The vision is visible; the product surface has not caught up.
 
@@ -348,7 +348,7 @@ Later wave:
 - Evaluate Dagster as an asset-aware orchestrator only after deciding how it coexists with Airflow. It should not become a second scheduler with no clear ownership.
 - Trino has moved into the first data-eng lakehouse implementation slice as a disabled-by-default SQL query engine over Iceberg REST and MinIO.
 - Evaluate Superset after Trino/Iceberg or Postgres analytics schemas have useful datasets and SSO is available.
-- Evaluate Redpanda only when event streaming becomes a demonstrated bottleneck. Kafka-compatible streaming is powerful but too large as a speculative default.
+- Redpanda has moved into the data-eng lakehouse implementation slice as a disabled-by-default Kafka API broker for Spark Structured Streaming jobs.
 
 Safety/defer notes:
 
@@ -407,7 +407,7 @@ Build later means useful, but the prerequisites or product commitments are not m
 - **Honcho:** defer because Atlas already has LangMem and Graphiti is a lighter first experiment; Honcho's AGPL posture and separate memory service are not yet justified.
 - **Redis Stack and RedisInsight:** defer until a concrete Redis module or GUI workflow beats the license/image-size cost.
 - **Perplexica/Vane:** defer because it overlaps with Open WebUI plus Local Deep Researcher unless a distinct "single-shot cited answer" product surface becomes a priority.
-- **Redpanda:** defer until event-streaming demand is proven. It is too large for speculative inclusion in a Docker Compose-first stack.
+- **Redpanda:** shipped as a disabled-by-default data-eng broker for Spark Structured Streaming; keep Kafka Connect, Debezium, multi-broker clustering, SASL/TLS, and production retention tuning out of the first slice.
 
 ## 10. Appendices
 
@@ -471,7 +471,6 @@ Task 5 vNext ranking notes (candidate corpus plus current outside sources checke
 | Honcho | Deferred | LangMem and Graphiti are lighter first memory experiments; Honcho adds more service and license weight than the current plan needs. |
 | Redis Stack, RedisInsight | Deferred | Atlas should wait for a concrete Redis-module or GUI workflow that beats the extra image, license, and maintenance cost. |
 | Perplexica/Vane | Deferred | It overlaps with Open WebUI plus Local Deep Researcher unless Atlas decides to build a distinct cited-answer surface. |
-| Redpanda | Deferred | Event streaming is still speculative for Atlas; the stack does not yet justify a Kafka-class default dependency. |
 
 ### 10.4 Watchlist / Already Shipped
 
@@ -483,6 +482,7 @@ Task 5 vNext ranking notes (candidate corpus plus current outside sources checke
 | WhisperX | Watchlist | Worth revisiting when meeting/audio ingestion becomes a first-class RAG workflow. |
 | Dagster | Watchlist | Strong orchestrator, but waits on proven lakehouse demand and a clean coexistence story with Airflow. |
 | Trino | Already shipped | Disabled-by-default data-eng SQL query engine over Iceberg REST and MinIO. |
+| Redpanda | Already shipped | Disabled-by-default Kafka API broker and console for Spark Structured Streaming in the data-eng track. |
 | Superset | Watchlist | Best added after Trino or analytics schemas have meaningful datasets and SSO. |
 | TimescaleDB | Watchlist | Best treated as part of a later trading-data slice, not a standalone platform bet. |
 | OpenBao | Watchlist | Stronger Vault-lineage option than Atlas needs in the first secrets-management slice. |

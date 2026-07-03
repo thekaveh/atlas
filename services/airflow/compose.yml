@@ -35,6 +35,7 @@ services:
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
       AIRFLOW_UID: "50000"
       SPARK_MASTER_URL: spark://spark-master:7077
+      SPARK_KAFKA_BOOTSTRAP_SERVERS: ${SPARK_KAFKA_BOOTSTRAP_SERVERS:-}
       ATLAS_LAKEHOUSE_SPARK_DEPLOY_MODE: cluster
       ATLAS_LAKEHOUSE_SMOKE_JAR_PATH: /opt/airflow/atlas-jars/atlas-lakehouse-smoke.jar
       MINIO_ENDPOINT: http://minio:9000
@@ -121,6 +122,7 @@ services:
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
       AIRFLOW_UID: "50000"
       SPARK_MASTER_URL: spark://spark-master:7077
+      SPARK_KAFKA_BOOTSTRAP_SERVERS: ${SPARK_KAFKA_BOOTSTRAP_SERVERS:-}
       ATLAS_LAKEHOUSE_SPARK_DEPLOY_MODE: cluster
       ATLAS_LAKEHOUSE_SMOKE_JAR_PATH: /opt/airflow/atlas-jars/atlas-lakehouse-smoke.jar
       MINIO_ENDPOINT: http://minio:9000
@@ -190,6 +192,7 @@ services:
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
       AIRFLOW_UID: "50000"
       SPARK_MASTER_URL: spark://spark-master:7077
+      SPARK_KAFKA_BOOTSTRAP_SERVERS: ${SPARK_KAFKA_BOOTSTRAP_SERVERS:-}
       ATLAS_LAKEHOUSE_SPARK_DEPLOY_MODE: cluster
       ATLAS_LAKEHOUSE_SMOKE_JAR_PATH: /opt/airflow/atlas-jars/atlas-lakehouse-smoke.jar
       MINIO_ENDPOINT: http://minio:9000

@@ -9,8 +9,8 @@ S3-compatible object storage for the artifact tier of the stack. Complements Sup
 | Surface | URL | Notes |
 |---|---|---|
 | Admin console (Kong alias) | `http://minio.localhost:${KONG_HTTP_PORT}` | **Use this from your browser.** Requires `./start.sh --setup-hosts` so `minio.localhost` resolves to `127.0.0.1`. Login `minioadmin` / `${MINIO_ROOT_PASSWORD}`. |
-| Admin console (direct port) | `http://localhost:${MINIO_CONSOLE_PORT}` (default `63019`) | Equivalent; no hosts setup required. |
-| S3 API (host port) | `http://localhost:${MINIO_PORT}` (default `63018`) | **Recommended for s3 clients** (no proxy hop). Stable per `BASE_PORT`. See §2.1. |
+| Admin console (direct port) | `http://localhost:${MINIO_CONSOLE_PORT}` (default `63021`) | Equivalent; no hosts setup required. |
+| S3 API (host port) | `http://localhost:${MINIO_PORT}` (default `63020`) | **Recommended for s3 clients** (no proxy hop). Stable per `BASE_PORT`. See §2.1. |
 | S3 API (Kong alias) | `http://s3.minio.localhost:${KONG_HTTP_PORT}` | Friendly, `BASE_PORT`-independent host. Requires `./start.sh --setup-hosts`. Proxies to `minio:9000` with `preserve_host` so S3 SigV4 validates. |
 | S3 API (internal) | `http://minio:9000` | What sibling containers (backend, n8n, ComfyUI, JupyterHub, docling consumers) call via the per-bucket service-account credentials. |
 | Admin console (internal) | `http://minio:9001` | What Kong proxies for the console alias. |
@@ -31,14 +31,14 @@ declared via `extra_kong_aliases` in `services/minio/service.yml`, so
 Any S3-compatible tool — `aws` CLI, boto3, `mc`, `s3cmd`, rclone, or a
 custom client — connects with these settings. Two endpoints work; pick one:
 
-- **Direct host port** `http://localhost:${MINIO_PORT}` (default `63018`) —
+- **Direct host port** `http://localhost:${MINIO_PORT}` (default `63020`) —
   recommended; no proxy hop, best for heavy/upload traffic.
 - **Kong alias** `http://s3.minio.localhost:${KONG_HTTP_PORT}` — a stable
   friendly host that doesn't change with `BASE_PORT`; needs `--setup-hosts`.
 
 | Setting | Value | Source |
 |---|---|---|
-| Endpoint URL | `http://localhost:${MINIO_PORT}` (default `63018`) **or** `http://s3.minio.localhost:${KONG_HTTP_PORT}` | `MINIO_PORT` / Kong alias |
+| Endpoint URL | `http://localhost:${MINIO_PORT}` (default `63020`) **or** `http://s3.minio.localhost:${KONG_HTTP_PORT}` | `MINIO_PORT` / Kong alias |
 | Region | `us-east-1` | `MINIO_REGION` |
 | Access key | `minioadmin` (full access), or a per-bucket key (scoped) | `MINIO_ROOT_USER` / `MINIO_<BUCKET>_ACCESS_KEY` |
 | Secret key | `grep ^MINIO_ROOT_PASSWORD= .env` (full), or the per-bucket secret | `MINIO_ROOT_PASSWORD` / `MINIO_<BUCKET>_SECRET_KEY` |
@@ -54,7 +54,7 @@ one bucket.
 `aws` CLI example:
 
 ```sh
-aws --endpoint-url "http://localhost:${MINIO_PORT:-63018}" \
+aws --endpoint-url "http://localhost:${MINIO_PORT:-63020}" \
     --region us-east-1 \
     s3 ls
 # Credentials via env or ~/.aws/credentials:
@@ -66,7 +66,7 @@ aws --endpoint-url "http://localhost:${MINIO_PORT:-63018}" \
 Generic client config (the fields a tool like a standalone S3 TUI needs):
 
 ```
-endpoint  = localhost:63018      # or ${MINIO_PORT}; host, no scheme for some clients
+endpoint  = localhost:63020      # or ${MINIO_PORT}; host, no scheme for some clients
 use_ssl   = false
 region    = us-east-1
 access_key = minioadmin
