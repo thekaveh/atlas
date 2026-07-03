@@ -35,7 +35,9 @@ Atlas builds a small local image from `ICEBERG_REST_IMAGE` because the upstream 
 
 ### 5.2 Current — Downstream (services that call this)
 
-_No downstream consumers._
+| Service | Category |
+|---|---|
+| spark | data |
 
 ### 5.3 Architecture diagram
 
