@@ -37,7 +37,7 @@ This matrix lists every `*_SOURCE` variable currently exposed in `.env.example`.
 | `JUPYTERHUB_SOURCE` | `container` | `container`, `disabled` | User-facing optional | Data science notebooks; adaptive integrations. |
 | `RAY_SOURCE` | `disabled` | `ray-container-cpu`, `ray-container-gpu`, `disabled` | User-facing optional | Distributed compute cluster (head + workers). Backend `/api/ray/*` and notebook 07 light up when enabled. |
 | `AIRFLOW_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Workflow orchestration (scheduler, dag-processor, api-server, worker). |
-| `SPARK_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Spark master/workers + Connect sidecar + history server. |
+| `SPARK_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Spark master/workers + Connect sidecar + history server; lakehouse-ready when Iceberg REST is enabled. |
 | `ZEPPELIN_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Zeppelin notebooks; pairs with Spark via Spark Connect (hard-gated on `SPARK_SOURCE=container`). |
 | `ICEBERG_REST_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Internal Iceberg REST catalog backed by Supabase Postgres and MinIO lakehouse buckets. |
 | `MULTI2VEC_CLIP_SOURCE` | `container-cpu` | `container-cpu`, `container-gpu`, `disabled` | User-facing optional | Multimodal Weaviate vectorizer. |
@@ -513,7 +513,7 @@ GRAFANA_ADMIN_PASSWORD=...       # auto-generated on first bootstrap; persisted 
 
 ### 4.11 SPARK_SOURCE
 
-Spark is a standalone Apache Spark cluster (master + N workers + history server + dedicated `spark-connect` gRPC sidecar + one-shot `spark-init`) sitting in the `data` band. It exposes a Spark Connect endpoint on `:15002` via the sidecar for in-stack thin clients (currently Zeppelin's Spark interpreter wires to it; JupyterHub + Backend wiring is a future spec). Spark master URL (`spark://spark-master:7077`) and the Spark Connect URL (`sc://spark-connect:15002`) are baked into the Zeppelin interpreter env at compose-render time. See [Spark service README](../../services/spark/README.md) for the cluster topology and Spark Connect details.
+Spark is a standalone Apache Spark cluster (master + N workers + history server + dedicated `spark-connect` gRPC sidecar + one-shot `spark-init`) sitting in the `data` band. It exposes a Spark Connect endpoint on `:15002` via the sidecar for in-stack thin clients (currently Zeppelin's Spark interpreter wires to it; JupyterHub + Backend wiring is a future spec). Spark master URL (`spark://spark-master:7077`) and the Spark Connect URL (`sc://spark-connect:15002`) are baked into the Zeppelin interpreter env at compose-render time. The local Spark image also bakes `iceberg-spark-runtime-4.1_2.13:1.11.0` plus `iceberg-aws-bundle:1.11.0` and preconfigures a `lakehouse` Iceberg REST catalog at `http://iceberg-rest:8181`, including MinIO S3FileIO endpoint, scoped Iceberg service-account credentials, path-style access, and `client.region=us-east-1`; this catalog is active when `ICEBERG_REST_SOURCE=container` and inert for ML-only Spark users who leave Iceberg REST disabled. See [Spark service README](../../services/spark/README.md) for the cluster topology and Spark Connect details.
 
 #### 4.11.1 `disabled` (Default)
 ```bash
@@ -530,7 +530,7 @@ SPARK_SOURCE=container
 SPARK_WORKER_COUNT=2     # number of spark-worker replicas; 1..8 — wizard prompts inline
 ```
 - **Use case**: Local Spark cluster for batch / SQL / DataFrame jobs and Spark Connect clients
-- **Pros**: Master + N workers + history server, Kong-aliased UIs at `spark.localhost` + `spark-history.localhost`, Spark Connect on `:15002`
+- **Pros**: Master + N workers + history server, Kong-aliased UIs at `spark.localhost` + `spark-history.localhost`, Spark Connect on `:15002`, default `lakehouse` Iceberg REST catalog when `iceberg-rest` is enabled.
 - **Cons**: Each worker reserves CPU + RAM (defaults to 1 core / 1 GB); heavy on laptops above 2 workers
 - **Containers**: `spark-master`, `spark-worker-1..N`, `spark-history`, `spark-connect` (gRPC Connect sidecar), `spark-init` (one-shot — creates the spark-history MinIO bucket)
 - **Requirements**: ~3 GB image disk + ~1 GB RAM per worker
