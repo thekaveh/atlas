@@ -3977,6 +3977,56 @@ services:
     - no-new-privileges:true
     tmpfs:
     - /tmp:mode=1777
+  verba:
+    container_name: atlas-verba
+    depends_on:
+      litellm:
+        condition: service_started
+        required: true
+      weaviate:
+        condition: service_healthy
+        required: true
+    deploy:
+      replicas: 0
+    environment:
+      DEFAULT_DEPLOYMENT: Docker
+      OPENAI_API_KEY: ''
+      OPENAI_BASE_URL: http://litellm:4000/v1
+      OPENAI_CUSTOM_EMBED: 'true'
+      OPENAI_EMBED_API_KEY: ''
+      OPENAI_EMBED_BASE_URL: http://litellm:4000/v1
+      OPENAI_EMBED_MODEL: ''
+      OPENAI_MODEL: ''
+      UNSTRUCTURED_API_KEY: ''
+      UNSTRUCTURED_API_URL: ''
+      WEAVIATE_URL_VERBA: http://weaviate:8080
+    healthcheck:
+      interval: 30s
+      retries: 5
+      start_period: 1m0s
+      test:
+      - CMD-SHELL
+      - wget --no-verbose --tries=3 --spider http://localhost:8000 || exit 1
+      timeout: 10s
+    image: semitechnologies/verba@sha256:0947d289ebff2c9814941c8d4282ee994dc79598e76162ae82e6efda4682b0b7
+    logging:
+      driver: json-file
+      options:
+        max-file: '3'
+        max-size: 10m
+    networks:
+      backend-network: null
+    ports:
+    - mode: ingress
+      protocol: tcp
+      published: '63088'
+      target: 8000
+    restart: unless-stopped
+    volumes:
+    - source: verba-data
+      target: /data
+      type: volume
+      volume: {}
   weaviate:
     container_name: atlas-weaviate
     depends_on:
@@ -4165,7 +4215,7 @@ services:
     ports:
     - mode: ingress
       protocol: tcp
-      published: '63088'
+      published: '63089'
       target: 8080
     restart: unless-stopped
     volumes:
@@ -4309,6 +4359,8 @@ volumes:
   tempo-data:
     driver: local
     name: atlas-tempo-data
+  verba-data:
+    name: atlas_verba-data
   weaviate-data:
     driver: local
     name: atlas-weaviate-data

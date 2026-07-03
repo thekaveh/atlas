@@ -126,6 +126,9 @@ EXPECTED_DISCOVERED = frozenset({
     # LightRAG (added 2026-06-05) — knowledge-graph-augmented RAG engine.
     # Single-container family; wired via 'lightrag_source' in source_mapping.
     "LightRAG",
+    # Verba (added 2026-07-03) — archived, disabled-by-default Weaviate RAG
+    # demo UI for the RAG track.
+    "Verba",
 })
 
 

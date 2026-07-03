@@ -1,0 +1,87 @@
+# services/verba/service.yml - archived Weaviate Verba RAG demo UI
+name: verba
+label: "Verba (archived Weaviate RAG UI)"
+category: apps
+docs: services/verba/README.md
+
+containers:
+  - verba
+
+images:
+  - var: VERBA_IMAGE
+    default: "semitechnologies/verba@sha256:0947d289ebff2c9814941c8d4282ee994dc79598e76162ae82e6efda4682b0b7"
+    container: verba
+    notes: "Upstream publishes semitechnologies/verba:latest but no v2.1.3 Docker tag; Atlas pins the observed multi-arch index digest."
+
+sources:
+  var: VERBA_SOURCE
+  default: disabled
+  options:
+    - id: container
+      label: "Container (archived Verba RAG demo UI)"
+    - id: disabled
+      label: "Disabled"
+
+env:
+  - name: VERBA_SOURCE
+    default: disabled
+  - name: VERBA_PORT
+    description: "Host port for the Verba UI/API (in-container 8000)."
+  - name: VERBA_ENDPOINT
+    auto_managed: true
+    description: "In-network URL for Atlas services and notebooks."
+  - name: VERBA_SCALE
+    auto_managed: true
+  - name: VERBA_WEAVIATE_URL
+    auto_managed: true
+    description: "Resolved Weaviate URL passed to upstream WEAVIATE_URL_VERBA."
+  - name: VERBA_OPENAI_MODEL
+    default: ""
+    description: "Optional Verba OpenAI generator model name. Empty lets Verba list LiteLLM models."
+  - name: VERBA_OPENAI_EMBED_MODEL
+    default: ""
+    description: "Optional Verba OpenAI-compatible embedding model name. Empty keeps upstream default behavior."
+  - name: VERBA_DEFAULT_DEPLOYMENT
+    default: Docker
+    description: "Verba deployment selector. Atlas uses Docker to target the external Weaviate container."
+
+depends_on:
+  required:
+    - weaviate
+    - litellm
+    - kong
+  optional:
+    - docling
+    - open-webui
+    - jupyterhub
+
+rows:
+  - display_name: "Verba"
+    source_var: VERBA_SOURCE
+    port_var: VERBA_PORT
+    scale_var: VERBA_SCALE
+    alias: verba.localhost
+    description: "Archived Weaviate RAG demo UI for isolated sample ingest/query workflows."
+    localhost_endpoint_var: VERBA_ENDPOINT
+
+runtime_sc:
+  verba:
+    container:
+      scale: 1
+      environment:
+        VERBA_ENDPOINT: http://verba:8000
+        VERBA_WEAVIATE_URL: http://weaviate:8080
+      deploy: {}
+      extra_hosts: []
+    disabled:
+      scale: 0
+      environment:
+        VERBA_ENDPOINT: ''
+        VERBA_WEAVIATE_URL: ''
+      deploy: {}
+      extra_hosts: []
+
+data_flow:
+  calls:
+    - weaviate
+    - litellm

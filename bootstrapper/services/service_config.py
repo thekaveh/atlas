@@ -203,6 +203,7 @@ class ServiceConfig:
         # Generate MLflow configuration (hard-gated on MinIO artifact storage)
         env_vars.update(self._generate_mlflow_config())
         env_vars.update(self._generate_label_studio_config())
+        env_vars.update(self._generate_verba_config())
 
         # Generate curated MCP servers configuration (hard-gated on graph/search targets)
         mcp_servers_config = self._generate_mcp_servers_config()
@@ -984,6 +985,37 @@ class ServiceConfig:
             "LABEL_STUDIO_SCALE": "1",
             "LABEL_STUDIO_ENDPOINT": "http://label-studio:8080",
             "LABEL_STUDIO_API_URL": "http://label-studio:8080",
+        }
+
+    def _generate_verba_config(self) -> dict:
+        """Generate Verba scale, endpoint, and Weaviate target."""
+        source = self.service_sources.get("VERBA_SOURCE", "disabled")
+        if source == "disabled":
+            return {
+                "VERBA_SCALE": "0",
+                "VERBA_ENDPOINT": "",
+                "VERBA_WEAVIATE_URL": "",
+            }
+
+        weaviate_source = self.service_sources.get("WEAVIATE_SOURCE", "container")
+        if weaviate_source == "disabled":
+            raise ValueError(
+                "Verba requires Weaviate. Either pass --weaviate-source "
+                "container or --weaviate-source localhost alongside "
+                "--verba-source container, or set --verba-source disabled."
+            )
+
+        if weaviate_source == "localhost":
+            current_env = self.config_parser.parse_env_file()
+            port = current_env.get("WEAVIATE_LOCALHOST_PORT", "8080")
+            weaviate_url = f"http://{self.localhost_host}:{port}"
+        else:
+            weaviate_url = "http://weaviate:8080"
+
+        return {
+            "VERBA_SCALE": "1",
+            "VERBA_ENDPOINT": "http://verba:8000",
+            "VERBA_WEAVIATE_URL": weaviate_url,
         }
 
     def _generate_mcp_servers_config(self) -> dict:

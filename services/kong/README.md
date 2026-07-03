@@ -244,6 +244,7 @@ For more information on Kong's role in the overall architecture, see the system 
 | jupyterhub | apps |
 | local-deep-researcher | apps |
 | open-webui | apps |
+| verba | apps |
 | zeppelin | apps |
 
 ### 13.2 Current — Downstream (services that call this)
