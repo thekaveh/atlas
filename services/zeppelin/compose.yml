@@ -4,18 +4,14 @@ services:
     # Stock apache/zeppelin:0.12.1. The image does NOT bundle a full
     # Spark distribution — its `interpreter/spark/` dir contains only
     # the interpreter shim (spark-interpreter-0.12.0.jar +
-    # scala-2.13/), no spark-core, no SPARK_HOME. The %spark interpreter
-    # therefore requires either (a) SPARK_HOME mounted from an external
-    # Spark install, or (b) Spark Connect mode (the canonical 4.x
-    # pattern). For S3A access in Zeppelin, configure the Spark
-    # interpreter via the UI: Interpreter → spark → properties
-    # `spark.remote = sc://spark-connect:15002`. The driver then runs
-    # on spark-connect — which DOES have hadoop-aws + AWS SDK v2
-    # bundle pre-installed via services/spark/build/Dockerfile
-    # (Pass 44). Pass 45/47 attempted to install jars into the
-    # Zeppelin image directly; that path was wrong because Zeppelin
-    # never runs Spark locally without SPARK_HOME. Pass 48 retired
-    # the misguided Dockerfile.
+    # scala-2.13/), no spark-core, no SPARK_HOME. The #247 backend
+    # decision keeps Zeppelin on the documented spark-submit /
+    # standalone-cluster path, so #211 must provide SPARK_HOME plus
+    # seeded interpreter settings before fresh %spark lakehouse
+    # notebooks are zero-touch. Do not treat `spark.remote` /
+    # Spark Connect as the Zeppelin happy path; Spark 4 rejects that
+    # when Zeppelin's stock launcher also passes master/deploy-mode
+    # configuration.
     image: ${ZEPPELIN_IMAGE:-apache/zeppelin:0.12.1}
     container_name: ${PROJECT_NAME}-zeppelin
     restart: unless-stopped
@@ -31,17 +27,16 @@ services:
       ZEPPELIN_PORT: "8080"
       ZEPPELIN_LOG_DIR: /logs
       ZEPPELIN_NOTEBOOK_DIR: /notebook
-      # SPARK_MASTER / SPARK_SUBMIT_OPTIONS apply only on the
-      # spark-submit launch path, which needs a user-mounted SPARK_HOME
-      # (the image ships no Spark distro). Kept for that opt-in path;
-      # the supported out-of-the-box route is Spark Connect via the
-      # interpreter UI (README §1).
+      # SPARK_MASTER / SPARK_SUBMIT_OPTIONS apply on the spark-submit
+      # launch path, which still needs SPARK_HOME inside the Zeppelin
+      # runtime. #211 is expected to make this complete by adding a
+      # bundled/mounted Spark runtime and idempotent lakehouse
+      # interpreter seeding.
       SPARK_MASTER: spark://spark-master:7077
-      # NOTE: Zeppelin's Spark interpreter does NOT read SPARK_CONNECT_URL
-      # — `SparkInterpreterLauncher` only honors SPARK_MASTER. Users who
-      # want to drive Connect from Zeppelin set `spark.remote` in the
-      # interpreter UI (Interpreter → spark → properties). Drop this var
-      # rather than ship a misleading "configured" env.
+      # NOTE: Zeppelin's Spark interpreter does NOT read
+      # SPARK_CONNECT_URL — `SparkInterpreterLauncher` only honors the
+      # spark-submit style settings. Keep Spark Connect for clients such
+      # as JupyterHub that use the Spark Connect API directly.
       SPARK_SUBMIT_OPTIONS: >-
         --conf spark.hadoop.fs.s3a.endpoint=http://minio:9000
         --conf spark.hadoop.fs.s3a.access.key=${MINIO_ROOT_USER}
