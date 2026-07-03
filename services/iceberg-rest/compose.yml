@@ -1,0 +1,67 @@
+# services/iceberg-rest/compose.yml — Iceberg REST catalog + DB init
+services:
+  iceberg-rest:
+    build:
+      context: ./build
+      args:
+        BASE_IMAGE: ${ICEBERG_REST_IMAGE:-apache/iceberg-rest-fixture:1.10.1}
+        POSTGRES_JDBC_VERSION: ${ICEBERG_REST_POSTGRES_JDBC_VERSION:-42.7.12}
+    image: ${PROJECT_NAME}-iceberg-rest:local
+    container_name: ${PROJECT_NAME}-iceberg-rest
+    restart: unless-stopped
+    deploy:
+      replicas: ${ICEBERG_REST_SCALE:-0}
+    ports:
+      - "${HOST_BIND_IP:-}${ICEBERG_REST_PORT}:8181"
+    environment:
+      REST_PORT: 8181
+      AWS_REGION: ${MINIO_REGION:-us-east-1}
+      AWS_ACCESS_KEY_ID: ${MINIO_ICEBERG_ACCESS_KEY}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ICEBERG_SECRET_KEY}
+      CATALOG_CATALOG__IMPL: org.apache.iceberg.jdbc.JdbcCatalog
+      CATALOG_URI: jdbc:postgresql://supabase-db:5432/iceberg
+      CATALOG_JDBC_USER: ${ICEBERG_DB_USER}
+      CATALOG_JDBC_PASSWORD: ${ICEBERG_DB_PASSWORD}
+      CATALOG_WAREHOUSE: s3://lakehouse/
+      CATALOG_IO__IMPL: org.apache.iceberg.aws.s3.S3FileIO
+      CATALOG_S3_ENDPOINT: http://minio:9000
+      CATALOG_S3_PATH__STYLE__ACCESS: "true"
+    depends_on:
+      iceberg-rest-init:
+        condition: service_completed_successfully
+      minio-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8181/v1/config"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "${LOG_MAX_SIZE:-10m}"
+        max-file: "${LOG_MAX_FILE:-3}"
+    networks:
+      - backend-network
+
+  iceberg-rest-init:
+    image: ${ICEBERG_REST_INIT_IMAGE}
+    container_name: ${PROJECT_NAME}-iceberg-rest-init
+    restart: "no"
+    deploy:
+      replicas: ${ICEBERG_REST_INIT_SCALE:-0}
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    environment:
+      SUPABASE_DB_NAME: ${SUPABASE_DB_NAME}
+      SUPABASE_DB_USER: ${SUPABASE_DB_USER}
+      SUPABASE_DB_PASSWORD: ${SUPABASE_DB_PASSWORD}
+      ICEBERG_DB_USER: ${ICEBERG_DB_USER}
+      ICEBERG_DB_PASSWORD: ${ICEBERG_DB_PASSWORD}
+    volumes:
+      - ./init/scripts:/scripts:ro
+    entrypoint: ["/bin/sh", "/scripts/init-iceberg-rest.sh"]
+    networks:
+      - backend-network

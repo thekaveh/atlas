@@ -276,11 +276,12 @@ _Engine-only manifests (speaches, chatterbox) are not listed — they're selecte
 | Data | Supabase Realtime | 63016 | — |
 | Data | Supabase Studio | 63017 | supabase-studio.localhost |
 | Data | MinIO Console | 63019 | minio.localhost |
-| Data | Neo4j Graph DB | 63021 | graph.localhost |
-| Data | Redis | 63022 | — |
-| Data | Apache Spark | 63024 | spark.localhost |
-| Data | Apache Spark — History Server | 63025 | spark-history.localhost |
-| Data | Weaviate | 63026 | weaviate.localhost |
+| Data | Apache Iceberg REST Catalog | 63020 | — |
+| Data | Neo4j Graph DB | 63022 | graph.localhost |
+| Data | Redis | 63023 | — |
+| Data | Apache Spark | 63025 | spark.localhost |
+| Data | Apache Spark — History Server | 63026 | spark-history.localhost |
+| Data | Weaviate | 63027 | weaviate.localhost |
 | Data | Multi2Vec CLIP | — | — |
 | LLM Core | LiteLLM | 63030 | litellm.localhost |
 | LLM Core | LLM Engine | — | ollama.localhost |

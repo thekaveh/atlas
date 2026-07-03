@@ -21,19 +21,22 @@ until mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSW
 done
 echo "minio-init: alias 'local' configured"
 
-# Each consumer: bucket name var, access-key var, secret-key var
-# Format: CONSUMER:BUCKET_VAR:ACCESS_VAR:SECRET_VAR
+# Each consumer: primary bucket name var, access-key var, secret-key var,
+# optional comma-separated extra bucket vars.
+# Format: CONSUMER:BUCKET_VAR:ACCESS_VAR:SECRET_VAR[:EXTRA_BUCKET_VAR,...]
 for entry in \
     "comfyui:MINIO_BUCKET_COMFYUI:MINIO_COMFYUI_ACCESS_KEY:MINIO_COMFYUI_SECRET_KEY" \
     "backend:MINIO_BUCKET_BACKEND:MINIO_BACKEND_ACCESS_KEY:MINIO_BACKEND_SECRET_KEY" \
     "n8n:MINIO_BUCKET_N8N:MINIO_N8N_ACCESS_KEY:MINIO_N8N_SECRET_KEY" \
     "jupyter:MINIO_BUCKET_JUPYTER:MINIO_JUPYTER_ACCESS_KEY:MINIO_JUPYTER_SECRET_KEY" \
     "docling:MINIO_BUCKET_DOCLING:MINIO_DOCLING_ACCESS_KEY:MINIO_DOCLING_SECRET_KEY" \
+    "iceberg:MINIO_BUCKET_ICEBERG_LAKEHOUSE:MINIO_ICEBERG_ACCESS_KEY:MINIO_ICEBERG_SECRET_KEY:MINIO_BUCKET_ICEBERG_JARS,MINIO_BUCKET_ICEBERG_CHECKPOINTS,MINIO_BUCKET_ICEBERG_LANDING" \
 ; do
     consumer=$(echo "$entry" | cut -d: -f1)
     bucket_var=$(echo "$entry" | cut -d: -f2)
     access_var=$(echo "$entry" | cut -d: -f3)
     secret_var=$(echo "$entry" | cut -d: -f4)
+    extra_bucket_vars=$(echo "$entry" | cut -d: -f5-)
 
     # Resolve variable values via indirection
     eval "bucket=\${$bucket_var:-}"
@@ -45,12 +48,41 @@ for entry in \
         exit 1
     fi
 
-    # 1. Create bucket (idempotent)
-    echo "minio-init: ensuring bucket 'local/$bucket'..."
-    mc mb --ignore-existing "local/$bucket"
+    buckets="$bucket"
+    if [ "$extra_bucket_vars" != "$entry" ] && [ -n "$extra_bucket_vars" ]; then
+        old_ifs=$IFS
+        IFS=,
+        for extra_bucket_var in $extra_bucket_vars; do
+            IFS=$old_ifs
+            eval "extra_bucket=\${$extra_bucket_var:-}"
+            if [ -z "$extra_bucket" ]; then
+                echo "minio-init: ERROR — missing env for consumer '$consumer' ($extra_bucket_var)" >&2
+                exit 1
+            fi
+            buckets="$buckets $extra_bucket"
+            IFS=,
+        done
+        IFS=$old_ifs
+    fi
+
+    # 1. Create bucket(s) (idempotent)
+    for provision_bucket in $buckets; do
+        echo "minio-init: ensuring bucket 'local/$provision_bucket'..."
+        mc mb --ignore-existing "local/$provision_bucket"
+    done
 
     # 2. Write the scoped policy to a tmp file
     policy_file="/tmp/${consumer}-policy.json"
+    object_resources=""
+    bucket_resources=""
+    for policy_bucket in $buckets; do
+        if [ -n "$object_resources" ]; then
+            object_resources="$object_resources,"
+            bucket_resources="$bucket_resources,"
+        fi
+        object_resources="${object_resources}\"arn:aws:s3:::${policy_bucket}/*\""
+        bucket_resources="${bucket_resources}\"arn:aws:s3:::${policy_bucket}\""
+    done
     cat > "$policy_file" <<EOF
 {
   "Version": "2012-10-17",
@@ -58,12 +90,12 @@ for entry in \
     {
       "Effect": "Allow",
       "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
-      "Resource": ["arn:aws:s3:::${bucket}/*"]
+      "Resource": [${object_resources}]
     },
     {
       "Effect": "Allow",
       "Action": ["s3:ListBucket"],
-      "Resource": ["arn:aws:s3:::${bucket}"]
+      "Resource": [${bucket_resources}]
     }
   ]
 }
@@ -97,7 +129,7 @@ EOF
             --secret-key "$secret" \
             --policy "$policy_file"
     else
-        echo "minio-init: creating service account '$access' for bucket '$bucket'..."
+        echo "minio-init: creating service account '$access' for bucket(s) '$buckets'..."
         mc admin user svcacct add local "$MINIO_ROOT_USER" \
             --access-key "$access" \
             --secret-key "$secret" \

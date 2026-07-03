@@ -22,7 +22,7 @@
   <div class="wrap">
     <h1><span class="dot"></span> supabase — Architecture</h1>
     <div class="subtitle">category: data · source: single</div>
-    <div class="card"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 520" font-family="'JetBrains Mono', 'Fira Code', Menlo, Consolas, monospace">
+    <div class="card"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 588" font-family="'JetBrains Mono', 'Fira Code', Menlo, Consolas, monospace">
 <defs>
   <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
     <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/>
@@ -40,16 +40,17 @@
     </feMerge>
   </filter>
 </defs>
-<rect width="920" height="520" fill="#020617"/>
-<rect width="920" height="520" fill="url(#grid)"/>
+<rect width="920" height="588" fill="#020617"/>
+<rect width="920" height="588" fill="url(#grid)"/>
 <text x="180" y="36" fill="#94a3b8" font-size="10" font-weight="600" text-anchor="middle" letter-spacing="0.08em">Upstream (calls)</text>
 <text x="460" y="36" fill="#94a3b8" font-size="10" font-weight="600" text-anchor="middle" letter-spacing="0.08em">Focus</text>
 <text x="740" y="36" fill="#94a3b8" font-size="10" font-weight="600" text-anchor="middle" letter-spacing="0.08em">Downstream (consumers)</text>
-<line x1="560" y1="268" x2="620" y2="80" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-<line x1="560" y1="268" x2="620" y2="174" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-<line x1="560" y1="268" x2="620" y2="242" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-<line x1="560" y1="268" x2="620" y2="310" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-<line x1="560" y1="268" x2="620" y2="404" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+<line x1="560" y1="302" x2="620" y2="80" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+<line x1="560" y1="302" x2="620" y2="174" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+<line x1="560" y1="302" x2="620" y2="242" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+<line x1="560" y1="302" x2="620" y2="310" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+<line x1="560" y1="302" x2="620" y2="378" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+<line x1="560" y1="302" x2="620" y2="472" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
 <g><rect x="60" y="84" width="240" height="60" rx="6" fill="none" stroke="#1e293b" stroke-width="1" stroke-dasharray="3,3"/><text x="180" y="120" fill="#475569" font-size="10" font-style="italic" text-anchor="middle">— none —</text></g>
 <g>
 <g class="cluster">
@@ -68,73 +69,84 @@
 <g class="cluster">
   <rect x="620" y="158" width="240" height="58" rx="8"
         fill="rgba(30,41,59,0.35)"
-        stroke="#fbbf24" stroke-width="1" stroke-dasharray="4,4" stroke-opacity="0.4"/>
-  <text x="630" y="172" fill="#fbbf24" font-size="9" font-weight="700"
-        text-anchor="start" style="letter-spacing:0.06em;text-transform:uppercase;">llm</text>
-  <text x="850" y="172" fill="#fbbf24" font-size="9" font-weight="600"
+        stroke="#a78bfa" stroke-width="1" stroke-dasharray="4,4" stroke-opacity="0.4"/>
+  <text x="630" y="172" fill="#a78bfa" font-size="9" font-weight="700"
+        text-anchor="start" style="letter-spacing:0.06em;text-transform:uppercase;">data</text>
+  <text x="850" y="172" fill="#a78bfa" font-size="9" font-weight="600"
         text-anchor="end">1</text>
 </g>
 
-<g><rect x="628" y="182" width="108" height="22" rx="4" fill="#0f172a"/><rect x="628" y="182" width="108" height="22" rx="4" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1"/><text x="682" y="197" fill="white" font-size="10" text-anchor="middle">litellm</text></g>
+<g><rect x="628" y="182" width="108" height="22" rx="4" fill="#0f172a"/><rect x="628" y="182" width="108" height="22" rx="4" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1"/><text x="682" y="197" fill="white" font-size="10" text-anchor="middle">iceberg-rest</text></g>
 <g class="cluster">
   <rect x="620" y="226" width="240" height="58" rx="8"
         fill="rgba(30,41,59,0.35)"
-        stroke="#fb923c" stroke-width="1" stroke-dasharray="4,4" stroke-opacity="0.4"/>
-  <text x="630" y="240" fill="#fb923c" font-size="9" font-weight="700"
-        text-anchor="start" style="letter-spacing:0.06em;text-transform:uppercase;">media</text>
-  <text x="850" y="240" fill="#fb923c" font-size="9" font-weight="600"
+        stroke="#fbbf24" stroke-width="1" stroke-dasharray="4,4" stroke-opacity="0.4"/>
+  <text x="630" y="240" fill="#fbbf24" font-size="9" font-weight="700"
+        text-anchor="start" style="letter-spacing:0.06em;text-transform:uppercase;">llm</text>
+  <text x="850" y="240" fill="#fbbf24" font-size="9" font-weight="600"
         text-anchor="end">1</text>
 </g>
 
-<g><rect x="628" y="250" width="108" height="22" rx="4" fill="#0f172a"/><rect x="628" y="250" width="108" height="22" rx="4" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1"/><text x="682" y="265" fill="white" font-size="10" text-anchor="middle">comfyui</text></g>
+<g><rect x="628" y="250" width="108" height="22" rx="4" fill="#0f172a"/><rect x="628" y="250" width="108" height="22" rx="4" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1"/><text x="682" y="265" fill="white" font-size="10" text-anchor="middle">litellm</text></g>
 <g class="cluster">
-  <rect x="620" y="294" width="240" height="84" rx="8"
+  <rect x="620" y="294" width="240" height="58" rx="8"
+        fill="rgba(30,41,59,0.35)"
+        stroke="#fb923c" stroke-width="1" stroke-dasharray="4,4" stroke-opacity="0.4"/>
+  <text x="630" y="308" fill="#fb923c" font-size="9" font-weight="700"
+        text-anchor="start" style="letter-spacing:0.06em;text-transform:uppercase;">media</text>
+  <text x="850" y="308" fill="#fb923c" font-size="9" font-weight="600"
+        text-anchor="end">1</text>
+</g>
+
+<g><rect x="628" y="318" width="108" height="22" rx="4" fill="#0f172a"/><rect x="628" y="318" width="108" height="22" rx="4" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1"/><text x="682" y="333" fill="white" font-size="10" text-anchor="middle">comfyui</text></g>
+<g class="cluster">
+  <rect x="620" y="362" width="240" height="84" rx="8"
         fill="rgba(30,41,59,0.35)"
         stroke="#34d399" stroke-width="1" stroke-dasharray="4,4" stroke-opacity="0.4"/>
-  <text x="630" y="308" fill="#34d399" font-size="9" font-weight="700"
+  <text x="630" y="376" fill="#34d399" font-size="9" font-weight="700"
         text-anchor="start" style="letter-spacing:0.06em;text-transform:uppercase;">agents</text>
-  <text x="850" y="308" fill="#34d399" font-size="9" font-weight="600"
+  <text x="850" y="376" fill="#34d399" font-size="9" font-weight="600"
         text-anchor="end">3</text>
 </g>
 
-<g><rect x="628" y="318" width="108" height="22" rx="4" fill="#0f172a"/><rect x="628" y="318" width="108" height="22" rx="4" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1"/><text x="682" y="333" fill="white" font-size="10" text-anchor="middle">airflow</text></g>
-<g><rect x="740" y="318" width="108" height="22" rx="4" fill="#0f172a"/><rect x="740" y="318" width="108" height="22" rx="4" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1"/><text x="794" y="333" fill="white" font-size="10" text-anchor="middle">lightrag</text></g>
-<g><rect x="628" y="344" width="108" height="22" rx="4" fill="#0f172a"/><rect x="628" y="344" width="108" height="22" rx="4" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1"/><text x="682" y="359" fill="white" font-size="10" text-anchor="middle">n8n</text></g>
+<g><rect x="628" y="386" width="108" height="22" rx="4" fill="#0f172a"/><rect x="628" y="386" width="108" height="22" rx="4" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1"/><text x="682" y="401" fill="white" font-size="10" text-anchor="middle">airflow</text></g>
+<g><rect x="740" y="386" width="108" height="22" rx="4" fill="#0f172a"/><rect x="740" y="386" width="108" height="22" rx="4" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1"/><text x="794" y="401" fill="white" font-size="10" text-anchor="middle">lightrag</text></g>
+<g><rect x="628" y="412" width="108" height="22" rx="4" fill="#0f172a"/><rect x="628" y="412" width="108" height="22" rx="4" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1"/><text x="682" y="427" fill="white" font-size="10" text-anchor="middle">n8n</text></g>
 <g class="cluster">
-  <rect x="620" y="388" width="240" height="84" rx="8"
+  <rect x="620" y="456" width="240" height="84" rx="8"
         fill="rgba(30,41,59,0.35)"
         stroke="#22d3ee" stroke-width="1" stroke-dasharray="4,4" stroke-opacity="0.4"/>
-  <text x="630" y="402" fill="#22d3ee" font-size="9" font-weight="700"
+  <text x="630" y="470" fill="#22d3ee" font-size="9" font-weight="700"
         text-anchor="start" style="letter-spacing:0.06em;text-transform:uppercase;">apps</text>
-  <text x="850" y="402" fill="#22d3ee" font-size="9" font-weight="600"
+  <text x="850" y="470" fill="#22d3ee" font-size="9" font-weight="600"
         text-anchor="end">4</text>
 </g>
 
-<g><rect x="628" y="412" width="108" height="22" rx="4" fill="#0f172a"/><rect x="628" y="412" width="108" height="22" rx="4" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1"/><text x="682" y="427" fill="white" font-size="10" text-anchor="middle">backend</text></g>
-<g><rect x="740" y="412" width="108" height="22" rx="4" fill="#0f172a"/><rect x="740" y="412" width="108" height="22" rx="4" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1"/><text x="794" y="427" fill="white" font-size="10" text-anchor="middle">jupyterhub</text></g>
-<g><rect x="628" y="438" width="108" height="22" rx="4" fill="#0f172a"/><rect x="628" y="438" width="108" height="22" rx="4" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1"/><text x="682" y="453" fill="white" font-size="10" text-anchor="middle">open-webui</text></g>
-<g><rect x="740" y="438" width="108" height="22" rx="4" fill="#0f172a"/><rect x="740" y="438" width="108" height="22" rx="4" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1"/><text x="794" y="453" fill="white" font-size="10" text-anchor="middle">zeppelin</text></g>
+<g><rect x="628" y="480" width="108" height="22" rx="4" fill="#0f172a"/><rect x="628" y="480" width="108" height="22" rx="4" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1"/><text x="682" y="495" fill="white" font-size="10" text-anchor="middle">backend</text></g>
+<g><rect x="740" y="480" width="108" height="22" rx="4" fill="#0f172a"/><rect x="740" y="480" width="108" height="22" rx="4" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1"/><text x="794" y="495" fill="white" font-size="10" text-anchor="middle">jupyterhub</text></g>
+<g><rect x="628" y="506" width="108" height="22" rx="4" fill="#0f172a"/><rect x="628" y="506" width="108" height="22" rx="4" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1"/><text x="682" y="521" fill="white" font-size="10" text-anchor="middle">open-webui</text></g>
+<g><rect x="740" y="506" width="108" height="22" rx="4" fill="#0f172a"/><rect x="740" y="506" width="108" height="22" rx="4" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1"/><text x="794" y="521" fill="white" font-size="10" text-anchor="middle">zeppelin</text></g>
 </g>
-<g class="focus" filter="url(#focus-glow)">  <rect x="360" y="233" width="200" height="70" rx="8" fill="#0f172a"/>  <rect x="360" y="233" width="200" height="70" rx="8"         fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>  <text x="460" y="261" fill="white" font-size="15" font-weight="700"         text-anchor="middle">SUPABASE</text>  <text x="460" y="281" fill="#94a3b8" font-size="10"         text-anchor="middle">data · single</text></g>
-<g class="legend"><line x1="160" y1="478" x2="760" y2="478" stroke="#1e293b" stroke-width="1"/>
-<circle cx="226" cy="490" r="4" fill="#fb7185"/>
-<text x="236" y="493" fill="#94a3b8" font-size="9" font-weight="400" text-anchor="start">infra</text>
-<circle cx="306" cy="490" r="4" fill="#a78bfa"/>
-<text x="316" y="493" fill="#94a3b8" font-size="9" font-weight="400" text-anchor="start">data</text>
-<circle cx="386" cy="490" r="4" fill="#fbbf24"/>
-<text x="396" y="493" fill="#94a3b8" font-size="9" font-weight="400" text-anchor="start">llm</text>
-<circle cx="466" cy="490" r="4" fill="#fb923c"/>
-<text x="476" y="493" fill="#94a3b8" font-size="9" font-weight="400" text-anchor="start">media</text>
-<circle cx="546" cy="490" r="4" fill="#34d399"/>
-<text x="556" y="493" fill="#94a3b8" font-size="9" font-weight="400" text-anchor="start">agents</text>
-<circle cx="626" cy="490" r="4" fill="#22d3ee"/>
-<text x="636" y="493" fill="#94a3b8" font-size="9" font-weight="400" text-anchor="start">apps</text>
+<g class="focus" filter="url(#focus-glow)">  <rect x="360" y="267" width="200" height="70" rx="8" fill="#0f172a"/>  <rect x="360" y="267" width="200" height="70" rx="8"         fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>  <text x="460" y="295" fill="white" font-size="15" font-weight="700"         text-anchor="middle">SUPABASE</text>  <text x="460" y="315" fill="#94a3b8" font-size="10"         text-anchor="middle">data · single</text></g>
+<g class="legend"><line x1="160" y1="546" x2="760" y2="546" stroke="#1e293b" stroke-width="1"/>
+<circle cx="226" cy="558" r="4" fill="#fb7185"/>
+<text x="236" y="561" fill="#94a3b8" font-size="9" font-weight="400" text-anchor="start">infra</text>
+<circle cx="306" cy="558" r="4" fill="#a78bfa"/>
+<text x="316" y="561" fill="#94a3b8" font-size="9" font-weight="400" text-anchor="start">data</text>
+<circle cx="386" cy="558" r="4" fill="#fbbf24"/>
+<text x="396" y="561" fill="#94a3b8" font-size="9" font-weight="400" text-anchor="start">llm</text>
+<circle cx="466" cy="558" r="4" fill="#fb923c"/>
+<text x="476" y="561" fill="#94a3b8" font-size="9" font-weight="400" text-anchor="start">media</text>
+<circle cx="546" cy="558" r="4" fill="#34d399"/>
+<text x="556" y="561" fill="#94a3b8" font-size="9" font-weight="400" text-anchor="start">agents</text>
+<circle cx="626" cy="558" r="4" fill="#22d3ee"/>
+<text x="636" y="561" fill="#94a3b8" font-size="9" font-weight="400" text-anchor="start">apps</text>
 </g>
 </svg></div>
     <div class="cards">
       <div class="card"><h3>Calls</h3><div class="num">0</div></div>
-      <div class="card"><h3>Consumers</h3><div class="num">12</div></div>
-      <div class="card"><h3>Categories</h3><div class="num">5</div></div>
+      <div class="card"><h3>Consumers</h3><div class="num">13</div></div>
+      <div class="card"><h3>Categories</h3><div class="num">6</div></div>
     </div>
     <footer>Regenerate: python -m bootstrapper.docs.regen supabase</footer>
   </div>

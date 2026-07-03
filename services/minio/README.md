@@ -183,6 +183,7 @@ _No upstream calls._
 | backup | infra |
 | kong | infra |
 | prometheus | infra |
+| iceberg-rest | data |
 | spark | data |
 | airflow | agents |
 | zeppelin | apps |
