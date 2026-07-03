@@ -89,6 +89,8 @@ def test_atlas_root_dashboard_owns_bare_localhost_route():
     )
     assert "Atlas" in access_code
     assert "service directory" in access_code
+    assert "kong.response.exit(200, [=[" in access_code
+    assert "\\u003c" not in access_code
 
 
 def test_alias_only_services_route_to_expected_containers():
@@ -100,6 +102,7 @@ def test_alias_only_services_route_to_expected_containers():
         "LLM_PROVIDER_SOURCE=ollama-container-cpu\n"
         "DOC_PROCESSOR_SOURCE=docling-container-gpu\n"
         "LOCAL_DEEP_RESEARCHER_SOURCE=container\n"
+        "JENKINS_SOURCE=container\n"
         "STT_PROVIDER_SOURCE=speaches-container-cpu\n"
         "TTS_PROVIDER_SOURCE=speaches-container-cpu\n"
     )
@@ -107,9 +110,13 @@ def test_alias_only_services_route_to_expected_containers():
     for alias in [
         "graph.localhost", "weaviate.localhost", "ollama.localhost",
         "docling.localhost", "research.localhost",
-        "stt.localhost", "tts.localhost",
+        "jenkins.localhost", "stt.localhost", "tts.localhost",
     ]:
         assert alias in by_host, f"missing Kong route for {alias}: {sorted(by_host)}"
+
+    assert by_host["jenkins.localhost"] == "jenkins"
+    jenkins = next(svc for svc in config["services"] if svc["name"] == "jenkins")
+    assert jenkins["url"] == "http://jenkins:8080/"
 
 
 def test_localhost_source_routes_via_host_docker_internal():

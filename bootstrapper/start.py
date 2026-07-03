@@ -927,6 +927,7 @@ class AtlasStarter:
             'MINIO_PORT',
             'MINIO_CONSOLE_PORT',
             'JUPYTERHUB_PORT',
+            'JENKINS_PORT',
             # PR #29 / PR #35 additions: ray + spark + airflow + zeppelin
             # + prometheus + grafana. Without these the previous-run
             # exports silently shadow the freshly-computed slots.
@@ -2127,6 +2128,9 @@ class AtlasStarter:
 @click.option('--zeppelin-source',
               type=click.Choice(['container', 'disabled'], case_sensitive=False),
               help='Override ZEPPELIN_SOURCE — Spark-first notebook UI (requires Spark).')
+@click.option('--jenkins-source',
+              type=click.Choice(['container', 'disabled'], case_sensitive=False),
+              help='Override JENKINS_SOURCE — Maven Spark app builder with MinIO artifact publishing.')
 @click.option('--airflow-source',
               type=click.Choice(['container', 'disabled'], case_sensitive=False),
               help='Override AIRFLOW_SOURCE — code-defined DAG orchestrator (LocalExecutor + LLM operators).')
@@ -2167,6 +2171,7 @@ def main(project_name, base_port, track, list_tracks, cold, setup_hosts, skip_ho
          prometheus_source, prometheus_retention_days, grafana_source,
          spark_source, spark_workers,
          zeppelin_source,
+         jenkins_source,
          airflow_source,
          iceberg_rest_source,
          no_tui, no_splash, no_port_migrate, profile):
@@ -2227,6 +2232,7 @@ def main(project_name, base_port, track, list_tracks, cold, setup_hosts, skip_ho
                     'grafana_source': grafana_source,
                     'spark_source': spark_source,
                     'zeppelin_source': zeppelin_source,
+                    'jenkins_source': jenkins_source,
                     'airflow_source': airflow_source,
                     'iceberg_rest_source': iceberg_rest_source,
                 }
@@ -2436,6 +2442,7 @@ def main(project_name, base_port, track, list_tracks, cold, setup_hosts, skip_ho
             'grafana_source': grafana_source,
             'spark_source': spark_source,
             'zeppelin_source': zeppelin_source,
+            'jenkins_source': jenkins_source,
             'airflow_source': airflow_source,
             'iceberg_rest_source': iceberg_rest_source,
         }

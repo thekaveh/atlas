@@ -1,0 +1,86 @@
+name: jenkins
+label: "Jenkins (Maven Spark app builder)"
+category: apps
+docs: services/jenkins/README.md
+
+containers:
+  - jenkins
+
+images:
+  - var: JENKINS_IMAGE
+    default: "jenkins/jenkins:lts-jdk21"
+    container: jenkins
+    notes: "Jenkins LTS with JDK 21; Atlas builds a local derived image with Maven, MinIO mc, and plugins."
+
+sources:
+  var: JENKINS_SOURCE
+  default: disabled
+  options:
+    - id: container
+      label: "Container (Jenkins controller + Maven + MinIO artifact publishing)"
+    - id: disabled
+      label: "Disabled"
+
+env:
+  - name: JENKINS_SOURCE
+    default: disabled
+  - name: JENKINS_PORT
+    description: "Host port for the Jenkins Web UI (in-container 8080)."
+  - name: JENKINS_SCALE
+    auto_managed: true
+  - name: JENKINS_ADMIN_USER
+    default: admin
+    description: "Jenkins admin login created by JCasC."
+  - name: JENKINS_ADMIN_PASSWORD
+    default: ""
+    secret: true
+    description: "Auto-generated on first bootstrap by KeyGenerator.generate_jenkins_admin_password()."
+  - name: JENKINS_MEMORY_LIMIT
+    default: 3g
+    description: "Container memory limit for Jenkins controller and local Maven builds."
+  - name: JENKINS_CPU_LIMIT
+    default: "2.0"
+    description: "Container CPU limit for Jenkins controller and local Maven builds."
+
+depends_on:
+  required:
+    - minio
+  optional:
+    - airflow
+    - spark
+
+rows:
+  - display_name: "Jenkins"
+    source_var: JENKINS_SOURCE
+    port_var: JENKINS_PORT
+    scale_var: JENKINS_SCALE
+    alias: jenkins.localhost
+    description: "Maven Spark app builder with MinIO artifact publishing."
+
+exports: []
+
+runtime_sc:
+  jenkins:
+    container:
+      scale: 1
+      environment:
+        CASC_JENKINS_CONFIG: /var/jenkins_home/casc/jenkins.yaml
+        JENKINS_ADMIN_USER: ${JENKINS_ADMIN_USER:-admin}
+        JENKINS_ADMIN_PASSWORD: ${JENKINS_ADMIN_PASSWORD}
+        JENKINS_OPTS: "--httpPort=8080"
+        MINIO_ENDPOINT: http://minio:9000
+        MINIO_REGION: ${MINIO_REGION:-us-east-1}
+        MINIO_BUCKET_ICEBERG_JARS: ${MINIO_BUCKET_ICEBERG_JARS:-jars}
+        MINIO_ICEBERG_ACCESS_KEY: ${MINIO_ICEBERG_ACCESS_KEY}
+        MINIO_ICEBERG_SECRET_KEY: ${MINIO_ICEBERG_SECRET_KEY}
+      deploy: {}
+      extra_hosts: []
+    disabled:
+      scale: 0
+      environment: {}
+      deploy: {}
+      extra_hosts: []
+
+data_flow:
+  calls:
+    - minio

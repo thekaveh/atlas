@@ -71,6 +71,7 @@ class SourceOverrideManager:
             # spark_master_source exists purely as a discovery shim.
             'spark_master_source': 'SPARK_SOURCE',
             'zeppelin_source': 'ZEPPELIN_SOURCE',
+            'jenkins_source': 'JENKINS_SOURCE',
             'airflow_source': 'AIRFLOW_SOURCE',
             'iceberg_rest_source': 'ICEBERG_REST_SOURCE',
             # Airflow has a multi-container family (webserver + scheduler +

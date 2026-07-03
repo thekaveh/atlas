@@ -346,7 +346,7 @@ services:
     ports:
     - mode: ingress
       target: 8000
-      published: '63080'
+      published: '63081'
       protocol: tcp
     restart: unless-stopped
     volumes:
@@ -854,6 +854,66 @@ services:
       target: /scripts
       read_only: true
       bind: {}
+  jenkins:
+    build:
+      context: '{REPO_ROOT}/services/jenkins/build'
+      dockerfile: Dockerfile
+      args:
+        BASE_IMAGE: jenkins/jenkins:lts-jdk21
+    container_name: atlas-jenkins
+    depends_on:
+      minio-init:
+        condition: service_completed_successfully
+        required: true
+    deploy:
+      replicas: 0
+      resources:
+        limits:
+          cpus: 2
+          memory: '3221225472'
+    environment:
+      CASC_JENKINS_CONFIG: /var/jenkins_home/casc/jenkins.yaml
+      JENKINS_ADMIN_PASSWORD: ''
+      JENKINS_ADMIN_USER: admin
+      JENKINS_OPTS: --httpPort=8080
+      KONG_HTTP_PORT: '63000'
+      MINIO_BUCKET_ICEBERG_JARS: jars
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ICEBERG_ACCESS_KEY: ''
+      MINIO_ICEBERG_SECRET_KEY: ''
+      MINIO_REGION: us-east-1
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - curl -fsS http://localhost:8080/login >/dev/null
+      timeout: 10s
+      interval: 30s
+      retries: 10
+      start_period: 2m0s
+    image: atlas-jenkins:local
+    logging:
+      driver: json-file
+      options:
+        max-file: '3'
+        max-size: 10m
+    networks:
+      backend-network: null
+    ports:
+    - mode: ingress
+      target: 8080
+      published: '63080'
+      protocol: tcp
+    restart: unless-stopped
+    volumes:
+    - type: volume
+      source: jenkins-home
+      target: /var/jenkins_home
+      volume: {}
+    - type: bind
+      source: '{REPO_ROOT}/services/jenkins/casc'
+      target: /var/jenkins_home/casc
+      read_only: true
+      bind: {}
   jupyterhub:
     build:
       context: '{REPO_ROOT}/services/jupyterhub/build'
@@ -946,7 +1006,7 @@ services:
     ports:
     - mode: ingress
       target: 8888
-      published: '63081'
+      published: '63082'
       protocol: tcp
     restart: unless-stopped
     volumes:
@@ -1370,7 +1430,7 @@ services:
     ports:
     - mode: ingress
       target: 2024
-      published: '63083'
+      published: '63084'
       protocol: tcp
     restart: unless-stopped
     volumes:
@@ -1883,7 +1943,7 @@ services:
     ports:
     - mode: ingress
       target: 8080
-      published: '63082'
+      published: '63083'
       protocol: tcp
     restart: unless-stopped
     volumes:
@@ -3058,7 +3118,7 @@ services:
     ports:
     - mode: ingress
       target: 8080
-      published: '63084'
+      published: '63085'
       protocol: tcp
     restart: unless-stopped
     volumes:
@@ -3142,6 +3202,9 @@ volumes:
     driver: local
   hermes-data:
     name: atlas-hermes-data
+    driver: local
+  jenkins-home:
+    name: atlas-jenkins-home
     driver: local
   jupyterhub-data:
     name: atlas-jupyterhub-data

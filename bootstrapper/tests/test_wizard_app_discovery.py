@@ -75,6 +75,10 @@ EXPECTED_DISCOVERED = frozenset({
     # for the data-eng track. Single-container family; wired via
     # 'iceberg_rest_source' in source_mapping.
     "Apache Iceberg REST Catalog",
+    # Jenkins (added 2026-07-03) — Maven Spark app builder for the data-eng
+    # track. Single-container family; wired via 'jenkins_source' in
+    # source_mapping.
+    "Jenkins",
     # TEI Reranker (added 2026-06-05) — GPU-accelerated reranker inference.
     # Single-container family; wired via 'tei_reranker_source' in
     # source_mapping with container-cpu / container-gpu / localhost / disabled.

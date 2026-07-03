@@ -296,11 +296,12 @@ _Engine-only manifests (speaches, chatterbox) are not listed — they're selecte
 | Agents & Workflows | LightRAG | 63063 | lightrag.localhost |
 | Agents & Workflows | n8n | 63064 | n8n.localhost |
 | Agents & Workflows | OpenClaw | 63065 | openclaw.localhost |
-| Apps & UIs | Backend API | 63080 | api.localhost |
-| Apps & UIs | JupyterHub | 63081 | jupyter.localhost |
-| Apps & UIs | Open WebUI | 63082 | chat.localhost |
-| Apps & UIs | Local Deep Researcher | 63083 | research.localhost |
-| Apps & UIs | Apache Zeppelin | 63084 | zeppelin.localhost |
+| Apps & UIs | Jenkins | 63080 | jenkins.localhost |
+| Apps & UIs | Backend API | 63081 | api.localhost |
+| Apps & UIs | JupyterHub | 63082 | jupyter.localhost |
+| Apps & UIs | Open WebUI | 63083 | chat.localhost |
+| Apps & UIs | Local Deep Researcher | 63084 | research.localhost |
+| Apps & UIs | Apache Zeppelin | 63085 | zeppelin.localhost |
 <!-- TOPOLOGY:END -->
 
 ## 4. Core Services
