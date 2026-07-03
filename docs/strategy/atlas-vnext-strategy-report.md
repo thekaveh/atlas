@@ -226,7 +226,7 @@ Atlas already has several specialist UIs. The root page should be the map, not e
 
 ### 6.4 Product Recommendation
 
-Atlas should move the root route to an Atlas-branded landing page and keep Supabase Studio on `studio.localhost`. The first implementation should be a small, generated dashboard built from the same topology, route, and auth metadata Atlas already maintains, so it stays consistent with the rest of the stack instead of becoming a second, drifting inventory.
+Atlas should move the root route to an Atlas-branded landing page and keep Supabase Studio on `supabase-studio.localhost`. The first implementation should be a small, generated dashboard built from the same topology, route, and auth metadata Atlas already maintains, so it stays consistent with the rest of the stack instead of becoming a second, drifting inventory.
 
 In short: **use the Kong root as the Atlas entrypoint, and make v1 a service directory plus health dashboard.** That is the smallest change that meaningfully improves onboarding, navigation, and day-two usability without overreaching into a new control plane.
 

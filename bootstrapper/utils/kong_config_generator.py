@@ -7,6 +7,7 @@ Replaces static kong.yml/kong-local.yml with dynamic service routing.
 
 import yaml
 import socket
+import json
 from typing import Dict, Any, List, Optional
 from pathlib import Path
 from urllib.parse import urlparse
@@ -159,6 +160,9 @@ class KongConfigGenerator:
         """
         services = []
 
+        # Atlas product entrypoint at http://localhost:${KONG_HTTP_PORT}/.
+        services.append(self.generate_atlas_root_dashboard_service())
+
         # Always-containerized Supabase services
         services.extend(self.get_supabase_services())
 
@@ -241,6 +245,62 @@ class KongConfigGenerator:
         services.extend(self.get_alias_only_services())
 
         return services
+
+    def generate_atlas_root_dashboard_service(self) -> Dict[str, Any]:
+        """Serve the generated Atlas service directory at bare Kong root."""
+        from utils.atlas_dashboard import build_dashboard_model, render_dashboard_html
+
+        html = render_dashboard_html(build_dashboard_model(
+            self.config_parser,
+            track_key=getattr(self, "track_key", None),
+            overridden_services=getattr(self, "overridden_services", frozenset()),
+            hosts_configured=self._hosts_look_configured(),
+        ))
+        lua_html = json.dumps(html)
+        return {
+            'name': 'atlas-root-dashboard',
+            # The route's pre-function exits before proxying. Kong's
+            # declarative schema still requires a URL, so point at a
+            # loopback discard target that should never be reached.
+            'url': 'http://127.0.0.1:1/',
+            'routes': [
+                {
+                    'name': 'atlas-root-dashboard-root',
+                    'strip_path': False,
+                    'paths': ['/'],
+                    'hosts': ['localhost'],
+                    'plugins': [
+                        {
+                            'name': 'pre-function',
+                            'config': {
+                                'access': [
+                                    'return kong.response.exit(200, '
+                                    f'{lua_html}, '
+                                    '{ ["Content-Type"] = "text/html; charset=utf-8" })'
+                                ]
+                            },
+                        },
+                    ],
+                },
+            ],
+            'plugins': [{'name': 'cors'}],
+        }
+
+    def _hosts_look_configured(self) -> bool:
+        """Best-effort check for wildcard localhost host entries."""
+        try:
+            hosts_text = Path("/etc/hosts").read_text(encoding="utf-8")
+        except OSError:
+            return False
+        needed = {"supabase-studio.localhost", "chat.localhost", "api.localhost"}
+        present = set()
+        for line in hosts_text.splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            parts = stripped.split()
+            present.update(parts[1:])
+        return bool(needed & present)
 
     def get_alias_only_services(self) -> List[Dict[str, Any]]:
         """Kong routes for the 7 aliases added in the topology rework
@@ -546,15 +606,14 @@ class KongConfigGenerator:
                         'name': 'dashboard-all',
                         'strip_path': False,
                         'paths': ['/'],
-                        # Restrict the catch-all to the Studio alias and
-                        # the bare gateway hostname. Previously this
+                        # Restrict the catch-all to the Studio alias.
+                        # Previously this
                         # route had NO hosts filter, so every unaliased
                         # request (graph.localhost, weaviate.localhost,
                         # etc.) silently fell through to Studio. The
-                        # per-alias routes added by `get_alias_only_services`
-                        # win for their specific hosts; this route now
-                        # only catches what's left.
-                        'hosts': ['studio.localhost', 'localhost'],
+                        # bare gateway hostname is now owned by the Atlas
+                        # root dashboard.
+                        'hosts': ['supabase-studio.localhost'],
                     }
                 ],
                 # basic-auth + ACL, like the /pg/ meta route above and

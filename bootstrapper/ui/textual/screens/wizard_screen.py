@@ -1106,9 +1106,21 @@ class WizardScreen(Screen):
             if self._stack_options_resolver is not None:
                 # Drop commits from steps whose skip-predicate is true at
                 # LAUNCH time (see prune_skip_hidden_selections).
-                self._source_args, self._stack_options = self._stack_options_resolver(
-                    prune_skip_hidden_selections(self._steps, self._selections)
+                _launch_selections = prune_skip_hidden_selections(
+                    self._steps, self._selections
                 )
+                self._source_args, self._stack_options = self._stack_options_resolver(
+                    _launch_selections
+                )
+                if self._starter is not None:
+                    try:
+                        from .. import integration as _int_mod
+                        self._starter.active_track = _launch_selections.get(
+                            _int_mod.PICKER_STEP_TITLE
+                        )
+                        self._starter.active_track_overrides = frozenset()
+                    except Exception:  # noqa: BLE001
+                        pass
             else:
                 self._source_args, self._stack_options = {}, {}
 

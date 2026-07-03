@@ -312,7 +312,7 @@ Acceptance criteria:
 Acceptance criteria:
 
 - [ ] Kong bare-root route serves an Atlas-branded entrypoint instead of falling through to Supabase Studio.
-- [ ] Supabase Studio remains reachable through an explicit route, expected to be `studio.localhost` unless implementation discovers a better existing alias.
+- [ ] Supabase Studio remains reachable through an explicit route, expected to be `supabase-studio.localhost`.
 - [ ] Dashboard shows active service rows with display name, category, SOURCE, Kong URL, direct URL, and auth note.
 - [ ] Dashboard shows `healthy`, `degraded`, or `disabled` status using resolved SOURCE state and lightweight reachability checks.
 - [ ] Dashboard shows active track context and distinguishes disabled-by-track from manually disabled services.

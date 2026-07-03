@@ -30,13 +30,14 @@ Plain `python3 scripts/check-kong-routes.py` works too if `PyYAML` is on your sy
 ## 3. Service Routing
 
 ### 3.1 Always-Available Routes (Supabase)
+- `/` on bare `localhost` → Atlas service directory and health dashboard
 - `/auth/v1/` → Supabase Auth service
 - `/rest/v1/` → Supabase API (PostgREST)
 - `/graphql/v1/` → Supabase GraphQL
 - `/realtime/v1/` → Supabase Realtime
 - `/storage/v1/` → Supabase Storage
 - `/pg/` → Supabase Meta service
-- `/` → Supabase Studio dashboard
+- `supabase-studio.localhost` → Supabase Studio dashboard
 
 ### 3.2 Dynamic Routes (Based on SOURCE)
 - `comfyui.localhost` → ComfyUI service (if enabled)
@@ -50,7 +51,7 @@ Plain `python3 scripts/check-kong-routes.py` works too if `PyYAML` is on your sy
 - `litellm.localhost` → LiteLLM gateway + admin dashboard (always-on; same alias exposes `/ui/`, `/v1/*`, and `/spend/*`)
 - `minio.localhost` → MinIO admin console (if `MINIO_SOURCE != disabled`)
 - `s3.minio.localhost` → MinIO S3 API (if `MINIO_SOURCE != disabled`; clients can also use the direct `MINIO_PORT`)
-- `studio.localhost` → Supabase Studio dashboard (and bare `localhost` falls through to the same upstream)
+- `supabase-studio.localhost` → Supabase Studio dashboard
 - `graph.localhost` → Neo4j Browser (`NEO4J_GRAPH_DB_SOURCE != disabled`)
 - `weaviate.localhost` → Weaviate REST API (`WEAVIATE_SOURCE != disabled`)
 - `ollama.localhost` → Ollama upstream (`LLM_PROVIDER_SOURCE ∈ {ollama-container-*, ollama-localhost}`)
@@ -160,7 +161,7 @@ cat volumes/api/kong-dynamic.yml
 docker logs ${PROJECT_NAME}-kong-api-gateway -f
 
 # Test Kong routing end-to-end (proxies SearXNG's /healthz through Kong;
-# the bare-localhost root now serves the basic-auth-gated Studio route)
+# the bare-localhost root serves the generated Atlas dashboard)
 curl -H 'Host: search.localhost' http://localhost:63000/healthz
 ```
 

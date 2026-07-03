@@ -174,7 +174,7 @@ rows:
   - display_name: "Supabase Studio"
     source_var: SUPABASE_STUDIO_SOURCE
     port_var: SUPABASE_STUDIO_PORT
-    alias: studio.localhost
+    alias: supabase-studio.localhost
     description: "Browser UI for the database."
 
 # Supabase exports DB credentials + JWT/ANON/SERVICE keys to half the stack.
