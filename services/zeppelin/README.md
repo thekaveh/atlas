@@ -4,7 +4,7 @@ Zeppelin runs as a single container in the stack's `apps` band. The Spark interp
 
 ## 1. Overview
 
-Image: `apache/zeppelin:0.12.1` (Apache 2.0). All interpreters run in-process (no Kubernetes interpreter isolation). The Spark interpreter is the headline. The image does NOT bundle a full Spark distribution — `/opt/zeppelin/interpreter/spark/` contains only the interpreter shim, so `%spark` cells need a Spark distribution made available as `SPARK_HOME` before a zero-touch standalone Spark path can work.
+Image: `apache/zeppelin:0.12.1` (Apache 2.0), wrapped by `services/zeppelin/build/Dockerfile` so `/opt/spark` contains the matching Spark 4.1.2 runtime plus S3A and Iceberg lakehouse jars. All interpreters run in-process (no Kubernetes interpreter isolation). The Spark interpreter is the headline.
 
 **Hard requirement:** Zeppelin is gated on `SPARK_SOURCE != disabled`. Picking `ZEPPELIN_SOURCE=container` without Spark surfaces an actionable error from the bootstrapper; the spec considers a Spark-less Zeppelin broken on purpose.
 
@@ -18,19 +18,23 @@ Atlas should treat Zeppelin as a Spark-submit/standalone Spark notebook surface:
 - The implementation path for zero-touch lakehouse notebooks is a bundled or mounted `SPARK_HOME` plus seeded interpreter settings for MinIO S3A and the Iceberg REST `lakehouse` catalog.
 - JupyterHub remains the Spark Connect notebook path for Python and Scala clients that use `SPARK_REMOTE`, `SparkSession.builder.remote(...)`, or Spark Connect client libraries directly.
 
-Until the #211 implementation lands, a fresh Zeppelin container may still require manual operator work to provide `SPARK_HOME` and interpreter settings. Do not configure `spark.remote=sc://spark-connect:15002` as the happy path for Zeppelin `%spark` on Spark 4.
+The stack should not configure Spark Connect's remote property as the happy path for Zeppelin `%spark` on Spark 4.
 
-### 1.2 Configure the Spark interpreter manually
+### 1.2 Zero-touch Spark interpreter seeding
 
-Manual standalone setup is only a recovery/development path until #211 ships zero-touch seeding:
+`zeppelin-init` waits for the Zeppelin REST API, updates the stock `spark` interpreter setting, restarts it, and exits. It is idempotent: rerunning it preserves user-owned properties while overwriting Atlas-owned Spark/lakehouse values.
 
-1. Make a Spark distribution available inside the Zeppelin container and set `SPARK_HOME` to that path.
-2. Open Zeppelin (`http://localhost:${ZEPPELIN_PORT}` or `http://zeppelin.localhost:${KONG_HTTP_PORT}`).
-3. Top-right user menu → **Interpreter**.
-4. Find the **`spark`** interpreter group → click **edit**.
-5. Set `spark.master` to `spark://spark-master:7077`.
-6. Add the same MinIO S3A and Iceberg REST catalog settings used by Spark/Airflow for the `lakehouse` catalog.
-7. Click **Save**, then confirm the "restart interpreter" prompt (or use the interpreter's **restart** button).
+Seeded values include:
+
+- `SPARK_HOME=/opt/spark`
+- `spark.master=spark://spark-master:7077`
+- `zeppelin.spark.enableSupportedVersionCheck=false`
+- `spark.submit.deployMode=client`
+- `spark.driver.host=zeppelin` and `spark.driver.bindAddress=0.0.0.0`
+- MinIO S3A settings for `s3a://` reads/writes and Spark event logs
+- Iceberg REST catalog settings for `lakehouse` at `http://iceberg-rest:8181`
+
+Manual recovery path: open Zeppelin (`http://localhost:${ZEPPELIN_PORT}` or `http://zeppelin.localhost:${KONG_HTTP_PORT}`), go to top-right user menu → **Interpreter** → `spark`, and verify the values above. Click **Save**, then confirm the restart prompt if you make changes.
 
 ### 1.3 Verify it works
 
@@ -51,6 +55,13 @@ spark.sql("SELECT 1 + 1 AS result").show()
 
 If both return values, the notebook is talking to the standalone Spark cluster. (The starter notebook `notebooks/spark_basics.zpln` in §5 does the same checks plus an s3a round-trip.)
 
+With Iceberg REST enabled, a `%spark.sql` cell can validate the lakehouse catalog:
+
+```sql
+%spark.sql
+SHOW NAMESPACES IN lakehouse
+```
+
 ### 1.4 How MinIO (s3a) and Spark History work
 
 For the intended zero-touch path, users should not configure storage credentials in the notebook. The seeded Spark interpreter should carry the same storage settings as the rest of the lakehouse stack:
@@ -70,9 +81,9 @@ The `spark-connect` sidecar is **backend-only by design** — it publishes no ho
 
 Zeppelin speaks its own REST + websocket protocol, **not** the Jupyter kernel protocol — so VS Code's built-in Jupyter extension cannot connect to it. Use the community **"Zeppelin Notebook"** extension ([`AllenLi1231.zeppelin-vscode`](https://marketplace.visualstudio.com/items?itemName=AllenLi1231.zeppelin-vscode)) instead. It renders `.zpln` notebooks in VS Code and runs every paragraph **server-side** on the Zeppelin server:
 
-1. Install `AllenLi1231.zeppelin-vscode` from the Marketplace (requires Zeppelin >= 0.8.0; this image is 0.12.0).
+1. Install `AllenLi1231.zeppelin-vscode` from the Marketplace (requires Zeppelin >= 0.8.0; this image is 0.12.1).
 2. Open or create a `.zpln` file. On the first cell run, the extension prompts for the **server URL** — enter `http://localhost:${ZEPPELIN_PORT}` (no credentials; the stack ships no auth — see §2).
-3. Complete the Spark interpreter setup from §1.2 if #211's zero-touch seeding is not yet present. It lives server-side, so it applies to the web UI and VS Code alike.
+3. Confirm `zeppelin-init` has completed successfully if the Spark interpreter is not ready yet. The setting lives server-side, so it applies to the web UI and VS Code alike.
 
 Because execution happens on the server, `%spark` (Scala) and `%spark.pyspark` cells use the same Zeppelin-side Spark interpreter as the web UI — VS Code never needs a Scala kernel or a Spark client of its own, and S3A/MinIO + the History Server behave identically.
 
@@ -94,13 +105,15 @@ No authentication ships pre-configured. For real use, enable Shiro auth via `con
 ```bash
 ZEPPELIN_SOURCE=disabled           # container | disabled
 ZEPPELIN_IMAGE=apache/zeppelin:0.12.1
+ZEPPELIN_INIT_IMAGE=python:3.12-alpine
 ZEPPELIN_PORT=                     # auto-assigned (apps band)
 ```
 
 ## 4. Integration with the stack
 
-- **Spark** (required) — `%spark` cells should use the standalone Spark interpreter path selected in the Zeppelin backend decision: `SPARK_HOME` plus `spark.master=spark://spark-master:7077`. The current compose env includes `SPARK_MASTER` / `SPARK_SUBMIT_OPTIONS`; #211 is expected to make the zero-touch path complete by ensuring `SPARK_HOME` and lakehouse interpreter settings are seeded.
-- **MinIO** — `s3a://` credentials should come from the seeded Spark interpreter/Spark submit configuration. (`SPARK_SUBMIT_OPTIONS` already carries the base S3A settings; #211 should make the interpreter path complete.)
+- **Spark** (required) — `%spark` cells use the standalone Spark interpreter path selected in the Zeppelin backend decision: `SPARK_HOME` plus `spark.master=spark://spark-master:7077`.
+- **MinIO** — `s3a://` credentials come from the seeded Spark interpreter/Spark submit configuration.
+- **Iceberg REST** (optional) — when `ICEBERG_REST_SOURCE=container`, the seeded `lakehouse` catalog points to `http://iceberg-rest:8181` and uses the scoped Iceberg MinIO credentials for S3FileIO.
 - **Supabase Postgres** — JDBC connection details exposed as env vars (`ZEPPELIN_JDBC_POSTGRES_URL` / `_USER` / `_PASSWORD`). Zeppelin does not auto-bind these to the JDBC interpreter — one-time setup: open Zeppelin → Interpreter → `+ Create`, name it `postgres` with interpreter group `jdbc`, and set `default.driver=org.postgresql.Driver`, `default.url=jdbc:postgresql://supabase-db:5432/${SUPABASE_DB_NAME}` (copy the exact value from the container's `ZEPPELIN_JDBC_POSTGRES_URL` env — `${SUPABASE_DB_NAME}` defaults to `postgres` but is configurable), `default.user`/`default.password` from the corresponding env vars. Then `%postgres SELECT version()` works — note the old `%jdbc(postgres)` prefix syntax was removed in Zeppelin 0.12 (the interpreter warns "not supported anymore" and falls back to `default.*`). Tracked as a future improvement (bind-mount `conf/interpreter.json` so this is zero-touch).
 - **LiteLLM** (optional) — Python interpreter can call the LiteLLM gateway via `openai.OpenAI(base_url="http://litellm:4000/v1", api_key=...)`. No pre-configuration ships; users wire it themselves.
 
@@ -122,6 +135,7 @@ Use it as a template for your own notebooks.
 
 | Service | Category |
 |---|---|
+| iceberg-rest | data |
 | minio | data |
 | spark | data |
 | supabase | data |
@@ -153,7 +167,7 @@ _No high-confidence opportunities identified._
 ## 7. Troubleshooting
 
 - **Spark interpreter says "no master URL"** — `SPARK_MASTER` env var is missing from the container. Check the compose env block; the manifest's runtime_sc + compose.yml dual-write should ensure it. Restart the container after fixing.
-- **First `%spark` cell after stack-up errors with "connection refused"** — Zeppelin's `depends_on` gates on `spark-master: service_healthy` and `spark-init: service_completed_successfully`, but NOT on the `spark-connect` sidecar, whose JVM startup lags spark-master by 20-60s on cold start (loading the Spark Connect plugin + binding 15002). Just re-run the cell once spark-connect is up. We don't ship a Connect-side readiness probe because `start-connect-server.sh` doesn't expose `/health`.
+- **First `%spark` cell after stack-up errors with "connection refused"** — Zeppelin's `depends_on` gates on `spark-master: service_healthy` and `spark-init: service_completed_successfully`, but a cold Spark worker or freshly restarted interpreter can still take a few seconds to accept driver/executor traffic. Confirm `spark.master=spark://spark-master:7077` in the `spark` interpreter settings, then re-run the cell once the Spark master UI shows a live worker.
 - **S3A: "Access Denied" on s3a://...** — MinIO root credentials drift between `.env` and what the container received. `docker exec ${PROJECT_NAME}-zeppelin env | grep -E 'MINIO|SPARK_SUBMIT_OPTIONS'` to confirm. Re-run `./start.sh` to refresh.
 - **JDBC interpreter "Interpreter not properly configured"** — Zeppelin does not auto-bind the `ZEPPELIN_JDBC_POSTGRES_*` env vars to a JDBC interpreter profile. Walk through §4's one-time UI setup, then restart it (Interpreter → postgres → Restart). Supabase Postgres also must be running (it's a required dep of the stack).
 - **"Notebook won't save"** — `/notebook` is bind-mounted from `services/zeppelin/notebooks/`. Confirm `services/zeppelin/notebooks/` exists and is writable by the host user. Zeppelin writes new .zpln files there.

@@ -851,7 +851,7 @@ class ServiceConfig:
         return env_vars
 
     def _generate_zeppelin_config(self) -> dict:
-        """Generate ZEPPELIN_SCALE. Hard-fails if Zeppelin=container but Spark=disabled.
+        """Generate Zeppelin family scales. Hard-fails if Zeppelin=container but Spark=disabled.
 
         Zeppelin's value collapses without Spark — the pre-configured Spark
         interpreter has nothing to connect to. Raising at source-resolution
@@ -859,13 +859,21 @@ class ServiceConfig:
         boot into a broken state."""
         z_source = self.service_sources.get("ZEPPELIN_SOURCE", "disabled")
         s_source = self.service_sources.get("SPARK_SOURCE", "disabled")
+        if z_source == "disabled":
+            return {
+                "ZEPPELIN_SCALE": "0",
+                "ZEPPELIN_INIT_SCALE": "0",
+            }
         if z_source == "container" and s_source == "disabled":
             raise ValueError(
                 "Zeppelin requires Spark to be enabled. "
                 "Either pass --spark-source container alongside "
                 "--zeppelin-source container, or set --zeppelin-source disabled."
             )
-        return {"ZEPPELIN_SCALE": "1" if z_source == "container" else "0"}
+        return {
+            "ZEPPELIN_SCALE": "1",
+            "ZEPPELIN_INIT_SCALE": "1",
+        }
 
     def _generate_airflow_config(self) -> dict:
         """Generate AIRFLOW_*_SCALE based on AIRFLOW_SOURCE.
