@@ -49,6 +49,9 @@ env:
     default: "text2vec-openai,text2vec-ollama,multi2vec-clip,generative-openai,generative-ollama"
   - name: CLIP_INFERENCE_API
     default: "http://multi2vec-clip:8080"
+  - name: MULTI2VEC_CLIP_SIGLIP2_IMAGE
+    default: "semitechnologies/multi2vec-clip:google-siglip2-so400m-patch16-512-1.5.1"
+    description: "Opt-in SigLIP 2 image reference for MULTI2VEC_CLIP_IMAGE. Produces 1152-d vectors; revectorize or create new Weaviate collections before switching."
   - name: WEAVIATE_URL
     auto_managed: true
     description: "Resolved per WEAVIATE_SOURCE. Consumed by n8n, backend, jupyterhub."
@@ -190,4 +193,3 @@ data_flow:
   calls:
     - litellm
     - multi2vec-clip
-

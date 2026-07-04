@@ -24,6 +24,7 @@ Canonical port table: [Ports and Routes](../../docs/deployment/ports-and-routes.
 ```bash
 MULTI2VEC_CLIP_SOURCE=container-cpu       # container-cpu | container-gpu | disabled
 CLIP_INFERENCE_API=http://multi2vec-clip:8080
+MULTI2VEC_CLIP_SIGLIP2_IMAGE=semitechnologies/multi2vec-clip:google-siglip2-so400m-patch16-512-1.5.1
 ```
 
 What Weaviate sees (compose interpolation of `WEAVIATE_ENABLE_MODULES`
@@ -43,6 +44,16 @@ CLIP_INFERENCE_API=
 ```
 
 The `weaviate` service's compose interpolation respects this; collections that previously used `multi2vec-clip` as their vectorizer will start failing on next ingest if the module disappears.
+
+**SigLIP 2 opt-in image.** Atlas keeps `MULTI2VEC_CLIP_IMAGE=semitechnologies/multi2vec-clip:sentence-transformers-clip-ViT-B-32-1.5.1` as the default so existing collections do not silently change vector spaces. To test Weaviate's current SigLIP 2 `so400m` image, copy the reference value into the live image variable:
+
+```bash
+MULTI2VEC_CLIP_IMAGE=semitechnologies/multi2vec-clip:google-siglip2-so400m-patch16-512-1.5.1
+MULTI2VEC_CLIP_SOURCE=container-gpu
+CLIP_INFERENCE_API=http://multi2vec-clip:8080
+```
+
+Do not change `MULTI2VEC_CLIP_IMAGE` on a stack that already has `multi2vec-clip` collections without a migration plan. The default ViT-B/32 image emits 512-d vectors, while `MULTI2VEC_CLIP_SIGLIP2_IMAGE` emits 1152-d vectors. Existing collections must be recreated or revectorized/reindexed into a new collection before queries and inserts use the SigLIP 2 image. The service category, topology row, track placement, internal endpoint, and port model do not change; this is an image swap inside the existing internal `multi2vec-clip` container slot.
 
 ## 4. Architecture & wiring
 
@@ -101,7 +112,7 @@ _No downstream consumers._
 
 ### 5.5 Future — Candidate new services
 
-- **SigLIP 2 vectorizer image** ([details](../../docs/research/candidates/siglip2-vectorizer.md)) — *Headline:* drop-in upgrade of the multi2vec-clip container to a Google SigLIP 2 image for stronger multilingual + higher-resolution multimodal retrieval. *Wires into:* weaviate, backend, jupyterhub.
+- **SigLIP 2 vectorizer image** ([details](../../docs/research/candidates/siglip2-vectorizer.md)) — *Headline:* opt-in upgrade of the multi2vec-clip container to a Google SigLIP 2 `so400m` image for stronger multilingual + higher-resolution multimodal retrieval after collection revectorization. *Wires into:* weaviate, backend, jupyterhub.
 
 ### 5.6 Future — Unused features in this service
 
