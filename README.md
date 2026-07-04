@@ -294,6 +294,7 @@ _Engine-only manifests (speaches, chatterbox) are not listed — they're selecte
 | LLM Core | LiteLLM | 63040 | litellm.localhost |
 | LLM Core | LLM Engine | — | ollama.localhost |
 | LLM Core | TEI Reranker | 63041 | rerank.localhost |
+| Media | Blender MCP | — | — |
 | Media | Crawl4AI | 63050 | crawl4ai.localhost |
 | Media | Document Processor | 63051 | docling.localhost |
 | Media | ComfyUI | 63052 | comfyui.localhost |
