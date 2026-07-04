@@ -63,7 +63,7 @@ Use it as a template. Drop your own DAGs into `services/airflow/dags/` — they'
 
 `services/airflow/dags/lakehouse_spark_submit_smoke.py` is a manual DAG (`schedule=None`) for the data-engineering track. It prepares a tiny landing object, uploads the image-built validation JAR to `s3a://jars/atlas/lakehouse-smoke/latest/atlas-lakehouse-smoke.jar`, and runs `SparkSubmitOperator` with `deploy_mode="cluster"` against `spark://spark-master:7077`.
 
-Cluster deploy mode is the Atlas default for this path because the Spark driver runs on a Spark worker that already carries the S3A and Iceberg runtime jars. Airflow still carries Java, `spark-submit`, `hadoop-aws`, the AWS SDK v2 bundle, and Iceberg jars so the submit client can resolve S3A resources and so client-mode experiments do not immediately fail on missing classes. The DAG passes explicit S3A, Iceberg REST, and Spark event-log config:
+Cluster deploy mode is the Atlas default for this path because the Spark driver runs on a Spark worker that already carries the S3A and Iceberg runtime jars. Airflow still carries Java, `spark-submit`, `hadoop-aws`, the AWS SDK v2 bundle, and Iceberg jars so the submit client can resolve S3A resources and so client-mode experiments do not immediately fail on missing classes. After submission, the Spark provider polls post-submit driver status through the standalone master's backend-network-only REST endpoint at `spark-master:6066`; Atlas enables that endpoint on `spark-master` without exposing it through a host port or Kong route. The DAG passes explicit S3A, Iceberg REST, and Spark event-log config:
 
 ```python
 SparkSubmitOperator(
@@ -91,7 +91,7 @@ Validation flow:
   --minio-source container
 ```
 
-Trigger `lakehouse_spark_submit_smoke` from the UI at `http://airflow.localhost:${KONG_HTTP_PORT}` or use the Airflow REST API token flow shown in section 6. The Spark task should finish successfully, create/update `lakehouse.bronze.airflow_spark_submit_smoke`, and leave an event log visible in Spark History at `http://spark-history.localhost:${KONG_HTTP_PORT}`. If the DAG fails before submission, check that `minio_default` and `spark_default` were seeded by `airflow-init`; if it fails during Spark execution, inspect the Spark driver in the master UI and the completed app in Spark History.
+Trigger `lakehouse_spark_submit_smoke` from the UI at `http://airflow.localhost:${KONG_HTTP_PORT}` or use the Airflow REST API token flow shown in section 6. The Spark task should finish successfully, create/update `lakehouse.bronze.airflow_spark_submit_smoke`, and leave an event log visible in Spark History at `http://spark-history.localhost:${KONG_HTTP_PORT}`. If the DAG fails before submission, check that `minio_default` and `spark_default` were seeded by `airflow-init`; if it runs in Spark but Airflow reports a post-submit status failure, verify `http://spark-master:6066` is reachable from the Airflow scheduler container; if it fails during Spark execution, inspect the Spark driver in the master UI and the completed app in Spark History.
 
 ## 6. Hermes → Airflow integration
 
