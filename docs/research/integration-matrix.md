@@ -83,6 +83,7 @@
 | Firecrawl | media | local-deep-researcher | [candidates/firecrawl.md](./candidates/firecrawl.md) |
 | Grafana Loki | infra | kong | [candidates/grafana-loki.md](./candidates/grafana-loki.md) |
 | Graphiti | agents | neo4j | [candidates/graphiti.md](./candidates/graphiti.md) |
+| Heavy 3D Game Infrastructure | media | _(none)_ | [candidates/heavy-3d-game-infrastructure.md](./candidates/heavy-3d-game-infrastructure.md) |
 | Honcho | data | openclaw | [candidates/honcho.md](./candidates/honcho.md) |
 | Apache Iceberg + DuckDB | data | minio | [candidates/iceberg-duckdb.md](./candidates/iceberg-duckdb.md) |
 | imgproxy | media | supabase | [candidates/imgproxy.md](./candidates/imgproxy.md) |
