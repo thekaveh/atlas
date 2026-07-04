@@ -487,6 +487,6 @@ Task 5 vNext ranking notes (candidate corpus plus current outside sources checke
 | Redpanda | Already shipped | Disabled-by-default Kafka API broker and console for Spark Structured Streaming in the data-eng track. |
 | Superset | Watchlist | July 4, 2026 decision keeps it out of the service graph until Trino/Iceberg or Postgres analytics schemas have meaningful datasets and SSO/route auth is credible. |
 | TimescaleDB | Watchlist | July 4, 2026 decision keeps it out of the service graph until a later trading-data slice defines isolated schemas, read-only/paper credentials, tick/order-book retention, hypertables, and compression policy. |
-| OpenBao | Watchlist | Stronger Vault-lineage option than Atlas needs in the first secrets-management slice. |
+| OpenBao | Watchlist | July 4, 2026 decision keeps it out of the service graph until Infisical is insufficient or Atlas needs Vault-lineage compatibility with a concrete storage, unseal, backup, and bootstrap operator story. |
 | Lakekeeper | Watchlist | July 4, 2026 decision keeps it out of the service graph until the current Iceberg REST + MinIO path proves real write/concurrency, vended-credential, or catalog-governance pressure. |
 | Prometheus | Already shipped / not vNext | Keep as current-state observability baseline; vNext work is the missing traces/logs layer around it, not Prometheus itself. |

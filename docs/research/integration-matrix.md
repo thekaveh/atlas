@@ -11,7 +11,7 @@
 | doc-processor | media | 7 | [rows/doc-processor.md](./rows/doc-processor.md) |
 | hermes | agents | 13 | [rows/hermes.md](./rows/hermes.md) |
 | jupyterhub | apps | 12 | [rows/jupyterhub.md](./rows/jupyterhub.md) |
-| kong | infra | 8 | [rows/kong.md](./rows/kong.md) |
+| kong | infra | 9 | [rows/kong.md](./rows/kong.md) |
 | litellm | llm | 14 | [rows/litellm.md](./rows/litellm.md) |
 | local-deep-researcher | apps | 9 | [rows/local-deep-researcher.md](./rows/local-deep-researcher.md) |
 | minio | data | 11 | [rows/minio.md](./rows/minio.md) |
@@ -97,6 +97,7 @@
 | NocoDB | apps | n8n | [candidates/nocodb.md](./candidates/nocodb.md) |
 | OmniVoice (k2-fsa) | media | _(none)_ | [candidates/omnivoice.md](./candidates/omnivoice.md) |
 | Open WebUI Pipelines | apps | open-webui | [candidates/open-webui-pipelines.md](./candidates/open-webui-pipelines.md) |
+| OpenBao | infra | kong | [candidates/openbao.md](./candidates/openbao.md) |
 | OpenLIT | infra | ollama | [candidates/openlit.md](./candidates/openlit.md) |
 | Perplexica (Vane) | apps | searxng | [candidates/perplexica.md](./candidates/perplexica.md) |
 | Prometheus | infra | kong | [candidates/prometheus.md](./candidates/prometheus.md) |

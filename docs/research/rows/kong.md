@@ -12,6 +12,7 @@ sources_consulted:
   - https://docs.konghq.com/hub/kong-inc/jwt/
   - https://docs.konghq.com/hub/kong-inc/ai-proxy/
   - https://docs.konghq.com/hub/kong-inc/ai-prompt-guard/
+  - https://openbao.org/docs/concepts/seal/
 ---
 
 # kong — Integration Research
@@ -40,6 +41,10 @@ sources_consulted:
 - **Grafana Loki** → `../candidates/grafana-loki.md`
   - Headline: Sink for Kong's `http-log` plugin (and a single log store for backend/n8n/hermes) so operators can correlate request traces across services.
   - Other consumers in stack: backend, n8n, hermes, litellm, comfyui
+
+- **OpenBao** → `../candidates/openbao.md`
+  - Headline: Watchlisted Vault-lineage secrets manager for future dynamic secrets, PKI, and unseal-aware operator workflows.
+  - Other consumers in stack: infisical migration path, trading, mcp-servers, model-download credentials, backup.
 
 ## 3. Per-service feature gaps
 
