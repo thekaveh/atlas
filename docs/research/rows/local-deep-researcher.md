@@ -13,6 +13,9 @@ sources_consulted:
   - services/backend/app/app/research_client.py
   - services/redis/service.yml
   - services/local-deep-researcher/README.md
+  - https://github.com/firecrawl/firecrawl/blob/main/SELF_HOST.md
+  - https://github.com/firecrawl/firecrawl/blob/main/LICENSE
+  - https://docs.firecrawl.dev/use-cases/developers-mcp
 ---
 
 # local-deep-researcher — Integration Research
@@ -68,7 +71,7 @@ sources_consulted:
   - Other consumers in stack: litellm, hermes, n8n, comfyui
 
 - **Firecrawl** → `../candidates/firecrawl.md`
-  - Headline: Self-hosted JS-rendering scraper that returns clean markdown, replacing LDR's `FETCH_FULL_PAGE` DuckDuckGo path with structured extraction.
+  - Headline: Deferred AGPL web-context API for search, scrape, crawl, browser interaction, agent workflows, and MCP access when Crawl4AI leaves a proven gap.
   - Other consumers in stack: n8n, backend, hermes
 
 - **Crawl4AI** → `../candidates/crawl4ai.md`

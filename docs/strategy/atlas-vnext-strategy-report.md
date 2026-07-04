@@ -397,7 +397,7 @@ Build later means useful, but the prerequisites or product commitments are not m
 
 ### 9.4 Reject Or Defer For Now
 
-- **Firecrawl:** defer in favor of Crawl4AI because AGPL plus a larger worker/Playwright footprint is not worth it for the first ingestion slice.
+- **Firecrawl:** defer in favor of Crawl4AI because AGPL plus a larger worker/Playwright footprint is not worth it for the first ingestion slice. The July 4, 2026 decision keeps Firecrawl deferred behind Crawl4AI until Atlas has a reproduced extraction gap, explicit license acceptance, and an operator-ready browser/queue/secrets/resource plan.
 - **Browserless:** defer until Crawl4AI proves insufficient for JavaScript-heavy workflows; SSPL and Chromium memory cost keep it out of the default plan.
 - **Supabase Edge Functions:** defer because Atlas already has backend, n8n, and Celery for server-side execution; a second Deno function surface adds overlap before there is an edge-specific need.
 - **OpenLIT:** defer as a standalone candidate because Langfuse plus the OTel Collector/Tempo/Loki path already covers the first observability slice with less UI overlap.
