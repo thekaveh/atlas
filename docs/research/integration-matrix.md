@@ -79,6 +79,7 @@
 | Crawl4AI | media | local-deep-researcher | [candidates/crawl4ai.md](./candidates/crawl4ai.md) |
 | Dagster | agents | minio | [candidates/dagster.md](./candidates/dagster.md) |
 | Docling MCP Server | agents | doc-processor | [candidates/docling-mcp.md](./candidates/docling-mcp.md) |
+| FinRL And FinGPT | apps | _(none)_ | [candidates/finrl-fingpt.md](./candidates/finrl-fingpt.md) |
 | Firecrawl | media | local-deep-researcher | [candidates/firecrawl.md](./candidates/firecrawl.md) |
 | Grafana Loki | infra | kong | [candidates/grafana-loki.md](./candidates/grafana-loki.md) |
 | Graphiti | agents | neo4j | [candidates/graphiti.md](./candidates/graphiti.md) |
