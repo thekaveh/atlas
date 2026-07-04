@@ -24,7 +24,7 @@
 | redis | data | 11 | [rows/redis.md](./rows/redis.md) |
 | searxng | media | 13 | [rows/searxng.md](./rows/searxng.md) |
 | stt-provider | media | 15 | [rows/stt-provider.md](./rows/stt-provider.md) |
-| supabase | data | 11 | [rows/supabase.md](./rows/supabase.md) |
+| supabase | data | 12 | [rows/supabase.md](./rows/supabase.md) |
 | tts-provider | media | 10 | [rows/tts-provider.md](./rows/tts-provider.md) |
 | weaviate | data | 11 | [rows/weaviate.md](./rows/weaviate.md) |
 
@@ -106,6 +106,7 @@
 | Supabase Edge Functions (Deno runtime) | apps | supabase | [candidates/supabase-edge-functions.md](./candidates/supabase-edge-functions.md) |
 | Supavisor | data | supabase | [candidates/supavisor.md](./candidates/supavisor.md) |
 | Apache Superset | apps | minio | [candidates/superset.md](./candidates/superset.md) |
+| TimescaleDB | data | supabase | [candidates/timescaledb.md](./candidates/timescaledb.md) |
 | Unmute (Kyutai) | media | tts-provider | [candidates/unmute.md](./candidates/unmute.md) |
 | Verba | apps | weaviate | [candidates/verba.md](./candidates/verba.md) |
 | Voicebox (jamiepine) | media | _(none)_ | [candidates/voicebox.md](./candidates/voicebox.md) |

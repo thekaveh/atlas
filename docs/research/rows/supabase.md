@@ -15,6 +15,7 @@ sources_consulted:
   - https://supabase.com/docs/guides/functions
   - https://github.com/supabase/supavisor
   - https://github.com/imgproxy/imgproxy
+  - https://github.com/timescale/timescaledb
 ---
 
 # supabase — Integration Research
@@ -58,17 +59,21 @@ sources_consulted:
 
 ## 2. Candidate new services
 
-- **Supabase Edge Functions (Deno runtime)** -> `../candidates/supabase-edge-functions.md`
-  - Headline: Self-hosted Deno serverless layer that lets Postgres triggers and Kong routes invoke short TypeScript handlers without standing up n8n.
-  - Other consumers in stack: litellm, n8n, supabase-storage, kong
+- **Supabase Edge Functions** -> `../candidates/supabase-edge-functions.md`
+  - Headline: Self-hosted Deno layer for Postgres triggers and Kong routes without standing up n8n.
+  - Other consumers: litellm, n8n, supabase-storage, kong
 
 - **Supavisor** -> `../candidates/supavisor.md`
-  - Headline: Supabase's own Postgres connection pooler — protects `supabase-db` from the 10+ stack services that each open their own pool.
-  - Other consumers in stack: backend, n8n, litellm, jupyterhub, local-deep-researcher
+  - Headline: Supabase Postgres pooler for the 10+ stack services that open their own pools.
+  - Other consumers: backend, n8n, litellm, jupyterhub, local-deep-researcher
 
 - **imgproxy** -> `../candidates/imgproxy.md`
-  - Headline: On-the-fly image transform/resize sidecar that Supabase Storage's `IMGPROXY_URL` is purpose-built to talk to.
-  - Other consumers in stack: supabase-storage, minio, comfyui, open-webui, backend
+  - Headline: Image transform/resize sidecar for Supabase Storage's `IMGPROXY_URL`.
+  - Other consumers: supabase-storage, minio, comfyui, open-webui, backend
+
+- **TimescaleDB** -> `../candidates/timescaledb.md`
+  - Headline: Watchlisted time-series path for a later paper trading-data slice.
+  - Other consumers: jupyterhub, minio, redpanda, mlflow, grafana or superset.
 
 ## 3. Per-service feature gaps
 
