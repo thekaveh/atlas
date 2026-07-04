@@ -1,0 +1,59 @@
+{
+  "paragraphs": [
+    {
+      "title": "Advanced Iceberg smoke intro",
+      "text": "%md\n# Advanced Iceberg SQL smoke\n\nThis notebook validates the Atlas lakehouse through Zeppelin's standalone Spark interpreter at `spark://spark-master:7077`. It uses isolated `lakehouse.atlas_smoke` tables and covers MERGE INTO, VERSION AS OF, rollback_to_snapshot, CREATE BRANCH / spark.wap.branch, schema evolution, nested JSON, Structured Streaming from `s3a://landing/`, checkpoints under `s3a://checkpoints/`, and maintenance procedures.",
+      "user": "anonymous",
+      "config": {
+        "editorSetting": {
+          "language": "markdown"
+        }
+      }
+    },
+    {
+      "title": "Lakehouse catalog probe",
+      "text": "%spark.sql\nSHOW NAMESPACES IN lakehouse",
+      "user": "anonymous",
+      "config": {
+        "editorSetting": {
+          "language": "sql"
+        }
+      }
+    },
+    {
+      "title": "Create isolated Iceberg tables",
+      "text": "%spark.pyspark\nspark.sql(\"CREATE NAMESPACE IF NOT EXISTS lakehouse.atlas_smoke\")\nspark.sql(\"DROP TABLE IF EXISTS lakehouse.atlas_smoke.advanced_sql\")\nspark.sql(\"DROP TABLE IF EXISTS lakehouse.atlas_smoke.advanced_stream\")\nspark.sql(\"\"\"\nCREATE TABLE lakehouse.atlas_smoke.advanced_sql (\n  id BIGINT,\n  note STRING,\n  metrics STRUCT<score: INT>\n)\nUSING iceberg\nTBLPROPERTIES ('format-version'='2', 'write.wap.enabled'='true')\n\"\"\")\nspark.sql(\"\"\"\nINSERT INTO lakehouse.atlas_smoke.advanced_sql\nVALUES\n  (1, 'alpha', named_struct('score', 10)),\n  (2, 'bravo', named_struct('score', 20))\n\"\"\")\nspark.sql(\"SELECT * FROM lakehouse.atlas_smoke.advanced_sql\").show(truncate=False)",
+      "user": "anonymous"
+    },
+    {
+      "title": "MERGE INTO, VERSION AS OF, rollback_to_snapshot",
+      "text": "%spark.pyspark\nsnapshot_id = spark.sql(\"SELECT snapshot_id FROM lakehouse.atlas_smoke.advanced_sql.snapshots ORDER BY committed_at DESC LIMIT 1\").collect()[0][0]\nspark.sql(\"\"\"\nMERGE INTO lakehouse.atlas_smoke.advanced_sql AS t\nUSING (\n  SELECT 2 AS id, 'bravo-updated' AS note, named_struct('score', 25) AS metrics\n  UNION ALL\n  SELECT 3 AS id, 'charlie' AS note, named_struct('score', 30) AS metrics\n) AS s\nON t.id = s.id\nWHEN MATCHED THEN UPDATE SET note = s.note, metrics = s.metrics\nWHEN NOT MATCHED THEN INSERT (id, note, metrics) VALUES (s.id, s.note, s.metrics)\n\"\"\")\nspark.sql(f\"SELECT * FROM lakehouse.atlas_smoke.advanced_sql VERSION AS OF {snapshot_id}\").show(truncate=False)\nspark.sql(f\"CALL lakehouse.system.rollback_to_snapshot(table => 'atlas_smoke.advanced_sql', snapshot_id => {snapshot_id})\").show(truncate=False)\nspark.sql(\"SELECT * FROM lakehouse.atlas_smoke.advanced_sql\").show(truncate=False)",
+      "user": "anonymous"
+    },
+    {
+      "title": "CREATE BRANCH and spark.wap.branch",
+      "text": "%spark.pyspark\nspark.sql(\"\"\"\nMERGE INTO lakehouse.atlas_smoke.advanced_sql AS t\nUSING (SELECT 3 AS id, 'charlie' AS note, named_struct('score', 30) AS metrics) AS s\nON t.id = s.id\nWHEN NOT MATCHED THEN INSERT (id, note, metrics) VALUES (s.id, s.note, s.metrics)\n\"\"\")\nspark.sql(\"ALTER TABLE lakehouse.atlas_smoke.advanced_sql CREATE BRANCH atlas_wap\")\nspark.conf.set(\"spark.wap.branch\", \"atlas_wap\")\nspark.sql(\"INSERT INTO lakehouse.atlas_smoke.advanced_sql VALUES (4, 'delta-from-wap', named_struct('score', 40))\")\nspark.conf.unset(\"spark.wap.branch\")\nspark.sql(\"SELECT * FROM lakehouse.atlas_smoke.advanced_sql VERSION AS OF 'atlas_wap'\").show(truncate=False)\nspark.sql(\"CALL lakehouse.system.fast_forward('atlas_smoke.advanced_sql', 'main', 'atlas_wap')\").show(truncate=False)\nspark.sql(\"ALTER TABLE lakehouse.atlas_smoke.advanced_sql DROP BRANCH atlas_wap\")",
+      "user": "anonymous"
+    },
+    {
+      "title": "Schema evolution and nested JSON",
+      "text": "%spark.pyspark\nspark.sql(\"ALTER TABLE lakehouse.atlas_smoke.advanced_sql ADD COLUMN quality STRING\")\nspark.sql(\"INSERT INTO lakehouse.atlas_smoke.advanced_sql VALUES (5, 'echo', named_struct('score', 50), 'accepted')\")\nspark.sql(\"\"\"\nSELECT payload.id, event.kind, event.score\nFROM (\n  SELECT from_json(\n    raw,\n    'id BIGINT, events ARRAY<STRUCT<kind: STRING, score: INT>>'\n  ) AS payload\n  FROM VALUES ('{\"id\": 6, \"events\": [{\"kind\": \"nested\", \"score\": 60}]}') AS raw_events(raw)\n)\nLATERAL VIEW explode(payload.events) exploded AS event\n\"\"\").show(truncate=False)",
+      "user": "anonymous"
+    },
+    {
+      "title": "Structured Streaming file source to Iceberg",
+      "text": "%spark.pyspark\nfrom uuid import uuid4\nfrom pyspark.sql.types import LongType, StringType, StructField, StructType\n\nrun_id = uuid4().hex[:12]\nlanding_path = f\"s3a://landing/atlas-smoke-advanced-json/{run_id}\"\ncheckpoint_path = f\"s3a://checkpoints/atlas-smoke-advanced-json/{run_id}\"\nspark.sql(\"\"\"\nCREATE TABLE lakehouse.atlas_smoke.advanced_stream (\n  id BIGINT,\n  event STRING\n)\nUSING iceberg\nTBLPROPERTIES ('format-version'='2')\n\"\"\")\nspark.createDataFrame([(101, \"landing-a\"), (102, \"landing-b\")], [\"id\", \"event\"]).write.mode(\"overwrite\").json(landing_path)\nschema = StructType([\n    StructField(\"id\", LongType(), False),\n    StructField(\"event\", StringType(), True),\n])\nquery = (\n    spark.readStream.schema(schema)\n    .json(landing_path)\n    .writeStream.format(\"iceberg\")\n    .outputMode(\"append\")\n    .option(\"checkpointLocation\", checkpoint_path)\n    .trigger(availableNow=True)\n    .toTable(\"lakehouse.atlas_smoke.advanced_stream\")\n)\nquery.awaitTermination(120)\nspark.table(\"lakehouse.atlas_smoke.advanced_stream\").show(truncate=False)",
+      "user": "anonymous"
+    },
+    {
+      "title": "Maintenance procedures",
+      "text": "%spark.pyspark\nspark.sql(\"CALL lakehouse.system.rewrite_data_files(table => 'atlas_smoke.advanced_sql')\").show(truncate=False)\nspark.sql(\"CALL lakehouse.system.expire_snapshots(table => 'atlas_smoke.advanced_sql', retain_last => 1)\").show(truncate=False)\nspark.sql(\"CALL lakehouse.system.remove_orphan_files(table => 'atlas_smoke.advanced_sql', dry_run => true)\").show(truncate=False)",
+      "user": "anonymous"
+    }
+  ],
+  "name": "Iceberg advanced SQL smoke",
+  "config": {
+    "looknfeel": "default",
+    "personalizedMode": "false"
+  }
+}

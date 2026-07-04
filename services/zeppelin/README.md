@@ -139,6 +139,24 @@ ZEPPELIN_PORT=                     # auto-assigned (apps band)
 
 Use it as a template for your own notebooks.
 
+`services/zeppelin/notebooks/iceberg_advanced_sql.zpln` is the opt-in
+standalone Spark counterpart to JupyterHub's Spark Connect advanced smoke. Run it
+from the Zeppelin UI or from the repository root:
+
+```bash
+scripts/smoke-iceberg-advanced-sql.sh zeppelin
+```
+
+This `data-eng` / `all` track smoke adds No new service, no new SOURCE, and no
+new port. It requires `SPARK_SOURCE=container`, `ICEBERG_REST_SOURCE=container`,
+`MINIO_SOURCE=container`, and `ZEPPELIN_SOURCE=container`; it exercises
+`MERGE INTO`, `VERSION AS OF`, `rollback_to_snapshot`, `CREATE BRANCH` with
+`spark.wap.branch`, schema evolution, nested JSON, Structured Streaming from
+`s3a://landing/` into Iceberg with checkpoints under `s3a://checkpoints/`, and
+maintenance procedures including `rewrite_data_files`, `expire_snapshots`, and
+`remove_orphan_files`. See
+[`docs/deployment/iceberg-advanced-smoke.md`](../../docs/deployment/iceberg-advanced-smoke.md).
+
 ## 6. Dependencies & Integrations
 
 > Auto-generated section — the **Current** subsections are derived from `services/zeppelin/service.yml`'s `data_flow.calls` field (and inverse passes). Re-run `python -m bootstrapper.docs.regen zeppelin` after manifest changes.

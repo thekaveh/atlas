@@ -37,7 +37,7 @@ JUPYTERHUB_SOURCE=disabled
 - **Database Clients**: Weaviate, Neo4j, PostgreSQL, Redis, Supabase
 - **Lakehouse Clients**: PySpark Connect, `boto3`, `s3fs`, `pyiceberg`, `pyarrow`, and `duckdb` for MinIO + Iceberg REST workflows
 - **Financial Research Kit**: OpenBB + CCXT libraries and a guarded paper-portfolio notebook for read-only market research
-- **Sample Notebooks**: 12 ready-to-use notebooks (00-11) demonstrating service integration
+- **Sample Notebooks**: 13 ready-to-use notebooks (00-12) demonstrating service integration
 - **Persistent Storage**: All notebooks saved in Docker volumes
 - **Environment Variables**: Auto-configured connections to all services
 - **Multi-kernel runtime**: Python 3 (default) plus **Scala 2.13** and **Scala 3** kernels via Almond. Pick one from JupyterLab's launcher or VS Code's kernel picker. See §11.
@@ -83,6 +83,7 @@ JUPYTERHUB_TOKEN=               # Optional: authentication token
 | `09_spark_connect.ipynb` | Distributed Spark via the `spark-connect` sidecar (DataFrame/SQL + an s3a MinIO round-trip). Requires `SPARK_SOURCE != disabled`. |
 | `10_spark_scala.ipynb` | The Scala counterpart to 09 — Spark Connect from the **Scala 2.13** kernel via `import $ivy.\`org.apache.spark::spark-connect-client-jvm:4.1.2\``. |
 | `11_financial_research_kit.ipynb` | Read-only OpenBB + CCXT market research, paper portfolio analytics, optional MinIO datasets, MLflow paper-run metrics, and LiteLLM summaries. No live trading. |
+| `12_iceberg_advanced_sql.ipynb` | Spark Connect advanced Iceberg smoke: `MERGE INTO`, `VERSION AS OF`, branch/WAP, schema evolution, nested JSON, Structured Streaming, and table maintenance. |
 
 ## 6. Service Integration Examples
 
@@ -156,6 +157,20 @@ spark = SparkSession.builder.remote(
 ).getOrCreate()
 spark.range(5).show()
 ```
+
+The advanced lakehouse validation notebook lives at
+`12_iceberg_advanced_sql.ipynb` and can also be run from the repository root:
+
+```bash
+scripts/smoke-iceberg-advanced-sql.sh spark-connect
+```
+
+This is an opt-in `data-eng` / `all` track smoke. It adds No new service, no new
+SOURCE, and no new port; it requires `SPARK_SOURCE=container`,
+`ICEBERG_REST_SOURCE=container`, and `MINIO_SOURCE=container`. It covers
+`MERGE INTO`, `VERSION AS OF`, Structured Streaming from `s3a://landing/` into
+Iceberg with `s3a://checkpoints/`, and maintenance procedures. See
+[`docs/deployment/iceberg-advanced-smoke.md`](../../docs/deployment/iceberg-advanced-smoke.md).
 
 ### 6.5 Query the lakehouse from Python
 

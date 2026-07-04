@@ -34,7 +34,7 @@ SPARK_WORKER_COUNT=2               # 1-8 (wizard prompts via SecondaryNumberInpu
 - **MinIO** — `spark-history` reads `s3a://spark-history/` for event logs. The `spark-init` container creates the bucket on first start (idempotent).
 - **Iceberg REST** — Spark Connect ships a default `lakehouse` catalog pointing at `http://iceberg-rest:8181`, with the warehouse at `s3a://lakehouse/`, MinIO path-style S3 settings, the scoped Iceberg MinIO service-account credentials, and `client.region=us-east-1`. The config is present even when `ICEBERG_REST_SOURCE=disabled`; Spark still starts for ML-only users, and only lakehouse SQL fails until the catalog is enabled.
 - **Supabase Postgres** — Spark JDBC connector available; users add `--jars postgresql.jar` and point at `jdbc:postgresql://supabase-db:5432/${SUPABASE_DB_NAME}`. No pre-wired connection.
-- **Zeppelin** — Zeppelin's Spark interpreter points at `spark://spark-master:7077` (RPC) and `sc://spark-connect:15002` (gRPC Connect). See `services/zeppelin/README.md`.
+- **Zeppelin** — Zeppelin's Spark interpreter points at `spark://spark-master:7077` (standalone Spark RPC). Spark Connect remains the JupyterHub/client path. See `services/zeppelin/README.md`.
 - **Airflow** — Airflow's `spark_default` Connection is seeded by `airflow-init` when `SPARK_SOURCE=container`. The provided `example_etl_with_llm.py` DAG uses `PythonOperator` + Spark Connect (`sc://spark-connect:15002`) for smoke; `SparkSubmitOperator` is available via the bundled `apache-airflow-providers-apache-spark` for user DAGs. See `services/airflow/README.md`.
 - **Prometheus + Grafana** — deferred. Spec §5.1 marks Spark × Prometheus + Grafana as CRITICAL-opt-in (JMX exporter sidecar + scrape job + `spark.json` dashboard), but the implementation is not yet wired. Tracking as a follow-up; for now use cAdvisor's container-level metrics in the existing Grafana dashboards.
 
@@ -48,6 +48,23 @@ spark.sql("CREATE NAMESPACE IF NOT EXISTS lakehouse.bronze")
 spark.sql("CREATE TABLE IF NOT EXISTS lakehouse.bronze.t (id BIGINT, note STRING) USING iceberg")
 spark.sql("SHOW NAMESPACES IN lakehouse").show()
 ```
+
+Advanced Iceberg smoke:
+
+```bash
+scripts/smoke-iceberg-advanced-sql.sh spark-connect
+scripts/smoke-iceberg-advanced-sql.sh zeppelin
+```
+
+The advanced smoke is an opt-in validation surface for the `data-eng` and `all`
+tracks. It adds No new service, no new SOURCE, and no new port; it uses the
+existing Spark, Iceberg REST, MinIO, JupyterHub, and Zeppelin topology. The smoke
+covers `MERGE INTO`, `VERSION AS OF`, `rollback_to_snapshot`, `CREATE BRANCH`
+with `spark.wap.branch`, schema evolution, nested JSON, Structured Streaming
+from `s3a://landing/` into Iceberg with checkpoints under `s3a://checkpoints/`,
+and maintenance calls such as `rewrite_data_files`, `expire_snapshots`, and
+`remove_orphan_files`. See
+[`docs/deployment/iceberg-advanced-smoke.md`](../../docs/deployment/iceberg-advanced-smoke.md).
 
 ### 4.1 Cloud burst: Amazon EMR Serverless (optional)
 

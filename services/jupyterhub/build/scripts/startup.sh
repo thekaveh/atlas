@@ -91,6 +91,8 @@ Check the `examples/` directory for sample notebooks demonstrating:
 - `08_scala_basics.ipynb` - Scala basics on the scala3 kernel
 - `09_spark_connect.ipynb` - Spark Connect (gRPC) from Python
 - `10_spark_scala.ipynb` - Spark with the Scala kernel
+- `11_financial_research_kit.ipynb` - Read-only financial research and paper portfolios
+- `12_iceberg_advanced_sql.ipynb` - Advanced Iceberg SQL smoke through Spark Connect
 
 ## Available Services
 
