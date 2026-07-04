@@ -6,7 +6,7 @@ Generated service-site entry for `comfyui`.
 - Kind: `container`
 - SOURCE variable: `COMFYUI_SOURCE`
 - SOURCE values: `container-cpu, container-gpu, localhost, disabled`
-- Source README: `services/comfyui/README.md`
+- Source README: [services/comfyui/README.md](../../../services/comfyui/README.md)
 
 The service README remains the source of truth for detailed setup, architecture,
 and troubleshooting. This page exists so MkDocs navigation can index every

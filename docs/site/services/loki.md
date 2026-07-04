@@ -6,7 +6,7 @@ Generated service-site entry for `loki`.
 - Kind: `container`
 - SOURCE variable: `LOKI_SOURCE`
 - SOURCE values: `container, disabled`
-- Source README: `services/loki/README.md`
+- Source README: [services/loki/README.md](../../../services/loki/README.md)
 
 The service README remains the source of truth for detailed setup, architecture,
 and troubleshooting. This page exists so MkDocs navigation can index every

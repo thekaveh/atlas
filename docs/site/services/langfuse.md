@@ -6,7 +6,7 @@ Generated service-site entry for `langfuse`.
 - Kind: `container`
 - SOURCE variable: `LANGFUSE_SOURCE`
 - SOURCE values: `container, disabled`
-- Source README: `services/langfuse/README.md`
+- Source README: [services/langfuse/README.md](../../../services/langfuse/README.md)
 
 The service README remains the source of truth for detailed setup, architecture,
 and troubleshooting. This page exists so MkDocs navigation can index every

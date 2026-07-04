@@ -331,6 +331,12 @@ def _service_pages(services: list[ServiceDoc]) -> dict[Path, str]:
             svc.kind,
             svc.source_var or "-",
         ])
+        readme_link = f"../../../services/{svc.name}/README.md" if svc.readme.exists() else ""
+        readme_line = (
+            f"- Source README: [services/{svc.name}/README.md]({readme_link})"
+            if readme_link
+            else f"- Source README: `services/{svc.name}/README.md`"
+        )
         pages[SITE / "services" / f"{svc.name}.md"] = f"""# {svc.title}
 
 Generated service-site entry for `{svc.name}`.
@@ -339,7 +345,7 @@ Generated service-site entry for `{svc.name}`.
 - Kind: `{svc.kind}`
 - SOURCE variable: `{svc.source_var or 'none'}`
 - SOURCE values: `{', '.join(svc.source_values) if svc.source_values else 'none'}`
-- Source README: `services/{svc.name}/README.md`
+{readme_line}
 
 The service README remains the source of truth for detailed setup, architecture,
 and troubleshooting. This page exists so MkDocs navigation can index every

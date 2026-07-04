@@ -6,7 +6,7 @@ Generated service-site entry for `mcp-servers`.
 - Kind: `container`
 - SOURCE variable: `MCP_SERVERS_SOURCE`
 - SOURCE values: `container, disabled`
-- Source README: `services/mcp-servers/README.md`
+- Source README: [services/mcp-servers/README.md](../../../services/mcp-servers/README.md)
 
 The service README remains the source of truth for detailed setup, architecture,
 and troubleshooting. This page exists so MkDocs navigation can index every

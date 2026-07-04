@@ -6,7 +6,7 @@ Generated service-site entry for `docling`.
 - Kind: `container`
 - SOURCE variable: `DOC_PROCESSOR_SOURCE`
 - SOURCE values: `disabled, docling-localhost, docling-container-gpu`
-- Source README: `services/docling/README.md`
+- Source README: [services/docling/README.md](../../../services/docling/README.md)
 
 The service README remains the source of truth for detailed setup, architecture,
 and troubleshooting. This page exists so MkDocs navigation can index every

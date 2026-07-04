@@ -6,7 +6,7 @@ Generated service-site entry for `chatterbox`.
 - Kind: `container`
 - SOURCE variable: `none`
 - SOURCE values: `none`
-- Source README: `services/chatterbox/README.md`
+- Source README: [services/chatterbox/README.md](../../../services/chatterbox/README.md)
 
 The service README remains the source of truth for detailed setup, architecture,
 and troubleshooting. This page exists so MkDocs navigation can index every

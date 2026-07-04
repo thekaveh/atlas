@@ -37,8 +37,14 @@ The mounted catalog file at `services/trino/catalog/lakehouse.properties` define
 - `iceberg.catalog.type=rest`
 - `iceberg.rest-catalog.uri=http://iceberg-rest:8181`
 - `iceberg.rest-catalog.warehouse=s3://lakehouse/`
-- native S3 access to MinIO at `http://minio:9000`
+- `fs.s3.enabled=true` for Trino 482 native S3 access to MinIO at `http://minio:9000`
 - scoped Iceberg MinIO credentials through `${ENV:MINIO_ICEBERG_ACCESS_KEY}` and `${ENV:MINIO_ICEBERG_SECRET_KEY}`
+
+This first local-development slice has no Trino authenticator configured. The
+example user `atlas` is a convention shared by Atlas notebooks and clients, not
+an authentication boundary; the local coordinator accepts any user string until
+a future auth issue adds a real authenticator. Do not treat this no-auth shape
+as production access control.
 
 Minimal SQL smoke once Spark or another writer has created tables:
 

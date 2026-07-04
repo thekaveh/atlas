@@ -6,7 +6,7 @@ Generated service-site entry for `minio`.
 - Kind: `container`
 - SOURCE variable: `MINIO_SOURCE`
 - SOURCE values: `container, disabled`
-- Source README: `services/minio/README.md`
+- Source README: [services/minio/README.md](../../../services/minio/README.md)
 
 The service README remains the source of truth for detailed setup, architecture,
 and troubleshooting. This page exists so MkDocs navigation can index every

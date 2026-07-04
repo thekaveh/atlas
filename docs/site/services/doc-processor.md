@@ -6,7 +6,7 @@ Generated service-site entry for `doc-processor`.
 - Kind: `doc-only`
 - SOURCE variable: `none`
 - SOURCE values: `none`
-- Source README: `services/doc-processor/README.md`
+- Source README: [services/doc-processor/README.md](../../../services/doc-processor/README.md)
 
 The service README remains the source of truth for detailed setup, architecture,
 and troubleshooting. This page exists so MkDocs navigation can index every
