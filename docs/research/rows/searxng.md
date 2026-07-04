@@ -58,7 +58,7 @@ sources_consulted:
   - Other consumers in stack: searxng, litellm, ollama, kong.
 
 - **Browserless** → `../candidates/browserless.md`
-  - Headline: Headless-Chrome service that renders the JS-heavy URLs SearXNG returns so doc-processor / weaviate get the actual page text.
+  - Headline: Deferred headless-browser service for SearXNG result pipelines that prove they need sessionful JavaScript rendering beyond Crawl4AI.
   - Other consumers in stack: n8n, doc-processor, backend.
 
 ## 3. Per-service feature gaps

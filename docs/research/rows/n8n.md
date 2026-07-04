@@ -64,7 +64,7 @@ sources_consulted:
   - Other consumers in stack: litellm, hermes, comfyui.
 
 - **Browserless** → `../candidates/browserless.md`
-  - Headline: Headless-Chrome backend so n8n can scrape JS-rendered pages, render PDFs, and screenshot.
+  - Headline: Deferred headless-browser backend for n8n workflows that prove they need persistent sessions, screenshots, PDFs, or Playwright/Puppeteer automation beyond Crawl4AI.
   - Other consumers in stack: searxng, doc_processor, backend.
 
 - **NocoDB** → `../candidates/nocodb.md`
