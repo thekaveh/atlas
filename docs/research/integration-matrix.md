@@ -13,7 +13,7 @@
 | jupyterhub | apps | 12 | [rows/jupyterhub.md](./rows/jupyterhub.md) |
 | kong | infra | 9 | [rows/kong.md](./rows/kong.md) |
 | litellm | llm | 14 | [rows/litellm.md](./rows/litellm.md) |
-| local-deep-researcher | apps | 9 | [rows/local-deep-researcher.md](./rows/local-deep-researcher.md) |
+| local-deep-researcher | apps | 12 | [rows/local-deep-researcher.md](./rows/local-deep-researcher.md) |
 | minio | data | 11 | [rows/minio.md](./rows/minio.md) |
 | multi2vec-clip | data | 6 | [rows/multi2vec-clip.md](./rows/multi2vec-clip.md) |
 | n8n | agents | 12 | [rows/n8n.md](./rows/n8n.md) |
@@ -89,6 +89,7 @@
 | Label Studio | apps | jupyterhub | [candidates/label-studio.md](./candidates/label-studio.md) |
 | Lakekeeper | data | minio | [candidates/lakekeeper.md](./candidates/lakekeeper.md) |
 | Langfuse | agents | backend, comfyui, hermes, litellm, local-deep-researcher, minio, n8n, ollama, open-webui | [candidates/langfuse.md](./candidates/langfuse.md) |
+| Live Trading Services | agents | _(none)_ | [candidates/live-trading-services.md](./candidates/live-trading-services.md) |
 | MCP Gateway | agents | hermes | [candidates/mcp-gateway.md](./candidates/mcp-gateway.md) |
 | mcpo (MCP-to-OpenAPI Proxy) | agents | open-webui | [candidates/mcpo.md](./candidates/mcpo.md) |
 | MLflow | apps | backend, jupyterhub | [candidates/mlflow.md](./candidates/mlflow.md) |
