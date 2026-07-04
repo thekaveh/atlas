@@ -127,7 +127,7 @@ def test_predicate_normalizes_virtual_manifest_aliases():
     """ServiceDiscovery surfaces stt-provider's svc.key as 'stt_provider'
     (underscore). The predicate must normalize to 'stt-provider' before
     looking it up in track.services. Same for tts_provider, doc_processor,
-    llm_provider."""
+    blender_mcp, llm_provider."""
     reg = load_tracks()
     # stt_provider IS in gen-ai-eng, must NOT be skipped
     skip_stt = _make_track_skip(
@@ -147,6 +147,12 @@ def test_predicate_normalizes_virtual_manifest_aliases():
         registry=reg,
     )
     assert skip_doc({PICKER_STEP_TITLE: "gen-ai-rag"}) is False
+    # blender_mcp IS in gen-ai-creative, must NOT be skipped
+    skip_blender = _make_track_skip(
+        "blender_mcp", always_on=reg.always_on, overridden=frozenset(),
+        registry=reg,
+    )
+    assert skip_blender({PICKER_STEP_TITLE: "gen-ai-creative"}) is False
     # llm_provider is always-on, must NEVER be skipped
     skip_llm = _make_track_skip(
         "llm_provider", always_on=reg.always_on, overridden=frozenset(),
