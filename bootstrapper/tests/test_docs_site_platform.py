@@ -409,13 +409,14 @@ def test_atlas_theme_uses_material_dark_default_with_light_toggle() -> None:
     home = (ROOT / "docs" / "index.md").read_text(encoding="utf-8")
 
     assert config["theme"]["name"] == "material"
-    assert config["theme"]["features"] >= [
+    required_features = {
         "navigation.sections",
         "navigation.indexes",
         "navigation.top",
         "search.suggest",
         "search.highlight",
-    ]
+    }
+    assert required_features <= set(config["theme"]["features"])
     palettes = config["theme"]["palette"]
     assert palettes[0]["scheme"] == "slate"
     assert palettes[0]["primary"] == "custom"
