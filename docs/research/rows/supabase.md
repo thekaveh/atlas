@@ -60,7 +60,7 @@ sources_consulted:
 ## 2. Candidate new services
 
 - **Supabase Edge Functions** -> `../candidates/supabase-edge-functions.md`
-  - Headline: Self-hosted Deno layer for Postgres triggers and Kong routes without standing up n8n.
+  - Headline: Deferred Deno runtime for edge workflow not covered by backend, n8n, Celery, or Airflow.
   - Other consumers: litellm, n8n, supabase-storage, kong
 
 - **Supavisor** -> `../candidates/supavisor.md`
