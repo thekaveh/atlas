@@ -164,3 +164,24 @@ def test_airflow_docs_describe_s3a_spark_submit_validation_path() -> None:
         "Iceberg REST",
     ]:
         assert expected in combined
+
+
+def test_airflow_docs_describe_task_sdk_connection_context_boundary() -> None:
+    readme = (AIRFLOW_DIR / "README.md").read_text(encoding="utf-8")
+    source_docs = (ROOT / "docs" / "deployment" / "source-configuration.md").read_text(
+        encoding="utf-8"
+    )
+
+    for docs in (readme, source_docs):
+        for expected in (
+            "outside a task execution context",
+            "AirflowNotFoundException",
+            "BaseHook.get_connection",
+            'S3Hook(aws_conn_id="minio_default")',
+            "airflow.settings.Session",
+            "airflow.models.Connection",
+            "minio_default",
+            "spark_default",
+            "DAG tasks should keep using hooks/operators",
+        ):
+            assert expected in docs
