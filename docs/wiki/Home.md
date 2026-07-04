@@ -1,7 +1,7 @@
 # Atlas Documentation
 
 Generated from the MkDocs source pages. Do not copy/paste-edit this wiki export
-by hand; run `python scripts/export-docs-wiki.py` from the repo root.
+by hand; run `uv run --project bootstrapper python scripts/export-docs-wiki.py --check` from the repo root to verify drift.
 
 ## 1. Start Here
 

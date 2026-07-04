@@ -1,7 +1,7 @@
 # TEI Reranker
 
 > **Image:** `ghcr.io/huggingface/text-embeddings-inference:cpu-1.9` (CPU) / `:1.9` (GPU)
-> **Container port:** 80  · **Default host port:** allocated by `topology.py` slot allocator (LLM band 63030–63039)
+> **Container port:** 80  · **Default host port:** allocated by `topology.py` slot allocator (LLM band 63040–63049)
 > **Default:** disabled
 
 ## 1. Overview

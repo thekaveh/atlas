@@ -49,8 +49,8 @@ and adaptive behavior with a Qdrant-as-example thread running through.
 If you already know the moving parts, the [TL;DR — 60-second checklist](#1-tldr--the-60-second-checklist)
 condenses it to one block, and the canonical regen + lint chain lives at
 [After you save the files](#12-after-you-save-the-files--regen--lint-commands-in-order)
-(five commands, in this order — running fewer trips the byte-equivalence
-test or docs-drift gate in CI).
+(root-safe regen/lint steps — running fewer mandatory steps trips the
+byte-equivalence test or docs-drift gate in CI).
 
 > **First time adding a service?** Start with the [Pre-flight study](#4-pre-flight--study-the-candidate-service) below — it lists the upstream-doc questions whose answers feed every later decision.
 

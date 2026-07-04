@@ -166,6 +166,30 @@ def test_research_client_normalizes_upstream_string_sources():
     ]
 
 
+def test_research_client_splits_upstream_bulleted_source_strings():
+    sample = "\n".join(
+        [
+            "* One : https://one.test",
+            "* Two : https://two.test/path",
+            "* Three : https://three.test/report.",
+        ]
+    )
+
+    assert ResearchClient._normalize_sources([sample]) == [
+        {"url": "https://one.test", "title": "One", "metadata": {"raw": "* One : https://one.test"}},
+        {
+            "url": "https://two.test/path",
+            "title": "Two",
+            "metadata": {"raw": "* Two : https://two.test/path"},
+        },
+        {
+            "url": "https://three.test/report",
+            "title": "Three",
+            "metadata": {"raw": "* Three : https://three.test/report."},
+        },
+    ]
+
+
 def test_research_client_marks_empty_langgraph_stream_failed(monkeypatch):
     import research_client
 

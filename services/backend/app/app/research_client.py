@@ -336,12 +336,41 @@ class ResearchClient:
             if isinstance(source, dict):
                 normalized.append(source)
             elif isinstance(source, str) and source.strip():
-                normalized.append(ResearchClient._source_from_text(source))
+                normalized.extend(ResearchClient._sources_from_text(source))
         return normalized
 
     @staticmethod
-    def _source_from_text(source: str) -> Dict[str, Any]:
+    def _sources_from_text(source: str) -> List[Dict[str, Any]]:
         text = source.strip()
+        bullet_sources = ResearchClient._bullet_sources_from_text(text)
+        if bullet_sources:
+            return bullet_sources
+        return [ResearchClient._source_from_text(text)]
+
+    @staticmethod
+    def _bullet_sources_from_text(text: str) -> List[Dict[str, Any]]:
+        sources: list[dict[str, Any]] = []
+        for line in text.splitlines():
+            stripped = line.strip()
+            if not stripped.startswith(("* ", "- ")):
+                continue
+            body = stripped[2:].strip()
+            match = re.search(r"https?://[^\s)>,]+", body)
+            if not match:
+                continue
+            url = match.group(0).rstrip(".,;")
+            title = body[: match.start()].strip(" :-")
+            sources.append(
+                {
+                    "url": url,
+                    "title": title,
+                    "metadata": {"raw": stripped},
+                }
+            )
+        return sources
+
+    @staticmethod
+    def _source_from_text(text: str) -> Dict[str, Any]:
         title = ""
         url = ""
         for line in text.splitlines():

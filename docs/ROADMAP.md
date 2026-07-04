@@ -42,7 +42,7 @@ The stack now orchestrates 34 service families (31 containerized + 3 virtual) ac
 - GPU acceleration (4.3x speedup for tables)
 
 **Unified LLM gateway (LiteLLM)**
-- Always-on OpenAI-compatible front door for every LLM provider. Pinned image: `ghcr.io/berriai/litellm:v1.83.14-stable.patch.2`. Listens on port 63030.
+- Always-on OpenAI-compatible front door for every LLM provider. Pinned image: `ghcr.io/berriai/litellm:v1.83.14-stable.patch.2`. Listens on port 63040.
 - Wizard model: locked LiteLLM tile + selectable LLM Engine (single-select Ollama upstream: `ollama-container-cpu/gpu`, `ollama-localhost`, `none`) + three multi-enable Cloud tiles (OpenAI, Anthropic, OpenRouter).
 - Bootstrapper auto-generates `LITELLM_MASTER_KEY` on first start and refuses to start when no upstream is configured (engine=none + all cloud disabled).
 - Persistence: dedicated `litellm` database on the existing Supabase Postgres (Prisma migrations run automatically). Redis used for response cache + rate-limit state.
@@ -87,7 +87,7 @@ The stack now orchestrates 34 service families (31 containerized + 3 virtual) ac
 - HuggingFace's high-performance embedding and reranking inference server (Apache-2.0; Rust/CUDA core)
 - OpenAI-compatible `/embeddings` + dedicated `/rerank` routes; `TEI_RERANKER_SOURCE` variants: `container-cpu`, `container-gpu`, `localhost`, `disabled`
 - Default model: `mixedbread-ai/mxbai-rerank-base-v1` (arm64-compatible; the originally spec'd BGE-reranker-v2-m3 crashed the arm64 candle backend on warmup, swapped 2026-06-07); LightRAG direct reranking remains disabled by default because LightRAG's built-in rerank clients and TEI's `/rerank` endpoint use different request body shapes
-- Kong host-alias `rerank.localhost` (HTTP at `TEI_RERANKER_PORT`, default 63031); model weights cached in a named volume
+- Kong host-alias `rerank.localhost` (HTTP at `TEI_RERANKER_PORT`, default 63041); model weights cached in a named volume
 
 ---
 

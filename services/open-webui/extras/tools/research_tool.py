@@ -28,6 +28,10 @@ class Tools:
         search_api: str = Field(
             default="searxng", description="Search API to use (searxng or duckduckgo)"
         )
+        assistant_id: str = Field(
+            default="ollama_deep_researcher",
+            description="LangGraph assistant/graph id for Local Deep Researcher",
+        )
         max_loops: int = Field(default=3, description="Maximum research loops")
         enable_tool: bool = Field(default=True, description="Enable this research tool")
 
@@ -80,7 +84,8 @@ class Tools:
                 resp = requests.post(
                     f"{self.valves.researcher_url}/threads/{thread_id}/runs/wait",
                     json={
-                        "assistant_id": "a6ab75b8-fb3d-5c2c-a436-2fee55e33a06",
+                        "assistant_id": self.valves.assistant_id,
+                        "on_disconnect": "cancel",
                         "input": {
                             "research_topic": query  # Deep Researcher expects 'research_topic' not 'query'
                         },

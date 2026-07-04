@@ -290,6 +290,7 @@ def test_contributor_ci_checklist_matches_services_lint_jobs() -> None:
     assert "cd bootstrapper" not in guide
     assert "cp .env.example .env" not in guide
     assert "five-command" not in guide.lower()
+    assert "five commands" not in guide.lower()
     assert "sample build" not in guide
     assert "every local non-GPU Compose build context" in guide
 
@@ -345,6 +346,23 @@ def test_agents_testing_guidance_is_root_safe_and_complete() -> None:
         "(cd services/docling/provider/localhost && uv lock --locked)",
     ]:
         assert command in agents
+
+
+def test_live_docs_use_root_safe_regen_and_wiki_commands() -> None:
+    live_paths = [
+        ROOT / "AGENTS.md",
+        ROOT / "docs" / "CONTRIBUTING-services.md",
+        ROOT / "docs" / "diagrams" / "README.md",
+        ROOT / "docs" / "wiki" / "Home.md",
+        ROOT / "scripts" / "generate-docs-site.py",
+    ]
+    combined = "\n".join(path.read_text(encoding="utf-8") for path in live_paths)
+
+    assert "PYTHONPATH=bootstrapper python -m bootstrapper.docs.regen" not in combined
+    assert "run `python scripts/export-docs-wiki.py" not in combined
+    assert "\npython scripts/export-docs-wiki.py" not in combined
+    assert "uv run --project bootstrapper python -m bootstrapper.docs.regen" in combined
+    assert "uv run --project bootstrapper python scripts/export-docs-wiki.py --check" in combined
 
 
 def test_atlas_theme_uses_dark_atlas_system_with_local_assets() -> None:

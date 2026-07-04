@@ -183,7 +183,7 @@ The Dependencies & Integrations block is **auto-generated** by `bootstrapper/doc
 - `### N.3 Architecture diagram` (embeds `./architecture.svg`)
 - `### N.4 / N.5 / N.6` Future-* subsections (user-authored Phase C content, preserved across regen passes by `_render_section_with_future`)
 
-After changing a `data_flow.calls` list, re-run `PYTHONPATH=bootstrapper python -m bootstrapper.docs.regen <service>` (or `--all`). The drift gate in `bootstrapper/tests/test_docs_drift.py` enforces that committed READMEs/SVGs/HTMLs match what regen would produce.
+After changing a `data_flow.calls` list, re-run `PYTHONPATH=bootstrapper uv run --project bootstrapper python -m bootstrapper.docs.regen <service>` (or `--all`). The drift gate in `bootstrapper/tests/test_docs_drift.py` enforces that committed READMEs/SVGs/HTMLs match what regen would produce.
 
 ## Configuration
 
