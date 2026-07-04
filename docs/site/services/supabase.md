@@ -6,7 +6,7 @@ Generated service-site entry for `supabase`.
 - Kind: `container`
 - SOURCE variable: `none`
 - SOURCE values: `none`
-- Source README: `services/supabase/README.md`
+- Source README: [services/supabase/README.md](../../../services/supabase/README.md)
 
 The service README remains the source of truth for detailed setup, architecture,
 and troubleshooting. This page exists so MkDocs navigation can index every

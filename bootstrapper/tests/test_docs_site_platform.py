@@ -104,6 +104,10 @@ def test_docs_site_indexes_every_service_family() -> None:
     assert "cloud-providers" in service_index
     assert "stt-provider" in service_index
 
+    for name in ("redpanda", "trino"):
+        page = (DOCS_SITE / "services" / f"{name}.md").read_text(encoding="utf-8")
+        assert f"[services/{name}/README.md](../../../services/{name}/README.md)" in page
+
 
 def test_generated_reference_pages_cover_core_sources() -> None:
     for name in [

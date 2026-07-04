@@ -6,7 +6,7 @@ Generated service-site entry for `openclaw`.
 - Kind: `container`
 - SOURCE variable: `OPENCLAW_SOURCE`
 - SOURCE values: `disabled, container, localhost`
-- Source README: `services/openclaw/README.md`
+- Source README: [services/openclaw/README.md](../../../services/openclaw/README.md)
 
 The service README remains the source of truth for detailed setup, architecture,
 and troubleshooting. This page exists so MkDocs navigation can index every

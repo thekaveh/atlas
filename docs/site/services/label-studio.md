@@ -6,7 +6,7 @@ Generated service-site entry for `label-studio`.
 - Kind: `container`
 - SOURCE variable: `LABEL_STUDIO_SOURCE`
 - SOURCE values: `container, disabled`
-- Source README: `services/label-studio/README.md`
+- Source README: [services/label-studio/README.md](../../../services/label-studio/README.md)
 
 The service README remains the source of truth for detailed setup, architecture,
 and troubleshooting. This page exists so MkDocs navigation can index every

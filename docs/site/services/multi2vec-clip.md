@@ -6,7 +6,7 @@ Generated service-site entry for `multi2vec-clip`.
 - Kind: `doc-only`
 - SOURCE variable: `none`
 - SOURCE values: `none`
-- Source README: `services/multi2vec-clip/README.md`
+- Source README: [services/multi2vec-clip/README.md](../../../services/multi2vec-clip/README.md)
 
 The service README remains the source of truth for detailed setup, architecture,
 and troubleshooting. This page exists so MkDocs navigation can index every

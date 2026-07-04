@@ -23,6 +23,15 @@ Redpanda adds a disabled-by-default Kafka API broker for Atlas data-engineering 
 
 The init container creates the comma-separated topics in `REDPANDA_DEMO_TOPICS`; the default is `REDPANDA_DEMO_TOPICS=atlas_stream_events`. Leave it blank or remove topics from the list when you want a broker with no Atlas-created demo topics.
 
+Downstream projects that need deterministic topics before a Spark subscription should set `REDPANDA_DEMO_TOPICS=<topic1,topic2>` in `.env`. For example, data-engineering scenario suites can use `REDPANDA_DEMO_TOPICS=events,online_retail_cdc` to pre-seed project-owned topics at bootstrap. Redpanda runs in `dev-container` mode, so producer-first flows can create topics on first write, but Atlas consumers should prefer explicit `REDPANDA_DEMO_TOPICS` pre-seeding when a reader expects the topic to already exist.
+
+When Redpanda is enabled, Atlas injects in-network bootstrap values for downstream containers:
+
+- `REDPANDA_BROKERS=redpanda:9092`
+- `SPARK_KAFKA_BOOTSTRAP_SERVERS=redpanda:9092`
+
+Those values are container-network endpoints for Spark, Airflow, JupyterHub, Zeppelin, and other Atlas services. Host-side clients should use `localhost:${REDPANDA_KAFKA_PORT}` instead.
+
 Image pins:
 
 - `REDPANDA_IMAGE=docker.redpanda.com/redpandadata/redpanda:v26.1.12`

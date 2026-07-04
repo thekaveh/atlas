@@ -6,7 +6,7 @@ Generated service-site entry for `local-deep-researcher`.
 - Kind: `container`
 - SOURCE variable: `LOCAL_DEEP_RESEARCHER_SOURCE`
 - SOURCE values: `container, disabled`
-- Source README: `services/local-deep-researcher/README.md`
+- Source README: [services/local-deep-researcher/README.md](../../../services/local-deep-researcher/README.md)
 
 The service README remains the source of truth for detailed setup, architecture,
 and troubleshooting. This page exists so MkDocs navigation can index every
