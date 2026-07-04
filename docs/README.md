@@ -5,7 +5,7 @@ Documentation index for Atlas.
 ## 1. Documentation structure
 
 ### 1.1 Quick Start guides
-- [Publishable docs site](site/index.md) — MkDocs entrypoint for the Atlas `.io` / GitHub Pages documentation surface
+- [Atlas documentation home](index.md) — generated MkDocs home for the Atlas `.io` / GitHub Pages documentation surface at <https://thekaveh.github.io/atlas/>
 - [Interactive Setup Wizard](quick-start/interactive-setup-wizard.md) — step-by-step guided configuration
 - [Troubleshooting](quick-start/troubleshooting.md) — common issues and solutions across the full stack
 - [Startup Troubleshooting](TROUBLESHOOTING.md) — quick fixes for first-launch errors (sudo recovery, Airflow ResolutionImpossible, n8n restart-loops); linked from `start.sh`'s own error output

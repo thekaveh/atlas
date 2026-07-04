@@ -88,6 +88,12 @@ def test_validator_resolves_relative_paths_with_parent_segments(tmp_path):
     assert result.returncode == 0
 
 
+def test_validator_resolves_github_wiki_extensionless_links():
+    """GitHub Wiki links omit `.md`; repo validation should still find pages."""
+    result = _run(REPO_ROOT / "docs" / "wiki")
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
 def test_validator_scans_repo_default_paths():
     """When invoked with no args, validator scans README.md + docs/ + CHANGELOG.md."""
     result = _run()

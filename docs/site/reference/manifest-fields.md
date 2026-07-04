@@ -1,5 +1,7 @@
 # Manifest Fields
 
+## 1. Manifest Schema Quick Reference
+
 Generated manifest schema quick reference.
 
 | Field | Purpose |

@@ -35,6 +35,7 @@ on:
       - "start.sh"
       - "stop.sh"
       - ".github/workflows/services-lint.yml"
+      - ".github/workflows/docs-pages.yml"
       - ".github/dependabot.yml"
   push:
     branches: [main]

@@ -3,6 +3,8 @@
 Tracks constrain the wizard to the services needed for a workflow and
 force-disable out-of-track services unless explicitly overridden.
 
+## 1. Track Matrix
+
 | Track | Description | Services |
 | --- | --- | --- |
 | gen-ai-rag | Retrieval-augmented generation — vectors, graph, reranker, doc ingest, web search. | open-webui, supavisor, weaviate, neo4j, lightrag, doc-processor, tei-reranker, searxng, mcp-servers, langfuse, otel-collector, tempo, loki, local-deep-researcher, crawl4ai, tika, llm-graph-builder, verba, celery |

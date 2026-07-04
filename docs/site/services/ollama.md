@@ -2,11 +2,15 @@
 
 Generated service-site entry for `ollama`.
 
+## 1. Service Contract
+
 - Category: `llm`
 - Kind: `container`
 - SOURCE variable: `LLM_PROVIDER_SOURCE`
 - SOURCE values: `ollama-container-cpu, ollama-container-gpu, ollama-localhost, none`
 - Source README: [services/ollama/README.md](../../../services/ollama/README.md)
+
+## 2. Source Of Truth
 
 The service README remains the source of truth for detailed setup, architecture,
 and troubleshooting. This page exists so MkDocs navigation can index every
