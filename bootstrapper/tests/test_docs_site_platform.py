@@ -279,8 +279,11 @@ def test_contributor_ci_checklist_matches_services_lint_jobs() -> None:
     assert "uv run --python 3.11 --with-requirements app/requirements.txt python -m pytest app/tests -q" in guide
     assert "uv run --project bootstrapper python -m tools.validate_fragments" in guide
     assert "uv run --project bootstrapper python scripts/check-docs-site.py" in guide
+    assert "docker compose --env-file .env.example -f docker-compose.yml config -q" in guide
     assert "cd bootstrapper &&" not in guide
+    assert "cp .env.example .env" not in guide
     assert "sample build" not in guide
+    assert "every local non-GPU Compose build context" in guide
 
     for context in [
         "services/airflow/build",

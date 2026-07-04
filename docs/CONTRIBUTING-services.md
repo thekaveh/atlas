@@ -533,7 +533,7 @@ are REQUIRED branch-protection checks:
 | **Manifest lint + unit tests** | `validate_fragments` lint + 1,300+ pytest tests + the backend's own pytest suite (`services/backend/app/app/tests/`). Catches: manifest schema violations, dependency cycles, env-example drift, category overflow, backend route regressions. |
 | **Compose merge + byte-equivalence + source-permutation matrix** | Renders `docker compose config` for the merged fragment list + verifies it matches the golden baseline + tests every source variant of every service. Catches: compose-syntax errors, source-permutation regressions. |
 | **Docs drift + audit scripts** | `regen --all --check` + the docs/site/wiki audit scripts (`check_doc_links` — incl. `#anchor` fragment validation, `check-compose-source-deps`, `check-docs-drift`, `check-docs-site`, `export-docs-wiki --check`, `check-kong-routes`, `validate_research_schema`, `check-track-membership`) + a `uv lock --locked` gate for the docling localhost provider. Catches: stale per-service docs, missing `REQUIRED_DEPENDS_ON` entries, Kong route default drift, broken links/anchors, research-schema violations, stale provider locks, and track-membership omissions. |
-| **Build-validation** | `docker buildx build` for the four highest-churn build contexts (airflow, spark, jupyterhub, backend) plus every `services/*/init/Dockerfile` context. Catches: unsatisfiable pip pins, broken Dockerfiles, and init-image drift. |
+| **Build-validation** | `docker buildx build` for every local non-GPU Compose build context plus every `services/*/init/Dockerfile` context; GPU provider builds are intentionally excluded for runner size/time. Catches: unsatisfiable pip pins, broken Dockerfiles, and init-image drift. |
 
 Run the equivalent of the four required jobs locally before pushing:
 
@@ -541,7 +541,7 @@ Run the equivalent of the four required jobs locally before pushing:
 uv run --project bootstrapper pytest bootstrapper/tests -q                         # job 1 + 2 (minus byte-equivalence)
 (cd services/backend/app && uv run --python 3.11 --with-requirements app/requirements.txt python -m pytest app/tests -q)  # job 1 backend tests
 uv run --project bootstrapper python -m tools.validate_fragments                  # job 1 lint
-cp .env.example .env && docker compose -f docker-compose.yml config -q            # job 2 merge check
+docker compose --env-file .env.example -f docker-compose.yml config -q            # job 2 merge check
 PYTHONPATH=bootstrapper uv run --project bootstrapper python -m bootstrapper.docs.regen --all --check  # job 3 docs drift
 uv run --project bootstrapper python scripts/check_doc_links.py                   # job 3 link check
 uv run --project bootstrapper python scripts/check-docs-drift.py                  # job 3 docs structural audit

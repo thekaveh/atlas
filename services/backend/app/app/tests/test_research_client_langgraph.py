@@ -102,7 +102,8 @@ def test_research_client_uses_langgraph_thread_and_run_stream(monkeypatch):
     run_call = FakeAsyncClient.calls[-1]
     assert run_call[0] == "POST"
     assert run_call[1] == "http://local-deep-researcher:2024/threads/thread-123/runs/stream"
-    assert run_call[2]["json"]["assistant_id"] == "agent"
+    assert run_call[2]["json"]["assistant_id"] == "ollama_deep_researcher"
+    assert run_call[2]["json"]["on_disconnect"] == "cancel"
     assert run_call[2]["json"]["input"] == {"research_topic": "atlas"}
     assert run_call[2]["json"]["stream_mode"] == ["values"]
     assert run_call[2]["json"]["config"]["configurable"]["max_web_research_loops"] == 2

@@ -57,6 +57,10 @@ class ResearchClient:
             "LOCAL_DEEP_RESEARCHER_URL", 
             "http://local-deep-researcher:2024"
         )
+        self.assistant_id = os.getenv(
+            "LOCAL_DEEP_RESEARCHER_ASSISTANT_ID",
+            "ollama_deep_researcher",
+        )
         self.timeout = timeout
         self.headers = {
             "Content-Type": "application/json",
@@ -268,7 +272,8 @@ class ResearchClient:
 
     def _run_payload(self, request: ResearchRequest) -> Dict[str, Any]:
         return {
-            "assistant_id": "agent",
+            "assistant_id": self.assistant_id,
+            "on_disconnect": "cancel",
             "input": {"research_topic": request.query},
             "config": {
                 "configurable": {

@@ -60,6 +60,26 @@ def test_ldr_compose_passes_default_model():
     )
 
 
+def test_ldr_litellm_openai_provider_patch_contract():
+    """LDR must patch upstream so LiteLLM's OpenAI-compatible API is supported."""
+    patch = _read("services/local-deep-researcher/build/scripts/patch-litellm-openai-provider.py")
+    init_config = _read("services/local-deep-researcher/build/scripts/init-config.py")
+    entrypoint = _read("services/local-deep-researcher/build/scripts/docker-entrypoint.sh")
+    readme = _read("services/local-deep-researcher/README.md")
+
+    assert 'Literal["ollama", "lmstudio", "openai"]' in patch
+    assert "from langchain_openai import ChatOpenAI" in patch
+    assert "configurable.openai_api_base" in patch
+    assert "configurable.openai_api_key" in patch
+    assert "patch-litellm-openai-provider.py" in entrypoint
+    assert entrypoint.index("patch-litellm-openai-provider.py") < entrypoint.index("init-config.py")
+    assert "LLM_PROVIDER=openai" in init_config
+    assert "OPENAI_API_BASE" in init_config
+    assert "OPENAI_API_KEY" in init_config
+    assert "assistant_id=ollama_deep_researcher" in readme
+    assert '"assistant_id":"agent"' not in readme
+
+
 def test_ollama_pull_no_public_llms():
     """pull.sh must not query public.llms — model list comes from env vars."""
     text = _read("services/ollama/pull/scripts/pull.sh")

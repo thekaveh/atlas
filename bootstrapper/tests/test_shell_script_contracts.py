@@ -52,3 +52,17 @@ def test_local_deep_researcher_litellm_poll_has_per_attempt_timeout() -> None:
         'curl -s --fail --max-time 5 "$LITELLM_URL/health/liveliness"'
         in script
     )
+
+
+def test_local_deep_researcher_patches_litellm_provider_before_config() -> None:
+    script = (
+        REPO_ROOT
+        / "services"
+        / "local-deep-researcher"
+        / "build"
+        / "scripts"
+        / "docker-entrypoint.sh"
+    ).read_text(encoding="utf-8")
+
+    assert "patch-litellm-openai-provider.py" in script
+    assert script.index("patch-litellm-openai-provider.py") < script.index("init-config.py")

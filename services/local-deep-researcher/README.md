@@ -62,7 +62,7 @@ DOCLING_ENDPOINT=...
 
 **LLM gateway.** Every LangGraph node that needs an LLM goes through LiteLLM at `http://litellm:4000/v1/chat/completions`. The model id used at each step is configured in the upstream repo's `init-config.py`; the stack pins it to whatever LiteLLM advertises by default.
 
-**Backend integration.** `services/backend/app/app/research_client.py` targets `http://local-deep-researcher:2024` with a `ResearchRequest`/`ResearchResult` schema, exposed through the backend's `/research/*` routes (sessions persist to `public.research_sessions`). The client checks `/ok`, creates a thread with `POST /threads`, and the backend background task executes `POST /threads/{thread_id}/runs/stream` with `assistant_id=agent` and `stream_mode=["values"]`.
+**Backend integration.** `services/backend/app/app/research_client.py` targets `http://local-deep-researcher:2024` with a `ResearchRequest`/`ResearchResult` schema, exposed through the backend's `/research/*` routes (sessions persist to `public.research_sessions`). The client checks `/ok`, creates a thread with `POST /threads`, and the backend background task executes `POST /threads/{thread_id}/runs/stream` with `assistant_id=ollama_deep_researcher`, `on_disconnect=cancel`, and `stream_mode=["values"]`.
 
 ## 5. Dependencies & Integrations
 
@@ -144,7 +144,7 @@ THREAD=$(curl -s -X POST http://localhost:${LOCAL_DEEP_RESEARCHER_PORT}/threads 
 # 2. Stream a run (SSE)
 curl -N -X POST http://localhost:${LOCAL_DEEP_RESEARCHER_PORT}/threads/$THREAD/runs/stream \
   -H 'content-type: application/json' \
-  -d '{"assistant_id":"agent","input":{"research_topic":"vector database trade-offs 2026"}}'
+  -d '{"assistant_id":"ollama_deep_researcher","on_disconnect":"cancel","input":{"research_topic":"vector database trade-offs 2026"}}'
 ```
 
 The stream emits LangGraph node events; the final `finalize_summary` event contains the Markdown report.
