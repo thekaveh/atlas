@@ -287,9 +287,12 @@ The default stack also enables the optional CLIP vectorizer service. Text vector
 MULTI2VEC_CLIP_SOURCE=container-cpu
 WEAVIATE_ENABLE_MODULES=text2vec-openai,text2vec-ollama,multi2vec-clip,generative-openai,generative-ollama
 CLIP_INFERENCE_API=http://multi2vec-clip:8080
+MULTI2VEC_CLIP_SIGLIP2_IMAGE=semitechnologies/multi2vec-clip:google-siglip2-so400m-patch16-512-1.5.1
 ```
 
 If `MULTI2VEC_CLIP_SOURCE=disabled`, remove `multi2vec-clip` from `WEAVIATE_ENABLE_MODULES` (leaving `text2vec-openai,text2vec-ollama,generative-openai,generative-ollama`) and set `CLIP_INFERENCE_API=` so Weaviate does not advertise a disabled inference endpoint.
+
+`MULTI2VEC_CLIP_SIGLIP2_IMAGE` is a documented opt-in reference value for the live `MULTI2VEC_CLIP_IMAGE` variable. Do not change `MULTI2VEC_CLIP_IMAGE` on an existing stack unless every collection using `multi2vec-clip` has a migration plan: the default ViT-B/32 image emits 512-d vectors, while the SigLIP 2 `so400m` 512 image emits 1152-d vectors. Existing collections must be recreated or revectorized/reindexed before inserts and searches use the new image. Keep `CLIP_INFERENCE_API=http://multi2vec-clip:8080`; prefer `MULTI2VEC_CLIP_SOURCE=container-gpu` for production SigLIP 2 evaluation.
 
 #### 4.3.2 `localhost`
 ```bash

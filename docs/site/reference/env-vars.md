@@ -656,6 +656,7 @@ time.
 | MULTI2VEC_CLIP_SOURCE | weaviate | container-cpu | Options: container-cpu, container-gpu, disabled. (Effects driven by hook.) |
 | WEAVIATE_ENABLE_MODULES | weaviate | text2vec-openai,text2vec-ollama,multi2vec-clip,generative-openai,generative-ollama |  |
 | CLIP_INFERENCE_API | weaviate | http://multi2vec-clip:8080 |  |
+| MULTI2VEC_CLIP_SIGLIP2_IMAGE | weaviate | semitechnologies/multi2vec-clip:google-siglip2-so400m-patch16-512-1.5.1 | Opt-in SigLIP 2 image reference for MULTI2VEC_CLIP_IMAGE. Produces 1152-d vectors; revectorize or create new Weaviate collections before switching. |
 | WEAVIATE_URL | weaviate |  | Resolved per WEAVIATE_SOURCE. Consumed by n8n, backend, jupyterhub. |
 | WEAVIATE_LITELLM_API_KEY | weaviate |  | Mirror of LITELLM_MASTER_KEY for Weaviate's vectorizer auth. |
 | WEAVIATE_SCALE | weaviate |  |  |
