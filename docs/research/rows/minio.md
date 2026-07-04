@@ -9,6 +9,7 @@ sources_consulted:
   - https://min.io/docs/minio/linux/administration/monitoring/bucket-notifications.html
   - https://min.io/docs/minio/linux/administration/object-management/object-lifecycle-management.html
   - https://docs.lakekeeper.io/docs/latest/concepts/
+  - https://superset.apache.org/user-docs/databases/
   - services/minio/service.yml
   - services/minio/init/scripts/init-minio.sh
   - services/minio/README.md
@@ -74,6 +75,10 @@ sources_consulted:
 - **Lakekeeper** → `../candidates/lakekeeper.md`
   - Headline: Managed Iceberg REST catalog candidate for future warehouse governance, vended credentials, and multi-engine catalog pressure.
   - Other consumers in stack: iceberg-rest replacement path, spark, trino, jupyterhub, zeppelin, airflow.
+
+- **Apache Superset** → `../candidates/superset.md`
+  - Headline: Analyst BI dashboards over the MinIO-backed lakehouse through Trino once useful datasets and SSO exist.
+  - Other consumers in stack: trino, iceberg-rest or lakekeeper, supabase/postgres analytics schemas, root dashboard link card.
 
 ## 3. Per-service feature gaps
 

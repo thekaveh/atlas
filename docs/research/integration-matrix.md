@@ -14,7 +14,7 @@
 | kong | infra | 8 | [rows/kong.md](./rows/kong.md) |
 | litellm | llm | 14 | [rows/litellm.md](./rows/litellm.md) |
 | local-deep-researcher | apps | 9 | [rows/local-deep-researcher.md](./rows/local-deep-researcher.md) |
-| minio | data | 9 | [rows/minio.md](./rows/minio.md) |
+| minio | data | 10 | [rows/minio.md](./rows/minio.md) |
 | multi2vec-clip | data | 6 | [rows/multi2vec-clip.md](./rows/multi2vec-clip.md) |
 | n8n | agents | 12 | [rows/n8n.md](./rows/n8n.md) |
 | neo4j | data | 12 | [rows/neo4j.md](./rows/neo4j.md) |
@@ -104,6 +104,7 @@
 | SigLIP 2 Vectorizer | data | multi2vec-clip | [candidates/siglip2-vectorizer.md](./candidates/siglip2-vectorizer.md) |
 | Supabase Edge Functions (Deno runtime) | apps | supabase | [candidates/supabase-edge-functions.md](./candidates/supabase-edge-functions.md) |
 | Supavisor | data | supabase | [candidates/supavisor.md](./candidates/supavisor.md) |
+| Apache Superset | apps | minio | [candidates/superset.md](./candidates/superset.md) |
 | Unmute (Kyutai) | media | tts-provider | [candidates/unmute.md](./candidates/unmute.md) |
 | Verba | apps | weaviate | [candidates/verba.md](./candidates/verba.md) |
 | Voicebox (jamiepine) | media | _(none)_ | [candidates/voicebox.md](./candidates/voicebox.md) |
