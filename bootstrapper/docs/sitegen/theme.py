@@ -1,4 +1,10 @@
-:root {
+from __future__ import annotations
+
+from pathlib import Path
+
+
+def atlas_css() -> str:
+    return """:root {
   --atlas-void: #020617;
   --atlas-panel: #07111f;
   --atlas-panel-strong: #0b1728;
@@ -96,3 +102,14 @@
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
+"""
+
+
+def theme_artifacts(root: Path) -> dict[Path, str]:
+    return {root / "docs" / "assets" / "stylesheets" / "atlas.css": atlas_css()}
+
+
+def binary_copy_artifacts(root: Path) -> list[tuple[Path, Path]]:
+    return [
+        (root / "assets" / "atlas-source.png", root / "docs" / "assets" / "images" / "atlas-source.png"),
+    ]

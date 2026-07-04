@@ -21,6 +21,9 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "bootstrapper"))
 
+from docs.sitegen.mkdocs_config import build_mkdocs_config  # noqa: E402
+from docs.sitegen.model import load_docs_model  # noqa: E402
+from docs.sitegen.theme import binary_copy_artifacts, theme_artifacts  # noqa: E402
 from services.manifests import Manifest, load_manifests  # noqa: E402
 
 
@@ -32,8 +35,6 @@ HOME = DOCS / "index.md"
 SITE = DOCS / "site"
 ARCH = DOCS / "architecture"
 WIKI = DOCS / "wiki"
-THEME_CSS = DOCS / "assets" / "stylesheets" / "atlas.css"
-THEME_HERO_SOURCE = ROOT / "assets" / "atlas-source.png"
 THEME_HERO_IMAGE = DOCS / "assets" / "images" / "atlas-source.png"
 
 
@@ -954,9 +955,10 @@ by hand; run `uv run --project bootstrapper python scripts/export-docs-wiki.py -
 
 def build_artifacts() -> dict[Path, str]:
     services = _manifest_docs()
+    model = load_docs_model(ROOT)
     artifacts: dict[Path, str] = {}
-    artifacts[ROOT / "mkdocs.yml"] = yaml.safe_dump(_mkdocs_nav(services), sort_keys=False)
-    artifacts[THEME_CSS] = _theme_css()
+    artifacts[ROOT / "mkdocs.yml"] = yaml.safe_dump(build_mkdocs_config(model), sort_keys=False)
+    artifacts.update(theme_artifacts(ROOT))
     artifacts.update(_static_pages(services))
     artifacts.update(_service_pages(services))
     artifacts.update(_reference_pages(services))
@@ -973,7 +975,8 @@ def main() -> int:
     drift = 0
     for path, content in sorted(build_artifacts().items(), key=lambda item: str(item[0])):
         drift += _write_or_check(path, content, args.check)
-    drift += _copy_or_check_binary(THEME_HERO_SOURCE, THEME_HERO_IMAGE, args.check)
+    for source, target in binary_copy_artifacts(ROOT):
+        drift += _copy_or_check_binary(source, target, args.check)
     return 2 if drift and args.check else 0
 
 
