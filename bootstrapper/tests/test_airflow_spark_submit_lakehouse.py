@@ -106,6 +106,22 @@ def test_spark_master_keeps_backend_only_rest_submission_api_enabled() -> None:
     assert "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider" in worker_command
 
 
+def test_spark_master_rest_status_endpoint_is_documented() -> None:
+    spark_readme = (SPARK_DIR / "README.md").read_text(encoding="utf-8")
+    airflow_readme = (AIRFLOW_DIR / "README.md").read_text(encoding="utf-8")
+
+    for expected in (
+        "spark-master:6066",
+        "SparkSubmitOperator",
+        "backend-network-only",
+        "driver status",
+    ):
+        assert expected in spark_readme
+
+    assert "spark-master:6066" in airflow_readme
+    assert "post-submit driver status" in airflow_readme
+
+
 def test_lakehouse_spark_submit_smoke_dag_prepares_assets_and_submits_s3a_jar() -> None:
     body = DAG.read_text(encoding="utf-8")
 

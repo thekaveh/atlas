@@ -54,8 +54,9 @@ services:
       - "8080"
     healthcheck:
       # apache/spark image ships curl; the master's REST/UI on 8080 is
-      # the readiness signal. Don't probe the standalone-master REST API
-      # (port 6066) — it's off by default.
+      # the readiness signal. Keep the standalone-master REST API
+      # (port 6066) for backend-network Airflow driver status polling,
+      # not Docker readiness.
       test: ["CMD", "curl", "-fsS", "http://localhost:8080/"]
       interval: 30s
       timeout: 10s

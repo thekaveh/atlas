@@ -148,3 +148,10 @@ def test_spark_connect_depends_on_spark_init():
         "directory'."
     )
     assert deps["spark-init"]["condition"] == "service_completed_successfully"
+
+
+def test_spark_master_rest_status_contract_comments_are_current():
+    text = COMPOSE.read_text(encoding="utf-8")
+    assert "it's off by default" not in text
+    assert "standalone-master REST API" in text
+    assert "Airflow" in text
