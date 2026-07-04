@@ -322,6 +322,12 @@ services:
       COMFYUI_MANIFEST_PATH: /comfyui-manifest/selected-models.yaml
       DATABASE_URL: postgresql://supabase_admin:password@supabase-db:5432/postgres
       DOCLING_ENDPOINT: ''
+      GRAPHITI_DEFAULT_NAMESPACE: langmem
+      GRAPHITI_EMBEDDING_MODEL: ''
+      GRAPHITI_ENABLED: 'false'
+      GRAPHITI_EXPOSE_TO_AGENTS: 'false'
+      GRAPHITI_GROUP_ID_PREFIX: atlas
+      GRAPHITI_LLM_MODEL: ''
       HERMES_API_KEY: ''
       HERMES_ENDPOINT: ''
       KONG_URL: http://kong-api-gateway:8000

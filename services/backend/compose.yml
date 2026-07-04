@@ -106,6 +106,15 @@ services:
       LANGMEM_EXTRACTION_MODEL: ${LANGMEM_EXTRACTION_MODEL:-}
       LITELLM_DEFAULT_MODEL: ${LITELLM_DEFAULT_MODEL:-}
       LANGMEM_EMBEDDING_MODEL: ${LANGMEM_EMBEDDING_MODEL:-}
+      # Graphiti temporal graph memory experiment — backend-only and disabled
+      # by default. No Graphiti service, MCP server, or agent exposure is
+      # enabled by these env vars alone.
+      GRAPHITI_ENABLED: ${GRAPHITI_ENABLED:-false}
+      GRAPHITI_GROUP_ID_PREFIX: ${GRAPHITI_GROUP_ID_PREFIX:-atlas}
+      GRAPHITI_DEFAULT_NAMESPACE: ${GRAPHITI_DEFAULT_NAMESPACE:-langmem}
+      GRAPHITI_LLM_MODEL: ${GRAPHITI_LLM_MODEL:-}
+      GRAPHITI_EMBEDDING_MODEL: ${GRAPHITI_EMBEDDING_MODEL:-}
+      GRAPHITI_EXPOSE_TO_AGENTS: ${GRAPHITI_EXPOSE_TO_AGENTS:-false}
     volumes:
       - ./app/app:/app
       - backend-data:/app/data

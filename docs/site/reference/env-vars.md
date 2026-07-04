@@ -38,6 +38,12 @@ seconds a future auto-consolidation scheduler would use.
 | LANGMEM_MAX_FACTS_PER_USER | backend | 1000 |  |
 | LANGMEM_EXTRACTION_MODEL | backend |  | LiteLLM model id (empty = highest-priority active content model resolved by model_resolver from YAML catalogs + env). |
 | LANGMEM_EMBEDDING_MODEL | backend |  |  |
+| GRAPHITI_ENABLED | backend | False | Disabled-by-default backend-only Graphiti temporal graph memory experiment. Does not expose Graphiti to agents or run a Graphiti service. |
+| GRAPHITI_GROUP_ID_PREFIX | backend | atlas | Prefix for backend Graphiti group_id values. Final shape: atlas:<project>:backend:<namespace>:user:<uuid>. |
+| GRAPHITI_DEFAULT_NAMESPACE | backend | langmem | Default backend Graphiti namespace segment used when projecting selected LangMem facts/events. |
+| GRAPHITI_LLM_MODEL | backend |  | Optional LiteLLM model id for Graphiti extraction. Empty falls back to LANGMEM_EXTRACTION_MODEL, then LITELLM_DEFAULT_MODEL. |
+| GRAPHITI_EMBEDDING_MODEL | backend |  | Optional LiteLLM embedding model id for Graphiti. Empty falls back to LANGMEM_EMBEDDING_MODEL, then LITELLM_EMBEDDING_MODEL. |
+| GRAPHITI_EXPOSE_TO_AGENTS | backend | False | Must remain false for this backend-only evaluation; Hermes/OpenClaw exposure and Graphiti MCP are deferred. |
 | BACKUP_SOURCE | backup | disabled | Deployment mode: container (enable the runner) or disabled (default). |
 | BACKUP_BUCKET | backup | atlas-backups | Target bucket for backups. |
 | BACKUP_S3_ALIAS_URL | backup | http://minio:9000 | S3 endpoint. Default = on-box MinIO; set to an external S3 URL for offsite. |
