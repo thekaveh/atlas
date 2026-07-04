@@ -25,6 +25,7 @@ EXCLUDED_PARTS = {
     '.git', 'bootstrapper', 'textual', '__pycache__', '.venv', 'venv',
     'tts-venv', 'site-packages', 'plans', '.mypy_cache', '.superpowers', '.kilo',
     '.claude',  # Claude Code's worktrees / scratch dirs are ephemeral, not source
+    '.Codex',  # Codex worktrees / scratch dirs are ephemeral, not source
 }
 EXCLUDED_FILES = {'repo-issues-report.md'}
 
