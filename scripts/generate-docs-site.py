@@ -202,38 +202,41 @@ def _theme_css() -> str:
     return """@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 
 :root {
-  --atlas-space: #020617;
-  --atlas-panel: #08111f;
-  --atlas-panel-2: #0f172a;
-  --atlas-line: #1e3a5f;
-  --atlas-cyan: #22d3ee;
-  --atlas-sky: #38bdf8;
-  --atlas-blue: #0ea5e9;
-  --atlas-text: #e2e8f0;
-  --atlas-muted: #94a3b8;
+  --atlas-bg: #f8fafc;
+  --atlas-surface: #ffffff;
+  --atlas-ink: #0f172a;
+  --atlas-muted: #475569;
+  --atlas-soft: #e2e8f0;
+  --atlas-line: #cbd5e1;
+  --atlas-blue: #2563eb;
+  --atlas-sky: #0ea5e9;
+  --atlas-cyan: #0891b2;
+  --atlas-deep: #172554;
 }
 
 html, body {
-  background:
-    linear-gradient(180deg, rgba(14, 165, 233, 0.14), transparent 340px),
-    linear-gradient(90deg, rgba(56, 189, 248, 0.06) 1px, transparent 1px),
-    linear-gradient(0deg, rgba(56, 189, 248, 0.05) 1px, transparent 1px),
-    var(--atlas-space);
-  background-size: auto, 44px 44px, 44px 44px, auto;
-  color: var(--atlas-text);
+  background: #f8fafc;
+  color: var(--atlas-ink);
   font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
 .navbar {
-  background: rgba(2, 6, 23, 0.92) !important;
-  border-bottom: 1px solid rgba(34, 211, 238, 0.28);
-  box-shadow: 0 18px 60px rgba(2, 6, 23, 0.45);
+  background: rgba(255, 255, 255, 0.96) !important;
+  border-bottom: 1px solid var(--atlas-soft);
+  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.03);
+  backdrop-filter: saturate(160%) blur(14px);
+}
+
+.navbar .container {
+  max-width: 1360px;
 }
 
 .navbar-brand {
-  color: white !important;
+  color: var(--atlas-ink) !important;
   font-weight: 800;
   letter-spacing: 0;
+  margin-right: 2rem;
+  white-space: nowrap;
 }
 
 .navbar-brand::before {
@@ -244,50 +247,91 @@ html, body {
   margin-right: 0.55rem;
   border-radius: 3px;
   background: linear-gradient(135deg, var(--atlas-sky), var(--atlas-blue));
-  box-shadow: 0 0 22px rgba(34, 211, 238, 0.78);
+  box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.12);
 }
 
 .navbar-dark .navbar-nav .nav-link {
-  color: #cbd5e1;
+  color: var(--atlas-muted);
+  font-size: 0.9rem;
+  font-weight: 600;
+  padding-left: 0.55rem;
+  padding-right: 0.55rem;
+  white-space: nowrap;
 }
 
 .navbar-dark .navbar-nav .nav-link:hover,
 .navbar-dark .navbar-nav .nav-link:focus {
-  color: white;
+  color: var(--atlas-blue);
+}
+
+.navbar-collapse {
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.navbar-collapse::-webkit-scrollbar {
+  display: none;
+}
+
+.navbar-nav {
+  flex-wrap: nowrap;
+}
+
+.navbar-toggler {
+  border: 0;
 }
 
 .container[role='main'] {
-  background: rgba(8, 17, 31, 0.74);
-  border: 1px solid rgba(56, 189, 248, 0.18);
-  border-radius: 16px;
-  box-shadow: 0 24px 90px rgba(0, 0, 0, 0.28);
-  margin-top: 2rem;
-  margin-bottom: 3rem;
-  padding: 2rem;
+  max-width: 1360px;
+  background: transparent;
+  margin-top: 2.25rem;
+  margin-bottom: 4rem;
+  padding: 2.75rem 3.25rem;
 }
 
 h1, h2, h3, h4 {
-  color: #f8fafc;
-  font-weight: 800;
+  color: var(--atlas-ink);
+  font-weight: 750;
   letter-spacing: 0;
 }
 
 h1 {
-  border-bottom: 1px solid rgba(56, 189, 248, 0.24);
-  padding-bottom: 0.65rem;
+  max-width: 920px;
+  border-bottom: 1px solid var(--atlas-soft);
+  padding-bottom: 0.9rem;
+  font-size: clamp(2.15rem, 3vw, 3.4rem);
+  line-height: 1.04;
 }
 
 h2 {
-  margin-top: 2.25rem;
+  margin-top: 2.8rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid rgba(203, 213, 225, 0.62);
 }
 
 a {
-  color: var(--atlas-cyan);
+  color: var(--atlas-blue);
+  text-decoration-thickness: 0.08em;
+  text-underline-offset: 0.18em;
 }
 
 a:hover,
 a:focus {
-  color: #7dd3fc;
+  color: var(--atlas-cyan);
+}
+
+p, li, td {
+  color: #334155;
+  line-height: 1.68;
+}
+
+.col-md-3 {
+  border-left: 1px solid var(--atlas-soft);
+}
+
+.col-md-3 .navbar-nav,
+.bs-sidebar {
+  font-size: 0.92rem;
 }
 
 code, pre, kbd {
@@ -295,22 +339,67 @@ code, pre, kbd {
 }
 
 pre, code {
-  background-color: rgba(15, 23, 42, 0.9);
-  border-color: rgba(56, 189, 248, 0.18);
-  color: #dbeafe;
+  background-color: #f1f5f9;
+  border: 1px solid #dbe3ea;
+  color: #172554;
+  border-radius: 8px;
+}
+
+pre {
+  padding: 1rem 1.15rem;
 }
 
 table {
-  border: 1px solid rgba(56, 189, 248, 0.18);
+  width: 100%;
+  border: 1px solid var(--atlas-soft);
+  background: var(--atlas-surface);
+  border-radius: 10px;
+  overflow: hidden;
 }
 
 thead th {
-  background: rgba(14, 165, 233, 0.14);
-  color: #f8fafc;
+  background: #e0f2fe;
+  color: var(--atlas-deep);
+  font-size: 0.82rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
 }
 
 tbody tr:nth-child(odd) {
-  background: rgba(15, 23, 42, 0.42);
+  background: #ffffff;
+}
+
+tbody tr:nth-child(even) {
+  background: #f8fafc;
+}
+
+blockquote {
+  border-left: 4px solid var(--atlas-sky);
+  color: var(--atlas-muted);
+  background: #eff6ff;
+  padding: 0.8rem 1rem;
+}
+
+@media (max-width: 992px) {
+  .container[role='main'] {
+    padding: 1.5rem;
+  }
+
+  .navbar-collapse {
+    max-height: 70vh;
+    overflow-y: auto;
+  }
+
+  .navbar-nav {
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 767.98px) {
+  .bs-sidebar,
+  .col-md-3 {
+    display: none;
+  }
 }
 
 .wy-nav-content,

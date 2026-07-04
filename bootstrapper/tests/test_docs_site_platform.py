@@ -197,11 +197,20 @@ def test_docs_pages_publication_workflow_and_homepage_contract() -> None:
 def test_atlas_theme_uses_professional_blue_system() -> None:
     css = THEME_CSS.read_text(encoding="utf-8")
 
-    for color in ("#020617", "#0ea5e9", "#22d3ee", "#38bdf8"):
+    for color in ("#f8fafc", "#0f172a", "#0ea5e9", "#2563eb", "#0891b2"):
         assert color in css
     assert "Inter" in css
     assert "JetBrains Mono" in css
     assert "border-radius" in css
+    assert "max-width: 1360px" in css
+    assert "background: #f8fafc" in css
+    assert "radial-gradient" not in css
+    assert "background-size: auto, 44px 44px" not in css
+    assert "box-shadow: 0 24px 90px" not in css
+    assert "rgba(8, 17, 31, 0.74)" not in css
+    assert "@media (max-width: 767.98px)" in css
+    assert ".bs-sidebar" in css
+    assert "display: none" in css
     assert "emoji" not in css.lower()
 
 
