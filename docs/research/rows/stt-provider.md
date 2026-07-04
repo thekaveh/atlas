@@ -70,7 +70,7 @@ sources_consulted:
 ## 2. Candidate new services
 
 - **WhisperX** → `../candidates/whisperx.md`
-  - Headline: Adds speaker diarization and word-aligned timestamps as a fourth STT engine behind the existing OpenAI shape.
+  - Headline: Watchlisted diarized long-form audio engine for future named meeting/audio ingestion workflows.
   - Other consumers in stack: backend, n8n, open-webui, hermes, openclaw, minio, weaviate
 
 ## 3. Per-service feature gaps
