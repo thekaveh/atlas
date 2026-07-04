@@ -8,7 +8,7 @@ Generated service-site entry for `celery`.
 - Kind: `container`
 - SOURCE variable: `CELERY_SOURCE`
 - SOURCE values: `container, disabled`
-- Source README: [services/celery/README.md](../../../services/celery/README.md)
+- Source README: [services/celery/README.md](https://github.com/thekaveh/atlas/blob/main/services/celery/README.md)
 
 ## 2. Source Of Truth
 

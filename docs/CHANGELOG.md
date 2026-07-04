@@ -1493,17 +1493,17 @@ because rotating any of them mid-run breaks something.
   dashboard) but the wiring did not ship in this PR. cAdvisor's
   container-level metrics cover the gap in the existing dashboards until
   the JMX integration lands. Tracked separately. See
-  [`services/spark/README.md`](../services/spark/README.md) §4.
+  [`services/spark/README.md`](https://github.com/thekaveh/atlas/blob/main/services/spark/README.md) §4.
 - **Spark × Supabase Postgres JDBC pre-wiring** — spec §5.1 listed
   `spark.jdbc.postgres.url` env-var pre-config on the master as CRITICAL
   (config only). Users wire JDBC manually today via `--jars postgresql.jar`
   + a `jdbc:postgresql://supabase-db:5432/...` URL per job. See
-  [`services/spark/README.md`](../services/spark/README.md) §4.
+  [`services/spark/README.md`](https://github.com/thekaveh/atlas/blob/main/services/spark/README.md) §4.
 - **Zeppelin JDBC interpreter auto-binding** — the `ZEPPELIN_JDBC_POSTGRES_*`
   env vars are injected but Zeppelin doesn't auto-bind them to a JDBC
   interpreter profile. Users do a one-time UI setup
   (Interpreter → JDBC → `+ Create` → `postgres` group). See
-  [`services/zeppelin/README.md`](../services/zeppelin/README.md) §4.
+  [`services/zeppelin/README.md`](https://github.com/thekaveh/atlas/blob/main/services/zeppelin/README.md) §4.
 - **Airflow `postgres_supabase` Connection uses admin credentials** —
   intentionally seeds with `SUPABASE_DB_USER` / `SUPABASE_DB_PASSWORD`
   (superuser) until the prerequisite `SUPABASE_DB_APP_USER` Postgres
@@ -2639,4 +2639,4 @@ To roll back: `cp .env.backup.<timestamp> .env && sed -i '' '/BOOTSTRAPPER_PORT_
 
 ---
 
-*For more details on any release, see the corresponding [GitHub release](https://github.com/thekaveh/atlas/releases) or [documentation](README.md).*
+*For more details on any release, see the corresponding [GitHub release](https://github.com/thekaveh/atlas/releases) or [documentation](https://github.com/thekaveh/atlas/blob/main/docs/README.md).*

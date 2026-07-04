@@ -79,8 +79,9 @@ def test_mkdocs_nav_exists_and_points_to_real_pages() -> None:
     assert nav["1. Home"] == "index.md"
     assert nav["7. Service Index"] == "site/services/index.md"
     assert nav["14. SOURCE Reference"] == "site/reference/source-values.md"
-    assert nav["20. Wiki Export"] == "wiki/Home.md"
+    assert "20. Wiki Export" not in nav
     assert "assets/stylesheets/atlas.css" in config["extra_css"]
+    assert config["validation"]["links"]["not_found"] != "ignore"
 
     required_sections = {
         "2. Overview",
@@ -117,7 +118,11 @@ def test_docs_site_indexes_every_service_family() -> None:
 
     for name in ("redpanda", "trino"):
         page = (DOCS_SITE / "services" / f"{name}.md").read_text(encoding="utf-8")
-        assert f"[services/{name}/README.md](../../../services/{name}/README.md)" in page
+        assert (
+            f"[services/{name}/README.md]"
+            f"(https://github.com/thekaveh/atlas/blob/main/services/{name}/README.md)"
+            in page
+        )
 
 
 def test_generated_reference_pages_cover_core_sources() -> None:
@@ -181,6 +186,7 @@ def test_wiki_export_and_ci_hooks_are_present() -> None:
     assert "[1. Overview](Overview)" in wiki_home
     assert "[4. Services](Services)" in wiki_index
     assert "mkdocs build --strict" in check_script
+    assert "validate_built_site_links" in check_script
     assert "mkdocs build --strict" in workflow
     assert "check-docs-site.py" in workflow
     assert "export-docs-wiki.py --check" in workflow
@@ -197,6 +203,19 @@ def test_docs_pages_publication_workflow_and_homepage_contract() -> None:
     assert "scripts/check-docs-site.py" in workflow
     assert "scripts/export-docs-wiki.py --push" in workflow
     assert "https://thekaveh.github.io/atlas/" in workflow
+
+
+def test_services_lint_build_validation_covers_all_init_dockerfiles() -> None:
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+    init_contexts = sorted(
+        path.parent.relative_to(ROOT).as_posix()
+        for path in (ROOT / "services").glob("*/init/Dockerfile")
+    )
+
+    assert init_contexts
+    assert "Build-validation (Dockerfile + requirements.txt installability)" in workflow
+    for context in init_contexts:
+        assert context in workflow, f"build-validation does not cover {context}"
 
 
 def test_atlas_theme_uses_dark_atlas_system_with_local_assets() -> None:

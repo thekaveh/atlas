@@ -8,7 +8,7 @@ Generated service-site entry for `comfyui`.
 - Kind: `container`
 - SOURCE variable: `COMFYUI_SOURCE`
 - SOURCE values: `container-cpu, container-gpu, localhost, disabled`
-- Source README: [services/comfyui/README.md](../../../services/comfyui/README.md)
+- Source README: [services/comfyui/README.md](https://github.com/thekaveh/atlas/blob/main/services/comfyui/README.md)
 
 ## 2. Source Of Truth
 

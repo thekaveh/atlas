@@ -223,6 +223,7 @@ class ResearchClient:
             "stream_mode": ["values"],
         }
         final_values: Dict[str, Any] = {}
+        current_event = ""
         try:
             async with httpx.AsyncClient(timeout=max_wait_time) as client:
                 async with client.stream(
@@ -233,6 +234,9 @@ class ResearchClient:
                 ) as response:
                     response.raise_for_status()
                     async for line in response.aiter_lines():
+                        if line.startswith("event: "):
+                            current_event = line[7:].strip()
+                            continue
                         if not line.startswith("data: "):
                             continue
                         raw = line[6:]
@@ -243,11 +247,23 @@ class ResearchClient:
                         except json.JSONDecodeError:
                             continue
                         if isinstance(event_data, dict):
+                            if current_event == "error" or "error" in event_data:
+                                error = event_data.get("error") or event_data.get("message") or event_data
+                                raise ResearchError(str(error))
                             data = event_data.get("data", event_data)
                             if isinstance(data, dict):
+                                if current_event == "error" or "error" in data:
+                                    error = data.get("error") or data.get("message") or data
+                                    raise ResearchError(str(error))
                                 values = data.get("values", data)
                                 if isinstance(values, dict):
                                     final_values = values
+            if not final_values:
+                return ResearchResponse(
+                    session_id=session_id,
+                    status=ResearchStatus.FAILED,
+                    message="Research run produced no final values",
+                )
             result = self._result_from_langgraph_values(session_id, request, final_values)
             self._completed_results[session_id] = result
             self._pending_requests.pop(session_id, None)

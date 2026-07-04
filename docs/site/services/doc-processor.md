@@ -8,7 +8,7 @@ Generated service-site entry for `doc-processor`.
 - Kind: `doc-only`
 - SOURCE variable: `none`
 - SOURCE values: `none`
-- Source README: [services/doc-processor/README.md](../../../services/doc-processor/README.md)
+- Source README: [services/doc-processor/README.md](https://github.com/thekaveh/atlas/blob/main/services/doc-processor/README.md)
 
 ## 2. Source Of Truth
 

@@ -8,7 +8,7 @@ Generated service-site entry for `iceberg-rest`.
 - Kind: `container`
 - SOURCE variable: `ICEBERG_REST_SOURCE`
 - SOURCE values: `container, disabled`
-- Source README: [services/iceberg-rest/README.md](../../../services/iceberg-rest/README.md)
+- Source README: [services/iceberg-rest/README.md](https://github.com/thekaveh/atlas/blob/main/services/iceberg-rest/README.md)
 
 ## 2. Source Of Truth
 

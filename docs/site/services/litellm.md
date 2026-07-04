@@ -8,7 +8,7 @@ Generated service-site entry for `litellm`.
 - Kind: `container`
 - SOURCE variable: `none`
 - SOURCE values: `none`
-- Source README: [services/litellm/README.md](../../../services/litellm/README.md)
+- Source README: [services/litellm/README.md](https://github.com/thekaveh/atlas/blob/main/services/litellm/README.md)
 
 ## 2. Source Of Truth
 

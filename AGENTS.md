@@ -28,15 +28,16 @@ For TUI/CLI visual work: after each change, describe exactly what changed visual
 
 ## Git Workflow
 
-`main` is protected — **direct push to main is rejected even for the repo owner** (admin enforcement is on). Every change must land via a pull request with all three `services-lint` CI checks green:
+`main` is protected — **direct push to main is rejected even for the repo owner** (admin enforcement is on). Every change must land via a pull request with all four `services-lint` CI checks green:
 
 - `Manifest lint + unit tests`
 - `Compose merge + byte-equivalence + source-permutation matrix`
 - `Docs drift + audit scripts`
+- `Build-validation (Dockerfile + requirements.txt installability)`
 
 Strict mode is enabled, so the PR branch must be up to date with main before merge becomes available. Conversation-resolution is required.
 
-Integration flow: branch (typically a worktree under `.Codex/worktrees/<name>`) → push the branch → `gh pr create --base main` → wait for the 3 checks → `gh pr merge --squash --delete-branch` (squash preserves the linear history the repo prefers). Never attempt `git push origin main` — GitHub rejects it with `GH006: Protected branch update failed`. Inspect the live rule with `gh api repos/thekaveh/atlas/branches/main/protection`.
+Integration flow: branch (typically a worktree under `.Codex/worktrees/<name>`) → push the branch → `gh pr create --base main` → wait for the 4 checks → `gh pr merge --squash --delete-branch` (squash preserves the linear history the repo prefers). Never attempt `git push origin main` — GitHub rejects it with `GH006: Protected branch update failed`. Inspect the live rule with `gh api repos/thekaveh/atlas/branches/main/protection`.
 
 ## Key Commands
 

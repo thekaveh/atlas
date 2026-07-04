@@ -105,3 +105,57 @@ def test_research_client_uses_langgraph_thread_and_run_stream(monkeypatch):
     assert run_call[2]["json"]["assistant_id"] == "agent"
     assert run_call[2]["json"]["input"] == {"research_topic": "atlas"}
     assert run_call[2]["json"]["stream_mode"] == ["values"]
+
+
+def test_research_client_marks_empty_langgraph_stream_failed(monkeypatch):
+    import research_client
+
+    class EmptyStreamClient(FakeAsyncClient):
+        def stream(self, method, url, **kwargs):
+            self.calls.append((method, url, kwargs))
+            return FakeStreamResponse(["event: values", "data: [DONE]"])
+
+    monkeypatch.setattr(research_client.httpx, "AsyncClient", EmptyStreamClient)
+    client = ResearchClient(base_url="http://local-deep-researcher:2024")
+
+    async def scenario():
+        start = await client.start_research(
+            ResearchRequest(query="atlas", max_loops=2, search_api="searxng")
+        )
+        done = await client.wait_for_completion(start.session_id)
+        result = await client.get_research_result(start.session_id)
+        return done, result
+
+    done, result = asyncio.run(scenario())
+
+    assert done.status == ResearchStatus.FAILED
+    assert "no final values" in done.message
+    assert result is None
+
+
+def test_research_client_marks_langgraph_error_event_failed(monkeypatch):
+    import research_client
+
+    class ErrorStreamClient(FakeAsyncClient):
+        def stream(self, method, url, **kwargs):
+            self.calls.append((method, url, kwargs))
+            return FakeStreamResponse(
+                [
+                    "event: error",
+                    f"data: {json.dumps({'error': 'search failed'})}",
+                ]
+            )
+
+    monkeypatch.setattr(research_client.httpx, "AsyncClient", ErrorStreamClient)
+    client = ResearchClient(base_url="http://local-deep-researcher:2024")
+
+    async def scenario():
+        start = await client.start_research(
+            ResearchRequest(query="atlas", max_loops=2, search_api="searxng")
+        )
+        return await client.wait_for_completion(start.session_id)
+
+    done = asyncio.run(scenario())
+
+    assert done.status == ResearchStatus.FAILED
+    assert "search failed" in done.message

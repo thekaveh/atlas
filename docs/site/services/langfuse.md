@@ -8,7 +8,7 @@ Generated service-site entry for `langfuse`.
 - Kind: `container`
 - SOURCE variable: `LANGFUSE_SOURCE`
 - SOURCE values: `container, disabled`
-- Source README: [services/langfuse/README.md](../../../services/langfuse/README.md)
+- Source README: [services/langfuse/README.md](https://github.com/thekaveh/atlas/blob/main/services/langfuse/README.md)
 
 ## 2. Source Of Truth
 

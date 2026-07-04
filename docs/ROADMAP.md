@@ -570,7 +570,7 @@ Consumed by (services that would use CCXT):
 
 **Hermes Agent (programmable AI agent for chat & messaging)** ✓ **shipped**
 
-Lives in [services/hermes/README.md](../services/hermes/README.md). Shipped as the
+Lives in [services/hermes/README.md](https://github.com/thekaveh/atlas/blob/main/services/hermes/README.md). Shipped as the
 `hermes` service (`nousresearch/hermes-agent:latest` — upstream publishes
 only `latest` + per-commit `sha-<digest>` tags, no semver; production
 pins via `HERMES_IMAGE=nousresearch/hermes-agent:sha-...`) plus

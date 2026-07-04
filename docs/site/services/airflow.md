@@ -8,7 +8,7 @@ Generated service-site entry for `airflow`.
 - Kind: `container`
 - SOURCE variable: `AIRFLOW_SOURCE`
 - SOURCE values: `container, disabled`
-- Source README: [services/airflow/README.md](../../../services/airflow/README.md)
+- Source README: [services/airflow/README.md](https://github.com/thekaveh/atlas/blob/main/services/airflow/README.md)
 
 ## 2. Source Of Truth
 

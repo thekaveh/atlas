@@ -10,6 +10,7 @@ import asyncio
 import httpx
 import asyncpg
 import yaml
+import re
 
 from n8n_client import N8nClient
 from research_service import ResearchService
@@ -63,6 +64,10 @@ def _parse_csv_env(value: str | None) -> List[str]:
 
 BACKEND_CORS_ORIGINS = _parse_csv_env(os.getenv("BACKEND_CORS_ORIGINS")) or ["*"]
 BACKEND_CORS_ALLOW_ORIGIN_REGEX = os.getenv("BACKEND_CORS_ALLOW_ORIGIN_REGEX") or None
+BACKEND_STORAGE_ALLOWED_BUCKETS = set(
+    _parse_csv_env(os.getenv("BACKEND_STORAGE_ALLOWED_BUCKETS")) or ["default"]
+)
+_SAFE_STORAGE_FILENAME = re.compile(r"^[A-Za-z0-9._ -]{1,255}$")
 
 
 @asynccontextmanager
@@ -207,6 +212,25 @@ def _document_max_file_size() -> int:
     return int(os.getenv("TIKA_MAX_FILE_SIZE", str(50 * 1024 * 1024)))
 
 
+def _validate_storage_target(bucket: str, filename: str) -> None:
+    if bucket not in BACKEND_STORAGE_ALLOWED_BUCKETS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Bucket is not allowed",
+        )
+    if (
+        not filename
+        or filename in {".", ".."}
+        or "/" in filename
+        or "\\" in filename
+        or not _SAFE_STORAGE_FILENAME.fullmatch(filename)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Filename must be a safe object name without path separators",
+        )
+
+
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
     """Health check endpoint for the API"""
@@ -323,6 +347,7 @@ async def upload_file(file: UploadFile = File(...), bucket: str = "default"):
                 detail="File must have a filename",
             )
         filename = cast(str, file.filename)
+        _validate_storage_target(bucket, filename)
 
         # Read file content in bounded chunks so an oversized upload fails
         # cleanly with 413 instead of OOMing the worker. UploadFile's
@@ -534,10 +559,16 @@ async def cancel_research(session_id: str):
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Cannot cancel research session {session_id} - session not found or not running"
             )
-        return ResearchResponse(
-            session_id=session_id,
-            status="cancelled",
-            message="Research session cancelled successfully"
+        return JSONResponse(
+            status_code=status.HTTP_202_ACCEPTED,
+            content=ResearchResponse(
+                session_id=session_id,
+                status="cancel_requested",
+                message=(
+                    "Local research task cancellation requested; remote "
+                    "LangGraph cancellation is not supported by this integration"
+                ),
+            ).model_dump(),
         )
     except HTTPException:
         raise
@@ -935,7 +966,7 @@ async def memory_extract(request: MemoryExtractRequest):
     try:
         result = await memory_service.extract_facts(
             user_id=request.user_id,
-            messages=request.messages,
+            messages=[message.model_dump() for message in request.messages],
             namespace=request.namespace,
             conversation_id=request.conversation_id,
         )

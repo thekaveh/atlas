@@ -8,7 +8,7 @@ Generated service-site entry for `mcp-servers`.
 - Kind: `container`
 - SOURCE variable: `MCP_SERVERS_SOURCE`
 - SOURCE values: `container, disabled`
-- Source README: [services/mcp-servers/README.md](../../../services/mcp-servers/README.md)
+- Source README: [services/mcp-servers/README.md](https://github.com/thekaveh/atlas/blob/main/services/mcp-servers/README.md)
 
 ## 2. Source Of Truth
 

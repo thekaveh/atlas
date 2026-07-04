@@ -23,7 +23,7 @@ A maintainer who already understands the stack can land a new service in under a
 - [ ] **Add the new folder to the relevant track(s) in `bootstrapper/tracks.yml`** (source-configurable services only). A configurable service absent from a named track's `services:` list is force-disabled (`*_SOURCE=disabled`) there — it only runs under `--track all`. Always-on infra and the always-prompted LLM/Prometheus/Grafana tier are exempt.
 - [ ] **Run the five-command regen + lint chain** → [After you save the files](#12-after-you-save-the-files--regen--lint-commands-in-order)
 - [ ] **Update audit-script allowlists** if your service has hard deps → [Audit-script + CI implications](#13-audit-script--ci-implications)
-- [ ] **Commit and push.** CI gates the change (three jobs: manifest-lint+pytest, compose-equivalence+permutation matrix, docs-drift+audit-scripts).
+- [ ] **Commit and push.** CI gates the change (four required jobs: manifest-lint+pytest, compose-equivalence+permutation matrix, docs-drift+audit-scripts, build-validation).
 
 If you're new to this codebase, read Decisions 1–6 in sequence; the Qdrant worked example illustrates each one.
 
@@ -525,18 +525,17 @@ If your service ships a `requirements.txt` / `pyproject.toml` in a `build/` or `
 
 ### 13.4 CI gates that run on every push
 
-The `.github/workflows/services-lint.yml` workflow has four jobs (the
-first three are the REQUIRED branch-protection checks; build-validation
-is advisory):
+The `.github/workflows/services-lint.yml` workflow has four jobs, and all four
+are REQUIRED branch-protection checks:
 
 | Job | What it catches |
 |---|---|
 | **Manifest lint + unit tests** | `validate_fragments` lint + 1,300+ pytest tests + the backend's own pytest suite (`services/backend/app/app/tests/`). Catches: manifest schema violations, dependency cycles, env-example drift, category overflow, backend route regressions. |
 | **Compose merge + byte-equivalence + source-permutation matrix** | Renders `docker compose config` for the merged fragment list + verifies it matches the golden baseline + tests every source variant of every service. Catches: compose-syntax errors, source-permutation regressions. |
 | **Docs drift + audit scripts** | `regen --all --check` + the 5 audit scripts (`check_doc_links` — incl. `#anchor` fragment validation, `check-compose-source-deps`, `check-docs-drift`, `check-kong-routes`, `validate_research_schema`) + a `uv lock --locked` gate for the docling localhost provider. Catches: stale per-service docs, missing `REQUIRED_DEPENDS_ON` entries, Kong route default drift, broken links/anchors, research-schema violations, stale provider locks. |
-| **Build-validation** (non-required) | `docker buildx build` for the four highest-churn build contexts (airflow, spark, jupyterhub, backend). Catches: unsatisfiable pip pins, broken Dockerfiles. |
+| **Build-validation** | `docker buildx build` for the four highest-churn build contexts (airflow, spark, jupyterhub, backend) plus every `services/*/init/Dockerfile` context. Catches: unsatisfiable pip pins, broken Dockerfiles, and init-image drift. |
 
-Run the equivalent of the three required jobs locally before pushing:
+Run the equivalent of the four required jobs locally before pushing:
 
 ```bash
 cd bootstrapper && uv run pytest -q                                    # job 1 + 2 (minus byte-equivalence)
@@ -548,6 +547,8 @@ python scripts/check-compose-source-deps.py                            # job 3 d
 python scripts/check-docs-drift.py                                     # job 3 docs structural audit
 python scripts/check-kong-routes.py                                    # job 3 kong audit
 python scripts/validate_research_schema.py --all                       # job 3 research schema
+docker buildx build --load --build-arg BASE_IMAGE=apache/airflow:3.2.2 services/airflow/build/  # job 4 sample build
+for d in services/*/init; do [ -f "$d/Dockerfile" ] && docker buildx build --load "$d/"; done    # job 4 init builds
 ```
 
 ### 13.5 Model-picker CLI flags: the four-seam rule

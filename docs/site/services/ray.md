@@ -8,7 +8,7 @@ Generated service-site entry for `ray`.
 - Kind: `container`
 - SOURCE variable: `RAY_SOURCE`
 - SOURCE values: `ray-container-cpu, ray-container-gpu, disabled`
-- Source README: [services/ray/README.md](../../../services/ray/README.md)
+- Source README: [services/ray/README.md](https://github.com/thekaveh/atlas/blob/main/services/ray/README.md)
 
 ## 2. Source Of Truth
 

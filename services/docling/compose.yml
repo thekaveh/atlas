@@ -39,10 +39,10 @@ services:
       - doc-processor-output:/output
     ports:
       # Fallback must match the slot-allocator value in .env.example
-      # (DOC_PROCESSOR_PORT=63040). Only exercised when a user has
+      # (DOC_PROCESSOR_PORT=63051). Only exercised when a user has
       # hand-removed DOC_PROCESSOR_PORT from their .env — matches the
       # parakeet/speaches/chatterbox safety pattern.
-      - "${HOST_BIND_IP:-}${DOC_PROCESSOR_PORT:-63040}:8000"
+      - "${HOST_BIND_IP:-}${DOC_PROCESSOR_PORT:-63051}:8000"
     networks:
       - backend-network
     healthcheck:

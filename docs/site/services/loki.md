@@ -8,7 +8,7 @@ Generated service-site entry for `loki`.
 - Kind: `container`
 - SOURCE variable: `LOKI_SOURCE`
 - SOURCE values: `container, disabled`
-- Source README: [services/loki/README.md](../../../services/loki/README.md)
+- Source README: [services/loki/README.md](https://github.com/thekaveh/atlas/blob/main/services/loki/README.md)
 
 ## 2. Source Of Truth
 

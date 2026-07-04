@@ -8,7 +8,7 @@ Generated service-site entry for `jupyterhub`.
 - Kind: `container`
 - SOURCE variable: `JUPYTERHUB_SOURCE`
 - SOURCE values: `container, disabled`
-- Source README: [services/jupyterhub/README.md](../../../services/jupyterhub/README.md)
+- Source README: [services/jupyterhub/README.md](https://github.com/thekaveh/atlas/blob/main/services/jupyterhub/README.md)
 
 ## 2. Source Of Truth
 

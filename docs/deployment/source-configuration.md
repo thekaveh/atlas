@@ -134,7 +134,7 @@ The interactive wizard's per-provider multiselects persist as comma-separated en
 
 ### 4.1 LLM access (LiteLLM gateway + Ollama upstream + cloud toggles)
 
-LLM access in this stack is split between **LiteLLM** (the always-on OpenAI-compatible gateway every consumer reads) and four configurable upstreams behind it: an Ollama engine plus three cloud providers. See [LiteLLM Gateway](../../services/litellm/README.md) for the consumer-facing surface; the variables below pick what LiteLLM forwards to.
+LLM access in this stack is split between **LiteLLM** (the always-on OpenAI-compatible gateway every consumer reads) and four configurable upstreams behind it: an Ollama engine plus three cloud providers. See [LiteLLM Gateway](https://github.com/thekaveh/atlas/blob/main/services/litellm/README.md) for the consumer-facing surface; the variables below pick what LiteLLM forwards to.
 
 #### 4.1.1 `LLM_PROVIDER_SOURCE` — Ollama upstream (single-select)
 
@@ -385,7 +385,7 @@ OPENCLAW_SOURCE=disabled
 
 The programmable AI agent runtime by Nous Research. Hermes reasons over the LiteLLM gateway and exposes an OpenAI-compatible API; `litellm-init` auto-registers `hermes-agent` as a model in the gateway when `HERMES_SOURCE != disabled`, so Open WebUI / n8n / backend / jupyterhub / openclaw all see Hermes for free.
 
-See [Hermes Agent](../../services/hermes/README.md) for the full service doc.
+See [Hermes Agent](https://github.com/thekaveh/atlas/blob/main/services/hermes/README.md) for the full service doc.
 
 #### 4.6.1 `container` (Default)
 ```bash
@@ -454,7 +454,7 @@ The `LIGHTRAG_QUERY_*` knobs map to LightRAG's native query defaults. Numeric qu
 
 ### 4.8 RAY_SOURCE
 
-Ray is the stack's distributed-compute substrate (head + worker containers, `infra` category). Consumers reach it via `RAY_ADDRESS` set per source by the bootstrapper's `_generate_ray_config()` hook. See [Ray service README](../../services/ray/README.md) for the full configuration reference.
+Ray is the stack's distributed-compute substrate (head + worker containers, `infra` category). Consumers reach it via `RAY_ADDRESS` set per source by the bootstrapper's `_generate_ray_config()` hook. See [Ray service README](https://github.com/thekaveh/atlas/blob/main/services/ray/README.md) for the full configuration reference.
 
 #### 4.8.1 `disabled` (Default)
 ```bash
@@ -487,7 +487,7 @@ RAY_WORKER_COUNT=2
 
 ### 4.9 PROMETHEUS_SOURCE
 
-Prometheus is the stack's metrics scraper + TSDB, bundled with `node-exporter` (host metrics) and `cAdvisor` (container metrics) as one co-lifecycled family. The bootstrapper's `_generate_prometheus_config()` hook also scales the `postgres-exporter` (in `services/supabase/`) and `redis-exporter` (in `services/redis/`) sidecars from this same source. See [Prometheus service README](../../services/prometheus/README.md) for scrape targets and configuration details.
+Prometheus is the stack's metrics scraper + TSDB, bundled with `node-exporter` (host metrics) and `cAdvisor` (container metrics) as one co-lifecycled family. The bootstrapper's `_generate_prometheus_config()` hook also scales the `postgres-exporter` (in `services/supabase/`) and `redis-exporter` (in `services/redis/`) sidecars from this same source. See [Prometheus service README](https://github.com/thekaveh/atlas/blob/main/services/prometheus/README.md) for scrape targets and configuration details.
 
 #### 4.9.1 `disabled` (Default)
 ```bash
@@ -510,7 +510,7 @@ PROMETHEUS_RETENTION_DAYS=7   # 1..365 — wizard prompts inline on the source s
 
 ### 4.10 GRAFANA_SOURCE
 
-Grafana is the user-facing dashboards + unified alerting UI on top of Prometheus. The Prometheus datasource is pre-provisioned (URL interpolated from `${PROMETHEUS_ENDPOINT}` at boot) plus 7 starter dashboards (stack overview, LiteLLM, Kong, Postgres+Redis, containers+host, n8n, app-tier). See [Grafana service README](../../services/grafana/README.md) for the dashboard catalog and admin-password lifecycle.
+Grafana is the user-facing dashboards + unified alerting UI on top of Prometheus. The Prometheus datasource is pre-provisioned (URL interpolated from `${PROMETHEUS_ENDPOINT}` at boot) plus 7 starter dashboards (stack overview, LiteLLM, Kong, Postgres+Redis, containers+host, n8n, app-tier). See [Grafana service README](https://github.com/thekaveh/atlas/blob/main/services/grafana/README.md) for the dashboard catalog and admin-password lifecycle.
 
 #### 4.10.1 `disabled` (Default)
 ```bash
@@ -534,7 +534,7 @@ GRAFANA_ADMIN_PASSWORD=...       # auto-generated on first bootstrap; persisted 
 
 ### 4.11 SPARK_SOURCE
 
-Spark is a standalone Apache Spark cluster (master + N workers + history server + dedicated `spark-connect` gRPC sidecar + one-shot `spark-init`) sitting in the `data` band. It exposes a Spark Connect endpoint on `:15002` via the sidecar for in-stack thin clients. JupyterHub receives `SPARK_REMOTE=sc://spark-connect:15002` for PySpark Connect notebooks, while Zeppelin is seeded for the stock standalone Spark interpreter path (`spark.master=spark://spark-master:7077`) because Zeppelin's launcher uses `spark-submit`. Backend wiring remains a future service-level integration. The local Spark image also bakes `iceberg-spark-runtime-4.1_2.13:1.11.0` plus `iceberg-aws-bundle:1.11.0` and preconfigures a `lakehouse` Iceberg REST catalog at `http://iceberg-rest:8181`, including MinIO S3FileIO endpoint, scoped Iceberg service-account credentials, path-style access, and `client.region=us-east-1`; this catalog is active when `ICEBERG_REST_SOURCE=container` and inert for ML-only Spark users who leave Iceberg REST disabled. JupyterHub also carries `boto3`, `s3fs`, `pyiceberg[s3fs]`, `pyarrow`, and `duckdb` with MinIO and Iceberg REST env so Python notebooks can list buckets, load the REST catalog, and query Arrow data locally. See [Spark service README](../../services/spark/README.md), [JupyterHub service README](../../services/jupyterhub/README.md), and [Zeppelin service README](../../services/zeppelin/README.md) for the client paths.
+Spark is a standalone Apache Spark cluster (master + N workers + history server + dedicated `spark-connect` gRPC sidecar + one-shot `spark-init`) sitting in the `data` band. It exposes a Spark Connect endpoint on `:15002` via the sidecar for in-stack thin clients. JupyterHub receives `SPARK_REMOTE=sc://spark-connect:15002` for PySpark Connect notebooks, while Zeppelin is seeded for the stock standalone Spark interpreter path (`spark.master=spark://spark-master:7077`) because Zeppelin's launcher uses `spark-submit`. Backend wiring remains a future service-level integration. The local Spark image also bakes `iceberg-spark-runtime-4.1_2.13:1.11.0` plus `iceberg-aws-bundle:1.11.0` and preconfigures a `lakehouse` Iceberg REST catalog at `http://iceberg-rest:8181`, including MinIO S3FileIO endpoint, scoped Iceberg service-account credentials, path-style access, and `client.region=us-east-1`; this catalog is active when `ICEBERG_REST_SOURCE=container` and inert for ML-only Spark users who leave Iceberg REST disabled. JupyterHub also carries `boto3`, `s3fs`, `pyiceberg[s3fs]`, `pyarrow`, and `duckdb` with MinIO and Iceberg REST env so Python notebooks can list buckets, load the REST catalog, and query Arrow data locally. See [Spark service README](https://github.com/thekaveh/atlas/blob/main/services/spark/README.md), [JupyterHub service README](https://github.com/thekaveh/atlas/blob/main/services/jupyterhub/README.md), and [Zeppelin service README](https://github.com/thekaveh/atlas/blob/main/services/zeppelin/README.md) for the client paths.
 
 #### 4.11.1 `disabled` (Default)
 ```bash
@@ -567,7 +567,7 @@ Cross-encoder reranker inference server (default model `mixedbread-ai/mxbai-rera
 
 ### 4.13 ZEPPELIN_SOURCE
 
-Zeppelin is the Spark-first notebook UI. `zeppelin-init` pre-configures the stock Spark interpreter against the in-cluster standalone master (`spark.master=spark://spark-master:7077`) plus MinIO S3A and the Iceberg REST `lakehouse` catalog; Spark Connect remains the JupyterHub/direct-client path. The JDBC interpreter ships with Supabase Postgres credentials in env vars but requires a one-time UI-driven `postgres` profile setup (see [Zeppelin service README](../../services/zeppelin/README.md) §4). **Hard-gated on Spark** — `ZEPPELIN_SOURCE=container` with `SPARK_SOURCE=disabled` errors out at bootstrap.
+Zeppelin is the Spark-first notebook UI. `zeppelin-init` pre-configures the stock Spark interpreter against the in-cluster standalone master (`spark.master=spark://spark-master:7077`) plus MinIO S3A and the Iceberg REST `lakehouse` catalog; Spark Connect remains the JupyterHub/direct-client path. The JDBC interpreter ships with Supabase Postgres credentials in env vars but requires a one-time UI-driven `postgres` profile setup (see [Zeppelin service README](https://github.com/thekaveh/atlas/blob/main/services/zeppelin/README.md) §4). **Hard-gated on Spark** — `ZEPPELIN_SOURCE=container` with `SPARK_SOURCE=disabled` errors out at bootstrap.
 
 #### 4.13.1 `disabled` (Default)
 ```bash
@@ -616,7 +616,7 @@ JENKINS_ADMIN_PASSWORD=... # auto-generated on first bootstrap; persisted to .en
 
 ### 4.15 AIRFLOW_SOURCE
 
-Airflow is a code-defined DAG orchestrator running LocalExecutor (no Celery / Redis broker — the metadata DB is Supabase Postgres). The image bundles `apache-airflow-providers-openai` (LiteLLM-wired) — LangChain support runs via `langchain-openai` + `PythonOperator`; there is no `apache-airflow-providers-langchain` package on PyPI. It also installs Java 17, exposes PySpark's `spark-submit`, and carries S3A/Iceberg jars so `SparkSubmitOperator` can submit a JAR from `s3a://jars/...` to `spark://spark-master:7077`. The documented lakehouse path uses `deploy_mode="cluster"` so the driver runs on Atlas Spark workers while Airflow acts as the submit client. `airflow-init` seeds Connection objects per sibling source: `postgres_supabase`, `litellm_default`, and `redis_default` (always-on — required deps and locked-source services), `spark_default` (gated on `SPARK_SOURCE=container`, seeded for cluster SparkSubmit), `minio_default` (gated on `MINIO_SOURCE=container`), `weaviate_default` (gated on `WEAVIATE_SOURCE=container`), `neo4j_default` (gated on `NEO4J_GRAPH_DB_SOURCE=container`). See [Airflow service README](../../services/airflow/README.md) §4 for the full seeded Connections matrix, the example DAG, and the `lakehouse_spark_submit_smoke` validation DAG.
+Airflow is a code-defined DAG orchestrator running LocalExecutor (no Celery / Redis broker — the metadata DB is Supabase Postgres). The image bundles `apache-airflow-providers-openai` (LiteLLM-wired) — LangChain support runs via `langchain-openai` + `PythonOperator`; there is no `apache-airflow-providers-langchain` package on PyPI. It also installs Java 17, exposes PySpark's `spark-submit`, and carries S3A/Iceberg jars so `SparkSubmitOperator` can submit a JAR from `s3a://jars/...` to `spark://spark-master:7077`. The documented lakehouse path uses `deploy_mode="cluster"` so the driver runs on Atlas Spark workers while Airflow acts as the submit client. `airflow-init` seeds Connection objects per sibling source: `postgres_supabase`, `litellm_default`, and `redis_default` (always-on — required deps and locked-source services), `spark_default` (gated on `SPARK_SOURCE=container`, seeded for cluster SparkSubmit), `minio_default` (gated on `MINIO_SOURCE=container`), `weaviate_default` (gated on `WEAVIATE_SOURCE=container`), `neo4j_default` (gated on `NEO4J_GRAPH_DB_SOURCE=container`). See [Airflow service README](https://github.com/thekaveh/atlas/blob/main/services/airflow/README.md) §4 for the full seeded Connections matrix, the example DAG, and the `lakehouse_spark_submit_smoke` validation DAG.
 
 #### 4.15.1 `disabled` (Default)
 ```bash

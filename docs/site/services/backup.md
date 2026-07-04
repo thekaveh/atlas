@@ -8,7 +8,7 @@ Generated service-site entry for `backup`.
 - Kind: `container`
 - SOURCE variable: `BACKUP_SOURCE`
 - SOURCE values: `container, disabled`
-- Source README: [services/backup/README.md](../../../services/backup/README.md)
+- Source README: [services/backup/README.md](https://github.com/thekaveh/atlas/blob/main/services/backup/README.md)
 
 ## 2. Source Of Truth
 

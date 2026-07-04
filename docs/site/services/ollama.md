@@ -8,7 +8,7 @@ Generated service-site entry for `ollama`.
 - Kind: `container`
 - SOURCE variable: `LLM_PROVIDER_SOURCE`
 - SOURCE values: `ollama-container-cpu, ollama-container-gpu, ollama-localhost, none`
-- Source README: [services/ollama/README.md](../../../services/ollama/README.md)
+- Source README: [services/ollama/README.md](https://github.com/thekaveh/atlas/blob/main/services/ollama/README.md)
 
 ## 2. Source Of Truth
 

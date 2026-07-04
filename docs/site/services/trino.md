@@ -8,7 +8,7 @@ Generated service-site entry for `trino`.
 - Kind: `container`
 - SOURCE variable: `TRINO_SOURCE`
 - SOURCE values: `container, disabled`
-- Source README: [services/trino/README.md](../../../services/trino/README.md)
+- Source README: [services/trino/README.md](https://github.com/thekaveh/atlas/blob/main/services/trino/README.md)
 
 ## 2. Source Of Truth
 

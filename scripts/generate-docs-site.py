@@ -27,6 +27,7 @@ from services.manifests import Manifest, load_manifests  # noqa: E402
 DOCS = ROOT / "docs"
 SERVICES = ROOT / "services"
 PUBLIC_URL = "https://thekaveh.github.io/atlas/"
+GITHUB_BLOB_URL = "https://github.com/thekaveh/atlas/blob/main"
 HOME = DOCS / "index.md"
 SITE = DOCS / "site"
 ARCH = DOCS / "architecture"
@@ -200,7 +201,6 @@ def _mkdocs_nav(services: list[ServiceDoc]) -> dict:
         {"Track Reference": "site/reference/tracks.md"},
         {"Service Dependencies": "site/reference/service-dependencies.md"},
         {"Manifest Fields": "site/reference/manifest-fields.md"},
-        {"Wiki Export": "wiki/Home.md"},
     ]
     return {
         "site_name": "Atlas Documentation",
@@ -211,13 +211,13 @@ def _mkdocs_nav(services: list[ServiceDoc]) -> dict:
         "docs_dir": "docs",
         "site_dir": "site",
         "strict": True,
-        "exclude_docs": "README.md",
+        "exclude_docs": "README.md\nwiki/*.md",
         "extra_css": ["assets/stylesheets/atlas.css"],
         "not_in_nav": "**/*.md",
         "validation": {
             "links": {
                 "anchors": "ignore",
-                "not_found": "ignore",
+                "not_found": "warn",
                 "unrecognized_links": "ignore",
                 "absolute_links": "ignore",
             },
@@ -585,7 +585,7 @@ preserving service READMEs as the per-service source of truth.
 ## 2. Publication Surfaces
 
 - Public site: [{PUBLIC_URL}]({PUBLIC_URL})
-- GitHub Wiki export: [docs/wiki/Home.md](wiki/Home.md)
+- GitHub Wiki export source: [docs/wiki/Home.md](https://github.com/thekaveh/atlas/blob/main/docs/wiki/Home.md)
 - Source repository: [thekaveh/atlas](https://github.com/thekaveh/atlas)
 """
     pages[SITE / "index.md"] = f"""# Atlas Documentation
@@ -728,7 +728,7 @@ def _service_pages(services: list[ServiceDoc]) -> dict[Path, str]:
             svc.kind,
             svc.source_var or "-",
         ])
-        readme_link = f"../../../services/{svc.name}/README.md" if svc.readme.exists() else ""
+        readme_link = f"{GITHUB_BLOB_URL}/services/{svc.name}/README.md" if svc.readme.exists() else ""
         readme_line = (
             f"- Source README: [services/{svc.name}/README.md]({readme_link})"
             if readme_link

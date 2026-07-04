@@ -8,7 +8,7 @@ Generated service-site entry for `docling`.
 - Kind: `container`
 - SOURCE variable: `DOC_PROCESSOR_SOURCE`
 - SOURCE values: `disabled, docling-localhost, docling-container-gpu`
-- Source README: [services/docling/README.md](../../../services/docling/README.md)
+- Source README: [services/docling/README.md](https://github.com/thekaveh/atlas/blob/main/services/docling/README.md)
 
 ## 2. Source Of Truth
 

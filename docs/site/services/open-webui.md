@@ -8,7 +8,7 @@ Generated service-site entry for `open-webui`.
 - Kind: `container`
 - SOURCE variable: `OPEN_WEB_UI_SOURCE`
 - SOURCE values: `container, disabled`
-- Source README: [services/open-webui/README.md](../../../services/open-webui/README.md)
+- Source README: [services/open-webui/README.md](https://github.com/thekaveh/atlas/blob/main/services/open-webui/README.md)
 
 ## 2. Source Of Truth
 

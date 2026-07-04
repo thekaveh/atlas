@@ -8,7 +8,7 @@ Generated service-site entry for `supavisor`.
 - Kind: `container`
 - SOURCE variable: `SUPAVISOR_SOURCE`
 - SOURCE values: `container, disabled`
-- Source README: [services/supavisor/README.md](../../../services/supavisor/README.md)
+- Source README: [services/supavisor/README.md](https://github.com/thekaveh/atlas/blob/main/services/supavisor/README.md)
 
 ## 2. Source Of Truth
 

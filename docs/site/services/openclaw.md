@@ -8,7 +8,7 @@ Generated service-site entry for `openclaw`.
 - Kind: `container`
 - SOURCE variable: `OPENCLAW_SOURCE`
 - SOURCE values: `disabled, container, localhost`
-- Source README: [services/openclaw/README.md](../../../services/openclaw/README.md)
+- Source README: [services/openclaw/README.md](https://github.com/thekaveh/atlas/blob/main/services/openclaw/README.md)
 
 ## 2. Source Of Truth
 

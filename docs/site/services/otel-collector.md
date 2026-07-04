@@ -8,7 +8,7 @@ Generated service-site entry for `otel-collector`.
 - Kind: `container`
 - SOURCE variable: `OTEL_COLLECTOR_SOURCE`
 - SOURCE values: `container, disabled`
-- Source README: [services/otel-collector/README.md](../../../services/otel-collector/README.md)
+- Source README: [services/otel-collector/README.md](https://github.com/thekaveh/atlas/blob/main/services/otel-collector/README.md)
 
 ## 2. Source Of Truth
 

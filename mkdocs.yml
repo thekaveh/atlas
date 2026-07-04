@@ -6,14 +6,16 @@ repo_name: thekaveh/atlas
 docs_dir: docs
 site_dir: site
 strict: true
-exclude_docs: README.md
+exclude_docs: 'README.md
+
+  wiki/*.md'
 extra_css:
 - assets/stylesheets/atlas.css
 not_in_nav: '**/*.md'
 validation:
   links:
     anchors: ignore
-    not_found: ignore
+    not_found: warn
     unrecognized_links: ignore
     absolute_links: ignore
   nav:
@@ -104,7 +106,6 @@ nav:
 - 17. Track Reference: site/reference/tracks.md
 - 18. Service Dependencies: site/reference/service-dependencies.md
 - 19. Manifest Fields: site/reference/manifest-fields.md
-- 20. Wiki Export: wiki/Home.md
 theme:
   name: mkdocs
   navigation_depth: 4

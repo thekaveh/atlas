@@ -8,7 +8,7 @@ Generated service-site entry for `minio`.
 - Kind: `container`
 - SOURCE variable: `MINIO_SOURCE`
 - SOURCE values: `container, disabled`
-- Source README: [services/minio/README.md](../../../services/minio/README.md)
+- Source README: [services/minio/README.md](https://github.com/thekaveh/atlas/blob/main/services/minio/README.md)
 
 ## 2. Source Of Truth
 

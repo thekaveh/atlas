@@ -8,7 +8,7 @@ Generated service-site entry for `tika`.
 - Kind: `container`
 - SOURCE variable: `TIKA_SOURCE`
 - SOURCE values: `container, tika-localhost, disabled`
-- Source README: [services/tika/README.md](../../../services/tika/README.md)
+- Source README: [services/tika/README.md](https://github.com/thekaveh/atlas/blob/main/services/tika/README.md)
 
 ## 2. Source Of Truth
 

@@ -8,7 +8,7 @@ Generated service-site entry for `local-deep-researcher`.
 - Kind: `container`
 - SOURCE variable: `LOCAL_DEEP_RESEARCHER_SOURCE`
 - SOURCE values: `container, disabled`
-- Source README: [services/local-deep-researcher/README.md](../../../services/local-deep-researcher/README.md)
+- Source README: [services/local-deep-researcher/README.md](https://github.com/thekaveh/atlas/blob/main/services/local-deep-researcher/README.md)
 
 ## 2. Source Of Truth
 

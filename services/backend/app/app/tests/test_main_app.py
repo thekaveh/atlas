@@ -90,6 +90,26 @@ def test_storage_upload_returns_503_for_storage_dependency_failure(monkeypatch):
     assert resp.json()["detail"] == "Supabase Storage is unavailable"
 
 
+def test_storage_upload_rejects_unapproved_bucket_and_path_filename(monkeypatch):
+    _stub_required_env(monkeypatch)
+    from fastapi.testclient import TestClient
+    import main
+
+    client = TestClient(main.app)
+
+    bucket_resp = client.post(
+        "/storage/upload?bucket=private",
+        files={"file": ("example.txt", b"hello", "text/plain")},
+    )
+    path_resp = client.post(
+        "/storage/upload",
+        files={"file": ("../secret.txt", b"hello", "text/plain")},
+    )
+
+    assert bucket_resp.status_code == 400
+    assert path_resp.status_code == 400
+
+
 def test_document_extract_rejects_oversized_upload_before_extractor(monkeypatch):
     _stub_required_env(monkeypatch)
     from fastapi.testclient import TestClient
@@ -111,6 +131,49 @@ def test_document_extract_rejects_oversized_upload_before_extractor(monkeypatch)
     )
 
     assert resp.status_code == 413
+
+
+def test_memory_requests_reject_unbounded_payloads(monkeypatch):
+    _stub_required_env(monkeypatch)
+    from fastapi.testclient import TestClient
+    from main import app
+
+    client = TestClient(app)
+    user_id = "00000000-0000-4000-8000-000000000001"
+    extract_resp = client.post(
+        "/memory/extract",
+        json={
+            "user_id": user_id,
+            "namespace": "x" * 129,
+            "messages": [{"role": "user", "content": "x" * 20001}],
+        },
+    )
+    recall_resp = client.post(
+        "/memory/recall",
+        json={"user_id": user_id, "query": "", "namespace": "default"},
+    )
+
+    assert extract_resp.status_code == 422
+    assert recall_resp.status_code == 422
+
+
+def test_research_cancel_reports_best_effort_local_cancellation(monkeypatch):
+    _stub_required_env(monkeypatch)
+    from fastapi.testclient import TestClient
+    import main
+
+    async def fake_cancel(session_id):
+        return True
+
+    monkeypatch.setattr(main.research_service, "cancel_research", fake_cancel)
+    client = TestClient(main.app)
+
+    resp = client.post("/research/00000000-0000-4000-8000-000000000001/cancel")
+
+    assert resp.status_code == 202
+    body = resp.json()
+    assert body["status"] == "cancel_requested"
+    assert "remote LangGraph cancellation is not supported" in body["message"]
 
 
 def test_lifespan_closes_n8n_client(monkeypatch):

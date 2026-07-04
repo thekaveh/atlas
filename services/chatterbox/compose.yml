@@ -27,7 +27,7 @@ services:
     volumes:
       - chatterbox-cache:/root/.cache/huggingface
     ports:
-      - "${HOST_BIND_IP:-}${CHATTERBOX_PORT:-63047}:4123"
+      - "${HOST_BIND_IP:-}${CHATTERBOX_PORT:-63057}:4123"
     networks:
       - backend-network
     # Chatterbox's docker/Dockerfile installs curl and exposes /health.

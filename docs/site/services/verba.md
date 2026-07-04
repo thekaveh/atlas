@@ -8,7 +8,7 @@ Generated service-site entry for `verba`.
 - Kind: `container`
 - SOURCE variable: `VERBA_SOURCE`
 - SOURCE values: `container, disabled`
-- Source README: [services/verba/README.md](../../../services/verba/README.md)
+- Source README: [services/verba/README.md](https://github.com/thekaveh/atlas/blob/main/services/verba/README.md)
 
 ## 2. Source Of Truth
 

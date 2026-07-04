@@ -8,7 +8,7 @@ Generated service-site entry for `hermes`.
 - Kind: `container`
 - SOURCE variable: `HERMES_SOURCE`
 - SOURCE values: `container, localhost, disabled`
-- Source README: [services/hermes/README.md](../../../services/hermes/README.md)
+- Source README: [services/hermes/README.md](https://github.com/thekaveh/atlas/blob/main/services/hermes/README.md)
 
 ## 2. Source Of Truth
 

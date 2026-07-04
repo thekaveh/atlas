@@ -24,6 +24,9 @@ env:
   - name: MAX_UPLOAD_BYTES
     default: 104857600
     description: "Maximum accepted /storage/upload body size in bytes before the backend returns 413."
+  - name: BACKEND_STORAGE_ALLOWED_BUCKETS
+    default: default
+    description: "Comma-separated Supabase Storage bucket allowlist accepted by /storage/upload."
   - name: BACKEND_CORS_ORIGINS
     default: "*"
     description: "Comma-separated browser origins accepted by the backend CORS middleware. Default preserves local-development permissiveness."

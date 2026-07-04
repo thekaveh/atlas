@@ -8,7 +8,7 @@ Generated service-site entry for `parakeet`.
 - Kind: `container`
 - SOURCE variable: `STT_PROVIDER_SOURCE`
 - SOURCE values: `speaches-container-cpu, speaches-container-gpu, parakeet-container-gpu, parakeet-localhost, whisper-cpp-localhost, disabled`
-- Source README: [services/parakeet/README.md](../../../services/parakeet/README.md)
+- Source README: [services/parakeet/README.md](https://github.com/thekaveh/atlas/blob/main/services/parakeet/README.md)
 
 ## 2. Source Of Truth
 

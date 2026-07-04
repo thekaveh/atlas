@@ -8,7 +8,7 @@ Generated service-site entry for `backend`.
 - Kind: `container`
 - SOURCE variable: `none`
 - SOURCE values: `none`
-- Source README: [services/backend/README.md](../../../services/backend/README.md)
+- Source README: [services/backend/README.md](https://github.com/thekaveh/atlas/blob/main/services/backend/README.md)
 
 ## 2. Source Of Truth
 

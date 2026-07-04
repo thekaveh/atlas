@@ -256,15 +256,17 @@ jobs:
         # services/backend/app/Dockerfile pulls FastAPI + LangChain stack.
         run: docker buildx build --load services/backend/app/
 
-      # Small init-container layers. Each is a python:3.12.7-slim base
-      # with a one-line `pip install` of pinned packages — typically
-      # 15-30s on a cold runner thanks to the shared base layer. Catches
-      # the Pass 12 / Pass 13 unsatisfiable-pin class for the
-      # cross-service env-write rule (project_litellm_init_env_block_
-      # dual_write memory) where a broken init silently no-ops at
-      # runtime instead of failing loudly.
-      - name: Build litellm-init image
-        run: docker buildx build --load services/litellm/init/
-
-      - name: Build open-webui-init image
-        run: docker buildx build --load services/open-webui/init/
+      - name: Build init-container images
+        # Keep this discovery-based so new services/*/init/Dockerfile
+        # contexts do not silently miss build-validation coverage.
+        run: |
+          set -euo pipefail
+          for context in \
+            services/label-studio/init \
+            services/langfuse/init \
+            services/litellm/init \
+            services/mlflow/init \
+            services/open-webui/init
+          do
+            docker buildx build --load "$context/"
+          done

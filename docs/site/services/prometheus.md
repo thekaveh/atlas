@@ -8,7 +8,7 @@ Generated service-site entry for `prometheus`.
 - Kind: `container`
 - SOURCE variable: `PROMETHEUS_SOURCE`
 - SOURCE values: `container, disabled`
-- Source README: [services/prometheus/README.md](../../../services/prometheus/README.md)
+- Source README: [services/prometheus/README.md](https://github.com/thekaveh/atlas/blob/main/services/prometheus/README.md)
 
 ## 2. Source Of Truth
 

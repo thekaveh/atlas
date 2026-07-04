@@ -27,6 +27,7 @@ Generated from manifest env declarations.
 | BACKEND_PORT | backend |  |  |
 | BACKEND_SCALE | backend |  | Always 1 (BACKEND_SOURCE is single-valued). |
 | MAX_UPLOAD_BYTES | backend | 104857600 | Maximum accepted /storage/upload body size in bytes before the backend returns 413. |
+| BACKEND_STORAGE_ALLOWED_BUCKETS | backend | default | Comma-separated Supabase Storage bucket allowlist accepted by /storage/upload. |
 | BACKEND_CORS_ORIGINS | backend | * | Comma-separated browser origins accepted by the backend CORS middleware. Default preserves local-development permissiveness. |
 | BACKEND_CORS_ALLOW_ORIGIN_REGEX | backend |  | Optional regex accepted by the backend CORS middleware for wildcard subdomain policies. |
 | LANGMEM_ENABLED | backend | True |  |

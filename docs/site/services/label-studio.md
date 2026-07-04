@@ -8,7 +8,7 @@ Generated service-site entry for `label-studio`.
 - Kind: `container`
 - SOURCE variable: `LABEL_STUDIO_SOURCE`
 - SOURCE values: `container, disabled`
-- Source README: [services/label-studio/README.md](../../../services/label-studio/README.md)
+- Source README: [services/label-studio/README.md](https://github.com/thekaveh/atlas/blob/main/services/label-studio/README.md)
 
 ## 2. Source Of Truth
 

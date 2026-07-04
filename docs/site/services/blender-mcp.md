@@ -8,7 +8,7 @@ Generated service-site entry for `blender-mcp`.
 - Kind: `virtual`
 - SOURCE variable: `BLENDER_MCP_SOURCE`
 - SOURCE values: `localhost, disabled`
-- Source README: [services/blender-mcp/README.md](../../../services/blender-mcp/README.md)
+- Source README: [services/blender-mcp/README.md](https://github.com/thekaveh/atlas/blob/main/services/blender-mcp/README.md)
 
 ## 2. Source Of Truth
 

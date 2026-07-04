@@ -16,14 +16,22 @@ def _validate_uuid(value: str) -> str:
 
 # --- Request Models ---
 
+class MemoryMessage(BaseModel):
+    """Bounded chat message accepted by memory extraction."""
+    role: str = Field(default="user", min_length=1, max_length=32)
+    content: str = Field(min_length=1, max_length=20000)
+
+
 class MemoryExtractRequest(BaseModel):
     """Request to extract facts from conversation messages."""
     user_id: str
-    messages: List[Dict[str, str]] = Field(
+    messages: List[MemoryMessage] = Field(
         ...,
+        min_length=1,
+        max_length=100,
         description="Conversation messages in [{role, content}] format"
     )
-    namespace: str = "default"
+    namespace: str = Field(default="default", min_length=1, max_length=128)
     conversation_id: Optional[str] = None
 
     @field_validator("user_id")
@@ -42,8 +50,8 @@ class MemoryExtractRequest(BaseModel):
 class MemoryRecallRequest(BaseModel):
     """Request to recall relevant memories for a query."""
     user_id: str
-    query: str
-    namespace: str = "default"
+    query: str = Field(min_length=1, max_length=4000)
+    namespace: str = Field(default="default", min_length=1, max_length=128)
     limit: int = Field(default=10, ge=1, le=100)
     min_confidence: float = Field(default=0.5, ge=0.0, le=1.0)
 
@@ -71,7 +79,7 @@ class MemoryConsolidateRequest(BaseModel):
 class MemorySummarizeRequest(BaseModel):
     """Request to generate a user memory profile summary."""
     user_id: str
-    namespace: str = "default"
+    namespace: str = Field(default="default", min_length=1, max_length=128)
 
     @field_validator("user_id")
     @classmethod
@@ -84,7 +92,7 @@ VALID_FACT_TYPES = ("observation", "preference", "instruction", "relationship", 
 
 class MemoryUpdateRequest(BaseModel):
     """Request to update a specific memory fact."""
-    content: Optional[str] = None
+    content: Optional[str] = Field(default=None, max_length=20000)
     fact_type: Optional[str] = None
     confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
     is_active: Optional[bool] = None
