@@ -2243,12 +2243,12 @@ gh pr create --title "feat: setup-wizard tracks" \
 - [ ] \`./start.sh --list-tracks\` prints the registry
 - [ ] \`./start.sh --track gen-ai-rag\` skips picker, prompts only RAG services
 - [ ] \`./start.sh --track gen-ai-rag --comfyui-source container-gpu\` emits warning and re-enables ComfyUI prompt
-- [ ] All 3 \`services-lint\` CI checks green
+- [ ] All 4 \`services-lint\` CI checks green
 EOF
 )"
 ```
 
-Wait for the three required CI checks (`Manifest lint + unit tests`, `Compose merge + byte-equivalence + source-permutation matrix`, `Docs drift + audit scripts`) to pass. Then per `memory/project_branch_workflow.md`:
+Wait for the four required CI checks (`Manifest lint + unit tests`, `Compose merge + byte-equivalence + source-permutation matrix`, `Docs drift + audit scripts`, `Build-validation (Dockerfile + requirements.txt installability)`) to pass. Then per `memory/project_branch_workflow.md`:
 
 ```bash
 gh pr merge --squash --delete-branch

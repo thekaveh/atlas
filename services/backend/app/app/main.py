@@ -67,10 +67,10 @@ BACKEND_CORS_ALLOW_ORIGIN_REGEX = os.getenv("BACKEND_CORS_ALLOW_ORIGIN_REGEX") o
 
 def _resolve_cors_origins(origins_value: str | None, origin_regex: str | None) -> List[str]:
     origins = _parse_csv_env(origins_value)
+    if origin_regex:
+        return [origin for origin in origins if origin != "*"]
     if origins:
         return origins
-    if origin_regex:
-        return []
     return ["*"]
 
 
@@ -599,7 +599,14 @@ async def get_research_logs(session_id: str):
     _validate_uuid_param(session_id, "session_id")
     try:
         logs = await research_service.get_research_logs(session_id)
+        if logs is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Research session {session_id} not found",
+            )
         return [ResearchLogResponse(**log) for log in logs]
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

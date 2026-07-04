@@ -538,20 +538,23 @@ are REQUIRED branch-protection checks:
 Run the equivalent of the four required jobs locally before pushing:
 
 ```bash
-cd bootstrapper && uv run pytest -q                                    # job 1 + 2 (minus byte-equivalence)
-cd bootstrapper && uv run python -m tools.validate_fragments           # job 1 lint
-cp .env.example .env && docker compose -f docker-compose.yml config -q # job 2 merge check
-cd .. && PYTHONPATH=bootstrapper uv run --project bootstrapper python -m bootstrapper.docs.regen --all --check  # job 3 docs drift
-python scripts/check_doc_links.py                                      # job 3 link check
-python scripts/check-docs-drift.py                                     # job 3 docs structural audit
-python scripts/check-docs-site.py                                      # job 3 MkDocs strict build
-python scripts/export-docs-wiki.py --check                             # job 3 wiki export drift
-python scripts/check-compose-source-deps.py                            # job 3 deps audit
-python scripts/check-kong-routes.py                                    # job 3 kong audit
-python scripts/validate_research_schema.py --all                       # job 3 research schema
-python scripts/check-track-membership.py                               # job 3 track coverage
-(cd services/docling/provider/localhost && uv lock --locked)            # job 3 docling lock
-docker buildx build --load --build-arg BASE_IMAGE=apache/airflow:3.2.2 services/airflow/build/  # job 4 sample build
+uv run --project bootstrapper pytest -q                                      # job 1 + 2 (minus byte-equivalence)
+uv run --project bootstrapper python -m tools.validate_fragments             # job 1 lint
+cp .env.example .env && docker compose -f docker-compose.yml config -q       # job 2 merge check
+PYTHONPATH=bootstrapper uv run --project bootstrapper python -m bootstrapper.docs.regen --all --check  # job 3 docs drift
+python scripts/check_doc_links.py                                            # job 3 link check
+python scripts/check-docs-drift.py                                           # job 3 docs structural audit
+python scripts/check-docs-site.py                                            # job 3 MkDocs strict build
+python scripts/export-docs-wiki.py --check                                   # job 3 wiki export drift
+python scripts/check-compose-source-deps.py                                  # job 3 deps audit
+python scripts/check-kong-routes.py                                          # job 3 kong audit
+python scripts/validate_research_schema.py --all                             # job 3 research schema
+python scripts/check-track-membership.py                                     # job 3 track coverage
+(cd services/docling/provider/localhost && uv lock --locked)                  # job 3 docling lock
+docker buildx build --load --build-arg BASE_IMAGE=apache/airflow:3.2.2 services/airflow/build/  # job 4 airflow build
+docker buildx build --load --build-arg BASE_IMAGE=apache/spark:4.1.2 services/spark/build/      # job 4 spark build
+docker buildx build --load services/jupyterhub/build/                         # job 4 jupyterhub build
+docker buildx build --load services/backend/app/                              # job 4 backend build
 for d in services/*/init; do [ -f "$d/Dockerfile" ] && docker buildx build --load "$d/"; done    # job 4 init builds
 ```
 

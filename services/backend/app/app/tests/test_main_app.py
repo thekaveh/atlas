@@ -47,6 +47,7 @@ def test_cors_regex_without_explicit_origins_does_not_leave_wildcard_enabled(mon
 
     assert main._resolve_cors_origins("", "https://.*\\.example\\.com") == []
     assert main._resolve_cors_origins(None, "https://.*\\.example\\.com") == []
+    assert main._resolve_cors_origins("*", "https://.*\\.example\\.com") == []
     assert main._resolve_cors_origins("", None) == ["*"]
     assert main._resolve_cors_origins("https://atlas.localhost,http://localhost:3000", None) == [
         "https://atlas.localhost",
@@ -217,6 +218,22 @@ def test_research_cancel_reports_best_effort_local_cancellation(monkeypatch):
     body = resp.json()
     assert body["status"] == "cancel_requested"
     assert "remote LangGraph cancellation is not supported" in body["message"]
+
+
+def test_research_logs_returns_404_when_session_is_absent(monkeypatch):
+    _stub_required_env(monkeypatch)
+    from fastapi.testclient import TestClient
+    import main
+
+    async def fake_logs(session_id):
+        return None
+
+    monkeypatch.setattr(main.research_service, "get_research_logs", fake_logs)
+    client = TestClient(main.app)
+
+    resp = client.get("/research/00000000-0000-4000-8000-000000000099/logs")
+
+    assert resp.status_code == 404
 
 
 def test_lifespan_closes_n8n_client(monkeypatch):

@@ -193,7 +193,7 @@ def test_research_client_discard_pending_removes_stranded_request():
     assert asyncio.run(client.list_active_sessions()) == []
 
 
-def test_stream_research_logs_uses_langgraph_post_payload(monkeypatch):
+def test_stream_research_logs_does_not_start_duplicate_langgraph_run(monkeypatch):
     import research_client
 
     FakeAsyncClient.calls = []
@@ -214,9 +214,5 @@ def test_stream_research_logs_uses_langgraph_post_payload(monkeypatch):
 
     events = asyncio.run(scenario())
 
-    assert events
-    run_call = FakeAsyncClient.calls[-1]
-    assert run_call[0] == "POST"
-    assert run_call[1] == "http://local-deep-researcher:2024/threads/thread-123/runs/stream"
-    assert run_call[2]["json"]["assistant_id"] == "agent"
-    assert run_call[2]["json"]["input"] == {"research_topic": "atlas"}
+    assert events == [{"error": "Research log streaming is not supported for LangGraph runs"}]
+    assert FakeAsyncClient.calls == []

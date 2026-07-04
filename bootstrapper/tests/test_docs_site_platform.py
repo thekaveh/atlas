@@ -244,6 +244,37 @@ def test_services_lint_build_validation_covers_all_init_dockerfiles() -> None:
         assert context in workflow, f"build-validation does not cover {context}"
 
 
+def test_contributor_ci_checklist_matches_services_lint_jobs() -> None:
+    guide = (ROOT / "docs" / "CONTRIBUTING-services.md").read_text(encoding="utf-8")
+
+    assert "uv run --project bootstrapper pytest -q" in guide
+    assert "uv run --project bootstrapper python -m tools.validate_fragments" in guide
+    assert "cd bootstrapper &&" not in guide
+    assert "sample build" not in guide
+
+    for command in [
+        "docker buildx build --load --build-arg BASE_IMAGE=apache/airflow:3.2.2 services/airflow/build/",
+        "docker buildx build --load --build-arg BASE_IMAGE=apache/spark:4.1.2 services/spark/build/",
+        "docker buildx build --load services/jupyterhub/build/",
+        "docker buildx build --load services/backend/app/",
+    ]:
+        assert command in guide
+
+
+def test_docs_do_not_reference_retired_three_check_ci_set() -> None:
+    stale_phrases = [
+        "All 3 `services-lint` CI checks",
+        "the three required CI checks",
+        "the three `services-lint` checks",
+        "the 3 `services-lint` checks",
+    ]
+
+    for path in (ROOT / "docs").rglob("*.md"):
+        text = path.read_text(encoding="utf-8")
+        for phrase in stale_phrases:
+            assert phrase not in text, f"{path.relative_to(ROOT)} still references retired CI guidance"
+
+
 def test_atlas_theme_uses_dark_atlas_system_with_local_assets() -> None:
     config = _mkdocs()
     css = THEME_CSS.read_text(encoding="utf-8")

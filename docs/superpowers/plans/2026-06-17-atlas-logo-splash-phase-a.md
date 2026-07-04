@@ -18,7 +18,7 @@ Every task's requirements implicitly include these (verbatim from the spec and p
 - **No third-party project credited as the inspiration** for Atlas's name or logo anywhere (docs, code comments, commits). (The `hermes` service that ships in the stack is unaffected — this concerns inspiration credit only.)
 - **Explicit `encoding="utf-8"`** on every text-IO call (`open`, `read_text`, `write_text`). Project convention.
 - **Commit messages:** terse, third-person, conventional prefix (e.g. `feat(tui):`). **No `Co-Authored-By` trailer.**
-- **`main` is protected.** All work lands via PR with the three `services-lint` checks green; never `git push origin main`. Work on a branch.
+- **`main` is protected.** All work lands via PR with the four `services-lint` checks green; never `git push origin main`. Work on a branch.
 - The committed source PNG is ~3MB (>1MB). Pushing it needs a one-shot buffer bump: `git -c http.postBuffer=524288000 push`. Optionally shrink first with `pngquant --quality=70-85` (~4× reduction, no visible loss).
 - Locked render params: w84 crop `x ∈ [0.101, 0.941]`, full height; enhance gamma `1.12` / brightness `1.04` / saturation `1.22` / contrast `1.16`; `chafa -f symbols -c full --symbols block+space --fill block --dither none`.
 - Width breakpoints: `160, 120, 100, 80`. Below 80 columns: no hero (caller falls back to the compact title).

@@ -86,3 +86,24 @@ def test_execute_research_discards_remote_pending_request_when_wait_is_cancelled
     asyncio.run(scenario())
 
     assert fake_client.discarded == ["remote-thread-1"]
+
+
+def test_background_research_task_cleanup_runs_when_db_connect_fails():
+    service = object.__new__(ResearchService)
+    service._active_tasks = {}
+
+    async def boom():
+        raise RuntimeError("db down")
+
+    service._get_db_connection = boom
+
+    async def scenario():
+        task = asyncio.create_task(
+            service._run_research_background("local-session-1", "atlas", 1, "duckduckgo", None)
+        )
+        service._active_tasks["local-session-1"] = task
+        await task
+
+    asyncio.run(scenario())
+
+    assert service._active_tasks == {}

@@ -121,9 +121,11 @@ class ResearchService:
         user_id: Optional[str]
     ):
         """Run research in background and update database"""
-        conn = await self._get_db_connection()
-        
+        conn = None
+
         try:
+            conn = await self._get_db_connection()
+
             # Update status to running
             await conn.execute("""
                 UPDATE public.research_sessions 
@@ -148,20 +150,28 @@ class ResearchService:
             await self._execute_research(conn, session_id, request)
 
         except Exception as e:
-            # Update status to failed
-            await conn.execute("""
-                UPDATE public.research_sessions 
-                SET status = $1, completed_at = $2, error_message = $3
-                WHERE id = $4
-            """, ResearchStatus.FAILED.value, datetime.now(timezone.utc), str(e), session_id)
+            if conn is not None:
+                # Update status to failed
+                await conn.execute("""
+                    UPDATE public.research_sessions
+                    SET status = $1, completed_at = $2, error_message = $3
+                    WHERE id = $4
+                """, ResearchStatus.FAILED.value, datetime.now(timezone.utc), str(e), session_id)
 
-            await conn.execute("""
-                INSERT INTO public.research_logs (session_id, step_number, step_type, message)
-                VALUES ($1, $2, $3, $4)
-            """, session_id, 99, "error", f"Research failed: {str(e)}")
+                await conn.execute("""
+                    INSERT INTO public.research_logs (session_id, step_number, step_type, message)
+                    VALUES ($1, $2, $3, $4)
+                """, session_id, 99, "error", f"Research failed: {str(e)}")
+            else:
+                logger.error(
+                    "research bg task failed before database connection (session_id=%s)",
+                    session_id,
+                    exc_info=e,
+                )
 
         finally:
-            await conn.close()
+            if conn is not None:
+                await conn.close()
             # Clean up task reference
             if session_id in self._active_tasks:
                 del self._active_tasks[session_id]
@@ -393,11 +403,17 @@ class ResearchService:
         finally:
             await conn.close()
 
-    async def get_research_logs(self, session_id: str) -> List[Dict[str, Any]]:
+    async def get_research_logs(self, session_id: str) -> Optional[List[Dict[str, Any]]]:
         """Get research logs for a session"""
         conn = await self._get_db_connection()
         
         try:
+            session_row = await conn.fetchrow("""
+                SELECT id FROM public.research_sessions WHERE id = $1
+            """, session_id)
+            if not session_row:
+                return None
+
             rows = await conn.fetch("""
                 SELECT step_number, step_type, message, data, created_at
                 FROM public.research_logs 

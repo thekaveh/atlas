@@ -174,32 +174,7 @@ class ResearchClient:
 
     async def stream_research_logs(self, session_id: str) -> AsyncGenerator[Dict[str, Any], None]:
         """Stream real-time logs from a research session"""
-        request = self._pending_requests.get(session_id)
-        if request is None:
-            yield {"error": "Research request was not found for LangGraph thread"}
-            return
-        payload = self._run_payload(request)
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            try:
-                async with client.stream(
-                    "POST",
-                    f"{self.base_url}/threads/{session_id}/runs/stream",
-                    json=payload,
-                    headers=self.headers
-                ) as response:
-                    response.raise_for_status()
-                    
-                    async for line in response.aiter_lines():
-                        if line.startswith("data: "):
-                            try:
-                                data = json.loads(line[6:])  # Remove "data: " prefix
-                                yield data
-                            except json.JSONDecodeError:
-                                continue
-                        elif line == "event: close":
-                            break
-            except Exception as e:
-                yield {"error": f"Stream error: {str(e)}"}
+        yield {"error": "Research log streaming is not supported for LangGraph runs"}
 
     async def list_active_sessions(self) -> List[Dict[str, Any]]:
         """List all currently active research sessions."""
