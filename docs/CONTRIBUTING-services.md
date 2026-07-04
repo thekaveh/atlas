@@ -538,24 +538,45 @@ are REQUIRED branch-protection checks:
 Run the equivalent of the four required jobs locally before pushing:
 
 ```bash
-uv run --project bootstrapper pytest -q                                      # job 1 + 2 (minus byte-equivalence)
-uv run --project bootstrapper python -m tools.validate_fragments             # job 1 lint
-cp .env.example .env && docker compose -f docker-compose.yml config -q       # job 2 merge check
+uv run --project bootstrapper pytest bootstrapper/tests -q                         # job 1 + 2 (minus byte-equivalence)
+(cd services/backend/app && uv run --python 3.11 --with-requirements app/requirements.txt python -m pytest app/tests -q)  # job 1 backend tests
+uv run --project bootstrapper python -m tools.validate_fragments                  # job 1 lint
+cp .env.example .env && docker compose -f docker-compose.yml config -q            # job 2 merge check
 PYTHONPATH=bootstrapper uv run --project bootstrapper python -m bootstrapper.docs.regen --all --check  # job 3 docs drift
-python scripts/check_doc_links.py                                            # job 3 link check
-python scripts/check-docs-drift.py                                           # job 3 docs structural audit
-python scripts/check-docs-site.py                                            # job 3 MkDocs strict build
-python scripts/export-docs-wiki.py --check                                   # job 3 wiki export drift
-python scripts/check-compose-source-deps.py                                  # job 3 deps audit
-python scripts/check-kong-routes.py                                          # job 3 kong audit
-python scripts/validate_research_schema.py --all                             # job 3 research schema
-python scripts/check-track-membership.py                                     # job 3 track coverage
-(cd services/docling/provider/localhost && uv lock --locked)                  # job 3 docling lock
-docker buildx build --load --build-arg BASE_IMAGE=apache/airflow:3.2.2 services/airflow/build/  # job 4 airflow build
-docker buildx build --load --build-arg BASE_IMAGE=apache/spark:4.1.2 services/spark/build/      # job 4 spark build
-docker buildx build --load services/jupyterhub/build/                         # job 4 jupyterhub build
-docker buildx build --load services/backend/app/                              # job 4 backend build
-for d in services/*/init; do [ -f "$d/Dockerfile" ] && docker buildx build --load "$d/"; done    # job 4 init builds
+uv run --project bootstrapper python scripts/check_doc_links.py                   # job 3 link check
+uv run --project bootstrapper python scripts/check-docs-drift.py                  # job 3 docs structural audit
+uv run --project bootstrapper python scripts/check-docs-site.py                   # job 3 MkDocs strict build
+uv run --project bootstrapper python scripts/export-docs-wiki.py --check          # job 3 wiki export drift
+uv run --project bootstrapper python scripts/check-compose-source-deps.py         # job 3 deps audit
+uv run --project bootstrapper python scripts/check-kong-routes.py                 # job 3 kong audit
+uv run --project bootstrapper python scripts/validate_research_schema.py --all    # job 3 research schema
+uv run --project bootstrapper python scripts/check-track-membership.py            # job 3 track coverage
+(cd services/docling/provider/localhost && uv lock --locked)                      # job 3 docling lock
+for spec in \
+  "services/airflow/build|Dockerfile|--build-arg BASE_IMAGE=apache/airflow:3.2.2" \
+  "services/backend/app|Dockerfile|" \
+  "services/iceberg-rest/build|Dockerfile|" \
+  "services/jenkins/build|Dockerfile|" \
+  "services/jupyterhub/build|Dockerfile|" \
+  "services/local-deep-researcher/build|Dockerfile|" \
+  "services/mcp-servers/runtime|../build/Dockerfile|" \
+  "services/neo4j/build|Dockerfile|" \
+  "services/spark/build|Dockerfile|--build-arg BASE_IMAGE=apache/spark:4.1.2" \
+  "services/zeppelin/build|Dockerfile|" \
+  "services/label-studio/init|Dockerfile|" \
+  "services/langfuse/init|Dockerfile|" \
+  "services/litellm/init|Dockerfile|" \
+  "services/mlflow/init|Dockerfile|" \
+  "services/open-webui/init|Dockerfile|"
+do
+  IFS='|' read -r context dockerfile extra_args <<< "$spec"
+  dockerfile_path="$context/$dockerfile"
+  if [ -n "$extra_args" ]; then
+    docker buildx build --load $extra_args -f "$dockerfile_path" "$context/"
+  else
+    docker buildx build --load -f "$dockerfile_path" "$context/"
+  fi
+done
 ```
 
 ### 13.5 Model-picker CLI flags: the four-seam rule

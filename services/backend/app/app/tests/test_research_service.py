@@ -107,3 +107,38 @@ def test_background_research_task_cleanup_runs_when_db_connect_fails():
     asyncio.run(scenario())
 
     assert service._active_tasks == {}
+
+
+def test_cancel_research_does_not_clobber_terminal_status_after_stale_read():
+    class RaceConn:
+        def __init__(self):
+            self.cancel_log_inserted = False
+
+        async def fetchrow(self, sql, *args):
+            if "SELECT status" in sql:
+                return {"status": ResearchStatus.RUNNING.value}
+            if "UPDATE public.research_sessions" in sql:
+                return None
+            raise AssertionError(f"unexpected fetchrow: {sql}")
+
+        async def execute(self, sql, *args):
+            if "INSERT INTO public.research_logs" in sql:
+                self.cancel_log_inserted = True
+            return None
+
+        async def close(self):
+            return None
+
+    conn = RaceConn()
+    service = object.__new__(ResearchService)
+    service._active_tasks = {}
+
+    async def get_conn():
+        return conn
+
+    service._get_db_connection = get_conn
+
+    result = asyncio.run(service.cancel_research("00000000-0000-4000-8000-000000000001"))
+
+    assert result is False
+    assert conn.cancel_log_inserted is False

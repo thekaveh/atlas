@@ -368,31 +368,25 @@ class ResearchService:
         conn = await self._get_db_connection()
         
         try:
-            # Check current status
-            status_row = await conn.fetchrow("""
-                SELECT status FROM public.research_sessions WHERE id = $1
-            """, session_id)
-            
-            # PENDING is cancellable too: the insert(PENDING)->RUNNING
-            # update races this check, and the background task is already
-            # live in _active_tasks during that window.
-            if not status_row or status_row["status"] not in (
-                ResearchStatus.PENDING.value,
-                ResearchStatus.RUNNING.value,
-            ):
+            # PENDING is cancellable too: the insert(PENDING)->RUNNING update
+            # races this path, and the background task is already live in
+            # _active_tasks during that window. Make the DB update conditional
+            # so a stale read cannot overwrite COMPLETED/FAILED.
+            cancelled_row = await conn.fetchrow("""
+                UPDATE public.research_sessions
+                SET status = $1, completed_at = $2
+                WHERE id = $3 AND status IN ($4, $5)
+                RETURNING id
+            """, ResearchStatus.CANCELLED.value, datetime.now(timezone.utc), session_id,
+                ResearchStatus.PENDING.value, ResearchStatus.RUNNING.value)
+
+            if not cancelled_row:
                 return False
             
             # Cancel background task if it exists
             if session_id in self._active_tasks:
                 self._active_tasks[session_id].cancel()
                 del self._active_tasks[session_id]
-            
-            # Update database
-            await conn.execute("""
-                UPDATE public.research_sessions 
-                SET status = $1, completed_at = $2
-                WHERE id = $3
-            """, ResearchStatus.CANCELLED.value, datetime.now(timezone.utc), session_id)
 
             await conn.execute("""
                 INSERT INTO public.research_logs (session_id, step_number, step_type, message)

@@ -105,6 +105,7 @@ def test_research_client_uses_langgraph_thread_and_run_stream(monkeypatch):
     assert run_call[2]["json"]["assistant_id"] == "agent"
     assert run_call[2]["json"]["input"] == {"research_topic": "atlas"}
     assert run_call[2]["json"]["stream_mode"] == ["values"]
+    assert run_call[2]["json"]["config"]["configurable"]["max_web_research_loops"] == 2
 
 
 def test_research_client_completed_result_is_one_shot(monkeypatch):
@@ -184,6 +185,41 @@ def test_research_client_marks_langgraph_error_event_failed(monkeypatch):
     assert asyncio.run(client.list_active_sessions()) == []
 
 
+def test_research_client_honors_total_stream_timeout(monkeypatch):
+    import research_client
+
+    class InfiniteStreamResponse:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        def raise_for_status(self):
+            return None
+
+        async def aiter_lines(self):
+            while True:
+                yield "event: values"
+                yield f"data: {json.dumps({'data': {'values': {'running_summary': 'partial'}}})}"
+                await asyncio.sleep(0.01)
+
+    class InfiniteStreamClient(FakeAsyncClient):
+        def stream(self, method, url, **kwargs):
+            self.calls.append((method, url, kwargs))
+            return InfiniteStreamResponse()
+
+    monkeypatch.setattr(research_client.httpx, "AsyncClient", InfiniteStreamClient)
+    client = ResearchClient(base_url="http://local-deep-researcher:2024")
+    client._pending_requests["thread-123"] = ResearchRequest(query="atlas")
+
+    done = asyncio.run(client.wait_for_completion("thread-123", max_wait_time=0.05))
+
+    assert done.status == ResearchStatus.FAILED
+    assert "timed out" in done.message
+    assert asyncio.run(client.list_active_sessions()) == []
+
+
 def test_research_client_discard_pending_removes_stranded_request():
     client = ResearchClient(base_url="http://local-deep-researcher:2024")
     client._pending_requests["thread-123"] = ResearchRequest(query="atlas")
@@ -214,5 +250,10 @@ def test_stream_research_logs_does_not_start_duplicate_langgraph_run(monkeypatch
 
     events = asyncio.run(scenario())
 
-    assert events == [{"error": "Research log streaming is not supported for LangGraph runs"}]
+    assert events == [
+        {
+            "type": "unsupported",
+            "message": "Research log streaming is not supported for LangGraph runs",
+        }
+    ]
     assert FakeAsyncClient.calls == []

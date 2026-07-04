@@ -199,15 +199,15 @@ def test_docs_audit_guidance_lists_required_local_gates() -> None:
     development_page = (DOCS_SITE / "development.md").read_text(encoding="utf-8")
 
     required_commands = [
-        "python -m bootstrapper.docs.regen --all --check",
-        "python scripts/check_doc_links.py",
-        "python scripts/check-docs-drift.py",
-        "python scripts/check-docs-site.py",
-        "python scripts/export-docs-wiki.py --check",
-        "python scripts/check-compose-source-deps.py",
-        "python scripts/check-kong-routes.py",
-        "python scripts/validate_research_schema.py --all",
-        "python scripts/check-track-membership.py",
+        "uv run --project bootstrapper python -m bootstrapper.docs.regen --all --check",
+        "uv run --project bootstrapper python scripts/check_doc_links.py",
+        "uv run --project bootstrapper python scripts/check-docs-drift.py",
+        "uv run --project bootstrapper python scripts/check-docs-site.py",
+        "uv run --project bootstrapper python scripts/export-docs-wiki.py --check",
+        "uv run --project bootstrapper python scripts/check-compose-source-deps.py",
+        "uv run --project bootstrapper python scripts/check-kong-routes.py",
+        "uv run --project bootstrapper python scripts/validate_research_schema.py --all",
+        "uv run --project bootstrapper python scripts/check-track-membership.py",
         "uv lock --locked",
     ]
 
@@ -244,21 +244,57 @@ def test_services_lint_build_validation_covers_all_init_dockerfiles() -> None:
         assert context in workflow, f"build-validation does not cover {context}"
 
 
+def test_services_lint_build_validation_covers_local_compose_build_contexts() -> None:
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+    excluded_contexts = {
+        "services/docling/provider",
+        "services/parakeet/provider",
+    }
+    contexts: set[str] = set()
+
+    for compose in (ROOT / "services").glob("*/compose.yml"):
+        data = yaml.safe_load(compose.read_text(encoding="utf-8")) or {}
+        for spec in (data.get("services") or {}).values():
+            if not isinstance(spec, dict):
+                continue
+            build = spec.get("build")
+            if not isinstance(build, dict):
+                continue
+            context = build.get("context")
+            if not context or str(context).startswith("http"):
+                continue
+            relative_context = (compose.parent / context).resolve().relative_to(ROOT).as_posix()
+            if relative_context not in excluded_contexts:
+                contexts.add(relative_context)
+
+    assert contexts
+    for context in sorted(contexts):
+        assert context in workflow, f"build-validation does not cover {context}"
+
+
 def test_contributor_ci_checklist_matches_services_lint_jobs() -> None:
     guide = (ROOT / "docs" / "CONTRIBUTING-services.md").read_text(encoding="utf-8")
 
-    assert "uv run --project bootstrapper pytest -q" in guide
+    assert "uv run --project bootstrapper pytest bootstrapper/tests -q" in guide
+    assert "uv run --python 3.11 --with-requirements app/requirements.txt python -m pytest app/tests -q" in guide
     assert "uv run --project bootstrapper python -m tools.validate_fragments" in guide
+    assert "uv run --project bootstrapper python scripts/check-docs-site.py" in guide
     assert "cd bootstrapper &&" not in guide
     assert "sample build" not in guide
 
-    for command in [
-        "docker buildx build --load --build-arg BASE_IMAGE=apache/airflow:3.2.2 services/airflow/build/",
-        "docker buildx build --load --build-arg BASE_IMAGE=apache/spark:4.1.2 services/spark/build/",
-        "docker buildx build --load services/jupyterhub/build/",
-        "docker buildx build --load services/backend/app/",
+    for context in [
+        "services/airflow/build",
+        "services/backend/app",
+        "services/iceberg-rest/build",
+        "services/jenkins/build",
+        "services/jupyterhub/build",
+        "services/local-deep-researcher/build",
+        "services/mcp-servers/runtime",
+        "services/neo4j/build",
+        "services/spark/build",
+        "services/zeppelin/build",
     ]:
-        assert command in guide
+        assert context in guide
 
 
 def test_docs_do_not_reference_retired_three_check_ci_set() -> None:
@@ -269,10 +305,20 @@ def test_docs_do_not_reference_retired_three_check_ci_set() -> None:
         "the 3 `services-lint` checks",
     ]
 
-    for path in (ROOT / "docs").rglob("*.md"):
+    paths = list((ROOT / "docs").rglob("*.md")) + [ROOT / "AGENTS.md"]
+    for path in paths:
         text = path.read_text(encoding="utf-8")
         for phrase in stale_phrases:
             assert phrase not in text, f"{path.relative_to(ROOT)} still references retired CI guidance"
+
+    agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    for check in [
+        "Manifest lint + unit tests",
+        "Compose merge + byte-equivalence + source-permutation matrix",
+        "Docs drift + audit scripts",
+        "Build-validation (Dockerfile + requirements.txt installability)",
+    ]:
+        assert check in agents
 
 
 def test_atlas_theme_uses_dark_atlas_system_with_local_assets() -> None:

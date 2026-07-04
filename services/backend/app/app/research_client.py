@@ -1,6 +1,7 @@
 import httpx
 import os
 import json
+import asyncio
 from typing import Dict, Any, List, Optional, AsyncGenerator
 from pydantic import BaseModel
 from enum import Enum
@@ -174,7 +175,10 @@ class ResearchClient:
 
     async def stream_research_logs(self, session_id: str) -> AsyncGenerator[Dict[str, Any], None]:
         """Stream real-time logs from a research session"""
-        yield {"error": "Research log streaming is not supported for LangGraph runs"}
+        yield {
+            "type": "unsupported",
+            "message": "Research log streaming is not supported for LangGraph runs",
+        }
 
     async def list_active_sessions(self) -> List[Dict[str, Any]]:
         """List all currently active research sessions."""
@@ -199,39 +203,40 @@ class ResearchClient:
         final_values: Dict[str, Any] = {}
         current_event = ""
         try:
-            async with httpx.AsyncClient(timeout=max_wait_time) as client:
-                async with client.stream(
-                    "POST",
-                    f"{self.base_url}/threads/{session_id}/runs/stream",
-                    json=payload,
-                    headers=self.headers,
-                ) as response:
-                    response.raise_for_status()
-                    async for line in response.aiter_lines():
-                        if line.startswith("event: "):
-                            current_event = line[7:].strip()
-                            continue
-                        if not line.startswith("data: "):
-                            continue
-                        raw = line[6:]
-                        if raw.strip() in {"", "[DONE]"}:
-                            continue
-                        try:
-                            event_data = json.loads(raw)
-                        except json.JSONDecodeError:
-                            continue
-                        if isinstance(event_data, dict):
-                            if current_event == "error" or "error" in event_data:
-                                error = event_data.get("error") or event_data.get("message") or event_data
-                                raise ResearchError(str(error))
-                            data = event_data.get("data", event_data)
-                            if isinstance(data, dict):
-                                if current_event == "error" or "error" in data:
-                                    error = data.get("error") or data.get("message") or data
+            async with asyncio.timeout(max_wait_time):
+                async with httpx.AsyncClient(timeout=max_wait_time) as client:
+                    async with client.stream(
+                        "POST",
+                        f"{self.base_url}/threads/{session_id}/runs/stream",
+                        json=payload,
+                        headers=self.headers,
+                    ) as response:
+                        response.raise_for_status()
+                        async for line in response.aiter_lines():
+                            if line.startswith("event: "):
+                                current_event = line[7:].strip()
+                                continue
+                            if not line.startswith("data: "):
+                                continue
+                            raw = line[6:]
+                            if raw.strip() in {"", "[DONE]"}:
+                                continue
+                            try:
+                                event_data = json.loads(raw)
+                            except json.JSONDecodeError:
+                                continue
+                            if isinstance(event_data, dict):
+                                if current_event == "error" or "error" in event_data:
+                                    error = event_data.get("error") or event_data.get("message") or event_data
                                     raise ResearchError(str(error))
-                                values = data.get("values", data)
-                                if isinstance(values, dict):
-                                    final_values = values
+                                data = event_data.get("data", event_data)
+                                if isinstance(data, dict):
+                                    if current_event == "error" or "error" in data:
+                                        error = data.get("error") or data.get("message") or data
+                                        raise ResearchError(str(error))
+                                    values = data.get("values", data)
+                                    if isinstance(values, dict):
+                                        final_values = values
             if not final_values:
                 return ResearchResponse(
                     session_id=session_id,
@@ -245,6 +250,12 @@ class ResearchClient:
                 status=ResearchStatus.COMPLETED,
                 message="Research completed successfully",
                 data=final_values,
+            )
+        except TimeoutError:
+            return ResearchResponse(
+                session_id=session_id,
+                status=ResearchStatus.FAILED,
+                message=f"Research run timed out after {max_wait_time} seconds",
             )
         except Exception as e:
             return ResearchResponse(
@@ -262,6 +273,7 @@ class ResearchClient:
             "config": {
                 "configurable": {
                     "max_loops": request.max_loops,
+                    "max_web_research_loops": request.max_loops,
                     "search_api": request.search_api,
                 }
             },

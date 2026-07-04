@@ -226,48 +226,40 @@ jobs:
     # Catches the Pass 12 / Pass 13 class of bug: unsatisfiable pip pins,
     # nonexistent packages, broken Dockerfile syntax. Compose-shape checks
     # never invoke `docker build`, so a broken requirements.txt sails
-    # through the other gates. Builds the four highest-churn contexts
-    # (airflow, spark, jupyterhub, backend), plus every
-    # services/*/init/Dockerfile context discovered below. It still does
-    # NOT build every build: context; the GPU images (docling/parakeet)
-    # are excluded for runner size/time.
+    # through the other gates. Builds every local non-GPU Compose build
+    # context plus init Dockerfiles; GPU provider builds (docling/parakeet)
+    # are intentionally excluded for runner size/time.
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
 
-      - name: Build airflow image
-        # apache/airflow:3.2.2 + the 9 providers + pyspark[connect]. Catches
-        # unsatisfiable provider floors (Pass 12 saw 3 of these slip past
-        # CI before this job was added) and Dockerfile syntax errors.
-        run: docker buildx build --load --build-arg BASE_IMAGE=apache/airflow:3.2.2 services/airflow/build/
-
-      - name: Build spark image
-        # apache/spark:4.1.2 + hadoop-aws + AWS SDK v2 bundle (Maven
-        # downloads). Catches network/version-pin drift in the S3A
-        # support layer. Pass 44 caught the missing-jars shipping bug.
-        run: docker buildx build --load --build-arg BASE_IMAGE=apache/spark:4.1.2 services/spark/build/
-
-
-      - name: Build jupyterhub image
-        run: docker buildx build --load services/jupyterhub/build/
-
-      - name: Build backend image
-        # services/backend/app/Dockerfile pulls FastAPI + LangChain stack.
-        run: docker buildx build --load services/backend/app/
-
-      - name: Build init-container images
-        # Keep this discovery-based so new services/*/init/Dockerfile
-        # contexts do not silently miss build-validation coverage.
+      - name: Build local Compose and init images
         run: |
           set -euo pipefail
-          for context in \
-            services/label-studio/init \
-            services/langfuse/init \
-            services/litellm/init \
-            services/mlflow/init \
-            services/open-webui/init
+          for spec in \
+            "services/airflow/build|Dockerfile|--build-arg BASE_IMAGE=apache/airflow:3.2.2" \
+            "services/backend/app|Dockerfile|" \
+            "services/iceberg-rest/build|Dockerfile|" \
+            "services/jenkins/build|Dockerfile|" \
+            "services/jupyterhub/build|Dockerfile|" \
+            "services/local-deep-researcher/build|Dockerfile|" \
+            "services/mcp-servers/runtime|../build/Dockerfile|" \
+            "services/neo4j/build|Dockerfile|" \
+            "services/spark/build|Dockerfile|--build-arg BASE_IMAGE=apache/spark:4.1.2" \
+            "services/zeppelin/build|Dockerfile|" \
+            "services/label-studio/init|Dockerfile|" \
+            "services/langfuse/init|Dockerfile|" \
+            "services/litellm/init|Dockerfile|" \
+            "services/mlflow/init|Dockerfile|" \
+            "services/open-webui/init|Dockerfile|"
           do
-            docker buildx build --load "$context/"
+            IFS='|' read -r context dockerfile extra_args <<< "$spec"
+            dockerfile_path="$context/$dockerfile"
+            if [ -n "$extra_args" ]; then
+              docker buildx build --load $extra_args -f "$dockerfile_path" "$context/"
+            else
+              docker buildx build --load -f "$dockerfile_path" "$context/"
+            fi
           done
