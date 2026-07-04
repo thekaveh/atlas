@@ -83,6 +83,9 @@ EXPECTED_DISCOVERED = frozenset({
     # tool package for Postgres, Neo4j, and SearXNG. Single-container
     # family; wired via 'mcp_servers_source' in source_mapping.
     "Curated MCP Servers",
+    # Blender MCP (added 2026-07-04) — disabled-by-default host-only
+    # creative 3D bridge. Virtual family wired via 'blender_mcp_source'.
+    "Blender MCP",
     # Crawl4AI (added 2026-07-03) — disabled-by-default browser-backed
     # extraction API for Local Deep Researcher and n8n HTTP workflows.
     "Crawl4AI",

@@ -9,6 +9,7 @@ Generated from `services/*/service.yml` and `services/*/README.md`.
 | [airflow](../services/airflow.md) | Apache Airflow (DAG orchestrator) | agents | container | AIRFLOW_SOURCE |
 | [backend](../services/backend.md) | Backend API (FastAPI) | apps | container | - |
 | [backup](../services/backup.md) | Backup / restore (Postgres + volumes -> S3) | infra | container | BACKUP_SOURCE |
+| [blender-mcp](../services/blender-mcp.md) | Blender MCP | media | virtual | BLENDER_MCP_SOURCE |
 | [celery](../services/celery.md) | Celery + Flower (async jobs) | agents | container | CELERY_SOURCE |
 | [chatterbox](../services/chatterbox.md) | Chatterbox (voice-cloning TTS, GPU) | media | container | - |
 | [cloud-providers](../services/cloud-providers.md) | Cloud LLM providers (OpenAI, Anthropic, OpenRouter) | llm | virtual | - |
@@ -64,7 +65,7 @@ Generated from `services/*/service.yml` and `services/*/README.md`.
 ## Virtual manifests
 
 Virtual manifests are configuration surfaces without a compose container:
-cloud-providers, globals, tts-provider.
+blender-mcp, cloud-providers, globals, tts-provider.
 
 ## Doc-only service folders
 

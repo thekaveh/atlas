@@ -5,6 +5,7 @@ Generated wiki service index.
 - [airflow](../site/services/airflow.md)
 - [backend](../site/services/backend.md)
 - [backup](../site/services/backup.md)
+- [blender-mcp](../site/services/blender-mcp.md)
 - [celery](../site/services/celery.md)
 - [chatterbox](../site/services/chatterbox.md)
 - [cloud-providers](../site/services/cloud-providers.md)

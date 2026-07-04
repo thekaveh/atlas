@@ -6,6 +6,7 @@ Generated from manifests.
 | --- | --- | --- | --- |
 | AIRFLOW_SOURCE | airflow | disabled | container, disabled |
 | BACKUP_SOURCE | backup | disabled | container, disabled |
+| BLENDER_MCP_SOURCE | blender-mcp | disabled | localhost, disabled |
 | CELERY_SOURCE | celery | disabled | container, disabled |
 | CLOUDFLARED_SOURCE | cloudflared | disabled | container, disabled |
 | COMFYUI_SOURCE | comfyui | container-cpu | container-cpu, container-gpu, localhost, disabled |

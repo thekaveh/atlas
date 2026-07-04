@@ -2083,6 +2083,9 @@ class AtlasStarter:
 @click.option('--mcp-servers-source',
               type=click.Choice(['container', 'disabled'], case_sensitive=False),
               help='Override MCP_SERVERS_SOURCE')
+@click.option('--blender-mcp-source',
+              type=click.Choice(['localhost', 'disabled'], case_sensitive=False),
+              help='Override BLENDER_MCP_SOURCE — host-installed Blender MCP bridge.')
 @click.option('--jupyterhub-source',
               type=click.Choice(['container', 'disabled'], case_sensitive=False),
               help='Override JUPYTERHUB_SOURCE')
@@ -2221,7 +2224,7 @@ def main(project_name, base_port, track, list_tracks, cold, setup_hosts, skip_ho
          comfyui_models, comfyui_custom_models_file,
          comfyui_source, weaviate_source, minio_source, n8n_source, searxng_source,
          crawl4ai_source, tika_source, llm_graph_builder_source,
-         celery_source, supavisor_source, mcp_servers_source,
+         celery_source, supavisor_source, mcp_servers_source, blender_mcp_source,
          jupyterhub_source, open_web_ui_source, local_deep_researcher_source,
          stt_provider_source, tts_provider_source,
          doc_processor_source, openclaw_source, hermes_source,
@@ -2289,6 +2292,7 @@ def main(project_name, base_port, track, list_tracks, cold, setup_hosts, skip_ho
                     'celery_source': celery_source,
                     'supavisor_source': supavisor_source,
                     'mcp_servers_source': mcp_servers_source,
+                    'blender_mcp_source': blender_mcp_source,
                     'jupyterhub_source': jupyterhub_source,
                     'open_web_ui_source': open_web_ui_source,
                     'local_deep_researcher_source': local_deep_researcher_source,
@@ -2514,6 +2518,7 @@ def main(project_name, base_port, track, list_tracks, cold, setup_hosts, skip_ho
             'celery_source': celery_source,
             'supavisor_source': supavisor_source,
             'mcp_servers_source': mcp_servers_source,
+            'blender_mcp_source': blender_mcp_source,
             'jupyterhub_source': jupyterhub_source,
             'open_web_ui_source': open_web_ui_source,
             'local_deep_researcher_source': local_deep_researcher_source,

@@ -1,0 +1,62 @@
+# services/blender-mcp/service.yml — host-only Blender MCP profile
+name: blender-mcp
+label: "Blender MCP"
+category: media
+docs: services/blender-mcp/README.md
+virtual: true
+containers: []
+
+sources:
+  var: BLENDER_MCP_SOURCE
+  default: disabled
+  options:
+    - id: localhost
+      label: "Localhost (host Blender MCP add-on + server)"
+      profiles: [default]
+    - id: disabled
+      label: "Disabled"
+
+env:
+  - name: BLENDER_MCP_SOURCE
+    default: disabled
+    description: "Host-installed Blender MCP bridge source. Disabled by default because Blender MCP can execute generated Python code inside Blender."
+  - name: BLENDER_MCP_HOST
+    default: localhost
+    description: "Host where the Blender MCP add-on socket is listening."
+  - name: BLENDER_MCP_LOCALHOST_PORT
+    default: 9876
+    description: "Host port for the Blender MCP add-on socket. This is a host-tool port hint, not a Kong or container port."
+  - name: BLENDER_MCP_ENDPOINT
+    auto_managed: true
+    description: "Resolved endpoint hint for future MCP clients when BLENDER_MCP_SOURCE=localhost."
+
+depends_on:
+  required: []
+  optional: []
+
+exports: []
+
+rows:
+  - display_name: "Blender MCP"
+    source_var: BLENDER_MCP_SOURCE
+    description: "Host-installed Blender MCP bridge for creative 3D automation."
+    localhost_endpoint_var: BLENDER_MCP_ENDPOINT
+    localhost_port_var: BLENDER_MCP_LOCALHOST_PORT
+
+runtime_sc:
+  blender_mcp:
+    localhost:
+      scale: 0
+      environment:
+        BLENDER_MCP_ENDPOINT: tcp://${BLENDER_MCP_HOST:-localhost}:${BLENDER_MCP_LOCALHOST_PORT:-9876}
+      deploy: {}
+      extra_hosts: []
+    disabled:
+      scale: 0
+      environment:
+        BLENDER_MCP_ENDPOINT: ''
+      deploy: {}
+      extra_hosts: []
+
+data_flow:
+  calls: []

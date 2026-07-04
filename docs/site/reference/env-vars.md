@@ -40,6 +40,10 @@ seconds a future auto-consolidation scheduler would use.
 | BACKUP_BUCKET | backup | atlas-backups | Target bucket for backups. |
 | BACKUP_S3_ALIAS_URL | backup | http://minio:9000 | S3 endpoint. Default = on-box MinIO; set to an external S3 URL for offsite. |
 | BACKUP_SCALE | backup |  | 0 (never long-running); the runner is invoked on demand via docker compose run. |
+| BLENDER_MCP_SOURCE | blender-mcp | disabled | Host-installed Blender MCP bridge source. Disabled by default because Blender MCP can execute generated Python code inside Blender. |
+| BLENDER_MCP_HOST | blender-mcp | localhost | Host where the Blender MCP add-on socket is listening. |
+| BLENDER_MCP_LOCALHOST_PORT | blender-mcp | 9876 | Host port for the Blender MCP add-on socket. This is a host-tool port hint, not a Kong or container port. |
+| BLENDER_MCP_ENDPOINT | blender-mcp |  | Resolved endpoint hint for future MCP clients when BLENDER_MCP_SOURCE=localhost. |
 | CELERY_SOURCE | celery | disabled | Deployment mode: container (backend worker + Flower) or disabled. |
 | CELERY_WORKER_SCALE | celery |  |  |
 | FLOWER_SCALE | celery |  |  |
