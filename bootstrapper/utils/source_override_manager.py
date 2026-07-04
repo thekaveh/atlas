@@ -43,6 +43,7 @@ class SourceOverrideManager:
             'celery_worker_source': 'CELERY_SOURCE',
             'supavisor_source': 'SUPAVISOR_SOURCE',
             'mcp_servers_source': 'MCP_SERVERS_SOURCE',
+            'blender_mcp_source': 'BLENDER_MCP_SOURCE',
             'langfuse_source': 'LANGFUSE_SOURCE',
             # Langfuse is a multi-container family (init + web + worker +
             # ClickHouse), so runtime_sc is keyed by langfuse-web while the

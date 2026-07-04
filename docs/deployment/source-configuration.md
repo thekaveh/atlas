@@ -34,6 +34,7 @@ This matrix lists every `*_SOURCE` variable currently exposed in `.env.example`.
 | `CELERY_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Redis-backed async backend worker tier plus Flower monitor for long-running memory/research-style jobs. |
 | `SUPAVISOR_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Internal-only Supabase Postgres transaction pooler for selected app clients; no Kong alias or host slot-allocated port in v1. |
 | `MCP_SERVERS_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Curated MCP package exposing read-oriented Postgres, Neo4j, and SearXNG tools. Hard-gated on Neo4j and SearXNG. |
+| `BLENDER_MCP_SOURCE` | `disabled` | `localhost`, `disabled` | User-facing optional | Host-only Blender MCP bridge for creative 3D experiments. Development-only, disabled by default, and intentionally not exposed through Kong. |
 | `LANGFUSE_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | LLM trace, prompt, eval, latency, and cost observability for LiteLLM-routed calls. Hard-gated on MinIO. |
 | `OTEL_COLLECTOR_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Internal-only OpenTelemetry ingest for backend/LiteLLM traces; requires `TEMPO_SOURCE=container` when enabled. No Kong route in v1. |
 | `TEMPO_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Internal-only Grafana Tempo trace store with local development storage and Grafana datasource provisioning. No Kong route in v1. |
@@ -100,6 +101,7 @@ These services can run on your host machine instead of in containers:
 | **TTS Provider** | `TTS_PROVIDER_SOURCE` | `chatterbox-localhost` | Run Chatterbox voice cloning natively (macOS MPS / Linux) |
 | **Document Processor** | `DOC_PROCESSOR_SOURCE` | `docling-localhost` | Use a host Docling service |
 | **Apache Tika** | `TIKA_SOURCE` | `tika-localhost` | Use a host Tika server for long-tail fallback extraction |
+| **Blender MCP** | `BLENDER_MCP_SOURCE` | `localhost` | Use a host-installed Blender MCP add-on/server without exposing it through Kong |
 
 ### 3.2 Container-Only or Stack-Managed Services
 
