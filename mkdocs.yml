@@ -1,0 +1,103 @@
+site_name: Atlas Documentation
+site_description: Atlas self-hosted AI, data, and engineering platform documentation
+docs_dir: docs
+site_dir: site
+strict: true
+not_in_nav: '**/*.md'
+validation:
+  links:
+    anchors: ignore
+    not_found: ignore
+    unrecognized_links: ignore
+    absolute_links: ignore
+  nav:
+    omitted_files: ignore
+nav:
+- Home: site/index.md
+- Overview: site/overview.md
+- Quick Start: site/quick-start.md
+- Architecture: site/architecture/index.md
+- Architecture Diagrams:
+  - Atlas Platform Overview: architecture/platform-overview.md
+  - Bootstrapper Lifecycle: architecture/bootstrapper-lifecycle.md
+  - SOURCE Configuration Model: architecture/source-configuration-model.md
+  - Track Selection Matrix: architecture/track-selection-matrix.md
+  - Network And Routing Topology: architecture/network-routing-topology.md
+  - Data And RAG Flow: architecture/data-rag-flow.md
+  - LLM Provider Flow: architecture/llm-provider-flow.md
+  - Data Engineering Lakehouse Flow: architecture/data-engineering-lakehouse-flow.md
+  - Observability Flow: architecture/observability-flow.md
+  - Security, Auth, And Secrets Boundary: architecture/security-auth-secrets-boundary.md
+  - Service Admission Workflow: architecture/service-admission-workflow.md
+- Services: site/services/index.md
+- Service Index: site/services/index.md
+- Service Pages:
+  - airflow: site/services/airflow.md
+  - backend: site/services/backend.md
+  - backup: site/services/backup.md
+  - celery: site/services/celery.md
+  - chatterbox: site/services/chatterbox.md
+  - cloud-providers: site/services/cloud-providers.md
+  - cloudflared: site/services/cloudflared.md
+  - comfyui: site/services/comfyui.md
+  - crawl4ai: site/services/crawl4ai.md
+  - doc-processor: site/services/doc-processor.md
+  - docling: site/services/docling.md
+  - globals: site/services/globals.md
+  - grafana: site/services/grafana.md
+  - hermes: site/services/hermes.md
+  - iceberg-rest: site/services/iceberg-rest.md
+  - jenkins: site/services/jenkins.md
+  - jupyterhub: site/services/jupyterhub.md
+  - kong: site/services/kong.md
+  - label-studio: site/services/label-studio.md
+  - langfuse: site/services/langfuse.md
+  - lightrag: site/services/lightrag.md
+  - litellm: site/services/litellm.md
+  - llm-graph-builder: site/services/llm-graph-builder.md
+  - local-deep-researcher: site/services/local-deep-researcher.md
+  - loki: site/services/loki.md
+  - mcp-servers: site/services/mcp-servers.md
+  - minio: site/services/minio.md
+  - mlflow: site/services/mlflow.md
+  - multi2vec-clip: site/services/multi2vec-clip.md
+  - n8n: site/services/n8n.md
+  - neo4j: site/services/neo4j.md
+  - ollama: site/services/ollama.md
+  - open-webui: site/services/open-webui.md
+  - openclaw: site/services/openclaw.md
+  - otel-collector: site/services/otel-collector.md
+  - parakeet: site/services/parakeet.md
+  - prometheus: site/services/prometheus.md
+  - ray: site/services/ray.md
+  - redis: site/services/redis.md
+  - redpanda: site/services/redpanda.md
+  - searxng: site/services/searxng.md
+  - spark: site/services/spark.md
+  - speaches: site/services/speaches.md
+  - stt-provider: site/services/stt-provider.md
+  - supabase: site/services/supabase.md
+  - supavisor: site/services/supavisor.md
+  - tei-reranker: site/services/tei-reranker.md
+  - tempo: site/services/tempo.md
+  - tika: site/services/tika.md
+  - trino: site/services/trino.md
+  - tts-provider: site/services/tts-provider.md
+  - verba: site/services/verba.md
+  - weaviate: site/services/weaviate.md
+  - zeppelin: site/services/zeppelin.md
+- Tracks: site/tracks.md
+- Configuration: site/configuration.md
+- Operations: site/operations.md
+- Development: site/development.md
+- Reference: site/reference/index.md
+- SOURCE Reference: site/reference/source-values.md
+- Env Var Reference: site/reference/env-vars.md
+- Ports And Routes: site/reference/ports-routes.md
+- Track Reference: site/reference/tracks.md
+- Service Dependencies: site/reference/service-dependencies.md
+- Manifest Fields: site/reference/manifest-fields.md
+- Wiki Export: wiki/Home.md
+theme:
+  name: mkdocs
+  navigation_depth: 3

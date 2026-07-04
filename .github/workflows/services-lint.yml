@@ -24,6 +24,7 @@ on:
       - "docs/**"
       - "scripts/**"
       - "docker-compose.yml"
+      - "mkdocs.yml"
       - "bootstrapper/**"
       - ".env.example"
       - ".gitignore"
@@ -192,6 +193,13 @@ jobs:
 
       - name: Docs-drift structural audit
         run: uv run --project bootstrapper python scripts/check-docs-drift.py
+
+      - name: Docs site inventory + MkDocs strict build
+        # scripts/check-docs-site.py runs: mkdocs build --strict
+        run: uv run --project bootstrapper python scripts/check-docs-site.py
+
+      - name: GitHub Wiki export drift check
+        run: uv run --project bootstrapper python scripts/export-docs-wiki.py --check
 
       - name: Kong route baseline-defaults audit
         run: uv run --project bootstrapper python scripts/check-kong-routes.py
