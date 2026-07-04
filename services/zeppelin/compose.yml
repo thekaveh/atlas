@@ -92,7 +92,7 @@ services:
       - backend-network
 
   zeppelin-init:
-    image: ${ZEPPELIN_INIT_IMAGE:-python:3.12-alpine}
+    image: ${ZEPPELIN_INIT_IMAGE:-python:3.12.13-alpine}
     container_name: ${PROJECT_NAME}-zeppelin-init
     restart: "no"
     deploy:

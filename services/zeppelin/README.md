@@ -115,7 +115,7 @@ No authentication ships pre-configured. For real use, enable Shiro auth via `con
 ```bash
 ZEPPELIN_SOURCE=disabled           # container | disabled
 ZEPPELIN_IMAGE=apache/zeppelin:0.12.1
-ZEPPELIN_INIT_IMAGE=python:3.12-alpine
+ZEPPELIN_INIT_IMAGE=python:3.12.13-alpine
 ZEPPELIN_PORT=                     # auto-assigned (apps band)
 ```
 

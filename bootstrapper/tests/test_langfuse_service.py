@@ -102,9 +102,10 @@ def test_langfuse_topology_alias_and_env_example_contract() -> None:
     env_example = (REPO_ROOT / ".env.example").read_text()
     for expected in (
         "LANGFUSE_SOURCE=disabled",
-        "LANGFUSE_IMAGE=langfuse/langfuse:3",
-        "LANGFUSE_WORKER_IMAGE=langfuse/langfuse-worker:3",
-        "LANGFUSE_CLICKHOUSE_IMAGE=clickhouse/clickhouse-server:25.8",
+        "LANGFUSE_IMAGE=langfuse/langfuse:3.115.0",
+        "LANGFUSE_WORKER_IMAGE=langfuse/langfuse-worker:3.115.0",
+        "LANGFUSE_CLICKHOUSE_IMAGE=clickhouse/clickhouse-server:25.8.12",
+        "LANGFUSE_INIT_IMAGE=alpine:3.22.1",
         "LANGFUSE_PORT=",
         "LANGFUSE_ENDPOINT=",
         "LANGFUSE_WEB_SCALE=",
@@ -194,9 +195,9 @@ def test_langfuse_compose_contract() -> None:
     clickhouse = compose["langfuse-clickhouse"]
     init = compose["langfuse-init"]
 
-    assert web["image"] == "${LANGFUSE_IMAGE:-langfuse/langfuse:3}"
-    assert worker["image"] == "${LANGFUSE_WORKER_IMAGE:-langfuse/langfuse-worker:3}"
-    assert clickhouse["image"] == "${LANGFUSE_CLICKHOUSE_IMAGE:-clickhouse/clickhouse-server:25.8}"
+    assert web["image"] == "${LANGFUSE_IMAGE:-langfuse/langfuse:3.115.0}"
+    assert worker["image"] == "${LANGFUSE_WORKER_IMAGE:-langfuse/langfuse-worker:3.115.0}"
+    assert clickhouse["image"] == "${LANGFUSE_CLICKHOUSE_IMAGE:-clickhouse/clickhouse-server:25.8.12}"
     assert web["ports"] == ["${HOST_BIND_IP:-}${LANGFUSE_PORT}:3000"]
     assert "ports" not in clickhouse
     assert web["environment"]["LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT"] == "http://minio:9000"

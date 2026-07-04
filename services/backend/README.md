@@ -95,7 +95,7 @@ Adaptive listing comes from `runtime_adaptive.backend.adapts_to` in `services/ba
 **Optional adaptive dependencies** (from `runtime_deps.backend.optional`):
 - `neo4j-graph-db`, `searxng`, `n8n`, `weaviate`, `parakeet`, `speaches`, `chatterbox`, `docling`.
 
-When any optional service is `disabled`, the corresponding backend feature degrades gracefully — `/storage/upload` returns 503 if Supabase Storage is down, `/research/start` 503s if LDR is disabled (and currently fails even when LDR is up — `research_client.py` speaks a bespoke `/research/*` protocol the LangGraph dev server doesn't serve; porting to `/threads` + `/runs` is a tracked follow-up).
+When any optional service is `disabled`, the corresponding backend feature degrades gracefully — `/storage/upload` returns 503 if Supabase Storage is down, and `/research/start` persists sessions in Supabase while `research_client.py` creates LangGraph threads and runs them through `/threads/{id}/runs/stream` on the Local Deep Researcher service.
 
 **Internal network:** all upstream calls use Docker DNS names on `backend-network`. No host-port hops; nothing reaches the host filesystem outside the mounted `./services/backend/app/` source directory.
 

@@ -98,7 +98,7 @@ def test_zeppelin_compose_builds_spark_enabled_image_and_init_companion() -> Non
     assert zeppelin["environment"]["TRINO_JDBC_DRIVER"] == "io.trino.jdbc.TrinoDriver"
     assert zeppelin["environment"]["TRINO_JDBC_DEPENDENCY"] == "io.trino:trino-jdbc:482"
 
-    assert init["image"] == "${ZEPPELIN_INIT_IMAGE:-python:3.12-alpine}"
+    assert init["image"] == "${ZEPPELIN_INIT_IMAGE:-python:3.12.13-alpine}"
     assert init["deploy"]["replicas"] == "${ZEPPELIN_INIT_SCALE:-0}"
     assert init["depends_on"]["zeppelin"]["condition"] == "service_healthy"
     assert init["depends_on"]["spark-init"]["condition"] == "service_completed_successfully"

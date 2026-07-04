@@ -76,24 +76,27 @@ def test_mkdocs_nav_exists_and_points_to_real_pages() -> None:
     assert config["site_url"] == "https://thekaveh.github.io/atlas/"
     assert config["docs_dir"] == "docs"
     assert config["site_dir"] == "site"
-    assert nav["Home"] == "index.md"
-    assert nav["Service Index"] == "site/services/index.md"
-    assert nav["SOURCE Reference"] == "site/reference/source-values.md"
-    assert nav["Wiki Export"] == "wiki/Home.md"
+    assert nav["1. Home"] == "index.md"
+    assert nav["7. Service Index"] == "site/services/index.md"
+    assert nav["14. SOURCE Reference"] == "site/reference/source-values.md"
+    assert nav["20. Wiki Export"] == "wiki/Home.md"
     assert "assets/stylesheets/atlas.css" in config["extra_css"]
 
     required_sections = {
-        "Overview",
-        "Quick Start",
-        "Architecture",
-        "Services",
-        "Tracks",
-        "Configuration",
-        "Operations",
-        "Development",
-        "Reference",
+        "2. Overview",
+        "3. Quick Start",
+        "4. Architecture",
+        "6. Services",
+        "9. Tracks",
+        "10. Configuration",
+        "11. Operations",
+        "12. Development",
+        "13. Reference",
     }
     assert required_sections <= set(nav)
+
+    for label in nav:
+        assert label[0].isdigit(), f"nav label is not numbered: {label!r}"
 
     for label, target in nav.items():
         assert (ROOT / "docs" / target).exists(), f"{label!r} points at missing {target!r}"
@@ -175,8 +178,8 @@ def test_wiki_export_and_ci_hooks_are_present() -> None:
     assert "../site/" not in wiki_home
     assert "../site/" not in wiki_index
     assert "../site/" not in wiki_services
-    assert "[Overview](Overview)" in wiki_home
-    assert "[Services](Services)" in wiki_index
+    assert "[1. Overview](Overview)" in wiki_home
+    assert "[4. Services](Services)" in wiki_index
     assert "mkdocs build --strict" in check_script
     assert "mkdocs build --strict" in workflow
     assert "check-docs-site.py" in workflow

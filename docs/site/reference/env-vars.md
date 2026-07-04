@@ -26,6 +26,9 @@ Generated from manifest env declarations.
 | BACKEND_SOURCE | backend | container | Adaptive core service; always container. Single-option. |
 | BACKEND_PORT | backend |  |  |
 | BACKEND_SCALE | backend |  | Always 1 (BACKEND_SOURCE is single-valued). |
+| MAX_UPLOAD_BYTES | backend | 104857600 | Maximum accepted /storage/upload body size in bytes before the backend returns 413. |
+| BACKEND_CORS_ORIGINS | backend | * | Comma-separated browser origins accepted by the backend CORS middleware. Default preserves local-development permissiveness. |
+| BACKEND_CORS_ALLOW_ORIGIN_REGEX | backend |  | Optional regex accepted by the backend CORS middleware for wildcard subdomain policies. |
 | LANGMEM_ENABLED | backend | True |  |
 | LANGMEM_MEMORY_NAMESPACE | backend | default |  |
 | LANGMEM_AUTO_CONSOLIDATE | backend | True | Reserved — not yet honored. Memory consolidation currently runs only
@@ -480,7 +483,7 @@ Do not edit by hand — the bootstrapper owns this value.
 | OPENCLAW_LOCALHOST_PORT | openclaw | 63065 | Host port for the localhost source variant (defaults to the freed OPENCLAW_GATEWAY_PORT slot). URL is derived at compose-render time as http://host.docker.internal:63065. |
 | OPENCLAW_INIT_SOURCE | openclaw | container |  |
 | OPENCLAW_ANTHROPIC_API_KEY | openclaw |  | Optional per-OpenClaw Anthropic override. |
-| OPENCLAW_OPENAI_API_KEY | openclaw |  | Optional per-OpenClaw OpenAI override; falls back to the stack-wide OPENAI_API_KEY when unset. |
+| OPENCLAW_OPENAI_API_KEY | openclaw |  | Optional per-OpenClaw OpenAI override. Leave empty to keep OpenClaw routed through LiteLLM instead of bypassing the stack gateway. |
 | OPENCLAW_SCALE | openclaw |  |  |
 | OPENCLAW_INIT_SCALE | openclaw |  |  |
 | OPENCLAW_ENDPOINT | openclaw |  | Resolved per-source by the bootstrapper (container DNS / host.docker.internal / empty when disabled). Forward-looking hook: no compose fragment injects it into a container today — consumers (e.g. n8n workflows) would read it via their own env wiring when that lands. |

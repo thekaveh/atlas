@@ -9,6 +9,7 @@ echo "backend: Reading dynamic Weaviate configuration..."
 # run. Backend reads it as LITELLM_EMBEDDING_MODEL.
 if [ -f "/shared/weaviate-config.env" ]; then
   echo "backend: Loading dynamic Weaviate configuration"
+  # shellcheck source=/dev/null
   . /shared/weaviate-config.env
   export LITELLM_EMBEDDING_MODEL="${LITELLM_EMBEDDING_MODEL:-ollama/nomic-embed-text}"
   echo "backend: Using LiteLLM embedding model: $LITELLM_EMBEDDING_MODEL"

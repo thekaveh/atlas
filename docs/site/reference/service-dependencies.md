@@ -38,7 +38,7 @@ Generated from manifest dependency and data-flow fields.
 | neo4j | supabase | - | - |
 | ollama | supabase, litellm | - | - |
 | open-webui | supabase, redis, litellm | hermes | litellm, supabase, redis, backend, comfyui, stt-provider, tts-provider, local-deep-researcher |
-| openclaw | litellm | - | litellm, hermes |
+| openclaw | litellm | - | litellm |
 | otel-collector | tempo | loki | tempo |
 | parakeet | litellm | - | - |
 | prometheus | supabase, redis, kong, ray | - | kong, litellm, backend, n8n, weaviate, minio, supabase, redis, grafana |

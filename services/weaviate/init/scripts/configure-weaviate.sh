@@ -10,6 +10,7 @@ if [ ! -f "/shared/weaviate-config.env" ]; then
 else
   # Source the dynamic configuration
   echo "weaviate: Loading dynamic configuration from weaviate-init"
+  # shellcheck source=/dev/null
   . /shared/weaviate-config.env
   echo "weaviate: Using LiteLLM embedding model: $LITELLM_EMBEDDING_MODEL"
 fi

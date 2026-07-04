@@ -18,12 +18,12 @@ The OpenClaw service provides an AI-powered agent that connects to messaging app
 
 OpenClaw runs as a single gateway process that:
 
-- Serves the web dashboard on the configured gateway port. The stack default is 63065 for both container and localhost modes (the localhost default takes the freed gateway slot); OpenClaw's native/default port is commonly 18789.
-- Manages messaging platform connections (bridge) on the configured bridge port. The stack default is 63066.
+- Serves the web dashboard on the configured gateway port. The container-mode stack default is 63076; localhost mode uses `OPENCLAW_LOCALHOST_PORT` and defaults to 63065 unless you point it at OpenClaw's native/default 18789.
+- Manages messaging platform connections (bridge) on the configured bridge port. The container-mode stack default is 63077.
 - Stores configuration in `~/.openclaw/` directory
 - Stores workspace files in `~/.openclaw/workspace/`
 
-For LLM access, OpenClaw points at the stack's **LiteLLM gateway** (`LITELLM_BASE_URL` + `LITELLM_API_KEY`) by default — one URL fronts the Ollama upstream and any enabled cloud providers (OpenAI, Anthropic, OpenRouter). Direct provider keys (`OPENCLAW_OPENAI_API_KEY`, `OPENCLAW_ANTHROPIC_API_KEY`) remain available as overrides for cases where OpenClaw should bypass LiteLLM. The gateway also connects to messaging platforms (WhatsApp, Telegram, etc.) for user interaction.
+For LLM access, OpenClaw points at the stack's **LiteLLM gateway** (`LITELLM_BASE_URL` + `LITELLM_API_KEY`) by default — one URL fronts the Ollama upstream and any enabled cloud providers (OpenAI, Anthropic, OpenRouter). Direct provider keys (`OPENCLAW_OPENAI_API_KEY`, `OPENCLAW_ANTHROPIC_API_KEY`) remain available as explicit overrides for cases where OpenClaw should bypass LiteLLM; empty override keys keep traffic on the gateway path. The gateway also connects to messaging platforms (WhatsApp, Telegram, etc.) for user interaction.
 
 **Container Mode Initialization**: When running in container mode, an `openclaw-init` container runs first to:
 - Set correct volume permissions (uid 1000/node) on config and workspace volumes
@@ -54,7 +54,7 @@ Or use CLI override:
 
 **Step 3: Access the dashboard**
 
-Open `http://localhost:${OPENCLAW_GATEWAY_PORT}` (default 63065) or `http://openclaw.localhost:63000` (via Kong).
+Open `http://localhost:${OPENCLAW_GATEWAY_PORT}` (default 63076) or `http://openclaw.localhost:63000` (via Kong).
 
 **Step 4: Run onboarding**
 ```bash
@@ -110,8 +110,8 @@ OPENCLAW_SOURCE=disabled
 |----------|-------------|---------|
 | `OPENCLAW_SOURCE` | Service source (container, localhost, disabled) | `disabled` |
 | `OPENCLAW_IMAGE` | Docker image | `ghcr.io/openclaw/openclaw:2026.6.10` |
-| `OPENCLAW_GATEWAY_PORT` | Gateway HTTP port | `63065` |
-| `OPENCLAW_BRIDGE_PORT` | Bridge port | `63066` |
+| `OPENCLAW_GATEWAY_PORT` | Gateway HTTP port | `63076` |
+| `OPENCLAW_BRIDGE_PORT` | Bridge port | `63077` |
 | `OPENCLAW_GATEWAY_TOKEN` | Optional token for securing gateway API | `` |
 | `OPENCLAW_SCALE` | Container replicas (set by bootstrapper) | `0` |
 
@@ -130,8 +130,8 @@ These bypass LiteLLM and let OpenClaw call providers directly — useful when yo
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `OPENCLAW_ANTHROPIC_API_KEY` | Anthropic API key for OpenClaw | Falls back to stack-wide key |
-| `OPENCLAW_OPENAI_API_KEY` | OpenAI API key for OpenClaw | Falls back to stack-wide `OPENAI_API_KEY` |
+| `OPENCLAW_ANTHROPIC_API_KEY` | Anthropic API key for OpenClaw | Empty by default; set only to bypass LiteLLM with a dedicated OpenClaw key |
+| `OPENCLAW_OPENAI_API_KEY` | OpenAI API key for OpenClaw | Empty by default; set only to bypass LiteLLM with a dedicated OpenClaw key |
 
 ### 4.4 Localhost-Specific
 
@@ -144,8 +144,8 @@ These bypass LiteLLM and let OpenClaw call providers directly — useful when yo
 OpenClaw inherits LLM access from the always-on LiteLLM gateway:
 
 - **Default path (LiteLLM)**: OpenClaw is configured as an OpenAI-compatible client against `LITELLM_BASE_URL` with `LITELLM_API_KEY`. Whatever Ollama / OpenAI / Anthropic / OpenRouter upstreams you've enabled in the stack are routed transparently through LiteLLM. To pick a model, use the model IDs registered in `volumes/litellm/config.yaml` (e.g. `ollama/qwen3.6:latest`, `gpt-4o`, `claude-sonnet-4-6`).
-- **Anthropic override**: Set `OPENCLAW_ANTHROPIC_API_KEY` in `.env` to make OpenClaw call Anthropic directly, bypassing LiteLLM. Without it, OpenClaw uses the stack-wide Anthropic key (if configured) through LiteLLM.
-- **OpenAI override**: Set `OPENCLAW_OPENAI_API_KEY` in `.env` to bypass LiteLLM for OpenAI traffic. Falls back to the stack-wide `OPENAI_API_KEY` when unset.
+- **Anthropic override**: Set `OPENCLAW_ANTHROPIC_API_KEY` in `.env` to make OpenClaw call Anthropic directly, bypassing LiteLLM. When unset, OpenClaw uses any stack-wide Anthropic key only through LiteLLM.
+- **OpenAI override**: Set `OPENCLAW_OPENAI_API_KEY` in `.env` to bypass LiteLLM for OpenAI traffic. When unset, OpenClaw stays on the LiteLLM gateway path and does not inherit the stack-wide `OPENAI_API_KEY`.
 
 **Provider Priority**: When direct override keys are present, OpenClaw prefers them in this order: Anthropic direct > OpenAI direct > LiteLLM gateway. To force every request through LiteLLM (recommended for budget tracking and spend logs), leave both `OPENCLAW_*_API_KEY` overrides empty.
 
@@ -153,7 +153,7 @@ OpenClaw inherits LLM access from the always-on LiteLLM gateway:
 
 The OpenClaw gateway includes a built-in web dashboard for administration:
 
-- **Direct access**: `http://localhost:${OPENCLAW_GATEWAY_PORT}` (default 63065)
+- **Direct access**: `http://localhost:${OPENCLAW_GATEWAY_PORT}` (default 63076)
 - **Via Kong**: `http://openclaw.localhost:63000`
 
 The dashboard provides:
@@ -256,7 +256,6 @@ No OpenClaw agent (default).
 | Service | Category |
 |---|---|
 | litellm | llm |
-| hermes | agents |
 
 ### 12.2 Current — Downstream (services that call this)
 
@@ -310,7 +309,7 @@ No OpenClaw agent (default).
 **Solution**:
 1. Check logs: `docker logs ${PROJECT_NAME}-openclaw-gateway`
 2. Verify image is available: `docker pull ghcr.io/openclaw/openclaw:2026.6.10`
-3. Ensure ports 63065/63066 (the canonical gateway/bridge slots — overridable via `OPENCLAW_GATEWAY_PORT` / `OPENCLAW_BRIDGE_PORT`) are not in use
+3. Ensure ports 63076/63077 (the canonical gateway/bridge slots — overridable via `OPENCLAW_GATEWAY_PORT` / `OPENCLAW_BRIDGE_PORT`) are not in use
 4. Check Docker has sufficient memory (2GB+ recommended)
 
 ### 13.3 Can't See LLM Models
@@ -336,7 +335,7 @@ No OpenClaw agent (default).
 
 ### 13.5 Port Already in Use
 
-**Problem**: Port 63065 (gateway) or 63066 (bridge) is occupied
+**Problem**: Port 63076 (gateway) or 63077 (bridge) is occupied
 
 **Solution**:
 ```bash
@@ -344,5 +343,5 @@ No OpenClaw agent (default).
 ./start.sh --base-port 64000
 
 # Or check what's using the port
-lsof -i :63065
+lsof -i :63076
 ```

@@ -5,8 +5,8 @@ by hand; run `python scripts/export-docs-wiki.py` from the repo root.
 
 ## 1. Start Here
 
-- [Overview](Overview)
-- [Quick Start](Quick-Start)
-- [Services](Services)
-- [Architecture](Architecture)
-- [Reference](Reference)
+- [1. Overview](Overview)
+- [2. Quick Start](Quick-Start)
+- [3. Services](Services)
+- [4. Architecture](Architecture)
+- [5. Reference](Reference)

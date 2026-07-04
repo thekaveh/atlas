@@ -12,16 +12,16 @@ containers:
 
 images:
   - var: LANGFUSE_IMAGE
-    default: "langfuse/langfuse:3"
+    default: "langfuse/langfuse:3.115.0"
     container: langfuse-web
   - var: LANGFUSE_WORKER_IMAGE
-    default: "langfuse/langfuse-worker:3"
+    default: "langfuse/langfuse-worker:3.115.0"
     container: langfuse-worker
   - var: LANGFUSE_CLICKHOUSE_IMAGE
-    default: "clickhouse/clickhouse-server:25.8"
+    default: "clickhouse/clickhouse-server:25.8.12"
     container: langfuse-clickhouse
   - var: LANGFUSE_INIT_IMAGE
-    default: "alpine:3.22"
+    default: "alpine:3.22.1"
     container: langfuse-init
 
 sources:

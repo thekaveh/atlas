@@ -73,6 +73,8 @@ Documentation index for Atlas.
 ### 1.8 Numbering-policy notes
 - Generated research files keep schema-fixed headings such as `## Headline`; see [research/README.md](research/README.md) for the explicit exemption.
 - Provider implementation notes under `services/*/provider/` are operational backend-specific runbooks. They may keep compact unnumbered headings when numbering would make command-oriented maintenance notes harder to scan.
+- Conventional history/planning artifacts such as [CHANGELOG](CHANGELOG.md), [ROADMAP](ROADMAP.md), and `docs/plans/` may keep their established release-note or planning heading style when renumbering would obscure chronology.
+- Literal UI/output glyphs may appear only when the documentation is naming an actual terminal control, status marker, tree connector, or generated output. Do not use glyphs as decorative prose. Prefer words such as `Warning:` in explanatory text, and keep flow arrows or tree characters inside technical notation or literal examples.
 
 ## 2. Related documentation
 

@@ -3,7 +3,7 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, Field
 from storage3 import SyncStorageClient as StorageClient
-from typing import Optional, cast, Dict, Any, List, Union
+from typing import Optional, cast, Dict, Any, List, Union, Literal
 from contextlib import asynccontextmanager
 import os
 import asyncio
@@ -55,6 +55,16 @@ PROJECT_NAME = os.getenv("PROJECT_NAME", "atlas")
 MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(100 * 1024 * 1024)))
 
 
+def _parse_csv_env(value: str | None) -> List[str]:
+    if not value:
+        return []
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+BACKEND_CORS_ORIGINS = _parse_csv_env(os.getenv("BACKEND_CORS_ORIGINS")) or ["*"]
+BACKEND_CORS_ALLOW_ORIGIN_REGEX = os.getenv("BACKEND_CORS_ALLOW_ORIGIN_REGEX") or None
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
     yield
@@ -92,7 +102,8 @@ Instrumentator(
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, specify exact origins
+    allow_origins=BACKEND_CORS_ORIGINS,
+    allow_origin_regex=BACKEND_CORS_ALLOW_ORIGIN_REGEX,
     # NOTE: `allow_credentials=True` with the `*` wildcard origin is rejected by
     # all browsers (the spec forbids credentials + wildcard), so it would only
     # silently break credentialed requests. The backend is reached server-side
@@ -163,6 +174,37 @@ class StorageResponse(BaseModel):
     bucket: str
     path: str
     url: str
+
+
+async def _read_upload_file_limited(
+    file: UploadFile,
+    *,
+    max_bytes: int,
+    label: str,
+) -> bytes:
+    chunks: List[bytes] = []
+    total = 0
+    chunk_size = 1024 * 1024
+    while True:
+        chunk = await file.read(chunk_size)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > max_bytes:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=f"{label} exceeds maximum size of {max_bytes} bytes",
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+def _document_max_file_size() -> int:
+    config = getattr(document_extractor, "config", None)
+    value = getattr(config, "max_file_size", None)
+    if value is not None:
+        return int(value)
+    return int(os.getenv("TIKA_MAX_FILE_SIZE", str(50 * 1024 * 1024)))
 
 
 @app.get("/health", response_model=HealthResponse)
@@ -285,40 +327,35 @@ async def upload_file(file: UploadFile = File(...), bucket: str = "default"):
         # Read file content in bounded chunks so an oversized upload fails
         # cleanly with 413 instead of OOMing the worker. UploadFile's
         # SpooledTemporaryFile is iterated, not materialized whole.
-        chunks: List[bytes] = []
-        total = 0
-        chunk_size = 1024 * 1024  # 1 MiB
-        while True:
-            chunk = await file.read(chunk_size)
-            if not chunk:
-                break
-            total += len(chunk)
-            if total > MAX_UPLOAD_BYTES:
-                raise HTTPException(
-                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                    detail=f"File exceeds maximum upload size of {MAX_UPLOAD_BYTES} bytes",
-                )
-            chunks.append(chunk)
-        content = b"".join(chunks)
-
-        # Upload to storage. storage3 exposes upload/get_public_url on
-        # the per-bucket proxy (from_), not on the client itself — the
-        # old client-level calls raised AttributeError on every request.
-        bucket_ref = storage_client.from_(bucket)
-        # storage3's SyncStorageClient does blocking network I/O; run it off
-        # the event loop so a slow/large upload doesn't stall the worker and
-        # every other in-flight request with it.
-        await asyncio.to_thread(
-            bucket_ref.upload,
-            path=filename,
-            file=content,
-            file_options={"content-type": file.content_type}
-            if file.content_type
-            else None,
+        content = await _read_upload_file_limited(
+            file,
+            max_bytes=MAX_UPLOAD_BYTES,
+            label="File",
         )
 
-        # Get public URL
-        url = await asyncio.to_thread(bucket_ref.get_public_url, filename)
+        try:
+            # Upload to storage. storage3 exposes upload/get_public_url on
+            # the per-bucket proxy (from_), not on the client itself.
+            bucket_ref = storage_client.from_(bucket)
+            # storage3's SyncStorageClient does blocking network I/O; run it off
+            # the event loop so a slow/large upload doesn't stall the worker and
+            # every other in-flight request with it.
+            await asyncio.to_thread(
+                bucket_ref.upload,
+                path=filename,
+                file=content,
+                file_options={"content-type": file.content_type}
+                if file.content_type
+                else None,
+            )
+
+            # Get public URL
+            url = await asyncio.to_thread(bucket_ref.get_public_url, filename)
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Supabase Storage is unavailable",
+            ) from e
 
         return StorageResponse(bucket=bucket, path=filename, url=url)
     except HTTPException:
@@ -337,7 +374,11 @@ async def extract_document(file: UploadFile = File(...)):
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="File must have a filename",
         )
-    content = await file.read()
+    content = await _read_upload_file_limited(
+        file,
+        max_bytes=_document_max_file_size(),
+        label="Document",
+    )
     try:
         result = await document_extractor.extract(
             content=content,
@@ -365,9 +406,9 @@ async def extract_document(file: UploadFile = File(...)):
 # Research API Models
 class ResearchStartRequest(BaseModel):
     """Request model for starting research"""
-    query: str
-    max_loops: Optional[int] = 3
-    search_api: Optional[str] = "duckduckgo"
+    query: str = Field(min_length=1, max_length=4000)
+    max_loops: Optional[int] = Field(default=3, ge=1, le=10)
+    search_api: Optional[Literal["duckduckgo", "searxng"]] = "duckduckgo"
     user_id: Optional[str] = None
 
 
@@ -565,20 +606,20 @@ async def research_health_check():
 # ComfyUI API Models
 class ComfyUIGenerateRequest(BaseModel):
     """Request model for ComfyUI image generation"""
-    prompt: str
-    negative_prompt: Optional[str] = ""
-    width: int = 512
-    height: int = 512
-    steps: int = 20
-    cfg: float = 7.0
+    prompt: str = Field(min_length=1, max_length=4000)
+    negative_prompt: Optional[str] = Field(default="", max_length=4000)
+    width: int = Field(default=512, ge=64, le=4096)
+    height: int = Field(default=512, ge=64, le=4096)
+    steps: int = Field(default=20, ge=1, le=150)
+    cfg: float = Field(default=7.0, ge=0.0, le=30.0)
     seed: Optional[int] = None
-    checkpoint: Optional[str] = "v1-5-pruned-emaonly.safetensors"
+    checkpoint: Optional[str] = Field(default="v1-5-pruned-emaonly.safetensors", max_length=255)
     wait_for_completion: bool = True
 
 
 class ComfyUIWorkflowRequest(BaseModel):
     """Request model for custom ComfyUI workflow"""
-    workflow: Dict[str, Any]
+    workflow: Dict[str, Any] = Field(min_length=1, max_length=500)
     wait_for_completion: bool = True
 
 

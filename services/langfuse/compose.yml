@@ -4,7 +4,7 @@ services:
     build:
       context: ./init
       args:
-        BASE_IMAGE: ${LANGFUSE_INIT_IMAGE:-alpine:3.22}
+        BASE_IMAGE: ${LANGFUSE_INIT_IMAGE:-alpine:3.22.1}
     image: ${PROJECT_NAME}-langfuse-init:local
     container_name: ${PROJECT_NAME}-langfuse-init
     restart: "no"
@@ -28,7 +28,7 @@ services:
       - backend-network
 
   langfuse-clickhouse:
-    image: ${LANGFUSE_CLICKHOUSE_IMAGE:-clickhouse/clickhouse-server:25.8}
+    image: ${LANGFUSE_CLICKHOUSE_IMAGE:-clickhouse/clickhouse-server:25.8.12}
     container_name: ${PROJECT_NAME}-langfuse-clickhouse
     restart: unless-stopped
     user: "101:101"
@@ -57,7 +57,7 @@ services:
       - backend-network
 
   langfuse-web:
-    image: ${LANGFUSE_IMAGE:-langfuse/langfuse:3}
+    image: ${LANGFUSE_IMAGE:-langfuse/langfuse:3.115.0}
     container_name: ${PROJECT_NAME}-langfuse-web
     restart: unless-stopped
     deploy:
@@ -132,7 +132,7 @@ services:
       - backend-network
 
   langfuse-worker:
-    image: ${LANGFUSE_WORKER_IMAGE:-langfuse/langfuse-worker:3}
+    image: ${LANGFUSE_WORKER_IMAGE:-langfuse/langfuse-worker:3.115.0}
     container_name: ${PROJECT_NAME}-langfuse-worker
     restart: unless-stopped
     deploy:

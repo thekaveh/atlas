@@ -309,6 +309,8 @@ services:
       replicas: 1
     environment:
       ATLAS_OTEL_ENABLED: 'false'
+      BACKEND_CORS_ALLOW_ORIGIN_REGEX: ''
+      BACKEND_CORS_ORIGINS: '*'
       CELERY_BROKER_URL: ''
       CELERY_BROKER_VISIBILITY_TIMEOUT_SECONDS: '3600'
       CELERY_QUEUE: atlas
@@ -344,6 +346,7 @@ services:
       LITELLM_BASE_URL: http://litellm:4000
       LITELLM_DEFAULT_MODEL: ollama/qwen3.6:latest
       LITELLM_EMBEDDING_MODEL: ollama/nomic-embed-text
+      MAX_UPLOAD_BYTES: '104857600'
       N8N_API_KEY: ''
       N8N_BASE_URL: http://n8n:5678
       NEO4J_PASSWORD: neo4j_password
@@ -1393,7 +1396,7 @@ services:
   label-studio-init:
     build:
       args:
-        BASE_IMAGE: alpine:3.22
+        BASE_IMAGE: alpine:3.22.1
       context: '{REPO_ROOT}/services/label-studio/init'
       dockerfile: Dockerfile
     container_name: atlas-label-studio-init
@@ -1448,7 +1451,7 @@ services:
       - --spider
       - http://localhost:8123/ping
       timeout: 5s
-    image: clickhouse/clickhouse-server:25.8
+    image: clickhouse/clickhouse-server:25.8.12
     logging:
       driver: json-file
       options:
@@ -1470,7 +1473,7 @@ services:
   langfuse-init:
     build:
       args:
-        BASE_IMAGE: alpine:3.22
+        BASE_IMAGE: alpine:3.22.1
       context: '{REPO_ROOT}/services/langfuse/init'
       dockerfile: Dockerfile
     container_name: atlas-langfuse-init
@@ -1572,7 +1575,7 @@ services:
       - -e
       - fetch('http://localhost:3000/api/public/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))
       timeout: 5s
-    image: langfuse/langfuse:3
+    image: langfuse/langfuse:3.115.0
     logging:
       driver: json-file
       options:
@@ -1646,7 +1649,7 @@ services:
       REDIS_PORT: '6379'
       SALT: ''
       TELEMETRY_ENABLED: 'false'
-    image: langfuse/langfuse-worker:3
+    image: langfuse/langfuse-worker:3.115.0
     logging:
       driver: json-file
       options:
@@ -2167,7 +2170,7 @@ services:
   mcp-servers:
     build:
       args:
-        BASE_IMAGE: python:3.12-slim
+        BASE_IMAGE: python:3.12.13-slim
       context: '{REPO_ROOT}/services/mcp-servers/runtime'
       dockerfile: ../build/Dockerfile
     container_name: atlas-mcp-servers
@@ -2371,7 +2374,7 @@ services:
   mlflow-init:
     build:
       args:
-        BASE_IMAGE: alpine:3.22
+        BASE_IMAGE: alpine:3.22.1
       context: '{REPO_ROOT}/services/mlflow/init'
       dockerfile: Dockerfile
     container_name: atlas-mlflow-init
@@ -4412,7 +4415,7 @@ services:
       TRINO_JDBC_USER: atlas
       TRINO_SOURCE: disabled
       ZEPPELIN_URL: http://zeppelin:8080
-    image: python:3.12-alpine
+    image: python:3.12.13-alpine
     networks:
       backend-network: null
     restart: 'no'
