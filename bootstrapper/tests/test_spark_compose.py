@@ -163,6 +163,24 @@ def test_spark_connect_depends_on_spark_init():
     assert deps["spark-init"]["condition"] == "service_completed_successfully"
 
 
+def test_spark_connect_has_backend_only_healthcheck():
+    doc = yaml.safe_load(COMPOSE.read_text(encoding="utf-8"))
+    connect = doc["services"]["spark-connect"]
+    healthcheck = connect["healthcheck"]
+
+    assert "ports" not in connect
+    assert healthcheck["test"][0] == "CMD-SHELL"
+    assert "localhost/15002" in healthcheck["test"][1]
+    assert healthcheck["interval"] == "10s"
+    assert healthcheck["timeout"] == "3s"
+    assert healthcheck["retries"] == 12
+    assert healthcheck["start_period"] == "30s"
+
+    deps = connect["depends_on"]
+    assert deps["spark-master"]["condition"] == "service_healthy"
+    assert deps["spark-init"]["condition"] == "service_completed_successfully"
+
+
 def test_spark_master_rest_status_contract_comments_are_current():
     text = COMPOSE.read_text(encoding="utf-8")
     assert "it's off by default" not in text
@@ -179,5 +197,18 @@ def test_spark_connect_core_cap_is_documented():
         "spark.cores.max",
         "standalone workloads",
         "Spark Connect parallelism",
+    ):
+        assert expected in readme
+
+
+def test_spark_connect_healthcheck_is_documented():
+    readme = (REPO_ROOT / "services" / "spark" / "README.md").read_text(
+        encoding="utf-8"
+    )
+    for expected in (
+        "docker inspect --format '{{.State.Health.Status}}'",
+        "spark-connect",
+        "15002",
+        "healthy",
     ):
         assert expected in readme

@@ -3446,6 +3446,14 @@ services:
       replicas: 0
     environment:
       SPARK_KAFKA_BOOTSTRAP_SERVERS: ''
+    healthcheck:
+      interval: 10s
+      retries: 12
+      start_period: 30s
+      test:
+      - CMD-SHELL
+      - bash -ec '</dev/tcp/localhost/15002'
+      timeout: 3s
     image: atlas-spark:local
     logging:
       driver: json-file
