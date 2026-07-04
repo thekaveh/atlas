@@ -5,6 +5,7 @@ Documentation index for Atlas.
 ## 1. Documentation structure
 
 ### 1.1 Quick Start guides
+- [Publishable docs site](site/index.md) — MkDocs entrypoint for the Atlas `.io` / GitHub Pages documentation surface
 - [Interactive Setup Wizard](quick-start/interactive-setup-wizard.md) — step-by-step guided configuration
 - [Troubleshooting](quick-start/troubleshooting.md) — common issues and solutions across the full stack
 - [Startup Troubleshooting](TROUBLESHOOTING.md) — quick fixes for first-launch errors (sudo recovery, Airflow ResolutionImpossible, n8n restart-loops); linked from `start.sh`'s own error output
@@ -57,6 +58,7 @@ Documentation index for Atlas.
 
 ### 1.5 Architecture diagrams
 - [Diagrams README](diagrams/README.md) — top-level diagram update workflow + the per-service auto-generation chain
+- [Split architecture catalog](architecture/README.md) — MkDocs-linked high-level architecture perspectives generated for the publishable docs site
 - The top-level diagram itself lives at [diagrams/architecture.svg](diagrams/architecture.svg) (embedded in the project README) and [diagrams/architecture.html](diagrams/architecture.html) (standalone view)
 
 ### 1.6 Cross-service research (Phase B corpus)
@@ -99,6 +101,8 @@ Run the local documentation drift and audit checks before committing docs change
 PYTHONPATH=bootstrapper python -m bootstrapper.docs.regen --all --check
 python scripts/check_doc_links.py
 python scripts/check-docs-drift.py
+python scripts/check-docs-site.py
+python scripts/export-docs-wiki.py --check
 python scripts/check-compose-source-deps.py
 python scripts/check-kong-routes.py
 python scripts/validate_research_schema.py --all

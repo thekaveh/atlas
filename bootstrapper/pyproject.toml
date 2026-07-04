@@ -29,6 +29,7 @@ packages = ["."]
 # dev-dependencies` table; uv warns on every invocation otherwise).
 # CI invokes `uv sync --group dev`.
 dev = [
+    "mkdocs>=1.6,<2",
     "pytest>=7.0.0",
 ]
 
