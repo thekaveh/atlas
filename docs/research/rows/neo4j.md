@@ -81,9 +81,9 @@ sources_consulted:
   - Headline: Temporal knowledge-graph framework for agent memory, built on Neo4j.
   - Other consumers in stack: hermes, backend, n8n, local-deep-researcher.
 
-- **Neodash** → `../candidates/neodash.md`
-  - Headline: Low-code Cypher dashboards over an existing Neo4j instance, no extra database.
-  - Other consumers in stack: kong (route at `dash.localhost`), backend.
+- **NeoDash** → `../candidates/neodash.md`
+  - Headline: Watchlisted low-code Cypher dashboards for future namespaced graph-native Atlas data.
+  - Other consumers in stack: kong (future `neodash.localhost` route), backend, llm-graph-builder.
 
 ## 3. Per-service feature gaps
 
