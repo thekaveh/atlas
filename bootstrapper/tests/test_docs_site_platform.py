@@ -193,6 +193,30 @@ def test_wiki_export_and_ci_hooks_are_present() -> None:
     assert "wiki/Home.md" in wiki_script
 
 
+def test_docs_audit_guidance_lists_required_local_gates() -> None:
+    docs_readme = (ROOT / "docs" / "README.md").read_text(encoding="utf-8")
+    contributor_guide = (ROOT / "docs" / "CONTRIBUTING-services.md").read_text(encoding="utf-8")
+    development_page = (DOCS_SITE / "development.md").read_text(encoding="utf-8")
+
+    required_commands = [
+        "python -m bootstrapper.docs.regen --all --check",
+        "python scripts/check_doc_links.py",
+        "python scripts/check-docs-drift.py",
+        "python scripts/check-docs-site.py",
+        "python scripts/export-docs-wiki.py --check",
+        "python scripts/check-compose-source-deps.py",
+        "python scripts/check-kong-routes.py",
+        "python scripts/validate_research_schema.py --all",
+        "python scripts/check-track-membership.py",
+        "uv lock --locked",
+    ]
+
+    for command in required_commands:
+        assert command in docs_readme
+        assert command in contributor_guide
+        assert command in development_page
+
+
 def test_docs_pages_publication_workflow_and_homepage_contract() -> None:
     workflow = PAGES_WORKFLOW.read_text(encoding="utf-8")
 

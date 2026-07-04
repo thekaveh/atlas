@@ -143,7 +143,11 @@ class ResearchClient:
 
     async def get_research_result(self, session_id: str) -> Optional[ResearchResult]:
         """Get the final result of a completed research session"""
-        return self._completed_results.get(session_id)
+        return self._completed_results.pop(session_id, None)
+
+    def discard_pending(self, session_id: str) -> None:
+        """Forget a pending LangGraph thread after cancellation or early failure."""
+        self._pending_requests.pop(session_id, None)
 
     async def cancel_research(self, session_id: str) -> ResearchResponse:
         """Cancel a running research session"""
@@ -170,11 +174,17 @@ class ResearchClient:
 
     async def stream_research_logs(self, session_id: str) -> AsyncGenerator[Dict[str, Any], None]:
         """Stream real-time logs from a research session"""
+        request = self._pending_requests.get(session_id)
+        if request is None:
+            yield {"error": "Research request was not found for LangGraph thread"}
+            return
+        payload = self._run_payload(request)
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             try:
                 async with client.stream(
-                    "GET",
+                    "POST",
                     f"{self.base_url}/threads/{session_id}/runs/stream",
+                    json=payload,
                     headers=self.headers
                 ) as response:
                     response.raise_for_status()
@@ -210,18 +220,7 @@ class ResearchClient:
                 message="Research request was not found for LangGraph thread",
             )
 
-        payload = {
-            "assistant_id": "agent",
-            "input": {"research_topic": request.query},
-            "config": {
-                "configurable": {
-                    "max_loops": request.max_loops,
-                    "search_api": request.search_api,
-                }
-            },
-            "metadata": {"user_id": request.user_id} if request.user_id else {},
-            "stream_mode": ["values"],
-        }
+        payload = self._run_payload(request)
         final_values: Dict[str, Any] = {}
         current_event = ""
         try:
@@ -280,6 +279,20 @@ class ResearchClient:
             )
         finally:
             self._pending_requests.pop(session_id, None)
+
+    def _run_payload(self, request: ResearchRequest) -> Dict[str, Any]:
+        return {
+            "assistant_id": "agent",
+            "input": {"research_topic": request.query},
+            "config": {
+                "configurable": {
+                    "max_loops": request.max_loops,
+                    "search_api": request.search_api,
+                }
+            },
+            "metadata": {"user_id": request.user_id} if request.user_id else {},
+            "stream_mode": ["values"],
+        }
 
     def _result_from_langgraph_values(
         self,

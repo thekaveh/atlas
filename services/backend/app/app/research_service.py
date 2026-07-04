@@ -173,35 +173,40 @@ class ResearchService:
         request: ResearchRequest
     ):
         """Execute research using actual local-deep-researcher service"""
-        
-        # Use the research client to start the research
-        research_response = await self.research_client.start_research(request)
-        
-        if research_response.status != ResearchStatus.RUNNING:
-            raise ResearchError(f"Failed to start research: {research_response.message}")
-        
-        remote_session_id = research_response.session_id
-        
-        # Log the remote session ID
-        await conn.execute("""
-            INSERT INTO public.research_logs (session_id, step_number, step_type, message)
-            VALUES ($1, $2, $3, $4)
-        """, session_id, 3, "remote_start", f"Remote research session started: {remote_session_id}")
-        
-        # Wait for completion
-        final_response = await self.research_client.wait_for_completion(remote_session_id)
-        
-        if final_response.status == ResearchStatus.COMPLETED:
-            # Get the results
-            research_result = await self.research_client.get_research_result(remote_session_id)
-            
-            if research_result:
-                # Store the results
-                await self._store_research_result(conn, session_id, research_result)
+        remote_session_id: str | None = None
+
+        try:
+            # Use the research client to start the research
+            research_response = await self.research_client.start_research(request)
+
+            if research_response.status != ResearchStatus.RUNNING:
+                raise ResearchError(f"Failed to start research: {research_response.message}")
+
+            remote_session_id = research_response.session_id
+
+            # Log the remote session ID
+            await conn.execute("""
+                INSERT INTO public.research_logs (session_id, step_number, step_type, message)
+                VALUES ($1, $2, $3, $4)
+            """, session_id, 3, "remote_start", f"Remote research session started: {remote_session_id}")
+
+            # Wait for completion
+            final_response = await self.research_client.wait_for_completion(remote_session_id)
+
+            if final_response.status == ResearchStatus.COMPLETED:
+                # Get the results
+                research_result = await self.research_client.get_research_result(remote_session_id)
+
+                if research_result:
+                    # Store the results
+                    await self._store_research_result(conn, session_id, research_result)
+                else:
+                    raise ResearchError("Failed to retrieve research results")
             else:
-                raise ResearchError("Failed to retrieve research results")
-        else:
-            raise ResearchError(f"Research failed: {final_response.message}")
+                raise ResearchError(f"Research failed: {final_response.message}")
+        finally:
+            if remote_session_id:
+                self.research_client.discard_pending(remote_session_id)
 
     async def _store_research_result(
         self, 

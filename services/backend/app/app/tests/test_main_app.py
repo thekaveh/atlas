@@ -41,6 +41,19 @@ def test_research_start_rejects_non_uuid_user_id(monkeypatch):
     assert "user_id" in resp.json()["detail"]
 
 
+def test_cors_regex_without_explicit_origins_does_not_leave_wildcard_enabled(monkeypatch):
+    _stub_required_env(monkeypatch)
+    import main
+
+    assert main._resolve_cors_origins("", "https://.*\\.example\\.com") == []
+    assert main._resolve_cors_origins(None, "https://.*\\.example\\.com") == []
+    assert main._resolve_cors_origins("", None) == ["*"]
+    assert main._resolve_cors_origins("https://atlas.localhost,http://localhost:3000", None) == [
+        "https://atlas.localhost",
+        "http://localhost:3000",
+    ]
+
+
 def test_research_start_rejects_unbounded_request_values(monkeypatch):
     _stub_required_env(monkeypatch)
     from fastapi.testclient import TestClient

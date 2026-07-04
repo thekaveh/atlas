@@ -107,6 +107,27 @@ def test_research_client_uses_langgraph_thread_and_run_stream(monkeypatch):
     assert run_call[2]["json"]["stream_mode"] == ["values"]
 
 
+def test_research_client_completed_result_is_one_shot(monkeypatch):
+    import research_client
+
+    monkeypatch.setattr(research_client.httpx, "AsyncClient", FakeAsyncClient)
+    client = ResearchClient(base_url="http://local-deep-researcher:2024")
+
+    async def scenario():
+        start = await client.start_research(ResearchRequest(query="atlas"))
+        done = await client.wait_for_completion(start.session_id)
+        first = await client.get_research_result(start.session_id)
+        second = await client.get_research_result(start.session_id)
+        return done, first, second
+
+    done, first, second = asyncio.run(scenario())
+
+    assert done.status == ResearchStatus.COMPLETED
+    assert first is not None
+    assert second is None
+    assert client._completed_results == {}
+
+
 def test_research_client_marks_empty_langgraph_stream_failed(monkeypatch):
     import research_client
 
@@ -161,3 +182,41 @@ def test_research_client_marks_langgraph_error_event_failed(monkeypatch):
     assert done.status == ResearchStatus.FAILED
     assert "search failed" in done.message
     assert asyncio.run(client.list_active_sessions()) == []
+
+
+def test_research_client_discard_pending_removes_stranded_request():
+    client = ResearchClient(base_url="http://local-deep-researcher:2024")
+    client._pending_requests["thread-123"] = ResearchRequest(query="atlas")
+
+    client.discard_pending("thread-123")
+
+    assert asyncio.run(client.list_active_sessions()) == []
+
+
+def test_stream_research_logs_uses_langgraph_post_payload(monkeypatch):
+    import research_client
+
+    FakeAsyncClient.calls = []
+    monkeypatch.setattr(research_client.httpx, "AsyncClient", FakeAsyncClient)
+    client = ResearchClient(base_url="http://local-deep-researcher:2024")
+    client._pending_requests["thread-123"] = ResearchRequest(
+        query="atlas",
+        max_loops=2,
+        search_api="searxng",
+        user_id="user-123",
+    )
+
+    async def scenario():
+        events = []
+        async for event in client.stream_research_logs("thread-123"):
+            events.append(event)
+        return events
+
+    events = asyncio.run(scenario())
+
+    assert events
+    run_call = FakeAsyncClient.calls[-1]
+    assert run_call[0] == "POST"
+    assert run_call[1] == "http://local-deep-researcher:2024/threads/thread-123/runs/stream"
+    assert run_call[2]["json"]["assistant_id"] == "agent"
+    assert run_call[2]["json"]["input"] == {"research_topic": "atlas"}

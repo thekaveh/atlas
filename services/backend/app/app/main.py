@@ -62,8 +62,22 @@ def _parse_csv_env(value: str | None) -> List[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
-BACKEND_CORS_ORIGINS = _parse_csv_env(os.getenv("BACKEND_CORS_ORIGINS")) or ["*"]
 BACKEND_CORS_ALLOW_ORIGIN_REGEX = os.getenv("BACKEND_CORS_ALLOW_ORIGIN_REGEX") or None
+
+
+def _resolve_cors_origins(origins_value: str | None, origin_regex: str | None) -> List[str]:
+    origins = _parse_csv_env(origins_value)
+    if origins:
+        return origins
+    if origin_regex:
+        return []
+    return ["*"]
+
+
+BACKEND_CORS_ORIGINS = _resolve_cors_origins(
+    os.getenv("BACKEND_CORS_ORIGINS"),
+    BACKEND_CORS_ALLOW_ORIGIN_REGEX,
+)
 BACKEND_STORAGE_ALLOWED_BUCKETS = set(
     _parse_csv_env(os.getenv("BACKEND_STORAGE_ALLOWED_BUCKETS")) or ["default"]
 )

@@ -532,7 +532,7 @@ are REQUIRED branch-protection checks:
 |---|---|
 | **Manifest lint + unit tests** | `validate_fragments` lint + 1,300+ pytest tests + the backend's own pytest suite (`services/backend/app/app/tests/`). Catches: manifest schema violations, dependency cycles, env-example drift, category overflow, backend route regressions. |
 | **Compose merge + byte-equivalence + source-permutation matrix** | Renders `docker compose config` for the merged fragment list + verifies it matches the golden baseline + tests every source variant of every service. Catches: compose-syntax errors, source-permutation regressions. |
-| **Docs drift + audit scripts** | `regen --all --check` + the 5 audit scripts (`check_doc_links` — incl. `#anchor` fragment validation, `check-compose-source-deps`, `check-docs-drift`, `check-kong-routes`, `validate_research_schema`) + a `uv lock --locked` gate for the docling localhost provider. Catches: stale per-service docs, missing `REQUIRED_DEPENDS_ON` entries, Kong route default drift, broken links/anchors, research-schema violations, stale provider locks. |
+| **Docs drift + audit scripts** | `regen --all --check` + the docs/site/wiki audit scripts (`check_doc_links` — incl. `#anchor` fragment validation, `check-compose-source-deps`, `check-docs-drift`, `check-docs-site`, `export-docs-wiki --check`, `check-kong-routes`, `validate_research_schema`, `check-track-membership`) + a `uv lock --locked` gate for the docling localhost provider. Catches: stale per-service docs, missing `REQUIRED_DEPENDS_ON` entries, Kong route default drift, broken links/anchors, research-schema violations, stale provider locks, and track-membership omissions. |
 | **Build-validation** | `docker buildx build` for the four highest-churn build contexts (airflow, spark, jupyterhub, backend) plus every `services/*/init/Dockerfile` context. Catches: unsatisfiable pip pins, broken Dockerfiles, and init-image drift. |
 
 Run the equivalent of the four required jobs locally before pushing:
@@ -543,10 +543,14 @@ cd bootstrapper && uv run python -m tools.validate_fragments           # job 1 l
 cp .env.example .env && docker compose -f docker-compose.yml config -q # job 2 merge check
 cd .. && PYTHONPATH=bootstrapper uv run --project bootstrapper python -m bootstrapper.docs.regen --all --check  # job 3 docs drift
 python scripts/check_doc_links.py                                      # job 3 link check
-python scripts/check-compose-source-deps.py                            # job 3 deps audit
 python scripts/check-docs-drift.py                                     # job 3 docs structural audit
+python scripts/check-docs-site.py                                      # job 3 MkDocs strict build
+python scripts/export-docs-wiki.py --check                             # job 3 wiki export drift
+python scripts/check-compose-source-deps.py                            # job 3 deps audit
 python scripts/check-kong-routes.py                                    # job 3 kong audit
 python scripts/validate_research_schema.py --all                       # job 3 research schema
+python scripts/check-track-membership.py                               # job 3 track coverage
+(cd services/docling/provider/localhost && uv lock --locked)            # job 3 docling lock
 docker buildx build --load --build-arg BASE_IMAGE=apache/airflow:3.2.2 services/airflow/build/  # job 4 sample build
 for d in services/*/init; do [ -f "$d/Dockerfile" ] && docker buildx build --load "$d/"; done    # job 4 init builds
 ```

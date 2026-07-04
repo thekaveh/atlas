@@ -108,4 +108,6 @@ python scripts/export-docs-wiki.py --check
 python scripts/check-compose-source-deps.py
 python scripts/check-kong-routes.py
 python scripts/validate_research_schema.py --all
+python scripts/check-track-membership.py
+(cd services/docling/provider/localhost && uv lock --locked)
 ```
