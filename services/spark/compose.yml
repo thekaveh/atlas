@@ -214,6 +214,12 @@ services:
       - spark.eventLog.enabled=true
       - --conf
       - spark.eventLog.dir=s3a://spark-history/
+    healthcheck:
+      test: ["CMD-SHELL", "bash -ec '</dev/tcp/localhost/15002'"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 30s
     depends_on:
       spark-master:
         condition: service_healthy

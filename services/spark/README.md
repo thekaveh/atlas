@@ -47,6 +47,18 @@ drivers and Zeppelin `%spark` paragraphs. Raise the value for more Spark Connect
 enough unused cores for those standalone workloads; otherwise Connect can
 monopolize the cluster and leave other applications stuck in `PENDING`.
 
+Spark Connect also publishes a Docker health signal once its backend-only
+listener accepts TCP connections on `15002`. Downstream wait-for-healthy tooling
+can verify it with:
+
+```bash
+docker inspect --format '{{.State.Health.Status}}' ${PROJECT_NAME}-spark-connect
+```
+
+Expected result: `starting` during JVM startup, then `healthy` after
+`sc://spark-connect:15002` is accepting sessions. The probe runs inside the
+container and does not publish `15002` to the host.
+
 Minimal Spark Connect lakehouse smoke from an in-stack client:
 
 ```python
