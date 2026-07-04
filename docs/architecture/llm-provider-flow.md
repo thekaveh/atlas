@@ -2,16 +2,18 @@
 
 Ollama, LiteLLM, cloud passthroughs, Open WebUI, backend, MCP/tool access, and trace hooks.
 
+## 1. Diagram
+
 [Open the interactive diagram](./llm-provider-flow.html).
 
-## Source Files
+## 2. Source Files
 
 - `services/*/service.yml`
 - `bootstrapper/tracks.yml`
 - `services/topology.py`
 - `docs/deployment/source-configuration.md`
 
-## Update Rule
+## 3. Update Rule
 
 Update this page and `llm-provider-flow.html` when the represented architecture surface
 changes. Use the `architecture-diagram` design system: dark slate background,

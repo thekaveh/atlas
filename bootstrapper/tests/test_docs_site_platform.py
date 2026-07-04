@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+import subprocess
+import sys
 
 import yaml
 
@@ -13,8 +15,11 @@ DOCS_SITE = ROOT / "docs" / "site"
 DIAGRAMS_DIR = ROOT / "docs" / "architecture"
 WIKI_DIR = ROOT / "docs" / "wiki"
 CHECK_SCRIPT = ROOT / "scripts" / "check-docs-site.py"
+DRIFT_SCRIPT = ROOT / "scripts" / "check-docs-drift.py"
 WIKI_SCRIPT = ROOT / "scripts" / "export-docs-wiki.py"
 WORKFLOW = ROOT / ".github" / "workflows" / "services-lint.yml"
+PAGES_WORKFLOW = ROOT / ".github" / "workflows" / "docs-pages.yml"
+THEME_CSS = ROOT / "docs" / "assets" / "stylesheets" / "atlas.css"
 
 REQUIRED_DIAGRAMS = {
     "platform-overview",
@@ -67,12 +72,14 @@ def test_mkdocs_nav_exists_and_points_to_real_pages() -> None:
     nav = _flatten_nav(config["nav"])
 
     assert config["site_name"] == "Atlas Documentation"
+    assert config["site_url"] == "https://thekaveh.github.io/atlas/"
     assert config["docs_dir"] == "docs"
     assert config["site_dir"] == "site"
-    assert nav["Home"] == "site/index.md"
+    assert nav["Home"] == "index.md"
     assert nav["Service Index"] == "site/services/index.md"
     assert nav["SOURCE Reference"] == "site/reference/source-values.md"
     assert nav["Wiki Export"] == "wiki/Home.md"
+    assert "assets/stylesheets/atlas.css" in config["extra_css"]
 
     required_sections = {
         "Overview",
@@ -156,14 +163,72 @@ def test_required_diagram_catalog_is_linked_and_non_empty() -> None:
 def test_wiki_export_and_ci_hooks_are_present() -> None:
     wiki_home = (WIKI_DIR / "Home.md").read_text(encoding="utf-8")
     wiki_index = (WIKI_DIR / "_Sidebar.md").read_text(encoding="utf-8")
+    wiki_services = (WIKI_DIR / "Services.md").read_text(encoding="utf-8")
     check_script = CHECK_SCRIPT.read_text(encoding="utf-8")
     wiki_script = WIKI_SCRIPT.read_text(encoding="utf-8")
     workflow = WORKFLOW.read_text(encoding="utf-8")
 
     assert "Generated from the MkDocs source pages" in wiki_home
     assert "Atlas Documentation" in wiki_index
+    assert "../site/" not in wiki_home
+    assert "../site/" not in wiki_index
+    assert "../site/" not in wiki_services
+    assert "[Overview](Overview)" in wiki_home
+    assert "[Services](Services)" in wiki_index
     assert "mkdocs build --strict" in check_script
     assert "mkdocs build --strict" in workflow
     assert "check-docs-site.py" in workflow
     assert "export-docs-wiki.py --check" in workflow
     assert "wiki/Home.md" in wiki_script
+
+
+def test_docs_pages_publication_workflow_and_homepage_contract() -> None:
+    workflow = PAGES_WORKFLOW.read_text(encoding="utf-8")
+
+    assert "deploy-pages" in workflow
+    assert "upload-pages-artifact" in workflow
+    assert "pages: write" in workflow
+    assert "id-token: write" in workflow
+    assert "scripts/check-docs-site.py" in workflow
+    assert "scripts/export-docs-wiki.py --push" in workflow
+    assert "https://thekaveh.github.io/atlas/" in workflow
+
+
+def test_atlas_theme_uses_professional_blue_system() -> None:
+    css = THEME_CSS.read_text(encoding="utf-8")
+
+    for color in ("#020617", "#0ea5e9", "#22d3ee", "#38bdf8"):
+        assert color in css
+    assert "Inter" in css
+    assert "JetBrains Mono" in css
+    assert "border-radius" in css
+    assert "emoji" not in css.lower()
+
+
+def test_generated_site_pages_use_numbered_hierarchy() -> None:
+    for relative in [
+        "index.md",
+        "site/overview.md",
+        "site/quick-start.md",
+        "site/architecture/index.md",
+        "site/configuration.md",
+        "site/operations.md",
+        "site/development.md",
+        "site/reference/index.md",
+        "site/services/index.md",
+    ]:
+        text = (DOCS_SITE.parent / relative).read_text(encoding="utf-8")
+        headings = [line for line in text.splitlines() if line.startswith("## ")]
+        assert headings, f"{relative} has no section headings"
+        assert any(line.startswith("## 1. ") for line in headings), relative
+
+
+def test_structural_docs_audit_accepts_generated_wiki_links() -> None:
+    result = subprocess.run(
+        [sys.executable, str(DRIFT_SCRIPT)],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr

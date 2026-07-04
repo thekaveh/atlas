@@ -2,16 +2,18 @@
 
 Ingestion, document processing, object storage, vector and graph stores, backend APIs, Open WebUI, and tool/MCP-adjacent flows.
 
+## 1. Diagram
+
 [Open the interactive diagram](./data-rag-flow.html).
 
-## Source Files
+## 2. Source Files
 
 - `services/*/service.yml`
 - `bootstrapper/tracks.yml`
 - `services/topology.py`
 - `docs/deployment/source-configuration.md`
 
-## Update Rule
+## 3. Update Rule
 
 Update this page and `data-rag-flow.html` when the represented architecture surface
 changes. Use the `architecture-diagram` design system: dark slate background,

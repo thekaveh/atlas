@@ -1,0 +1,72 @@
+name: docs-pages
+
+# Publishes the generated MkDocs documentation site and keeps the GitHub Wiki
+# in sync with the repo-owned docs/wiki export.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "services/**/README.md"
+      - "services/**/architecture.*"
+      - "services/**/service.yml"
+      - "bootstrapper/**"
+      - "scripts/generate-docs-site.py"
+      - "scripts/check-docs-site.py"
+      - "scripts/export-docs-wiki.py"
+      - "mkdocs.yml"
+      - ".github/workflows/docs-pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: docs-pages
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish MkDocs and Wiki
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: https://thekaveh.github.io/atlas/
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          version: "0.11.19"
+
+      - name: Sync docs dependencies
+        working-directory: bootstrapper
+        run: uv sync --group dev
+
+      - name: Build generated MkDocs site
+        run: uv run --project bootstrapper python scripts/check-docs-site.py
+
+      - name: Sync GitHub Wiki
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: uv run --project bootstrapper python scripts/export-docs-wiki.py --push
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

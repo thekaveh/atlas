@@ -25,9 +25,12 @@ from services.manifests import Manifest, load_manifests  # noqa: E402
 
 DOCS = ROOT / "docs"
 SERVICES = ROOT / "services"
+PUBLIC_URL = "https://thekaveh.github.io/atlas/"
+HOME = DOCS / "index.md"
 SITE = DOCS / "site"
 ARCH = DOCS / "architecture"
 WIKI = DOCS / "wiki"
+THEME_CSS = DOCS / "assets" / "stylesheets" / "atlas.css"
 
 
 @dataclass(frozen=True)
@@ -151,9 +154,14 @@ def _mkdocs_nav(services: list[ServiceDoc]) -> dict:
     return {
         "site_name": "Atlas Documentation",
         "site_description": "Atlas self-hosted AI, data, and engineering platform documentation",
+        "site_url": PUBLIC_URL,
+        "repo_url": "https://github.com/thekaveh/atlas",
+        "repo_name": "thekaveh/atlas",
         "docs_dir": "docs",
         "site_dir": "site",
         "strict": True,
+        "exclude_docs": "README.md",
+        "extra_css": ["assets/stylesheets/atlas.css"],
         "not_in_nav": "**/*.md",
         "validation": {
             "links": {
@@ -165,7 +173,7 @@ def _mkdocs_nav(services: list[ServiceDoc]) -> dict:
             "nav": {"omitted_files": "ignore"},
         },
         "nav": [
-            {"Home": "site/index.md"},
+            {"Home": "index.md"},
             {"Overview": "site/overview.md"},
             {"Quick Start": "site/quick-start.md"},
             {"Architecture": "site/architecture/index.md"},
@@ -186,8 +194,130 @@ def _mkdocs_nav(services: list[ServiceDoc]) -> dict:
             {"Manifest Fields": "site/reference/manifest-fields.md"},
             {"Wiki Export": "wiki/Home.md"},
         ],
-        "theme": {"name": "mkdocs", "navigation_depth": 3},
+        "theme": {"name": "mkdocs", "navigation_depth": 4},
     }
+
+
+def _theme_css() -> str:
+    return """@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+:root {
+  --atlas-space: #020617;
+  --atlas-panel: #08111f;
+  --atlas-panel-2: #0f172a;
+  --atlas-line: #1e3a5f;
+  --atlas-cyan: #22d3ee;
+  --atlas-sky: #38bdf8;
+  --atlas-blue: #0ea5e9;
+  --atlas-text: #e2e8f0;
+  --atlas-muted: #94a3b8;
+}
+
+html, body {
+  background:
+    linear-gradient(180deg, rgba(14, 165, 233, 0.14), transparent 340px),
+    linear-gradient(90deg, rgba(56, 189, 248, 0.06) 1px, transparent 1px),
+    linear-gradient(0deg, rgba(56, 189, 248, 0.05) 1px, transparent 1px),
+    var(--atlas-space);
+  background-size: auto, 44px 44px, 44px 44px, auto;
+  color: var(--atlas-text);
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+.navbar {
+  background: rgba(2, 6, 23, 0.92) !important;
+  border-bottom: 1px solid rgba(34, 211, 238, 0.28);
+  box-shadow: 0 18px 60px rgba(2, 6, 23, 0.45);
+}
+
+.navbar-brand {
+  color: white !important;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+.navbar-brand::before {
+  content: '';
+  display: inline-block;
+  width: 0.7rem;
+  height: 0.7rem;
+  margin-right: 0.55rem;
+  border-radius: 3px;
+  background: linear-gradient(135deg, var(--atlas-sky), var(--atlas-blue));
+  box-shadow: 0 0 22px rgba(34, 211, 238, 0.78);
+}
+
+.navbar-dark .navbar-nav .nav-link {
+  color: #cbd5e1;
+}
+
+.navbar-dark .navbar-nav .nav-link:hover,
+.navbar-dark .navbar-nav .nav-link:focus {
+  color: white;
+}
+
+.container[role='main'] {
+  background: rgba(8, 17, 31, 0.74);
+  border: 1px solid rgba(56, 189, 248, 0.18);
+  border-radius: 16px;
+  box-shadow: 0 24px 90px rgba(0, 0, 0, 0.28);
+  margin-top: 2rem;
+  margin-bottom: 3rem;
+  padding: 2rem;
+}
+
+h1, h2, h3, h4 {
+  color: #f8fafc;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+h1 {
+  border-bottom: 1px solid rgba(56, 189, 248, 0.24);
+  padding-bottom: 0.65rem;
+}
+
+h2 {
+  margin-top: 2.25rem;
+}
+
+a {
+  color: var(--atlas-cyan);
+}
+
+a:hover,
+a:focus {
+  color: #7dd3fc;
+}
+
+code, pre, kbd {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+pre, code {
+  background-color: rgba(15, 23, 42, 0.9);
+  border-color: rgba(56, 189, 248, 0.18);
+  color: #dbeafe;
+}
+
+table {
+  border: 1px solid rgba(56, 189, 248, 0.18);
+}
+
+thead th {
+  background: rgba(14, 165, 233, 0.14);
+  color: #f8fafc;
+}
+
+tbody tr:nth-child(odd) {
+  background: rgba(15, 23, 42, 0.42);
+}
+
+.wy-nav-content,
+.md-content {
+  background: transparent;
+}
+"""
 
 
 def _table(headers: list[str], rows: Iterable[list[str]]) -> str:
@@ -202,23 +332,35 @@ def _static_pages(services: list[ServiceDoc]) -> dict[Path, str]:
     source_vars = sum(1 for manifest in manifests if manifest.sources)
     tracks = _tracks()
     pages: dict[Path, str] = {}
-    pages[SITE / "index.md"] = f"""# Atlas Documentation
+    pages[HOME] = f"""# Atlas Documentation
 
 Atlas is a self-hosted, source-configurable engineering platform for AI, RAG,
 creative AI, ML, and data-engineering workloads.
 
-This MkDocs site is the publishable navigation layer for the repo's existing
-documentation. It indexes {service_count} service families, {len(tracks)} tracks,
-and {source_vars} SOURCE-configurable surfaces while preserving service READMEs
-as the per-service source of truth.
+This MkDocs site is the publishable navigation layer for the repository's
+existing documentation. It indexes {service_count} service families,
+{len(tracks)} tracks, and {source_vars} SOURCE-configurable surfaces while
+preserving service READMEs as the per-service source of truth.
 
-## Start Here
+## 1. Start Here
 
-- [Overview](overview.md)
-- [Quick Start](quick-start.md)
-- [Service Index](services/index.md)
-- [Architecture](architecture/index.md)
-- [Reference](reference/index.md)
+- [Overview](site/overview.md)
+- [Quick Start](site/quick-start.md)
+- [Service Index](site/services/index.md)
+- [Architecture](site/architecture/index.md)
+- [Reference](site/reference/index.md)
+
+## 2. Publication Surfaces
+
+- Public site: [{PUBLIC_URL}]({PUBLIC_URL})
+- GitHub Wiki export: [docs/wiki/Home.md](wiki/Home.md)
+- Source repository: [thekaveh/atlas](https://github.com/thekaveh/atlas)
+"""
+    pages[SITE / "index.md"] = f"""# Atlas Documentation
+
+This page is retained as a generated compatibility entry for older links. The
+published documentation home is [docs/index.md](../index.md) and builds at
+[{PUBLIC_URL}]({PUBLIC_URL}).
 """
     pages[SITE / "overview.md"] = """# Overview
 
@@ -227,7 +369,12 @@ Kong-fronted service URLs. The stack can run local containers, connect to host
 services, disable optional services, or route cloud LLM providers through
 LiteLLM without changing application code.
 
-Primary source files:
+## 1. Platform Model
+
+Atlas is a Docker Compose-first platform with a Python bootstrapper, generated
+Kong routing, service manifests, and workflow tracks.
+
+## 2. Source Files
 
 - `services/*/service.yml`
 - `bootstrapper/tracks.yml`
@@ -240,10 +387,14 @@ Primary source files:
 Run `./start.sh`, choose a track, and use `./start.sh --setup-hosts` when you
 want the Kong `*.localhost` aliases. Common paths:
 
+## 1. Launch
+
 - `./start.sh --track gen-ai-eng`
 - `./start.sh --track gen-ai-rag`
 - `./start.sh --track data-eng`
 - `./start.sh --base-port 64000`
+
+## 2. Supporting Guides
 
 See the existing [interactive wizard guide](../quick-start/interactive-setup-wizard.md)
 and [troubleshooting guide](../quick-start/troubleshooting.md).
@@ -255,6 +406,8 @@ overloaded diagram. Start with the platform overview, then use the focused
 diagrams for bootstrapper, SOURCE, routing, RAG, LLM, lakehouse, observability,
 security, and service admission flows.
 
+## 1. Diagram Catalog
+
 The high-level diagram catalog lives under `docs/architecture/`. Per-service
 diagrams remain generated under each `services/<name>/` folder.
 """
@@ -263,7 +416,7 @@ diagrams remain generated under each `services/<name>/` folder.
 Configuration is driven by `.env`, `.env.example`, SOURCE values, and manifest
 defaults. `.env.example` is generated from manifests and topology port defaults.
 
-Key references:
+## 1. Key References
 
 - [SOURCE configuration](reference/source-values.md)
 - [Environment variables](reference/env-vars.md)
@@ -273,6 +426,8 @@ Key references:
 
 Common commands:
 
+## 1. Runtime Commands
+
 ```bash
 ./start.sh
 ./start.sh --setup-hosts
@@ -280,6 +435,8 @@ Common commands:
 ./stop.sh --cold
 ./stop.sh --clean-hosts
 ```
+
+## 2. Operational References
 
 Operational references include startup warnings, release notes, backup/restore,
 and CI gates.
@@ -289,11 +446,15 @@ and CI gates.
 Adding or changing a service requires manifest, compose, topology, docs, route,
 and test updates. Use:
 
+## 1. Required Checks
+
 ```bash
 PYTHONPATH=bootstrapper python -m bootstrapper.docs.regen --all --check
 python scripts/check-docs-site.py
 python scripts/export-docs-wiki.py --check
 ```
+
+## 2. Service Admission
 
 See [Adding a service](../CONTRIBUTING-services.md).
 """
@@ -302,8 +463,12 @@ See [Adding a service](../CONTRIBUTING-services.md).
 Tracks constrain the wizard to the services needed for a workflow and
 force-disable out-of-track services unless explicitly overridden.
 
+## 1. Track Matrix
+
 """ + _table(["Track", "Description", "Services"], ([t["key"], t.get("description", ""), ", ".join(t["services"])] for t in tracks))
     pages[SITE / "reference" / "index.md"] = """# Reference
+
+## 1. Generated Reference Pages
 
 - [SOURCE values](source-values.md)
 - [Environment variables](env-vars.md)
@@ -341,11 +506,15 @@ def _service_pages(services: list[ServiceDoc]) -> dict[Path, str]:
 
 Generated service-site entry for `{svc.name}`.
 
+## 1. Service Contract
+
 - Category: `{svc.category}`
 - Kind: `{svc.kind}`
 - SOURCE variable: `{svc.source_var or 'none'}`
 - SOURCE values: `{', '.join(svc.source_values) if svc.source_values else 'none'}`
 {readme_line}
+
+## 2. Source Of Truth
 
 The service README remains the source of truth for detailed setup, architecture,
 and troubleshooting. This page exists so MkDocs navigation can index every
@@ -355,16 +524,16 @@ manifest-backed, virtual, and doc-only service family deterministically.
 
 Generated from `services/*/service.yml` and `services/*/README.md`.
 
-## Service Families
+## 1. Service Families
 
 {_table(["Service", "Title", "Category", "Kind", "SOURCE"], rows)}
 
-## Virtual manifests
+## 2. Virtual Manifests
 
 Virtual manifests are configuration surfaces without a compose container:
 {', '.join(sorted(svc.name for svc in groups['virtual']))}.
 
-## Doc-only service folders
+## 3. Doc-only Service Folders
 
 Doc-only service folders are aggregate documentation surfaces without their own
 `service.yml`: {', '.join(sorted(svc.name for svc in groups['doc-only']))}.
@@ -403,23 +572,38 @@ def _reference_pages(services: list[ServiceDoc]) -> dict[Path, str]:
             ", ".join(manifest.depends_on.optional) or "-",
             ", ".join(manifest.data_flow.get("calls", [])) or "-",
         ])
-    pages[SITE / "reference" / "source-values.md"] = "# SOURCE Values\n\nGenerated from manifests.\n\n" + _table(["SOURCE", "Service", "Default", "Values"], source_rows)
-    pages[SITE / "reference" / "env-vars.md"] = "# Environment Variables\n\nGenerated from manifest env declarations.\n\n" + _table(["Variable", "Service", "Default", "Description"], env_rows)
-    pages[SITE / "reference" / "ports-routes.md"] = "# Ports And Routes\n\nGenerated index entry. Canonical route details remain in `docs/deployment/ports-and-routes.md`.\n\nSee [ports-and-routes.md](../../deployment/ports-and-routes.md)."
-    pages[SITE / "reference" / "tracks.md"] = "# Track Reference\n\nGenerated from `bootstrapper/tracks.yml`.\n\n" + _table(["Track", "Services"], ([t["key"], ", ".join(t["services"])] for t in _tracks()))
-    pages[SITE / "reference" / "service-dependencies.md"] = "# Service Dependencies\n\nGenerated from manifest dependency and data-flow fields.\n\n" + _table(["Service", "Required", "Optional", "Runtime Calls"], deps_rows)
-    pages[SITE / "reference" / "manifest-fields.md"] = "# Manifest Fields\n\nGenerated manifest schema quick reference.\n\n" + _table(["Field", "Purpose"], field_rows)
+    pages[SITE / "reference" / "source-values.md"] = "# SOURCE Values\n\n## 1. Generated Source Matrix\n\nGenerated from manifests.\n\n" + _table(["SOURCE", "Service", "Default", "Values"], source_rows)
+    pages[SITE / "reference" / "env-vars.md"] = "# Environment Variables\n\n## 1. Generated Environment Matrix\n\nGenerated from manifest env declarations.\n\n" + _table(["Variable", "Service", "Default", "Description"], env_rows)
+    pages[SITE / "reference" / "ports-routes.md"] = "# Ports And Routes\n\n## 1. Canonical Route Reference\n\nGenerated index entry. Canonical route details remain in `docs/deployment/ports-and-routes.md`.\n\nSee [ports-and-routes.md](../../deployment/ports-and-routes.md)."
+    pages[SITE / "reference" / "tracks.md"] = "# Track Reference\n\n## 1. Generated Track Matrix\n\nGenerated from `bootstrapper/tracks.yml`.\n\n" + _table(["Track", "Services"], ([t["key"], ", ".join(t["services"])] for t in _tracks()))
+    pages[SITE / "reference" / "service-dependencies.md"] = "# Service Dependencies\n\n## 1. Generated Dependency Matrix\n\nGenerated from manifest dependency and data-flow fields.\n\n" + _table(["Service", "Required", "Optional", "Runtime Calls"], deps_rows)
+    pages[SITE / "reference" / "manifest-fields.md"] = "# Manifest Fields\n\n## 1. Manifest Schema Quick Reference\n\nGenerated manifest schema quick reference.\n\n" + _table(["Field", "Purpose"], field_rows)
     return pages
 
 
 def _diagram_html(slug: str, title: str, description: str, nodes: list[str]) -> str:
     boxes = []
     arrows = []
+    palette = [
+        ("rgba(8, 51, 68, 0.4)", "#22d3ee", "frontend"),
+        ("rgba(6, 78, 59, 0.4)", "#34d399", "backend"),
+        ("rgba(76, 29, 149, 0.4)", "#a78bfa", "data"),
+        ("rgba(120, 53, 15, 0.3)", "#fbbf24", "cloud"),
+        ("rgba(136, 19, 55, 0.4)", "#fb7185", "security"),
+        ("rgba(251, 146, 60, 0.3)", "#fb923c", "bus"),
+        ("rgba(30, 41, 59, 0.5)", "#94a3b8", "generic"),
+    ]
     x = 70
     for idx, node in enumerate(nodes):
         y = 135 + (idx % 2) * 120
         box_x = x + idx * 120
-        boxes.append(f'<rect x="{box_x}" y="{y}" width="105" height="58" rx="6" fill="#0f172a"/><rect x="{box_x}" y="{y}" width="105" height="58" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#22d3ee" stroke-width="1.5"/><text x="{box_x + 52}" y="{y + 31}" fill="white" font-size="10" text-anchor="middle">{html.escape(node)}</text>')
+        fill, stroke, role = palette[idx % len(palette)]
+        boxes.append(
+            f'<rect x="{box_x}" y="{y}" width="105" height="60" rx="6" fill="#0f172a"/>'
+            f'<rect x="{box_x}" y="{y}" width="105" height="60" rx="6" fill="{fill}" stroke="{stroke}" stroke-width="1.5"/>'
+            f'<text x="{box_x + 52}" y="{y + 25}" fill="white" font-size="11" font-weight="600" text-anchor="middle">{html.escape(node)}</text>'
+            f'<text x="{box_x + 52}" y="{y + 42}" fill="#94a3b8" font-size="9" text-anchor="middle">{role}</text>'
+        )
         if idx:
             prev_x = x + (idx - 1) * 120 + 105
             prev_y = 164 + ((idx - 1) % 2) * 120
@@ -436,11 +620,16 @@ def _diagram_html(slug: str, title: str, description: str, nodes: list[str]) -> 
     .frame {{ border: 1px solid #1e293b; border-radius: 14px; background: #020617; padding: 20px; }}
     .cards {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 16px; }}
     .card {{ border: 1px solid #1e293b; border-radius: 8px; padding: 12px; background: #0f172a; }}
+    .card h3 {{ align-items: center; color: #e2e8f0; display: flex; font-size: 13px; gap: 8px; margin: 0 0 8px; }}
+    .card h3::before, .signal {{ background: #22d3ee; border-radius: 999px; box-shadow: 0 0 18px rgba(34, 211, 238, 0.74); content: ''; display: inline-block; height: 8px; width: 8px; }}
+    .card p {{ color: #94a3b8; font-size: 12px; line-height: 1.5; margin: 0; }}
+    .title {{ align-items: center; display: flex; gap: 10px; }}
+    footer {{ color: #64748b; font-size: 11px; margin-top: 16px; }}
   </style>
 </head>
 <body>
   <main>
-    <h1>{html.escape(title)}</h1>
+    <h1 class="title"><span class="signal"></span>{html.escape(title)}</h1>
     <p>{html.escape(description)}</p>
     <div class="frame">
       <svg viewBox="0 0 1000 420" role="img" aria-label="{html.escape(title)}">
@@ -459,10 +648,11 @@ def _diagram_html(slug: str, title: str, description: str, nodes: list[str]) -> 
       </svg>
     </div>
     <div class="cards">
-      <div class="card"><strong>Source files</strong><br/>Manifests, topology, tracks, docs.</div>
-      <div class="card"><strong>Update trigger</strong><br/>Architecture or routing changes.</div>
-      <div class="card"><strong>Diagram ID</strong><br/>{html.escape(slug)}</div>
+      <div class="card"><h3>Source files</h3><p>Manifests, topology, tracks, and documentation sources.</p></div>
+      <div class="card"><h3>Update trigger</h3><p>Service, routing, SOURCE, track, or architecture changes.</p></div>
+      <div class="card"><h3>Diagram ID</h3><p>{html.escape(slug)}</p></div>
     </div>
+    <footer>Generated for Atlas documentation using the architecture-diagram design system.</footer>
   </main>
 </body>
 </html>"""
@@ -477,41 +667,50 @@ def _diagram_pages() -> dict[Path, str]:
 
 {description}
 
+## 1. Diagram
+
 [Open the interactive diagram](./{slug}.html).
 
-## Source Files
+## 2. Source Files
 
 - `services/*/service.yml`
 - `bootstrapper/tracks.yml`
 - `services/topology.py`
 - `docs/deployment/source-configuration.md`
 
-## Update Rule
+## 3. Update Rule
 
 Update this page and `{slug}.html` when the represented architecture surface
 changes. Use the `architecture-diagram` design system: dark slate background,
 JetBrains Mono, split perspectives, readable labels, and no overloaded mega-diagram.
 """
         rows.append([f"[{title}]({slug}.md)", description])
-    pages[ARCH / "README.md"] = "# Architecture Diagram Catalog\n\nGenerated catalog of split Atlas architecture perspectives.\n\n" + _table(["Diagram", "Purpose"], rows)
+    pages[ARCH / "README.md"] = "# Architecture Diagram Catalog\n\n## 1. Generated Diagram Index\n\nGenerated catalog of split Atlas architecture perspectives.\n\n" + _table(["Diagram", "Purpose"], rows)
     return pages
 
 
 def _wiki_pages(services: list[ServiceDoc]) -> dict[Path, str]:
-    service_links = "\n".join(f"- [{svc.name}](../site/services/{svc.name}.md)" for svc in services)
+    service_links = "\n".join(f"- {svc.name} — {svc.title} ({svc.category}, {svc.kind})" for svc in services)
     return {
         WIKI / "Home.md": """# Atlas Documentation
 
 Generated from the MkDocs source pages. Do not copy/paste-edit this wiki export
 by hand; run `python scripts/export-docs-wiki.py` from the repo root.
 
-- [Overview](../site/overview.md)
-- [Quick Start](../site/quick-start.md)
-- [Service Index](../site/services/index.md)
-- [Reference](../site/reference/index.md)
+## 1. Start Here
+
+- [Overview](Overview)
+- [Quick Start](Quick-Start)
+- [Services](Services)
+- [Architecture](Architecture)
+- [Reference](Reference)
 """,
-        WIKI / "_Sidebar.md": "# Atlas Documentation\n\n- [Home](Home.md)\n- [Services](../site/services/index.md)\n- [Reference](../site/reference/index.md)\n",
-        WIKI / "Services.md": "# Services\n\nGenerated wiki service index.\n\n" + service_links,
+        WIKI / "_Sidebar.md": "# Atlas Documentation\n\n- [Home](Home)\n- [Overview](Overview)\n- [Quick Start](Quick-Start)\n- [Services](Services)\n- [Architecture](Architecture)\n- [Reference](Reference)\n",
+        WIKI / "Overview.md": "# Overview\n\n## 1. Platform Model\n\nAtlas is a source-configurable engineering platform for AI, data, automation, notebooks, observability, and local-first experimentation.\n\n## 2. Source Of Truth\n\nThe MkDocs site and wiki export are generated from repo sources: service manifests, service READMEs, tracks, topology, and generated reference files.\n",
+        WIKI / "Quick-Start.md": "# Quick Start\n\n## 1. Launch\n\nRun `./start.sh`, choose a track, and use `./start.sh --setup-hosts` for Kong `*.localhost` aliases.\n\n## 2. Common Tracks\n\nUse `gen-ai-eng`, `gen-ai-rag`, `gen-ai-creative`, `ml-eng`, `data-eng`, or `all` depending on the workflow.\n",
+        WIKI / "Services.md": "# Services\n\n## 1. Service Index\n\nGenerated wiki service index.\n\n" + service_links,
+        WIKI / "Architecture.md": "# Architecture\n\n## 1. Diagram Catalog\n\nThe public MkDocs site contains the full architecture diagram catalog. The source files live in `docs/architecture/` in the repository.\n\n## 2. Update Rule\n\nRegenerate docs with `python scripts/generate-docs-site.py` after service, route, track, or architecture changes.\n",
+        WIKI / "Reference.md": "# Reference\n\n## 1. Generated References\n\nThe MkDocs site publishes generated references for SOURCE values, environment variables, ports and routes, tracks, service dependencies, and manifest fields.\n",
     }
 
 
@@ -519,6 +718,7 @@ def build_artifacts() -> dict[Path, str]:
     services = _manifest_docs()
     artifacts: dict[Path, str] = {}
     artifacts[ROOT / "mkdocs.yml"] = yaml.safe_dump(_mkdocs_nav(services), sort_keys=False)
+    artifacts[THEME_CSS] = _theme_css()
     artifacts.update(_static_pages(services))
     artifacts.update(_service_pages(services))
     artifacts.update(_reference_pages(services))

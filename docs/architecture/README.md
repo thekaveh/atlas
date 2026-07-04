@@ -1,5 +1,7 @@
 # Architecture Diagram Catalog
 
+## 1. Generated Diagram Index
+
 Generated catalog of split Atlas architecture perspectives.
 
 | Diagram | Purpose |

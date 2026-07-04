@@ -64,6 +64,24 @@ def _strip_fenced_code_blocks(text: str) -> str:
     return ''.join(out)
 
 
+def _resolve_link_target(source: Path, target: str) -> Path:
+    resolved = (source.parent / target).resolve()
+    if resolved.exists():
+        return resolved
+
+    docs_wiki = (ROOT / "docs" / "wiki").resolve()
+    try:
+        is_wiki_page = source.resolve().is_relative_to(docs_wiki)
+    except ValueError:
+        is_wiki_page = False
+    if is_wiki_page and not Path(target).suffix:
+        wiki_target = resolved.with_suffix(".md")
+        if wiki_target.exists():
+            return wiki_target
+
+    return resolved
+
+
 def check_links():
     broken = []
     for p in markdown_files():
@@ -76,7 +94,7 @@ def check_links():
             target = url.split('#', 1)[0]
             if not target:
                 continue
-            if not (p.parent / target).resolve().exists():
+            if not _resolve_link_target(p, target).exists():
                 line = text[:match.start()].count('\n') + 1
                 broken.append(f'{p.relative_to(ROOT)}:{line}: broken link {url}')
     return broken

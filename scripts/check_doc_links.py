@@ -133,6 +133,24 @@ def _default_roots() -> list[Path]:
     return roots
 
 
+def _resolve_link_target(md: Path, file_part: str) -> Path:
+    resolved = (md.parent / file_part).resolve()
+    if resolved.exists():
+        return resolved
+
+    docs_wiki = (REPO_ROOT / "docs" / "wiki").resolve()
+    try:
+        is_wiki_page = md.resolve().is_relative_to(docs_wiki)
+    except ValueError:
+        is_wiki_page = False
+    if is_wiki_page and not Path(file_part).suffix:
+        wiki_page = resolved.with_suffix(".md")
+        if wiki_page.exists():
+            return wiki_page
+
+    return resolved
+
+
 def _check_file(md: Path) -> list[str]:
     """Return a list of broken-link error strings for this markdown file.
 
@@ -146,7 +164,7 @@ def _check_file(md: Path) -> list[str]:
         target = m.group("target").strip()
         file_part, _, fragment = target.partition("#")
         if file_part:
-            resolved = (md.parent / file_part).resolve()
+            resolved = _resolve_link_target(md, file_part)
             if not resolved.exists():
                 errors.append(f"{md}: broken link [{m.group('label')}]({target}) → {resolved}")
                 continue

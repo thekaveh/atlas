@@ -2,7 +2,7 @@
 
 Generated from `services/*/service.yml` and `services/*/README.md`.
 
-## Service Families
+## 1. Service Families
 
 | Service | Title | Category | Kind | SOURCE |
 | --- | --- | --- | --- | --- |
@@ -62,12 +62,12 @@ Generated from `services/*/service.yml` and `services/*/README.md`.
 | [weaviate](../services/weaviate.md) | Weaviate (vector database) | data | container | WEAVIATE_SOURCE |
 | [zeppelin](../services/zeppelin.md) | Apache Zeppelin (Spark-first notebook) | apps | container | ZEPPELIN_SOURCE |
 
-## Virtual manifests
+## 2. Virtual Manifests
 
 Virtual manifests are configuration surfaces without a compose container:
 blender-mcp, cloud-providers, globals, tts-provider.
 
-## Doc-only service folders
+## 3. Doc-only Service Folders
 
 Doc-only service folders are aggregate documentation surfaces without their own
 `service.yml`: doc-processor, multi2vec-clip, stt-provider.

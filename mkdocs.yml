@@ -1,8 +1,14 @@
 site_name: Atlas Documentation
 site_description: Atlas self-hosted AI, data, and engineering platform documentation
+site_url: https://thekaveh.github.io/atlas/
+repo_url: https://github.com/thekaveh/atlas
+repo_name: thekaveh/atlas
 docs_dir: docs
 site_dir: site
 strict: true
+exclude_docs: README.md
+extra_css:
+- assets/stylesheets/atlas.css
 not_in_nav: '**/*.md'
 validation:
   links:
@@ -13,7 +19,7 @@ validation:
   nav:
     omitted_files: ignore
 nav:
-- Home: site/index.md
+- Home: index.md
 - Overview: site/overview.md
 - Quick Start: site/quick-start.md
 - Architecture: site/architecture/index.md
@@ -101,4 +107,4 @@ nav:
 - Wiki Export: wiki/Home.md
 theme:
   name: mkdocs
-  navigation_depth: 3
+  navigation_depth: 4
