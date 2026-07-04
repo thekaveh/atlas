@@ -1,6 +1,6 @@
 ---
 category-fit: infra
-generated: 2026-05-19
+generated: 2026-07-04
 license: Apache-2.0
 name: OpenLIT
 referenced-by: [ollama]
@@ -12,30 +12,119 @@ upstream: https://github.com/openlit/openlit
 # OpenLIT
 
 ## Headline
-OpenTelemetry-native observability for LLM, vector DB, and GPU calls — single `openlit.init()` instruments Ollama, LiteLLM, Weaviate, and HTTP frameworks.
+OpenTelemetry-native GenAI observability platform with SDK instrumentation,
+ClickHouse-backed storage, an OpenTelemetry Collector, LLM/vector/GPU telemetry,
+prompt/evaluation features, and an AI-engineering UI.
 
 ## Problem it solves
-The stack lacks any OTel surface. Existing telemetry (Docker logs) cannot answer "which call burned the most tokens?", "which embedding query was slowest?", or "what is GPU utilisation per model?". OpenLIT emits OTel traces and metrics that any standard backend (Tempo, Jaeger, ClickHouse, Grafana Cloud) can consume.
+OpenLIT is useful when Atlas needs GenAI telemetry beyond generic traces:
+one-line SDK instrumentation, model/vector/GPU visibility, prompt/evaluation
+features, and OpenTelemetry-native dashboards. Current upstream self-hosting
+docs describe a complete stack of OpenLIT platform, ClickHouse, and
+OpenTelemetry Collector via Helm or Docker Compose, which makes it powerful but
+also overlapping with Atlas' Langfuse plus OTel/Tempo/Loki direction.
+
+## Deferred decision (2026-07-04)
+Atlas should keep OpenLIT deferred and must not add `services/openlit/service.yml` yet.
+Langfuse plus OTel/Tempo/Loki is the preferred first observability path:
+Langfuse owns LLM traces, prompts, evals, and LiteLLM gateway telemetry, while
+Atlas' OpenTelemetry Collector, Tempo, Loki, Prometheus, and Grafana own the
+vendor-neutral metrics/logs/traces foundation.
+
+OpenLIT remains interesting, but adding it now would create a second observability UI,
+a second collector shape, and likely another ClickHouse-backed analytics surface
+before Atlas has proven a gap. Revisit only for named OpenLIT-specific
+functionality.
 
 ## Stack wiring sketch
-- backend → OpenLIT via `openlit.init()` at FastAPI startup; auto-instruments calls to Ollama, LiteLLM, Weaviate, Neo4j drivers.
-- hermes → OpenLIT via the same `openlit.init()` call in the skill runtime.
-- jupyterhub → OpenLIT via a notebook-level `openlit.init(otlp_endpoint=...)`, giving researchers per-cell traces.
-- weaviate → OpenLIT picks up the Weaviate Python client side automatically; complements its native Prometheus metrics.
-- litellm → OpenLIT consumes LiteLLM's existing OTel exporter (no extra wiring beyond setting `OTEL_EXPORTER_OTLP_ENDPOINT`).
-- openlit's UI → exposed via Kong alias `openlit.localhost`.
+No current Atlas wiring should be added while OpenLIT is deferred. If adopted
+later, the expected topology would be:
+
+- backend -> OpenLIT via explicit SDK instrumentation or OTLP export only when
+  Langfuse/OTel cannot answer the target question.
+- LiteLLM -> OpenLIT through OTLP/LiteLLM-compatible telemetry, without breaking
+  the Langfuse callback path.
+- Ollama -> OpenLIT for model/GPU telemetry only if OpenLIT's Ollama integration
+  is the selected gap.
+- Hermes and JupyterHub -> OpenLIT as opt-in developer instrumentation, not a
+  default notebook or agent dependency.
+- Weaviate/vector clients -> OpenLIT only where vector-call telemetry is more
+  useful than generic OTel spans.
+- Grafana may link to OpenLIT or its data source, but Grafana remains the Atlas
+  observability entrypoint for infrastructure metrics/logs/traces.
 
 ## Effort
-small — single container (`ghcr.io/openlit/openlit`) plus a ClickHouse sidecar; instrumenting consumers is a one-line SDK call.
+Medium. The upstream deployment is documented, but a conservative Atlas slice
+would still need a manifest, optional ClickHouse ownership decision, collector
+ownership decision, Kong route/auth handling, generated credentials, SDK
+enablement switches, consumer tests, and docs explaining how OpenLIT differs
+from Langfuse and the OTel/Tempo/Loki bundle.
 
 ## Risks & open questions
-- Overlaps significantly with Langfuse if both are adopted — pick one or document distinct purposes (Langfuse = product analytics + prompt mgmt; OpenLIT = infra-grade OTel).
-- ClickHouse footprint duplicates whatever Langfuse would pull in; sharing a ClickHouse across both is feasible but undocumented upstream.
-- SDK adds an import to every Python consumer; opt-in via `OPENLIT_ENABLED` env var.
+- UI overlap with Langfuse and Grafana can confuse users unless ownership is
+  explicit.
+- ClickHouse ownership may duplicate Langfuse's analytics dependency and needs a
+  retention/storage story.
+- OpenTelemetry Collector ownership must not conflict with Atlas' existing
+  `otel-collector` service.
+- SDK instrumentation in backend, Hermes, notebooks, or n8n can add dependency
+  drift and high-cardinality spans.
+- GPU metrics depend on runtime and host support; do not promise them by
+  default.
+
+## Revisit criteria
+Reconsider OpenLIT only when all of these are true:
+
+- Langfuse plus OTel/Tempo/Loki fails to cover a named observability need.
+- Atlas needs OpenLIT-specific functionality such as one-line SDK
+  auto-instrumentation, Ollama/GPU metrics, vector-call telemetry, prompt/eval
+  features, or an OpenTelemetry-native GenAI dashboard.
+- The integration cost is lower than extending the planned observability stack.
+- The ClickHouse, collector, UI, retention, and auth ownership boundaries are
+  explicit.
+
+## Future service contract if adopted
+- **Tracks:** `observability`, `gen-ai-eng`, `gen-ai-rag`, `ml-eng`, and `all`;
+  avoid `data-eng` unless a concrete ML/data observability workflow needs it.
+- **Category:** choose deliberately between `infra` and `agents`. It is an
+  observability backend if Atlas uses it as telemetry infrastructure; it is an
+  AI-engineering app if Atlas exposes the OpenLIT UI as a workflow surface.
+- **Sources:** `OPENLIT_SOURCE=disabled|container`; disabled by default. Consider
+  `localhost` only for an operator-managed OpenLIT/OTLP endpoint.
+- **Wizard placement:** after Langfuse and the OTel/Tempo/Loki bundle, with
+  prompt copy that OpenLIT is an alternative or augmentation for proven GenAI
+  telemetry gaps.
+- **Ports and routes:** allocate ports through Atlas topology/category slots and
+  custom `BASE_PORT` math. Expected alias is `openlit.localhost` only when
+  enabled and protected. Do not expose OTLP ingestion publicly by default.
+- **Dependencies:** likely OpenLIT platform, ClickHouse, and OTel Collector.
+  Consumers may include backend, LiteLLM, Ollama, Hermes, JupyterHub notebooks,
+  Weaviate clients, n8n, and ComfyUI only where instrumentation is explicit.
+- **Init/secrets:** generate admin credentials if needed, OTLP endpoint envs,
+  SDK enablement envs, retention/storage settings, and separate credentials from
+  Langfuse keys.
+- **Edge cases:** disabled Langfuse, disabled OTel/Tempo/Loki, duplicate
+  ClickHouse ownership, stale `.env`, custom `BASE_PORT`, missing SDK deps,
+  notebook opt-in leaks, high-cardinality traces, GPU metric unavailability,
+  route exposure without auth, and generated-doc drift.
+
+## Tests required if adopted later
+- Manifest schema and topology tests for source values, category, aliases,
+  generated env vars, and track membership.
+- Compose/source permutation coverage for disabled/container and any future
+  localhost mode.
+- Kong route audits proving `openlit.localhost` appears only when enabled and
+  OTLP ingestion is not public.
+- Consumer instrumentation tests for backend, LiteLLM, Ollama, Hermes,
+  JupyterHub, and Weaviate disabled/container/localhost paths.
+- Docs drift, research schema, link checks, and generated README/diagram checks.
 
 ## Why now (and why not sooner)
-OpenLIT shipped native Ollama instrumentation in 2024 — including GPU utilisation scraped from `/api/ps` — and ships an OTel exporter that doesn't lock the stack to a single backend. Adopting it now keeps the option open to swap visualisation later.
+Not now. OpenLIT should wait until Atlas can name an observability gap that
+Langfuse plus OTel/Tempo/Loki cannot cover cleanly.
 
 ## Upstream evidence
 - https://github.com/openlit/openlit
+- https://docs.openlit.io/latest/overview
+- https://docs.openlit.io/latest/openlit/installation
 - https://docs.openlit.io/latest/integrations/ollama

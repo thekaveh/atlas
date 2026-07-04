@@ -53,7 +53,7 @@ Note: backend, open-webui, n8n, jupyterhub, local-deep-researcher, hermes, and w
   - Other consumers in stack: litellm (native callback), hermes, backend, n8n, local-deep-researcher, open-webui.
 
 - **OpenLIT** → `../candidates/openlit.md`
-  - Headline: OpenTelemetry-native observability for LLM + vector calls with first-class Ollama instrumentation.
+  - Headline: Deferred OpenTelemetry-native GenAI observability platform for a future Ollama/GPU telemetry gap not covered by Langfuse plus OTel/Tempo/Loki.
   - Other consumers in stack: backend, hermes, jupyterhub, weaviate, litellm.
 
 ## 3. Per-service feature gaps
