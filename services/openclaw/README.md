@@ -317,8 +317,8 @@ No OpenClaw agent (default).
 **Problem**: OpenClaw doesn't see any models
 
 **Solution**:
-1. Verify LiteLLM is healthy: `curl http://localhost:63030/health/liveliness`
-2. List the models LiteLLM has registered: `curl -H "Authorization: Bearer $LITELLM_MASTER_KEY" http://localhost:63030/v1/models`
+1. Verify LiteLLM is healthy: `curl http://localhost:63040/health/liveliness`
+2. List the models LiteLLM has registered: `curl -H "Authorization: Bearer $LITELLM_MASTER_KEY" http://localhost:63040/v1/models`
 3. Run inside the container: `docker exec ${PROJECT_NAME}-openclaw-gateway openclaw config get models.providers.openai`
 4. Confirm `LITELLM_BASE_URL` and `LITELLM_API_KEY` are present in the OpenClaw container environment
 5. If you specifically need Ollama models, ensure `LLM_PROVIDER_SOURCE` is set to one of the `ollama-*` values (not `none`) so LiteLLM has an Ollama upstream to forward to

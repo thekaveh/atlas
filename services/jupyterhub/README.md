@@ -1,6 +1,6 @@
 # JupyterHub - Data Science IDE
 
-**Port:** 63081
+**Port:** 63094
 **Category:** Application Tier
 **Dependencies:** PostgreSQL, Redis, LiteLLM (gateway to Ollama / cloud LLMs), Weaviate, Neo4j, MinIO, Iceberg REST, Spark
 
@@ -18,7 +18,7 @@ JupyterHub provides an interactive Jupyter Lab environment pre-configured with a
 # Start the stack (JupyterHub enabled by default)
 ./start.sh
 
-# Access at: http://localhost:63081
+# Access at: http://localhost:63094
 ```
 
 ### 2.2 Disable JupyterHub
@@ -55,7 +55,7 @@ JUPYTERHUB_SOURCE=container     # Options: container, disabled
 # the maintained registry. A moving :latest tag would force a full rebuild
 # (8-10 min) every start; a pinned patch keeps Docker-layer caching.
 JUPYTERHUB_IMAGE=quay.io/jupyter/datascience-notebook:python-3.11.10
-JUPYTERHUB_PORT=63081
+JUPYTERHUB_PORT=63094
 JUPYTERHUB_TOKEN=               # Optional: authentication token
 ```
 
@@ -293,8 +293,8 @@ VS Code's Jupyter extension can use this container as the **remote kernel** for 
 
 1. Open any local `.ipynb` in VS Code.
 2. Click the **kernel selector** in the top-right of the notebook → **"Select Another Kernel"** → **"Existing Jupyter Server"** → **"Enter the URL of the running Jupyter server"**.
-3. Paste one of these URLs, substituting the actual token **and your actual ports**. The ports below are the defaults for `BASE_PORT=63000`; if you launched with `--base-port`, use your stack's real `JUPYTERHUB_PORT` (direct) and Kong HTTP port (aliased) from `.env` — e.g. on `--base-port 64000` the direct port is `64156`. `grep -E '^(JUPYTERHUB_PORT|KONG_HTTP_PORT)=' .env` prints both.
-   - Direct port: `http://localhost:${JUPYTERHUB_PORT}/?token=<JUPYTERHUB_TOKEN>` (default `63081`)
+3. Paste one of these URLs, substituting the actual token **and your actual ports**. The ports below are the defaults for `BASE_PORT=63000`; if you launched with `--base-port`, use your stack's real `JUPYTERHUB_PORT` (direct) and Kong HTTP port (aliased) from `.env` — e.g. on `--base-port 64000` the direct port is `64094`. `grep -E '^(JUPYTERHUB_PORT|KONG_HTTP_PORT)=' .env` prints both.
+   - Direct port: `http://localhost:${JUPYTERHUB_PORT}/?token=<JUPYTERHUB_TOKEN>` (default `63094`)
    - Kong-aliased (after `./start.sh --setup-hosts`): `http://jupyter.localhost:${KONG_HTTP_PORT}/?token=<JUPYTERHUB_TOKEN>` (default `63000`)
 4. When VS Code prompts to **remember the server**, give it a name (e.g. `atlas`). The server now appears in every future kernel-picker.
 5. VS Code then asks which **kernel** to use on that server. Pick **Python 3 (ipykernel)**, **Scala 2.13**, or **Scala 3** depending on the notebook.
@@ -351,14 +351,14 @@ Net effect: the three flags reach `jupyter lab` exactly as if they were in a con
 - The notebook file lives **on your laptop** (wherever you opened it in VS Code).
 - The kernel runs **in the container**. Anything `os.getcwd()` returns is the container's filesystem, not your laptop's.
 - The `/home/jovyan/work` directory is the persistent volume (`jupyterhub-data`). Use this if you need files (datasets, models) to survive container restarts.
-- To open a notebook that ALREADY lives in the container (e.g., a sample), use VS Code's "Open Folder over SSH" workflow or browse to `http://localhost:63081` for the native JupyterLab UI. The VS Code remote-kernel flow above is for the inverse case: local file, remote kernel.
+- To open a notebook that ALREADY lives in the container (e.g., a sample), use VS Code's "Open Folder over SSH" workflow or browse to `http://localhost:63094` for the native JupyterLab UI. The VS Code remote-kernel flow above is for the inverse case: local file, remote kernel.
 
 ### 10.5 Troubleshooting
 
 - **Token rejected.** Re-read `.env`; check the variable hasn't been hand-rotated. `docker logs ${PROJECT_NAME}-jupyterhub | grep -i token` shows the value the container actually started with.
 - **Kernel starts but cells hang.** WebSocket upgrade failure — confirm the three `--ServerApp.*` flags are present in `docker inspect ${PROJECT_NAME}-jupyterhub --format='{{json .Config.Cmd}}'`. If the compose file was edited but the container wasn't rebuilt, run `./stop.sh && ./start.sh`.
 - **CORS error in VS Code's developer console.** `JUPYTER_ALLOW_ORIGIN` was tightened past what VS Code uses. Set it to `*` temporarily; the Jupyter token is still required for any kernel operation.
-- **"Address already in use" on 63081.** `./start.sh --base-port 64000` to relocate the whole stack.
+- **"Address already in use" on 63094.** `./start.sh --base-port 64000` to relocate the whole stack.
 - **Scala 2.13 / Scala 3 missing from the kernel picker.** The running image predates the Almond layer in `services/jupyterhub/build/Dockerfile`. Rebuild with `docker compose up jupyterhub --build --no-deps -d` (no full-stack restart needed). Confirm via `docker exec ${PROJECT_NAME}-jupyterhub jupyter kernelspec list` — both `scala213` and `scala3` should appear alongside `python3`. See §11 for full kernel-install details.
 - **Server connects but no kernels listed.** Look at the URL VS Code stored — it must include `/?token=<value>`. If you pasted the URL without the token, VS Code thinks it's connected but every kernel request 403s. `Jupyter: Specify Jupyter Server for Connections` → re-enter the URL with the token suffix.
 - **Cell output appears in the wrong notebook.** VS Code occasionally caches a stale kernel binding when you switch between two notebooks on the same server. Right-click the notebook tab → `Restart Kernel` resets the binding.

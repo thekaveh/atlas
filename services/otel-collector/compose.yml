@@ -15,12 +15,6 @@ services:
         required: false
     volumes:
       - ./config/config.yaml:/etc/otelcol/config.yaml:ro
-    healthcheck:
-      test: ["CMD", "/otelcol-contrib", "components"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
     logging:
       driver: json-file
       options:

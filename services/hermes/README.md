@@ -298,7 +298,7 @@ curl -fsS http://localhost:${HERMES_API_PORT}/v1/models \
   -H "Authorization: Bearer ${HERMES_KEY}" | jq .
 
 # Verify hermes-agent appears in LiteLLM's model_list
-curl -fsS http://localhost:63030/v1/models \
+curl -fsS http://localhost:63040/v1/models \
   -H "Authorization: Bearer ${LITELLM_MASTER_KEY}" | jq '.data[].id' | grep hermes
 
 # Inspect the rendered config Hermes is using

@@ -1123,12 +1123,17 @@ async def memory_list(
 
 
 @app.put("/memory/{memory_id}", response_model=Dict[str, Any])
-async def memory_update(memory_id: str, request: MemoryUpdateRequest):
+async def memory_update(
+    memory_id: str,
+    request: MemoryUpdateRequest,
+    user_id: str = Query(...),
+):
     """Update a specific memory fact."""
     _validate_uuid_param(memory_id, "memory_id")
+    _validate_uuid_param(user_id, "user_id")
     try:
         updates = request.model_dump(exclude_none=True)
-        result = await memory_service.update_memory(memory_id, updates)
+        result = await memory_service.update_memory(memory_id, user_id, updates)
         if not result:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -1149,11 +1154,12 @@ async def memory_update(memory_id: str, request: MemoryUpdateRequest):
 
 
 @app.delete("/memory/{memory_id}", response_model=Dict[str, Any])
-async def memory_delete(memory_id: str):
+async def memory_delete(memory_id: str, user_id: str = Query(...)):
     """Delete (deactivate) a specific memory fact."""
     _validate_uuid_param(memory_id, "memory_id")
+    _validate_uuid_param(user_id, "user_id")
     try:
-        success = await memory_service.delete_memory(memory_id)
+        success = await memory_service.delete_memory(memory_id, user_id)
         if not success:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,

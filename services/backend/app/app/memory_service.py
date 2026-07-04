@@ -743,18 +743,21 @@ Extract the facts as JSON:"""
             await conn.close()
 
     async def update_memory(
-        self, memory_id: str, updates: Dict[str, Any]
+        self, memory_id: str, user_id: str, updates: Dict[str, Any]
     ) -> Optional[Dict[str, Any]]:
         """Update a specific memory fact."""
         self._check_enabled()
         await self._ensure_initialized()
 
         memory_uuid = _to_uuid(memory_id)
+        user_uuid = _to_uuid(user_id)
         conn = await connect_postgres(self.database_url)
         try:
             # Check if fact exists
             row = await conn.fetchrow(
-                "SELECT * FROM public.memory_facts WHERE id = $1", memory_uuid
+                "SELECT * FROM public.memory_facts WHERE id = $1 AND user_id = $2",
+                memory_uuid,
+                user_uuid,
             )
             if not row:
                 return None
@@ -776,12 +779,15 @@ Extract the facts as JSON:"""
                 param_idx += 1
 
             params.append(memory_uuid)
+            params.append(user_uuid)
             query = (
                 f"UPDATE public.memory_facts SET {', '.join(set_clauses)} "
-                f"WHERE id = ${param_idx} RETURNING *"
+                f"WHERE id = ${param_idx} AND user_id = ${param_idx + 1} RETURNING *"
             )
 
             updated = await conn.fetchrow(query, *params)
+            if not updated:
+                return None
 
             # Update embedding if content changed
             if "content" in updates and updates["content"] and self.store:
@@ -822,17 +828,19 @@ Extract the facts as JSON:"""
         finally:
             await conn.close()
 
-    async def delete_memory(self, memory_id: str) -> bool:
+    async def delete_memory(self, memory_id: str, user_id: str) -> bool:
         """Soft-delete a memory fact (set is_active=false)."""
         self._check_enabled()
         await self._ensure_initialized()
 
         memory_uuid = _to_uuid(memory_id)
+        user_uuid = _to_uuid(user_id)
         conn = await connect_postgres(self.database_url)
         try:
             row = await conn.fetchrow(
-                "SELECT weaviate_id FROM public.memory_facts WHERE id = $1",
+                "SELECT weaviate_id FROM public.memory_facts WHERE id = $1 AND user_id = $2",
                 memory_uuid,
+                user_uuid,
             )
             if not row:
                 return False
@@ -841,9 +849,10 @@ Extract the facts as JSON:"""
                 """
                 UPDATE public.memory_facts
                 SET is_active = false, updated_at = now()
-                WHERE id = $1
+                WHERE id = $1 AND user_id = $2
                 """,
                 memory_uuid,
+                user_uuid,
             )
 
             # Remove from vector store

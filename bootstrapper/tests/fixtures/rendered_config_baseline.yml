@@ -2994,15 +2994,6 @@ services:
         required: true
     deploy:
       replicas: 0
-    healthcheck:
-      interval: 30s
-      retries: 3
-      start_period: 10s
-      test:
-      - CMD
-      - /otelcol-contrib
-      - components
-      timeout: 10s
     image: otel/opentelemetry-collector-contrib:0.154.0
     logging:
       driver: json-file

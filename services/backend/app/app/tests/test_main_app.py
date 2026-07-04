@@ -186,6 +186,61 @@ def test_memory_update_rejects_oversized_metadata(monkeypatch):
     assert resp.status_code == 422
 
 
+def test_memory_update_requires_and_forwards_user_id(monkeypatch):
+    _stub_required_env(monkeypatch)
+    from fastapi.testclient import TestClient
+    import main
+
+    calls = []
+
+    async def fake_update(memory_id, user_id, updates):
+        calls.append((memory_id, user_id, updates))
+        return {
+            "id": memory_id,
+            "user_id": user_id,
+            "content": updates["content"],
+        }
+
+    monkeypatch.setattr(main.memory_service, "update_memory", fake_update)
+    client = TestClient(main.app)
+    memory_id = "00000000-0000-4000-8000-000000000001"
+    user_id = "00000000-0000-4000-8000-000000000002"
+
+    missing_user = client.put(f"/memory/{memory_id}", json={"content": "updated"})
+    ok = client.put(
+        f"/memory/{memory_id}?user_id={user_id}",
+        json={"content": "updated"},
+    )
+
+    assert missing_user.status_code == 422
+    assert ok.status_code == 200
+    assert calls == [(memory_id, user_id, {"content": "updated"})]
+
+
+def test_memory_delete_requires_and_forwards_user_id(monkeypatch):
+    _stub_required_env(monkeypatch)
+    from fastapi.testclient import TestClient
+    import main
+
+    calls = []
+
+    async def fake_delete(memory_id, user_id):
+        calls.append((memory_id, user_id))
+        return True
+
+    monkeypatch.setattr(main.memory_service, "delete_memory", fake_delete)
+    client = TestClient(main.app)
+    memory_id = "00000000-0000-4000-8000-000000000001"
+    user_id = "00000000-0000-4000-8000-000000000002"
+
+    missing_user = client.delete(f"/memory/{memory_id}")
+    ok = client.delete(f"/memory/{memory_id}?user_id={user_id}")
+
+    assert missing_user.status_code == 422
+    assert ok.status_code == 200
+    assert calls == [(memory_id, user_id)]
+
+
 def test_list_routes_reject_negative_limits(monkeypatch):
     _stub_required_env(monkeypatch)
     from fastapi.testclient import TestClient

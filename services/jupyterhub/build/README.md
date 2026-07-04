@@ -22,7 +22,7 @@ JupyterHub provides a Jupyter Lab environment with pre-installed libraries for:
 # Start the stack (JupyterHub enabled by default)
 ./start.sh
 
-# Access at: http://localhost:63081
+# Access at: http://localhost:63094
 ```
 
 ### Disable JupyterHub
@@ -40,7 +40,7 @@ Set in `.env` file:
 ```bash
 JUPYTERHUB_SOURCE=container     # Options: container, disabled
 JUPYTERHUB_IMAGE=quay.io/jupyter/datascience-notebook:python-3.11.10
-JUPYTERHUB_PORT=63081
+JUPYTERHUB_PORT=63094
 JUPYTERHUB_TOKEN=               # Optional: authentication token
 ```
 

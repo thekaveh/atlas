@@ -20,10 +20,10 @@ Ollama is the local LLM engine that runs behind the always-on **LiteLLM gateway*
 
 | Path | URL | Notes |
 |---|---|---|
-| Through LiteLLM | `http://localhost:63030/v1` | Consumer-facing OpenAI-compatible endpoint. Use `LITELLM_BASE_URL` from `.env`. |
+| Through LiteLLM | `http://localhost:63040/v1` | Consumer-facing OpenAI-compatible endpoint. Use `LITELLM_BASE_URL` from `.env`. |
 | Direct (internal) | `http://ollama:11434` | Reachable only from inside the Compose network. The Ollama container no longer publishes a host port. |
 
-The Ollama container no longer publishes a host port; the OpenAI-compatible surface is owned by LiteLLM (default `LITELLM_PORT=63030`). See the canonical port table at [Ports and Routes](../../docs/deployment/ports-and-routes.md).
+The Ollama container no longer publishes a host port; the OpenAI-compatible surface is owned by LiteLLM (default `LITELLM_PORT=63040`). See the canonical port table at [Ports and Routes](../../docs/deployment/ports-and-routes.md).
 
 ## 3. Configuration
 
