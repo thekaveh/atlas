@@ -22,6 +22,13 @@ class TrackPage:
 
 
 @dataclass(frozen=True)
+class SourceSurface:
+    var: str
+    default: str
+    values: list[str]
+
+
+@dataclass(frozen=True)
 class ServicePage:
     name: str
     title: str
@@ -31,6 +38,7 @@ class ServicePage:
     source_var: str
     source_default: str
     source_values: list[str]
+    source_surfaces: list[SourceSurface]
     track_keys: list[str]
     required_dependencies: list[str]
     optional_dependencies: list[str]
@@ -129,28 +137,70 @@ def _topology_lookup(services_dir: Path) -> dict[str, Any]:
     }
 
 
-def _source_metadata(manifest: Manifest | None) -> tuple[str, str, list[str]]:
-    if manifest is None:
-        return "", "", []
-    if manifest.sources:
-        return (
-            manifest.sources.var,
-            manifest.sources.default,
-            [option.id for option in manifest.sources.options],
-        )
+def _dedupe_stable(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        if value and value not in seen:
+            seen.add(value)
+            result.append(value)
+    return result
 
-    source_env = next((env for env in manifest.env if env.name.endswith("_SOURCE")), None)
-    source_var = source_env.name if source_env else ""
-    source_default = str(source_env.default) if source_env and source_env.default is not None else ""
 
-    source_values: list[str] = []
-    for variants in manifest.runtime_sc.values():
+def _runtime_surface_values(manifest: Manifest, source_var: str) -> list[str]:
+    stem = source_var.removesuffix("_SOURCE").lower()
+    candidate_keys = (
+        stem,
+        stem.replace("-", "_"),
+        stem.replace("_", "-"),
+    )
+    for key in candidate_keys:
+        variants = manifest.runtime_sc.get(key)
         if isinstance(variants, dict):
-            source_values = [str(option) for option in variants.keys()]
-            if source_values:
-                break
+            return [str(option) for option in variants.keys()]
+    return []
 
-    return source_var, source_default, source_values
+
+def _source_metadata(
+    manifest: Manifest | None,
+) -> tuple[str, str, list[str], list[SourceSurface]]:
+    if manifest is None:
+        return "", "", [], []
+    if manifest.sources:
+        source_surfaces = [
+            SourceSurface(
+                var=manifest.sources.var,
+                default=manifest.sources.default,
+                values=[option.id for option in manifest.sources.options],
+            )
+        ]
+    else:
+        source_surfaces = [
+            SourceSurface(
+                var=env.name,
+                default=str(env.default) if env.default is not None else "",
+                values=_runtime_surface_values(manifest, env.name),
+            )
+            for env in manifest.env
+            if env.name.endswith("_SOURCE")
+        ]
+
+    if not source_surfaces:
+        return "", "", [], []
+
+    primary_surface = source_surfaces[0]
+    return (
+        primary_surface.var,
+        primary_surface.default,
+        primary_surface.values,
+        source_surfaces,
+    )
+
+
+def _readme_path(root: Path, services_dir: Path, name: str, manifest: Manifest | None) -> Path:
+    if manifest and manifest.docs:
+        return root / manifest.docs
+    return services_dir / name / "README.md"
 
 
 def _manifest_docs(root: Path, tracks: list[TrackPage]) -> list[ServicePage]:
@@ -164,12 +214,15 @@ def _manifest_docs(root: Path, tracks: list[TrackPage]) -> list[ServicePage]:
     for name in sorted(service_dirs):
         manifest = manifests.get(name)
         topological = topology.get(name, {})
-        readme = services_dir / name / "README.md"
-        source_var, source_default, source_values = _source_metadata(manifest)
+        readme = _readme_path(root, services_dir, name, manifest)
+        source_var, source_default, source_values, source_surfaces = _source_metadata(manifest)
         required = list(manifest.depends_on.required) if manifest else []
         optional = list(manifest.depends_on.optional) if manifest else []
         runtime_calls = list(manifest.data_flow.get("calls", [])) if manifest else []
-        aliases = list(topological.get("aliases", []))
+        aliases = _dedupe_stable(
+            list(topological.get("aliases", []))
+            + (list(manifest.extra_kong_aliases) if manifest else [])
+        )
         port_vars = [env.name for env in manifest.env if env.name.endswith("_PORT")] if manifest else []
         diagram_svg = services_dir / name / "architecture.svg"
         diagram_html = services_dir / name / "architecture.html"
@@ -184,6 +237,7 @@ def _manifest_docs(root: Path, tracks: list[TrackPage]) -> list[ServicePage]:
                 source_var=source_var,
                 source_default=source_default,
                 source_values=source_values,
+                source_surfaces=source_surfaces,
                 track_keys=membership.get(name, []),
                 required_dependencies=required,
                 optional_dependencies=optional,
