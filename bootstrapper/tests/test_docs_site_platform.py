@@ -193,6 +193,44 @@ def test_wiki_export_and_ci_hooks_are_present() -> None:
     assert "wiki/Home.md" in wiki_script
 
 
+def test_wiki_export_contains_full_companion_page_set() -> None:
+    expected_pages = {
+        "Home.md",
+        "_Sidebar.md",
+        "Overview.md",
+        "Quick-Start.md",
+        "Core-Concepts.md",
+        "Tracks.md",
+        "Services.md",
+        "Architecture.md",
+        "Configuration.md",
+        "Operations.md",
+        "Development.md",
+        "Reference.md",
+    }
+    actual_pages = {path.name for path in WIKI_DIR.glob("*.md")}
+    assert expected_pages <= actual_pages
+
+    sidebar = (WIKI_DIR / "_Sidebar.md").read_text(encoding="utf-8")
+    for page in [
+        "Overview",
+        "Quick-Start",
+        "Core-Concepts",
+        "Tracks",
+        "Services",
+        "Architecture",
+        "Configuration",
+        "Operations",
+        "Development",
+        "Reference",
+    ]:
+        assert f"]({page})" in sidebar
+
+    services = (WIKI_DIR / "Services.md").read_text(encoding="utf-8")
+    assert "## 1. Service Catalog" in services
+    assert "| Service | Category | Tracks | SOURCE | Values | Dependencies |" in services
+
+
 def test_docs_audit_guidance_lists_required_local_gates() -> None:
     docs_readme = (ROOT / "docs" / "README.md").read_text(encoding="utf-8")
     contributor_guide = (ROOT / "docs" / "CONTRIBUTING-services.md").read_text(encoding="utf-8")
@@ -365,31 +403,36 @@ def test_live_docs_use_root_safe_regen_and_wiki_commands() -> None:
     assert "uv run --project bootstrapper python scripts/export-docs-wiki.py --check" in combined
 
 
-def test_atlas_theme_uses_dark_atlas_system_with_local_assets() -> None:
+def test_atlas_theme_uses_material_dark_default_with_light_toggle() -> None:
     config = _mkdocs()
     css = THEME_CSS.read_text(encoding="utf-8")
     home = (ROOT / "docs" / "index.md").read_text(encoding="utf-8")
 
-    for color in ("#020617", "#07111f", "#0ea5e9", "#38bdf8", "#60a5fa"):
+    assert config["theme"]["name"] == "material"
+    assert config["theme"]["features"] >= [
+        "navigation.sections",
+        "navigation.indexes",
+        "navigation.top",
+        "search.suggest",
+        "search.highlight",
+    ]
+    palettes = config["theme"]["palette"]
+    assert palettes[0]["scheme"] == "slate"
+    assert palettes[0]["primary"] == "custom"
+    assert palettes[0]["accent"] == "custom"
+    assert palettes[0]["toggle"]["name"] == "Switch to light mode"
+    assert palettes[1]["scheme"] == "default"
+    assert palettes[1]["toggle"]["name"] == "Switch to dark mode"
+
+    for color in ("#020617", "#07111f", "#0ea5e9", "#38bdf8", "#60a5fa", "#7dd3fc"):
         assert color in css
-    assert config["theme"]["color_mode"] == "dark"
-    assert config["theme"]["highlightjs"] is False
+    assert ":root" in css
+    assert "[data-md-color-scheme=\"slate\"]" in css
+    assert "[data-md-color-scheme=\"default\"]" in css
     assert "@import url(" not in css
     assert "fonts.googleapis.com" not in css
-    assert "JetBrains Mono" in css
-    assert "border-radius" in css
-    assert "body > .container" in css
-    assert "max-width: 1480px" in css
-    assert "background: #020617" in css
     assert "assets/images/atlas-source.png" in home
     assert THEME_HERO_IMAGE.exists()
-    assert "background-size: auto, 44px 44px" not in css
-    assert "box-shadow: 0 24px 90px" not in css
-    assert "#f8fafc" not in css
-    assert "@media (max-width: 767.98px)" in css
-    assert ".bs-sidebar" in css
-    assert "display: none" in css
-    assert "emoji" not in css.lower()
 
 
 def test_generated_site_pages_use_numbered_hierarchy() -> None:
