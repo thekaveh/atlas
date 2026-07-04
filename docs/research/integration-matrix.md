@@ -14,7 +14,7 @@
 | kong | infra | 8 | [rows/kong.md](./rows/kong.md) |
 | litellm | llm | 14 | [rows/litellm.md](./rows/litellm.md) |
 | local-deep-researcher | apps | 9 | [rows/local-deep-researcher.md](./rows/local-deep-researcher.md) |
-| minio | data | 10 | [rows/minio.md](./rows/minio.md) |
+| minio | data | 11 | [rows/minio.md](./rows/minio.md) |
 | multi2vec-clip | data | 6 | [rows/multi2vec-clip.md](./rows/multi2vec-clip.md) |
 | n8n | agents | 12 | [rows/n8n.md](./rows/n8n.md) |
 | neo4j | data | 12 | [rows/neo4j.md](./rows/neo4j.md) |
@@ -77,6 +77,7 @@
 | Browserless | media | n8n, searxng | [candidates/browserless.md](./candidates/browserless.md) |
 | Celery + Flower | infra | backend | [candidates/celery-flower.md](./candidates/celery-flower.md) |
 | Crawl4AI | media | local-deep-researcher | [candidates/crawl4ai.md](./candidates/crawl4ai.md) |
+| Dagster | agents | minio | [candidates/dagster.md](./candidates/dagster.md) |
 | Docling MCP Server | agents | doc-processor | [candidates/docling-mcp.md](./candidates/docling-mcp.md) |
 | Firecrawl | media | local-deep-researcher | [candidates/firecrawl.md](./candidates/firecrawl.md) |
 | Grafana Loki | infra | kong | [candidates/grafana-loki.md](./candidates/grafana-loki.md) |
