@@ -64,10 +64,10 @@ class ResearchService:
         return await connect_postgres(self.db_url)
 
     async def start_research(
-        self, 
-        query: str, 
-        max_loops: int = 3, 
-        search_api: str = "duckduckgo",
+        self,
+        query: str,
+        max_loops: int = 3,
+        search_api: str = "searxng",
         user_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """Start a new research session with database tracking"""

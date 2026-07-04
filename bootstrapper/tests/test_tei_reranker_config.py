@@ -9,7 +9,7 @@ from services.service_config import ServiceConfig
 
 _BASE_ENV = {
     "PROJECT_NAME": "atlas",
-    "TEI_RERANKER_LOCALHOST_PORT": "63031",
+    "TEI_RERANKER_LOCALHOST_PORT": "63049",
     "TEI_RERANKER_CPU_IMAGE": "ghcr.io/huggingface/text-embeddings-inference:cpu-1.9",
     "TEI_RERANKER_CPU_ARM64_IMAGE": "ghcr.io/huggingface/text-embeddings-inference:cpu-arm64-latest",
     "TEI_RERANKER_GPU_IMAGE": "ghcr.io/huggingface/text-embeddings-inference:1.9",
@@ -64,5 +64,5 @@ def test_container_gpu_resolves_gpu_image():
 def test_localhost_uses_localhost_port():
     sc = _make("localhost")
     env = sc._generate_tei_reranker_config()
-    assert env["TEI_RERANKER_ENDPOINT"] == "http://localhost:63031"
+    assert env["TEI_RERANKER_ENDPOINT"] == "http://localhost:63049"
     assert env["TEI_RERANKER_SCALE"] == "0"

@@ -26,7 +26,7 @@ The service is reusable by consumers that send TEI's request body shape (`query`
 ```env
 TEI_RERANKER_SOURCE=disabled                       # default
 TEI_RERANKER_PORT=...                              # slot-allocated
-TEI_RERANKER_LOCALHOST_PORT=63031                  # mirror
+TEI_RERANKER_LOCALHOST_PORT=63049                  # host-installed TEI rerank port
 TEI_RERANKER_MODEL_ID=mixedbread-ai/mxbai-rerank-base-v1
 TEI_RERANKER_REVISION=main
 TEI_RERANKER_MAX_CLIENT_BATCH_SIZE=32

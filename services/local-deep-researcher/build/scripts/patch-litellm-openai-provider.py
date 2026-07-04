@@ -59,10 +59,22 @@ def _patch_graph(text: str) -> str:
             "from langchain_ollama import ChatOllama\nfrom langchain_openai import ChatOpenAI\n",
         )
 
-    if 'configurable.llm_provider == "openai"' in text:
+    text = _patch_get_llm(text)
+    text = _patch_summarize_sources(text)
+    return text
+
+
+def _patch_get_llm(text: str) -> str:
+    get_llm_start = text.index("def get_llm(")
+    try:
+        get_llm_end = text.index("\n# Nodes", get_llm_start)
+    except ValueError:
+        get_llm_end = text.index("\ndef ", get_llm_start + 1)
+    get_llm = text[get_llm_start:get_llm_end]
+    if 'configurable.llm_provider == "openai"' in get_llm:
         return text
 
-    text = text.replace(
+    patched_get_llm = get_llm.replace(
         '''    if configurable.llm_provider == "lmstudio":
 ''',
         '''    if configurable.llm_provider == "openai":
@@ -78,8 +90,44 @@ def _patch_graph(text: str) -> str:
 
     if configurable.llm_provider == "lmstudio":
 ''',
+        1,
     )
-    return text
+    if patched_get_llm == get_llm:
+        raise RuntimeError("could not find get_llm() lmstudio branch to patch")
+    return text[:get_llm_start] + patched_get_llm + text[get_llm_end:]
+
+
+def _patch_summarize_sources(text: str) -> str:
+    try:
+        summarize_start = text.index("def summarize_sources(")
+    except ValueError:
+        return text
+
+    try:
+        summarize_end = text.index("\ndef ", summarize_start + 1)
+    except ValueError:
+        summarize_end = len(text)
+    summarize = text[summarize_start:summarize_end]
+    if 'configurable.llm_provider == "openai"' in summarize:
+        return text
+
+    patched_summarize = summarize.replace(
+        '''    if configurable.llm_provider == "lmstudio":
+''',
+        '''    if configurable.llm_provider == "openai":
+        llm = ChatOpenAI(
+            base_url=configurable.openai_api_base,
+            api_key=configurable.openai_api_key or "not-needed",
+            model=configurable.local_llm,
+            temperature=0,
+        )
+    elif configurable.llm_provider == "lmstudio":
+''',
+        1,
+    )
+    if patched_summarize == summarize:
+        raise RuntimeError("could not find summarize_sources() lmstudio branch to patch")
+    return text[:summarize_start] + patched_summarize + text[summarize_end:]
 
 
 def main() -> None:
@@ -91,8 +139,20 @@ def main() -> None:
 
     if 'Literal["ollama", "lmstudio", "openai"]' not in patched_configuration:
         raise RuntimeError("could not patch Configuration.llm_provider for openai")
-    if 'configurable.llm_provider == "openai"' not in patched_graph:
+    get_llm_start = patched_graph.index("def get_llm(")
+    get_llm_end = patched_graph.index("\n# Nodes", get_llm_start)
+    get_llm = patched_graph[get_llm_start:get_llm_end]
+    if 'configurable.llm_provider == "openai"' not in get_llm:
         raise RuntimeError("could not patch get_llm() for openai")
+    if "def summarize_sources(" in patched_graph:
+        summarize_start = patched_graph.index("def summarize_sources(")
+        try:
+            summarize_end = patched_graph.index("\ndef ", summarize_start + 1)
+        except ValueError:
+            summarize_end = len(patched_graph)
+        summarize = patched_graph[summarize_start:summarize_end]
+        if 'configurable.llm_provider == "openai"' not in summarize:
+            raise RuntimeError("could not patch summarize_sources() for openai")
 
     if patched_configuration == configuration and patched_graph == graph:
         print("Local Deep Researcher: LiteLLM OpenAI provider patch already applied")

@@ -447,7 +447,7 @@ class ResearchStartRequest(BaseModel):
     """Request model for starting research"""
     query: str = Field(min_length=1, max_length=4000)
     max_loops: Optional[int] = Field(default=3, ge=1, le=10)
-    search_api: Optional[Literal["duckduckgo", "searxng"]] = "duckduckgo"
+    search_api: Optional[Literal["duckduckgo", "searxng"]] = "searxng"
     user_id: Optional[str] = None
 
 
@@ -509,7 +509,7 @@ async def start_research(request: ResearchStartRequest):
         result = await research_service.start_research(
             query=request.query,
             max_loops=request.max_loops or 3,
-            search_api=request.search_api or "duckduckgo",
+            search_api=request.search_api or "searxng",
             user_id=request.user_id
         )
         return ResearchResponse(**result)

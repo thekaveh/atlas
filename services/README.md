@@ -39,7 +39,7 @@ services consume.
 2. The schema lives at `bootstrapper/schemas/service.schema.json`.
 3. Run the schema lint locally:
    ```bash
-   cd bootstrapper && uv run python -m tools.validate_fragments
+   uv run --project bootstrapper python -m tools.validate_fragments
    ```
    Validates every manifest against `bootstrapper/schemas/service.schema.json`
    and the cross-manifest rules. Exits non-zero on any violation.
@@ -47,13 +47,13 @@ services consume.
    (catch orphan `.env.example` keys, manifest vars missing from
    `.env.example`, and duplicate ownership):
    ```bash
-   cd bootstrapper && uv run pytest tests/test_env_example_consistency.py
+   uv run --project bootstrapper pytest bootstrapper/tests/test_env_example_consistency.py
    ```
    Note: `.env.example` is AUTO-GENERATED from the manifests' `env:`
    declarations by `bootstrapper/services/env_assembler.py`. After adding
    or changing env vars in a `service.yml`, regenerate it:
    ```bash
-   cd bootstrapper && uv run python -m services.env_assembler
+   uv run --project bootstrapper python -m services.env_assembler
    ```
    `tests/test_env_assembler.py` enforces byte-equivalence between the
    committed file and the assembler's output. Never edit `.env.example`

@@ -107,6 +107,7 @@ def test_research_client_uses_langgraph_thread_and_run_stream(monkeypatch):
     assert run_call[2]["json"]["input"] == {"research_topic": "atlas"}
     assert run_call[2]["json"]["stream_mode"] == ["values"]
     assert run_call[2]["json"]["config"]["configurable"]["max_web_research_loops"] == 2
+    assert run_call[2]["json"]["config"]["configurable"]["search_api"] == "searxng"
 
 
 def test_research_client_completed_result_is_one_shot(monkeypatch):
@@ -128,6 +129,41 @@ def test_research_client_completed_result_is_one_shot(monkeypatch):
     assert first is not None
     assert second is None
     assert client._completed_results == {}
+
+
+def test_research_client_defaults_to_atlas_searxng_search():
+    client = ResearchClient(base_url="http://local-deep-researcher:2024")
+
+    payload = client._run_payload(ResearchRequest(query="atlas"))
+
+    assert payload["config"]["configurable"]["search_api"] == "searxng"
+
+
+def test_research_client_normalizes_upstream_string_sources():
+    client = ResearchClient(base_url="http://local-deep-researcher:2024")
+
+    result = client._result_from_langgraph_values(
+        "thread-123",
+        ResearchRequest(query="atlas"),
+        {
+            "running_summary": "done",
+            "sources_gathered": [
+                "Source: Example\nURL: https://example.test/report",
+                {"url": "https://structured.example", "title": "Structured"},
+            ],
+        },
+    )
+
+    assert result.sources == [
+        {
+            "url": "https://example.test/report",
+            "title": "Example",
+            "metadata": {
+                "raw": "Source: Example\nURL: https://example.test/report",
+            },
+        },
+        {"url": "https://structured.example", "title": "Structured"},
+    ]
 
 
 def test_research_client_marks_empty_langgraph_stream_failed(monkeypatch):

@@ -9,12 +9,22 @@ pattern being removed in B5 (repoint consumers off public.llms to env vars).
 """
 
 from pathlib import Path
+import importlib.util
 
 REPO_ROOT = Path(__file__).parent.parent.parent
 
 
 def _read(rel: str) -> str:
     return (REPO_ROOT / rel).read_text(encoding="utf-8")
+
+
+def _load_ldr_provider_patcher():
+    path = REPO_ROOT / "services/local-deep-researcher/build/scripts/patch-litellm-openai-provider.py"
+    spec = importlib.util.spec_from_file_location("patch_litellm_openai_provider", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def test_weaviate_init_no_public_llms():
@@ -80,6 +90,45 @@ def test_ldr_litellm_openai_provider_patch_contract():
     assert '"assistant_id":"agent"' not in readme
 
 
+def test_ldr_litellm_openai_provider_patch_is_scoped_to_graph_helpers():
+    """The graph patch must not corrupt summarize_sources with a get_llm return."""
+    patcher = _load_ldr_provider_patcher()
+    graph = '''from langchain_ollama import ChatOllama
+
+
+def get_llm(configurable):
+    if configurable.llm_provider == "lmstudio":
+        return ChatOpenAI(base_url=configurable.lmstudio_base_url)
+    return ChatOllama(model=configurable.local_llm)
+
+
+# Nodes
+def summarize_sources(state, config):
+    configurable = Configuration.from_runnable_config(config)
+    if configurable.llm_provider == "lmstudio":
+        llm = ChatOpenAI(base_url=configurable.lmstudio_base_url)
+    else:
+        llm = ChatOllama(model=configurable.local_llm)
+    result = llm.invoke("summarize")
+    return {"summary": result.content}
+
+
+def reflect_on_summary(state, config):
+    return {}
+'''
+
+    patched = patcher._patch_graph(graph)
+
+    get_llm = patched[patched.index("def get_llm("):patched.index("\n# Nodes")]
+    summarize = patched[patched.index("def summarize_sources("):patched.index("\ndef reflect_on_summary")]
+    assert "from langchain_openai import ChatOpenAI" in patched
+    assert get_llm.count('configurable.llm_provider == "openai"') == 1
+    assert summarize.count('configurable.llm_provider == "openai"') == 1
+    assert "return ChatOpenAI(**kwargs)" in get_llm
+    assert "return ChatOpenAI(**kwargs)" not in summarize
+    assert "result = llm.invoke" in summarize
+
+
 def test_ollama_pull_no_public_llms():
     """pull.sh must not query public.llms — model list comes from env vars."""
     text = _read("services/ollama/pull/scripts/pull.sh")
@@ -114,13 +163,13 @@ def test_env_example_ollama_user_models_is_default_trio():
             assert actual_csv == expected_csv, (
                 f"OLLAMA_USER_MODELS in .env.example ({actual_csv!r}) does not match "
                 f"the catalog's default-active set ({expected_csv!r}). "
-                f"Re-run: cd bootstrapper && uv run python -m services.env_assembler"
+                f"Re-run: uv run --project bootstrapper python -m services.env_assembler"
             )
             return
 
     raise AssertionError(
         "OLLAMA_USER_MODELS line not found in .env.example. "
-        "Re-run: cd bootstrapper && uv run python -m services.env_assembler"
+        "Re-run: uv run --project bootstrapper python -m services.env_assembler"
     )
 
 

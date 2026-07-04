@@ -173,7 +173,7 @@ def test_committed_env_example_matches_assembler_output():
     This catches the "someone hand-edited .env.example without regenerating
     it" failure mode. If this test fails, run:
 
-        cd bootstrapper && uv run python -m services.env_assembler
+        uv run --project bootstrapper python -m services.env_assembler
 
     and commit the resulting .env.example.
     """
@@ -185,14 +185,14 @@ def test_committed_env_example_matches_assembler_output():
         import pytest as _pytest
         _pytest.fail(
             f"{env_example_path} is missing. Regenerate with:\n"
-            f"  cd bootstrapper && uv run python -m services.env_assembler"
+            f"  uv run --project bootstrapper python -m services.env_assembler"
         )
 
     expected = assemble_env_example(load_manifests(_REPO_ROOT / "services"))
     actual = env_example_path.read_text()
     assert actual == expected, (
         ".env.example is out of sync with the manifests. "
-        "Regenerate with: cd bootstrapper && uv run python -m services.env_assembler"
+        "Regenerate with: uv run --project bootstrapper python -m services.env_assembler"
     )
 
 

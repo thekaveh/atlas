@@ -2,6 +2,7 @@ import httpx
 import os
 import json
 import asyncio
+import re
 from typing import Dict, Any, List, Optional, AsyncGenerator
 from pydantic import BaseModel
 from enum import Enum
@@ -27,7 +28,7 @@ class ResearchRequest(BaseModel):
     """Request model for starting research"""
     query: str
     max_loops: int = 3
-    search_api: str = "duckduckgo"
+    search_api: str = "searxng"
     user_id: Optional[str] = None
 
 
@@ -299,10 +300,7 @@ class ResearchClient:
             or ""
         )
         sources = values.get("sources_gathered") or values.get("sources") or []
-        if isinstance(sources, str):
-            sources = [{"url": source.strip()} for source in sources.splitlines() if source.strip()]
-        if not isinstance(sources, list):
-            sources = []
+        sources = self._normalize_sources(sources)
         return ResearchResult(
             session_id=session_id,
             title=f"Research: {request.query[:80]}",
@@ -316,3 +314,54 @@ class ResearchClient:
                 "langgraph_values": values,
             },
         )
+
+    @staticmethod
+    def _normalize_sources(sources: Any) -> List[Dict[str, Any]]:
+        """Normalize Local Deep Researcher source payloads to dicts.
+
+        Upstream currently emits ``sources_gathered`` as either structured
+        dictionaries or formatted strings such as ``Source: ...\nURL: ...``.
+        The API response model stores a list of dictionaries, so string
+        entries must be wrapped before Pydantic validates the result.
+        """
+        if isinstance(sources, str):
+            candidates: list[Any] = [sources]
+        elif isinstance(sources, list):
+            candidates = sources
+        else:
+            return []
+
+        normalized: list[dict[str, Any]] = []
+        for source in candidates:
+            if isinstance(source, dict):
+                normalized.append(source)
+            elif isinstance(source, str) and source.strip():
+                normalized.append(ResearchClient._source_from_text(source))
+        return normalized
+
+    @staticmethod
+    def _source_from_text(source: str) -> Dict[str, Any]:
+        text = source.strip()
+        title = ""
+        url = ""
+        for line in text.splitlines():
+            key, sep, value = line.partition(":")
+            if not sep:
+                continue
+            normalized_key = key.strip().lower()
+            value = value.strip()
+            if normalized_key in {"source", "title"} and value:
+                title = value
+            elif normalized_key == "url" and value:
+                url = value
+
+        if not url:
+            match = re.search(r"https?://[^\s)>,]+", text)
+            if match:
+                url = match.group(0).rstrip(".,;")
+
+        return {
+            "url": url,
+            "title": title or (text[:120] if not url else ""),
+            "metadata": {"raw": text},
+        }

@@ -46,7 +46,7 @@ python3 /app/scripts/patch-litellm-openai-provider.py
 python3 /app/scripts/patch-crawl4ai-fetch.py
 
 echo "Local Deep Researcher: Installing dependencies..."
-uv pip install --system -r /app/pyproject.toml
+uv pip install --system -e /app
 
 # -------------------------------------------------------------------
 # Initialize configuration from env vars (LITELLM_DEFAULT_MODEL, etc.)

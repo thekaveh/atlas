@@ -197,6 +197,7 @@ def test_docs_audit_guidance_lists_required_local_gates() -> None:
     docs_readme = (ROOT / "docs" / "README.md").read_text(encoding="utf-8")
     contributor_guide = (ROOT / "docs" / "CONTRIBUTING-services.md").read_text(encoding="utf-8")
     development_page = (DOCS_SITE / "development.md").read_text(encoding="utf-8")
+    agents_guide = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
 
     required_commands = [
         "uv run --project bootstrapper python -m bootstrapper.docs.regen --all --check",
@@ -215,6 +216,9 @@ def test_docs_audit_guidance_lists_required_local_gates() -> None:
         assert command in docs_readme
         assert command in contributor_guide
         assert command in development_page
+
+    for command in required_commands:
+        assert command in agents_guide
 
 
 def test_docs_pages_publication_workflow_and_homepage_contract() -> None:
@@ -277,11 +281,15 @@ def test_contributor_ci_checklist_matches_services_lint_jobs() -> None:
 
     assert "uv run --project bootstrapper pytest bootstrapper/tests -q" in guide
     assert "uv run --python 3.11 --with-requirements app/requirements.txt python -m pytest app/tests -q" in guide
+    assert "uv run --project bootstrapper python -m services.env_assembler" in guide
+    assert "uv run --project bootstrapper python -m tools.generate_readme_topology" in guide
     assert "uv run --project bootstrapper python -m tools.validate_fragments" in guide
     assert "uv run --project bootstrapper python scripts/check-docs-site.py" in guide
     assert "docker compose --env-file .env.example -f docker-compose.yml config -q" in guide
     assert "cd bootstrapper &&" not in guide
+    assert "cd bootstrapper" not in guide
     assert "cp .env.example .env" not in guide
+    assert "five-command" not in guide.lower()
     assert "sample build" not in guide
     assert "every local non-GPU Compose build context" in guide
 
@@ -322,6 +330,21 @@ def test_docs_do_not_reference_retired_three_check_ci_set() -> None:
         "Build-validation (Dockerfile + requirements.txt installability)",
     ]:
         assert check in agents
+
+
+def test_agents_testing_guidance_is_root_safe_and_complete() -> None:
+    agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+
+    assert "cd bootstrapper &&" not in agents
+    for command in [
+        "uv run --project bootstrapper pytest bootstrapper/tests -q",
+        "uv run --project bootstrapper pytest bootstrapper/tests/test_docs_drift.py",
+        "uv run --project bootstrapper python scripts/check-docs-site.py",
+        "uv run --project bootstrapper python scripts/export-docs-wiki.py --check",
+        "uv run --project bootstrapper python scripts/check-track-membership.py",
+        "(cd services/docling/provider/localhost && uv lock --locked)",
+    ]:
+        assert command in agents
 
 
 def test_atlas_theme_uses_dark_atlas_system_with_local_assets() -> None:

@@ -48,7 +48,7 @@ env:
     # default computed by services/topology.py slot allocator
     description: "Host port for the TEI rerank API (in-container listen port is 80)."
   - name: TEI_RERANKER_LOCALHOST_PORT
-    default: "63031"
+    default: "63049"
     description: "Host port for the host-installed TEI rerank source variant."
   - name: TEI_RERANKER_MODEL_ID
     default: "mixedbread-ai/mxbai-rerank-base-v1"
@@ -110,7 +110,7 @@ runtime_sc:
     localhost:
       scale: 0
       environment:
-        TEI_RERANKER_ENDPOINT: "http://host.docker.internal:${TEI_RERANKER_LOCALHOST_PORT:-63031}"
+        TEI_RERANKER_ENDPOINT: "http://host.docker.internal:${TEI_RERANKER_LOCALHOST_PORT:-63049}"
       deploy: {}
       extra_hosts:
         - host.docker.internal:host-gateway

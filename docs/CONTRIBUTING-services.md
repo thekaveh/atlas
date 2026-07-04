@@ -21,7 +21,7 @@ A maintainer who already understands the stack can land a new service in under a
 - [ ] **Add the `include:` line to `docker-compose.yml`** (only if you wrote a compose fragment)
 - [ ] **Register CLI key in `source_mapping`** → [Mechanics — source_override_manager registration](#114-bootstrapperutilssource_override_managerpy--register-the-cli-key). Without this the wizard silently skips your service.
 - [ ] **Add the new folder to the relevant track(s) in `bootstrapper/tracks.yml`** (source-configurable services only). A configurable service absent from a named track's `services:` list is force-disabled (`*_SOURCE=disabled`) there — it only runs under `--track all`. Always-on infra and the always-prompted LLM/Prometheus/Grafana tier are exempt.
-- [ ] **Run the five-command regen + lint chain** → [After you save the files](#12-after-you-save-the-files--regen--lint-commands-in-order)
+- [ ] **Run the root-safe regen, lint, and required-check checklist** → [After you save the files](#12-after-you-save-the-files--regen--lint-commands-in-order), then [CI gates](#134-ci-gates-that-run-on-every-push)
 - [ ] **Update audit-script allowlists** if your service has hard deps → [Audit-script + CI implications](#13-audit-script--ci-implications)
 - [ ] **Commit and push.** CI gates the change (four required jobs: manifest-lint+pytest, compose-equivalence+permutation matrix, docs-drift+audit-scripts, build-validation).
 
@@ -470,16 +470,14 @@ The pinning test `bootstrapper/tests/test_wizard_app_discovery.py::test_source_m
 
 ## 12. After you save the files — regen + lint commands in order
 
-Five commands, in this order:
+Run these root-safe commands from the repository root:
 
 ```bash
-cd bootstrapper
-
 # 1. Regenerate .env.example from manifests
-uv run python -m services.env_assembler
+uv run --project bootstrapper python -m services.env_assembler
 
 # 2. Regenerate README.md TOPOLOGY block (auto-includes the new row)
-uv run python -m tools.generate_readme_topology
+uv run --project bootstrapper python -m tools.generate_readme_topology
 
 # 3. (top-level architecture diagram — hand-authored; no regen step)
 #    Update docs/diagrams/architecture.svg by hand via the
@@ -487,10 +485,10 @@ uv run python -m tools.generate_readme_topology
 #    full-stack topology (new category band, new always-on tier, etc.).
 
 # 4. Lint — fails if any of steps 1-3 were skipped
-uv run python -m tools.validate_fragments
+uv run --project bootstrapper python -m tools.validate_fragments
 
 # 5. (Optional, recommended for new manifests) Regen per-service README + diagram
-PYTHONPATH=. uv run python -m docs.regen qdrant
+PYTHONPATH=bootstrapper uv run --project bootstrapper python -m bootstrapper.docs.regen qdrant
 # After this, services/qdrant/{README.md, architecture.svg, architecture.html} exist.
 ```
 

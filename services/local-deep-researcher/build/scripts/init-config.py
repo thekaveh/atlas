@@ -47,7 +47,7 @@ def initialize_config():
             "llm_provider": "openai",
             "local_llm": litellm_model,
             "litellm_base_url": litellm_base_url,
-            "search_api": os.getenv("SEARCH_API", "duckduckgo"),
+            "search_api": os.getenv("SEARCH_API", "searxng"),
             "max_web_research_loops": int(os.getenv("MAX_WEB_RESEARCH_LOOPS", "3")),
             "fetch_full_page": os.getenv("FETCH_FULL_PAGE", "false").lower()
             == "true",

@@ -66,3 +66,17 @@ def test_local_deep_researcher_patches_litellm_provider_before_config() -> None:
 
     assert "patch-litellm-openai-provider.py" in script
     assert script.index("patch-litellm-openai-provider.py") < script.index("init-config.py")
+
+
+def test_local_deep_researcher_installs_pyproject_as_project() -> None:
+    script = (
+        REPO_ROOT
+        / "services"
+        / "local-deep-researcher"
+        / "build"
+        / "scripts"
+        / "docker-entrypoint.sh"
+    ).read_text(encoding="utf-8")
+
+    assert "uv pip install --system -e /app" in script
+    assert "uv pip install --system -r /app/pyproject.toml" not in script
