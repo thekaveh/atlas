@@ -10,6 +10,7 @@ sources_consulted:
   - https://min.io/docs/minio/linux/administration/object-management/object-lifecycle-management.html
   - https://docs.lakekeeper.io/docs/latest/concepts/
   - https://superset.apache.org/user-docs/databases/
+  - https://docs.dagster.io/deployment/oss/deployment-options/docker
   - services/minio/service.yml
   - services/minio/init/scripts/init-minio.sh
   - services/minio/README.md
@@ -77,8 +78,12 @@ sources_consulted:
   - Other consumers in stack: iceberg-rest replacement path, spark, trino, jupyterhub, zeppelin, airflow.
 
 - **Apache Superset** → `../candidates/superset.md`
-  - Headline: Analyst BI dashboards over the MinIO-backed lakehouse through Trino once useful datasets and SSO exist.
-  - Other consumers in stack: trino, iceberg-rest or lakekeeper, supabase/postgres analytics schemas, root dashboard link card.
+  - Headline: Analyst BI dashboards over the MinIO-backed lakehouse through Trino after datasets and SSO exist.
+  - Other consumers in stack: trino, iceberg-rest or lakekeeper, supabase/postgres analytics, root dashboard.
+
+- **Dagster** → `../candidates/dagster.md`
+  - Headline: Asset-aware orchestration for MinIO/Iceberg and ML asset graphs once the Airflow boundary is explicit.
+  - Other consumers in stack: airflow, spark, trino, mlflow, label-studio.
 
 ## 3. Per-service feature gaps
 
