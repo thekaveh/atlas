@@ -68,7 +68,7 @@ sources_consulted:
   - Other consumers in stack: searxng, doc_processor, backend.
 
 - **NocoDB** → `../candidates/nocodb.md`
-  - Headline: Spreadsheet UI over the existing Supabase Postgres, with a first-party n8n node for row CRUD.
+  - Headline: Watchlisted spreadsheet UI for a future concrete human-review queue, with a first-party n8n node for row CRUD.
   - Other consumers in stack: supabase, backend.
 
 ## 3. Per-service feature gaps
