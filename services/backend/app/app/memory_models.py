@@ -6,6 +6,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
 from typing import Optional, Dict, Any, List
+import json
 
 
 def _validate_uuid(value: str) -> str:
@@ -103,6 +104,15 @@ class MemoryUpdateRequest(BaseModel):
     def validate_fact_type(cls, v: Optional[str]) -> Optional[str]:
         if v is not None and v not in VALID_FACT_TYPES:
             raise ValueError(f"fact_type must be one of: {', '.join(VALID_FACT_TYPES)}")
+        return v
+
+    @field_validator("metadata")
+    @classmethod
+    def validate_metadata_size(cls, v: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        if v is not None:
+            encoded = json.dumps(v, separators=(",", ":"), sort_keys=True)
+            if len(encoded.encode("utf-8")) > 20000:
+                raise ValueError("metadata must serialize to 20000 bytes or fewer")
         return v
 
 

@@ -131,6 +131,7 @@ def test_research_client_marks_empty_langgraph_stream_failed(monkeypatch):
     assert done.status == ResearchStatus.FAILED
     assert "no final values" in done.message
     assert result is None
+    assert asyncio.run(client.list_active_sessions()) == []
 
 
 def test_research_client_marks_langgraph_error_event_failed(monkeypatch):
@@ -159,3 +160,4 @@ def test_research_client_marks_langgraph_error_event_failed(monkeypatch):
 
     assert done.status == ResearchStatus.FAILED
     assert "search failed" in done.message
+    assert asyncio.run(client.list_active_sessions()) == []

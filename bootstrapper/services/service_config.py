@@ -364,7 +364,7 @@ class ServiceConfig:
         current_env = self.config_parser.parse_env_file()
         public_template = config.get('environment', {}).get('MINIO_PUBLIC_ENDPOINT', '')
         if public_template:
-            minio_port = current_env.get('MINIO_PORT', '63030')
+            minio_port = current_env.get('MINIO_PORT', '63020')
             env_vars['MINIO_PUBLIC_ENDPOINT'] = public_template.replace('${MINIO_PORT}', minio_port)
         else:
             env_vars['MINIO_PUBLIC_ENDPOINT'] = ''
@@ -375,7 +375,7 @@ class ServiceConfig:
         # MINIO_CONSOLE_PORT), NOT the S3 API.
         console_template = config.get('environment', {}).get('MINIO_PUBLIC_CONSOLE_ENDPOINT', '')
         if console_template:
-            console_port = current_env.get('MINIO_CONSOLE_PORT', '63018')
+            console_port = current_env.get('MINIO_CONSOLE_PORT', '63021')
             env_vars['MINIO_PUBLIC_CONSOLE_ENDPOINT'] = console_template.replace('${MINIO_CONSOLE_PORT}', console_port)
         else:
             env_vars['MINIO_PUBLIC_CONSOLE_ENDPOINT'] = ''

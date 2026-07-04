@@ -196,6 +196,7 @@ def test_wiki_export_and_ci_hooks_are_present() -> None:
 def test_docs_pages_publication_workflow_and_homepage_contract() -> None:
     workflow = PAGES_WORKFLOW.read_text(encoding="utf-8")
 
+    assert '"assets/**"' in workflow
     assert "deploy-pages" in workflow
     assert "upload-pages-artifact" in workflow
     assert "pages: write" in workflow
@@ -213,6 +214,7 @@ def test_services_lint_build_validation_covers_all_init_dockerfiles() -> None:
     )
 
     assert init_contexts
+    assert '"assets/**"' in workflow
     assert "Build-validation (Dockerfile + requirements.txt installability)" in workflow
     for context in init_contexts:
         assert context in workflow, f"build-validation does not cover {context}"

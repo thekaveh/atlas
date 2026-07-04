@@ -22,6 +22,7 @@ on:
     paths:
       - "services/**"
       - "docs/**"
+      - "assets/**"
       - "scripts/**"
       - "docker-compose.yml"
       - "mkdocs.yml"
@@ -30,6 +31,7 @@ on:
       - ".gitignore"
       - ".gitattributes"
       - "README.md"
+      - "AGENTS.md"
       - "SECURITY.md"
       - "LICENSE"
       - "start.sh"

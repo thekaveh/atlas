@@ -266,7 +266,6 @@ class ResearchClient:
                 )
             result = self._result_from_langgraph_values(session_id, request, final_values)
             self._completed_results[session_id] = result
-            self._pending_requests.pop(session_id, None)
             return ResearchResponse(
                 session_id=session_id,
                 status=ResearchStatus.COMPLETED,
@@ -279,6 +278,8 @@ class ResearchClient:
                 status=ResearchStatus.FAILED,
                 message=f"Research run failed: {str(e)}",
             )
+        finally:
+            self._pending_requests.pop(session_id, None)
 
     def _result_from_langgraph_values(
         self,

@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, status, UploadFile, File
+from fastapi import FastAPI, HTTPException, status, UploadFile, File, Query
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, Field
@@ -596,8 +596,8 @@ async def get_research_logs(session_id: str):
 @app.get("/research/sessions", response_model=List[ResearchSessionResponse])
 async def list_research_sessions(
     user_id: Optional[str] = None,
-    limit: int = 50,
-    offset: int = 0
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0)
 ):
     """List research sessions"""
     if user_id is not None:
@@ -605,8 +605,8 @@ async def list_research_sessions(
     try:
         sessions = await research_service.list_user_sessions(
             user_id=user_id,
-            limit=min(limit, 100),  # Cap at 100
-            offset=max(offset, 0)   # Ensure non-negative
+            limit=limit,
+            offset=offset,
         )
         return [ResearchSessionResponse(**session) for session in sessions]
     except Exception as e:
@@ -1076,9 +1076,9 @@ async def memory_summarize(request: MemorySummarizeRequest):
 @app.get("/memory/user/{user_id}", response_model=MemoryListResponse)
 async def memory_list(
     user_id: str,
-    namespace: str = "default",
-    limit: int = 50,
-    offset: int = 0,
+    namespace: str = Query(default="default", min_length=1, max_length=128),
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
 ):
     """List all active memories for a user."""
     _validate_uuid_param(user_id, "user_id")
@@ -1086,8 +1086,8 @@ async def memory_list(
         result = await memory_service.list_memories(
             user_id=user_id,
             namespace=namespace,
-            limit=min(limit, 100),
-            offset=max(offset, 0),
+            limit=limit,
+            offset=offset,
         )
         return MemoryListResponse(**result)
     except RuntimeError as e:

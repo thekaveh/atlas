@@ -157,6 +157,36 @@ def test_memory_requests_reject_unbounded_payloads(monkeypatch):
     assert recall_resp.status_code == 422
 
 
+def test_memory_update_rejects_oversized_metadata(monkeypatch):
+    _stub_required_env(monkeypatch)
+    from fastapi.testclient import TestClient
+    from main import app
+
+    client = TestClient(app)
+
+    resp = client.put(
+        "/memory/00000000-0000-4000-8000-000000000001",
+        json={"metadata": {"blob": "x" * 20001}},
+    )
+
+    assert resp.status_code == 422
+
+
+def test_list_routes_reject_negative_limits(monkeypatch):
+    _stub_required_env(monkeypatch)
+    from fastapi.testclient import TestClient
+    from main import app
+
+    client = TestClient(app)
+    user_id = "00000000-0000-4000-8000-000000000001"
+
+    research_resp = client.get("/research/sessions?limit=-1")
+    memory_resp = client.get(f"/memory/user/{user_id}?limit=-1")
+
+    assert research_resp.status_code == 422
+    assert memory_resp.status_code == 422
+
+
 def test_research_cancel_reports_best_effort_local_cancellation(monkeypatch):
     _stub_required_env(monkeypatch)
     from fastapi.testclient import TestClient
