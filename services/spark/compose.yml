@@ -171,6 +171,8 @@ services:
       - --conf
       - spark.connect.grpc.binding.port=15002
       - --conf
+      - spark.cores.max=${SPARK_CONNECT_CORES_MAX:-1}
+      - --conf
       - spark.hadoop.fs.s3a.endpoint=http://minio:9000
       - --conf
       - spark.hadoop.fs.s3a.access.key=${MINIO_ROOT_USER}

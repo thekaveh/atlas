@@ -69,6 +69,19 @@ def test_spark_connect_sidecar_uses_start_connect_server():
     )
 
 
+def test_spark_connect_caps_standalone_cluster_cores():
+    doc = yaml.safe_load(COMPOSE.read_text(encoding="utf-8"))
+    connect_cmd = doc["services"]["spark-connect"]["command"]
+    joined_connect_cmd = " ".join(connect_cmd)
+
+    assert "spark.cores.max=${SPARK_CONNECT_CORES_MAX:-1}" in joined_connect_cmd
+
+    master_cmd = " ".join(doc["services"]["spark-master"]["command"])
+    worker_cmd = " ".join(doc["services"]["spark-worker"]["command"])
+    assert "spark.cores.max" not in master_cmd
+    assert "spark.cores.max" not in worker_cmd
+
+
 def test_spark_init_uses_minio_mc_image():
     """spark-init must use the minio/mc image — Alpine's `apk add mc`
     installs GNU Midnight Commander (TUI file manager), NOT MinIO Client.
@@ -155,3 +168,16 @@ def test_spark_master_rest_status_contract_comments_are_current():
     assert "it's off by default" not in text
     assert "standalone-master REST API" in text
     assert "Airflow" in text
+
+
+def test_spark_connect_core_cap_is_documented():
+    readme = (REPO_ROOT / "services" / "spark" / "README.md").read_text(
+        encoding="utf-8"
+    )
+    for expected in (
+        "SPARK_CONNECT_CORES_MAX=1",
+        "spark.cores.max",
+        "standalone workloads",
+        "Spark Connect parallelism",
+    ):
+        assert expected in readme

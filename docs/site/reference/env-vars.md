@@ -568,6 +568,7 @@ time.
 | SPARK_HISTORY_SCALE | spark |  |  |
 | SPARK_INIT_SCALE | spark |  |  |
 | SPARK_CONNECT_SCALE | spark |  | Resolved by the bootstrapper from SPARK_SOURCE; spark-connect runs as a sidecar to spark-master. |
+| SPARK_CONNECT_CORES_MAX | spark | 1 | Maximum standalone-cluster cores the long-lived Spark Connect server may hold. Keep below total worker cores so Airflow SparkSubmit and Zeppelin standalone workloads can run alongside Connect; raise only when the worker pool has enough headroom. |
 | SPARK_MASTER_MEMORY_LIMIT | spark | 2g | Container memory limit for spark-master (deploy.resources.limits.memory). The standalone master process manages cluster state and requires minimal heap — 2 g is generous on a 32 GB host. |
 | SPARK_MASTER_CPU_LIMIT | spark | 1.0 | Container CPU limit for spark-master (deploy.resources.limits.cpus). Master is lightweight; 1.0 core is ample. |
 | SPARK_WORKER_MEMORY_LIMIT | spark | 4g | Container memory limit per spark-worker (deploy.resources.limits.memory). Workers run executor JVMs; 4 g per replica is a conservative cap on a 32 GB host with the default 2 workers (8 g total). Raise for memory-intensive jobs. |
