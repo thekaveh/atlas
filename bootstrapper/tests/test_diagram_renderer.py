@@ -22,12 +22,14 @@ def test_renders_svg_with_focus_label():
     assert "HERMES" in svg
 
 
-def test_renders_html_includes_jetbrains_mono():
+def test_renders_html_uses_local_monospace_stack():
     from docs.deps_resolver import build_doc_graph
     from docs.diagram_renderer import render_html
     g = build_doc_graph("hermes", SERVICES_DIR)
     html = render_html(g)
-    assert "JetBrains+Mono" in html
+    assert "JetBrains Mono" in html
+    assert "JetBrains+Mono" not in html
+    assert "fonts.googleapis.com" not in html
     assert "<svg" in html
 
 

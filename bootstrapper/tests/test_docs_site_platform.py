@@ -20,6 +20,7 @@ WIKI_SCRIPT = ROOT / "scripts" / "export-docs-wiki.py"
 WORKFLOW = ROOT / ".github" / "workflows" / "services-lint.yml"
 PAGES_WORKFLOW = ROOT / ".github" / "workflows" / "docs-pages.yml"
 THEME_CSS = ROOT / "docs" / "assets" / "stylesheets" / "atlas.css"
+THEME_HERO_IMAGE = ROOT / "docs" / "assets" / "images" / "atlas-source.png"
 
 REQUIRED_DIAGRAMS = {
     "platform-overview",
@@ -154,6 +155,7 @@ def test_required_diagram_catalog_is_linked_and_non_empty() -> None:
         assert "<svg" in html_text
         assert "#020617" in html_text
         assert "JetBrains Mono" in html_text
+        assert "fonts.googleapis.com" not in html_text
         assert page.stat().st_size > 200
         assert f"./{slug}.html" in page_text or f"{slug}.html" in page_text
         assert f"{slug}.md" in catalog
@@ -194,20 +196,27 @@ def test_docs_pages_publication_workflow_and_homepage_contract() -> None:
     assert "https://thekaveh.github.io/atlas/" in workflow
 
 
-def test_atlas_theme_uses_professional_blue_system() -> None:
+def test_atlas_theme_uses_dark_atlas_system_with_local_assets() -> None:
+    config = _mkdocs()
     css = THEME_CSS.read_text(encoding="utf-8")
+    home = (ROOT / "docs" / "index.md").read_text(encoding="utf-8")
 
-    for color in ("#f8fafc", "#0f172a", "#0ea5e9", "#2563eb", "#0891b2"):
+    for color in ("#020617", "#07111f", "#0ea5e9", "#38bdf8", "#60a5fa"):
         assert color in css
-    assert "Inter" in css
+    assert config["theme"]["color_mode"] == "dark"
+    assert config["theme"]["highlightjs"] is False
+    assert "@import url(" not in css
+    assert "fonts.googleapis.com" not in css
     assert "JetBrains Mono" in css
     assert "border-radius" in css
-    assert "max-width: 1360px" in css
-    assert "background: #f8fafc" in css
-    assert "radial-gradient" not in css
+    assert "body > .container" in css
+    assert "max-width: 1480px" in css
+    assert "background: #020617" in css
+    assert "assets/images/atlas-source.png" in home
+    assert THEME_HERO_IMAGE.exists()
     assert "background-size: auto, 44px 44px" not in css
     assert "box-shadow: 0 24px 90px" not in css
-    assert "rgba(8, 17, 31, 0.74)" not in css
+    assert "#f8fafc" not in css
     assert "@media (max-width: 767.98px)" in css
     assert ".bs-sidebar" in css
     assert "display: none" in css

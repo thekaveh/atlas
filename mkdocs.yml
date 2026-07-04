@@ -108,3 +108,5 @@ nav:
 theme:
   name: mkdocs
   navigation_depth: 4
+  color_mode: dark
+  highlightjs: false

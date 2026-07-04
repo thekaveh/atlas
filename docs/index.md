@@ -3,6 +3,8 @@
 Atlas is a self-hosted, source-configurable engineering platform for AI, RAG,
 creative AI, ML, and data-engineering workloads.
 
+![Atlas block-art platform view](assets/images/atlas-source.png)
+
 This MkDocs site is the publishable navigation layer for the repository's
 existing documentation. It indexes 55 service families,
 7 tracks, and 43 SOURCE-configurable surfaces while
