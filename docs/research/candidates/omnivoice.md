@@ -1,6 +1,6 @@
 ---
 category-fit: media
-generated: 2026-06-03
+generated: 2026-07-04
 license: Apache-2.0 (OSS) / proprietary (SaaS at omnivoice.app)
 name: OmniVoice (k2-fsa)
 referenced-by: []
@@ -36,6 +36,22 @@ Voice-cloning capability overlaps with Chatterbox (both do 3–10 s zero-shot). 
 
 - **omnivoice.app (SaaS)** has no documented developer API. Pricing is per-credit ($9.90–$49.90/mo), nav has no "API" / "Developers" entry, no docs page, no key-issuance flow. Until a public REST surface lands, a `omnivoice-cloud` source variant is impossible.
 - **k2-fsa/OmniVoice (OSS)** ships **CLI + Python only** — `omnivoice-infer`, `OmniVoice.from_pretrained(...).generate(...)` returning a numpy array. **No HTTP server, no `/v1/audio/speech` route, no Dockerfile, no published image, no upstream FastAPI wrapper analogous to `travisvn/chatterbox-tts-api`.** Library is at 0.1.5 (5 releases in ~2 months, 45 total commits, 41 open issues) — moving fast.
+
+## Deferred decision (2026-07-04)
+
+Keep OmniVoice deferred. Atlas should not add `services/omnivoice/service.yml` and should not extend `TTS_PROVIDER_SOURCE` until a public API, a maintained community HTTP wrapper, or Speaches support exists. The blocker is still the immature HTTP wrapper path: Atlas would otherwise own the serving layer for a young TTS library.
+
+Future contract if reopened:
+
+- Tracks: `gen-ai-creative`, `gen-ai-eng`, and `all`; voice language coverage is useful, but it should remain outside RAG/data tracks by default.
+- Category: `media`, matching current STT Provider and TTS Provider engines.
+- Source values: extend `TTS_PROVIDER_SOURCE` only after a supported endpoint exists; possible values are `omnivoice-container-gpu` and `omnivoice-localhost`, disabled by default through the existing TTS selector.
+- Wizard placement: inside TTS Provider, with copy explaining GPU requirements, voice-cloning consent, language coverage, and wrapper maturity.
+- Kong behavior: no standalone `omnivoice.localhost`; if adopted, it should route through the existing `tts.localhost` alias only when selected as the active TTS engine.
+- Dependencies and consumers: STT Provider is not involved; TTS Provider, Open WebUI, Hermes, LiteLLM-adjacent flows, backend, and n8n should only see the existing OpenAI-compatible TTS contract.
+- Topology: reuse TTS Provider patterns, custom `BASE_PORT`, docs, diagrams, and `data_flow.calls` only after the endpoint exists.
+- `init companion`: likely needed for model-cache creation, voice sample validation, GPU/profile checks, and safe default voices.
+- Edge cases: missing wrapper, API breakage, disabled TTS Provider, CPU fallback, low VRAM, model-cache growth, unsafe voice-cloning input, missing consent, stale `.env`, and generated-doc drift.
 
 ## Stack wiring sketch (if pursued)
 

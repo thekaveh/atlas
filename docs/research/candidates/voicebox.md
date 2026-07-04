@@ -1,6 +1,6 @@
 ---
 category-fit: media
-generated: 2026-06-22
+generated: 2026-07-04
 license: MIT
 name: Voicebox (jamiepine)
 referenced-by: []
@@ -20,6 +20,21 @@ A local-first AI voice studio — a Tauri (Rust) **desktop GUI app**, MIT, ~32k 
 The genuinely novel capability is **agent voice over MCP**: `voicebox.speak` lets any MCP-aware agent talk in a cloned voice, with `voicebox.transcribe`, `voicebox.list_captures`, `voicebox.list_profiles` alongside. That maps cleanly onto the stack's MCP-client tier — Hermes ("MCP-native"), LiteLLM's `mcp_servers`, Open WebUI's native MCP client, n8n's `n8n-nodes-mcp`, and OpenClaw's MCP CLI — and would be the first concrete MCP server in the ROADMAP §3.10 architecture.
 
 Everything else is **redundant**: Voicebox bundles Chatterbox + Kokoro + Whisper, exactly the engines the stack already runs via Speaches and Chatterbox. As a TTS/STT engine it adds weight and a GUI dependency, not capability.
+
+## Deferred decision (2026-07-04)
+
+Keep Voicebox deferred. It remains interesting as a local MCP server, but Atlas should not add `services/voicebox/service.yml` until the OpenAI-compatible endpoint is shipped and Atlas has a clearer realtime speech workflow. The current source proposal stays virtual and disabled by default: `VOICEBOX_SOURCE=disabled|localhost`.
+
+Future contract if reopened:
+
+- Tracks: `gen-ai-creative`, `gen-ai-eng`, and `all`; do not add it to RAG or data tracks by default.
+- Category: `media`, because it is a voice/media provider and host tool.
+- Wizard placement: after STT Provider and TTS Provider with copy that it is a local desktop app and MCP server, not a headless stack TTS/STT replacement.
+- Kong behavior: no default Kong route and no direct `voicebox.localhost` route. Keep host-local MCP or OpenAI-compatible endpoint access explicitly opt in.
+- Dependencies and consumers: Open WebUI, Hermes, LiteLLM, backend, and n8n may consume it only after endpoint compatibility, client IDs, voice consent, and per-consumer MCP policy are specified.
+- Topology: no container port and no `data_flow.calls` until a consumer is actually auto-wired.
+- `init companion`: none for localhost mode; Atlas should not install or manage the desktop app.
+- Edge cases: missing desktop app, app not running, changed MCP port, missing OpenAI endpoint, profile state drift, host speaker side effects, voice-cloning consent, and stale `.env`.
 
 ## Stack wiring sketch
 
