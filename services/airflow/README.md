@@ -47,6 +47,29 @@ Auto-managed (resolved by the bootstrapper from `AIRFLOW_SOURCE`; do not hand-ed
 
 Connection seeding is idempotent — `airflow-init` deletes-then-adds each Connection on every run, so changes to credentials propagate on the next `./start.sh`.
 
+**Resolving seeded Connections outside a task.** Airflow 3's Task-SDK
+connection lookup is task-context-sensitive. DAG tasks should keep using
+hooks/operators such as `S3Hook(aws_conn_id="minio_default")` and
+`SparkSubmitOperator(conn_id="spark_default")`, but standalone probes or
+scripts run with `docker exec ... python ...` are outside a task execution context.
+In that context, `BaseHook.get_connection(...)` or hook construction
+can raise `AirflowNotFoundException` even when
+`airflow connections get minio_default` shows the row in the metadata DB. For
+preflight scripts, read the metadata DB directly instead:
+
+```python
+from airflow.models import Connection
+from airflow.settings import Session
+
+with Session() as session:
+    conn = session.query(Connection).filter(Connection.conn_id == "minio_default").one()
+```
+
+The same pattern applies to `spark_default`. This direct
+`airflow.settings.Session` + `airflow.models.Connection` access is for
+standalone health/preflight scripts only; DAG tasks should keep using hooks/operators
+so provider behavior, masking, and task-context semantics stay intact.
+
 ## 5. Sample DAG
 
 `services/airflow/dags/example_etl_with_llm.py` ships pre-loaded. Three `PythonOperator` steps that smoke-test each Connection:
