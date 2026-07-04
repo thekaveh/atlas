@@ -623,7 +623,7 @@ CREATE TABLE public.research_sessions (
     query text NOT NULL,
     status character varying(20) DEFAULT 'pending'::character varying NOT NULL,
     max_loops integer DEFAULT 3 NOT NULL,
-    search_api character varying(50) DEFAULT 'duckduckgo'::character varying NOT NULL,
+    search_api character varying(50) DEFAULT 'searxng'::character varying NOT NULL,
     user_id uuid,
     created_at timestamp with time zone DEFAULT now(),
     updated_at timestamp with time zone DEFAULT now(),

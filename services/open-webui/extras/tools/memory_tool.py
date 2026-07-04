@@ -159,9 +159,14 @@ class Tools:
         if not memory_id:
             return "Please provide a memory ID to delete."
 
+        user_id = __user__.get("id", "")
+        if not user_id:
+            return "Error: User ID not available. Please ensure you are logged in."
+
         try:
             response = requests.delete(
                 f"{self.valves.backend_url}/memory/{memory_id}",
+                params={"user_id": user_id},
                 timeout=self.valves.timeout,
             )
             response.raise_for_status()

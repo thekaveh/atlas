@@ -53,7 +53,7 @@ services:
       # Per-OpenClaw cloud overrides (optional — allow OpenClaw to call cloud
       # providers directly when explicitly configured; otherwise route via LiteLLM).
       ANTHROPIC_API_KEY: ${OPENCLAW_ANTHROPIC_API_KEY:-}
-      OPENAI_API_KEY: ${OPENCLAW_OPENAI_API_KEY:-${OPENAI_API_KEY:-}}
+      OPENAI_API_KEY: ${OPENCLAW_OPENAI_API_KEY:-}
       # Gateway configuration
       OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN:-}
       # Hermes Agent — OpenClaw is the channel adapter (WhatsApp/Telegram/
@@ -64,8 +64,8 @@ services:
       - openclaw-config:/home/node/.openclaw
       - openclaw-workspace:/home/node/.openclaw/workspace
     ports:
-      - "${HOST_BIND_IP:-}${OPENCLAW_GATEWAY_PORT:-63065}:18789"
-      - "${HOST_BIND_IP:-}${OPENCLAW_BRIDGE_PORT:-63066}:18790"
+      - "${HOST_BIND_IP:-}${OPENCLAW_GATEWAY_PORT:-63076}:18789"
+      - "${HOST_BIND_IP:-}${OPENCLAW_BRIDGE_PORT:-63077}:18790"
     networks:
       - backend-network
     healthcheck:

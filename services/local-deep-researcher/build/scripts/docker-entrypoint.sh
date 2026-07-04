@@ -42,10 +42,11 @@ cp "$REPO_DIR"/langgraph.json /app/
 # Optional Atlas integration: when full-page mode is crawl4ai, replace
 # upstream's direct httpx fetch helper with a token-authenticated Crawl4AI
 # adapter. Other modes leave upstream source untouched.
+python3 /app/scripts/patch-litellm-openai-provider.py
 python3 /app/scripts/patch-crawl4ai-fetch.py
 
 echo "Local Deep Researcher: Installing dependencies..."
-uv pip install --system -r /app/pyproject.toml
+uv pip install --system -e /app
 
 # -------------------------------------------------------------------
 # Initialize configuration from env vars (LITELLM_DEFAULT_MODEL, etc.)

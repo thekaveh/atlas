@@ -21,5 +21,5 @@ preserving service READMEs as the per-service source of truth.
 ## 2. Publication Surfaces
 
 - Public site: [https://thekaveh.github.io/atlas/](https://thekaveh.github.io/atlas/)
-- GitHub Wiki export: [docs/wiki/Home.md](wiki/Home.md)
+- GitHub Wiki export source: [docs/wiki/Home.md](https://github.com/thekaveh/atlas/blob/main/docs/wiki/Home.md)
 - Source repository: [thekaveh/atlas](https://github.com/thekaveh/atlas)

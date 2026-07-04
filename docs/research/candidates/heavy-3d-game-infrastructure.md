@@ -96,5 +96,5 @@ The current stack already contains ComfyUI and a conservative Blender MCP profil
 ## Cross-references
 - `../../strategy/atlas-vnext-strategy-report.md#81-3d--game-generation-track`
 - `../../strategy/atlas-vnext-strategy-report.md#94-reject-or-defer-for-now`
-- `../../../services/blender-mcp/README.md`
+- `https://github.com/thekaveh/atlas/blob/main/services/blender-mcp/README.md`
 - `../candidates/imgproxy.md`

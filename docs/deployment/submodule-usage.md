@@ -673,7 +673,7 @@ DOC_PROCESSOR_SOURCE=disabled
 
 ## 11. Additional Resources
 
-- [Main atlas README](../../README.md)
+- [Main atlas README](https://github.com/thekaveh/atlas/blob/main/README.md)
 - [Source Configuration](source-configuration.md)
 - [Git Submodules Documentation](https://git-scm.com/book/en/v2/Git-Tools-Submodules)
 

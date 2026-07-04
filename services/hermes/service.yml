@@ -75,11 +75,11 @@ env:
   - name: HERMES_GID
     default: 10000
   - name: HERMES_LOCALHOST_PORT
-    default: "63028"
-    description: "Host port for the Hermes API in the localhost source variant. Consumed by HERMES_ENDPOINT (in-container clients call this). Mirror of HERMES_API_PORT but for host-side Hermes processes."
+    default: "8642"
+    description: "Host port for the Hermes API in the localhost source variant. Consumed by HERMES_ENDPOINT (in-container clients call this). Defaults to Hermes' native API port."
   - name: HERMES_LOCALHOST_DASHBOARD_PORT
-    default: "63029"
-    description: "Host port for the Hermes web dashboard in the localhost source variant. The Kong route fronting hermes.localhost targets this. Mirror of HERMES_DASHBOARD_PORT but for host-side Hermes processes. The wizard's inline textbox edits HERMES_LOCALHOST_PORT (the API); override this via .env hand-edit if your host dashboard runs on a non-default port."
+    default: "9119"
+    description: "Host port for the Hermes web dashboard in the localhost source variant. The Kong route fronting hermes.localhost targets this. Defaults to Hermes' native dashboard port. The wizard's inline textbox edits HERMES_LOCALHOST_PORT (the API); override this via .env hand-edit if your host dashboard runs on a non-default port."
   - name: HERMES_INIT_SOURCE
     default: container
     description: "Auto-managed by hermes. Container/disabled."
@@ -139,7 +139,7 @@ runtime_sc:
     localhost:
       scale: 0
       environment:
-        HERMES_ENDPOINT: http://host.docker.internal:${HERMES_LOCALHOST_PORT:-63028}
+        HERMES_ENDPOINT: http://host.docker.internal:${HERMES_LOCALHOST_PORT:-8642}
       deploy: {}
       extra_hosts:
       - host.docker.internal:host-gateway
@@ -217,4 +217,3 @@ data_flow:
     # pattern; remove the entry if a future PR retracts the docs.
     - airflow
     - lightrag
-

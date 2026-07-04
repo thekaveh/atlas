@@ -364,7 +364,7 @@ class ServiceConfig:
         current_env = self.config_parser.parse_env_file()
         public_template = config.get('environment', {}).get('MINIO_PUBLIC_ENDPOINT', '')
         if public_template:
-            minio_port = current_env.get('MINIO_PORT', '63030')
+            minio_port = current_env.get('MINIO_PORT', '63020')
             env_vars['MINIO_PUBLIC_ENDPOINT'] = public_template.replace('${MINIO_PORT}', minio_port)
         else:
             env_vars['MINIO_PUBLIC_ENDPOINT'] = ''
@@ -375,7 +375,7 @@ class ServiceConfig:
         # MINIO_CONSOLE_PORT), NOT the S3 API.
         console_template = config.get('environment', {}).get('MINIO_PUBLIC_CONSOLE_ENDPOINT', '')
         if console_template:
-            console_port = current_env.get('MINIO_CONSOLE_PORT', '63018')
+            console_port = current_env.get('MINIO_CONSOLE_PORT', '63021')
             env_vars['MINIO_PUBLIC_CONSOLE_ENDPOINT'] = console_template.replace('${MINIO_CONSOLE_PORT}', console_port)
         else:
             env_vars['MINIO_PUBLIC_CONSOLE_ENDPOINT'] = ''
@@ -632,7 +632,7 @@ class ServiceConfig:
         if source_value == 'disabled':
             env_vars['DOCLING_ENDPOINT'] = ''
         else:
-            endpoint = config.get('environment', {}).get('DOCLING_ENDPOINT', 'http://host.docker.internal:63040')
+            endpoint = config.get('environment', {}).get('DOCLING_ENDPOINT', 'http://host.docker.internal:63059')
             # For localhost mode, dynamically replace the port with the user-
             # overridable DOCLING_LOCALHOST_PORT (NOT DOC_PROCESSOR_PORT —
             # that's the container's host-bound port). The wizard writes the
@@ -641,7 +641,7 @@ class ServiceConfig:
             # class — see feedback_localhost_url_override_symmetry.md).
             if source_value == 'docling-localhost':
                 current_env = self.config_parser.parse_env_file()
-                doc_port = current_env.get('DOCLING_LOCALHOST_PORT', '63040')
+                doc_port = current_env.get('DOCLING_LOCALHOST_PORT', '63059')
                 endpoint = f'http://{self.localhost_host}:{doc_port}'
             else:
                 # For container mode, just apply localhost_host replacement
@@ -681,11 +681,11 @@ class ServiceConfig:
         elif source_value == 'localhost':
             # HERMES_LOCALHOST_PORT is the user-overridable var the wizard
             # writes for host-side Hermes. Reading HERMES_API_PORT here would
-            # always be the container's host-bound port (63060), silently
+            # always be the container's host-bound port, silently
             # stranding any port override — same asymmetric-override class
             # as docling above (feedback_localhost_url_override_symmetry.md).
             current_env = self.config_parser.parse_env_file()
-            hermes_port = current_env.get('HERMES_LOCALHOST_PORT', '63028')
+            hermes_port = current_env.get('HERMES_LOCALHOST_PORT', '8642')
             endpoint = f'http://{self.localhost_host}:{hermes_port}'
             env_vars['HERMES_ENDPOINT'] = endpoint
             env_vars['HERMES_SCALE'] = '0'
@@ -733,7 +733,7 @@ class ServiceConfig:
             env_vars['TEI_RERANKER_SCALE'] = '0'
             env_vars['TEI_RERANKER_IMAGE_RESOLVED'] = container_cpu_image
         elif source_value == 'localhost':
-            port = current_env.get('TEI_RERANKER_LOCALHOST_PORT', '63031')
+            port = current_env.get('TEI_RERANKER_LOCALHOST_PORT', '63049')
             env_vars['TEI_RERANKER_ENDPOINT'] = f'http://{self.localhost_host}:{port}'
             env_vars['TEI_RERANKER_SCALE'] = '0'
             env_vars['TEI_RERANKER_IMAGE_RESOLVED'] = container_cpu_image

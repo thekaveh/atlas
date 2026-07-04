@@ -1,15 +1,16 @@
-from fastapi import FastAPI, HTTPException, status, UploadFile, File
+from fastapi import FastAPI, HTTPException, status, UploadFile, File, Query
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, Field
 from storage3 import SyncStorageClient as StorageClient
-from typing import Optional, cast, Dict, Any, List, Union
+from typing import Optional, cast, Dict, Any, List, Union, Literal
 from contextlib import asynccontextmanager
 import os
 import asyncio
 import httpx
 import asyncpg
 import yaml
+import re
 
 from n8n_client import N8nClient
 from research_service import ResearchService
@@ -55,6 +56,34 @@ PROJECT_NAME = os.getenv("PROJECT_NAME", "atlas")
 MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(100 * 1024 * 1024)))
 
 
+def _parse_csv_env(value: str | None) -> List[str]:
+    if not value:
+        return []
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+BACKEND_CORS_ALLOW_ORIGIN_REGEX = os.getenv("BACKEND_CORS_ALLOW_ORIGIN_REGEX") or None
+
+
+def _resolve_cors_origins(origins_value: str | None, origin_regex: str | None) -> List[str]:
+    origins = _parse_csv_env(origins_value)
+    if origin_regex:
+        return [origin for origin in origins if origin != "*"]
+    if origins:
+        return origins
+    return ["*"]
+
+
+BACKEND_CORS_ORIGINS = _resolve_cors_origins(
+    os.getenv("BACKEND_CORS_ORIGINS"),
+    BACKEND_CORS_ALLOW_ORIGIN_REGEX,
+)
+BACKEND_STORAGE_ALLOWED_BUCKETS = set(
+    _parse_csv_env(os.getenv("BACKEND_STORAGE_ALLOWED_BUCKETS")) or ["default"]
+)
+_SAFE_STORAGE_FILENAME = re.compile(r"^[A-Za-z0-9._ -]{1,255}$")
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
     yield
@@ -92,7 +121,8 @@ Instrumentator(
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, specify exact origins
+    allow_origins=BACKEND_CORS_ORIGINS,
+    allow_origin_regex=BACKEND_CORS_ALLOW_ORIGIN_REGEX,
     # NOTE: `allow_credentials=True` with the `*` wildcard origin is rejected by
     # all browsers (the spec forbids credentials + wildcard), so it would only
     # silently break credentialed requests. The backend is reached server-side
@@ -163,6 +193,56 @@ class StorageResponse(BaseModel):
     bucket: str
     path: str
     url: str
+
+
+async def _read_upload_file_limited(
+    file: UploadFile,
+    *,
+    max_bytes: int,
+    label: str,
+) -> bytes:
+    chunks: List[bytes] = []
+    total = 0
+    chunk_size = 1024 * 1024
+    while True:
+        chunk = await file.read(chunk_size)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > max_bytes:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=f"{label} exceeds maximum size of {max_bytes} bytes",
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+def _document_max_file_size() -> int:
+    config = getattr(document_extractor, "config", None)
+    value = getattr(config, "max_file_size", None)
+    if value is not None:
+        return int(value)
+    return int(os.getenv("TIKA_MAX_FILE_SIZE", str(50 * 1024 * 1024)))
+
+
+def _validate_storage_target(bucket: str, filename: str) -> None:
+    if bucket not in BACKEND_STORAGE_ALLOWED_BUCKETS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Bucket is not allowed",
+        )
+    if (
+        not filename
+        or filename in {".", ".."}
+        or "/" in filename
+        or "\\" in filename
+        or not _SAFE_STORAGE_FILENAME.fullmatch(filename)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Filename must be a safe object name without path separators",
+        )
 
 
 @app.get("/health", response_model=HealthResponse)
@@ -281,44 +361,40 @@ async def upload_file(file: UploadFile = File(...), bucket: str = "default"):
                 detail="File must have a filename",
             )
         filename = cast(str, file.filename)
+        _validate_storage_target(bucket, filename)
 
         # Read file content in bounded chunks so an oversized upload fails
         # cleanly with 413 instead of OOMing the worker. UploadFile's
         # SpooledTemporaryFile is iterated, not materialized whole.
-        chunks: List[bytes] = []
-        total = 0
-        chunk_size = 1024 * 1024  # 1 MiB
-        while True:
-            chunk = await file.read(chunk_size)
-            if not chunk:
-                break
-            total += len(chunk)
-            if total > MAX_UPLOAD_BYTES:
-                raise HTTPException(
-                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                    detail=f"File exceeds maximum upload size of {MAX_UPLOAD_BYTES} bytes",
-                )
-            chunks.append(chunk)
-        content = b"".join(chunks)
-
-        # Upload to storage. storage3 exposes upload/get_public_url on
-        # the per-bucket proxy (from_), not on the client itself — the
-        # old client-level calls raised AttributeError on every request.
-        bucket_ref = storage_client.from_(bucket)
-        # storage3's SyncStorageClient does blocking network I/O; run it off
-        # the event loop so a slow/large upload doesn't stall the worker and
-        # every other in-flight request with it.
-        await asyncio.to_thread(
-            bucket_ref.upload,
-            path=filename,
-            file=content,
-            file_options={"content-type": file.content_type}
-            if file.content_type
-            else None,
+        content = await _read_upload_file_limited(
+            file,
+            max_bytes=MAX_UPLOAD_BYTES,
+            label="File",
         )
 
-        # Get public URL
-        url = await asyncio.to_thread(bucket_ref.get_public_url, filename)
+        try:
+            # Upload to storage. storage3 exposes upload/get_public_url on
+            # the per-bucket proxy (from_), not on the client itself.
+            bucket_ref = storage_client.from_(bucket)
+            # storage3's SyncStorageClient does blocking network I/O; run it off
+            # the event loop so a slow/large upload doesn't stall the worker and
+            # every other in-flight request with it.
+            await asyncio.to_thread(
+                bucket_ref.upload,
+                path=filename,
+                file=content,
+                file_options={"content-type": file.content_type}
+                if file.content_type
+                else None,
+            )
+
+            # Get public URL
+            url = await asyncio.to_thread(bucket_ref.get_public_url, filename)
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Supabase Storage is unavailable",
+            ) from e
 
         return StorageResponse(bucket=bucket, path=filename, url=url)
     except HTTPException:
@@ -337,7 +413,11 @@ async def extract_document(file: UploadFile = File(...)):
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="File must have a filename",
         )
-    content = await file.read()
+    content = await _read_upload_file_limited(
+        file,
+        max_bytes=_document_max_file_size(),
+        label="Document",
+    )
     try:
         result = await document_extractor.extract(
             content=content,
@@ -365,9 +445,9 @@ async def extract_document(file: UploadFile = File(...)):
 # Research API Models
 class ResearchStartRequest(BaseModel):
     """Request model for starting research"""
-    query: str
-    max_loops: Optional[int] = 3
-    search_api: Optional[str] = "duckduckgo"
+    query: str = Field(min_length=1, max_length=4000)
+    max_loops: Optional[int] = Field(default=3, ge=1, le=10)
+    search_api: Optional[Literal["duckduckgo", "searxng"]] = "searxng"
     user_id: Optional[str] = None
 
 
@@ -429,7 +509,7 @@ async def start_research(request: ResearchStartRequest):
         result = await research_service.start_research(
             query=request.query,
             max_loops=request.max_loops or 3,
-            search_api=request.search_api or "duckduckgo",
+            search_api=request.search_api or "searxng",
             user_id=request.user_id
         )
         return ResearchResponse(**result)
@@ -493,10 +573,16 @@ async def cancel_research(session_id: str):
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Cannot cancel research session {session_id} - session not found or not running"
             )
-        return ResearchResponse(
-            session_id=session_id,
-            status="cancelled",
-            message="Research session cancelled successfully"
+        return JSONResponse(
+            status_code=status.HTTP_202_ACCEPTED,
+            content=ResearchResponse(
+                session_id=session_id,
+                status="cancel_requested",
+                message=(
+                    "Local research task cancellation requested; remote "
+                    "LangGraph cancellation is not supported by this integration"
+                ),
+            ).model_dump(),
         )
     except HTTPException:
         raise
@@ -513,7 +599,14 @@ async def get_research_logs(session_id: str):
     _validate_uuid_param(session_id, "session_id")
     try:
         logs = await research_service.get_research_logs(session_id)
+        if logs is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Research session {session_id} not found",
+            )
         return [ResearchLogResponse(**log) for log in logs]
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -524,8 +617,8 @@ async def get_research_logs(session_id: str):
 @app.get("/research/sessions", response_model=List[ResearchSessionResponse])
 async def list_research_sessions(
     user_id: Optional[str] = None,
-    limit: int = 50,
-    offset: int = 0
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0)
 ):
     """List research sessions"""
     if user_id is not None:
@@ -533,8 +626,8 @@ async def list_research_sessions(
     try:
         sessions = await research_service.list_user_sessions(
             user_id=user_id,
-            limit=min(limit, 100),  # Cap at 100
-            offset=max(offset, 0)   # Ensure non-negative
+            limit=limit,
+            offset=offset,
         )
         return [ResearchSessionResponse(**session) for session in sessions]
     except Exception as e:
@@ -565,20 +658,20 @@ async def research_health_check():
 # ComfyUI API Models
 class ComfyUIGenerateRequest(BaseModel):
     """Request model for ComfyUI image generation"""
-    prompt: str
-    negative_prompt: Optional[str] = ""
-    width: int = 512
-    height: int = 512
-    steps: int = 20
-    cfg: float = 7.0
+    prompt: str = Field(min_length=1, max_length=4000)
+    negative_prompt: Optional[str] = Field(default="", max_length=4000)
+    width: int = Field(default=512, ge=64, le=4096)
+    height: int = Field(default=512, ge=64, le=4096)
+    steps: int = Field(default=20, ge=1, le=150)
+    cfg: float = Field(default=7.0, ge=0.0, le=30.0)
     seed: Optional[int] = None
-    checkpoint: Optional[str] = "v1-5-pruned-emaonly.safetensors"
+    checkpoint: Optional[str] = Field(default="v1-5-pruned-emaonly.safetensors", max_length=255)
     wait_for_completion: bool = True
 
 
 class ComfyUIWorkflowRequest(BaseModel):
     """Request model for custom ComfyUI workflow"""
-    workflow: Dict[str, Any]
+    workflow: Dict[str, Any] = Field(min_length=1, max_length=500)
     wait_for_completion: bool = True
 
 
@@ -894,7 +987,7 @@ async def memory_extract(request: MemoryExtractRequest):
     try:
         result = await memory_service.extract_facts(
             user_id=request.user_id,
-            messages=request.messages,
+            messages=[message.model_dump() for message in request.messages],
             namespace=request.namespace,
             conversation_id=request.conversation_id,
         )
@@ -1004,9 +1097,9 @@ async def memory_summarize(request: MemorySummarizeRequest):
 @app.get("/memory/user/{user_id}", response_model=MemoryListResponse)
 async def memory_list(
     user_id: str,
-    namespace: str = "default",
-    limit: int = 50,
-    offset: int = 0,
+    namespace: str = Query(default="default", min_length=1, max_length=128),
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
 ):
     """List all active memories for a user."""
     _validate_uuid_param(user_id, "user_id")
@@ -1014,8 +1107,8 @@ async def memory_list(
         result = await memory_service.list_memories(
             user_id=user_id,
             namespace=namespace,
-            limit=min(limit, 100),
-            offset=max(offset, 0),
+            limit=limit,
+            offset=offset,
         )
         return MemoryListResponse(**result)
     except RuntimeError as e:
@@ -1030,12 +1123,17 @@ async def memory_list(
 
 
 @app.put("/memory/{memory_id}", response_model=Dict[str, Any])
-async def memory_update(memory_id: str, request: MemoryUpdateRequest):
+async def memory_update(
+    memory_id: str,
+    request: MemoryUpdateRequest,
+    user_id: str = Query(...),
+):
     """Update a specific memory fact."""
     _validate_uuid_param(memory_id, "memory_id")
+    _validate_uuid_param(user_id, "user_id")
     try:
         updates = request.model_dump(exclude_none=True)
-        result = await memory_service.update_memory(memory_id, updates)
+        result = await memory_service.update_memory(memory_id, user_id, updates)
         if not result:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -1056,11 +1154,12 @@ async def memory_update(memory_id: str, request: MemoryUpdateRequest):
 
 
 @app.delete("/memory/{memory_id}", response_model=Dict[str, Any])
-async def memory_delete(memory_id: str):
+async def memory_delete(memory_id: str, user_id: str = Query(...)):
     """Delete (deactivate) a specific memory fact."""
     _validate_uuid_param(memory_id, "memory_id")
+    _validate_uuid_param(user_id, "user_id")
     try:
-        success = await memory_service.delete_memory(memory_id)
+        success = await memory_service.delete_memory(memory_id, user_id)
         if not success:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,

@@ -82,7 +82,7 @@ def test_mcp_servers_topology_alias_and_env_example_contract() -> None:
     env_example = (REPO_ROOT / ".env.example").read_text()
     for expected in (
         "MCP_SERVERS_SOURCE=disabled",
-        "MCP_SERVERS_IMAGE=python:3.12-slim",
+        "MCP_SERVERS_IMAGE=python:3.12.13-slim",
         "MCP_SERVERS_PORT=",
         "MCP_SERVERS_SCALE=",
         "MCP_POSTGRES_MAX_ROWS=50",
@@ -166,7 +166,7 @@ def test_mcp_servers_compose_contract() -> None:
 
     assert service["build"]["context"] == "./runtime"
     assert service["build"]["dockerfile"] == "../build/Dockerfile"
-    assert service["build"]["args"]["BASE_IMAGE"] == "${MCP_SERVERS_IMAGE:-python:3.12-slim}"
+    assert service["build"]["args"]["BASE_IMAGE"] == "${MCP_SERVERS_IMAGE:-python:3.12.13-slim}"
     assert service["image"] == "${PROJECT_NAME}-mcp-servers:local"
     assert service["ports"] == ["127.0.0.1:${MCP_SERVERS_PORT}:8000"]
     assert service["environment"]["MCP_POSTGRES_MAX_ROWS"] == "${MCP_POSTGRES_MAX_ROWS:-50}"

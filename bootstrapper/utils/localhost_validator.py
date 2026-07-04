@@ -110,7 +110,7 @@ class LocalhostValidator:
             'check_type': 'http',
             'port_env_var': 'DOCLING_LOCALHOST_PORT',
             'service_name': 'Docling Document Processor',
-            'default_port': 63040
+            'default_port': 63059
         },
         'TIKA_SOURCE': {
             'source_values': ['tika-localhost'],
@@ -133,14 +133,14 @@ class LocalhostValidator:
             'check_type': 'http',
             'port_env_var': 'HERMES_LOCALHOST_PORT',
             'service_name': 'Hermes Agent',
-            'default_port': 63028
+            'default_port': 8642
         },
         'TEI_RERANKER_SOURCE': {
             'source_values': ['localhost'],
             'check_type': 'http',
             'port_env_var': 'TEI_RERANKER_LOCALHOST_PORT',
             'service_name': 'TEI Reranker',
-            'default_port': 63031
+            'default_port': 63049
         },
         'LIGHTRAG_SOURCE': {
             'source_values': ['localhost'],
@@ -243,7 +243,7 @@ class LocalhostValidator:
             #
             # 1. ``port_env_var`` names a PORT env var (e.g.
             #    ``WHISPER_CPP_LOCALHOST_PORT=63042`` or
-            #    ``DOCLING_LOCALHOST_PORT=63040``). The probe URL is
+            #    ``DOCLING_LOCALHOST_PORT=63059``). The probe URL is
             #    ``http://localhost:<port><health_path|/health>``. STT/TTS
             #    use per-source ``LOCALHOST_PORT`` vars because each
             #    localhost variant has its own port; the same var that

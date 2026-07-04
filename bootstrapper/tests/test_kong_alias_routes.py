@@ -145,7 +145,7 @@ def test_localhost_source_routes_via_host_docker_internal():
         "WEAVIATE_SOURCE=localhost\n"
         "LLM_PROVIDER_SOURCE=ollama-localhost\n"
         "DOC_PROCESSOR_SOURCE=docling-localhost\n"
-        "DOCLING_LOCALHOST_PORT=63040\n"
+        "DOCLING_LOCALHOST_PORT=63059\n"
         "STT_PROVIDER_SOURCE=parakeet-localhost\n"
         "PARAKEET_LOCALHOST_PORT=63042\n"
         "TTS_PROVIDER_SOURCE=chatterbox-localhost\n"
@@ -158,7 +158,7 @@ def test_localhost_source_routes_via_host_docker_internal():
         "weaviate.localhost": "http://host.docker.internal:8080/",
         "ollama.localhost":   "http://host.docker.internal:11434/",
         # docling-localhost default port from manifest fallback
-        "docling.localhost":  "http://host.docker.internal:63040/",
+        "docling.localhost":  "http://host.docker.internal:63059/",
         "stt.localhost":      "http://host.docker.internal:63042/",
         "tts.localhost":      "http://host.docker.internal:63044/",
     }

@@ -27,6 +27,7 @@ from services.manifests import Manifest, load_manifests  # noqa: E402
 DOCS = ROOT / "docs"
 SERVICES = ROOT / "services"
 PUBLIC_URL = "https://thekaveh.github.io/atlas/"
+GITHUB_BLOB_URL = "https://github.com/thekaveh/atlas/blob/main"
 HOME = DOCS / "index.md"
 SITE = DOCS / "site"
 ARCH = DOCS / "architecture"
@@ -164,9 +165,43 @@ def _tracks() -> list[dict]:
     return yaml.safe_load((ROOT / "bootstrapper" / "tracks.yml").read_text(encoding="utf-8"))["tracks"]
 
 
+def _number_nav(items: list[dict], prefix: str = "") -> list[dict]:
+    numbered: list[dict] = []
+    for index, item in enumerate(items, start=1):
+        assert isinstance(item, dict)
+        for label, value in item.items():
+            numbered_label = f"{prefix}{index}. {label}"
+            if isinstance(value, list):
+                numbered.append({numbered_label: _number_nav(value, f"{prefix}{index}.")})
+            else:
+                numbered.append({numbered_label: value})
+    return numbered
+
+
 def _mkdocs_nav(services: list[ServiceDoc]) -> dict:
     service_pages = [{svc.name: f"site/services/{svc.name}.md"} for svc in services]
     diagram_pages = [{title: f"architecture/{slug}.md"} for slug, (title, _, _) in DIAGRAMS.items()]
+    nav_items = [
+        {"Home": "index.md"},
+        {"Overview": "site/overview.md"},
+        {"Quick Start": "site/quick-start.md"},
+        {"Architecture": "site/architecture/index.md"},
+        {"Architecture Diagrams": diagram_pages},
+        {"Services": "site/services/index.md"},
+        {"Service Index": "site/services/index.md"},
+        {"Service Pages": service_pages},
+        {"Tracks": "site/tracks.md"},
+        {"Configuration": "site/configuration.md"},
+        {"Operations": "site/operations.md"},
+        {"Development": "site/development.md"},
+        {"Reference": "site/reference/index.md"},
+        {"SOURCE Reference": "site/reference/source-values.md"},
+        {"Env Var Reference": "site/reference/env-vars.md"},
+        {"Ports And Routes": "site/reference/ports-routes.md"},
+        {"Track Reference": "site/reference/tracks.md"},
+        {"Service Dependencies": "site/reference/service-dependencies.md"},
+        {"Manifest Fields": "site/reference/manifest-fields.md"},
+    ]
     return {
         "site_name": "Atlas Documentation",
         "site_description": "Atlas self-hosted AI, data, and engineering platform documentation",
@@ -176,40 +211,19 @@ def _mkdocs_nav(services: list[ServiceDoc]) -> dict:
         "docs_dir": "docs",
         "site_dir": "site",
         "strict": True,
-        "exclude_docs": "README.md",
+        "exclude_docs": "README.md\nwiki/*.md",
         "extra_css": ["assets/stylesheets/atlas.css"],
         "not_in_nav": "**/*.md",
         "validation": {
             "links": {
                 "anchors": "ignore",
-                "not_found": "ignore",
+                "not_found": "warn",
                 "unrecognized_links": "ignore",
                 "absolute_links": "ignore",
             },
             "nav": {"omitted_files": "ignore"},
         },
-        "nav": [
-            {"Home": "index.md"},
-            {"Overview": "site/overview.md"},
-            {"Quick Start": "site/quick-start.md"},
-            {"Architecture": "site/architecture/index.md"},
-            {"Architecture Diagrams": diagram_pages},
-            {"Services": "site/services/index.md"},
-            {"Service Index": "site/services/index.md"},
-            {"Service Pages": service_pages},
-            {"Tracks": "site/tracks.md"},
-            {"Configuration": "site/configuration.md"},
-            {"Operations": "site/operations.md"},
-            {"Development": "site/development.md"},
-            {"Reference": "site/reference/index.md"},
-            {"SOURCE Reference": "site/reference/source-values.md"},
-            {"Env Var Reference": "site/reference/env-vars.md"},
-            {"Ports And Routes": "site/reference/ports-routes.md"},
-            {"Track Reference": "site/reference/tracks.md"},
-            {"Service Dependencies": "site/reference/service-dependencies.md"},
-            {"Manifest Fields": "site/reference/manifest-fields.md"},
-            {"Wiki Export": "wiki/Home.md"},
-        ],
+        "nav": _number_nav(nav_items),
         "theme": {
             "name": "mkdocs",
             "navigation_depth": 4,
@@ -571,7 +585,7 @@ preserving service READMEs as the per-service source of truth.
 ## 2. Publication Surfaces
 
 - Public site: [{PUBLIC_URL}]({PUBLIC_URL})
-- GitHub Wiki export: [docs/wiki/Home.md](wiki/Home.md)
+- GitHub Wiki export source: [docs/wiki/Home.md](https://github.com/thekaveh/atlas/blob/main/docs/wiki/Home.md)
 - Source repository: [thekaveh/atlas](https://github.com/thekaveh/atlas)
 """
     pages[SITE / "index.md"] = f"""# Atlas Documentation
@@ -667,9 +681,16 @@ and test updates. Use:
 ## 1. Required Checks
 
 ```bash
-PYTHONPATH=bootstrapper python -m bootstrapper.docs.regen --all --check
-python scripts/check-docs-site.py
-python scripts/export-docs-wiki.py --check
+PYTHONPATH=bootstrapper uv run --project bootstrapper python -m bootstrapper.docs.regen --all --check
+uv run --project bootstrapper python scripts/check_doc_links.py
+uv run --project bootstrapper python scripts/check-docs-drift.py
+uv run --project bootstrapper python scripts/check-docs-site.py
+uv run --project bootstrapper python scripts/export-docs-wiki.py --check
+uv run --project bootstrapper python scripts/check-compose-source-deps.py
+uv run --project bootstrapper python scripts/check-kong-routes.py
+uv run --project bootstrapper python scripts/validate_research_schema.py --all
+uv run --project bootstrapper python scripts/check-track-membership.py
+(cd services/docling/provider/localhost && uv lock --locked)
 ```
 
 ## 2. Service Admission
@@ -714,7 +735,7 @@ def _service_pages(services: list[ServiceDoc]) -> dict[Path, str]:
             svc.kind,
             svc.source_var or "-",
         ])
-        readme_link = f"../../../services/{svc.name}/README.md" if svc.readme.exists() else ""
+        readme_link = f"{GITHUB_BLOB_URL}/services/{svc.name}/README.md" if svc.readme.exists() else ""
         readme_line = (
             f"- Source README: [services/{svc.name}/README.md]({readme_link})"
             if readme_link
@@ -907,22 +928,22 @@ JetBrains Mono, split perspectives, readable labels, and no overloaded mega-diag
 
 
 def _wiki_pages(services: list[ServiceDoc]) -> dict[Path, str]:
-    service_links = "\n".join(f"- {svc.name} — {svc.title} ({svc.category}, {svc.kind})" for svc in services)
+    service_links = "\n".join(f"- {index}. {svc.name} — {svc.title} ({svc.category}, {svc.kind})" for index, svc in enumerate(services, start=1))
     return {
         WIKI / "Home.md": """# Atlas Documentation
 
 Generated from the MkDocs source pages. Do not copy/paste-edit this wiki export
-by hand; run `python scripts/export-docs-wiki.py` from the repo root.
+by hand; run `uv run --project bootstrapper python scripts/export-docs-wiki.py --check` from the repo root to verify drift.
 
 ## 1. Start Here
 
-- [Overview](Overview)
-- [Quick Start](Quick-Start)
-- [Services](Services)
-- [Architecture](Architecture)
-- [Reference](Reference)
+- [1. Overview](Overview)
+- [2. Quick Start](Quick-Start)
+- [3. Services](Services)
+- [4. Architecture](Architecture)
+- [5. Reference](Reference)
 """,
-        WIKI / "_Sidebar.md": "# Atlas Documentation\n\n- [Home](Home)\n- [Overview](Overview)\n- [Quick Start](Quick-Start)\n- [Services](Services)\n- [Architecture](Architecture)\n- [Reference](Reference)\n",
+        WIKI / "_Sidebar.md": "# Atlas Documentation\n\n- [1. Home](Home)\n- [2. Overview](Overview)\n- [3. Quick Start](Quick-Start)\n- [4. Services](Services)\n- [5. Architecture](Architecture)\n- [6. Reference](Reference)\n",
         WIKI / "Overview.md": "# Overview\n\n## 1. Platform Model\n\nAtlas is a source-configurable engineering platform for AI, data, automation, notebooks, observability, and local-first experimentation.\n\n## 2. Source Of Truth\n\nThe MkDocs site and wiki export are generated from repo sources: service manifests, service READMEs, tracks, topology, and generated reference files.\n",
         WIKI / "Quick-Start.md": "# Quick Start\n\n## 1. Launch\n\nRun `./start.sh`, choose a track, and use `./start.sh --setup-hosts` for Kong `*.localhost` aliases.\n\n## 2. Common Tracks\n\nUse `gen-ai-eng`, `gen-ai-rag`, `gen-ai-creative`, `ml-eng`, `data-eng`, or `all` depending on the workflow.\n",
         WIKI / "Services.md": "# Services\n\n## 1. Service Index\n\nGenerated wiki service index.\n\n" + service_links,

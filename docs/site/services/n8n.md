@@ -8,7 +8,7 @@ Generated service-site entry for `n8n`.
 - Kind: `container`
 - SOURCE variable: `N8N_SOURCE`
 - SOURCE values: `container, disabled`
-- Source README: [services/n8n/README.md](../../../services/n8n/README.md)
+- Source README: [services/n8n/README.md](https://github.com/thekaveh/atlas/blob/main/services/n8n/README.md)
 
 ## 2. Source Of Truth
 

@@ -8,7 +8,7 @@ Generated service-site entry for `mlflow`.
 - Kind: `container`
 - SOURCE variable: `MLFLOW_SOURCE`
 - SOURCE values: `container, disabled`
-- Source README: [services/mlflow/README.md](../../../services/mlflow/README.md)
+- Source README: [services/mlflow/README.md](https://github.com/thekaveh/atlas/blob/main/services/mlflow/README.md)
 
 ## 2. Source Of Truth
 

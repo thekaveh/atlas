@@ -6,7 +6,7 @@ The stack convention partitions Redis by **database index**, not by service. As 
 
 ## 1. Overview
 
-Image: `redis:7.2.14-alpine`. Persistence: AOF (`--appendonly yes`). Auth: a single shared password (`REDIS_PASSWORD`) — there are no ACL users today. The container exposes the standard `6379` port internally; the host port (default `63022`) is published only for debugging. Inside the stack, every consumer talks to `redis:6379` via the Docker DNS name on `backend-network`.
+Image: `redis:7.2.14-alpine`. Persistence: AOF (`--appendonly yes`). Auth: a single shared password (`REDIS_PASSWORD`) — there are no ACL users today. The container exposes the standard `6379` port internally; the host port (default `63025`) is published only for debugging. Inside the stack, every consumer talks to `redis:6379` via the Docker DNS name on `backend-network`.
 
 Volume: `${PROJECT_NAME}-redis-data` (AOF append log). `./stop.sh --cold` removes it.
 
@@ -14,7 +14,7 @@ Volume: `${PROJECT_NAME}-redis-data` (AOF append log). `./stop.sh --cold` remove
 
 | Path | URL | Notes |
 |---|---|---|
-| Host (debug) | `localhost:${REDIS_PORT}` (default `63022`) | Use with `redis-cli -h 127.0.0.1 -p 63022 -a "$REDIS_PASSWORD"`. |
+| Host (debug) | `localhost:${REDIS_PORT}` (default `63025`) | Use with `redis-cli -h 127.0.0.1 -p 63025 -a "$REDIS_PASSWORD"`. |
 | Internal | `redis://:${REDIS_PASSWORD}@redis:6379/<db>` | What sibling containers use. |
 | Kong | — | Redis is infrastructure; no Kong route. |
 
@@ -24,7 +24,7 @@ Canonical port table: [Ports and Routes](../../docs/deployment/ports-and-routes.
 
 ```bash
 REDIS_SOURCE=container                                 # only value
-REDIS_PORT=63022                                       # host port; container port is always 6379
+REDIS_PORT=63025                                       # host port; container port is always 6379
 REDIS_PASSWORD=redis_password                          # rotate before any deployment
 REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0      # default; consumers override db index
 ```
@@ -150,7 +150,7 @@ To change these today, edit the `command:` line in `services/redis/compose.yml`.
 
 - **Shared password.** Every consumer uses the same `REDIS_PASSWORD`. A compromised n8n container can read Kong's rate-limit cache, LiteLLM's budget counters, and backend sessions. Redis 7 ACLs would fix this — see Future — Unused features.
 - **No TLS in-cluster.** Traffic on `backend-network` is unencrypted. Acceptable for the single-host stack; not for multi-host deployments. Wrap with `stunnel` or upgrade to a Redis variant with native TLS if you cross trust boundaries.
-- **Host port exposed.** `REDIS_PORT` (default 63022) is published on the host. With the default password this is a soft target if anyone has LAN access. Either rotate `REDIS_PASSWORD` aggressively or remove the host-port publish from `services/redis/compose.yml` and use `docker exec` for debugging.
+- **Host port exposed.** `REDIS_PORT` (default 63025) is published on the host. With the default password this is a soft target if anyone has LAN access. Either rotate `REDIS_PASSWORD` aggressively or remove the host-port publish from `services/redis/compose.yml` and use `docker exec` for debugging.
 - **AOF includes commands, not just data.** `appendonly.aof` is a literal command log; anyone with read access to the volume can reconstruct every key. Treat the volume as confidential.
 
 ## 11. Further reading

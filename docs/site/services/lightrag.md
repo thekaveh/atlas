@@ -8,7 +8,7 @@ Generated service-site entry for `lightrag`.
 - Kind: `container`
 - SOURCE variable: `LIGHTRAG_SOURCE`
 - SOURCE values: `container, localhost, disabled`
-- Source README: [services/lightrag/README.md](../../../services/lightrag/README.md)
+- Source README: [services/lightrag/README.md](https://github.com/thekaveh/atlas/blob/main/services/lightrag/README.md)
 
 ## 2. Source Of Truth
 

@@ -12,7 +12,7 @@ images:
     default: "apache/zeppelin:0.12.1"
     container: zeppelin
   - var: ZEPPELIN_INIT_IMAGE
-    default: "python:3.12-alpine"
+    default: "python:3.12.13-alpine"
     container: zeppelin-init
 
 sources:

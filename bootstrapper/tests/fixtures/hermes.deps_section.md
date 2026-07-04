@@ -21,7 +21,6 @@
 | kong | infra |
 | litellm ↔ | llm |
 | n8n | agents |
-| openclaw | agents |
 | jupyterhub | apps |
 
 ### 5.3 Architecture diagram

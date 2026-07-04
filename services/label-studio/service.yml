@@ -13,7 +13,7 @@ images:
     default: "heartexlabs/label-studio:1.23.0"
     container: label-studio
   - var: LABEL_STUDIO_INIT_IMAGE
-    default: "alpine:3.22"
+    default: "alpine:3.22.1"
     container: label-studio-init
 
 sources:

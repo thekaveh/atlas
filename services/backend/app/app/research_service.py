@@ -64,10 +64,10 @@ class ResearchService:
         return await connect_postgres(self.db_url)
 
     async def start_research(
-        self, 
-        query: str, 
-        max_loops: int = 3, 
-        search_api: str = "duckduckgo",
+        self,
+        query: str,
+        max_loops: int = 3,
+        search_api: str = "searxng",
         user_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """Start a new research session with database tracking"""
@@ -121,9 +121,11 @@ class ResearchService:
         user_id: Optional[str]
     ):
         """Run research in background and update database"""
-        conn = await self._get_db_connection()
-        
+        conn = None
+
         try:
+            conn = await self._get_db_connection()
+
             # Update status to running
             await conn.execute("""
                 UPDATE public.research_sessions 
@@ -148,20 +150,28 @@ class ResearchService:
             await self._execute_research(conn, session_id, request)
 
         except Exception as e:
-            # Update status to failed
-            await conn.execute("""
-                UPDATE public.research_sessions 
-                SET status = $1, completed_at = $2, error_message = $3
-                WHERE id = $4
-            """, ResearchStatus.FAILED.value, datetime.now(timezone.utc), str(e), session_id)
+            if conn is not None:
+                # Update status to failed
+                await conn.execute("""
+                    UPDATE public.research_sessions
+                    SET status = $1, completed_at = $2, error_message = $3
+                    WHERE id = $4
+                """, ResearchStatus.FAILED.value, datetime.now(timezone.utc), str(e), session_id)
 
-            await conn.execute("""
-                INSERT INTO public.research_logs (session_id, step_number, step_type, message)
-                VALUES ($1, $2, $3, $4)
-            """, session_id, 99, "error", f"Research failed: {str(e)}")
+                await conn.execute("""
+                    INSERT INTO public.research_logs (session_id, step_number, step_type, message)
+                    VALUES ($1, $2, $3, $4)
+                """, session_id, 99, "error", f"Research failed: {str(e)}")
+            else:
+                logger.error(
+                    "research bg task failed before database connection (session_id=%s)",
+                    session_id,
+                    exc_info=e,
+                )
 
         finally:
-            await conn.close()
+            if conn is not None:
+                await conn.close()
             # Clean up task reference
             if session_id in self._active_tasks:
                 del self._active_tasks[session_id]
@@ -173,35 +183,40 @@ class ResearchService:
         request: ResearchRequest
     ):
         """Execute research using actual local-deep-researcher service"""
-        
-        # Use the research client to start the research
-        research_response = await self.research_client.start_research(request)
-        
-        if research_response.status != ResearchStatus.RUNNING:
-            raise ResearchError(f"Failed to start research: {research_response.message}")
-        
-        remote_session_id = research_response.session_id
-        
-        # Log the remote session ID
-        await conn.execute("""
-            INSERT INTO public.research_logs (session_id, step_number, step_type, message)
-            VALUES ($1, $2, $3, $4)
-        """, session_id, 3, "remote_start", f"Remote research session started: {remote_session_id}")
-        
-        # Wait for completion
-        final_response = await self.research_client.wait_for_completion(remote_session_id)
-        
-        if final_response.status == ResearchStatus.COMPLETED:
-            # Get the results
-            research_result = await self.research_client.get_research_result(remote_session_id)
-            
-            if research_result:
-                # Store the results
-                await self._store_research_result(conn, session_id, research_result)
+        remote_session_id: str | None = None
+
+        try:
+            # Use the research client to start the research
+            research_response = await self.research_client.start_research(request)
+
+            if research_response.status != ResearchStatus.RUNNING:
+                raise ResearchError(f"Failed to start research: {research_response.message}")
+
+            remote_session_id = research_response.session_id
+
+            # Log the remote session ID
+            await conn.execute("""
+                INSERT INTO public.research_logs (session_id, step_number, step_type, message)
+                VALUES ($1, $2, $3, $4)
+            """, session_id, 3, "remote_start", f"Remote research session started: {remote_session_id}")
+
+            # Wait for completion
+            final_response = await self.research_client.wait_for_completion(remote_session_id)
+
+            if final_response.status == ResearchStatus.COMPLETED:
+                # Get the results
+                research_result = await self.research_client.get_research_result(remote_session_id)
+
+                if research_result:
+                    # Store the results
+                    await self._store_research_result(conn, session_id, research_result)
+                else:
+                    raise ResearchError("Failed to retrieve research results")
             else:
-                raise ResearchError("Failed to retrieve research results")
-        else:
-            raise ResearchError(f"Research failed: {final_response.message}")
+                raise ResearchError(f"Research failed: {final_response.message}")
+        finally:
+            if remote_session_id:
+                self.research_client.discard_pending(remote_session_id)
 
     async def _store_research_result(
         self, 
@@ -353,31 +368,25 @@ class ResearchService:
         conn = await self._get_db_connection()
         
         try:
-            # Check current status
-            status_row = await conn.fetchrow("""
-                SELECT status FROM public.research_sessions WHERE id = $1
-            """, session_id)
-            
-            # PENDING is cancellable too: the insert(PENDING)->RUNNING
-            # update races this check, and the background task is already
-            # live in _active_tasks during that window.
-            if not status_row or status_row["status"] not in (
-                ResearchStatus.PENDING.value,
-                ResearchStatus.RUNNING.value,
-            ):
+            # PENDING is cancellable too: the insert(PENDING)->RUNNING update
+            # races this path, and the background task is already live in
+            # _active_tasks during that window. Make the DB update conditional
+            # so a stale read cannot overwrite COMPLETED/FAILED.
+            cancelled_row = await conn.fetchrow("""
+                UPDATE public.research_sessions
+                SET status = $1, completed_at = $2
+                WHERE id = $3 AND status IN ($4, $5)
+                RETURNING id
+            """, ResearchStatus.CANCELLED.value, datetime.now(timezone.utc), session_id,
+                ResearchStatus.PENDING.value, ResearchStatus.RUNNING.value)
+
+            if not cancelled_row:
                 return False
             
             # Cancel background task if it exists
             if session_id in self._active_tasks:
                 self._active_tasks[session_id].cancel()
                 del self._active_tasks[session_id]
-            
-            # Update database
-            await conn.execute("""
-                UPDATE public.research_sessions 
-                SET status = $1, completed_at = $2
-                WHERE id = $3
-            """, ResearchStatus.CANCELLED.value, datetime.now(timezone.utc), session_id)
 
             await conn.execute("""
                 INSERT INTO public.research_logs (session_id, step_number, step_type, message)
@@ -388,11 +397,17 @@ class ResearchService:
         finally:
             await conn.close()
 
-    async def get_research_logs(self, session_id: str) -> List[Dict[str, Any]]:
+    async def get_research_logs(self, session_id: str) -> Optional[List[Dict[str, Any]]]:
         """Get research logs for a session"""
         conn = await self._get_db_connection()
         
         try:
+            session_row = await conn.fetchrow("""
+                SELECT id FROM public.research_sessions WHERE id = $1
+            """, session_id)
+            if not session_row:
+                return None
+
             rows = await conn.fetch("""
                 SELECT step_number, step_type, message, data, created_at
                 FROM public.research_logs 

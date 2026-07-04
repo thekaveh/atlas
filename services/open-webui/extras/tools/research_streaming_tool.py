@@ -25,6 +25,10 @@ class Tools:
         poll_interval: float = Field(
             default=3.0, description="Status check interval in seconds"
         )
+        assistant_id: str = Field(
+            default="ollama_deep_researcher",
+            description="LangGraph assistant/graph id for Local Deep Researcher",
+        )
         show_progress: bool = Field(
             default=True, description="Show research progress updates"
         )
@@ -97,12 +101,13 @@ class Tools:
         # Start the research run
         try:
             run_resp = requests.post(
-                f"{self.valves.researcher_url}/threads/{thread_id}/runs/wait",
-                json={
-                    "assistant_id": "a6ab75b8-fb3d-5c2c-a436-2fee55e33a06",
-                    "input": {
-                        "research_topic": query  # Deep Researcher expects 'research_topic' not 'query'
-                    },
+                    f"{self.valves.researcher_url}/threads/{thread_id}/runs/wait",
+                    json={
+                        "assistant_id": self.valves.assistant_id,
+                        "on_disconnect": "cancel",
+                        "input": {
+                            "research_topic": query  # Deep Researcher expects 'research_topic' not 'query'
+                        },
                     "config": {
                         "configurable": {
                             "max_web_research_loops": 3,
@@ -163,4 +168,3 @@ class Tools:
         output.append(f"- Status: ✅ Completed")
 
         return "\n".join(output)
-

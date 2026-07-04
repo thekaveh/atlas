@@ -9,7 +9,7 @@ containers:
 
 images:
   - var: MCP_SERVERS_IMAGE
-    default: "python:3.12-slim"
+    default: "python:3.12.13-slim"
     container: mcp-servers
     notes: "Used as build-arg BASE_IMAGE in build/Dockerfile."
 

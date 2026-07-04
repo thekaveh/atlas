@@ -119,8 +119,8 @@ services:
     volumes:
       - hermes-data:/opt/data
     ports:
-      - "${HOST_BIND_IP:-}${HERMES_API_PORT:-63061}:8642"
-      - "${HOST_BIND_IP:-}${HERMES_DASHBOARD_PORT:-63062}:9119"
+      - "${HOST_BIND_IP:-}${HERMES_API_PORT:-63072}:8642"
+      - "${HOST_BIND_IP:-}${HERMES_DASHBOARD_PORT:-63073}:9119"
     networks:
       - backend-network
     healthcheck:

@@ -34,7 +34,7 @@
             },
             {
               "name": "search_api",
-              "value": "={{ $json.search_api || 'duckduckgo' }}"
+              "value": "={{ $json.search_api || 'searxng' }}"
             },
             {
               "name": "user_id",

@@ -8,7 +8,7 @@ Generated service-site entry for `redis`.
 - Kind: `container`
 - SOURCE variable: `none`
 - SOURCE values: `none`
-- Source README: [services/redis/README.md](../../../services/redis/README.md)
+- Source README: [services/redis/README.md](https://github.com/thekaveh/atlas/blob/main/services/redis/README.md)
 
 ## 2. Source Of Truth
 

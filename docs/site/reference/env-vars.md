@@ -26,6 +26,10 @@ Generated from manifest env declarations.
 | BACKEND_SOURCE | backend | container | Adaptive core service; always container. Single-option. |
 | BACKEND_PORT | backend |  |  |
 | BACKEND_SCALE | backend |  | Always 1 (BACKEND_SOURCE is single-valued). |
+| MAX_UPLOAD_BYTES | backend | 104857600 | Maximum accepted /storage/upload body size in bytes before the backend returns 413. |
+| BACKEND_STORAGE_ALLOWED_BUCKETS | backend | default | Comma-separated Supabase Storage bucket allowlist accepted by /storage/upload. |
+| BACKEND_CORS_ORIGINS | backend | * | Comma-separated browser origins accepted by the backend CORS middleware. Default preserves local-development permissiveness. |
+| BACKEND_CORS_ALLOW_ORIGIN_REGEX | backend |  | Optional regex accepted by the backend CORS middleware for wildcard subdomain policies. |
 | LANGMEM_ENABLED | backend | True |  |
 | LANGMEM_MEMORY_NAMESPACE | backend | default |  |
 | LANGMEM_AUTO_CONSOLIDATE | backend | True | Reserved — not yet honored. Memory consolidation currently runs only
@@ -129,7 +133,7 @@ point at http://kong-api-gateway:8000.
 | DOCLING_CHUNK_OVERLAP | docling | 50 |  |
 | DOCLING_GPU_SCALE | docling |  |  |
 | DOCLING_ENDPOINT | docling |  |  |
-| DOCLING_LOCALHOST_PORT | docling | 63040 | Host port for the localhost source variant (defaults to the freed DOC_PROCESSOR_PORT slot). URL is derived at compose-render time as http://host.docker.internal:63040. |
+| DOCLING_LOCALHOST_PORT | docling | 63059 | Host port for the localhost source variant. URL is derived at compose-render time as http://host.docker.internal:63059. |
 | PROJECT_NAME | globals | atlas | Docker Compose project name — the container/volume/network prefix (<name>-…) and `docker compose -p` namespace. start.sh AND stop.sh read it from here, so stop tears down exactly what start launched. Override with `./start.sh --project <name>` (also -p; persists back here) or by editing this value. Set a unique name when running Atlas as a submodule so you don't collide with a base Atlas stack. |
 | BASE_PORT | globals | 63000 | Base port. Every service's *_PORT derives from this + a fixed offset. |
 | HOST_BIND_IP | globals |  | Host interface prefix for ALL published service ports. Empty (default)
@@ -187,8 +191,8 @@ Do not edit by hand — the bootstrapper owns this value.
 | HERMES_DASHBOARD_INSECURE | hermes | True | Allow the dashboard to bind to its non-loopback container address (0.0.0.0) without a Nous Portal OAuth provider. Required since the upstream image stopped implicitly inferring insecure mode from the bind host; without it the dashboard fails closed and s6 restart-loops it. Safe here: the dashboard binds inside the isolated backend-network and is only reachable via the localhost host-port + Kong. Set to false (and provide HERMES_DASHBOARD_OAUTH_CLIENT_ID) to enforce the OAuth auth gate instead. |
 | HERMES_UID | hermes | 10000 | Container user — match a host UID to read hermes-data from outside. |
 | HERMES_GID | hermes | 10000 |  |
-| HERMES_LOCALHOST_PORT | hermes | 63028 | Host port for the Hermes API in the localhost source variant. Consumed by HERMES_ENDPOINT (in-container clients call this). Mirror of HERMES_API_PORT but for host-side Hermes processes. |
-| HERMES_LOCALHOST_DASHBOARD_PORT | hermes | 63029 | Host port for the Hermes web dashboard in the localhost source variant. The Kong route fronting hermes.localhost targets this. Mirror of HERMES_DASHBOARD_PORT but for host-side Hermes processes. The wizard's inline textbox edits HERMES_LOCALHOST_PORT (the API); override this via .env hand-edit if your host dashboard runs on a non-default port. |
+| HERMES_LOCALHOST_PORT | hermes | 8642 | Host port for the Hermes API in the localhost source variant. Consumed by HERMES_ENDPOINT (in-container clients call this). Defaults to Hermes' native API port. |
+| HERMES_LOCALHOST_DASHBOARD_PORT | hermes | 9119 | Host port for the Hermes web dashboard in the localhost source variant. The Kong route fronting hermes.localhost targets this. Defaults to Hermes' native dashboard port. The wizard's inline textbox edits HERMES_LOCALHOST_PORT (the API); override this via .env hand-edit if your host dashboard runs on a non-default port. |
 | HERMES_INIT_SOURCE | hermes | container | Auto-managed by hermes. Container/disabled. |
 | HERMES_INIT_SCALE | hermes |  |  |
 | HERMES_SCALE | hermes |  |  |
@@ -480,7 +484,7 @@ Do not edit by hand — the bootstrapper owns this value.
 | OPENCLAW_LOCALHOST_PORT | openclaw | 63065 | Host port for the localhost source variant (defaults to the freed OPENCLAW_GATEWAY_PORT slot). URL is derived at compose-render time as http://host.docker.internal:63065. |
 | OPENCLAW_INIT_SOURCE | openclaw | container |  |
 | OPENCLAW_ANTHROPIC_API_KEY | openclaw |  | Optional per-OpenClaw Anthropic override. |
-| OPENCLAW_OPENAI_API_KEY | openclaw |  | Optional per-OpenClaw OpenAI override; falls back to the stack-wide OPENAI_API_KEY when unset. |
+| OPENCLAW_OPENAI_API_KEY | openclaw |  | Optional per-OpenClaw OpenAI override. Leave empty to keep OpenClaw routed through LiteLLM instead of bypassing the stack gateway. |
 | OPENCLAW_SCALE | openclaw |  |  |
 | OPENCLAW_INIT_SCALE | openclaw |  |  |
 | OPENCLAW_ENDPOINT | openclaw |  | Resolved per-source by the bootstrapper (container DNS / host.docker.internal / empty when disabled). Forward-looking hook: no compose fragment injects it into a container today — consumers (e.g. n8n workflows) would read it via their own env wiring when that lands. |
@@ -619,7 +623,7 @@ time.
 | SUPAVISOR_METRICS_JWT_SECRET | supavisor |  | Supavisor metrics JWT secret; auto-generated by the bootstrapper when blank. |
 | TEI_RERANKER_SOURCE | tei-reranker | disabled |  |
 | TEI_RERANKER_PORT | tei-reranker |  | Host port for the TEI rerank API (in-container listen port is 80). |
-| TEI_RERANKER_LOCALHOST_PORT | tei-reranker | 63031 | Host port for the host-installed TEI rerank source variant. |
+| TEI_RERANKER_LOCALHOST_PORT | tei-reranker | 63049 | Host port for the host-installed TEI rerank source variant. |
 | TEI_RERANKER_MODEL_ID | tei-reranker | mixedbread-ai/mxbai-rerank-base-v1 |  |
 | TEI_RERANKER_REVISION | tei-reranker | main |  |
 | TEI_RERANKER_MAX_CLIENT_BATCH_SIZE | tei-reranker | 32 |  |

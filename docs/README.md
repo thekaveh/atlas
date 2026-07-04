@@ -73,6 +73,8 @@ Documentation index for Atlas.
 ### 1.8 Numbering-policy notes
 - Generated research files keep schema-fixed headings such as `## Headline`; see [research/README.md](research/README.md) for the explicit exemption.
 - Provider implementation notes under `services/*/provider/` are operational backend-specific runbooks. They may keep compact unnumbered headings when numbering would make command-oriented maintenance notes harder to scan.
+- Conventional history/planning artifacts such as [CHANGELOG](CHANGELOG.md), [ROADMAP](ROADMAP.md), and `docs/plans/` may keep their established release-note or planning heading style when renumbering would obscure chronology.
+- Literal UI/output glyphs may appear only when the documentation is naming an actual terminal control, status marker, tree connector, or generated output. Do not use glyphs as decorative prose. Prefer words such as `Warning:` in explanatory text, and keep flow arrows or tree characters inside technical notation or literal examples.
 
 ## 2. Related documentation
 
@@ -98,12 +100,14 @@ If you can't find what you're looking for:
 Run the local documentation drift and audit checks before committing docs changes:
 
 ```bash
-PYTHONPATH=bootstrapper python -m bootstrapper.docs.regen --all --check
-python scripts/check_doc_links.py
-python scripts/check-docs-drift.py
-python scripts/check-docs-site.py
-python scripts/export-docs-wiki.py --check
-python scripts/check-compose-source-deps.py
-python scripts/check-kong-routes.py
-python scripts/validate_research_schema.py --all
+PYTHONPATH=bootstrapper uv run --project bootstrapper python -m bootstrapper.docs.regen --all --check
+uv run --project bootstrapper python scripts/check_doc_links.py
+uv run --project bootstrapper python scripts/check-docs-drift.py
+uv run --project bootstrapper python scripts/check-docs-site.py
+uv run --project bootstrapper python scripts/export-docs-wiki.py --check
+uv run --project bootstrapper python scripts/check-compose-source-deps.py
+uv run --project bootstrapper python scripts/check-kong-routes.py
+uv run --project bootstrapper python scripts/validate_research_schema.py --all
+uv run --project bootstrapper python scripts/check-track-membership.py
+(cd services/docling/provider/localhost && uv lock --locked)
 ```

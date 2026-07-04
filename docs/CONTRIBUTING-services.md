@@ -21,9 +21,9 @@ A maintainer who already understands the stack can land a new service in under a
 - [ ] **Add the `include:` line to `docker-compose.yml`** (only if you wrote a compose fragment)
 - [ ] **Register CLI key in `source_mapping`** → [Mechanics — source_override_manager registration](#114-bootstrapperutilssource_override_managerpy--register-the-cli-key). Without this the wizard silently skips your service.
 - [ ] **Add the new folder to the relevant track(s) in `bootstrapper/tracks.yml`** (source-configurable services only). A configurable service absent from a named track's `services:` list is force-disabled (`*_SOURCE=disabled`) there — it only runs under `--track all`. Always-on infra and the always-prompted LLM/Prometheus/Grafana tier are exempt.
-- [ ] **Run the five-command regen + lint chain** → [After you save the files](#12-after-you-save-the-files--regen--lint-commands-in-order)
+- [ ] **Run the root-safe regen, lint, and required-check checklist** → [After you save the files](#12-after-you-save-the-files--regen--lint-commands-in-order), then [CI gates](#134-ci-gates-that-run-on-every-push)
 - [ ] **Update audit-script allowlists** if your service has hard deps → [Audit-script + CI implications](#13-audit-script--ci-implications)
-- [ ] **Commit and push.** CI gates the change (three jobs: manifest-lint+pytest, compose-equivalence+permutation matrix, docs-drift+audit-scripts).
+- [ ] **Commit and push.** CI gates the change (four required jobs: manifest-lint+pytest, compose-equivalence+permutation matrix, docs-drift+audit-scripts, build-validation).
 
 If you're new to this codebase, read Decisions 1–6 in sequence; the Qdrant worked example illustrates each one.
 
@@ -49,8 +49,8 @@ and adaptive behavior with a Qdrant-as-example thread running through.
 If you already know the moving parts, the [TL;DR — 60-second checklist](#1-tldr--the-60-second-checklist)
 condenses it to one block, and the canonical regen + lint chain lives at
 [After you save the files](#12-after-you-save-the-files--regen--lint-commands-in-order)
-(five commands, in this order — running fewer trips the byte-equivalence
-test or docs-drift gate in CI).
+(root-safe regen/lint steps — running fewer mandatory steps trips the
+byte-equivalence test or docs-drift gate in CI).
 
 > **First time adding a service?** Start with the [Pre-flight study](#4-pre-flight--study-the-candidate-service) below — it lists the upstream-doc questions whose answers feed every later decision.
 
@@ -470,16 +470,14 @@ The pinning test `bootstrapper/tests/test_wizard_app_discovery.py::test_source_m
 
 ## 12. After you save the files — regen + lint commands in order
 
-Five commands, in this order:
+Run these root-safe commands from the repository root:
 
 ```bash
-cd bootstrapper
-
 # 1. Regenerate .env.example from manifests
-uv run python -m services.env_assembler
+uv run --project bootstrapper python -m services.env_assembler
 
 # 2. Regenerate README.md TOPOLOGY block (auto-includes the new row)
-uv run python -m tools.generate_readme_topology
+uv run --project bootstrapper python -m tools.generate_readme_topology
 
 # 3. (top-level architecture diagram — hand-authored; no regen step)
 #    Update docs/diagrams/architecture.svg by hand via the
@@ -487,10 +485,10 @@ uv run python -m tools.generate_readme_topology
 #    full-stack topology (new category band, new always-on tier, etc.).
 
 # 4. Lint — fails if any of steps 1-3 were skipped
-uv run python -m tools.validate_fragments
+uv run --project bootstrapper python -m tools.validate_fragments
 
 # 5. (Optional, recommended for new manifests) Regen per-service README + diagram
-PYTHONPATH=. uv run python -m docs.regen qdrant
+PYTHONPATH=bootstrapper uv run --project bootstrapper python -m bootstrapper.docs.regen qdrant
 # After this, services/qdrant/{README.md, architecture.svg, architecture.html} exist.
 ```
 
@@ -525,29 +523,58 @@ If your service ships a `requirements.txt` / `pyproject.toml` in a `build/` or `
 
 ### 13.4 CI gates that run on every push
 
-The `.github/workflows/services-lint.yml` workflow has four jobs (the
-first three are the REQUIRED branch-protection checks; build-validation
-is advisory):
+The `.github/workflows/services-lint.yml` workflow has four jobs, and all four
+are REQUIRED branch-protection checks:
 
 | Job | What it catches |
 |---|---|
 | **Manifest lint + unit tests** | `validate_fragments` lint + 1,300+ pytest tests + the backend's own pytest suite (`services/backend/app/app/tests/`). Catches: manifest schema violations, dependency cycles, env-example drift, category overflow, backend route regressions. |
 | **Compose merge + byte-equivalence + source-permutation matrix** | Renders `docker compose config` for the merged fragment list + verifies it matches the golden baseline + tests every source variant of every service. Catches: compose-syntax errors, source-permutation regressions. |
-| **Docs drift + audit scripts** | `regen --all --check` + the 5 audit scripts (`check_doc_links` — incl. `#anchor` fragment validation, `check-compose-source-deps`, `check-docs-drift`, `check-kong-routes`, `validate_research_schema`) + a `uv lock --locked` gate for the docling localhost provider. Catches: stale per-service docs, missing `REQUIRED_DEPENDS_ON` entries, Kong route default drift, broken links/anchors, research-schema violations, stale provider locks. |
-| **Build-validation** (non-required) | `docker buildx build` for the four highest-churn build contexts (airflow, spark, jupyterhub, backend). Catches: unsatisfiable pip pins, broken Dockerfiles. |
+| **Docs drift + audit scripts** | `regen --all --check` + the docs/site/wiki audit scripts (`check_doc_links` — incl. `#anchor` fragment validation, `check-compose-source-deps`, `check-docs-drift`, `check-docs-site`, `export-docs-wiki --check`, `check-kong-routes`, `validate_research_schema`, `check-track-membership`) + a `uv lock --locked` gate for the docling localhost provider. Catches: stale per-service docs, missing `REQUIRED_DEPENDS_ON` entries, Kong route default drift, broken links/anchors, research-schema violations, stale provider locks, and track-membership omissions. |
+| **Build-validation** | `docker buildx build` for every local non-GPU Compose build context plus every `services/*/init/Dockerfile` context; GPU provider builds are intentionally excluded for runner size/time. Catches: unsatisfiable pip pins, broken Dockerfiles, and init-image drift. |
 
-Run the equivalent of the three required jobs locally before pushing:
+Run the equivalent of the four required jobs locally before pushing:
 
 ```bash
-cd bootstrapper && uv run pytest -q                                    # job 1 + 2 (minus byte-equivalence)
-cd bootstrapper && uv run python -m tools.validate_fragments           # job 1 lint
-cp .env.example .env && docker compose -f docker-compose.yml config -q # job 2 merge check
-cd .. && PYTHONPATH=bootstrapper uv run --project bootstrapper python -m bootstrapper.docs.regen --all --check  # job 3 docs drift
-python scripts/check_doc_links.py                                      # job 3 link check
-python scripts/check-compose-source-deps.py                            # job 3 deps audit
-python scripts/check-docs-drift.py                                     # job 3 docs structural audit
-python scripts/check-kong-routes.py                                    # job 3 kong audit
-python scripts/validate_research_schema.py --all                       # job 3 research schema
+uv run --project bootstrapper pytest bootstrapper/tests -q                         # job 1 + 2 (minus byte-equivalence)
+(cd services/backend/app && uv run --python 3.11 --with-requirements app/requirements.txt python -m pytest app/tests -q)  # job 1 backend tests
+uv run --project bootstrapper python -m tools.validate_fragments                  # job 1 lint
+docker compose --env-file .env.example -f docker-compose.yml config -q            # job 2 merge check
+PYTHONPATH=bootstrapper uv run --project bootstrapper python -m bootstrapper.docs.regen --all --check  # job 3 docs drift
+uv run --project bootstrapper python scripts/check_doc_links.py                   # job 3 link check
+uv run --project bootstrapper python scripts/check-docs-drift.py                  # job 3 docs structural audit
+uv run --project bootstrapper python scripts/check-docs-site.py                   # job 3 MkDocs strict build
+uv run --project bootstrapper python scripts/export-docs-wiki.py --check          # job 3 wiki export drift
+uv run --project bootstrapper python scripts/check-compose-source-deps.py         # job 3 deps audit
+uv run --project bootstrapper python scripts/check-kong-routes.py                 # job 3 kong audit
+uv run --project bootstrapper python scripts/validate_research_schema.py --all    # job 3 research schema
+uv run --project bootstrapper python scripts/check-track-membership.py            # job 3 track coverage
+(cd services/docling/provider/localhost && uv lock --locked)                      # job 3 docling lock
+for spec in \
+  "services/airflow/build|Dockerfile|--build-arg BASE_IMAGE=apache/airflow:3.2.2" \
+  "services/backend/app|Dockerfile|" \
+  "services/iceberg-rest/build|Dockerfile|" \
+  "services/jenkins/build|Dockerfile|" \
+  "services/jupyterhub/build|Dockerfile|" \
+  "services/local-deep-researcher/build|Dockerfile|" \
+  "services/mcp-servers/runtime|../build/Dockerfile|" \
+  "services/neo4j/build|Dockerfile|" \
+  "services/spark/build|Dockerfile|--build-arg BASE_IMAGE=apache/spark:4.1.2" \
+  "services/zeppelin/build|Dockerfile|" \
+  "services/label-studio/init|Dockerfile|" \
+  "services/langfuse/init|Dockerfile|" \
+  "services/litellm/init|Dockerfile|" \
+  "services/mlflow/init|Dockerfile|" \
+  "services/open-webui/init|Dockerfile|"
+do
+  IFS='|' read -r context dockerfile extra_args <<< "$spec"
+  dockerfile_path="$context/$dockerfile"
+  if [ -n "$extra_args" ]; then
+    docker buildx build --load $extra_args -f "$dockerfile_path" "$context/"
+  else
+    docker buildx build --load -f "$dockerfile_path" "$context/"
+  fi
+done
 ```
 
 ### 13.5 Model-picker CLI flags: the four-seam rule

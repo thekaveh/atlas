@@ -8,7 +8,7 @@ Generated service-site entry for `searxng`.
 - Kind: `container`
 - SOURCE variable: `SEARXNG_SOURCE`
 - SOURCE values: `container, disabled`
-- Source README: [services/searxng/README.md](../../../services/searxng/README.md)
+- Source README: [services/searxng/README.md](https://github.com/thekaveh/atlas/blob/main/services/searxng/README.md)
 
 ## 2. Source Of Truth
 

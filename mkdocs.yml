@@ -6,105 +6,106 @@ repo_name: thekaveh/atlas
 docs_dir: docs
 site_dir: site
 strict: true
-exclude_docs: README.md
+exclude_docs: 'README.md
+
+  wiki/*.md'
 extra_css:
 - assets/stylesheets/atlas.css
 not_in_nav: '**/*.md'
 validation:
   links:
     anchors: ignore
-    not_found: ignore
+    not_found: warn
     unrecognized_links: ignore
     absolute_links: ignore
   nav:
     omitted_files: ignore
 nav:
-- Home: index.md
-- Overview: site/overview.md
-- Quick Start: site/quick-start.md
-- Architecture: site/architecture/index.md
-- Architecture Diagrams:
-  - Atlas Platform Overview: architecture/platform-overview.md
-  - Bootstrapper Lifecycle: architecture/bootstrapper-lifecycle.md
-  - SOURCE Configuration Model: architecture/source-configuration-model.md
-  - Track Selection Matrix: architecture/track-selection-matrix.md
-  - Network And Routing Topology: architecture/network-routing-topology.md
-  - Data And RAG Flow: architecture/data-rag-flow.md
-  - LLM Provider Flow: architecture/llm-provider-flow.md
-  - Data Engineering Lakehouse Flow: architecture/data-engineering-lakehouse-flow.md
-  - Observability Flow: architecture/observability-flow.md
-  - Security, Auth, And Secrets Boundary: architecture/security-auth-secrets-boundary.md
-  - Service Admission Workflow: architecture/service-admission-workflow.md
-- Services: site/services/index.md
-- Service Index: site/services/index.md
-- Service Pages:
-  - airflow: site/services/airflow.md
-  - backend: site/services/backend.md
-  - backup: site/services/backup.md
-  - blender-mcp: site/services/blender-mcp.md
-  - celery: site/services/celery.md
-  - chatterbox: site/services/chatterbox.md
-  - cloud-providers: site/services/cloud-providers.md
-  - cloudflared: site/services/cloudflared.md
-  - comfyui: site/services/comfyui.md
-  - crawl4ai: site/services/crawl4ai.md
-  - doc-processor: site/services/doc-processor.md
-  - docling: site/services/docling.md
-  - globals: site/services/globals.md
-  - grafana: site/services/grafana.md
-  - hermes: site/services/hermes.md
-  - iceberg-rest: site/services/iceberg-rest.md
-  - jenkins: site/services/jenkins.md
-  - jupyterhub: site/services/jupyterhub.md
-  - kong: site/services/kong.md
-  - label-studio: site/services/label-studio.md
-  - langfuse: site/services/langfuse.md
-  - lightrag: site/services/lightrag.md
-  - litellm: site/services/litellm.md
-  - llm-graph-builder: site/services/llm-graph-builder.md
-  - local-deep-researcher: site/services/local-deep-researcher.md
-  - loki: site/services/loki.md
-  - mcp-servers: site/services/mcp-servers.md
-  - minio: site/services/minio.md
-  - mlflow: site/services/mlflow.md
-  - multi2vec-clip: site/services/multi2vec-clip.md
-  - n8n: site/services/n8n.md
-  - neo4j: site/services/neo4j.md
-  - ollama: site/services/ollama.md
-  - open-webui: site/services/open-webui.md
-  - openclaw: site/services/openclaw.md
-  - otel-collector: site/services/otel-collector.md
-  - parakeet: site/services/parakeet.md
-  - prometheus: site/services/prometheus.md
-  - ray: site/services/ray.md
-  - redis: site/services/redis.md
-  - redpanda: site/services/redpanda.md
-  - searxng: site/services/searxng.md
-  - spark: site/services/spark.md
-  - speaches: site/services/speaches.md
-  - stt-provider: site/services/stt-provider.md
-  - supabase: site/services/supabase.md
-  - supavisor: site/services/supavisor.md
-  - tei-reranker: site/services/tei-reranker.md
-  - tempo: site/services/tempo.md
-  - tika: site/services/tika.md
-  - trino: site/services/trino.md
-  - tts-provider: site/services/tts-provider.md
-  - verba: site/services/verba.md
-  - weaviate: site/services/weaviate.md
-  - zeppelin: site/services/zeppelin.md
-- Tracks: site/tracks.md
-- Configuration: site/configuration.md
-- Operations: site/operations.md
-- Development: site/development.md
-- Reference: site/reference/index.md
-- SOURCE Reference: site/reference/source-values.md
-- Env Var Reference: site/reference/env-vars.md
-- Ports And Routes: site/reference/ports-routes.md
-- Track Reference: site/reference/tracks.md
-- Service Dependencies: site/reference/service-dependencies.md
-- Manifest Fields: site/reference/manifest-fields.md
-- Wiki Export: wiki/Home.md
+- 1. Home: index.md
+- 2. Overview: site/overview.md
+- 3. Quick Start: site/quick-start.md
+- 4. Architecture: site/architecture/index.md
+- 5. Architecture Diagrams:
+  - 5.1. Atlas Platform Overview: architecture/platform-overview.md
+  - 5.2. Bootstrapper Lifecycle: architecture/bootstrapper-lifecycle.md
+  - 5.3. SOURCE Configuration Model: architecture/source-configuration-model.md
+  - 5.4. Track Selection Matrix: architecture/track-selection-matrix.md
+  - 5.5. Network And Routing Topology: architecture/network-routing-topology.md
+  - 5.6. Data And RAG Flow: architecture/data-rag-flow.md
+  - 5.7. LLM Provider Flow: architecture/llm-provider-flow.md
+  - 5.8. Data Engineering Lakehouse Flow: architecture/data-engineering-lakehouse-flow.md
+  - 5.9. Observability Flow: architecture/observability-flow.md
+  - 5.10. Security, Auth, And Secrets Boundary: architecture/security-auth-secrets-boundary.md
+  - 5.11. Service Admission Workflow: architecture/service-admission-workflow.md
+- 6. Services: site/services/index.md
+- 7. Service Index: site/services/index.md
+- 8. Service Pages:
+  - 8.1. airflow: site/services/airflow.md
+  - 8.2. backend: site/services/backend.md
+  - 8.3. backup: site/services/backup.md
+  - 8.4. blender-mcp: site/services/blender-mcp.md
+  - 8.5. celery: site/services/celery.md
+  - 8.6. chatterbox: site/services/chatterbox.md
+  - 8.7. cloud-providers: site/services/cloud-providers.md
+  - 8.8. cloudflared: site/services/cloudflared.md
+  - 8.9. comfyui: site/services/comfyui.md
+  - 8.10. crawl4ai: site/services/crawl4ai.md
+  - 8.11. doc-processor: site/services/doc-processor.md
+  - 8.12. docling: site/services/docling.md
+  - 8.13. globals: site/services/globals.md
+  - 8.14. grafana: site/services/grafana.md
+  - 8.15. hermes: site/services/hermes.md
+  - 8.16. iceberg-rest: site/services/iceberg-rest.md
+  - 8.17. jenkins: site/services/jenkins.md
+  - 8.18. jupyterhub: site/services/jupyterhub.md
+  - 8.19. kong: site/services/kong.md
+  - 8.20. label-studio: site/services/label-studio.md
+  - 8.21. langfuse: site/services/langfuse.md
+  - 8.22. lightrag: site/services/lightrag.md
+  - 8.23. litellm: site/services/litellm.md
+  - 8.24. llm-graph-builder: site/services/llm-graph-builder.md
+  - 8.25. local-deep-researcher: site/services/local-deep-researcher.md
+  - 8.26. loki: site/services/loki.md
+  - 8.27. mcp-servers: site/services/mcp-servers.md
+  - 8.28. minio: site/services/minio.md
+  - 8.29. mlflow: site/services/mlflow.md
+  - 8.30. multi2vec-clip: site/services/multi2vec-clip.md
+  - 8.31. n8n: site/services/n8n.md
+  - 8.32. neo4j: site/services/neo4j.md
+  - 8.33. ollama: site/services/ollama.md
+  - 8.34. open-webui: site/services/open-webui.md
+  - 8.35. openclaw: site/services/openclaw.md
+  - 8.36. otel-collector: site/services/otel-collector.md
+  - 8.37. parakeet: site/services/parakeet.md
+  - 8.38. prometheus: site/services/prometheus.md
+  - 8.39. ray: site/services/ray.md
+  - 8.40. redis: site/services/redis.md
+  - 8.41. redpanda: site/services/redpanda.md
+  - 8.42. searxng: site/services/searxng.md
+  - 8.43. spark: site/services/spark.md
+  - 8.44. speaches: site/services/speaches.md
+  - 8.45. stt-provider: site/services/stt-provider.md
+  - 8.46. supabase: site/services/supabase.md
+  - 8.47. supavisor: site/services/supavisor.md
+  - 8.48. tei-reranker: site/services/tei-reranker.md
+  - 8.49. tempo: site/services/tempo.md
+  - 8.50. tika: site/services/tika.md
+  - 8.51. trino: site/services/trino.md
+  - 8.52. tts-provider: site/services/tts-provider.md
+  - 8.53. verba: site/services/verba.md
+  - 8.54. weaviate: site/services/weaviate.md
+  - 8.55. zeppelin: site/services/zeppelin.md
+- 9. Tracks: site/tracks.md
+- 10. Configuration: site/configuration.md
+- 11. Operations: site/operations.md
+- 12. Development: site/development.md
+- 13. Reference: site/reference/index.md
+- 14. SOURCE Reference: site/reference/source-values.md
+- 15. Env Var Reference: site/reference/env-vars.md
+- 16. Ports And Routes: site/reference/ports-routes.md
+- 17. Track Reference: site/reference/tracks.md
+- 18. Service Dependencies: site/reference/service-dependencies.md
+- 19. Manifest Fields: site/reference/manifest-fields.md
 theme:
   name: mkdocs
   navigation_depth: 4

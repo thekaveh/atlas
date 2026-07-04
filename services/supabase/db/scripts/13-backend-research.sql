@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS public.research_sessions (
     query TEXT NOT NULL,
     status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'running', 'completed', 'failed', 'cancelled')),
     max_loops INTEGER NOT NULL DEFAULT 3,
-    search_api VARCHAR(50) NOT NULL DEFAULT 'duckduckgo',
+    search_api VARCHAR(50) NOT NULL DEFAULT 'searxng',
     user_id UUID REFERENCES public.users(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ DEFAULT now(),
     updated_at TIMESTAMPTZ DEFAULT now(),

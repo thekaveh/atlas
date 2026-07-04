@@ -8,7 +8,7 @@ Generated service-site entry for `redpanda`.
 - Kind: `container`
 - SOURCE variable: `REDPANDA_SOURCE`
 - SOURCE values: `container, disabled`
-- Source README: [services/redpanda/README.md](../../../services/redpanda/README.md)
+- Source README: [services/redpanda/README.md](https://github.com/thekaveh/atlas/blob/main/services/redpanda/README.md)
 
 ## 2. Source Of Truth
 

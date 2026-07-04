@@ -12,8 +12,8 @@ The Neo4j service provides:
 
 ## 2. Access Information
 
-- **Browser Interface and HTTP API**: `http://localhost:${GRAPH_DB_DASHBOARD_PORT}` (default: 63021)
-- **Bolt Protocol**: `bolt://localhost:${GRAPH_DB_PORT}` (default: 63020)
+- **Browser Interface and HTTP API**: `http://localhost:${GRAPH_DB_DASHBOARD_PORT}` (default: 63024)
+- **Bolt Protocol**: `bolt://localhost:${GRAPH_DB_PORT}` (default: 63023)
 
 ## 3. Default Credentials
 
@@ -75,8 +75,8 @@ GRAPH_DB_PASSWORD=your_password
 GRAPH_DB_AUTH=neo4j/your_password  # Combined form consumed by the Neo4j container as NEO4J_AUTH
 
 # Port Configuration
-GRAPH_DB_PORT=63020            # Bolt protocol (mapped to 7687 inside the container)
-GRAPH_DB_DASHBOARD_PORT=63021  # Browser interface and HTTP API (mapped to 7474)
+GRAPH_DB_PORT=63023            # Bolt protocol (mapped to 7687 inside the container)
+GRAPH_DB_DASHBOARD_PORT=63024  # Browser interface and HTTP API (mapped to 7474)
 
 # Database Settings
 NEO4J_server_memory_heap_initial__size=512m
@@ -101,7 +101,7 @@ MATCH (n) DETACH DELETE n;  // Clear all data (use with caution)
 from neo4j import GraphDatabase
 
 driver = GraphDatabase.driver(
-    "bolt://localhost:63020",
+    "bolt://localhost:63023",
     auth=("neo4j", "your_password")
 )
 
@@ -180,7 +180,7 @@ NEO4J_server_memory_pagecache_size=256m
 docker logs ${PROJECT_NAME}-neo4j-graph-db -f
 
 # Test HTTP endpoint
-curl http://localhost:63021/
+curl http://localhost:63024/
 
 # Check Bolt connection
 docker exec ${PROJECT_NAME}-neo4j-graph-db cypher-shell -u neo4j -p password "RETURN 'Connection OK'"

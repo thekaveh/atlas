@@ -3,7 +3,7 @@ set -euo pipefail
 
 surface="${1:-spark-connect}"
 project="${PROJECT_NAME:-atlas}"
-zeppelin_url="${ZEPPELIN_URL:-http://localhost:${ZEPPELIN_PORT:-63082}}"
+zeppelin_url="${ZEPPELIN_URL:-http://localhost:${ZEPPELIN_PORT:-63099}}"
 notebook_path="services/zeppelin/notebooks/iceberg_advanced_sql.zpln"
 
 usage() {
@@ -44,7 +44,7 @@ load_env_file() {
     . ./.env
     set +a
     project="${PROJECT_NAME:-$project}"
-    zeppelin_url="${ZEPPELIN_URL:-http://localhost:${ZEPPELIN_PORT:-63082}}"
+    zeppelin_url="${ZEPPELIN_URL:-http://localhost:${ZEPPELIN_PORT:-63099}}"
   fi
 }
 

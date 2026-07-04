@@ -131,7 +131,7 @@ if [ ! -s /tmp/_comfy_active ]; then
 else
   row_count=$(wc -l < /tmp/_comfy_active | tr -d ' ')
   echo "--- found $row_count active row(s) ---"
-  while IFS=$'\t' read -r name category filename url sha; do
+  while IFS="$(printf '\t')" read -r name category filename url sha; do
     # Skip blank lines (defensive against trailing newline-only chunks).
     if [ -z "$name" ] || [ -z "$url" ]; then
       echo "✗ row with missing name or url; skipping"

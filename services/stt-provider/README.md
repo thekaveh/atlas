@@ -77,7 +77,7 @@ for the whisper.cpp walkthrough and Linux build instructions, or
 | Variable | Default | Notes |
 |---|---|---|
 | `STT_PROVIDER_SOURCE` | `speaches-container-cpu` | Engine selector. |
-| `STT_PROVIDER_PORT` | `63043` | Wizard display port; bootstrapper rewrites to match the active container. |
+| `STT_PROVIDER_PORT` | `63053` | Wizard display port; bootstrapper rewrites to match the active container. |
 | `STT_ENDPOINT` | (auto) | Internal URL containers reach STT on. |
 | `STT_PROVIDER_SCALE` | (auto) | 1 when any container variant is active. |
 | `SPEACHES_STT_MODEL` | `Systran/faster-distil-whisper-large-v3` | HuggingFace repo of the model to preload. ⚠ Not wired into Open WebUI (it hardcodes `AUDIO_STT_MODEL: whisper-1`), and Speaches aliases `whisper-1` → `Systran/faster-whisper-large-v3` (the non-distil build) — so preload **that** id, not the distil one, to satisfy a `whisper-1` request. |

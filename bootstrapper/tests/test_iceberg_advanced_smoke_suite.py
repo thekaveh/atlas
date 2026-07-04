@@ -59,6 +59,8 @@ def test_opt_in_smoke_script_covers_spark_connect_and_zeppelin_surfaces() -> Non
     assert "spark-connect" in script
     assert "zeppelin" in script
     assert '${PROJECT_NAME:-atlas}' in script
+    assert '${ZEPPELIN_PORT:-63099}' in script
+    assert '${ZEPPELIN_PORT:-63082}' not in script
     assert '${project}-jupyterhub' in script
     assert '${project}-zeppelin' in script
     assert "run_spark_connect" in script

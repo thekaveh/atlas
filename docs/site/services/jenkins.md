@@ -8,7 +8,7 @@ Generated service-site entry for `jenkins`.
 - Kind: `container`
 - SOURCE variable: `JENKINS_SOURCE`
 - SOURCE values: `container, disabled`
-- Source README: [services/jenkins/README.md](../../../services/jenkins/README.md)
+- Source README: [services/jenkins/README.md](https://github.com/thekaveh/atlas/blob/main/services/jenkins/README.md)
 
 ## 2. Source Of Truth
 

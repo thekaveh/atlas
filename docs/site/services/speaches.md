@@ -8,7 +8,7 @@ Generated service-site entry for `speaches`.
 - Kind: `container`
 - SOURCE variable: `none`
 - SOURCE values: `none`
-- Source README: [services/speaches/README.md](../../../services/speaches/README.md)
+- Source README: [services/speaches/README.md](https://github.com/thekaveh/atlas/blob/main/services/speaches/README.md)
 
 ## 2. Source Of Truth
 

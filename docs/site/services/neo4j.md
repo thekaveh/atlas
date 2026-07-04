@@ -8,7 +8,7 @@ Generated service-site entry for `neo4j`.
 - Kind: `container`
 - SOURCE variable: `NEO4J_GRAPH_DB_SOURCE`
 - SOURCE values: `container, localhost, disabled`
-- Source README: [services/neo4j/README.md](../../../services/neo4j/README.md)
+- Source README: [services/neo4j/README.md](https://github.com/thekaveh/atlas/blob/main/services/neo4j/README.md)
 
 ## 2. Source Of Truth
 

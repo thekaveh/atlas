@@ -8,7 +8,7 @@ Generated service-site entry for `spark`.
 - Kind: `container`
 - SOURCE variable: `SPARK_SOURCE`
 - SOURCE values: `container, disabled`
-- Source README: [services/spark/README.md](../../../services/spark/README.md)
+- Source README: [services/spark/README.md](https://github.com/thekaveh/atlas/blob/main/services/spark/README.md)
 
 ## 2. Source Of Truth
 

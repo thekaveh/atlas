@@ -28,6 +28,10 @@ class Tools:
         search_api: str = Field(
             default="searxng", description="Search API to use (searxng or duckduckgo)"
         )
+        assistant_id: str = Field(
+            default="ollama_deep_researcher",
+            description="LangGraph assistant/graph id for Local Deep Researcher",
+        )
         max_loops: int = Field(default=3, description="Maximum research loops")
         enable_tool: bool = Field(default=True, description="Enable this research tool")
 
@@ -80,7 +84,8 @@ class Tools:
                 resp = requests.post(
                     f"{self.valves.researcher_url}/threads/{thread_id}/runs/wait",
                     json={
-                        "assistant_id": "a6ab75b8-fb3d-5c2c-a436-2fee55e33a06",
+                        "assistant_id": self.valves.assistant_id,
+                        "on_disconnect": "cancel",
                         "input": {
                             "research_topic": query  # Deep Researcher expects 'research_topic' not 'query'
                         },
@@ -94,17 +99,8 @@ class Tools:
                     timeout=self.valves.timeout,
                 )
             except requests.exceptions.Timeout:
-                # Try to cancel the run on timeout
-                try:
-                    cancel_resp = requests.post(
-                        f"{self.valves.researcher_url}/runs/cancel",
-                        json={"run_id": "*"},  # Cancel all runs for safety
-                        timeout=5,
-                    )
-                except Exception:
-                    pass  # Ignore cancel errors
                 return str(
-                    f"❌ Research timed out after {self.valves.timeout}s (15 minutes). The request has been cancelled to prevent system issues."
+                    f"❌ Research timed out after {self.valves.timeout}s (15 minutes). Atlas requested LangGraph cancellation on disconnect; check the research service logs before retrying."
                 )
 
             if resp.status_code != 200:

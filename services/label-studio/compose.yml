@@ -4,7 +4,7 @@ services:
     build:
       context: ./init
       args:
-        BASE_IMAGE: ${LABEL_STUDIO_INIT_IMAGE:-alpine:3.22}
+        BASE_IMAGE: ${LABEL_STUDIO_INIT_IMAGE:-alpine:3.22.1}
     image: ${PROJECT_NAME}-label-studio-init:local
     container_name: ${PROJECT_NAME}-label-studio-init
     restart: "no"

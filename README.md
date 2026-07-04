@@ -241,9 +241,9 @@ The stack uses **SOURCE variables** to control how services are deployed.
 - **ComfyUI** (`COMFYUI_SOURCE=localhost`) — use local ComfyUI; the bootstrapper resolves `host.docker.internal:${COMFYUI_LOCALHOST_PORT}` (default `8000`; override to `8188` or whatever port your host install uses)
 - **Weaviate** (`WEAVIATE_SOURCE=localhost`) — use local Weaviate instance
 - **OpenClaw** (`OPENCLAW_SOURCE=localhost`) — use local OpenClaw installation
-- **Hermes Agent** (`HERMES_SOURCE=localhost`) — use a host-installed Hermes; the bootstrapper resolves `host.docker.internal:${HERMES_LOCALHOST_PORT}` (default `63028`) for the API and `host.docker.internal:${HERMES_LOCALHOST_DASHBOARD_PORT}` (default `63029`) for the dashboard; useful when Hermes should drive your real shell, browser, or microphone
+- **Hermes Agent** (`HERMES_SOURCE=localhost`) — use a host-installed Hermes; the bootstrapper resolves `host.docker.internal:${HERMES_LOCALHOST_PORT}` (default `8642`) for the API and `host.docker.internal:${HERMES_LOCALHOST_DASHBOARD_PORT}` (default `9119`) for the dashboard; useful when Hermes should drive your real shell, browser, or microphone
 - **LightRAG** (`LIGHTRAG_SOURCE=localhost`) — use a host-installed LightRAG; the bootstrapper resolves `host.docker.internal:${LIGHTRAG_LOCALHOST_PORT}` (default `63068`)
-- **TEI Reranker** (`TEI_RERANKER_SOURCE=localhost`) — use a host-installed TEI Reranker; the bootstrapper resolves `host.docker.internal:${TEI_RERANKER_LOCALHOST_PORT}` (default `63031`)
+- **TEI Reranker** (`TEI_RERANKER_SOURCE=localhost`) — use a host-installed TEI Reranker; the bootstrapper resolves `host.docker.internal:${TEI_RERANKER_LOCALHOST_PORT}` (default `63049`)
 
 **Container-only services:**
 - **n8n** (`N8N_SOURCE=container|disabled`) — workflow automation

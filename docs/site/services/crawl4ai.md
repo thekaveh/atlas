@@ -8,7 +8,7 @@ Generated service-site entry for `crawl4ai`.
 - Kind: `container`
 - SOURCE variable: `CRAWL4AI_SOURCE`
 - SOURCE values: `container, disabled`
-- Source README: [services/crawl4ai/README.md](../../../services/crawl4ai/README.md)
+- Source README: [services/crawl4ai/README.md](https://github.com/thekaveh/atlas/blob/main/services/crawl4ai/README.md)
 
 ## 2. Source Of Truth
 

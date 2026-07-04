@@ -51,7 +51,7 @@ env:
   - name: OPENCLAW_OPENAI_API_KEY
     default: ""
     secret: true
-    description: "Optional per-OpenClaw OpenAI override; falls back to the stack-wide OPENAI_API_KEY when unset."
+    description: "Optional per-OpenClaw OpenAI override. Leave empty to keep OpenClaw routed through LiteLLM instead of bypassing the stack gateway."
   - name: OPENCLAW_SCALE
     auto_managed: true
   - name: OPENCLAW_INIT_SCALE
@@ -125,4 +125,3 @@ runtime_deps:
 data_flow:
   calls:
     - litellm
-    - hermes

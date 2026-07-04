@@ -1,4 +1,5 @@
 #!/bin/sh
+# shellcheck shell=bash
 # LightRAG init container.
 # Pattern: alpine + inline apk add (memory: project_init_container_pattern).
 # Bash re-exec with sentinel to avoid loop.

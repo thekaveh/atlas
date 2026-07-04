@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- `main` is protected — land via PR with the 3 `services-lint` checks green; never push to `main`.
+- `main` is protected — land via PR with the 4 `services-lint` checks green; never push to `main`.
 - Commit messages: terse third-person verb, no emoji, no Claude `Co-Authored-By` trailer.
 - `.env.example` is GENERATED from manifests by `services/env_assembler.py`; never hand-edit it — change the manifest and regenerate.
 - Port defaults are computed by `services/topology.py`; manifest `*_PORT` env vars carry NO `default:`.

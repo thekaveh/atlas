@@ -8,7 +8,7 @@ Generated service-site entry for `cloudflared`.
 - Kind: `container`
 - SOURCE variable: `CLOUDFLARED_SOURCE`
 - SOURCE values: `container, disabled`
-- Source README: [services/cloudflared/README.md](../../../services/cloudflared/README.md)
+- Source README: [services/cloudflared/README.md](https://github.com/thekaveh/atlas/blob/main/services/cloudflared/README.md)
 
 ## 2. Source Of Truth
 

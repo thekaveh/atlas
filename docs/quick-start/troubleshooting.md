@@ -372,7 +372,7 @@ cp .env config_backup.env  # Remove sensitive data before sharing
 
 - [GitHub Issues](https://github.com/thekaveh/atlas/issues) - Bug reports and feature requests
 - [GitHub Discussions](https://github.com/thekaveh/atlas/discussions) - Questions and community support
-- [Documentation](../README.md) - Complete documentation index
+- [Documentation](https://github.com/thekaveh/atlas/blob/main/docs/README.md) - Complete documentation index
 
 ## 10. Recovery Procedures
 

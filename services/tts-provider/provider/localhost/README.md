@@ -50,7 +50,7 @@ with the `PORT` env var.
 ```bash
 # Bind on the port the atlas containers reach you on (63044
 # matches the CHATTERBOX_LOCALHOST_PORT default — independent of the
-# container CHATTERBOX_PORT, which is 63047).
+# container CHATTERBOX_PORT, which is 63057).
 PORT=63044 uv run main.py
 # or, after `source .venv/bin/activate`:
 PORT=63044 python main.py

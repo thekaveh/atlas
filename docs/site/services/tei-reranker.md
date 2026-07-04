@@ -8,7 +8,7 @@ Generated service-site entry for `tei-reranker`.
 - Kind: `container`
 - SOURCE variable: `TEI_RERANKER_SOURCE`
 - SOURCE values: `container-cpu, container-gpu, localhost, disabled`
-- Source README: [services/tei-reranker/README.md](../../../services/tei-reranker/README.md)
+- Source README: [services/tei-reranker/README.md](https://github.com/thekaveh/atlas/blob/main/services/tei-reranker/README.md)
 
 ## 2. Source Of Truth
 

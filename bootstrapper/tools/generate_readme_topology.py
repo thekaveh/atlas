@@ -1,6 +1,6 @@
 """Regenerates the <!-- TOPOLOGY:BEGIN --> ... <!-- TOPOLOGY:END --> block in README.md.
 
-Run: cd bootstrapper && uv run python -m tools.generate_readme_topology
+Run: uv run --project bootstrapper python -m tools.generate_readme_topology
 """
 
 from __future__ import annotations

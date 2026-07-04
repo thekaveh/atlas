@@ -8,7 +8,7 @@ Generated service-site entry for `zeppelin`.
 - Kind: `container`
 - SOURCE variable: `ZEPPELIN_SOURCE`
 - SOURCE values: `container, disabled`
-- Source README: [services/zeppelin/README.md](../../../services/zeppelin/README.md)
+- Source README: [services/zeppelin/README.md](https://github.com/thekaveh/atlas/blob/main/services/zeppelin/README.md)
 
 ## 2. Source Of Truth
 

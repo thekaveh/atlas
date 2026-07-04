@@ -1,8 +1,8 @@
 import httpx
 import os
-import asyncio
 import json
-import time
+import asyncio
+import re
 from typing import Dict, Any, List, Optional, AsyncGenerator
 from pydantic import BaseModel
 from enum import Enum
@@ -28,7 +28,7 @@ class ResearchRequest(BaseModel):
     """Request model for starting research"""
     query: str
     max_loops: int = 3
-    search_api: str = "duckduckgo"
+    search_api: str = "searxng"
     user_id: Optional[str] = None
 
 
@@ -58,17 +58,23 @@ class ResearchClient:
             "LOCAL_DEEP_RESEARCHER_URL", 
             "http://local-deep-researcher:2024"
         )
+        self.assistant_id = os.getenv(
+            "LOCAL_DEEP_RESEARCHER_ASSISTANT_ID",
+            "ollama_deep_researcher",
+        )
         self.timeout = timeout
         self.headers = {
             "Content-Type": "application/json",
             "Accept": "application/json"
         }
+        self._pending_requests: Dict[str, ResearchRequest] = {}
+        self._completed_results: Dict[str, ResearchResult] = {}
 
     async def health_check(self) -> Dict[str, Any]:
         """Check if the research service is healthy"""
         async with httpx.AsyncClient(timeout=10.0) as client:
             try:
-                response = await client.get(f"{self.base_url}/health")
+                response = await client.get(f"{self.base_url}/ok")
                 if response.status_code == 200:
                     return {"status": "healthy", "service": "local-deep-researcher"}
                 else:
@@ -80,30 +86,17 @@ class ResearchClient:
         """Start a new research session"""
         async with httpx.AsyncClient(timeout=30.0) as client:
             try:
-                # Prepare payload for LangGraph API
-                payload = {
-                    "query": request.query,
-                    "config": {
-                        "max_loops": request.max_loops,
-                        "search_api": request.search_api
-                    },
-                    "metadata": {
-                        "user_id": request.user_id
-                    }
-                }
-
-                response = await client.post(
-                    f"{self.base_url}/research/start",
-                    json=payload,
-                    headers=self.headers
-                )
+                response = await client.post(f"{self.base_url}/threads", json={})
                 response.raise_for_status()
-                
                 data = response.json()
+                thread_id = data.get("thread_id") or data.get("id")
+                if not thread_id:
+                    raise ResearchError("LangGraph thread response did not include thread_id")
+                self._pending_requests[thread_id] = request
                 return ResearchResponse(
-                    session_id=data.get("session_id", ""),
+                    session_id=thread_id,
                     status=ResearchStatus.RUNNING,
-                    message="Research started successfully",
+                    message="Research thread created successfully",
                     data=data
                 )
             except httpx.HTTPStatusError as e:
@@ -124,10 +117,7 @@ class ResearchClient:
         """Get the status of a research session"""
         async with httpx.AsyncClient(timeout=30.0) as client:
             try:
-                response = await client.get(
-                    f"{self.base_url}/research/{session_id}/status",
-                    headers=self.headers
-                )
+                response = await client.get(f"{self.base_url}/threads/{session_id}/state")
                 response.raise_for_status()
                 
                 data = response.json()
@@ -159,46 +149,20 @@ class ResearchClient:
 
     async def get_research_result(self, session_id: str) -> Optional[ResearchResult]:
         """Get the final result of a completed research session"""
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            try:
-                response = await client.get(
-                    f"{self.base_url}/research/{session_id}/result",
-                    headers=self.headers
-                )
-                response.raise_for_status()
-                
-                data = response.json()
-                return ResearchResult(
-                    session_id=session_id,
-                    title=data.get("title", "Research Result"),
-                    summary=data.get("summary", ""),
-                    content=data.get("content", ""),
-                    sources=data.get("sources", []),
-                    metadata=data.get("metadata", {})
-                )
-            except httpx.HTTPStatusError as e:
-                if e.response.status_code == 404:
-                    return None
-                raise ResearchError(f"HTTP {e.response.status_code}: {e.response.text}")
-            except Exception as e:
-                raise ResearchError(f"Failed to get result: {str(e)}")
+        return self._completed_results.pop(session_id, None)
+
+    def discard_pending(self, session_id: str) -> None:
+        """Forget a pending LangGraph thread after cancellation or early failure."""
+        self._pending_requests.pop(session_id, None)
 
     async def cancel_research(self, session_id: str) -> ResearchResponse:
         """Cancel a running research session"""
         async with httpx.AsyncClient(timeout=30.0) as client:
             try:
-                response = await client.post(
-                    f"{self.base_url}/research/{session_id}/cancel",
-                    headers=self.headers
-                )
-                response.raise_for_status()
-                
-                data = response.json()
                 return ResearchResponse(
                     session_id=session_id,
-                    status=ResearchStatus.CANCELLED,
-                    message="Research cancelled successfully",
-                    data=data
+                    status=ResearchStatus.FAILED,
+                    message="Cancellation is not supported by the LangGraph dev server integration",
                 )
             except httpx.HTTPStatusError as e:
                 error_msg = f"HTTP {e.response.status_code}: {e.response.text}"
@@ -216,39 +180,14 @@ class ResearchClient:
 
     async def stream_research_logs(self, session_id: str) -> AsyncGenerator[Dict[str, Any], None]:
         """Stream real-time logs from a research session"""
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            try:
-                async with client.stream(
-                    "GET",
-                    f"{self.base_url}/research/{session_id}/logs/stream",
-                    headers=self.headers
-                ) as response:
-                    response.raise_for_status()
-                    
-                    async for line in response.aiter_lines():
-                        if line.startswith("data: "):
-                            try:
-                                data = json.loads(line[6:])  # Remove "data: " prefix
-                                yield data
-                            except json.JSONDecodeError:
-                                continue
-                        elif line == "event: close":
-                            break
-            except Exception as e:
-                yield {"error": f"Stream error: {str(e)}"}
+        yield {
+            "type": "unsupported",
+            "message": "Research log streaming is not supported for LangGraph runs",
+        }
 
     async def list_active_sessions(self) -> List[Dict[str, Any]]:
-        """List all currently active research sessions"""
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            try:
-                response = await client.get(
-                    f"{self.base_url}/research/sessions/active",
-                    headers=self.headers
-                )
-                response.raise_for_status()
-                return response.json()
-            except Exception as e:
-                raise ResearchError(f"Failed to list active sessions: {str(e)}")
+        """List all currently active research sessions."""
+        return [{"session_id": session_id} for session_id in self._pending_requests]
 
     async def wait_for_completion(
         self, 
@@ -256,25 +195,202 @@ class ResearchClient:
         poll_interval: int = 5, 
         max_wait_time: int = 300
     ) -> ResearchResponse:
-        """Wait for a research session to complete with polling"""
-        start_time = time.monotonic()
+        """Execute the LangGraph research run and wait for the SSE stream to finish."""
+        request = self._pending_requests.get(session_id)
+        if request is None:
+            return ResearchResponse(
+                session_id=session_id,
+                status=ResearchStatus.FAILED,
+                message="Research request was not found for LangGraph thread",
+            )
 
-        while True:
-            status_response = await self.get_research_status(session_id)
-
-            if status_response.status in [
-                ResearchStatus.COMPLETED,
-                ResearchStatus.FAILED,
-                ResearchStatus.CANCELLED
-            ]:
-                return status_response
-
-            elapsed_time = time.monotonic() - start_time
-            if elapsed_time >= max_wait_time:
+        payload = self._run_payload(request)
+        final_values: Dict[str, Any] = {}
+        current_event = ""
+        try:
+            async with asyncio.timeout(max_wait_time):
+                async with httpx.AsyncClient(timeout=max_wait_time) as client:
+                    async with client.stream(
+                        "POST",
+                        f"{self.base_url}/threads/{session_id}/runs/stream",
+                        json=payload,
+                        headers=self.headers,
+                    ) as response:
+                        response.raise_for_status()
+                        async for line in response.aiter_lines():
+                            if line.startswith("event: "):
+                                current_event = line[7:].strip()
+                                continue
+                            if not line.startswith("data: "):
+                                continue
+                            raw = line[6:]
+                            if raw.strip() in {"", "[DONE]"}:
+                                continue
+                            try:
+                                event_data = json.loads(raw)
+                            except json.JSONDecodeError:
+                                continue
+                            if isinstance(event_data, dict):
+                                if current_event == "error" or "error" in event_data:
+                                    error = event_data.get("error") or event_data.get("message") or event_data
+                                    raise ResearchError(str(error))
+                                data = event_data.get("data", event_data)
+                                if isinstance(data, dict):
+                                    if current_event == "error" or "error" in data:
+                                        error = data.get("error") or data.get("message") or data
+                                        raise ResearchError(str(error))
+                                    values = data.get("values", data)
+                                    if isinstance(values, dict):
+                                        final_values = values
+            if not final_values:
                 return ResearchResponse(
                     session_id=session_id,
                     status=ResearchStatus.FAILED,
-                    message=f"Timeout waiting for completion after {max_wait_time} seconds"
+                    message="Research run produced no final values",
                 )
-            
-            await asyncio.sleep(poll_interval)
+            result = self._result_from_langgraph_values(session_id, request, final_values)
+            self._completed_results[session_id] = result
+            return ResearchResponse(
+                session_id=session_id,
+                status=ResearchStatus.COMPLETED,
+                message="Research completed successfully",
+                data=final_values,
+            )
+        except TimeoutError:
+            return ResearchResponse(
+                session_id=session_id,
+                status=ResearchStatus.FAILED,
+                message=f"Research run timed out after {max_wait_time} seconds",
+            )
+        except Exception as e:
+            return ResearchResponse(
+                session_id=session_id,
+                status=ResearchStatus.FAILED,
+                message=f"Research run failed: {str(e)}",
+            )
+        finally:
+            self._pending_requests.pop(session_id, None)
+
+    def _run_payload(self, request: ResearchRequest) -> Dict[str, Any]:
+        return {
+            "assistant_id": self.assistant_id,
+            "on_disconnect": "cancel",
+            "input": {"research_topic": request.query},
+            "config": {
+                "configurable": {
+                    "max_loops": request.max_loops,
+                    "max_web_research_loops": request.max_loops,
+                    "search_api": request.search_api,
+                }
+            },
+            "metadata": {"user_id": request.user_id} if request.user_id else {},
+            "stream_mode": ["values"],
+        }
+
+    def _result_from_langgraph_values(
+        self,
+        session_id: str,
+        request: ResearchRequest,
+        values: Dict[str, Any],
+    ) -> ResearchResult:
+        summary = (
+            values.get("final_summary")
+            or values.get("running_summary")
+            or values.get("summary")
+            or ""
+        )
+        sources = values.get("sources_gathered") or values.get("sources") or []
+        sources = self._normalize_sources(sources)
+        return ResearchResult(
+            session_id=session_id,
+            title=f"Research: {request.query[:80]}",
+            summary=summary[:500] if summary else "",
+            content=summary,
+            sources=sources,
+            metadata={
+                "thread_id": session_id,
+                "search_api": request.search_api,
+                "max_loops": request.max_loops,
+                "langgraph_values": values,
+            },
+        )
+
+    @staticmethod
+    def _normalize_sources(sources: Any) -> List[Dict[str, Any]]:
+        """Normalize Local Deep Researcher source payloads to dicts.
+
+        Upstream currently emits ``sources_gathered`` as either structured
+        dictionaries or formatted strings such as ``Source: ...\nURL: ...``.
+        The API response model stores a list of dictionaries, so string
+        entries must be wrapped before Pydantic validates the result.
+        """
+        if isinstance(sources, str):
+            candidates: list[Any] = [sources]
+        elif isinstance(sources, list):
+            candidates = sources
+        else:
+            return []
+
+        normalized: list[dict[str, Any]] = []
+        for source in candidates:
+            if isinstance(source, dict):
+                normalized.append(source)
+            elif isinstance(source, str) and source.strip():
+                normalized.extend(ResearchClient._sources_from_text(source))
+        return normalized
+
+    @staticmethod
+    def _sources_from_text(source: str) -> List[Dict[str, Any]]:
+        text = source.strip()
+        bullet_sources = ResearchClient._bullet_sources_from_text(text)
+        if bullet_sources:
+            return bullet_sources
+        return [ResearchClient._source_from_text(text)]
+
+    @staticmethod
+    def _bullet_sources_from_text(text: str) -> List[Dict[str, Any]]:
+        sources: list[dict[str, Any]] = []
+        for line in text.splitlines():
+            stripped = line.strip()
+            if not stripped.startswith(("* ", "- ")):
+                continue
+            body = stripped[2:].strip()
+            match = re.search(r"https?://[^\s)>,]+", body)
+            if not match:
+                continue
+            url = match.group(0).rstrip(".,;")
+            title = body[: match.start()].strip(" :-")
+            sources.append(
+                {
+                    "url": url,
+                    "title": title,
+                    "metadata": {"raw": stripped},
+                }
+            )
+        return sources
+
+    @staticmethod
+    def _source_from_text(text: str) -> Dict[str, Any]:
+        title = ""
+        url = ""
+        for line in text.splitlines():
+            key, sep, value = line.partition(":")
+            if not sep:
+                continue
+            normalized_key = key.strip().lower()
+            value = value.strip()
+            if normalized_key in {"source", "title"} and value:
+                title = value
+            elif normalized_key == "url" and value:
+                url = value
+
+        if not url:
+            match = re.search(r"https?://[^\s)>,]+", text)
+            if match:
+                url = match.group(0).rstrip(".,;")
+
+        return {
+            "url": url,
+            "title": title or (text[:120] if not url else ""),
+            "metadata": {"raw": text},
+        }

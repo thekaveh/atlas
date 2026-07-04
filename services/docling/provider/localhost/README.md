@@ -29,7 +29,7 @@ uv pip install torch torchvision
 uv run server.py
 ```
 
-The server will start on `http://0.0.0.0:63040` by default (reads `DOCLING_LOCALHOST_PORT` from environment).
+The server will start on `http://0.0.0.0:63059` by default (reads `DOCLING_LOCALHOST_PORT` from environment).
 
 **First run:** Downloads AI models (~500MB - DocLayNet + TableFormer). Please be patient (5-10 minutes).
 **Subsequent runs:** Instant startup.
@@ -37,7 +37,7 @@ The server will start on `http://0.0.0.0:63040` by default (reads `DOCLING_LOCAL
 ### 3. Test the API
 
 ```bash
-curl -X POST http://localhost:63040/v1/document/convert \
+curl -X POST http://localhost:63059/v1/document/convert \
   -F "file=@document.pdf" \
   -F "output_format=markdown" \
   -F "table_mode=accurate"
@@ -50,7 +50,7 @@ curl -X POST http://localhost:63040/v1/document/convert \
 Set before running server:
 
 ```bash
-export DOCLING_LOCALHOST_PORT=63040      # Server port (default: 63040)
+export DOCLING_LOCALHOST_PORT=63059      # Server port (default: 63059)
 export DOCLING_DEVICE=cpu                # Device: cpu, cuda, mps
 export DOCLING_OUTPUT_FORMAT=markdown    # Format: markdown, html, json, doctags
 export DOCLING_TABLE_MODE=accurate       # Table mode: accurate, fast
@@ -88,7 +88,7 @@ uv run server.py
 ### Basic Conversion
 
 ```bash
-curl -X POST http://localhost:63040/v1/document/convert \
+curl -X POST http://localhost:63059/v1/document/convert \
   -F "file=@report.pdf" \
   -F "output_format=markdown"
 ```
@@ -96,7 +96,7 @@ curl -X POST http://localhost:63040/v1/document/convert \
 ### With OCR and Table Extraction
 
 ```bash
-curl -X POST http://localhost:63040/v1/document/convert \
+curl -X POST http://localhost:63059/v1/document/convert \
   -F "file=@scanned.pdf" \
   -F "use_ocr=always" \
   -F "table_mode=accurate"
@@ -105,7 +105,7 @@ curl -X POST http://localhost:63040/v1/document/convert \
 ### RAG Chunking
 
 ```bash
-curl -X POST http://localhost:63040/v1/document/convert \
+curl -X POST http://localhost:63059/v1/document/convert \
   -F "file=@document.docx" \
   -F "enable_chunking=true" \
   -F "chunk_size=512" \
@@ -274,7 +274,7 @@ import requests
 
 with open("document.pdf", "rb") as f:
     response = requests.post(
-        "http://localhost:63040/v1/document/convert",
+        "http://localhost:63059/v1/document/convert",
         files={"file": f},
         data={
             "output_format": "markdown",
@@ -295,7 +295,7 @@ print(f"Found {result['metadata']['tables']} tables")
 ```bash
 # Process multiple files
 for file in *.pdf; do
-  curl -X POST http://localhost:63040/v1/document/convert \
+  curl -X POST http://localhost:63059/v1/document/convert \
     -F "file=@$file" \
     -F "output_format=markdown" \
     > "${file%.pdf}.md"

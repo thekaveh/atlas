@@ -228,3 +228,35 @@ def test_localhost_port_default_literals_agree_across_seams():
             )
 
     assert not mismatches, "\n".join(mismatches)
+
+
+def test_localhost_port_defaults_do_not_collide_with_container_ports():
+    """Host-source defaults should not point at an Atlas container host port.
+
+    A localhost-source default targets a process already running on the
+    operator's host. If it equals a generated container host port, the wizard
+    can appear to validate against an unrelated Atlas container and then route
+    traffic to the wrong service.
+    """
+    import re
+
+    from services.topology import build_topology
+
+    repo = ENV_EXAMPLE.parent
+    env_text = ENV_EXAMPLE.read_text(encoding="utf-8")
+    localhost_defaults = {
+        var: int(value)
+        for var, value in re.findall(r"^([A-Z0-9_]*LOCALHOST[A-Z0-9_]*PORT)=(\d+)$", env_text, re.M)
+    }
+    container_defaults = build_topology(repo / "services").port_defaults
+    ports_to_container_vars: dict[int, list[str]] = {}
+    for var, port in container_defaults.items():
+        ports_to_container_vars.setdefault(port, []).append(var)
+
+    collisions = [
+        f"{localhost_var}={localhost_port} collides with {', '.join(sorted(container_vars))}"
+        for localhost_var, localhost_port in sorted(localhost_defaults.items())
+        if (container_vars := ports_to_container_vars.get(localhost_port))
+    ]
+
+    assert not collisions, "\n".join(collisions)

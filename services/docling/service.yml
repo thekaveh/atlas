@@ -53,8 +53,8 @@ env:
   - name: DOCLING_ENDPOINT
     auto_managed: true
   - name: DOCLING_LOCALHOST_PORT
-    default: "63040"
-    description: "Host port for the localhost source variant (defaults to the freed DOC_PROCESSOR_PORT slot). URL is derived at compose-render time as http://host.docker.internal:63040."
+    default: "63059"
+    description: "Host port for the localhost source variant. URL is derived at compose-render time as http://host.docker.internal:63059."
 
 depends_on:
   # Docling has no runtime upstream service dependencies — it's a leaf
@@ -103,7 +103,7 @@ runtime_sc:
     docling-localhost:
       scale: 0
       environment:
-        DOCLING_ENDPOINT: http://host.docker.internal:${DOCLING_LOCALHOST_PORT:-63040}
+        DOCLING_ENDPOINT: http://host.docker.internal:${DOCLING_LOCALHOST_PORT:-63059}
       deploy: {}
       extra_hosts:
       - host.docker.internal:host-gateway
@@ -116,4 +116,3 @@ runtime_sc:
 
 data_flow:
   calls: []
-

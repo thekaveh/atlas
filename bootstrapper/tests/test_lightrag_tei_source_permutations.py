@@ -54,7 +54,7 @@ def test_tei_reranker_env_generation_each_source(env_with_overrides, tei_source)
         assert env["TEI_RERANKER_ENDPOINT"] == ""
         assert env["TEI_RERANKER_SCALE"] == "0"
     elif tei_source == "localhost":
-        assert "localhost:63031" in env["TEI_RERANKER_ENDPOINT"]
+        assert "localhost:63049" in env["TEI_RERANKER_ENDPOINT"]
     else:  # container variants
         assert env["TEI_RERANKER_ENDPOINT"] == "http://tei-reranker:80"
         assert env["TEI_RERANKER_SCALE"] == "1"

@@ -8,7 +8,7 @@ Generated service-site entry for `multi2vec-clip`.
 - Kind: `doc-only`
 - SOURCE variable: `none`
 - SOURCE values: `none`
-- Source README: [services/multi2vec-clip/README.md](../../../services/multi2vec-clip/README.md)
+- Source README: [services/multi2vec-clip/README.md](https://github.com/thekaveh/atlas/blob/main/services/multi2vec-clip/README.md)
 
 ## 2. Source Of Truth
 

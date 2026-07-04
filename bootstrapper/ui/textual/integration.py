@@ -437,9 +437,9 @@ def _build_steps_and_rows(
     # row here + a manifest entry per Task 7.
     LOCALHOST_PORT_WIRING: dict[tuple[str, str], tuple[str, int]] = {
         ("ComfyUI",            "localhost"):             ("COMFYUI_LOCALHOST_PORT", 8000),
-        ("Document Processor", "docling-localhost"):     ("DOCLING_LOCALHOST_PORT", 63040),
+        ("Document Processor", "docling-localhost"):     ("DOCLING_LOCALHOST_PORT", 63059),
         ("Apache Tika",        "tika-localhost"):        ("TIKA_LOCALHOST_PORT", 9998),
-        ("Hermes Agent",       "localhost"):             ("HERMES_LOCALHOST_PORT", 63028),
+        ("Hermes Agent",       "localhost"):             ("HERMES_LOCALHOST_PORT", 8642),
         ("OpenClaw",           "localhost"):             ("OPENCLAW_LOCALHOST_PORT", 63065),
         ("LLM Engine",         "ollama-localhost"):      ("OLLAMA_LOCALHOST_PORT", 11434),
         ("Neo4j Graph DB",     "localhost"):             ("NEO4J_LOCALHOST_BOLT_PORT", 7687),
@@ -448,7 +448,7 @@ def _build_steps_and_rows(
         ("STT Provider",       "whisper-cpp-localhost"): ("WHISPER_CPP_LOCALHOST_PORT", 63042),
         ("TTS Provider",       "chatterbox-localhost"):  ("CHATTERBOX_LOCALHOST_PORT", 63044),
         ("LightRAG",           "localhost"):             ("LIGHTRAG_LOCALHOST_PORT", 63068),
-        ("TEI Reranker",       "localhost"):             ("TEI_RERANKER_LOCALHOST_PORT", 63031),
+        ("TEI Reranker",       "localhost"):             ("TEI_RERANKER_LOCALHOST_PORT", 63049),
     }
 
     def _localhost_port_config(display: str, opt_value: str) -> "SecondaryNumberInput | None":

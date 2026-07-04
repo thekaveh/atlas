@@ -8,7 +8,7 @@ Generated service-site entry for `stt-provider`.
 - Kind: `doc-only`
 - SOURCE variable: `none`
 - SOURCE values: `none`
-- Source README: [services/stt-provider/README.md](../../../services/stt-provider/README.md)
+- Source README: [services/stt-provider/README.md](https://github.com/thekaveh/atlas/blob/main/services/stt-provider/README.md)
 
 ## 2. Source Of Truth
 

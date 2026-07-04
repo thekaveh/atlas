@@ -105,7 +105,7 @@ def _check_readme_topology_block_is_current(project_root: Path) -> list[str]:
     end += len("<!-- TOPOLOGY:END -->")
     actual = text[start:end].rstrip()
     if expected != actual:
-        return ["README.md TOPOLOGY block is stale — run `uv run python -m tools.generate_readme_topology`"]
+        return ["README.md TOPOLOGY block is stale — run `uv run --project bootstrapper python -m tools.generate_readme_topology`"]
     return []
 
 

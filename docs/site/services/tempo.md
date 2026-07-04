@@ -8,7 +8,7 @@ Generated service-site entry for `tempo`.
 - Kind: `container`
 - SOURCE variable: `TEMPO_SOURCE`
 - SOURCE values: `container, disabled`
-- Source README: [services/tempo/README.md](../../../services/tempo/README.md)
+- Source README: [services/tempo/README.md](https://github.com/thekaveh/atlas/blob/main/services/tempo/README.md)
 
 ## 2. Source Of Truth
 

@@ -8,7 +8,7 @@ Generated service-site entry for `supabase`.
 - Kind: `container`
 - SOURCE variable: `none`
 - SOURCE values: `none`
-- Source README: [services/supabase/README.md](../../../services/supabase/README.md)
+- Source README: [services/supabase/README.md](https://github.com/thekaveh/atlas/blob/main/services/supabase/README.md)
 
 ## 2. Source Of Truth
 

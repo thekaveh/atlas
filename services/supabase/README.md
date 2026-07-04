@@ -105,18 +105,18 @@ The stack uses Supabase Auth (GoTrue) for user authentication and management wit
 ### 4.1 PostgreSQL Database
 
 **Access**: Direct connection via standard PostgreSQL client
-**Port**: `${SUPABASE_DB_PORT}` (default: 63010)
+**Port**: `${SUPABASE_DB_PORT}` (default: 63012)
 **Extensions**: pgvector, PostGIS, uuid-ossp, pgcrypto
 
 ### 4.2 Auth Service (GoTrue)
 
-**Access**: `http://localhost:${SUPABASE_AUTH_PORT}` (default: 63014)
+**Access**: `http://localhost:${SUPABASE_AUTH_PORT}` (default: 63016)
 **Purpose**: User registration, login, password recovery, email confirmation
 **Features**: JWT authentication, user management, password policies
 
 ### 4.3 Storage Service
 
-**Access**: `http://localhost:${SUPABASE_STORAGE_PORT}` (default: 63013)
+**Access**: `http://localhost:${SUPABASE_STORAGE_PORT}` (default: 63015)
 **Features**:
 - Secure file storage and management
 - Access control via database policies
@@ -125,7 +125,7 @@ The stack uses Supabase Auth (GoTrue) for user authentication and management wit
 
 ### 4.4 API Service (PostgREST)
 
-**Access**: `http://localhost:${SUPABASE_API_PORT}` (default: 63015)
+**Access**: `http://localhost:${SUPABASE_API_PORT}` (default: 63017)
 **Purpose**: Auto-generated REST API for database operations
 **Features**:
 - Automatic API generation from database schema
@@ -135,7 +135,7 @@ The stack uses Supabase Auth (GoTrue) for user authentication and management wit
 
 ### 4.5 Realtime Service
 
-**Access**: WebSocket at `http://localhost:${SUPABASE_REALTIME_PORT}` (default: 63016)
+**Access**: WebSocket at `http://localhost:${SUPABASE_REALTIME_PORT}` (default: 63018)
 **Purpose**: Live database change notifications
 **Features**:
 - Real-time database change notifications
@@ -145,7 +145,7 @@ The stack uses Supabase Auth (GoTrue) for user authentication and management wit
 
 ### 4.6 Studio Dashboard
 
-**Access**: `http://localhost:${SUPABASE_STUDIO_PORT}` (default: 63017)
+**Access**: `http://localhost:${SUPABASE_STUDIO_PORT}` (default: 63019)
 **Purpose**: Web-based database management interface
 **Credentials**: `DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD` from `.env` (default user `kong_admin`; the password is auto-generated on first `./start.sh`)
 **Features**:
@@ -172,7 +172,7 @@ Key environment variables for Supabase configuration:
 POSTGRES_DB=postgres
 SUPABASE_DB_USER=supabase_admin
 SUPABASE_DB_PASSWORD=your_password
-SUPABASE_DB_PORT=63010
+SUPABASE_DB_PORT=63012
 
 # Authentication
 SUPABASE_JWT_SECRET=your_jwt_secret
@@ -180,11 +180,11 @@ SUPABASE_ANON_KEY=generated_anon_key
 SUPABASE_SERVICE_KEY=generated_service_key
 
 # Service Ports
-SUPABASE_AUTH_PORT=63014
-SUPABASE_API_PORT=63015
-SUPABASE_STORAGE_PORT=63013
-SUPABASE_STUDIO_PORT=63017
-SUPABASE_REALTIME_PORT=63016
+SUPABASE_AUTH_PORT=63016
+SUPABASE_API_PORT=63017
+SUPABASE_STORAGE_PORT=63015
+SUPABASE_STUDIO_PORT=63019
+SUPABASE_REALTIME_PORT=63018
 
 # Dashboard Credentials (password auto-rotated on first launch)
 DASHBOARD_USERNAME=kong_admin

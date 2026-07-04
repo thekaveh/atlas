@@ -28,15 +28,16 @@ For TUI/CLI visual work: after each change, describe exactly what changed visual
 
 ## Git Workflow
 
-`main` is protected — **direct push to main is rejected even for the repo owner** (admin enforcement is on). Every change must land via a pull request with all three `services-lint` CI checks green:
+`main` is protected — **direct push to main is rejected even for the repo owner** (admin enforcement is on). Every change must land via a pull request with all four `services-lint` CI checks green:
 
 - `Manifest lint + unit tests`
 - `Compose merge + byte-equivalence + source-permutation matrix`
 - `Docs drift + audit scripts`
+- `Build-validation (Dockerfile + requirements.txt installability)`
 
 Strict mode is enabled, so the PR branch must be up to date with main before merge becomes available. Conversation-resolution is required.
 
-Integration flow: branch (typically a worktree under `.Codex/worktrees/<name>`) → push the branch → `gh pr create --base main` → wait for the 3 checks → `gh pr merge --squash --delete-branch` (squash preserves the linear history the repo prefers). Never attempt `git push origin main` — GitHub rejects it with `GH006: Protected branch update failed`. Inspect the live rule with `gh api repos/thekaveh/atlas/branches/main/protection`.
+Integration flow: branch (typically a worktree under `.Codex/worktrees/<name>`) → push the branch → `gh pr create --base main` → wait for the 4 checks → `gh pr merge --squash --delete-branch` (squash preserves the linear history the repo prefers). Never attempt `git push origin main` — GitHub rejects it with `GH006: Protected branch update failed`. Inspect the live rule with `gh api repos/thekaveh/atlas/branches/main/protection`.
 
 ## Key Commands
 
@@ -182,7 +183,7 @@ The Dependencies & Integrations block is **auto-generated** by `bootstrapper/doc
 - `### N.3 Architecture diagram` (embeds `./architecture.svg`)
 - `### N.4 / N.5 / N.6` Future-* subsections (user-authored Phase C content, preserved across regen passes by `_render_section_with_future`)
 
-After changing a `data_flow.calls` list, re-run `PYTHONPATH=bootstrapper python -m bootstrapper.docs.regen <service>` (or `--all`). The drift gate in `bootstrapper/tests/test_docs_drift.py` enforces that committed READMEs/SVGs/HTMLs match what regen would produce.
+After changing a `data_flow.calls` list, re-run `PYTHONPATH=bootstrapper uv run --project bootstrapper python -m bootstrapper.docs.regen <service>` (or `--all`). The drift gate in `bootstrapper/tests/test_docs_drift.py` enforces that committed READMEs/SVGs/HTMLs match what regen would produce.
 
 ## Configuration
 
@@ -200,10 +201,10 @@ All ports are calculated as offsets from `BASE_PORT` (default 63000). Service po
 `bootstrapper/tests/` holds 1,300+ pytest tests covering manifest validation, env-example consistency, the docs-drift gate, the diagram renderer, the deps section writer, Kong config generation, and bootstrapper-internal data flow. Run from the repo root:
 
 ```bash
-cd bootstrapper && uv run pytest -q                          # full suite (~60 sec)
-cd bootstrapper && uv run pytest tests/test_docs_drift.py    # drift gate alone
-cd bootstrapper && uv run pytest tests/test_manifests.py -v  # single file, verbose
-cd bootstrapper && uv run pytest -k weaviate                 # filter by name
+uv run --project bootstrapper pytest bootstrapper/tests -q                          # full suite (~60 sec)
+uv run --project bootstrapper pytest bootstrapper/tests/test_docs_drift.py          # drift gate alone
+uv run --project bootstrapper pytest bootstrapper/tests/test_manifests.py -v        # single file, verbose
+uv run --project bootstrapper pytest bootstrapper/tests -k weaviate                 # filter by name
 ```
 
 `pytest-asyncio` is declared in `services/backend/app/app/requirements.txt`; the backend's own small suite (`services/backend/app/app/tests/`) runs only in an environment with the backend dependencies installed — it is not collected by the bootstrapper suite.
@@ -213,12 +214,16 @@ cd bootstrapper && uv run pytest -k weaviate                 # filter by name
 Operational lint scripts that run outside pytest:
 
 ```bash
-PYTHONPATH=bootstrapper python -m bootstrapper.docs.regen --all --check  # docs drift gate (exit 2 on drift)
-python scripts/check_doc_links.py                                        # internal markdown link validator
-python scripts/check-docs-drift.py                                       # docs structure audit
-python scripts/check-compose-source-deps.py                              # compose depends_on lint
-python scripts/check-kong-routes.py                                      # Kong route generator audit
-python scripts/validate_research_schema.py --all                         # docs/research/ schema check
+uv run --project bootstrapper python -m bootstrapper.docs.regen --all --check  # docs drift gate (exit 2 on drift)
+uv run --project bootstrapper python scripts/check_doc_links.py                # internal markdown link validator
+uv run --project bootstrapper python scripts/check-docs-drift.py               # docs structure audit
+uv run --project bootstrapper python scripts/check-docs-site.py                # MkDocs strict build
+uv run --project bootstrapper python scripts/export-docs-wiki.py --check       # wiki export drift
+uv run --project bootstrapper python scripts/check-compose-source-deps.py      # compose depends_on lint
+uv run --project bootstrapper python scripts/check-kong-routes.py              # Kong route generator audit
+uv run --project bootstrapper python scripts/validate_research_schema.py --all # docs/research/ schema check
+uv run --project bootstrapper python scripts/check-track-membership.py         # track coverage audit
+(cd services/docling/provider/localhost && uv lock --locked)                   # docling localhost provider lock
 ```
 
 ## Linting / Type-checking

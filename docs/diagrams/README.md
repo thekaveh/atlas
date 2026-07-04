@@ -28,8 +28,8 @@ that service's manifest (`service.yml::data_flow.calls`) by
 `bootstrapper/docs/regen.py`:
 
 ```bash
-PYTHONPATH=bootstrapper python -m bootstrapper.docs.regen <service>   # one service
-PYTHONPATH=bootstrapper python -m bootstrapper.docs.regen --all       # all services
+PYTHONPATH=bootstrapper uv run --project bootstrapper python -m bootstrapper.docs.regen <service>   # one service
+PYTHONPATH=bootstrapper uv run --project bootstrapper python -m bootstrapper.docs.regen --all       # all services
 ```
 
 The drift gate (`bootstrapper/tests/test_docs_drift.py`) enforces that the

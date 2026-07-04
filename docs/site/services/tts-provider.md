@@ -8,7 +8,7 @@ Generated service-site entry for `tts-provider`.
 - Kind: `virtual`
 - SOURCE variable: `TTS_PROVIDER_SOURCE`
 - SOURCE values: `speaches-container-cpu, speaches-container-gpu, chatterbox-container-gpu, chatterbox-localhost, disabled`
-- Source README: [services/tts-provider/README.md](../../../services/tts-provider/README.md)
+- Source README: [services/tts-provider/README.md](https://github.com/thekaveh/atlas/blob/main/services/tts-provider/README.md)
 
 ## 2. Source Of Truth
 

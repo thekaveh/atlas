@@ -8,7 +8,7 @@ Generated service-site entry for `weaviate`.
 - Kind: `container`
 - SOURCE variable: `WEAVIATE_SOURCE`
 - SOURCE values: `container, localhost, disabled`
-- Source README: [services/weaviate/README.md](../../../services/weaviate/README.md)
+- Source README: [services/weaviate/README.md](https://github.com/thekaveh/atlas/blob/main/services/weaviate/README.md)
 
 ## 2. Source Of Truth
 

@@ -1,4 +1,5 @@
 #!/bin/sh
+# shellcheck shell=bash
 # init-hermes.sh — render /opt/data/config.yaml (and supporting files)
 # from environment, then exit. Runs before the hermes service starts
 # (see docker-compose.yml depends_on).
@@ -221,6 +222,7 @@ export LITELLM_MODELS_LIST
 
 # Build the variable list explicitly so envsubst only touches the
 # ones we know about.
+# shellcheck disable=SC2016
 VARS='${HERMES_DEFAULT_MODEL} ${HERMES_CONTEXT_LENGTH} ${LITELLM_MASTER_KEY}
 ${LITELLM_MODELS_LIST}
 ${TTS_INTERNAL_URL} ${STT_INTERNAL_URL} ${COMFYUI_INTERNAL_URL}
@@ -266,6 +268,7 @@ log "wrote ${CONFIG_OUT}"
 # bypassing the bundled skill's hardcoded 127.0.0.1:8188.
 if [[ -n "${COMFYUI_INTERNAL_URL:-}" && -f "${TEMPLATE_DIR}/comfyui-host-override.md" ]]; then
   out="${SKILLS_DIR}/creative-comfyui-host-override.md"
+  # shellcheck disable=SC2016
   COMFYUI_INTERNAL_URL="${COMFYUI_INTERNAL_URL}" \
     envsubst '${COMFYUI_INTERNAL_URL}' < "${TEMPLATE_DIR}/comfyui-host-override.md" > "${out}.tmp"
   mv "${out}.tmp" "${out}"

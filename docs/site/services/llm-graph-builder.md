@@ -8,7 +8,7 @@ Generated service-site entry for `llm-graph-builder`.
 - Kind: `container`
 - SOURCE variable: `LLM_GRAPH_BUILDER_SOURCE`
 - SOURCE values: `container, disabled`
-- Source README: [services/llm-graph-builder/README.md](../../../services/llm-graph-builder/README.md)
+- Source README: [services/llm-graph-builder/README.md](https://github.com/thekaveh/atlas/blob/main/services/llm-graph-builder/README.md)
 
 ## 2. Source Of Truth
 

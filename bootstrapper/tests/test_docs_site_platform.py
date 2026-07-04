@@ -76,24 +76,28 @@ def test_mkdocs_nav_exists_and_points_to_real_pages() -> None:
     assert config["site_url"] == "https://thekaveh.github.io/atlas/"
     assert config["docs_dir"] == "docs"
     assert config["site_dir"] == "site"
-    assert nav["Home"] == "index.md"
-    assert nav["Service Index"] == "site/services/index.md"
-    assert nav["SOURCE Reference"] == "site/reference/source-values.md"
-    assert nav["Wiki Export"] == "wiki/Home.md"
+    assert nav["1. Home"] == "index.md"
+    assert nav["7. Service Index"] == "site/services/index.md"
+    assert nav["14. SOURCE Reference"] == "site/reference/source-values.md"
+    assert "20. Wiki Export" not in nav
     assert "assets/stylesheets/atlas.css" in config["extra_css"]
+    assert config["validation"]["links"]["not_found"] != "ignore"
 
     required_sections = {
-        "Overview",
-        "Quick Start",
-        "Architecture",
-        "Services",
-        "Tracks",
-        "Configuration",
-        "Operations",
-        "Development",
-        "Reference",
+        "2. Overview",
+        "3. Quick Start",
+        "4. Architecture",
+        "6. Services",
+        "9. Tracks",
+        "10. Configuration",
+        "11. Operations",
+        "12. Development",
+        "13. Reference",
     }
     assert required_sections <= set(nav)
+
+    for label in nav:
+        assert label[0].isdigit(), f"nav label is not numbered: {label!r}"
 
     for label, target in nav.items():
         assert (ROOT / "docs" / target).exists(), f"{label!r} points at missing {target!r}"
@@ -114,7 +118,11 @@ def test_docs_site_indexes_every_service_family() -> None:
 
     for name in ("redpanda", "trino"):
         page = (DOCS_SITE / "services" / f"{name}.md").read_text(encoding="utf-8")
-        assert f"[services/{name}/README.md](../../../services/{name}/README.md)" in page
+        assert (
+            f"[services/{name}/README.md]"
+            f"(https://github.com/thekaveh/atlas/blob/main/services/{name}/README.md)"
+            in page
+        )
 
 
 def test_generated_reference_pages_cover_core_sources() -> None:
@@ -175,18 +183,48 @@ def test_wiki_export_and_ci_hooks_are_present() -> None:
     assert "../site/" not in wiki_home
     assert "../site/" not in wiki_index
     assert "../site/" not in wiki_services
-    assert "[Overview](Overview)" in wiki_home
-    assert "[Services](Services)" in wiki_index
+    assert "[1. Overview](Overview)" in wiki_home
+    assert "[4. Services](Services)" in wiki_index
     assert "mkdocs build --strict" in check_script
+    assert "validate_built_site_links" in check_script
     assert "mkdocs build --strict" in workflow
     assert "check-docs-site.py" in workflow
     assert "export-docs-wiki.py --check" in workflow
     assert "wiki/Home.md" in wiki_script
 
 
+def test_docs_audit_guidance_lists_required_local_gates() -> None:
+    docs_readme = (ROOT / "docs" / "README.md").read_text(encoding="utf-8")
+    contributor_guide = (ROOT / "docs" / "CONTRIBUTING-services.md").read_text(encoding="utf-8")
+    development_page = (DOCS_SITE / "development.md").read_text(encoding="utf-8")
+    agents_guide = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+
+    required_commands = [
+        "uv run --project bootstrapper python -m bootstrapper.docs.regen --all --check",
+        "uv run --project bootstrapper python scripts/check_doc_links.py",
+        "uv run --project bootstrapper python scripts/check-docs-drift.py",
+        "uv run --project bootstrapper python scripts/check-docs-site.py",
+        "uv run --project bootstrapper python scripts/export-docs-wiki.py --check",
+        "uv run --project bootstrapper python scripts/check-compose-source-deps.py",
+        "uv run --project bootstrapper python scripts/check-kong-routes.py",
+        "uv run --project bootstrapper python scripts/validate_research_schema.py --all",
+        "uv run --project bootstrapper python scripts/check-track-membership.py",
+        "uv lock --locked",
+    ]
+
+    for command in required_commands:
+        assert command in docs_readme
+        assert command in contributor_guide
+        assert command in development_page
+
+    for command in required_commands:
+        assert command in agents_guide
+
+
 def test_docs_pages_publication_workflow_and_homepage_contract() -> None:
     workflow = PAGES_WORKFLOW.read_text(encoding="utf-8")
 
+    assert '"assets/**"' in workflow
     assert "deploy-pages" in workflow
     assert "upload-pages-artifact" in workflow
     assert "pages: write" in workflow
@@ -194,6 +232,137 @@ def test_docs_pages_publication_workflow_and_homepage_contract() -> None:
     assert "scripts/check-docs-site.py" in workflow
     assert "scripts/export-docs-wiki.py --push" in workflow
     assert "https://thekaveh.github.io/atlas/" in workflow
+
+
+def test_services_lint_build_validation_covers_all_init_dockerfiles() -> None:
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+    init_contexts = sorted(
+        path.parent.relative_to(ROOT).as_posix()
+        for path in (ROOT / "services").glob("*/init/Dockerfile")
+    )
+
+    assert init_contexts
+    assert '"assets/**"' in workflow
+    assert "Build-validation (Dockerfile + requirements.txt installability)" in workflow
+    for context in init_contexts:
+        assert context in workflow, f"build-validation does not cover {context}"
+
+
+def test_services_lint_build_validation_covers_local_compose_build_contexts() -> None:
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+    excluded_contexts = {
+        "services/docling/provider",
+        "services/parakeet/provider",
+    }
+    contexts: set[str] = set()
+
+    for compose in (ROOT / "services").glob("*/compose.yml"):
+        data = yaml.safe_load(compose.read_text(encoding="utf-8")) or {}
+        for spec in (data.get("services") or {}).values():
+            if not isinstance(spec, dict):
+                continue
+            build = spec.get("build")
+            if not isinstance(build, dict):
+                continue
+            context = build.get("context")
+            if not context or str(context).startswith("http"):
+                continue
+            relative_context = (compose.parent / context).resolve().relative_to(ROOT).as_posix()
+            if relative_context not in excluded_contexts:
+                contexts.add(relative_context)
+
+    assert contexts
+    for context in sorted(contexts):
+        assert context in workflow, f"build-validation does not cover {context}"
+
+
+def test_contributor_ci_checklist_matches_services_lint_jobs() -> None:
+    guide = (ROOT / "docs" / "CONTRIBUTING-services.md").read_text(encoding="utf-8")
+
+    assert "uv run --project bootstrapper pytest bootstrapper/tests -q" in guide
+    assert "uv run --python 3.11 --with-requirements app/requirements.txt python -m pytest app/tests -q" in guide
+    assert "uv run --project bootstrapper python -m services.env_assembler" in guide
+    assert "uv run --project bootstrapper python -m tools.generate_readme_topology" in guide
+    assert "uv run --project bootstrapper python -m tools.validate_fragments" in guide
+    assert "uv run --project bootstrapper python scripts/check-docs-site.py" in guide
+    assert "docker compose --env-file .env.example -f docker-compose.yml config -q" in guide
+    assert "cd bootstrapper &&" not in guide
+    assert "cd bootstrapper" not in guide
+    assert "cp .env.example .env" not in guide
+    assert "five-command" not in guide.lower()
+    assert "five commands" not in guide.lower()
+    assert "sample build" not in guide
+    assert "every local non-GPU Compose build context" in guide
+
+    for context in [
+        "services/airflow/build",
+        "services/backend/app",
+        "services/iceberg-rest/build",
+        "services/jenkins/build",
+        "services/jupyterhub/build",
+        "services/local-deep-researcher/build",
+        "services/mcp-servers/runtime",
+        "services/neo4j/build",
+        "services/spark/build",
+        "services/zeppelin/build",
+    ]:
+        assert context in guide
+
+
+def test_docs_do_not_reference_retired_three_check_ci_set() -> None:
+    stale_phrases = [
+        "All 3 `services-lint` CI checks",
+        "the three required CI checks",
+        "the three `services-lint` checks",
+        "the 3 `services-lint` checks",
+    ]
+
+    paths = list((ROOT / "docs").rglob("*.md")) + [ROOT / "AGENTS.md"]
+    for path in paths:
+        text = path.read_text(encoding="utf-8")
+        for phrase in stale_phrases:
+            assert phrase not in text, f"{path.relative_to(ROOT)} still references retired CI guidance"
+
+    agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    for check in [
+        "Manifest lint + unit tests",
+        "Compose merge + byte-equivalence + source-permutation matrix",
+        "Docs drift + audit scripts",
+        "Build-validation (Dockerfile + requirements.txt installability)",
+    ]:
+        assert check in agents
+
+
+def test_agents_testing_guidance_is_root_safe_and_complete() -> None:
+    agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+
+    assert "cd bootstrapper &&" not in agents
+    for command in [
+        "uv run --project bootstrapper pytest bootstrapper/tests -q",
+        "uv run --project bootstrapper pytest bootstrapper/tests/test_docs_drift.py",
+        "uv run --project bootstrapper python scripts/check-docs-site.py",
+        "uv run --project bootstrapper python scripts/export-docs-wiki.py --check",
+        "uv run --project bootstrapper python scripts/check-track-membership.py",
+        "(cd services/docling/provider/localhost && uv lock --locked)",
+    ]:
+        assert command in agents
+
+
+def test_live_docs_use_root_safe_regen_and_wiki_commands() -> None:
+    live_paths = [
+        ROOT / "AGENTS.md",
+        ROOT / "docs" / "CONTRIBUTING-services.md",
+        ROOT / "docs" / "diagrams" / "README.md",
+        ROOT / "docs" / "wiki" / "Home.md",
+        ROOT / "scripts" / "generate-docs-site.py",
+    ]
+    combined = "\n".join(path.read_text(encoding="utf-8") for path in live_paths)
+
+    assert "PYTHONPATH=bootstrapper python -m bootstrapper.docs.regen" not in combined
+    assert "run `python scripts/export-docs-wiki.py" not in combined
+    assert "\npython scripts/export-docs-wiki.py" not in combined
+    assert "uv run --project bootstrapper python -m bootstrapper.docs.regen" in combined
+    assert "uv run --project bootstrapper python scripts/export-docs-wiki.py --check" in combined
 
 
 def test_atlas_theme_uses_dark_atlas_system_with_local_assets() -> None:
