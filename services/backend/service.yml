@@ -43,6 +43,24 @@ env:
     description: "LiteLLM model id (empty = highest-priority active content model resolved by model_resolver from YAML catalogs + env)."
   - name: LANGMEM_EMBEDDING_MODEL
     default: ""
+  - name: GRAPHITI_ENABLED
+    default: false
+    description: "Disabled-by-default backend-only Graphiti temporal graph memory experiment. Does not expose Graphiti to agents or run a Graphiti service."
+  - name: GRAPHITI_GROUP_ID_PREFIX
+    default: atlas
+    description: "Prefix for backend Graphiti group_id values. Final shape: atlas:<project>:backend:<namespace>:user:<uuid>."
+  - name: GRAPHITI_DEFAULT_NAMESPACE
+    default: langmem
+    description: "Default backend Graphiti namespace segment used when projecting selected LangMem facts/events."
+  - name: GRAPHITI_LLM_MODEL
+    default: ""
+    description: "Optional LiteLLM model id for Graphiti extraction. Empty falls back to LANGMEM_EXTRACTION_MODEL, then LITELLM_DEFAULT_MODEL."
+  - name: GRAPHITI_EMBEDDING_MODEL
+    default: ""
+    description: "Optional LiteLLM embedding model id for Graphiti. Empty falls back to LANGMEM_EMBEDDING_MODEL, then LITELLM_EMBEDDING_MODEL."
+  - name: GRAPHITI_EXPOSE_TO_AGENTS
+    default: false
+    description: "Must remain false for this backend-only evaluation; Hermes/OpenClaw exposure and Graphiti MCP are deferred."
 
 depends_on:
   # Mirrors services/backend/compose.yml. LiteLLM is gated on service_healthy

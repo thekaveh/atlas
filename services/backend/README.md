@@ -39,6 +39,19 @@ LANGMEM_EXTRACTION_MODEL=          # empty = LITELLM_DEFAULT_MODEL (resolved by 
 LANGMEM_EMBEDDING_MODEL=
 ```
 
+Graphiti temporal graph memory experiment:
+
+```bash
+GRAPHITI_ENABLED=false
+GRAPHITI_GROUP_ID_PREFIX=atlas
+GRAPHITI_DEFAULT_NAMESPACE=langmem
+GRAPHITI_LLM_MODEL=                  # empty = LANGMEM_EXTRACTION_MODEL, then LITELLM_DEFAULT_MODEL
+GRAPHITI_EMBEDDING_MODEL=            # empty = LANGMEM_EMBEDDING_MODEL, then LITELLM_EMBEDDING_MODEL
+GRAPHITI_EXPOSE_TO_AGENTS=false
+```
+
+This is a backend-only evaluation scaffold, not a new service. LangMem remains the default and canonical memory API: Postgres stores memory facts, Weaviate/pgvector backs semantic recall, and `/memory/*` routes keep their existing behavior. Graphiti is reserved as an augmenting temporal graph projection for selected relationship/event episodes after a concrete backend workflow is chosen. The strict `group_id` convention is `atlas:<project>:backend:<namespace>:user:<uuid>`; it isolates per-user/per-namespace graphs in the shared Neo4j instance and avoids collisions with LightRAG, Neo4j LLM Graph Builder, future Hermes, and future OpenClaw writers. `GRAPHITI_EXPOSE_TO_AGENTS=false` means Hermes/OpenClaw integration and the upstream Graphiti MCP server are deliberately deferred.
+
 Adaptive env (injected automatically based on active SOURCE values):
 
 ```bash
@@ -89,6 +102,8 @@ When any optional service is `disabled`, the corresponding backend feature degra
 **Init container:** none. The backend has no `backend-init`; one-time setup (DB migrations) is delegated to `supabase-db-init` which runs SQL scripts from `services/supabase/db/scripts/`.
 
 **Downstream plugin seam (`BACKEND_PLUGINS_DIR`):** after mounting its built-in routers, the app calls `load_plugins(app)` (`plugin_seam.py`). It scans `$BACKEND_PLUGINS_DIR` (default `/app/plugins`); each immediate subdirectory that is an importable package exposing a module-level `router` (a FastAPI `APIRouter`) is `include_router`'d into the app, and a `requirements.txt` in that directory is `pip install`'d first. It is a **no-op when the directory is absent**, so base Atlas is unaffected — the seam exists purely so a downstream consumer (e.g. one vendoring Atlas as a submodule) can add its own API routes without forking the backend. A plugin that fails to import is logged and skipped, never crashing the backend. Consumer-side walkthrough: [reusing-atlas.md §6.2](../../docs/deployment/reusing-atlas.md#62-adding-backend-api-routes-via-the-plugin-seam).
+
+**Graphiti experiment status:** `GET /memory/graphiti/status` returns the disabled-by-default experiment configuration and namespace pattern without importing `graphiti-core` or writing to Neo4j. Treat it as a readiness/contract endpoint for future backend-only Graphiti work, not as an active memory writer.
 
 ## 5. LightRAG integration
 

@@ -26,6 +26,7 @@ from memory_models import (
 from ray_routes import router as ray_router
 from celery_app import celery_is_enabled, get_celery_job_status
 from celery_tasks import memory_consolidate_task
+from graphiti_experiment import GraphitiExperimentConfig
 from document_extraction import (
     DocumentExtractionError,
     DocumentExtractor,
@@ -1084,3 +1085,9 @@ async def memory_health_check():
     """Health check for the LangMem memory service."""
     result = await memory_service.health_check()
     return MemoryHealthResponse(**result)
+
+
+@app.get("/memory/graphiti/status", response_model=Dict[str, Any])
+async def graphiti_experiment_status():
+    """Report the disabled-by-default backend-only Graphiti experiment plan."""
+    return GraphitiExperimentConfig.from_env().status_payload()
