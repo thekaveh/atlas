@@ -112,6 +112,7 @@ def theme_artifacts(root: Path) -> dict[Path, str]:
 def copy_artifacts(root: Path) -> list[tuple[Path, Path]]:
     return [
         (root / "assets" / "atlas-source.png", root / "docs" / "assets" / "images" / "atlas-source.png"),
+        (root / "assets" / "atlas-poster.png", root / "docs" / "assets" / "atlas-poster.png"),
     ]
 
 

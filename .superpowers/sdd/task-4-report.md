@@ -110,3 +110,9 @@ git diff --check
 ### Review Fix Commit
 
 - `a4b05009` `Fix Task 4 docs-site review issues`
+
+## Post-Task Regression Fix
+
+- Restored the full local docs/audit command block in `docs/site/development.md` by updating the docs-site page generator source and regenerating the site.
+- Added the poster image to the generated `docs/assets/` copy set so the overview page's existing helper-generated link resolves during structural docs checks.
+- Verified with the two targeted docs-site tests, `scripts/check-docs-drift.py`, and `git diff --check`.
