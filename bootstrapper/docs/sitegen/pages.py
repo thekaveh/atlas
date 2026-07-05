@@ -1,36 +1,49 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from .model import DocsModel
-from .rendering import csv_or_dash, table
+from .rendering import table
+
+
+def _asset_href(page: Path, docs_root: Path, asset: Path) -> str:
+    return os.path.relpath(docs_root / asset, page.parent).replace(os.sep, "/")
 
 
 def static_pages(model: DocsModel) -> dict[Path, str]:
     docs = model.root / "docs"
     service_count = len(model.services)
     source_count = sum(1 for service in model.services if service.source_var)
+    home = docs / "index.md"
+    overview = docs / "site" / "overview.md"
+    tracks = docs / "site" / "tracks.md"
+    architecture = docs / "site" / "architecture" / "index.md"
     track_rows = [
-        [track.key, track.description, csv_or_dash(track.services)]
+        [track.key, track.description, track.services_display]
         for track in model.tracks
     ]
     category_rows = []
     categories = sorted({service.category for service in model.services})
     for category in categories:
         services = [service.name for service in model.services if service.category == category]
-        category_rows.append([category, str(len(services)), csv_or_dash(services)])
+        category_rows.append([category, str(len(services)), ", ".join(services) if services else "-"])
 
     return {
-        docs / "index.md": f"""# Atlas Documentation
+        home: f"""# Atlas Documentation
 
 <div class="atlas-hero">
-  <img src="assets/images/atlas-source.png" alt="Atlas platform source map">
+  <img src="{_asset_href(home, docs, model.hero_image)}" alt="Atlas platform source map">
 </div>
 
 Atlas is a self-hosted, source-configurable engineering platform for generative AI, RAG, creative AI, ML engineering, and data engineering workloads. The stack is composed through Docker Compose, a Python bootstrapper, service manifests, SOURCE values, tracks, and a Kong-fronted access model.
 
+<div class="atlas-poster">
+  <img src="{_asset_href(home, docs, model.poster_image)}" alt="Atlas poster overview">
+</div>
+
 <div class="atlas-screenshot">
-  <img src="screenshots/wizard-running.png" alt="Atlas setup wizard running the launch phase">
+  <img src="{_asset_href(home, docs, model.wizard_screenshot)}" alt="Atlas setup wizard running the launch phase">
 </div>
 
 ## 1. Start Here
@@ -89,11 +102,13 @@ Each manifest owns service metadata, env vars, source options, dependencies, run
 
 Kong provides the main local entrypoint and generated aliases. Direct ports remain available for services that expose their own UI or API.
 """,
-        docs / "site" / "overview.md": """# Overview
+        overview: f"""# Overview
 
 ## 1. Platform Model
 
 Atlas combines local-first infrastructure, AI services, data services, workflow automation, notebooks, and observability behind a generated runtime configuration layer.
+
+![Atlas poster overview]({_asset_href(overview, docs, model.poster_image)})
 
 ## 2. Service Families
 
@@ -103,13 +118,15 @@ Service families live under `services/<name>/` and own their manifest, compose f
 
 The `.io` site and GitHub Wiki are generated from service manifests, tracks, topology, README files, and diagram assets.
 """,
-        docs / "site" / "tracks.md": "# Tracks\n\n## 1. Track Matrix\n\n"
+        tracks: "# Tracks\n\n## 1. Track Matrix\n\n"
         + table(["Track", "Description", "Services"], track_rows),
-        docs / "site" / "architecture" / "index.md": """# Architecture
+        architecture: f"""# Architecture
 
 ## 1. System Shape
 
 Atlas is organized around a bootstrapper, service manifests, generated Kong routes, Docker Compose fragments, and SOURCE-aware adaptive services.
+
+![Atlas top-level architecture]({_asset_href(architecture, docs, model.top_level_diagram)})
 
 ## 2. Diagram Catalog
 

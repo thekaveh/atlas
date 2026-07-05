@@ -4,6 +4,8 @@
 
 Atlas is organized around a bootstrapper, service manifests, generated Kong routes, Docker Compose fragments, and SOURCE-aware adaptive services.
 
+![Atlas top-level architecture](../../diagrams/architecture.svg)
+
 ## 2. Diagram Catalog
 
 Start with the platform overview, then use the focused architecture pages for bootstrapper lifecycle, SOURCE behavior, tracks, routing, RAG, LLMs, lakehouse, observability, security, and service admission.

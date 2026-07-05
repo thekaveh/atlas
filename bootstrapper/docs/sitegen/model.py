@@ -19,6 +19,13 @@ class TrackPage:
     label: str
     description: str
     services: list[str]
+    all_services: bool = False
+
+    @property
+    def services_display(self) -> str:
+        if self.all_services:
+            return "all services (no filtering)"
+        return ", ".join(self.services) if self.services else "-"
 
 
 @dataclass(frozen=True)
@@ -74,12 +81,14 @@ def _load_tracks(root: Path) -> list[TrackPage]:
     tracks: list[TrackPage] = []
     for row in data["tracks"]:
         services = row.get("services", [])
+        all_services = services == "*"
         tracks.append(
             TrackPage(
                 key=row["key"],
                 label=row.get("display_name", row["key"]),
                 description=row.get("description", ""),
-                services=[] if services == "*" else list(services),
+                services=[] if all_services else list(services),
+                all_services=all_services,
             )
         )
     return tracks
@@ -102,10 +111,10 @@ def _track_membership(
 ) -> dict[str, list[str]]:
     membership: dict[str, set[str]] = {name: set() for name in names}
     all_track_keys = {track.key for track in tracks}
-    curated_track_keys = {track.key for track in tracks if track.services}
+    curated_track_keys = {track.key for track in tracks if not track.all_services and track.services}
 
     for track in tracks:
-        if not track.services:
+        if track.all_services:
             for name in names:
                 membership[name].add(track.key)
             continue
@@ -257,7 +266,7 @@ def load_docs_model(root: Path) -> DocsModel:
         root=root,
         public_url=PUBLIC_URL,
         hero_image=Path("assets/images/atlas-source.png"),
-        poster_image=Path("../assets/atlas-poster.png"),
+        poster_image=Path("assets/atlas-poster.png"),
         wizard_screenshot=Path("screenshots/wizard-running.png"),
         top_level_diagram=Path("diagrams/architecture.svg"),
         services=_manifest_docs(root, tracks),

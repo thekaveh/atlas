@@ -4,6 +4,8 @@
 
 Atlas combines local-first infrastructure, AI services, data services, workflow automation, notebooks, and observability behind a generated runtime configuration layer.
 
+![Atlas poster overview](../assets/atlas-poster.png)
+
 ## 2. Service Families
 
 Service families live under `services/<name>/` and own their manifest, compose fragment, README, initialization scaffolding, and generated diagrams.

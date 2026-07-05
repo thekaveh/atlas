@@ -166,6 +166,7 @@ def test_generated_reference_pages_cover_core_sources() -> None:
     assert "gen-ai-eng" in tracks
     assert "data-eng" in tracks
     assert "all" in tracks
+    assert "all services (no filtering)" in tracks
 
 
 def test_required_diagram_catalog_is_linked_and_non_empty() -> None:
@@ -475,8 +476,18 @@ def test_generated_site_has_full_information_architecture() -> None:
     home = (ROOT / "docs" / "index.md").read_text(encoding="utf-8")
     assert '<div class="atlas-hero">' in home
     assert "assets/images/atlas-source.png" in home
+    assert "assets/atlas-poster.png" in home
     assert "screenshots/wizard-running.png" in home
     assert "Atlas is a self-hosted" in home
+
+    overview = (DOCS_SITE / "overview.md").read_text(encoding="utf-8")
+    assert "../assets/atlas-poster.png" in overview
+
+    architecture = (DOCS_SITE / "architecture" / "index.md").read_text(encoding="utf-8")
+    assert "../../diagrams/architecture.svg" in architecture
+
+    tracks_page = (DOCS_SITE / "tracks.md").read_text(encoding="utf-8")
+    assert "all services (no filtering)" in tracks_page
 
 
 def test_generated_site_pages_use_numbered_hierarchy() -> None:

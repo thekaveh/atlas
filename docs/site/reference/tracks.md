@@ -12,4 +12,4 @@ Generated from `bootstrapper/tracks.yml`.
 | ml-eng | spark, ray, jupyterhub, zeppelin, open-webui, supavisor, minio, tei-reranker, langfuse, otel-collector, tempo, loki, mlflow, label-studio |
 | data-eng | spark, airflow, jupyterhub, zeppelin, jenkins, supavisor, minio, iceberg-rest, trino, redpanda, weaviate, neo4j |
 | trading | jupyterhub, minio, mlflow, langfuse |
-| all | * |
+| all | all services (no filtering) |

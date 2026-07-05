@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "bootstrapper"))
 
 from docs.sitegen.mkdocs_config import build_mkdocs_config  # noqa: E402
-from docs.sitegen.model import load_docs_model  # noqa: E402
+from docs.sitegen.model import DocsModel, load_docs_model  # noqa: E402
 from docs.sitegen.pages import static_pages  # noqa: E402
 from docs.sitegen.theme import copy_artifacts, theme_artifacts  # noqa: E402
 from services.manifests import Manifest, load_manifests  # noqa: E402
@@ -161,10 +161,6 @@ def _manifest_docs() -> list[ServiceDoc]:
         kind = "virtual" if manifest.virtual else "container"
         docs.append(ServiceDoc(name, manifest.label, manifest.category, kind, readme, source_var, values))
     return docs
-
-
-def _tracks() -> list[dict]:
-    return yaml.safe_load((ROOT / "bootstrapper" / "tracks.yml").read_text(encoding="utf-8"))["tracks"]
 
 
 def _number_nav(items: list[dict], prefix: str = "") -> list[dict]:
@@ -619,7 +615,7 @@ Doc-only service folders are aggregate documentation surfaces without their own
     return pages
 
 
-def _reference_pages(services: list[ServiceDoc]) -> dict[Path, str]:
+def _reference_pages(model: DocsModel, services: list[ServiceDoc]) -> dict[Path, str]:
     manifests = load_manifests(SERVICES)
     pages: dict[Path, str] = {}
     source_rows = []
@@ -653,7 +649,10 @@ def _reference_pages(services: list[ServiceDoc]) -> dict[Path, str]:
     pages[SITE / "reference" / "source-values.md"] = "# SOURCE Values\n\n## 1. Generated Source Matrix\n\nGenerated from manifests.\n\n" + _table(["SOURCE", "Service", "Default", "Values"], source_rows)
     pages[SITE / "reference" / "env-vars.md"] = "# Environment Variables\n\n## 1. Generated Environment Matrix\n\nGenerated from manifest env declarations.\n\n" + _table(["Variable", "Service", "Default", "Description"], env_rows)
     pages[SITE / "reference" / "ports-routes.md"] = "# Ports And Routes\n\n## 1. Canonical Route Reference\n\nGenerated index entry. Canonical route details remain in `docs/deployment/ports-and-routes.md`.\n\nSee [ports-and-routes.md](../../deployment/ports-and-routes.md)."
-    pages[SITE / "reference" / "tracks.md"] = "# Track Reference\n\n## 1. Generated Track Matrix\n\nGenerated from `bootstrapper/tracks.yml`.\n\n" + _table(["Track", "Services"], ([t["key"], ", ".join(t["services"])] for t in _tracks()))
+    pages[SITE / "reference" / "tracks.md"] = "# Track Reference\n\n## 1. Generated Track Matrix\n\nGenerated from `bootstrapper/tracks.yml`.\n\n" + _table(
+        ["Track", "Services"],
+        ([track.key, track.services_display] for track in model.tracks),
+    )
     pages[SITE / "reference" / "service-dependencies.md"] = "# Service Dependencies\n\n## 1. Generated Dependency Matrix\n\nGenerated from manifest dependency and data-flow fields.\n\n" + _table(["Service", "Required", "Optional", "Runtime Calls"], deps_rows)
     pages[SITE / "reference" / "manifest-fields.md"] = "# Manifest Fields\n\n## 1. Manifest Schema Quick Reference\n\nGenerated manifest schema quick reference.\n\n" + _table(["Field", "Purpose"], field_rows)
     return pages
@@ -799,7 +798,7 @@ def build_artifacts() -> dict[Path, str]:
     artifacts.update(theme_artifacts(ROOT))
     artifacts.update(static_pages(model))
     artifacts.update(_service_pages(services))
-    artifacts.update(_reference_pages(services))
+    artifacts.update(_reference_pages(model, services))
     artifacts.update(_diagram_pages())
     artifacts.update(_wiki_pages(services))
     return artifacts

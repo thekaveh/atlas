@@ -6,6 +6,10 @@
 
 Atlas is a self-hosted, source-configurable engineering platform for generative AI, RAG, creative AI, ML engineering, and data engineering workloads. The stack is composed through Docker Compose, a Python bootstrapper, service manifests, SOURCE values, tracks, and a Kong-fronted access model.
 
+<div class="atlas-poster">
+  <img src="assets/atlas-poster.png" alt="Atlas poster overview">
+</div>
+
 <div class="atlas-screenshot">
   <img src="screenshots/wizard-running.png" alt="Atlas setup wizard running the launch phase">
 </div>

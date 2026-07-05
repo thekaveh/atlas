@@ -13,7 +13,9 @@ def test_docs_model_indexes_services_tracks_and_assets() -> None:
 
     assert model.public_url == "https://thekaveh.github.io/atlas/"
     assert model.hero_image == Path("assets/images/atlas-source.png")
+    assert model.poster_image == Path("assets/atlas-poster.png")
     assert model.wizard_screenshot == Path("screenshots/wizard-running.png")
+    assert model.top_level_diagram == Path("diagrams/architecture.svg")
     assert "data-eng" in model.tracks_by_key
     assert "gen-ai-rag" in model.tracks_by_key
 
@@ -85,3 +87,13 @@ def test_docs_model_exposes_multiple_source_surfaces_for_virtual_manifests() -> 
     ]
     assert all(surface.default == "disabled" for surface in cloud_providers.source_surfaces)
     assert all(surface.values == ["enabled", "disabled"] for surface in cloud_providers.source_surfaces)
+
+
+def test_docs_model_preserves_all_track_as_no_filtering_sentinel() -> None:
+    model = load_docs_model(ROOT)
+
+    all_track = model.tracks_by_key["all"]
+
+    assert all_track.all_services is True
+    assert all_track.services == []
+    assert all_track.services_display == "all services (no filtering)"
