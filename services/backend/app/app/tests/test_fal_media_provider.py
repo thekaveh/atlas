@@ -1,11 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import importlib
 import os
 import sys
 import types
-
-import pytest
 
 
 def _stub_required_env(monkeypatch):
@@ -159,8 +158,7 @@ def test_fal_disabled_preserves_comfyui_generation_without_key(monkeypatch):
     assert body["client_id"] == "comfy-client"
 
 
-@pytest.mark.asyncio
-async def test_fal_client_constructs_subscribe_request(monkeypatch):
+def test_fal_client_constructs_subscribe_request(monkeypatch):
     spec = importlib.util.find_spec("fal_media_client")
     assert spec is not None, "backend must provide fal_media_client.FalClient"
 
@@ -191,19 +189,21 @@ async def test_fal_client_constructs_subscribe_request(monkeypatch):
 
     from fal_media_client import FalClient
 
-    result = await FalClient(
-        api_key="fal-key",
-        model="fal-ai/flux/dev",
-        output_format="jpeg",
-        enable_safety_checker=True,
-    ).generate_simple_image(
-        prompt="neon data center",
-        negative_prompt="",
-        width=1024,
-        height=768,
-        steps=28,
-        cfg=3.5,
-        seed=123,
+    result = asyncio.run(
+        FalClient(
+            api_key="fal-key",
+            model="fal-ai/flux/dev",
+            output_format="jpeg",
+            enable_safety_checker=True,
+        ).generate_simple_image(
+            prompt="neon data center",
+            negative_prompt="",
+            width=1024,
+            height=768,
+            steps=28,
+            cfg=3.5,
+            seed=123,
+        )
     )
 
     assert captured == {
