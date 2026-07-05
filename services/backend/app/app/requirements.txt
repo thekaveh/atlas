@@ -43,7 +43,7 @@ scikit-learn>=1.9.0
 langchain>=0.1.14
 langchain-core>=0.1.22
 langchain-community>=0.0.24
-langchain-openai>=0.0.8
+langchain-openai>=1.3.3
 # langchain-groq 0.3.x (latest stable) requires groq>=0.30.0,<1. The
 # raw groq client was bumped to 1.4.0 by Dependabot without checking
 # langchain-groq compatibility — pin groq into the langchain-groq
