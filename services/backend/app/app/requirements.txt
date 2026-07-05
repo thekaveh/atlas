@@ -53,7 +53,7 @@ langchain-openai>=0.0.8
 # that may import them directly later.
 langchain-groq>=0.1.5
 groq>=0.30.0,<1
-langgraph>=0.0.15
+langgraph>=1.2.7
 transformers>=4.39.3
 
 # Memory (LangMem-inspired persistent memory)
