@@ -455,6 +455,30 @@ def test_atlas_theme_uses_material_dark_default_with_light_toggle() -> None:
     assert THEME_HERO_IMAGE.exists()
 
 
+def test_generated_site_has_full_information_architecture() -> None:
+    required_pages = [
+        ROOT / "docs" / "index.md",
+        DOCS_SITE / "quick-start.md",
+        DOCS_SITE / "core-concepts.md",
+        DOCS_SITE / "tracks.md",
+        DOCS_SITE / "architecture" / "index.md",
+        DOCS_SITE / "configuration.md",
+        DOCS_SITE / "operations.md",
+        DOCS_SITE / "development.md",
+        DOCS_SITE / "reference" / "index.md",
+    ]
+    for path in required_pages:
+        text = path.read_text(encoding="utf-8")
+        assert text.startswith("# ")
+        assert "## 1. " in text
+
+    home = (ROOT / "docs" / "index.md").read_text(encoding="utf-8")
+    assert '<div class="atlas-hero">' in home
+    assert "assets/images/atlas-source.png" in home
+    assert "screenshots/wizard-running.png" in home
+    assert "Atlas is a self-hosted" in home
+
+
 def test_generated_site_pages_use_numbered_hierarchy() -> None:
     for relative in [
         "index.md",

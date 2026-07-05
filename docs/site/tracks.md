@@ -1,8 +1,5 @@
 # Tracks
 
-Tracks constrain the wizard to the services needed for a workflow and
-force-disable out-of-track services unless explicitly overridden.
-
 ## 1. Track Matrix
 
 | Track | Description | Services |
@@ -13,4 +10,4 @@ force-disable out-of-track services unless explicitly overridden.
 | ml-eng | Distributed training/inference + notebooks + experiment storage. | spark, ray, jupyterhub, zeppelin, open-webui, supavisor, minio, tei-reranker, langfuse, otel-collector, tempo, loki, mlflow, label-studio |
 | data-eng | Batch + lakehouse + graph + vector with orchestration. | spark, airflow, jupyterhub, zeppelin, jenkins, supavisor, minio, iceberg-rest, trino, redpanda, weaviate, neo4j |
 | trading | Read-only financial research and paper portfolios in notebooks; no live trading. | jupyterhub, minio, mlflow, langfuse |
-| all | Every configurable service — full wizard, no filtering. | * |
+| all | Every configurable service — full wizard, no filtering. | - |

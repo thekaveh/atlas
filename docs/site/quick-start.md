@@ -1,16 +1,19 @@
 # Quick Start
 
-Run `./start.sh`, choose a track, and use `./start.sh --setup-hosts` when you
-want the Kong `*.localhost` aliases. Common paths:
+## 1. Launch Atlas
 
-## 1. Launch
+Run `./start.sh` from the repository root. The setup wizard walks through track selection, service SOURCE choices, base-port selection, host aliases, and the launch summary.
 
-- `./start.sh --track gen-ai-eng`
-- `./start.sh --track gen-ai-rag`
-- `./start.sh --track data-eng`
-- `./start.sh --base-port 64000`
+## 2. Common Paths
 
-## 2. Supporting Guides
+```bash
+./start.sh
+./start.sh --track gen-ai-rag
+./start.sh --track data-eng
+./start.sh --base-port 64000
+./start.sh --setup-hosts
+```
 
-See the existing [interactive wizard guide](../quick-start/interactive-setup-wizard.md)
-and [troubleshooting guide](../quick-start/troubleshooting.md).
+## 3. First Services To Visit
+
+Use the Atlas root dashboard at `http://localhost:63000` after launch. Direct service URLs and Kong aliases are listed in the generated service catalog and ports reference.

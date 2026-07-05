@@ -23,6 +23,7 @@ sys.path.insert(0, str(ROOT / "bootstrapper"))
 
 from docs.sitegen.mkdocs_config import build_mkdocs_config  # noqa: E402
 from docs.sitegen.model import load_docs_model  # noqa: E402
+from docs.sitegen.pages import static_pages  # noqa: E402
 from docs.sitegen.theme import copy_artifacts, theme_artifacts  # noqa: E402
 from services.manifests import Manifest, load_manifests  # noqa: E402
 
@@ -557,180 +558,6 @@ def _table(headers: list[str], rows: Iterable[list[str]]) -> str:
     return "\n".join(out)
 
 
-def _static_pages(services: list[ServiceDoc]) -> dict[Path, str]:
-    service_count = len(services)
-    manifests = load_manifests(SERVICES)
-    source_vars = sum(1 for manifest in manifests if manifest.sources)
-    tracks = _tracks()
-    pages: dict[Path, str] = {}
-    pages[HOME] = f"""# Atlas Documentation
-
-Atlas is a self-hosted, source-configurable engineering platform for AI, RAG,
-creative AI, ML, and data-engineering workloads.
-
-![Atlas block-art platform view](assets/images/atlas-source.png)
-
-This MkDocs site is the publishable navigation layer for the repository's
-existing documentation. It indexes {service_count} service families,
-{len(tracks)} tracks, and {source_vars} SOURCE-configurable surfaces while
-preserving service READMEs as the per-service source of truth.
-
-## 1. Start Here
-
-- [Overview](site/overview.md)
-- [Quick Start](site/quick-start.md)
-- [Service Index](site/services/index.md)
-- [Architecture](site/architecture/index.md)
-- [Reference](site/reference/index.md)
-
-## 2. Publication Surfaces
-
-- Public site: [{PUBLIC_URL}]({PUBLIC_URL})
-- GitHub Wiki export source: [docs/wiki/Home.md](https://github.com/thekaveh/atlas/blob/main/docs/wiki/Home.md)
-- Source repository: [thekaveh/atlas](https://github.com/thekaveh/atlas)
-"""
-    pages[SITE / "index.md"] = f"""# Atlas Documentation
-
-This page is retained as a generated compatibility entry for older links. The
-published documentation home is [docs/index.md](../index.md) and builds at
-[{PUBLIC_URL}]({PUBLIC_URL}).
-"""
-    pages[SITE / "overview.md"] = """# Overview
-
-Atlas is organized around SOURCE values, tracks, manifests, generated docs, and
-Kong-fronted service URLs. The stack can run local containers, connect to host
-services, disable optional services, or route cloud LLM providers through
-LiteLLM without changing application code.
-
-## 1. Platform Model
-
-Atlas is a Docker Compose-first platform with a Python bootstrapper, generated
-Kong routing, service manifests, and workflow tracks.
-
-## 2. Source Files
-
-- `services/*/service.yml`
-- `bootstrapper/tracks.yml`
-- `services/topology.py`
-- `.env.example`
-- `docs/deployment/source-configuration.md`
-"""
-    pages[SITE / "quick-start.md"] = """# Quick Start
-
-Run `./start.sh`, choose a track, and use `./start.sh --setup-hosts` when you
-want the Kong `*.localhost` aliases. Common paths:
-
-## 1. Launch
-
-- `./start.sh --track gen-ai-eng`
-- `./start.sh --track gen-ai-rag`
-- `./start.sh --track data-eng`
-- `./start.sh --base-port 64000`
-
-## 2. Supporting Guides
-
-See the existing [interactive wizard guide](../quick-start/interactive-setup-wizard.md)
-and [troubleshooting guide](../quick-start/troubleshooting.md).
-"""
-    pages[SITE / "core-concepts.md"] = """# Core Concepts
-
-This generated page exists so the Task 3 MkDocs navigation has a valid target
-before the broader information-architecture rewrite lands.
-
-## 1. Current Source Of Truth
-
-- SOURCE behavior: [docs/deployment/source-configuration.md](../deployment/source-configuration.md)
-- Track registry: [bootstrapper/tracks.yml](https://github.com/thekaveh/atlas/blob/main/bootstrapper/tracks.yml)
-- Service manifests: [services/](https://github.com/thekaveh/atlas/tree/main/services)
-"""
-    pages[SITE / "architecture" / "index.md"] = """# Architecture
-
-Atlas architecture is documented in split perspectives rather than one
-overloaded diagram. Start with the platform overview, then use the focused
-diagrams for bootstrapper, SOURCE, routing, RAG, LLM, lakehouse, observability,
-security, and service admission flows.
-
-## 1. Diagram Catalog
-
-The high-level diagram catalog lives under `docs/architecture/`. Per-service
-diagrams remain generated under each `services/<name>/` folder.
-"""
-    pages[SITE / "configuration.md"] = """# Configuration
-
-Configuration is driven by `.env`, `.env.example`, SOURCE values, and manifest
-defaults. `.env.example` is generated from manifests and topology port defaults.
-
-## 1. Key References
-
-- [SOURCE configuration](reference/source-values.md)
-- [Environment variables](reference/env-vars.md)
-- [Ports and routes](reference/ports-routes.md)
-"""
-    pages[SITE / "operations.md"] = """# Operations
-
-Common commands:
-
-## 1. Runtime Commands
-
-```bash
-./start.sh
-./start.sh --setup-hosts
-./stop.sh
-./stop.sh --cold
-./stop.sh --clean-hosts
-```
-
-## 2. Operational References
-
-Operational references include startup warnings, release notes, backup/restore,
-and CI gates.
-"""
-    pages[SITE / "development.md"] = """# Development
-
-Adding or changing a service requires manifest, compose, topology, docs, route,
-and test updates. Use:
-
-## 1. Required Checks
-
-```bash
-PYTHONPATH=bootstrapper uv run --project bootstrapper python -m bootstrapper.docs.regen --all --check
-uv run --project bootstrapper python scripts/check_doc_links.py
-uv run --project bootstrapper python scripts/check-docs-drift.py
-uv run --project bootstrapper python scripts/check-docs-site.py
-uv run --project bootstrapper python scripts/export-docs-wiki.py --check
-uv run --project bootstrapper python scripts/check-compose-source-deps.py
-uv run --project bootstrapper python scripts/check-kong-routes.py
-uv run --project bootstrapper python scripts/validate_research_schema.py --all
-uv run --project bootstrapper python scripts/check-track-membership.py
-(cd services/docling/provider/localhost && uv lock --locked)
-```
-
-## 2. Service Admission
-
-See [Adding a service](../CONTRIBUTING-services.md).
-"""
-    pages[SITE / "tracks.md"] = """# Tracks
-
-Tracks constrain the wizard to the services needed for a workflow and
-force-disable out-of-track services unless explicitly overridden.
-
-## 1. Track Matrix
-
-""" + _table(["Track", "Description", "Services"], ([t["key"], t.get("description", ""), ", ".join(t["services"])] for t in tracks))
-    pages[SITE / "reference" / "index.md"] = """# Reference
-
-## 1. Generated Reference Pages
-
-- [SOURCE values](source-values.md)
-- [Environment variables](env-vars.md)
-- [Ports and routes](ports-routes.md)
-- [Tracks](tracks.md)
-- [Service dependencies](service-dependencies.md)
-- [Manifest fields](manifest-fields.md)
-"""
-    return pages
-
-
 def _service_pages(services: list[ServiceDoc]) -> dict[Path, str]:
     pages: dict[Path, str] = {}
     groups = {
@@ -970,7 +797,7 @@ def build_artifacts() -> dict[Path, str]:
     artifacts: dict[Path, str] = {}
     artifacts[ROOT / "mkdocs.yml"] = yaml.safe_dump(build_mkdocs_config(model), sort_keys=False)
     artifacts.update(theme_artifacts(ROOT))
-    artifacts.update(_static_pages(services))
+    artifacts.update(static_pages(model))
     artifacts.update(_service_pages(services))
     artifacts.update(_reference_pages(services))
     artifacts.update(_diagram_pages())

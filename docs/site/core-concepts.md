@@ -1,10 +1,17 @@
 # Core Concepts
 
-This generated page exists so the Task 3 MkDocs navigation has a valid target
-before the broader information-architecture rewrite lands.
+## 1. SOURCE Values
 
-## 1. Current Source Of Truth
+Each configurable service has a SOURCE variable that controls whether Atlas runs it in Docker, connects to a localhost instance, disables it, or uses a service-specific mode.
 
-- SOURCE behavior: [docs/deployment/source-configuration.md](../deployment/source-configuration.md)
-- Track registry: [bootstrapper/tracks.yml](https://github.com/thekaveh/atlas/blob/main/bootstrapper/tracks.yml)
-- Service manifests: [services/](https://github.com/thekaveh/atlas/tree/main/services)
+## 2. Tracks
+
+Tracks select the subset of services needed for a workflow and force-disable out-of-track services unless the user explicitly overrides them.
+
+## 3. Manifests
+
+Each manifest owns service metadata, env vars, source options, dependencies, runtime slices, and data-flow calls.
+
+## 4. Gateway Access
+
+Kong provides the main local entrypoint and generated aliases. Direct ports remain available for services that expose their own UI or API.
