@@ -165,6 +165,28 @@ def test_service_profiles_are_substantial_and_generated_from_model() -> None:
         assert f"services/{name}/README.md" in text
 
 
+def test_service_profiles_render_all_source_surfaces_and_canonical_readmes() -> None:
+    cloud = (DOCS_SITE / "services" / "cloud-providers.md").read_text(encoding="utf-8")
+    for surface in [
+        "CLOUD_OPENAI_SOURCE",
+        "CLOUD_ANTHROPIC_SOURCE",
+        "CLOUD_OPENROUTER_SOURCE",
+    ]:
+        assert surface in cloud
+    assert "[services/litellm/README.md]" in cloud
+    assert "(https://github.com/thekaveh/atlas/blob/main/services/litellm/README.md)" in cloud
+    assert "services/cloud-providers/README.md" not in cloud
+
+    supabase = (DOCS_SITE / "services" / "supabase.md").read_text(encoding="utf-8")
+    for surface in [
+        "SUPABASE_DB_SOURCE",
+        "SUPABASE_DB_INIT_SOURCE",
+        "SUPABASE_META_SOURCE",
+        "SUPABASE_STORAGE_SOURCE",
+    ]:
+        assert surface in supabase
+
+
 def test_service_catalog_groups_services_by_category_with_tracks_and_sources() -> None:
     index = (DOCS_SITE / "services" / "index.md").read_text(encoding="utf-8")
     assert "## 1. Service Catalog" in index

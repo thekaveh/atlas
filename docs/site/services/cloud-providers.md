@@ -21,9 +21,9 @@ Atlas uses this service according to its manifest, topology row, SOURCE settings
 
 ## 5. Configuration
 
-- SOURCE variable: `CLOUD_OPENAI_SOURCE`
-- Default SOURCE: `disabled`
-- Available SOURCE values: `enabled, disabled`
+- SOURCE variables: `CLOUD_OPENAI_SOURCE, CLOUD_ANTHROPIC_SOURCE, CLOUD_OPENROUTER_SOURCE`
+- Default SOURCE values: `disabled, disabled, disabled`
+- Available SOURCE values: `enabled, disabled, enabled, disabled, enabled, disabled`
 
 ## 6. Dependencies And Topology
 
@@ -36,6 +36,8 @@ Atlas uses this service according to its manifest, topology row, SOURCE settings
 | SOURCE Variable | Default | Values |
 | --- | --- | --- |
 | CLOUD_OPENAI_SOURCE | disabled | enabled, disabled |
+| CLOUD_ANTHROPIC_SOURCE | disabled | enabled, disabled |
+| CLOUD_OPENROUTER_SOURCE | disabled | enabled, disabled |
 
 ## 8. Runtime Integration
 
@@ -51,5 +53,5 @@ Use `./start.sh` to configure this service through the wizard or pass the matchi
 
 ## 11. Source Documentation
 
-- Source README: [services/cloud-providers/README.md](https://github.com/thekaveh/atlas/blob/main/services/cloud-providers/README.md)
+- Source README: [services/litellm/README.md](https://github.com/thekaveh/atlas/blob/main/services/litellm/README.md)
 - Public docs home: [https://thekaveh.github.io/atlas/](https://thekaveh.github.io/atlas/)

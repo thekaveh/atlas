@@ -21,8 +21,8 @@ Atlas uses this service according to its manifest, topology row, SOURCE settings
 
 ## 5. Configuration
 
-- SOURCE variable: `RAY_SOURCE`
-- Default SOURCE: `disabled`
+- SOURCE variables: `RAY_SOURCE`
+- Default SOURCE values: `disabled`
 - Available SOURCE values: `ray-container-cpu, ray-container-gpu, disabled`
 
 ## 6. Dependencies And Topology

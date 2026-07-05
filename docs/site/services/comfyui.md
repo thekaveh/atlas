@@ -21,8 +21,8 @@ Atlas uses this service according to its manifest, topology row, SOURCE settings
 
 ## 5. Configuration
 
-- SOURCE variable: `COMFYUI_SOURCE`
-- Default SOURCE: `container-cpu`
+- SOURCE variables: `COMFYUI_SOURCE`
+- Default SOURCE values: `container-cpu`
 - Available SOURCE values: `container-cpu, container-gpu, localhost, disabled`
 
 ## 6. Dependencies And Topology

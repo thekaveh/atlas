@@ -10,11 +10,9 @@ def _service_link(service: ServicePage) -> str:
     return f"[{service.name}]({service.name}.md)"
 
 
-def _readme_link(service: ServicePage) -> str:
-    return (
-        f"[services/{service.name}/README.md]"
-        f"(https://github.com/thekaveh/atlas/blob/main/services/{service.name}/README.md)"
-    )
+def _readme_link(model: DocsModel, service: ServicePage) -> str:
+    repo_relative = service.readme.relative_to(model.root).as_posix()
+    return f"[{repo_relative}](https://github.com/thekaveh/atlas/blob/main/{repo_relative})"
 
 
 def _diagram_line(service: ServicePage) -> str:
@@ -36,6 +34,10 @@ def _profile(model: DocsModel, service: ServicePage) -> str:
     aliases = csv_or_dash(service.kong_aliases)
     ports = csv_or_dash(service.port_vars)
     tracks = csv_or_dash(service.track_keys)
+    source_rows = [
+        [surface.var or "none", surface.default or "none", csv_or_dash(surface.values)]
+        for surface in service.source_surfaces
+    ] or [[service.source_var or "none", service.source_default or "none", source_values]]
 
     return f"""# {service.title}
 
@@ -60,9 +62,9 @@ Atlas uses this service according to its manifest, topology row, SOURCE settings
 
 ## 5. Configuration
 
-- SOURCE variable: `{service.source_var or 'none'}`
-- Default SOURCE: `{service.source_default or 'none'}`
-- Available SOURCE values: `{source_values}`
+- SOURCE variables: `{csv_or_dash(surface.var for surface in service.source_surfaces) or 'none'}`
+- Default SOURCE values: `{csv_or_dash(surface.default for surface in service.source_surfaces) or 'none'}`
+- Available SOURCE values: `{csv_or_dash(value for surface in service.source_surfaces for value in surface.values) or source_values}`
 
 ## 6. Dependencies And Topology
 
@@ -72,7 +74,7 @@ Atlas uses this service according to its manifest, topology row, SOURCE settings
 
 ## 7. Source Values
 
-{table(["SOURCE Variable", "Default", "Values"], [[service.source_var or "none", service.source_default or "none", source_values]])}
+{table(["SOURCE Variable", "Default", "Values"], source_rows)}
 
 ## 8. Runtime Integration
 
@@ -88,7 +90,7 @@ Use `./start.sh` to configure this service through the wizard or pass the matchi
 
 ## 11. Source Documentation
 
-- Source README: {_readme_link(service)}
+- Source README: {_readme_link(model, service)}
 - Public docs home: [{model.public_url}]({model.public_url})
 """
 
@@ -102,14 +104,20 @@ def service_pages(model: DocsModel) -> dict[Path, str]:
     for index, category in enumerate(categories, start=1):
         rows = []
         for service in [svc for svc in model.services if svc.category == category]:
+            source_vars = csv_or_dash(surface.var for surface in service.source_surfaces) or "none"
+            source_defaults = csv_or_dash(surface.default for surface in service.source_surfaces) or "none"
+            source_values = (
+                csv_or_dash(value for surface in service.source_surfaces for value in surface.values)
+                or csv_or_dash(service.source_values)
+            )
             rows.append(
                 [
                     _service_link(service),
                     service.title,
                     csv_or_dash(service.track_keys),
-                    service.source_var or "none",
-                    service.source_default or "none",
-                    csv_or_dash(service.source_values),
+                    source_vars,
+                    source_defaults,
+                    source_values,
                     csv_or_dash(service.required_dependencies),
                 ]
             )

@@ -21,8 +21,8 @@ Atlas uses this service according to its manifest, topology row, SOURCE settings
 
 ## 5. Configuration
 
-- SOURCE variable: `OPENCLAW_SOURCE`
-- Default SOURCE: `disabled`
+- SOURCE variables: `OPENCLAW_SOURCE`
+- Default SOURCE values: `disabled`
 - Available SOURCE values: `disabled, container, localhost`
 
 ## 6. Dependencies And Topology

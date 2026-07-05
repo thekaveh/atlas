@@ -21,8 +21,8 @@ Atlas uses this service according to its manifest, topology row, SOURCE settings
 
 ## 5. Configuration
 
-- SOURCE variable: `TIKA_SOURCE`
-- Default SOURCE: `disabled`
+- SOURCE variables: `TIKA_SOURCE`
+- Default SOURCE values: `disabled`
 - Available SOURCE values: `container, tika-localhost, disabled`
 
 ## 6. Dependencies And Topology

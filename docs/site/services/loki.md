@@ -21,8 +21,8 @@ Atlas uses this service according to its manifest, topology row, SOURCE settings
 
 ## 5. Configuration
 
-- SOURCE variable: `LOKI_SOURCE`
-- Default SOURCE: `disabled`
+- SOURCE variables: `LOKI_SOURCE`
+- Default SOURCE values: `disabled`
 - Available SOURCE values: `container, disabled`
 
 ## 6. Dependencies And Topology

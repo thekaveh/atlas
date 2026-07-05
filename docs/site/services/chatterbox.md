@@ -21,8 +21,8 @@ Atlas uses this service according to its manifest, topology row, SOURCE settings
 
 ## 5. Configuration
 
-- SOURCE variable: `none`
-- Default SOURCE: `none`
+- SOURCE variables: `-`
+- Default SOURCE values: `-`
 - Available SOURCE values: `-`
 
 ## 6. Dependencies And Topology
@@ -52,5 +52,5 @@ Use `./start.sh` to configure this service through the wizard or pass the matchi
 
 ## 11. Source Documentation
 
-- Source README: [services/chatterbox/README.md](https://github.com/thekaveh/atlas/blob/main/services/chatterbox/README.md)
+- Source README: [services/tts-provider/README.md](https://github.com/thekaveh/atlas/blob/main/services/tts-provider/README.md)
 - Public docs home: [https://thekaveh.github.io/atlas/](https://thekaveh.github.io/atlas/)

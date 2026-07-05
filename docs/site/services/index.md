@@ -18,9 +18,9 @@
 
 | Service | Title | Tracks | SOURCE | Default | Values | Dependencies |
 | --- | --- | --- | --- | --- | --- | --- |
-| [doc-processor](doc-processor.md) | doc-processor | all, gen-ai-creative, gen-ai-rag | none | none | - | - |
-| [multi2vec-clip](multi2vec-clip.md) | multi2vec-clip | all, gen-ai-creative | none | none | - | - |
-| [stt-provider](stt-provider.md) | stt-provider | all, gen-ai-creative, gen-ai-eng | none | none | - | - |
+| [doc-processor](doc-processor.md) | doc-processor | all, gen-ai-creative, gen-ai-rag | - | - | - | - |
+| [multi2vec-clip](multi2vec-clip.md) | multi2vec-clip | all, gen-ai-creative | - | - | - | - |
+| [stt-provider](stt-provider.md) | stt-provider | all, gen-ai-creative, gen-ai-eng | - | - | - | - |
 
 ### 1.3. apps
 
@@ -47,7 +47,7 @@
 | [redis](redis.md) | Redis (cache & queue) | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | REDIS_SOURCE | container | container | supabase |
 | [redpanda](redpanda.md) | Redpanda (Kafka API streaming) | all, data-eng | REDPANDA_SOURCE | disabled | container, disabled | - |
 | [spark](spark.md) | Apache Spark (standalone cluster) | all, data-eng, ml-eng | SPARK_SOURCE | disabled | container, disabled | minio |
-| [supabase](supabase.md) | Supabase (db, auth, api, storage, realtime, studio, meta) | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | SUPABASE_DB_SOURCE | container | container | - |
+| [supabase](supabase.md) | Supabase (db, auth, api, storage, realtime, studio, meta) | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | SUPABASE_DB_SOURCE, SUPABASE_DB_INIT_SOURCE, SUPABASE_META_SOURCE, SUPABASE_STORAGE_SOURCE, SUPABASE_AUTH_SOURCE, SUPABASE_API_SOURCE, SUPABASE_REALTIME_SOURCE, SUPABASE_STUDIO_SOURCE | container, container, container, container, container, container, container, container | container, container, disabled, container, disabled, container, disabled, container, disabled, container, disabled, container, disabled, container, disabled | - |
 | [supavisor](supavisor.md) | Supavisor (Postgres transaction pooler) | all, data-eng, gen-ai-eng, gen-ai-rag, ml-eng | SUPAVISOR_SOURCE | disabled | container, disabled | supabase |
 | [trino](trino.md) | Trino | all, data-eng | TRINO_SOURCE | disabled | container, disabled | minio, iceberg-rest |
 | [weaviate](weaviate.md) | Weaviate (vector database) | all, data-eng, gen-ai-rag | WEAVIATE_SOURCE | container | container, localhost, disabled | supabase, litellm |
@@ -58,7 +58,7 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | [backup](backup.md) | Backup / restore (Postgres + volumes -> S3) | all | BACKUP_SOURCE | disabled | container, disabled | supabase, minio |
 | [cloudflared](cloudflared.md) | Cloudflare Tunnel (public edge) | all | CLOUDFLARED_SOURCE | disabled | container, disabled | kong |
-| [globals](globals.md) | Globals (project + branding) | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | none | none | - | - |
+| [globals](globals.md) | Globals (project + branding) | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | - | - | - | - |
 | [grafana](grafana.md) | Grafana (observability UI + alerting) | all | GRAFANA_SOURCE | disabled | container, disabled | prometheus, supabase, kong, ray |
 | [kong](kong.md) | Kong (API gateway) | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | KONG_API_GATEWAY_SOURCE | container | container | supabase, redis |
 | [langfuse](langfuse.md) | Langfuse (LLM traces + evals) | all, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | LANGFUSE_SOURCE | disabled | container, disabled | supabase, redis, minio, litellm, kong, ray |
@@ -72,7 +72,7 @@
 
 | Service | Title | Tracks | SOURCE | Default | Values | Dependencies |
 | --- | --- | --- | --- | --- | --- | --- |
-| [cloud-providers](cloud-providers.md) | Cloud LLM providers (OpenAI, Anthropic, OpenRouter) | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | CLOUD_OPENAI_SOURCE | disabled | enabled, disabled | litellm |
+| [cloud-providers](cloud-providers.md) | Cloud LLM providers (OpenAI, Anthropic, OpenRouter) | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | CLOUD_OPENAI_SOURCE, CLOUD_ANTHROPIC_SOURCE, CLOUD_OPENROUTER_SOURCE | disabled, disabled, disabled | enabled, disabled, enabled, disabled, enabled, disabled | litellm |
 | [litellm](litellm.md) | LiteLLM gateway (LLM router) | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | LITELLM_SOURCE | container | container | supabase, redis |
 | [ollama](ollama.md) | Ollama (local LLM engine) | all | LLM_PROVIDER_SOURCE | ollama-container-cpu | ollama-container-cpu, ollama-container-gpu, ollama-localhost, none | supabase, litellm |
 | [tei-reranker](tei-reranker.md) | TEI Reranker (mxbai-rerank-base-v1) | all, gen-ai-rag, ml-eng | TEI_RERANKER_SOURCE | disabled | container-cpu, container-gpu, localhost, disabled | - |
@@ -82,12 +82,12 @@
 | Service | Title | Tracks | SOURCE | Default | Values | Dependencies |
 | --- | --- | --- | --- | --- | --- | --- |
 | [blender-mcp](blender-mcp.md) | Blender MCP | all, gen-ai-creative | BLENDER_MCP_SOURCE | disabled | localhost, disabled | - |
-| [chatterbox](chatterbox.md) | Chatterbox (voice-cloning TTS, GPU) | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | none | none | - | tts-provider |
+| [chatterbox](chatterbox.md) | Chatterbox (voice-cloning TTS, GPU) | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | - | - | - | tts-provider |
 | [comfyui](comfyui.md) | ComfyUI (image generation) | all, gen-ai-creative, gen-ai-eng | COMFYUI_SOURCE | container-cpu | container-cpu, container-gpu, localhost, disabled | supabase, litellm, ollama |
 | [crawl4ai](crawl4ai.md) | Crawl4AI (JS-capable web extraction) | all, gen-ai-rag | CRAWL4AI_SOURCE | disabled | container, disabled | - |
 | [docling](docling.md) | Docling (document processor) | all | DOC_PROCESSOR_SOURCE | disabled | disabled, docling-localhost, docling-container-gpu | - |
 | [parakeet](parakeet.md) | Parakeet (NVIDIA STT engine) | all | STT_PROVIDER_SOURCE | speaches-container-cpu | speaches-container-cpu, speaches-container-gpu, parakeet-container-gpu, parakeet-localhost, whisper-cpp-localhost, disabled | litellm |
 | [searxng](searxng.md) | SearXNG (privacy metasearch) | all, gen-ai-eng, gen-ai-rag | SEARXNG_SOURCE | container | container, disabled | redis |
-| [speaches](speaches.md) | Speaches (unified TTS + STT) | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | none | none | - | parakeet, tts-provider |
+| [speaches](speaches.md) | Speaches (unified TTS + STT) | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | - | - | - | parakeet, tts-provider |
 | [tika](tika.md) | Apache Tika (fallback extractor) | all, gen-ai-eng, gen-ai-rag | TIKA_SOURCE | disabled | container, tika-localhost, disabled | - |
 | [tts-provider](tts-provider.md) | TTS provider (text-to-speech engine selector) | all, gen-ai-creative, gen-ai-eng | TTS_PROVIDER_SOURCE | speaches-container-cpu | speaches-container-cpu, speaches-container-gpu, chatterbox-container-gpu, chatterbox-localhost, disabled | litellm |

@@ -21,8 +21,8 @@ Atlas uses this service according to its manifest, topology row, SOURCE settings
 
 ## 5. Configuration
 
-- SOURCE variable: `STT_PROVIDER_SOURCE`
-- Default SOURCE: `speaches-container-cpu`
+- SOURCE variables: `STT_PROVIDER_SOURCE`
+- Default SOURCE values: `speaches-container-cpu`
 - Available SOURCE values: `speaches-container-cpu, speaches-container-gpu, parakeet-container-gpu, parakeet-localhost, whisper-cpp-localhost, disabled`
 
 ## 6. Dependencies And Topology
@@ -52,5 +52,5 @@ Use `./start.sh` to configure this service through the wizard or pass the matchi
 
 ## 11. Source Documentation
 
-- Source README: [services/parakeet/README.md](https://github.com/thekaveh/atlas/blob/main/services/parakeet/README.md)
+- Source README: [services/stt-provider/README.md](https://github.com/thekaveh/atlas/blob/main/services/stt-provider/README.md)
 - Public docs home: [https://thekaveh.github.io/atlas/](https://thekaveh.github.io/atlas/)

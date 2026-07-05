@@ -21,8 +21,8 @@ Atlas uses this service according to its manifest, topology row, SOURCE settings
 
 ## 5. Configuration
 
-- SOURCE variable: `HERMES_SOURCE`
-- Default SOURCE: `container`
+- SOURCE variables: `HERMES_SOURCE`
+- Default SOURCE values: `container`
 - Available SOURCE values: `container, localhost, disabled`
 
 ## 6. Dependencies And Topology

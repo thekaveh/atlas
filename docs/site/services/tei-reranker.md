@@ -21,8 +21,8 @@ Atlas uses this service according to its manifest, topology row, SOURCE settings
 
 ## 5. Configuration
 
-- SOURCE variable: `TEI_RERANKER_SOURCE`
-- Default SOURCE: `disabled`
+- SOURCE variables: `TEI_RERANKER_SOURCE`
+- Default SOURCE values: `disabled`
 - Available SOURCE values: `container-cpu, container-gpu, localhost, disabled`
 
 ## 6. Dependencies And Topology

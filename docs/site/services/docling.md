@@ -21,8 +21,8 @@ Atlas uses this service according to its manifest, topology row, SOURCE settings
 
 ## 5. Configuration
 
-- SOURCE variable: `DOC_PROCESSOR_SOURCE`
-- Default SOURCE: `disabled`
+- SOURCE variables: `DOC_PROCESSOR_SOURCE`
+- Default SOURCE values: `disabled`
 - Available SOURCE values: `disabled, docling-localhost, docling-container-gpu`
 
 ## 6. Dependencies And Topology
@@ -52,5 +52,5 @@ Use `./start.sh` to configure this service through the wizard or pass the matchi
 
 ## 11. Source Documentation
 
-- Source README: [services/docling/README.md](https://github.com/thekaveh/atlas/blob/main/services/docling/README.md)
+- Source README: [services/doc-processor/README.md](https://github.com/thekaveh/atlas/blob/main/services/doc-processor/README.md)
 - Public docs home: [https://thekaveh.github.io/atlas/](https://thekaveh.github.io/atlas/)

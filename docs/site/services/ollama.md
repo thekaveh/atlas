@@ -21,8 +21,8 @@ Atlas uses this service according to its manifest, topology row, SOURCE settings
 
 ## 5. Configuration
 
-- SOURCE variable: `LLM_PROVIDER_SOURCE`
-- Default SOURCE: `ollama-container-cpu`
+- SOURCE variables: `LLM_PROVIDER_SOURCE`
+- Default SOURCE values: `ollama-container-cpu`
 - Available SOURCE values: `ollama-container-cpu, ollama-container-gpu, ollama-localhost, none`
 
 ## 6. Dependencies And Topology
