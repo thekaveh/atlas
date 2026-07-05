@@ -4,7 +4,7 @@ version = "1.0.0"
 description = "Atlas - Docling Document Processor localhost server"
 requires-python = ">=3.10"
 dependencies = [
-    "docling==2.102.1",
+    "docling==2.110.0",
     "fastapi>=0.115.6",
     "uvicorn[standard]>=0.34.0",
     "python-multipart>=0.0.27",
