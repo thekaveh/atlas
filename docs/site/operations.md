@@ -1,18 +1,14 @@
 # Operations
 
-Common commands:
-
 ## 1. Runtime Commands
 
 ```bash
 ./start.sh
-./start.sh --setup-hosts
 ./stop.sh
 ./stop.sh --cold
 ./stop.sh --clean-hosts
 ```
 
-## 2. Operational References
+## 2. Health And Logs
 
-Operational references include startup warnings, release notes, backup/restore,
-and CI gates.
+The launch phase streams Docker Compose output through the Textual UI. The same command path works without the TUI in non-interactive environments.

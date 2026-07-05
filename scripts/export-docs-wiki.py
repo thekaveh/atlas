@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Export or verify GitHub Wiki-compatible Atlas docs pages."""
+"""Export or verify the generated GitHub Wiki-compatible Atlas docs pages."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ DEFAULT_WIKI_REMOTE = "https://github.com/thekaveh/atlas.wiki.git"
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--check", action="store_true", help="Verify wiki/Home.md and siblings are current.")
+    parser.add_argument("--check", action="store_true", help="Verify docs/wiki/*.md generated from the shared docs model are current.")
     parser.add_argument("--push", action="store_true", help="Push docs/wiki/*.md to the live GitHub Wiki repo.")
     parser.add_argument("--remote", default=DEFAULT_WIKI_REMOTE, help="Git remote for the wiki repository.")
     args = parser.parse_args()

@@ -2,8 +2,6 @@
 
 ## 1. Generated Dependency Matrix
 
-Generated from manifest dependency and data-flow fields.
-
 | Service | Required | Optional | Runtime Calls |
 | --- | --- | --- | --- |
 | airflow | supabase, litellm, redis | spark, minio, iceberg-rest, redpanda, weaviate, neo4j | supabase, spark, redpanda, minio, iceberg-rest, litellm, weaviate, neo4j, redis |
@@ -16,6 +14,7 @@ Generated from manifest dependency and data-flow fields.
 | cloudflared | kong | - | kong |
 | comfyui | supabase, litellm, ollama | - | supabase |
 | crawl4ai | - | local-deep-researcher, n8n, backend, weaviate | - |
+| doc-processor | - | - | - |
 | docling | - | - | - |
 | globals | - | - | - |
 | grafana | prometheus, supabase, kong, ray | - | prometheus, tempo, loki |
@@ -34,6 +33,7 @@ Generated from manifest dependency and data-flow fields.
 | mcp-servers | supabase, neo4j, searxng | - | supabase, neo4j, searxng |
 | minio | supabase | - | - |
 | mlflow | supabase, minio | jupyterhub | supabase, minio |
+| multi2vec-clip | - | - | - |
 | n8n | supabase, redis, litellm | supavisor | supabase, redis, weaviate, backend, doc-processor, tika, hermes, litellm, stt-provider, tts-provider, searxng, lightrag, crawl4ai, supavisor |
 | neo4j | supabase | - | - |
 | ollama | supabase, litellm | - | - |
@@ -48,6 +48,7 @@ Generated from manifest dependency and data-flow fields.
 | searxng | redis | - | - |
 | spark | minio | supabase, iceberg-rest, redpanda | minio, iceberg-rest, redpanda |
 | speaches | parakeet, tts-provider | - | - |
+| stt-provider | - | - | - |
 | supabase | - | - | - |
 | supavisor | supabase | backend, n8n, celery | supabase |
 | tei-reranker | - | - | - |

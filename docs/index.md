@@ -1,24 +1,32 @@
 # Atlas Documentation
 
-Atlas is a self-hosted, source-configurable engineering platform for AI, RAG,
-creative AI, ML, and data-engineering workloads.
+<div class="atlas-hero">
+  <img src="assets/images/atlas-source.png" alt="Atlas platform source map">
+</div>
 
-![Atlas block-art platform view](assets/images/atlas-source.png)
+Atlas is a self-hosted, source-configurable engineering platform for generative AI, RAG, creative AI, ML engineering, and data engineering workloads. The stack is composed through Docker Compose, a Python bootstrapper, service manifests, SOURCE values, tracks, and a Kong-fronted access model.
 
-This MkDocs site is the publishable navigation layer for the repository's
-existing documentation. It indexes 55 service families,
-7 tracks, and 43 SOURCE-configurable surfaces while
-preserving service READMEs as the per-service source of truth.
+<div class="atlas-poster">
+  <img src="assets/atlas-poster.png" alt="Atlas poster overview">
+</div>
+
+<div class="atlas-screenshot">
+  <img src="screenshots/wizard-running.png" alt="Atlas setup wizard running the launch phase">
+</div>
 
 ## 1. Start Here
 
-- [Overview](site/overview.md)
 - [Quick Start](site/quick-start.md)
-- [Service Index](site/services/index.md)
+- [Core Concepts](site/core-concepts.md)
+- [Service Catalog](site/services/index.md)
 - [Architecture](site/architecture/index.md)
 - [Reference](site/reference/index.md)
 
-## 2. Publication Surfaces
+## 2. Documentation Scope
+
+This site indexes 55 service families, 7 tracks, and 49 SOURCE-configurable surfaces from repository-owned source files.
+
+## 3. Publication Surfaces
 
 - Public site: [https://thekaveh.github.io/atlas/](https://thekaveh.github.io/atlas/)
 - GitHub Wiki export source: [docs/wiki/Home.md](https://github.com/thekaveh/atlas/blob/main/docs/wiki/Home.md)

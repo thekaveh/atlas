@@ -3,6 +3,7 @@ site_description: Atlas self-hosted AI, data, and engineering platform documenta
 site_url: https://thekaveh.github.io/atlas/
 repo_url: https://github.com/thekaveh/atlas
 repo_name: thekaveh/atlas
+edit_uri: edit/main/docs/
 docs_dir: docs
 site_dir: site
 strict: true
@@ -11,7 +12,6 @@ exclude_docs: 'README.md
   wiki/*.md'
 extra_css:
 - assets/stylesheets/atlas.css
-not_in_nav: '**/*.md'
 validation:
   links:
     anchors: ignore
@@ -20,94 +20,115 @@ validation:
     absolute_links: ignore
   nav:
     omitted_files: ignore
-nav:
-- 1. Home: index.md
-- 2. Overview: site/overview.md
-- 3. Quick Start: site/quick-start.md
-- 4. Architecture: site/architecture/index.md
-- 5. Architecture Diagrams:
-  - 5.1. Atlas Platform Overview: architecture/platform-overview.md
-  - 5.2. Bootstrapper Lifecycle: architecture/bootstrapper-lifecycle.md
-  - 5.3. SOURCE Configuration Model: architecture/source-configuration-model.md
-  - 5.4. Track Selection Matrix: architecture/track-selection-matrix.md
-  - 5.5. Network And Routing Topology: architecture/network-routing-topology.md
-  - 5.6. Data And RAG Flow: architecture/data-rag-flow.md
-  - 5.7. LLM Provider Flow: architecture/llm-provider-flow.md
-  - 5.8. Data Engineering Lakehouse Flow: architecture/data-engineering-lakehouse-flow.md
-  - 5.9. Observability Flow: architecture/observability-flow.md
-  - 5.10. Security, Auth, And Secrets Boundary: architecture/security-auth-secrets-boundary.md
-  - 5.11. Service Admission Workflow: architecture/service-admission-workflow.md
-- 6. Services: site/services/index.md
-- 7. Service Index: site/services/index.md
-- 8. Service Pages:
-  - 8.1. airflow: site/services/airflow.md
-  - 8.2. backend: site/services/backend.md
-  - 8.3. backup: site/services/backup.md
-  - 8.4. blender-mcp: site/services/blender-mcp.md
-  - 8.5. celery: site/services/celery.md
-  - 8.6. chatterbox: site/services/chatterbox.md
-  - 8.7. cloud-providers: site/services/cloud-providers.md
-  - 8.8. cloudflared: site/services/cloudflared.md
-  - 8.9. comfyui: site/services/comfyui.md
-  - 8.10. crawl4ai: site/services/crawl4ai.md
-  - 8.11. doc-processor: site/services/doc-processor.md
-  - 8.12. docling: site/services/docling.md
-  - 8.13. globals: site/services/globals.md
-  - 8.14. grafana: site/services/grafana.md
-  - 8.15. hermes: site/services/hermes.md
-  - 8.16. iceberg-rest: site/services/iceberg-rest.md
-  - 8.17. jenkins: site/services/jenkins.md
-  - 8.18. jupyterhub: site/services/jupyterhub.md
-  - 8.19. kong: site/services/kong.md
-  - 8.20. label-studio: site/services/label-studio.md
-  - 8.21. langfuse: site/services/langfuse.md
-  - 8.22. lightrag: site/services/lightrag.md
-  - 8.23. litellm: site/services/litellm.md
-  - 8.24. llm-graph-builder: site/services/llm-graph-builder.md
-  - 8.25. local-deep-researcher: site/services/local-deep-researcher.md
-  - 8.26. loki: site/services/loki.md
-  - 8.27. mcp-servers: site/services/mcp-servers.md
-  - 8.28. minio: site/services/minio.md
-  - 8.29. mlflow: site/services/mlflow.md
-  - 8.30. multi2vec-clip: site/services/multi2vec-clip.md
-  - 8.31. n8n: site/services/n8n.md
-  - 8.32. neo4j: site/services/neo4j.md
-  - 8.33. ollama: site/services/ollama.md
-  - 8.34. open-webui: site/services/open-webui.md
-  - 8.35. openclaw: site/services/openclaw.md
-  - 8.36. otel-collector: site/services/otel-collector.md
-  - 8.37. parakeet: site/services/parakeet.md
-  - 8.38. prometheus: site/services/prometheus.md
-  - 8.39. ray: site/services/ray.md
-  - 8.40. redis: site/services/redis.md
-  - 8.41. redpanda: site/services/redpanda.md
-  - 8.42. searxng: site/services/searxng.md
-  - 8.43. spark: site/services/spark.md
-  - 8.44. speaches: site/services/speaches.md
-  - 8.45. stt-provider: site/services/stt-provider.md
-  - 8.46. supabase: site/services/supabase.md
-  - 8.47. supavisor: site/services/supavisor.md
-  - 8.48. tei-reranker: site/services/tei-reranker.md
-  - 8.49. tempo: site/services/tempo.md
-  - 8.50. tika: site/services/tika.md
-  - 8.51. trino: site/services/trino.md
-  - 8.52. tts-provider: site/services/tts-provider.md
-  - 8.53. verba: site/services/verba.md
-  - 8.54. weaviate: site/services/weaviate.md
-  - 8.55. zeppelin: site/services/zeppelin.md
-- 9. Tracks: site/tracks.md
-- 10. Configuration: site/configuration.md
-- 11. Operations: site/operations.md
-- 12. Development: site/development.md
-- 13. Reference: site/reference/index.md
-- 14. SOURCE Reference: site/reference/source-values.md
-- 15. Env Var Reference: site/reference/env-vars.md
-- 16. Ports And Routes: site/reference/ports-routes.md
-- 17. Track Reference: site/reference/tracks.md
-- 18. Service Dependencies: site/reference/service-dependencies.md
-- 19. Manifest Fields: site/reference/manifest-fields.md
 theme:
-  name: mkdocs
-  navigation_depth: 4
-  color_mode: dark
-  highlightjs: false
+  name: material
+  language: en
+  features:
+  - navigation.sections
+  - navigation.indexes
+  - navigation.top
+  - search.suggest
+  - search.highlight
+  - content.code.copy
+  - toc.follow
+  palette:
+  - scheme: slate
+    primary: custom
+    accent: custom
+    toggle:
+      icon: material/weather-sunny
+      name: Switch to light mode
+  - scheme: default
+    primary: custom
+    accent: custom
+    toggle:
+      icon: material/weather-night
+      name: Switch to dark mode
+nav:
+- 1. Overview: index.md
+- 2. Quick Start: site/quick-start.md
+- 3. Core Concepts: site/core-concepts.md
+- 4. Tracks: site/tracks.md
+- 5. Service Catalog:
+  - 5.1. Index: site/services/index.md
+  - 5.2. Services:
+    - 5.2.1. airflow: site/services/airflow.md
+    - 5.2.2. backend: site/services/backend.md
+    - 5.2.3. backup: site/services/backup.md
+    - 5.2.4. blender-mcp: site/services/blender-mcp.md
+    - 5.2.5. celery: site/services/celery.md
+    - 5.2.6. chatterbox: site/services/chatterbox.md
+    - 5.2.7. cloud-providers: site/services/cloud-providers.md
+    - 5.2.8. cloudflared: site/services/cloudflared.md
+    - 5.2.9. comfyui: site/services/comfyui.md
+    - 5.2.10. crawl4ai: site/services/crawl4ai.md
+    - 5.2.11. doc-processor: site/services/doc-processor.md
+    - 5.2.12. docling: site/services/docling.md
+    - 5.2.13. globals: site/services/globals.md
+    - 5.2.14. grafana: site/services/grafana.md
+    - 5.2.15. hermes: site/services/hermes.md
+    - 5.2.16. iceberg-rest: site/services/iceberg-rest.md
+    - 5.2.17. jenkins: site/services/jenkins.md
+    - 5.2.18. jupyterhub: site/services/jupyterhub.md
+    - 5.2.19. kong: site/services/kong.md
+    - 5.2.20. label-studio: site/services/label-studio.md
+    - 5.2.21. langfuse: site/services/langfuse.md
+    - 5.2.22. lightrag: site/services/lightrag.md
+    - 5.2.23. litellm: site/services/litellm.md
+    - 5.2.24. llm-graph-builder: site/services/llm-graph-builder.md
+    - 5.2.25. local-deep-researcher: site/services/local-deep-researcher.md
+    - 5.2.26. loki: site/services/loki.md
+    - 5.2.27. mcp-servers: site/services/mcp-servers.md
+    - 5.2.28. minio: site/services/minio.md
+    - 5.2.29. mlflow: site/services/mlflow.md
+    - 5.2.30. multi2vec-clip: site/services/multi2vec-clip.md
+    - 5.2.31. n8n: site/services/n8n.md
+    - 5.2.32. neo4j: site/services/neo4j.md
+    - 5.2.33. ollama: site/services/ollama.md
+    - 5.2.34. open-webui: site/services/open-webui.md
+    - 5.2.35. openclaw: site/services/openclaw.md
+    - 5.2.36. otel-collector: site/services/otel-collector.md
+    - 5.2.37. parakeet: site/services/parakeet.md
+    - 5.2.38. prometheus: site/services/prometheus.md
+    - 5.2.39. ray: site/services/ray.md
+    - 5.2.40. redis: site/services/redis.md
+    - 5.2.41. redpanda: site/services/redpanda.md
+    - 5.2.42. searxng: site/services/searxng.md
+    - 5.2.43. spark: site/services/spark.md
+    - 5.2.44. speaches: site/services/speaches.md
+    - 5.2.45. stt-provider: site/services/stt-provider.md
+    - 5.2.46. supabase: site/services/supabase.md
+    - 5.2.47. supavisor: site/services/supavisor.md
+    - 5.2.48. tei-reranker: site/services/tei-reranker.md
+    - 5.2.49. tempo: site/services/tempo.md
+    - 5.2.50. tika: site/services/tika.md
+    - 5.2.51. trino: site/services/trino.md
+    - 5.2.52. tts-provider: site/services/tts-provider.md
+    - 5.2.53. verba: site/services/verba.md
+    - 5.2.54. weaviate: site/services/weaviate.md
+    - 5.2.55. zeppelin: site/services/zeppelin.md
+- 6. Architecture:
+  - 6.1. Overview: site/architecture/index.md
+  - 6.2. Diagram Catalog: architecture/index.md
+  - 6.3. Platform Overview: architecture/platform-overview.md
+  - 6.4. Bootstrapper Lifecycle: architecture/bootstrapper-lifecycle.md
+  - 6.5. SOURCE Model: architecture/source-configuration-model.md
+  - 6.6. Track Matrix: architecture/track-selection-matrix.md
+  - 6.7. Network Routing: architecture/network-routing-topology.md
+  - 6.8. RAG Flow: architecture/data-rag-flow.md
+  - 6.9. LLM Flow: architecture/llm-provider-flow.md
+  - 6.10. Lakehouse Flow: architecture/data-engineering-lakehouse-flow.md
+  - 6.11. Observability Flow: architecture/observability-flow.md
+  - 6.12. Security Boundary: architecture/security-auth-secrets-boundary.md
+  - 6.13. Service Admission: architecture/service-admission-workflow.md
+- 7. Configuration: site/configuration.md
+- 8. Operations: site/operations.md
+- 9. Development: site/development.md
+- 10. Reference:
+  - 10.1. Index: site/reference/index.md
+  - 10.2. SOURCE Values: site/reference/source-values.md
+  - 10.3. Environment Variables: site/reference/env-vars.md
+  - 10.4. Ports And Routes: site/reference/ports-routes.md
+  - 10.5. Tracks: site/reference/tracks.md
+  - 10.6. Service Dependencies: site/reference/service-dependencies.md
+  - 10.7. Manifest Fields: site/reference/manifest-fields.md

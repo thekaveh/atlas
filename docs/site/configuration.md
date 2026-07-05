@@ -1,10 +1,13 @@
 # Configuration
 
-Configuration is driven by `.env`, `.env.example`, SOURCE values, and manifest
-defaults. `.env.example` is generated from manifests and topology port defaults.
+## 1. Environment Files
 
-## 1. Key References
+`.env.example` is generated from service manifests and topology defaults. `.env` stores the local runtime choices.
 
-- [SOURCE configuration](reference/source-values.md)
-- [Environment variables](reference/env-vars.md)
-- [Ports and routes](reference/ports-routes.md)
+## 2. SOURCE Overrides
+
+Every SOURCE value can be selected through the wizard or passed as a CLI flag such as `--weaviate-source localhost`.
+
+## 3. Ports
+
+Ports are derived from `BASE_PORT` and service-specific slots. Change the base with `./start.sh --base-port 64000`.

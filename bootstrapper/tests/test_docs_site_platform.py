@@ -55,6 +55,17 @@ def _flatten_nav(items: list) -> dict[str, str]:
     return flattened
 
 
+def _nav_labels(items: list) -> set[str]:
+    labels: set[str] = set()
+    for item in items:
+        assert isinstance(item, dict)
+        for label, value in item.items():
+            labels.add(label)
+            if isinstance(value, list):
+                labels.update(_nav_labels(value))
+    return labels
+
+
 def _service_names() -> set[str]:
     manifest_names = {manifest.name for manifest in load_manifests(ROOT / "services")}
     doc_only_names = {
@@ -71,32 +82,40 @@ def _service_names() -> set[str]:
 def test_mkdocs_nav_exists_and_points_to_real_pages() -> None:
     config = _mkdocs()
     nav = _flatten_nav(config["nav"])
+    nav_labels = _nav_labels(config["nav"])
 
     assert config["site_name"] == "Atlas Documentation"
     assert config["site_url"] == "https://thekaveh.github.io/atlas/"
     assert config["docs_dir"] == "docs"
     assert config["site_dir"] == "site"
-    assert nav["1. Home"] == "index.md"
-    assert nav["7. Service Index"] == "site/services/index.md"
-    assert nav["14. SOURCE Reference"] == "site/reference/source-values.md"
-    assert "20. Wiki Export" not in nav
+    assert nav["1. Overview"] == "index.md"
+    assert nav["5.1. Index"] == "site/services/index.md"
+    assert nav["10.1. Index"] == "site/reference/index.md"
+    assert nav["10.2. SOURCE Values"] == "site/reference/source-values.md"
+    assert "11. Wiki Export" not in nav
     assert "assets/stylesheets/atlas.css" in config["extra_css"]
     assert config["validation"]["links"]["not_found"] != "ignore"
+    assert any(
+        label.startswith("5.2.") and target.startswith("site/services/") and target.endswith(".md")
+        for label, target in nav.items()
+    )
 
     required_sections = {
-        "2. Overview",
-        "3. Quick Start",
-        "4. Architecture",
-        "6. Services",
-        "9. Tracks",
-        "10. Configuration",
-        "11. Operations",
-        "12. Development",
-        "13. Reference",
+        "1. Overview",
+        "2. Quick Start",
+        "3. Core Concepts",
+        "4. Tracks",
+        "5. Service Catalog",
+        "5.2. Services",
+        "6. Architecture",
+        "7. Configuration",
+        "8. Operations",
+        "9. Development",
+        "10. Reference",
     }
-    assert required_sections <= set(nav)
+    assert required_sections <= nav_labels
 
-    for label in nav:
+    for label in nav_labels:
         assert label[0].isdigit(), f"nav label is not numbered: {label!r}"
 
     for label, target in nav.items():
@@ -108,11 +127,9 @@ def test_docs_site_indexes_every_service_family() -> None:
     mkdocs_text = MKDOCS.read_text(encoding="utf-8")
 
     for name in sorted(_service_names()):
-        assert f"../services/{name}.md" in service_index or f"../../services/{name}/README.md" in service_index
+        assert f"({name}.md)" in service_index or f"../../services/{name}/README.md" in service_index
         assert f"services/{name}.md" in mkdocs_text
 
-    assert "Virtual manifests" in service_index
-    assert "Doc-only service folders" in service_index
     assert "cloud-providers" in service_index
     assert "stt-provider" in service_index
 
@@ -123,6 +140,64 @@ def test_docs_site_indexes_every_service_family() -> None:
             f"(https://github.com/thekaveh/atlas/blob/main/services/{name}/README.md)"
             in page
         )
+
+
+def test_service_profiles_are_substantial_and_generated_from_model() -> None:
+    for name in ["supabase", "open-webui", "litellm", "airflow", "spark"]:
+        page = DOCS_SITE / "services" / f"{name}.md"
+        text = page.read_text(encoding="utf-8")
+        for heading in [
+            "## 1. Overview",
+            "## 2. Role In Atlas",
+            "## 3. Tracks And Category",
+            "## 4. Access",
+            "## 5. Configuration",
+            "## 6. Dependencies And Topology",
+            "## 7. Source Values",
+            "## 8. Runtime Integration",
+            "## 9. Architecture",
+            "## 10. Operations",
+            "## 11. Source Documentation",
+        ]:
+            assert heading in text
+        assert "Generated service-site entry" not in text
+        assert "Source README remains the source of truth" not in text
+        assert f"services/{name}/README.md" in text
+
+
+def test_service_profiles_render_all_source_surfaces_and_canonical_readmes() -> None:
+    cloud = (DOCS_SITE / "services" / "cloud-providers.md").read_text(encoding="utf-8")
+    for surface in [
+        "CLOUD_OPENAI_SOURCE",
+        "CLOUD_ANTHROPIC_SOURCE",
+        "CLOUD_OPENROUTER_SOURCE",
+    ]:
+        assert surface in cloud
+    assert "[services/litellm/README.md]" in cloud
+    assert "(https://github.com/thekaveh/atlas/blob/main/services/litellm/README.md)" in cloud
+    assert "services/cloud-providers/README.md" not in cloud
+
+    supabase = (DOCS_SITE / "services" / "supabase.md").read_text(encoding="utf-8")
+    for surface in [
+        "SUPABASE_DB_SOURCE",
+        "SUPABASE_DB_INIT_SOURCE",
+        "SUPABASE_META_SOURCE",
+        "SUPABASE_STORAGE_SOURCE",
+    ]:
+        assert surface in supabase
+    assert "- Default SOURCE values: `container`" in supabase
+    assert "- Available SOURCE values: `container, disabled`" in supabase
+
+
+def test_service_catalog_groups_services_by_category_with_tracks_and_sources() -> None:
+    index = (DOCS_SITE / "services" / "index.md").read_text(encoding="utf-8")
+    assert "## 1. Service Catalog" in index
+    assert "### 1." in index
+    assert "| Service | Title | Tracks | SOURCE | Default | Values | Dependencies |" in index
+    assert "supabase" in index
+    assert "open-webui" in index
+    assert "cloud-providers" in index
+    assert "stt-provider" in index
 
 
 def test_generated_reference_pages_cover_core_sources() -> None:
@@ -142,16 +217,47 @@ def test_generated_reference_pages_cover_core_sources() -> None:
     assert "LLM_PROVIDER_SOURCE" in source_values
     assert "container-gpu" in source_values
     assert "disabled" in source_values
+    for surface in [
+        "CLOUD_OPENAI_SOURCE",
+        "CLOUD_ANTHROPIC_SOURCE",
+        "CLOUD_OPENROUTER_SOURCE",
+    ]:
+        assert surface in source_values
 
     tracks = (DOCS_SITE / "reference" / "tracks.md").read_text(encoding="utf-8")
     assert "gen-ai-eng" in tracks
     assert "data-eng" in tracks
     assert "all" in tracks
+    assert "all services (no filtering)" in tracks
+
+    env_vars = (DOCS_SITE / "reference" / "env-vars.md").read_text(encoding="utf-8")
+    assert "OPENAI_API_KEY" in env_vars
+    assert "cloud-providers" in env_vars
+    assert "OpenAI API key used by LiteLLM when CLOUD_OPENAI_SOURCE=enabled." in env_vars
+    assert "| OPENAI_API_KEY | cloud-providers |" in env_vars
+    assert "LITELLM_MASTER_KEY" in env_vars
+    assert "Auto-generated by bootstrapper on first run. Doubles as the admin-dashboard password." in env_vars
+
+    deps = (DOCS_SITE / "reference" / "service-dependencies.md").read_text(encoding="utf-8")
+    assert "| Service | Required | Optional | Runtime Calls |" in deps
+    assert "litellm" in deps
+    assert "open-webui" in deps
+
+    ports_routes = (DOCS_SITE / "reference" / "ports-routes.md").read_text(encoding="utf-8")
+    assert "| Service | Category | Port Variables | Kong Aliases | Route Docs |" in ports_routes
+    assert "| kong | infra | `KONG_HTTP_PORT`, `KONG_HTTPS_PORT` | `-` | [Deployment route reference](../../deployment/ports-and-routes.md#2-kong-hostnames) |" in ports_routes
+    assert "| supabase | data | `SUPABASE_DB_PORT`, `POSTGRES_EXPORTER_PORT`, `SUPABASE_META_PORT`, `SUPABASE_STORAGE_PORT`, `SUPABASE_AUTH_PORT`, `SUPABASE_API_PORT`, `SUPABASE_REALTIME_PORT`, `SUPABASE_STUDIO_PORT` | `supabase-studio.localhost` | [Deployment route reference](../../deployment/ports-and-routes.md#2-kong-hostnames) |" in ports_routes
+    assert "| minio | data | `MINIO_PORT`, `MINIO_CONSOLE_PORT` | `minio.localhost`, `s3.minio.localhost` | [Deployment route reference](../../deployment/ports-and-routes.md#2-kong-hostnames) |" in ports_routes
 
 
 def test_required_diagram_catalog_is_linked_and_non_empty() -> None:
     catalog = (DIAGRAMS_DIR / "README.md").read_text(encoding="utf-8")
+    catalog_index = DIAGRAMS_DIR / "index.md"
     nav_text = MKDOCS.read_text(encoding="utf-8")
+
+    assert catalog_index.exists()
+    assert "architecture/index.md" in nav_text
+    assert "architecture/README.md" not in nav_text
 
     for slug in REQUIRED_DIAGRAMS:
         html = DIAGRAMS_DIR / f"{slug}.html"
@@ -164,10 +270,21 @@ def test_required_diagram_catalog_is_linked_and_non_empty() -> None:
         assert "#020617" in html_text
         assert "JetBrains Mono" in html_text
         assert "fonts.googleapis.com" not in html_text
+        assert "Generated for Atlas documentation using the architecture-diagram design system." in html_text
         assert page.stat().st_size > 200
         assert f"./{slug}.html" in page_text or f"{slug}.html" in page_text
+        assert "## 1. Diagram" in page_text
+        assert "## 2. Source Files" in page_text
+        assert "## 3. Update Rule" in page_text
         assert f"{slug}.md" in catalog
         assert f"architecture/{slug}.md" in nav_text
+
+
+def test_service_profiles_link_available_architecture_assets() -> None:
+    for name in ["supabase", "open-webui", "litellm"]:
+        text = (DOCS_SITE / "services" / f"{name}.md").read_text(encoding="utf-8")
+        assert f"services/{name}/architecture.svg" in text
+        assert f"services/{name}/architecture.html" in text
 
 
 def test_wiki_export_and_ci_hooks_are_present() -> None:
@@ -178,19 +295,60 @@ def test_wiki_export_and_ci_hooks_are_present() -> None:
     wiki_script = WIKI_SCRIPT.read_text(encoding="utf-8")
     workflow = WORKFLOW.read_text(encoding="utf-8")
 
-    assert "Generated from the MkDocs source pages" in wiki_home
+    assert "Generated from the MkDocs source model" in wiki_home
     assert "Atlas Documentation" in wiki_index
     assert "../site/" not in wiki_home
     assert "../site/" not in wiki_index
     assert "../site/" not in wiki_services
-    assert "[1. Overview](Overview)" in wiki_home
-    assert "[4. Services](Services)" in wiki_index
+    assert "- [Overview](Overview)" in wiki_home
+    assert "[6. Services](Services)" in wiki_index
     assert "mkdocs build --strict" in check_script
     assert "validate_built_site_links" in check_script
     assert "mkdocs build --strict" in workflow
     assert "check-docs-site.py" in workflow
     assert "export-docs-wiki.py --check" in workflow
-    assert "wiki/Home.md" in wiki_script
+    assert "docs/wiki/*.md" in wiki_script
+
+
+def test_wiki_export_contains_full_companion_page_set() -> None:
+    expected_pages = {
+        "Home.md",
+        "_Sidebar.md",
+        "Overview.md",
+        "Quick-Start.md",
+        "Core-Concepts.md",
+        "Tracks.md",
+        "Services.md",
+        "Architecture.md",
+        "Configuration.md",
+        "Operations.md",
+        "Development.md",
+        "Reference.md",
+    }
+    actual_pages = {path.name for path in WIKI_DIR.glob("*.md")}
+    assert expected_pages <= actual_pages
+
+    sidebar = (WIKI_DIR / "_Sidebar.md").read_text(encoding="utf-8")
+    for page in [
+        "Overview",
+        "Quick-Start",
+        "Core-Concepts",
+        "Tracks",
+        "Services",
+        "Architecture",
+        "Configuration",
+        "Operations",
+        "Development",
+        "Reference",
+    ]:
+        assert f"]({page})" in sidebar
+
+    services = (WIKI_DIR / "Services.md").read_text(encoding="utf-8")
+    assert "## 1. Service Catalog" in services
+    assert "| Service | Category | Tracks | SOURCE | Values | Dependencies |" in services
+
+    tracks = (WIKI_DIR / "Tracks.md").read_text(encoding="utf-8")
+    assert "all services (no filtering)" in tracks
 
 
 def test_docs_audit_guidance_lists_required_local_gates() -> None:
@@ -348,6 +506,11 @@ def test_agents_testing_guidance_is_root_safe_and_complete() -> None:
         assert command in agents
 
 
+def test_docs_guidance_mentions_repo_about_homepage_update() -> None:
+    docs_readme = (ROOT / "docs" / "README.md").read_text(encoding="utf-8")
+    assert "gh repo edit thekaveh/atlas --homepage https://thekaveh.github.io/atlas/" in docs_readme
+
+
 def test_live_docs_use_root_safe_regen_and_wiki_commands() -> None:
     live_paths = [
         ROOT / "AGENTS.md",
@@ -365,31 +528,71 @@ def test_live_docs_use_root_safe_regen_and_wiki_commands() -> None:
     assert "uv run --project bootstrapper python scripts/export-docs-wiki.py --check" in combined
 
 
-def test_atlas_theme_uses_dark_atlas_system_with_local_assets() -> None:
+def test_atlas_theme_uses_material_dark_default_with_light_toggle() -> None:
     config = _mkdocs()
     css = THEME_CSS.read_text(encoding="utf-8")
     home = (ROOT / "docs" / "index.md").read_text(encoding="utf-8")
 
-    for color in ("#020617", "#07111f", "#0ea5e9", "#38bdf8", "#60a5fa"):
+    assert config["theme"]["name"] == "material"
+    required_features = {
+        "navigation.sections",
+        "navigation.indexes",
+        "navigation.top",
+        "search.suggest",
+        "search.highlight",
+    }
+    assert required_features <= set(config["theme"]["features"])
+    palettes = config["theme"]["palette"]
+    assert palettes[0]["scheme"] == "slate"
+    assert palettes[0]["primary"] == "custom"
+    assert palettes[0]["accent"] == "custom"
+    assert palettes[0]["toggle"]["name"] == "Switch to light mode"
+    assert palettes[1]["scheme"] == "default"
+    assert palettes[1]["toggle"]["name"] == "Switch to dark mode"
+
+    for color in ("#020617", "#07111f", "#0ea5e9", "#38bdf8", "#60a5fa", "#7dd3fc"):
         assert color in css
-    assert config["theme"]["color_mode"] == "dark"
-    assert config["theme"]["highlightjs"] is False
+    assert ":root" in css
+    assert "[data-md-color-scheme=\"slate\"]" in css
+    assert "[data-md-color-scheme=\"default\"]" in css
     assert "@import url(" not in css
     assert "fonts.googleapis.com" not in css
-    assert "JetBrains Mono" in css
-    assert "border-radius" in css
-    assert "body > .container" in css
-    assert "max-width: 1480px" in css
-    assert "background: #020617" in css
     assert "assets/images/atlas-source.png" in home
     assert THEME_HERO_IMAGE.exists()
-    assert "background-size: auto, 44px 44px" not in css
-    assert "box-shadow: 0 24px 90px" not in css
-    assert "#f8fafc" not in css
-    assert "@media (max-width: 767.98px)" in css
-    assert ".bs-sidebar" in css
-    assert "display: none" in css
-    assert "emoji" not in css.lower()
+
+
+def test_generated_site_has_full_information_architecture() -> None:
+    required_pages = [
+        ROOT / "docs" / "index.md",
+        DOCS_SITE / "quick-start.md",
+        DOCS_SITE / "core-concepts.md",
+        DOCS_SITE / "tracks.md",
+        DOCS_SITE / "architecture" / "index.md",
+        DOCS_SITE / "configuration.md",
+        DOCS_SITE / "operations.md",
+        DOCS_SITE / "development.md",
+        DOCS_SITE / "reference" / "index.md",
+    ]
+    for path in required_pages:
+        text = path.read_text(encoding="utf-8")
+        assert text.startswith("# ")
+        assert "## 1. " in text
+
+    home = (ROOT / "docs" / "index.md").read_text(encoding="utf-8")
+    assert '<div class="atlas-hero">' in home
+    assert "assets/images/atlas-source.png" in home
+    assert "assets/atlas-poster.png" in home
+    assert "screenshots/wizard-running.png" in home
+    assert "Atlas is a self-hosted" in home
+
+    overview = (DOCS_SITE / "overview.md").read_text(encoding="utf-8")
+    assert "../assets/atlas-poster.png" in overview
+
+    architecture = (DOCS_SITE / "architecture" / "index.md").read_text(encoding="utf-8")
+    assert "../../diagrams/architecture.svg" in architecture
+
+    tracks_page = (DOCS_SITE / "tracks.md").read_text(encoding="utf-8")
+    assert "all services (no filtering)" in tracks_page
 
 
 def test_generated_site_pages_use_numbered_hierarchy() -> None:

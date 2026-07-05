@@ -2,8 +2,8 @@
 
 ## 1. Launch
 
-Run `./start.sh`, choose a track, and use `./start.sh --setup-hosts` for Kong `*.localhost` aliases.
+Run `./start.sh` and choose a track in the setup wizard.
 
-## 2. Common Tracks
+## 2. Hosts
 
-Use `gen-ai-eng`, `gen-ai-rag`, `gen-ai-creative`, `ml-eng`, `data-eng`, or `all` depending on the workflow.
+Run `./start.sh --setup-hosts` when you want Kong `*.localhost` aliases.

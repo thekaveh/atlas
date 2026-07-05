@@ -2,8 +2,8 @@
 
 ## 1. Platform Model
 
-Atlas is a source-configurable engineering platform for AI, data, automation, notebooks, observability, and local-first experimentation.
+Atlas is a self-hosted, source-configurable platform for AI, data, automation, notebooks, and observability.
 
-## 2. Source Of Truth
+## 2. Source Model
 
-The MkDocs site and wiki export are generated from repo sources: service manifests, service READMEs, tracks, topology, and generated reference files.
+The site and wiki are generated from service manifests, tracks, topology, README files, and diagram assets.
