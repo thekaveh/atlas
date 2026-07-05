@@ -244,7 +244,12 @@ def test_generated_reference_pages_cover_core_sources() -> None:
 
 def test_required_diagram_catalog_is_linked_and_non_empty() -> None:
     catalog = (DIAGRAMS_DIR / "README.md").read_text(encoding="utf-8")
+    catalog_index = DIAGRAMS_DIR / "index.md"
     nav_text = MKDOCS.read_text(encoding="utf-8")
+
+    assert catalog_index.exists()
+    assert "architecture/index.md" in nav_text
+    assert "architecture/README.md" not in nav_text
 
     for slug in REQUIRED_DIAGRAMS:
         html = DIAGRAMS_DIR / f"{slug}.html"
@@ -282,19 +287,19 @@ def test_wiki_export_and_ci_hooks_are_present() -> None:
     wiki_script = WIKI_SCRIPT.read_text(encoding="utf-8")
     workflow = WORKFLOW.read_text(encoding="utf-8")
 
-    assert "Generated from the MkDocs source pages" in wiki_home
+    assert "Generated from the MkDocs source model" in wiki_home
     assert "Atlas Documentation" in wiki_index
     assert "../site/" not in wiki_home
     assert "../site/" not in wiki_index
     assert "../site/" not in wiki_services
-    assert "[1. Overview](Overview)" in wiki_home
-    assert "[4. Services](Services)" in wiki_index
+    assert "- [Overview](Overview)" in wiki_home
+    assert "[6. Services](Services)" in wiki_index
     assert "mkdocs build --strict" in check_script
     assert "validate_built_site_links" in check_script
     assert "mkdocs build --strict" in workflow
     assert "check-docs-site.py" in workflow
     assert "export-docs-wiki.py --check" in workflow
-    assert "wiki/Home.md" in wiki_script
+    assert "docs/wiki/*.md" in wiki_script
 
 
 def test_wiki_export_contains_full_companion_page_set() -> None:
@@ -491,6 +496,11 @@ def test_agents_testing_guidance_is_root_safe_and_complete() -> None:
         "(cd services/docling/provider/localhost && uv lock --locked)",
     ]:
         assert command in agents
+
+
+def test_docs_guidance_mentions_repo_about_homepage_update() -> None:
+    docs_readme = (ROOT / "docs" / "README.md").read_text(encoding="utf-8")
+    assert "gh repo edit thekaveh/atlas --homepage https://thekaveh.github.io/atlas/" in docs_readme
 
 
 def test_live_docs_use_root_safe_regen_and_wiki_commands() -> None:

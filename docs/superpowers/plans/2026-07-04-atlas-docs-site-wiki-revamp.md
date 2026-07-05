@@ -63,7 +63,7 @@
 
 Replace `test_atlas_theme_uses_dark_atlas_system_with_local_assets` in `bootstrapper/tests/test_docs_site_platform.py` with this stricter version:
 
-```python
+````python
 def test_atlas_theme_uses_material_dark_default_with_light_toggle() -> None:
     config = _mkdocs()
     css = THEME_CSS.read_text(encoding="utf-8")
@@ -94,7 +94,7 @@ def test_atlas_theme_uses_material_dark_default_with_light_toggle() -> None:
     assert "fonts.googleapis.com" not in css
     assert "assets/images/atlas-source.png" in home
     assert THEME_HERO_IMAGE.exists()
-```
+````
 
 Add this test near `test_wiki_export_and_ci_hooks_are_present`:
 
@@ -824,7 +824,7 @@ Expected: FAIL because `core-concepts.md` is missing and the home page lacks the
 
 Create `bootstrapper/docs/sitegen/pages.py`:
 
-```python
+````python
 from __future__ import annotations
 
 from pathlib import Path
@@ -1002,7 +1002,7 @@ uv run --project bootstrapper python scripts/export-docs-wiki.py --check
 
 """ + table(["Category", "Count", "Services"], category_rows),
     }
-```
+````
 
 - [ ] **Step 4: Wire static pages into generator**
 

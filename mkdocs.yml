@@ -109,7 +109,7 @@ nav:
     - 5.2.55. zeppelin: site/services/zeppelin.md
 - 6. Architecture:
   - 6.1. Overview: site/architecture/index.md
-  - 6.2. Diagram Catalog: architecture/README.md
+  - 6.2. Diagram Catalog: architecture/index.md
   - 6.3. Platform Overview: architecture/platform-overview.md
   - 6.4. Bootstrapper Lifecycle: architecture/bootstrapper-lifecycle.md
   - 6.5. SOURCE Model: architecture/source-configuration-model.md

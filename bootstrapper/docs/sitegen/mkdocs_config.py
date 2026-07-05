@@ -15,7 +15,7 @@ def build_mkdocs_config(model: DocsModel) -> dict:
         {
             "Architecture": [
                 {"Overview": "site/architecture/index.md"},
-                {"Diagram Catalog": "architecture/README.md"},
+                {"Diagram Catalog": "architecture/index.md"},
                 {"Platform Overview": "architecture/platform-overview.md"},
                 {"Bootstrapper Lifecycle": "architecture/bootstrapper-lifecycle.md"},
                 {"SOURCE Model": "architecture/source-configuration-model.md"},

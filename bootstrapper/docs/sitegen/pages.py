@@ -372,11 +372,13 @@ changes. Use the `architecture-diagram` design system: dark slate background,
 JetBrains Mono, split perspectives, readable labels, and no overloaded mega-diagram.
 """
         rows.append([f"[{title}]({slug}.md)", description])
-    pages[arch / "README.md"] = (
+    catalog = (
         "# Architecture Diagram Catalog\n\n## 1. Generated Diagram Index\n\n"
         "Generated catalog of split Atlas architecture perspectives.\n\n"
         + table(["Diagram", "Purpose"], rows)
     )
+    pages[arch / "README.md"] = catalog
+    pages[arch / "index.md"] = catalog
     return pages
 
 

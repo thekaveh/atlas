@@ -100,14 +100,23 @@ If you can't find what you're looking for:
 Run the local documentation drift and audit checks before committing docs changes:
 
 ```bash
-PYTHONPATH=bootstrapper uv run --project bootstrapper python -m bootstrapper.docs.regen --all --check
-uv run --project bootstrapper python scripts/check_doc_links.py
-uv run --project bootstrapper python scripts/check-docs-drift.py
+uv run --project bootstrapper python scripts/generate-docs-site.py --check
 uv run --project bootstrapper python scripts/check-docs-site.py
 uv run --project bootstrapper python scripts/export-docs-wiki.py --check
+uv run --project bootstrapper python scripts/check_doc_links.py
+uv run --project bootstrapper python -m bootstrapper.docs.regen --all --check
+uv run --project bootstrapper python scripts/check-docs-drift.py
 uv run --project bootstrapper python scripts/check-compose-source-deps.py
 uv run --project bootstrapper python scripts/check-kong-routes.py
 uv run --project bootstrapper python scripts/validate_research_schema.py --all
 uv run --project bootstrapper python scripts/check-track-membership.py
 (cd services/docling/provider/localhost && uv lock --locked)
+```
+
+## 6. Maintainer publication
+
+After the Pages publish and wiki sync are merged and green, update the repository About URL if needed:
+
+```bash
+gh repo edit thekaveh/atlas --homepage https://thekaveh.github.io/atlas/
 ```

@@ -540,11 +540,12 @@ uv run --project bootstrapper pytest bootstrapper/tests -q                      
 (cd services/backend/app && uv run --python 3.11 --with-requirements app/requirements.txt python -m pytest app/tests -q)  # job 1 backend tests
 uv run --project bootstrapper python -m tools.validate_fragments                  # job 1 lint
 docker compose --env-file .env.example -f docker-compose.yml config -q            # job 2 merge check
-PYTHONPATH=bootstrapper uv run --project bootstrapper python -m bootstrapper.docs.regen --all --check  # job 3 docs drift
-uv run --project bootstrapper python scripts/check_doc_links.py                   # job 3 link check
-uv run --project bootstrapper python scripts/check-docs-drift.py                  # job 3 docs structural audit
+uv run --project bootstrapper python scripts/generate-docs-site.py --check        # job 3 generated docs drift
 uv run --project bootstrapper python scripts/check-docs-site.py                   # job 3 MkDocs strict build
 uv run --project bootstrapper python scripts/export-docs-wiki.py --check          # job 3 wiki export drift
+uv run --project bootstrapper python scripts/check_doc_links.py                   # job 3 link check
+uv run --project bootstrapper python -m bootstrapper.docs.regen --all --check     # job 3 docs drift
+uv run --project bootstrapper python scripts/check-docs-drift.py                  # job 3 docs structural audit
 uv run --project bootstrapper python scripts/check-compose-source-deps.py         # job 3 deps audit
 uv run --project bootstrapper python scripts/check-kong-routes.py                 # job 3 kong audit
 uv run --project bootstrapper python scripts/validate_research_schema.py --all    # job 3 research schema
