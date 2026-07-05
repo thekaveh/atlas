@@ -71,6 +71,13 @@ def _asset_href(page: Path, docs_root: Path, asset: Path) -> str:
     return os.path.relpath(docs_root / asset, page.parent).replace(os.sep, "/")
 
 
+def _inline_code_csv(values: list[str]) -> str:
+    clean = [value for value in values if value]
+    if not clean:
+        return "`-`"
+    return ", ".join(f"`{value}`" for value in clean)
+
+
 def static_pages(model: DocsModel) -> dict[Path, str]:
     docs = model.root / "docs"
     service_count = len(model.services)
@@ -414,12 +421,30 @@ def reference_pages(model: DocsModel) -> dict[Path, str]:
                     env_var.description or "-",
                 ]
             )
+    route_doc = "[Deployment route reference](../../deployment/ports-and-routes.md#2-kong-hostnames)"
+    ports_rows = [
+        [
+            service.name,
+            service.category,
+            _inline_code_csv(service.port_vars),
+            _inline_code_csv(service.kong_aliases),
+            route_doc,
+        ]
+        for service in model.services
+        if service.port_vars or service.kong_aliases
+    ]
     return {
         ref / "source-values.md": "# SOURCE Values\n\n## 1. Generated Source Matrix\n\n"
         + table(["SOURCE", "Service", "Default", "Values"], source_rows),
         ref / "env-vars.md": "# Environment Variables\n\n## 1. Generated Environment Matrix\n\n"
         + table(["Variable", "Service", "Default", "Description"], env_rows),
-        ref / "ports-routes.md": "# Ports And Routes\n\n## 1. Canonical Route Reference\n\nGenerated route reference pointer.\n\nSee [ports-and-routes.md](../../deployment/ports-and-routes.md).\n",
+        ref / "ports-routes.md": "# Ports And Routes\n\n## 1. Generated Ports And Routes Matrix\n\n"
+        "Generated summary of model-backed service port variables and Kong aliases. "
+        "Use the deployment route reference for browser-facing hostname details and route behavior.\n\n"
+        + table(
+            ["Service", "Category", "Port Variables", "Kong Aliases", "Route Docs"],
+            ports_rows,
+        ),
         ref / "tracks.md": "# Track Reference\n\n## 1. Generated Track Matrix\n\n"
         + table(["Track", "Description", "Services"], track_rows),
         ref / "service-dependencies.md": "# Service Dependencies\n\n## 1. Generated Dependency Matrix\n\n"

@@ -47,7 +47,7 @@
 | [redis](redis.md) | Redis (cache & queue) | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | REDIS_SOURCE | container | container | supabase |
 | [redpanda](redpanda.md) | Redpanda (Kafka API streaming) | all, data-eng | REDPANDA_SOURCE | disabled | container, disabled | - |
 | [spark](spark.md) | Apache Spark (standalone cluster) | all, data-eng, ml-eng | SPARK_SOURCE | disabled | container, disabled | minio |
-| [supabase](supabase.md) | Supabase (db, auth, api, storage, realtime, studio, meta) | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | SUPABASE_DB_SOURCE, SUPABASE_DB_INIT_SOURCE, SUPABASE_META_SOURCE, SUPABASE_STORAGE_SOURCE, SUPABASE_AUTH_SOURCE, SUPABASE_API_SOURCE, SUPABASE_REALTIME_SOURCE, SUPABASE_STUDIO_SOURCE | container, container, container, container, container, container, container, container | container, container, disabled, container, disabled, container, disabled, container, disabled, container, disabled, container, disabled, container, disabled | - |
+| [supabase](supabase.md) | Supabase (db, auth, api, storage, realtime, studio, meta) | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | SUPABASE_DB_SOURCE, SUPABASE_DB_INIT_SOURCE, SUPABASE_META_SOURCE, SUPABASE_STORAGE_SOURCE, SUPABASE_AUTH_SOURCE, SUPABASE_API_SOURCE, SUPABASE_REALTIME_SOURCE, SUPABASE_STUDIO_SOURCE | container | container, disabled | - |
 | [supavisor](supavisor.md) | Supavisor (Postgres transaction pooler) | all, data-eng, gen-ai-eng, gen-ai-rag, ml-eng | SUPAVISOR_SOURCE | disabled | container, disabled | supabase |
 | [trino](trino.md) | Trino | all, data-eng | TRINO_SOURCE | disabled | container, disabled | minio, iceberg-rest |
 | [weaviate](weaviate.md) | Weaviate (vector database) | all, data-eng, gen-ai-rag | WEAVIATE_SOURCE | container | container, localhost, disabled | supabase, litellm |
@@ -72,7 +72,7 @@
 
 | Service | Title | Tracks | SOURCE | Default | Values | Dependencies |
 | --- | --- | --- | --- | --- | --- | --- |
-| [cloud-providers](cloud-providers.md) | Cloud LLM providers (OpenAI, Anthropic, OpenRouter) | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | CLOUD_OPENAI_SOURCE, CLOUD_ANTHROPIC_SOURCE, CLOUD_OPENROUTER_SOURCE | disabled, disabled, disabled | enabled, disabled, enabled, disabled, enabled, disabled | litellm |
+| [cloud-providers](cloud-providers.md) | Cloud LLM providers (OpenAI, Anthropic, OpenRouter) | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | CLOUD_OPENAI_SOURCE, CLOUD_ANTHROPIC_SOURCE, CLOUD_OPENROUTER_SOURCE | disabled | enabled, disabled | litellm |
 | [litellm](litellm.md) | LiteLLM gateway (LLM router) | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | LITELLM_SOURCE | container | container | supabase, redis |
 | [ollama](ollama.md) | Ollama (local LLM engine) | all | LLM_PROVIDER_SOURCE | ollama-container-cpu | ollama-container-cpu, ollama-container-gpu, ollama-localhost, none | supabase, litellm |
 | [tei-reranker](tei-reranker.md) | TEI Reranker (mxbai-rerank-base-v1) | all, gen-ai-rag, ml-eng | TEI_RERANKER_SOURCE | disabled | container-cpu, container-gpu, localhost, disabled | - |

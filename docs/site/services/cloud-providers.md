@@ -22,8 +22,8 @@ Atlas uses this service according to its manifest, topology row, SOURCE settings
 ## 5. Configuration
 
 - SOURCE variables: `CLOUD_OPENAI_SOURCE, CLOUD_ANTHROPIC_SOURCE, CLOUD_OPENROUTER_SOURCE`
-- Default SOURCE values: `disabled, disabled, disabled`
-- Available SOURCE values: `enabled, disabled, enabled, disabled, enabled, disabled`
+- Default SOURCE values: `disabled`
+- Available SOURCE values: `enabled, disabled`
 
 ## 6. Dependencies And Topology
 

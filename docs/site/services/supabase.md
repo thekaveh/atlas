@@ -22,8 +22,8 @@ Atlas uses this service according to its manifest, topology row, SOURCE settings
 ## 5. Configuration
 
 - SOURCE variables: `SUPABASE_DB_SOURCE, SUPABASE_DB_INIT_SOURCE, SUPABASE_META_SOURCE, SUPABASE_STORAGE_SOURCE, SUPABASE_AUTH_SOURCE, SUPABASE_API_SOURCE, SUPABASE_REALTIME_SOURCE, SUPABASE_STUDIO_SOURCE`
-- Default SOURCE values: `container, container, container, container, container, container, container, container`
-- Available SOURCE values: `container, container, disabled, container, disabled, container, disabled, container, disabled, container, disabled, container, disabled, container, disabled`
+- Default SOURCE values: `container`
+- Available SOURCE values: `container, disabled`
 
 ## 6. Dependencies And Topology
 

@@ -26,6 +26,29 @@ def _diagram_line(service: ServicePage) -> str:
     return "- Diagram: not generated for this service family."
 
 
+def _dedupe_stable(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        if value and value not in seen:
+            seen.add(value)
+            result.append(value)
+    return result
+
+
+def _source_summary_defaults(service: ServicePage) -> str:
+    return csv_or_dash(_dedupe_stable([surface.default for surface in service.source_surfaces]))
+
+
+def _source_summary_values(service: ServicePage) -> str:
+    return csv_or_dash(
+        _dedupe_stable(
+            [value for surface in service.source_surfaces for value in surface.values]
+            or list(service.source_values)
+        )
+    )
+
+
 def _profile(model: DocsModel, service: ServicePage) -> str:
     source_values = csv_or_dash(service.source_values)
     required = csv_or_dash(service.required_dependencies)
@@ -63,8 +86,8 @@ Atlas uses this service according to its manifest, topology row, SOURCE settings
 ## 5. Configuration
 
 - SOURCE variables: `{csv_or_dash(surface.var for surface in service.source_surfaces) or 'none'}`
-- Default SOURCE values: `{csv_or_dash(surface.default for surface in service.source_surfaces) or 'none'}`
-- Available SOURCE values: `{csv_or_dash(value for surface in service.source_surfaces for value in surface.values) or source_values}`
+- Default SOURCE values: `{_source_summary_defaults(service) or 'none'}`
+- Available SOURCE values: `{_source_summary_values(service) or source_values}`
 
 ## 6. Dependencies And Topology
 
@@ -105,11 +128,8 @@ def service_pages(model: DocsModel) -> dict[Path, str]:
         rows = []
         for service in [svc for svc in model.services if svc.category == category]:
             source_vars = csv_or_dash(surface.var for surface in service.source_surfaces) or "none"
-            source_defaults = csv_or_dash(surface.default for surface in service.source_surfaces) or "none"
-            source_values = (
-                csv_or_dash(value for surface in service.source_surfaces for value in surface.values)
-                or csv_or_dash(service.source_values)
-            )
+            source_defaults = _source_summary_defaults(service) or "none"
+            source_values = _source_summary_values(service) or csv_or_dash(service.source_values)
             rows.append(
                 [
                     _service_link(service),

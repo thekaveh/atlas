@@ -185,6 +185,8 @@ def test_service_profiles_render_all_source_surfaces_and_canonical_readmes() -> 
         "SUPABASE_STORAGE_SOURCE",
     ]:
         assert surface in supabase
+    assert "- Default SOURCE values: `container`" in supabase
+    assert "- Available SOURCE values: `container, disabled`" in supabase
 
 
 def test_service_catalog_groups_services_by_category_with_tracks_and_sources() -> None:
@@ -240,6 +242,12 @@ def test_generated_reference_pages_cover_core_sources() -> None:
     assert "| Service | Required | Optional | Runtime Calls |" in deps
     assert "litellm" in deps
     assert "open-webui" in deps
+
+    ports_routes = (DOCS_SITE / "reference" / "ports-routes.md").read_text(encoding="utf-8")
+    assert "| Service | Category | Port Variables | Kong Aliases | Route Docs |" in ports_routes
+    assert "| kong | infra | `KONG_HTTP_PORT`, `KONG_HTTPS_PORT` | `-` | [Deployment route reference](../../deployment/ports-and-routes.md#2-kong-hostnames) |" in ports_routes
+    assert "| supabase | data | `SUPABASE_DB_PORT`, `POSTGRES_EXPORTER_PORT`, `SUPABASE_META_PORT`, `SUPABASE_STORAGE_PORT`, `SUPABASE_AUTH_PORT`, `SUPABASE_API_PORT`, `SUPABASE_REALTIME_PORT`, `SUPABASE_STUDIO_PORT` | `supabase-studio.localhost` | [Deployment route reference](../../deployment/ports-and-routes.md#2-kong-hostnames) |" in ports_routes
+    assert "| minio | data | `MINIO_PORT`, `MINIO_CONSOLE_PORT` | `minio.localhost`, `s3.minio.localhost` | [Deployment route reference](../../deployment/ports-and-routes.md#2-kong-hostnames) |" in ports_routes
 
 
 def test_required_diagram_catalog_is_linked_and_non_empty() -> None:
