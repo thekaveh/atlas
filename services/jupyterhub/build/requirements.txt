@@ -1,7 +1,7 @@
 # Atlas - JupyterHub Python Dependencies
 # AI/ML Libraries
 ollama>=0.6.2
-langchain>=0.3.0
+langchain>=1.3.11
 langchain-community>=0.3.0
 # langchain-openai is NOT pulled in by langchain/langchain-community —
 # notebook 02_langchain_rag imports it directly (ModuleNotFoundError
