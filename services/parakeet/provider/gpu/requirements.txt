@@ -7,7 +7,7 @@ nemo_toolkit[asr]>=2.2.0,<3.0
 # Audio processing
 soundfile>=0.12.0
 librosa>=0.10.0
-numpy>=1.26.0
+numpy>=2.5.1
 
 # API Server
 fastapi>=0.104.0
