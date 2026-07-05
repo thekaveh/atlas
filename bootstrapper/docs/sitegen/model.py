@@ -36,6 +36,13 @@ class SourceSurface:
 
 
 @dataclass(frozen=True)
+class EnvVarSurface:
+    name: str
+    default: str
+    description: str
+
+
+@dataclass(frozen=True)
 class ServicePage:
     name: str
     title: str
@@ -51,6 +58,7 @@ class ServicePage:
     optional_dependencies: list[str]
     runtime_calls: list[str]
     kong_aliases: list[str]
+    env_vars: list[EnvVarSurface]
     port_vars: list[str]
     diagram_svg: Path | None
     diagram_html: Path | None
@@ -232,6 +240,18 @@ def _manifest_docs(root: Path, tracks: list[TrackPage]) -> list[ServicePage]:
             list(topological.get("aliases", []))
             + (list(manifest.extra_kong_aliases) if manifest else [])
         )
+        env_vars = (
+            [
+                EnvVarSurface(
+                    name=env.name,
+                    default="" if env.default is None else str(env.default),
+                    description=env.description,
+                )
+                for env in manifest.env
+            ]
+            if manifest
+            else []
+        )
         port_vars = [env.name for env in manifest.env if env.name.endswith("_PORT")] if manifest else []
         diagram_svg = services_dir / name / "architecture.svg"
         diagram_html = services_dir / name / "architecture.html"
@@ -252,6 +272,7 @@ def _manifest_docs(root: Path, tracks: list[TrackPage]) -> list[ServicePage]:
                 optional_dependencies=optional,
                 runtime_calls=runtime_calls,
                 kong_aliases=aliases,
+                env_vars=env_vars,
                 port_vars=port_vars,
                 diagram_svg=diagram_svg if diagram_svg.exists() else None,
                 diagram_html=diagram_html if diagram_html.exists() else None,

@@ -20,7 +20,7 @@ def wiki_pages(model: DocsModel) -> dict[Path, str]:
         for service in model.services
     ]
     track_rows = [
-        [track.key, track.description, csv_or_dash(track.services)]
+        [track.key, track.description, track.services_display]
         for track in model.tracks
     ]
     return {

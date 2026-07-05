@@ -206,11 +206,12 @@ uv run --project bootstrapper python scripts/check-track-membership.py
 
 def reference_pages(model: DocsModel) -> dict[Path, str]:
     ref = model.root / "docs" / "site" / "reference"
-    source_rows = [
-        [service.source_var, service.name, service.source_default, csv_or_dash(service.source_values)]
-        for service in model.services
-        if service.source_var
-    ]
+    source_rows = []
+    for service in model.services:
+        for surface in service.source_surfaces:
+            source_rows.append(
+                [surface.var, service.name, surface.default, csv_or_dash(surface.values)]
+            )
     deps_rows = [
         [
             service.name,
@@ -226,13 +227,20 @@ def reference_pages(model: DocsModel) -> dict[Path, str]:
     ]
     env_rows = []
     for service in model.services:
-        for port_var in service.port_vars:
-            env_rows.append([port_var, service.name, "port", "Port-related variable from service manifest"])
+        for env_var in service.env_vars:
+            env_rows.append(
+                [
+                    env_var.name,
+                    service.name,
+                    env_var.default,
+                    env_var.description or "-",
+                ]
+            )
     return {
         ref / "source-values.md": "# SOURCE Values\n\n## 1. Generated Source Matrix\n\n"
         + table(["SOURCE", "Service", "Default", "Values"], source_rows),
         ref / "env-vars.md": "# Environment Variables\n\n## 1. Generated Environment Matrix\n\n"
-        + table(["Variable", "Service", "Kind", "Description"], env_rows),
+        + table(["Variable", "Service", "Default", "Description"], env_rows),
         ref / "ports-routes.md": "# Ports And Routes\n\n## 1. Canonical Route Reference\n\nGenerated route reference pointer.\n\nSee [ports-and-routes.md](../../deployment/ports-and-routes.md).\n",
         ref / "tracks.md": "# Track Reference\n\n## 1. Generated Track Matrix\n\n"
         + table(["Track", "Description", "Services"], track_rows),

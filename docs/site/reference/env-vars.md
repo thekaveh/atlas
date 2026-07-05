@@ -2,84 +2,683 @@
 
 ## 1. Generated Environment Matrix
 
-| Variable | Service | Kind | Description |
+| Variable | Service | Default | Description |
 | --- | --- | --- | --- |
-| AIRFLOW_PORT | airflow | port | Port-related variable from service manifest |
-| BACKEND_PORT | backend | port | Port-related variable from service manifest |
-| BLENDER_MCP_LOCALHOST_PORT | blender-mcp | port | Port-related variable from service manifest |
-| FLOWER_PORT | celery | port | Port-related variable from service manifest |
-| CHATTERBOX_PORT | chatterbox | port | Port-related variable from service manifest |
-| CHATTERBOX_LOCALHOST_PORT | chatterbox | port | Port-related variable from service manifest |
-| COMFYUI_PORT | comfyui | port | Port-related variable from service manifest |
-| COMFYUI_LOCALHOST_PORT | comfyui | port | Port-related variable from service manifest |
-| CRAWL4AI_PORT | crawl4ai | port | Port-related variable from service manifest |
-| DOC_PROCESSOR_PORT | docling | port | Port-related variable from service manifest |
-| DOCLING_LOCALHOST_PORT | docling | port | Port-related variable from service manifest |
-| BASE_PORT | globals | port | Port-related variable from service manifest |
-| GRAFANA_PORT | grafana | port | Port-related variable from service manifest |
-| HERMES_API_PORT | hermes | port | Port-related variable from service manifest |
-| HERMES_DASHBOARD_PORT | hermes | port | Port-related variable from service manifest |
-| HERMES_LOCALHOST_PORT | hermes | port | Port-related variable from service manifest |
-| HERMES_LOCALHOST_DASHBOARD_PORT | hermes | port | Port-related variable from service manifest |
-| ICEBERG_REST_PORT | iceberg-rest | port | Port-related variable from service manifest |
-| JENKINS_PORT | jenkins | port | Port-related variable from service manifest |
-| JUPYTERHUB_PORT | jupyterhub | port | Port-related variable from service manifest |
-| KONG_HTTP_PORT | kong | port | Port-related variable from service manifest |
-| KONG_HTTPS_PORT | kong | port | Port-related variable from service manifest |
-| LABEL_STUDIO_PORT | label-studio | port | Port-related variable from service manifest |
-| LANGFUSE_PORT | langfuse | port | Port-related variable from service manifest |
-| LIGHTRAG_API_PORT | lightrag | port | Port-related variable from service manifest |
-| LIGHTRAG_LOCALHOST_PORT | lightrag | port | Port-related variable from service manifest |
-| LITELLM_PORT | litellm | port | Port-related variable from service manifest |
-| LLM_GRAPH_BUILDER_PORT | llm-graph-builder | port | Port-related variable from service manifest |
-| LOCAL_DEEP_RESEARCHER_PORT | local-deep-researcher | port | Port-related variable from service manifest |
-| MCP_SERVERS_PORT | mcp-servers | port | Port-related variable from service manifest |
-| MINIO_PORT | minio | port | Port-related variable from service manifest |
-| MINIO_CONSOLE_PORT | minio | port | Port-related variable from service manifest |
-| MLFLOW_PORT | mlflow | port | Port-related variable from service manifest |
-| N8N_PORT | n8n | port | Port-related variable from service manifest |
-| GRAPH_DB_PORT | neo4j | port | Port-related variable from service manifest |
-| GRAPH_DB_DASHBOARD_PORT | neo4j | port | Port-related variable from service manifest |
-| NEO4J_LOCALHOST_HTTP_PORT | neo4j | port | Port-related variable from service manifest |
-| NEO4J_LOCALHOST_BOLT_PORT | neo4j | port | Port-related variable from service manifest |
-| OLLAMA_LOCALHOST_PORT | ollama | port | Port-related variable from service manifest |
-| OPEN_WEB_UI_PORT | open-webui | port | Port-related variable from service manifest |
-| OPENCLAW_GATEWAY_PORT | openclaw | port | Port-related variable from service manifest |
-| OPENCLAW_BRIDGE_PORT | openclaw | port | Port-related variable from service manifest |
-| OPENCLAW_LOCALHOST_PORT | openclaw | port | Port-related variable from service manifest |
-| STT_PROVIDER_PORT | parakeet | port | Port-related variable from service manifest |
-| PARAKEET_LOCALHOST_PORT | parakeet | port | Port-related variable from service manifest |
-| WHISPER_CPP_LOCALHOST_PORT | parakeet | port | Port-related variable from service manifest |
-| PROMETHEUS_PORT | prometheus | port | Port-related variable from service manifest |
-| NODE_EXPORTER_PORT | prometheus | port | Port-related variable from service manifest |
-| CADVISOR_PORT | prometheus | port | Port-related variable from service manifest |
-| RAY_DASHBOARD_PORT | ray | port | Port-related variable from service manifest |
-| RAY_GCS_PORT | ray | port | Port-related variable from service manifest |
-| RAY_CLIENT_PORT | ray | port | Port-related variable from service manifest |
-| REDIS_PORT | redis | port | Port-related variable from service manifest |
-| REDIS_EXPORTER_PORT | redis | port | Port-related variable from service manifest |
-| REDPANDA_KAFKA_PORT | redpanda | port | Port-related variable from service manifest |
-| REDPANDA_CONSOLE_PORT | redpanda | port | Port-related variable from service manifest |
-| SEARXNG_PORT | searxng | port | Port-related variable from service manifest |
-| SPARK_MASTER_UI_PORT | spark | port | Port-related variable from service manifest |
-| SPARK_HISTORY_PORT | spark | port | Port-related variable from service manifest |
-| SPEACHES_PORT | speaches | port | Port-related variable from service manifest |
-| SUPABASE_DB_PORT | supabase | port | Port-related variable from service manifest |
-| POSTGRES_EXPORTER_PORT | supabase | port | Port-related variable from service manifest |
-| SUPABASE_META_PORT | supabase | port | Port-related variable from service manifest |
-| SUPABASE_STORAGE_PORT | supabase | port | Port-related variable from service manifest |
-| SUPABASE_AUTH_PORT | supabase | port | Port-related variable from service manifest |
-| SUPABASE_API_PORT | supabase | port | Port-related variable from service manifest |
-| SUPABASE_REALTIME_PORT | supabase | port | Port-related variable from service manifest |
-| SUPABASE_STUDIO_PORT | supabase | port | Port-related variable from service manifest |
-| TEI_RERANKER_PORT | tei-reranker | port | Port-related variable from service manifest |
-| TEI_RERANKER_LOCALHOST_PORT | tei-reranker | port | Port-related variable from service manifest |
-| TIKA_PORT | tika | port | Port-related variable from service manifest |
-| TIKA_LOCALHOST_PORT | tika | port | Port-related variable from service manifest |
-| TRINO_PORT | trino | port | Port-related variable from service manifest |
-| TTS_PROVIDER_PORT | tts-provider | port | Port-related variable from service manifest |
-| VERBA_PORT | verba | port | Port-related variable from service manifest |
-| WEAVIATE_PORT | weaviate | port | Port-related variable from service manifest |
-| WEAVIATE_GRPC_PORT | weaviate | port | Port-related variable from service manifest |
-| WEAVIATE_LOCALHOST_PORT | weaviate | port | Port-related variable from service manifest |
-| ZEPPELIN_PORT | zeppelin | port | Port-related variable from service manifest |
+| AIRFLOW_SOURCE | airflow | disabled | - |
+| AIRFLOW_PORT | airflow |  | Host port for the Airflow Web UI + REST API (in-container 8080). |
+| AIRFLOW_DB_USER | airflow | airflow | - |
+| AIRFLOW_DB_PASSWORD | airflow |  | Auto-generated by bootstrapper. Postgres role for the Airflow metadata DB. |
+| AIRFLOW_FERNET_KEY | airflow |  | Auto-generated. Fernet key for encrypting Connection passwords. |
+| AIRFLOW_SECRET_KEY | airflow |  | Auto-generated. AIRFLOW__API__SECRET_KEY — signs inter-process payloads (DagFileProcessor → scheduler RPC, deferrable triggers, multi-scheduler JWTs). Airflow 3.x; previously [webserver] secret_key + Flask sessions in 2.x. |
+| AIRFLOW_ADMIN_PASSWORD | airflow |  | Auto-generated. Admin login. Username is hardcoded 'admin'. |
+| AIRFLOW_WEBSERVER_SCALE | airflow |  | - |
+| AIRFLOW_SCHEDULER_SCALE | airflow |  | - |
+| AIRFLOW_DAG_PROCESSOR_SCALE | airflow |  | Required in Airflow 3.x — the standalone DAG processor service parses DAG files into the metadata DB (the scheduler no longer does this in-process). |
+| AIRFLOW_INIT_SCALE | airflow |  | - |
+| AIRFLOW_WEBSERVER_MEMORY_LIMIT | airflow | 2g | Container memory limit for airflow-webserver (deploy.resources.limits.memory). The api-server process is Python + Flask/FAB; 2 g is comfortable on a 32 GB host and prevents runaway memory from large DAG list pages. |
+| AIRFLOW_WEBSERVER_CPU_LIMIT | airflow | 1.0 | Container CPU limit for airflow-webserver (deploy.resources.limits.cpus). 1.0 core is ample for the API/UI server under typical load. |
+| AIRFLOW_SCHEDULER_MEMORY_LIMIT | airflow | 2g | Container memory limit for airflow-scheduler (deploy.resources.limits.memory). The LocalExecutor scheduler forks task processes in-process; 2 g caps runaway task forking. |
+| AIRFLOW_SCHEDULER_CPU_LIMIT | airflow | 1.0 | Container CPU limit for airflow-scheduler (deploy.resources.limits.cpus). 1.0 core is sufficient for LocalExecutor task scheduling on a dev/staging host. |
+| AIRFLOW_DAG_PROCESSOR_MEMORY_LIMIT | airflow | 2g | Container memory limit for airflow-dag-processor (deploy.resources.limits.memory). DAG parsing is Python-heavy but short-lived per cycle; 2 g prevents unbounded growth from parsing pathological DAG files. |
+| AIRFLOW_DAG_PROCESSOR_CPU_LIMIT | airflow | 1.0 | Container CPU limit for airflow-dag-processor (deploy.resources.limits.cpus). 1.0 core covers the periodic DAG file parsing cycle. |
+| BACKEND_SOURCE | backend | container | Adaptive core service; always container. Single-option. |
+| BACKEND_PORT | backend |  | - |
+| BACKEND_SCALE | backend |  | Always 1 (BACKEND_SOURCE is single-valued). |
+| MAX_UPLOAD_BYTES | backend | 104857600 | Maximum accepted /storage/upload body size in bytes before the backend returns 413. |
+| BACKEND_STORAGE_ALLOWED_BUCKETS | backend | default | Comma-separated Supabase Storage bucket allowlist accepted by /storage/upload. |
+| BACKEND_CORS_ORIGINS | backend | * | Comma-separated browser origins accepted by the backend CORS middleware. Default preserves local-development permissiveness. |
+| BACKEND_CORS_ALLOW_ORIGIN_REGEX | backend |  | Optional regex accepted by the backend CORS middleware for wildcard subdomain policies. |
+| LANGMEM_ENABLED | backend | True | - |
+| LANGMEM_MEMORY_NAMESPACE | backend | default | - |
+| LANGMEM_AUTO_CONSOLIDATE | backend | True | Reserved — not yet honored. Memory consolidation currently runs only
+on demand via POST /memory/consolidate; there is no background
+scheduler, so changing this value has no effect today.
+ |
+| LANGMEM_CONSOLIDATION_INTERVAL | backend | 86400 | Reserved — not yet honored (see LANGMEM_AUTO_CONSOLIDATE). Interval in
+seconds a future auto-consolidation scheduler would use.
+ |
+| LANGMEM_MAX_FACTS_PER_USER | backend | 1000 | - |
+| LANGMEM_EXTRACTION_MODEL | backend |  | LiteLLM model id (empty = highest-priority active content model resolved by model_resolver from YAML catalogs + env). |
+| LANGMEM_EMBEDDING_MODEL | backend |  | - |
+| GRAPHITI_ENABLED | backend | False | Disabled-by-default backend-only Graphiti temporal graph memory experiment. Does not expose Graphiti to agents or run a Graphiti service. |
+| GRAPHITI_GROUP_ID_PREFIX | backend | atlas | Prefix for backend Graphiti group_id values. Final shape: atlas:<project>:backend:<namespace>:user:<uuid>. |
+| GRAPHITI_DEFAULT_NAMESPACE | backend | langmem | Default backend Graphiti namespace segment used when projecting selected LangMem facts/events. |
+| GRAPHITI_LLM_MODEL | backend |  | Optional LiteLLM model id for Graphiti extraction. Empty falls back to LANGMEM_EXTRACTION_MODEL, then LITELLM_DEFAULT_MODEL. |
+| GRAPHITI_EMBEDDING_MODEL | backend |  | Optional LiteLLM embedding model id for Graphiti. Empty falls back to LANGMEM_EMBEDDING_MODEL, then LITELLM_EMBEDDING_MODEL. |
+| GRAPHITI_EXPOSE_TO_AGENTS | backend | False | Must remain false for this backend-only evaluation; Hermes/OpenClaw exposure and Graphiti MCP are deferred. |
+| BACKUP_SOURCE | backup | disabled | Deployment mode: container (enable the runner) or disabled (default). |
+| BACKUP_BUCKET | backup | atlas-backups | Target bucket for backups. |
+| BACKUP_S3_ALIAS_URL | backup | http://minio:9000 | S3 endpoint. Default = on-box MinIO; set to an external S3 URL for offsite. |
+| BACKUP_SCALE | backup |  | 0 (never long-running); the runner is invoked on demand via docker compose run. |
+| BLENDER_MCP_SOURCE | blender-mcp | disabled | Host-installed Blender MCP bridge source. Disabled by default because Blender MCP can execute generated Python code inside Blender. |
+| BLENDER_MCP_HOST | blender-mcp | localhost | Host where the Blender MCP add-on socket is listening. |
+| BLENDER_MCP_LOCALHOST_PORT | blender-mcp | 9876 | Host port for the Blender MCP add-on socket. This is a host-tool port hint, not a Kong or container port. |
+| BLENDER_MCP_ENDPOINT | blender-mcp |  | Resolved endpoint hint for future MCP clients when BLENDER_MCP_SOURCE=localhost. |
+| CELERY_SOURCE | celery | disabled | Deployment mode: container (backend worker + Flower) or disabled. |
+| CELERY_WORKER_SCALE | celery |  | - |
+| FLOWER_SCALE | celery |  | - |
+| FLOWER_PORT | celery |  | Host port for Flower (in-container 5555). |
+| CELERY_BROKER_URL | celery |  | Redis broker URL; Atlas uses Redis database 4 for Celery. |
+| CELERY_RESULT_BACKEND | celery |  | Redis result backend URL; Atlas uses Redis database 4 for Celery task state. |
+| CELERY_QUEUE | celery | atlas | Default Celery queue consumed by the Atlas backend worker. |
+| CELERY_WORKER_CONCURRENCY | celery | 2 | Worker process concurrency for backend async jobs. |
+| CELERY_WORKER_PREFETCH_MULTIPLIER | celery | 1 | Conservative prefetch to reduce head-of-line blocking for long tasks. |
+| CELERY_TASK_TIME_LIMIT_SECONDS | celery | 900 | Hard per-task limit. Worker kills tasks that run beyond this budget. |
+| CELERY_TASK_SOFT_TIME_LIMIT_SECONDS | celery | 840 | Soft per-task limit. Tasks can catch this before the hard kill. |
+| CELERY_BROKER_VISIBILITY_TIMEOUT_SECONDS | celery | 3600 | Redis broker visibility timeout. Keep longer than task hard limit. |
+| CHATTERBOX_PORT | chatterbox |  | Host port for the Chatterbox container (in-container listen port is 4123). |
+| CHATTERBOX_LOCALHOST_PORT | chatterbox | 63044 | Host port for the chatterbox-localhost source variant. URL is derived at compose-render time as http://host.docker.internal:63044. |
+| CHATTERBOX_SCALE | chatterbox |  | Computed by bootstrapper/services/service_config.py::_generate_tts_provider_config — set to 1 when TTS_PROVIDER_SOURCE=chatterbox-container-gpu. |
+| CLOUD_OPENAI_SOURCE | cloud-providers | disabled | Options: enabled, disabled. |
+| OPENAI_API_KEY | cloud-providers |  | OpenAI API key used by LiteLLM when CLOUD_OPENAI_SOURCE=enabled. |
+| OPENAI_USER_MODELS | cloud-providers |  | Comma-separated OpenAI model names the wizard activated. |
+| CLOUD_ANTHROPIC_SOURCE | cloud-providers | disabled | Options: enabled, disabled. |
+| ANTHROPIC_API_KEY | cloud-providers |  | Anthropic API key used by LiteLLM when CLOUD_ANTHROPIC_SOURCE=enabled. |
+| ANTHROPIC_USER_MODELS | cloud-providers |  | Comma-separated Anthropic model names the wizard activated. |
+| CLOUD_OPENROUTER_SOURCE | cloud-providers | disabled | Options: enabled, disabled. |
+| OPENROUTER_API_KEY | cloud-providers |  | OpenRouter API key used by LiteLLM when CLOUD_OPENROUTER_SOURCE=enabled. |
+| OPENROUTER_USER_MODELS | cloud-providers |  | Comma-separated OpenRouter model names the wizard activated. |
+| LITELLM_OPENAI_ENABLED | cloud-providers |  | Derived from CLOUD_OPENAI_SOURCE. |
+| LITELLM_ANTHROPIC_ENABLED | cloud-providers |  | Derived from CLOUD_ANTHROPIC_SOURCE. |
+| LITELLM_OPENROUTER_ENABLED | cloud-providers |  | Derived from CLOUD_OPENROUTER_SOURCE. |
+| LITELLM_ENABLED_PROVIDERS | cloud-providers |  | Comma-separated lowercase list of enabled cloud providers. |
+| CLOUDFLARED_SOURCE | cloudflared | disabled | Deployment mode: container (run the tunnel) or disabled (default). |
+| CLOUDFLARE_TUNNEL_TOKEN | cloudflared |  | Cloudflare named-tunnel token (Zero Trust > Networks > Tunnels). When
+CLOUDFLARED_SOURCE=container this must be set or the daemon exits. The
+tunnel's public hostname is configured in the Cloudflare dashboard to
+point at http://kong-api-gateway:8000.
+ |
+| CLOUDFLARED_SCALE | cloudflared |  | Set to 1 when CLOUDFLARED_SOURCE=container, 0 when disabled. |
+| COMFYUI_SOURCE | comfyui | container-cpu | - |
+| COMFYUI_INIT_SOURCE | comfyui | container | - |
+| COMFYUI_PORT | comfyui |  | - |
+| COMFYUI_LOCALHOST_PORT | comfyui | 8000 | Host port for the localhost source variant. URL is derived at compose-render time as http://host.docker.internal:8000. |
+| COMFYUI_BASE_URL | comfyui | http://comfyui:18188 | In-container default. Runtime value is COMFYUI_ENDPOINT computed by hook. |
+| COMFYUI_KONG_URL | comfyui | http://kong-api-gateway:8000/comfyui | - |
+| COMFYUI_ARGS | comfyui | --listen | - |
+| COMFYUI_AUTO_UPDATE | comfyui | False | - |
+| COMFYUI_PLATFORM | comfyui | linux/amd64 | - |
+| COMFYUI_UPLOAD_TO_SUPABASE | comfyui | True | - |
+| COMFYUI_STORAGE_BUCKET | comfyui | comfyui-images | - |
+| COMFYUI_MODELS_PATH | comfyui | /opt/ComfyUI/models | - |
+| COMFYUI_LOCAL_MODELS_PATH | comfyui | ~/Documents/ComfyUI/models | - |
+| COMFYUI_USER_MODELS | comfyui |  | Comma-separated catalog model names the user picked in the wizard (or via --comfyui-models). Read by services/comfyui/init/scripts/download_models.sh. |
+| COMFYUI_CUSTOM_MODELS_FILE | comfyui | /custom-models.yaml | Path to the ComfyUI custom-models sidecar YAML (user-authored models not in the curated catalog). Read by comfyui_resolver when generating the download manifest, and by the wizard's model picker. |
+| COMFYUI_INIT_SCALE | comfyui |  | - |
+| COMFYUI_SCALE | comfyui |  | - |
+| COMFYUI_ENDPOINT | comfyui |  | Resolved per COMFYUI_SOURCE. Consumed by backend, open-webui, n8n, jupyterhub. |
+| COMFYUI_DEPLOY_RESOURCES | comfyui | ~ | - |
+| COMFYUI_MEMORY_LIMIT | comfyui | 4g | Container memory limit for the comfyui container (deploy.resources.limits.memory). 4 g is appropriate for CPU-only inference; GPU workloads holding VRAM are bounded by device memory, not host RAM, so 4 g is still a safe OOM fence on a 32 GB host. |
+| COMFYUI_CPU_LIMIT | comfyui | 2.0 | Container CPU limit for the comfyui container (deploy.resources.limits.cpus). 2.0 cores keeps CPU-mode inference from monopolising the host; GPU mode is GPU-bound so the CPU cap is irrelevant in practice. |
+| CRAWL4AI_SOURCE | crawl4ai | disabled | - |
+| CRAWL4AI_PORT | crawl4ai |  | - |
+| CRAWL4AI_API_TOKEN | crawl4ai |  | Bearer token required by Crawl4AI's Docker API; auto-generated by the bootstrapper. |
+| CRAWL4AI_TIMEOUT_SECONDS | crawl4ai | 30 | Local Deep Researcher timeout for Crawl4AI extraction calls. |
+| CRAWL4AI_MAX_CHARS | crawl4ai | 60000 | Maximum markdown characters Local Deep Researcher keeps from each Crawl4AI result. |
+| CRAWL4AI_ALLOW_INTERNAL_URLS | crawl4ai | False | Keep false unless deliberately crawling private/internal URLs from inside the Atlas network. |
+| CRAWL4AI_SCALE | crawl4ai |  | - |
+| CRAWL4AI_ENDPOINT | crawl4ai |  | - |
+| DOC_PROCESSOR_SOURCE | docling | disabled | - |
+| DOC_PROCESSOR_PORT | docling |  | - |
+| DOCLING_GPU_DEVICE | docling | cuda | - |
+| DOCLING_OUTPUT_FORMAT | docling | markdown | - |
+| DOCLING_USE_OCR | docling | auto | - |
+| DOCLING_TABLE_MODE | docling | accurate | - |
+| DOCLING_MAX_FILE_SIZE | docling | 52428800 | - |
+| DOCLING_ENABLE_FORMULAS | docling | True | - |
+| DOCLING_ENABLE_CODE_BLOCKS | docling | True | - |
+| DOCLING_CHUNK_SIZE | docling | 512 | - |
+| DOCLING_CHUNK_OVERLAP | docling | 50 | - |
+| DOCLING_GPU_SCALE | docling |  | - |
+| DOCLING_ENDPOINT | docling |  | - |
+| DOCLING_LOCALHOST_PORT | docling | 63059 | Host port for the localhost source variant. URL is derived at compose-render time as http://host.docker.internal:63059. |
+| PROJECT_NAME | globals | atlas | Docker Compose project name — the container/volume/network prefix (<name>-…) and `docker compose -p` namespace. start.sh AND stop.sh read it from here, so stop tears down exactly what start launched. Override with `./start.sh --project <name>` (also -p; persists back here) or by editing this value. Set a unique name when running Atlas as a submodule so you don't collide with a base Atlas stack. |
+| BASE_PORT | globals | 63000 | Base port. Every service's *_PORT derives from this + a fixed offset. |
+| HOST_BIND_IP | globals |  | Host interface prefix for ALL published service ports. Empty (default)
+=> Docker binds 0.0.0.0 (dev). `--profile prod` sets this to
+"127.0.0.1:" so service ports are reachable only from the host (the
+public edge — Cloudflare Tunnel or Caddy — reaches Kong locally).
+Must include the trailing colon when set, e.g. "127.0.0.1:".
+ |
+| HOST_GATEWAY_IP | globals | host-gateway | Bootstrapper computes this at runtime based on the runtime (Docker:
+"host-gateway"; Podman: literal gateway IP). If you copy this file to
+.env manually without running ./start.sh, set this to "host-gateway"
+on Linux/macOS Docker, or the real bridge IP on rootless setups.
+ |
+| BRAND_NAME | globals | Atlas | - |
+| BRAND_TAGLINE | globals | A self-hosted, source-configurable, multi-disciplinary engineering platform — gen-AI, ML, and data. | - |
+| BRAND_VERSION | globals | 0.1.0 | - |
+| BRAND_AUTHOR | globals | Kaveh Razavi | - |
+| BRAND_AUTHOR_EMAIL | globals | kaveh.razavi@gmail.com | - |
+| BRAND_LICENSE | globals | Apache License 2.0 | - |
+| BRAND_REPO_URL | globals | https://github.com/thekaveh/atlas | - |
+| BRAND_LOGO_FILE | globals |  | Optional path to a custom block-art logo that overrides the built-in ATLAS lockup in the wizard + --no-tui banner (the BRAND_* rebranding contract). File format: the wide-lockup rows, an optional '---' line on its own, then the narrow (compact) fallback rows used on terminals too small for the wide one. Keep it 6 rows tall. Empty = built-in ATLAS. Format + example: docs/quick-start/interactive-setup-wizard.md (Brand Customization). |
+| COMPOSE_PROFILES | globals |  | Docker Compose profile activation list. Rebuilt from scratch on every
+./start.sh run from the active STT/TTS/doc-processor sources
+(speaches-cpu/-gpu, parakeet-gpu, chatterbox-gpu, docling-gpu/doc-gpu).
+Do not edit by hand — the bootstrapper owns this value.
+ |
+| NVIDIA_VISIBLE_DEVICES | globals | all | Host-side GPU visibility. Forwarded into every NVIDIA-runtime container. |
+| PROD_ENV_CPUS | globals | 2 | Default container CPU cap (cores). Per-service overrides below. |
+| PROD_ENV_MEM_LIMIT | globals | 8g | - |
+| PROD_ENV_BACKEND_CPUS | globals | 1 | - |
+| PROD_ENV_BACKEND_MEM_LIMIT | globals | 2g | - |
+| PROD_ENV_N8N_CPUS | globals | 1 | - |
+| PROD_ENV_N8N_MEM_LIMIT | globals | 2g | - |
+| PROD_ENV_COMFYUI_CPUS | globals | 2 | - |
+| PROD_ENV_COMFYUI_MEM_LIMIT | globals | 4g | - |
+| LOG_MAX_SIZE | globals | 10m | Per-container json-file log max size (Docker logging option). |
+| LOG_MAX_FILE | globals | 3 | Per-container json-file log file count (Docker logging option). |
+| BOOTSTRAPPER_PORT_LAYOUT_VERSION | globals | 3 | Sentinel updated by bootstrapper/services/migrations. Missing or <N triggers the chained env migrations up to N (v1 port-layout, v2 URL>PORT, v3 COMFYUI model-set). Fresh .env files are already v3-shaped. |
+| GRAFANA_SOURCE | grafana | disabled | - |
+| GRAFANA_PORT | grafana |  | Host port for Grafana's HTTP server (in-container 3000). |
+| GRAFANA_ADMIN_USERNAME | grafana | admin | Grafana admin login. Override in .env if needed. |
+| GRAFANA_ADMIN_PASSWORD | grafana |  | Auto-generated on first bootstrap by generate_grafana_admin_password() (mirrors LiteLLM UI_PASSWORD pattern). Persisted to .env; users can rotate by editing .env and restarting. |
+| GRAFANA_ENDPOINT | grafana |  | - |
+| GRAFANA_SCALE | grafana |  | - |
+| HERMES_SOURCE | hermes | container | - |
+| HERMES_API_PORT | hermes |  | Host port for the Hermes Agent OpenAI-compatible API (in-container listen port is 8642). |
+| HERMES_DASHBOARD_PORT | hermes |  | Host port for the Hermes Agent web dashboard (in-container listen port is 9119). |
+| HERMES_MEMORY_LIMIT | hermes | 4g | - |
+| HERMES_CPU_LIMIT | hermes | 2.0 | - |
+| HERMES_API_KEY | hermes |  | Auto-generated by bootstrapper. Forwarded to LiteLLM via API_SERVER_KEY. |
+| HERMES_DEFAULT_MODEL | hermes |  | Empty = hermes-init picks from LiteLLM /v1/models priority list. |
+| HERMES_CONTEXT_LENGTH | hermes | 65536 | - |
+| HERMES_DASHBOARD_ENABLED | hermes | True | - |
+| HERMES_DASHBOARD_TUI | hermes | 1 | Embed PTY-backed Chat tab in dashboard. 1 = on, 0 = read-only. |
+| HERMES_DASHBOARD_INSECURE | hermes | True | Allow the dashboard to bind to its non-loopback container address (0.0.0.0) without a Nous Portal OAuth provider. Required since the upstream image stopped implicitly inferring insecure mode from the bind host; without it the dashboard fails closed and s6 restart-loops it. Safe here: the dashboard binds inside the isolated backend-network and is only reachable via the localhost host-port + Kong. Set to false (and provide HERMES_DASHBOARD_OAUTH_CLIENT_ID) to enforce the OAuth auth gate instead. |
+| HERMES_UID | hermes | 10000 | Container user — match a host UID to read hermes-data from outside. |
+| HERMES_GID | hermes | 10000 | - |
+| HERMES_LOCALHOST_PORT | hermes | 8642 | Host port for the Hermes API in the localhost source variant. Consumed by HERMES_ENDPOINT (in-container clients call this). Defaults to Hermes' native API port. |
+| HERMES_LOCALHOST_DASHBOARD_PORT | hermes | 9119 | Host port for the Hermes web dashboard in the localhost source variant. The Kong route fronting hermes.localhost targets this. Defaults to Hermes' native dashboard port. The wizard's inline textbox edits HERMES_LOCALHOST_PORT (the API); override this via .env hand-edit if your host dashboard runs on a non-default port. |
+| HERMES_INIT_SOURCE | hermes | container | Auto-managed by hermes. Container/disabled. |
+| HERMES_INIT_SCALE | hermes |  | - |
+| HERMES_SCALE | hermes |  | - |
+| HERMES_ENDPOINT | hermes |  | Resolved per HERMES_SOURCE. Consumed by openclaw-gateway, LiteLLM model_list. |
+| TTS_INTERNAL_URL | hermes |  | - |
+| STT_INTERNAL_URL | hermes |  | - |
+| COMFYUI_INTERNAL_URL | hermes |  | - |
+| SEARXNG_INTERNAL_URL | hermes |  | - |
+| LIGHTRAG_INTERNAL_URL | hermes |  | - |
+| ICEBERG_REST_SOURCE | iceberg-rest | disabled | - |
+| ICEBERG_REST_PORT | iceberg-rest |  | Host port for the Iceberg REST Catalog API (in-container 8181). |
+| ICEBERG_DB_USER | iceberg-rest | iceberg | - |
+| ICEBERG_DB_PASSWORD | iceberg-rest |  | Auto-generated by bootstrapper. Postgres role for the Iceberg JDBC catalog DB. |
+| ICEBERG_REST_POSTGRES_JDBC_VERSION | iceberg-rest | 42.7.12 | PostgreSQL JDBC driver version layered into the local Iceberg REST image build. |
+| ICEBERG_REST_SCALE | iceberg-rest |  | - |
+| ICEBERG_REST_INIT_SCALE | iceberg-rest |  | - |
+| JENKINS_SOURCE | jenkins | disabled | - |
+| JENKINS_PORT | jenkins |  | Host port for the Jenkins Web UI (in-container 8080). |
+| JENKINS_SCALE | jenkins |  | - |
+| JENKINS_ADMIN_USER | jenkins | admin | Jenkins admin login created by JCasC. |
+| JENKINS_ADMIN_PASSWORD | jenkins |  | Auto-generated on first bootstrap by KeyGenerator.generate_jenkins_admin_password(). |
+| JENKINS_MEMORY_LIMIT | jenkins | 3g | Container memory limit for Jenkins controller and local Maven builds. |
+| JENKINS_CPU_LIMIT | jenkins | 2.0 | Container CPU limit for Jenkins controller and local Maven builds. |
+| JUPYTERHUB_SOURCE | jupyterhub | container | - |
+| JUPYTERHUB_PORT | jupyterhub |  | - |
+| JUPYTERHUB_TOKEN | jupyterhub |  | Optional. Empty = generate on start. |
+| JUPYTER_ALLOW_ORIGIN | jupyterhub | * | Allowed browser origin for Jupyter Server websocket upgrades; keep '*' for local dev, narrow for shared deployments. |
+| SPARK_REMOTE | jupyterhub | sc://spark-connect:15002 | Spark Connect endpoint used by bundled notebooks; override for a remote or managed Spark Connect server. |
+| JUPYTERHUB_SCALE | jupyterhub |  | - |
+| KONG_API_GATEWAY_SOURCE | kong | container | Single-option (container only). |
+| KONG_HTTP_PORT | kong |  | - |
+| KONG_HTTPS_PORT | kong |  | - |
+| DASHBOARD_USERNAME | kong | kong_admin | - |
+| DASHBOARD_PASSWORD | kong | kong_password | Auto-generated on first ./start.sh when left at the placeholder (rotate-when-absent, like MINIO_ROOT_PASSWORD). Gates the Kong-routed Studio dashboard via basic-auth. |
+| LABEL_STUDIO_SOURCE | label-studio | disabled | - |
+| LABEL_STUDIO_PORT | label-studio |  | Host port for the Label Studio UI/API (in-container 8080). |
+| LABEL_STUDIO_ENDPOINT | label-studio |  | In-network URL for Atlas services and notebooks. |
+| LABEL_STUDIO_API_URL | label-studio |  | Notebook/backend API URL; empty when Label Studio is disabled. |
+| LABEL_STUDIO_SCALE | label-studio |  | - |
+| LABEL_STUDIO_INIT_SCALE | label-studio |  | - |
+| LABEL_STUDIO_DB_NAME | label-studio | label_studio | - |
+| LABEL_STUDIO_DB_USER | label-studio | label_studio | - |
+| LABEL_STUDIO_DB_PASSWORD | label-studio |  | Auto-generated Postgres password for the dedicated Label Studio database role. |
+| LABEL_STUDIO_USERNAME | label-studio | admin@atlas.local | Initial Label Studio admin email passed to upstream USERNAME. |
+| LABEL_STUDIO_PASSWORD | label-studio |  | Auto-generated initial Label Studio admin password. |
+| LABEL_STUDIO_USER_TOKEN | label-studio |  | Auto-generated legacy API token for notebook/API smoke paths. |
+| LABEL_STUDIO_SECRET_KEY | label-studio |  | Django SECRET_KEY used by the Label Studio container. |
+| LANGFUSE_SOURCE | langfuse | disabled | - |
+| LANGFUSE_PORT | langfuse |  | Host port for the Langfuse web UI/API (in-container 3000). |
+| LANGFUSE_ENDPOINT | langfuse |  | In-network URL used by LiteLLM when Langfuse tracing is enabled. |
+| LANGFUSE_WEB_SCALE | langfuse |  | - |
+| LANGFUSE_WORKER_SCALE | langfuse |  | - |
+| LANGFUSE_CLICKHOUSE_SCALE | langfuse |  | - |
+| LANGFUSE_INIT_SCALE | langfuse |  | - |
+| LANGFUSE_DB_NAME | langfuse | langfuse | - |
+| LANGFUSE_SALT | langfuse |  | Auto-generated by the bootstrapper on first run. |
+| LANGFUSE_ENCRYPTION_KEY | langfuse |  | 64 hex chars. Auto-generated by the bootstrapper on first run. |
+| LANGFUSE_NEXTAUTH_SECRET | langfuse |  | Auto-generated by the bootstrapper on first run. |
+| LANGFUSE_PUBLIC_KEY | langfuse |  | Initial Langfuse project public key used by LiteLLM tracing. |
+| LANGFUSE_SECRET_KEY | langfuse |  | Initial Langfuse project secret key used by LiteLLM tracing. |
+| LANGFUSE_INIT_ORG_ID | langfuse | atlas | - |
+| LANGFUSE_INIT_ORG_NAME | langfuse | Atlas | - |
+| LANGFUSE_INIT_PROJECT_ID | langfuse | atlas-default | - |
+| LANGFUSE_INIT_PROJECT_NAME | langfuse | Atlas Default | - |
+| LANGFUSE_INIT_USER_EMAIL | langfuse | admin@atlas.localhost | - |
+| LANGFUSE_INIT_USER_NAME | langfuse | Atlas Admin | - |
+| LANGFUSE_INIT_USER_PASSWORD | langfuse |  | Auto-generated by the bootstrapper on first run. |
+| LANGFUSE_CLICKHOUSE_USER | langfuse | clickhouse | - |
+| LANGFUSE_CLICKHOUSE_PASSWORD | langfuse |  | Auto-generated by the bootstrapper on first run. |
+| LIGHTRAG_SOURCE | lightrag | disabled | - |
+| LIGHTRAG_API_PORT | lightrag |  | Host port for LightRAG (in-container 9621). |
+| LIGHTRAG_LOCALHOST_PORT | lightrag | 63068 | Host port for the localhost source variant. |
+| LIGHTRAG_API_KEY | lightrag |  | Auto-generated bearer key. Forwarded to LiteLLM as the model api_key. |
+| LIGHTRAG_TOKEN_SECRET | lightrag |  | Auto-generated JWT signing key for LightRAG's /login endpoint. Without this, LightRAG falls back to a hardcoded default key (security risk). |
+| LIGHTRAG_WORKERS | lightrag | 2 | - |
+| LIGHTRAG_MEMORY_LIMIT | lightrag | 6g | - |
+| LIGHTRAG_CPU_LIMIT | lightrag | 2.0 | - |
+| LIGHTRAG_LLM_BINDING | lightrag | openai | - |
+| LIGHTRAG_LLM_BINDING_HOST | lightrag | http://litellm:4000/v1 | - |
+| LIGHTRAG_LLM_MODEL | lightrag |  | Empty = lightrag-init resolves from LITELLM_DEFAULT_MODEL. |
+| LIGHTRAG_EXTRACT_LLM_MODEL | lightrag |  | Optional LightRAG EXTRACT role model. Empty = inherit LLM_MODEL. |
+| LIGHTRAG_KEYWORD_LLM_MODEL | lightrag |  | Optional LightRAG KEYWORD role model. Empty = inherit LLM_MODEL. |
+| LIGHTRAG_QUERY_LLM_MODEL | lightrag |  | Optional LightRAG QUERY role model. Empty = inherit LLM_MODEL. |
+| LIGHTRAG_EXTRACT_LLM_BINDING | lightrag |  | Optional EXTRACT role provider binding. Empty = inherit LLM_BINDING. |
+| LIGHTRAG_KEYWORD_LLM_BINDING | lightrag |  | Optional KEYWORD role provider binding. Empty = inherit LLM_BINDING. |
+| LIGHTRAG_QUERY_LLM_BINDING | lightrag |  | Optional QUERY role provider binding. Empty = inherit LLM_BINDING. |
+| LIGHTRAG_EXTRACT_LLM_BINDING_HOST | lightrag |  | Optional EXTRACT role provider endpoint. Empty = inherit LLM_BINDING_HOST. |
+| LIGHTRAG_KEYWORD_LLM_BINDING_HOST | lightrag |  | Optional KEYWORD role provider endpoint. Empty = inherit LLM_BINDING_HOST. |
+| LIGHTRAG_QUERY_LLM_BINDING_HOST | lightrag |  | Optional QUERY role provider endpoint. Empty = inherit LLM_BINDING_HOST. |
+| LIGHTRAG_EXTRACT_LLM_BINDING_API_KEY | lightrag |  | Optional EXTRACT role provider API key. Empty = inherit LLM_BINDING_API_KEY for same-provider roles. |
+| LIGHTRAG_KEYWORD_LLM_BINDING_API_KEY | lightrag |  | Optional KEYWORD role provider API key. Empty = inherit LLM_BINDING_API_KEY for same-provider roles. |
+| LIGHTRAG_QUERY_LLM_BINDING_API_KEY | lightrag |  | Optional QUERY role provider API key. Empty = inherit LLM_BINDING_API_KEY for same-provider roles. |
+| LIGHTRAG_EXTRACT_MAX_ASYNC_LLM | lightrag |  | Optional EXTRACT role LLM concurrency. Empty = inherit MAX_ASYNC_LLM. |
+| LIGHTRAG_KEYWORD_MAX_ASYNC_LLM | lightrag |  | Optional KEYWORD role LLM concurrency. Empty = inherit MAX_ASYNC_LLM. |
+| LIGHTRAG_QUERY_MAX_ASYNC_LLM | lightrag |  | Optional QUERY role LLM concurrency. Empty = inherit MAX_ASYNC_LLM. |
+| LIGHTRAG_EXTRACT_LLM_TIMEOUT | lightrag |  | Optional EXTRACT role LLM timeout in seconds. Empty = inherit LLM_TIMEOUT. |
+| LIGHTRAG_KEYWORD_LLM_TIMEOUT | lightrag |  | Optional KEYWORD role LLM timeout in seconds. Empty = inherit LLM_TIMEOUT. |
+| LIGHTRAG_QUERY_LLM_TIMEOUT | lightrag |  | Optional QUERY role LLM timeout in seconds. Empty = inherit LLM_TIMEOUT. |
+| LIGHTRAG_QUERY_ENABLE_RERANK | lightrag | false | LightRAG query default for reranking. Atlas keeps this false by default because direct LightRAG→TEI rerank payloads are incompatible without an adapter. |
+| LIGHTRAG_QUERY_TOP_K | lightrag | 10 | LightRAG query TOP_K. Atlas defaults this to a concrete integer because LightRAG v1.5.4 crashes when this env var is present but empty. |
+| LIGHTRAG_QUERY_CHUNK_TOP_K | lightrag | 5 | LightRAG query CHUNK_TOP_K. Atlas defaults this to a concrete integer because LightRAG v1.5.4 crashes when this env var is present but empty. |
+| LIGHTRAG_QUERY_MAX_TOTAL_TOKENS | lightrag | 12000 | LightRAG query MAX_TOTAL_TOKENS. Atlas defaults this to a concrete integer because LightRAG v1.5.4 crashes when this env var is present but empty. |
+| LIGHTRAG_EMBEDDING_BINDING | lightrag | openai | - |
+| LIGHTRAG_EMBEDDING_BINDING_HOST | lightrag | http://litellm:4000/v1 | - |
+| LIGHTRAG_EMBEDDING_MODEL | lightrag |  | Empty = lightrag-init resolves from LITELLM_EMBEDDING_MODEL. |
+| LIGHTRAG_EMBEDDING_DIM | lightrag |  | Empty = auto (lightrag-init probes the embedding model's true dimension). Set ONLY to force a value — a wrong dim writes a mismatched PGVector index and every insert fails. |
+| LIGHTRAG_VLM_PROCESS_ENABLE | lightrag | true | - |
+| LIGHTRAG_KV_STORAGE | lightrag | RedisKVStorage | - |
+| LIGHTRAG_VECTOR_STORAGE | lightrag | PGVectorStorage | - |
+| LIGHTRAG_GRAPH_STORAGE | lightrag | Neo4JStorage | - |
+| LIGHTRAG_DOC_STATUS_STORAGE | lightrag | RedisDocStatusStorage | - |
+| LIGHTRAG_SCALE | lightrag |  | - |
+| LIGHTRAG_INIT_SCALE | lightrag |  | - |
+| LIGHTRAG_ENDPOINT | lightrag |  | Consumed by hermes/n8n/backend runtime_adaptive and LiteLLM model_list. |
+| LIGHTRAG_RERANK_BINDING_HOST | lightrag |  | - |
+| LIGHTRAG_RERANK_BINDING | lightrag |  | Always null by default. Direct LightRAG→TEI rerank payloads are incompatible without an adapter, and LightRAG crashes on an empty value. |
+| LIGHTRAG_DOCLING_ENDPOINT | lightrag |  | - |
+| LIGHTRAG_PG_URI | lightrag |  | - |
+| LIGHTRAG_NEO4J_URI | lightrag |  | - |
+| LIGHTRAG_NEO4J_USERNAME | lightrag |  | - |
+| LIGHTRAG_NEO4J_PASSWORD | lightrag |  | - |
+| LIGHTRAG_REDIS_URI | lightrag |  | - |
+| LITELLM_SOURCE | litellm | container | Locked. LiteLLM is mandatory; only one source value supported. |
+| LITELLM_PORT | litellm |  | - |
+| LITELLM_INIT_SCALE | litellm | 1 | Init container always runs (single value). |
+| LITELLM_MASTER_KEY | litellm |  | Auto-generated by bootstrapper on first run. Doubles as the admin-dashboard password. |
+| LITELLM_UI_USERNAME | litellm | admin | Admin-dashboard login username at http://litellm.localhost:${KONG_HTTP_PORT}/ui/. Password is LITELLM_MASTER_KEY. |
+| LITELLM_DB_NAME | litellm | litellm | - |
+| LITELLM_EMBEDDING_MODEL | litellm | ollama/nomic-embed-text | Default embedding model used by weaviate-init when computing collection vectorizers. |
+| LITELLM_DEFAULT_MODEL | litellm |  | Optional default chat model passed to LangMem (backend). |
+| LITELLM_VISION_MODEL | litellm |  | Default vision-capable model (resolved from the model catalog; forward-looking — no consumer routes on it yet). |
+| LITELLM_BASE_URL | litellm | http://litellm:4000 | In-network URL consumers point at (backend, n8n, jupyterhub, open-webui). |
+| LLM_GRAPH_BUILDER_SOURCE | llm-graph-builder | disabled | - |
+| LLM_GRAPH_BUILDER_REF | llm-graph-builder | 4a412f4688cf4096976045c019edc0a7f6ddcb6b | Pinned upstream neo4j-labs/llm-graph-builder git ref used by the source-build containers. |
+| LLM_GRAPH_BUILDER_PORT | llm-graph-builder |  | Host port for the Graph Builder frontend (in-container 8080). |
+| LLM_GRAPH_BUILDER_MODEL_ID | llm-graph-builder | atlas_litellm | Model id shown in the Graph Builder UI. Atlas maps this id to LiteLLM's OpenAI-compatible endpoint. |
+| LLM_GRAPH_BUILDER_LLM_MODEL | llm-graph-builder |  | LiteLLM model alias used behind atlas_litellm. Empty = use LITELLM_DEFAULT_MODEL. |
+| LLM_GRAPH_BUILDER_NEO4J_DATABASE | llm-graph-builder | neo4j | Neo4j database name for Graph Builder data. Use a dedicated database on editions that support it. |
+| LLM_GRAPH_BUILDER_REACT_APP_SOURCES | llm-graph-builder | local,wiki,web | Comma-separated upstream source picker values compiled into the frontend. |
+| LLM_GRAPH_BUILDER_CHAT_MODES | llm-graph-builder | vector,graph_vector,graph,fulltext,graph_vector_fulltext,entity_vector,global_vector | Comma-separated chat modes compiled into the frontend. |
+| LLM_GRAPH_BUILDER_TIME_PER_PAGE | llm-graph-builder | 50 | - |
+| LLM_GRAPH_BUILDER_CHUNK_SIZE | llm-graph-builder | 5242880 | - |
+| LLM_GRAPH_BUILDER_LARGE_FILE_SIZE | llm-graph-builder | 5242880 | - |
+| LLM_GRAPH_BUILDER_BATCH_SIZE | llm-graph-builder | 2 | - |
+| LLM_GRAPH_BUILDER_CHUNK_OVERLAP | llm-graph-builder | 20 | - |
+| LLM_GRAPH_BUILDER_TOKENS_PER_CHUNK | llm-graph-builder | 200 | - |
+| LLM_GRAPH_BUILDER_CHUNK_TO_COMBINE | llm-graph-builder | 1 | - |
+| LLM_GRAPH_BUILDER_MAX_TOKEN_CHUNK_SIZE | llm-graph-builder | 10000 | - |
+| LLM_GRAPH_BUILDER_KNN_MIN_SCORE | llm-graph-builder | 0.94 | - |
+| LLM_GRAPH_BUILDER_UPDATE_GRAPH_CHUNKS_PROCESSED | llm-graph-builder | 20 | - |
+| LLM_GRAPH_BUILDER_ENTITY_EMBEDDING | llm-graph-builder | false | - |
+| LLM_GRAPH_BUILDER_ENABLE_USER_AGENT | llm-graph-builder | true | - |
+| LLM_GRAPH_BUILDER_USER_AGENT | llm-graph-builder | Atlas-LLM-Graph-Builder | - |
+| LLM_GRAPH_BUILDER_TRACK_USER_USAGE | llm-graph-builder | false | - |
+| LLM_GRAPH_BUILDER_AUTHENTICATION_REQUIRED | llm-graph-builder | false | - |
+| LLM_GRAPH_BUILDER_BACKEND_SCALE | llm-graph-builder |  | - |
+| LLM_GRAPH_BUILDER_FRONTEND_SCALE | llm-graph-builder |  | - |
+| LLM_GRAPH_BUILDER_ENDPOINT | llm-graph-builder |  | Internal frontend URL. |
+| LLM_GRAPH_BUILDER_BACKEND_ENDPOINT | llm-graph-builder |  | Internal backend API URL. |
+| LLM_GRAPH_BUILDER_LITELLM_MODEL_CONFIG | llm-graph-builder |  | Model config consumed as LLM_MODEL_CONFIG_ATLAS_LITELLM by the upstream backend. |
+| LOCAL_DEEP_RESEARCHER_SOURCE | local-deep-researcher | container | - |
+| LOCAL_DEEP_RESEARCHER_PORT | local-deep-researcher |  | - |
+| LOCAL_DEEP_RESEARCHER_LOOPS | local-deep-researcher | 3 | - |
+| LOCAL_DEEP_RESEARCHER_SEARCH_API | local-deep-researcher | searxng | - |
+| LOCAL_DEEP_RESEARCHER_WORKERS | local-deep-researcher | 3 | - |
+| LOCAL_DEEP_RESEARCHER_FULL_PAGE_MODE | local-deep-researcher | disabled | Full-page extraction mode: disabled, builtin, or crawl4ai. The crawl4ai mode requires CRAWL4AI_SOURCE=container. |
+| FETCH_FULL_PAGE | local-deep-researcher |  | - |
+| LOCAL_DEEP_RESEARCHER_SCALE | local-deep-researcher |  | - |
+| LOKI_SOURCE | loki | disabled | - |
+| LOKI_SCALE | loki |  | - |
+| LOKI_ENDPOINT | loki |  | Internal Loki API endpoint consumed by Grafana. |
+| LOKI_RETENTION_PERIOD | loki | 24h | Short local retention period for Loki compactor-managed log deletion. |
+| MCP_SERVERS_SOURCE | mcp-servers | disabled | Curated MCP package source. Disabled by default because MCP tools can reach stack internals. |
+| MCP_SERVERS_PORT | mcp-servers |  | Host port for the curated MCP Streamable HTTP endpoint (container port 8000). |
+| MCP_SERVERS_SCALE | mcp-servers |  | Replicas: 1 when MCP_SERVERS_SOURCE=container, else 0. |
+| MCP_POSTGRES_MAX_ROWS | mcp-servers | 50 | Maximum rows returned by the Postgres MCP query tool. |
+| MCP_SEARXNG_MAX_RESULTS | mcp-servers | 5 | Maximum SearXNG results returned by the web-search MCP tool. |
+| MCP_TOOL_TIMEOUT_SECONDS | mcp-servers | 15 | Timeout for upstream database/search calls made by MCP tools. |
+| MINIO_SOURCE | minio | container | - |
+| MINIO_PORT | minio |  | Host port for the MinIO S3 API (in-container listen port is 9000). |
+| MINIO_CONSOLE_PORT | minio |  | Host port for the MinIO admin console (in-container listen port is 9001). |
+| MINIO_ROOT_USER | minio | minioadmin | - |
+| MINIO_ROOT_PASSWORD | minio |  | Auto-generated by bootstrapper KeyGenerator.generate_minio_root_password(). |
+| MINIO_REGION | minio | us-east-1 | - |
+| MINIO_INIT_SOURCE | minio | container | Auto-managed by minio. Container/disabled. |
+| MINIO_SCALE | minio |  | - |
+| MINIO_INIT_SCALE | minio |  | - |
+| MINIO_ENDPOINT | minio |  | In-network URL (S3 API). |
+| MINIO_PUBLIC_ENDPOINT | minio |  | Host-side URL (for browser redirects). |
+| MINIO_PUBLIC_CONSOLE_ENDPOINT | minio |  | - |
+| MINIO_BUCKET_COMFYUI | minio | comfyui | - |
+| MINIO_COMFYUI_ACCESS_KEY | minio |  | Auto-generated scoped MinIO access key for the comfyui bucket. |
+| MINIO_COMFYUI_SECRET_KEY | minio |  | Auto-generated scoped MinIO secret key for the comfyui bucket. |
+| MINIO_BUCKET_BACKEND | minio | backend | - |
+| MINIO_BACKEND_ACCESS_KEY | minio |  | Auto-generated scoped MinIO access key for the backend bucket. |
+| MINIO_BACKEND_SECRET_KEY | minio |  | Auto-generated scoped MinIO secret key for the backend bucket. |
+| MINIO_BUCKET_N8N | minio | n8n | - |
+| MINIO_N8N_ACCESS_KEY | minio |  | Auto-generated scoped MinIO access key for the n8n bucket. |
+| MINIO_N8N_SECRET_KEY | minio |  | Auto-generated scoped MinIO secret key for the n8n bucket. |
+| MINIO_BUCKET_JUPYTER | minio | jupyter | - |
+| MINIO_JUPYTER_ACCESS_KEY | minio |  | Auto-generated scoped MinIO access key for the jupyter bucket. |
+| MINIO_JUPYTER_SECRET_KEY | minio |  | Auto-generated scoped MinIO secret key for the jupyter bucket. |
+| MINIO_BUCKET_DOCLING | minio | docling | - |
+| MINIO_DOCLING_ACCESS_KEY | minio |  | Auto-generated scoped MinIO access key for the docling bucket. |
+| MINIO_DOCLING_SECRET_KEY | minio |  | Auto-generated scoped MinIO secret key for the docling bucket. |
+| MINIO_BUCKET_LANGFUSE | minio | langfuse | - |
+| MINIO_LANGFUSE_ACCESS_KEY | minio |  | Auto-generated scoped MinIO access key for the langfuse bucket. |
+| MINIO_LANGFUSE_SECRET_KEY | minio |  | Auto-generated scoped MinIO secret key for the langfuse bucket. |
+| MINIO_BUCKET_MLFLOW | minio | mlflow | - |
+| MINIO_MLFLOW_ACCESS_KEY | minio |  | Auto-generated scoped MinIO access key for the mlflow bucket. |
+| MINIO_MLFLOW_SECRET_KEY | minio |  | Auto-generated scoped MinIO secret key for the mlflow bucket. |
+| MINIO_BUCKET_LABEL_STUDIO | minio | label-studio | - |
+| MINIO_LABEL_STUDIO_ACCESS_KEY | minio |  | Auto-generated scoped MinIO access key for the label-studio bucket. |
+| MINIO_LABEL_STUDIO_SECRET_KEY | minio |  | Auto-generated scoped MinIO secret key for the label-studio bucket. |
+| MINIO_BUCKET_ICEBERG_LAKEHOUSE | minio | lakehouse | - |
+| MINIO_BUCKET_ICEBERG_JARS | minio | jars | - |
+| MINIO_BUCKET_ICEBERG_CHECKPOINTS | minio | checkpoints | - |
+| MINIO_BUCKET_ICEBERG_LANDING | minio | landing | - |
+| MINIO_ICEBERG_ACCESS_KEY | minio |  | Auto-generated scoped MinIO access key for the Iceberg lakehouse buckets. |
+| MINIO_ICEBERG_SECRET_KEY | minio |  | Auto-generated scoped MinIO secret key for the Iceberg lakehouse buckets. |
+| MLFLOW_SOURCE | mlflow | disabled | - |
+| MLFLOW_PORT | mlflow |  | Host port for the MLflow UI/API (in-container 5000). |
+| MLFLOW_ENDPOINT | mlflow |  | In-network URL for Atlas services and notebooks. |
+| MLFLOW_TRACKING_URI | mlflow |  | Tracking URI injected into JupyterHub when MLflow is enabled. |
+| MLFLOW_SCALE | mlflow |  | - |
+| MLFLOW_INIT_SCALE | mlflow |  | - |
+| MLFLOW_DB_NAME | mlflow | mlflow | - |
+| MLFLOW_DB_USER | mlflow | mlflow | - |
+| MLFLOW_DB_PASSWORD | mlflow |  | Auto-generated Postgres password for the dedicated MLflow database role. |
+| N8N_SOURCE | n8n | container | - |
+| N8N_PORT | n8n |  | - |
+| N8N_ENCRYPTION_KEY | n8n | your-random-encryption-key | Encryption key for n8n credentials and workflow secrets; auto-generated by the bootstrapper when left as the placeholder. |
+| N8N_API_KEY | n8n |  | n8n public-API key (n8n CE issues these only via the UI: Settings → n8n API). Consumed by the backend's /workflows endpoints; while empty those endpoints currently return backend errors from failed upstream n8n calls. |
+| N8N_AUTH_ENABLED | n8n | True | - |
+| N8N_HOST | n8n | n8n.localhost | - |
+| N8N_PROTOCOL | n8n | http | - |
+| N8N_EXECUTIONS_MODE | n8n | queue | - |
+| N8N_COMMUNITY_PACKAGES_ENABLED | n8n | True | - |
+| N8N_COMMUNITY_PACKAGES_ALLOW_TOOL_USAGE | n8n | True | - |
+| N8N_INIT_SOURCE | n8n | container | - |
+| N8N_INIT_NODES | n8n | n8n-nodes-comfyui,@ksc1234/n8n-nodes-comfyui-image-to-image,n8n-nodes-mcp | - |
+| N8N_SCALE | n8n |  | - |
+| N8N_WORKER_SCALE | n8n |  | - |
+| N8N_INIT_SCALE | n8n |  | - |
+| NEO4J_GRAPH_DB_SOURCE | neo4j | container | Neo4j deployment source. Drives NEO4J_SCALE and NEO4J_URI. |
+| GRAPH_DB_PORT | neo4j |  | Host port for Neo4j bolt (container port 7687). |
+| GRAPH_DB_DASHBOARD_PORT | neo4j |  | Host port for Neo4j browser dashboard (container port 7474). |
+| GRAPH_DB_USER | neo4j | neo4j | - |
+| GRAPH_DB_PASSWORD | neo4j | neo4j_password | Neo4j password; auto-generated by the bootstrapper when left as the placeholder. |
+| GRAPH_DB_AUTH | neo4j | neo4j/neo4j_password | Neo4j auth in username/password format. |
+| NEO4J_URI | neo4j |  | Computed from NEO4J_GRAPH_DB_SOURCE. Read by backend/jupyterhub. |
+| NEO4J_SCALE | neo4j |  | Replicas: 1 for container, 0 otherwise. |
+| NEO4J_LOCALHOST_HTTP_PORT | neo4j | 7474 | Host HTTP port for the neo4j-localhost source variant (browser UI + REST). Kong route target is derived as http://host.docker.internal:7474. |
+| NEO4J_LOCALHOST_BOLT_PORT | neo4j | 7687 | Host Bolt port for the neo4j-localhost source variant (driver protocol). NEO4J_URI is derived as bolt://host.docker.internal:7687. The wizard's inline-textbox edits THIS port (HTTP is overridable via .env hand-edit). |
+| NEO4J_MEMORY_LIMIT | neo4j | 2g | Container memory limit for neo4j-graph-db (deploy.resources.limits.memory). 2 g is conservative for a 32 GB host; Neo4j keeps hot nodes in a heap-based page cache that typically stays well under 2 g for single-node dev/staging workloads. |
+| NEO4J_CPU_LIMIT | neo4j | 1.5 | Container CPU limit for neo4j-graph-db (deploy.resources.limits.cpus). 1.5 cores is sufficient for single-node Bolt + HTTP query serving. |
+| LLM_PROVIDER_SOURCE | ollama | ollama-container-cpu | - |
+| OLLAMA_USER_MODELS | ollama |  | Comma-separated Ollama model names to activate/pull. Pre-filled by env_assembler from the catalog's default-active Ollama set (see services/ollama/models.yaml); the wizard overwrites it with the user's selection. |
+| OLLAMA_CUSTOM_MODELS | ollama |  | Free-text extra Ollama models pulled in container-* sources. |
+| OLLAMA_AUTO_IMPORT_LOCAL_MODELS | ollama | True | When LLM_PROVIDER_SOURCE=ollama-localhost, litellm-init queries the upstream's /api/tags and auto-imports every model found, unioning with OLLAMA_USER_MODELS. Set false to keep strict wizard-only control. |
+| OLLAMA_DEPLOY_RESOURCES | ollama | ~ | Reserved for future GPU deploy block. Currently '~' (null). |
+| OLLAMA_SCALE | ollama |  | - |
+| OLLAMA_PULL_SCALE | ollama |  | - |
+| OLLAMA_NVIDIA_VISIBLE_DEVICES | ollama |  | - |
+| OLLAMA_ENDPOINT | ollama |  | - |
+| LITELLM_OLLAMA_UPSTREAM | ollama |  | Ollama URL the LiteLLM gateway forwards Ollama-routed requests to. Owned by ollama because the value flips with LLM_PROVIDER_SOURCE; consumed by litellm-init when rendering its config.yaml. |
+| OLLAMA_LOCALHOST_PORT | ollama | 11434 | Host port for the ollama-localhost source variant. URL is derived at compose-render time as http://host.docker.internal:11434. |
+| OPEN_WEB_UI_SOURCE | open-webui | container | - |
+| OPEN_WEB_UI_PORT | open-webui |  | - |
+| OPEN_WEB_UI_SECRET_KEY | open-webui | secret | Open WebUI session/signing secret; auto-generated by the bootstrapper when left as the placeholder. |
+| OPEN_WEB_UI_ADMIN_EMAIL | open-webui | admin@localhost | - |
+| OPEN_WEB_UI_ADMIN_PASSWORD | open-webui | admin | Initial Open WebUI admin password; auto-generated by the bootstrapper when left as the placeholder. |
+| OPEN_WEB_UI_ADMIN_NAME | open-webui | Admin | - |
+| OPEN_WEB_UI_WEBSOCKET_SUPPORT | open-webui | True | - |
+| OPEN_WEB_UI_REDIS_DB | open-webui | 2 | - |
+| OPEN_WEB_UI_MODEL_CACHE_TTL | open-webui | 300 | - |
+| OPEN_WEB_UI_TTS_ENGINE | open-webui |  | Set by bootstrapper when speaches/chatterbox are enabled. |
+| OPEN_WEB_UI_STT_ENGINE | open-webui |  | - |
+| OPEN_WEB_UI_TTS_MODEL | open-webui |  | Model name Open WebUI sends to /v1/audio/speech. Empty = engine default. |
+| OPEN_WEB_UI_TTS_VOICE | open-webui |  | Voice id. Empty = engine default. |
+| OPEN_WEB_UI_TTS_API_URL | open-webui |  | - |
+| OPEN_WEB_UI_STT_API_URL | open-webui |  | - |
+| OPEN_WEB_UI_SCALE | open-webui |  | - |
+| OPEN_WEB_UI_INIT_SCALE | open-webui |  | - |
+| OPENCLAW_SOURCE | openclaw | disabled | - |
+| OPENCLAW_GATEWAY_PORT | openclaw |  | - |
+| OPENCLAW_BRIDGE_PORT | openclaw |  | - |
+| OPENCLAW_GATEWAY_TOKEN | openclaw |  | Optional bearer token for securing the OpenClaw gateway and dashboard. |
+| OPENCLAW_LOCALHOST_PORT | openclaw | 63065 | Host port for the localhost source variant (defaults to the freed OPENCLAW_GATEWAY_PORT slot). URL is derived at compose-render time as http://host.docker.internal:63065. |
+| OPENCLAW_INIT_SOURCE | openclaw | container | - |
+| OPENCLAW_ANTHROPIC_API_KEY | openclaw |  | Optional per-OpenClaw Anthropic override. |
+| OPENCLAW_OPENAI_API_KEY | openclaw |  | Optional per-OpenClaw OpenAI override. Leave empty to keep OpenClaw routed through LiteLLM instead of bypassing the stack gateway. |
+| OPENCLAW_SCALE | openclaw |  | - |
+| OPENCLAW_INIT_SCALE | openclaw |  | - |
+| OPENCLAW_ENDPOINT | openclaw |  | Resolved per-source by the bootstrapper (container DNS / host.docker.internal / empty when disabled). Forward-looking hook: no compose fragment injects it into a container today — consumers (e.g. n8n workflows) would read it via their own env wiring when that lands. |
+| OTEL_COLLECTOR_SOURCE | otel-collector | disabled | - |
+| OTEL_COLLECTOR_SCALE | otel-collector |  | - |
+| OTEL_COLLECTOR_ENDPOINT | otel-collector |  | Preferred internal OTLP HTTP endpoint for Atlas services. |
+| OTEL_COLLECTOR_OTLP_HTTP_ENDPOINT | otel-collector |  | Internal OTLP HTTP endpoint (`http://otel-collector:4318`) when enabled. |
+| OTEL_COLLECTOR_OTLP_GRPC_ENDPOINT | otel-collector |  | Internal OTLP gRPC endpoint (`http://otel-collector:4317`) when enabled. |
+| ATLAS_OTEL_ENABLED | otel-collector |  | Boolean string consumed by backend and LiteLLM tracing toggles. |
+| STT_PROVIDER_SOURCE | parakeet | speaches-container-cpu | - |
+| STT_PROVIDER_PORT | parakeet |  | Wizard display slot. Real per-engine ports live on their own manifests (PARAKEET_*, SPEACHES_*, etc.). |
+| STT_PROVIDER_SCALE | parakeet |  | Aggregate STT scale across all engines. Reserved for future use. |
+| PARAKEET_MODEL | parakeet | nvidia/parakeet-tdt-0.6b-v3 | - |
+| PARAKEET_GPU_DEVICE | parakeet | cuda | - |
+| PARAKEET_GPU_COMPUTE_TYPE | parakeet | float16 | - |
+| PARAKEET_LOCALHOST_PORT | parakeet | 63042 | Host port for the parakeet-localhost source variant. URL is derived at compose-render time as http://host.docker.internal:63042. |
+| WHISPER_CPP_LOCALHOST_PORT | parakeet | 63042 | Host port for the whisper-cpp-localhost source variant, same as parakeet because the two modes are mutually exclusive. URL is derived at compose-render time as http://host.docker.internal:63042. |
+| HUGGING_FACE_HUB_TOKEN | parakeet |  | Shared by parakeet, speaches, chatterbox, docling for model downloads. Consumed by ${HUGGING_FACE_HUB_TOKEN} interpolation in those services' compose blocks; owned here as its historic home. |
+| PARAKEET_GPU_SCALE | parakeet |  | - |
+| STT_ENDPOINT | parakeet |  | Resolved per STT_PROVIDER_SOURCE. Consumed by n8n, backend, jupyterhub, open-webui, hermes-init (the latter as STT_INTERNAL_URL — owned by services/hermes/). |
+| PROMETHEUS_SOURCE | prometheus | disabled | - |
+| PROMETHEUS_PORT | prometheus |  | Host port for Prometheus's HTTP UI + API (in-container 9090). |
+| NODE_EXPORTER_PORT | prometheus |  | Host port for node-exporter (in-container 9100). Host-level metrics: CPU, memory, disk, network. |
+| CADVISOR_PORT | prometheus |  | Host port for cAdvisor (in-container 8080). Per-container metrics: CPU, memory, IO. |
+| PROMETHEUS_RETENTION_DAYS | prometheus | 7 | TSDB retention in days. User-configurable at wizard time via the inline secondary numeric input. Default 7. |
+| PROMETHEUS_ENDPOINT | prometheus |  | Resolved per PROMETHEUS_SOURCE — `http://prometheus:9090` for container, empty for disabled. Consumed by Grafana's datasource provisioning. |
+| PROMETHEUS_SCALE | prometheus |  | - |
+| NODE_EXPORTER_SCALE | prometheus |  | - |
+| CADVISOR_SCALE | prometheus |  | - |
+| RAY_SOURCE | ray | disabled | - |
+| RAY_DASHBOARD_PORT | ray |  | Host port for the Ray dashboard + REST job-submission API (in-container 8265). |
+| RAY_GCS_PORT | ray |  | Host port for the Ray GCS (in-container 6379). Distinct from the project's Redis cache container; Ray bundles its own GCS process. |
+| RAY_CLIENT_PORT | ray |  | Host port for the Ray client server (in-container 10001). Used by host Python: `ray.init('ray://localhost:<port>')`. |
+| RAY_WORKER_COUNT | ray | 2 | Number of ray-worker replicas. The wizard prompts for this with default 2. Valid values: 0 (head-only mode) and up. No hard upper bound — bounded by host resources. |
+| RAY_HEAD_SCALE | ray |  | - |
+| RAY_WORKER_SCALE | ray |  | Resolved by the bootstrapper from RAY_WORKER_COUNT when source is ray-container-{cpu,gpu}; 0 otherwise. |
+| RAY_ADDRESS | ray |  | Resolved per source: `ray://ray-head:10001` for container sources, empty for disabled. Injected into the backend + jupyterhub containers via their compose environment blocks. |
+| RAY_DASHBOARD_URL | ray |  | Optional override for the Ray dashboard URL the backend's job client uses. Empty = derive from RAY_ADDRESS (http://ray-head:8265). |
+| RAY_HEAD_MEMORY_LIMIT | ray | 4g | Container memory limit for ray-head (deploy.resources.limits.memory). The head node manages the GCS, dashboard, and object directory; 4 g is conservative but safe on a 32 GB host (the shm_size=8gb allocation is for /dev/shm, separate from this OS memory cap). |
+| RAY_HEAD_CPU_LIMIT | ray | 2.0 | Container CPU limit for ray-head (deploy.resources.limits.cpus). GCS + dashboard coordination rarely needs more than 1 core; 2.0 leaves room for brief spikes. |
+| RAY_WORKER_MEMORY_LIMIT | ray | 4g | Container memory limit per ray-worker (deploy.resources.limits.memory). Workers run tasks and actors; 4 g per replica is a modest OOM fence on a 32 GB host with the default 2 workers. Raise for large in-memory datasets. |
+| RAY_WORKER_CPU_LIMIT | ray | 2.0 | Container CPU limit per ray-worker (deploy.resources.limits.cpus). 2.0 cores per worker. Raise if workers need more parallelism; lower if the host is saturated. |
+| REDIS_SOURCE | redis | container | Single-option source toggle. Redis only ever runs as a container.
+Kept as an env entry (rather than a sources: block) so the wizard
+does not render a one-option dropdown. The legacy source validator
+still expects REDIS_SOURCE=container until Phase D.
+ |
+| REDIS_PORT | redis |  | Host port. Container port is always 6379. |
+| REDIS_PASSWORD | redis | redis_password | Used by every consumer (n8n queue, kong rate-limit cache,
+open-webui websocket store, backend session/queue, local-deep-
+researcher worker queue). The default is for fresh-install
+convenience only; rotate before any deployment.
+ |
+| REDIS_URL | redis | redis://:${REDIS_PASSWORD}@redis:6379/0 | Default connection string (database index 0; also n8n's queue and
+Kong's rate-limit cache). Consumers that need a different DB index
+build their own URL (open-webui + lightrag share /2, jupyterhub
+uses /3). REDIS_PASSWORD is substituted at compose-interpolation
+time.
+ |
+| REDIS_EXPORTER_PORT | redis |  | Host port for redis-exporter (in-container 9121). Sidecar gated by PROMETHEUS_SOURCE. |
+| REDIS_EXPORTER_SCALE | redis |  | Set by _generate_prometheus_config() to 1 when PROMETHEUS_SOURCE=container, 0 otherwise. |
+| REDPANDA_SOURCE | redpanda | disabled | - |
+| REDPANDA_KAFKA_PORT | redpanda |  | Host port for the Redpanda Kafka API external listener (in-container 19092). |
+| REDPANDA_CONSOLE_PORT | redpanda |  | Host port for Redpanda Console (in-container 8080). |
+| REDPANDA_DEMO_TOPICS | redpanda | atlas_stream_events | Comma-separated Kafka topics created idempotently by redpanda-init. |
+| REDPANDA_SCALE | redpanda |  | - |
+| REDPANDA_INIT_SCALE | redpanda |  | - |
+| REDPANDA_CONSOLE_SCALE | redpanda |  | - |
+| REDPANDA_BROKERS | redpanda |  | In-network Kafka bootstrap servers for Atlas services. |
+| SPARK_KAFKA_BOOTSTRAP_SERVERS | redpanda |  | Spark Structured Streaming Kafka bootstrap servers; blank when Redpanda is disabled. |
+| SEARXNG_SOURCE | searxng | container | - |
+| SEARXNG_PORT | searxng |  | - |
+| SEARXNG_SECRET | searxng |  | Auto-generated by bootstrapper. |
+| SEARXNG_SCALE | searxng |  | - |
+| SPARK_SOURCE | spark | disabled | - |
+| SPARK_MASTER_UI_PORT | spark |  | Host port for the Spark Master Web UI (in-container 8080). |
+| SPARK_HISTORY_PORT | spark |  | Host port for the Spark History Server (in-container 18080). |
+| SPARK_WORKER_COUNT | spark | 2 | Number of spark-worker replicas alongside the master. 1-8. |
+| SPARK_MASTER_SCALE | spark |  | - |
+| SPARK_WORKER_SCALE | spark |  | Resolved by the bootstrapper from SPARK_WORKER_COUNT when source=container; 0 otherwise. |
+| SPARK_HISTORY_SCALE | spark |  | - |
+| SPARK_INIT_SCALE | spark |  | - |
+| SPARK_CONNECT_SCALE | spark |  | Resolved by the bootstrapper from SPARK_SOURCE; spark-connect runs as a sidecar to spark-master. |
+| SPARK_CONNECT_CORES_MAX | spark | 1 | Maximum standalone-cluster cores the long-lived Spark Connect server may hold. Keep below total worker cores so Airflow SparkSubmit and Zeppelin standalone workloads can run alongside Connect; raise only when the worker pool has enough headroom. |
+| SPARK_MASTER_MEMORY_LIMIT | spark | 2g | Container memory limit for spark-master (deploy.resources.limits.memory). The standalone master process manages cluster state and requires minimal heap — 2 g is generous on a 32 GB host. |
+| SPARK_MASTER_CPU_LIMIT | spark | 1.0 | Container CPU limit for spark-master (deploy.resources.limits.cpus). Master is lightweight; 1.0 core is ample. |
+| SPARK_WORKER_MEMORY_LIMIT | spark | 4g | Container memory limit per spark-worker (deploy.resources.limits.memory). Workers run executor JVMs; 4 g per replica is a conservative cap on a 32 GB host with the default 2 workers (8 g total). Raise for memory-intensive jobs. |
+| SPARK_WORKER_CPU_LIMIT | spark | 2.0 | Container CPU limit per spark-worker (deploy.resources.limits.cpus). 2.0 cores per worker leaves headroom for other services on the host. |
+| SPEACHES_GPU_IMAGE | speaches | ghcr.io/speaches-ai/speaches:0.9.0-rc.3-cuda | CUDA build of the same image. When the speaches-gpu profile wins, the bootstrapper writes this value into SPEACHES_IMAGE (the compose interpolation target). |
+| SPEACHES_TTS_MODEL | speaches | hexgrad/Kokoro-82M | Model name Open WebUI sends in /v1/audio/speech requests. |
+| SPEACHES_STT_MODEL | speaches | Systran/faster-distil-whisper-large-v3 | - |
+| SPEACHES_PORT | speaches |  | Host port for the Speaches container (in-container listen port is 8000). |
+| SPEACHES_SCALE | speaches |  | Computed by bootstrapper/services/service_config.py::_generate_stt_provider_config (or _generate_tts_provider_config) — set to 1 when STT_PROVIDER_SOURCE OR TTS_PROVIDER_SOURCE picks a speaches-* variant. |
+| SUPABASE_DB_SOURCE | supabase | container | Single-option (container only). Kept for forward-compat with legacy source-validator. |
+| SUPABASE_DB_PORT | supabase |  | - |
+| SUPABASE_DB_USER | supabase | supabase_admin | - |
+| SUPABASE_DB_PASSWORD | supabase | password | Supabase postgres admin password; auto-generated by the bootstrapper when left as the placeholder. |
+| SUPABASE_DB_NAME | supabase | postgres | - |
+| SUPABASE_DB_APP_USER | supabase | app_user | Reserved for a future least-privilege application-tier database user; not created by init scripts today. |
+| SUPABASE_DB_APP_PASSWORD | supabase | app_password | Reserved future app-user password; auto-generated by the bootstrapper when left as the placeholder. |
+| SUPABASE_DB_INIT_SOURCE | supabase | container | Auto-managed by supabase-db. Container/disabled. |
+| POSTGRES_EXPORTER_PORT | supabase |  | Host port for postgres-exporter (in-container 9187). Sidecar gated by PROMETHEUS_SOURCE. |
+| POSTGRES_EXPORTER_SCALE | supabase |  | Set by _generate_prometheus_config() to 1 when PROMETHEUS_SOURCE=container, 0 otherwise. |
+| SUPABASE_META_SOURCE | supabase | container | - |
+| SUPABASE_META_PORT | supabase |  | - |
+| SUPABASE_STORAGE_SOURCE | supabase | container | - |
+| SUPABASE_STORAGE_PORT | supabase |  | - |
+| STORAGE_REGION | supabase | local | - |
+| STORAGE_FILE_SIZE_LIMIT | supabase | 52428800 | - |
+| STORAGE_BACKEND | supabase | file | - |
+| PROJECT_REF | supabase | default | - |
+| TENANT_ID | supabase | stub | - |
+| SUPABASE_AUTH_SOURCE | supabase | container | - |
+| SUPABASE_AUTH_PORT | supabase |  | - |
+| SUPABASE_JWT_SECRET | supabase |  | Auto-generated by bootstrapper/generate_supabase_keys.py on first run. |
+| SUPABASE_ANON_KEY | supabase |  | Auto-generated. |
+| SUPABASE_SERVICE_KEY | supabase |  | Auto-generated. |
+| SUPABASE_API_SOURCE | supabase | container | - |
+| SUPABASE_API_PORT | supabase |  | - |
+| SUPABASE_REALTIME_SOURCE | supabase | container | - |
+| SUPABASE_REALTIME_PORT | supabase |  | - |
+| SUPABASE_STUDIO_SOURCE | supabase | container | - |
+| SUPABASE_STUDIO_PORT | supabase |  | - |
+| SUPAVISOR_SOURCE | supavisor | disabled | Deployment mode: container (transaction pooler) or disabled/direct Postgres. |
+| SUPAVISOR_SCALE | supavisor |  | 1 when SUPAVISOR_SOURCE=container, otherwise 0. |
+| SUPAVISOR_TENANT_ID | supavisor | atlas | Supavisor tenant suffix. Clients connect as <db_user>.<tenant>. |
+| SUPAVISOR_DEFAULT_POOL_SIZE | supavisor | 20 | Default upstream Postgres pool size for the Atlas tenant. |
+| SUPAVISOR_MAX_CLIENT_CONN | supavisor | 100 | Maximum client connections accepted by the Atlas tenant. |
+| SUPAVISOR_DB_POOL_SIZE | supavisor | 5 | Supavisor metadata database pool size. |
+| SUPAVISOR_DATABASE_URL | supavisor |  | Generated Postgres URL consumed by backend/Celery; points at Supavisor when enabled and direct Supabase Postgres when disabled. |
+| SUPAVISOR_DB_HOST | supavisor |  | Generated n8n Postgres host; supavisor when enabled, supabase-db when disabled. |
+| SUPAVISOR_DB_PORT_VALUE | supavisor |  | Generated n8n Postgres port; 6543 when enabled, 5432 when disabled. |
+| SUPAVISOR_DB_USER | supavisor |  | Generated n8n Postgres user; appends .${SUPAVISOR_TENANT_ID} when Supavisor is enabled. |
+| SUPAVISOR_SECRET_KEY_BASE | supavisor |  | Supavisor Phoenix secret; auto-generated by the bootstrapper when blank. |
+| SUPAVISOR_VAULT_ENC_KEY | supavisor |  | Supavisor vault encryption key; must be exactly 32 bytes and is auto-generated when blank. |
+| SUPAVISOR_API_JWT_SECRET | supavisor |  | Supavisor tenant API JWT secret; auto-generated by the bootstrapper when blank. |
+| SUPAVISOR_METRICS_JWT_SECRET | supavisor |  | Supavisor metrics JWT secret; auto-generated by the bootstrapper when blank. |
+| TEI_RERANKER_SOURCE | tei-reranker | disabled | - |
+| TEI_RERANKER_PORT | tei-reranker |  | Host port for the TEI rerank API (in-container listen port is 80). |
+| TEI_RERANKER_LOCALHOST_PORT | tei-reranker | 63049 | Host port for the host-installed TEI rerank source variant. |
+| TEI_RERANKER_MODEL_ID | tei-reranker | mixedbread-ai/mxbai-rerank-base-v1 | - |
+| TEI_RERANKER_REVISION | tei-reranker | main | - |
+| TEI_RERANKER_MAX_CLIENT_BATCH_SIZE | tei-reranker | 32 | - |
+| TEI_RERANKER_MEMORY_LIMIT | tei-reranker | 4g | - |
+| TEI_RERANKER_CPU_LIMIT | tei-reranker | 2.0 | - |
+| TEI_RERANKER_HF_CACHE_DIR | tei-reranker | /data | - |
+| TEI_RERANKER_SCALE | tei-reranker |  | - |
+| TEI_RERANKER_ENDPOINT | tei-reranker |  | Resolved per TEI_RERANKER_SOURCE. Exposes TEI's rerank endpoint to compatible consumers. |
+| TEI_RERANKER_IMAGE_RESOLVED | tei-reranker |  | Image picked per source variant (CPU vs GPU). |
+| TEMPO_SOURCE | tempo | disabled | - |
+| TEMPO_SCALE | tempo |  | - |
+| TEMPO_ENDPOINT | tempo |  | Internal Tempo query/API endpoint consumed by Grafana. |
+| TIKA_SOURCE | tika | disabled | - |
+| TIKA_PORT | tika |  | - |
+| TIKA_LOCALHOST_PORT | tika | 9998 | Host port for the tika-localhost source variant. |
+| TIKA_JAVA_TOOL_OPTIONS | tika | -Xmx768m | JVM memory cap for the Tika server container. |
+| TIKA_MAX_FILE_SIZE | tika | 52428800 | Backend maximum bytes accepted for Docling/Tika extraction. |
+| TIKA_TIMEOUT_SECONDS | tika | 30 | Backend timeout for Tika fallback extraction calls. |
+| TIKA_SCALE | tika |  | - |
+| TIKA_ENDPOINT | tika |  | - |
+| TRINO_SOURCE | trino | disabled | - |
+| TRINO_PORT | trino |  | Host port for the Trino coordinator UI/API (in-container 8080). |
+| TRINO_SCALE | trino |  | - |
+| TTS_PROVIDER_SOURCE | tts-provider | speaches-container-cpu | - |
+| TTS_PROVIDER_PORT | tts-provider |  | Wizard display slot. Real engine port lives on its own container manifest. |
+| TTS_PROVIDER_SCALE | tts-provider |  | Aggregate scale across all TTS engines. Reserved for future use. |
+| TTS_ENDPOINT | tts-provider |  | Resolved per TTS_PROVIDER_SOURCE. Consumed by n8n, backend, jupyterhub, open-webui, hermes-init (as TTS_INTERNAL_URL — owned by services/hermes/). |
+| VERBA_SOURCE | verba | disabled | - |
+| VERBA_PORT | verba |  | Host port for the Verba UI/API (in-container 8000). |
+| VERBA_ENDPOINT | verba |  | In-network URL for Atlas services and notebooks. |
+| VERBA_SCALE | verba |  | - |
+| VERBA_WEAVIATE_URL | verba |  | Resolved Weaviate URL passed to upstream WEAVIATE_URL_VERBA. |
+| VERBA_OPENAI_MODEL | verba |  | Optional Verba OpenAI generator model name. Empty lets Verba list LiteLLM models. |
+| VERBA_OPENAI_EMBED_MODEL | verba |  | Optional Verba OpenAI-compatible embedding model name. Empty keeps upstream default behavior. |
+| VERBA_DEFAULT_DEPLOYMENT | verba | Docker | Verba deployment selector. Atlas uses Docker to target the external Weaviate container. |
+| WEAVIATE_SOURCE | weaviate | container | - |
+| WEAVIATE_PORT | weaviate |  | - |
+| WEAVIATE_GRPC_PORT | weaviate |  | - |
+| WEAVIATE_INIT_SOURCE | weaviate | container | Auto-managed by weaviate. Container/disabled. |
+| MULTI2VEC_CLIP_SOURCE | weaviate | container-cpu | Options: container-cpu, container-gpu, disabled. (Effects driven by hook.) |
+| WEAVIATE_ENABLE_MODULES | weaviate | text2vec-openai,text2vec-ollama,multi2vec-clip,generative-openai,generative-ollama | - |
+| CLIP_INFERENCE_API | weaviate | http://multi2vec-clip:8080 | - |
+| MULTI2VEC_CLIP_SIGLIP2_IMAGE | weaviate | semitechnologies/multi2vec-clip:google-siglip2-so400m-patch16-512-1.5.1 | Opt-in SigLIP 2 image reference for MULTI2VEC_CLIP_IMAGE. Produces 1152-d vectors; revectorize or create new Weaviate collections before switching. |
+| WEAVIATE_URL | weaviate |  | Resolved per WEAVIATE_SOURCE. Consumed by n8n, backend, jupyterhub. |
+| WEAVIATE_LITELLM_API_KEY | weaviate |  | Mirror of LITELLM_MASTER_KEY for Weaviate's vectorizer auth. |
+| WEAVIATE_SCALE | weaviate |  | - |
+| WEAVIATE_INIT_SCALE | weaviate |  | - |
+| CLIP_SCALE | weaviate |  | Computed from MULTI2VEC_CLIP_SOURCE. |
+| CLIP_ENABLE_CUDA | weaviate |  | - |
+| CLIP_DEPLOY_RESOURCES | weaviate | ~ | - |
+| WEAVIATE_LOCALHOST_PORT | weaviate | 8080 | Host port for the weaviate-localhost source variant. URL is derived at compose-render time as http://host.docker.internal:8080. |
+| WEAVIATE_MEMORY_LIMIT | weaviate | 2g | Container memory limit for the weaviate container (deploy.resources.limits.memory). 2 g is conservative for a 32 GB host; the Go-based Weaviate data plane plus in-memory HNSW index fits comfortably for small-to-medium collections. |
+| WEAVIATE_CPU_LIMIT | weaviate | 1.5 | Container CPU limit for the weaviate container (deploy.resources.limits.cpus). 1.5 cores covers routine indexing and query serving on a shared host. |
+| ZEPPELIN_SOURCE | zeppelin | disabled | - |
+| ZEPPELIN_PORT | zeppelin |  | Host port for the Zeppelin Web UI (in-container 8080). |
+| ZEPPELIN_SCALE | zeppelin |  | - |
+| ZEPPELIN_INIT_SCALE | zeppelin |  | - |
+| ZEPPELIN_MEMORY_LIMIT | zeppelin | 2g | Container memory limit for the zeppelin container (deploy.resources.limits.memory). Zeppelin's JVM-based interpreter host typically uses under 1 g for a single-user session; 2 g leaves comfortable headroom on a 32 GB host. |
+| ZEPPELIN_CPU_LIMIT | zeppelin | 1.5 | Container CPU limit for the zeppelin container (deploy.resources.limits.cpus). 1.5 cores covers notebook rendering and interpreter dispatch; compute-heavy work runs on the remote Spark cluster, not in this process. |
