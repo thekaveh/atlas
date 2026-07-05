@@ -23,6 +23,7 @@ THEME_CSS = ROOT / "docs" / "assets" / "stylesheets" / "atlas.css"
 THEME_HERO_IMAGE = ROOT / "docs" / "assets" / "images" / "atlas-source.png"
 THEME_POSTER_BLUE = ROOT / "docs" / "assets" / "atlas-poster-blue.png"
 THEME_POSTER_GOLD = ROOT / "docs" / "assets" / "atlas-poster-gold.png"
+POSTER_VARIANT_SCRIPT = ROOT / "scripts" / "generate-atlas-poster-variants.py"
 
 REQUIRED_DIAGRAMS = {
     "platform-overview",
@@ -399,6 +400,16 @@ def test_home_page_uses_one_wide_poster_hero_with_variant_previews() -> None:
     assert "grid-template-columns: minmax(20rem, 0.75fr) minmax(26rem, 1.25fr)" in css
     assert THEME_POSTER_BLUE.exists()
     assert THEME_POSTER_GOLD.exists()
+
+
+def test_poster_variant_generator_preserves_original_block_wordmark() -> None:
+    script = POSTER_VARIANT_SCRIPT.read_text(encoding="utf-8")
+
+    assert "WORDMARK_SOURCE = ROOT / \"assets\" / \"atlas-poster.png\"" in script
+    assert "_extract_wordmark" in script
+    assert "ImageFont" not in script
+    assert "draw.text" not in script
+    assert "ATLAS-PLATFORM" not in script
 
 
 def test_docs_audit_guidance_lists_required_local_gates() -> None:

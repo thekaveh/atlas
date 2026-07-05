@@ -1,50 +1,22 @@
 #!/usr/bin/env python3
-"""Generate Atlas documentation poster variants from the logo-less source art."""
+"""Generate Atlas documentation poster variants from existing brand art."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFilter, ImageFont
+from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "assets" / "atlas-source.png"
-FONT_CANDIDATES = [
-    Path("/System/Library/Fonts/Supplemental/DIN Condensed Bold.ttf"),
-    Path("/System/Library/Fonts/SFNSMono.ttf"),
-    Path("/System/Library/Fonts/Menlo.ttc"),
-]
+WORDMARK_SOURCE = ROOT / "assets" / "atlas-poster.png"
+WORDMARK_SCALE = 0.82
+WORDMARK_BOTTOM_MARGIN = 24
 VARIANTS = {
-    "blue": {
-        "border": (96, 165, 250),
-        "text": (118, 180, 255),
-        "glow": (45, 135, 255),
-    },
-    "gold": {
-        "border": (213, 162, 42),
-        "text": (250, 205, 99),
-        "glow": (213, 162, 42),
-    },
+    "blue": (96, 165, 250),
+    "gold": (213, 162, 42),
 }
-
-
-def _font(size: int) -> ImageFont.FreeTypeFont:
-    for path in FONT_CANDIDATES:
-        if path.exists():
-            return ImageFont.truetype(str(path), size=size)
-    return ImageFont.load_default(size=size)
-
-
-def _fit_font(draw: ImageDraw.ImageDraw, text: str, width: int) -> ImageFont.FreeTypeFont:
-    size = 88
-    while size >= 52:
-        font = _font(size)
-        left, _top, right, _bottom = draw.textbbox((0, 0), text, font=font)
-        if right - left <= width * 0.46:
-            return font
-        size -= 2
-    return _font(size)
 
 
 def _rounded_border(size: tuple[int, int], color: tuple[int, int, int]) -> Image.Image:
@@ -61,46 +33,63 @@ def _rounded_border(size: tuple[int, int], color: tuple[int, int, int]) -> Image
     return overlay
 
 
-def _wordmark_layer(
+def _expanded_box(
+    box: tuple[int, int, int, int],
     size: tuple[int, int],
-    text: str,
-    font: ImageFont.FreeTypeFont,
-    text_color: tuple[int, int, int],
-    glow_color: tuple[int, int, int],
-) -> Image.Image:
+    padding: int,
+) -> tuple[int, int, int, int]:
+    left, top, right, bottom = box
     width, height = size
-    layer = Image.new("RGBA", size, (0, 0, 0, 0))
-    draw = ImageDraw.Draw(layer)
-    left, top, right, bottom = draw.textbbox((0, 0), text, font=font)
-    text_width = right - left
-    text_height = bottom - top
-    x = (width - text_width) // 2
-    y = height - text_height - 34
+    return (
+        max(0, left - padding),
+        max(0, top - padding),
+        min(width, right + padding),
+        min(height, bottom + padding),
+    )
 
-    glow = Image.new("RGBA", size, (0, 0, 0, 0))
-    glow_draw = ImageDraw.Draw(glow)
-    for offset, alpha in ((0, 150), (2, 110), (4, 70)):
-        glow_draw.text((x - left, y - top + offset), text, font=font, fill=(*glow_color, alpha))
-    glow = glow.filter(ImageFilter.GaussianBlur(5))
-    layer.alpha_composite(glow)
 
-    for dx, dy, alpha in ((2, 2, 130), (-1, 1, 90), (0, 0, 255)):
-        draw.text((x - left + dx, y - top + dy), text, font=font, fill=(*text_color, alpha))
-    return layer
+def _extract_wordmark(source: Image.Image, poster: Image.Image) -> Image.Image:
+    width, height = source.size
+    lower_box = (0, int(height * 0.56), width, height)
+    source_lower = source.crop(lower_box)
+    poster_lower = poster.crop(lower_box)
+
+    diff = ImageChops.difference(poster_lower, source_lower).convert("L")
+    mask = diff.point(lambda value: 0 if value < 8 else min(255, (value - 8) * 5))
+    mask = mask.filter(ImageFilter.GaussianBlur(0.7))
+    bbox = mask.getbbox()
+    if bbox is None:
+        raise RuntimeError("Could not locate the Atlas poster wordmark.")
+
+    bbox = _expanded_box(bbox, poster_lower.size, 14)
+    wordmark = poster_lower.crop(bbox).convert("RGBA")
+    wordmark.putalpha(mask.crop(bbox))
+    return wordmark
+
+
+def _place_wordmark(base: Image.Image, wordmark: Image.Image) -> None:
+    width, height = base.size
+    target_size = (
+        max(1, round(wordmark.width * WORDMARK_SCALE)),
+        max(1, round(wordmark.height * WORDMARK_SCALE)),
+    )
+    scaled = wordmark.resize(target_size, Image.Resampling.LANCZOS)
+    x = (width - scaled.width) // 2
+    y = height - scaled.height - WORDMARK_BOTTOM_MARGIN
+    base.alpha_composite(scaled, (x, y))
 
 
 def generate() -> None:
     source = Image.open(SOURCE).convert("RGB")
-    text = "ATLAS-PLATFORM"
-    scratch = ImageDraw.Draw(Image.new("RGB", source.size))
-    font = _fit_font(scratch, text, source.size[0])
+    poster = Image.open(WORDMARK_SOURCE).convert("RGB")
+    if source.size != poster.size:
+        raise RuntimeError("Atlas source and poster assets must have the same dimensions.")
 
-    for name, colors in VARIANTS.items():
+    wordmark = _extract_wordmark(source, poster)
+    for name, border_color in VARIANTS.items():
         image = source.convert("RGBA")
-        image.alpha_composite(
-            _wordmark_layer(source.size, text, font, colors["text"], colors["glow"])
-        )
-        image.alpha_composite(_rounded_border(source.size, colors["border"]))
+        _place_wordmark(image, wordmark)
+        image.alpha_composite(_rounded_border(source.size, border_color))
         image.convert("RGB").save(ROOT / "assets" / f"atlas-poster-{name}.png", optimize=True)
 
 
