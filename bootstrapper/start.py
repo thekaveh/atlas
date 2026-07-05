@@ -418,6 +418,85 @@ class AtlasStarter:
         )
         return False
 
+    def _env_user_overlay_path(self) -> Path:
+        """Return the optional user-owned env overlay next to the active .env."""
+        return self.config_parser.env_file_path.parent / ".env.user"
+
+    def _parse_env_overlay_file(self, overlay_path: Path) -> Dict[str, str]:
+        """Parse a user env overlay with the same line semantics as .env."""
+        env_vars: Dict[str, str] = {}
+        with open(overlay_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+
+                key, value = line.split("=", 1)
+                value = value.strip()
+                if value[:1] in ('"', "'"):
+                    quote = value[0]
+                    end = value.find(quote, 1)
+                    if end != -1:
+                        value = value[1:end]
+                    else:
+                        value = value.strip('"').strip("'")
+                else:
+                    for i, ch in enumerate(value):
+                        if ch == "#" and (i == 0 or value[i - 1] in " \t"):
+                            value = value[:i]
+                            break
+                    value = value.strip()
+                env_vars[key.strip()] = value
+        return env_vars
+
+    def _apply_env_user_overlay(self) -> Dict[str, str]:
+        """Merge optional .env.user overrides into the active .env file."""
+        overlay_path = self._env_user_overlay_path()
+        if not overlay_path.exists():
+            return {}
+
+        overrides = self._parse_env_overlay_file(overlay_path)
+        if not overrides:
+            self.banner.show_status_message(f"  • {overlay_path} has no env overrides", "info")
+            return {}
+
+        self._merge_env_file_overrides(overrides)
+        self.banner.show_status_message(
+            f"  • Applied {overlay_path} ({len(overrides)} override{'s' if len(overrides) != 1 else ''})",
+            "info",
+        )
+        return overrides
+
+    def _merge_env_file_overrides(self, overrides: Dict[str, str]) -> None:
+        """Replace or append env keys without duplicate-key ambiguity."""
+        env_file_path = self.config_parser.env_file_path
+        content = env_file_path.read_text(encoding="utf-8")
+        updated_content = content
+
+        for var_name, var_value in overrides.items():
+            pattern = rf"^{re.escape(var_name)}=.*$"
+            replacement = f"{var_name}={var_value}"
+            if re.search(pattern, updated_content, re.MULTILINE):
+                updated_content = re.sub(
+                    pattern,
+                    lambda _m, r=replacement: r,
+                    updated_content,
+                    flags=re.MULTILINE,
+                )
+            else:
+                separator = "" if updated_content.endswith("\n") else "\n"
+                updated_content += f"{separator}{replacement}\n"
+
+        tmp_path = Path(str(env_file_path) + ".tmp")
+        try:
+            original_mode = os.stat(env_file_path).st_mode
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                os.chmod(tmp_path, original_mode)
+                f.write(updated_content)
+            os.replace(tmp_path, env_file_path)
+        finally:
+            tmp_path.unlink(missing_ok=True)
+
     def validate_persisted_project_name(self) -> bool:
         """Fail before mutating .env when its stored PROJECT_NAME is invalid."""
         try:
@@ -463,6 +542,13 @@ class AtlasStarter:
             if not self.validate_persisted_project_name():
                 return False
 
+        existing_project_name: Optional[str] = None
+        if cold_start and env_file_path.exists():
+            try:
+                existing_project_name = self.config_parser.get_project_name()
+            except ValueError:
+                existing_project_name = None
+
         # Check if .env exists, if not or if cold start is requested, create from .env.example
         if not env_file_path.exists() or cold_start:
             if not env_example_path.exists():
@@ -489,13 +575,24 @@ class AtlasStarter:
                 self.banner.show_status_message(f"  • Copied {env_example_path}", "info")
                 self.banner.show_status_message(f"  •     to {env_file_path}", "info")
 
+                overlay_overrides = self._apply_env_user_overlay()
+
                 # Unset potentially lingering port environment variables if cold start and custom base port are used
                 effective_base_port = base_port if base_port is not None else DEFAULT_BASE_PORT
                 if cold_start and effective_base_port != DEFAULT_BASE_PORT:
                     self.unset_port_environment_variables()
 
                 self.banner.show_status_message("Environment file setup completed", "success")
-                return self._persist_project_name(project_name)
+                project_name_to_persist = project_name
+                if (
+                    project_name_to_persist is None
+                    and existing_project_name
+                    and "PROJECT_NAME" not in overlay_overrides
+                ):
+                    project_name_to_persist = existing_project_name
+                if not self._persist_project_name(project_name_to_persist):
+                    return False
+                return self.validate_persisted_project_name()
 
             except Exception as e:
                 self.banner.show_status_message(f"Failed to create .env file: {e}", "error")
