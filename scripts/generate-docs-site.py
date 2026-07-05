@@ -23,7 +23,7 @@ sys.path.insert(0, str(ROOT / "bootstrapper"))
 
 from docs.sitegen.mkdocs_config import build_mkdocs_config  # noqa: E402
 from docs.sitegen.model import load_docs_model  # noqa: E402
-from docs.sitegen.theme import binary_copy_artifacts, theme_artifacts  # noqa: E402
+from docs.sitegen.theme import copy_artifacts, theme_artifacts  # noqa: E402
 from services.manifests import Manifest, load_manifests  # noqa: E402
 
 
@@ -632,6 +632,17 @@ want the Kong `*.localhost` aliases. Common paths:
 See the existing [interactive wizard guide](../quick-start/interactive-setup-wizard.md)
 and [troubleshooting guide](../quick-start/troubleshooting.md).
 """
+    pages[SITE / "core-concepts.md"] = """# Core Concepts
+
+This generated page exists so the Task 3 MkDocs navigation has a valid target
+before the broader information-architecture rewrite lands.
+
+## 1. Current Source Of Truth
+
+- SOURCE behavior: [docs/deployment/source-configuration.md](../deployment/source-configuration.md)
+- Track registry: [bootstrapper/tracks.yml](https://github.com/thekaveh/atlas/blob/main/bootstrapper/tracks.yml)
+- Service manifests: [services/](https://github.com/thekaveh/atlas/tree/main/services)
+"""
     pages[SITE / "architecture" / "index.md"] = """# Architecture
 
 Atlas architecture is documented in split perspectives rather than one
@@ -975,7 +986,7 @@ def main() -> int:
     drift = 0
     for path, content in sorted(build_artifacts().items(), key=lambda item: str(item[0])):
         drift += _write_or_check(path, content, args.check)
-    for source, target in binary_copy_artifacts(ROOT):
+    for source, target in copy_artifacts(ROOT):
         drift += _copy_or_check_binary(source, target, args.check)
     return 2 if drift and args.check else 0
 

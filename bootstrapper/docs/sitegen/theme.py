@@ -109,7 +109,11 @@ def theme_artifacts(root: Path) -> dict[Path, str]:
     return {root / "docs" / "assets" / "stylesheets" / "atlas.css": atlas_css()}
 
 
-def binary_copy_artifacts(root: Path) -> list[tuple[Path, Path]]:
+def copy_artifacts(root: Path) -> list[tuple[Path, Path]]:
     return [
         (root / "assets" / "atlas-source.png", root / "docs" / "assets" / "images" / "atlas-source.png"),
     ]
+
+
+def binary_copy_artifacts(root: Path) -> list[tuple[Path, Path]]:
+    return copy_artifacts(root)

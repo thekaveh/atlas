@@ -55,6 +55,17 @@ def _flatten_nav(items: list) -> dict[str, str]:
     return flattened
 
 
+def _nav_labels(items: list) -> set[str]:
+    labels: set[str] = set()
+    for item in items:
+        assert isinstance(item, dict)
+        for label, value in item.items():
+            labels.add(label)
+            if isinstance(value, list):
+                labels.update(_nav_labels(value))
+    return labels
+
+
 def _service_names() -> set[str]:
     manifest_names = {manifest.name for manifest in load_manifests(ROOT / "services")}
     doc_only_names = {
@@ -71,32 +82,40 @@ def _service_names() -> set[str]:
 def test_mkdocs_nav_exists_and_points_to_real_pages() -> None:
     config = _mkdocs()
     nav = _flatten_nav(config["nav"])
+    nav_labels = _nav_labels(config["nav"])
 
     assert config["site_name"] == "Atlas Documentation"
     assert config["site_url"] == "https://thekaveh.github.io/atlas/"
     assert config["docs_dir"] == "docs"
     assert config["site_dir"] == "site"
-    assert nav["1. Home"] == "index.md"
-    assert nav["7. Service Index"] == "site/services/index.md"
-    assert nav["14. SOURCE Reference"] == "site/reference/source-values.md"
-    assert "20. Wiki Export" not in nav
+    assert nav["1. Overview"] == "index.md"
+    assert nav["5.1. Index"] == "site/services/index.md"
+    assert nav["10.1. Index"] == "site/reference/index.md"
+    assert nav["10.2. SOURCE Values"] == "site/reference/source-values.md"
+    assert "11. Wiki Export" not in nav
     assert "assets/stylesheets/atlas.css" in config["extra_css"]
     assert config["validation"]["links"]["not_found"] != "ignore"
+    assert any(
+        label.startswith("5.2.") and target.startswith("site/services/") and target.endswith(".md")
+        for label, target in nav.items()
+    )
 
     required_sections = {
-        "2. Overview",
-        "3. Quick Start",
-        "4. Architecture",
-        "6. Services",
-        "9. Tracks",
-        "10. Configuration",
-        "11. Operations",
-        "12. Development",
-        "13. Reference",
+        "1. Overview",
+        "2. Quick Start",
+        "3. Core Concepts",
+        "4. Tracks",
+        "5. Service Catalog",
+        "5.2. Services",
+        "6. Architecture",
+        "7. Configuration",
+        "8. Operations",
+        "9. Development",
+        "10. Reference",
     }
-    assert required_sections <= set(nav)
+    assert required_sections <= nav_labels
 
-    for label in nav:
+    for label in nav_labels:
         assert label[0].isdigit(), f"nav label is not numbered: {label!r}"
 
     for label, target in nav.items():
