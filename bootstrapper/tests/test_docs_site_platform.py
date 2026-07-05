@@ -127,11 +127,9 @@ def test_docs_site_indexes_every_service_family() -> None:
     mkdocs_text = MKDOCS.read_text(encoding="utf-8")
 
     for name in sorted(_service_names()):
-        assert f"../services/{name}.md" in service_index or f"../../services/{name}/README.md" in service_index
+        assert f"({name}.md)" in service_index or f"../../services/{name}/README.md" in service_index
         assert f"services/{name}.md" in mkdocs_text
 
-    assert "Virtual manifests" in service_index
-    assert "Doc-only service folders" in service_index
     assert "cloud-providers" in service_index
     assert "stt-provider" in service_index
 
@@ -142,6 +140,40 @@ def test_docs_site_indexes_every_service_family() -> None:
             f"(https://github.com/thekaveh/atlas/blob/main/services/{name}/README.md)"
             in page
         )
+
+
+def test_service_profiles_are_substantial_and_generated_from_model() -> None:
+    for name in ["supabase", "open-webui", "litellm", "airflow", "spark"]:
+        page = DOCS_SITE / "services" / f"{name}.md"
+        text = page.read_text(encoding="utf-8")
+        for heading in [
+            "## 1. Overview",
+            "## 2. Role In Atlas",
+            "## 3. Tracks And Category",
+            "## 4. Access",
+            "## 5. Configuration",
+            "## 6. Dependencies And Topology",
+            "## 7. Source Values",
+            "## 8. Runtime Integration",
+            "## 9. Architecture",
+            "## 10. Operations",
+            "## 11. Source Documentation",
+        ]:
+            assert heading in text
+        assert "Generated service-site entry" not in text
+        assert "Source README remains the source of truth" not in text
+        assert f"services/{name}/README.md" in text
+
+
+def test_service_catalog_groups_services_by_category_with_tracks_and_sources() -> None:
+    index = (DOCS_SITE / "services" / "index.md").read_text(encoding="utf-8")
+    assert "## 1. Service Catalog" in index
+    assert "### 1." in index
+    assert "| Service | Title | Tracks | SOURCE | Default | Values | Dependencies |" in index
+    assert "supabase" in index
+    assert "open-webui" in index
+    assert "cloud-providers" in index
+    assert "stt-provider" in index
 
 
 def test_generated_reference_pages_cover_core_sources() -> None:

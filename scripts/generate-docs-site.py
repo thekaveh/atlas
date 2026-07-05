@@ -24,6 +24,7 @@ sys.path.insert(0, str(ROOT / "bootstrapper"))
 from docs.sitegen.mkdocs_config import build_mkdocs_config  # noqa: E402
 from docs.sitegen.model import DocsModel, load_docs_model  # noqa: E402
 from docs.sitegen.pages import static_pages  # noqa: E402
+from docs.sitegen.services import service_pages  # noqa: E402
 from docs.sitegen.theme import copy_artifacts, theme_artifacts  # noqa: E402
 from services.manifests import Manifest, load_manifests  # noqa: E402
 
@@ -554,67 +555,6 @@ def _table(headers: list[str], rows: Iterable[list[str]]) -> str:
     return "\n".join(out)
 
 
-def _service_pages(services: list[ServiceDoc]) -> dict[Path, str]:
-    pages: dict[Path, str] = {}
-    groups = {
-        "container": [svc for svc in services if svc.kind == "container"],
-        "virtual": [svc for svc in services if svc.kind == "virtual"],
-        "doc-only": [svc for svc in services if svc.kind == "doc-only"],
-    }
-    rows = []
-    for svc in services:
-        rows.append([
-            f"[{svc.name}](../services/{svc.name}.md)",
-            svc.title,
-            svc.category,
-            svc.kind,
-            svc.source_var or "-",
-        ])
-        readme_link = f"{GITHUB_BLOB_URL}/services/{svc.name}/README.md" if svc.readme.exists() else ""
-        readme_line = (
-            f"- Source README: [services/{svc.name}/README.md]({readme_link})"
-            if readme_link
-            else f"- Source README: `services/{svc.name}/README.md`"
-        )
-        pages[SITE / "services" / f"{svc.name}.md"] = f"""# {svc.title}
-
-Generated service-site entry for `{svc.name}`.
-
-## 1. Service Contract
-
-- Category: `{svc.category}`
-- Kind: `{svc.kind}`
-- SOURCE variable: `{svc.source_var or 'none'}`
-- SOURCE values: `{', '.join(svc.source_values) if svc.source_values else 'none'}`
-{readme_line}
-
-## 2. Source Of Truth
-
-The service README remains the source of truth for detailed setup, architecture,
-and troubleshooting. This page exists so MkDocs navigation can index every
-manifest-backed, virtual, and doc-only service family deterministically.
-"""
-    pages[SITE / "services" / "index.md"] = f"""# Service Index
-
-Generated from `services/*/service.yml` and `services/*/README.md`.
-
-## 1. Service Families
-
-{_table(["Service", "Title", "Category", "Kind", "SOURCE"], rows)}
-
-## 2. Virtual Manifests
-
-Virtual manifests are configuration surfaces without a compose container:
-{', '.join(sorted(svc.name for svc in groups['virtual']))}.
-
-## 3. Doc-only Service Folders
-
-Doc-only service folders are aggregate documentation surfaces without their own
-`service.yml`: {', '.join(sorted(svc.name for svc in groups['doc-only']))}.
-"""
-    return pages
-
-
 def _reference_pages(model: DocsModel, services: list[ServiceDoc]) -> dict[Path, str]:
     manifests = load_manifests(SERVICES)
     pages: dict[Path, str] = {}
@@ -797,7 +737,7 @@ def build_artifacts() -> dict[Path, str]:
     artifacts[ROOT / "mkdocs.yml"] = yaml.safe_dump(build_mkdocs_config(model), sort_keys=False)
     artifacts.update(theme_artifacts(ROOT))
     artifacts.update(static_pages(model))
-    artifacts.update(_service_pages(services))
+    artifacts.update(service_pages(model))
     artifacts.update(_reference_pages(model, services))
     artifacts.update(_diagram_pages())
     artifacts.update(_wiki_pages(services))

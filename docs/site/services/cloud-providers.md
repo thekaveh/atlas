@@ -1,17 +1,55 @@
 # Cloud LLM providers (OpenAI, Anthropic, OpenRouter)
 
-Generated service-site entry for `cloud-providers`.
+## 1. Overview
 
-## 1. Service Contract
+`cloud-providers` is an Atlas service family in the `llm` category. Its implementation and service-owned documentation live under `services/cloud-providers/`.
+
+## 2. Role In Atlas
+
+Atlas uses this service according to its manifest, topology row, SOURCE settings, dependencies, and runtime data-flow declarations.
+
+## 3. Tracks And Category
 
 - Category: `llm`
 - Kind: `virtual`
-- SOURCE variable: `none`
-- SOURCE values: `none`
-- Source README: `services/cloud-providers/README.md`
+- Tracks: `all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading`
 
-## 2. Source Of Truth
+## 4. Access
 
-The service README remains the source of truth for detailed setup, architecture,
-and troubleshooting. This page exists so MkDocs navigation can index every
-manifest-backed, virtual, and doc-only service family deterministically.
+- Kong aliases: `-`
+- Port variables: `-`
+
+## 5. Configuration
+
+- SOURCE variable: `CLOUD_OPENAI_SOURCE`
+- Default SOURCE: `disabled`
+- Available SOURCE values: `enabled, disabled`
+
+## 6. Dependencies And Topology
+
+- Required dependencies: `litellm`
+- Optional dependencies: `-`
+- Runtime calls: `-`
+
+## 7. Source Values
+
+| SOURCE Variable | Default | Values |
+| --- | --- | --- |
+| CLOUD_OPENAI_SOURCE | disabled | enabled, disabled |
+
+## 8. Runtime Integration
+
+The manifest data-flow list declares runtime calls to `-`. The topology row supplies aliases and port surfaces used by the generated gateway and service references.
+
+## 9. Architecture
+
+- Diagram: not generated for this service family.
+
+## 10. Operations
+
+Use `./start.sh` to configure this service through the wizard or pass the matching SOURCE flag when the service is source-configurable. Use `./stop.sh` to stop the active Atlas project.
+
+## 11. Source Documentation
+
+- Source README: [services/cloud-providers/README.md](https://github.com/thekaveh/atlas/blob/main/services/cloud-providers/README.md)
+- Public docs home: [https://thekaveh.github.io/atlas/](https://thekaveh.github.io/atlas/)
