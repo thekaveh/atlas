@@ -9,6 +9,7 @@
   --atlas-sky: #38bdf8;
   --atlas-cyan: #0ea5e9;
   --atlas-electric: #7dd3fc;
+  --atlas-gold: #d5a22a;
 }
 
 [data-md-color-scheme="slate"] {
@@ -38,6 +39,32 @@
     linear-gradient(180deg, #07111f 0, #020617 32rem, #020617 100%);
 }
 
+.md-grid {
+  max-width: min(92rem, calc(100vw - 2rem));
+}
+
+.md-content__inner {
+  max-width: 58rem;
+}
+
+.md-content--atlas-wide {
+  display: block;
+}
+
+.md-content__inner:has(.md-content--atlas-wide),
+.md-content__inner:has(.atlas-service-grid),
+.md-content__inner:has(table) {
+  max-width: none;
+}
+
+.md-main__inner:has(.atlas-home) .md-sidebar--secondary {
+  display: none;
+}
+
+.md-main__inner:has(.atlas-home) .md-content {
+  max-width: none;
+}
+
 [data-md-color-scheme="default"] .md-main {
   background:
     linear-gradient(115deg, rgba(14, 165, 233, 0.08), transparent 30rem),
@@ -59,18 +86,61 @@
   color: #020617;
 }
 
-.atlas-hero {
+.atlas-home {
   display: grid;
-  gap: 1.2rem;
-  margin: 1rem 0 2rem;
+  gap: 2rem;
+  margin: 1rem 0 2.5rem;
 }
 
-.atlas-hero img,
+.atlas-home__hero {
+  align-items: center;
+  display: grid;
+  gap: 1.4rem;
+  grid-template-columns: minmax(20rem, 0.75fr) minmax(26rem, 1.25fr);
+}
+
+.atlas-home__copy {
+  max-width: 44rem;
+}
+
+.atlas-home__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  margin-top: 1rem;
+}
+
+.atlas-home__actions a {
+  border: 1px solid rgba(56, 189, 248, 0.45);
+  border-radius: 8px;
+  color: var(--atlas-ink-strong);
+  display: inline-flex;
+  font-weight: 700;
+  padding: 0.55rem 0.8rem;
+}
+
+[data-md-color-scheme="default"] .atlas-home__actions a {
+  color: #020617;
+}
+
+.atlas-home__media {
+  margin: 0;
+}
+
+.atlas-home__media img,
 .atlas-screenshot img,
 .atlas-diagram img {
   border: 1px solid rgba(96, 165, 250, 0.24);
   border-radius: 8px;
   box-shadow: 0 24px 70px rgba(0, 0, 0, 0.34);
+}
+
+.atlas-home__media img {
+  width: 100%;
+}
+
+.atlas-screenshot {
+  margin-top: 1.5rem;
 }
 
 .atlas-service-grid {
@@ -95,4 +165,10 @@
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
+}
+
+@media screen and (max-width: 76rem) {
+  .atlas-home__hero {
+    grid-template-columns: 1fr;
+  }
 }
