@@ -181,6 +181,18 @@ def test_generate_missing_keys_covers_all_placeholder_vars(tmp_path):
         )
 
 
+def test_generate_missing_keys_creates_backend_kong_api_key(tmp_path):
+    _seed_env(tmp_path, "BACKEND_KONG_API_KEY=\n")
+    kg = KeyGenerator(str(tmp_path))
+
+    results = kg.generate_missing_keys(force_regenerate=False)
+
+    assert results.get("BACKEND_KONG_API_KEY") is True
+    key = kg.get_current_env_value("BACKEND_KONG_API_KEY")
+    assert key
+    assert key.startswith("sk-backend-")
+
+
 def test_assert_no_placeholders_detects_unrotated(tmp_path):
     import sys, pathlib
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))

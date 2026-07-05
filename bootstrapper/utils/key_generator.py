@@ -172,6 +172,10 @@ class KeyGenerator:
         """LiteLLM master key — must start with `sk-` per LiteLLM's contract."""
         return f"sk-{_cli_safe_token_urlsafe(40)}"
 
+    def generate_backend_kong_api_key(self) -> str:
+        """Backend Kong key-auth credential for the api.localhost route."""
+        return f"sk-backend-{_cli_safe_token_urlsafe(32)}"
+
     def generate_minio_root_password(self) -> str:
         """MinIO root password — 32-char URL-safe random."""
         return _cli_safe_token_urlsafe(24)
@@ -596,6 +600,17 @@ class KeyGenerator:
             return True
         return self.update_env_key('DASHBOARD_PASSWORD', self.generate_password())
 
+    def generate_and_update_backend_kong_api_key(self, force: bool = False) -> bool:
+        """Generate BACKEND_KONG_API_KEY when absent.
+
+        The key is only enforced when BACKEND_KONG_AUTH=key-auth, but generating
+        it up front lets an operator enable the gateway guard later without a
+        separate secret-management step.
+        """
+        if not force and self.get_current_env_value('BACKEND_KONG_API_KEY'):
+            return True
+        return self.update_env_key('BACKEND_KONG_API_KEY', self.generate_backend_kong_api_key())
+
     def generate_and_update_webui_admin_password(self, force: bool = False) -> bool:
         """Rotate `OPEN_WEB_UI_ADMIN_PASSWORD` only when absent or still the
         `admin` placeholder. The open-webui-init container re-registers the
@@ -973,6 +988,7 @@ class KeyGenerator:
         )
         results['REDIS_PASSWORD'] = self.generate_and_update_redis_password(force=False)
         results['DASHBOARD_PASSWORD'] = self.generate_and_update_kong_dashboard_password(force=False)
+        results['BACKEND_KONG_API_KEY'] = self.generate_and_update_backend_kong_api_key(force=False)
         results['OPEN_WEB_UI_ADMIN_PASSWORD'] = self.generate_and_update_webui_admin_password(force=False)
 
         return results
