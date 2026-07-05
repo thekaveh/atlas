@@ -297,6 +297,7 @@ _Engine-only manifests (speaches, chatterbox) are not listed — they're selecte
 | Media | Blender MCP | — | — |
 | Media | Crawl4AI | 63050 | crawl4ai.localhost |
 | Media | Document Processor | 63051 | docling.localhost |
+| Media | FAL Cloud Media | — | — |
 | Media | ComfyUI | 63052 | comfyui.localhost |
 | Media | STT Provider | 63053 | stt.localhost |
 | Media | SearxNG | 63054 | search.localhost |

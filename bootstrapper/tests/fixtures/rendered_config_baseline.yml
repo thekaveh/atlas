@@ -323,6 +323,13 @@ services:
       COMFYUI_BASE_URL: http://comfyui:18188
       COMFYUI_ENABLED: 'true'
       COMFYUI_MANIFEST_PATH: /comfyui-manifest/selected-models.yaml
+      FAL_API_KEY: ''
+      FAL_ENABLE_SAFETY_CHECKER: 'true'
+      FAL_KEY: ''
+      FAL_MODEL: fal-ai/flux/dev
+      FAL_OUTPUT_FORMAT: jpeg
+      FAL_SOURCE: disabled
+      FAL_TIMEOUT_SECONDS: '120'
       DATABASE_URL: postgresql://supabase_admin:password@supabase-db:5432/postgres
       DOCLING_ENDPOINT: ''
       GRAPHITI_DEFAULT_NAMESPACE: langmem

@@ -22,6 +22,7 @@ This matrix lists every `*_SOURCE` variable currently exposed in `.env.example`.
 | `CLOUD_OPENROUTER_SOURCE` | `disabled` | `enabled`, `disabled` | User-facing | Toggles OpenRouter as a LiteLLM upstream. Requires `OPENROUTER_API_KEY`. |
 | `LITELLM_SOURCE` | `container` | `container` | Infra / always-on | LiteLLM gateway. Always on; not user-disableable. |
 | `COMFYUI_SOURCE` | `container-cpu` | `container-cpu`, `container-gpu`, `localhost`, `disabled` | User-facing | Image generation service. |
+| `FAL_SOURCE` | `disabled` | `enabled`, `disabled` | User-facing optional | Cloud media provider for backend simple generation routes. Requires `FAL_API_KEY` only when enabled. |
 | `PROMETHEUS_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Observability scraper + TSDB. Bundles node-exporter and cAdvisor; gates postgres-exporter / redis-exporter sidecars. |
 | `GRAFANA_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Observability dashboards + unified alerting. Pre-provisions the Prometheus datasource and 7 starter dashboards. |
 | `WEAVIATE_SOURCE` | `container` | `container`, `localhost`, `disabled` | User-facing | Vector database. |
@@ -268,6 +269,18 @@ COMFYUI_SOURCE=disabled
 - **Pros**: Saves resources
 - **Cons**: No image generation
 - **Requirements**: None
+
+#### 4.2.5 `FAL_SOURCE` — cloud media provider
+```bash
+FAL_SOURCE=enabled
+FAL_API_KEY=<your-fal-key>
+FAL_MODEL=fal-ai/flux/dev
+```
+- **Use case**: Route simple backend image generation through fal.ai instead of local ComfyUI hardware.
+- **Pros**: No local GPU or ComfyUI container required for compatible prompt-to-image requests.
+- **Cons**: Requires internet access, provider quota, and per-generation provider cost.
+- **Requirements**: `FAL_API_KEY` when `FAL_SOURCE=enabled`; no key required when `FAL_SOURCE=disabled`.
+- **Behavior**: `POST /comfyui/generate` uses FAL when enabled for compatibility with existing Open WebUI and n8n callers. ComfyUI-specific workflow, queue, history, cancellation, and image-file routes remain ComfyUI-specific.
 
 ### 4.3 WEAVIATE_SOURCE
 

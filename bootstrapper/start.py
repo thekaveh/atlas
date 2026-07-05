@@ -2122,6 +2122,8 @@ class AtlasStarter:
 @click.option('--openrouter-api-key', type=str, default=None,
               help='OpenRouter API key (sk-or-...). Persists to .env as OPENROUTER_API_KEY '
                    'and implies --cloud-openrouter-source=enabled.')
+@click.option('--fal-api-key', type=str, default=None,
+              help='fal.ai API key. Persists to .env as FAL_API_KEY and implies --fal-source=enabled.')
 @click.option('--openai-models', type=str, default=None,
               help='Comma-separated OpenAI model names to activate (e.g. "gpt-5,gpt-5-mini,o3"). '
                    'Persists to .env as OPENAI_USER_MODELS; litellm-init activates these via model_resolver on the next docker compose up.')
@@ -2150,6 +2152,9 @@ class AtlasStarter:
               type=click.Choice(['container-cpu', 'container-gpu', 'localhost',
                                 'disabled'], case_sensitive=False),
               help='Override COMFYUI_SOURCE')
+@click.option('--fal-source',
+              type=click.Choice(['enabled', 'disabled'], case_sensitive=False),
+              help='Override FAL_SOURCE — cloud media provider for backend generation routes.')
 @click.option('--weaviate-source',
               type=click.Choice(['container', 'localhost', 'disabled'], case_sensitive=False),
               help='Override WEAVIATE_SOURCE')
@@ -2315,11 +2320,11 @@ class AtlasStarter:
                    'always-on .env defaults, not profile-gated.)')
 def main(project_name, base_port, track, list_tracks, cold, setup_hosts, skip_hosts, llm_provider_source,
          cloud_openai_source, cloud_anthropic_source, cloud_openrouter_source,
-         openai_api_key, anthropic_api_key, openrouter_api_key,
+         openai_api_key, anthropic_api_key, openrouter_api_key, fal_api_key,
          openai_models, anthropic_models, openrouter_models,
          ollama_models, ollama_custom_models,
          comfyui_models, comfyui_custom_models_file,
-         comfyui_source, weaviate_source, minio_source, n8n_source, searxng_source,
+         comfyui_source, fal_source, weaviate_source, minio_source, n8n_source, searxng_source,
          crawl4ai_source, tika_source, llm_graph_builder_source,
          celery_source, supavisor_source, mcp_servers_source, blender_mcp_source,
          jupyterhub_source, open_web_ui_source, local_deep_researcher_source,
@@ -2497,6 +2502,10 @@ def main(project_name, base_port, track, list_tracks, cold, setup_hosts, skip_ho
             cloud_api_keys['OPENROUTER_API_KEY'] = openrouter_api_key
             if cloud_openrouter_source is None:
                 cloud_openrouter_source = 'enabled'
+        if fal_api_key is not None:
+            cloud_api_keys['FAL_API_KEY'] = fal_api_key
+            if fal_source is None:
+                fal_source = 'enabled'
 
         # User-selected model lists from CLI flags. litellm-init
         # consumes these on the next docker compose up via model_resolver
@@ -2605,6 +2614,7 @@ def main(project_name, base_port, track, list_tracks, cold, setup_hosts, skip_ho
             'cloud_anthropic_source': cloud_anthropic_source,
             'cloud_openrouter_source': cloud_openrouter_source,
             'comfyui_source': comfyui_source,
+            'fal_source': fal_source,
             'weaviate_source': weaviate_source,
             'minio_source': minio_source,
             'n8n_source': n8n_source,
