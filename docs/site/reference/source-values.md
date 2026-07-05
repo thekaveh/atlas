@@ -16,6 +16,7 @@
 | COMFYUI_SOURCE | comfyui | container-cpu | container-cpu, container-gpu, localhost, disabled |
 | CRAWL4AI_SOURCE | crawl4ai | disabled | container, disabled |
 | DOC_PROCESSOR_SOURCE | docling | disabled | disabled, docling-localhost, docling-container-gpu |
+| FAL_SOURCE | fal | disabled | enabled, disabled |
 | GRAFANA_SOURCE | grafana | disabled | container, disabled |
 | HERMES_SOURCE | hermes | container | container, localhost, disabled |
 | ICEBERG_REST_SOURCE | iceberg-rest | disabled | container, disabled |

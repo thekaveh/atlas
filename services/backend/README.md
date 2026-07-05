@@ -146,6 +146,7 @@ When `LIGHTRAG_SOURCE != disabled`, the backend receives `LIGHTRAG_ENDPOINT` and
 | weaviate | data |
 | litellm | llm |
 | comfyui | media |
+| fal | media |
 | tika | media |
 | celery | agents |
 | n8n ↔ | agents |

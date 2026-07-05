@@ -15,6 +15,7 @@ import re
 from n8n_client import N8nClient
 from research_service import ResearchService
 from comfyui_client import ComfyUIClient
+from fal_media_client import FalClient
 from uuid import UUID as _UUID
 from memory_service import MemoryService
 from memory_models import (
@@ -34,6 +35,24 @@ from document_extraction import (
     DocumentTooLargeError,
     ExtractionUnavailableError,
 )
+
+
+def _fal_source_enabled() -> bool:
+    return (os.getenv("FAL_SOURCE", "disabled") or "disabled").strip().lower() == "enabled"
+
+
+def _fal_api_key() -> str:
+    return (os.getenv("FAL_API_KEY") or os.getenv("FAL_KEY") or "").strip()
+
+
+def _require_fal_api_key() -> str:
+    api_key = _fal_api_key()
+    if not api_key:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="FAL_SOURCE=enabled requires FAL_API_KEY",
+        )
+    return api_key
 
 
 def _validate_uuid_param(value: str, name: str = "parameter"):
@@ -688,7 +707,23 @@ class ComfyUIResponse(BaseModel):
 # ComfyUI API Endpoints
 @app.get("/comfyui/health")
 async def comfyui_health_check():
-    """Health check for ComfyUI service"""
+    """Health check for the configured image generation provider."""
+    if _fal_source_enabled():
+        if _fal_api_key():
+            return {
+                "service": "fal",
+                "status": "healthy",
+                "details": {
+                    "provider": "fal",
+                    "model": os.getenv("FAL_MODEL", "fal-ai/flux/dev"),
+                },
+            }
+        return {
+            "service": "fal",
+            "status": "unhealthy",
+            "error": "FAL_SOURCE=enabled requires FAL_API_KEY",
+        }
+
     try:
         async with ComfyUIClient() as client:
             health = await client.health_check()
@@ -724,7 +759,48 @@ async def get_comfyui_models():
 
 @app.post("/comfyui/generate", response_model=ComfyUIResponse)
 async def generate_image(request: ComfyUIGenerateRequest):
-    """Generate an image using ComfyUI"""
+    """Generate an image using the configured media provider."""
+    if _fal_source_enabled():
+        api_key = _require_fal_api_key()
+        try:
+            async with FalClient(api_key=api_key) as client:
+                result = await client.generate_simple_image(
+                    prompt=request.prompt,
+                    negative_prompt=request.negative_prompt,
+                    width=request.width,
+                    height=request.height,
+                    steps=request.steps,
+                    cfg=request.cfg,
+                    seed=request.seed,
+                    checkpoint=request.checkpoint,
+                )
+
+            if not result.get("success"):
+                return ComfyUIResponse(
+                    success=False,
+                    error=result.get("error", "Unknown error"),
+                )
+
+            return ComfyUIResponse(
+                success=True,
+                prompt_id=result.get("prompt_id"),
+                client_id=result.get("client_id", "fal"),
+                message="Image generated successfully",
+                data={
+                    "provider": "fal",
+                    "outputs": result.get("outputs", {}),
+                    "parameters": result.get("parameters", {}),
+                    "raw": result.get("raw", {}),
+                },
+            )
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to generate image with FAL: {str(e)}",
+            )
+
     try:
         async with ComfyUIClient() as client:
             # Generate the image
@@ -778,6 +854,8 @@ async def generate_image(request: ComfyUIGenerateRequest):
                     data={"parameters": result["parameters"]}
                 )
                 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

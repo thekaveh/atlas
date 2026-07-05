@@ -86,6 +86,10 @@ EXPECTED_DISCOVERED = frozenset({
     # Blender MCP (added 2026-07-04) — disabled-by-default host-only
     # creative 3D bridge. Virtual family wired via 'blender_mcp_source'.
     "Blender MCP",
+    # FAL Cloud Media (added 2026-07-05) — disabled-by-default virtual
+    # cloud media provider for backend simple generation routes. Wired via
+    # 'fal_source'.
+    "FAL Cloud Media",
     # Crawl4AI (added 2026-07-03) — disabled-by-default browser-backed
     # extraction API for Local Deep Researcher and n8n HTTP workflows.
     "Crawl4AI",
@@ -263,6 +267,7 @@ def test_source_mapping_includes_app_service_flags() -> None:
         "mlflow_source",
         "supavisor_source",
         "tika_source",
+        "fal_source",
     ):
         assert cli_key in mgr.source_mapping, (
             f"{cli_key} missing from SourceOverrideManager.source_mapping — "

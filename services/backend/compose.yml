@@ -64,6 +64,13 @@ services:
       COMFYUI_BASE_URL: ${COMFYUI_ENDPOINT:-http://comfyui:18188}
       COMFYUI_ENABLED: true
       COMFYUI_MANIFEST_PATH: /comfyui-manifest/selected-models.yaml
+      FAL_SOURCE: ${FAL_SOURCE:-disabled}
+      FAL_API_KEY: ${FAL_API_KEY:-}
+      FAL_KEY: ${FAL_API_KEY:-}
+      FAL_MODEL: ${FAL_MODEL:-fal-ai/flux/dev}
+      FAL_TIMEOUT_SECONDS: ${FAL_TIMEOUT_SECONDS:-120}
+      FAL_OUTPUT_FORMAT: ${FAL_OUTPUT_FORMAT:-jpeg}
+      FAL_ENABLE_SAFETY_CHECKER: ${FAL_ENABLE_SAFETY_CHECKER:-true}
       SUPABASE_SERVICE_KEY: ${SUPABASE_SERVICE_KEY}
       SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
       # Vector database integration

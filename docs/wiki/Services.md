@@ -16,6 +16,7 @@
 | crawl4ai | media | all, gen-ai-rag | CRAWL4AI_SOURCE | container, disabled | - |
 | doc-processor | aggregate | all, gen-ai-creative, gen-ai-rag | - | - | - |
 | docling | media | all | DOC_PROCESSOR_SOURCE | disabled, docling-localhost, docling-container-gpu | - |
+| fal | media | all, gen-ai-creative | FAL_SOURCE | enabled, disabled | - |
 | globals | infra | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | - | - | - |
 | grafana | infra | all | GRAFANA_SOURCE | container, disabled | prometheus, supabase, kong, ray |
 | hermes | agents | all, gen-ai-eng | HERMES_SOURCE | container, localhost, disabled | litellm |
@@ -76,6 +77,7 @@
 | crawl4ai | Crawl4AI (JS-capable web extraction) | media | container | all, gen-ai-rag | CRAWL4AI_SOURCE |
 | doc-processor | doc-processor | aggregate | doc-only | all, gen-ai-creative, gen-ai-rag | - |
 | docling | Docling (document processor) | media | container | all | DOC_PROCESSOR_SOURCE |
+| fal | FAL Cloud Media | media | virtual | all, gen-ai-creative | FAL_SOURCE |
 | globals | Globals (project + branding) | infra | virtual | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | - |
 | grafana | Grafana (observability UI + alerting) | infra | container | all | GRAFANA_SOURCE |
 | hermes | Hermes (programmable AI agent) | agents | container | all, gen-ai-eng | HERMES_SOURCE |
@@ -136,6 +138,7 @@
 | COMFYUI_SOURCE | comfyui | container-cpu | container-cpu, container-gpu, localhost, disabled |
 | CRAWL4AI_SOURCE | crawl4ai | disabled | container, disabled |
 | DOC_PROCESSOR_SOURCE | docling | disabled | disabled, docling-localhost, docling-container-gpu |
+| FAL_SOURCE | fal | disabled | enabled, disabled |
 | GRAFANA_SOURCE | grafana | disabled | container, disabled |
 | HERMES_SOURCE | hermes | container | container, localhost, disabled |
 | ICEBERG_REST_SOURCE | iceberg-rest | disabled | container, disabled |
@@ -188,7 +191,7 @@
 | Service | Required | Optional | Runtime Calls |
 | --- | --- | --- | --- |
 | airflow | supabase, litellm, redis | spark, minio, iceberg-rest, redpanda, weaviate, neo4j | supabase, spark, redpanda, minio, iceberg-rest, litellm, weaviate, neo4j, redis |
-| backend | supabase, redis, litellm | weaviate, kong, celery, supavisor | supabase, weaviate, litellm, comfyui, n8n, ray, local-deep-researcher, celery, supavisor, tika, otel-collector |
+| backend | supabase, redis, litellm | weaviate, kong, celery, supavisor | supabase, weaviate, litellm, comfyui, fal, n8n, ray, local-deep-researcher, celery, supavisor, tika, otel-collector |
 | backup | supabase, minio | - | supabase, minio |
 | blender-mcp | - | - | - |
 | celery | redis, backend, supabase, litellm | weaviate, supavisor | redis, supabase, litellm, weaviate, supavisor |
@@ -199,6 +202,7 @@
 | crawl4ai | - | local-deep-researcher, n8n, backend, weaviate | - |
 | doc-processor | - | - | - |
 | docling | - | - | - |
+| fal | - | - | - |
 | globals | - | - | - |
 | grafana | prometheus, supabase, kong, ray | - | prometheus, tempo, loki |
 | hermes | litellm | - | litellm, stt-provider, tts-provider, comfyui, searxng, airflow, lightrag |

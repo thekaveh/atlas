@@ -86,6 +86,7 @@ _PERMUTATIONS = [
     ("CLOUD_OPENAI_SOURCE", ["enabled", "disabled"]),
     ("CLOUD_ANTHROPIC_SOURCE", ["enabled", "disabled"]),
     ("CLOUD_OPENROUTER_SOURCE", ["enabled", "disabled"]),
+    ("FAL_SOURCE", ["enabled", "disabled"]),
     # Ray was always Ray-disabled-by-default, but every SOURCE value must
     # still produce a clean `docker compose config`.
     ("RAY_SOURCE", ["ray-container-cpu", "ray-container-gpu", "disabled"]),
