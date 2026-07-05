@@ -20,6 +20,25 @@ from pathlib import Path
 _log = logging.getLogger("uvicorn.error")
 
 
+class PluginRequirementsInstallError(RuntimeError):
+    """Raised when pip cannot install a plugin requirements file."""
+
+    def __init__(self, requirements_file: Path, error: subprocess.CalledProcessError) -> None:
+        self.requirements_file = requirements_file
+        self.returncode = error.returncode
+        self.stdout = (error.stdout or "").strip()
+        self.stderr = (error.stderr or "").strip()
+
+        details = [
+            f"plugin seam: failed to install {requirements_file} (exit {error.returncode})"
+        ]
+        if self.stderr:
+            details.append(f"stderr: {self.stderr}")
+        if self.stdout:
+            details.append(f"stdout: {self.stdout}")
+        super().__init__("; ".join(details))
+
+
 def _install_requirements(directory: Path, installed: set[Path] | None = None) -> None:
     reqs = directory / "requirements.txt"
     if not reqs.is_file():
@@ -28,12 +47,18 @@ def _install_requirements(directory: Path, installed: set[Path] | None = None) -
     if installed is not None:
         if resolved in installed:
             return
-        installed.add(resolved)
     _log.info("plugin seam: installing %s", reqs)
-    subprocess.run(
-        [sys.executable, "-m", "pip", "install", "--no-cache-dir", "-r", str(reqs)],
-        check=False,
-    )
+    try:
+        subprocess.run(
+            [sys.executable, "-m", "pip", "install", "--no-cache-dir", "-r", str(reqs)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        raise PluginRequirementsInstallError(reqs, exc) from exc
+    if installed is not None:
+        installed.add(resolved)
 
 
 def load_plugins(app) -> None:
@@ -43,7 +68,11 @@ def load_plugins(app) -> None:
     if not plugins_dir.is_dir():
         return
     installed_requirements: set[Path] = set()
-    _install_requirements(plugins_dir, installed_requirements)
+    try:
+        _install_requirements(plugins_dir, installed_requirements)
+    except PluginRequirementsInstallError:
+        _log.exception("plugin seam: shared plugin requirements failed; skipping plugin loading")
+        return
     if str(plugins_dir) not in sys.path:
         sys.path.insert(0, str(plugins_dir))
     for entry in sorted(plugins_dir.iterdir()):
@@ -51,6 +80,10 @@ def load_plugins(app) -> None:
             continue
         try:
             _install_requirements(entry, installed_requirements)
+        except PluginRequirementsInstallError:
+            _log.exception("plugin seam: requirements failed for plugin %r; skipping plugin", entry.name)
+            continue
+        try:
             module = importlib.import_module(entry.name)
             router = getattr(module, "router", None)
             if router is not None:
