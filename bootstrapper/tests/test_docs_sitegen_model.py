@@ -13,7 +13,7 @@ def test_docs_model_indexes_services_tracks_and_assets() -> None:
 
     assert model.public_url == "https://thekaveh.github.io/atlas/"
     assert model.hero_image == Path("assets/images/atlas-source.png")
-    assert model.poster_image == Path("assets/atlas-poster.png")
+    assert model.poster_image == Path("assets/atlas-poster-blue.png")
     assert model.wizard_screenshot == Path("screenshots/wizard-running.png")
     assert model.top_level_diagram == Path("diagrams/architecture.svg")
     assert "data-eng" in model.tracks_by_key

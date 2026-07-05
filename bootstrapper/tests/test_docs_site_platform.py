@@ -21,6 +21,8 @@ WORKFLOW = ROOT / ".github" / "workflows" / "services-lint.yml"
 PAGES_WORKFLOW = ROOT / ".github" / "workflows" / "docs-pages.yml"
 THEME_CSS = ROOT / "docs" / "assets" / "stylesheets" / "atlas.css"
 THEME_HERO_IMAGE = ROOT / "docs" / "assets" / "images" / "atlas-source.png"
+THEME_POSTER_BLUE = ROOT / "docs" / "assets" / "atlas-poster-blue.png"
+THEME_POSTER_GOLD = ROOT / "docs" / "assets" / "atlas-poster-gold.png"
 
 REQUIRED_DIAGRAMS = {
     "platform-overview",
@@ -351,6 +353,54 @@ def test_wiki_export_contains_full_companion_page_set() -> None:
     assert "all services (no filtering)" in tracks
 
 
+def test_wiki_export_pages_are_substantial_companions_to_public_site() -> None:
+    minimum_lines = {
+        "Home.md": 35,
+        "Overview.md": 35,
+        "Quick-Start.md": 30,
+        "Core-Concepts.md": 45,
+        "Tracks.md": 25,
+        "Services.md": 110,
+        "Architecture.md": 45,
+        "Configuration.md": 35,
+        "Operations.md": 30,
+        "Development.md": 35,
+        "Reference.md": 45,
+    }
+
+    for filename, line_floor in minimum_lines.items():
+        text = (WIKI_DIR / filename).read_text(encoding="utf-8")
+        assert len(text.splitlines()) >= line_floor, f"{filename} is too thin"
+
+    overview = (WIKI_DIR / "Overview.md").read_text(encoding="utf-8")
+    services = (WIKI_DIR / "Services.md").read_text(encoding="utf-8")
+    architecture = (WIKI_DIR / "Architecture.md").read_text(encoding="utf-8")
+    reference = (WIKI_DIR / "Reference.md").read_text(encoding="utf-8")
+
+    assert "## 3. Category Summary" in overview
+    assert "## 2. Category Catalog" in services
+    assert "## 3. SOURCE Surface Summary" in services
+    assert "## 2. Generated Diagram Catalog" in architecture
+    assert "## 6. Ports And Routes" in reference
+
+
+def test_home_page_uses_one_wide_poster_hero_with_variant_previews() -> None:
+    home = (ROOT / "docs" / "index.md").read_text(encoding="utf-8")
+    css = THEME_CSS.read_text(encoding="utf-8")
+
+    assert "atlas-home" in home
+    assert "assets/atlas-poster-blue.png" in home
+    assert "assets/atlas-poster-gold.png" not in home
+    assert "assets/images/atlas-source.png" not in home
+    assert home.count("<img") == 2
+    assert home.index("assets/atlas-poster-blue.png") < home.index("screenshots/wizard-running.png")
+    assert ".md-content--atlas-wide" in css
+    assert ".atlas-home" in css
+    assert "grid-template-columns: minmax(20rem, 0.75fr) minmax(26rem, 1.25fr)" in css
+    assert THEME_POSTER_BLUE.exists()
+    assert THEME_POSTER_GOLD.exists()
+
+
 def test_docs_audit_guidance_lists_required_local_gates() -> None:
     docs_readme = (ROOT / "docs" / "README.md").read_text(encoding="utf-8")
     contributor_guide = (ROOT / "docs" / "CONTRIBUTING-services.md").read_text(encoding="utf-8")
@@ -557,8 +607,11 @@ def test_atlas_theme_uses_material_dark_default_with_light_toggle() -> None:
     assert "[data-md-color-scheme=\"default\"]" in css
     assert "@import url(" not in css
     assert "fonts.googleapis.com" not in css
-    assert "assets/images/atlas-source.png" in home
+    assert "assets/atlas-poster-blue.png" in home
+    assert "assets/images/atlas-source.png" not in home
     assert THEME_HERO_IMAGE.exists()
+    assert THEME_POSTER_BLUE.exists()
+    assert THEME_POSTER_GOLD.exists()
 
 
 def test_generated_site_has_full_information_architecture() -> None:
@@ -579,14 +632,14 @@ def test_generated_site_has_full_information_architecture() -> None:
         assert "## 1. " in text
 
     home = (ROOT / "docs" / "index.md").read_text(encoding="utf-8")
-    assert '<div class="atlas-hero">' in home
-    assert "assets/images/atlas-source.png" in home
-    assert "assets/atlas-poster.png" in home
+    assert '<div class="atlas-home">' in home
+    assert "assets/images/atlas-source.png" not in home
+    assert "assets/atlas-poster-blue.png" in home
     assert "screenshots/wizard-running.png" in home
     assert "Atlas is a self-hosted" in home
 
     overview = (DOCS_SITE / "overview.md").read_text(encoding="utf-8")
-    assert "../assets/atlas-poster.png" in overview
+    assert "../assets/atlas-poster-blue.png" in overview
 
     architecture = (DOCS_SITE / "architecture" / "index.md").read_text(encoding="utf-8")
     assert "../../diagrams/architecture.svg" in architecture

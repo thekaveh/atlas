@@ -99,18 +99,23 @@ def static_pages(model: DocsModel) -> dict[Path, str]:
     return {
         home: f"""# Atlas Documentation
 
-<div class="atlas-hero">
-  <img src="{_asset_href(home, docs, model.hero_image)}" alt="Atlas platform source map">
-</div>
+<div class="md-content--atlas-wide"></div>
 
-Atlas is a self-hosted, source-configurable engineering platform for generative AI, RAG, creative AI, ML engineering, and data engineering workloads. The stack is composed through Docker Compose, a Python bootstrapper, service manifests, SOURCE values, tracks, and a Kong-fronted access model.
-
-<div class="atlas-poster">
-  <img src="{_asset_href(home, docs, model.poster_image)}" alt="Atlas poster overview">
-</div>
-
-<div class="atlas-screenshot">
-  <img src="{_asset_href(home, docs, model.wizard_screenshot)}" alt="Atlas setup wizard running the launch phase">
+<div class="atlas-home">
+  <section class="atlas-home__hero">
+    <div class="atlas-home__copy">
+      <p class="atlas-kicker">Source-configurable local AI, data, and engineering stack</p>
+      <p>Atlas is a self-hosted engineering platform for generative AI, RAG, creative AI, ML engineering, and data engineering workloads. Docker Compose fragments, service manifests, SOURCE values, tracks, and Kong routes combine into one configurable local platform.</p>
+      <div class="atlas-home__actions">
+        <a href="site/quick-start/">Quick Start</a>
+        <a href="site/services/">Service Catalog</a>
+        <a href="site/architecture/">Architecture</a>
+      </div>
+    </div>
+    <figure class="atlas-home__media">
+      <img src="{_asset_href(home, docs, model.poster_image)}" alt="Atlas platform poster">
+    </figure>
+  </section>
 </div>
 
 ## 1. Start Here
@@ -130,6 +135,12 @@ This site indexes {service_count} service families, {len(model.tracks)} tracks, 
 - Public site: [{model.public_url}]({model.public_url})
 - GitHub Wiki export source: [docs/wiki/Home.md](https://github.com/thekaveh/atlas/blob/main/docs/wiki/Home.md)
 - Source repository: [thekaveh/atlas](https://github.com/thekaveh/atlas)
+
+## 4. Setup Surface
+
+<div class="atlas-screenshot">
+  <img src="{_asset_href(home, docs, model.wizard_screenshot)}" alt="Atlas setup wizard running the launch phase">
+</div>
 """,
         docs / "site" / "quick-start.md": """# Quick Start
 

@@ -287,7 +287,7 @@ def load_docs_model(root: Path) -> DocsModel:
         root=root,
         public_url=PUBLIC_URL,
         hero_image=Path("assets/images/atlas-source.png"),
-        poster_image=Path("assets/atlas-poster.png"),
+        poster_image=Path("assets/atlas-poster-blue.png"),
         wizard_screenshot=Path("screenshots/wizard-running.png"),
         top_level_diagram=Path("diagrams/architecture.svg"),
         services=_manifest_docs(root, tracks),

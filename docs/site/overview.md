@@ -4,7 +4,7 @@
 
 Atlas combines local-first infrastructure, AI services, data services, workflow automation, notebooks, and observability behind a generated runtime configuration layer.
 
-![Atlas poster overview](../assets/atlas-poster.png)
+![Atlas poster overview](../assets/atlas-poster-blue.png)
 
 ## 2. Service Families
 
