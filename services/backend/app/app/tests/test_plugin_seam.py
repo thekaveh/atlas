@@ -1,3 +1,5 @@
+import logging
+import subprocess
 import sys
 import types
 from pathlib import Path
@@ -65,7 +67,7 @@ def test_load_plugins_installs_shared_and_per_plugin_requirements_in_order(tmp_p
 
     import plugin_seam
 
-    def fake_run(cmd, check):
+    def fake_run(cmd, **kwargs):
         assert cmd[:6] == [
             sys.executable,
             "-m",
@@ -74,6 +76,7 @@ def test_load_plugins_installs_shared_and_per_plugin_requirements_in_order(tmp_p
             "--no-cache-dir",
             "-r",
         ]
+        assert kwargs == {"check": True, "capture_output": True, "text": True}
         requirement_path = Path(cmd[-1]).resolve().relative_to(tmp_path.resolve())
         events.append(("install", str(requirement_path)))
 
@@ -89,3 +92,56 @@ def test_load_plugins_installs_shared_and_per_plugin_requirements_in_order(tmp_p
         ("install", "zeta_plugin/requirements.txt"),
         ("import", "zeta_plugin"),
     ]
+
+
+def test_load_plugins_skips_plugin_when_requirements_install_fails(tmp_path, monkeypatch, caplog):
+    events = []
+    event_module = types.ModuleType("plugin_test_events")
+    event_module.events = events
+    monkeypatch.setitem(sys.modules, "plugin_test_events", event_module)
+
+    pkg = tmp_path / "bad_plugin"
+    pkg.mkdir()
+    (pkg / "requirements.txt").write_text("missing-dep\n")
+    (pkg / "__init__.py").write_text(
+        "import plugin_test_events\n"
+        "plugin_test_events.events.append(('import', 'bad_plugin'))\n"
+        "from fastapi import APIRouter\n"
+        "router = APIRouter()\n"
+        "@router.get('/bad-plugin-loaded')\n"
+        "def ping():\n"
+        "    return {'ok': True}\n"
+    )
+
+    from fastapi import FastAPI
+    app = FastAPI()
+    monkeypatch.setenv("BACKEND_PLUGINS_DIR", str(tmp_path))
+
+    import plugin_seam
+
+    def fake_run(cmd, **kwargs):
+        if kwargs.get("check"):
+            raise subprocess.CalledProcessError(
+                returncode=9,
+                cmd=cmd,
+                output="looking for packages",
+                stderr="No matching distribution found for missing-dep",
+            )
+        return subprocess.CompletedProcess(
+            cmd,
+            9,
+            stdout="looking for packages",
+            stderr="No matching distribution found for missing-dep",
+        )
+
+    monkeypatch.setattr(plugin_seam.subprocess, "run", fake_run)
+    caplog.set_level(logging.ERROR, logger="uvicorn.error")
+
+    plugin_seam.load_plugins(app)
+
+    paths = {r.path for r in app.router.routes}
+    assert "/bad-plugin-loaded" not in paths
+    assert events == []
+    assert "bad_plugin/requirements.txt" in caplog.text
+    assert "No matching distribution found for missing-dep" in caplog.text
+    assert "failed to load plugin" not in caplog.text
