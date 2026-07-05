@@ -1,61 +1,61 @@
 # Services
 
-## 1. Service Index
+## 1. Service Catalog
 
-Generated wiki service index.
-
-- 1. airflow — Apache Airflow (DAG orchestrator) (agents, container)
-- 2. backend — Backend API (FastAPI) (apps, container)
-- 3. backup — Backup / restore (Postgres + volumes -> S3) (infra, container)
-- 4. blender-mcp — Blender MCP (media, virtual)
-- 5. celery — Celery + Flower (async jobs) (agents, container)
-- 6. chatterbox — Chatterbox (voice-cloning TTS, GPU) (media, container)
-- 7. cloud-providers — Cloud LLM providers (OpenAI, Anthropic, OpenRouter) (llm, virtual)
-- 8. cloudflared — Cloudflare Tunnel (public edge) (infra, container)
-- 9. comfyui — ComfyUI (image generation) (media, container)
-- 10. crawl4ai — Crawl4AI (JS-capable web extraction) (media, container)
-- 11. doc-processor — doc-processor (aggregate, doc-only)
-- 12. docling — Docling (document processor) (media, container)
-- 13. globals — Globals (project + branding) (infra, virtual)
-- 14. grafana — Grafana (observability UI + alerting) (infra, container)
-- 15. hermes — Hermes (programmable AI agent) (agents, container)
-- 16. iceberg-rest — Apache Iceberg REST Catalog (data, container)
-- 17. jenkins — Jenkins (Maven Spark app builder) (apps, container)
-- 18. jupyterhub — JupyterHub (DS/ML + LLM notebooks) (apps, container)
-- 19. kong — Kong (API gateway) (infra, container)
-- 20. label-studio — Label Studio (dataset review + annotation) (apps, container)
-- 21. langfuse — Langfuse (LLM traces + evals) (infra, container)
-- 22. lightrag — LightRAG (graph-augmented RAG server) (agents, container)
-- 23. litellm — LiteLLM gateway (LLM router) (llm, container)
-- 24. llm-graph-builder — Neo4j LLM Graph Builder (apps, container)
-- 25. local-deep-researcher — Local Deep Researcher (LangGraph research agent) (apps, container)
-- 26. loki — Loki (queryable log store) (infra, container)
-- 27. mcp-servers — Curated MCP Servers (agents, container)
-- 28. minio — MinIO (S3-compatible object storage) (data, container)
-- 29. mlflow — MLflow (experiment tracking + artifacts) (apps, container)
-- 30. multi2vec-clip — multi2vec-clip (aggregate, doc-only)
-- 31. n8n — n8n (workflow automation) (agents, container)
-- 32. neo4j — Neo4j (graph database) (data, container)
-- 33. ollama — Ollama (local LLM engine) (llm, container)
-- 34. open-webui — Open WebUI (chat interface) (apps, container)
-- 35. openclaw — OpenClaw (AI agent gateway) (agents, container)
-- 36. otel-collector — OpenTelemetry Collector (telemetry ingest) (infra, container)
-- 37. parakeet — Parakeet (NVIDIA STT engine) (media, container)
-- 38. prometheus — Prometheus (metrics scraper + TSDB) (infra, container)
-- 39. ray — Ray (distributed compute substrate) (infra, container)
-- 40. redis — Redis (cache & queue) (data, container)
-- 41. redpanda — Redpanda (Kafka API streaming) (data, container)
-- 42. searxng — SearXNG (privacy metasearch) (media, container)
-- 43. spark — Apache Spark (standalone cluster) (data, container)
-- 44. speaches — Speaches (unified TTS + STT) (media, container)
-- 45. stt-provider — stt-provider (aggregate, doc-only)
-- 46. supabase — Supabase (db, auth, api, storage, realtime, studio, meta) (data, container)
-- 47. supavisor — Supavisor (Postgres transaction pooler) (data, container)
-- 48. tei-reranker — TEI Reranker (mxbai-rerank-base-v1) (llm, container)
-- 49. tempo — Tempo (distributed trace store) (infra, container)
-- 50. tika — Apache Tika (fallback extractor) (media, container)
-- 51. trino — Trino (data, container)
-- 52. tts-provider — TTS provider (text-to-speech engine selector) (media, virtual)
-- 53. verba — Verba (archived Weaviate RAG UI) (apps, container)
-- 54. weaviate — Weaviate (vector database) (data, container)
-- 55. zeppelin — Apache Zeppelin (Spark-first notebook) (apps, container)
+| Service | Category | Tracks | SOURCE | Values | Dependencies |
+| --- | --- | --- | --- | --- | --- |
+| airflow | agents | all, data-eng | AIRFLOW_SOURCE | container, disabled | supabase, litellm, redis |
+| backend | apps | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | BACKEND_SOURCE | - | supabase, redis, litellm |
+| backup | infra | all | BACKUP_SOURCE | container, disabled | supabase, minio |
+| blender-mcp | media | all, gen-ai-creative | BLENDER_MCP_SOURCE | localhost, disabled | - |
+| celery | agents | all, gen-ai-eng, gen-ai-rag | CELERY_SOURCE | container, disabled | redis, backend, supabase, litellm |
+| chatterbox | media | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | none | - | tts-provider |
+| cloud-providers | llm | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | CLOUD_OPENAI_SOURCE | enabled, disabled | litellm |
+| cloudflared | infra | all | CLOUDFLARED_SOURCE | container, disabled | kong |
+| comfyui | media | all, gen-ai-creative, gen-ai-eng | COMFYUI_SOURCE | container-cpu, container-gpu, localhost, disabled | supabase, litellm, ollama |
+| crawl4ai | media | all, gen-ai-rag | CRAWL4AI_SOURCE | container, disabled | - |
+| doc-processor | aggregate | all, gen-ai-creative, gen-ai-rag | none | - | - |
+| docling | media | all | DOC_PROCESSOR_SOURCE | disabled, docling-localhost, docling-container-gpu | - |
+| globals | infra | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | none | - | - |
+| grafana | infra | all | GRAFANA_SOURCE | container, disabled | prometheus, supabase, kong, ray |
+| hermes | agents | all, gen-ai-eng | HERMES_SOURCE | container, localhost, disabled | litellm |
+| iceberg-rest | data | all, data-eng | ICEBERG_REST_SOURCE | container, disabled | minio, supabase |
+| jenkins | apps | all, data-eng | JENKINS_SOURCE | container, disabled | minio |
+| jupyterhub | apps | all, data-eng, gen-ai-eng, ml-eng, trading | JUPYTERHUB_SOURCE | container, disabled | supabase, redis, litellm |
+| kong | infra | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | KONG_API_GATEWAY_SOURCE | container | supabase, redis |
+| label-studio | apps | all, ml-eng | LABEL_STUDIO_SOURCE | container, disabled | supabase, minio |
+| langfuse | infra | all, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | LANGFUSE_SOURCE | container, disabled | supabase, redis, minio, litellm, kong, ray |
+| lightrag | agents | all, gen-ai-rag | LIGHTRAG_SOURCE | container, localhost, disabled | litellm |
+| litellm | llm | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | LITELLM_SOURCE | container | supabase, redis |
+| llm-graph-builder | apps | all, gen-ai-rag | LLM_GRAPH_BUILDER_SOURCE | container, disabled | neo4j, litellm, kong |
+| local-deep-researcher | apps | all, gen-ai-eng, gen-ai-rag | LOCAL_DEEP_RESEARCHER_SOURCE | container, disabled | searxng, litellm |
+| loki | infra | all, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng | LOKI_SOURCE | container, disabled | kong, ray |
+| mcp-servers | agents | all, gen-ai-eng, gen-ai-rag | MCP_SERVERS_SOURCE | container, disabled | supabase, neo4j, searxng |
+| minio | data | all, data-eng, ml-eng, trading | MINIO_SOURCE | container, disabled | supabase |
+| mlflow | apps | all, ml-eng, trading | MLFLOW_SOURCE | container, disabled | supabase, minio |
+| multi2vec-clip | aggregate | all, gen-ai-creative | none | - | - |
+| n8n | agents | all, gen-ai-eng | N8N_SOURCE | container, disabled | supabase, redis, litellm |
+| neo4j | data | all, data-eng, gen-ai-eng, gen-ai-rag | NEO4J_GRAPH_DB_SOURCE | container, localhost, disabled | supabase |
+| ollama | llm | all | LLM_PROVIDER_SOURCE | ollama-container-cpu, ollama-container-gpu, ollama-localhost, none | supabase, litellm |
+| open-webui | apps | all, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng | OPEN_WEB_UI_SOURCE | container, disabled | supabase, redis, litellm |
+| openclaw | agents | all, gen-ai-eng | OPENCLAW_SOURCE | disabled, container, localhost | litellm |
+| otel-collector | infra | all, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng | OTEL_COLLECTOR_SOURCE | container, disabled | tempo |
+| parakeet | media | all | STT_PROVIDER_SOURCE | speaches-container-cpu, speaches-container-gpu, parakeet-container-gpu, parakeet-localhost, whisper-cpp-localhost, disabled | litellm |
+| prometheus | infra | all | PROMETHEUS_SOURCE | container, disabled | supabase, redis, kong, ray |
+| ray | infra | all, ml-eng | RAY_SOURCE | ray-container-cpu, ray-container-gpu, disabled | supabase, redis |
+| redis | data | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | REDIS_SOURCE | container | supabase |
+| redpanda | data | all, data-eng | REDPANDA_SOURCE | container, disabled | - |
+| searxng | media | all, gen-ai-eng, gen-ai-rag | SEARXNG_SOURCE | container, disabled | redis |
+| spark | data | all, data-eng, ml-eng | SPARK_SOURCE | container, disabled | minio |
+| speaches | media | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | none | - | parakeet, tts-provider |
+| stt-provider | aggregate | all, gen-ai-creative, gen-ai-eng | none | - | - |
+| supabase | data | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | SUPABASE_DB_SOURCE | container | - |
+| supavisor | data | all, data-eng, gen-ai-eng, gen-ai-rag, ml-eng | SUPAVISOR_SOURCE | container, disabled | supabase |
+| tei-reranker | llm | all, gen-ai-rag, ml-eng | TEI_RERANKER_SOURCE | container-cpu, container-gpu, localhost, disabled | - |
+| tempo | infra | all, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng | TEMPO_SOURCE | container, disabled | kong, ray |
+| tika | media | all, gen-ai-eng, gen-ai-rag | TIKA_SOURCE | container, tika-localhost, disabled | - |
+| trino | data | all, data-eng | TRINO_SOURCE | container, disabled | minio, iceberg-rest |
+| tts-provider | media | all, gen-ai-creative, gen-ai-eng | TTS_PROVIDER_SOURCE | speaches-container-cpu, speaches-container-gpu, chatterbox-container-gpu, chatterbox-localhost, disabled | litellm |
+| verba | apps | all, gen-ai-rag | VERBA_SOURCE | container, disabled | weaviate, litellm, kong |
+| weaviate | data | all, data-eng, gen-ai-rag | WEAVIATE_SOURCE | container, localhost, disabled | supabase, litellm |
+| zeppelin | apps | all, data-eng, ml-eng | ZEPPELIN_SOURCE | container, disabled | spark |

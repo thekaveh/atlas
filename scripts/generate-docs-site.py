@@ -12,9 +12,7 @@ import argparse
 import html
 import shutil
 import sys
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
 
 import yaml
 
@@ -23,10 +21,11 @@ sys.path.insert(0, str(ROOT / "bootstrapper"))
 
 from docs.sitegen.mkdocs_config import build_mkdocs_config  # noqa: E402
 from docs.sitegen.model import DocsModel, load_docs_model  # noqa: E402
-from docs.sitegen.pages import static_pages  # noqa: E402
+from docs.sitegen.pages import reference_pages, static_pages  # noqa: E402
+from docs.sitegen.rendering import table  # noqa: E402
 from docs.sitegen.services import service_pages  # noqa: E402
 from docs.sitegen.theme import copy_artifacts, theme_artifacts  # noqa: E402
-from services.manifests import Manifest, load_manifests  # noqa: E402
+from docs.sitegen.wiki import wiki_pages  # noqa: E402
 
 
 DOCS = ROOT / "docs"
@@ -38,17 +37,6 @@ SITE = DOCS / "site"
 ARCH = DOCS / "architecture"
 WIKI = DOCS / "wiki"
 THEME_HERO_IMAGE = DOCS / "assets" / "images" / "atlas-source.png"
-
-
-@dataclass(frozen=True)
-class ServiceDoc:
-    name: str
-    title: str
-    category: str
-    kind: str
-    readme: Path
-    source_var: str
-    source_values: list[str]
 
 
 DIAGRAMS: dict[str, tuple[str, str, list[str]]] = {
@@ -138,98 +126,6 @@ def _copy_or_check_binary(source: Path, target: Path, check: bool) -> int:
     target.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(source, target)
     return 0
-
-
-def _manifest_docs() -> list[ServiceDoc]:
-    manifests = {manifest.name: manifest for manifest in load_manifests(SERVICES)}
-    readme_dirs = {
-        path.name: path
-        for path in SERVICES.iterdir()
-        if path.is_dir()
-        and not path.name.startswith(("_", "."))
-        and (path / "README.md").exists()
-    }
-    docs: list[ServiceDoc] = []
-    for name in sorted(set(manifests) | set(readme_dirs)):
-        path = SERVICES / name
-        readme = path / "README.md"
-        manifest = manifests.get(name)
-        if manifest is None:
-            docs.append(ServiceDoc(name, name, "aggregate", "doc-only", readme, "", []))
-            continue
-        source_var = manifest.sources.var if manifest.sources else ""
-        values = [option.id for option in manifest.sources.options] if manifest.sources else []
-        kind = "virtual" if manifest.virtual else "container"
-        docs.append(ServiceDoc(name, manifest.label, manifest.category, kind, readme, source_var, values))
-    return docs
-
-
-def _number_nav(items: list[dict], prefix: str = "") -> list[dict]:
-    numbered: list[dict] = []
-    for index, item in enumerate(items, start=1):
-        assert isinstance(item, dict)
-        for label, value in item.items():
-            numbered_label = f"{prefix}{index}. {label}"
-            if isinstance(value, list):
-                numbered.append({numbered_label: _number_nav(value, f"{prefix}{index}.")})
-            else:
-                numbered.append({numbered_label: value})
-    return numbered
-
-
-def _mkdocs_nav(services: list[ServiceDoc]) -> dict:
-    service_pages = [{svc.name: f"site/services/{svc.name}.md"} for svc in services]
-    diagram_pages = [{title: f"architecture/{slug}.md"} for slug, (title, _, _) in DIAGRAMS.items()]
-    nav_items = [
-        {"Home": "index.md"},
-        {"Overview": "site/overview.md"},
-        {"Quick Start": "site/quick-start.md"},
-        {"Architecture": "site/architecture/index.md"},
-        {"Architecture Diagrams": diagram_pages},
-        {"Services": "site/services/index.md"},
-        {"Service Index": "site/services/index.md"},
-        {"Service Pages": service_pages},
-        {"Tracks": "site/tracks.md"},
-        {"Configuration": "site/configuration.md"},
-        {"Operations": "site/operations.md"},
-        {"Development": "site/development.md"},
-        {"Reference": "site/reference/index.md"},
-        {"SOURCE Reference": "site/reference/source-values.md"},
-        {"Env Var Reference": "site/reference/env-vars.md"},
-        {"Ports And Routes": "site/reference/ports-routes.md"},
-        {"Track Reference": "site/reference/tracks.md"},
-        {"Service Dependencies": "site/reference/service-dependencies.md"},
-        {"Manifest Fields": "site/reference/manifest-fields.md"},
-    ]
-    return {
-        "site_name": "Atlas Documentation",
-        "site_description": "Atlas self-hosted AI, data, and engineering platform documentation",
-        "site_url": PUBLIC_URL,
-        "repo_url": "https://github.com/thekaveh/atlas",
-        "repo_name": "thekaveh/atlas",
-        "docs_dir": "docs",
-        "site_dir": "site",
-        "strict": True,
-        "exclude_docs": "README.md\nwiki/*.md",
-        "extra_css": ["assets/stylesheets/atlas.css"],
-        "not_in_nav": "**/*.md",
-        "validation": {
-            "links": {
-                "anchors": "ignore",
-                "not_found": "warn",
-                "unrecognized_links": "ignore",
-                "absolute_links": "ignore",
-            },
-            "nav": {"omitted_files": "ignore"},
-        },
-        "nav": _number_nav(nav_items),
-        "theme": {
-            "name": "mkdocs",
-            "navigation_depth": 4,
-            "color_mode": "dark",
-            "highlightjs": False,
-        },
-    }
 
 
 def _theme_css() -> str:
@@ -549,55 +445,6 @@ blockquote {
 """
 
 
-def _table(headers: list[str], rows: Iterable[list[str]]) -> str:
-    out = ["| " + " | ".join(headers) + " |", "| " + " | ".join("---" for _ in headers) + " |"]
-    out.extend("| " + " | ".join(row) + " |" for row in rows)
-    return "\n".join(out)
-
-
-def _reference_pages(model: DocsModel, services: list[ServiceDoc]) -> dict[Path, str]:
-    manifests = load_manifests(SERVICES)
-    pages: dict[Path, str] = {}
-    source_rows = []
-    env_rows = []
-    deps_rows = []
-    field_rows = [
-        ["containers", "Container names in the service family"],
-        ["env", "Environment variables owned by the manifest"],
-        ["sources", "SOURCE var, default, and allowed values"],
-        ["category", "Topology category and wizard grouping"],
-        ["depends_on", "Required and optional logical dependencies"],
-        ["runtime_sc", "Per-source runtime scale/env/deploy slices"],
-        ["data_flow.calls", "Runtime call graph used by docs/diagrams"],
-    ]
-    for manifest in manifests:
-        if manifest.sources:
-            source_rows.append([
-                manifest.sources.var,
-                manifest.name,
-                manifest.sources.default,
-                ", ".join(option.id for option in manifest.sources.options),
-            ])
-        for env in manifest.env:
-            env_rows.append([env.name, manifest.name, str(env.default), env.description.replace("|", "/")])
-        deps_rows.append([
-            manifest.name,
-            ", ".join(manifest.depends_on.required) or "-",
-            ", ".join(manifest.depends_on.optional) or "-",
-            ", ".join(manifest.data_flow.get("calls", [])) or "-",
-        ])
-    pages[SITE / "reference" / "source-values.md"] = "# SOURCE Values\n\n## 1. Generated Source Matrix\n\nGenerated from manifests.\n\n" + _table(["SOURCE", "Service", "Default", "Values"], source_rows)
-    pages[SITE / "reference" / "env-vars.md"] = "# Environment Variables\n\n## 1. Generated Environment Matrix\n\nGenerated from manifest env declarations.\n\n" + _table(["Variable", "Service", "Default", "Description"], env_rows)
-    pages[SITE / "reference" / "ports-routes.md"] = "# Ports And Routes\n\n## 1. Canonical Route Reference\n\nGenerated index entry. Canonical route details remain in `docs/deployment/ports-and-routes.md`.\n\nSee [ports-and-routes.md](../../deployment/ports-and-routes.md)."
-    pages[SITE / "reference" / "tracks.md"] = "# Track Reference\n\n## 1. Generated Track Matrix\n\nGenerated from `bootstrapper/tracks.yml`.\n\n" + _table(
-        ["Track", "Services"],
-        ([track.key, track.services_display] for track in model.tracks),
-    )
-    pages[SITE / "reference" / "service-dependencies.md"] = "# Service Dependencies\n\n## 1. Generated Dependency Matrix\n\nGenerated from manifest dependency and data-flow fields.\n\n" + _table(["Service", "Required", "Optional", "Runtime Calls"], deps_rows)
-    pages[SITE / "reference" / "manifest-fields.md"] = "# Manifest Fields\n\n## 1. Manifest Schema Quick Reference\n\nGenerated manifest schema quick reference.\n\n" + _table(["Field", "Purpose"], field_rows)
-    return pages
-
-
 def _diagram_html(slug: str, title: str, description: str, nodes: list[str]) -> str:
     boxes = []
     arrows = []
@@ -701,46 +548,20 @@ changes. Use the `architecture-diagram` design system: dark slate background,
 JetBrains Mono, split perspectives, readable labels, and no overloaded mega-diagram.
 """
         rows.append([f"[{title}]({slug}.md)", description])
-    pages[ARCH / "README.md"] = "# Architecture Diagram Catalog\n\n## 1. Generated Diagram Index\n\nGenerated catalog of split Atlas architecture perspectives.\n\n" + _table(["Diagram", "Purpose"], rows)
+    pages[ARCH / "README.md"] = "# Architecture Diagram Catalog\n\n## 1. Generated Diagram Index\n\nGenerated catalog of split Atlas architecture perspectives.\n\n" + table(["Diagram", "Purpose"], rows)
     return pages
 
 
-def _wiki_pages(services: list[ServiceDoc]) -> dict[Path, str]:
-    service_links = "\n".join(f"- {index}. {svc.name} — {svc.title} ({svc.category}, {svc.kind})" for index, svc in enumerate(services, start=1))
-    return {
-        WIKI / "Home.md": """# Atlas Documentation
-
-Generated from the MkDocs source pages. Do not copy/paste-edit this wiki export
-by hand; run `uv run --project bootstrapper python scripts/export-docs-wiki.py --check` from the repo root to verify drift.
-
-## 1. Start Here
-
-- [1. Overview](Overview)
-- [2. Quick Start](Quick-Start)
-- [3. Services](Services)
-- [4. Architecture](Architecture)
-- [5. Reference](Reference)
-""",
-        WIKI / "_Sidebar.md": "# Atlas Documentation\n\n- [1. Home](Home)\n- [2. Overview](Overview)\n- [3. Quick Start](Quick-Start)\n- [4. Services](Services)\n- [5. Architecture](Architecture)\n- [6. Reference](Reference)\n",
-        WIKI / "Overview.md": "# Overview\n\n## 1. Platform Model\n\nAtlas is a source-configurable engineering platform for AI, data, automation, notebooks, observability, and local-first experimentation.\n\n## 2. Source Of Truth\n\nThe MkDocs site and wiki export are generated from repo sources: service manifests, service READMEs, tracks, topology, and generated reference files.\n",
-        WIKI / "Quick-Start.md": "# Quick Start\n\n## 1. Launch\n\nRun `./start.sh`, choose a track, and use `./start.sh --setup-hosts` for Kong `*.localhost` aliases.\n\n## 2. Common Tracks\n\nUse `gen-ai-eng`, `gen-ai-rag`, `gen-ai-creative`, `ml-eng`, `data-eng`, or `all` depending on the workflow.\n",
-        WIKI / "Services.md": "# Services\n\n## 1. Service Index\n\nGenerated wiki service index.\n\n" + service_links,
-        WIKI / "Architecture.md": "# Architecture\n\n## 1. Diagram Catalog\n\nThe public MkDocs site contains the full architecture diagram catalog. The source files live in `docs/architecture/` in the repository.\n\n## 2. Update Rule\n\nRegenerate docs with `python scripts/generate-docs-site.py` after service, route, track, or architecture changes.\n",
-        WIKI / "Reference.md": "# Reference\n\n## 1. Generated References\n\nThe MkDocs site publishes generated references for SOURCE values, environment variables, ports and routes, tracks, service dependencies, and manifest fields.\n",
-    }
-
-
 def build_artifacts() -> dict[Path, str]:
-    services = _manifest_docs()
     model = load_docs_model(ROOT)
     artifacts: dict[Path, str] = {}
     artifacts[ROOT / "mkdocs.yml"] = yaml.safe_dump(build_mkdocs_config(model), sort_keys=False)
     artifacts.update(theme_artifacts(ROOT))
     artifacts.update(static_pages(model))
     artifacts.update(service_pages(model))
-    artifacts.update(_reference_pages(model, services))
+    artifacts.update(reference_pages(model))
     artifacts.update(_diagram_pages())
-    artifacts.update(_wiki_pages(services))
+    artifacts.update(wiki_pages(model))
     return artifacts
 
 

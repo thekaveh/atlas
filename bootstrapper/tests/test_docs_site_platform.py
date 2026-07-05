@@ -222,6 +222,11 @@ def test_generated_reference_pages_cover_core_sources() -> None:
     assert "all" in tracks
     assert "all services (no filtering)" in tracks
 
+    deps = (DOCS_SITE / "reference" / "service-dependencies.md").read_text(encoding="utf-8")
+    assert "| Service | Required | Optional | Runtime Calls |" in deps
+    assert "litellm" in deps
+    assert "open-webui" in deps
+
 
 def test_required_diagram_catalog_is_linked_and_non_empty() -> None:
     catalog = (DIAGRAMS_DIR / "README.md").read_text(encoding="utf-8")

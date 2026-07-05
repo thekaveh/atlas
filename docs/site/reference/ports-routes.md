@@ -2,6 +2,6 @@
 
 ## 1. Canonical Route Reference
 
-Generated index entry. Canonical route details remain in `docs/deployment/ports-and-routes.md`.
+Generated route reference pointer.
 
 See [ports-and-routes.md](../../deployment/ports-and-routes.md).

@@ -2,4 +2,4 @@
 
 ## 1. Generated References
 
-The MkDocs site publishes generated references for SOURCE values, environment variables, ports and routes, tracks, service dependencies, and manifest fields.
+The public site publishes SOURCE values, environment variables, ports, routes, tracks, dependencies, and manifest-field references.

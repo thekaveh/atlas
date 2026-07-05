@@ -2,8 +2,8 @@
 
 ## 1. Diagram Catalog
 
-The public MkDocs site contains the full architecture diagram catalog. The source files live in `docs/architecture/` in the repository.
+The public site contains the full architecture catalog and per-service diagram links.
 
-## 2. Update Rule
+## 2. Stack Shape
 
-Regenerate docs with `python scripts/generate-docs-site.py` after service, route, track, or architecture changes.
+Atlas routes browser and API traffic through Kong, composes services through Docker Compose fragments, and adapts application services based on enabled upstreams.
