@@ -32,7 +32,7 @@ pyyaml>=6.0.1
 
 # Data Science (already in base image, but ensuring versions)
 pandas>=2.2.0
-numpy>=1.26.0
+numpy>=2.5.1
 
 # Financial research kit - read-only market data and paper portfolio notebooks.
 # Keep live-trading/exchange-key workflows out of this image slice; see
