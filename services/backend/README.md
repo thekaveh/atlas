@@ -13,7 +13,7 @@ Source: `services/backend/app/`. The FastAPI app boots in `app/main.py`, mounts 
 | Path | URL | Notes |
 |---|---|---|
 | Direct | `http://localhost:${BACKEND_PORT}` (default `63093`) | Always exposed when the container is up. |
-| Kong | `http://api.localhost:${KONG_HTTP_PORT}` | Requires `./start.sh --setup-hosts`. Recommended for browser-side calls. |
+| Kong | `http://api.localhost:${KONG_HTTP_PORT}` | Requires `./start.sh --setup-hosts`. Recommended for browser-side calls; optionally protected by `BACKEND_KONG_AUTH`. |
 | Health | `GET /health` | Returns a minimal `{status, version}` response. |
 
 Canonical port table: [Ports and Routes](../../docs/deployment/ports-and-routes.md).
@@ -26,6 +26,28 @@ The backend has no source-variants beyond `container`. Customization happens thr
 BACKEND_SOURCE=container          # only value
 BACKEND_PORT=63093                # computed by topology.py from BASE_PORT
 ```
+
+Backend Kong route authentication:
+
+```bash
+BACKEND_KONG_AUTH=disabled        # disabled (default) or key-auth
+BACKEND_KONG_API_KEY=             # auto-generated; send as apikey when key-auth is enabled
+```
+
+`BACKEND_KONG_AUTH=disabled` preserves the local-development default: Kong adds
+only CORS to `api.localhost`. Set `BACKEND_KONG_AUTH=key-auth` before exposing
+the gateway beyond a trusted workstation or private reverse proxy. In that
+mode, Kong requires:
+
+```bash
+curl -H "Host: api.localhost" \
+  -H "apikey: ${BACKEND_KONG_API_KEY}" \
+  http://localhost:${KONG_HTTP_PORT}/health
+```
+
+The direct host port (`localhost:${BACKEND_PORT}`) bypasses Kong and is not
+protected by this setting; bind host ports to loopback or firewall them for
+shared environments.
 
 LangMem long-term memory:
 

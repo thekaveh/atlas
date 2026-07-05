@@ -93,6 +93,55 @@ def test_atlas_root_dashboard_owns_bare_localhost_route():
     assert "\\u003c" not in access_code
 
 
+def _service(config: dict, name: str) -> dict:
+    return next(svc for svc in config["services"] if svc["name"] == name)
+
+
+def test_backend_kong_auth_disabled_by_default():
+    config = _generate("")
+    backend = _service(config, "backend-api")
+
+    assert backend["plugins"] == [{"name": "cors"}]
+    assert not [
+        consumer
+        for consumer in config["consumers"]
+        if consumer["username"] == "backend_api_user"
+    ]
+
+
+def test_backend_kong_auth_key_auth_adds_consumer_and_route_plugins():
+    config = _generate(
+        "BACKEND_KONG_AUTH=key-auth\n"
+        "BACKEND_KONG_API_KEY=sk-backend-test\n"
+    )
+    backend = _service(config, "backend-api")
+    plugin_names = [plugin["name"] for plugin in backend["plugins"]]
+
+    assert plugin_names == ["cors", "key-auth", "acl"]
+    assert backend["plugins"][1]["config"] == {"key_names": ["apikey"]}
+    assert backend["plugins"][2]["config"] == {"allow": ["backend_api"]}
+
+    consumers = [
+        consumer
+        for consumer in config["consumers"]
+        if consumer["username"] == "backend_api_user"
+    ]
+    assert consumers == [
+        {
+            "username": "backend_api_user",
+            "keyauth_credentials": [{"key": "sk-backend-test"}],
+            "acls": [{"group": "backend_api"}],
+        }
+    ]
+
+
+def test_backend_kong_auth_key_auth_requires_generated_key():
+    import pytest
+
+    with pytest.raises(ValueError, match="BACKEND_KONG_API_KEY"):
+        _generate("BACKEND_KONG_AUTH=key-auth\nBACKEND_KONG_API_KEY=\n")
+
+
 def test_alias_only_services_route_to_expected_containers():
     """Container-mode sources produce a Kong route per alias, pointing
     at the right internal container URL."""

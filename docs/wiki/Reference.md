@@ -95,6 +95,8 @@ The public site publishes SOURCE values, environment variables, ports, routes, t
 | BACKEND_STORAGE_ALLOWED_BUCKETS | backend | default | Comma-separated Supabase Storage bucket allowlist accepted by /storage/upload. |
 | BACKEND_CORS_ORIGINS | backend | * | Comma-separated browser origins accepted by the backend CORS middleware. Default preserves local-development permissiveness. |
 | BACKEND_CORS_ALLOW_ORIGIN_REGEX | backend |  | Optional regex accepted by the backend CORS middleware for wildcard subdomain policies. |
+| BACKEND_KONG_AUTH | backend | disabled | Gateway authentication mode for the api.localhost backend route: disabled (default local-dev behavior) or key-auth (requires apikey header). |
+| BACKEND_KONG_API_KEY | backend |  | Auto-generated key accepted by Kong when BACKEND_KONG_AUTH=key-auth. Send as `apikey: <value>`. |
 | LANGMEM_ENABLED | backend | True | - |
 | LANGMEM_MEMORY_NAMESPACE | backend | default | - |
 | LANGMEM_AUTO_CONSOLIDATE | backend | True | Reserved — not yet honored. Memory consolidation currently runs only

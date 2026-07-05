@@ -150,7 +150,7 @@ class KongConfigGenerator:
         # into its basic-auth credentials table on startup.
         dashboard_username = self.get_env_value('DASHBOARD_USERNAME', 'kong_admin')
         dashboard_password = self.get_env_value('DASHBOARD_PASSWORD', 'kong_password')
-        return [
+        consumers = [
             {
                 'username': 'dashboard_user',
                 'basicauth_credentials': [
@@ -164,6 +164,33 @@ class KongConfigGenerator:
                 ],
             }
         ]
+
+        if self._backend_kong_auth_mode() == 'key-auth':
+            backend_api_key = self.get_env_value('BACKEND_KONG_API_KEY', '')
+            if not backend_api_key:
+                raise ValueError(
+                    "BACKEND_KONG_AUTH=key-auth requires BACKEND_KONG_API_KEY"
+                )
+            consumers.append(
+                {
+                    'username': 'backend_api_user',
+                    'keyauth_credentials': [
+                        {'key': backend_api_key},
+                    ],
+                    'acls': [
+                        {'group': 'backend_api'},
+                    ],
+                }
+            )
+        return consumers
+
+    def _backend_kong_auth_mode(self) -> str:
+        mode = (self.get_env_value('BACKEND_KONG_AUTH', 'disabled') or 'disabled').strip().lower()
+        if mode not in ('disabled', 'key-auth'):
+            raise ValueError(
+                "BACKEND_KONG_AUTH must be one of: disabled, key-auth"
+            )
+        return mode
     
     def get_all_services(self) -> List[Dict[str, Any]]:
         """
@@ -1534,7 +1561,20 @@ class KongConfigGenerator:
         
         if source == 'disabled':
             return None
-            
+
+        plugins = [{'name': 'cors'}]
+        if self._backend_kong_auth_mode() == 'key-auth':
+            if not self.get_env_value('BACKEND_KONG_API_KEY', ''):
+                raise ValueError(
+                    "BACKEND_KONG_AUTH=key-auth requires BACKEND_KONG_API_KEY"
+                )
+            plugins.extend(
+                [
+                    {'name': 'key-auth', 'config': {'key_names': ['apikey']}},
+                    {'name': 'acl', 'config': {'allow': ['backend_api']}},
+                ]
+            )
+
         return {
             'name': 'backend-api',
             'url': 'http://backend:8000/',
@@ -1545,7 +1585,7 @@ class KongConfigGenerator:
                     'hosts': ['api.localhost']
                 }
             ],
-            'plugins': [{'name': 'cors'}]
+            'plugins': plugins
         }
     
     def generate_openwebui_service(self) -> Optional[Dict[str, Any]]:
