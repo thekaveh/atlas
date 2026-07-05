@@ -124,12 +124,15 @@ Add these entries to your parent project's `.gitignore`:
 ```
 # Infrastructure environment and data
 infra/.env
+infra/.env.user
 infra/volumes/
 infra/data/
 
 # Keep .env.example for documentation
 !infra/.env.example
 ```
+
+Use `infra/.env.user` for downstream-only environment keys that should survive an Atlas cold-start `.env` regeneration without being added to upstream `.env.example`. During setup, Atlas copies `.env.example`, merges `.env.user`, and then applies explicit CLI flags such as `--project` last.
 
 ## 5. Configuration
 

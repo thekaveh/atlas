@@ -146,6 +146,66 @@ def test_start_setup_env_rejects_invalid_persisted_project_before_mutation(tmp_p
     assert env.read_text(encoding="utf-8") == "PROJECT_NAME=bad.name\n"
 
 
+def test_cold_start_applies_env_user_overlay_and_preserves_project_name(tmp_path, monkeypatch):
+    import start as start_module
+
+    env = tmp_path / ".env"
+    example = tmp_path / ".env.example"
+    overlay = tmp_path / ".env.user"
+    env.write_text(
+        "PROJECT_NAME=myshowcase\n"
+        "DOWNSTREAM_ONLY=old-value\n",
+        encoding="utf-8",
+    )
+    example.write_text(
+        "PROJECT_NAME=atlas\n"
+        "BASE_PORT=63000\n",
+        encoding="utf-8",
+    )
+    overlay.write_text(
+        "# consumer-owned overlay\n"
+        "DOWNSTREAM_ONLY=kept-value\n"
+        "QUOTED_HASH=\"a#b\"\n"
+        "INLINE_COMMENT=kept  # comment\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("ATLAS_ENV_FILE", str(env))
+
+    starter = start_module.AtlasStarter()
+    starter.config_parser.env_file_path = env
+    starter.config_parser.env_example_path = example
+
+    assert starter.setup_env_file(cold_start=True) is True
+
+    env_text = env.read_text(encoding="utf-8")
+    parsed = starter.config_parser.parse_env_file()
+    assert "BASE_PORT=63000" in env_text
+    assert parsed["PROJECT_NAME"] == "myshowcase"
+    assert parsed["DOWNSTREAM_ONLY"] == "kept-value"
+    assert parsed["QUOTED_HASH"] == "a#b"
+    assert parsed["INLINE_COMMENT"] == "kept"
+
+
+def test_cold_start_project_flag_overrides_env_user_project_name(tmp_path, monkeypatch):
+    import start as start_module
+
+    env = tmp_path / ".env"
+    example = tmp_path / ".env.example"
+    overlay = tmp_path / ".env.user"
+    env.write_text("PROJECT_NAME=oldshowcase\n", encoding="utf-8")
+    example.write_text("PROJECT_NAME=atlas\n", encoding="utf-8")
+    overlay.write_text("PROJECT_NAME=overlayshowcase\n", encoding="utf-8")
+    monkeypatch.setenv("ATLAS_ENV_FILE", str(env))
+
+    starter = start_module.AtlasStarter()
+    starter.config_parser.env_file_path = env
+    starter.config_parser.env_example_path = example
+
+    assert starter.setup_env_file(cold_start=True, project_name="clishowcase") is True
+
+    assert starter.config_parser.parse_env_file()["PROJECT_NAME"] == "clishowcase"
+
+
 # ── stop.py override ─────────────────────────────────────────────────────────
 
 def test_stop_show_configuration_info_honors_override(tmp_path, monkeypatch):

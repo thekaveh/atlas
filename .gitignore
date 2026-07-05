@@ -95,6 +95,7 @@ volumes/litellm/*.yml
 # Environment variables file
 .env
 .env.local
+.env.user
 .env.*.local
 .env.development.local
 .env.test.local
