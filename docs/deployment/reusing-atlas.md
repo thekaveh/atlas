@@ -167,7 +167,7 @@ networks:
 
 ### 6.2 Adding backend API routes via the plugin seam
 
-The FastAPI backend exposes a **generic plugin seam** so you can mount your own API routes *into* it without forking `services/backend/`. On startup the backend calls `load_plugins(app)`, which scans `$BACKEND_PLUGINS_DIR` (default `/app/plugins`) and, for each immediate subdirectory that is an importable Python package exposing a module-level `router` (a FastAPI `APIRouter`), includes that router into the running app. If the directory holds a `requirements.txt`, it's `pip install`'d first. The seam is a **no-op when the directory doesn't exist** (so base Atlas is unaffected), and a plugin that fails to import is logged and skipped — one bad plugin never crashes the backend.
+The FastAPI backend exposes a **generic plugin seam** so you can mount your own API routes *into* it without forking `services/backend/`. On startup the backend calls `load_plugins(app)`, which scans `$BACKEND_PLUGINS_DIR` (default `/app/plugins`). An optional shared `$BACKEND_PLUGINS_DIR/requirements.txt` is installed first; then, for each immediate subdirectory that is an importable Python package exposing a module-level `router` (a FastAPI `APIRouter`), that plugin package's own optional `requirements.txt` is installed before the package is imported and included into the running app. The seam is a **no-op when the directory doesn't exist** (so base Atlas is unaffected), and a plugin that fails to import is logged and skipped — one bad plugin never crashes the backend.
 
 To use it, mount a plugins directory into the backend container and (optionally) point `BACKEND_PLUGINS_DIR` at it. With a submodule/overlay layout you extend Atlas's `backend` service from your parent Compose:
 
@@ -185,6 +185,7 @@ Each plugin is a package directory exposing `router`:
 
 ```
 my-plugins/
+  requirements.txt     # optional shared dependencies for all plugins
   rag_routes/
     __init__.py          # exposes `router = APIRouter(prefix="/rag", ...)`
     requirements.txt     # optional; pip-installed before the package is imported
