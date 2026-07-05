@@ -257,10 +257,21 @@ def test_required_diagram_catalog_is_linked_and_non_empty() -> None:
         assert "#020617" in html_text
         assert "JetBrains Mono" in html_text
         assert "fonts.googleapis.com" not in html_text
+        assert "Generated for Atlas documentation using the architecture-diagram design system." in html_text
         assert page.stat().st_size > 200
         assert f"./{slug}.html" in page_text or f"{slug}.html" in page_text
+        assert "## 1. Diagram" in page_text
+        assert "## 2. Source Files" in page_text
+        assert "## 3. Update Rule" in page_text
         assert f"{slug}.md" in catalog
         assert f"architecture/{slug}.md" in nav_text
+
+
+def test_service_profiles_link_available_architecture_assets() -> None:
+    for name in ["supabase", "open-webui", "litellm"]:
+        text = (DOCS_SITE / "services" / f"{name}.md").read_text(encoding="utf-8")
+        assert f"services/{name}/architecture.svg" in text
+        assert f"services/{name}/architecture.html" in text
 
 
 def test_wiki_export_and_ci_hooks_are_present() -> None:

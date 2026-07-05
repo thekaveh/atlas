@@ -1,10 +1,70 @@
 from __future__ import annotations
 
+import html
 import os
 from pathlib import Path
 
 from .model import DocsModel
 from .rendering import csv_or_dash, table
+
+
+ARCHITECTURE_PERSPECTIVES: dict[str, tuple[str, str, list[str]]] = {
+    "platform-overview": (
+        "Atlas Platform Overview",
+        "User entrypoints, Kong, apps, agents, LLM core, data stores, and cloud-provider boundaries.",
+        ["Clients", "Kong", "Apps", "Agents", "LLM Core", "Data Stores", "Cloud Providers"],
+    ),
+    "bootstrapper-lifecycle": (
+        "Bootstrapper Lifecycle",
+        "How start.sh flows through env loading, migrations, manifest synthesis, track filtering, Kong generation, compose assembly, and launch logs.",
+        ["start.sh", "Env Load", "Migrations", "Manifests", "Tracks", "Kong Routes", "Compose", "Logs"],
+    ),
+    "source-configuration-model": (
+        "SOURCE Configuration Model",
+        "Container, localhost, disabled, none, cloud-provider enablement, and adaptive-service behavior.",
+        ["SOURCE Var", "container", "localhost", "disabled", "none", "cloud enabled", "adaptive apps"],
+    ),
+    "track-selection-matrix": (
+        "Track Selection Matrix",
+        "How Atlas tracks map to service families and force-disable out-of-track services.",
+        ["Tracks", "Wizard", "Service Families", "Enabled", "Force Disabled", "Overrides"],
+    ),
+    "network-routing-topology": (
+        "Network And Routing Topology",
+        "Host ports, Kong aliases, direct service ports, backend-network-only services, and localhost-mode boundaries.",
+        ["Browser", "*.localhost", "Kong", "Direct Ports", "Backend Network", "localhost mode"],
+    ),
+    "data-rag-flow": (
+        "Data And RAG Flow",
+        "Ingestion, document processing, object storage, vector and graph stores, backend APIs, Open WebUI, and tool/MCP-adjacent flows.",
+        ["Ingestion", "Doc Processing", "MinIO", "Weaviate", "Neo4j", "Backend", "Open WebUI"],
+    ),
+    "llm-provider-flow": (
+        "LLM Provider Flow",
+        "Ollama, LiteLLM, cloud passthroughs, Open WebUI, backend, MCP/tool access, and trace hooks.",
+        ["Open WebUI", "Backend", "LiteLLM", "Ollama", "Cloud LLMs", "Tools", "Tracing"],
+    ),
+    "data-engineering-lakehouse-flow": (
+        "Data Engineering Lakehouse Flow",
+        "MinIO, Iceberg REST, Spark, JupyterHub, Zeppelin, Airflow, Trino, Redpanda, Jenkins, and init containers.",
+        ["MinIO", "Iceberg REST", "Spark", "JupyterHub", "Zeppelin", "Airflow", "Trino", "Redpanda"],
+    ),
+    "observability-flow": (
+        "Observability Flow",
+        "Prometheus, Grafana, Langfuse, OpenTelemetry Collector, Tempo, Loki, and service instrumentation boundaries.",
+        ["Services", "OTel Collector", "Prometheus", "Grafana", "Langfuse", "Tempo", "Loki"],
+    ),
+    "security-auth-secrets-boundary": (
+        "Security, Auth, And Secrets Boundary",
+        "Supabase, Kong, service auth notes, API keys, local secrets, cloud keys, and intentionally unauthenticated local surfaces.",
+        ["Supabase", "Kong", "API Keys", "Local Secrets", "Cloud Keys", "Unauthenticated Local"],
+    ),
+    "service-admission-workflow": (
+        "Service Admission Workflow",
+        "Manifest, compose fragment, topology row, env assembler, docs regeneration, diagrams, tests, and CI drift gates.",
+        ["service.yml", "compose.yml", "Topology", ".env.example", "Docs Regen", "Diagrams", "CI"],
+    ),
+}
 
 
 def _asset_href(page: Path, docs_root: Path, asset: Path) -> str:
@@ -202,6 +262,122 @@ uv run --project bootstrapper python scripts/check-track-membership.py
 """
         + table(["Category", "Count", "Services"], category_rows),
     }
+
+
+def _architecture_diagram_html(
+    slug: str, title: str, description: str, nodes: list[str]
+) -> str:
+    boxes = []
+    arrows = []
+    palette = [
+        ("rgba(8, 51, 68, 0.4)", "#22d3ee", "frontend"),
+        ("rgba(6, 78, 59, 0.4)", "#34d399", "backend"),
+        ("rgba(76, 29, 149, 0.4)", "#a78bfa", "data"),
+        ("rgba(120, 53, 15, 0.3)", "#fbbf24", "cloud"),
+        ("rgba(136, 19, 55, 0.4)", "#fb7185", "security"),
+        ("rgba(251, 146, 60, 0.3)", "#fb923c", "bus"),
+        ("rgba(30, 41, 59, 0.5)", "#94a3b8", "generic"),
+    ]
+    x = 70
+    for idx, node in enumerate(nodes):
+        y = 135 + (idx % 2) * 120
+        box_x = x + idx * 120
+        fill, stroke, role = palette[idx % len(palette)]
+        boxes.append(
+            f'<rect x="{box_x}" y="{y}" width="105" height="60" rx="6" fill="#0f172a"/>'
+            f'<rect x="{box_x}" y="{y}" width="105" height="60" rx="6" fill="{fill}" stroke="{stroke}" stroke-width="1.5"/>'
+            f'<text x="{box_x + 52}" y="{y + 25}" fill="white" font-size="11" font-weight="600" text-anchor="middle">{html.escape(node)}</text>'
+            f'<text x="{box_x + 52}" y="{y + 42}" fill="#94a3b8" font-size="9" text-anchor="middle">{role}</text>'
+        )
+        if idx:
+            prev_x = x + (idx - 1) * 120 + 105
+            prev_y = 164 + ((idx - 1) % 2) * 120
+            arrows.append(
+                f'<line x1="{prev_x}" y1="{prev_y}" x2="{box_x}" y2="{y + 29}" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>'
+            )
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>{html.escape(title)}</title>
+  <style>
+    body {{ margin: 0; background: #020617; color: #e2e8f0; font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }}
+    main {{ max-width: 1120px; margin: 0 auto; padding: 32px; }}
+    .frame {{ border: 1px solid #1e293b; border-radius: 14px; background: #020617; padding: 20px; }}
+    .cards {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 16px; }}
+    .card {{ border: 1px solid #1e293b; border-radius: 8px; padding: 12px; background: #0f172a; }}
+    .card h3 {{ align-items: center; color: #e2e8f0; display: flex; font-size: 13px; gap: 8px; margin: 0 0 8px; }}
+    .card h3::before, .signal {{ background: #22d3ee; border-radius: 999px; box-shadow: 0 0 18px rgba(34, 211, 238, 0.74); content: ''; display: inline-block; height: 8px; width: 8px; }}
+    .card p {{ color: #94a3b8; font-size: 12px; line-height: 1.5; margin: 0; }}
+    .title {{ align-items: center; display: flex; gap: 10px; }}
+    footer {{ color: #64748b; font-size: 11px; margin-top: 16px; }}
+  </style>
+</head>
+<body>
+  <main>
+    <h1 class="title"><span class="signal"></span>{html.escape(title)}</h1>
+    <p>{html.escape(description)}</p>
+    <div class="frame">
+      <svg viewBox="0 0 1000 420" role="img" aria-label="{html.escape(title)}">
+        <defs>
+          <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+            <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/>
+          </pattern>
+          <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#64748b"/>
+          </marker>
+        </defs>
+        <rect width="1000" height="420" fill="#020617"/>
+        <rect width="1000" height="420" fill="url(#grid)"/>
+        {''.join(arrows)}
+        {''.join(boxes)}
+      </svg>
+    </div>
+    <div class="cards">
+      <div class="card"><h3>Source files</h3><p>Manifests, topology, tracks, and documentation sources.</p></div>
+      <div class="card"><h3>Update trigger</h3><p>Service, routing, SOURCE, track, or architecture changes.</p></div>
+      <div class="card"><h3>Diagram ID</h3><p>{html.escape(slug)}</p></div>
+    </div>
+    <footer>Generated for Atlas documentation using the architecture-diagram design system.</footer>
+  </main>
+</body>
+</html>"""
+
+
+def architecture_pages(model: DocsModel) -> dict[Path, str]:
+    arch = model.root / "docs" / "architecture"
+    pages: dict[Path, str] = {}
+    rows = []
+    for slug, (title, description, nodes) in ARCHITECTURE_PERSPECTIVES.items():
+        pages[arch / f"{slug}.html"] = _architecture_diagram_html(slug, title, description, nodes)
+        pages[arch / f"{slug}.md"] = f"""# {title}
+
+{description}
+
+## 1. Diagram
+
+[Open the interactive diagram](./{slug}.html).
+
+## 2. Source Files
+
+- `services/*/service.yml`
+- `bootstrapper/tracks.yml`
+- `services/topology.py`
+- `docs/deployment/source-configuration.md`
+
+## 3. Update Rule
+
+Update this page and `{slug}.html` when the represented architecture surface
+changes. Use the `architecture-diagram` design system: dark slate background,
+JetBrains Mono, split perspectives, readable labels, and no overloaded mega-diagram.
+"""
+        rows.append([f"[{title}]({slug}.md)", description])
+    pages[arch / "README.md"] = (
+        "# Architecture Diagram Catalog\n\n## 1. Generated Diagram Index\n\n"
+        "Generated catalog of split Atlas architecture perspectives.\n\n"
+        + table(["Diagram", "Purpose"], rows)
+    )
+    return pages
 
 
 def reference_pages(model: DocsModel) -> dict[Path, str]:
