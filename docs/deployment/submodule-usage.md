@@ -125,6 +125,7 @@ Add these entries to your parent project's `.gitignore`:
 # Infrastructure environment and data
 infra/.env
 infra/.env.user
+infra/services/supabase/db/_user/*.sql
 infra/volumes/
 infra/data/
 
@@ -133,6 +134,8 @@ infra/data/
 ```
 
 Use `infra/.env.user` for downstream-only environment keys that should survive an Atlas cold-start `.env` regeneration without being added to upstream `.env.example`. During setup, Atlas copies `.env.example`, merges `.env.user`, and then applies explicit CLI flags such as `--project` last.
+
+Use `infra/services/supabase/db/_user/` for downstream-owned Supabase SQL that should run after Atlas-owned database initialization. Files are executed by `supabase-db-init` in lexical order after `infra/services/supabase/db/scripts/*.sql`; write them idempotently because the same database volume may be reused across starts. The parent `.gitignore` entry above keeps local SQL from making the Atlas submodule look dirty unless your project intentionally versions those migrations through its own overlay strategy.
 
 ## 5. Configuration
 
