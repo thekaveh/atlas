@@ -3740,6 +3740,11 @@ services:
       source: '{REPO_ROOT}/services/supabase/db/scripts'
       target: /scripts
       type: bind
+    - bind: {}
+      read_only: true
+      source: '{REPO_ROOT}/services/supabase/db/_user'
+      target: /user-scripts
+      type: bind
   supabase-meta:
     container_name: atlas-supabase-meta
     depends_on:
