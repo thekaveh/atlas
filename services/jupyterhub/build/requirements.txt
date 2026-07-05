@@ -6,7 +6,7 @@ langchain-community>=0.3.0
 # langchain-openai is NOT pulled in by langchain/langchain-community —
 # notebook 02_langchain_rag imports it directly (ModuleNotFoundError
 # at cell 1 without this pin).
-langchain-openai>=0.2.0
+langchain-openai>=1.3.3
 # openai was previously only transitive (via llama-index); notebook
 # 01_litellm_basics imports it directly — pin it explicitly.
 openai>=1.40.0
