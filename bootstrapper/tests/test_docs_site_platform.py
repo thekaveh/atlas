@@ -406,6 +406,8 @@ def test_poster_variant_generator_preserves_original_block_wordmark() -> None:
     script = POSTER_VARIANT_SCRIPT.read_text(encoding="utf-8")
 
     assert "WORDMARK_SOURCE = ROOT / \"assets\" / \"atlas-poster.png\"" in script
+    assert "WORDMARK_SCALE = 0.72" in script
+    assert "WORDMARK_BOTTOM_MARGIN = 10" in script
     assert "_extract_wordmark" in script
     assert "ImageFont" not in script
     assert "draw.text" not in script

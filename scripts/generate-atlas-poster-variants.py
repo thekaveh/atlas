@@ -11,8 +11,8 @@ from PIL import Image, ImageChops, ImageDraw, ImageFilter
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "assets" / "atlas-source.png"
 WORDMARK_SOURCE = ROOT / "assets" / "atlas-poster.png"
-WORDMARK_SCALE = 0.82
-WORDMARK_BOTTOM_MARGIN = 24
+WORDMARK_SCALE = 0.72
+WORDMARK_BOTTOM_MARGIN = 10
 VARIANTS = {
     "blue": (96, 165, 250),
     "gold": (213, 162, 42),
