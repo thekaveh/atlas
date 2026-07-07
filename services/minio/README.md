@@ -92,7 +92,7 @@ Root credentials are NEVER surfaced to consumers — see Service accounts below.
 
 ## 4. Bucket layout
 
-Five buckets are pre-provisioned by `minio-init`. Bucket names are the bare service identifier:
+Twelve buckets are pre-provisioned by `minio-init` across nine consumers. Bucket names are the bare service identifier:
 
 | Bucket | Intended consumer |
 |---|---|
@@ -106,7 +106,7 @@ Bucket names are overridable via `MINIO_BUCKET_<NAME>` env vars; hand-edits stic
 
 ## 5. Service accounts
 
-Each consumer has its own MinIO service account with an inline IAM policy scoped to a single bucket:
+Each consumer has its own MinIO service account with an inline IAM policy scoped to one bucket (or a small named set for the iceberg account, which has four):
 
 ```json
 {
