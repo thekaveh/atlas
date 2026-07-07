@@ -222,3 +222,45 @@ def test_fal_client_constructs_subscribe_request(monkeypatch):
     assert result["success"] is True
     assert result["prompt_id"] == "req-fal-42"
     assert result["outputs"]["images"][0]["url"] == "https://cdn.example/image.jpeg"
+
+
+def test_fal_client_sends_negative_prompt_when_provided(monkeypatch):
+    """The non-empty negative_prompt must reach fal_client.subscribe's
+    arguments (not be silently dropped — the f5693f06 fix). The empty case is
+    locked by test_fal_client_constructs_subscribe_request's exact-dict
+    assertion (negative_prompt='' -> key absent); this locks the positive path
+    so a future revert of the `if negative_prompt:` block can't re-drop it.
+    """
+    spec = importlib.util.find_spec("fal_media_client")
+    assert spec is not None, "backend must provide fal_media_client.FalClient"
+
+    captured: dict = {}
+
+    def fake_subscribe(model, *, arguments):
+        captured["model"] = model
+        captured["arguments"] = arguments
+        return {"request_id": "req-neg", "images": []}
+
+    monkeypatch.setitem(
+        sys.modules, "fal_client", types.SimpleNamespace(subscribe=fake_subscribe)
+    )
+
+    from fal_media_client import FalClient
+
+    asyncio.run(
+        FalClient(
+            api_key="fal-key",
+            model="fal-ai/flux/dev",
+            output_format="jpeg",
+            enable_safety_checker=True,
+        ).generate_simple_image(
+            prompt="orbital blue glass library",
+            negative_prompt="low detail",
+            width=768,
+            height=512,
+        )
+    )
+
+    assert captured["model"] == "fal-ai/flux/dev"
+    assert captured["arguments"]["prompt"] == "orbital blue glass library"
+    assert captured["arguments"]["negative_prompt"] == "low detail"
