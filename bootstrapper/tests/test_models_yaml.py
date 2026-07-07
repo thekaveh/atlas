@@ -27,10 +27,10 @@ def _load_yaml(path: pathlib.Path) -> dict:
 
 def test_yaml_files_validate_against_schema():
     """Both YAML catalog files must validate against models.schema.json."""
-    try:
-        import jsonschema
-    except ImportError:
-        pytest.skip("jsonschema not installed")
+    # jsonschema is a hard runtime dependency (bootstrapper/pyproject.toml);
+    # import unconditionally so a missing install fails loudly rather than
+    # silently skipping schema enforcement.
+    import jsonschema
 
     schema = _load_schema()
     ollama_yaml = _load_yaml(REPO_ROOT / "services" / "ollama" / "models.yaml")
