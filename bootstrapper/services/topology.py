@@ -296,7 +296,7 @@ def _allocate_slots(
                 # category's first real port (e.g. KONG_HTTP_PORT) lands at
                 # slot 0 of the infra block.
                 continue
-            if "_LOCALHOST_" in env.name and env.name.endswith("_PORT"):
+            if "_LOCALHOST_" in env.name:
                 # Vars matching ``*_LOCALHOST_*_PORT`` (including the simpler
                 # ``*_LOCALHOST_PORT``) describe the *host machine's* port
                 # for a localhost source variant — they're external hints,
