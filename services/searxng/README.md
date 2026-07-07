@@ -1,6 +1,6 @@
 # SearXNG
 
-Privacy-preserving metasearch engine. SearXNG aggregates results from 200+ upstream engines (Google, Bing, DuckDuckGo, Brave, Wikipedia, arXiv, Crossref, etc.) without keeping logs, fingerprinting users, or sending API keys. The stack uses it as the default search backend for Local Deep Researcher, Hermes, Open WebUI's "Web Search" toggle, and n8n's seeded `searxng-research-workflow.json`.
+Privacy-preserving metasearch engine. SearXNG aggregates results from 200+ upstream engines (Google, Bing, DuckDuckGo, Brave, Wikipedia, arXiv, Crossref, etc.) without keeping logs, fingerprinting users, or sending API keys. The stack uses it as the default search backend for Local Deep Researcher, Hermes, and n8n's seeded `searxng-research-workflow.json` (Open WebUI's web-search toggle is wired off today — see §5.4).
 
 The container runs `searxng/searxng:2026.6.28-357662d86`. `services/searxng/config/settings.yml` is a **thin override** on the image's default settings (`use_default_settings`): it enables JSON output (so results are machine-readable) and drops the Tor-only engines (`ahmia`/`torch`, which need a Tor proxy the stack doesn't wire). Everything else — the full engine list with version-matched per-engine config, public-instance mode off, metrics on, `server.limiter: false`, `valkey.url: false` (no Redis/Valkey store) — is inherited from the image default. `SEARXNG_SECRET` is applied via the SearXNG-native env var (set in compose), not written into the file.
 

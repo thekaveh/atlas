@@ -533,7 +533,7 @@ JUPYTERHUB_TOKEN=my-secret-token
 
 ```bash
 # In .env
-JUPYTERHUB_PORT=64048  # Use different port
+JUPYTERHUB_PORT=64094  # Use different port (offset 94 from BASE_PORT)
 ```
 
 ### 16.4 Out of Memory
