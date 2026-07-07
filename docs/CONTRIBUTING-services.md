@@ -625,7 +625,7 @@ Distilled from real audit findings — each entry cites the commit, PR, or memor
 
 ### 14.5 Topology / category gotchas
 
-- **A new service in a near-full category block can trip the category-overflow lint.** `data` and `media` blocks are 20 slots each but Supabase alone uses 7. Check current utilization before assuming there's room.
+- **A new service in a near-full category block can trip the category-overflow lint.** The `data` block is 30 slots and `media` is 20; Supabase alone uses 7. Check current utilization before assuming there's room.
 - **Renaming a `row.display_name` breaks tests that hardcode it.** `test_wizard_app_discovery.py` has an `EXPECTED_DISCOVERED` frozenset; update it when renaming.
 
 ### 14.6 Wizard discovery gotchas

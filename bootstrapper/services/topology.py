@@ -90,8 +90,8 @@ CATEGORY_FILLS: dict[str, str] = {
 #   llm:    BASE_PORT + 40..49    (LiteLLM + inference helpers)
 #   media:  BASE_PORT + 50..69    (ComfyUI/STT/TTS/Doc/SearxNG/Speaches/
 #                                  Chatterbox; ~8; 12 free)
-#   agents: BASE_PORT + 70..89    (Airflow, Hermes×2, n8n, OpenClaw×2, LightRAG,
-#                                  MCP-Servers = 8; 12 free)
+#   agents: BASE_PORT + 70..89    (Airflow, Celery/Flower, Hermes×2, n8n, OpenClaw×2, LightRAG,
+#                                  MCP-Servers = 9; 11 free)
 #   apps:   BASE_PORT + 90..109   (Backend, Open WebUI, JupyterHub, LDR, Zeppelin,
 #                                  Jenkins, Label-Studio, MLflow, LLM-Graph-Builder,
 #                                  Verba = 10; 10 free)
