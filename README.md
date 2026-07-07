@@ -581,7 +581,7 @@ atlas/
 ├── docker-compose.yml         # ~70-line thin shell — include: list pulling each fragment
 ├── .env.example               # Configuration template (auto-generated from manifests via env_assembler; byte-equivalence enforced by tests)
 ├── start.sh / stop.sh         # Entry points
-└── .github/workflows/         # CI: services-lint (validator, byte-equiv, source-permutation)
+└── .github/workflows/         # CI: services-lint (manifest lint+tests, compose byte-equiv+source-permutation, docs-drift+audits, build-validation)
 ```
 
 Top-level is intentionally minimal: `bootstrapper/`, `docs/`, `scripts/`, `services/`. Every service lives entirely under its `services/<name>/` folder — init scripts, source code, build context, config files — so opening a service folder shows everything that defines it.
