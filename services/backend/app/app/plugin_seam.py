@@ -85,8 +85,6 @@ def _install_requirements(directory: Path, installed: set[Path] | None = None) -
 
 
 def load_plugins(app) -> None:
-    import os
-
     plugins_dir = Path(os.getenv("BACKEND_PLUGINS_DIR", "/app/plugins"))
     if not plugins_dir.is_dir():
         return
