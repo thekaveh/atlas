@@ -10,17 +10,19 @@ stack uses patch-version tags everywhere (e.g. `python:3.12.13-slim`,
 This test locks that posture in CI so a future contributor can't
 re-introduce a floating tag silently.
 
-ARG-defaulted FROMs (e.g. `FROM ${BASE_IMAGE}`) are exempt because the
-ARG is the user-facing override knob (compose injects `*_IMAGE` from
-.env at build time) — pin policy for those lives with the var defaults,
-not the Dockerfile. As of the 2026-06-28 image-pin sweep those `*_IMAGE`
-defaults are themselves patch-pinned (`BACKEND_IMAGE=python:3.12.13`,
-`LOCAL_DEEP_RESEARCHER_IMAGE=python:3.11.15-slim`,
-`JUPYTERHUB_IMAGE=quay.io/jupyter/datascience-notebook:python-3.11.10`),
-so the earlier "kept loose for arch portability" caveat no longer
-applies — though this guard still only verifies Dockerfile FROM lines,
-not the `*_IMAGE` var defaults (those are covered by the manifest +
-.env.example regen).
+ARG-defaulted FROMs (e.g. `FROM ${BASE_IMAGE}`) are exempt because the ARG is
+the user-facing override knob (compose injects `*_IMAGE` from .env at build
+time). The `*_IMAGE` defaults live in the manifests and flow into .env.example
+via env_assembler; most are patch-pinned, but a few documented floating
+exceptions exist (chatterbox `:gpu`, tei `cpu-arm64-latest`, jenkins
+`lts-jdk21`). This guard does NOT verify their pin posture — regen only keeps
+.env.example in sync with the manifests, it does not check pinning (a prior
+version of this docstring claimed otherwise). A `*_IMAGE` pin-lint is a
+worthwhile follow-up but non-trivial: a correct predicate must distinguish
+genuinely-pinned non-semver tags (postgres 2-part `17.10-alpine`, NGC calendar
+`26.06-py3`, minio `RELEASE.…`, jupyter `python-3.11.10`, ai-dock
+`v2-cpu-…-v0.2.7`) from floating ones (`python:3.12`), which a naive
+"N-part version" rule cannot.
 """
 from __future__ import annotations
 
