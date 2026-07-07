@@ -1073,7 +1073,7 @@ Consumed by (services that would call Spark):
 - **Trino** — federated reads / writes against Iceberg tables Spark wrote
 - **Hermes** — agent-driven analytical queries
 
-**Lakekeeper — Iceberg REST catalog** — ✅ Shipped (services/iceberg-rest/)
+**Lakekeeper — Iceberg REST catalog**
 - Apache-2.0; Rust single-binary REST catalog for Apache Iceberg. Postgres-backed metadata.
 - Lighter alternative to **Apache Polaris** (Snowflake-donated, Apache governance, Spring Boot stack) for this stack's footprint. Polaris is a defensible upgrade if Apache governance is a hard requirement.
 
