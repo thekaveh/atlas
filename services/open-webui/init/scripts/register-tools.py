@@ -251,4 +251,10 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception:
+        import traceback
+        print("open-webui-init: Tool registration failed with exception:")
+        traceback.print_exc()
+        sys.exit(1)

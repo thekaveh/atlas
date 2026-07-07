@@ -113,10 +113,6 @@ def merge_dependencies(
     return merged, True
 
 
-def needs_restart(before: dict[str, object], after: dict[str, object]) -> bool:
-    return before != after
-
-
 def find_spark_setting(settings: list[dict[str, object]]) -> dict[str, object]:
     for setting in settings:
         if setting.get("name") == "spark" and setting.get("group") == "spark":
@@ -315,4 +311,10 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except Exception as exc:
+        import traceback
+        print(f"zeppelin-init: ERROR: {exc}")
+        traceback.print_exc()
+        sys.exit(1)
