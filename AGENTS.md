@@ -170,7 +170,7 @@ See `bootstrapper/schemas/service.schema.json` for the full schema, `docs/CONTRI
 `bootstrapper/services/manifests.py::_is_service_dir` requires `service.yml` to exist. Two flavors of "no-container" folder live under `services/`:
 
 - **Doc-only folders (no `service.yml`):** `services/stt-provider/`, `services/doc-processor/`, `services/multi2vec-clip/`. Host aggregate documentation + diagrams for the wizard-facing role; the manifest loader silently skips them.
-- **Virtual manifests (`virtual: true`, no `compose.yml`):** `services/tts-provider/`, `services/cloud-providers/`, `services/globals/`. They own SOURCE / env-var declarations consumed by the bootstrapper but don't run as containers. The compose include list skips virtual manifests.
+- **Virtual manifests (`virtual: true`, no `compose.yml`):** `services/tts-provider/`, `services/cloud-providers/`, `services/globals/`, `services/blender-mcp/` (host-only Blender bridge), `services/fal/` (FAL cloud media provider). They own SOURCE / env-var declarations consumed by the bootstrapper but don't run as containers. The compose include list skips virtual manifests.
 
 ### Per-service documentation (`services/<name>/README.md`)
 
