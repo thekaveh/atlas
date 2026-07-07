@@ -528,7 +528,7 @@ Depends on (services Hummingbot would consume):
 - **Supabase (PostgreSQL)** — bot configuration and run history
 - **CCXT** (Tier 2) — exchange adapter library inside each bot worker
 - **OpenBB Platform** (Tier 3) — supplementary market-data feeds
-- **Redpanda** (Tier 3) — order-event fan-out to the risk-control service
+- **Redpanda** (shipped) — order-event fan-out to the risk-control service
 - **OpenBao** (Tier 1) — live-mode signing keys (Phase 2)
 
 Consumed by (services that would call Hummingbot):
@@ -1009,7 +1009,7 @@ Consumed by (services that would call TimescaleDB):
 - **JupyterHub** — research notebooks
 - **Langfuse** — optional storage backend for trace event aggregates
 
-**Redpanda — Kafka-compatible streaming broker**
+**Redpanda — Kafka-compatible streaming broker** — ✅ Shipped (services/redpanda/)
 - Single-binary Kafka-compatible streaming platform (BSL-1.1 / RCL); no ZooKeeper / KRaft hassle, dramatically lighter ops footprint than Apache Kafka
 - Carries real-time market-data fan-out for the trading-AI track (one exchange WebSocket → multiple strategy consumers without re-subscribing)
 - Also a general-purpose event-streaming layer for n8n event-driven workflows, observability event pipelines, and inter-service eventing as the stack scales
@@ -1052,7 +1052,7 @@ Consumed by (services that would use FinRL / FinGPT):
 
 #### Data engineering track
 
-This track composes a lakehouse + ingestion + BI + (optional) MLOps platform alongside the AI services, with the JVM / Scala lane explicitly available but **opt-in** (the rest of the stack stays Python-native via Spark Connect). Three notable divergences from the obvious 2024 picks: **Apache Zeppelin** shipped 2026-06-04 (PR #35) as a Spark-first notebook UI alongside the **Almond Scala kernel** on JupyterHub — they coexist with different audiences (Zeppelin for Spark-first SQL/Scala notebook authoring; Almond/JupyterHub for general-purpose Scala kernels in the Python notebook environment); **Dagster** is the primary asset-centric orchestrator with **Apache Airflow** (also shipped 2026-06-04 in PR #35) as a permitted alternative (via `ORCHESTRATOR_SOURCE`); and **Spark Connect** makes Scala client-side optional. Unusually strong reuse: the lake is MinIO (existing), every catalog stores metadata in Postgres (existing), Feast's online store is Redis (existing), OpenMetadata's search is OpenSearch (Tier 3 roadmap), Debezium's sink is Redpanda (Tier 3 financial track), and parallel work is the now-shipped **Ray** cluster (see the Completed section above).
+This track composes a lakehouse + ingestion + BI + (optional) MLOps platform alongside the AI services, with the JVM / Scala lane explicitly available but **opt-in** (the rest of the stack stays Python-native via Spark Connect). Three notable divergences from the obvious 2024 picks: **Apache Zeppelin** shipped 2026-06-04 (PR #35) as a Spark-first notebook UI alongside the **Almond Scala kernel** on JupyterHub — they coexist with different audiences (Zeppelin for Spark-first SQL/Scala notebook authoring; Almond/JupyterHub for general-purpose Scala kernels in the Python notebook environment); **Dagster** is the primary asset-centric orchestrator with **Apache Airflow** (also shipped 2026-06-04 in PR #35) as a permitted alternative (via `ORCHESTRATOR_SOURCE`); and **Spark Connect** makes Scala client-side optional. Unusually strong reuse: the lake is MinIO (existing), every catalog stores metadata in Postgres (existing), Feast's online store is Redis (existing), OpenMetadata's search is OpenSearch (Tier 3 roadmap), Debezium's sink is Redpanda (shipped), and parallel work is the now-shipped **Ray** cluster (see the Completed section above).
 
 **Apache Spark (standalone + Spark Connect) — distributed compute** — ✅ **Shipped 2026-06-04** (PR #35; Spark 4.1.2)
 - Apache-2.0; Spark 4.x. 5-container family on `apache/spark:4.1.2`: four long-running roles (master, worker, history, `spark-connect` gRPC sidecar) plus a one-shot minio/mc-based `spark-init` that creates the `spark-history` bucket. Spark Connect (GA since Spark 3.4, recommended in 4.x) is a gRPC server that exposes Spark to Python / Scala / Go / Rust clients transparently — the cluster runs JVM, clients do not.
@@ -1122,7 +1122,7 @@ Consumed by: **Apache Spark** (jobs run as Dagster assets), **dbt-core** (transf
 - Both Apache-2.0 libraries, not services. **Soda Core** uses YAML-based SodaCL for low-friction continuous data-quality assertions. **Elementary** is a dbt-augmenting observability layer (anomaly detection on top of dbt tests). Combine with **dbt tests** themselves and **Great Expectations** as a heavier-weight alternative.
 
 **Debezium Server — change-data-capture**
-- Apache-2.0; Debezium 3.x. Standalone mode (no Kafka Connect required) writing directly to **Redpanda** (Tier 3 financial track), NATS, Pulsar, Kinesis, or HTTP sinks. Single-purpose, lightweight.
+- Apache-2.0; Debezium 3.x. Standalone mode (no Kafka Connect required) writing directly to **Redpanda** (shipped), NATS, Pulsar, Kinesis, or HTTP sinks. Single-purpose, lightweight.
 
 **Stack integration points:**
 
