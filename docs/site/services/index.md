@@ -86,6 +86,7 @@
 | [comfyui](comfyui.md) | ComfyUI (image generation) | all, gen-ai-creative, gen-ai-eng | COMFYUI_SOURCE | container-cpu | container-cpu, container-gpu, localhost, disabled | supabase, litellm, ollama |
 | [crawl4ai](crawl4ai.md) | Crawl4AI (JS-capable web extraction) | all, gen-ai-rag | CRAWL4AI_SOURCE | disabled | container, disabled | - |
 | [docling](docling.md) | Docling (document processor) | all | DOC_PROCESSOR_SOURCE | disabled | disabled, docling-localhost, docling-container-gpu | - |
+| [fal](fal.md) | FAL Cloud Media | all, gen-ai-creative | FAL_SOURCE | disabled | enabled, disabled | - |
 | [parakeet](parakeet.md) | Parakeet (NVIDIA STT engine) | all | STT_PROVIDER_SOURCE | speaches-container-cpu | speaches-container-cpu, speaches-container-gpu, parakeet-container-gpu, parakeet-localhost, whisper-cpp-localhost, disabled | litellm |
 | [searxng](searxng.md) | SearXNG (privacy metasearch) | all, gen-ai-eng, gen-ai-rag | SEARXNG_SOURCE | container | container, disabled | redis |
 | [speaches](speaches.md) | Speaches (unified TTS + STT) | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | - | - | - | parakeet, tts-provider |

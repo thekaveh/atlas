@@ -28,6 +28,7 @@ class SourceOverrideManager:
             'cloud_anthropic_source': 'CLOUD_ANTHROPIC_SOURCE',
             'cloud_openrouter_source': 'CLOUD_OPENROUTER_SOURCE',
             'comfyui_source': 'COMFYUI_SOURCE',
+            'fal_source': 'FAL_SOURCE',
             'weaviate_source': 'WEAVIATE_SOURCE',
             'minio_source': 'MINIO_SOURCE',
             'n8n_source': 'N8N_SOURCE',

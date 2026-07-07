@@ -15,7 +15,7 @@ The Supabase ecosystem consists of multiple integrated services:
 
 ## 2. Database Setup Process
 
-The database initialization follows a two-stage process managed by Docker Compose dependencies:
+The database initialization follows a staged process managed by Docker Compose dependencies:
 
 ### 2.1 Base Database Initialization (`supabase-db` service)
 
@@ -37,6 +37,7 @@ The database initialization follows a two-stage process managed by Docker Compos
 - A dedicated, short-lived service using `postgres:15.18-alpine` image
 - Depends on `supabase-db` and waits until it's ready using `pg_isready`
 - Executes all `.sql` files from `./services/supabase/db/scripts/` directory in alphabetical order
+- Then executes optional downstream-owned `.sql` files from `./services/supabase/db/_user/` in alphabetical order
 - Custom scripts handle project-specific setup.
 
 The seeding layout follows a two-tier convention: core scaffolding lives in the `0x`-prefixed files; per-service "vertical slice" files (`10`–`14`) each own one service's tables, migrations, and seeds. All files are executed in alphabetical order by `db-init-runner.sh`, which means slice-to-slice FK references work as long as a lower-numbered slice creates the referenced table first (e.g. `public.users` in `10` is referenced by slices `13` and `14`).
@@ -55,9 +56,34 @@ The seeding layout follows a two-tier convention: core scaffolding lives in the 
   - **`15-decommission-llms.sql`** — decommission migration: drops the former `public.llms` catalog table on pre-existing volumes (idempotent `DROP TABLE IF EXISTS`). Fresh installs never create `public.llms` (the former `11-litellm.sql` was removed). The LLM model source-of-truth now lives in `services/ollama/models.yaml` and `services/litellm/models.yaml`, resolved by `bootstrapper/utils/model_resolver.py`.
   - **`16-decommission-comfyui-models.sql`** — decommission migration: drops the former `public.comfyui_models` catalog table on pre-existing volumes (idempotent `DROP TABLE IF EXISTS`). Fresh installs never create `public.comfyui_models` (its DDL left `12-comfyui.sql`). The ComfyUI model source-of-truth now lives in `services/comfyui/models.yaml` (and the `custom-models.yaml` sidecar), resolved by `bootstrapper/utils/comfyui_resolver.py` into a manifest at start. `public.comfyui_workflows` and `public.comfyui_generations` are RUNTIME app state and are NOT affected.
 
-All custom SQL scripts use `IF NOT EXISTS` logic to allow safe re-runs.
+All Atlas-owned SQL scripts use `IF NOT EXISTS` logic to allow safe re-runs.
 
-### 2.3 Service Dependencies
+### 2.3 Downstream user migrations
+
+Downstream projects can add local Supabase SQL without editing Atlas-owned
+files by placing scripts in `./services/supabase/db/_user/`. The
+`supabase-db-init` container mounts that directory read-only at `/user-scripts`
+and runs its `*.sql` files after every Atlas-owned script in
+`./services/supabase/db/scripts/` has completed successfully.
+
+The ordering contract is:
+
+1. Atlas-owned SQL in `db/scripts/`, sorted lexically.
+2. User-owned SQL in `db/_user/`, sorted lexically.
+
+The user slot is optional. A fresh checkout works with no user SQL files, and
+the `_user` directory ignores local SQL by default so downstream migrations do
+not accidentally enter upstream Atlas PRs. Prefix user files with numbers such
+as `10-project-schema.sql` and `20-seed-reference-data.sql` to make ordering
+explicit.
+
+Write user SQL to be idempotent: use patterns such as `CREATE SCHEMA IF NOT
+EXISTS`, `CREATE TABLE IF NOT EXISTS`, guarded `ALTER TABLE` blocks, and
+conflict-safe seed statements. If any user SQL file fails, `psql` exits with
+`ON_ERROR_STOP=1`, `supabase-db-init` fails, and downstream services gated on
+`supabase-db-init` do not start against a partially initialized database.
+
+### 2.4 Service Dependencies
 
 Most other services have `depends_on: { supabase-db-init: { condition: service_completed_successfully } }` to ensure they only start after both base and custom initialization are complete.
 

@@ -118,6 +118,7 @@ _FAMILY_KEY_ALIASES: dict[str, str] = {
     "tts_provider": "tts-provider",
     "doc_processor": "doc-processor",
     "blender_mcp": "blender-mcp",
+    "fal": "fal",
 }
 
 

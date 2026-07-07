@@ -13,7 +13,7 @@ Source: `services/backend/app/`. The FastAPI app boots in `app/main.py`, mounts 
 | Path | URL | Notes |
 |---|---|---|
 | Direct | `http://localhost:${BACKEND_PORT}` (default `63093`) | Always exposed when the container is up. |
-| Kong | `http://api.localhost:${KONG_HTTP_PORT}` | Requires `./start.sh --setup-hosts`. Recommended for browser-side calls. |
+| Kong | `http://api.localhost:${KONG_HTTP_PORT}` | Requires `./start.sh --setup-hosts`. Recommended for browser-side calls; optionally protected by `BACKEND_KONG_AUTH`. |
 | Health | `GET /health` | Returns a minimal `{status, version}` response. |
 
 Canonical port table: [Ports and Routes](../../docs/deployment/ports-and-routes.md).
@@ -26,6 +26,28 @@ The backend has no source-variants beyond `container`. Customization happens thr
 BACKEND_SOURCE=container          # only value
 BACKEND_PORT=63093                # computed by topology.py from BASE_PORT
 ```
+
+Backend Kong route authentication:
+
+```bash
+BACKEND_KONG_AUTH=disabled        # disabled (default) or key-auth
+BACKEND_KONG_API_KEY=             # auto-generated; send as apikey when key-auth is enabled
+```
+
+`BACKEND_KONG_AUTH=disabled` preserves the local-development default: Kong adds
+only CORS to `api.localhost`. Set `BACKEND_KONG_AUTH=key-auth` before exposing
+the gateway beyond a trusted workstation or private reverse proxy. In that
+mode, Kong requires:
+
+```bash
+curl -H "Host: api.localhost" \
+  -H "apikey: ${BACKEND_KONG_API_KEY}" \
+  http://localhost:${KONG_HTTP_PORT}/health
+```
+
+The direct host port (`localhost:${BACKEND_PORT}`) bypasses Kong and is not
+protected by this setting; bind host ports to loopback or firewall them for
+shared environments.
 
 LangMem long-term memory:
 
@@ -101,7 +123,7 @@ When any optional service is `disabled`, the corresponding backend feature degra
 
 **Init container:** none. The backend has no `backend-init`; one-time setup (DB migrations) is delegated to `supabase-db-init` which runs SQL scripts from `services/supabase/db/scripts/`.
 
-**Downstream plugin seam (`BACKEND_PLUGINS_DIR`):** after mounting its built-in routers, the app calls `load_plugins(app)` (`plugin_seam.py`). It scans `$BACKEND_PLUGINS_DIR` (default `/app/plugins`); each immediate subdirectory that is an importable package exposing a module-level `router` (a FastAPI `APIRouter`) is `include_router`'d into the app, and a `requirements.txt` in that directory is `pip install`'d first. It is a **no-op when the directory is absent**, so base Atlas is unaffected — the seam exists purely so a downstream consumer (e.g. one vendoring Atlas as a submodule) can add its own API routes without forking the backend. A plugin that fails to import is logged and skipped, never crashing the backend. Consumer-side walkthrough: [reusing-atlas.md §6.2](../../docs/deployment/reusing-atlas.md#62-adding-backend-api-routes-via-the-plugin-seam).
+**Downstream plugin seam (`BACKEND_PLUGINS_DIR`):** after mounting its built-in routers, the app calls `load_plugins(app)` (`plugin_seam.py`). It scans `$BACKEND_PLUGINS_DIR` (default `/app/plugins`); an optional shared `$BACKEND_PLUGINS_DIR/requirements.txt` is installed first, then each immediate subdirectory that is an importable package exposing a module-level `router` (a FastAPI `APIRouter`) has its own optional `requirements.txt` installed before that package is imported and `include_router`'d into the app. It is a **no-op when the directory is absent**, so base Atlas is unaffected — the seam exists purely so a downstream consumer (e.g. one vendoring Atlas as a submodule) can add its own API routes without forking the backend. A plugin whose requirements fail to install is logged with the requirements path and pip output, then skipped before import; a shared requirements failure skips plugin loading for that startup. A plugin that fails to import is logged and skipped, never crashing the backend. Consumer-side walkthrough: [reusing-atlas.md §6.3](../../docs/deployment/reusing-atlas.md#63-adding-backend-api-routes-via-the-plugin-seam).
 
 **Graphiti experiment status:** `GET /memory/graphiti/status` returns the disabled-by-default experiment configuration and namespace pattern without importing `graphiti-core` or writing to Neo4j. Treat it as a readiness/contract endpoint for future backend-only Graphiti work, not as an active memory writer.
 
@@ -124,6 +146,7 @@ When `LIGHTRAG_SOURCE != disabled`, the backend receives `LIGHTRAG_ENDPOINT` and
 | weaviate | data |
 | litellm | llm |
 | comfyui | media |
+| fal | media |
 | tika | media |
 | celery | agents |
 | n8n ↔ | agents |

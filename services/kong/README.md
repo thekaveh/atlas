@@ -178,6 +178,9 @@ curl -H "Host: n8n.localhost" http://localhost:63000/
 curl -H "Host: jupyter.localhost" http://localhost:63000/
 curl -H "Host: openclaw.localhost" http://localhost:63000/
 curl -H "Host: hermes.localhost" http://localhost:63000/
+curl -H "Host: api.localhost" http://localhost:63000/health
+# If BACKEND_KONG_AUTH=key-auth:
+curl -H "Host: api.localhost" -H "apikey: ${BACKEND_KONG_API_KEY}" http://localhost:63000/health
 curl -H "Host: litellm.localhost" http://localhost:63000/ui/
 curl -H "Host: minio.localhost" http://localhost:63000/
 curl -H "Host: spark.localhost" http://localhost:63000/

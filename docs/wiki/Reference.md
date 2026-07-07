@@ -20,6 +20,7 @@ The public site publishes SOURCE values, environment variables, ports, routes, t
 | COMFYUI_SOURCE | comfyui | container-cpu | container-cpu, container-gpu, localhost, disabled |
 | CRAWL4AI_SOURCE | crawl4ai | disabled | container, disabled |
 | DOC_PROCESSOR_SOURCE | docling | disabled | disabled, docling-localhost, docling-container-gpu |
+| FAL_SOURCE | fal | disabled | enabled, disabled |
 | GRAFANA_SOURCE | grafana | disabled | container, disabled |
 | HERMES_SOURCE | hermes | container | container, localhost, disabled |
 | ICEBERG_REST_SOURCE | iceberg-rest | disabled | container, disabled |
@@ -95,6 +96,8 @@ The public site publishes SOURCE values, environment variables, ports, routes, t
 | BACKEND_STORAGE_ALLOWED_BUCKETS | backend | default | Comma-separated Supabase Storage bucket allowlist accepted by /storage/upload. |
 | BACKEND_CORS_ORIGINS | backend | * | Comma-separated browser origins accepted by the backend CORS middleware. Default preserves local-development permissiveness. |
 | BACKEND_CORS_ALLOW_ORIGIN_REGEX | backend |  | Optional regex accepted by the backend CORS middleware for wildcard subdomain policies. |
+| BACKEND_KONG_AUTH | backend | disabled | Gateway authentication mode for the api.localhost backend route: disabled (default local-dev behavior) or key-auth (requires apikey header). |
+| BACKEND_KONG_API_KEY | backend |  | Auto-generated key accepted by Kong when BACKEND_KONG_AUTH=key-auth. Send as `apikey: <value>`. |
 | LANGMEM_ENABLED | backend | True | - |
 | LANGMEM_MEMORY_NAMESPACE | backend | default | - |
 | LANGMEM_AUTO_CONSOLIDATE | backend | True | Reserved — not yet honored. Memory consolidation currently runs only
@@ -199,6 +202,12 @@ point at http://kong-api-gateway:8000.
 | DOCLING_GPU_SCALE | docling |  | - |
 | DOCLING_ENDPOINT | docling |  | - |
 | DOCLING_LOCALHOST_PORT | docling | 63059 | Host port for the localhost source variant. URL is derived at compose-render time as http://host.docker.internal:63059. |
+| FAL_SOURCE | fal | disabled | Enables fal.ai as the backend provider for simple media generation routes. |
+| FAL_API_KEY | fal |  | fal.ai API key. Required only when FAL_SOURCE=enabled. The backend also exposes it to fal-client as FAL_KEY. |
+| FAL_MODEL | fal | fal-ai/flux/dev | fal.ai model endpoint used for text-to-image generation. |
+| FAL_TIMEOUT_SECONDS | fal | 120 | Backend request timeout budget for synchronous fal.ai generation calls. |
+| FAL_OUTPUT_FORMAT | fal | jpeg | Requested output format for compatible fal.ai image models: jpeg or png. |
+| FAL_ENABLE_SAFETY_CHECKER | fal | True | Whether to request the provider-side safety checker for compatible fal.ai image models. |
 | PROJECT_NAME | globals | atlas | Docker Compose project name — the container/volume/network prefix (<name>-…) and `docker compose -p` namespace. start.sh AND stop.sh read it from here, so stop tears down exactly what start launched. Override with `./start.sh --project <name>` (also -p; persists back here) or by editing this value. Set a unique name when running Atlas as a submodule so you don't collide with a base Atlas stack. |
 | BASE_PORT | globals | 63000 | Base port. Every service's *_PORT derives from this + a fixed offset. |
 | HOST_BIND_IP | globals |  | Host interface prefix for ALL published service ports. Empty (default)
@@ -756,7 +765,7 @@ time.
 | --- | --- | --- |
 | gen-ai-rag | Retrieval-augmented generation — vectors, graph, reranker, doc ingest, web search. | open-webui, supavisor, weaviate, neo4j, lightrag, doc-processor, tei-reranker, searxng, mcp-servers, langfuse, otel-collector, tempo, loki, local-deep-researcher, crawl4ai, tika, llm-graph-builder, verba, celery |
 | gen-ai-eng | Agentic apps + workflows with voice, vision, and search. | open-webui, supavisor, n8n, hermes, openclaw, jupyterhub, comfyui, neo4j, stt-provider, tts-provider, searxng, mcp-servers, langfuse, otel-collector, tempo, loki, local-deep-researcher, tika, celery |
-| gen-ai-creative | Multimodal generation — image, voice, vision, doc. | open-webui, comfyui, stt-provider, tts-provider, multi2vec-clip, doc-processor, blender-mcp, langfuse, otel-collector, tempo, loki |
+| gen-ai-creative | Multimodal generation — image, voice, vision, doc. | open-webui, comfyui, fal, stt-provider, tts-provider, multi2vec-clip, doc-processor, blender-mcp, langfuse, otel-collector, tempo, loki |
 | ml-eng | Distributed training/inference + notebooks + experiment storage. | spark, ray, jupyterhub, zeppelin, open-webui, supavisor, minio, tei-reranker, langfuse, otel-collector, tempo, loki, mlflow, label-studio |
 | data-eng | Batch + lakehouse + graph + vector with orchestration. | spark, airflow, jupyterhub, zeppelin, jenkins, supavisor, minio, iceberg-rest, trino, redpanda, weaviate, neo4j |
 | trading | Read-only financial research and paper portfolios in notebooks; no live trading. | jupyterhub, minio, mlflow, langfuse |
@@ -767,7 +776,7 @@ time.
 | Service | Required | Optional | Runtime Calls |
 | --- | --- | --- | --- |
 | airflow | supabase, litellm, redis | spark, minio, iceberg-rest, redpanda, weaviate, neo4j | supabase, spark, redpanda, minio, iceberg-rest, litellm, weaviate, neo4j, redis |
-| backend | supabase, redis, litellm | weaviate, kong, celery, supavisor | supabase, weaviate, litellm, comfyui, n8n, ray, local-deep-researcher, celery, supavisor, tika, otel-collector |
+| backend | supabase, redis, litellm | weaviate, kong, celery, supavisor | supabase, weaviate, litellm, comfyui, fal, n8n, ray, local-deep-researcher, celery, supavisor, tika, otel-collector |
 | backup | supabase, minio | - | supabase, minio |
 | blender-mcp | - | - | - |
 | celery | redis, backend, supabase, litellm | weaviate, supavisor | redis, supabase, litellm, weaviate, supavisor |
@@ -778,6 +787,7 @@ time.
 | crawl4ai | - | local-deep-researcher, n8n, backend, weaviate | - |
 | doc-processor | - | - | - |
 | docling | - | - | - |
+| fal | - | - | - |
 | globals | - | - | - |
 | grafana | prometheus, supabase, kong, ray | - | prometheus, tempo, loki |
 | hermes | litellm | - | litellm, stt-provider, tts-provider, comfyui, searxng, airflow, lightrag |

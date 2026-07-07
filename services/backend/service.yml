@@ -33,6 +33,13 @@ env:
   - name: BACKEND_CORS_ALLOW_ORIGIN_REGEX
     default: ""
     description: "Optional regex accepted by the backend CORS middleware for wildcard subdomain policies."
+  - name: BACKEND_KONG_AUTH
+    default: disabled
+    description: "Gateway authentication mode for the api.localhost backend route: disabled (default local-dev behavior) or key-auth (requires apikey header)."
+  - name: BACKEND_KONG_API_KEY
+    default: ""
+    secret: true
+    description: "Auto-generated key accepted by Kong when BACKEND_KONG_AUTH=key-auth. Send as `apikey: <value>`."
   - name: LANGMEM_ENABLED
     default: true
   - name: LANGMEM_MEMORY_NAMESPACE
@@ -154,6 +161,7 @@ data_flow:
     - weaviate
     - litellm
     - comfyui
+    - fal
     - n8n
     - ray
     - local-deep-researcher

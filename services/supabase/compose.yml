@@ -38,6 +38,7 @@ services:
       PGDATABASE: ${SUPABASE_DB_NAME}
     volumes:
       - ./db/scripts:/scripts
+      - ./db/_user:/user-scripts:ro
     entrypoint: ["/scripts/db-init-runner.sh"]
     depends_on:
       supabase-db:

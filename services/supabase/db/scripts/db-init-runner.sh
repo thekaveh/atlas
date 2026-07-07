@@ -23,24 +23,48 @@ until pg_isready -h "$PGHOST" -U "$PGUSER" -d "$PGDATABASE" -q; do
   sleep 1
 done
 
-echo "db-init-runner: Database is ready. Running post-initialization scripts from /scripts/..."
+ATLAS_SQL_DIR="${ATLAS_DB_INIT_SCRIPT_DIR:-/scripts}"
+USER_SQL_DIR="${ATLAS_DB_INIT_USER_SCRIPT_DIR:-/user-scripts}"
 
-# Loop through SQL files in mounted directory in alphabetical/numerical order
-# Use find to handle potential spaces or special characters in filenames (though unlikely here)
-# and sort to ensure numerical order (01, 02, ..., 10, etc.)
-# Redirect the file list into the loop (instead of `find | sort | while`) so the
-# loop body runs in the CURRENT shell, where `set -e` unambiguously aborts on a
-# failing psql. Under dash, a `while` on the RHS of a pipe runs in a subshell
-# where set-e propagation is implementation-dependent — a failing migration
-# could be missed. The temp-file pattern is what the other init scripts use.
-find /scripts -maxdepth 1 -name '*.sql' -print | sort > /tmp/_db_init_sql_files
-while IFS= read -r f; do
-  if [ -f "$f" ]; then
-    echo "db-init-runner: Running $f..."
-    # Execute script using psql, stop on error
-    psql -v ON_ERROR_STOP=1 --host "$PGHOST" --username "$PGUSER" --dbname "$PGDATABASE" -a -f "$f"
+run_sql_directory() {
+  sql_dir="$1"
+  phase_name="$2"
+  required="$3"
+  list_file="$4"
+
+  if [ ! -d "$sql_dir" ]; then
+    if [ "$required" = "true" ]; then
+      echo "db-init-runner: ERROR - required SQL directory not found: $sql_dir" >&2
+      exit 1
+    fi
+    echo "db-init-runner: No user SQL directory found at $sql_dir; skipping user migrations."
+    return 0
   fi
-done < /tmp/_db_init_sql_files
-rm -f /tmp/_db_init_sql_files
+
+  # Loop through SQL files in mounted directory in alphabetical/numerical order.
+  # Use find to handle potential spaces or special characters in filenames and
+  # sort to ensure numerical order (01, 02, ..., 10, etc.).
+  # Redirect the file list into the loop (instead of `find | sort | while`) so
+  # the loop body runs in the CURRENT shell, where `set -e` unambiguously aborts
+  # on a failing psql. Under dash, a `while` on the RHS of a pipe runs in a
+  # subshell where set-e propagation is implementation-dependent — a failing
+  # migration could be missed. The temp-file pattern is what the other init
+  # scripts use.
+  find "$sql_dir" -maxdepth 1 -type f -name '*.sql' -print | sort > "$list_file"
+  while IFS= read -r f; do
+    if [ -f "$f" ]; then
+      echo "db-init-runner: Running $phase_name SQL script: $f"
+      # Execute script using psql, stop on error.
+      psql -v ON_ERROR_STOP=1 --host "$PGHOST" --username "$PGUSER" --dbname "$PGDATABASE" -a -f "$f"
+    fi
+  done < "$list_file"
+  rm -f "$list_file"
+}
+
+echo "db-init-runner: Database is ready. Running Atlas post-initialization scripts from $ATLAS_SQL_DIR..."
+run_sql_directory "$ATLAS_SQL_DIR" "Atlas" "true" "/tmp/_db_init_atlas_sql_files"
+
+echo "db-init-runner: Running optional user post-initialization scripts from $USER_SQL_DIR..."
+run_sql_directory "$USER_SQL_DIR" "user" "false" "/tmp/_db_init_user_sql_files"
 
 echo "db-init-runner: All post-initialization scripts finished successfully."

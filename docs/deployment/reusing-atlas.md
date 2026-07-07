@@ -127,14 +127,18 @@ Pin the submodule to a release **tag** rather than tracking `main`, so infra upg
 | Knob | What it does | Where |
 |------|--------------|-------|
 | **`PROJECT_NAME`** | The Docker Compose project name — prefixes every container, volume, and the network (`${PROJECT_NAME}-network`), and is the `docker compose -p` namespace. **Both `./start.sh` and `./stop.sh` read it**, so stop tears down exactly what start launched. The key to isolation between stacks. Override per-run with `./start.sh --project <name>` / `-p` (persists back to `.env`); the wizard also prompts for it. | `.env` / `-p` |
+| **`.env.user`** | Optional user-owned overlay beside the active `.env`. On a missing-env or cold-start reset, Atlas copies `.env.example`, merges `.env.user` values into `.env`, then applies `--project` last. Use it for downstream-only keys that must survive `.env` regeneration without adding them to upstream `.env.example`. | `.env.user` |
 | **`BASE_PORT`** | Moves the entire host-published port block (default `63000`). `./start.sh --base-port 64000`. Does not affect in-network addresses. | `.env` / flag |
 | **`BRAND_*`** | Rebrands the wizard/banner (name, tagline, author, repo URL, license) — make Atlas present as your platform. | `.env` (`BRAND_*` block) |
 | **`*_SOURCE`** | Enable/disable each service or pick its backend (`container` / `container-gpu` / `localhost` / `disabled`). LLMs use `ollama-container-*` / `ollama-localhost` / `none`; cloud providers toggle via the separate `CLOUD_*_SOURCE` vars. Disable what your showcase doesn't use. | `.env` / `--<svc>-source` |
 | **`--track`** | Start a curated subset (`gen-ai-rag`, `gen-ai-eng`, `gen-ai-creative`, `ml-eng`, `data-eng`, `trading`, `all`). `--track gen-ai-rag` is the natural fit for a RAG showcase. | flag |
 | **`services/_user/` overlay** | Drop your own co-located service into `services/_user/<name>/compose.yml` (gitignored upstream, so it never leaks into Atlas PRs); the bootstrapper auto-merges and launches it. | [§6.1](#61-extending-the-stack-via-services_user) |
-| **`BACKEND_PLUGINS_DIR` plugin seam** | Mount a directory of FastAPI route packages into the backend app to add your own API routes — no fork of `services/backend/` required. | [§6.2](#62-adding-backend-api-routes-via-the-plugin-seam) |
+| **`services/supabase/db/_user/` SQL slot** | Add downstream-owned Supabase schema, seed, view, grant, or extension SQL that runs after Atlas-owned database initialization. | [§6.2](#62-adding-supabase-sql-via-the-user-migration-slot) |
+| **`BACKEND_PLUGINS_DIR` plugin seam** | Mount a directory of FastAPI route packages into the backend app to add your own API routes — no fork of `services/backend/` required. | [§6.3](#63-adding-backend-api-routes-via-the-plugin-seam) |
 
 Full source/customization matrix: [source-configuration.md](source-configuration.md).
+
+`.env.user` uses normal `.env` syntax (`KEY=value`, quoted values, and whitespace-prefixed inline comments). The merge order is deterministic: `.env.example` baseline → `.env.user` overlay → explicit CLI flags such as `--project` or `--<svc>-source`. If `.env.user` is absent, cold start preserves the previous valid `PROJECT_NAME` so a later `./stop.sh` still targets the same stack namespace.
 
 ### 6.1 Extending the stack via `services/_user/`
 
@@ -165,9 +169,28 @@ networks:
 
 **Scope note:** overlay services *launch*, but they are intentionally **not** wired into Atlas's wizard, topology port-allocator, or generated `.env.example` — you manage their image/ports/env directly in the fragment (use `${HOST_BIND_IP:-}` on published ports to inherit the `--profile prod` localhost-binding behavior). If you'd rather keep your service in its *own* repo entirely, use Method A instead (it joins the same network from outside).
 
-### 6.2 Adding backend API routes via the plugin seam
+### 6.2 Adding Supabase SQL via the user migration slot
 
-The FastAPI backend exposes a **generic plugin seam** so you can mount your own API routes *into* it without forking `services/backend/`. On startup the backend calls `load_plugins(app)`, which scans `$BACKEND_PLUGINS_DIR` (default `/app/plugins`) and, for each immediate subdirectory that is an importable Python package exposing a module-level `router` (a FastAPI `APIRouter`), includes that router into the running app. If the directory holds a `requirements.txt`, it's `pip install`'d first. The seam is a **no-op when the directory doesn't exist** (so base Atlas is unaffected), and a plugin that fails to import is logged and skipped — one bad plugin never crashes the backend.
+To layer project-owned database objects onto Atlas's managed Supabase instance,
+place SQL files under `services/supabase/db/_user/`. The `supabase-db-init`
+container runs Atlas-owned SQL from `services/supabase/db/scripts/` first, then
+runs user SQL from `_user/` in lexical order. The slot is mounted read-only in
+the init container and is optional; a fresh Atlas checkout starts normally with
+no user SQL files.
+
+Use numbered file names such as `10-project-schema.sql` and
+`20-seed-reference-data.sql`. User SQL should be idempotent because the init
+runner may be re-executed against an existing volume. Prefer `CREATE ... IF NOT
+EXISTS`, guarded `ALTER TABLE`, and conflict-safe seed statements. A failing
+user SQL file fails `supabase-db-init`, which prevents dependent services from
+starting against a half-prepared database.
+
+See `services/supabase/db/_user/README.md` and
+`services/supabase/README.md` for the service-level contract.
+
+### 6.3 Adding backend API routes via the plugin seam
+
+The FastAPI backend exposes a **generic plugin seam** so you can mount your own API routes *into* it without forking `services/backend/`. On startup the backend calls `load_plugins(app)`, which scans `$BACKEND_PLUGINS_DIR` (default `/app/plugins`). An optional shared `$BACKEND_PLUGINS_DIR/requirements.txt` is installed first; then, for each immediate subdirectory that is an importable Python package exposing a module-level `router` (a FastAPI `APIRouter`), that plugin package's own optional `requirements.txt` is installed before the package is imported and included into the running app. A plugin whose requirements fail to install is logged with the requirements path and pip output, then skipped before import; a shared requirements failure skips plugin loading for that startup. The seam is a **no-op when the directory doesn't exist** (so base Atlas is unaffected), and a plugin that fails to import is logged and skipped — one bad plugin never crashes the backend.
 
 To use it, mount a plugins directory into the backend container and (optionally) point `BACKEND_PLUGINS_DIR` at it. With a submodule/overlay layout you extend Atlas's `backend` service from your parent Compose:
 
@@ -185,6 +208,7 @@ Each plugin is a package directory exposing `router`:
 
 ```
 my-plugins/
+  requirements.txt     # optional shared dependencies for all plugins
   rag_routes/
     __init__.py          # exposes `router = APIRouter(prefix="/rag", ...)`
     requirements.txt     # optional; pip-installed before the package is imported

@@ -1,0 +1,64 @@
+# services/fal/service.yml — fal.ai cloud media provider
+name: fal
+label: "FAL Cloud Media"
+category: media
+docs: services/fal/README.md
+virtual: true
+containers: []
+
+sources:
+  var: FAL_SOURCE
+  default: disabled
+  options:
+    - id: enabled
+      label: "Enabled (fal.ai cloud media APIs)"
+    - id: disabled
+      label: "Disabled"
+
+env:
+  - name: FAL_SOURCE
+    default: disabled
+    description: "Enables fal.ai as the backend provider for simple media generation routes."
+  - name: FAL_API_KEY
+    default: ""
+    secret: true
+    description: "fal.ai API key. Required only when FAL_SOURCE=enabled. The backend also exposes it to fal-client as FAL_KEY."
+  - name: FAL_MODEL
+    default: "fal-ai/flux/dev"
+    description: "fal.ai model endpoint used for text-to-image generation."
+  - name: FAL_TIMEOUT_SECONDS
+    default: 120
+    description: "Backend request timeout budget for synchronous fal.ai generation calls."
+  - name: FAL_OUTPUT_FORMAT
+    default: jpeg
+    description: "Requested output format for compatible fal.ai image models: jpeg or png."
+  - name: FAL_ENABLE_SAFETY_CHECKER
+    default: true
+    description: "Whether to request the provider-side safety checker for compatible fal.ai image models."
+
+depends_on:
+  required: []
+  optional: []
+
+exports: []
+
+rows:
+  - display_name: "FAL Cloud Media"
+    source_var: FAL_SOURCE
+    description: "Cloud-hosted image and media generation via fal.ai."
+
+runtime_sc:
+  fal:
+    enabled:
+      scale: 0
+      environment: {}
+      deploy: {}
+      extra_hosts: []
+    disabled:
+      scale: 0
+      environment: {}
+      deploy: {}
+      extra_hosts: []
+
+data_flow:
+  calls: []

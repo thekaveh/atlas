@@ -29,7 +29,7 @@ Atlas uses this service according to its manifest, topology row, SOURCE settings
 
 - Required dependencies: `supabase, redis, litellm`
 - Optional dependencies: `weaviate, kong, celery, supavisor`
-- Runtime calls: `supabase, weaviate, litellm, comfyui, n8n, ray, local-deep-researcher, celery, supavisor, tika, otel-collector`
+- Runtime calls: `supabase, weaviate, litellm, comfyui, fal, n8n, ray, local-deep-researcher, celery, supavisor, tika, otel-collector`
 
 ## 7. Source Values
 
@@ -39,7 +39,7 @@ Atlas uses this service according to its manifest, topology row, SOURCE settings
 
 ## 8. Runtime Integration
 
-The manifest data-flow list declares runtime calls to `supabase, weaviate, litellm, comfyui, n8n, ray, local-deep-researcher, celery, supavisor, tika, otel-collector`. The topology row supplies aliases and port surfaces used by the generated gateway and service references.
+The manifest data-flow list declares runtime calls to `supabase, weaviate, litellm, comfyui, fal, n8n, ray, local-deep-researcher, celery, supavisor, tika, otel-collector`. The topology row supplies aliases and port surfaces used by the generated gateway and service references.
 
 ## 9. Architecture
 

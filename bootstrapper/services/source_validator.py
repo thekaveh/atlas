@@ -303,6 +303,9 @@ class SourceValidator:
         if not self._validate_litellm_has_upstream(service_sources):
             all_valid = False
 
+        if not self._validate_fal_key_present(service_sources):
+            all_valid = False
+
         return all_valid
 
     def enforce_runtime_invariants(self) -> bool:
@@ -499,6 +502,29 @@ class SourceValidator:
             )
             return False
         return True
+
+    def _validate_fal_key_present(self, service_sources: Dict[str, str]) -> bool:
+        """FAL is disabled by default and needs no key while disabled, but an
+        explicitly enabled cloud-media provider must have credentials before
+        the backend can call fal.ai.
+        """
+        if service_sources.get('FAL_SOURCE', 'disabled') != 'enabled':
+            return True
+
+        env_vars = self.config_parser.parse_env_file()
+        api_key = (
+            env_vars.get('FAL_API_KEY', '')
+            or env_vars.get('FAL_KEY', '')
+            or ''
+        ).strip()
+        if api_key:
+            return True
+
+        self.validation_errors.append(
+            "❌ FAL_SOURCE=enabled requires FAL_API_KEY. Set FAL_API_KEY in "
+            ".env or pass --fal-api-key, or set FAL_SOURCE=disabled."
+        )
+        return False
     
     def validate_sources_for_profile(
         self, service_sources: dict, profile: str
