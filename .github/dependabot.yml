@@ -13,7 +13,6 @@
 #   the upstream majors.
 
 version: 2
-
 updates:
   - package-ecosystem: pip
     directories:
@@ -108,7 +107,7 @@ updates:
     commit-message:
       prefix: "deps"
       include: "scope"
-
+    target-branch: develop
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
@@ -120,3 +119,4 @@ updates:
         update-types: ["minor", "patch"]
     commit-message:
       prefix: "ci"
+    target-branch: develop
