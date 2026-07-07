@@ -144,8 +144,13 @@ class MemoryStore:
                         # No /v1 suffix: Weaviate's openai module joins
                         # "/v1/embeddings" onto baseURL itself, so a /v1
                         # here produced /v1/v1/embeddings → 404 on every
-                        # Weaviate-backed memory insert/search.
-                        "baseURL": self.litellm_url,
+                        # Weaviate-backed memory insert/search. Normalize so
+                        # an operator's LITELLM_BASE_URL ending in /v1 (or
+                        # /v1/) doesn't reintroduce it — otherwise the
+                        # retroactive heal below flags the class as broken,
+                        # deletes + recreates an identical broken class on
+                        # every boot (self-defeating loop).
+                        "baseURL": self.litellm_url.rstrip("/").removesuffix("/v1"),
                         "vectorizeClassName": False,
                     }
                 },
