@@ -1470,7 +1470,7 @@ class ServiceConfig:
         elif source_value == 'localhost':
             # OPENCLAW_LOCALHOST_PORT is the user-overridable var the wizard
             # writes for host-side OpenClaw. OPENCLAW_GATEWAY_PORT is the
-            # container's host-bound port (63063); reading it here would
+            # container's host-bound port; reading it here would
             # ignore the wizard's port override — same asymmetric-override
             # class as docling / hermes above.
             current_env = self.config_parser.parse_env_file()
