@@ -27,7 +27,7 @@ def test_active_readme_port_assignments_match_env_example() -> None:
     ]
     allowed_overrides = {
         ("services/openclaw/README.md", "OPENCLAW_LOCALHOST_PORT", "18789"),
-        ("services/jupyterhub/README.md", "JUPYTERHUB_PORT", "64048"),
+        ("services/jupyterhub/README.md", "JUPYTERHUB_PORT", "64094"),
         ("services/jupyterhub/build/README.md", "JUPYTERHUB_PORT", "64081"),
     }
     mismatches: list[str] = []

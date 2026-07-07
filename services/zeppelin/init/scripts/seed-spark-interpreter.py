@@ -113,6 +113,18 @@ def merge_dependencies(
     return merged, True
 
 
+def needs_restart(before: dict[str, object], after: dict[str, object]) -> bool:
+    """Whether the merged interpreter config differs from the existing one.
+
+    The runtime restart decision is made inline in seed_interpreter /
+    seed_trino_interpreter (a PUT to /restart/{id} whenever the config
+    changed), but this predicate documents the same comparison and is
+    exercised by test_zeppelin_lakehouse_seed — keep it (do not re-delete as
+    dead code; the test asserts the restart contract through it).
+    """
+    return before != after
+
+
 def find_spark_setting(settings: list[dict[str, object]]) -> dict[str, object]:
     for setting in settings:
         if setting.get("name") == "spark" and setting.get("group") == "spark":
