@@ -66,6 +66,27 @@ def test_prod_profile_sets_host_bind_ip(tmp_path):
     assert "LOG_MAX_FILE=3" in out
 
 
+def test_prod_profile_preserves_operator_log_max(tmp_path):
+    """A hand-set LOG_MAX_SIZE/LOG_MAX_FILE must SURVIVE --profile prod (only
+    unset/empty values get the prod default). Locks the Pass-2 preserve
+    contract so a future refactor can't silently re-introduce the clobber.
+    """
+    env_body = (
+        "HOST_BIND_IP=\nLOG_MAX_SIZE=50m\nLOG_MAX_FILE=7\n"
+        "PROMETHEUS_SOURCE=disabled\nGRAFANA_SOURCE=disabled\n"
+    )
+    starter = _make_starter(tmp_path, env_body)
+    ok = starter.apply_profile_overrides("prod")
+    assert ok
+    out = (tmp_path / ".env").read_text(encoding="utf-8")
+    assert "LOG_MAX_SIZE=50m" in out
+    assert "LOG_MAX_FILE=7" in out
+    assert "LOG_MAX_SIZE=10m" not in out
+    assert "LOG_MAX_FILE=3" not in out
+    # The defining prod property still applies.
+    assert "HOST_BIND_IP=127.0.0.1:" in out
+
+
 def test_prod_profile_respects_explicit_observability_source(tmp_path):
     """When --prometheus-source was passed explicitly, prod must NOT override
     it to container (the explicit flag wins; default-ON is skipped). Grafana,
