@@ -25,25 +25,31 @@ until pg_isready -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" >/dev/null 2>&1; do
     sleep 2
 done
 
-role_exists=$(psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d postgres \
-    -v ON_ERROR_STOP=1 -v role="$LABEL_STUDIO_DB_USER" \
-    -tAc "SELECT 1 FROM pg_roles WHERE rolname = :'role'")
+# psql :'var' interpolation quotes values server-side (safe for passwords
+# containing shell/SQL-special characters), but it only works in SCRIPT
+# input (stdin / -f), NOT inside -c / -tAc strings — inside -c the literal
+# :'var' is shipped to the server and raises "syntax error at or near ":"".
+# Same convention init-airflow.sh / init-iceberg-rest.sh use: pipe each
+# statement through stdin so :'var' resolves.
+role_exists=$(printf "SELECT 1 FROM pg_roles WHERE rolname = :'role';\n" \
+    | psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d postgres \
+           -v ON_ERROR_STOP=1 -v role="$LABEL_STUDIO_DB_USER" -tA)
 
 if [ "$role_exists" = "1" ]; then
     echo "label-studio-init: updating role '${LABEL_STUDIO_DB_USER}' password..."
-    psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d postgres \
-        -v ON_ERROR_STOP=1 -v role="$LABEL_STUDIO_DB_USER" -v password="$LABEL_STUDIO_DB_PASSWORD" \
-        -c "ALTER ROLE :\"role\" WITH LOGIN PASSWORD :'password';"
+    printf "ALTER ROLE :\"role\" WITH LOGIN PASSWORD :'password';\n" \
+      | psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d postgres \
+             -v ON_ERROR_STOP=1 -v role="$LABEL_STUDIO_DB_USER" -v password="$LABEL_STUDIO_DB_PASSWORD"
 else
     echo "label-studio-init: creating role '${LABEL_STUDIO_DB_USER}'..."
-    psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d postgres \
-        -v ON_ERROR_STOP=1 -v role="$LABEL_STUDIO_DB_USER" -v password="$LABEL_STUDIO_DB_PASSWORD" \
-        -c "CREATE ROLE :\"role\" WITH LOGIN PASSWORD :'password';"
+    printf "CREATE ROLE :\"role\" WITH LOGIN PASSWORD :'password';\n" \
+      | psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d postgres \
+             -v ON_ERROR_STOP=1 -v role="$LABEL_STUDIO_DB_USER" -v password="$LABEL_STUDIO_DB_PASSWORD"
 fi
 
-db_exists=$(psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d postgres \
-    -v ON_ERROR_STOP=1 -v db="$LABEL_STUDIO_DB_NAME" \
-    -tAc "SELECT 1 FROM pg_database WHERE datname = :'db'")
+db_exists=$(printf "SELECT 1 FROM pg_database WHERE datname = :'db';\n" \
+    | psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d postgres \
+           -v ON_ERROR_STOP=1 -v db="$LABEL_STUDIO_DB_NAME" -tA)
 
 if [ "$db_exists" = "1" ]; then
     echo "label-studio-init: database '${LABEL_STUDIO_DB_NAME}' already exists"
