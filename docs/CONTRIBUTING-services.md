@@ -78,7 +78,7 @@ Before you touch any manifest, spend 15–30 minutes with the candidate service'
 
 ### 4.2 Integration discovery — how does this fit our stack?
 
-Once you understand the candidate, scan our existing 34-manifest stack to identify integration points:
+Once you understand the candidate, scan our existing service manifests (run `grep -l "^data_flow:" services/*/service.yml`) to identify integration points:
 
 - **Upstream callers (who in our stack would call this new service).** Run `grep -l "^data_flow:" services/*/service.yml` and skim each service's `data_flow.calls` list. Which existing services would benefit from calling this new one? (E.g., a new vector DB → Backend, n8n, JupyterHub, possibly Hermes Agent.) These become entries in those EXISTING manifests' `data_flow.calls` lists — NOT in your new service's `depends_on`. (See [Decision 5](#9-decision-5--dependencies-depends_onrequired--optional) for why `data_flow.calls` is separate from `depends_on`.)
 - **Downstream callees (what this service calls).** Does the candidate make outbound calls to anything we already run? Most app-tier services touch Supabase (auth/storage), LiteLLM (LLM access), and Redis (caching). These would be entries in YOUR new service's `data_flow.calls`.
