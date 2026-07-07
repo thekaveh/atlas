@@ -156,27 +156,20 @@ class ResearchClient:
         self._pending_requests.pop(session_id, None)
 
     async def cancel_research(self, session_id: str) -> ResearchResponse:
-        """Cancel a running research session"""
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            try:
-                return ResearchResponse(
-                    session_id=session_id,
-                    status=ResearchStatus.FAILED,
-                    message="Cancellation is not supported by the LangGraph dev server integration",
-                )
-            except httpx.HTTPStatusError as e:
-                error_msg = f"HTTP {e.response.status_code}: {e.response.text}"
-                return ResearchResponse(
-                    session_id=session_id,
-                    status=ResearchStatus.FAILED,
-                    message=f"Failed to cancel research: {error_msg}"
-                )
-            except Exception as e:
-                return ResearchResponse(
-                    session_id=session_id,
-                    status=ResearchStatus.FAILED,
-                    message=f"Failed to cancel research: {str(e)}"
-                )
+        """Cancel a running research session.
+
+        The LangGraph dev-server integration exposes no cancellation endpoint,
+        so this is a no-op that reports the session FAILED with an explanatory
+        message. (The prior body opened an ``async with httpx.AsyncClient`` and
+        declared ``except httpx.HTTPStatusError`` / ``except Exception`` handlers
+        around an unconditional return — no request was ever made, so those
+        handlers were unreachable dead code implying a network call. Removed.)
+        """
+        return ResearchResponse(
+            session_id=session_id,
+            status=ResearchStatus.FAILED,
+            message="Cancellation is not supported by the LangGraph dev server integration",
+        )
 
     async def stream_research_logs(self, session_id: str) -> AsyncGenerator[Dict[str, Any], None]:
         """Stream real-time logs from a research session"""
