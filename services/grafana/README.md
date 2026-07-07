@@ -86,7 +86,6 @@ _No high-confidence opportunities identified._
 
 ### 5.5 Future — Candidate new services
 
-- **Loki + Tempo datasources** — when log and trace bundles ship, add their datasources to `provisioning/datasources/` and surface them as additional dashboards.
 - **Alertmanager** — only if Grafana's unified alerting hits a real limitation (HA, clustering).
 - **OAuth provider** — replace the admin-password model with Supabase Auth / GitHub OAuth via `GF_AUTH_GENERIC_OAUTH_*` env vars.
 

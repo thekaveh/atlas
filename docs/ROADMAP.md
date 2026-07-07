@@ -127,7 +127,7 @@ _Delivered — see "Completed" section below for the LiteLLM gateway entry._
 - ✅ Grafana with 7 pre-provisioned dashboards (stack overview, LiteLLM, Kong, Postgres+Redis, Containers+Host, n8n, app-tier) — `services/grafana/`.
 - ✅ 13 scrape targets — Kong, LiteLLM, Weaviate, n8n + n8n-worker, MinIO, Backend, Prom+Grafana self, node-exporter, cAdvisor, plus postgres-exporter and redis-exporter sidecars. (JupyterHub + Hermes scrape jobs were removed as unreachable post-ship — JupyterHub ships single-user, no `/metrics`; the upstream Hermes image has no exporter. See `services/prometheus/README.md` §4 and the CHANGELOG entry.)
 - ✅ Unified Grafana alerting enabled (no separate Alertmanager); contact points / rules to be added by users.
-- ⏳ Future: Loki (logs) + Tempo (traces) + OpenTelemetry collector for the full observability triangle.
+- ✅ Loki (logs) + Tempo (traces) + OpenTelemetry collector — the full observability triangle, shipped as `services/{loki,tempo,otel-collector}/` with Tempo + Loki datasources provisioned in Grafana (`services/grafana/config/provisioning/datasources/tempo-loki.yml`).
 
 **Enhanced security features**
 - Service-to-service authentication
