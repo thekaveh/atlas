@@ -46,7 +46,7 @@ custom client — connects with these settings. Two endpoints work; pick one:
 | TLS | none (`http://`) | the in-stack baseline serves plain HTTP |
 
 The endpoint is **stable across restarts** for a given `BASE_PORT` (the
-port is `BASE_PORT + 18` by default), so it's safe to hard-code in an
+port is `BASE_PORT + 20` by default), so it's safe to hard-code in an
 external tool's profile. Use the root credentials for browse-everything
 access, or a per-bucket service-account key (see §5) to scope a tool to
 one bucket.
