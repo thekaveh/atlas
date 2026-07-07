@@ -69,6 +69,11 @@ class FalClient:
         }
         if seed is not None:
             arguments["seed"] = seed
+        if negative_prompt:
+            # flux-family endpoints accept negative_prompt; only send it when
+            # the caller provided one, so models without the field still work
+            # (and the empty case matches the exact-arguments test contract).
+            arguments["negative_prompt"] = negative_prompt
 
         result = await asyncio.wait_for(
             asyncio.to_thread(self._subscribe, arguments),

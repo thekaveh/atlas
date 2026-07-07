@@ -66,15 +66,10 @@ CREATE INDEX IF NOT EXISTS idx_research_results_session_id ON public.research_re
 CREATE INDEX IF NOT EXISTS idx_research_sources_session_id ON public.research_sources(session_id);
 CREATE INDEX IF NOT EXISTS idx_research_logs_session_id ON public.research_logs(session_id);
 
--- Create updated_at trigger for research_sessions
-CREATE OR REPLACE FUNCTION update_updated_at_column()
-RETURNS TRIGGER AS $$
-BEGIN
-    NEW.updated_at = now();
-    RETURN NEW;
-END;
-$$ language 'plpgsql';
-
+-- updated_at trigger for research_sessions. Reuses update_updated_at_column()
+-- from 07-functions.sql (which sorts before this slice) — the prior duplicate
+-- CREATE OR REPLACE FUNCTION here was copy-paste drift: identical to 07's and
+-- a no-op at runtime, but a hazard if the trigger body ever changes in 07.
 DROP TRIGGER IF EXISTS update_research_sessions_updated_at ON public.research_sessions;
 CREATE TRIGGER update_research_sessions_updated_at 
     BEFORE UPDATE ON public.research_sessions 
