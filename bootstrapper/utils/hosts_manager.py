@@ -4,7 +4,9 @@ Hosts file management utilities.
 Python implementation of hosts-utils.sh functions.
 """
 
+import os
 import shutil
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, List, Optional
@@ -28,6 +30,41 @@ class HostsManager:
         """
         from services.topology import get_topology
         return list(get_topology().aliases)
+
+    @classmethod
+    def _atomic_write_hosts(cls, hosts_file_path: str, content: str) -> None:
+        """Write the hosts file atomically.
+
+        Writes a sibling temp in the same directory, matches the original's
+        mode + ownership, then ``os.replace``s into place — so a crash
+        mid-write leaves the original /etc/hosts intact (not truncated to
+        zero), avoiding a system-wide name-resolution outage. Mirrors the
+        atomic writers used for .env/secrets (SourceOverrideManager /
+        KeyGenerator / SupabaseKeyGenerator) but additionally preserves
+        ownership, since /etc/hosts is root-owned when --setup-hosts runs
+        under sudo.
+        """
+        dst = Path(hosts_file_path)
+        st = dst.stat()
+        fd, tmp = tempfile.mkstemp(dir=str(dst.parent), prefix=f".{dst.name}.", suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(content)
+            os.chmod(tmp, st.st_mode)
+            try:
+                os.chown(tmp, st.st_uid, st.st_gid)
+            except (OSError, PermissionError):
+                # chown needs root; if unavailable the replace still lands —
+                # only the owner field may differ, benign under the sudo path
+                # that owns the write.
+                pass
+            os.replace(tmp, hosts_file_path)
+        except BaseException:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
 
     def __init__(self):
         self.hosts_file_path = get_hosts_file_path()
@@ -146,9 +183,10 @@ class HostsManager:
                 if not should_skip:
                     filtered_lines.append(line)
             
-            # Write back the filtered content
-            with open(hosts_file_path, 'w', encoding="utf-8") as f:
-                f.writelines(filtered_lines)
+            # Write back atomically: a truncate-write here would empty
+            # /etc/hosts on a crash mid-write (system-wide name-resolution
+            # outage). Mirrors the .env/keys atomic writers.
+            self._atomic_write_hosts(hosts_file_path, "".join(filtered_lines))
 
             return True
 
@@ -188,13 +226,15 @@ class HostsManager:
                 # beats truncating /etc/hosts down to just our block.
                 return False
             normalized = existing.rstrip("\n")
-            with open(hosts_file_path, 'w', encoding="utf-8") as f:
-                if normalized:
-                    f.write(normalized + "\n\n")
-                f.write("# Atlas subdomains (added by start.py)\n")
-                for host in self.get_atlas_hosts():
-                    f.write(f"127.0.0.1 {host}\n")
-                    
+            parts = []
+            if normalized:
+                parts.append(normalized + "\n\n")
+            parts.append("# Atlas subdomains (added by start.py)\n")
+            parts.extend(f"127.0.0.1 {host}\n" for host in self.get_atlas_hosts())
+            # Atomic write — a truncate-write would empty /etc/hosts on a
+            # crash mid-write (see _atomic_write_hosts).
+            self._atomic_write_hosts(hosts_file_path, "".join(parts))
+
             return True
 
         except (OSError, UnicodeDecodeError):
