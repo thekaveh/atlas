@@ -578,7 +578,7 @@ atlas/
 │   ├── CONTRIBUTING-services.md  # How to add a new service to the modular layout
 │   └── …
 ├── scripts/                   # Top-level utility scripts (e.g. migration helpers)
-├── docker-compose.yml         # ~70-line thin shell — include: list pulling each fragment
+├── docker-compose.yml         # ~90-line thin shell — include: list pulling each fragment
 ├── .env.example               # Configuration template (auto-generated from manifests via env_assembler; byte-equivalence enforced by tests)
 ├── start.sh / stop.sh         # Entry points
 └── .github/workflows/         # CI: services-lint (manifest lint+tests, compose byte-equiv+source-permutation, docs-drift+audits, build-validation)

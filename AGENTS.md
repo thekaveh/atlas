@@ -146,7 +146,7 @@ No standalone dev mode — backend runs only inside Docker because it depends on
 
 ### Docker Compose (`docker-compose.yml`)
 
-Thin ~70-line top-level shell that merges per-service compose fragments via the native `include:` directive. Each fragment under `services/<name>/compose.yml` owns its containers; cross-fragment `depends_on` and merged top-level `volumes:` work via Compose v2.20+ (v2.26+ recommended).
+Thin ~90-line top-level shell that merges per-service compose fragments via the native `include:` directive. Each fragment under `services/<name>/compose.yml` owns its containers; cross-fragment `depends_on` and merged top-level `volumes:` work via Compose v2.20+ (v2.26+ recommended).
 
 ### Service Init Containers
 
