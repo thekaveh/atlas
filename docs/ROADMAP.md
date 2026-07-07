@@ -4,7 +4,7 @@ This document outlines future development plans and enhancements for Atlas.
 
 ## 1. Current status
 
-The stack now orchestrates 34 service families (31 containerized + 3 virtual) across AI inference, workflow automation, data science, distributed compute (Ray, Spark), DAG orchestration (Airflow), notebook UIs (JupyterHub, Zeppelin), observability (Prometheus + Grafana), document processing, speech, and the Supabase ecosystem. An additional set of candidate services is tracked across the Tier 1/2/3 sections below, including labelled sub-sections for the **3D / game-generation**, **financial / trading-AI**, and **RAG-enhancement** strategic tracks. Architectural milestones to date:
+The stack now orchestrates 53 service families (48 containerized + 5 virtual — re-derived from `services/*/service.yml`) across AI inference, workflow automation, data science, distributed compute (Ray, Spark), DAG orchestration (Airflow), notebook UIs (JupyterHub, Zeppelin), observability (Prometheus + Grafana + Loki + Tempo + OTel), document processing, speech, and the Supabase ecosystem. An additional set of candidate services is tracked across the Tier 1/2/3 sections below, including labelled sub-sections for the **3D / game-generation**, **financial / trading-AI**, and **RAG-enhancement** strategic tracks. Architectural milestones to date:
 - Dynamic Kong API Gateway configuration
 - Python cross-platform bootstrapping with CLI SOURCE overrides
 - Service integration spanning Ollama, ComfyUI, n8n, Open WebUI, SearxNG, Supabase, Neo4j, OpenClaw, Weaviate, JupyterHub, and more
@@ -222,7 +222,7 @@ Consumed by (services that would call the MCP gateway):
 - **OpenClaw** — messaging-platform agents reuse the same tool catalog
 - **Local Deep Researcher** — research workflows tap MCP-exposed sources
 
-**Langfuse — LLM observability and evaluation**
+**Langfuse — LLM observability and evaluation** — ✅ Shipped
 - Open-source LLM tracing, prompt management, dataset, and evaluation platform (MIT)
 - LiteLLM ships a **native Langfuse callback** — zero-glue integration of every gateway-routed call (consumers automatically gain traces)
 - Closes the LLM-specific observability gap that Prometheus + Grafana (infra metrics) does not address: prompt versioning, prompt-level cost/latency attribution, eval scoring, conversation replay
@@ -230,7 +230,7 @@ Consumed by (services that would call the MCP gateway):
 
 **Stack integration points:**
 
-Depends on (services Langfuse would consume):
+Depends on (services Langfuse consumes):
 - **Supabase (PostgreSQL)** — control-plane metadata
 - **ClickHouse** — high-volume trace event store (added alongside)
 - **Redis** — queueing and rate-limit state
@@ -380,7 +380,7 @@ Consumed by (services that would call Karakeep):
 - **Weaviate** — semantic search over captured content
 - **n8n** — capture-trigger workflows (e.g. "RSS item → Karakeep")
 
-**Crawl4AI — LLM-friendly web crawler**
+**Crawl4AI — LLM-friendly web crawler** — ✅ Shipped
 - Apache-2.0 Playwright-based crawler purpose-built for LLM ingestion: clean Markdown output, structured extraction strategies, sitemap traversal, JavaScript-rendered page support
 - Apache-2.0 license is intentional — Firecrawl-self-hosted (AGPL-3.0) is incompatible with this stack's permissive boilerplate posture
 - Fills the web-ingestion gap for both RAG (article corpora) and trading-AI (filings / news / sentiment scrape) use-cases
@@ -388,7 +388,7 @@ Consumed by (services that would call Karakeep):
 
 **Stack integration points:**
 
-Depends on (services Crawl4AI would consume):
+Depends on (services Crawl4AI consumes):
 - None at runtime (bundled Chromium)
 - Optional **MinIO** — large-output offload bucket
 
@@ -415,7 +415,7 @@ Consumed by (services that would call GROBID):
 - **n8n** — batch document-processing workflows
 - **JupyterHub** — research-notebook citation workflows
 
-**Apache Tika — broad-format text and metadata extraction**
+**Apache Tika — broad-format text and metadata extraction** — ✅ Shipped
 - Apache-2.0 content analysis toolkit supporting 1000+ formats (Office docs, email, archives, audio / video metadata, source code, structured data)
 - Pre-Docling fallback for the long tail of formats Docling does not target (mailbox archives, legacy Office, multimedia metadata)
 - Standalone server mode exposes a REST endpoint suitable for direct consumption by n8n / backend
@@ -423,7 +423,7 @@ Consumed by (services that would call GROBID):
 
 **Stack integration points:**
 
-Depends on (services Apache Tika would consume):
+Depends on (services Apache Tika consumes):
 - None at runtime (JVM only)
 
 Consumed by (services that would call Apache Tika):
@@ -1140,7 +1140,7 @@ Depends on: **Supabase (PostgreSQL)** (catalog metadata), **OpenSearch** (Tier 3
 
 Consumed by: **Backend (FastAPI)** (catalog-aware data APIs), **Hermes / MCP gateway** (catalog-as-tool for agents), **Dagster** (asset materialization → lineage events), **Trino / Spark / dbt-core** (push lineage events on every run).
 
-**MLflow — experiment + model tracking (Phase 3)**
+**MLflow — experiment + model tracking** — ✅ Shipped
 - Apache-2.0; still dominant in 2026 for OSS experiment tracking. Postgres-backed registry + MinIO artifact store — both reuse existing services.
 - **ClearML** (Apache-2.0) is documented as a defensible richer alternative when MLflow's tracking-only feature surface becomes insufficient (datasets + pipelines + agent).
 - **W&B Local** requires a commercial license and is skipped on license grounds.
