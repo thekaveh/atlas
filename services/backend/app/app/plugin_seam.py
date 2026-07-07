@@ -24,7 +24,13 @@ _log = logging.getLogger("uvicorn.error")
 # startup), so a hung download (flaky index, slow mirror, network partition)
 # would block the whole backend indefinitely with no request-level timeout to
 # rescue it. Bound it. Override via env for slow networks.
-_PIP_INSTALL_TIMEOUT = int(os.getenv("BACKEND_PLUGINS_PIP_TIMEOUT_SECONDS", "300"))
+try:
+    _PIP_INSTALL_TIMEOUT = int(os.getenv("BACKEND_PLUGINS_PIP_TIMEOUT_SECONDS", "300"))
+except ValueError:
+    # A non-numeric operator value (e.g. "300s") would otherwise crash the
+    # backend at import with a raw ValueError; fall back to the default.
+    # Mirrors fal_media_client.py's FAL_TIMEOUT_SECONDS parse guard.
+    _PIP_INSTALL_TIMEOUT = 300
 
 
 class PluginRequirementsInstallError(RuntimeError):
