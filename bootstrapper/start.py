@@ -314,12 +314,20 @@ class AtlasStarter:
         _existing = self.config_parser.parse_env_file()
         for _log_key, _prod_default in (("LOG_MAX_SIZE", "10m"), ("LOG_MAX_FILE", "3")):
             _current = _existing.get(_log_key)
-            if _current is not None and _current != _prod_default:
+            if not _current:
+                # Only apply the prod default when the operator hasn't set a
+                # real value (None or empty string). LOG_MAX_* is the kind of
+                # knob an operator customizes once (compliance/retention); prod
+                # must NOT clobber a hand-set value — mirrors the
+                # PROMETHEUS/GRAFANA explicit-flag gates and the default
+                # branch's sentinel-only HOST_BIND_IP rewrite.
+                # Unset/empty → prod default; set → preserved.
+                prod_overrides[_log_key] = _prod_default
+            elif _current != _prod_default:
                 print(
-                    f"profile=prod: resetting {_log_key}={_current!r} → {_prod_default!r} "
-                    f"(prod default; restore it after launch if you need a different value)"
+                    f"profile=prod: keeping operator-set {_log_key}={_current!r} "
+                    f"(prod default is {_prod_default!r})"
                 )
-            prod_overrides[_log_key] = _prod_default
         return self.source_override_manager.update_env_file(prod_overrides)
 
     def apply_cloud_api_keys(self, keys: Dict[str, str]) -> bool:

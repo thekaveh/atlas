@@ -18,12 +18,15 @@ statement through stdin — the convention ``init-airflow.sh`` /
 ``init-iceberg-rest.sh`` already use and document. This test prevents the
 antipattern from recurring anywhere under ``services/*/**/scripts/*.sh``.
 
-Detection: a single shell-source line that simultaneously contains a ``psql``
-invocation, a ``-c``-family flag (a dash-flag whose letters include ``c``, e.g.
-``-c`` / ``-tAc`` / ``-Atc`` / ``-ac``), and the ``:'`` server-side-variable
-marker. That combination only appears in the broken inline form; the correct
-stdin form puts the ``:'`` in a ``printf`` string on a line whose ``psql`` has
-no ``-c`` (it reads ``-tA`` / ``-v ON_ERROR_STOP=1``).
+Detection: scan shell LOGICAL lines (continuation lines joined) for the
+co-occurrence of a ``psql`` invocation, a ``-c``-family flag (a dash-flag whose
+letters include ``c``, e.g. ``-c`` / ``-tAc`` / ``-Atc`` / ``-ac``), and the
+``:'`` server-side-variable marker. Joining continuations is essential: the
+natural way to write a long psql command — and the exact shape the original
+bugs took — is ``psql`` on line 1 and ``-tAc \"...:'var'\"`` on a continuation
+line, which a per-raw-line scan would miss. The correct stdin form puts ``:'``
+in a ``printf`` string whose ``psql`` reads ``-tA`` / ``-v ON_ERROR_STOP=1``
+(no ``-c``), so it is not flagged.
 """
 from __future__ import annotations
 
@@ -47,6 +50,32 @@ def _discover_shell_scripts() -> list[Path]:
     return sorted(REPO_ROOT.glob("services/*/**/scripts/*.sh"))
 
 
+def _logical_lines(text: str) -> list[tuple[int, str]]:
+    """Yield (start_line_no, joined_line) for shell LOGICAL lines — trailing
+    backslash continuations collapsed into one string. psql commands are
+    commonly split across continuation lines, and the per-raw-line scan this
+    replaced missed that multi-line form (the original bug's shape).
+    """
+    out: list[tuple[int, str]] = []
+    cur = ""
+    start: int | None = None
+    for lineno, raw in enumerate(text.splitlines(), start=1):
+        stripped = raw.rstrip()
+        if start is None:
+            start = lineno
+        if stripped.endswith("\\"):
+            cur += stripped[:-1] + " "
+        else:
+            cur += stripped
+            out.append((start, cur))
+            cur = ""
+            start = None
+    if cur:
+        assert start is not None
+        out.append((start, cur))
+    return out
+
+
 @pytest.mark.parametrize(
     "script_path",
     _discover_shell_scripts(),
@@ -55,15 +84,13 @@ def _discover_shell_scripts() -> list[Path]:
 def test_no_psql_var_interpolation_inside_dash_c(script_path: Path) -> None:
     """No ``psql ... -c \"...:'var'...\"`` — :'var' only resolves via stdin / -f."""
     offenders: list[str] = []
-    for lineno, line in enumerate(
-        script_path.read_text(encoding="utf-8").splitlines(), start=1
-    ):
-        if "psql" not in line:
+    for start, logical in _logical_lines(script_path.read_text(encoding="utf-8")):
+        if "psql" not in logical:
             continue
-        if not _CFLAG.search(line):
+        if not _CFLAG.search(logical):
             continue
-        if _PSQL_VAR.search(line):
-            offenders.append(f"  line {lineno}: {line.strip()}")
+        if _PSQL_VAR.search(logical):
+            offenders.append(f"  line {start}: {logical.strip()}")
     assert not offenders, (
         f"{script_path.relative_to(REPO_ROOT)} uses psql :'var' inside a -c "
         f"string. psql does NOT interpolate :'var' there (only in stdin/-f), "
@@ -81,3 +108,32 @@ def test_at_least_one_shell_script_scanned() -> None:
         "No shell scripts discovered under services/*/**/scripts/*.sh — the "
         "layout may have changed; update this test's glob."
     )
+
+
+# ── detector self-test: it must catch the multi-line known-bad form ─────────
+
+
+def test_detector_catches_multiline_broken_form() -> None:
+    """The original bugs were multi-line (psql line 1, -tAc \"...:'var'\" line 3).
+    A line-based scan misses that; the logical-line join must catch it.
+    """
+    broken = (
+        'role_exists=$(psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d postgres \\\n'
+        '    -v ON_ERROR_STOP=1 -v role="$ROLE" \\\n'
+        '    -tAc "SELECT 1 FROM pg_roles WHERE rolname = :\'role\'")\n'
+    )
+    joined = _logical_lines(broken)
+    assert any(
+        "psql" in s and _CFLAG.search(s) and _PSQL_VAR.search(s) for _, s in joined
+    ), "detector failed to catch the multi-line psql :'var'-in--c form"
+
+
+def test_detector_passes_correct_stdin_form() -> None:
+    correct = (
+        'printf "SELECT 1 FROM pg_roles WHERE rolname = :\'role\';\\n" \\\n'
+        '  | psql -h "$PGHOST" -v role="$ROLE" -v ON_ERROR_STOP=1 -tA\n'
+    )
+    joined = _logical_lines(correct)
+    assert not any(
+        "psql" in s and _CFLAG.search(s) and _PSQL_VAR.search(s) for _, s in joined
+    ), "detector false-positive on the correct stdin form"
