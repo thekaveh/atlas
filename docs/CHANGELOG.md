@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — 2026-07-07 — overnight maintenance: init quoting, bootstrapper/backend hardening, latent SQL abort
+
+Broad verify-and-fix pass. Headline fixes:
+
+- **psql init quoting (Critical):** `init-label-studio.sh`, `init-mlflow.sh` (copy-pasted from each other), and `init-langfuse.sh` used psql `:'var'` inside `-c`/`-tAc` strings — but psql only interpolates `:'var'` in SCRIPT input (stdin / `-f`), never inside `-c`. The literal `:'var'` shipped to the server raised a syntax error and (under `set -eu`) aborted the init container, so label-studio and mlflow could never provision their Postgres role/database, and langfuse's database-existence check never matched (createdb ran unconditionally and failed on any restart with a persistent volume). Converted to the stdin/`printf` pattern already used in `init-airflow.sh` / `init-iceberg-rest.sh`. Added `test_init_scripts_psql_quoting.py` — a regression guard, since `bash -n` / `shellcheck` cannot catch this psql-semantic class.
+- **Bootstrapper error handling:** `main()`'s catch-all over a ~620-line try body now prints the traceback to stderr (was a bare `str(e)`, making incidents undebuggable); the prod profile no longer silently resets operator-customized `LOG_MAX_SIZE` / `LOG_MAX_FILE` (now warns when resetting a divergent value); the no-TUI `--track` path warns when track-contract synthesis fails instead of swallowing.
+- **Backend resilience:** `plugin_seam`'s import-time pip-install is now bounded by `BACKEND_PLUGINS_PIP_TIMEOUT_SECONDS` (was the sole unbounded external call in the backend); the stale `ray_client` auth comment is refreshed (`BACKEND_KONG_AUTH=key-auth` now covers `backend-api`); dead `except` handlers in `research_client.cancel_research` removed.
+- **SQL:** removed `ALTER SYSTEM SET wal_level` wrapped in a `DO` block in `07-functions.sql` — illegal inside a transaction block, a latent abort (only dead today because the supabase image pre-sets `wal_level=logical`).
+- **Dead code:** dropped a redundant guard in `topology._allocate_slots` and a no-op `.split("?")` in `comfyui_resolver._filename_from_url`.
+
+Deferred (need a product/architecture decision; rationale in the run report): the `public.users` FK is unsatisfiable (no population path — breaks memory/research inserts for any real `user_id`); the wiki↔docs-site prose templates have diverged; backend `requirements.txt` has no lockfile (posture decision); several asyncpg connection-held-across-LLM-call sites in the backend.
+
+### Added — 2026-07-05 — FAL cloud media provider + backend Kong auth + user Supabase migration slot
+
+Backfilling `[Unreleased]` for the 2026-07-05 merges that were missing from this log:
+
+- **FAL cloud media provider (#331)** — new `fal` virtual manifest + `fal_media_client` exposing image generation through the FAL cloud API.
+- **Optional backend Kong auth (#330 / #322)** — `BACKEND_KONG_AUTH=key-auth` (opt-in, default disabled) adds key-auth + ACL to the `backend-api` gateway route, gating the Ray job-submission and storage-upload surfaces.
+- **User Supabase migration slot (#329)** — `db-init-runner` applies a `_user` SQL mount alphabetically after the Atlas scripts, so downstream forks can ship custom migrations without forking the init image.
+
+### Fixed — 2026-07-05 — backend plugin requirements + install-error surfacing + env-overlay cold-start preservation
+
+- **Backend plugin requirements loading (#326)** and **fail-clearly on plugin dependency install errors (#327)** — the plugin seam loads shared + per-plugin `requirements.txt` and raises a typed `PluginRequirementsInstallError` instead of crashing opaquely at import time.
+- **Preserve user env overlays across cold start (#328)** — the `.env.user` overlay survives `stop.sh --cold` / fresh bootstrapper regeneration.
+
 ### Added — 2026-07-03 — Atlas root dashboard
 
 - **Kong root now serves Atlas instead of Supabase Studio.** The bare gateway root (`http://localhost:${KONG_HTTP_PORT}`) returns a generated Atlas service directory with SOURCE state, track context, direct/Kong links, auth notes, warnings, and browser-side reachability probes. Supabase Studio remains available through its explicit `supabase-studio.localhost` route and keeps the existing Kong basic-auth gate.

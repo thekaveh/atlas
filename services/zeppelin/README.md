@@ -131,7 +131,7 @@ ZEPPELIN_PORT=                     # auto-assigned (apps band)
 ## 5. Starter notebook
 
 `services/zeppelin/notebooks/spark_basics.zpln` ships pre-loaded. 5 cells:
-1. Spark version check (`sc.version`)
+1. Spark version check (`spark.version`)
 2. Markdown intro
 3. MinIO round-trip via S3A (`s3a://spark-history/...`)
 4. Trino JDBC metadata smoke via `%trino` (`SHOW CATALOGS`; `SHOW SCHEMAS FROM lakehouse`) when `TRINO_SOURCE=container`
