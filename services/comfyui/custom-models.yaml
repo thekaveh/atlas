@@ -8,7 +8,8 @@
 #       category: <category-enum>   # required; one of: checkpoint, vae, lora,
 #                                   #   controlnet, ipadapter, instantid, upscaler,
 #                                   #   embedding, clip, animatediff, motion_lora,
-#                                   #   video_model, voice_model, audio_model, mesh_model
+#                                   #   video_model, voice_model, audio_model, mesh_model,
+#                                   #   diffusion_models, text_encoders
 #       url: <direct-download-url>  # required; HF resolve URL or signed civitai URL
 #       filename: <on-disk name>    # required for civitai URLs (their path has no
 #                                   #   filename — without this the download lands

@@ -52,21 +52,23 @@ import yaml as _yaml
 #   2. Add a `mkdir -p` line in services/comfyui/init/scripts/download_models.sh.
 #   3. Place it in a display group in CATEGORY_DISPLAY_GROUPS below.
 CATEGORY_TARGET_DIR: dict[str, str] = {
-    "checkpoint":   "checkpoints",
-    "vae":          "vae",
-    "lora":         "loras",
-    "controlnet":   "controlnet",
-    "ipadapter":    "ipadapter",
-    "instantid":    "instantid",
-    "upscaler":     "upscale_models",
-    "embedding":    "embeddings",
-    "clip":         "clip",
-    "animatediff":  "animatediff_models",
-    "motion_lora":  "animatediff_motion_lora",
-    "video_model":  "checkpoints",  # HunyuanVideo / CogVideoX per upstream
-    "voice_model":  "voice",
-    "audio_model":  "audio",
-    "mesh_model":   "mesh_models",
+    "checkpoint":       "checkpoints",
+    "vae":              "vae",
+    "lora":             "loras",
+    "controlnet":       "controlnet",
+    "ipadapter":        "ipadapter",
+    "instantid":        "instantid",
+    "upscaler":         "upscale_models",
+    "embedding":        "embeddings",
+    "clip":             "clip",
+    "animatediff":      "animatediff_models",
+    "motion_lora":      "animatediff_motion_lora",
+    "video_model":      "checkpoints",  # HunyuanVideo / CogVideoX per upstream
+    "voice_model":      "voice",
+    "audio_model":      "audio",
+    "mesh_model":       "mesh_models",
+    "diffusion_models": "diffusion_models",  # FLUX / DiT / Krea 2 / SD3 transformer weights
+    "text_encoders":    "text_encoders",      # Large text encoders (t5xxl, Qwen3-VL, etc.)
 }
 
 VALID_CATEGORIES = frozenset(CATEGORY_TARGET_DIR.keys())
@@ -75,7 +77,8 @@ VALID_CATEGORIES = frozenset(CATEGORY_TARGET_DIR.keys())
 CATEGORY_DISPLAY_GROUPS: dict[str, frozenset[str]] = {
     "All":         VALID_CATEGORIES,
     "Image":       frozenset({"checkpoint", "vae", "lora", "upscaler",
-                              "embedding", "clip"}),
+                              "embedding", "clip",
+                              "diffusion_models", "text_encoders"}),
     "Image-edit":  frozenset({"controlnet", "ipadapter", "instantid"}),
     "Video":       frozenset({"animatediff", "motion_lora", "video_model"}),
     "Audio":       frozenset({"voice_model", "audio_model"}),

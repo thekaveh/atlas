@@ -43,16 +43,17 @@ def test_entry_is_frozen():
         entry.name = "mutated"  # type: ignore[misc]
 
 
-def test_category_target_dir_covers_all_15_categories():
-    # Note: 15 categories total (the spec calls it "14 categories" in prose
-    # but enumerates 15 — checkpoint, vae, lora, controlnet, ipadapter,
+def test_category_target_dir_covers_all_17_categories():
+    # 17 categories total: checkpoint, vae, lora, controlnet, ipadapter,
     # instantid, upscaler, embedding, clip, animatediff, motion_lora,
-    # video_model, voice_model, audio_model, mesh_model).
+    # video_model, voice_model, audio_model, mesh_model,
+    # diffusion_models (FLUX/DiT/Krea 2/SD3), text_encoders (t5xxl, Qwen3-VL).
     assert set(CATEGORY_TARGET_DIR.keys()) == {
         "checkpoint", "vae", "lora", "controlnet",
         "ipadapter", "instantid", "upscaler", "embedding",
         "clip", "animatediff", "motion_lora", "video_model",
         "voice_model", "audio_model", "mesh_model",
+        "diffusion_models", "text_encoders",
     }
 
 
@@ -60,6 +61,8 @@ def test_category_target_dir_values():
     assert CATEGORY_TARGET_DIR["checkpoint"] == "checkpoints"
     assert CATEGORY_TARGET_DIR["mesh_model"] == "mesh_models"
     assert CATEGORY_TARGET_DIR["video_model"] == "checkpoints"  # upstream convention
+    assert CATEGORY_TARGET_DIR["diffusion_models"] == "diffusion_models"  # FLUX/DiT
+    assert CATEGORY_TARGET_DIR["text_encoders"] == "text_encoders"  # t5xxl, Qwen3-VL
 
 
 def test_display_groups_partition_categories():

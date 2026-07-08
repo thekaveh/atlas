@@ -39,7 +39,8 @@ MANIFEST_TSV="${COMFYUI_MANIFEST_TSV:-/comfyui-manifest/active-models.tsv}"
 # 1. Materialize per-category directories (idempotent on every run).
 for d in checkpoints vae loras controlnet ipadapter instantid \
          upscale_models embeddings clip animatediff_models \
-         animatediff_motion_lora voice audio mesh_models; do
+         animatediff_motion_lora voice audio mesh_models \
+         diffusion_models text_encoders; do
   mkdir -p "$MODELS_ROOT/$d"
 done
 
@@ -63,6 +64,8 @@ category_to_dir() {
     voice_model)  echo "voice" ;;
     audio_model)  echo "audio" ;;
     mesh_model)   echo "mesh_models" ;;
+    diffusion_models)  echo "diffusion_models" ;;   # FLUX / DiT / Krea 2 / SD3
+    text_encoders)     echo "text_encoders" ;;       # Large text encoders (t5xxl, Qwen3-VL)
     *)            echo "" ;;
   esac
 }
