@@ -72,7 +72,7 @@ env:
     auto_managed: true
   - name: COMFYUI_ENDPOINT
     auto_managed: true
-    description: "Resolved per COMFYUI_SOURCE. Consumed by backend, open-webui, n8n, jupyterhub."
+    description: "Resolved per COMFYUI_SOURCE. Consumed by backend, open-webui, n8n, jupyterhub, and downstream overlays. Consumer pattern: MY_URL: ${MY_URL:-${COMFYUI_ENDPOINT:-http://comfyui:18188}}"
   - name: COMFYUI_DEPLOY_RESOURCES
     default: "~"
   - name: COMFYUI_MEMORY_LIMIT

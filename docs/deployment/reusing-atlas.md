@@ -227,6 +227,31 @@ def health():
 
 Your routes are then served by the same backend — reachable at `backend:8000` in-network, or via Kong at `api.localhost/...`. This is the recommended way to add backend endpoints (e.g. a `/rag` surface) for a downstream showcase without maintaining a fork. See [`services/backend/README.md` §4](https://github.com/thekaveh/atlas/blob/main/services/backend/README.md) for the backend-side description.
 
+### 6.4 Consuming auto-managed endpoint variables
+
+Atlas's bootstrapper computes a set of **auto-managed endpoint variables** in `.env` that resolve to the correct internal URL for whichever `*_SOURCE` mode is active. Downstream consumers (whether Method A standalone or Method B submodule) should bridge these into their own service variables rather than hard-coding a URL.
+
+| Variable | Resolved from | Example value (container source) | Example value (localhost source) |
+|----------|---------------|----------------------------------|----------------------------------|
+| `COMFYUI_ENDPOINT` | `COMFYUI_SOURCE` | `http://comfyui:18188` | `http://host.docker.internal:8000` |
+| `OLLAMA_ENDPOINT` | `LLM_PROVIDER_SOURCE` | `http://ollama:11434` | `http://host.docker.internal:11434` |
+| `LITELLM_BASE_URL` | `LLM_PROVIDER_SOURCE` | `http://litellm:4000/v1` | `http://host.docker.internal:63004/v1` |
+| `MINIO_ENDPOINT` | `MINIO_SOURCE` | `http://minio:9000` | `http://host.docker.internal:63020` |
+
+**Consumer-bridging pattern.** In your overlay Compose fragment or `services/_user/` service, bridge the auto-managed endpoint into your service's own variable using a three-level fallback:
+
+```yaml
+# services/_user/my-app/compose.yml
+services:
+  my-app:
+    environment:
+      # Own override → Atlas's computed endpoint → hard-coded in-network default
+      MY_COMFYUI_URL: ${MY_COMFYUI_URL:-${COMFYUI_ENDPOINT:-http://comfyui:18188}}
+      MY_LITELLM_URL: ${MY_LITELLM_URL:-${LITELLM_BASE_URL:-http://litellm:4000/v1}}
+```
+
+This ensures your consumer works transparently across all `*_SOURCE` values (container, localhost, etc.) without per-source branching. The same pattern applies to `OLLAMA_ENDPOINT`, `MINIO_ENDPOINT`, and any future auto-managed endpoint Atlas adds.
+
 ---
 
 ## 7. Readiness
