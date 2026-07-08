@@ -40,6 +40,9 @@ env:
     default: ""
     secret: true
     description: "Auto-generated key accepted by Kong when BACKEND_KONG_AUTH=key-auth. Send as `apikey: <value>`."
+  - name: BACKEND_PLUGINS_PIP_TIMEOUT_SECONDS
+    default: 300
+    description: "Timeout in seconds for `pip install` of backend plugin requirements (plugin_seam) at startup. The install runs at backend import time, so an unbounded hang would block startup; raise for slow networks."
   - name: LANGMEM_ENABLED
     default: true
   - name: LANGMEM_MEMORY_NAMESPACE

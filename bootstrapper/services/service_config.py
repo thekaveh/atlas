@@ -236,18 +236,12 @@ class ServiceConfig:
         # Generate observability bundle (Prometheus family + cross-manifest
         # sidecar exporter scales for postgres-exporter and redis-exporter).
         prometheus_source = self.service_sources.get("PROMETHEUS_SOURCE", "disabled")
-        prom_config = self._generate_prometheus_config(
-            source_value=prometheus_source,
-            shared_env=env_vars,
-        )
+        prom_config = self._generate_prometheus_config(prometheus_source)
         env_vars.update(prom_config)
 
         # Generate Grafana configuration
         grafana_source = self.service_sources.get("GRAFANA_SOURCE", "disabled")
-        grafana_config = self._generate_grafana_config(
-            source_value=grafana_source,
-            shared_env=env_vars,
-        )
+        grafana_config = self._generate_grafana_config(grafana_source)
         env_vars.update(grafana_config)
 
         # Generate other service configurations
@@ -1417,7 +1411,7 @@ class ServiceConfig:
             "SPARK_KAFKA_BOOTSTRAP_SERVERS": "redpanda:9092",
         }
 
-    def _generate_prometheus_config(self, source_value: str, shared_env: dict) -> dict:
+    def _generate_prometheus_config(self, source_value: str) -> dict:
         """Resolve scales for the prometheus family + cross-manifest exporter sidecars.
 
         PROMETHEUS_SCALE / NODE_EXPORTER_SCALE / CADVISOR_SCALE follow PROMETHEUS_SOURCE
@@ -1428,7 +1422,6 @@ class ServiceConfig:
 
         Args:
             source_value: Current PROMETHEUS_SOURCE (`container` | `disabled`).
-            shared_env: Env vars accumulated by earlier generators + manifest defaults.
 
         Returns:
             Dict of resolved env-var assignments.
@@ -1444,12 +1437,11 @@ class ServiceConfig:
             "PROMETHEUS_ENDPOINT": endpoint,
         }
 
-    def _generate_grafana_config(self, source_value: str, shared_env: dict) -> dict:
+    def _generate_grafana_config(self, source_value: str) -> dict:
         """Resolve Grafana's auto-managed scale + endpoint from GRAFANA_SOURCE.
 
         Args:
             source_value: Current GRAFANA_SOURCE (`container` | `disabled`).
-            shared_env: Env vars accumulated by earlier generators.
 
         Returns:
             Dict of resolved env-var assignments.
@@ -1478,7 +1470,7 @@ class ServiceConfig:
         elif source_value == 'localhost':
             # OPENCLAW_LOCALHOST_PORT is the user-overridable var the wizard
             # writes for host-side OpenClaw. OPENCLAW_GATEWAY_PORT is the
-            # container's host-bound port (63063); reading it here would
+            # container's host-bound port; reading it here would
             # ignore the wizard's port override — same asymmetric-override
             # class as docling / hermes above.
             current_env = self.config_parser.parse_env_file()

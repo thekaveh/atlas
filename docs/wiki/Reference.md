@@ -98,6 +98,7 @@ The public site publishes SOURCE values, environment variables, ports, routes, t
 | BACKEND_CORS_ALLOW_ORIGIN_REGEX | backend |  | Optional regex accepted by the backend CORS middleware for wildcard subdomain policies. |
 | BACKEND_KONG_AUTH | backend | disabled | Gateway authentication mode for the api.localhost backend route: disabled (default local-dev behavior) or key-auth (requires apikey header). |
 | BACKEND_KONG_API_KEY | backend |  | Auto-generated key accepted by Kong when BACKEND_KONG_AUTH=key-auth. Send as `apikey: <value>`. |
+| BACKEND_PLUGINS_PIP_TIMEOUT_SECONDS | backend | 300 | Timeout in seconds for `pip install` of backend plugin requirements (plugin_seam) at startup. The install runs at backend import time, so an unbounded hang would block startup; raise for slow networks. |
 | LANGMEM_ENABLED | backend | True | - |
 | LANGMEM_MEMORY_NAMESPACE | backend | default | - |
 | LANGMEM_AUTO_CONSOLIDATE | backend | True | Reserved — not yet honored. Memory consolidation currently runs only

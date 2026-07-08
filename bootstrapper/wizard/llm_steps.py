@@ -819,9 +819,15 @@ def build_default_model_steps(
                 # Real key was typed
                 provider_active = True
             elif secret_v == SECRET_KEEP or secret_v is None:
-                existing_source = (env_vars.get(p.source_var, "disabled") or "").strip().lower()
+                # Auto-promote: a saved key makes the provider active for the
+                # default-model pickers regardless of its source flag (matches
+                # _no_llm_active's disabled-but-keyed-as-active stance). The
+                # prior `existing_key and (existing_source == "enabled" or
+                # existing_key)` was a tautology — the outer `existing_key and`
+                # already required truthiness, so the RHS always reduced to
+                # existing_key — which always evaluated to bool(existing_key).
                 existing_key = (env_vars.get(p.api_key_var, "") or "").strip()
-                provider_active = existing_key and (existing_source == "enabled" or existing_key)
+                provider_active = bool(existing_key)
             else:
                 provider_active = False
             if provider_active:

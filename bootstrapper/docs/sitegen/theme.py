@@ -149,23 +149,6 @@ def atlas_css() -> str:
   margin-top: 1.5rem;
 }
 
-.atlas-service-grid {
-  display: grid;
-  gap: 0.8rem;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-}
-
-.atlas-service-card {
-  border: 1px solid rgba(96, 165, 250, 0.22);
-  border-radius: 8px;
-  padding: 0.85rem;
-  background: rgba(7, 17, 31, 0.66);
-}
-
-[data-md-color-scheme="default"] .atlas-service-card {
-  background: rgba(248, 251, 255, 0.86);
-}
-
 .atlas-kicker {
   color: var(--atlas-sky);
   font-weight: 700;
@@ -192,7 +175,3 @@ def copy_artifacts(root: Path) -> list[tuple[Path, Path]]:
         (root / "assets" / "atlas-poster-blue.png", root / "docs" / "assets" / "atlas-poster-blue.png"),
         (root / "assets" / "atlas-poster-gold.png", root / "docs" / "assets" / "atlas-poster-gold.png"),
     ]
-
-
-def binary_copy_artifacts(root: Path) -> list[tuple[Path, Path]]:
-    return copy_artifacts(root)

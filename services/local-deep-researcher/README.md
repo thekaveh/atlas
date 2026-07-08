@@ -33,9 +33,9 @@ Adaptive env (auto-injected):
 ```bash
 LITELLM_BASE_URL=http://litellm:4000
 LITELLM_API_KEY=${LITELLM_MASTER_KEY}
-STT_ENDPOINT=...
-TTS_ENDPOINT=...
-DOCLING_ENDPOINT=...
+# STT_ENDPOINT / TTS_ENDPOINT / DOCLING_ENDPOINT are NOT injected — the LDR
+# research-agent path is text-only today (see service.yml note). Those
+# provider endpoints are owned by the stt/tts/docling manifests.
 ```
 
 **Required hard dependencies** (`depends_on.required`): `searxng`, `litellm`. Without SearXNG, LDR has no search backend; without LiteLLM, no LLM to summarize. LDR is **DB-free** — it does not connect to Supabase. Research sessions are persisted to `public.research_*` by the **backend** (`research_service.py`), which calls this LangGraph server over HTTP; that supabase dependency belongs to the backend, not LDR.
@@ -109,7 +109,6 @@ DOCLING_ENDPOINT=...
 - **Tavily / Perplexity search backends** — *Why pursue:* upstream supports both via `SEARCH_API=tavily|perplexity` + API keys; manifest only exposes searxng/duckduckgo. *Effort:* small.
 - **`USE_TOOL_CALLING` for gpt-oss models** — *Why pursue:* enables structured tool calls instead of JSON mode for gpt-oss family, improving reliability with LiteLLM-routed local models. *Effort:* small.
 - **`STRIP_THINKING_TOKENS` toggle** — *Why pursue:* Hermes-style reasoning models leak `<think>` blocks into the report; upstream env var hides them. *Effort:* small.
-- **`FETCH_FULL_PAGE` toggle** — *Why pursue:* hard-coded false in `init-config.py`; not exposed in `service.yml`. *Effort:* small.
 - **LangSmith tracing** — *Why pursue:* `LANGSMITH_API_KEY` ships upstream; superseded if Langfuse lands but useful as a stopgap. *Effort:* small.
 
 ## 6. Troubleshooting

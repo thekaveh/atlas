@@ -16,8 +16,7 @@ def _load_init_module():
     # litellm-init container image (psycopg2-binary is pinned in the
     # init Dockerfile, not the bootstrapper venv). Stub it in sys.modules
     # before exec_module so pytest can exercise the pure-Python helpers
-    # without provisioning the container's deps. Mirrors the established
-    # pattern in test_catalog_init_auto_import.py.
+    # without provisioning the container's deps.
     sys.modules.setdefault("psycopg2", MagicMock())
     sys.modules.setdefault("psycopg2.extras", MagicMock())
     spec = importlib.util.spec_from_file_location("litellm_init", INIT_PY)

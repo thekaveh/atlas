@@ -305,8 +305,29 @@ class AtlasStarter:
             prod_overrides["PROMETHEUS_SOURCE"] = "container"
         if explicit_grafana is None:
             prod_overrides["GRAFANA_SOURCE"] = "container"
-        prod_overrides["LOG_MAX_SIZE"] = "10m"
-        prod_overrides["LOG_MAX_FILE"] = "3"
+        # LOG_MAX_SIZE / LOG_MAX_FILE are prod-managed defaults. Unlike
+        # HOST_BIND_IP (the defining prod property, always overwritten) they
+        # are the kind of value an operator customizes once and forgets, so
+        # surface a one-line notice when a run diverges from the operator's
+        # setting rather than silently resetting it (mirrors the default
+        # branch's 'cleared HOST_BIND_IP' notice).
+        _existing = self.config_parser.parse_env_file()
+        for _log_key, _prod_default in (("LOG_MAX_SIZE", "10m"), ("LOG_MAX_FILE", "3")):
+            _current = _existing.get(_log_key)
+            if not _current:
+                # Only apply the prod default when the operator hasn't set a
+                # real value (None or empty string). LOG_MAX_* is the kind of
+                # knob an operator customizes once (compliance/retention); prod
+                # must NOT clobber a hand-set value — mirrors the
+                # PROMETHEUS/GRAFANA explicit-flag gates and the default
+                # branch's sentinel-only HOST_BIND_IP rewrite.
+                # Unset/empty → prod default; set → preserved.
+                prod_overrides[_log_key] = _prod_default
+            elif _current != _prod_default:
+                print(
+                    f"profile=prod: keeping operator-set {_log_key}={_current!r} "
+                    f"(prod default is {_prod_default!r})"
+                )
         return self.source_override_manager.update_env_file(prod_overrides)
 
     def apply_cloud_api_keys(self, keys: Dict[str, str]) -> bool:
@@ -2868,8 +2889,18 @@ def main(project_name, base_port, track, list_tracks, cold, setup_hosts, skip_ho
                         registry=_reg,
                         force_disable=True,
                     )
-                except Exception:  # noqa: BLE001
-                    pass
+                except Exception as exc:  # noqa: BLE001
+                    # Synthesis is the only thing enforcing the --track
+                    # contract on this no-TUI path. If it raises, surface a
+                    # stderr warning so the user knows off-track services will
+                    # fall back to their .env defaults (i.e. --track did not
+                    # take effect) instead of silently continuing.
+                    print(
+                        f"[warn] track '{track}' force-disable synthesis failed "
+                        f"({type(exc).__name__}: {exc}); off-track services will "
+                        f"use their .env defaults. Re-run without --track or report this.",
+                        file=sys.stderr,
+                    )
 
         # CLI-flag mode + TUI capable: skip the wizard but still use the
         # Textual launch screen, pre-loaded with the user's CLI args.
@@ -3116,7 +3147,14 @@ def main(project_name, base_port, track, list_tracks, cold, setup_hosts, skip_ho
         print("\n❌ Startup interrupted by user")
         sys.exit(1)
     except Exception as e:
-        print(f"\n❌ Unexpected error during startup: {e}")
+        # Anything reaching here is an unexpected bug (click.ClickException
+        # and KeyboardInterrupt are handled above). Emit the full traceback
+        # to stderr so the failure is triageable; the prior handler's bare
+        # str(e) was not enough to locate defects across the ~620-line body.
+        import traceback
+
+        print(f"\n❌ Unexpected error during startup: {e}", file=sys.stderr)
+        traceback.print_exc()
         sys.exit(1)
 
 

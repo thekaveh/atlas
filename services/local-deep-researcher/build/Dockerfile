@@ -5,7 +5,7 @@ FROM ${BASE_IMAGE}
 WORKDIR /app
 
 # Install system dependencies (LDR is DB-free — no postgresql-client/psql).
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     curl \
     && rm -rf /var/lib/apt/lists/*

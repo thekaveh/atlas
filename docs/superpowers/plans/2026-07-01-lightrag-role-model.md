@@ -543,7 +543,7 @@ Create `scripts/smoke-lightrag-role-models.sh`:
 set -euo pipefail
 
 project="${PROJECT_NAME:-atlas}"
-lightrag_url="${LIGHTRAG_URL:-http://localhost:${LIGHTRAG_API_PORT:-63063}}"
+lightrag_url="${LIGHTRAG_URL:-http://localhost:${LIGHTRAG_API_PORT:-63074}}"
 api_key="${LIGHTRAG_API_KEY:-}"
 extract_model="${LIGHTRAG_EXTRACT_LLM_MODEL:-}"
 query_model="${LIGHTRAG_QUERY_LLM_MODEL:-}"

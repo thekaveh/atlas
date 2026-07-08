@@ -87,12 +87,11 @@ def _schema_path() -> Path:
 def _validate_manifest(data: dict) -> None:
     """Validate a manifest dict against comfyui-manifest.schema.json.
 
-    Uses jsonschema if available; otherwise skips with a pytest.skip.
+    jsonschema is a hard runtime dependency (bootstrapper/pyproject.toml), so
+    import unconditionally — a missing install should fail loudly rather than
+    silently skipping these schema-enforcement tests.
     """
-    try:
-        import jsonschema
-    except ImportError:
-        pytest.skip("jsonschema not installed")
+    import jsonschema
 
     schema = json.loads(_schema_path().read_text(encoding="utf-8"))
     jsonschema.validate(instance=data, schema=schema)

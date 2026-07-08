@@ -114,6 +114,14 @@ def merge_dependencies(
 
 
 def needs_restart(before: dict[str, object], after: dict[str, object]) -> bool:
+    """Whether the merged interpreter config differs from the existing one.
+
+    The runtime restart decision is made inline in seed_interpreter /
+    seed_trino_interpreter (a PUT to /restart/{id} whenever the config
+    changed), but this predicate documents the same comparison and is
+    exercised by test_zeppelin_lakehouse_seed — keep it (do not re-delete as
+    dead code; the test asserts the restart contract through it).
+    """
     return before != after
 
 
@@ -315,4 +323,10 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except Exception as exc:
+        import traceback
+        print(f"zeppelin-init: ERROR: {exc}")
+        traceback.print_exc()
+        sys.exit(1)

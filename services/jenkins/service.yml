@@ -10,7 +10,7 @@ images:
   - var: JENKINS_IMAGE
     default: "jenkins/jenkins:lts-jdk21"
     container: jenkins
-    notes: "Jenkins LTS with JDK 21; Atlas builds a local derived image with Maven, MinIO mc, and plugins."
+    notes: "Jenkins LTS with JDK 21; Atlas builds a local derived image with Maven, MinIO mc, and plugins. Rolling `lts-jdk21` tag — repointed by Jenkins upstream on each new LTS line, so two builds days apart resolve to different Jenkins versions. Pin to a digest in production via `docker pull jenkins/jenkins:lts-jdk21` then set JENKINS_IMAGE to `jenkins/jenkins:lts-jdk21@sha256:<digest>`."
 
 sources:
   var: JENKINS_SOURCE

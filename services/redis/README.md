@@ -2,7 +2,7 @@
 
 Shared cache, queue, and pub/sub broker for the stack. The manifest comment is blunt: Redis is "consumed by half the stack." It has one container, one source variant (`container`), no GPU paths, and no init container. Despite being infrastructure rather than a feature, Redis is the single most cross-cutting service in the project — n8n's queue mode, Kong's rate-limit cache, Open WebUI's WebSocket store, LightRAG's KV layer, and JupyterHub notebooks all share this one instance.
 
-The stack convention partitions Redis by **database index**, not by service. As wired today: `/0` carries the n8n queue (`QUEUE_BULL_REDIS_DB: 0`), and Kong's rate-limit cache (no `KONG_REDIS_DATABASE` set → library default 0); `/2` is shared by Open WebUI's WebSocket store (`OPEN_WEB_UI_REDIS_DB`) and LightRAG's KV/doc-status store (`LIGHTRAG_REDIS_URI`) — different key shapes, no collision in practice, but isolate one of them if you repurpose the db; `/3` is JupyterHub's `REDIS_URL`. Consumers that need an isolated namespace build their own connection string off `${REDIS_PASSWORD}` and `redis:6379/<db>`.
+The stack convention partitions Redis by **database index**, not by service. As wired today: `/0` carries the n8n queue (`QUEUE_BULL_REDIS_DB: 0`), and Kong's rate-limit cache (no `KONG_REDIS_DATABASE` set → library default 0); `/2` is shared by Open WebUI's WebSocket store (`OPEN_WEB_UI_REDIS_DB`) and LightRAG's KV/doc-status store (`LIGHTRAG_REDIS_URI`) — different key shapes, no collision in practice, but isolate one of them if you repurpose the db; `/3` is JupyterHub's `REDIS_URL`; `/4` is Celery's broker + result backend (`CELERY_BROKER_URL` / `CELERY_RESULT_BACKEND`). Consumers that need an isolated namespace build their own connection string off `${REDIS_PASSWORD}` and `redis:6379/<db>`.
 
 ## 1. Overview
 
@@ -38,6 +38,7 @@ Database-index convention (consumer-built URLs):
 | 0 | n8n, kong (backend's `REDIS_URL` is injected but unread) | n8n queue (`QUEUE_BULL_REDIS_DB: 0`); Kong rate-limit cache (no `KONG_REDIS_DATABASE` set → library default 0) |
 | 2 | open-webui, lightrag | WebSocket store (`OPEN_WEB_UI_REDIS_DB`) + LightRAG KV/doc-status — disjoint key shapes |
 | 3 | jupyterhub | notebook `REDIS_URL` |
+| 4 | celery | broker + result backend (`CELERY_BROKER_URL` / `CELERY_RESULT_BACKEND`) |
 
 ## 4. Architecture & wiring
 
@@ -85,7 +86,7 @@ _No upstream calls._
 ### 6.4 Future — Missing pair integrations
 
 - **redis ↔ comfyui** — *Why:* ComfyUI's compose declares `depends_on: redis` (startup ordering only) but the container receives no `REDIS_URL`. A real link would let n8n/backend enqueue generation jobs to a Redis list/stream and read `progress`/`executed` events back via a sidecar publisher, replacing the per-caller websocket pattern. *Mechanism:* ComfyUI custom node + `redis-py` writing `XADD comfyui:events` on progress; producers `BLPOP comfyui:jobs` from a tiny worker that calls `/prompt`. *Effort:* medium. *Confidence:* medium.
-- **redis ↔ local-deep-researcher** — *Why:* LDR's compose has no `REDIS_URL` today (db `/3` is currently JupyterHub's; an LDR checkpointer would take a fresh index, e.g. `/4`). LangGraph's Redis checkpointer would let long-running research runs survive container restarts and let backend stream node-by-node progress. *Mechanism:* `redis://:${REDIS_PASSWORD}@redis:6379/4` consumed by `langgraph.checkpoint.redis.RedisSaver`; `PUBSUB` channel `ldr:run:<id>` for progress. *Effort:* small. *Confidence:* high.
+- **redis ↔ local-deep-researcher** — *Why:* LDR's compose has no `REDIS_URL` today (db `/3` is currently JupyterHub's and `/4` is Celery's; an LDR checkpointer would take a fresh index, e.g. `/5`). LangGraph's Redis checkpointer would let long-running research runs survive container restarts and let backend stream node-by-node progress. *Mechanism:* `redis://:${REDIS_PASSWORD}@redis:6379/5` consumed by `langgraph.checkpoint.redis.RedisSaver`; `PUBSUB` channel `ldr:run:<id>` for progress. *Effort:* small. *Confidence:* high.
 - **redis ↔ hermes** — *Why:* Hermes has no shared state between requests; conversation memory, tool-call rate-limits, and per-user budget counters live in process. *Mechanism:* Hermes custom skill reads/writes `hermes:session:<id>` hashes and `hermes:ratelimit:<user>` counters via `redis-py`. *Effort:* small. *Confidence:* medium.
 - **redis ↔ doc-processor** — *Why:* document parsing is expensive and idempotent on file SHA. A Redis cache keyed on `sha256(file)` lets repeat ingests (common during n8n flow iteration) short-circuit; a Redis stream broadcasts `doc:parsed` events to backend + weaviate ingest. *Mechanism:* cache: `SETEX doc:parsed:<sha> 86400 <json>`; event bus: `XADD doc:events`. *Effort:* small. *Confidence:* medium.
 - **redis ↔ weaviate** — *Why:* embedding generation dominates ingest latency; a content-hash → vector cache cuts repeat-ingest cost dramatically and de-duplicates concurrent embeddings across n8n/backend. *Mechanism:* `GET emb:<model>:<sha>` before calling Weaviate's vectorizer; `SETEX` on miss. Lives behind a tiny helper in backend. *Effort:* medium. *Confidence:* medium.

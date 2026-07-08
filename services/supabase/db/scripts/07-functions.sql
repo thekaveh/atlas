@@ -28,15 +28,14 @@ $$ language 'plpgsql';
 
 -- Add any other custom functions here
 
--- Enable logical replication for Realtime
-DO $$
-BEGIN
-  -- Check if wal_level is not already logical
-  IF current_setting('wal_level') != 'logical' THEN
-    ALTER SYSTEM SET wal_level = 'logical';
-    -- Note: This requires a database restart to take effect
-  END IF;
-END $$;
+-- Realtime needs wal_level=logical. The pinned supabase/postgres image sets
+-- it at boot (it must be set before server start; ALTER SYSTEM would not take
+-- effect until a restart anyway, so it could not help the replication slot
+-- created below on this same boot). The previous conditional
+-- `ALTER SYSTEM SET wal_level = 'logical'` lived inside a DO block, but
+-- ALTER SYSTEM cannot run inside a transaction block (DO = transaction) — a
+-- latent abort that was never reached only because the image pre-sets the
+-- value. Removed rather than left as a landmine for a non-supabase Postgres.
 
 -- Create replication slot for realtime if it doesn't exist
 SELECT pg_create_logical_replication_slot('supabase_realtime_slot', 'pgoutput')
