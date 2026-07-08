@@ -746,7 +746,7 @@ def _build_steps_and_rows(
     # MinIO's wizard row is the admin console; surface its S3 API endpoints
     # (direct port + the s3.minio.localhost Kong alias) in the hover tooltip
     # so external s3 clients can discover them from the services pane.
-    _minio_port = (env_vars.get("MINIO_PORT", "") or "63018").strip()
+    _minio_port = (env_vars.get("MINIO_PORT", "") or "63020").strip()
 
     from ui.state_builder import service_extras
 

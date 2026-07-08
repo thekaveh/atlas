@@ -4,7 +4,7 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 ## Project Overview
 
-Atlas (formerly GenAI Vanilla Stack) is a self-hosted, source-configurable engineering platform orchestrating 30+ containerized services via Docker Compose. It spans generative AI, RAG, creative AI, ML engineering, and data engineering workloads via the tracks system (`gen-ai-eng` / `gen-ai-rag` / `gen-ai-creative` / `ml-eng` / `data-eng` / `all`). Services include LLM inference (Ollama + cloud-provider passthroughs via LiteLLM), chat UI (Open WebUI), workflow + DAG automation (n8n + Airflow), vector + graph DBs (Weaviate + Neo4j), distributed compute (Ray + Spark), notebooks (JupyterHub + Zeppelin), object storage (MinIO), observability (Prometheus + Grafana) — all configurable for container, localhost, or disabled modes, with CPU/GPU variants where a service supports them.
+Atlas (formerly GenAI Vanilla Stack) is a self-hosted, source-configurable engineering platform orchestrating 30+ containerized services via Docker Compose. It spans generative AI, RAG, creative AI, ML engineering, and data engineering workloads via the tracks system (`gen-ai-eng` / `gen-ai-rag` / `gen-ai-creative` / `ml-eng` / `data-eng` / `trading` / `all`). Services include LLM inference (Ollama + cloud-provider passthroughs via LiteLLM), chat UI (Open WebUI), workflow + DAG automation (n8n + Airflow), vector + graph DBs (Weaviate + Neo4j), distributed compute (Ray + Spark), notebooks (JupyterHub + Zeppelin), object storage (MinIO), observability (Prometheus + Grafana) — all configurable for container, localhost, or disabled modes, with CPU/GPU variants where a service supports them.
 
 ## Editing Rules
 
@@ -85,7 +85,7 @@ Legacy `external` and `api` source values are retired. Cloud providers are confi
 ### Tracks
 
 `bootstrapper/tracks.yml` defines named profiles (`gen-ai-rag`, `gen-ai-eng`,
-`gen-ai-creative`, `ml-eng`, `data-eng`, `all`). Each track lists a subset of
+`gen-ai-creative`, `ml-eng`, `data-eng`, `trading`, `all`). Each track lists a subset of
 source-configurable services the wizard should prompt for; out-of-track services
 are force-disabled (`*_SOURCE=disabled`) at the end of the flow. A small set of
 services the wizard always *prompts* for (LLM Engine + Prometheus + Grafana +
@@ -146,7 +146,7 @@ No standalone dev mode — backend runs only inside Docker because it depends on
 
 ### Docker Compose (`docker-compose.yml`)
 
-Thin ~70-line top-level shell that merges per-service compose fragments via the native `include:` directive. Each fragment under `services/<name>/compose.yml` owns its containers; cross-fragment `depends_on` and merged top-level `volumes:` work via Compose v2.20+ (v2.26+ recommended).
+Thin ~90-line top-level shell that merges per-service compose fragments via the native `include:` directive. Each fragment under `services/<name>/compose.yml` owns its containers; cross-fragment `depends_on` and merged top-level `volumes:` work via Compose v2.20+ (v2.26+ recommended).
 
 ### Service Init Containers
 
@@ -170,7 +170,7 @@ See `bootstrapper/schemas/service.schema.json` for the full schema, `docs/CONTRI
 `bootstrapper/services/manifests.py::_is_service_dir` requires `service.yml` to exist. Two flavors of "no-container" folder live under `services/`:
 
 - **Doc-only folders (no `service.yml`):** `services/stt-provider/`, `services/doc-processor/`, `services/multi2vec-clip/`. Host aggregate documentation + diagrams for the wizard-facing role; the manifest loader silently skips them.
-- **Virtual manifests (`virtual: true`, no `compose.yml`):** `services/tts-provider/`, `services/cloud-providers/`, `services/globals/`. They own SOURCE / env-var declarations consumed by the bootstrapper but don't run as containers. The compose include list skips virtual manifests.
+- **Virtual manifests (`virtual: true`, no `compose.yml`):** `services/tts-provider/`, `services/cloud-providers/`, `services/globals/`, `services/blender-mcp/` (host-only Blender bridge), `services/fal/` (FAL cloud media provider). They own SOURCE / env-var declarations consumed by the bootstrapper but don't run as containers. The compose include list skips virtual manifests.
 
 ### Per-service documentation (`services/<name>/README.md`)
 

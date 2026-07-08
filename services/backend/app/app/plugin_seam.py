@@ -13,11 +13,24 @@ from __future__ import annotations
 
 import importlib
 import logging
+import os
 import subprocess
 import sys
 from pathlib import Path
 
 _log = logging.getLogger("uvicorn.error")
+
+# pip runs at backend import time (load_plugins is called from main.py at
+# startup), so a hung download (flaky index, slow mirror, network partition)
+# would block the whole backend indefinitely with no request-level timeout to
+# rescue it. Bound it. Override via env for slow networks.
+try:
+    _PIP_INSTALL_TIMEOUT = int(os.getenv("BACKEND_PLUGINS_PIP_TIMEOUT_SECONDS", "300"))
+except ValueError:
+    # A non-numeric operator value (e.g. "300s") would otherwise crash the
+    # backend at import with a raw ValueError; fall back to the default.
+    # Mirrors fal_media_client.py's FAL_TIMEOUT_SECONDS parse guard.
+    _PIP_INSTALL_TIMEOUT = 300
 
 
 class PluginRequirementsInstallError(RuntimeError):
@@ -54,16 +67,30 @@ def _install_requirements(directory: Path, installed: set[Path] | None = None) -
             check=True,
             capture_output=True,
             text=True,
+            timeout=_PIP_INSTALL_TIMEOUT,
         )
     except subprocess.CalledProcessError as exc:
         raise PluginRequirementsInstallError(reqs, exc) from exc
+    except subprocess.TimeoutExpired as exc:
+        # 124 is the conventional timeout exit code (matches `timeout(1)`).
+        # Surface it through the same error type the caller already handles
+        # so a timed-out install degrades like a failed one (shared reqs
+        # timeout → skip all plugins; per-plugin reqs timeout → skip plugin).
+        raise PluginRequirementsInstallError(
+            reqs,
+            subprocess.CalledProcessError(
+                returncode=124,
+                cmd=exc.cmd,
+                output=exc.stdout if isinstance(exc.stdout, str) else "",
+                stderr=(exc.stderr if isinstance(exc.stderr, str) else "")
+                + f"\nplugin seam: pip install timed out after {_PIP_INSTALL_TIMEOUT}s",
+            ),
+        ) from exc
     if installed is not None:
         installed.add(resolved)
 
 
 def load_plugins(app) -> None:
-    import os
-
     plugins_dir = Path(os.getenv("BACKEND_PLUGINS_DIR", "/app/plugins"))
     if not plugins_dir.is_dir():
         return

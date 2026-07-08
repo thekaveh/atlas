@@ -370,7 +370,7 @@ The big ASCII block-art lockup — shown in the wizard's brand panel and the `--
 
 ## 16. Configurable Services
 
-The wizard automatically discovers all configurable services from each `services/<name>/service.yml` manifest. Currently these include:
+The wizard automatically discovers all configurable services from each `services/<name>/service.yml` manifest. The table below is a representative subset (it does not enumerate every track service — e.g. MLflow, Label Studio, Verba, Langfuse, LLM Graph Builder, Jenkins, Celery, MCP Servers, Iceberg REST, Trino, Redpanda, Tika are also wizard-prompted per `bootstrapper/tracks.yml`); run `./start.sh --list-tracks` or see [Source configuration](../deployment/source-configuration.md) for the complete, current set. Representative entries:
 
 | Service | Options |
 |---------|---------|

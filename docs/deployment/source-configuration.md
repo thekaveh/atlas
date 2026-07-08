@@ -334,7 +334,7 @@ MINIO_ENDPOINT=http://minio:9000
 MINIO_PUBLIC_ENDPOINT=http://localhost:63020
 ```
 - **Use case**: S3-compatible artifact-tier object storage (ComfyUI outputs, Backend blobs, n8n files, JupyterHub datasets, Doc Processor output)
-- **Pros**: Five pre-provisioned buckets with scoped service-account credentials; complements Supabase Storage; admin console at `http://localhost:63021` (S3 API on `:63020`)
+- **Pros**: Twelve pre-provisioned buckets across nine consumers with scoped service-account credentials; complements Supabase Storage; admin console at `http://localhost:63021` (S3 API on `:63020`)
 - **Cons**: Container resource usage
 - **Requirements**: None
 

@@ -137,11 +137,13 @@ def _csv(val: str | None) -> list[str]:
 def _filename_from_url(url: str) -> str:
     """Extract a filename from a URL.
 
-    Strips query strings (civitai uses ``?token=…``).  Falls back to
-    ``"model.bin"`` if the URL has no path component with a filename.
+    ``urlparse`` already separates the query (civitai's ``?token=…``) into
+    ``.query``, so ``.path`` never contains it — no manual ``?`` split is
+    needed.  Falls back to ``"model.bin"`` if the URL has no path component
+    with a filename.
     """
     path = urlparse(url).path
-    bare = path.rsplit("/", 1)[-1].split("?", 1)[0]
+    bare = path.rsplit("/", 1)[-1]
     return bare or "model.bin"
 
 

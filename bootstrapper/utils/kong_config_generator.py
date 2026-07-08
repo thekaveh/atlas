@@ -1073,7 +1073,7 @@ class KongConfigGenerator:
 
         Routes ``minio.localhost:${KONG_HTTP_PORT}`` to the MinIO admin
         console on internal port 9001 (host port ``MINIO_CONSOLE_PORT``,
-        default 63019; 63018 is the S3 API ``MINIO_PORT``). The S3 API at port 9000 is deliberately NOT
+        default 63021; 63020 is the S3 API ``MINIO_PORT``). The S3 API at port 9000 is deliberately NOT
         aliased — S3 clients use full URLs with explicit ports anyway
         and don't benefit from a friendly hostname.
 
@@ -1115,7 +1115,7 @@ class KongConfigGenerator:
 
         ``preserve_host: True`` keeps the client's signed Host header intact
         so S3 SigV4 validates through the proxy (path-style addressing). The
-        host port (``MINIO_PORT``, default 63018) remains the direct,
+        host port (``MINIO_PORT``, default 63020) remains the direct,
         proxy-free path and is the recommended one for heavy/upload traffic.
 
         Gated on ``MINIO_SOURCE != disabled`` (no container to route to

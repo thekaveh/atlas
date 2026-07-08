@@ -46,7 +46,7 @@ custom client — connects with these settings. Two endpoints work; pick one:
 | TLS | none (`http://`) | the in-stack baseline serves plain HTTP |
 
 The endpoint is **stable across restarts** for a given `BASE_PORT` (the
-port is `BASE_PORT + 18` by default), so it's safe to hard-code in an
+port is `BASE_PORT + 20` by default), so it's safe to hard-code in an
 external tool's profile. Use the root credentials for browse-everything
 access, or a per-bucket service-account key (see §5) to scope a tool to
 one bucket.
@@ -92,7 +92,7 @@ Root credentials are NEVER surfaced to consumers — see Service accounts below.
 
 ## 4. Bucket layout
 
-Five buckets are pre-provisioned by `minio-init`. Bucket names are the bare service identifier:
+Twelve buckets are pre-provisioned by `minio-init` across nine consumers. Bucket names are the bare service identifier:
 
 | Bucket | Intended consumer |
 |---|---|
@@ -106,7 +106,7 @@ Bucket names are overridable via `MINIO_BUCKET_<NAME>` env vars; hand-edits stic
 
 ## 5. Service accounts
 
-Each consumer has its own MinIO service account with an inline IAM policy scoped to a single bucket:
+Each consumer has its own MinIO service account with an inline IAM policy scoped to one bucket (or a small named set for the iceberg account, which has four):
 
 ```json
 {

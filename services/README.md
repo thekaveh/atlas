@@ -24,7 +24,7 @@ services/
 ├── redis/
 │   ├── service.yml
 │   └── compose.yml
-└── … (≈30 more service folders)
+└── … (~50 more service families — 53 manifests + 3 doc-only folders)
 ```
 
 A virtual service (e.g. `cloud-providers/`, `tts-provider/`, `globals/`) has

@@ -69,10 +69,10 @@ def _schema_path() -> Path:
 
 
 def _validate_manifest(data: dict) -> None:
-    try:
-        import jsonschema
-    except ImportError:
-        pytest.skip("jsonschema not installed")
+    # jsonschema is a hard runtime dependency (bootstrapper/pyproject.toml);
+    # import unconditionally so a missing install fails loudly rather than
+    # silently skipping schema enforcement.
+    import jsonschema
     schema = json.loads(_schema_path().read_text(encoding="utf-8"))
     jsonschema.validate(instance=data, schema=schema)
 

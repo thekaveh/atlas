@@ -73,7 +73,13 @@ SKIP_COUNT=0
 FAIL_COUNT=0
 
 # download_one <name> <url> <dest_path> <sha256_or_empty>
-# Skip if dest exists with non-zero size AND (no SHA OR SHA matches).
+# Downloads to a .part sibling and atomically renames on success, so $dest
+# only ever holds a COMPLETE file. The skip-cache guard below ([ -s "$dest" ])
+# therefore never mistakes an interrupted multi-GB partial for a finished
+# model — which mattered because none of the curated models carry a sha256 to
+# verify against, so the old direct-to-$dest form silently cached truncated
+# downloads forever (ComfyUI then loaded the corrupt blob and failed
+# cryptically at render time). -c resumes the .part across runs.
 # Failure is non-fatal: log + increment FAIL_COUNT + return 0.
 download_one() {
   name="$1"; url="$2"; dest="$3"; sha="$4"
@@ -99,13 +105,14 @@ download_one() {
   # bounds retries on transient errors. ComfyUI model downloads can be
   # multi-GB; a stalled HF/civitai mirror would otherwise hang the init
   # container indefinitely with no compose-level kill switch.
-  wget_out=$(wget --timeout=30 --tries=3 -c -O "$dest" "$url" 2>&1) || wget_rc=$?
+  wget_out=$(wget --timeout=30 --tries=3 -c -O "$dest.part" "$url" 2>&1) || wget_rc=$?
   printf '%s\n' "$wget_out" | tail -1
   if [ $wget_rc -eq 0 ]; then
+    mv "$dest.part" "$dest"
     OK_COUNT=$((OK_COUNT + 1))
   else
     echo "✗ $name failed (wget exit $wget_rc)"
-    rm -f "$dest"  # clean up any partial file
+    rm -f "$dest.part"  # leave no partial behind on hard failure
     FAIL_COUNT=$((FAIL_COUNT + 1))
   fi
 }

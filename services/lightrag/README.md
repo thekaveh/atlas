@@ -1,7 +1,7 @@
 # LightRAG
 
 > **Image:** `ghcr.io/hkuds/lightrag:v1.5.4`
-> **Container port:** 9621 (API + WebUI)  · **Default host port:** allocated by `topology.py` (agents band 63060–63079)
+> **Container port:** 9621 (API + WebUI)  · **Default host port:** allocated by `topology.py` (agents band 63070–63089)
 > **Default:** disabled
 
 ## 1. Overview

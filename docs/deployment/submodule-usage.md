@@ -524,7 +524,7 @@ docker network inspect myproject-network
 DATABASE_URL=postgresql://user:pass@myproject-supabase-db:5432/db
 
 # From host machine: use localhost
-DATABASE_URL=postgresql://user:pass@localhost:63010/db
+DATABASE_URL=postgresql://user:pass@localhost:63012/db
 ```
 
 ### 8.5 Issue: .env Changes Not Taking Effect

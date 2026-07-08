@@ -7,7 +7,7 @@ FROM ${BASE_IMAGE}
 WORKDIR /app
 
 # Install system dependencies for Docling
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     gcc \
     g++ \

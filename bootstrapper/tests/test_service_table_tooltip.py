@@ -68,18 +68,18 @@ def test_launch_flow_row_rebuild_preserves_hover_metadata():
 def test_tooltip_pairs_appends_extra():
     row = _row("MinIO Console", source="container", alias="minio.localhost",
                alias_port="63000", port=":63019",
-               tooltip_extra=[("S3 API", "http://localhost:63018"),
+               tooltip_extra=[("S3 API", "http://localhost:63020"),
                               ("S3 (Kong)", "http://s3.minio.localhost:63000")])
     pairs = ServiceTable._tooltip_pairs(row)
     assert pairs[0] == ("Source", "container")
-    assert ("S3 API", "http://localhost:63018") in pairs
+    assert ("S3 API", "http://localhost:63020") in pairs
     assert ("S3 (Kong)", "http://s3.minio.localhost:63000") in pairs
 
 
 def test_build_tooltip_renders_aligned_card():
     row = _row("MinIO Console", source="container", alias="minio.localhost",
                alias_port="63000", port=":63019",
-               tooltip_extra=[("S3 API", "http://localhost:63018")])
+               tooltip_extra=[("S3 API", "http://localhost:63020")])
     card = ServiceTable._build_tooltip(row)
     lines = card.plain.splitlines()
     assert lines[0] == "MinIO Console"               # title
@@ -87,7 +87,7 @@ def test_build_tooltip_renders_aligned_card():
     assert lines[1] == "Source  container"
     assert lines[2] == "URL     http://minio.localhost:63000"
     assert lines[3] == "Local   localhost:63019"
-    assert lines[4] == "S3 API  http://localhost:63018"
+    assert lines[4] == "S3 API  http://localhost:63020"
     # URL value is styled with the accent color
     assert any(span.style and "#7dcfff" in str(span.style) for span in card.spans)
 
@@ -144,12 +144,12 @@ def test_recompute_ports_preserves_card_metadata():
 
     row = ServiceRow(
         name="MinIO Console", source="container", alias="minio.localhost",
-        tooltip_extra=[("S3 API", "http://localhost:63018")],
+        tooltip_extra=[("S3 API", "http://localhost:63020")],
         source_options=["container", "disabled"],
         depends_on=["supabase"],
     )
     out = recompute_ports_for_base(64000, [row], _CP(), {})
-    assert out[0].tooltip_extra == [("S3 API", "http://localhost:63018")]
+    assert out[0].tooltip_extra == [("S3 API", "http://localhost:63020")]
     assert out[0].source_options == ["container", "disabled"]
     assert out[0].depends_on == ["supabase"]
 

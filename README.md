@@ -6,6 +6,8 @@
 
 A self-hosted, source-configurable, multi-disciplinary engineering platform — gen-AI, ML, and data — composable from a single Docker Compose stack.
 
+> **Documentation site:** <https://thekaveh.github.io/atlas/> — the rendered docs (built from this repo's `docs/` via MkDocs Material). A [GitHub Wiki](https://github.com/thekaveh/atlas/wiki) mirror is kept in sync. The in-repo paths below remain the source of truth.
+
 [![Atlas — interactive setup wizard streaming the launch phase, with the ASCII brand banner pinned at the top of the terminal](./docs/screenshots/wizard-running.png)](./docs/screenshots/wizard-running.png)
 
 *The Textual TUI wizard mid-launch: ASCII brand banner pinned at the top, stack overview + cloud-API status, filter + log-source chips, and the live `docker compose` log stream below. Captured during a normal `./start.sh` run.*
@@ -528,7 +530,7 @@ atlas/
 │   ├── tests/                 # 1,300+ tests (loader, validator, byte-equiv, source-permutation, hooks)
 │   ├── tools/                 # validate_fragments CLI lint
 │   └── start.py / stop.py     # Entry points
-├── services/                  # One folder per service family — single source of truth
+├── services/                  # 53 service.yml manifests + 3 doc-only folders (representative subset shown below; see services/ for the full list)
 │   ├── globals/               # Project-wide vars (PROJECT_NAME, BASE_PORT, BRAND_*, tier ordering)
 │   ├── supabase/              # supabase-db, db-init, meta, storage, auth, api, realtime, studio
 │   │   ├── service.yml        # Manifest: env vars, source variants, deps, runtime_sc slice
@@ -576,10 +578,10 @@ atlas/
 │   ├── CONTRIBUTING-services.md  # How to add a new service to the modular layout
 │   └── …
 ├── scripts/                   # Top-level utility scripts (e.g. migration helpers)
-├── docker-compose.yml         # ~70-line thin shell — include: list pulling each fragment
+├── docker-compose.yml         # ~90-line thin shell — include: list pulling each fragment
 ├── .env.example               # Configuration template (auto-generated from manifests via env_assembler; byte-equivalence enforced by tests)
 ├── start.sh / stop.sh         # Entry points
-└── .github/workflows/         # CI: services-lint (validator, byte-equiv, source-permutation)
+└── .github/workflows/         # CI: services-lint (manifest lint+tests, compose byte-equiv+source-permutation, docs-drift+audits, build-validation)
 ```
 
 Top-level is intentionally minimal: `bootstrapper/`, `docs/`, `scripts/`, `services/`. Every service lives entirely under its `services/<name>/` folder — init scripts, source code, build context, config files — so opening a service folder shows everything that defines it.
@@ -616,6 +618,8 @@ docker logs ${PROJECT_NAME}-ollama -f    # Check Ollama upstream logs (if enable
 For longer-form troubleshooting guides, see [docs/quick-start/troubleshooting.md](docs/quick-start/troubleshooting.md).
 
 ## 9. Documentation
+
+> The rendered documentation site is published at <https://thekaveh.github.io/atlas/> — built from this repo's `docs/` via MkDocs Material and deployed by `.github/workflows/docs-pages.yml`, with a [GitHub Wiki](https://github.com/thekaveh/atlas/wiki) mirror kept in sync. The in-repo paths below are the source of truth; the site and wiki are generated from them.
 
 The [documentation index](docs/README.md) is the top-level navigation hub.
 Key entry points by audience:

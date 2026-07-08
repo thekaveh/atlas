@@ -78,7 +78,7 @@ Before you touch any manifest, spend 15–30 minutes with the candidate service'
 
 ### 4.2 Integration discovery — how does this fit our stack?
 
-Once you understand the candidate, scan our existing 34-manifest stack to identify integration points:
+Once you understand the candidate, scan our existing service manifests (run `grep -l "^data_flow:" services/*/service.yml`) to identify integration points:
 
 - **Upstream callers (who in our stack would call this new service).** Run `grep -l "^data_flow:" services/*/service.yml` and skim each service's `data_flow.calls` list. Which existing services would benefit from calling this new one? (E.g., a new vector DB → Backend, n8n, JupyterHub, possibly Hermes Agent.) These become entries in those EXISTING manifests' `data_flow.calls` lists — NOT in your new service's `depends_on`. (See [Decision 5](#9-decision-5--dependencies-depends_onrequired--optional) for why `data_flow.calls` is separate from `depends_on`.)
 - **Downstream callees (what this service calls).** Does the candidate make outbound calls to anything we already run? Most app-tier services touch Supabase (auth/storage), LiteLLM (LLM access), and Redis (caching). These would be entries in YOUR new service's `data_flow.calls`.
@@ -203,7 +203,7 @@ Every user-configurable service has an `<SVC>_SOURCE` env var. The wizard reads 
   | `agents` | 70 | 20 | 63070-63089 |
   | `apps` | 90 | 20 | 63090-63109 |
 
-- Within each category block, services consume slots in **topological order** (driven by `depends_on.required` — see Decision 5). Multi-port services (e.g. Supabase's 8 containers, Weaviate's HTTP + gRPC pair, MinIO's API + Console pair) get a contiguous run.
+- Within each category block, services consume slots in **topological order** (driven by `depends_on.required` — see Decision 5). Multi-port services (e.g. Supabase's 9 containers, Weaviate's HTTP + gRPC pair, MinIO's API + Console pair) get a contiguous run.
 - A category-overflow lint trips if you blow past your block. Fixes: move manifests to a different category (rare), or extend the block size in `CATEGORY_SLOTS` (also rare — coordinate with maintainers).
 
 **How to declare a port:**
@@ -625,7 +625,7 @@ Distilled from real audit findings — each entry cites the commit, PR, or memor
 
 ### 14.5 Topology / category gotchas
 
-- **A new service in a near-full category block can trip the category-overflow lint.** `data` and `media` blocks are 20 slots each but Supabase alone uses 7. Check current utilization before assuming there's room.
+- **A new service in a near-full category block can trip the category-overflow lint.** The `data` block is 30 slots and `media` is 20; Supabase alone uses 7. Check current utilization before assuming there's room.
 - **Renaming a `row.display_name` breaks tests that hardcode it.** `test_wizard_app_discovery.py` has an `EXPECTED_DISCOVERED` frozenset; update it when renaming.
 
 ### 14.6 Wizard discovery gotchas
@@ -650,7 +650,7 @@ Each service folder can hold additional subdirectories beyond `service.yml` and 
 | `extras/` | User-managed bind-mounted data exposed inside the running container (tools, functions, workflows you can edit on the host) | `services/open-webui/extras/{tools,functions,workflows}` |
 | `workflows-stage/` | Example workflow JSON staged for **manual** import via the n8n UI (the init sidecar installs community nodes but does not auto-import workflows) | `services/n8n/workflows-stage/` |
 
-**Family folders.** Some manifests own a family of related containers (e.g. supabase = 8 containers, n8n = main + worker + init). Each family folder gets a brief `README.md` listing the containers it ships and pointing at their definition in `compose.yml`. The fragment's `services:` keys are the authoritative container list; the manifest's `containers:` must match 1:1 (the manifest_validator enforces this — see "Validator rules" below).
+**Family folders.** Some manifests own a family of related containers (e.g. supabase = 9 containers, n8n = main + worker + init). Each family folder gets a brief `README.md` listing the containers it ships and pointing at their definition in `compose.yml`. The fragment's `services:` keys are the authoritative container list; the manifest's `containers:` must match 1:1 (the manifest_validator enforces this — see "Validator rules" below).
 
 ## 16. Modifying an existing service
 
@@ -666,7 +666,7 @@ Short walk-throughs for the modifications you'll do most often:
 - **Add a new source variant to an existing service.** Edit `sources.options` + `runtime_sc.<key>` to include the new source. Regen `.env.example`. The source-permutation matrix in CI will exercise every variant — make sure your new variant has a valid `runtime_sc` slice.
 - **Rename a service's display name (`rows[].display_name`).** Update the row, then regen the README topology block. Search the test suite for the old name — `bootstrapper/tests/test_wizard_app_discovery.py::EXPECTED_DISCOVERED` is the most common dependency.
 - **Bump a container image version.** Edit `images[].default` only. The compose fragment uses `${X_IMAGE}` interpolation, so nothing else changes. Don't forget to test the new image locally before committing.
-- **Split a service family into multiple manifests.** Non-trivial. The supabase manifest (8 containers in one family) is the reference pattern; consult it before splitting.
+- **Split a service family into multiple manifests.** Non-trivial. The supabase manifest (9 containers in one family) is the reference pattern; consult it before splitting.
 
 ## 17. Cross-referencing sections in service READMEs
 

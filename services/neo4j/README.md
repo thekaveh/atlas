@@ -131,7 +131,7 @@ RETURN p.name, friend.name
 
 When `LIGHTRAG_SOURCE != disabled` AND `NEO4J_GRAPH_DB_SOURCE != disabled`, `lightrag-init` provisions `Entity` constraints and indexes. LightRAG writes the extracted KG (entities + relations) to Neo4j. Browse at `graph.localhost:${KONG_HTTP_PORT}`.
 
-## 8.1 Graphiti backend-only experiment
+### 8.1 Graphiti backend-only experiment
 
 The backend declares a disabled Graphiti temporal graph memory experiment with `GRAPHITI_ENABLED=false`. No `graphiti` service, init companion, port, Kong alias, SOURCE value, or setup-wizard step exists yet; Neo4j remains the shared graph database container. If the backend later writes Graphiti episodes, it must use the strict `group_id` shape `atlas:<project>:backend:<namespace>:user:<uuid>` so Graphiti data stays isolated from LightRAG, Neo4j LLM Graph Builder, Hermes, OpenClaw, and ad-hoc Cypher users.
 

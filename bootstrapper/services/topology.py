@@ -83,20 +83,22 @@ CATEGORY_FILLS: dict[str, str] = {
 # Per-category port slot blocks (base_offset, block_size).
 #
 # Each category gets a contiguous range relative to BASE_PORT:
-#   infra:  BASE_PORT + 0..9      (Kong: HTTP+HTTPS take slots 0-1; 8 free)
+#   infra:  BASE_PORT + 0..9      (Kong HTTP+HTTPS, Ray×3, Langfuse, Prometheus,
+#                                  Node Exporter, cAdvisor, Grafana — band full)
 #   data:   BASE_PORT + 10..39    (Supabase, Redis, MinIO, Iceberg, Trino,
 #                                  Redpanda, Spark, Weaviate, Neo4j)
 #   llm:    BASE_PORT + 40..49    (LiteLLM + inference helpers)
-#   media:  BASE_PORT + 50..69    (ComfyUI/STT/TTS/Doc/Searx/Speaches/
-#                                  Chatterbox; ~7; 13 free)
-#   agents: BASE_PORT + 70..89    (Airflow + Hermes 2 + n8n + OpenClaw 2 = 6;
-#                                  14 free)
-#   apps:   BASE_PORT + 90..109   (Backend + Open WebUI + JupyterHub + LDR +
-#                                  Zeppelin = 5; 15 free)
+#   media:  BASE_PORT + 50..69    (ComfyUI/STT/TTS/Doc/SearxNG/Speaches/
+#                                  Chatterbox/Crawl4AI/Tika = 9; 11 free)
+#   agents: BASE_PORT + 70..89    (Airflow, Celery/Flower, Hermes×2, n8n, OpenClaw×2, LightRAG,
+#                                  MCP-Servers = 9; 11 free)
+#   apps:   BASE_PORT + 90..109   (Backend, Open WebUI, JupyterHub, LDR, Zeppelin,
+#                                  Jenkins, Label-Studio, MLflow, LLM-Graph-Builder,
+#                                  Verba = 10; 10 free)
 #
 # Reserve generously — adding a new service inside a category shifts
 # everything after it in lex order, but only within that category block.
-# Block sizes give ~2x headroom over today's ~33 used slots.
+# Block sizes give ~1.8x headroom over today's ~60 used slots.
 CATEGORY_SLOTS: dict[str, tuple[int, int]] = {
     "infra":  (0,  10),
     "data":   (10, 30),
@@ -296,7 +298,7 @@ def _allocate_slots(
                 # category's first real port (e.g. KONG_HTTP_PORT) lands at
                 # slot 0 of the infra block.
                 continue
-            if "_LOCALHOST_" in env.name and env.name.endswith("_PORT"):
+            if "_LOCALHOST_" in env.name:
                 # Vars matching ``*_LOCALHOST_*_PORT`` (including the simpler
                 # ``*_LOCALHOST_PORT``) describe the *host machine's* port
                 # for a localhost source variant — they're external hints,

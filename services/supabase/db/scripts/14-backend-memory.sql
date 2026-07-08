@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS public.memory_facts (
     source_conversation_id UUID,
     source_message_ids JSONB DEFAULT '[]'::jsonb,
     metadata JSONB DEFAULT '{}'::jsonb,
-    embedding vector(768),                -- pgvector fallback column (used when Weaviate unavailable)
+    embedding vector(768),                -- pgvector fallback (Weaviate-unavailable path). 768 assumes the default LITELLM_EMBEDDING_MODEL (nomic-embed-text); a LANGMEM_EMBEDDING_MODEL with a different dimension breaks this fallback insert (use the Weaviate backend or a 768-dim model).
     weaviate_id VARCHAR(255),             -- Weaviate vector reference (used when Weaviate available)
     is_active BOOLEAN DEFAULT true,
     superseded_by UUID REFERENCES public.memory_facts(id),

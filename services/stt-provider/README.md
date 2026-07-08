@@ -39,7 +39,7 @@ The default already runs:
 
 ```bash
 ./start.sh
-curl -X POST http://localhost:63042/v1/audio/transcriptions \
+curl -X POST http://localhost:63058/v1/audio/transcriptions \
   -F file=@sample.wav -F model=whisper-1
 # expect: {"text":"..."}
 ```

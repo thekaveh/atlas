@@ -23,9 +23,15 @@ until pg_isready -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" >/dev/null 2>&1; do
     sleep 2
 done
 
-if psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d postgres \
-    -v ON_ERROR_STOP=1 -v db="$LANGFUSE_DB_NAME" \
-    -tAc "SELECT 1 FROM pg_database WHERE datname = :'db'" | grep -q 1; then
+# psql :'var' interpolation only works in SCRIPT input (stdin / -f), NOT
+# inside -c / -tAc strings — inside -c the literal :'db' is shipped to the
+# server and raises "syntax error at or near ":"", so the existence check
+# always evaluated false and createdb ran unconditionally (failing on any
+# restart where the DB persists). Same stdin convention init-airflow.sh /
+# init-iceberg-rest.sh use.
+if printf "SELECT 1 FROM pg_database WHERE datname = :'db';\n" \
+    | psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d postgres \
+           -v ON_ERROR_STOP=1 -v db="$LANGFUSE_DB_NAME" -tA | grep -q 1; then
     echo "langfuse-init: database '${LANGFUSE_DB_NAME}' already exists"
 else
     echo "langfuse-init: creating database '${LANGFUSE_DB_NAME}'..."

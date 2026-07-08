@@ -313,6 +313,10 @@ def _architecture_diagram_html(
             arrows.append(
                 f'<line x1="{prev_x}" y1="{prev_y}" x2="{box_x}" y2="{y + 29}" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>'
             )
+    # viewBox width: accommodate the rightmost box (box_x = 70 + (n-1)*120,
+    # width 105) plus right padding. Capped at 1000 so ≤7-node perspectives
+    # keep their existing geometry (no diff); 8+ widen so no box clips.
+    width = max(1000, 70 + max(0, len(nodes) - 1) * 120 + 105 + 70)
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -336,7 +340,7 @@ def _architecture_diagram_html(
     <h1 class="title"><span class="signal"></span>{html.escape(title)}</h1>
     <p>{html.escape(description)}</p>
     <div class="frame">
-      <svg viewBox="0 0 1000 420" role="img" aria-label="{html.escape(title)}">
+      <svg viewBox="0 0 {width} 420" role="img" aria-label="{html.escape(title)}">
         <defs>
           <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
             <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/>
@@ -345,8 +349,8 @@ def _architecture_diagram_html(
             <polygon points="0 0, 10 3.5, 0 7" fill="#64748b"/>
           </marker>
         </defs>
-        <rect width="1000" height="420" fill="#020617"/>
-        <rect width="1000" height="420" fill="url(#grid)"/>
+        <rect width="{width}" height="420" fill="#020617"/>
+        <rect width="{width}" height="420" fill="url(#grid)"/>
         {''.join(arrows)}
         {''.join(boxes)}
       </svg>

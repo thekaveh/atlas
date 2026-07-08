@@ -21,7 +21,7 @@ USER root
 # Install system dependencies, including OpenJDK 17 for the Almond Scala kernel
 # (Almond runs on the JVM; JDK 17 covers Scala 2.13 + Scala 3). The headless
 # package is ~120 MB smaller than the full openjdk-17-jdk.
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     wget \
     git \

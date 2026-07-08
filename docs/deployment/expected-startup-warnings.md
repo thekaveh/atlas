@@ -80,7 +80,7 @@ These previously appeared in logs and have been actively silenced by config edit
 | Service | Was | How silenced |
 |---|---|---|
 | `atlas-n8n` | `DEPRECATION: N8N_RUNNERS_ENABLED → Remove this environment variable; it is no longer needed.` | Removed `N8N_RUNNERS_ENABLED: true` from `services/n8n/compose.yml` (was set on both `n8n` and `n8n-worker`; default is now `true`). |
-| `atlas-backend` | `UserWarning: Storage endpoint URL should have a trailing slash. The URL has been automatically corrected.` | Added trailing `/` in `services/backend/app/app/main.py:62` (`storage_url = f"{KONG_URL}/storage/v1/"`). |
+| `atlas-backend` | `UserWarning: Storage endpoint URL should have a trailing slash. The URL has been automatically corrected.` | Added trailing `/` in `services/backend/app/app/main.py` (`storage_url = f"{KONG_URL}/storage/v1/"`). |
 | `atlas-open-web-ui` | `WARNING langchain_community.utils.user_agent: USER_AGENT environment variable not set` | Set `USER_AGENT: Atlas/Open-WebUI` in `services/open-webui/compose.yml`. |
 | `atlas-weaviate` | `failed to join cluster from [<self>:8300]` + extra `heartbeat timeout` / `starting election` lines | Set `RAFT_BOOTSTRAP_EXPECT=1` + `RAFT_JOIN=weaviate` in `services/weaviate/compose.yml`. Single-node mode now starts with explicit voter config; the join-attempt warning is gone (the remaining heartbeat-timeout is intrinsic to Raft single-node election). |
 | `atlas-searxng` | `ERROR:searx.botdetection: X-Forwarded-For nor X-Real-IP header is set!` (one-shot at boot) | Added `--header=X-Forwarded-For: 127.0.0.1` to the healthcheck in `services/searxng/compose.yml`. The trusted-proxies module's `log_error_only_once` would otherwise fire on the first XFF-less healthcheck after startup. |
