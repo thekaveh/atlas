@@ -56,6 +56,34 @@ def test_unknown_category_skipped(tmp_path):
     assert entries == []
 
 
+def test_diffusion_models_and_text_encoders_accepted(tmp_path):
+    """The two modern ComfyUI categories (FLUX/DiT/Krea 2 era) must be
+    valid — not silently skipped as 'unknown'. This is the regression guard
+    for issue #348."""
+    raw = (
+        "models:\n"
+        "  - name: my-flux-transformer\n"
+        "    category: diffusion_models\n"
+        "    url: https://huggingface.co/org/flux/resolve/main/transformer.safetensors\n"
+        "    size_gb: 11.9\n"
+        "  - name: my-t5-encoder\n"
+        "    category: text_encoders\n"
+        "    url: https://huggingface.co/org/t5/resolve/main/t5xxl.safetensors\n"
+        "    size_gb: 9.8\n"
+    )
+    tmp = tmp_path / "modern.yaml"
+    tmp.write_text(raw)
+    entries = load_custom_models(str(tmp))
+    assert len(entries) == 2
+    cats = {e.category for e in entries}
+    assert "diffusion_models" in cats
+    assert "text_encoders" in cats
+    # target_dir must resolve to the standard ComfyUI directory names
+    dirs = {e.target_dir for e in entries}
+    assert "diffusion_models" in dirs
+    assert "text_encoders" in dirs
+
+
 def test_invalid_yaml_returns_empty(tmp_path):
     tmp = tmp_path / "bad.yaml"
     tmp.write_text("models: [unclosed")
