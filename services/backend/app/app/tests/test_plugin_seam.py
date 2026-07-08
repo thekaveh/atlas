@@ -76,7 +76,7 @@ def test_load_plugins_installs_shared_and_per_plugin_requirements_in_order(tmp_p
             "--no-cache-dir",
             "-r",
         ]
-        assert kwargs == {"check": True, "capture_output": True, "text": True}
+        assert kwargs == {"check": True, "capture_output": True, "text": True, "timeout": 300}
         requirement_path = Path(cmd[-1]).resolve().relative_to(tmp_path.resolve())
         events.append(("install", str(requirement_path)))
 
