@@ -177,7 +177,7 @@ point at http://kong-api-gateway:8000.
 | COMFYUI_CUSTOM_MODELS_FILE | comfyui | /custom-models.yaml | Path to the ComfyUI custom-models sidecar YAML (user-authored models not in the curated catalog). Read by comfyui_resolver when generating the download manifest, and by the wizard's model picker. |
 | COMFYUI_INIT_SCALE | comfyui |  | - |
 | COMFYUI_SCALE | comfyui |  | - |
-| COMFYUI_ENDPOINT | comfyui |  | Resolved per COMFYUI_SOURCE. Consumed by backend, open-webui, n8n, jupyterhub. |
+| COMFYUI_ENDPOINT | comfyui |  | Resolved per COMFYUI_SOURCE. Consumed by backend, open-webui, n8n, jupyterhub, and downstream overlays. Consumer pattern: MY_URL: ${MY_URL:-${COMFYUI_ENDPOINT:-http://comfyui:18188}} |
 | COMFYUI_DEPLOY_RESOURCES | comfyui | ~ | - |
 | COMFYUI_MEMORY_LIMIT | comfyui | 4g | Container memory limit for the comfyui container (deploy.resources.limits.memory). 4 g is appropriate for CPU-only inference; GPU workloads holding VRAM are bounded by device memory, not host RAM, so 4 g is still a safe OOM fence on a 32 GB host. |
 | COMFYUI_CPU_LIMIT | comfyui | 2.0 | Container CPU limit for the comfyui container (deploy.resources.limits.cpus). 2.0 cores keeps CPU-mode inference from monopolising the host; GPU mode is GPU-bound so the CPU cap is irrelevant in practice. |
