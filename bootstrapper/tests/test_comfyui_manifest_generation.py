@@ -42,6 +42,7 @@ def _entry(
     sha256: str | None = None,
     essential: bool = False,
     filename: str | None = None,
+    requires_custom_node: tuple[str, ...] = (),
 ) -> ComfyUILibraryEntry:
     return ComfyUILibraryEntry(
         name=name,
@@ -53,7 +54,7 @@ def _entry(
         target_dir=category + "s",
         min_vram_gb=None,
         cpu_supported=True,
-        requires_custom_node=(),
+        requires_custom_node=requires_custom_node,
         popularity=0,
         source="curated",
         pulled=False,
@@ -118,6 +119,25 @@ def _validate_manifest(data: dict) -> None:
     import jsonschema
     schema = json.loads(_schema_path().read_text(encoding="utf-8"))
     jsonschema.validate(instance=data, schema=schema)
+
+
+def _custom_nodes_manifest(path: Path) -> Path:
+    path.write_text(
+        "\n".join([
+            "custom_nodes:",
+            "  - name: ComfyUI-GGUF",
+            "    repo: https://github.com/city96/ComfyUI-GGUF.git",
+            "    ref: 6ea2651e7df66d7585f6ffee804b20e92fb38b8a",
+            "    install_requirements: true",
+            "  - name: ComfyUI_IPAdapter_plus",
+            "    repo: https://github.com/cubiq/ComfyUI_IPAdapter_plus.git",
+            "    ref: a0f451a5113cf9becb0847b92884cb10cbdec0ef",
+            "    install_requirements: true",
+            "",
+        ]),
+        encoding="utf-8",
+    )
+    return path
 
 
 # ---------------------------------------------------------------------------
@@ -257,6 +277,51 @@ class TestGeneratorWritesFiles:
         tsv_path = tmp_path / "active-models.tsv"
         assert tsv_path.exists()
         assert tsv_path.stat().st_size == 0, "Empty active set must produce empty TSV"
+
+    def test_required_custom_nodes_write_allowlisted_install_tsv(self, tmp_path, monkeypatch):
+        """Selected models' requires_custom_node values produce a pinned install plan."""
+        catalog = [
+            _entry(
+                "FluxGGUF",
+                requires_custom_node=("ComfyUI-GGUF", "UnknownNode"),
+            ),
+            _entry(
+                "IPAdapter",
+                requires_custom_node=("ComfyUI_IPAdapter_plus",),
+            ),
+        ]
+        env = {
+            "COMFYUI_SOURCE": "container",
+            "COMFYUI_USER_MODELS": "FluxGGUF,IPAdapter",
+            "COMFYUI_CUSTOM_NODES_FILE": str(_custom_nodes_manifest(tmp_path / "custom-nodes.yaml")),
+        }
+
+        import utils.comfyui_resolver as resolver
+        monkeypatch.setattr(resolver, "active_comfyui_models", lambda e, **kw: catalog)
+
+        ComfyUIManifestGenerator(env).write(tmp_path)
+
+        custom_nodes_tsv = tmp_path / "active-custom-nodes.tsv"
+        assert custom_nodes_tsv.exists(), "active-custom-nodes.tsv not written"
+        lines = custom_nodes_tsv.read_text(encoding="utf-8").splitlines()
+        assert lines == [
+            "ComfyUI-GGUF\thttps://github.com/city96/ComfyUI-GGUF.git\t6ea2651e7df66d7585f6ffee804b20e92fb38b8a\ttrue",
+            "ComfyUI_IPAdapter_plus\thttps://github.com/cubiq/ComfyUI_IPAdapter_plus.git\ta0f451a5113cf9becb0847b92884cb10cbdec0ef\ttrue",
+        ]
+
+    def test_no_required_custom_nodes_writes_empty_install_tsv(self, tmp_path, monkeypatch):
+        """No node requirements still creates an empty TSV for deterministic init behavior."""
+        catalog = [_entry("PlainSDXL")]
+        env = {"COMFYUI_SOURCE": "container", "COMFYUI_USER_MODELS": "PlainSDXL"}
+
+        import utils.comfyui_resolver as resolver
+        monkeypatch.setattr(resolver, "active_comfyui_models", lambda e, **kw: catalog)
+
+        ComfyUIManifestGenerator(env).write(tmp_path)
+
+        custom_nodes_tsv = tmp_path / "active-custom-nodes.tsv"
+        assert custom_nodes_tsv.exists()
+        assert custom_nodes_tsv.stat().st_size == 0
 
     def test_bundle_manifest_expands_to_file_rows_with_target_dirs(self, tmp_path, monkeypatch):
         """One selected logical bundle must expand into one manifest/TSV row per file."""
@@ -425,6 +490,25 @@ def test_download_models_sh_reads_target_dir_column():
     assert "unsafe target_dir" in text
 
 
+def test_download_models_sh_keeps_model_downloader_db_free():
+    """comfyui-init remains the model downloader; custom nodes use AI-Dock provisioning."""
+    text = (REPO_ROOT / "services/comfyui/init/scripts/download_models.sh").read_text()
+    assert "CUSTOM_NODES_TSV" not in text
+    assert "install_custom_node" not in text
+
+
+def test_comfyui_provisioning_installs_active_custom_nodes():
+    """The AI-Dock provisioning hook must clone pins and install requirements in-runtime."""
+    text = (REPO_ROOT / "services/comfyui/provisioning/provision_custom_nodes.sh").read_text()
+    assert "CUSTOM_NODES_TSV" in text
+    assert "install_custom_node" in text
+    assert "git clone" in text
+    assert "checkout --detach" in text
+    assert "install_requirements" in text
+    assert "COMFYUI_VENV_PIP" in text
+    assert "unsafe custom node name" in text
+
+
 def test_comfyui_init_compose_no_pg_env():
     """comfyui-init in compose.yml must not inject PGHOST/PGPASSWORD (no DB)."""
     text = (REPO_ROOT / "services/comfyui/compose.yml").read_text()
@@ -448,6 +532,32 @@ def test_comfyui_init_compose_has_manifest_mount():
     assert "COMFYUI_MANIFEST_TSV" in block, (
         "comfyui-init compose block missing COMFYUI_MANIFEST_TSV env var"
     )
+
+
+def test_comfyui_compose_mounts_custom_node_provisioning_hook():
+    """comfyui runtime must run the custom-node installer inside AI-Dock's env."""
+    text = (REPO_ROOT / "services/comfyui/compose.yml").read_text()
+    start = text.find("  comfyui:")
+    end = text.find("\n\nvolumes:", start)
+    block = text[start:end]
+    assert "COMFYUI_CUSTOM_NODES_TSV" in block
+    assert "COMFYUI_CUSTOM_NODES_PATH" in block
+    assert "provision_custom_nodes.sh:/opt/ai-dock/bin/provisioning.sh:ro" in block
+    assert "../../volumes/comfyui:/comfyui-manifest:ro" in block
+
+
+def test_comfyui_service_exposes_pinned_core_ref():
+    """The ai-dock runtime must update ComfyUI to a pinned upstream tag."""
+    manifest = yaml.safe_load((REPO_ROOT / "services/comfyui/service.yml").read_text())
+    env = {entry["name"]: entry for entry in manifest["env"]}
+    assert env["COMFYUI_AUTO_UPDATE"]["default"] is True
+    assert env["COMFYUI_REF"]["default"] == "v0.9.2"
+
+    compose = (REPO_ROOT / "services/comfyui/compose.yml").read_text()
+    start = compose.find("  comfyui:")
+    end = compose.find("\n\nvolumes:", start)
+    block = compose[start:end]
+    assert "COMFYUI_REF=${COMFYUI_REF:-v0.9.2}" in block
 
 
 # ---------------------------------------------------------------------------

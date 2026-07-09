@@ -21,7 +21,8 @@ services:
       # Bootstrapper-generated manifest dir (written at start by
       # bootstrapper/utils/comfyui_manifest_generator.py via comfyui_resolver).
       # Contains selected-models.yaml (canonical SoT) and active-models.tsv
-      # (shell-consumable TSV for download_models.sh).
+      # (shell-consumable TSV for download_models.sh), plus
+      # active-custom-nodes.tsv for pinned custom-node provisioning.
       - ../../volumes/comfyui:/comfyui-manifest:ro
     entrypoint: ["/scripts/download_models.sh"]
     deploy:
@@ -51,7 +52,10 @@ services:
         condition: service_started
     environment:
       - COMFYUI_ARGS=${COMFYUI_ARGS:---listen --cpu}
-      - AUTO_UPDATE=${COMFYUI_AUTO_UPDATE:-false}
+      - AUTO_UPDATE=${COMFYUI_AUTO_UPDATE:-true}
+      - COMFYUI_REF=${COMFYUI_REF:-v0.9.2}
+      - COMFYUI_CUSTOM_NODES_TSV=/comfyui-manifest/active-custom-nodes.tsv
+      - COMFYUI_CUSTOM_NODES_PATH=/opt/ComfyUI/custom_nodes
       - COMFYUI_PORT_HOST=8188
       - WEB_ENABLE_AUTH=false
       - ENABLE_QUICKTUNNEL=false
@@ -69,6 +73,8 @@ services:
       - comfyui-input:/opt/ComfyUI/input
       - comfyui-custom-nodes:/opt/ComfyUI/custom_nodes
       - ${COMFYUI_LOCAL_MODELS_PATH:-./empty}:/host_models
+      - ../../volumes/comfyui:/comfyui-manifest:ro
+      - ./provisioning/provision_custom_nodes.sh:/opt/ai-dock/bin/provisioning.sh:ro
     deploy:
       replicas: ${COMFYUI_SCALE:-1}
       resources:

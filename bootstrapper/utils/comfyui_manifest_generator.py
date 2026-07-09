@@ -1,7 +1,7 @@
 """
 ComfyUI manifest generator.
 
-Writes two files into ``volumes/comfyui/`` at bootstrapper start (when ComfyUI
+Writes three files into ``volumes/comfyui/`` at bootstrapper start (when ComfyUI
 is enabled), replacing the former ``public.comfyui_models`` DB query that
 ``comfyui-init`` ran at container startup:
 
@@ -21,7 +21,12 @@ is enabled), replacing the former ``public.comfyui_models`` DB query that
         ``comfyui-init``'s ``download_models.sh`` ``cat``s this file into
         its existing tempfile/download loop.
 
-Both files are written atomically (tmp-then-replace) via
+  • ``volumes/comfyui/active-custom-nodes.tsv``
+        Shell-consumable tab-separated install plan for allowlisted custom
+        nodes required by the active model set:
+        ``name\\trepo\\tref\\tinstall_requirements``.
+
+All generated files are written atomically (tmp-then-replace) via
 ``comfyui_resolver.write_manifest`` (YAML) and an inline atomic write (TSV).
 
 The generator is skipped cleanly when ``COMFYUI_SOURCE == "disabled"``.
@@ -36,8 +41,9 @@ from typing import Any, Mapping
 
 
 class ComfyUIManifestGenerator:
-    """Writes ``volumes/comfyui/selected-models.yaml`` and
-    ``volumes/comfyui/active-models.tsv`` from the resolved active model set.
+    """Writes ``volumes/comfyui/selected-models.yaml``,
+    ``volumes/comfyui/active-models.tsv``, and
+    ``volumes/comfyui/active-custom-nodes.tsv`` from the resolved active set.
 
     Mirrors the structure of ``LiteLLMConfigGenerator``; consumed by
     ``AtlasStarter.generate_comfyui_manifest()`` in ``start.py``.
@@ -92,6 +98,10 @@ class ComfyUIManifestGenerator:
         # --- write TSV (shell-consumable view for download_models.sh) ---
         tsv_path = output_dir / "active-models.tsv"
         self._write_tsv(entries, tsv_path)
+
+        # --- write custom-node TSV (shell-consumable install plan) ---
+        custom_nodes_tsv_path = output_dir / "active-custom-nodes.tsv"
+        self._write_custom_nodes_tsv(entries, custom_nodes_tsv_path)
 
         return True
 
@@ -148,6 +158,25 @@ class ComfyUIManifestGenerator:
             ComfyUIManifestGenerator._safe_tsv_field(row, "target_dir"),
         ])
 
+    @staticmethod
+    def _safe_custom_node_field(name: str, value: object) -> str:
+        rendered = str(value)
+        if "\t" in rendered or "\n" in rendered or "\r" in rendered:
+            raise ValueError(
+                f"ComfyUI custom-node field for {name!r} contains a tab or newline; "
+                "cannot write active-custom-nodes.tsv safely."
+            )
+        return rendered
+
+    @staticmethod
+    def _custom_node_row_tsv(node: Any) -> str:
+        return "\t".join([
+            ComfyUIManifestGenerator._safe_custom_node_field(node.name, node.name),
+            ComfyUIManifestGenerator._safe_custom_node_field(node.name, node.repo),
+            ComfyUIManifestGenerator._safe_custom_node_field(node.name, node.ref),
+            "true" if node.install_requirements else "false",
+        ])
+
     def _write_tsv(
         self,
         entries: list[Any],
@@ -178,6 +207,34 @@ class ComfyUIManifestGenerator:
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
                 for row in rows:
                     fh.write(self._row_tsv(row) + "\n")
+            os.replace(tmp, str(tsv_path))
+        except BaseException:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
+
+    def _write_custom_nodes_tsv(
+        self,
+        entries: list[Any],
+        tsv_path: Path,
+    ) -> None:
+        """Write the tab-separated active custom-node install plan atomically."""
+        from utils import comfyui_custom_nodes
+
+        nodes = comfyui_custom_nodes.active_custom_nodes(entries, self.env)
+
+        tsv_path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(
+            dir=str(tsv_path.parent),
+            prefix=tsv_path.name + ".",
+            suffix=".tmp",
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                for node in nodes:
+                    fh.write(self._custom_node_row_tsv(node) + "\n")
             os.replace(tmp, str(tsv_path))
         except BaseException:
             try:

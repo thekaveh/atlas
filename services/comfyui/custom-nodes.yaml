@@ -1,0 +1,37 @@
+# Pinned ComfyUI custom-node allowlist.
+#
+# Model catalog entries declare `requires_custom_node` by stable node name.
+# The bootstrapper only auto-installs names listed here, and every entry must
+# use a GitHub HTTPS repo plus a full commit SHA. This keeps model metadata from
+# cloning arbitrary repositories at startup.
+#
+# `install_requirements` is surfaced into active-custom-nodes.tsv for runtime
+# dependency management. The AI-Dock provisioning hook clones the node
+# repositories into the comfyui-custom-nodes volume and installs requirements
+# through the ComfyUI runtime Python environment.
+
+custom_nodes:
+  - name: ComfyUI_IPAdapter_plus
+    repo: https://github.com/cubiq/ComfyUI_IPAdapter_plus.git
+    ref: a0f451a5113cf9becb0847b92884cb10cbdec0ef
+    install_requirements: true
+
+  - name: ComfyUI_InstantID
+    repo: https://github.com/cubiq/ComfyUI_InstantID.git
+    ref: 72495e806bc2ab9c41581e15ccaa1bcf83c477e8
+    install_requirements: true
+
+  - name: ComfyUI-AnimateDiff-Evolved
+    repo: https://github.com/Kosinkadink/ComfyUI-AnimateDiff-Evolved.git
+    ref: d8d163cd90b1111f6227495e3467633676fbb346
+    install_requirements: true
+
+  - name: ComfyUI-GGUF
+    repo: https://github.com/city96/ComfyUI-GGUF.git
+    ref: 6ea2651e7df66d7585f6ffee804b20e92fb38b8a
+    install_requirements: true
+
+  - name: ComfyUI-3D-Pack
+    repo: https://github.com/MrForExample/ComfyUI-3D-Pack.git
+    ref: 9e8096e50c5bcf35e1f3e34c6ae06216101f8a11
+    install_requirements: true
