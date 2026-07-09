@@ -17,7 +17,11 @@
   "definitions": {
     "model_entry": {
       "type": "object",
-      "required": ["name", "category", "url"],
+      "required": ["name", "category"],
+      "anyOf": [
+        {"required": ["url"]},
+        {"required": ["files"]}
+      ],
       "additionalProperties": false,
       "properties": {
         "name": {
@@ -42,7 +46,9 @@
             "video_model",
             "voice_model",
             "audio_model",
-            "mesh_model"
+            "mesh_model",
+            "diffusion_models",
+            "text_encoders"
           ],
           "description": "Category drives the in-container target directory (CATEGORY_TARGET_DIR) and wizard display group."
         },
@@ -50,6 +56,12 @@
           "type": "string",
           "pattern": "^https?://",
           "description": "Direct download URL (HuggingFace resolve URL, signed civitai URL, or similar)."
+        },
+        "files": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/definitions/model_file"},
+          "description": "Optional bundle files. When present, one logical catalog entry expands to one download row per file."
         },
         "family": {
           "type": "string",
@@ -102,6 +114,79 @@
         "essential": {
           "type": "boolean",
           "description": "If true, this entry is activated by default when COMFYUI_USER_MODELS is empty (DB-free replacement for the former essential column in public.comfyui_models)."
+        },
+        "precision": {
+          "type": ["string", "null"],
+          "enum": ["bf16", "fp16", "fp8", null],
+          "description": "Preferred numeric precision for this logical model."
+        },
+        "variant": {
+          "type": ["string", "null"],
+          "description": "Human-readable artifact variant, such as mps-safe or fp8."
+        },
+        "host_constraints": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Optional host constraints for the logical model, such as mps or cuda."
+        }
+      }
+    },
+    "model_file": {
+      "type": "object",
+      "required": ["role", "category", "url"],
+      "additionalProperties": false,
+      "properties": {
+        "role": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Stable role within the bundle, e.g. diffusion, text_encoder, vae, checkpoint."
+        },
+        "category": {
+          "type": "string",
+          "enum": [
+            "checkpoint",
+            "vae",
+            "lora",
+            "controlnet",
+            "ipadapter",
+            "instantid",
+            "upscaler",
+            "embedding",
+            "clip",
+            "animatediff",
+            "motion_lora",
+            "video_model",
+            "voice_model",
+            "audio_model",
+            "mesh_model",
+            "diffusion_models",
+            "text_encoders"
+          ]
+        },
+        "url": {
+          "type": "string",
+          "pattern": "^https?://"
+        },
+        "filename": {
+          "type": ["string", "null"]
+        },
+        "sha256": {
+          "type": ["string", "null"]
+        },
+        "target_dir": {
+          "type": ["string", "null"],
+          "description": "Explicit in-container subdirectory under /models. Defaults from category when absent."
+        },
+        "size_gb": {
+          "type": ["number", "null"],
+          "minimum": 0
+        },
+        "precision": {
+          "type": ["string", "null"],
+          "enum": ["bf16", "fp16", "fp8", null]
+        },
+        "variant": {
+          "type": ["string", "null"]
         }
       }
     }

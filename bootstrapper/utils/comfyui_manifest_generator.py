@@ -13,12 +13,13 @@ is enabled), replacing the former ``public.comfyui_models`` DB query that
 
   • ``volumes/comfyui/active-models.tsv``
         Shell-consumable tab-separated view: ``name\\ttype\\tfilename\\t
-        download_url\\tsha256`` (one row per active model, no header).
+        download_url\\tsha256\\ttarget_dir`` (one row per active model file,
+        no header).
         ``sha256`` is the empty string when ``None`` — matching the old
         ``COALESCE(sha256, '')`` pattern — so the existing verification
         branch in ``download_models.sh`` continues to work unchanged.
         ``comfyui-init``'s ``download_models.sh`` ``cat``s this file into
-        its existing tempfile/download loop (the loop is NOT changed).
+        its existing tempfile/download loop.
 
 Both files are written atomically (tmp-then-replace) via
 ``comfyui_resolver.write_manifest`` (YAML) and an inline atomic write (TSV).
@@ -128,7 +129,7 @@ class ComfyUIManifestGenerator:
     def _row_tsv(row: dict[str, Any]) -> str:
         """Format a manifest-dict row as a single TSV line.
 
-        Columns: name TAB type TAB filename TAB download_url TAB sha256
+        Columns: name TAB type TAB filename TAB download_url TAB sha256 TAB target_dir
         ``sha256`` is the empty string when ``None``, matching the old
         ``COALESCE(sha256, '')`` pattern used by the former psql query.
         """
@@ -144,6 +145,7 @@ class ComfyUIManifestGenerator:
             ComfyUIManifestGenerator._safe_filename(row),
             ComfyUIManifestGenerator._safe_tsv_field(row, "download_url"),
             str(sha),
+            ComfyUIManifestGenerator._safe_tsv_field(row, "target_dir"),
         ])
 
     def _write_tsv(
@@ -154,8 +156,7 @@ class ComfyUIManifestGenerator:
         """Write the tab-separated active-models file atomically.
 
         The file has no header row — ``download_models.sh`` reads it with
-        ``IFS=$'\\t' read -r name category filename url sha`` in its existing
-        loop (unchanged from the old psql output format).
+        ``IFS=$'\\t' read -r name category filename url sha target_dir``.
 
         An empty entries list produces an empty file (zero bytes), which
         ``download_models.sh`` detects via ``[ ! -s "$MANIFEST_TSV" ]`` and

@@ -24,7 +24,11 @@
 #                             ipadapter | instantid | upscaler | embedding |
 #                             clip | animatediff | motion_lora | video_model |
 #                             voice_model | audio_model | mesh_model
-#   url            (required) direct download URL (HF resolve or signed civitai)
+#   url                       direct download URL (HF resolve or signed civitai);
+#                             required unless `files` is present
+#   files                     optional bundle file list; each file has role,
+#                             category, url, optional filename, sha256,
+#                             target_dir, size_gb, precision, variant
 #   family                    display family label; defaults to name
 #   size_gb                   approximate disk size (GB)
 #   sha256                    hex SHA-256; verified by comfyui-init when present
@@ -36,6 +40,9 @@
 #   notes                     one-line subtitle shown in wizard option row
 #   filename                  explicit on-disk filename (needed for civitai URLs
 #                             whose URL path carries no real filename)
+#   precision                 optional: bf16 | fp16 | fp8
+#   variant                   optional variant label (for example mps-safe)
+#   host_constraints          optional list of host constraints (for example mps)
 
 models:
 

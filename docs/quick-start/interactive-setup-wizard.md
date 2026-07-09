@@ -229,6 +229,17 @@ catalog names) in `.env`. CLI flag `--comfyui-models` accepts the
 same CSV. CLI flag `--comfyui-custom-models-file PATH` overrides
 the default sidecar YAML location.
 
+**Multi-file bundles** — a single catalog name can represent a bundle
+declared with `files:` in `services/comfyui/models.yaml` or
+`services/comfyui/custom-models.yaml`. Selecting that one logical row writes
+one manifest entry per file and one TSV download row per file. Each file can
+declare its own category, filename, SHA256, target directory, precision, and
+variant, so Krea-style model sets can stage diffusion weights into
+`diffusion_models/`, text encoders into `text_encoders/`, and VAEs into
+`vae/` without asking the user to select three separate rows. Mesh/3D bundles
+can also route loader-specific weights to `checkpoints/` while remaining
+grouped under one catalog selection.
+
 When the upstream HF / civitai scrape fails (rare), the wizard
 falls back to the bundled allowlist via
 `bootstrapper/utils/comfyui_library.py::list_fallback()`. The

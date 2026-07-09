@@ -26,7 +26,7 @@ _BOOTSTRAPPER = Path(__file__).resolve().parent.parent
 if str(_BOOTSTRAPPER) not in sys.path:
     sys.path.insert(0, str(_BOOTSTRAPPER))
 
-from utils.comfyui_library import ComfyUILibraryEntry
+from utils.comfyui_library import ComfyUIModelFile, ComfyUILibraryEntry
 from utils.comfyui_manifest_generator import ComfyUIManifestGenerator
 
 
@@ -60,6 +60,49 @@ def _entry(
         essential=essential,
         notes=None,
         filename=filename,
+    )
+
+
+def _bundle_entry(name: str = "Krea2Bundle") -> ComfyUILibraryEntry:
+    return ComfyUILibraryEntry(
+        name=name,
+        family="Krea 2",
+        category="diffusion_models",
+        size_gb=17.5,
+        url="https://huggingface.co/example/krea/resolve/main/krea.safetensors",
+        sha256=None,
+        target_dir="diffusion_models",
+        min_vram_gb=16,
+        cpu_supported=False,
+        requires_custom_node=(),
+        popularity=0,
+        source="curated",
+        pulled=False,
+        precision="bf16",
+        variant="mps-safe",
+        files=(
+            ComfyUIModelFile(
+                role="diffusion",
+                category="diffusion_models",
+                url="https://huggingface.co/example/krea/resolve/main/krea.safetensors",
+                filename="krea.safetensors",
+                sha256="a" * 64,
+            ),
+            ComfyUIModelFile(
+                role="text_encoder",
+                category="text_encoders",
+                url="https://huggingface.co/example/krea/resolve/main/t5xxl.safetensors",
+                filename="t5xxl.safetensors",
+                sha256="b" * 64,
+            ),
+            ComfyUIModelFile(
+                role="vae",
+                category="vae",
+                url="https://huggingface.co/example/krea/resolve/main/vae.safetensors",
+                filename="vae.safetensors",
+                sha256="c" * 64,
+            ),
+        ),
     )
 
 
@@ -112,7 +155,7 @@ class TestGeneratorWritesFiles:
         assert names == {"ModelA", "ModelB"}
 
     def test_tsv_columns_and_null_sha256(self, tmp_path, monkeypatch):
-        """TSV has 5 tab-separated columns; null sha256 → empty string."""
+        """TSV has 6 tab-separated columns; null sha256 → empty string."""
         catalog = [
             _entry("ModelA", sha256="deadbeef"),
             _entry("ModelB", sha256=None),   # null sha256 → ''
@@ -134,19 +177,20 @@ class TestGeneratorWritesFiles:
         lines = [l for l in tsv_path.read_text().splitlines() if l]
         assert len(lines) == 2, f"Expected 2 rows, got: {lines}"
 
-        # Each row must have exactly 5 tab-separated columns.
+        # Each row must have exactly 6 tab-separated columns.
         for line in lines:
             cols = line.split("\t")
-            assert len(cols) == 5, f"Expected 5 columns, got {len(cols)}: {line!r}"
+            assert len(cols) == 6, f"Expected 6 columns, got {len(cols)}: {line!r}"
 
-        # name / type / filename / download_url / sha256
-        row_a = dict(zip(["name","type","filename","download_url","sha256"],
+        # name / type / filename / download_url / sha256 / target_dir
+        row_a = dict(zip(["name","type","filename","download_url","sha256","target_dir"],
                          lines[0].split("\t")))
-        row_b = dict(zip(["name","type","filename","download_url","sha256"],
+        row_b = dict(zip(["name","type","filename","download_url","sha256","target_dir"],
                          lines[1].split("\t")))
 
         assert row_a["name"] == "ModelA"
         assert row_a["sha256"] == "deadbeef"
+        assert row_a["target_dir"] == "checkpoints"
         assert row_b["name"] == "ModelB"
         assert row_b["sha256"] == "", "null sha256 must be empty string in TSV"
 
@@ -165,6 +209,7 @@ class TestGeneratorWritesFiles:
         tsv = (tmp_path / "active-models.tsv").read_text().strip()
         cols = tsv.split("\t")
         assert cols[3] == url
+        assert cols[5] == "checkpoints"
 
     @pytest.mark.parametrize(
         "field,value",
@@ -212,6 +257,94 @@ class TestGeneratorWritesFiles:
         tsv_path = tmp_path / "active-models.tsv"
         assert tsv_path.exists()
         assert tsv_path.stat().st_size == 0, "Empty active set must produce empty TSV"
+
+    def test_bundle_manifest_expands_to_file_rows_with_target_dirs(self, tmp_path, monkeypatch):
+        """One selected logical bundle must expand into one manifest/TSV row per file."""
+        catalog = [_bundle_entry()]
+        env = {"COMFYUI_SOURCE": "container", "COMFYUI_USER_MODELS": "Krea2Bundle"}
+
+        import utils.comfyui_resolver as resolver
+        monkeypatch.setattr(resolver, "active_comfyui_models", lambda e, **kw: catalog)
+
+        ComfyUIManifestGenerator(env).write(tmp_path)
+
+        data = yaml.safe_load((tmp_path / "selected-models.yaml").read_text())
+        _validate_manifest(data)
+        rows = data["models"]
+        assert [row["bundle_file_role"] for row in rows] == [
+            "diffusion",
+            "text_encoder",
+            "vae",
+        ]
+        assert {row["bundle_id"] for row in rows} == {"Krea2Bundle"}
+        assert [row["target_dir"] for row in rows] == [
+            "diffusion_models",
+            "text_encoders",
+            "vae",
+        ]
+        assert [row["precision"] for row in rows] == ["bf16", "bf16", "bf16"]
+        assert [row["variant"] for row in rows] == [
+            "mps-safe",
+            "mps-safe",
+            "mps-safe",
+        ]
+
+        tsv_lines = (tmp_path / "active-models.tsv").read_text().splitlines()
+        assert len(tsv_lines) == 3
+        first_cols = tsv_lines[0].split("\t")
+        assert first_cols == [
+            "Krea2Bundle",
+            "diffusion_models",
+            "krea.safetensors",
+            "https://huggingface.co/example/krea/resolve/main/krea.safetensors",
+            "a" * 64,
+            "diffusion_models",
+        ]
+
+    def test_mesh_model_can_route_file_to_checkpoint_dir(self, tmp_path, monkeypatch):
+        """A logical mesh model can send a loader-specific weight to checkpoints."""
+        catalog = [
+            ComfyUILibraryEntry(
+                name="Hunyuan3DSynthetic",
+                family="Hunyuan3D",
+                category="mesh_model",
+                size_gb=4.0,
+                url="https://huggingface.co/example/hunyuan/resolve/main/model.safetensors",
+                sha256=None,
+                target_dir="mesh_models",
+                min_vram_gb=12,
+                cpu_supported=False,
+                requires_custom_node=("ComfyUI-3D-Pack",),
+                popularity=0,
+                source="curated",
+                pulled=False,
+                precision="bf16",
+                files=(
+                    ComfyUIModelFile(
+                        role="checkpoint",
+                        category="checkpoint",
+                        target_dir="checkpoints",
+                        url="https://huggingface.co/example/hunyuan/resolve/main/model.safetensors",
+                        filename="hunyuan3d.safetensors",
+                    ),
+                ),
+            )
+        ]
+        env = {
+            "COMFYUI_SOURCE": "container",
+            "COMFYUI_USER_MODELS": "Hunyuan3DSynthetic",
+        }
+
+        import utils.comfyui_resolver as resolver
+        monkeypatch.setattr(resolver, "active_comfyui_models", lambda e, **kw: catalog)
+
+        ComfyUIManifestGenerator(env).write(tmp_path)
+
+        row = yaml.safe_load((tmp_path / "selected-models.yaml").read_text())["models"][0]
+        assert row["type"] == "checkpoint"
+        assert row["bundle_id"] == "Hunyuan3DSynthetic"
+        assert row["target_dir"] == "checkpoints"
+        assert (tmp_path / "active-models.tsv").read_text().split("\t")[-1].strip() == "checkpoints"
 
 
 # ---------------------------------------------------------------------------
@@ -282,6 +415,14 @@ def test_download_models_sh_reads_manifest_tsv():
         "download_models.sh does not reference MANIFEST_TSV — "
         "it should read the bootstrapper manifest, not the DB."
     )
+
+
+def test_download_models_sh_reads_target_dir_column():
+    """download_models.sh must honor the explicit target_dir TSV column."""
+    text = (REPO_ROOT / "services/comfyui/init/scripts/download_models.sh").read_text()
+    assert "read -r name category filename url sha target_dir" in text
+    assert 'dir="$target_dir"' in text
+    assert "unsafe target_dir" in text
 
 
 def test_comfyui_init_compose_no_pg_env():
