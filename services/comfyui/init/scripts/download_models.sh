@@ -13,10 +13,10 @@
 #   /comfyui-manifest/active-models.tsv).
 #
 # TSV FORMAT (set by comfyui_manifest_generator._row_tsv):
-#   name TAB type TAB filename TAB download_url TAB sha256
+#   name TAB type TAB filename TAB download_url TAB sha256 [TAB target_dir]
 #   (sha256 is empty string when null — same as the old COALESCE(sha256,''))
-#   No header row.  The while-read loop below is UNCHANGED from the former
-#   psql-driven version: same columns, same order, same tempfile approach.
+#   No header row.  target_dir is optional for backwards compatibility with
+#   older manifests; when absent, category_to_dir is used.
 #
 # EMPTY / MISSING MANIFEST:
 #   Missing or empty $MANIFEST_TSV → download nothing, exit 0 (mirrors the
@@ -141,19 +141,29 @@ if [ ! -s /tmp/_comfy_active ]; then
 else
   row_count=$(wc -l < /tmp/_comfy_active | tr -d ' ')
   echo "--- found $row_count active row(s) ---"
-  while IFS="$(printf '\t')" read -r name category filename url sha; do
+  while IFS="$(printf '\t')" read -r name category filename url sha target_dir; do
     # Skip blank lines (defensive against trailing newline-only chunks).
     if [ -z "$name" ] || [ -z "$url" ]; then
       echo "✗ row with missing name or url; skipping"
       FAIL_COUNT=$((FAIL_COUNT + 1))
       continue
     fi
-    dir=$(category_to_dir "$category")
+    dir="$target_dir"
+    if [ -z "$dir" ]; then
+      dir=$(category_to_dir "$category")
+    fi
     if [ -z "$dir" ]; then
       echo "✗ $name: unknown category '$category'; skipping"
       FAIL_COUNT=$((FAIL_COUNT + 1))
       continue
     fi
+    case "$dir" in
+      ""|.|..|/*|*../*|*/*|*\\*)
+        echo "✗ $name: unsafe target_dir '$dir'; skipping"
+        FAIL_COUNT=$((FAIL_COUNT + 1))
+        continue
+        ;;
+    esac
     # Filename column is authoritative; fall back to a URL-derived
     # basename only if the manifest row is empty.
     if [ -z "$filename" ]; then

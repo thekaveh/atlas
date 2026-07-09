@@ -87,6 +87,32 @@ CATEGORY_DISPLAY_GROUPS: dict[str, frozenset[str]] = {
 
 
 @dataclass(frozen=True)
+class ComfyUIModelFile:
+    """One downloadable file inside a logical ComfyUI model entry.
+
+    Most catalog entries are still one logical row -> one file and leave
+    ``ComfyUILibraryEntry.files`` empty. Bundles use this type to declare each
+    concrete artifact with its own category, target directory, filename, URL,
+    and optional SHA.
+    """
+    role: str
+    category: str
+    url: str
+    filename: str | None = None
+    sha256: str | None = None
+    target_dir: str | None = None
+    size_gb: float | None = None
+    precision: str | None = None
+    variant: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.category not in VALID_CATEGORIES:
+            raise ValueError(f"unknown ComfyUI model file category: {self.category!r}")
+        if self.target_dir is None:
+            object.__setattr__(self, "target_dir", CATEGORY_TARGET_DIR[self.category])
+
+
+@dataclass(frozen=True)
 class ComfyUILibraryEntry:
     """One catalog row.
 
@@ -114,6 +140,10 @@ class ComfyUILibraryEntry:
     # extension-filtered scanner never lists the downloaded file.
     filename: str | None = None
     essential: bool = False  # True → activated by default even with empty COMFYUI_USER_MODELS.
+    precision: str | None = None
+    variant: str | None = None
+    host_constraints: tuple[str, ...] = ()
+    files: tuple[ComfyUIModelFile, ...] = ()
 
 
 # ── HF + civitai response parsers ──────────────────────────────────────
@@ -395,6 +425,24 @@ def _find_comfyui_yaml() -> _Path:
     )
 
 
+def _dict_to_model_file(d: dict) -> ComfyUIModelFile:
+    """Translate one bundle file mapping into a ComfyUIModelFile."""
+    url = d["url"]
+    if not isinstance(url, str) or not url.startswith(("http://", "https://")):
+        raise ValueError(f"bundle file {d.get('role', '<unknown>')!r} has non-http(s) url")
+    return ComfyUIModelFile(
+        role=d["role"],
+        category=d["category"],
+        url=url,
+        filename=d.get("filename"),
+        sha256=d.get("sha256"),
+        target_dir=d.get("target_dir"),
+        size_gb=d.get("size_gb"),
+        precision=d.get("precision"),
+        variant=d.get("variant"),
+    )
+
+
 def _dict_to_entry(d: dict, source: str) -> ComfyUILibraryEntry:
     """Translate a dict (curated, fallback, cache, or sidecar/custom) to a
     ComfyUILibraryEntry.
@@ -407,12 +455,16 @@ def _dict_to_entry(d: dict, source: str) -> ComfyUILibraryEntry:
     (pulled is computed at wizard time, never from input).
     """
     cat = d["category"]
+    files = tuple(_dict_to_model_file(f) for f in (d.get("files") or ()))
+    url = d.get("url") or (files[0].url if files else None)
+    if not url:
+        raise ValueError(f"ComfyUI model entry {d.get('name', '<unknown>')!r} missing url")
     return ComfyUILibraryEntry(
         name=d["name"],
         family=d.get("family", d["name"]),
         category=cat,
         size_gb=d.get("size_gb") or 0.0,
-        url=d["url"],
+        url=url,
         sha256=d.get("sha256"),
         target_dir=d.get("target_dir", CATEGORY_TARGET_DIR[cat]),
         min_vram_gb=d.get("min_vram_gb"),
@@ -425,6 +477,10 @@ def _dict_to_entry(d: dict, source: str) -> ComfyUILibraryEntry:
         notes=d.get("notes"),
         filename=d.get("filename"),
         essential=bool(d.get("essential", False)),
+        precision=d.get("precision"),
+        variant=d.get("variant"),
+        host_constraints=tuple(d.get("host_constraints") or ()),
+        files=files,
     )
 
 
@@ -728,15 +784,16 @@ def load_custom_models(path: str) -> list[ComfyUILibraryEntry]:
         name = d.get("name")
         category = d.get("category")
         url = d.get("url")
+        files = d.get("files") or []
         if not name:
             print(f"⚠️  custom-models[{idx}] missing 'name'; skipping.",
                   file=_sys.stderr)
             continue
-        if not url:
-            print(f"⚠️  custom-models entry '{name}' missing 'url'; skipping.",
+        if not url and not files:
+            print(f"⚠️  custom-models entry '{name}' missing 'url' or 'files'; skipping.",
                   file=_sys.stderr)
             continue
-        if not isinstance(url, str) or not url.startswith(("http://", "https://")):
+        if url and (not isinstance(url, str) or not url.startswith(("http://", "https://"))):
             print(f"⚠️  custom-models entry '{name}' has non-http(s) url; skipping.",
                   file=_sys.stderr)
             continue
