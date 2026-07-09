@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added — 2026-07-09 — ComfyUI model-bundle catalog foundation
 
 - **ComfyUI multi-file model bundles (#336)** — catalog entries can now declare `files:` so one wizard selection expands into multiple download rows with per-file category, filename, SHA256, target directory, precision, and variant metadata. The generated manifest records `bundle_id` / `bundle_file_role`, the init downloader honors explicit target directories while preserving backward-compatible TSV rows, and custom sidecar YAML supports the same bundle shape.
+- **Promotion sync:** `develop` was ancestry-synced with the current `main` tip before promoting the ComfyUI bundle work, preserving strict-mode branch ordering while keeping the documentation record current.
 
 ### Fixed — 2026-07-07 — overnight maintenance: init quoting, bootstrapper/backend hardening, latent SQL abort
 
