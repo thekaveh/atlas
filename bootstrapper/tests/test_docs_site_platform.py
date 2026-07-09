@@ -4,6 +4,7 @@ from pathlib import Path
 import subprocess
 import sys
 
+from PIL import Image
 import yaml
 
 from services.manifests import load_manifests
@@ -406,12 +407,32 @@ def test_poster_variant_generator_preserves_original_block_wordmark() -> None:
     script = POSTER_VARIANT_SCRIPT.read_text(encoding="utf-8")
 
     assert "WORDMARK_SOURCE = ROOT / \"assets\" / \"atlas-poster.png\"" in script
-    assert "WORDMARK_SCALE = 0.72" in script
-    assert "WORDMARK_BOTTOM_MARGIN = 10" in script
+    assert "WORDMARK_SCALE = 0.56" in script
+    assert "WORDMARK_BOTTOM_MARGIN = 4" in script
+    assert "(0, 0, width - 1, height - 1)" in script
     assert "_extract_wordmark" in script
     assert "ImageFont" not in script
     assert "draw.text" not in script
     assert "ATLAS-PLATFORM" not in script
+
+
+def test_blue_poster_border_is_flush_to_image_edge() -> None:
+    source = Image.open(ROOT / "assets" / "atlas-source.png").convert("RGBA")
+    poster = Image.open(ROOT / "assets" / "atlas-poster-blue.png").convert("RGBA")
+    docs_poster = Image.open(THEME_POSTER_BLUE).convert("RGBA")
+
+    assert poster.size == source.size
+    assert docs_poster.tobytes() == poster.tobytes()
+
+    width, height = poster.size
+    edge_points = [
+        (width // 2, 0),
+        (width // 2, height - 1),
+        (0, height // 2),
+        (width - 1, height // 2),
+    ]
+    for point in edge_points:
+        assert poster.getpixel(point) != source.getpixel(point)
 
 
 def test_docs_audit_guidance_lists_required_local_gates() -> None:
