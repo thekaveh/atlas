@@ -95,6 +95,23 @@ def test_off_track_no_flag_force_disabled():
     assert "comfyui" not in overridden_services
 
 
+def test_gen_ai_rag_preserves_n8n_source():
+    """n8n is part of the RAG track, so track synthesis must not
+    force-disable it when --track gen-ai-rag is selected."""
+    source_args = {"n8n_source": None, "comfyui_source": None}
+    reg = load_tracks()
+
+    synthesize_track_source_args(
+        source_args,
+        track_key="gen-ai-rag",
+        registry=reg,
+        force_disable=True,
+    )
+
+    assert source_args["n8n_source"] is None
+    assert source_args["comfyui_source"] == "disabled"
+
+
 def test_explicit_off_track_disabled_flag_is_not_reported_as_enabling_override():
     source_args = {"comfyui_source": "disabled", "weaviate_source": None}
     reg = load_tracks()
