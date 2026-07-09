@@ -167,9 +167,11 @@ Each row carries:
   `services/comfyui/data/<target_dir>/`, only meaningful for
   container modes), `[library]` (catalog-only — not yet downloaded).
 - **Capability hints** — `[gpu]` if `min_vram_gb > 0`, `⚠ <node>`
-  if the model requires a ComfyUI-Manager custom node (the warning
-  badge is informational only; node installation is a manual step
-  pending a future custom-node auto-install ticket).
+  if the model requires a ComfyUI custom node. For container sources,
+  the bootstrapper maps those node names through
+  `services/comfyui/custom-nodes.yaml` and writes a pinned
+  `active-custom-nodes.tsv` install plan; unknown or unallowlisted
+  nodes warn and are not cloned automatically.
 
 **Filter chips** below the search box: `Filter  [ALL]  image  image-edit  video  audio  3d`.
 Press **`f`** to cycle the chips from the keyboard (or click). The
@@ -213,8 +215,14 @@ ComfyUI sources, but the downstream init pipeline branches:
   `comfyui_resolver` computes the active set from `COMFYUI_USER_MODELS`
   + `services/comfyui/custom-models.yaml` and writes
   `volumes/comfyui/selected-models.yaml` (manifest) and
-  `volumes/comfyui/active-models.tsv`. `comfyui-init` then downloads
-  each model in the TSV into the `comfyui-models` volume via wget.
+  `volumes/comfyui/active-models.tsv`. It also maps required custom
+  nodes through `services/comfyui/custom-nodes.yaml` and writes
+  `volumes/comfyui/active-custom-nodes.tsv`. `comfyui-init` then
+  downloads each model in the model TSV into the `comfyui-models`
+  volume via wget. The AI-Dock provisioning hook in the main ComfyUI
+  container clones each allowlisted custom-node row into the
+  `comfyui-custom-nodes` volume at the pinned commit SHA and installs
+  its requirements when enabled.
   Selections persist to `COMFYUI_USER_MODELS` in `.env`.
 - **`localhost`** — `comfyui-init` is scaled to 0 (the download
   container would write into a path the host ComfyUI doesn't read), but

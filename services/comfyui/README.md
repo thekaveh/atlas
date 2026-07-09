@@ -2,11 +2,11 @@
 
 Node-based image generation workflow engine. ComfyUI runs as a single container with a web UI on its own port, exposing an HTTP API (`/prompt`, `/history/{id}`, `/view`) and a WebSocket (`/ws`) that streams `executing`/`executed`/`progress` events while a workflow runs. The stack treats ComfyUI as a media-tier engine: backend, Hermes, and Open WebUI consume it through Kong (browser) or directly via the internal Docker DNS name; n8n reaches it through the backend (`backend:8000/comfyui/*`), not directly.
 
-Three source variants cover the common deployment shapes: containerized CPU and GPU (built from `ai-dock/comfyui` images) and a localhost mode that routes consumers to a host-running ComfyUI. Disabled mode removes it from compose entirely. A short-lived `comfyui-init` container stages model checkpoints into the `comfyui-models` volume based on `COMFYUI_USER_MODELS` (selected via the wizard's "ComfyUI · models" step).
+Three source variants cover the common deployment shapes: containerized CPU and GPU (built from `ai-dock/comfyui` images) and a localhost mode that routes consumers to a host-running ComfyUI. Disabled mode removes it from compose entirely. A short-lived `comfyui-init` container stages model checkpoints into the `comfyui-models` volume based on `COMFYUI_USER_MODELS` (selected via the wizard's "ComfyUI · models" step), while an AI-Dock provisioning hook installs pinned custom-node repositories and their declared requirements inside the ComfyUI runtime environment.
 
 ## 1. Overview
 
-Image: `ghcr.io/ai-dock/comfyui:v2-cpu-22.04-v0.2.7` (CPU default) or the latest-cuda variant for GPU. Output behavior: by default outputs are uploaded to Supabase Storage via `COMFYUI_UPLOAD_TO_SUPABASE=true` and the `COMFYUI_STORAGE_BUCKET=comfyui-images` bucket. A second volume (`comfyui-custom-nodes`) holds community nodes; today nothing seeds it.
+Image: `ghcr.io/ai-dock/comfyui:v2-cpu-22.04-v0.2.7` (CPU default) or an operator-provided CUDA ai-dock variant for GPU. Atlas pins the upstream ComfyUI core through `COMFYUI_REF=v0.9.2` and keeps `COMFYUI_AUTO_UPDATE=true` so the ai-dock startup path checks out that release even when the base image tag lags. Output behavior: by default outputs are uploaded to Supabase Storage via `COMFYUI_UPLOAD_TO_SUPABASE=true` and the `COMFYUI_STORAGE_BUCKET=comfyui-images` bucket. A second volume (`comfyui-custom-nodes`) holds allowlisted community nodes cloned from `services/comfyui/custom-nodes.yaml`.
 
 ## 2. Access
 
@@ -30,7 +30,9 @@ COMFYUI_PLATFORM=linux/amd64
 COMFYUI_USER_MODELS=                         # comma-separated catalog names; set by the wizard
 COMFYUI_UPLOAD_TO_SUPABASE=true
 COMFYUI_STORAGE_BUCKET=comfyui-images
-COMFYUI_AUTO_UPDATE=false                   # passed straight through as the container's AUTO_UPDATE; not source-dependent
+COMFYUI_AUTO_UPDATE=true                    # AI-Dock startup updates ComfyUI to COMFYUI_REF
+COMFYUI_REF=v0.9.2                          # pinned upstream ComfyUI release tag or full commit SHA
+COMFYUI_CUSTOM_NODES_FILE=/custom-nodes.yaml # host-side fallback resolves to services/comfyui/custom-nodes.yaml
 ```
 
 Localhost overrides:
@@ -51,11 +53,11 @@ COMFYUI_SCALE / COMFYUI_INIT_SCALE
 
 **Request flow.** The backend POSTs a workflow JSON to `${COMFYUI_ENDPOINT}/prompt` and receives a `prompt_id` (n8n workflows call the backend's `/comfyui/*` routes rather than ComfyUI directly). To track progress, the caller either polls `GET /history/{prompt_id}` or opens a `/ws` websocket and filters by `prompt_id`. Outputs land under `output/` inside the container; the `/view` endpoint serves them by filename.
 
-**Init flow** (`comfyui-init`): plain alpine + `apk add wget ca-certificates`. At bootstrapper start, `comfyui_resolver` (host-side, DB-free) computes the active model set from `COMFYUI_USER_MODELS` + `services/comfyui/custom-models.yaml` and writes `volumes/comfyui/selected-models.yaml` (full manifest) and `volumes/comfyui/active-models.tsv` (shell-consumable TSV). A single logical catalog entry may declare `files:` to download multiple artifacts as one selectable bundle; the manifest expands that bundle into one row per file with `bundle_id`, `bundle_file_role`, `precision`, `variant`, and explicit `target_dir` metadata. `comfyui-init` bind-mounts `volumes/comfyui/` and downloads each TSV row into the `comfyui-models` volume via resumable `wget -c` with optional SHA256 verification. Failure mode is non-fatal — ComfyUI starts even if downloads are incomplete, you just get model-not-found errors at workflow time. The former `comfyui-catalog-init` container and `public.comfyui_models` DB table have been removed.
+**Init flow** (`comfyui-init`): plain alpine + `apk add wget ca-certificates`. At bootstrapper start, `comfyui_resolver` (host-side, DB-free) computes the active model set from `COMFYUI_USER_MODELS` + `services/comfyui/custom-models.yaml` and writes `volumes/comfyui/selected-models.yaml` (full manifest) and `volumes/comfyui/active-models.tsv` (shell-consumable TSV). A single logical catalog entry may declare `files:` to download multiple artifacts as one selectable bundle; the manifest expands that bundle into one row per file with `bundle_id`, `bundle_file_role`, `precision`, `variant`, and explicit `target_dir` metadata. The same pass maps active `requires_custom_node` values through `services/comfyui/custom-nodes.yaml` and writes `volumes/comfyui/active-custom-nodes.tsv`; only allowlisted GitHub repos pinned to full commit SHAs are auto-installed. `comfyui-init` bind-mounts `volumes/comfyui/` and downloads each model TSV row into the `comfyui-models` volume via resumable `wget -c` with optional SHA256 verification. The main ComfyUI container mounts the same manifest directory plus `services/comfyui/provisioning/provision_custom_nodes.sh` as AI-Dock's provisioning hook; that hook clones each custom-node TSV row into `comfyui-custom-nodes` and installs `requirements.txt` through the ComfyUI Python environment when `install_requirements=true`. Failure mode is non-fatal — ComfyUI starts even if downloads or custom-node provisioning are incomplete, you just get model-not-found or node-missing errors at workflow time. The former `comfyui-catalog-init` container and `public.comfyui_models` DB table have been removed.
 
 **Hard dependencies** (`depends_on.required`): `supabase`, `litellm`, `ollama`. The Supabase dep covers the Storage upload path; LiteLLM and Ollama are listed for **canonical wizard/row ordering** (the topology backbone — see ollama/parakeet for the same convention), NOT because ComfyUI calls them at startup. ComfyUI's only `runtime_adaptive` entry is `adapts_to: comfyui`.
 
-**Volumes:** `comfyui-models` (checkpoints, VAEs, LoRAs), `comfyui-custom-nodes` (community nodes, currently unseeded), `comfyui-input` (input images at `/opt/ComfyUI/input`), `comfyui-output` (generated images, also uploaded to Supabase).
+**Volumes:** `comfyui-models` (checkpoints, VAEs, LoRAs), `comfyui-custom-nodes` (allowlisted community nodes cloned at pinned refs), `comfyui-input` (input images at `/opt/ComfyUI/input`), `comfyui-output` (generated images, also uploaded to Supabase).
 
 **Output deduplication.** None today — the same workflow run twice generates two outputs and two Supabase uploads. There is no content-hash dedup pass.
 
@@ -98,7 +100,7 @@ COMFYUI_SCALE / COMFYUI_INIT_SCALE
 
 ### 5.6 Future — Unused features in this service
 
-- **ComfyUI-Manager + `cm-cli` for custom-node provisioning** — *Why pursue:* the stack mounts a `comfyui-custom-nodes` volume but `init/scripts/download_models.sh` only stages checkpoints; adding `cm-cli install <pkg>` would make custom-node sets reproducible. *Effort:* small.
+- **ComfyUI-Manager + `cm-cli` for richer custom-node lifecycle management** — *Why pursue:* Atlas now clones pinned custom-node repositories from an allowlist, but it does not use ComfyUI-Manager for enable/disable/remove operations or dependency reconciliation inside the runtime Python environment. Manager remains a future decision because its GPL-3.0 license and runtime behavior need explicit acceptance. *Effort:* small.
 - **Workflow-API mode + `/prompt` ingestion from non-UI clients** — *Why pursue:* backend and Hermes have no documented call pattern; a worked example of POSTing a workflow JSON to `/prompt` and tracking it via `/history/{prompt_id}` would unlock programmatic image-gen from agents. *Effort:* small.
 - **Video model support (Mochi / LTX-Video)** — *Why pursue:* ComfyUI upstream supports video diffusion; the picker catalog includes a `video` category filter but the initial curated list is thin. Expanding the catalog with production-ready video checkpoints (Mochi, LTX-Video, Wan) would give GPU users first-class video generation. *Effort:* medium.
 - **Authentication on the ComfyUI endpoint** — *Why pursue:* `server.py` ships no auth and Kong fronts ComfyUI on `comfyui.localhost`. A Kong basic-auth or JWT plugin would prevent any LAN peer from queueing GPU jobs. *Effort:* small.
@@ -127,7 +129,7 @@ For general startup and routing issues, see [Troubleshooting](../../docs/quick-s
 
 **Choosing models.** Run `./start.sh` (or the wizard standalone) and navigate to the "ComfyUI · models" step. The step shows for every non-`disabled` source (container-cpu / container-gpu / localhost) — same shape as the Ollama picker. Use filter chips (`f` key) to browse by category (Image / Image-edit / Video / Audio / 3D), `/` or `Tab` to search by name, `Space` to toggle rows, and `Enter` to confirm. Selected names are persisted as `COMFYUI_USER_MODELS` in `.env`. On the next `./start.sh`:
 
-- **`container-cpu` / `container-gpu`:** the bootstrapper resolves the active set via `comfyui_resolver` and writes `volumes/comfyui/selected-models.yaml` + `volumes/comfyui/active-models.tsv`. `comfyui-init` downloads each model in the TSV into the `comfyui-models` volume.
+- **`container-cpu` / `container-gpu`:** the bootstrapper resolves the active set via `comfyui_resolver` and writes `volumes/comfyui/selected-models.yaml`, `volumes/comfyui/active-models.tsv`, and `volumes/comfyui/active-custom-nodes.tsv`. `comfyui-init` downloads each model in the model TSV into the `comfyui-models` volume. The AI-Dock provisioning hook in the main ComfyUI container clones each allowlisted custom-node row into `comfyui-custom-nodes` and installs its requirements when enabled.
 - **`localhost`:** the bootstrapper still writes the manifest (so the backend `/comfyui/db/models` endpoint surfaces the active set to Open WebUI + n8n). `comfyui-init` does NOT run (scale=0) — you populate your host ComfyUI install's models directory yourself, same way you'd run `ollama pull <name>` on the host for Ollama localhost.
 
 CLI alternative (works for all non-disabled sources):
@@ -136,14 +138,7 @@ CLI alternative (works for all non-disabled sources):
 ```
 Unknown names log a warning at bootstrapper start but don't block startup.
 
-**Required custom_nodes.** Some models (Flux GGUF, AnimateDiff, IP-Adapter, InstantID, etc.) need specific ComfyUI custom_nodes installed before they will load. The wizard surfaces a `⚠ <node-name>` badge on those rows. Install each required node manually:
-
-```bash
-docker exec -it <project>-comfyui sh -c \
-  "cd /opt/ComfyUI/custom_nodes && git clone https://github.com/<node-repo>"
-```
-
-Restart ComfyUI after cloning a new node.
+**Required custom_nodes.** Some models (Flux GGUF, AnimateDiff, IP-Adapter, InstantID, 3D-Pack, etc.) need specific ComfyUI custom_nodes installed before they will load. The wizard surfaces a `⚠ <node-name>` badge on those rows. For container sources, Atlas maps those names through `services/comfyui/custom-nodes.yaml` and writes `active-custom-nodes.tsv`; the AI-Dock provisioning hook clones only the allowlisted repos at their pinned commit refs and installs requirements when `install_requirements=true`. Unknown node names still warn and are not auto-cloned. When adding a new catalog requirement, add the node to `custom-nodes.yaml` with a GitHub HTTPS repo, a full 40-character commit SHA, and an explicit `install_requirements` flag.
 
 **Adding models not in the catalog.** Edit `services/comfyui/custom-models.yaml`. The wizard surfaces additions on the next run with a `[Custom]` family badge; the bootstrapper ingests them via `comfyui_resolver` at start and adds them to the download manifest. Single-file entries use `url`/`filename` directly. Multi-file entries use `files:` so one logical selection can stage, for example, diffusion weights, text encoders, and a VAE into distinct ComfyUI model directories. Per-file `target_dir` is authoritative and lets mesh/3D loaders place weights in `checkpoints` when required. Schema is documented in the file's header comment.
 

@@ -643,9 +643,12 @@ services:
           cpus: 2
           memory: '4294967296'
     environment:
-      AUTO_UPDATE: 'false'
+      AUTO_UPDATE: 'true'
       COMFYUI_ARGS: --listen
+      COMFYUI_CUSTOM_NODES_PATH: /opt/ComfyUI/custom_nodes
+      COMFYUI_CUSTOM_NODES_TSV: /comfyui-manifest/active-custom-nodes.tsv
       COMFYUI_PORT_HOST: '8188'
+      COMFYUI_REF: v0.9.2
       COMFYUI_UPLOAD_TO_SUPABASE: 'true'
       DISABLE_NATPMP: '1'
       ENABLE_QUICKTUNNEL: 'false'
@@ -703,6 +706,16 @@ services:
     - bind: {}
       source: '{HOME}/Documents/ComfyUI/models'
       target: /host_models
+      type: bind
+    - bind: {}
+      read_only: true
+      source: '{REPO_ROOT}/volumes/comfyui'
+      target: /comfyui-manifest
+      type: bind
+    - bind: {}
+      read_only: true
+      source: '{REPO_ROOT}/services/comfyui/provisioning/provision_custom_nodes.sh'
+      target: /opt/ai-dock/bin/provisioning.sh
       type: bind
   comfyui-init:
     container_name: atlas-comfyui-init
