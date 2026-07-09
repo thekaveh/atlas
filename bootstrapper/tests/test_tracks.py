@@ -213,6 +213,7 @@ def test_is_in_track_explicit_member():
     reg = load_tracks()
     t = reg.by_key["gen-ai-rag"]
     assert is_in_track(t, "weaviate", always_on=reg.always_on)
+    assert is_in_track(t, "n8n", always_on=reg.always_on)
 
 
 def test_is_in_track_explicit_member_via_alias():

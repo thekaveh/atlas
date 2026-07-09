@@ -156,7 +156,7 @@ prompt for every configurable service.
 
 Atlas is a self-hosted engineering platform — designed for the breadth of modern generative AI, ML, and data work. It bundles 30+ integrated services (LLM gateway + inference, vector + graph DBs, workflow + DAG automation, distributed compute, object storage, notebooks, observability) wired together via a Kong gateway and an adaptive FastAPI backend. Each service is independently switchable between `container`, `localhost`, or `disabled` (the LLM provider adds a cloud-API path via LiteLLM); the **tracks system** picks sensible defaults for the work you're doing:
 
-- `gen-ai-rag` — retrieval-augmented generation (vectors, graph, reranker, doc ingest, web search)
+- `gen-ai-rag` — retrieval-augmented generation (vectors, graph, reranker, doc ingest, web search, workflow automation)
 - `gen-ai-eng` — agentic apps + workflows with voice, vision, and search
 - `gen-ai-creative` — multimodal generation (image, voice, vision, doc)
 - `ml-eng` — distributed training/inference + notebooks + experiment storage

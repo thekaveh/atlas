@@ -11,7 +11,7 @@
 | [hermes](hermes.md) | Hermes (programmable AI agent) | all, gen-ai-eng | HERMES_SOURCE | container | container, localhost, disabled | litellm |
 | [lightrag](lightrag.md) | LightRAG (graph-augmented RAG server) | all, gen-ai-rag | LIGHTRAG_SOURCE | disabled | container, localhost, disabled | litellm |
 | [mcp-servers](mcp-servers.md) | Curated MCP Servers | all, gen-ai-eng, gen-ai-rag | MCP_SERVERS_SOURCE | disabled | container, disabled | supabase, neo4j, searxng |
-| [n8n](n8n.md) | n8n (workflow automation) | all, gen-ai-eng | N8N_SOURCE | container | container, disabled | supabase, redis, litellm |
+| [n8n](n8n.md) | n8n (workflow automation) | all, gen-ai-eng, gen-ai-rag | N8N_SOURCE | container | container, disabled | supabase, redis, litellm |
 | [openclaw](openclaw.md) | OpenClaw (AI agent gateway) | all, gen-ai-eng | OPENCLAW_SOURCE | disabled | disabled, container, localhost | litellm |
 
 ### 1.2. aggregate

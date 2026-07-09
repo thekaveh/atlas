@@ -24,8 +24,8 @@
 tracks:
   - key: gen-ai-rag
     display_name: Generative AI · RAG
-    description: Retrieval-augmented generation — vectors, graph, reranker, doc ingest, web search.
-    services: [open-webui, supavisor, weaviate, neo4j, lightrag, doc-processor,
+    description: Retrieval-augmented generation — vectors, graph, reranker, doc ingest, web search, workflow automation.
+    services: [open-webui, supavisor, n8n, weaviate, neo4j, lightrag, doc-processor,
                tei-reranker, searxng, mcp-servers, langfuse,
                otel-collector, tempo, loki,
                local-deep-researcher, crawl4ai, tika, llm-graph-builder, verba, celery]

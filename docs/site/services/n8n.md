@@ -12,7 +12,7 @@ Atlas uses this service according to its manifest, topology row, SOURCE settings
 
 - Category: `agents`
 - Kind: `container`
-- Tracks: `all, gen-ai-eng`
+- Tracks: `all, gen-ai-eng, gen-ai-rag`
 
 ## 4. Access
 
