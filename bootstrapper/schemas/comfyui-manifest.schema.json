@@ -41,7 +41,9 @@
             "video_model",
             "voice_model",
             "audio_model",
-            "mesh_model"
+            "mesh_model",
+            "diffusion_models",
+            "text_encoders"
           ],
           "description": "Model category. Mapped from ComfyUILibraryEntry.category (category→type). Drives the in-container target directory."
         },
@@ -106,6 +108,28 @@
         "description": {
           "type": ["string", "null"],
           "description": "Human-readable notes. Mapped from ComfyUILibraryEntry.notes (notes→description). Returned in the backend GET /comfyui/db/models JSON row."
+        },
+        "bundle_id": {
+          "type": ["string", "null"],
+          "description": "Logical catalog entry name when this row is one file of a multi-file bundle."
+        },
+        "bundle_file_role": {
+          "type": ["string", "null"],
+          "description": "Stable role of this file inside its bundle, such as diffusion, text_encoder, vae, or checkpoint."
+        },
+        "precision": {
+          "type": ["string", "null"],
+          "enum": ["bf16", "fp16", "fp8", null],
+          "description": "Preferred precision inherited from the logical entry or file."
+        },
+        "variant": {
+          "type": ["string", "null"],
+          "description": "Artifact variant inherited from the logical entry or file."
+        },
+        "host_constraints": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Host constraints inherited from the logical catalog entry."
         }
       }
     }

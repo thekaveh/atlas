@@ -102,10 +102,10 @@ import yaml
 # a future context re-introduces a loose-module import environment.
 try:                                    # bootstrapper venv (package context)
     from utils import comfyui_library
-    from utils.comfyui_library import ComfyUILibraryEntry
+    from utils.comfyui_library import ComfyUIModelFile, ComfyUILibraryEntry
 except ImportError:                     # defensive fallback (no active caller)
     import comfyui_library  # type: ignore[no-redef]
-    from comfyui_library import ComfyUILibraryEntry  # type: ignore[no-redef]
+    from comfyui_library import ComfyUIModelFile, ComfyUILibraryEntry  # type: ignore[no-redef]
 
 
 # ---------------------------------------------------------------------------
@@ -147,13 +147,58 @@ def _filename_from_url(url: str) -> str:
     return bare or "model.bin"
 
 
-def _derive_filename(entry: ComfyUILibraryEntry) -> str:
+def _derive_filename(entry: ComfyUILibraryEntry | ComfyUIModelFile) -> str:
     """Return the on-disk filename for an entry.
 
     Prefers ``entry.filename`` (explicitly declared in the catalog for civitai
     entries whose URL path has no real filename) over a URL-derived name.
     """
     return entry.filename or _filename_from_url(entry.url)
+
+
+def _manifest_row_for_entry(
+    entry: ComfyUILibraryEntry,
+    *,
+    file: ComfyUIModelFile | None = None,
+) -> dict:
+    """Build one manifest row from a logical entry or one bundle file."""
+    category = file.category if file is not None else entry.category
+    url = file.url if file is not None else entry.url
+    sha256 = file.sha256 if file is not None else entry.sha256
+    target_dir = file.target_dir if file is not None else entry.target_dir
+    file_size_gb = file.size_gb if file is not None and file.size_gb is not None else entry.size_gb
+    if file is not None:
+        precision = file.precision or entry.precision
+        variant = file.variant or entry.variant
+    else:
+        precision = entry.precision
+        variant = entry.variant
+
+    row = {
+        "name":                 entry.name,
+        "type":                 category,          # category → type
+        "filename":             _derive_filename(file or entry),
+        "download_url":         url,               # url → download_url
+        "sha256":               sha256,
+        "file_size_gb":         float(file_size_gb) if file_size_gb is not None else None,
+        "family":               entry.family,
+        "target_dir":           target_dir,
+        "min_vram_gb":          float(entry.min_vram_gb) if entry.min_vram_gb is not None else None,
+        "cpu_supported":        bool(entry.cpu_supported),
+        "requires_custom_node": list(entry.requires_custom_node),
+        "popularity":           int(entry.popularity or 0),
+        "source":               entry.source,
+        "active":               True,
+        "essential":            False,
+        "description":          entry.notes,       # notes → description
+        "precision":            precision,
+        "variant":              variant,
+        "host_constraints":     list(entry.host_constraints),
+    }
+    if file is not None:
+        row["bundle_id"] = entry.name
+        row["bundle_file_role"] = file.role
+    return row
 
 
 def _host_repo_sidecar() -> Path | None:
@@ -335,24 +380,10 @@ def manifest_dict(entries: list[ComfyUILibraryEntry]) -> dict:
     """
     rows = []
     for e in entries:
-        rows.append({
-            "name":                 e.name,
-            "type":                 e.category,          # category → type
-            "filename":             _derive_filename(e),
-            "download_url":         e.url,               # url → download_url
-            "sha256":               e.sha256,
-            "file_size_gb":         float(e.size_gb) if e.size_gb is not None else None,  # size_gb → file_size_gb
-            "family":               e.family,
-            "target_dir":           e.target_dir,
-            "min_vram_gb":          float(e.min_vram_gb) if e.min_vram_gb is not None else None,
-            "cpu_supported":        bool(e.cpu_supported),
-            "requires_custom_node": list(e.requires_custom_node),
-            "popularity":           int(e.popularity or 0),
-            "source":               e.source,
-            "active":               True,
-            "essential":            False,
-            "description":          e.notes,             # notes → description
-        })
+        if e.files:
+            rows.extend(_manifest_row_for_entry(e, file=f) for f in e.files)
+        else:
+            rows.append(_manifest_row_for_entry(e))
     return {"models": rows}
 
 

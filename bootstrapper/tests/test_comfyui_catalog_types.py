@@ -9,6 +9,7 @@ from __future__ import annotations
 import pytest
 
 from utils.comfyui_library import (
+    ComfyUIModelFile,
     ComfyUILibraryEntry,
     CATEGORY_TARGET_DIR,
     CATEGORY_DISPLAY_GROUPS,
@@ -41,6 +42,59 @@ def test_entry_is_frozen():
     entry = _example_entry()
     with pytest.raises(AttributeError):
         entry.name = "mutated"  # type: ignore[misc]
+
+
+def test_bundle_entry_can_declare_multiple_targeted_files():
+    files = (
+        ComfyUIModelFile(
+            role="diffusion",
+            category="diffusion_models",
+            url="https://huggingface.co/example/krea/resolve/main/krea.safetensors",
+            filename="krea.safetensors",
+            sha256="a" * 64,
+        ),
+        ComfyUIModelFile(
+            role="text_encoder",
+            category="text_encoders",
+            url="https://huggingface.co/example/krea/resolve/main/t5xxl.safetensors",
+            filename="t5xxl.safetensors",
+            sha256="b" * 64,
+        ),
+        ComfyUIModelFile(
+            role="vae",
+            category="vae",
+            url="https://huggingface.co/example/krea/resolve/main/vae.safetensors",
+            filename="vae.safetensors",
+            sha256="c" * 64,
+        ),
+    )
+
+    entry = ComfyUILibraryEntry(
+        name="krea-2-bf16-bundle",
+        family="Krea 2",
+        category="diffusion_models",
+        size_gb=17.5,
+        url="https://huggingface.co/example/krea/resolve/main/krea.safetensors",
+        sha256=None,
+        target_dir="diffusion_models",
+        min_vram_gb=16,
+        cpu_supported=False,
+        requires_custom_node=(),
+        popularity=0,
+        source="curated",
+        pulled=False,
+        precision="bf16",
+        variant="mps-safe",
+        files=files,
+    )
+
+    assert entry.precision == "bf16"
+    assert entry.variant == "mps-safe"
+    assert [file.target_dir for file in entry.files] == [
+        "diffusion_models",
+        "text_encoders",
+        "vae",
+    ]
 
 
 def test_category_target_dir_covers_all_17_categories():

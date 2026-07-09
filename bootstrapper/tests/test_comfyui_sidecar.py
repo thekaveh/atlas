@@ -84,6 +84,71 @@ def test_diffusion_models_and_text_encoders_accepted(tmp_path):
     assert "text_encoders" in dirs
 
 
+def test_custom_bundle_entry_parses_files(tmp_path):
+    raw = (
+        "models:\n"
+        "  - name: my-krea-bundle\n"
+        "    family: Krea 2\n"
+        "    category: diffusion_models\n"
+        "    precision: bf16\n"
+        "    variant: mps-safe\n"
+        "    host_constraints:\n"
+        "      - mps\n"
+        "    files:\n"
+        "      - role: diffusion\n"
+        "        category: diffusion_models\n"
+        "        url: https://huggingface.co/org/krea/resolve/main/model.safetensors\n"
+        "        filename: model.safetensors\n"
+        "      - role: text_encoder\n"
+        "        category: text_encoders\n"
+        "        url: https://huggingface.co/org/krea/resolve/main/t5xxl.safetensors\n"
+        "        filename: t5xxl.safetensors\n"
+        "      - role: vae\n"
+        "        category: vae\n"
+        "        url: https://huggingface.co/org/krea/resolve/main/vae.safetensors\n"
+        "        filename: vae.safetensors\n"
+    )
+    tmp = tmp_path / "bundle.yaml"
+    tmp.write_text(raw)
+
+    entries = load_custom_models(str(tmp))
+
+    assert len(entries) == 1
+    entry = entries[0]
+    assert entry.name == "my-krea-bundle"
+    assert entry.url.endswith("/model.safetensors")
+    assert entry.precision == "bf16"
+    assert entry.variant == "mps-safe"
+    assert entry.host_constraints == ("mps",)
+    assert [file.role for file in entry.files] == ["diffusion", "text_encoder", "vae"]
+    assert [file.target_dir for file in entry.files] == [
+        "diffusion_models",
+        "text_encoders",
+        "vae",
+    ]
+
+
+def test_custom_bundle_file_url_must_be_http_or_https(tmp_path, capsys):
+    raw = (
+        "models:\n"
+        "  - name: bad-bundle\n"
+        "    category: diffusion_models\n"
+        "    files:\n"
+        "      - role: diffusion\n"
+        "        category: diffusion_models\n"
+        "        url: ftp://example.com/model.safetensors\n"
+    )
+    tmp = tmp_path / "bad_bundle.yaml"
+    tmp.write_text(raw)
+
+    entries = load_custom_models(str(tmp))
+
+    assert entries == []
+    captured = capsys.readouterr()
+    assert "bad-bundle" in captured.err
+    assert "non-http" in captured.err
+
+
 def test_invalid_yaml_returns_empty(tmp_path):
     tmp = tmp_path / "bad.yaml"
     tmp.write_text("models: [unclosed")

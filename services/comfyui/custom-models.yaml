@@ -10,7 +10,14 @@
 #                                   #   embedding, clip, animatediff, motion_lora,
 #                                   #   video_model, voice_model, audio_model, mesh_model,
 #                                   #   diffusion_models, text_encoders
-#       url: <direct-download-url>  # required; HF resolve URL or signed civitai URL
+#       url: <direct-download-url>  # required unless `files` is present
+#       files:                     # optional bundle files; one logical model
+#         - role: diffusion        #   expands to one download row per file
+#           category: diffusion_models
+#           url: https://huggingface.co/Org/model/resolve/main/model.safetensors
+#           filename: model.safetensors
+#           sha256: <hex>
+#           target_dir: diffusion_models
 #       filename: <on-disk name>    # required for civitai URLs (their path has no
 #                                   #   filename — without this the download lands
 #                                   #   extension-less and ComfyUI never lists it)
@@ -22,6 +29,10 @@
 #       requires_custom_node:       # optional; list of node-repo names (warn-only badges)
 #         - <repo-name>
 #       notes: <string>             # optional; one-line note shown in wizard subtitle
+#       precision: bf16             # optional: bf16 | fp16 | fp8
+#       variant: mps-safe           # optional artifact variant label
+#       host_constraints:           # optional host constraints
+#         - mps
 #
 # Worked example (commented; only the empty `models: []` ships active):
 # models:
