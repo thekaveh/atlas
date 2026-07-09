@@ -236,7 +236,7 @@ def test_predicate_unknown_track_does_not_skip():
 
 EXPECTED_IN_TRACK: dict[str, set[str]] = {
     "gen-ai-rag": {
-        "open-web-ui", "weaviate", "neo4j-graph-db", "lightrag",
+        "open-web-ui", "n8n", "weaviate", "neo4j-graph-db", "lightrag",
         "doc-processor", "tei-reranker", "searxng", "mcp-servers",
         "local-deep-researcher",
         # always-on:

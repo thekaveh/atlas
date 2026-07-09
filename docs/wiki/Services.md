@@ -35,7 +35,7 @@
 | minio | data | all, data-eng, ml-eng, trading | MINIO_SOURCE | container, disabled | supabase |
 | mlflow | apps | all, ml-eng, trading | MLFLOW_SOURCE | container, disabled | supabase, minio |
 | multi2vec-clip | aggregate | all, gen-ai-creative | - | - | - |
-| n8n | agents | all, gen-ai-eng | N8N_SOURCE | container, disabled | supabase, redis, litellm |
+| n8n | agents | all, gen-ai-eng, gen-ai-rag | N8N_SOURCE | container, disabled | supabase, redis, litellm |
 | neo4j | data | all, data-eng, gen-ai-eng, gen-ai-rag | NEO4J_GRAPH_DB_SOURCE | container, localhost, disabled | supabase |
 | ollama | llm | all | LLM_PROVIDER_SOURCE | ollama-container-cpu, ollama-container-gpu, ollama-localhost, none | supabase, litellm |
 | open-webui | apps | all, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng | OPEN_WEB_UI_SOURCE | container, disabled | supabase, redis, litellm |
@@ -96,7 +96,7 @@
 | minio | MinIO (S3-compatible object storage) | data | container | all, data-eng, ml-eng, trading | MINIO_SOURCE |
 | mlflow | MLflow (experiment tracking + artifacts) | apps | container | all, ml-eng, trading | MLFLOW_SOURCE |
 | multi2vec-clip | multi2vec-clip | aggregate | doc-only | all, gen-ai-creative | - |
-| n8n | n8n (workflow automation) | agents | container | all, gen-ai-eng | N8N_SOURCE |
+| n8n | n8n (workflow automation) | agents | container | all, gen-ai-eng, gen-ai-rag | N8N_SOURCE |
 | neo4j | Neo4j (graph database) | data | container | all, data-eng, gen-ai-eng, gen-ai-rag | NEO4J_GRAPH_DB_SOURCE |
 | ollama | Ollama (local LLM engine) | llm | container | all | LLM_PROVIDER_SOURCE |
 | open-webui | Open WebUI (chat interface) | apps | container | all, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng | OPEN_WEB_UI_SOURCE |
