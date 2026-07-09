@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./assets/atlas-poster-blue.png" alt="Atlas — the Titan holding the globe, with the ATLAS-PLATFORM wordmark" width="66%">
+  <img src="./assets/atlas-poster-blue.png" alt="Atlas — the Titan holding the globe, with the ATLAS-PLATFORM wordmark" width="100%">
 </p>
 
 # Atlas
