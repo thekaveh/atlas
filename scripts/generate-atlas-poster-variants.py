@@ -11,8 +11,8 @@ from PIL import Image, ImageChops, ImageDraw, ImageFilter
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "assets" / "atlas-source.png"
 WORDMARK_SOURCE = ROOT / "assets" / "atlas-poster.png"
-WORDMARK_SCALE = 0.72
-WORDMARK_BOTTOM_MARGIN = 10
+WORDMARK_SCALE = 0.56
+WORDMARK_BOTTOM_MARGIN = 4
 VARIANTS = {
     "blue": (96, 165, 250),
     "gold": (213, 162, 42),
@@ -23,9 +23,8 @@ def _rounded_border(size: tuple[int, int], color: tuple[int, int, int]) -> Image
     width, height = size
     overlay = Image.new("RGBA", size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
-    inset = 10
     draw.rounded_rectangle(
-        (inset, inset, width - inset - 1, height - inset - 1),
+        (0, 0, width - 1, height - 1),
         radius=18,
         outline=(*color, 190),
         width=3,
