@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **ComfyUI runtime foundation (#334)** — the ai-dock runtime now exposes a pinned upstream `COMFYUI_REF=v0.9.2` with `COMFYUI_AUTO_UPDATE=true`, keeping the ComfyUI core version explicit without changing container families. The bootstrapper also writes `active-custom-nodes.tsv` from selected models' `requires_custom_node` values, but only after mapping them through `services/comfyui/custom-nodes.yaml`; the AI-Dock provisioning hook clones those allowlisted GitHub repos into the `comfyui-custom-nodes` volume at full commit SHAs and installs declared requirements through the ComfyUI Python environment.
 - **Custom-node safety contract:** node auto-install is allowlist-only, repo URLs must be GitHub HTTPS `.git` URLs, refs must be full 40-character commit SHAs, and unknown catalog requirements warn instead of cloning arbitrary code.
+- **Promotion sync:** `develop` was merge-synced with the current `main` tip before promoting the ComfyUI runtime work, preserving strict-mode branch ordering while keeping the documentation record current.
 
 ### Added — 2026-07-09 — ComfyUI model-bundle catalog foundation
 
