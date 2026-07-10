@@ -117,7 +117,142 @@ myproject/
 └── README.md
 ```
 
-### 4.2 Parent .gitignore Configuration
+### 4.2 Parent-repo consumer reference layout
+
+Real Atlas consumers have converged on a parent-owned layout where the parent
+repository owns application code, overlay fragments, branding, wrapper scripts,
+and secret references, while the `infra/` submodule remains a pinned Atlas
+checkout. This keeps Atlas upgradeable and keeps project-specific wiring visible
+in the parent repository.
+
+```
+myproject/
+├── .gitmodules
+├── atlas.env.user.example
+├── compose/
+│   └── myproject-overlay.yml
+├── infra/                         # Atlas submodule
+│   ├── .env                       # generated or local, gitignored by parent
+│   ├── .env.user                  # optional local overlay, gitignored
+│   ├── services/
+│   │   ├── _user/
+│   │   │   └── myproject/
+│   │   │       └── compose.yml -> ../../../../compose/myproject-overlay.yml
+│   │   └── supabase/db/_user/     # optional SQL slot, normally gitignored
+│   └── volumes/                   # runtime state, gitignored
+├── scripts/
+│   ├── setup-overlay.sh
+│   ├── start-infra.sh
+│   └── stop-infra.sh
+├── src/
+└── README.md
+```
+
+Two worked patterns use this shape:
+
+- **RAG-showcase-style consumers** keep RAG application code in the parent
+  repository, add parent-owned n8n/backend/plugin or app-service overlays, and
+  start Atlas with a RAG-oriented track plus explicit services needed outside
+  that track.
+- **DayDreams-style consumers** keep creative/media application code in the
+  parent repository, add parent-owned app/media overlays, brand the wizard and
+  dashboard from the parent wrapper, and explicitly enable or disable services
+  that differ from the selected creative track.
+
+The important design choice is that `infra/services/_user/<name>/compose.yml`
+is only the discovery slot. Keep the real overlay file in the parent repository
+and symlink it into the slot:
+
+```bash
+#!/usr/bin/env bash
+# scripts/setup-overlay.sh
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SLOT="$ROOT/infra/services/_user/myproject"
+OVERLAY="$ROOT/compose/myproject-overlay.yml"
+
+mkdir -p "$SLOT"
+ln -sfn "../../../../compose/myproject-overlay.yml" "$SLOT/compose.yml"
+test -f "$OVERLAY"
+```
+
+The wrapper should be idempotent so a fresh clone, CI checkout, or updated
+submodule can run it safely before every start.
+
+Parent-owned start scripts should force project wiring decisions instead of
+setting them only when absent:
+
+```bash
+#!/usr/bin/env bash
+# scripts/start-infra.sh
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+"$ROOT/scripts/setup-overlay.sh"
+
+export ATLAS_ENV_USER_FILE="$ROOT/atlas.env.user"
+
+set_env() {
+  local key="$1"
+  local value="$2"
+  if grep -q "^${key}=" "$ROOT/infra/.env" 2>/dev/null; then
+    perl -0pi -e "s/^${key}=.*$/${key}=${value}/m" "$ROOT/infra/.env"
+  else
+    printf '%s=%s\n' "$key" "$value" >> "$ROOT/infra/.env"
+  fi
+}
+
+cp -n "$ROOT/infra/.env.example" "$ROOT/infra/.env"
+set_env PROJECT_NAME myproject
+set_env BRAND_NAME "My Project"
+set_env BRAND_TAGLINE "Project-owned Atlas infrastructure"
+set_env N8N_SOURCE container
+set_env MINIO_SOURCE container
+
+"$ROOT/infra/start.sh" \
+  --track gen-ai-rag \
+  --n8n-source container \
+  --minio-source container
+```
+
+Do not use a `set_env_default` helper for project-critical source choices.
+Atlas's `.env.example` intentionally ships defaults for many `*_SOURCE` keys,
+so "set only if absent" often does nothing. If the parent project requires a
+service mode, force-set it in the wrapper or pass the matching CLI flag.
+
+Explicit `--<service>-source` flags override the selected `--track`. This is
+the supported way for a consumer to start from a broad track and then request
+one extra service outside the track, or disable a service that the track would
+normally prompt for.
+
+| Area | Parent repository owns | `infra/` submodule owns |
+|------|------------------------|-------------------------|
+| Atlas version | The submodule pointer to a reviewed Atlas commit or tag | The checked-out Atlas source at that pointer |
+| Service overlays | `compose/<name>-overlay.yml`, app images, plugin mounts, wrapper-owned ports | `services/_user/<name>/compose.yml` symlink discovery slot |
+| Environment | Committed templates such as `atlas.env.user.example`, CI secret references, wrapper force-set values | Local `.env`, optional local `.env.user`, generated backfills |
+| Branding | `PROJECT_NAME`, `BRAND_*`, and project-specific start/stop scripts | Wizard/dashboard code that consumes those values |
+| Data and secrets | Secret names or references in the parent deployment system | Runtime volumes, generated credentials, local `.env` values |
+| Database extension | Parent-reviewed SQL templates or migration source | Optional `services/supabase/db/_user/*.sql` execution slot |
+
+Validation checklist before committing a parent consumer update:
+
+- `git -C infra status --short` is clean after `scripts/start-infra.sh` has run,
+  except for intentionally ignored `.env`, `.env.user`, `_user` slots, and
+  runtime volumes.
+- The parent commit pins `infra/` to a specific Atlas commit or release tag; it
+  does not track a moving branch implicitly.
+- Parent-owned overlays live under the parent repository, and
+  `infra/services/_user/<name>/compose.yml` is a symlink or generated discovery
+  pointer to that parent-owned file.
+- `.env`, `.env.user`, `infra/volumes/`, and runtime data directories remain
+  untracked.
+- Project-critical `*_SOURCE`, `PROJECT_NAME`, and `BRAND_*` values are
+  force-set by the wrapper or passed as explicit CLI flags.
+- The wrapper documents the chosen `--track` and every explicit source override
+  that intentionally differs from that track.
+
+### 4.3 Parent .gitignore Configuration
 
 Add these entries to your parent project's `.gitignore`:
 

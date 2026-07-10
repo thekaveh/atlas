@@ -132,7 +132,7 @@ Pin the submodule to a release **tag** rather than tracking `main`, so infra upg
 | **`BASE_PORT`** | Moves the entire host-published port block (default `63000`). `./start.sh --base-port 64000`. Does not affect in-network addresses. | `.env` / flag |
 | **`BRAND_*`** | Rebrands the wizard/banner (name, tagline, author, repo URL, license) — make Atlas present as your platform. | `.env` (`BRAND_*` block) |
 | **`*_SOURCE`** | Enable/disable each service or pick its backend (`container` / `container-gpu` / `localhost` / `disabled`). LLMs use `ollama-container-*` / `ollama-localhost` / `none`; cloud providers toggle via the separate `CLOUD_*_SOURCE` vars. Disable what your showcase doesn't use. | `.env` / `--<svc>-source` |
-| **`--track`** | Start a curated subset (`gen-ai-rag`, `gen-ai-eng`, `gen-ai-creative`, `ml-eng`, `data-eng`, `trading`, `all`). `--track gen-ai-rag` is the natural fit for a RAG showcase. | flag |
+| **`--track`** | Start a curated subset (`gen-ai-rag`, `gen-ai-eng`, `gen-ai-creative`, `ml-eng`, `data-eng`, `trading`, `all`). `--track gen-ai-rag` is the natural fit for a RAG showcase. Explicit `--<service>-source` flags override track membership, which lets parent wrappers request one extra service outside the track or disable a track-prompted service. | flag |
 | **`services/_user/` overlay** | Drop your own co-located service into `services/_user/<name>/compose.yml` (gitignored upstream, so it never leaks into Atlas PRs); the bootstrapper auto-merges and launches it. | [§6.1](#61-extending-the-stack-via-services_user) |
 | **`services/supabase/db/_user/` SQL slot** | Add downstream-owned Supabase schema, seed, view, grant, or extension SQL that runs after Atlas-owned database initialization. | [§6.2](#62-adding-supabase-sql-via-the-user-migration-slot) |
 | **`BACKEND_PLUGINS_DIR` plugin seam** | Mount a directory of FastAPI route packages into the backend app to add your own API routes — no fork of `services/backend/` required. | [§6.3](#63-adding-backend-api-routes-via-the-plugin-seam) |
@@ -140,6 +140,9 @@ Pin the submodule to a release **tag** rather than tracking `main`, so infra upg
 Full source/customization matrix: [source-configuration.md](source-configuration.md).
 
 User overlays use normal `.env` syntax (`KEY=value`, quoted values, and whitespace-prefixed inline comments). The merge order is deterministic: `.env.example` baseline → generated or existing `.env` → sibling `.env.user` → `ATLAS_ENV_USER_FILE` → explicit CLI flags such as `--project` or `--<svc>-source`. Both overlays are merged on every start, including `--cold`, before missing keys are backfilled from `.env.example`.
+
+For submodule consumers that need a repeatable parent-repo shape, use the
+reference layout in [submodule-usage.md §4.2](submodule-usage.md#42-parent-repo-consumer-reference-layout). It shows the parent-owned `compose/<name>-overlay.yml` pattern, the `services/_user/<name>/compose.yml` symlink discovery slot, force-set source/branding wrappers, and the validation checklist used by RAG-showcase-style and DayDreams-style consumers.
 
 Use `ATLAS_ENV_USER_FILE` for parent-owned config that should be tracked or templated by the consuming project:
 
