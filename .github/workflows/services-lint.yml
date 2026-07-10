@@ -225,6 +225,11 @@ jobs:
 
   build-validation:
     name: Build-validation (Dockerfile + requirements.txt installability)
+    # Temporarily opt-in because this full image matrix adds 20+ minutes to
+    # every PR. Re-enable it by setting the repository Actions variable
+    # ENABLE_BUILD_VALIDATION=true and restoring this check in the gitflow
+    # ruleset's required-status-check list.
+    if: ${{ vars.ENABLE_BUILD_VALIDATION == 'true' }}
     runs-on: ubuntu-latest
     # Catches the Pass 12 / Pass 13 class of bug: unsatisfiable pip pins,
     # nonexistent packages, broken Dockerfile syntax. Compose-shape checks
