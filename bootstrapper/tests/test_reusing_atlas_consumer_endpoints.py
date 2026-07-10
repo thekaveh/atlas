@@ -13,6 +13,9 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 REUSING_ATLAS = REPO_ROOT / "docs" / "deployment" / "reusing-atlas.md"
+SUBMODULE_USAGE = REPO_ROOT / "docs" / "deployment" / "submodule-usage.md"
+SITE_DEVELOPMENT = REPO_ROOT / "docs" / "site" / "development.md"
+WIKI_DEVELOPMENT = REPO_ROOT / "docs" / "wiki" / "Development.md"
 ENV_EXAMPLE = REPO_ROOT / ".env.example"
 
 
@@ -62,3 +65,30 @@ def test_env_example_comfyui_endpoint_mentions_consumer() -> None:
             return
     # If we reach here, COMFYUI_ENDPOINT= wasn't found at all
     raise AssertionError("COMFYUI_ENDPOINT= not found in .env.example")
+
+
+def test_submodule_docs_cover_parent_repo_reference_layout() -> None:
+    """Issue #421: submodule consumers need the parent-owned overlay layout,
+    force-set SOURCE gotcha, track override rule, and validation checklist."""
+    reusing = REUSING_ATLAS.read_text(encoding="utf-8")
+    submodule = SUBMODULE_USAGE.read_text(encoding="utf-8")
+
+    assert "parent-repo consumer reference layout" in submodule.lower()
+    assert "compose/<name>-overlay.yml" in submodule
+    assert "services/_user/<name>/compose.yml" in submodule
+    assert "setup-overlay.sh" in submodule
+    assert "start-infra.sh" in submodule
+    assert "set_env_default" in submodule
+    assert "force-set" in submodule
+    assert "Explicit `--<service>-source` flags override the selected `--track`" in submodule
+    assert "Validation checklist" in submodule
+    assert "RAG-showcase-style" in submodule
+    assert "DayDreams-style" in submodule
+    assert "Explicit `--<service>-source` flags override track membership" in reusing
+
+    for surface in (SITE_DEVELOPMENT, WIKI_DEVELOPMENT):
+        surface_text = surface.read_text(encoding="utf-8")
+        assert "Parent-Repo Consumer Layout" in surface_text
+        assert "compose/<name>-overlay.yml" in surface_text
+        assert "scripts/setup-overlay.sh" in surface_text
+        assert "force-set" in surface_text
