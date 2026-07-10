@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import yaml
+
 from .model import DocsModel, ServicePage
 from .rendering import csv_or_dash, table
 
@@ -49,6 +51,77 @@ def _source_summary_values(service: ServicePage) -> str:
     )
 
 
+def _comfyui_krea2_section(model: DocsModel, section_number: int) -> str:
+    catalog_path = model.root / "services" / "comfyui" / "models.yaml"
+    catalog = yaml.safe_load(catalog_path.read_text(encoding="utf-8"))
+    entries = [entry for entry in catalog["models"] if entry.get("family") == "Krea 2"]
+    if not entries:
+        return ""
+
+    bundle_rows: list[list[str]] = []
+    artifact_rows: list[list[str]] = []
+    restrictions: list[str] = []
+    for entry in entries:
+        label = f"Krea 2 {entry['variant']}"
+        bundle_rows.append(
+            [
+                label,
+                f"`{entry['name']}`",
+                str(entry["precision"]),
+                f"{entry['size_gb']:.3f} GB",
+                f"{entry['min_ram_gb']:.0f} GB",
+                f"{entry['min_vram_gb']:.0f} GB",
+            ]
+        )
+        for artifact in entry["files"]:
+            artifact_rows.append(
+                [
+                    label,
+                    artifact["role"],
+                    f"`{artifact['target_dir']}/{artifact['filename']}`",
+                    f"{artifact['size_bytes']:,}",
+                    f"`{artifact['sha256']}`",
+                ]
+            )
+        for restriction in entry["license_restrictions"]:
+            if restriction not in restrictions:
+                restrictions.append(restriction)
+
+    license_name = entries[0]["license_name"]
+    license_url = entries[0]["license_url"]
+    restriction_lines = "\n".join(f"- {item}" for item in restrictions)
+    return f"""
+## {section_number}. Krea 2 Curated Bundles
+
+Atlas provides separate Krea 2 Turbo and Krea 2 RAW BF16 selections. Each logical bundle uses the same pinned Qwen3-VL 4B text encoder and Qwen-Image VAE; the generated download plan retrieves those shared target files once when both bundles are selected.
+
+### {section_number}.1 Bundle Matrix
+
+{table(["Bundle", "Catalog ID", "Precision", "Disk", "RAM", "VRAM"], bundle_rows)}
+
+### {section_number}.2 Pinned Artifacts
+
+{table(["Bundle", "Role", "Target", "Bytes", "SHA-256"], artifact_rows)}
+
+Every artifact URL is pinned to Hugging Face revision `8038ce89b91b042141541ad0fa51b985ca262c5f`.
+
+### {section_number}.3 Workflow
+
+The API-ready example is `services/comfyui/workflows/krea2-turbo-api.json`. It uses only ComfyUI core nodes with `CLIPLoader` type `krea2`, 8 steps, CFG 1.0, Euler sampling, the simple scheduler, `ConditioningZeroOut`, and a 1024 by 1024 latent. Atlas pins ComfyUI `v0.27.0`, which includes the core Krea 2 support introduced in `v0.26.0`.
+
+### {section_number}.4 License And Operations
+
+Model weights use the [{license_name}]({license_url}). Operators must review the authoritative license before deployment:
+
+{restriction_lines}
+- The license does not state a seat-count threshold; do not apply the previously reported 50-seat limit.
+
+The 1024-square generation check is an opt-in `live` pytest and is not part of generic CI.
+
+Container sources default `COMFYUI_MEMORY_LIMIT` to a 40 GB hard ceiling. Docker does not reserve that memory; smaller workloads consume only what they need, while Krea 2 can exceed the former 4 GB limit.
+"""
+
+
 def _profile(model: DocsModel, service: ServicePage) -> str:
     source_values = csv_or_dash(service.source_values)
     required = csv_or_dash(service.required_dependencies)
@@ -62,7 +135,7 @@ def _profile(model: DocsModel, service: ServicePage) -> str:
         for surface in service.source_surfaces
     ] or [[service.source_var or "none", service.source_default or "none", source_values]]
 
-    return f"""# {service.title}
+    profile = f"""# {service.title}
 
 ## 1. Overview
 
@@ -116,6 +189,9 @@ Use `./start.sh` to configure this service through the wizard or pass the matchi
 - Source README: {_readme_link(model, service)}
 - Public docs home: [{model.public_url}]({model.public_url})
 """
+    if service.name == "comfyui":
+        profile += _comfyui_krea2_section(model, 12)
+    return profile
 
 
 def service_pages(model: DocsModel) -> dict[Path, str]:

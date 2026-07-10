@@ -53,7 +53,7 @@ services:
     environment:
       - COMFYUI_ARGS=${COMFYUI_ARGS:---listen --cpu}
       - AUTO_UPDATE=${COMFYUI_AUTO_UPDATE:-true}
-      - COMFYUI_REF=${COMFYUI_REF:-v0.9.2}
+      - COMFYUI_REF=${COMFYUI_REF:-v0.27.0}
       - COMFYUI_CUSTOM_NODES_TSV=/comfyui-manifest/active-custom-nodes.tsv
       - COMFYUI_CUSTOM_NODES_PATH=/opt/ComfyUI/custom_nodes
       - COMFYUI_PORT_HOST=8188
@@ -79,7 +79,7 @@ services:
       replicas: ${COMFYUI_SCALE:-1}
       resources:
         limits:
-          memory: ${COMFYUI_MEMORY_LIMIT:-4g}
+          memory: ${COMFYUI_MEMORY_LIMIT:-40g}
           cpus: "${COMFYUI_CPU_LIMIT:-2.0}"
     networks:
       - backend-network

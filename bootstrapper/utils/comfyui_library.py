@@ -102,6 +102,7 @@ class ComfyUIModelFile:
     sha256: str | None = None
     target_dir: str | None = None
     size_gb: float | None = None
+    size_bytes: int | None = None
     precision: str | None = None
     variant: str | None = None
 
@@ -144,6 +145,11 @@ class ComfyUILibraryEntry:
     variant: str | None = None
     host_constraints: tuple[str, ...] = ()
     files: tuple[ComfyUIModelFile, ...] = ()
+    size_bytes: int | None = None
+    min_ram_gb: float | None = None
+    license_name: str | None = None
+    license_url: str | None = None
+    license_restrictions: tuple[str, ...] = ()
 
 
 # ── HF + civitai response parsers ──────────────────────────────────────
@@ -438,6 +444,7 @@ def _dict_to_model_file(d: dict) -> ComfyUIModelFile:
         sha256=d.get("sha256"),
         target_dir=d.get("target_dir"),
         size_gb=d.get("size_gb"),
+        size_bytes=d.get("size_bytes"),
         precision=d.get("precision"),
         variant=d.get("variant"),
     )
@@ -481,6 +488,11 @@ def _dict_to_entry(d: dict, source: str) -> ComfyUILibraryEntry:
         variant=d.get("variant"),
         host_constraints=tuple(d.get("host_constraints") or ()),
         files=files,
+        size_bytes=d.get("size_bytes"),
+        min_ram_gb=d.get("min_ram_gb"),
+        license_name=d.get("license_name"),
+        license_url=d.get("license_url"),
+        license_restrictions=tuple(d.get("license_restrictions") or ()),
     )
 
 

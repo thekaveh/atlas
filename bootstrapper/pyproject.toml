@@ -37,6 +37,9 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = "test_*.py"
+markers = [
+    "live: optional test requiring a running external service or special hardware",
+]
 # Bootstrapper modules import as bare names (e.g. `from core.config_parser import ConfigParser`);
 # adding the package root keeps that style working under pytest.
 pythonpath = ["."]

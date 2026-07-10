@@ -66,6 +66,11 @@
           "minimum": 0,
           "description": "Approximate disk size in GB. Mapped from ComfyUILibraryEntry.size_gb (size_gb→file_size_gb). Surfaced in the backend GET response and used for disk-space warnings."
         },
+        "file_size_bytes": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Exact artifact size in bytes when supplied by the catalog."
+        },
         "family": {
           "type": ["string", "null"],
           "description": "Display family label (e.g. 'SDXL', 'AnimateDiff'). Passed through from ComfyUILibraryEntry.family."
@@ -78,6 +83,11 @@
           "type": ["number", "null"],
           "minimum": 0,
           "description": "Minimum GPU VRAM in GB. Passed through from ComfyUILibraryEntry.min_vram_gb."
+        },
+        "min_ram_gb": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "description": "Recommended host or unified memory in GB."
         },
         "cpu_supported": {
           "type": "boolean",
@@ -130,6 +140,20 @@
           "type": "array",
           "items": {"type": "string"},
           "description": "Host constraints inherited from the logical catalog entry."
+        },
+        "license_name": {
+          "type": ["string", "null"],
+          "description": "Human-readable model-weight license name."
+        },
+        "license_url": {
+          "type": ["string", "null"],
+          "pattern": "^https?://",
+          "description": "Pinned authoritative model-weight license URL."
+        },
+        "license_restrictions": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Material operator obligations inherited from the logical catalog entry."
         }
       }
     }

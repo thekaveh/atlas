@@ -52,7 +52,7 @@ env:
     default: true
     description: "AI-Dock startup update flag. Atlas keeps this true so COMFYUI_REF pins the upstream ComfyUI core even when the base image tag lags."
   - name: COMFYUI_REF
-    default: "v0.9.2"
+    default: "v0.27.0"
     description: "Pinned upstream ComfyUI git ref passed to AI-Dock. Use a release tag or full commit SHA when deliberately changing the ComfyUI core."
   - name: COMFYUI_PLATFORM
     default: "linux/amd64"
@@ -83,8 +83,8 @@ env:
   - name: COMFYUI_DEPLOY_RESOURCES
     default: "~"
   - name: COMFYUI_MEMORY_LIMIT
-    default: 4g
-    description: "Container memory limit for the comfyui container (deploy.resources.limits.memory). 4 g is appropriate for CPU-only inference; GPU workloads holding VRAM are bounded by device memory, not host RAM, so 4 g is still a safe OOM fence on a 32 GB host."
+    default: 40g
+    description: "Hard container-memory ceiling for ComfyUI (deploy.resources.limits.memory). The limit does not reserve memory; 40 g permits large multi-file bundles such as Krea 2 while smaller workloads consume only what they need."
   - name: COMFYUI_CPU_LIMIT
     default: "2.0"
     description: "Container CPU limit for the comfyui container (deploy.resources.limits.cpus). 2.0 cores keeps CPU-mode inference from monopolising the host; GPU mode is GPU-bound so the CPU cap is irrelevant in practice."

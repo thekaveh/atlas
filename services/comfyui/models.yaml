@@ -28,12 +28,13 @@
 #                             required unless `files` is present
 #   files                     optional bundle file list; each file has role,
 #                             category, url, optional filename, sha256,
-#                             target_dir, size_gb, precision, variant
+#                             target_dir, size_gb, size_bytes, precision, variant
 #   family                    display family label; defaults to name
 #   size_gb                   approximate disk size (GB)
 #   sha256                    hex SHA-256; verified by comfyui-init when present
 #   target_dir                override in-container subdir under /models
 #   min_vram_gb               adds "requires N GB VRAM" badge when host has less
+#   min_ram_gb                recommended host/unified memory shown in the wizard
 #   cpu_supported             false adds "requires GPU" badge; default true
 #   requires_custom_node      list of ComfyUI node-repo names (warn-only badges)
 #   popularity                0-100 score for wizard sort order
@@ -43,6 +44,9 @@
 #   precision                 optional: bf16 | fp16 | fp8
 #   variant                   optional variant label (for example mps-safe)
 #   host_constraints          optional list of host constraints (for example mps)
+#   license_name              human-readable model-weight license
+#   license_url               immutable authoritative license URL
+#   license_restrictions      material operator obligations shown in the wizard
 
 models:
 
@@ -202,3 +206,106 @@ models:
     # selection to the user (warn-only — no canonical wrapper today).
     requires_custom_node: []
     popularity: 50
+
+  # ── Krea 2 ────────────────────────────────────────────────────────────
+  # Both logical bundles share the same Qwen3-VL text encoder and Qwen-Image
+  # VAE. The generated manifest retains both bundle memberships while the
+  # shell download plan deduplicates those shared target paths.
+
+  - name: krea2-turbo-bf16
+    family: Krea 2
+    category: diffusion_models
+    size_gb: 35.412858238
+    size_bytes: 35412858238
+    url: https://huggingface.co/Comfy-Org/Krea-2/resolve/8038ce89b91b042141541ad0fa51b985ca262c5f/diffusion_models/krea2_turbo_bf16.safetensors
+    min_vram_gb: 32.0
+    min_ram_gb: 32.0
+    cpu_supported: false
+    requires_custom_node: []
+    popularity: 94
+    notes: Krea 2 Turbo BF16 core-node bundle with shared Qwen3-VL encoder and Qwen-Image VAE.
+    precision: bf16
+    variant: Turbo
+    license_name: Krea 2 Community License
+    license_url: https://huggingface.co/krea/Krea-2-Turbo/blob/1161245028ef398cd0a951101b2bbf486464f841/LICENSE.pdf
+    license_restrictions:
+      - Enterprise license required at or above $1,000,000 USD ($1M) annual revenue for commercial use.
+      - Reasonable and appropriate content filtering is required for deployments.
+    files:
+      - role: diffusion
+        category: diffusion_models
+        url: https://huggingface.co/Comfy-Org/Krea-2/resolve/8038ce89b91b042141541ad0fa51b985ca262c5f/diffusion_models/krea2_turbo_bf16.safetensors
+        filename: krea2_turbo_bf16.safetensors
+        size_gb: 26.283332608
+        size_bytes: 26283332608
+        sha256: 78bbf8f4165eda19cea3cb06c78089221932a39e2eed8af9da741f942c47ffb3
+        target_dir: diffusion_models
+        precision: bf16
+        variant: Turbo
+      - role: text_encoder
+        category: text_encoders
+        url: https://huggingface.co/Comfy-Org/Krea-2/resolve/8038ce89b91b042141541ad0fa51b985ca262c5f/text_encoders/qwen3vl_4b_bf16.safetensors
+        filename: qwen3vl_4b_bf16.safetensors
+        size_gb: 8.875719384
+        size_bytes: 8875719384
+        sha256: 36f3ff447ef59201722e8f9ce6020c9819fdcfba6aa2608c4e09b1c0ce114e34
+        target_dir: text_encoders
+        precision: bf16
+      - role: vae
+        category: vae
+        url: https://huggingface.co/Comfy-Org/Krea-2/resolve/8038ce89b91b042141541ad0fa51b985ca262c5f/vae/qwen_image_vae.safetensors
+        filename: qwen_image_vae.safetensors
+        size_gb: 0.253806246
+        size_bytes: 253806246
+        sha256: a70580f0213e67967ee9c95f05bb400e8fb08307e017a924bf3441223e023d1f
+        target_dir: vae
+        precision: bf16
+
+  - name: krea2-raw-bf16
+    family: Krea 2
+    category: diffusion_models
+    size_gb: 35.412858238
+    size_bytes: 35412858238
+    url: https://huggingface.co/Comfy-Org/Krea-2/resolve/8038ce89b91b042141541ad0fa51b985ca262c5f/diffusion_models/krea2_raw_bf16.safetensors
+    min_vram_gb: 32.0
+    min_ram_gb: 32.0
+    cpu_supported: false
+    requires_custom_node: []
+    popularity: 92
+    notes: Krea 2 RAW BF16 core-node bundle with shared Qwen3-VL encoder and Qwen-Image VAE.
+    precision: bf16
+    variant: RAW
+    license_name: Krea 2 Community License
+    license_url: https://huggingface.co/krea/Krea-2-Turbo/blob/1161245028ef398cd0a951101b2bbf486464f841/LICENSE.pdf
+    license_restrictions:
+      - Enterprise license required at or above $1,000,000 USD ($1M) annual revenue for commercial use.
+      - Reasonable and appropriate content filtering is required for deployments.
+    files:
+      - role: diffusion
+        category: diffusion_models
+        url: https://huggingface.co/Comfy-Org/Krea-2/resolve/8038ce89b91b042141541ad0fa51b985ca262c5f/diffusion_models/krea2_raw_bf16.safetensors
+        filename: krea2_raw_bf16.safetensors
+        size_gb: 26.283332608
+        size_bytes: 26283332608
+        sha256: f99bb0ff8e362b77342bc4994e0c50906fe7ef7074864b181b7d48d2fa6d03d7
+        target_dir: diffusion_models
+        precision: bf16
+        variant: RAW
+      - role: text_encoder
+        category: text_encoders
+        url: https://huggingface.co/Comfy-Org/Krea-2/resolve/8038ce89b91b042141541ad0fa51b985ca262c5f/text_encoders/qwen3vl_4b_bf16.safetensors
+        filename: qwen3vl_4b_bf16.safetensors
+        size_gb: 8.875719384
+        size_bytes: 8875719384
+        sha256: 36f3ff447ef59201722e8f9ce6020c9819fdcfba6aa2608c4e09b1c0ce114e34
+        target_dir: text_encoders
+        precision: bf16
+      - role: vae
+        category: vae
+        url: https://huggingface.co/Comfy-Org/Krea-2/resolve/8038ce89b91b042141541ad0fa51b985ca262c5f/vae/qwen_image_vae.safetensors
+        filename: qwen_image_vae.safetensors
+        size_gb: 0.253806246
+        size_bytes: 253806246
+        sha256: a70580f0213e67967ee9c95f05bb400e8fb08307e017a924bf3441223e023d1f
+        target_dir: vae
+        precision: bf16
