@@ -38,19 +38,25 @@ Kong exposes the main local entrypoint and generated service aliases. Direct por
 
 The root dashboard is the preferred entrypoint for humans. Direct service ports are still documented because they matter for smoke tests, local development, and troubleshooting.
 
-## 6. Hosted Media Gateway
+## 6. User Overlays
+
+Atlas starts from `.env.example`, writes or preserves the active `.env`, then merges user-owned overlays before backfilling missing keys and applying CLI flags. The sibling `.env.user` file is useful for local checkout-owned values. `ATLAS_ENV_USER_FILE` points at a parent-owned overlay outside the Atlas checkout and is the preferred submodule-consumer pattern.
+
+Overlay precedence is `.env.example` baseline, generated or existing `.env`, sibling `.env.user`, `ATLAS_ENV_USER_FILE`, then explicit flags such as `--project` and `--<svc>-source`. Both overlays are merged on every start, including `--cold`. Relative `ATLAS_ENV_USER_FILE` values resolve against the directory that invoked `start.sh`.
+
+## 7. Hosted Media Gateway
 
 The backend exposes `POST /media/generate` and `GET /media/operations/{operation_id}` as the provider-neutral hosted media surface. Requests dispatch by `provider`, `modality`, and `model`; the initial registry supports `provider=fal` with `modality=image`.
 
 Provider API keys stay in the backend environment, and responses normalize status, artifacts, cost, license, and provenance for downstream consumers.
 
-## 7. Adaptive Services
+## 8. Adaptive Services
 
 Backend and Open WebUI adapt to whichever upstream services are enabled. This keeps the stack useful when a user chooses a smaller track or disables optional services.
 
 Adaptive behavior prevents broken integrations from appearing when their upstream service is disabled.
 
-## 8. Generated Documentation
+## 9. Generated Documentation
 
 Service READMEs remain the service-owned source of truth. The `.io` site and wiki are generated publishing layers that keep navigation, tables, and references synchronized.
 
