@@ -56,25 +56,31 @@ The backend exposes `POST /api/chunk` as the shared Chonkie-powered text-splitti
 
 JupyterHub also installs Chonkie for exploratory notebook work, including `13_chonkie_chunking.ipynb`. Production workflows should still call the Backend endpoint instead of each service adding its own Chonkie dependency.
 
-## 9. Adaptive Services
+## 9. RAG Evaluation Gateway
+
+The backend exposes `POST /api/rag/evaluate` as the shared Ragas-powered quality-evaluation surface for supplied RAG question, answer, context, and optional reference records. The endpoint supports faithfulness, answer relevancy, context precision, and context recall metrics while routing evaluator calls through Atlas LiteLLM configuration.
+
+JupyterHub also installs Ragas for exploratory evaluation work, including `14_ragas_evaluation.ipynb`. Production workflows should call the Backend endpoint so n8n, notebooks, and future ingestion jobs share one metric contract without each service carrying its own evaluator package.
+
+## 10. Adaptive Services
 
 Backend and Open WebUI adapt to whichever upstream services are enabled. This keeps the stack useful when a user chooses a smaller track or disables optional services.
 
 Adaptive behavior prevents broken integrations from appearing when their upstream service is disabled.
 
-## 10. Generated Documentation
+## 11. Generated Documentation
 
 Service READMEs remain the service-owned source of truth. The `.io` site and wiki are generated publishing layers that keep navigation, tables, and references synchronized.
 
 The docs generator reads the same model used by tests, so docs drift becomes visible before merge.
 
-## 11. Init Companions
+## 12. Init Companions
 
 Some services use init containers or first-run scaffolding for schema setup, bucket creation, workflow import, model pulls, or catalog bootstrapping.
 
 Init companions should be documented with the service they prepare and represented in dependency/topology notes when they affect startup order.
 
-## 12. Service Categories
+## 13. Service Categories
 
 Service categories describe the role of the service family in Atlas. They also influence wizard grouping, generated references, and visual grouping in the docs.
 

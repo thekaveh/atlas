@@ -59,6 +59,7 @@ JUPYTERHUB_TOKEN=               # Optional: authentication token
 - `transformers` - Hugging Face transformers
 - `sentence-transformers` - Sentence embeddings
 - `chonkie` - RAG text chunking experiments aligned with the Backend `/api/chunk` runtime API
+- `ragas` - RAG quality evaluation experiments aligned with the Backend `/api/rag/evaluate` runtime API
 
 ### Database Clients
 - `weaviate-client` - Weaviate vector database
@@ -99,6 +100,7 @@ JUPYTERHUB_TOKEN=               # Optional: authentication token
 | `11_financial_research_kit.ipynb` | Read-only OpenBB/CCXT research and paper portfolios |
 | `12_iceberg_advanced_sql.ipynb` | Advanced Iceberg SQL smoke through Spark Connect |
 | `13_chonkie_chunking.ipynb` | Chonkie token, recursive, optional semantic chunking, and Backend `/api/chunk` calls |
+| `14_ragas_evaluation.ipynb` | Ragas faithfulness, answer relevancy, context metrics, and Backend `/api/rag/evaluate` calls |
 
 ## Service Integration
 
