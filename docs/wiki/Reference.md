@@ -167,7 +167,8 @@ point at http://kong-api-gateway:8000.
 | COMFYUI_BASE_URL | comfyui | http://comfyui:18188 | In-container default. Runtime value is COMFYUI_ENDPOINT computed by hook. |
 | COMFYUI_KONG_URL | comfyui | http://kong-api-gateway:8000/comfyui | - |
 | COMFYUI_ARGS | comfyui | --listen | - |
-| COMFYUI_AUTO_UPDATE | comfyui | False | - |
+| COMFYUI_AUTO_UPDATE | comfyui | True | AI-Dock startup update flag. Atlas keeps this true so COMFYUI_REF pins the upstream ComfyUI core even when the base image tag lags. |
+| COMFYUI_REF | comfyui | v0.9.2 | Pinned upstream ComfyUI git ref passed to AI-Dock. Use a release tag or full commit SHA when deliberately changing the ComfyUI core. |
 | COMFYUI_PLATFORM | comfyui | linux/amd64 | - |
 | COMFYUI_UPLOAD_TO_SUPABASE | comfyui | True | - |
 | COMFYUI_STORAGE_BUCKET | comfyui | comfyui-images | - |
@@ -175,6 +176,7 @@ point at http://kong-api-gateway:8000.
 | COMFYUI_LOCAL_MODELS_PATH | comfyui | ~/Documents/ComfyUI/models | - |
 | COMFYUI_USER_MODELS | comfyui |  | Comma-separated catalog model names the user picked in the wizard (or via --comfyui-models). Read by services/comfyui/init/scripts/download_models.sh. |
 | COMFYUI_CUSTOM_MODELS_FILE | comfyui | /custom-models.yaml | Path to the ComfyUI custom-models sidecar YAML (user-authored models not in the curated catalog). Read by comfyui_resolver when generating the download manifest, and by the wizard's model picker. |
+| COMFYUI_CUSTOM_NODES_FILE | comfyui | /custom-nodes.yaml | Path to the pinned ComfyUI custom-node allowlist. The bootstrapper maps selected models' requires_custom_node values through this file before writing active-custom-nodes.tsv. |
 | COMFYUI_INIT_SCALE | comfyui |  | - |
 | COMFYUI_SCALE | comfyui |  | - |
 | COMFYUI_ENDPOINT | comfyui |  | Resolved per COMFYUI_SOURCE. Consumed by backend, open-webui, n8n, jupyterhub, and downstream overlays. Consumer pattern: MY_URL: ${MY_URL:-${COMFYUI_ENDPOINT:-http://comfyui:18188}} |
