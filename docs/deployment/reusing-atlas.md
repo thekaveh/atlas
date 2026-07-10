@@ -127,7 +127,8 @@ Pin the submodule to a release **tag** rather than tracking `main`, so infra upg
 | Knob | What it does | Where |
 |------|--------------|-------|
 | **`PROJECT_NAME`** | The Docker Compose project name — prefixes every container, volume, and the network (`${PROJECT_NAME}-network`), and is the `docker compose -p` namespace. **Both `./start.sh` and `./stop.sh` read it**, so stop tears down exactly what start launched. The key to isolation between stacks. Override per-run with `./start.sh --project <name>` / `-p` (persists back to `.env`); the wizard also prompts for it. | `.env` / `-p` |
-| **`.env.user`** | Optional user-owned overlay beside the active `.env`. On a missing-env or cold-start reset, Atlas copies `.env.example`, merges `.env.user` values into `.env`, then applies `--project` last. Use it for downstream-only keys that must survive `.env` regeneration without adding them to upstream `.env.example`. | `.env.user` |
+| **`.env.user`** | Optional user-owned overlay beside the active `.env`. On every start, Atlas merges `.env.user` values into `.env` before backfill and CLI flags. Use it for local downstream-only keys that must survive `.env` regeneration without adding them to upstream `.env.example`. | `.env.user` |
+| **`ATLAS_ENV_USER_FILE`** | Optional external user-owned overlay. Use this when Atlas is a submodule and the persistent project config should live in the parent repo instead of inside the Atlas checkout. The external file is applied after sibling `.env.user`, so it wins on duplicate keys; `--project` and other CLI flags still win last. | shell env var |
 | **`BASE_PORT`** | Moves the entire host-published port block (default `63000`). `./start.sh --base-port 64000`. Does not affect in-network addresses. | `.env` / flag |
 | **`BRAND_*`** | Rebrands the wizard/banner (name, tagline, author, repo URL, license) — make Atlas present as your platform. | `.env` (`BRAND_*` block) |
 | **`*_SOURCE`** | Enable/disable each service or pick its backend (`container` / `container-gpu` / `localhost` / `disabled`). LLMs use `ollama-container-*` / `ollama-localhost` / `none`; cloud providers toggle via the separate `CLOUD_*_SOURCE` vars. Disable what your showcase doesn't use. | `.env` / `--<svc>-source` |
@@ -138,7 +139,23 @@ Pin the submodule to a release **tag** rather than tracking `main`, so infra upg
 
 Full source/customization matrix: [source-configuration.md](source-configuration.md).
 
-`.env.user` uses normal `.env` syntax (`KEY=value`, quoted values, and whitespace-prefixed inline comments). The merge order is deterministic: `.env.example` baseline → `.env.user` overlay → explicit CLI flags such as `--project` or `--<svc>-source`. If `.env.user` is absent, cold start preserves the previous valid `PROJECT_NAME` so a later `./stop.sh` still targets the same stack namespace.
+User overlays use normal `.env` syntax (`KEY=value`, quoted values, and whitespace-prefixed inline comments). The merge order is deterministic: `.env.example` baseline → generated or existing `.env` → sibling `.env.user` → `ATLAS_ENV_USER_FILE` → explicit CLI flags such as `--project` or `--<svc>-source`. Both overlays are merged on every start, including `--cold`, before missing keys are backfilled from `.env.example`.
+
+Use `ATLAS_ENV_USER_FILE` for parent-owned config that should be tracked or templated by the consuming project:
+
+```bash
+# In the parent project
+cat > atlas.env.user <<'EOF'
+PROJECT_NAME=myshowcase
+BRAND_NAME=My Showcase
+OLLAMA_CUSTOM_MODELS=llama3.1:8b
+WEAVIATE_MEMORY_LIMIT=2g
+EOF
+
+ATLAS_ENV_USER_FILE="$PWD/atlas.env.user" ./infra/start.sh
+```
+
+Absolute paths are safest in CI and wrapper scripts. Relative `ATLAS_ENV_USER_FILE` values are resolved against the directory that invoked `start.sh`; direct Python invocations resolve them against the Python process working directory. If the file is missing or unreadable, Atlas prints a warning and continues without applying that overlay. If no overlay provides `PROJECT_NAME`, cold start preserves the previous valid value so a later `./stop.sh` still targets the same stack namespace.
 
 ### 6.1 Extending the stack via `services/_user/`
 

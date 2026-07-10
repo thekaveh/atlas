@@ -133,7 +133,20 @@ infra/data/
 !infra/.env.example
 ```
 
-Use `infra/.env.user` for downstream-only environment keys that should survive an Atlas cold-start `.env` regeneration without being added to upstream `.env.example`. During setup, Atlas copies `.env.example`, merges `.env.user`, and then applies explicit CLI flags such as `--project` last.
+Use either `infra/.env.user` or a parent-owned external overlay for downstream-only environment keys that should survive Atlas `.env` regeneration without being added to upstream `.env.example`. The external overlay is usually better for submodule consumers because it lives in the parent repository and can be committed or templated there:
+
+```bash
+# myproject/atlas.env.user
+PROJECT_NAME=myproject
+BRAND_NAME=My Project
+OLLAMA_CUSTOM_MODELS=llama3.1:8b
+WEAVIATE_MEMORY_LIMIT=2g
+
+# From myproject/
+ATLAS_ENV_USER_FILE="$PWD/atlas.env.user" ./infra/start.sh
+```
+
+During setup, Atlas copies `.env.example` when needed, merges sibling `infra/.env.user`, then merges `ATLAS_ENV_USER_FILE`, and then applies explicit CLI flags such as `--project` last. Both overlays are applied on every start, including `--cold`, before Atlas backfills missing keys from `.env.example`. If `ATLAS_ENV_USER_FILE` is relative, `start.sh` resolves it against the parent directory that invoked the wrapper; direct Python invocations resolve it against their current working directory. Missing or unreadable external overlay files produce a warning rather than aborting startup.
 
 Use `infra/services/supabase/db/_user/` for downstream-owned Supabase SQL that should run after Atlas-owned database initialization. Files are executed by `supabase-db-init` in lexical order after `infra/services/supabase/db/scripts/*.sql`; write them idempotently because the same database volume may be reused across starts. The parent `.gitignore` entry above keeps local SQL from making the Atlas submodule look dirty unless your project intentionally versions those migrations through its own overlay strategy.
 
