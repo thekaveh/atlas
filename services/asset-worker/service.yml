@@ -1,0 +1,101 @@
+# services/asset-worker/service.yml — glTF post-processing worker
+name: asset-worker
+label: "Asset Worker (glTF post-processing)"
+category: media
+docs: services/asset-worker/README.md
+
+containers:
+  - asset-worker
+
+images:
+  - var: ASSET_WORKER_IMAGE
+    default: "python:3.12.9-slim"
+    container: asset-worker
+
+sources:
+  var: ASSET_WORKER_SOURCE
+  default: disabled
+  options:
+    - id: container
+      label: "Container"
+    - id: disabled
+      label: "Disabled"
+
+env:
+  - name: ASSET_WORKER_SOURCE
+    default: disabled
+    description: "Deployment mode for the glTF post-processing worker."
+  - name: ASSET_WORKER_PORT
+    description: "Host port for the asset-worker API (in-container listen port is 8095)."
+  - name: ASSET_WORKER_SCALE
+    auto_managed: true
+  - name: ASSET_WORKER_ENDPOINT
+    auto_managed: true
+    description: "In-network URL for the asset-worker API."
+  - name: ASSET_WORKER_GLTF_TRANSFORM_VERSION
+    default: "4.4.1"
+    description: "Pinned @gltf-transform/cli version installed in the asset-worker image."
+  - name: ASSET_WORKER_ARTIFACT_DIR
+    default: "/data/artifacts"
+    description: "Local artifact cache used when MinIO upload is disabled or for direct downloads."
+  - name: ASSET_WORKER_MINIO_ENABLED
+    default: true
+    description: "When true, optimized GLBs are written to MinIO using content-addressed keys."
+  - name: ASSET_WORKER_MINIO_BUCKET
+    default: asset-worker
+    description: "MinIO bucket for optimized GLB outputs."
+  - name: ASSET_WORKER_MINIO_ENDPOINT
+    auto_managed: true
+    description: "In-network MinIO S3 API endpoint used by the worker."
+  - name: ASSET_WORKER_MINIO_ACCESS_KEY
+    default: ""
+    secret: true
+    description: "Optional MinIO access key override. Empty uses MINIO_ROOT_USER in compose."
+  - name: ASSET_WORKER_MINIO_SECRET_KEY
+    default: ""
+    secret: true
+    description: "Optional MinIO secret key override. Empty uses MINIO_ROOT_PASSWORD in compose."
+
+depends_on:
+  required:
+    - minio
+  optional:
+    - backend
+    - comfyui
+    - fal
+    - blender-mcp
+
+rows:
+  - display_name: "Asset Worker"
+    source_var: ASSET_WORKER_SOURCE
+    port_var: ASSET_WORKER_PORT
+    scale_var: ASSET_WORKER_SCALE
+    alias: asset-worker.localhost
+    description: "glTF post-processing API for upright, normalized, optimized GLB assets."
+
+exports:
+  - name: ASSET_WORKER_ENDPOINT
+    consumers:
+      - backend
+      - comfyui
+
+runtime_sc:
+  asset-worker:
+    container:
+      scale: 1
+      environment:
+        ASSET_WORKER_ENDPOINT: http://asset-worker:8095
+        ASSET_WORKER_MINIO_ENDPOINT: http://minio:9000
+      deploy: {}
+      extra_hosts: []
+    disabled:
+      scale: 0
+      environment:
+        ASSET_WORKER_ENDPOINT: ''
+        ASSET_WORKER_MINIO_ENDPOINT: ''
+      deploy: {}
+      extra_hosts: []
+
+data_flow:
+  calls:
+    - minio

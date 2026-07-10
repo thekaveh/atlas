@@ -440,7 +440,7 @@ class KongConfigGenerator:
                 "docling.localhost", "docling-api",
                 "DOC_PROCESSOR_SOURCE",
                 lambda _src: "http://docling-gpu:8000/",
-                lambda _src: self._localhost_url("DOCLING_LOCALHOST_PORT", "63059"),
+                lambda _src: self._localhost_url("DOCLING_LOCALHOST_PORT", "18159"),
             ),
             (
                 "research.localhost", "research-api",

@@ -36,6 +36,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 EXPECTED_DISCOVERED = frozenset({
     "LLM Engine",
     "ComfyUI",
+    "Asset Worker",
     "Document Processor",
     "MinIO Console",
     "n8n",
@@ -267,6 +268,7 @@ def test_source_mapping_includes_app_service_flags() -> None:
         "mlflow_source",
         "supavisor_source",
         "tika_source",
+        "asset_worker_source",
         "fal_source",
     ):
         assert cli_key in mgr.source_mapping, (

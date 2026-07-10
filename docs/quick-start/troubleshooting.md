@@ -135,7 +135,7 @@ docker logs ${PROJECT_NAME}-comfyui -f
 ./start.sh --setup-hosts
 
 # Access via direct URL
-curl http://localhost:63052  # Direct port access (COMFYUI_PORT)
+curl http://localhost:63053  # Direct port access (COMFYUI_PORT)
 ```
 
 ### 4.3 n8n Issues

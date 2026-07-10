@@ -29,10 +29,10 @@ services:
     volumes:
       - stt-provider-gpu-cache:/root/.cache/huggingface
     ports:
-      # Default must match topology's STT_PROVIDER_PORT default (63053) and
+      # Default must match topology's STT_PROVIDER_PORT default (63054) and
       # the value in .env.example. Stale 10300 fallback would only have bit
       # users who hand-removed STT_PROVIDER_PORT from .env.
-      - "${HOST_BIND_IP:-}${STT_PROVIDER_PORT:-63053}:8000"
+      - "${HOST_BIND_IP:-}${STT_PROVIDER_PORT:-63054}:8000"
     networks:
       - backend-network
     healthcheck:
