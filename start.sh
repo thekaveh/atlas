@@ -26,6 +26,14 @@ if [ "$(id -u)" -eq 0 ]; then
     exit 2
 fi
 
+# Capture the caller's directory before entering the Atlas checkout. Python
+# uses this to resolve relative ATLAS_ENV_USER_FILE values for parent-owned
+# consumer overlays.
+if [ -z "${ATLAS_INVOKER_CWD:-}" ]; then
+    ATLAS_INVOKER_CWD="${PWD}"
+    export ATLAS_INVOKER_CWD
+fi
+
 # Change to the script directory
 cd "$(dirname "$0")" || { echo "start.sh: failed to enter script directory" >&2; exit 1; }
 

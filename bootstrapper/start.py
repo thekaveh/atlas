@@ -443,6 +443,19 @@ class AtlasStarter:
         """Return the optional user-owned env overlay next to the active .env."""
         return self.config_parser.env_file_path.parent / ".env.user"
 
+    def _external_env_user_overlay_path(self) -> Optional[Path]:
+        """Return the optional external env overlay from ATLAS_ENV_USER_FILE."""
+        raw_path = os.environ.get("ATLAS_ENV_USER_FILE", "").strip()
+        if not raw_path:
+            return None
+
+        overlay_path = Path(raw_path).expanduser()
+        if not overlay_path.is_absolute():
+            invoker_cwd = os.environ.get("ATLAS_INVOKER_CWD", "").strip()
+            base_dir = Path(invoker_cwd).expanduser() if invoker_cwd else Path.cwd()
+            overlay_path = base_dir / overlay_path
+        return overlay_path.resolve()
+
     def _parse_env_overlay_file(self, overlay_path: Path) -> Dict[str, str]:
         """Parse a user env overlay with the same line semantics as .env."""
         env_vars: Dict[str, str] = {}
@@ -470,13 +483,36 @@ class AtlasStarter:
                 env_vars[key.strip()] = value
         return env_vars
 
-    def _apply_env_user_overlay(self) -> Dict[str, str]:
-        """Merge optional .env.user overrides into the active .env file."""
-        overlay_path = self._env_user_overlay_path()
+    def _apply_single_env_user_overlay(
+        self,
+        overlay_path: Path,
+        *,
+        label: str,
+        warn_if_missing: bool,
+    ) -> Dict[str, str]:
         if not overlay_path.exists():
+            if warn_if_missing:
+                self.banner.show_status_message(
+                    f"{label} points to {overlay_path}, but that file does not exist; skipping",
+                    "warning",
+                )
+            return {}
+        if not overlay_path.is_file():
+            self.banner.show_status_message(
+                f"{label} points to {overlay_path}, but it is not a file; skipping",
+                "warning",
+            )
             return {}
 
-        overrides = self._parse_env_overlay_file(overlay_path)
+        try:
+            overrides = self._parse_env_overlay_file(overlay_path)
+        except OSError as e:
+            self.banner.show_status_message(
+                f"{label} points to {overlay_path}, but it could not be read ({e}); skipping",
+                "warning",
+            )
+            return {}
+
         if not overrides:
             self.banner.show_status_message(f"  • {overlay_path} has no env overrides", "info")
             return {}
@@ -487,6 +523,32 @@ class AtlasStarter:
             "info",
         )
         return overrides
+
+    def _apply_env_user_overlay(self) -> Dict[str, str]:
+        """Merge optional user-owned env overlays into the active .env file.
+
+        Precedence is deterministic: the sibling .env.user is applied first,
+        then ATLAS_ENV_USER_FILE is applied last when set.
+        """
+        applied_overrides: Dict[str, str] = {}
+
+        sibling_overrides = self._apply_single_env_user_overlay(
+            self._env_user_overlay_path(),
+            label=".env.user",
+            warn_if_missing=False,
+        )
+        applied_overrides.update(sibling_overrides)
+
+        external_overlay_path = self._external_env_user_overlay_path()
+        if external_overlay_path is not None:
+            external_overrides = self._apply_single_env_user_overlay(
+                external_overlay_path,
+                label="ATLAS_ENV_USER_FILE",
+                warn_if_missing=True,
+            )
+            applied_overrides.update(external_overrides)
+
+        return applied_overrides
 
     def _merge_env_file_overrides(self, overrides: Dict[str, str]) -> None:
         """Replace or append env keys without duplicate-key ambiguity."""
@@ -619,7 +681,12 @@ class AtlasStarter:
                 self.banner.show_status_message(f"Failed to create .env file: {e}", "error")
                 return False
 
-        return self._persist_project_name(project_name)  # .env already exists and not cold start
+        overlay_overrides = self._apply_env_user_overlay()
+        if not self._persist_project_name(project_name):  # .env already exists and not cold start
+            return False
+        if project_name is None and overlay_overrides:
+            return self.validate_persisted_project_name()
+        return True
 
     def backfill_missing_env_vars(self) -> bool:
         """Append variables present in ``.env.example`` but missing from

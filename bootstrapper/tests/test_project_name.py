@@ -206,6 +206,163 @@ def test_cold_start_project_flag_overrides_env_user_project_name(tmp_path, monke
     assert starter.config_parser.parse_env_file()["PROJECT_NAME"] == "clishowcase"
 
 
+def test_existing_env_applies_external_env_user_file_on_every_start(tmp_path, monkeypatch):
+    import start as start_module
+
+    env_dir = tmp_path / "atlas"
+    consumer_dir = tmp_path / "consumer"
+    env_dir.mkdir()
+    consumer_dir.mkdir()
+    env = env_dir / ".env"
+    example = env_dir / ".env.example"
+    external_overlay = consumer_dir / "atlas.env.user"
+    env.write_text(
+        "PROJECT_NAME=myshowcase\n"
+        "DOWNSTREAM_ONLY=old-value\n",
+        encoding="utf-8",
+    )
+    example.write_text("PROJECT_NAME=atlas\n", encoding="utf-8")
+    external_overlay.write_text(
+        "DOWNSTREAM_ONLY=external-value\n"
+        "EXTERNAL_ONLY=enabled\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("ATLAS_ENV_FILE", str(env))
+    monkeypatch.setenv("ATLAS_ENV_USER_FILE", str(external_overlay))
+
+    starter = start_module.AtlasStarter()
+    starter.config_parser.env_file_path = env
+    starter.config_parser.env_example_path = example
+
+    assert starter.setup_env_file(cold_start=False) is True
+
+    parsed = starter.config_parser.parse_env_file()
+    assert parsed["PROJECT_NAME"] == "myshowcase"
+    assert parsed["DOWNSTREAM_ONLY"] == "external-value"
+    assert parsed["EXTERNAL_ONLY"] == "enabled"
+
+
+def test_cold_start_applies_external_env_user_file_after_sibling_overlay(tmp_path, monkeypatch):
+    import start as start_module
+
+    env_dir = tmp_path / "atlas"
+    consumer_dir = tmp_path / "consumer"
+    env_dir.mkdir()
+    consumer_dir.mkdir()
+    env = env_dir / ".env"
+    example = env_dir / ".env.example"
+    sibling_overlay = env_dir / ".env.user"
+    external_overlay = consumer_dir / "atlas.env.user"
+    env.write_text("PROJECT_NAME=oldshowcase\n", encoding="utf-8")
+    example.write_text(
+        "PROJECT_NAME=atlas\n"
+        "BASE_PORT=63000\n"
+        "DOWNSTREAM_ONLY=example-value\n",
+        encoding="utf-8",
+    )
+    sibling_overlay.write_text(
+        "PROJECT_NAME=siblingshowcase\n"
+        "DOWNSTREAM_ONLY=sibling-value\n"
+        "SIBLING_ONLY=kept\n",
+        encoding="utf-8",
+    )
+    external_overlay.write_text(
+        "PROJECT_NAME=externalshowcase\n"
+        "DOWNSTREAM_ONLY=external-value\n"
+        "EXTERNAL_ONLY=enabled\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("ATLAS_ENV_FILE", str(env))
+    monkeypatch.setenv("ATLAS_ENV_USER_FILE", str(external_overlay))
+
+    starter = start_module.AtlasStarter()
+    starter.config_parser.env_file_path = env
+    starter.config_parser.env_example_path = example
+
+    assert starter.setup_env_file(cold_start=True) is True
+
+    parsed = starter.config_parser.parse_env_file()
+    assert parsed["BASE_PORT"] == "63000"
+    assert parsed["PROJECT_NAME"] == "externalshowcase"
+    assert parsed["DOWNSTREAM_ONLY"] == "external-value"
+    assert parsed["SIBLING_ONLY"] == "kept"
+    assert parsed["EXTERNAL_ONLY"] == "enabled"
+
+
+def test_cold_start_project_flag_overrides_external_env_user_project_name(tmp_path, monkeypatch):
+    import start as start_module
+
+    env = tmp_path / ".env"
+    example = tmp_path / ".env.example"
+    external_overlay = tmp_path / "consumer.env"
+    env.write_text("PROJECT_NAME=oldshowcase\n", encoding="utf-8")
+    example.write_text("PROJECT_NAME=atlas\n", encoding="utf-8")
+    external_overlay.write_text("PROJECT_NAME=externalshowcase\n", encoding="utf-8")
+    monkeypatch.setenv("ATLAS_ENV_FILE", str(env))
+    monkeypatch.setenv("ATLAS_ENV_USER_FILE", str(external_overlay))
+
+    starter = start_module.AtlasStarter()
+    starter.config_parser.env_file_path = env
+    starter.config_parser.env_example_path = example
+
+    assert starter.setup_env_file(cold_start=True, project_name="clishowcase") is True
+
+    assert starter.config_parser.parse_env_file()["PROJECT_NAME"] == "clishowcase"
+
+
+def test_relative_external_env_user_file_resolves_against_invoker_cwd(tmp_path, monkeypatch):
+    import start as start_module
+
+    env_dir = tmp_path / "atlas"
+    consumer_dir = tmp_path / "consumer"
+    env_dir.mkdir()
+    consumer_dir.mkdir()
+    env = env_dir / ".env"
+    example = env_dir / ".env.example"
+    external_overlay = consumer_dir / "atlas.env.user"
+    env.write_text("PROJECT_NAME=myshowcase\n", encoding="utf-8")
+    example.write_text("PROJECT_NAME=atlas\n", encoding="utf-8")
+    external_overlay.write_text("DOWNSTREAM_ONLY=relative-value\n", encoding="utf-8")
+    monkeypatch.setenv("ATLAS_ENV_FILE", str(env))
+    monkeypatch.setenv("ATLAS_ENV_USER_FILE", "atlas.env.user")
+    monkeypatch.setenv("ATLAS_INVOKER_CWD", str(consumer_dir))
+
+    starter = start_module.AtlasStarter()
+    starter.config_parser.env_file_path = env
+    starter.config_parser.env_example_path = example
+
+    assert starter.setup_env_file(cold_start=False) is True
+
+    assert starter.config_parser.parse_env_file()["DOWNSTREAM_ONLY"] == "relative-value"
+
+
+def test_missing_external_env_user_file_warns_without_crashing(tmp_path, monkeypatch):
+    import start as start_module
+
+    env = tmp_path / ".env"
+    example = tmp_path / ".env.example"
+    missing_overlay = tmp_path / "missing.env.user"
+    env.write_text("PROJECT_NAME=myshowcase\n", encoding="utf-8")
+    example.write_text("PROJECT_NAME=atlas\n", encoding="utf-8")
+    monkeypatch.setenv("ATLAS_ENV_FILE", str(env))
+    monkeypatch.setenv("ATLAS_ENV_USER_FILE", str(missing_overlay))
+
+    starter = start_module.AtlasStarter()
+    starter.config_parser.env_file_path = env
+    starter.config_parser.env_example_path = example
+    messages = []
+    monkeypatch.setattr(
+        starter.banner,
+        "show_status_message",
+        lambda message, status="info": messages.append((message, status)),
+    )
+
+    assert starter.setup_env_file(cold_start=False) is True
+
+    assert starter.config_parser.parse_env_file() == {"PROJECT_NAME": "myshowcase"}
+    assert any(status == "warning" and "ATLAS_ENV_USER_FILE" in message for message, status in messages)
+
+
 # ── stop.py override ─────────────────────────────────────────────────────────
 
 def test_stop_show_configuration_info_honors_override(tmp_path, monkeypatch):

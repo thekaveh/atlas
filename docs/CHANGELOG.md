@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — 2026-07-10 — External consumer env overlay
+
+- **External env overlay for submodule consumers (#396)** — `ATLAS_ENV_USER_FILE` now points Atlas at a parent-owned `.env` overlay outside the checkout. Atlas applies sibling `.env.user` first, then the external overlay, then CLI flags, on every start including `--cold`; missing or unreadable external files warn and continue so wrapper scripts can fail gracefully.
+
 ### Added — 2026-07-09 — Asset worker glTF post-processing service
 
 - **Asset worker glTF/GLB post-processing (#343)** — new disabled-by-default `asset-worker` media service for upload- or MinIO-reference-based model post-processing. The service normalizes uploaded assets upright to the ground plane, scales by requested height or width target, runs the pinned glTF-Transform CLI with Draco/Meshopt/texture options, persists artifacts to MinIO when configured, and exposes deterministic SHA256 artifact metadata plus a local fallback download route.
