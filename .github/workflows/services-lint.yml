@@ -240,6 +240,7 @@ jobs:
           set -euo pipefail
           for spec in \
             "services/airflow/build|Dockerfile|--build-arg BASE_IMAGE=apache/airflow:3.2.2" \
+            "services/asset-worker/app|Dockerfile|" \
             "services/backend/app|Dockerfile|" \
             "services/iceberg-rest/build|Dockerfile|" \
             "services/jenkins/build|Dockerfile|" \

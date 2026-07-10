@@ -1511,6 +1511,11 @@ class ServiceConfig:
         searxng_source = self.service_sources.get('SEARXNG_SOURCE', 'container')
         searxng_config = self.get_service_config('searxng', searxng_source)
         env_vars['SEARXNG_SCALE'] = str(searxng_config.get('scale', 1))
+
+        # Asset Worker configuration
+        asset_worker_source = self.service_sources.get('ASSET_WORKER_SOURCE', 'disabled')
+        asset_worker_config = self.get_service_config('asset-worker', asset_worker_source)
+        env_vars['ASSET_WORKER_SCALE'] = str(asset_worker_config.get('scale', 0))
         
         # Neo4j configuration
         neo4j_source = self.service_sources.get('NEO4J_GRAPH_DB_SOURCE', 'container')

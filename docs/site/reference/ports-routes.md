@@ -7,6 +7,7 @@ Generated summary of model-backed service port variables and Kong aliases. Use t
 | Service | Category | Port Variables | Kong Aliases | Route Docs |
 | --- | --- | --- | --- | --- |
 | airflow | agents | `AIRFLOW_PORT` | `airflow.localhost` | [Deployment route reference](../../deployment/ports-and-routes.md#2-kong-hostnames) |
+| asset-worker | media | `ASSET_WORKER_PORT` | `asset-worker.localhost` | [Deployment route reference](../../deployment/ports-and-routes.md#2-kong-hostnames) |
 | backend | apps | `BACKEND_PORT` | `api.localhost` | [Deployment route reference](../../deployment/ports-and-routes.md#2-kong-hostnames) |
 | blender-mcp | media | `BLENDER_MCP_LOCALHOST_PORT` | `-` | [Deployment route reference](../../deployment/ports-and-routes.md#2-kong-hostnames) |
 | celery | agents | `FLOWER_PORT` | `flower.localhost` | [Deployment route reference](../../deployment/ports-and-routes.md#2-kong-hostnames) |

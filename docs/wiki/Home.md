@@ -17,9 +17,9 @@ Generated from the MkDocs source model. Do not hand-edit the live wiki; run `uv 
 
 ## 2. What Atlas Covers
 
-- Service families: `56`
+- Service families: `57`
 - Tracks: `7`
-- SOURCE-configurable surfaces: `59`
+- SOURCE-configurable surfaces: `60`
 - Primary entrypoint: Kong and the Atlas root dashboard
 - Runtime model: Docker Compose fragments generated from manifests, topology, tracks, and SOURCE selections
 

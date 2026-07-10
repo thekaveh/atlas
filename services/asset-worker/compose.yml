@@ -1,0 +1,47 @@
+# services/asset-worker/compose.yml — glTF post-processing API
+services:
+  asset-worker:
+    build:
+      context: ./app
+      args:
+        BASE_IMAGE: ${ASSET_WORKER_IMAGE:-python:3.12.9-slim}
+        GLTF_TRANSFORM_VERSION: ${ASSET_WORKER_GLTF_TRANSFORM_VERSION:-4.4.1}
+    image: ${PROJECT_NAME}-asset-worker:local
+    container_name: ${PROJECT_NAME}-asset-worker
+    restart: unless-stopped
+    deploy:
+      replicas: ${ASSET_WORKER_SCALE:-0}
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      PROJECT_NAME: ${PROJECT_NAME}
+      ASSET_WORKER_ARTIFACT_DIR: ${ASSET_WORKER_ARTIFACT_DIR:-/data/artifacts}
+      ASSET_WORKER_MINIO_ENABLED: ${ASSET_WORKER_MINIO_ENABLED:-true}
+      ASSET_WORKER_MINIO_BUCKET: ${ASSET_WORKER_MINIO_BUCKET:-asset-worker}
+      ASSET_WORKER_MINIO_ENDPOINT: ${ASSET_WORKER_MINIO_ENDPOINT:-http://minio:9000}
+      ASSET_WORKER_MINIO_ACCESS_KEY: ${ASSET_WORKER_MINIO_ACCESS_KEY:-${MINIO_ROOT_USER}}
+      ASSET_WORKER_MINIO_SECRET_KEY: ${ASSET_WORKER_MINIO_SECRET_KEY:-${MINIO_ROOT_PASSWORD}}
+      MINIO_REGION: ${MINIO_REGION:-us-east-1}
+    ports:
+      - "${HOST_BIND_IP:-}${ASSET_WORKER_PORT}:8095"
+    volumes:
+      - asset-worker-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8095/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 45s
+    logging:
+      driver: json-file
+      options:
+        max-size: "${LOG_MAX_SIZE:-10m}"
+        max-file: "${LOG_MAX_FILE:-3}"
+    networks:
+      - backend-network
+
+volumes:
+  asset-worker-data:
+    name: ${PROJECT_NAME}-asset-worker-data
+    driver: local

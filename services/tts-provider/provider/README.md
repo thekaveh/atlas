@@ -34,8 +34,8 @@ Speaches (default — already enabled in `.env.example`):
 ./start.sh
 # Speaches is healthy as soon as Uvicorn is up, but has no model yet —
 # download the Kokoro ONNX build first (one-time; persists in speaches-cache):
-curl -X POST http://localhost:63058/v1/models/speaches-ai/Kokoro-82M-v1.0-ONNX
-curl http://localhost:63058/v1/audio/speech \
+curl -X POST http://localhost:63059/v1/models/speaches-ai/Kokoro-82M-v1.0-ONNX
+curl http://localhost:63059/v1/audio/speech \
   -X POST -H "Content-Type: application/json" \
   -d '{"model":"speaches-ai/Kokoro-82M-v1.0-ONNX","input":"hello","voice":"af_heart"}' \
   --output speech.wav
