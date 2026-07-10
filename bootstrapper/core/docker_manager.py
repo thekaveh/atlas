@@ -292,6 +292,29 @@ class DockerManager:
             args.extend(['--wait', '--wait-timeout', str(wait_timeout_seconds)])
             
         return self.execute_compose_command(args)
+
+    def validate_compose_config(self) -> tuple[int, str, str, list[str]]:
+        """Run ``docker compose config -q`` for the assembled Atlas stack.
+
+        The command is built through the same path as start/stream operations,
+        so custom env files, project names, and ``services/_user`` overlays are
+        included exactly as they are for a real launch.
+        """
+        cmd = self._build_compose_command(['config', '-q'])
+        try:
+            result = subprocess.run(
+                cmd,
+                cwd=str(self.root_dir),
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                check=False,
+                encoding="utf-8",
+                errors="replace",
+            )
+            return result.returncode, result.stdout, result.stderr, cmd
+        except Exception as e:
+            return 1, "", f"Error executing docker compose config: {e}", cmd
     
     def remove_project_networks(self, project_name: str) -> bool:
         """
