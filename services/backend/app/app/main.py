@@ -36,6 +36,13 @@ from document_extraction import (
     DocumentTooLargeError,
     ExtractionUnavailableError,
 )
+from chunking_service import (
+    ChunkRequest,
+    ChunkResponse,
+    ChunkingDependencyError,
+    ChunkingError,
+    chunk_text,
+)
 
 
 def _fal_source_enabled() -> bool:
@@ -458,6 +465,23 @@ async def extract_document(file: UploadFile = File(...)):
     except DocumentExtractionError as e:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(e),
+        )
+
+
+@app.post("/api/chunk", response_model=ChunkResponse)
+async def chunk_document_text(request: ChunkRequest):
+    """Chunk text for RAG ingestion using Chonkie-backed strategies."""
+    try:
+        return await asyncio.to_thread(chunk_text, request)
+    except ChunkingDependencyError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(e),
+        )
+    except ChunkingError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         )
 

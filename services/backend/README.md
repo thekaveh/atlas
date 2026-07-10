@@ -6,7 +6,7 @@ The backend is `_SOURCE`-trivial — it has only one variant, `container` — be
 
 ## 1. Overview
 
-Source: `services/backend/app/`. The FastAPI app boots in `app/main.py`, mounts feature routes (`/memory`, `/research`, `/storage`, `/health`, `/workflows`, `/media/*`, `/comfyui/*`, `/api/ray/*`), and reads adaptive env vars at startup. LangMem (LangChain's long-term-memory layer) is bundled in: `LANGMEM_ENABLED=true` by default, with extraction/embedding models resolved from `LITELLM_DEFAULT_MODEL` / `LITELLM_EMBEDDING_MODEL` (set by `litellm-init` from the YAML catalog + env). A small pytest suite lives at `app/app/tests/` (Ray client/routes; run in the required CI job); local iteration is edit-in-place — the compose fragment bind-mounts `./app/app` onto `/app` and `uvicorn[standard] --reload` (via `watchfiles`) hot-reloads on every source edit. Only requirements.txt changes need a `docker compose up --force-recreate backend`.
+Source: `services/backend/app/`. The FastAPI app boots in `app/main.py`, mounts feature routes (`/memory`, `/research`, `/storage`, `/health`, `/workflows`, `/media/*`, `/comfyui/*`, `/api/ray/*`, `/api/chunk`), and reads adaptive env vars at startup. LangMem (LangChain's long-term-memory layer) is bundled in: `LANGMEM_ENABLED=true` by default, with extraction/embedding models resolved from `LITELLM_DEFAULT_MODEL` / `LITELLM_EMBEDDING_MODEL` (set by `litellm-init` from the YAML catalog + env). Chonkie powers `/api/chunk` so n8n, notebooks, and downstream services can request token, recursive, or semantic text chunks through the Backend rather than importing the library independently. A small pytest suite lives at `app/app/tests/` (Ray client/routes and chunking service/API tests; run in the required CI job); local iteration is edit-in-place — the compose fragment bind-mounts `./app/app` onto `/app` and `uvicorn[standard] --reload` (via `watchfiles`) hot-reloads on every source edit. Only requirements.txt changes need a `docker compose up --force-recreate backend`.
 
 ## 2. Access
 
@@ -15,6 +15,7 @@ Source: `services/backend/app/`. The FastAPI app boots in `app/main.py`, mounts 
 | Direct | `http://localhost:${BACKEND_PORT}` (default `63093`) | Always exposed when the container is up. |
 | Kong | `http://api.localhost:${KONG_HTTP_PORT}` | Requires `./start.sh --setup-hosts`. Recommended for browser-side calls; optionally protected by `BACKEND_KONG_AUTH`. |
 | Health | `GET /health` | Returns a minimal `{status, version}` response. |
+| Chunking | `POST /api/chunk` | Chonkie-backed token, recursive, and semantic text splitting for RAG ingestion clients. |
 
 Canonical port table: [Ports and Routes](../../docs/deployment/ports-and-routes.md).
 
@@ -112,6 +113,22 @@ FAL_ENABLE_SAFETY_CHECKER=true
 
 When `FAL_SOURCE=enabled`, `POST /media/generate` accepts a provider-neutral request with `provider`, `modality`, `model`, and `input` fields. The initial registry supports `provider=fal` with `modality=image`; unsupported provider/modality pairs return `400` before any provider client is initialized. `POST /media/generate` returns `202` with an operation id and `GET /media/operations/{operation_id}` polls the provider queue into a normalized response containing status, provider, model, modality, artifacts, cost, license, and provenance. `FAL_API_KEY` remains backend-only and is never returned in API responses. Operation state is process-local in this first pass; restart-durable storage and budget ledgers are tracked separately.
 
+Chonkie chunking surface:
+
+```bash
+CHONKIE_SEMANTIC_EMBEDDING_MODEL=minishlab/potion-base-32M
+```
+
+`POST /api/chunk` accepts `text`, `strategy` (`recursive` by default, plus
+`token` or `semantic`), `chunk_size`, `overlap`, `tokenizer`, and semantic tuning fields.
+Responses include stable character offsets, ordered chunk indexes, optional
+token counts, and metadata that records whether the requested overlap was
+applied by the selected Chonkie strategy. Token chunking honors overlap;
+recursive and semantic chunking report an ignored-overlap reason because the
+current Chonkie APIs do not expose overlap controls for those strategies. The
+semantic strategy uses `CHONKIE_SEMANTIC_EMBEDDING_MODEL` unless service code
+injects a test embedding model.
+
 ## 4. Architecture & wiring
 
 **Request flow (typical Open WebUI ↔ backend ↔ LiteLLM ↔ Ollama):**
@@ -142,6 +159,8 @@ When any optional service is `disabled`, the corresponding backend feature degra
 **Graphiti experiment status:** `GET /memory/graphiti/status` returns the disabled-by-default experiment configuration and namespace pattern without importing `graphiti-core` or writing to Neo4j. Treat it as a readiness/contract endpoint for future backend-only Graphiti work, not as an active memory writer.
 
 **Hosted media gateway:** `POST /media/generate` is the provider-neutral submission surface for hosted creative generation. It dispatches by `provider`, `modality`, and `model`; today the registry includes FAL image generation and returns an operation id without blocking on long-running provider work. `GET /media/operations/{operation_id}` polls provider status and normalizes completed artifacts. The older `POST /comfyui/generate` route remains a compatibility surface for simple image calls and still routes to FAL when `FAL_SOURCE=enabled`; ComfyUI workflow/history/queue/image-file routes remain ComfyUI-specific.
+
+**RAG chunking gateway:** `POST /api/chunk` centralizes Chonkie text splitting in the Backend. n8n workflows, notebooks, and future ingestion routes should call this endpoint so chunking defaults, offsets, overlap behavior, and semantic model selection stay consistent across Atlas. JupyterHub also installs Chonkie for exploratory notebook work, but the Backend endpoint is the canonical runtime API.
 
 ## 5. LightRAG integration
 
