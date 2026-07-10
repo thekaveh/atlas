@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Documentation — 2026-07-10 — Consumer reference layout
 
 - **Parent-repo consumer layout (#421)** — documented the RAG-showcase/DayDreams-style submodule pattern: parent-owned Compose overlays symlinked into `services/_user/`, force-set project SOURCE/branding wrappers, explicit track override behavior, what-lives-where ownership, and a validation checklist for clean consumer repos.
+- **Promotion sync:** `develop` was merge-synced with the current `main` tip before promoting the consumer-layout documentation work, preserving strict-mode branch ordering while keeping the documentation record current.
 
 ### Added — 2026-07-10 — Ragas RAG evaluation surface
 
