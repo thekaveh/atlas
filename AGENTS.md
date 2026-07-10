@@ -28,16 +28,17 @@ For TUI/CLI visual work: after each change, describe exactly what changed visual
 
 ## Git Workflow
 
-`main` is protected — **direct push to main is rejected even for the repo owner** (admin enforcement is on). Every change must land via a pull request with all four `services-lint` CI checks green:
+`main` and `develop` are protected by the `gitflow` ruleset. Direct pushes are rejected even for the repo owner. Every change must land via a pull request with the currently required `services-lint` checks green:
 
 - `Manifest lint + unit tests`
 - `Compose merge + byte-equivalence + source-permutation matrix`
 - `Docs drift + audit scripts`
-- `Build-validation (Dockerfile + requirements.txt installability)`
+
+`Build-validation (Dockerfile + requirements.txt installability)` is temporarily opt-in through the repository Actions variable `ENABLE_BUILD_VALIDATION=true` and is not a required check. Restore it to the `gitflow` ruleset when re-enabling it.
 
 Strict mode is enabled, so the PR branch must be up to date with main before merge becomes available. Conversation-resolution is required.
 
-Integration flow: branch (typically a worktree under `.Codex/worktrees/<name>`) → push the branch → `gh pr create --base main` → wait for the 4 checks → `gh pr merge --squash --delete-branch` (squash preserves the linear history the repo prefers). Never attempt `git push origin main` — GitHub rejects it with `GH006: Protected branch update failed`. Inspect the live rule with `gh api repos/thekaveh/atlas/branches/main/protection`.
+Integration flow: branch (typically a worktree under `.Codex/worktrees/<name>`) → push the branch → `gh pr create --base main` → wait for the required checks → `gh pr merge --squash --delete-branch` (squash preserves the linear history the repo prefers). Never attempt `git push origin main` or `develop`. Inspect the live rule with `gh api repos/thekaveh/atlas/rulesets`.
 
 ## Key Commands
 
