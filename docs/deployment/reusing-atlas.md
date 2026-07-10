@@ -244,6 +244,37 @@ status:
 ./start.sh --no-tui --detach --json
 ```
 
+### 6.1.3 Headless submodule upgrade validation
+
+When a parent repository pins Atlas as an `infra/` submodule, upgrade the pin
+with a headless validation pass before starting the stack. This catches newly
+introduced `.env.example` keys and invalid Compose overlays without entering the
+interactive wizard:
+
+```bash
+git -C infra fetch
+git -C infra checkout <atlas-sha>
+cd infra
+./start.sh env backfill
+./start.sh compose validate
+./start.sh --no-tui --detach
+```
+
+`./start.sh env backfill` is additive and idempotent. It preserves existing
+values, fills blank values only when `.env.example` now provides a non-blank
+default, and prints the keys it added or filled grouped by their source section.
+`./start.sh compose validate` runs the assembled `docker compose config -q`
+path, including every `services/_user/<name>/compose.yml` overlay, and rewrites
+common missing-variable failures into a service and variable summary before
+printing Compose's raw stderr for debugging.
+
+Exit codes:
+
+- `env backfill` exits `0` when the env file is already current or was updated
+  successfully, and `1` if the backfill write fails.
+- `compose validate` exits `0` when Compose accepts the assembled stack, and
+  otherwise exits with Compose's failing status code.
+
 ### 6.2 Adding Supabase SQL via the user migration slot
 
 To layer project-owned database objects onto Atlas's managed Supabase instance,

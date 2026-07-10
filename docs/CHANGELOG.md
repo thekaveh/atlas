@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — 2026-07-10 — Headless consumer validation commands
+
+- **Headless env and compose checks (#397)** — `./start.sh env backfill` now exposes the additive `.env` backfill path without entering the startup flow, and `./start.sh compose validate` runs the assembled Compose config validation including `services/_user` overlays. Both commands are non-interactive and documented for parent-repo submodule upgrade scripts.
+
 ### Added — 2026-07-10 — Non-following start for automation
 
 - **Detached start mode (#398)** — `./start.sh --no-tui --detach` (alias `--no-follow`) now runs the normal linear start pipeline, waits for Compose health gates, prints a final per-service status summary, and exits instead of tailing `docker compose logs -f`. `--json` emits the detached status summary in machine-readable form for parent-repo wrappers and CI.
