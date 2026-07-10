@@ -1044,6 +1044,11 @@ def run_setup_flow(
             profile=profile,
         )
     )
+    from .widgets.info_box import ConsumerSummary as _ConsumerSummary
+    consumer_summaries = [
+        _ConsumerSummary(name=consumer.name)
+        for consumer in state.consumers
+    ]
     brand = BrandInfo(
         name=getattr(state, "brand_name", None) or "Atlas",
         tagline=getattr(state, "tagline", None) or "Self-hosted Engineering Platform",
@@ -1118,6 +1123,7 @@ def run_setup_flow(
                 on_base_port_change=_recompute_ports,
                 resolve_port_for_service=_resolve_port_for_service,
                 cloud_apis=cloud_summaries,
+                consumers=consumer_summaries,
                 prefilled_selections=(_prefilled if _prefilled else None),
                 track_display_name=_track_display_name,
                 no_splash=no_splash,
@@ -1175,6 +1181,11 @@ def run_launch_flow(
             profile=profile,
         )
     )
+    from .widgets.info_box import ConsumerSummary as _ConsumerSummary
+    consumer_summaries = [
+        _ConsumerSummary(name=consumer.name)
+        for consumer in state.consumers
+    ]
     brand = BrandInfo(
         name=getattr(state, "brand_name", None) or "Atlas",
         tagline=getattr(state, "tagline", None) or "Self-hosted Engineering Platform",
@@ -1293,6 +1304,7 @@ def run_launch_flow(
                 on_base_port_change=_recompute_ports,
                 resolve_port_for_service=_resolve_port_for_service,
                 cloud_apis=cloud_summaries,
+                consumers=consumer_summaries,
                 auto_launch=True,
                 prefilled_source_args=dict(source_args),
                 prefilled_stack_options=dict(stack_options,

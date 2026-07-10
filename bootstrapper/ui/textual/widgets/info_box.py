@@ -65,6 +65,12 @@ class CloudApiSummary:
 
 
 @dataclass
+class ConsumerSummary:
+    """One parent-owned consumer manifest shown in the overview footer."""
+    name: str
+
+
+@dataclass
 class BrandInfo:
     # All fields default to empty so that any caller constructing
     # BrandInfo() directly without explicitly providing values gets a
@@ -88,6 +94,7 @@ class InfoBoxState:
     # Cloud LLM provider toggles — rendered in their own sub-block
     # below the service grid, NOT counted as services.
     cloud_apis: list[CloudApiSummary] = field(default_factory=list)
+    consumers: list[ConsumerSummary] = field(default_factory=list)
     # Optional track banner — set when --track was passed or the
     # picker step resolved to a known track.
     track_label: str | None = None
@@ -105,11 +112,13 @@ class InfoBoxFooter(Static):
         self,
         services: list[ServiceSummary] | None = None,
         cloud_apis: list[CloudApiSummary] | None = None,
+        consumers: list[ConsumerSummary] | None = None,
         track_label: str | None = None,
     ) -> None:
         super().__init__(classes="info-footer")
         self._services: list[ServiceSummary] = list(services or [])
         self._cloud_apis: list[CloudApiSummary] = list(cloud_apis or [])
+        self._consumers: list[ConsumerSummary] = list(consumers or [])
         self._track_label: str | None = track_label
 
     def set_services(self, services: Iterable[ServiceSummary]) -> None:
@@ -118,6 +127,10 @@ class InfoBoxFooter(Static):
 
     def set_cloud_apis(self, cloud_apis: Iterable[CloudApiSummary]) -> None:
         self._cloud_apis = list(cloud_apis)
+        self.refresh()
+
+    def set_consumers(self, consumers: Iterable[ConsumerSummary]) -> None:
+        self._consumers = list(consumers)
         self.refresh()
 
     def set_track_label(self, track_label: str | None) -> None:
@@ -180,6 +193,13 @@ class InfoBoxFooter(Static):
                 line.append(f"{cloud_missing} missing key", style=P.WARN)
             line.append("  ·  ", style=P.TEXT_FAINT)
             line.append(f"{cloud_off} off", style=P.TEXT_MUTED)
+        if self._consumers:
+            line.append("    ·    ", style=P.TEXT_FAINT)
+            count = len(self._consumers)
+            line.append(
+                f"{count} {'consumer' if count == 1 else 'consumers'} registered",
+                style=P.ACCENT,
+            )
         out.append(line)
         return out
 
@@ -319,7 +339,7 @@ class InfoPanel(Container):
         self._body_widgets = list(body_widgets or [])
         self._body = Container(*self._body_widgets, classes="info-body")
         self._footer = InfoBoxFooter(
-            self.state.services, self.state.cloud_apis,
+            self.state.services, self.state.cloud_apis, self.state.consumers,
             track_label=self.state.track_label,
         )
         self._title = title
@@ -338,6 +358,7 @@ class InfoPanel(Container):
         self.state = state
         self._footer.set_services(state.services)
         self._footer.set_cloud_apis(state.cloud_apis)
+        self._footer.set_consumers(state.consumers)
         self._footer.set_track_label(state.track_label)
         # Propagate to any CloudApisRow in the body so the visible row
         # tracks the footer count. Without this, a caller passing a

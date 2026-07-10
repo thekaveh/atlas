@@ -4,10 +4,13 @@
 
 ```bash
 ./start.sh
+./start.sh --consumer ./atlas.consumer.yml
 ./start.sh env backfill
 ./start.sh compose validate
+./start.sh --consumer ./atlas.consumer.yml compose validate
 ./start.sh doctor
 ./start.sh doctor --format json
+./start.sh --consumer ./atlas.consumer.yml doctor --format json
 ./start.sh --no-tui --detach
 ./start.sh --no-tui --detach --json
 ./stop.sh
@@ -28,18 +31,21 @@ wrappers.
 Use `./start.sh env backfill` after updating an Atlas submodule pin. It
 preserves existing values, appends newly introduced `.env.example` keys, fills
 blank values only when the new example carries a non-blank default, and reports
-the affected keys by source section. Then run `./start.sh compose validate` to
-validate the assembled stack, including `services/_user/<name>/compose.yml`
-overlays. Exit code `0` means the env backfill or Compose validation succeeded;
-`compose validate` returns Compose's failing status code when validation fails.
+the affected keys by source section. Then run `./start.sh --consumer
+./atlas.consumer.yml compose validate` to validate the assembled stack,
+including manifest-declared external overlays and back-compatible
+`services/_user/<name>/compose.yml` overlays. Exit code `0` means the env
+backfill or Compose validation succeeded; `compose validate` returns Compose's
+failing status code when validation fails.
 
 ## 4. Consumer Doctor
 
-Use `./start.sh doctor` for consumer CI preflight before starting containers.
-The doctor runs an extensible check registry for Compose validation, `_user`
-overlay env references, plugin directories, model sidecars, endpoint reporting,
-and tracked-file cleanliness. Docker-dependent checks are marked skipped when
-Docker is unavailable; Docker-free checks still run. Use `--format json` for CI
+Use `./start.sh --consumer ./atlas.consumer.yml doctor` for consumer CI
+preflight before starting containers. The doctor runs an extensible check
+registry for consumer manifest validation, Compose validation, `_user` overlay
+env references, plugin directories, model sidecars, endpoint reporting, and
+tracked-file cleanliness. Docker-dependent checks are marked skipped when Docker
+is unavailable; Docker-free checks still run. Use `--format json` for CI
 parsing. Any failed check exits non-zero.
 
 ## 5. Launch Flow

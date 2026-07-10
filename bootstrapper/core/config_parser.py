@@ -176,6 +176,12 @@ class ConfigParser:
                 f"No service manifests found under {self.root_dir / 'services'}"
             )
         return synthesize_legacy(manifests)
+
+    def load_consumer_config(self):
+        """Load optional parent-owned consumer manifests for this checkout."""
+        from core.consumer_manifest import load_consumer_config
+
+        return load_consumer_config(self.root_dir)
     
     def parse_env_file(self) -> Dict[str, str]:
         """

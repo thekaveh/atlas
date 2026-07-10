@@ -400,10 +400,13 @@ Use `./start.sh --setup-hosts` for Kong `*.localhost` aliases. Use `./stop.sh --
 
 ```bash
 ./start.sh
+./start.sh --consumer ./atlas.consumer.yml
 ./start.sh env backfill
 ./start.sh compose validate
+./start.sh --consumer ./atlas.consumer.yml compose validate
 ./start.sh doctor
 ./start.sh doctor --format json
+./start.sh --consumer ./atlas.consumer.yml doctor --format json
 ./start.sh --no-tui --detach
 ./start.sh --no-tui --detach --json
 ./stop.sh
@@ -424,18 +427,21 @@ wrappers.
 Use `./start.sh env backfill` after updating an Atlas submodule pin. It
 preserves existing values, appends newly introduced `.env.example` keys, fills
 blank values only when the new example carries a non-blank default, and reports
-the affected keys by source section. Then run `./start.sh compose validate` to
-validate the assembled stack, including `services/_user/<name>/compose.yml`
-overlays. Exit code `0` means the env backfill or Compose validation succeeded;
-`compose validate` returns Compose's failing status code when validation fails.
+the affected keys by source section. Then run `./start.sh --consumer
+./atlas.consumer.yml compose validate` to validate the assembled stack,
+including manifest-declared external overlays and back-compatible
+`services/_user/<name>/compose.yml` overlays. Exit code `0` means the env
+backfill or Compose validation succeeded; `compose validate` returns Compose's
+failing status code when validation fails.
 
 ## 4. Consumer Doctor
 
-Use `./start.sh doctor` for consumer CI preflight before starting containers.
-The doctor runs an extensible check registry for Compose validation, `_user`
-overlay env references, plugin directories, model sidecars, endpoint reporting,
-and tracked-file cleanliness. Docker-dependent checks are marked skipped when
-Docker is unavailable; Docker-free checks still run. Use `--format json` for CI
+Use `./start.sh --consumer ./atlas.consumer.yml doctor` for consumer CI
+preflight before starting containers. The doctor runs an extensible check
+registry for consumer manifest validation, Compose validation, `_user` overlay
+env references, plugin directories, model sidecars, endpoint reporting, and
+tracked-file cleanliness. Docker-dependent checks are marked skipped when Docker
+is unavailable; Docker-free checks still run. Use `--format json` for CI
 parsing. Any failed check exits non-zero.
 
 ## 5. Launch Flow
@@ -468,12 +474,25 @@ Add or change services through manifests, compose fragments, topology rows, docs
 
 Submodule consumers should keep project-owned overlays, branding, wrapper scripts, and secret references in the parent repository while `infra/` remains a pinned Atlas checkout. The recommended shape is:
 
-- `compose/<name>-overlay.yml` in the parent repository.
-- `infra/services/_user/<name>/compose.yml` as a symlink or generated discovery pointer to that parent-owned overlay.
-- `scripts/setup-overlay.sh` as an idempotent wrapper that creates the discovery slot before every start.
+- `atlas.consumer.yml` in the parent repository.
+- `compose/<name>-overlay.yml` in the parent repository and referenced from `compose_overlays`.
+- `backend/plugins/` and model sidecars referenced from the manifest when needed.
 - `scripts/start-infra.sh` as the parent-owned launcher that force-sets `PROJECT_NAME`, `BRAND_*`, and required `*_SOURCE` values.
 
-Do not rely on "set only if absent" helpers for critical `*_SOURCE` keys. Atlas's `.env.example` intentionally contains defaults, so project wiring should force-set required values or pass explicit `--<service>-source` flags. Explicit source flags override `--track`, which is how consumers request an extra service outside a track or disable a service the track would normally prompt for.
+Use `./infra/start.sh --consumer ./atlas.consumer.yml` so Atlas can validate
+paths, merge env values, include external Compose overlays without symlinks,
+and list registered consumers in the launch overview. Do not rely on "set only
+if absent" helpers for critical `*_SOURCE` keys. Atlas's `.env.example`
+intentionally contains defaults, so project wiring should force-set required
+values in the manifest/env overlay or pass explicit `--<service>-source` flags.
+Explicit source flags override `--track`, which is how consumers request an
+extra service outside a track or disable a service the track would normally
+prompt for.
+
+Existing integrations that still use the back-compatible `_user` discovery
+slot can keep `scripts/setup-overlay.sh` as the idempotent wrapper that creates
+`infra/services/_user/<name>/compose.yml` before start; new integrations should
+prefer the manifest.
 
 Parent-owned object-storage consumers should extend `minio-init` with `MINIO_EXTRA_CONSUMERS`, for example `daydreams:MINIO_BUCKET_DAYDREAMS:MINIO_DAYDREAMS_ACCESS_KEY:MINIO_DAYDREAMS_SECRET_KEY`, and keep the referenced bucket/access/secret variables in `.env.user` or `ATLAS_ENV_USER_FILE`. The hook creates the extra bucket and scoped MinIO service account without forking Atlas.
 

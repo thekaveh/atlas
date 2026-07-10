@@ -134,6 +134,13 @@ def _csv(val: str | None) -> list[str]:
     return [s.strip() for s in val.split(",") if s.strip()]
 
 
+def _path_list(val: str | None) -> list[str]:
+    """Split an os.pathsep-separated path list into non-empty paths."""
+    if not val:
+        return []
+    return [s.strip() for s in val.split(os.pathsep) if s.strip()]
+
+
 def _filename_from_url(url: str) -> str:
     """Extract a filename from a URL.
 
@@ -271,20 +278,24 @@ def active_comfyui_models(
     # on the host (the shipped default /custom-models.yaml is a dead container
     # path — see _DEFAULT_SIDECAR_PATH), fall back to the repo sidecar so
     # services/comfyui/custom-models.yaml is honored.
+    sidecar_paths: list[str]
     if sidecar_path is None:
-        configured = (
-            env.get("COMFYUI_CUSTOM_MODELS_FILE", "").strip() or _DEFAULT_SIDECAR_PATH
-        )
-        if os.path.isfile(configured):
-            sidecar_path = configured
+        configured_paths = _path_list(env.get("COMFYUI_CUSTOM_MODELS_FILE", "").strip())
+        if not configured_paths:
+            configured_paths = [_DEFAULT_SIDECAR_PATH]
+        existing_paths = [path for path in configured_paths if os.path.isfile(path)]
+        if existing_paths:
+            sidecar_paths = existing_paths
         else:
             host_sidecar = _host_repo_sidecar()
-            sidecar_path = str(host_sidecar) if host_sidecar is not None else configured
+            sidecar_paths = [str(host_sidecar)] if host_sidecar is not None else configured_paths
+    else:
+        sidecar_paths = [sidecar_path]
 
     # ── 2. Load sidecar (always active) ─────────────────────────────────
-    sidecar_entries: list[ComfyUILibraryEntry] = comfyui_library.load_custom_models(
-        sidecar_path
-    )
+    sidecar_entries: list[ComfyUILibraryEntry] = []
+    for resolved_sidecar_path in sidecar_paths:
+        sidecar_entries.extend(comfyui_library.load_custom_models(resolved_sidecar_path))
     sidecar_by_name: dict[str, ComfyUILibraryEntry] = {
         e.name: e for e in sidecar_entries
     }

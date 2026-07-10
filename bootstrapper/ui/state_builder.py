@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from core.config_parser import ConfigParser
-from ui.state import AppState, CloudApiEntry, ServiceEntry
+from ui.state import AppState, CloudApiEntry, ConsumerEntry, ServiceEntry
 from services.topology import get_topology, Topology
 
 
@@ -213,6 +213,15 @@ def build_app_state(
             key_set=bool(key_value),
         ))
 
+    consumer_entries = []
+    for consumer in config_parser.load_consumer_config().consumers:
+        consumer_entries.append(ConsumerEntry(
+            name=consumer.name,
+            manifest_path=str(consumer.manifest_path),
+            compose_overlays=[str(path) for path in consumer.compose_overlays],
+            backend_plugins=[str(path) for path in consumer.backend_plugins],
+        ))
+
     return AppState(
         brand_name=brand_name,
         tagline=tagline,
@@ -223,5 +232,6 @@ def build_app_state(
         repo_url=repo_url,
         services=services,
         cloud_apis=cloud_apis,
+        consumers=consumer_entries,
         kong_port=env.get("KONG_HTTP_PORT", "63000"),
     )

@@ -273,6 +273,24 @@ class TestSidecarBehavior:
         assert names.index("sidecar-entry") > names.index("cat-a")
         assert names.index("sidecar-entry") > names.index("cat-b")
 
+    def test_multiple_sidecar_paths_are_union_loaded_from_env(self, tmp_path):
+        """COMFYUI_CUSTOM_MODELS_FILE can name multiple sidecars via os.pathsep."""
+        sidecar_a = self._write_sidecar(
+            tmp_path / "custom-models-a.yaml",
+            [{"name": "consumer-a", "category": "vae",
+              "url": "https://example.com/a.safetensors"}],
+        )
+        sidecar_b = self._write_sidecar(
+            tmp_path / "custom-models-b.yaml",
+            [{"name": "consumer-b", "category": "lora",
+              "url": "https://example.com/b.safetensors"}],
+        )
+        env = {"COMFYUI_CUSTOM_MODELS_FILE": os.pathsep.join([sidecar_a, sidecar_b])}
+
+        result = active_comfyui_models(env, catalog=[])
+
+        assert _names(result) == ["consumer-a", "consumer-b"]
+
 
 # ---------------------------------------------------------------------------
 # Test 4 — manifest_dict field mapping + schema validation
