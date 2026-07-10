@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — 2026-07-09 — Hosted media gateway foundation
+
+- **Media gateway operation model (#339)** — the backend now exposes `POST /media/generate` and `GET /media/operations/{operation_id}` as the provider-neutral hosted-media surface. The first registry entry supports FAL image generation, keeps provider keys backend-only, returns normalized provider/model/modality/artifact/cost/license/provenance fields, and preserves `POST /comfyui/generate` as the simple-image compatibility route.
+- **Promotion sync:** `develop` was merge-synced with the current `main` tip before promoting the media gateway work, preserving strict-mode branch ordering while keeping the documentation record current.
+
 ### Added — 2026-07-09 — ComfyUI pinned core + custom-node provisioning
 
 - **ComfyUI runtime foundation (#334)** — the ai-dock runtime now exposes a pinned upstream `COMFYUI_REF=v0.9.2` with `COMFYUI_AUTO_UPDATE=true`, keeping the ComfyUI core version explicit without changing container families. The bootstrapper also writes `active-custom-nodes.tsv` from selected models' `requires_custom_node` values, but only after mapping them through `services/comfyui/custom-nodes.yaml`; the AI-Dock provisioning hook clones those allowlisted GitHub repos into the `comfyui-custom-nodes` volume at full commit SHAs and installs declared requirements through the ComfyUI Python environment.

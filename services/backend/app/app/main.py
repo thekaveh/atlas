@@ -11,6 +11,7 @@ import httpx
 import asyncpg
 import yaml
 import re
+import time
 
 from n8n_client import N8nClient
 from research_service import ResearchService
@@ -704,6 +705,78 @@ class ComfyUIResponse(BaseModel):
     error: Optional[str] = None
 
 
+class MediaGenerateRequest(BaseModel):
+    """Provider-neutral media generation request."""
+
+    modality: str = Field(min_length=1, max_length=64)
+    provider: str = Field(default="fal", min_length=1, max_length=64)
+    model: Optional[str] = Field(default=None, max_length=255)
+    input: Dict[str, Any] = Field(default_factory=dict)
+    timeout_seconds: Optional[int] = Field(default=None, ge=1, le=3600)
+
+
+class MediaOperationResponse(BaseModel):
+    """Normalized media operation status and artifact envelope."""
+
+    operation_id: str
+    status: str
+    provider: str
+    model: str
+    modality: str
+    operation_url: Optional[str] = None
+    artifact_url: Optional[str] = None
+    artifacts: List[Dict[str, Any]] = Field(default_factory=list)
+    cost_usd: Optional[float] = None
+    license: Optional[str] = None
+    provenance: Dict[str, Any] = Field(default_factory=dict)
+    raw: Optional[Dict[str, Any]] = None
+
+
+MEDIA_OPERATIONS: Dict[str, Dict[str, Any]] = {}
+
+
+def _media_timeout_seconds(request_timeout: Optional[int] = None) -> int:
+    if request_timeout is not None:
+        return request_timeout
+    try:
+        return int(os.getenv("FAL_TIMEOUT_SECONDS", "120") or "120")
+    except ValueError:
+        return 120
+
+
+def _normalize_media_route(provider: str, modality: str, model: Optional[str]) -> tuple[str, str, str]:
+    normalized_provider = (provider or "").strip().lower()
+    normalized_modality = (modality or "").strip().lower()
+    selected_model = (model or os.getenv("FAL_MODEL") or "fal-ai/flux/dev").strip()
+    if normalized_provider == "fal" and normalized_modality == "image":
+        return normalized_provider, normalized_modality, selected_model
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail=(
+            "Unsupported media route: Atlas currently supports "
+            "provider=fal with modality=image"
+        ),
+    )
+
+
+def _media_response(payload: Dict[str, Any]) -> MediaOperationResponse:
+    operation_id = str(payload["operation_id"])
+    return MediaOperationResponse(
+        operation_id=operation_id,
+        status=str(payload.get("status", "unknown")),
+        provider=str(payload.get("provider", "unknown")),
+        model=str(payload.get("model", "unknown")),
+        modality=str(payload.get("modality", "unknown")),
+        operation_url=f"/media/operations/{operation_id}",
+        artifact_url=payload.get("artifact_url"),
+        artifacts=list(payload.get("artifacts") or []),
+        cost_usd=payload.get("cost_usd"),
+        license=payload.get("license"),
+        provenance=dict(payload.get("provenance") or {}),
+        raw=payload.get("raw"),
+    )
+
+
 # ComfyUI API Endpoints
 @app.get("/comfyui/health")
 async def comfyui_health_check():
@@ -755,6 +828,114 @@ async def get_comfyui_models():
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get ComfyUI models: {str(e)}"
         )
+
+
+@app.post(
+    "/media/generate",
+    response_model=MediaOperationResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def submit_media_generation(request: MediaGenerateRequest):
+    """Submit a provider-neutral hosted media generation operation."""
+    provider, modality, model = _normalize_media_route(
+        request.provider,
+        request.modality,
+        request.model,
+    )
+    if provider == "fal" and not _fal_source_enabled():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="FAL_SOURCE=enabled is required for provider=fal media generation",
+        )
+    if "prompt" not in request.input:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Media input must include prompt for modality=image",
+        )
+
+    api_key = _require_fal_api_key()
+    try:
+        async with FalClient(api_key=api_key, model=model) as client:
+            payload = await client.submit_media_operation(
+                modality=modality,
+                input=request.input,
+                model=model,
+            )
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Failed to submit media generation with FAL: {str(e)}",
+        )
+
+    operation_id = str(payload["operation_id"])
+    MEDIA_OPERATIONS[operation_id] = {
+        "provider": provider,
+        "modality": modality,
+        "model": model,
+        "created_at": time.monotonic(),
+        "timeout_seconds": _media_timeout_seconds(request.timeout_seconds),
+        "last_payload": payload,
+    }
+    return _media_response(payload)
+
+
+@app.get("/media/operations/{operation_id}", response_model=MediaOperationResponse)
+async def get_media_operation(operation_id: str):
+    """Poll a hosted media generation operation."""
+    operation = MEDIA_OPERATIONS.get(operation_id)
+    if not operation:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Media operation {operation_id} not found",
+        )
+    elapsed = time.monotonic() - float(operation["created_at"])
+    if elapsed > int(operation["timeout_seconds"]):
+        payload = dict(operation["last_payload"])
+        payload["status"] = "timeout"
+        MEDIA_OPERATIONS[operation_id]["last_payload"] = payload
+        return _media_response(payload)
+
+    provider = operation["provider"]
+    if provider != "fal":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported media provider for polling: {provider}",
+        )
+    if not _fal_source_enabled():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="FAL_SOURCE=enabled is required to poll FAL media operations",
+        )
+
+    api_key = _require_fal_api_key()
+    try:
+        async with FalClient(api_key=api_key, model=operation["model"]) as client:
+            payload = await client.get_media_operation(
+                operation_id=operation_id,
+                modality=operation["modality"],
+            )
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Failed to poll media operation with FAL: {str(e)}",
+        )
+
+    MEDIA_OPERATIONS[operation_id]["last_payload"] = payload
+    return _media_response(payload)
 
 
 @app.post("/comfyui/generate", response_model=ComfyUIResponse)

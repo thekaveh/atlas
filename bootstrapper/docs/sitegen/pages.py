@@ -179,6 +179,10 @@ Each manifest owns service metadata, env vars, source options, dependencies, run
 ## 4. Gateway Access
 
 Kong provides the main local entrypoint and generated aliases. Direct ports remain available for services that expose their own UI or API.
+
+## 5. Hosted Media Gateway
+
+The backend exposes `POST /media/generate` and `GET /media/operations/{operation_id}` as the provider-neutral hosted media surface. Requests dispatch by `provider`, `modality`, and `model`; the initial registry supports `provider=fal` with `modality=image`. Provider API keys stay in the backend environment, and responses normalize status, artifacts, cost, license, and provenance for downstream consumers.
 """,
         overview: f"""# Overview
 

@@ -36,6 +36,7 @@ class FalClient:
             if enable_safety_checker is None
             else enable_safety_checker
         )
+        self.license = (os.getenv("FAL_MODEL_LICENSE") or "fal/provider-terms").strip()
 
     async def __aenter__(self) -> "FalClient":
         return self
@@ -110,7 +111,182 @@ class FalClient:
         }
 
     def _subscribe(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
-        os.environ["FAL_KEY"] = self.api_key
         import fal_client  # type: ignore[import-not-found]
 
-        return fal_client.subscribe(self.model, arguments=arguments)
+        return self._call_with_fal_key(fal_client.subscribe, self.model, arguments=arguments)
+
+    async def submit_media_operation(
+        self,
+        *,
+        modality: str,
+        input: Dict[str, Any],
+        model: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        if modality != "image":
+            raise ValueError(f"Unsupported FAL media modality: {modality}")
+        if not self.api_key:
+            raise ValueError("FAL_API_KEY is required when FAL_SOURCE=enabled")
+
+        selected_model = (model or self.model).strip()
+        arguments = self._image_arguments(input)
+        submitted = await asyncio.to_thread(self._submit, selected_model, arguments)
+        operation_id = self._extract_request_id(submitted)
+
+        return self._operation_payload(
+            operation_id=operation_id,
+            status="submitted",
+            model=selected_model,
+            modality=modality,
+            raw=self._object_to_dict(submitted),
+        )
+
+    async def get_media_operation(self, *, operation_id: str, modality: str) -> Dict[str, Any]:
+        if modality != "image":
+            raise ValueError(f"Unsupported FAL media modality: {modality}")
+        if not self.api_key:
+            raise ValueError("FAL_API_KEY is required when FAL_SOURCE=enabled")
+
+        status_payload = await asyncio.to_thread(self._status, self.model, operation_id)
+        normalized_status = self._normalize_status(status_payload)
+        result_payload: Dict[str, Any] = {}
+        if normalized_status == "succeeded":
+            result_payload = await asyncio.to_thread(self._result, self.model, operation_id)
+
+        raw = {
+            "status": self._object_to_dict(status_payload),
+            "result": self._object_to_dict(result_payload),
+        }
+        payload = self._operation_payload(
+            operation_id=operation_id,
+            status=normalized_status,
+            model=self.model,
+            modality=modality,
+            raw=raw,
+        )
+        if result_payload:
+            artifacts = self._extract_artifacts(result_payload)
+            payload["artifacts"] = artifacts
+            payload["artifact_url"] = artifacts[0]["url"] if artifacts else None
+            payload["raw"] = result_payload
+        return payload
+
+    def _image_arguments(self, input_payload: Dict[str, Any]) -> Dict[str, Any]:
+        width = int(input_payload.get("width") or 512)
+        height = int(input_payload.get("height") or 512)
+        steps = int(input_payload.get("steps") or 20)
+        cfg = float(input_payload.get("cfg") or input_payload.get("guidance_scale") or 7.0)
+        arguments: Dict[str, Any] = {
+            "prompt": input_payload["prompt"],
+            "image_size": {"width": width, "height": height},
+            "num_inference_steps": steps,
+            "guidance_scale": cfg,
+            "num_images": int(input_payload.get("num_images") or 1),
+            "enable_safety_checker": self.enable_safety_checker,
+            "output_format": self.output_format,
+        }
+        if input_payload.get("seed") is not None:
+            arguments["seed"] = input_payload["seed"]
+        if input_payload.get("negative_prompt"):
+            arguments["negative_prompt"] = input_payload["negative_prompt"]
+        return arguments
+
+    def _submit(self, model: str, arguments: Dict[str, Any]) -> Any:
+        import fal_client  # type: ignore[import-not-found]
+
+        return self._call_with_fal_key(fal_client.submit, model, arguments=arguments)
+
+    def _status(self, model: str, operation_id: str) -> Any:
+        import fal_client  # type: ignore[import-not-found]
+
+        return self._call_with_fal_key(fal_client.status, model, operation_id)
+
+    def _result(self, model: str, operation_id: str) -> Dict[str, Any]:
+        import fal_client  # type: ignore[import-not-found]
+
+        return self._call_with_fal_key(fal_client.result, model, operation_id)
+
+    def _call_with_fal_key(self, func, *args, **kwargs):
+        previous = os.environ.get("FAL_KEY")
+        os.environ["FAL_KEY"] = self.api_key
+        try:
+            return func(*args, **kwargs)
+        finally:
+            if previous is None:
+                os.environ.pop("FAL_KEY", None)
+            else:
+                os.environ["FAL_KEY"] = previous
+
+    def _operation_payload(
+        self,
+        *,
+        operation_id: str,
+        status: str,
+        model: str,
+        modality: str,
+        raw: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        return {
+            "operation_id": operation_id,
+            "status": status,
+            "provider": "fal",
+            "model": model,
+            "modality": modality,
+            "artifact_url": None,
+            "artifacts": [],
+            "cost_usd": None,
+            "license": self.license,
+            "provenance": {"provider_request_id": operation_id},
+            "raw": raw,
+        }
+
+    def _extract_request_id(self, payload: Any) -> str:
+        if isinstance(payload, dict):
+            value = payload.get("request_id") or payload.get("requestId") or payload.get("id")
+        else:
+            value = (
+                getattr(payload, "request_id", None)
+                or getattr(payload, "requestId", None)
+                or getattr(payload, "id", None)
+            )
+        return str(value or f"fal-{uuid.uuid4()}")
+
+    def _normalize_status(self, payload: Any) -> str:
+        if isinstance(payload, dict):
+            raw = payload.get("status") or payload.get("state")
+        else:
+            raw = getattr(payload, "status", None) or getattr(payload, "state", None)
+        status_value = str(raw or "running").strip().lower()
+        if status_value in {"completed", "complete", "succeeded", "success"}:
+            return "succeeded"
+        if status_value in {"failed", "error"}:
+            return "failed"
+        if status_value in {"cancelled", "canceled"}:
+            return "cancelled"
+        if status_value in {"in_queue", "queued", "submitted"}:
+            return "submitted"
+        return "running"
+
+    def _extract_artifacts(self, payload: Dict[str, Any]) -> list[Dict[str, Any]]:
+        artifacts: list[Dict[str, Any]] = []
+        for image in payload.get("images", []) or []:
+            if not isinstance(image, dict) or not image.get("url"):
+                continue
+            artifacts.append(
+                {
+                    "url": image["url"],
+                    "content_type": image.get("content_type") or image.get("mime_type"),
+                    "width": image.get("width"),
+                    "height": image.get("height"),
+                }
+            )
+        return artifacts
+
+    def _object_to_dict(self, payload: Any) -> Dict[str, Any]:
+        if isinstance(payload, dict):
+            return payload
+        if payload is None:
+            return {}
+        data = getattr(payload, "__dict__", None)
+        if isinstance(data, dict):
+            return dict(data)
+        return {"value": str(payload)}

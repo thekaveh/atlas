@@ -207,8 +207,9 @@ point at http://kong-api-gateway:8000.
 | DOCLING_LOCALHOST_PORT | docling | 63059 | Host port for the localhost source variant. URL is derived at compose-render time as http://host.docker.internal:63059. |
 | FAL_SOURCE | fal | disabled | Enables fal.ai as the backend provider for simple media generation routes. |
 | FAL_API_KEY | fal |  | fal.ai API key. Required only when FAL_SOURCE=enabled. The backend also exposes it to fal-client as FAL_KEY. |
-| FAL_MODEL | fal | fal-ai/flux/dev | fal.ai model endpoint used for text-to-image generation. |
-| FAL_TIMEOUT_SECONDS | fal | 120 | Backend request timeout budget for synchronous fal.ai generation calls. |
+| FAL_MODEL | fal | fal-ai/flux/dev | Default fal.ai model endpoint used by the media gateway for text-to-image generation. |
+| FAL_MODEL_LICENSE | fal | fal/provider-terms | License or terms marker returned in normalized media operation responses when provider-specific model licensing is not more specific. |
+| FAL_TIMEOUT_SECONDS | fal | 120 | Backend timeout budget for FAL media submit/poll operations and the compatibility route. |
 | FAL_OUTPUT_FORMAT | fal | jpeg | Requested output format for compatible fal.ai image models: jpeg or png. |
 | FAL_ENABLE_SAFETY_CHECKER | fal | True | Whether to request the provider-side safety checker for compatible fal.ai image models. |
 | PROJECT_NAME | globals | atlas | Docker Compose project name — the container/volume/network prefix (<name>-…) and `docker compose -p` namespace. start.sh AND stop.sh read it from here, so stop tears down exactly what start launched. Override with `./start.sh --project <name>` (also -p; persists back here) or by editing this value. Set a unique name when running Atlas as a submodule so you don't collide with a base Atlas stack. |
