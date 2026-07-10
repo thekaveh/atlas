@@ -174,6 +174,11 @@ def _manifest_row_for_entry(
     sha256 = file.sha256 if file is not None else entry.sha256
     target_dir = file.target_dir if file is not None else entry.target_dir
     file_size_gb = file.size_gb if file is not None and file.size_gb is not None else entry.size_gb
+    file_size_bytes = (
+        file.size_bytes
+        if file is not None and file.size_bytes is not None
+        else entry.size_bytes
+    )
     if file is not None:
         precision = file.precision or entry.precision
         variant = file.variant or entry.variant
@@ -188,9 +193,11 @@ def _manifest_row_for_entry(
         "download_url":         url,               # url → download_url
         "sha256":               sha256,
         "file_size_gb":         float(file_size_gb) if file_size_gb is not None else None,
+        "file_size_bytes":      int(file_size_bytes) if file_size_bytes is not None else None,
         "family":               entry.family,
         "target_dir":           target_dir,
         "min_vram_gb":          float(entry.min_vram_gb) if entry.min_vram_gb is not None else None,
+        "min_ram_gb":           float(entry.min_ram_gb) if entry.min_ram_gb is not None else None,
         "cpu_supported":        bool(entry.cpu_supported),
         "requires_custom_node": list(entry.requires_custom_node),
         "popularity":           int(entry.popularity or 0),
@@ -201,6 +208,9 @@ def _manifest_row_for_entry(
         "precision":            precision,
         "variant":              variant,
         "host_constraints":     list(entry.host_constraints),
+        "license_name":         entry.license_name,
+        "license_url":          entry.license_url,
+        "license_restrictions": list(entry.license_restrictions),
     }
     if file is not None:
         row["bundle_id"] = entry.name

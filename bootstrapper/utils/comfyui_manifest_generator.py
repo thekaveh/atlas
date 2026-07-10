@@ -197,6 +197,34 @@ class ComfyUIManifestGenerator:
         manifest = comfyui_resolver.manifest_dict(entries)
         rows = manifest.get("models", [])
 
+        # Multiple logical bundles may share one physical artifact. Keep each
+        # bundle row in selected-models.yaml, but download a target path once.
+        # A metadata disagreement for the same path is a catalog error, not a
+        # last-writer-wins situation.
+        download_rows: list[dict[str, Any]] = []
+        seen_paths: dict[tuple[str, str], dict[str, Any]] = {}
+        for row in rows:
+            key = (str(row["target_dir"]), str(row["filename"]))
+            previous = seen_paths.get(key)
+            if previous is not None:
+                for field in (
+                    "type",
+                    "download_url",
+                    "sha256",
+                    "file_size_bytes",
+                    "file_size_gb",
+                ):
+                    if previous.get(field) != row.get(field):
+                        raise ValueError(
+                            "Conflicting ComfyUI download metadata for "
+                            f"{key[0]}/{key[1]}: {field} differs between "
+                            f"{previous.get('bundle_id') or previous.get('name')} and "
+                            f"{row.get('bundle_id') or row.get('name')}."
+                        )
+                continue
+            seen_paths[key] = row
+            download_rows.append(row)
+
         tsv_path.parent.mkdir(parents=True, exist_ok=True)
         fd, tmp = tempfile.mkstemp(
             dir=str(tsv_path.parent),
@@ -205,7 +233,7 @@ class ComfyUIManifestGenerator:
         )
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
-                for row in rows:
+                for row in download_rows:
                     fh.write(self._row_tsv(row) + "\n")
             os.replace(tmp, str(tsv_path))
         except BaseException:

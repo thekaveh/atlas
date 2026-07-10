@@ -695,14 +695,14 @@ services:
       resources:
         limits:
           cpus: 2
-          memory: '4294967296'
+          memory: '42949672960'
     environment:
       AUTO_UPDATE: 'true'
       COMFYUI_ARGS: --listen
       COMFYUI_CUSTOM_NODES_PATH: /opt/ComfyUI/custom_nodes
       COMFYUI_CUSTOM_NODES_TSV: /comfyui-manifest/active-custom-nodes.tsv
       COMFYUI_PORT_HOST: '8188'
-      COMFYUI_REF: v0.9.2
+      COMFYUI_REF: v0.27.0
       COMFYUI_UPLOAD_TO_SUPABASE: 'true'
       DISABLE_NATPMP: '1'
       ENABLE_QUICKTUNNEL: 'false'

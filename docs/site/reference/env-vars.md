@@ -113,7 +113,7 @@ point at http://kong-api-gateway:8000.
 | COMFYUI_KONG_URL | comfyui | http://kong-api-gateway:8000/comfyui | - |
 | COMFYUI_ARGS | comfyui | --listen | - |
 | COMFYUI_AUTO_UPDATE | comfyui | True | AI-Dock startup update flag. Atlas keeps this true so COMFYUI_REF pins the upstream ComfyUI core even when the base image tag lags. |
-| COMFYUI_REF | comfyui | v0.9.2 | Pinned upstream ComfyUI git ref passed to AI-Dock. Use a release tag or full commit SHA when deliberately changing the ComfyUI core. |
+| COMFYUI_REF | comfyui | v0.27.0 | Pinned upstream ComfyUI git ref passed to AI-Dock. Use a release tag or full commit SHA when deliberately changing the ComfyUI core. |
 | COMFYUI_PLATFORM | comfyui | linux/amd64 | - |
 | COMFYUI_UPLOAD_TO_SUPABASE | comfyui | True | - |
 | COMFYUI_STORAGE_BUCKET | comfyui | comfyui-images | - |
@@ -126,7 +126,7 @@ point at http://kong-api-gateway:8000.
 | COMFYUI_SCALE | comfyui |  | - |
 | COMFYUI_ENDPOINT | comfyui |  | Resolved per COMFYUI_SOURCE. Consumed by backend, open-webui, n8n, jupyterhub, and downstream overlays. Consumer pattern: MY_URL: ${MY_URL:-${COMFYUI_ENDPOINT:-http://comfyui:18188}} |
 | COMFYUI_DEPLOY_RESOURCES | comfyui | ~ | - |
-| COMFYUI_MEMORY_LIMIT | comfyui | 4g | Container memory limit for the comfyui container (deploy.resources.limits.memory). 4 g is appropriate for CPU-only inference; GPU workloads holding VRAM are bounded by device memory, not host RAM, so 4 g is still a safe OOM fence on a 32 GB host. |
+| COMFYUI_MEMORY_LIMIT | comfyui | 40g | Hard container-memory ceiling for ComfyUI (deploy.resources.limits.memory). The limit does not reserve memory; 40 g permits large multi-file bundles such as Krea 2 while smaller workloads consume only what they need. |
 | COMFYUI_CPU_LIMIT | comfyui | 2.0 | Container CPU limit for the comfyui container (deploy.resources.limits.cpus). 2.0 cores keeps CPU-mode inference from monopolising the host; GPU mode is GPU-bound so the CPU cap is irrelevant in practice. |
 | CRAWL4AI_SOURCE | crawl4ai | disabled | - |
 | CRAWL4AI_PORT | crawl4ai |  | - |
