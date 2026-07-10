@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added — 2026-07-10 — Headless consumer validation commands
 
 - **Headless env and compose checks (#397)** — `./start.sh env backfill` now exposes the additive `.env` backfill path without entering the startup flow, and `./start.sh compose validate` runs the assembled Compose config validation including `services/_user` overlays. Both commands are non-interactive and documented for parent-repo submodule upgrade scripts.
+- **Promotion sync:** `develop` was merge-synced with the current `main` tip before promoting the headless bootstrapper command work, preserving strict-mode branch ordering while keeping the documentation record current.
 
 ### Added — 2026-07-10 — Non-following start for automation
 
