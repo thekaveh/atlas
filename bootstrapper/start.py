@@ -2344,6 +2344,280 @@ def _compose_validation_summary(output: str) -> str | None:
     return None
 
 
+def _doctor_result(
+    check_id: str,
+    status: str,
+    message: str,
+    *,
+    details: dict | None = None,
+) -> dict:
+    return {
+        "id": check_id,
+        "status": status,
+        "message": message,
+        "details": details or {},
+    }
+
+
+def _doctor_check_compose(starter: "AtlasStarter") -> dict:
+    try:
+        returncode, stdout, stderr, _cmd = starter.docker_manager.validate_compose_config()
+    except RuntimeError as exc:
+        return _doctor_result(
+            "compose",
+            "skipped",
+            f"Docker Compose unavailable: {exc}",
+        )
+    if returncode == 0:
+        return _doctor_result("compose", "pass", "Compose config is valid.")
+    output = "\n".join(part for part in (stderr.strip(), stdout.strip()) if part)
+    summary = _compose_validation_summary(output)
+    return _doctor_result(
+        "compose",
+        "fail",
+        summary or "Compose config validation failed.",
+        details={"returncode": returncode, "output": output},
+    )
+
+
+_COMPOSE_VAR_RE = re.compile(
+    r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?:(:?[-?])([^}]*))?\}"
+)
+
+
+def _doctor_compose_var_refs(text: str) -> list[tuple[str, bool]]:
+    refs: list[tuple[str, bool]] = []
+    for match in _COMPOSE_VAR_RE.finditer(text):
+        var_name = match.group(1)
+        operator = match.group(2) or ""
+        has_default = "-" in operator
+        refs.append((var_name, has_default))
+    return refs
+
+
+def _doctor_check_overlay_env(starter: "AtlasStarter") -> dict:
+    root = starter.config_parser.root_dir
+    user_dir = root / "services" / "_user"
+    overlays = sorted(user_dir.glob("*/compose.yml")) if user_dir.is_dir() else []
+    if not overlays:
+        return _doctor_result(
+            "overlay-env",
+            "pass",
+            "No services/_user compose overlays found.",
+        )
+
+    env_values = dict(os.environ)
+    env_values.update(starter.config_parser.parse_env_file())
+    missing: list[dict[str, str]] = []
+    checked_refs = 0
+    for overlay in overlays:
+        text = overlay.read_text(encoding="utf-8")
+        for var_name, has_default in _doctor_compose_var_refs(text):
+            checked_refs += 1
+            if has_default or var_name in env_values:
+                continue
+            missing.append(
+                {
+                    "file": str(overlay.relative_to(root)),
+                    "variable": var_name,
+                }
+            )
+
+    if missing:
+        first = missing[0]
+        return _doctor_result(
+            "overlay-env",
+            "fail",
+            f"{first['file']} references unresolved variable {first['variable']}.",
+            details={"missing": missing, "checked_refs": checked_refs},
+        )
+    return _doctor_result(
+        "overlay-env",
+        "pass",
+        f"All {checked_refs} overlay env reference(s) resolve or provide defaults.",
+        details={"overlays": [str(path.relative_to(root)) for path in overlays]},
+    )
+
+
+def _doctor_check_plugins(starter: "AtlasStarter") -> dict:
+    env_values = starter.config_parser.parse_env_file()
+    raw_path = env_values.get("BACKEND_PLUGINS_DIR", "").strip()
+    if not raw_path:
+        return _doctor_result(
+            "plugins",
+            "pass",
+            "No BACKEND_PLUGINS_DIR configured.",
+        )
+    plugins_dir = Path(raw_path).expanduser()
+    if not plugins_dir.is_absolute():
+        plugins_dir = starter.config_parser.root_dir / plugins_dir
+    if not plugins_dir.exists():
+        return _doctor_result(
+            "plugins",
+            "skipped",
+            f"Plugin directory does not exist: {plugins_dir}",
+        )
+    problems: list[str] = []
+    requirement_files = 0
+    requirement_entries = 0
+    for req in [plugins_dir / "requirements.txt", *plugins_dir.glob("*/requirements.txt")]:
+        try:
+            if not req.exists():
+                continue
+            requirement_files += 1
+            for line in req.read_text(encoding="utf-8").splitlines():
+                stripped = line.strip()
+                if not stripped or stripped.startswith("#"):
+                    continue
+                requirement_entries += 1
+        except OSError as exc:
+            problems.append(f"{req} could not be read: {exc}")
+    if problems:
+        return _doctor_result(
+            "plugins",
+            "fail",
+            problems[0],
+            details={"problems": problems},
+        )
+    plugin_dirs = [path.name for path in plugins_dir.iterdir() if path.is_dir()]
+    return _doctor_result(
+        "plugins",
+        "pass",
+        f"Plugin directory readable; {len(plugin_dirs)} plugin dir(s) found.",
+        details={
+            "plugins": plugin_dirs,
+            "requirement_files": requirement_files,
+            "requirement_entries": requirement_entries,
+        },
+    )
+
+
+def _doctor_check_model_sidecars(starter: "AtlasStarter") -> dict:
+    env_values = starter.config_parser.parse_env_file()
+    raw_path = env_values.get("COMFYUI_CUSTOM_MODELS_FILE", "").strip()
+    if not raw_path:
+        return _doctor_result(
+            "model-sidecars",
+            "pass",
+            "No COMFYUI_CUSTOM_MODELS_FILE configured.",
+        )
+    sidecar = Path(raw_path).expanduser()
+    if not sidecar.is_absolute():
+        sidecar = starter.config_parser.root_dir / sidecar
+    if not sidecar.exists():
+        return _doctor_result(
+            "model-sidecars",
+            "skipped",
+            f"Model sidecar does not exist: {sidecar}",
+        )
+    try:
+        import yaml
+
+        data = yaml.safe_load(sidecar.read_text(encoding="utf-8"))
+    except Exception as exc:  # noqa: BLE001
+        return _doctor_result(
+            "model-sidecars",
+            "fail",
+            f"Could not parse model sidecar {sidecar}: {exc}",
+        )
+    if data is not None and not isinstance(data, (dict, list)):
+        return _doctor_result(
+            "model-sidecars",
+            "fail",
+            f"Model sidecar {sidecar} must parse to a mapping or list.",
+        )
+    return _doctor_result(
+        "model-sidecars",
+        "pass",
+        f"Model sidecar parses: {sidecar}",
+    )
+
+
+def _doctor_check_endpoints(starter: "AtlasStarter") -> dict:
+    env_values = starter.config_parser.parse_env_file()
+    endpoints = {
+        "COMFYUI_ENDPOINT": env_values.get("COMFYUI_ENDPOINT", ""),
+        "LITELLM_URL": env_values.get("LITELLM_URL", ""),
+        "MINIO_ENDPOINT": env_values.get("MINIO_ENDPOINT", ""),
+        "MINIO_BROWSER_REDIRECT_URL": env_values.get("MINIO_BROWSER_REDIRECT_URL", ""),
+    }
+    visible = {key: value for key, value in endpoints.items() if value}
+    if not visible:
+        return _doctor_result(
+            "endpoints",
+            "warn",
+            "No consumer endpoint values are currently resolved in .env.",
+            details={"endpoints": endpoints},
+        )
+    message = ", ".join(f"{key}={value}" for key, value in visible.items())
+    return _doctor_result(
+        "endpoints",
+        "pass",
+        message,
+        details={"endpoints": endpoints},
+    )
+
+
+def _doctor_check_submodule_clean(starter: "AtlasStarter") -> dict:
+    try:
+        result = subprocess.run(
+            ["git", "status", "--porcelain", "--untracked-files=no"],
+            cwd=starter.config_parser.root_dir,
+            capture_output=True,
+            text=True,
+            check=False,
+            encoding="utf-8",
+            errors="replace",
+            timeout=10,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return _doctor_result(
+            "submodule-cleanliness",
+            "skipped",
+            f"Could not inspect git status: {exc}",
+        )
+    if result.returncode != 0:
+        return _doctor_result(
+            "submodule-cleanliness",
+            "skipped",
+            result.stderr.strip() or "Not a git checkout.",
+        )
+    dirty = [line for line in result.stdout.splitlines() if line.strip()]
+    if dirty:
+        return _doctor_result(
+            "submodule-cleanliness",
+            "fail",
+            f"{len(dirty)} tracked Atlas file(s) are dirty.",
+            details={"dirty": dirty[:20]},
+        )
+    return _doctor_result(
+        "submodule-cleanliness",
+        "pass",
+        "No tracked Atlas files are dirty.",
+    )
+
+
+DOCTOR_CHECKS = [
+    _doctor_check_compose,
+    _doctor_check_overlay_env,
+    _doctor_check_plugins,
+    _doctor_check_model_sidecars,
+    _doctor_check_endpoints,
+    _doctor_check_submodule_clean,
+]
+
+
+def _run_consumer_doctor(starter: "AtlasStarter") -> list[dict]:
+    return [check(starter) for check in DOCTOR_CHECKS]
+
+
+def _print_doctor_text(results: list[dict]) -> None:
+    click.echo("Consumer Doctor")
+    for result in results:
+        status = result["status"].upper()
+        click.echo(f"[{status}] {result['id']}: {result['message']}")
+
+
 @click.group(invoke_without_command=True)
 @click.option('--project', '-p', 'project_name', type=str, default=None,
               help='Docker Compose project name — the container-family namespace '
@@ -3483,6 +3757,31 @@ def compose_validate_command() -> None:
     if output:
         click.echo(output, err=True)
     raise click.exceptions.Exit(returncode)
+
+
+@main.command("doctor")
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["text", "json"], case_sensitive=False),
+    default="text",
+    show_default=True,
+    help="Output format for consumer CI.",
+)
+def doctor_command(output_format: str) -> None:
+    """Run headless consumer preflight checks without starting services."""
+    starter = AtlasStarter()
+    results = _run_consumer_doctor(starter)
+    ok = not any(result["status"] == "fail" for result in results)
+    payload = {"ok": ok, "checks": results}
+
+    if output_format == "json":
+        click.echo(json.dumps(payload, indent=2, sort_keys=True))
+    else:
+        _print_doctor_text(results)
+
+    if not ok:
+        raise click.exceptions.Exit(1)
 
 
 if __name__ == "__main__":

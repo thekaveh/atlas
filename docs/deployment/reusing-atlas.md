@@ -257,6 +257,7 @@ git -C infra checkout <atlas-sha>
 cd infra
 ./start.sh env backfill
 ./start.sh compose validate
+./start.sh doctor
 ./start.sh --no-tui --detach
 ```
 
@@ -274,6 +275,27 @@ Exit codes:
   successfully, and `1` if the backfill write fails.
 - `compose validate` exits `0` when Compose accepts the assembled stack, and
   otherwise exits with Compose's failing status code.
+
+### 6.1.4 Consumer doctor for CI preflight
+
+Use the consumer doctor as the parent repository's Atlas-generic preflight
+before product-specific tests:
+
+```bash
+cd infra
+./start.sh env backfill
+./start.sh doctor --format json
+./start.sh --no-tui --detach
+```
+
+`./start.sh doctor` does not start containers. It runs a registry of preflight
+checks for the assembled consumer integration: Compose validation, `_user`
+overlay environment references, plugin directory sanity, model sidecar parsing,
+consumer endpoint reporting, and tracked-file cleanliness for the Atlas
+checkout. Checks that require Docker are reported as `skipped` when Docker is
+unavailable; Docker-free checks still run. Text output is intended for local
+debugging, while `--format json` is intended for consumer CI. The command exits
+non-zero when any check reports `fail`.
 
 ### 6.2 Adding Supabase SQL via the user migration slot
 

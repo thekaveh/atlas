@@ -402,6 +402,8 @@ Use `./start.sh --setup-hosts` for Kong `*.localhost` aliases. Use `./stop.sh --
 ./start.sh
 ./start.sh env backfill
 ./start.sh compose validate
+./start.sh doctor
+./start.sh doctor --format json
 ./start.sh --no-tui --detach
 ./start.sh --no-tui --detach --json
 ./stop.sh
@@ -427,11 +429,20 @@ validate the assembled stack, including `services/_user/<name>/compose.yml`
 overlays. Exit code `0` means the env backfill or Compose validation succeeded;
 `compose validate` returns Compose's failing status code when validation fails.
 
-## 4. Launch Flow
+## 4. Consumer Doctor
+
+Use `./start.sh doctor` for consumer CI preflight before starting containers.
+The doctor runs an extensible check registry for Compose validation, `_user`
+overlay env references, plugin directories, model sidecars, endpoint reporting,
+and tracked-file cleanliness. Docker-dependent checks are marked skipped when
+Docker is unavailable; Docker-free checks still run. Use `--format json` for CI
+parsing. Any failed check exits non-zero.
+
+## 5. Launch Flow
 
 The Textual UI handles the wizard, service summary, launch confirmation, and streamed Compose logs. Non-TTY shells use the linear fallback.
 
-## 5. Verification Commands
+## 6. Verification Commands
 
 ```bash
 uv run --project bootstrapper python scripts/check-docs-site.py
@@ -439,11 +450,11 @@ uv run --project bootstrapper python scripts/export-docs-wiki.py --check
 uv run --project bootstrapper python scripts/check_doc_links.py
 ```
 
-## 6. Reset Behavior
+## 7. Reset Behavior
 
 Use `./stop.sh --cold` when a service needs a fresh volume state. Use the normal stop path when preserving local state matters.
 
-## 7. Gateway Behavior
+## 8. Gateway Behavior
 
 Kong aliases depend on hosts setup and generated route configuration. Direct ports remain useful for local smoke tests and troubleshooting.
 """,
