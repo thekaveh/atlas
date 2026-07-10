@@ -9,6 +9,7 @@ Cross-platform startup script for Atlas — the self-hosted engineering platform
 import re
 import sys
 import os
+import json
 import subprocess
 from datetime import date
 from pathlib import Path
@@ -1723,7 +1724,7 @@ class AtlasStarter:
             self.banner.show_status_message(f"Error validating localhost services: {e}", "error")
             return True  # Continue anyway
         
-    def start_docker_services(self, cold_start: bool = False) -> bool:
+    def start_docker_services(self, cold_start: bool = False, wait: bool = False) -> bool:
         """Start Docker services with optional fresh build for cold start."""
         self.banner.show_section_header("Starting Services", "🚀")
         
@@ -1740,11 +1741,14 @@ class AtlasStarter:
                 
             print("    - Starting containers...")
             # Start with force recreate for cold start 
-            result = self.docker_manager.execute_compose_command(['up', '-d', '--force-recreate'])
+            up_args = ['up', '-d', '--force-recreate']
+            if wait:
+                up_args.extend(['--wait', '--wait-timeout', '900'])
+            result = self.docker_manager.execute_compose_command(up_args)
             
         else:
             self.banner.show_status_message("Starting Atlas services...", "info")
-            result = self.docker_manager.start_services(detached=True)
+            result = self.docker_manager.start_services(detached=True, wait=wait)
         
         if result != 0:
             self.banner.show_status_message("Failed to start some services", "error")
@@ -1753,6 +1757,72 @@ class AtlasStarter:
             return False
         self.banner.show_status_message("All services started successfully", "success")
         return True
+
+    @staticmethod
+    def _compose_row_status(row: dict) -> dict:
+        service = str(row.get("Service") or row.get("Name") or "unknown")
+        state = str(row.get("State") or "").strip().lower()
+        health = str(row.get("Health") or "").strip().lower()
+        status = str(row.get("Status") or "").strip()
+        exit_code = str(row.get("ExitCode") if row.get("ExitCode") is not None else "").strip()
+        status_lower = status.lower()
+
+        ok = False
+        reason = status or state or health or "unknown"
+        if state == "running":
+            ok = health in {"", "healthy"}
+            if health and health != "healthy":
+                reason = health
+        elif state == "exited":
+            ok = (
+                exit_code in {"", "0", "<nil>", "None"}
+                or "exit 0" in status_lower
+                or "exited (0)" in status_lower
+            )
+        elif state in {"created", "restarting", "paused", "dead"}:
+            ok = False
+
+        return {
+            "service": service,
+            "state": state or None,
+            "health": health or None,
+            "status": status or None,
+            "exit_code": exit_code or None,
+            "ok": ok,
+            "reason": reason,
+        }
+
+    def show_detached_status_summary(self, *, json_output: bool = False) -> bool:
+        """Print final compose status for automation-friendly detached starts."""
+        rows, error = self.docker_manager.compose_ps_json()
+        if error is not None:
+            payload = {"ok": False, "error": error, "services": []}
+            if json_output:
+                print(json.dumps(payload, indent=2, sort_keys=True))
+            else:
+                self.banner.show_status_message(f"Could not inspect services: {error}", "error")
+            return False
+
+        services = [self._compose_row_status(row) for row in rows]
+        ok = bool(services) and all(entry["ok"] for entry in services)
+        payload = {"ok": ok, "services": services}
+
+        if json_output:
+            print(json.dumps(payload, indent=2, sort_keys=True))
+            return ok
+
+        self.banner.show_section_header("Detached Status", "📊")
+        if not services:
+            self.banner.show_status_message("No compose services were reported", "error")
+            return False
+        for entry in services:
+            level = "success" if entry["ok"] else "error"
+            health = f" / {entry['health']}" if entry["health"] else ""
+            self.banner.show_status_message(
+                f"{entry['service']}: {entry['state'] or 'unknown'}{health} — {entry['reason']}",
+                level,
+            )
+        return ok
 
     def verify_one_shot_init_containers(self, on_line=None) -> bool:
         """Fail startup if enabled post-start one-shot init containers failed."""
@@ -1783,7 +1853,12 @@ class AtlasStarter:
                 on_line(f"❌ {msg}", "error")
         return False
             
-    def show_pre_launch_summary(self, *, track: str | None = None) -> bool:
+    def show_pre_launch_summary(
+        self,
+        *,
+        track: str | None = None,
+        assume_yes: bool = False,
+    ) -> bool:
         """
         Display the combined configuration summary table with access URLs
         and hosted endpoints, then prompt for confirmation.
@@ -1814,6 +1889,8 @@ class AtlasStarter:
         # Confirmation prompt — legacy linear flow only. TUI mode runs the
         # launch confirmation as the wizard's last step; this branch is
         # reached only when --no-tui or non-TTY.
+        if assume_yes:
+            return True
         if sys.stdin.isatty():
             response = self.banner.console.input(
                 "  [color(245)]Launch the stack? (Y/n):[/color(245)] "
@@ -2397,6 +2474,11 @@ class AtlasStarter:
               help='Disable the TUI (wizard + Textual log app). Falls back to the legacy '
                    'linear flow with passthrough docker output. Useful for log capture, '
                    'debugging, and terminals that don\'t support the alternate screen buffer.')
+@click.option('--detach', '--no-follow', 'detach', is_flag=True, default=False,
+              help='Run the start pipeline, wait for compose health gates, print a final '
+                   'status summary, and exit instead of following docker logs.')
+@click.option('--json', 'json_output', is_flag=True, default=False,
+              help='With --detach/--no-follow, emit the final status summary as JSON for automation.')
 @click.option('--no-splash', is_flag=True, default=False,
               help='Disable the opening splash animation in the wizard.')
 @click.option('--no-port-migrate', is_flag=True, default=False,
@@ -2439,7 +2521,7 @@ def main(project_name, base_port, track, list_tracks, cold, setup_hosts, skip_ho
          iceberg_rest_source,
          trino_source,
          redpanda_source,
-         no_tui, no_splash, no_port_migrate, profile):
+         no_tui, detach, json_output, no_splash, no_port_migrate, profile):
     """Start Atlas — the self-hosted engineering platform."""
 
     # ─── Project name (-p / --project) ───────────────────────────────
@@ -2452,6 +2534,11 @@ def main(project_name, base_port, track, list_tracks, cold, setup_hosts, skip_ho
         except ValueError as exc:
             click.echo(f"start.sh: {exc}", err=True)
             raise SystemExit(2)
+
+    # JSON output is only useful for automation, so make it imply the
+    # non-following detached path even if the caller omitted --detach.
+    if json_output:
+        detach = True
 
     # ─── Track override warnings ─────────────────────────────────────
     # Fires when --track is set AND any explicit --*-source flag picks
@@ -2779,7 +2866,14 @@ def main(project_name, base_port, track, list_tracks, cold, setup_hosts, skip_ho
         # non-wizard paths; the wizard handles off-track disabling itself via
         # _selections_to_args (Task 9).
         no_source_flags = all(v is None for v in source_args.values())
-        no_stack_flags = (base_port is None and not cold and not setup_hosts and not skip_hosts)
+        no_stack_flags = (
+            base_port is None
+            and not cold
+            and not setup_hosts
+            and not skip_hosts
+            and not detach
+            and not json_output
+        )
         no_model_flags = not user_model_selections
         no_key_flags = not cloud_api_keys
         wizard_requested = (
@@ -2982,7 +3076,7 @@ def main(project_name, base_port, track, list_tracks, cold, setup_hosts, skip_ho
         # the banner / setup_env_file / apply_source_overrides pipeline
         # below so its output stays out of the terminal and ends up
         # inside the log pane.
-        if not no_tui:
+        if not no_tui and not detach and not json_output:
             from ui.term_caps import is_tui_capable as _is_tui_capable
             if _is_tui_capable(no_tui_flag=no_tui):
                 # Make sure .env exists so the launch screen can build
@@ -3201,13 +3295,17 @@ def main(project_name, base_port, track, list_tracks, cold, setup_hosts, skip_ho
         # flow runs only for --no-tui / non-TTY contexts: show the
         # Rich-Table summary, prompt for confirm, then stream docker
         # output via TTY passthrough.
-        if not starter.show_pre_launch_summary(track=track):
+        if not starter.show_pre_launch_summary(track=track, assume_yes=detach or json_output):
             starter.banner.console.print("\n  [color(245)]Launch cancelled.[/color(245)]")
             sys.exit(0)
-        if not starter.start_docker_services(cold_start=cold):
+        if not starter.start_docker_services(cold_start=cold, wait=detach or json_output):
             sys.exit(1)
         starter.show_container_status_and_verify_ports()
         starter.check_comfyui_models()
+        if detach:
+            if not starter.show_detached_status_summary(json_output=json_output):
+                sys.exit(1)
+            sys.exit(0)
         starter.show_container_logs()
 
     except click.ClickException:
