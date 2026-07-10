@@ -2244,7 +2244,107 @@ class AtlasStarter:
         
 
 
-@click.command()
+def _parse_env_values(path: Path) -> dict[str, str]:
+    values: dict[str, str] = {}
+    if not path.exists():
+        return values
+    for line in path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key, _, raw_value = stripped.partition("=")
+        values[key.strip()] = raw_value.split("#", 1)[0].strip()
+    return values
+
+
+def _env_example_section_by_key(path: Path) -> dict[str, str]:
+    if not path.exists():
+        return {}
+    bar_re = re.compile(r"^#\s*[=─]{3,}\s*$")
+    lines = path.read_text(encoding="utf-8").splitlines()
+    current_section = "(unsectioned)"
+    by_key: dict[str, str] = {}
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if (
+            bar_re.match(line)
+            and i + 2 < len(lines)
+            and lines[i + 1].startswith("#")
+            and bar_re.match(lines[i + 2])
+        ):
+            current_section = lines[i + 1].lstrip("#").strip() or "(unnamed)"
+            i += 3
+            continue
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#") and "=" in stripped:
+            key, _, _raw_value = stripped.partition("=")
+            by_key[key.strip()] = current_section
+        i += 1
+    return by_key
+
+
+def _print_env_backfill_summary(
+    *,
+    env_path: Path,
+    env_example_path: Path,
+    before: dict[str, str],
+    after: dict[str, str],
+) -> None:
+    added = sorted(key for key in after if key not in before)
+    filled = sorted(
+        key
+        for key, prior in before.items()
+        if key in after and not prior and bool(after[key])
+    )
+    if not added and not filled:
+        click.echo(f"No env changes needed: {env_path}")
+        return
+
+    section_by_key = _env_example_section_by_key(env_example_path)
+    grouped: dict[str, list[str]] = {}
+    for key in added:
+        section = section_by_key.get(key, "(unsectioned)")
+        grouped.setdefault(section, []).append(f"{key} (added)")
+    for key in filled:
+        section = section_by_key.get(key, "(unsectioned)")
+        grouped.setdefault(section, []).append(f"{key} (filled blank)")
+
+    click.echo(f"Env backfill updated {env_path}:")
+    for section in sorted(grouped):
+        click.echo(f"{section}:")
+        for item in grouped[section]:
+            click.echo(f"  - {item}")
+
+
+def _compose_validation_summary(output: str) -> str | None:
+    variable: str | None = None
+    service: str | None = None
+
+    variable_match = re.search(
+        r'["\\]*([A-Z0-9_]+)["\\]* variable is not set',
+        output,
+    )
+    if variable_match:
+        variable = variable_match.group(1)
+
+    service_match = re.search(
+        r'service ["\\]*([^"\\]+)["\\]* has neither an image nor a build context',
+        output,
+    )
+    if service_match:
+        service = service_match.group(1)
+
+    if variable and service:
+        return f"Service {service} is missing compose variable {variable}."
+    if variable:
+        return f"Compose variable {variable} is not set."
+    if service:
+        return f"Service {service} has neither an image nor a build context."
+    return None
+
+
+@click.group(invoke_without_command=True)
 @click.option('--project', '-p', 'project_name', type=str, default=None,
               help='Docker Compose project name — the container-family namespace '
                    '(every container/volume/network is prefixed <name>-…). Persists '
@@ -2492,7 +2592,8 @@ class AtlasStarter:
                    'default observability ON, and hide dev-only (localhost) '
                    'sources. Does not bypass the wizard. (Resource limits are '
                    'always-on .env defaults, not profile-gated.)')
-def main(project_name, base_port, track, list_tracks, cold, setup_hosts, skip_hosts, llm_provider_source,
+@click.pass_context
+def main(ctx, project_name, base_port, track, list_tracks, cold, setup_hosts, skip_hosts, llm_provider_source,
          cloud_openai_source, cloud_anthropic_source, cloud_openrouter_source,
          openai_api_key, anthropic_api_key, openrouter_api_key, fal_api_key,
          openai_models, anthropic_models, openrouter_models,
@@ -2523,6 +2624,9 @@ def main(project_name, base_port, track, list_tracks, cold, setup_hosts, skip_ho
          redpanda_source,
          no_tui, detach, json_output, no_splash, no_port_migrate, profile):
     """Start Atlas — the self-hosted engineering platform."""
+
+    if ctx.invoked_subcommand is not None:
+        return
 
     # ─── Project name (-p / --project) ───────────────────────────────
     # Validate + normalize fail-fast, before any work. Persisted to .env
@@ -3327,6 +3431,58 @@ def main(project_name, base_port, track, list_tracks, cold, setup_hosts, skip_ho
         print(f"\n❌ Unexpected error during startup: {e}", file=sys.stderr)
         traceback.print_exc()
         sys.exit(1)
+
+
+@main.group("env")
+def env_group() -> None:
+    """Headless environment maintenance commands."""
+
+
+@env_group.command("backfill")
+def env_backfill_command() -> None:
+    """Add missing .env keys from .env.example without starting services."""
+    starter = AtlasStarter()
+    env_path = starter.config_parser.env_file_path
+    env_example_path = starter.config_parser.env_example_path
+    before = _parse_env_values(env_path)
+    if not starter.backfill_missing_env_vars():
+        raise click.exceptions.Exit(1)
+    after = _parse_env_values(env_path)
+    _print_env_backfill_summary(
+        env_path=env_path,
+        env_example_path=env_example_path,
+        before=before,
+        after=after,
+    )
+
+
+@main.group("compose")
+def compose_group() -> None:
+    """Headless Docker Compose maintenance commands."""
+
+
+@compose_group.command("validate")
+def compose_validate_command() -> None:
+    """Validate the assembled Compose config, including user overlays."""
+    starter = AtlasStarter()
+    try:
+        returncode, stdout, stderr, _cmd = starter.docker_manager.validate_compose_config()
+    except RuntimeError as exc:
+        click.echo(f"Compose config validation failed: {exc}", err=True)
+        raise click.exceptions.Exit(1) from exc
+
+    if returncode == 0:
+        click.echo("Compose config is valid.")
+        return
+
+    output = "\n".join(part for part in (stderr.strip(), stdout.strip()) if part)
+    click.echo("Compose config validation failed.", err=True)
+    summary = _compose_validation_summary(output)
+    if summary:
+        click.echo(summary, err=True)
+    if output:
+        click.echo(output, err=True)
+    raise click.exceptions.Exit(returncode)
 
 
 if __name__ == "__main__":
