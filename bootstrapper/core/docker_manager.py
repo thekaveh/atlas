@@ -262,7 +262,12 @@ class DockerManager:
             
         return self.execute_compose_command(args)
     
-    def start_services(self, detached: bool = True) -> int:
+    def start_services(
+        self,
+        detached: bool = True,
+        wait: bool = False,
+        wait_timeout_seconds: int = 900,
+    ) -> int:
         """
         Start Docker compose services.
         Always uses --force-recreate to ensure containers are recreated with new port settings.
@@ -282,6 +287,9 @@ class DockerManager:
         # Always use --force-recreate to match original Bash behavior
         # This ensures containers are recreated with updated port settings
         args.append('--force-recreate')
+
+        if wait:
+            args.extend(['--wait', '--wait-timeout', str(wait_timeout_seconds)])
             
         return self.execute_compose_command(args)
     
@@ -611,8 +619,12 @@ class DockerManager:
 
         return failures
 
-    def _compose_ps_json(self, service: str) -> tuple[list[dict], str | None]:
-        """Inspect one compose service via ``docker compose ps --format json``."""
+    def compose_ps_json(self) -> tuple[list[dict], str | None]:
+        """Inspect all compose services via ``docker compose ps --format json``."""
+        return self._compose_ps_json(None)
+
+    def _compose_ps_json(self, service: str | None) -> tuple[list[dict], str | None]:
+        """Inspect compose services via ``docker compose ps --format json``."""
         try:
             cmd = self.get_compose_command()
             project_name = self.project_name_override or self.config_parser.get_project_name()
@@ -620,7 +632,9 @@ class DockerManager:
             if self.config_parser.env_file_exists():
                 cmd.append(f'--env-file={self.config_parser.env_file_path}')
             cmd.extend(self._compose_file_args())
-            cmd.extend(['ps', '-a', '--format', 'json', service])
+            cmd.extend(['ps', '-a', '--format', 'json'])
+            if service is not None:
+                cmd.append(service)
             result = subprocess.run(
                 cmd,
                 cwd=str(self.root_dir),
