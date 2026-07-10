@@ -33,11 +33,11 @@ JUPYTERHUB_SOURCE=disabled
 
 ## 3. Features
 
-- **Pre-installed AI Libraries**: OpenAI SDK (pointed at LiteLLM), LangChain, LlamaIndex, Transformers, Chonkie
+- **Pre-installed AI Libraries**: OpenAI SDK (pointed at LiteLLM), LangChain, LlamaIndex, Transformers, Chonkie, Ragas
 - **Database Clients**: Weaviate, Neo4j, PostgreSQL, Redis, Supabase
 - **Lakehouse Clients**: PySpark Connect, `boto3`, `s3fs`, `pyiceberg`, `pyarrow`, and `duckdb` for MinIO + Iceberg REST workflows
 - **Financial Research Kit**: OpenBB + CCXT libraries and a guarded paper-portfolio notebook for read-only market research
-- **Sample Notebooks**: 14 ready-to-use notebooks (00-13) demonstrating service integration
+- **Sample Notebooks**: 15 ready-to-use notebooks (00-14) demonstrating service integration
 - **Persistent Storage**: All notebooks saved in Docker volumes
 - **Environment Variables**: Auto-configured connections to all services
 - **Multi-kernel runtime**: Python 3 (default) plus **Scala 2.13** and **Scala 3** kernels via Almond. Pick one from JupyterLab's launcher or VS Code's kernel picker. See §11.
@@ -85,6 +85,7 @@ JUPYTERHUB_TOKEN=               # Optional: authentication token
 | `11_financial_research_kit.ipynb` | Read-only OpenBB + CCXT market research, paper portfolio analytics, optional MinIO datasets, MLflow paper-run metrics, and LiteLLM summaries. No live trading. |
 | `12_iceberg_advanced_sql.ipynb` | Spark Connect advanced Iceberg smoke: `MERGE INTO`, `VERSION AS OF`, branch/WAP, schema evolution, nested JSON, Structured Streaming, and table maintenance. |
 | `13_chonkie_chunking.ipynb` | Compare Chonkie token, recursive, and optional semantic chunking, then call the Backend `/api/chunk` runtime endpoint. |
+| `14_ragas_evaluation.ipynb` | Evaluate RAG answers with Ragas metrics and the Backend `/api/rag/evaluate` runtime endpoint. |
 
 ## 6. Service Integration Examples
 

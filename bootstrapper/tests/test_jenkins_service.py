@@ -171,6 +171,8 @@ def test_jenkins_dockerfile_and_plugins_are_minimal_and_pinned() -> None:
     assert "USER root" in dockerfile
     assert "maven" in dockerfile
     assert "mc" in dockerfile
+    assert "github.com/minio/mc/releases/download/${MINIO_MC_VERSION}" in dockerfile
+    assert "dl.min.io" not in dockerfile
     assert "MINIO_MC_SHA256_AMD64=01f866e9c5f9b87c2b09116fa5d7c06695b106242d829a8bb32990c00312e891" in dockerfile
     assert "MINIO_MC_SHA256_ARM64=14c8c9616cfce4636add161304353244e8de383b2e2752c0e9dad01d4c27c12c" in dockerfile
     assert "sha256sum -c -" in dockerfile

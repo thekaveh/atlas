@@ -417,6 +417,8 @@ services:
       OTEL_SERVICE_NAME: backend
       OTEL_TRACES_EXPORTER: otlp
       PROJECT_NAME: atlas
+      RAGAS_EMBEDDINGS_MODEL: ''
+      RAGAS_EVALUATOR_MODEL: ''
       RAY_ADDRESS: ''
       RAY_DASHBOARD_URL: ''
       REDIS_URL: redis://:redis_password@redis:6379/0

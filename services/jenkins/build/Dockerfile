@@ -19,7 +19,7 @@ RUN set -eux; \
       arm64) mc_arch="arm64"; mc_sha256="${MINIO_MC_SHA256_ARM64}" ;; \
       *) echo "unsupported architecture: $arch" >&2; exit 1 ;; \
     esac; \
-    curl -fsSL -o /usr/local/bin/mc "https://dl.min.io/client/mc/release/linux-${mc_arch}/archive/mc.${MINIO_MC_VERSION}"; \
+    curl -fsSL -o /usr/local/bin/mc "https://github.com/minio/mc/releases/download/${MINIO_MC_VERSION}/mc.linux-${mc_arch}.${MINIO_MC_VERSION}"; \
     echo "${mc_sha256}  /usr/local/bin/mc" | sha256sum -c -; \
     chmod 0755 /usr/local/bin/mc; \
     echo 2.0 > /usr/share/jenkins/ref/jenkins.install.UpgradeWizard.state
