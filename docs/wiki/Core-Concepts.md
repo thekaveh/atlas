@@ -50,25 +50,31 @@ The backend exposes `POST /media/generate` and `GET /media/operations/{operation
 
 Provider API keys stay in the backend environment, and responses normalize status, artifacts, cost, license, and provenance for downstream consumers.
 
-## 8. Adaptive Services
+## 8. RAG Chunking Gateway
+
+The backend exposes `POST /api/chunk` as the shared Chonkie-powered text-splitting surface for RAG ingestion clients. The endpoint supports token, recursive, and semantic strategies and returns stable character offsets plus strategy metadata so n8n workflows, notebooks, and future ingestion services can share one chunking contract.
+
+JupyterHub also installs Chonkie for exploratory notebook work, including `13_chonkie_chunking.ipynb`. Production workflows should still call the Backend endpoint instead of each service adding its own Chonkie dependency.
+
+## 9. Adaptive Services
 
 Backend and Open WebUI adapt to whichever upstream services are enabled. This keeps the stack useful when a user chooses a smaller track or disables optional services.
 
 Adaptive behavior prevents broken integrations from appearing when their upstream service is disabled.
 
-## 9. Generated Documentation
+## 10. Generated Documentation
 
 Service READMEs remain the service-owned source of truth. The `.io` site and wiki are generated publishing layers that keep navigation, tables, and references synchronized.
 
 The docs generator reads the same model used by tests, so docs drift becomes visible before merge.
 
-## 9. Init Companions
+## 11. Init Companions
 
 Some services use init containers or first-run scaffolding for schema setup, bucket creation, workflow import, model pulls, or catalog bootstrapping.
 
 Init companions should be documented with the service they prepare and represented in dependency/topology notes when they affect startup order.
 
-## 10. Service Categories
+## 12. Service Categories
 
 Service categories describe the role of the service family in Atlas. They also influence wizard grouping, generated references, and visual grouping in the docs.
 

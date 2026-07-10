@@ -1,5 +1,6 @@
 # Atlas - JupyterHub Python Dependencies
 # AI/ML Libraries
+chonkie>=1.7.0,<2
 ollama>=0.6.2
 langchain>=0.3.0
 langchain-community>=0.3.0
