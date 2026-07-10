@@ -45,6 +45,7 @@ def test_fal_provider_manifest_contract() -> None:
     assert env["FAL_SOURCE"]["default"] == "disabled"
     assert env["FAL_API_KEY"]["secret"] is True
     assert env["FAL_MODEL"]["default"] == "fal-ai/flux/dev"
+    assert env["FAL_MODEL_LICENSE"]["default"] == "fal/provider-terms"
     assert env["FAL_TIMEOUT_SECONDS"]["default"] == 120
     assert env["FAL_OUTPUT_FORMAT"]["default"] == "jpeg"
     assert env["FAL_ENABLE_SAFETY_CHECKER"]["default"] is True
@@ -76,6 +77,7 @@ def test_fal_provider_env_example_track_and_cli_contract() -> None:
         "FAL_SOURCE=disabled",
         "FAL_API_KEY=",
         "FAL_MODEL=fal-ai/flux/dev",
+        "FAL_MODEL_LICENSE=fal/provider-terms",
         "FAL_TIMEOUT_SECONDS=120",
         "FAL_OUTPUT_FORMAT=jpeg",
         "FAL_ENABLE_SAFETY_CHECKER=true",
