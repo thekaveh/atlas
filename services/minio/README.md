@@ -92,7 +92,7 @@ Root credentials are NEVER surfaced to consumers — see Service accounts below.
 
 ## 4. Bucket layout
 
-Twelve buckets are pre-provisioned by `minio-init` across nine consumers. Bucket names are the bare service identifier:
+Twelve buckets are pre-provisioned by `minio-init` across nine built-in consumers. Bucket names are the bare service identifier unless overridden:
 
 | Bucket | Intended consumer |
 |---|---|
@@ -101,12 +101,40 @@ Twelve buckets are pre-provisioned by `minio-init` across nine consumers. Bucket
 | `n8n` | n8n workflow file inputs and outputs |
 | `jupyter` | JupyterHub datasets and model artifacts |
 | `docling` | Doc Processor parsed-document persistence |
+| `langfuse` | Langfuse trace and media object storage |
+| `mlflow` | MLflow experiment and model artifacts |
+| `label-studio` | Label Studio import/export and annotation assets |
+| `lakehouse`, `jars`, `checkpoints`, `landing` | Iceberg lakehouse storage, Spark artifacts, checkpoints, and landing data |
 
 Bucket names are overridable via `MINIO_BUCKET_<NAME>` env vars; hand-edits stick.
 
+Parent-owned consumers can add their own bucket and scoped service account without
+forking Atlas by passing `MINIO_EXTRA_CONSUMERS` into `minio-init`. The value is a
+space-separated list of entries using the same grammar as the built-in consumers:
+
+```text
+CONSUMER:BUCKET_VAR:ACCESS_VAR:SECRET_VAR[:EXTRA_BUCKET_VAR,...]
+```
+
+For example, a DayDreams-style parent overlay can define:
+
+```yaml
+services:
+  minio-init:
+    environment:
+      MINIO_EXTRA_CONSUMERS: "daydreams:MINIO_BUCKET_DAYDREAMS:MINIO_DAYDREAMS_ACCESS_KEY:MINIO_DAYDREAMS_SECRET_KEY"
+      MINIO_BUCKET_DAYDREAMS: ${MINIO_BUCKET_DAYDREAMS:-daydreams-artifacts}
+      MINIO_DAYDREAMS_ACCESS_KEY: ${MINIO_DAYDREAMS_ACCESS_KEY}
+      MINIO_DAYDREAMS_SECRET_KEY: ${MINIO_DAYDREAMS_SECRET_KEY}
+```
+
+The bucket, access key, and secret key variables live in the parent-owned
+`.env.user` or `ATLAS_ENV_USER_FILE`; Atlas's tracked `.env.example` only owns
+the generic `MINIO_EXTRA_CONSUMERS` hook.
+
 ## 5. Service accounts
 
-Each consumer has its own MinIO service account with an inline IAM policy scoped to one bucket (or a small named set for the iceberg account, which has four):
+Each consumer has its own MinIO service account with an inline IAM policy scoped to one bucket (or a small named set for the iceberg account, which has four). Extra consumers declared via `MINIO_EXTRA_CONSUMERS` receive the same idempotent bucket, named policy, and inline service-account provisioning:
 
 ```json
 {
@@ -120,7 +148,7 @@ Each consumer has its own MinIO service account with an inline IAM policy scoped
 }
 ```
 
-Credentials are auto-generated to `.env` and exposed as `MINIO_<NAME>_ACCESS_KEY` and `MINIO_<NAME>_SECRET_KEY` where `<NAME>` ∈ `{COMFYUI, BACKEND, N8N, JUPYTER, DOCLING}`. A cross-bucket access attempt with a consumer credential returns `403 AccessDenied`.
+Built-in credentials are auto-generated to `.env` and exposed as `MINIO_<NAME>_ACCESS_KEY` and `MINIO_<NAME>_SECRET_KEY` where `<NAME>` is one of the built-in consumers. Parent-owned extra consumer credentials are supplied by the parent overlay. A cross-bucket access attempt with a consumer credential returns `403 AccessDenied`.
 
 ## 6. Consumer integration recipe (for follow-up PRs)
 
@@ -165,6 +193,7 @@ MinIO data lives in the `${PROJECT_NAME}-minio-data` named Docker volume mounted
 ## 9. Operations
 
 - **Add a bucket manually:** `mc mb local/<bucket>` from a host with `mc` and the root alias configured.
+- **Add a parent-owned consumer bucket:** set `MINIO_EXTRA_CONSUMERS` plus the referenced bucket/access/secret variables in a `_user` compose overlay and parent-owned env overlay, then run `docker compose up --force-recreate minio-init` or restart Atlas.
 - **Rotate a service-account key:** edit `MINIO_<NAME>_ACCESS_KEY` and `MINIO_<NAME>_SECRET_KEY` in `.env`, then run `docker compose up --force-recreate minio-init` to re-provision.
 - **Logs:** `docker logs ${PROJECT_NAME}-minio` and `docker logs ${PROJECT_NAME}-minio-init`.
 

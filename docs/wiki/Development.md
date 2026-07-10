@@ -15,6 +15,8 @@ Submodule consumers should keep project-owned overlays, branding, wrapper script
 
 Do not rely on "set only if absent" helpers for critical `*_SOURCE` keys. Atlas's `.env.example` intentionally contains defaults, so project wiring should force-set required values or pass explicit `--<service>-source` flags. Explicit source flags override `--track`, which is how consumers request an extra service outside a track or disable a service the track would normally prompt for.
 
+Parent-owned object-storage consumers should extend `minio-init` with `MINIO_EXTRA_CONSUMERS`, for example `daydreams:MINIO_BUCKET_DAYDREAMS:MINIO_DAYDREAMS_ACCESS_KEY:MINIO_DAYDREAMS_SECRET_KEY`, and keep the referenced bucket/access/secret variables in `.env.user` or `ATLAS_ENV_USER_FILE`. The hook creates the extra bucket and scoped MinIO service account without forking Atlas.
+
 Before committing a parent consumer update, verify the `infra/` submodule status is clean except for ignored `.env`, `.env.user`, `_user` slots, and runtime volumes; the parent pins a specific Atlas commit or tag; and overlays remain parent-owned.
 
 ## 3. Required Source Files

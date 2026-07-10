@@ -475,6 +475,7 @@ Do not edit by hand — the bootstrapper owns this value.
 | MINIO_ENDPOINT | minio |  | In-network URL (S3 API). |
 | MINIO_PUBLIC_ENDPOINT | minio |  | Host-side URL (for browser redirects). |
 | MINIO_PUBLIC_CONSOLE_ENDPOINT | minio |  | - |
+| MINIO_EXTRA_CONSUMERS | minio |  | Optional space-separated parent-owned MinIO consumer entries using CONSUMER:BUCKET_VAR:ACCESS_VAR:SECRET_VAR[:EXTRA_BUCKET_VAR,...] grammar for services/_user overlays. |
 | MINIO_BUCKET_COMFYUI | minio | comfyui | - |
 | MINIO_COMFYUI_ACCESS_KEY | minio |  | Auto-generated scoped MinIO access key for the comfyui bucket. |
 | MINIO_COMFYUI_SECRET_KEY | minio |  | Auto-generated scoped MinIO secret key for the comfyui bucket. |
