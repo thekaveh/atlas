@@ -457,7 +457,7 @@ REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:63025")
 
 ### 6.4 Pattern 4: Service Extension
 
-> For a service that should **co-launch inside the Atlas stack** (start/stop with `./start.sh` / `./stop.sh`, share the network automatically), prefer the `services/_user/` overlay — drop `services/_user/<name>/compose.yml` and the bootstrapper auto-merges it. See [reusing-atlas.md §6.1](reusing-atlas.md#61-extending-the-stack-via-services_user). The parent-compose pattern below is the alternative when you want your service managed by your *own* Compose project rather than Atlas's.
+> For a service that should **co-launch inside the Atlas stack** (start/stop with `./start.sh` / `./stop.sh`, share the network automatically), prefer the manifest-declared external overlay for new integrations or the back-compatible `services/_user/` slot for existing ones. See [reusing-atlas.md §6.1.1](reusing-atlas.md#611-back-compatible-services_user-overlay-slot). The parent-compose pattern below is the alternative when you want your service managed by your *own* Compose project rather than Atlas's.
 
 Extend infrastructure services with custom functionality:
 

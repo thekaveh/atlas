@@ -13,7 +13,7 @@ This page is the **overview and decision guide**. It answers: *can I reuse Atlas
   - **A — Standalone + shared network** (recommended when one Atlas instance backs *several* of your projects): run Atlas on its own; your project is a *separate* repo / Compose project that joins `${PROJECT_NAME}-network` and calls services by their Docker DNS name (or through Kong).
   - **B — Git submodule** (recommended when your project *ships and deploys Atlas together with it*): vendor Atlas into your repo under `infra/` and run it from there. Fully documented in [submodule-usage.md](submodule-usage.md).
 - **Customization needs no fork:** `PROJECT_NAME`, `BASE_PORT`, `BRAND_*`, per-service `*_SOURCE`, and `--track` cover the common cases.
-- **Honest status:** the consumer paths above work today; services dropped into the `services/_user/` overlay now **launch automatically** (see [§6.1](#61-extending-the-stack-via-services_user)); and the repo is **tagged** for submodule pinning. See [§7 Readiness](#7-readiness).
+- **Honest status:** the consumer paths above work today; services dropped into the `services/_user/` overlay now **launch automatically** (see [§6.1.1](#611-back-compatible-services_user-overlay-slot)); and the repo is **tagged** for submodule pinning. See [§7 Readiness](#7-readiness).
 
 ---
 
@@ -129,21 +129,22 @@ Pin the submodule to a release **tag** rather than tracking `main`, so infra upg
 | **`PROJECT_NAME`** | The Docker Compose project name — prefixes every container, volume, and the network (`${PROJECT_NAME}-network`), and is the `docker compose -p` namespace. **Both `./start.sh` and `./stop.sh` read it**, so stop tears down exactly what start launched. The key to isolation between stacks. Override per-run with `./start.sh --project <name>` / `-p` (persists back to `.env`); the wizard also prompts for it. | `.env` / `-p` |
 | **`.env.user`** | Optional user-owned overlay beside the active `.env`. On every start, Atlas merges `.env.user` values into `.env` before backfill and CLI flags. Use it for local downstream-only keys that must survive `.env` regeneration without adding them to upstream `.env.example`. | `.env.user` |
 | **`ATLAS_ENV_USER_FILE`** | Optional external user-owned overlay. Use this when Atlas is a submodule and the persistent project config should live in the parent repo instead of inside the Atlas checkout. The external file is applied after sibling `.env.user`, so it wins on duplicate keys; `--project` and other CLI flags still win last. | shell env var |
+| **`atlas.consumer.yml`** | Parent-owned one-file registration for project name, branding, env overlays, external Compose overlays, backend plugin roots, and model sidecars. Pass it with `./start.sh --consumer ./atlas.consumer.yml` or `ATLAS_CONSUMER_MANIFEST`. | [§6.1](#61-registering-a-parent-project-with-atlasconsumeryml) |
 | **`BASE_PORT`** | Moves the entire host-published port block (default `63000`). `./start.sh --base-port 64000`. Does not affect in-network addresses. | `.env` / flag |
 | **`BRAND_*`** | Rebrands the wizard/banner (name, tagline, author, repo URL, license) — make Atlas present as your platform. | `.env` (`BRAND_*` block) |
 | **`*_SOURCE`** | Enable/disable each service or pick its backend (`container` / `container-gpu` / `localhost` / `disabled`). LLMs use `ollama-container-*` / `ollama-localhost` / `none`; cloud providers toggle via the separate `CLOUD_*_SOURCE` vars. Disable what your showcase doesn't use. | `.env` / `--<svc>-source` |
 | **`--track`** | Start a curated subset (`gen-ai-rag`, `gen-ai-eng`, `gen-ai-creative`, `ml-eng`, `data-eng`, `trading`, `all`). `--track gen-ai-rag` is the natural fit for a RAG showcase. Explicit `--<service>-source` flags override track membership, which lets parent wrappers request one extra service outside the track or disable a track-prompted service. | flag |
-| **`services/_user/` overlay** | Drop your own co-located service into `services/_user/<name>/compose.yml` (gitignored upstream, so it never leaks into Atlas PRs); the bootstrapper auto-merges and launches it. | [§6.1](#61-extending-the-stack-via-services_user) |
-| **`MINIO_EXTRA_CONSUMERS`** | Add parent-owned MinIO buckets and scoped service-account credentials for `_user` services without forking Atlas's `init-minio.sh`. | [§6.1.1](#611-adding-parent-owned-minio-buckets) |
+| **`services/_user/` overlay** | Back-compatible local discovery slot for co-located services. Prefer `atlas.consumer.yml` for new parent repos so overlays can stay outside the Atlas checkout without symlinks. | [§6.1.1](#611-back-compatible-services_user-overlay-slot) |
+| **`MINIO_EXTRA_CONSUMERS`** | Add parent-owned MinIO buckets and scoped service-account credentials for `_user` or manifest-declared services without forking Atlas's `init-minio.sh`. | [§6.1.2](#612-adding-parent-owned-minio-buckets) |
 | **`services/supabase/db/_user/` SQL slot** | Add downstream-owned Supabase schema, seed, view, grant, or extension SQL that runs after Atlas-owned database initialization. | [§6.2](#62-adding-supabase-sql-via-the-user-migration-slot) |
 | **`BACKEND_PLUGINS_DIR` plugin seam** | Mount a directory of FastAPI route packages into the backend app to add your own API routes — no fork of `services/backend/` required. | [§6.3](#63-adding-backend-api-routes-via-the-plugin-seam) |
 
 Full source/customization matrix: [source-configuration.md](source-configuration.md).
 
-User overlays use normal `.env` syntax (`KEY=value`, quoted values, and whitespace-prefixed inline comments). The merge order is deterministic: `.env.example` baseline → generated or existing `.env` → sibling `.env.user` → `ATLAS_ENV_USER_FILE` → explicit CLI flags such as `--project` or `--<svc>-source`. Both overlays are merged on every start, including `--cold`, before missing keys are backfilled from `.env.example`.
+User overlays use normal `.env` syntax (`KEY=value`, quoted values, and whitespace-prefixed inline comments). The merge order is deterministic: `.env.example` baseline → generated or existing `.env` → sibling `.env.user` → `ATLAS_ENV_USER_FILE` → `atlas.consumer.yml` env values → explicit CLI flags such as `--project` or `--<svc>-source`. Overlays and consumer manifests are merged on every start, including `--cold`, before missing keys are backfilled from `.env.example`.
 
 For submodule consumers that need a repeatable parent-repo shape, use the
-reference layout in [submodule-usage.md §4.2](submodule-usage.md#42-parent-repo-consumer-reference-layout). It shows the parent-owned `compose/<name>-overlay.yml` pattern, the `services/_user/<name>/compose.yml` symlink discovery slot, force-set source/branding wrappers, and the validation checklist used by RAG-showcase-style and DayDreams-style consumers.
+reference layout in [submodule-usage.md §4.2](submodule-usage.md#42-parent-repo-consumer-reference-layout). It shows the parent-owned `atlas.consumer.yml` pattern, parent-owned Compose overlays, force-set source/branding wrappers, and the validation checklist used by RAG-showcase-style and DayDreams-style consumers. The older `services/_user/<name>/compose.yml` symlink slot remains supported for existing integrations, but new consumers should register through the manifest.
 
 Use `ATLAS_ENV_USER_FILE` for parent-owned config that should be tracked or templated by the consuming project:
 
@@ -161,7 +162,53 @@ ATLAS_ENV_USER_FILE="$PWD/atlas.env.user" ./infra/start.sh
 
 Absolute paths are safest in CI and wrapper scripts. Relative `ATLAS_ENV_USER_FILE` values are resolved against the directory that invoked `start.sh`; direct Python invocations resolve them against the Python process working directory. If the file is missing or unreadable, Atlas prints a warning and continues without applying that overlay. If no overlay provides `PROJECT_NAME`, cold start preserves the previous valid value so a later `./stop.sh` still targets the same stack namespace.
 
-### 6.1 Extending the stack via `services/_user/`
+### 6.1 Registering a parent project with `atlas.consumer.yml`
+
+For new parent repositories, commit one `atlas.consumer.yml` beside the
+parent-owned overlay, env overlay, plugin directory, and model sidecars. Pass it
+to Atlas from the parent repo:
+
+```bash
+./infra/start.sh --consumer ./atlas.consumer.yml --no-tui --detach
+./infra/start.sh --consumer ./atlas.consumer.yml compose validate
+./infra/start.sh --consumer ./atlas.consumer.yml doctor --format json
+```
+
+Relative paths in the manifest resolve from the manifest directory, not from
+the Atlas checkout. The manifest can declare:
+
+```yaml
+name: rag-showcase
+project_name: ragshowcase
+brand:
+  name: RAG Showcase
+  tagline: "Atlas-backed retrieval playground"
+  repo_url: "https://github.com/example/rag-showcase"
+env:
+  file: ./atlas.env.user
+  values:
+    WEAVIATE_MEMORY_LIMIT: 4g
+compose_overlays:
+  - ./compose/rag-showcase-overlay.yml
+backend_plugins:
+  - ./backend/plugins
+model_sidecars:
+  comfyui:
+    - ./models/comfyui-custom-models.yaml
+  ollama:
+    - llama3.2:latest
+```
+
+Atlas validates the declared paths before Compose runs, merges manifest env
+values into `.env`, appends external Compose overlays to the assembled
+`docker compose` command without writing symlinks into the submodule, and lists
+registered consumers in the launch overview. Multiple manifests may be supplied
+by repeating `--consumer` or by setting `ATLAS_CONSUMER_MANIFEST` with
+`os.pathsep`-separated paths. List-valued model declarations merge by ordered
+union; scalar conflicts such as different `PROJECT_NAME` values fail during
+validation instead of silently last-wins.
+
+### 6.1.1 Back-compatible `services/_user/` overlay slot
 
 To add your own service *into* the Atlas stack (so it starts/stops with `./start.sh` / `./stop.sh` and shares the stack's network), drop a Compose fragment at `services/_user/<name>/compose.yml`. On launch the bootstrapper discovers every `services/_user/*/compose.yml` and merges it into the `docker compose` invocation (`-f docker-compose.yml -f services/_user/<name>/compose.yml …`), so your service comes up alongside the core stack. The `services/_user/` slot is gitignored upstream, so your additions never appear in an Atlas PR.
 
@@ -190,7 +237,7 @@ networks:
 
 **Scope note:** overlay services *launch*, but they are intentionally **not** wired into Atlas's wizard, topology port-allocator, or generated `.env.example` — you manage their image/ports/env directly in the fragment (use `${HOST_BIND_IP:-}` on published ports to inherit the `--profile prod` localhost-binding behavior). If you'd rather keep your service in its *own* repo entirely, use Method A instead (it joins the same network from outside).
 
-### 6.1.1 Adding parent-owned MinIO buckets
+### 6.1.2 Adding parent-owned MinIO buckets
 
 If your `_user` service needs object storage, do not fork
 `services/minio/init/scripts/init-minio.sh`. Instead, extend the existing
@@ -224,7 +271,7 @@ service account with the same inline scoped policy used by built-in consumers.
 Multiple entries may be separated by spaces; comma-separated extra bucket vars
 after the fourth field grant one consumer access to a small named bucket set.
 
-### 6.1.2 Scripted bring-up for automation
+### 6.1.3 Scripted bring-up for automation
 
 For CI, cron, or parent-repo wrapper scripts, use the non-interactive detached
 path instead of backgrounding `start.sh` and killing it after a hand-written
@@ -244,7 +291,7 @@ status:
 ./start.sh --no-tui --detach --json
 ```
 
-### 6.1.3 Headless submodule upgrade validation
+### 6.1.4 Headless submodule upgrade validation
 
 When a parent repository pins Atlas as an `infra/` submodule, upgrade the pin
 with a headless validation pass before starting the stack. This catches newly
@@ -256,8 +303,8 @@ git -C infra fetch
 git -C infra checkout <atlas-sha>
 cd infra
 ./start.sh env backfill
-./start.sh compose validate
-./start.sh doctor
+./start.sh --consumer ../atlas.consumer.yml compose validate
+./start.sh --consumer ../atlas.consumer.yml doctor
 ./start.sh --no-tui --detach
 ```
 
@@ -276,7 +323,7 @@ Exit codes:
 - `compose validate` exits `0` when Compose accepts the assembled stack, and
   otherwise exits with Compose's failing status code.
 
-### 6.1.4 Consumer doctor for CI preflight
+### 6.1.5 Consumer doctor for CI preflight
 
 Use the consumer doctor as the parent repository's Atlas-generic preflight
 before product-specific tests:
@@ -285,13 +332,14 @@ before product-specific tests:
 cd infra
 ./start.sh env backfill
 ./start.sh doctor --format json
+./start.sh --consumer ../atlas.consumer.yml doctor --format json
 ./start.sh --no-tui --detach
 ```
 
 `./start.sh doctor` does not start containers. It runs a registry of preflight
-checks for the assembled consumer integration: Compose validation, `_user`
-overlay environment references, plugin directory sanity, model sidecar parsing,
-consumer endpoint reporting, and tracked-file cleanliness for the Atlas
+checks for the assembled consumer integration: consumer manifest validation,
+Compose validation, `_user` overlay environment references, plugin directory
+sanity, model sidecar parsing, consumer endpoint reporting, and tracked-file cleanliness for the Atlas
 checkout. Checks that require Docker are reported as `skipped` when Docker is
 unavailable; Docker-free checks still run. Text output is intended for local
 debugging, while `--format json` is intended for consumer CI. The command exits
@@ -390,7 +438,7 @@ This ensures your consumer works transparently across all `*_SOURCE` values (con
 | Git submodule (Method B) | **Ready** ([submodule-usage.md](submodule-usage.md)) |
 | Customization: `PROJECT_NAME` / `BASE_PORT` / `BRAND_*` / `*_SOURCE` / `--track` | **Ready** |
 | Multiple isolated Atlas stacks on one host | **Ready** (distinct `PROJECT_NAME` + `BASE_PORT`) |
-| `services/_user/` overlay **auto-launch** | **Ready** — drop `services/_user/<name>/compose.yml` and the bootstrapper merges + launches it (see [§6.1](#61-extending-the-stack-via-services_user)). |
+| `services/_user/` overlay **auto-launch** | **Ready** — drop `services/_user/<name>/compose.yml` and the bootstrapper merges + launches it (see [§6.1.1](#611-back-compatible-services_user-overlay-slot)). |
 | Semver release tags for submodule pinning | **Ready** — the repo is tagged `vMAJOR.MINOR.PATCH`; pin your submodule to a tag (see [releasing.md](releasing.md)). |
 | Published images / pip package | **Not supported** (see §5) |
 

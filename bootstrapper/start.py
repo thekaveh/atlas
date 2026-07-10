@@ -529,7 +529,7 @@ class AtlasStarter:
         """Merge optional user-owned env overlays into the active .env file.
 
         Precedence is deterministic: the sibling .env.user is applied first,
-        then ATLAS_ENV_USER_FILE is applied last when set.
+        then ATLAS_ENV_USER_FILE, then any consumer manifest env values.
         """
         applied_overrides: Dict[str, str] = {}
 
@@ -548,6 +548,18 @@ class AtlasStarter:
                 warn_if_missing=True,
             )
             applied_overrides.update(external_overrides)
+
+        consumer_config = self.config_parser.load_consumer_config()
+        if consumer_config.env_overrides:
+            self._merge_env_file_overrides(consumer_config.env_overrides)
+            count = len(consumer_config.env_overrides)
+            names = ", ".join(consumer.name for consumer in consumer_config.consumers)
+            self.banner.show_status_message(
+                f"  • Applied consumer manifest env ({count} override{'s' if count != 1 else ''})"
+                f" for {names}",
+                "info",
+            )
+            applied_overrides.update(consumer_config.env_overrides)
 
         return applied_overrides
 
@@ -2055,6 +2067,33 @@ class AtlasStarter:
             expand=True,
         )
 
+        consumer_config = self.config_parser.load_consumer_config()
+        consumer_panel = None
+        if consumer_config.consumers:
+            consumer_lines = []
+            for consumer in consumer_config.consumers:
+                line = Text()
+                line.append(f"  {consumer.name:<16}", style="bright_white")
+                details = []
+                if consumer.compose_overlays:
+                    details.append(f"{len(consumer.compose_overlays)} overlay")
+                if consumer.backend_plugins:
+                    details.append(f"{len(consumer.backend_plugins)} plugin dir")
+                if consumer.comfyui_sidecars:
+                    details.append(f"{len(consumer.comfyui_sidecars)} ComfyUI sidecar")
+                if consumer.ollama_models:
+                    details.append(f"{len(consumer.ollama_models)} Ollama model")
+                line.append(", ".join(details) if details else "registered", style="color(75)")
+                consumer_lines.append(line)
+            consumer_panel = Panel(
+                Group(*consumer_lines),
+                title="[bold bright_white]Consumers[/bold bright_white]  "
+                      "[color(243)](atlas.consumer.yml)[/color(243)]",
+                border_style="color(240)",
+                padding=(0, 1),
+                expand=True,
+            )
+
         # Track banner line (spec §5.2 #7): when a track was active,
         # prepend a "Track: <display_name>" line above the services table.
         track_line: list = []
@@ -2079,13 +2118,16 @@ class AtlasStarter:
         # the user can step back and adjust before Docker barfs with an
         # opaque "address already in use" error.
         warning_lines = _detect_port_collisions(collision_rows)
+        panels = [table, cloud_panel]
+        if consumer_panel is not None:
+            panels.append(consumer_panel)
         if warning_lines:
             warning_texts = [
                 Text.from_markup(f"[yellow]{msg}[/yellow]")
                 for msg in warning_lines
             ]
-            return Group(*track_line, table, cloud_panel, *warning_texts)
-        return Group(*track_line, table, cloud_panel)
+            return Group(*track_line, *panels, *warning_texts)
+        return Group(*track_line, *panels)
 
     @staticmethod
     def _get_localhost_port(service_name: str, env_vars: dict) -> str:
@@ -2362,6 +2404,12 @@ def _doctor_result(
 def _doctor_check_compose(starter: "AtlasStarter") -> dict:
     try:
         returncode, stdout, stderr, _cmd = starter.docker_manager.validate_compose_config()
+    except ValueError as exc:
+        return _doctor_result(
+            "compose",
+            "fail",
+            f"Compose config validation could not load consumer manifests: {exc}",
+        )
     except RuntimeError as exc:
         return _doctor_result(
             "compose",
@@ -2377,6 +2425,31 @@ def _doctor_check_compose(starter: "AtlasStarter") -> dict:
         "fail",
         summary or "Compose config validation failed.",
         details={"returncode": returncode, "output": output},
+    )
+
+
+def _doctor_check_consumer_manifests(starter: "AtlasStarter") -> dict:
+    try:
+        consumer_config = starter.config_parser.load_consumer_config()
+    except ValueError as exc:
+        return _doctor_result(
+            "consumer-manifests",
+            "fail",
+            f"Consumer manifest validation failed: {exc}",
+        )
+    if consumer_config.is_empty:
+        return _doctor_result(
+            "consumer-manifests",
+            "pass",
+            "No consumer manifests configured.",
+        )
+    names = [consumer.name for consumer in consumer_config.consumers]
+    overlay_count = sum(len(consumer.compose_overlays) for consumer in consumer_config.consumers)
+    return _doctor_result(
+        "consumer-manifests",
+        "pass",
+        f"{len(names)} consumer manifest(s) valid: {', '.join(names)}.",
+        details={"consumers": names, "compose_overlays": overlay_count},
     )
 
 
@@ -2448,30 +2521,39 @@ def _doctor_check_plugins(starter: "AtlasStarter") -> dict:
             "pass",
             "No BACKEND_PLUGINS_DIR configured.",
         )
-    plugins_dir = Path(raw_path).expanduser()
-    if not plugins_dir.is_absolute():
-        plugins_dir = starter.config_parser.root_dir / plugins_dir
-    if not plugins_dir.exists():
-        return _doctor_result(
-            "plugins",
-            "skipped",
-            f"Plugin directory does not exist: {plugins_dir}",
-        )
+    plugin_dirs_to_check: list[Path] = []
+    for raw_part in raw_path.split(os.pathsep):
+        raw_part = raw_part.strip()
+        if not raw_part:
+            continue
+        plugins_dir = Path(raw_part).expanduser()
+        if not plugins_dir.is_absolute():
+            plugins_dir = starter.config_parser.root_dir / plugins_dir
+        if not plugins_dir.exists():
+            return _doctor_result(
+                "plugins",
+                "skipped",
+                f"Plugin directory does not exist: {plugins_dir}",
+            )
+        plugin_dirs_to_check.append(plugins_dir)
     problems: list[str] = []
     requirement_files = 0
     requirement_entries = 0
-    for req in [plugins_dir / "requirements.txt", *plugins_dir.glob("*/requirements.txt")]:
-        try:
-            if not req.exists():
-                continue
-            requirement_files += 1
-            for line in req.read_text(encoding="utf-8").splitlines():
-                stripped = line.strip()
-                if not stripped or stripped.startswith("#"):
+    plugin_names: list[str] = []
+    for plugins_dir in plugin_dirs_to_check:
+        for req in [plugins_dir / "requirements.txt", *plugins_dir.glob("*/requirements.txt")]:
+            try:
+                if not req.exists():
                     continue
-                requirement_entries += 1
-        except OSError as exc:
-            problems.append(f"{req} could not be read: {exc}")
+                requirement_files += 1
+                for line in req.read_text(encoding="utf-8").splitlines():
+                    stripped = line.strip()
+                    if not stripped or stripped.startswith("#"):
+                        continue
+                    requirement_entries += 1
+            except OSError as exc:
+                problems.append(f"{req} could not be read: {exc}")
+        plugin_names.extend(path.name for path in plugins_dir.iterdir() if path.is_dir())
     if problems:
         return _doctor_result(
             "plugins",
@@ -2479,13 +2561,12 @@ def _doctor_check_plugins(starter: "AtlasStarter") -> dict:
             problems[0],
             details={"problems": problems},
         )
-    plugin_dirs = [path.name for path in plugins_dir.iterdir() if path.is_dir()]
     return _doctor_result(
         "plugins",
         "pass",
-        f"Plugin directory readable; {len(plugin_dirs)} plugin dir(s) found.",
+        f"Plugin directory readable; {len(plugin_names)} plugin dir(s) found.",
         details={
-            "plugins": plugin_dirs,
+            "plugins": plugin_names,
             "requirement_files": requirement_files,
             "requirement_entries": requirement_entries,
         },
@@ -2501,35 +2582,45 @@ def _doctor_check_model_sidecars(starter: "AtlasStarter") -> dict:
             "pass",
             "No COMFYUI_CUSTOM_MODELS_FILE configured.",
         )
-    sidecar = Path(raw_path).expanduser()
-    if not sidecar.is_absolute():
-        sidecar = starter.config_parser.root_dir / sidecar
-    if not sidecar.exists():
-        return _doctor_result(
-            "model-sidecars",
-            "skipped",
-            f"Model sidecar does not exist: {sidecar}",
-        )
-    try:
-        import yaml
+    sidecars: list[Path] = []
+    for raw_part in raw_path.split(os.pathsep):
+        raw_part = raw_part.strip()
+        if not raw_part:
+            continue
+        sidecar = Path(raw_part).expanduser()
+        if not sidecar.is_absolute():
+            sidecar = starter.config_parser.root_dir / sidecar
+        sidecars.append(sidecar)
 
-        data = yaml.safe_load(sidecar.read_text(encoding="utf-8"))
-    except Exception as exc:  # noqa: BLE001
-        return _doctor_result(
-            "model-sidecars",
-            "fail",
-            f"Could not parse model sidecar {sidecar}: {exc}",
-        )
-    if data is not None and not isinstance(data, (dict, list)):
-        return _doctor_result(
-            "model-sidecars",
-            "fail",
-            f"Model sidecar {sidecar} must parse to a mapping or list.",
-        )
+    import yaml
+
+    parsed = 0
+    for sidecar in sidecars:
+        if not sidecar.exists():
+            return _doctor_result(
+                "model-sidecars",
+                "skipped",
+                f"Model sidecar does not exist: {sidecar}",
+            )
+        try:
+            data = yaml.safe_load(sidecar.read_text(encoding="utf-8"))
+        except Exception as exc:  # noqa: BLE001
+            return _doctor_result(
+                "model-sidecars",
+                "fail",
+                f"Could not parse model sidecar {sidecar}: {exc}",
+            )
+        if data is not None and not isinstance(data, (dict, list)):
+            return _doctor_result(
+                "model-sidecars",
+                "fail",
+                f"Model sidecar {sidecar} must parse to a mapping or list.",
+            )
+        parsed += 1
     return _doctor_result(
         "model-sidecars",
         "pass",
-        f"Model sidecar parses: {sidecar}",
+        f"{parsed} model sidecar file(s) parse.",
     )
 
 
@@ -2598,6 +2689,7 @@ def _doctor_check_submodule_clean(starter: "AtlasStarter") -> dict:
 
 
 DOCTOR_CHECKS = [
+    _doctor_check_consumer_manifests,
     _doctor_check_compose,
     _doctor_check_overlay_env,
     _doctor_check_plugins,
@@ -2626,6 +2718,11 @@ def _print_doctor_text(results: list[dict]) -> None:
                    'this stack. Defaults to PROJECT_NAME in .env (or "atlas"). Set it '
                    'when running Atlas as a submodule so you do not collide with a '
                    'base Atlas stack.')
+@click.option('--consumer', 'consumer_manifests', multiple=True,
+              type=click.Path(exists=False, dir_okay=False),
+              help='Path to an atlas.consumer.yml manifest in a parent project. '
+                   'May be passed multiple times. Relative paths resolve from '
+                   'the directory that invoked start.sh.')
 @click.option('--base-port', type=int, help=f'Base port for all services (default: {DEFAULT_BASE_PORT})')
 @click.option('--cold', is_flag=True, help='Perform cold start with cleanup')
 @click.option('--setup-hosts', is_flag=True, help='Setup hosts file entries (requires admin/sudo)')
@@ -2867,7 +2964,7 @@ def _print_doctor_text(results: list[dict]) -> None:
                    'sources. Does not bypass the wizard. (Resource limits are '
                    'always-on .env defaults, not profile-gated.)')
 @click.pass_context
-def main(ctx, project_name, base_port, track, list_tracks, cold, setup_hosts, skip_hosts, llm_provider_source,
+def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, cold, setup_hosts, skip_hosts, llm_provider_source,
          cloud_openai_source, cloud_anthropic_source, cloud_openrouter_source,
          openai_api_key, anthropic_api_key, openrouter_api_key, fal_api_key,
          openai_models, anthropic_models, openrouter_models,
@@ -2898,6 +2995,18 @@ def main(ctx, project_name, base_port, track, list_tracks, cold, setup_hosts, sk
          redpanda_source,
          no_tui, detach, json_output, no_splash, no_port_migrate, profile):
     """Start Atlas — the self-hosted engineering platform."""
+
+    if consumer_manifests:
+        previous_consumer_manifest = os.environ.get("ATLAS_CONSUMER_MANIFEST")
+        os.environ["ATLAS_CONSUMER_MANIFEST"] = os.pathsep.join(consumer_manifests)
+
+        def _restore_consumer_manifest_env() -> None:
+            if previous_consumer_manifest is None:
+                os.environ.pop("ATLAS_CONSUMER_MANIFEST", None)
+            else:
+                os.environ["ATLAS_CONSUMER_MANIFEST"] = previous_consumer_manifest
+
+        ctx.call_on_close(_restore_consumer_manifest_env)
 
     if ctx.invoked_subcommand is not None:
         return
@@ -3741,7 +3850,7 @@ def compose_validate_command() -> None:
     starter = AtlasStarter()
     try:
         returncode, stdout, stderr, _cmd = starter.docker_manager.validate_compose_config()
-    except RuntimeError as exc:
+    except (RuntimeError, ValueError) as exc:
         click.echo(f"Compose config validation failed: {exc}", err=True)
         raise click.exceptions.Exit(1) from exc
 

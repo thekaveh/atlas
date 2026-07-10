@@ -40,6 +40,15 @@ class CloudApiEntry:
 
 
 @dataclass
+class ConsumerEntry:
+    """One parent-owned consumer registered through atlas.consumer.yml."""
+    name: str
+    manifest_path: str
+    compose_overlays: List[str] = field(default_factory=list)
+    backend_plugins: List[str] = field(default_factory=list)
+
+
+@dataclass
 class AppState:
     """
     Top-level state read by the renderables. Mutated by the Textual app
@@ -65,5 +74,8 @@ class AppState:
     # Cloud LLM provider toggles — rendered separately from `services`,
     # since they're API credentials routed through LiteLLM, not containers.
     cloud_apis: List[CloudApiEntry] = field(default_factory=list)
+
+    # Parent-owned consumer registrations from atlas.consumer.yml.
+    consumers: List[ConsumerEntry] = field(default_factory=list)
 
     kong_port: str = "63000"

@@ -162,11 +162,15 @@ class DockerManager:
         """
         user_dir = self.root_dir / "services" / "_user"
         overlays = sorted(user_dir.glob("*/compose.yml")) if user_dir.is_dir() else []
+        consumer_overlays = list(self.config_parser.load_consumer_config().compose_overlays)
         if not overlays:
-            return []
+            if not consumer_overlays:
+                return []
         file_args: List[str] = ['-f', 'docker-compose.yml']
         for overlay in overlays:
             file_args.extend(['-f', str(overlay.relative_to(self.root_dir))])
+        for overlay in consumer_overlays:
+            file_args.extend(['-f', str(overlay)])
         return file_args
 
     def execute_compose_command(
