@@ -6,6 +6,8 @@
 ./start.sh
 ./start.sh env backfill
 ./start.sh compose validate
+./start.sh doctor
+./start.sh doctor --format json
 ./start.sh --no-tui --detach
 ./start.sh --no-tui --detach --json
 ./stop.sh
@@ -31,6 +33,15 @@ validate the assembled stack, including `services/_user/<name>/compose.yml`
 overlays. Exit code `0` means the env backfill or Compose validation succeeded;
 `compose validate` returns Compose's failing status code when validation fails.
 
-## 4. Health And Logs
+## 4. Consumer Doctor
+
+Use `./start.sh doctor` for consumer CI preflight before starting containers.
+The doctor runs an extensible check registry for Compose validation, `_user`
+overlay env references, plugin directories, model sidecars, endpoint reporting,
+and tracked-file cleanliness. Docker-dependent checks are marked skipped when
+Docker is unavailable; Docker-free checks still run. Use `--format json` for CI
+parsing. Any failed check exits non-zero.
+
+## 5. Health And Logs
 
 The launch phase streams Docker Compose output through the Textual UI. The same command path works without the TUI in non-interactive environments.
