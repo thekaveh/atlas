@@ -134,6 +134,7 @@ Pin the submodule to a release **tag** rather than tracking `main`, so infra upg
 | **`*_SOURCE`** | Enable/disable each service or pick its backend (`container` / `container-gpu` / `localhost` / `disabled`). LLMs use `ollama-container-*` / `ollama-localhost` / `none`; cloud providers toggle via the separate `CLOUD_*_SOURCE` vars. Disable what your showcase doesn't use. | `.env` / `--<svc>-source` |
 | **`--track`** | Start a curated subset (`gen-ai-rag`, `gen-ai-eng`, `gen-ai-creative`, `ml-eng`, `data-eng`, `trading`, `all`). `--track gen-ai-rag` is the natural fit for a RAG showcase. Explicit `--<service>-source` flags override track membership, which lets parent wrappers request one extra service outside the track or disable a track-prompted service. | flag |
 | **`services/_user/` overlay** | Drop your own co-located service into `services/_user/<name>/compose.yml` (gitignored upstream, so it never leaks into Atlas PRs); the bootstrapper auto-merges and launches it. | [§6.1](#61-extending-the-stack-via-services_user) |
+| **`MINIO_EXTRA_CONSUMERS`** | Add parent-owned MinIO buckets and scoped service-account credentials for `_user` services without forking Atlas's `init-minio.sh`. | [§6.1.1](#611-adding-parent-owned-minio-buckets) |
 | **`services/supabase/db/_user/` SQL slot** | Add downstream-owned Supabase schema, seed, view, grant, or extension SQL that runs after Atlas-owned database initialization. | [§6.2](#62-adding-supabase-sql-via-the-user-migration-slot) |
 | **`BACKEND_PLUGINS_DIR` plugin seam** | Mount a directory of FastAPI route packages into the backend app to add your own API routes — no fork of `services/backend/` required. | [§6.3](#63-adding-backend-api-routes-via-the-plugin-seam) |
 
@@ -188,6 +189,40 @@ networks:
 ```
 
 **Scope note:** overlay services *launch*, but they are intentionally **not** wired into Atlas's wizard, topology port-allocator, or generated `.env.example` — you manage their image/ports/env directly in the fragment (use `${HOST_BIND_IP:-}` on published ports to inherit the `--profile prod` localhost-binding behavior). If you'd rather keep your service in its *own* repo entirely, use Method A instead (it joins the same network from outside).
+
+### 6.1.1 Adding parent-owned MinIO buckets
+
+If your `_user` service needs object storage, do not fork
+`services/minio/init/scripts/init-minio.sh`. Instead, extend the existing
+`minio-init` service from the parent-owned overlay and pass
+`MINIO_EXTRA_CONSUMERS`. Each entry uses the same grammar as Atlas's built-in
+consumers:
+
+```text
+CONSUMER:BUCKET_VAR:ACCESS_VAR:SECRET_VAR[:EXTRA_BUCKET_VAR,...]
+```
+
+A DayDreams-style overlay can keep the bucket name and credentials in the
+parent repo:
+
+```yaml
+# services/_user/daydreams/compose.yml
+services:
+  minio-init:
+    environment:
+      MINIO_EXTRA_CONSUMERS: "daydreams:MINIO_BUCKET_DAYDREAMS:MINIO_DAYDREAMS_ACCESS_KEY:MINIO_DAYDREAMS_SECRET_KEY"
+      MINIO_BUCKET_DAYDREAMS: ${MINIO_BUCKET_DAYDREAMS:-daydreams-artifacts}
+      MINIO_DAYDREAMS_ACCESS_KEY: ${MINIO_DAYDREAMS_ACCESS_KEY}
+      MINIO_DAYDREAMS_SECRET_KEY: ${MINIO_DAYDREAMS_SECRET_KEY}
+```
+
+Place the referenced `MINIO_BUCKET_DAYDREAMS`,
+`MINIO_DAYDREAMS_ACCESS_KEY`, and `MINIO_DAYDREAMS_SECRET_KEY` values in
+`.env.user` or `ATLAS_ENV_USER_FILE`. On every `minio-init` run, Atlas creates
+the extra bucket, writes a named inspectable policy, and creates or refreshes a
+service account with the same inline scoped policy used by built-in consumers.
+Multiple entries may be separated by spaces; comma-separated extra bucket vars
+after the fourth field grant one consumer access to a small named bucket set.
 
 ### 6.2 Adding Supabase SQL via the user migration slot
 
