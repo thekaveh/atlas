@@ -1,4 +1,5 @@
 import logging
+import os
 import subprocess
 import sys
 import types
@@ -35,6 +36,35 @@ def test_load_plugins_noop_when_dir_missing(monkeypatch):
     import plugin_seam
     plugin_seam.load_plugins(app)
     assert len(app.router.routes) == before
+
+
+def test_load_plugins_accepts_pathsep_separated_roots(tmp_path, monkeypatch):
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    for root, plugin_name, route in (
+        (first, "first_plugin", "/__first__"),
+        (second, "second_plugin", "/__second__"),
+    ):
+        pkg = root / plugin_name
+        pkg.mkdir(parents=True)
+        (pkg / "__init__.py").write_text(
+            "from fastapi import APIRouter\n"
+            "router = APIRouter()\n"
+            f"@router.get('{route}')\n"
+            "def ping():\n"
+            "    return {'ok': True}\n"
+        )
+
+    from fastapi import FastAPI
+    app = FastAPI()
+    monkeypatch.setenv("BACKEND_PLUGINS_DIR", os.pathsep.join([str(first), str(second)]))
+
+    import plugin_seam
+    plugin_seam.load_plugins(app)
+
+    paths = {r.path for r in app.router.routes}
+    assert "/__first__" in paths
+    assert "/__second__" in paths
 
 
 def test_load_plugins_installs_shared_and_per_plugin_requirements_in_order(tmp_path, monkeypatch):

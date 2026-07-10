@@ -1,7 +1,8 @@
 """Generic downstream extension seam (no RAG-specific logic).
 
-A downstream consumer mounts a directory of plugin packages at
-``$BACKEND_PLUGINS_DIR`` (default ``/app/plugins``). Each immediate
+A downstream consumer mounts one or more directories of plugin packages at
+``$BACKEND_PLUGINS_DIR`` (default ``/app/plugins``; multiple roots are joined
+with ``os.pathsep``). Each immediate
 subdirectory that is an importable package exposing a module-level
 ``router`` (a FastAPI ``APIRouter``) is included into the app. A shared
 ``requirements.txt`` in the plugin root is installed first, and each plugin
@@ -90,15 +91,18 @@ def _install_requirements(directory: Path, installed: set[Path] | None = None) -
         installed.add(resolved)
 
 
-def load_plugins(app) -> None:
-    plugins_dir = Path(os.getenv("BACKEND_PLUGINS_DIR", "/app/plugins"))
+def _plugin_roots() -> list[Path]:
+    raw = os.getenv("BACKEND_PLUGINS_DIR", "/app/plugins")
+    return [Path(part) for part in raw.split(os.pathsep) if part.strip()]
+
+
+def _load_plugins_from_dir(app, plugins_dir: Path, installed_requirements: set[Path]) -> None:
     if not plugins_dir.is_dir():
         return
-    installed_requirements: set[Path] = set()
     try:
         _install_requirements(plugins_dir, installed_requirements)
     except PluginRequirementsInstallError:
-        _log.exception("plugin seam: shared plugin requirements failed; skipping plugin loading")
+        _log.exception("plugin seam: shared plugin requirements failed for %s; skipping root", plugins_dir)
         return
     if str(plugins_dir) not in sys.path:
         sys.path.insert(0, str(plugins_dir))
@@ -118,3 +122,9 @@ def load_plugins(app) -> None:
                 _log.info("plugin seam: loaded plugin %r", entry.name)
         except Exception:  # one bad plugin must not crash the backend
             _log.exception("plugin seam: failed to load plugin %r", entry.name)
+
+
+def load_plugins(app) -> None:
+    installed_requirements: set[Path] = set()
+    for plugins_dir in _plugin_roots():
+        _load_plugins_from_dir(app, plugins_dir, installed_requirements)

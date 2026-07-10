@@ -39,6 +39,7 @@ from ..widgets import (
     CloudApiSummary,
     CloudApisRow,
     CommandSummary,
+    ConsumerSummary,
     FooterBar,
     InfoBoxState,
     InfoPanel,
@@ -194,6 +195,7 @@ class WizardScreen(Screen):
         on_base_port_change: Callable[[int, list[ServiceRow]], list[ServiceRow]] | None = None,
         resolve_port_for_service: Callable[[str, str], str] | None = None,
         cloud_apis: list[CloudApiSummary] | None = None,
+        consumers: list[ConsumerSummary] | None = None,
         auto_launch: bool = False,
         prefilled_source_args: dict | None = None,
         prefilled_stack_options: dict | None = None,
@@ -265,6 +267,7 @@ class WizardScreen(Screen):
         self._command_summary = CommandSummary()
         self._service_table = ServiceTable(services)
         self._cloud_apis: list[CloudApiSummary] = list(cloud_apis or [])
+        self._consumers: list[ConsumerSummary] = list(consumers or [])
         # Pass the service table so the row can align its category legend
         # to the actual 2nd-slot start (cached by ServiceTable on each render).
         self._cloud_apis_row = CloudApisRow(
@@ -280,6 +283,7 @@ class WizardScreen(Screen):
                 brand=self._brand,
                 services=summaries,
                 cloud_apis=self._cloud_apis,
+                consumers=self._consumers,
                 track_label=self._track_display_name,
             ),
             # CloudApisRow renders the category legend on its right half.
@@ -835,6 +839,7 @@ class WizardScreen(Screen):
                 brand=self._brand,
                 services=summaries,
                 cloud_apis=self._cloud_apis,
+                consumers=self._consumers,
                 track_label=self._track_display_name,
             )
         )
