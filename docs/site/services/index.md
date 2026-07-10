@@ -81,6 +81,7 @@
 
 | Service | Title | Tracks | SOURCE | Default | Values | Dependencies |
 | --- | --- | --- | --- | --- | --- | --- |
+| [asset-worker](asset-worker.md) | Asset Worker (glTF post-processing) | all, gen-ai-creative | ASSET_WORKER_SOURCE | disabled | container, disabled | minio |
 | [blender-mcp](blender-mcp.md) | Blender MCP | all, gen-ai-creative | BLENDER_MCP_SOURCE | disabled | localhost, disabled | - |
 | [chatterbox](chatterbox.md) | Chatterbox (voice-cloning TTS, GPU) | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | - | - | - | tts-provider |
 | [comfyui](comfyui.md) | ComfyUI (image generation) | all, gen-ai-creative, gen-ai-eng | COMFYUI_SOURCE | container-cpu | container-cpu, container-gpu, localhost, disabled | supabase, litellm, ollama |

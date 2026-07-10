@@ -437,7 +437,7 @@ def _build_steps_and_rows(
     # row here + a manifest entry per Task 7.
     LOCALHOST_PORT_WIRING: dict[tuple[str, str], tuple[str, int]] = {
         ("ComfyUI",            "localhost"):             ("COMFYUI_LOCALHOST_PORT", 8000),
-        ("Document Processor", "docling-localhost"):     ("DOCLING_LOCALHOST_PORT", 63059),
+        ("Document Processor", "docling-localhost"):     ("DOCLING_LOCALHOST_PORT", 18159),
         ("Apache Tika",        "tika-localhost"):        ("TIKA_LOCALHOST_PORT", 9998),
         ("Hermes Agent",       "localhost"):             ("HERMES_LOCALHOST_PORT", 8642),
         ("OpenClaw",           "localhost"):             ("OPENCLAW_LOCALHOST_PORT", 63065),

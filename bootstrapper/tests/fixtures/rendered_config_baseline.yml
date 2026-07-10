@@ -273,6 +273,56 @@ services:
       target: /opt/airflow/logs
       type: volume
       volume: {}
+  asset-worker:
+    build:
+      args:
+        BASE_IMAGE: python:3.12.9-slim
+        GLTF_TRANSFORM_VERSION: 4.4.1
+      context: '{REPO_ROOT}/services/asset-worker/app'
+      dockerfile: Dockerfile
+    container_name: atlas-asset-worker
+    depends_on:
+      minio:
+        condition: service_healthy
+        required: true
+    deploy:
+      replicas: 0
+    environment:
+      ASSET_WORKER_ARTIFACT_DIR: /data/artifacts
+      ASSET_WORKER_MINIO_ACCESS_KEY: minioadmin
+      ASSET_WORKER_MINIO_BUCKET: asset-worker
+      ASSET_WORKER_MINIO_ENABLED: 'true'
+      ASSET_WORKER_MINIO_ENDPOINT: http://minio:9000
+      ASSET_WORKER_MINIO_SECRET_KEY: ''
+      MINIO_REGION: us-east-1
+      PROJECT_NAME: atlas
+    healthcheck:
+      interval: 30s
+      retries: 5
+      start_period: 45s
+      test:
+      - CMD-SHELL
+      - curl -fsS http://localhost:8095/health || exit 1
+      timeout: 10s
+    image: atlas-asset-worker:local
+    logging:
+      driver: json-file
+      options:
+        max-file: '3'
+        max-size: 10m
+    networks:
+      backend-network: null
+    ports:
+    - mode: ingress
+      protocol: tcp
+      published: '63052'
+      target: 8095
+    restart: unless-stopped
+    volumes:
+    - source: asset-worker-data
+      target: /data
+      type: volume
+      volume: {}
   backend:
     build:
       args:
@@ -323,6 +373,8 @@ services:
       COMFYUI_BASE_URL: http://comfyui:18188
       COMFYUI_ENABLED: 'true'
       COMFYUI_MANIFEST_PATH: /comfyui-manifest/selected-models.yaml
+      DATABASE_URL: postgresql://supabase_admin:password@supabase-db:5432/postgres
+      DOCLING_ENDPOINT: ''
       FAL_API_KEY: ''
       FAL_ENABLE_SAFETY_CHECKER: 'true'
       FAL_KEY: ''
@@ -331,8 +383,6 @@ services:
       FAL_OUTPUT_FORMAT: jpeg
       FAL_SOURCE: disabled
       FAL_TIMEOUT_SECONDS: '120'
-      DATABASE_URL: postgresql://supabase_admin:password@supabase-db:5432/postgres
-      DOCLING_ENDPOINT: ''
       GRAPHITI_DEFAULT_NAMESPACE: langmem
       GRAPHITI_EMBEDDING_MODEL: ''
       GRAPHITI_ENABLED: 'false'
@@ -565,7 +615,8 @@ services:
       start_period: 45s
       test:
       - CMD-SHELL
-      - celery -A celery_app:celery_app inspect ping -d atlas-worker@$$HOSTNAME --timeout=5 | grep -q pong
+      - celery -A celery_app:celery_app inspect ping -d atlas-worker@$$HOSTNAME --timeout=5
+        | grep -q pong
       timeout: 10s
     image: atlas-backend-celery:local
     logging:
@@ -684,7 +735,7 @@ services:
     ports:
     - mode: ingress
       protocol: tcp
-      published: '63052'
+      published: '63053'
       target: 18188
     restart: unless-stopped
     volumes:
@@ -934,7 +985,8 @@ services:
       start_period: 1m0s
       test:
       - CMD-SHELL
-      - 'curl --fail --silent --show-error -H "Authorization: Bearer $$API_SERVER_KEY" http://127.0.0.1:8642/v1/models >/dev/null'
+      - 'curl --fail --silent --show-error -H "Authorization: Bearer $$API_SERVER_KEY"
+        http://127.0.0.1:8642/v1/models >/dev/null'
       timeout: 10s
     image: nousresearch/hermes-agent:v2026.6.19
     labels:
@@ -1766,8 +1818,8 @@ services:
       - CMD
       - python
       - -c
-      - import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://localhost:9621/health', timeout=5).status
-        == 200 else 1)
+      - import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://localhost:9621/health',
+        timeout=5).status == 200 else 1)
       timeout: 8s
     image: ghcr.io/hkuds/lightrag:v1.5.4
     logging:
@@ -1881,8 +1933,8 @@ services:
       - CMD
       - python
       - -c
-      - import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://localhost:4000/health/liveliness', timeout=3).status
-        == 200 else 1)
+      - import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://localhost:4000/health/liveliness',
+        timeout=3).status == 200 else 1)
       timeout: 5s
     image: ghcr.io/berriai/litellm:v1.83.14-stable.patch.2
     logging:
@@ -2028,8 +2080,8 @@ services:
       - CMD
       - python
       - -c
-      - import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health', timeout=5).status
-        == 200 else 1)
+      - import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health',
+        timeout=5).status == 200 else 1)
       timeout: 8s
     logging:
       driver: json-file
@@ -2983,12 +3035,15 @@ services:
     entrypoint:
     - sh
     - -c
-    - "set -e\napk add --no-cache jq > /dev/null\nCONFIG=/home/node/.openclaw/openclaw.json\nPATCH='{\"gateway\":{\"controlUi\"\
-      :{\"dangerouslyAllowHostHeaderOriginFallback\":true}}}'\n# Write via tmp + mv on BOTH branches: `> \"$$CONFIG\"` truncates\n\
-      # the target before jq runs, so a missing/failed jq used to\n# leave a 0-byte config the gateway chokes on (and re-runs\n\
-      # could not self-heal \u2014 jq errors on the empty file).\nif [ -s \"$$CONFIG\" ]; then\n  jq --argjson patch \"$$PATCH\"\
-      \ '. * $$patch' \"$$CONFIG\" > \"$$CONFIG.tmp\" && mv \"$$CONFIG.tmp\" \"$$CONFIG\"\nelse\n  echo \"$$PATCH\" | jq .\
-      \ > \"$$CONFIG.tmp\" && mv \"$$CONFIG.tmp\" \"$$CONFIG\"\nfi\nchown -R 1000:1000 /home/node/.openclaw\n"
+    - "set -e\napk add --no-cache jq > /dev/null\nCONFIG=/home/node/.openclaw/openclaw.json\n\
+      PATCH='{\"gateway\":{\"controlUi\":{\"dangerouslyAllowHostHeaderOriginFallback\"\
+      :true}}}'\n# Write via tmp + mv on BOTH branches: `> \"$$CONFIG\"` truncates\n\
+      # the target before jq runs, so a missing/failed jq used to\n# leave a 0-byte\
+      \ config the gateway chokes on (and re-runs\n# could not self-heal \u2014 jq\
+      \ errors on the empty file).\nif [ -s \"$$CONFIG\" ]; then\n  jq --argjson patch\
+      \ \"$$PATCH\" '. * $$patch' \"$$CONFIG\" > \"$$CONFIG.tmp\" && mv \"$$CONFIG.tmp\"\
+      \ \"$$CONFIG\"\nelse\n  echo \"$$PATCH\" | jq . > \"$$CONFIG.tmp\" && mv \"\
+      $$CONFIG.tmp\" \"$$CONFIG\"\nfi\nchown -R 1000:1000 /home/node/.openclaw\n"
     image: alpine:3.24.1
     networks:
       backend-network: null
@@ -3122,8 +3177,8 @@ services:
     command:
     - bash
     - -c
-    - "ray start --head \\\n  --dashboard-host 0.0.0.0 \\\n  --port 6379 \\\n  --ray-client-server-port 10001 \\\n  --dashboard-port\
-      \ 8265 \\\n  --block\n"
+    - "ray start --head \\\n  --dashboard-host 0.0.0.0 \\\n  --port 6379 \\\n  --ray-client-server-port\
+      \ 10001 \\\n  --dashboard-port 8265 \\\n  --block\n"
     container_name: atlas-ray-head
     deploy:
       replicas: 0
@@ -3367,7 +3422,7 @@ services:
       replicas: 1
     environment:
       FORCE_OWNERSHIP: '1'
-      SEARXNG_BASE_URL: http://localhost:63054
+      SEARXNG_BASE_URL: http://localhost:63055
       SEARXNG_SECRET: ''
     healthcheck:
       interval: 30s
@@ -3392,7 +3447,7 @@ services:
     ports:
     - mode: ingress
       protocol: tcp
-      published: '63054'
+      published: '63055'
       target: 8080
     restart: unless-stopped
     volumes:
@@ -3502,7 +3557,8 @@ services:
       replicas: 0
     environment:
       SPARK_HISTORY_OPTS: -Dspark.history.fs.logDirectory=s3a://spark-history/ -Dspark.hadoop.fs.s3a.endpoint=http://minio:9000
-        -Dspark.hadoop.fs.s3a.access.key=minioadmin -Dspark.hadoop.fs.s3a.secret.key= -Dspark.hadoop.fs.s3a.path.style.access=true
+        -Dspark.hadoop.fs.s3a.access.key=minioadmin -Dspark.hadoop.fs.s3a.secret.key=
+        -Dspark.hadoop.fs.s3a.path.style.access=true
       SPARK_KAFKA_BOOTSTRAP_SERVERS: ''
     image: atlas-spark:local
     logging:
@@ -3567,7 +3623,8 @@ services:
     environment:
       SPARK_KAFKA_BOOTSTRAP_SERVERS: ''
       SPARK_MASTER_HOST: spark-master
-      SPARK_MASTER_OPTS: -Dspark.master.rest.enabled=true -Dspark.master.rest.host=spark-master -Dspark.master.rest.port=6066
+      SPARK_MASTER_OPTS: -Dspark.master.rest.enabled=true -Dspark.master.rest.host=spark-master
+        -Dspark.master.rest.port=6066
     healthcheck:
       interval: 30s
       retries: 5
@@ -3599,12 +3656,16 @@ services:
       context: '{REPO_ROOT}/services/spark/build'
       dockerfile: Dockerfile
     command:
-    - "set -euo pipefail\nexport HADOOP_CONF_DIR=/tmp/atlas-spark-hadoop-conf\nmkdir -p \"$${HADOOP_CONF_DIR}\"\ncat > \"\
-      $${HADOOP_CONF_DIR}/core-site.xml\" <<EOF\n<configuration>\n  <property><name>fs.s3a.endpoint</name><value>http://minio:9000</value></property>\n\
-      \  <property><name>fs.s3a.endpoint.region</name><value>us-east-1</value></property>\n  <property><name>fs.s3a.path.style.access</name><value>true</value></property>\n\
-      \  <property><name>fs.s3a.connection.ssl.enabled</name><value>false</value></property>\n  <property><name>fs.s3a.aws.credentials.provider</name><value>org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider</value></property>\n\
-      \  <property><name>fs.s3a.access.key</name><value>minioadmin</value></property>\n  <property><name>fs.s3a.secret.key</name><value></value></property>\n\
-      </configuration>\nEOF\nexec /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077\
+    - "set -euo pipefail\nexport HADOOP_CONF_DIR=/tmp/atlas-spark-hadoop-conf\nmkdir\
+      \ -p \"$${HADOOP_CONF_DIR}\"\ncat > \"$${HADOOP_CONF_DIR}/core-site.xml\" <<EOF\n\
+      <configuration>\n  <property><name>fs.s3a.endpoint</name><value>http://minio:9000</value></property>\n\
+      \  <property><name>fs.s3a.endpoint.region</name><value>us-east-1</value></property>\n\
+      \  <property><name>fs.s3a.path.style.access</name><value>true</value></property>\n\
+      \  <property><name>fs.s3a.connection.ssl.enabled</name><value>false</value></property>\n\
+      \  <property><name>fs.s3a.aws.credentials.provider</name><value>org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider</value></property>\n\
+      \  <property><name>fs.s3a.access.key</name><value>minioadmin</value></property>\n\
+      \  <property><name>fs.s3a.secret.key</name><value></value></property>\n</configuration>\n\
+      EOF\nexec /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077\
       \ --webui-port 8081\n"
     depends_on:
       spark-master:
@@ -3941,7 +4002,8 @@ services:
     command:
     - /bin/sh
     - -c
-    - /app/bin/migrate && /app/bin/supavisor eval "$$(cat /etc/pooler/pooler.exs)" && /app/bin/server
+    - /app/bin/migrate && /app/bin/supavisor eval "$$(cat /etc/pooler/pooler.exs)"
+      && /app/bin/server
     container_name: atlas-supavisor
     depends_on:
       supabase-db-init:
@@ -4110,7 +4172,7 @@ services:
     ports:
     - mode: ingress
       protocol: tcp
-      published: '63055'
+      published: '63056'
       target: 9998
     restart: unless-stopped
     security_opt:
@@ -4352,15 +4414,18 @@ services:
       SPARK_HOME: /opt/spark
       SPARK_KAFKA_BOOTSTRAP_SERVERS: ''
       SPARK_MASTER: spark://spark-master:7077
-      SPARK_SUBMIT_OPTIONS: --conf spark.submit.deployMode=client --conf spark.driver.bindAddress=0.0.0.0 --conf spark.driver.host=zeppelin
-        --conf spark.hadoop.fs.s3a.endpoint=http://minio:9000 --conf spark.hadoop.fs.s3a.access.key=minioadmin --conf spark.hadoop.fs.s3a.secret.key=
-        --conf spark.hadoop.fs.s3a.path.style.access=true --conf spark.hadoop.fs.s3a.endpoint.region=us-east-1 --conf spark.hadoop.fs.s3a.connection.ssl.enabled=false
-        --conf spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions --conf spark.sql.catalog.lakehouse=org.apache.iceberg.spark.SparkCatalog
-        --conf spark.sql.catalog.lakehouse.type=rest --conf spark.sql.catalog.lakehouse.uri=http://iceberg-rest:8181 --conf
-        spark.sql.catalog.lakehouse.warehouse=s3a://lakehouse/ --conf spark.sql.catalog.lakehouse.io-impl=org.apache.iceberg.aws.s3.S3FileIO
+      SPARK_SUBMIT_OPTIONS: --conf spark.submit.deployMode=client --conf spark.driver.bindAddress=0.0.0.0
+        --conf spark.driver.host=zeppelin --conf spark.hadoop.fs.s3a.endpoint=http://minio:9000
+        --conf spark.hadoop.fs.s3a.access.key=minioadmin --conf spark.hadoop.fs.s3a.secret.key=
+        --conf spark.hadoop.fs.s3a.path.style.access=true --conf spark.hadoop.fs.s3a.endpoint.region=us-east-1
+        --conf spark.hadoop.fs.s3a.connection.ssl.enabled=false --conf spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions
+        --conf spark.sql.catalog.lakehouse=org.apache.iceberg.spark.SparkCatalog --conf
+        spark.sql.catalog.lakehouse.type=rest --conf spark.sql.catalog.lakehouse.uri=http://iceberg-rest:8181
+        --conf spark.sql.catalog.lakehouse.warehouse=s3a://lakehouse/ --conf spark.sql.catalog.lakehouse.io-impl=org.apache.iceberg.aws.s3.S3FileIO
         --conf spark.sql.catalog.lakehouse.s3.endpoint=http://minio:9000 --conf spark.sql.catalog.lakehouse.s3.path-style-access=true
-        --conf spark.sql.catalog.lakehouse.s3.access-key-id= --conf spark.sql.catalog.lakehouse.s3.secret-access-key= --conf
-        spark.sql.catalog.lakehouse.client.region=us-east-1 --conf spark.eventLog.enabled=true --conf spark.eventLog.dir=s3a://spark-history/
+        --conf spark.sql.catalog.lakehouse.s3.access-key-id= --conf spark.sql.catalog.lakehouse.s3.secret-access-key=
+        --conf spark.sql.catalog.lakehouse.client.region=us-east-1 --conf spark.eventLog.enabled=true
+        --conf spark.eventLog.dir=s3a://spark-history/
       TRINO_ENDPOINT: http://trino:8080
       TRINO_JDBC_DEPENDENCY: io.trino:trino-jdbc:482
       TRINO_JDBC_DRIVER: io.trino.jdbc.TrinoDriver
@@ -4457,6 +4522,9 @@ volumes:
   airflow-logs:
     driver: local
     name: atlas-airflow-logs
+  asset-worker-data:
+    driver: local
+    name: atlas-asset-worker-data
   backend-data:
     driver: local
     name: atlas-backend-data

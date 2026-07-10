@@ -9,6 +9,7 @@ The public site publishes SOURCE values, environment variables, ports, routes, t
 | SOURCE | Service | Default | Values |
 | --- | --- | --- | --- |
 | AIRFLOW_SOURCE | airflow | disabled | container, disabled |
+| ASSET_WORKER_SOURCE | asset-worker | disabled | container, disabled |
 | BACKEND_SOURCE | backend | container | - |
 | BACKUP_SOURCE | backup | disabled | container, disabled |
 | BLENDER_MCP_SOURCE | blender-mcp | disabled | localhost, disabled |
@@ -89,6 +90,17 @@ The public site publishes SOURCE values, environment variables, ports, routes, t
 | AIRFLOW_SCHEDULER_CPU_LIMIT | airflow | 1.0 | Container CPU limit for airflow-scheduler (deploy.resources.limits.cpus). 1.0 core is sufficient for LocalExecutor task scheduling on a dev/staging host. |
 | AIRFLOW_DAG_PROCESSOR_MEMORY_LIMIT | airflow | 2g | Container memory limit for airflow-dag-processor (deploy.resources.limits.memory). DAG parsing is Python-heavy but short-lived per cycle; 2 g prevents unbounded growth from parsing pathological DAG files. |
 | AIRFLOW_DAG_PROCESSOR_CPU_LIMIT | airflow | 1.0 | Container CPU limit for airflow-dag-processor (deploy.resources.limits.cpus). 1.0 core covers the periodic DAG file parsing cycle. |
+| ASSET_WORKER_SOURCE | asset-worker | disabled | Deployment mode for the glTF post-processing worker. |
+| ASSET_WORKER_PORT | asset-worker |  | Host port for the asset-worker API (in-container listen port is 8095). |
+| ASSET_WORKER_SCALE | asset-worker |  | - |
+| ASSET_WORKER_ENDPOINT | asset-worker |  | In-network URL for the asset-worker API. |
+| ASSET_WORKER_GLTF_TRANSFORM_VERSION | asset-worker | 4.4.1 | Pinned @gltf-transform/cli version installed in the asset-worker image. |
+| ASSET_WORKER_ARTIFACT_DIR | asset-worker | /data/artifacts | Local artifact cache used when MinIO upload is disabled or for direct downloads. |
+| ASSET_WORKER_MINIO_ENABLED | asset-worker | True | When true, optimized GLBs are written to MinIO using content-addressed keys. |
+| ASSET_WORKER_MINIO_BUCKET | asset-worker | asset-worker | MinIO bucket for optimized GLB outputs. |
+| ASSET_WORKER_MINIO_ENDPOINT | asset-worker |  | In-network MinIO S3 API endpoint used by the worker. |
+| ASSET_WORKER_MINIO_ACCESS_KEY | asset-worker |  | Optional MinIO access key override. Empty uses MINIO_ROOT_USER in compose. |
+| ASSET_WORKER_MINIO_SECRET_KEY | asset-worker |  | Optional MinIO secret key override. Empty uses MINIO_ROOT_PASSWORD in compose. |
 | BACKEND_SOURCE | backend | container | Adaptive core service; always container. Single-option. |
 | BACKEND_PORT | backend |  | - |
 | BACKEND_SCALE | backend |  | Always 1 (BACKEND_SOURCE is single-valued). |
@@ -204,7 +216,7 @@ point at http://kong-api-gateway:8000.
 | DOCLING_CHUNK_OVERLAP | docling | 50 | - |
 | DOCLING_GPU_SCALE | docling |  | - |
 | DOCLING_ENDPOINT | docling |  | - |
-| DOCLING_LOCALHOST_PORT | docling | 63059 | Host port for the localhost source variant. URL is derived at compose-render time as http://host.docker.internal:63059. |
+| DOCLING_LOCALHOST_PORT | docling | 18159 | Host port for the localhost source variant. URL is derived at compose-render time as http://host.docker.internal:18159. |
 | FAL_SOURCE | fal | disabled | Enables fal.ai as the backend provider for simple media generation routes. |
 | FAL_API_KEY | fal |  | fal.ai API key. Required only when FAL_SOURCE=enabled. The backend also exposes it to fal-client as FAL_KEY. |
 | FAL_MODEL | fal | fal-ai/flux/dev | Default fal.ai model endpoint used by the media gateway for text-to-image generation. |
@@ -769,7 +781,7 @@ time.
 | --- | --- | --- |
 | gen-ai-rag | Retrieval-augmented generation — vectors, graph, reranker, doc ingest, web search, workflow automation. | open-webui, supavisor, n8n, weaviate, neo4j, lightrag, doc-processor, tei-reranker, searxng, mcp-servers, langfuse, otel-collector, tempo, loki, local-deep-researcher, crawl4ai, tika, llm-graph-builder, verba, celery |
 | gen-ai-eng | Agentic apps + workflows with voice, vision, and search. | open-webui, supavisor, n8n, hermes, openclaw, jupyterhub, comfyui, neo4j, stt-provider, tts-provider, searxng, mcp-servers, langfuse, otel-collector, tempo, loki, local-deep-researcher, tika, celery |
-| gen-ai-creative | Multimodal generation — image, voice, vision, doc. | open-webui, comfyui, fal, stt-provider, tts-provider, multi2vec-clip, doc-processor, blender-mcp, langfuse, otel-collector, tempo, loki |
+| gen-ai-creative | Multimodal generation — image, voice, vision, doc. | open-webui, comfyui, asset-worker, fal, stt-provider, tts-provider, multi2vec-clip, doc-processor, blender-mcp, langfuse, otel-collector, tempo, loki |
 | ml-eng | Distributed training/inference + notebooks + experiment storage. | spark, ray, jupyterhub, zeppelin, open-webui, supavisor, minio, tei-reranker, langfuse, otel-collector, tempo, loki, mlflow, label-studio |
 | data-eng | Batch + lakehouse + graph + vector with orchestration. | spark, airflow, jupyterhub, zeppelin, jenkins, supavisor, minio, iceberg-rest, trino, redpanda, weaviate, neo4j |
 | trading | Read-only financial research and paper portfolios in notebooks; no live trading. | jupyterhub, minio, mlflow, langfuse |
@@ -780,6 +792,7 @@ time.
 | Service | Required | Optional | Runtime Calls |
 | --- | --- | --- | --- |
 | airflow | supabase, litellm, redis | spark, minio, iceberg-rest, redpanda, weaviate, neo4j | supabase, spark, redpanda, minio, iceberg-rest, litellm, weaviate, neo4j, redis |
+| asset-worker | minio | backend, comfyui, fal, blender-mcp | minio |
 | backend | supabase, redis, litellm | weaviate, kong, celery, supavisor | supabase, weaviate, litellm, comfyui, fal, n8n, ray, local-deep-researcher, celery, supavisor, tika, otel-collector |
 | backup | supabase, minio | - | supabase, minio |
 | blender-mcp | - | - | - |
@@ -841,6 +854,7 @@ time.
 | Service | Port Variables | Kong Aliases |
 | --- | --- | --- |
 | airflow | AIRFLOW_PORT | airflow.localhost |
+| asset-worker | ASSET_WORKER_PORT | asset-worker.localhost |
 | backend | BACKEND_PORT | api.localhost |
 | blender-mcp | BLENDER_MCP_LOCALHOST_PORT | - |
 | celery | FLOWER_PORT | flower.localhost |

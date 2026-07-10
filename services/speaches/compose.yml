@@ -40,7 +40,7 @@ services:
     volumes:
       - speaches-cache:/home/ubuntu/.cache/huggingface
     ports:
-      - "${HOST_BIND_IP:-}${SPEACHES_PORT:-63058}:8000"
+      - "${HOST_BIND_IP:-}${SPEACHES_PORT:-63059}:8000"
     networks:
       - backend-network
     # Healthcheck mirrors upstream's own compose.yaml — Speaches ships

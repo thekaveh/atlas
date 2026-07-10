@@ -14,7 +14,7 @@ import pytest
 # (service display name, localhost option value, expected env var, expected default port)
 LOCALHOST_WIRING = [
     ("ComfyUI",            "localhost",            "COMFYUI_LOCALHOST_PORT",     "8000"),
-    ("Document Processor", "docling-localhost",    "DOCLING_LOCALHOST_PORT",     "63059"),
+    ("Document Processor", "docling-localhost",    "DOCLING_LOCALHOST_PORT",     "18159"),
     ("Apache Tika",        "tika-localhost",       "TIKA_LOCALHOST_PORT",        "9998"),
     ("Hermes Agent",       "localhost",            "HERMES_LOCALHOST_PORT",      "8642"),
     ("OpenClaw",           "localhost",            "OPENCLAW_LOCALHOST_PORT",    "63065"),

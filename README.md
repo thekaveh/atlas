@@ -32,8 +32,8 @@ git clone https://github.com/thekaveh/atlas && cd atlas
 # Open WebUI (Chat):     http://localhost:63096
 # n8n (Workflows):       http://localhost:63075
 # Supabase Studio:       http://localhost:63019
-# SearxNG (Search):      http://localhost:63054
-# ComfyUI:               http://localhost:63052
+# SearxNG (Search):      http://localhost:63055
+# ComfyUI:               http://localhost:63053
 # JupyterHub (IDE):      http://localhost:63094
 # MinIO Console:         http://localhost:63021
 #
@@ -300,11 +300,12 @@ _Engine-only manifests (speaches, chatterbox) are not listed — they're selecte
 | Media | Crawl4AI | 63050 | crawl4ai.localhost |
 | Media | Document Processor | 63051 | docling.localhost |
 | Media | FAL Cloud Media | — | — |
-| Media | ComfyUI | 63052 | comfyui.localhost |
-| Media | STT Provider | 63053 | stt.localhost |
-| Media | SearxNG | 63054 | search.localhost |
-| Media | Apache Tika | 63055 | tika.localhost |
-| Media | TTS Provider | 63056 | tts.localhost |
+| Media | Asset Worker | 63052 | asset-worker.localhost |
+| Media | ComfyUI | 63053 | comfyui.localhost |
+| Media | STT Provider | 63054 | stt.localhost |
+| Media | SearxNG | 63055 | search.localhost |
+| Media | Apache Tika | 63056 | tika.localhost |
+| Media | TTS Provider | 63057 | tts.localhost |
 | Agents & Workflows | Apache Airflow | 63070 | airflow.localhost |
 | Agents & Workflows | Celery Worker | — | — |
 | Agents & Workflows | Flower | 63071 | flower.localhost |
@@ -335,15 +336,15 @@ _Engine-only manifests (speaches, chatterbox) are not listed — they're selecte
 | **Open WebUI** | http://localhost:63096 | http://chat.localhost:63000 | AI chat interface | Create account |
 | **n8n** | http://localhost:63075 | http://n8n.localhost:63000 | Workflow automation | Owner setup on first visit |
 | **Supabase Studio** | http://localhost:63019 | http://supabase-studio.localhost:63000 | Database management | Kong route: `kong_admin` / `DASHBOARD_PASSWORD` from `.env` (direct port is ungated) |
-| **ComfyUI** | http://localhost:63052 | http://comfyui.localhost:63000 | Image generation | None |
-| **SearxNG** | http://localhost:63054 | http://search.localhost:63000 | Privacy search | None |
+| **ComfyUI** | http://localhost:63053 | http://comfyui.localhost:63000 | Image generation | None |
+| **SearxNG** | http://localhost:63055 | http://search.localhost:63000 | Privacy search | None |
 | **JupyterHub** | http://localhost:63094 | http://jupyter.localhost:63000 | Data science IDE — ships Python + Scala 2.13 + Scala 3 kernels; configured for VS Code remote-Jupyter (see [services/jupyterhub/README.md](services/jupyterhub/README.md) §10). | Token (optional; auto-generated if `JUPYTERHUB_TOKEN` is empty — grep from `docker logs ${PROJECT_NAME}-jupyterhub`) |
 | **Neo4j Browser** | http://localhost:63024 | http://graph.localhost:63000 | Graph database | `neo4j` / `GRAPH_DB_PASSWORD` from `.env` |
 | **Backend API** | http://localhost:63093 | http://api.localhost:63000 | REST API | None by default (local/dev surface; add gateway auth before exposing beyond a trusted host) |
 | **LiteLLM Gateway** | http://localhost:63040 | http://litellm.localhost:63000 | OpenAI-compatible LLM front door (Ollama + cloud). The same alias 302-redirects `/` → `/ui/` (admin dashboard). | API: `LITELLM_MASTER_KEY` (Bearer). Dashboard: `admin` / `${LITELLM_MASTER_KEY}` |
-| **Audio (TTS + STT)** | TTS: http://localhost:63056, STT: http://localhost:63053 | http://tts.localhost:63000, http://stt.localhost:63000 | Default install: Speaches serves both `/v1/audio/speech` (Kokoro/Piper) and `/v1/audio/transcriptions` (Faster-Whisper). Engine-specific overrides — Chatterbox on `:63057`, Speaches on `:63058`, host-side variants resolved via `*_LOCALHOST_PORT`. See [services/tts-provider/README.md](services/tts-provider/README.md) and [services/stt-provider/README.md](services/stt-provider/README.md). | None |
+| **Audio (TTS + STT)** | TTS: http://localhost:63057, STT: http://localhost:63054 | http://tts.localhost:63000, http://stt.localhost:63000 | Default install: Speaches serves both `/v1/audio/speech` (Kokoro/Piper) and `/v1/audio/transcriptions` (Faster-Whisper). Engine-specific overrides — Chatterbox on `:63058`, Speaches on `:63059`, host-side variants resolved via `*_LOCALHOST_PORT`. See [services/tts-provider/README.md](services/tts-provider/README.md) and [services/stt-provider/README.md](services/stt-provider/README.md). | None |
 | **Docling Processor** | http://localhost:63051 | http://docling.localhost:63000 | Document processing | None |
-| **Apache Tika** | http://localhost:63055 | http://tika.localhost:63000 | Long-tail fallback text extraction for formats Docling should not own | Kong route: `kong_admin` / `DASHBOARD_PASSWORD` from `.env` (direct port is ungated) |
+| **Apache Tika** | http://localhost:63056 | http://tika.localhost:63000 | Long-tail fallback text extraction for formats Docling should not own | Kong route: `kong_admin` / `DASHBOARD_PASSWORD` from `.env` (direct port is ungated) |
 | **OpenClaw Agent** | http://localhost:63076 | http://openclaw.localhost:63000 | AI agent (messaging) | Token (optional) |
 | **Hermes Agent** | http://localhost:63072 (API), http://localhost:63073 (dashboard) | http://hermes.localhost:63000 | Programmable AI agent runtime (Nous Research) | `HERMES_API_KEY` (Bearer) |
 | **MinIO Console** | http://localhost:63021 | http://minio.localhost:63000 | S3-compatible object storage admin UI (gated on `MINIO_SOURCE != disabled`). S3 API at `:63020` is NOT aliased — S3 clients use the direct port. | `minioadmin` / `MINIO_ROOT_PASSWORD` |
