@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Backend Chonkie chunking API (#375)** — `POST /api/chunk` now exposes Atlas-owned token, recursive, and semantic text splitting backed by Chonkie. Responses include ordered chunks, stable character offsets, optional token counts, and strategy metadata so n8n and downstream ingestion workflows can call the Backend instead of importing Chonkie directly.
 - **JupyterHub exploratory Chonkie surface (#375)** — the JupyterHub image now installs Chonkie and ships `13_chonkie_chunking.ipynb` for comparing token, recursive, optional semantic chunking, and the Backend `/api/chunk` runtime contract.
+- **Promotion sync:** `develop` was merge-synced with the current `main` tip before promoting the Chonkie chunking work, preserving strict-mode branch ordering while keeping the documentation record current.
 
 ### Added — 2026-07-10 — External consumer env overlay
 
