@@ -233,6 +233,7 @@ normally prompt for.
 | Environment | Committed templates such as `atlas.env.user.example`, CI secret references, wrapper force-set values | Local `.env`, optional local `.env.user`, generated backfills |
 | Branding | `PROJECT_NAME`, `BRAND_*`, and project-specific start/stop scripts | Wizard/dashboard code that consumes those values |
 | Data and secrets | Secret names or references in the parent deployment system | Runtime volumes, generated credentials, local `.env` values |
+| Object storage extension | `MINIO_EXTRA_CONSUMERS` plus referenced parent-owned bucket/access/secret vars | Generic `minio-init` hook that provisions declared buckets and scoped service accounts |
 | Database extension | Parent-reviewed SQL templates or migration source | Optional `services/supabase/db/_user/*.sql` execution slot |
 
 Validation checklist before committing a parent consumer update:
@@ -245,6 +246,9 @@ Validation checklist before committing a parent consumer update:
 - Parent-owned overlays live under the parent repository, and
   `infra/services/_user/<name>/compose.yml` is a symlink or generated discovery
   pointer to that parent-owned file.
+- Parent-owned object buckets use `MINIO_EXTRA_CONSUMERS` in the overlay; the
+  referenced bucket/access/secret variables live in `.env.user` or
+  `ATLAS_ENV_USER_FILE`.
 - `.env`, `.env.user`, `infra/volumes/`, and runtime data directories remain
   untracked.
 - Project-critical `*_SOURCE`, `PROJECT_NAME`, and `BRAND_*` values are

@@ -1,0 +1,144 @@
+from __future__ import annotations
+
+import os
+import subprocess
+from pathlib import Path
+
+import yaml
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+MINIO_MANIFEST = REPO_ROOT / "services" / "minio" / "service.yml"
+MINIO_COMPOSE = REPO_ROOT / "services" / "minio" / "compose.yml"
+MINIO_INIT = REPO_ROOT / "services" / "minio" / "init" / "scripts" / "init-minio.sh"
+MINIO_README = REPO_ROOT / "services" / "minio" / "README.md"
+REUSING_ATLAS = REPO_ROOT / "docs" / "deployment" / "reusing-atlas.md"
+SUBMODULE_USAGE = REPO_ROOT / "docs" / "deployment" / "submodule-usage.md"
+SITE_DEVELOPMENT = REPO_ROOT / "docs" / "site" / "development.md"
+WIKI_DEVELOPMENT = REPO_ROOT / "docs" / "wiki" / "Development.md"
+ENV_EXAMPLE = REPO_ROOT / ".env.example"
+
+
+BUILT_IN_CONSUMER_ENV = {
+    "MINIO_ROOT_USER": "minioadmin",
+    "MINIO_ROOT_PASSWORD": "minio-root-password",
+    "MINIO_BUCKET_COMFYUI": "comfyui",
+    "MINIO_COMFYUI_ACCESS_KEY": "comfyui-ak",
+    "MINIO_COMFYUI_SECRET_KEY": "comfyui-sk",
+    "MINIO_BUCKET_BACKEND": "backend",
+    "MINIO_BACKEND_ACCESS_KEY": "backend-ak",
+    "MINIO_BACKEND_SECRET_KEY": "backend-sk",
+    "MINIO_BUCKET_N8N": "n8n",
+    "MINIO_N8N_ACCESS_KEY": "n8n-ak",
+    "MINIO_N8N_SECRET_KEY": "n8n-sk",
+    "MINIO_BUCKET_JUPYTER": "jupyter",
+    "MINIO_JUPYTER_ACCESS_KEY": "jupyter-ak",
+    "MINIO_JUPYTER_SECRET_KEY": "jupyter-sk",
+    "MINIO_BUCKET_DOCLING": "docling",
+    "MINIO_DOCLING_ACCESS_KEY": "docling-ak",
+    "MINIO_DOCLING_SECRET_KEY": "docling-sk",
+    "MINIO_BUCKET_LANGFUSE": "langfuse",
+    "MINIO_LANGFUSE_ACCESS_KEY": "langfuse-ak",
+    "MINIO_LANGFUSE_SECRET_KEY": "langfuse-sk",
+    "MINIO_BUCKET_MLFLOW": "mlflow",
+    "MINIO_MLFLOW_ACCESS_KEY": "mlflow-ak",
+    "MINIO_MLFLOW_SECRET_KEY": "mlflow-sk",
+    "MINIO_BUCKET_LABEL_STUDIO": "label-studio",
+    "MINIO_LABEL_STUDIO_ACCESS_KEY": "label-studio-ak",
+    "MINIO_LABEL_STUDIO_SECRET_KEY": "label-studio-sk",
+    "MINIO_BUCKET_ICEBERG_LAKEHOUSE": "lakehouse",
+    "MINIO_BUCKET_ICEBERG_JARS": "jars",
+    "MINIO_BUCKET_ICEBERG_CHECKPOINTS": "checkpoints",
+    "MINIO_BUCKET_ICEBERG_LANDING": "landing",
+    "MINIO_ICEBERG_ACCESS_KEY": "iceberg-ak",
+    "MINIO_ICEBERG_SECRET_KEY": "iceberg-sk",
+}
+
+
+def test_minio_extra_consumers_are_declared_in_manifest_compose_and_env_example() -> None:
+    manifest = yaml.safe_load(MINIO_MANIFEST.read_text(encoding="utf-8"))
+    env_vars = {entry["name"]: entry for entry in manifest["env"]}
+
+    assert env_vars["MINIO_EXTRA_CONSUMERS"]["default"] == ""
+    assert "CONSUMER:BUCKET_VAR:ACCESS_VAR:SECRET_VAR" in env_vars[
+        "MINIO_EXTRA_CONSUMERS"
+    ]["description"]
+
+    compose = yaml.safe_load(MINIO_COMPOSE.read_text(encoding="utf-8"))
+    minio_init_env = compose["services"]["minio-init"]["environment"]
+    assert minio_init_env["MINIO_EXTRA_CONSUMERS"] == "${MINIO_EXTRA_CONSUMERS:-}"
+
+    assert "MINIO_EXTRA_CONSUMERS=" in ENV_EXAMPLE.read_text(encoding="utf-8")
+
+
+def test_minio_init_provisions_parent_owned_extra_consumer_bucket(tmp_path: Path) -> None:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    command_log = tmp_path / "mc.log"
+    stub = bin_dir / "mc"
+    stub.write_text(
+        f"""#!/bin/sh
+printf '%s\\n' "$*" >> {command_log}
+if [ "$1 $2 $3 $4" = "admin policy info local" ]; then
+  exit 1
+fi
+if [ "$1 $2 $3 $4" = "admin user svcacct info" ]; then
+  exit 1
+fi
+exit 0
+""",
+        encoding="utf-8",
+    )
+    stub.chmod(0o755)
+
+    env = os.environ.copy()
+    env.update(BUILT_IN_CONSUMER_ENV)
+    env.update(
+        {
+            "PATH": f"{bin_dir}{os.pathsep}{env['PATH']}",
+            "MINIO_EXTRA_CONSUMERS": (
+                "daydreams:MINIO_BUCKET_DAYDREAMS:"
+                "MINIO_DAYDREAMS_ACCESS_KEY:MINIO_DAYDREAMS_SECRET_KEY"
+            ),
+            "MINIO_BUCKET_DAYDREAMS": "daydreams-artifacts",
+            "MINIO_DAYDREAMS_ACCESS_KEY": "daydreams-ak",
+            "MINIO_DAYDREAMS_SECRET_KEY": "daydreams-sk",
+        }
+    )
+
+    result = subprocess.run(
+        ["/bin/sh", str(MINIO_INIT)],
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr + result.stdout
+    log = command_log.read_text(encoding="utf-8")
+    assert "mb --ignore-existing local/daydreams-artifacts" in log
+    assert "admin policy create local daydreams-policy" in log
+    assert "admin user svcacct add local minioadmin --access-key daydreams-ak" in log
+    assert "--secret-key daydreams-sk" in log
+
+
+def test_docs_cover_parent_owned_minio_extra_consumers() -> None:
+    canonical_docs = "\n".join(
+        [
+            MINIO_README.read_text(encoding="utf-8"),
+            REUSING_ATLAS.read_text(encoding="utf-8"),
+            SUBMODULE_USAGE.read_text(encoding="utf-8"),
+        ]
+    )
+    for expected in (
+        "MINIO_EXTRA_CONSUMERS",
+        "daydreams:MINIO_BUCKET_DAYDREAMS:MINIO_DAYDREAMS_ACCESS_KEY:MINIO_DAYDREAMS_SECRET_KEY",
+        "services/_user/<name>/compose.yml",
+        "parent-owned",
+    ):
+        assert expected in canonical_docs
+
+    for surface in (SITE_DEVELOPMENT, WIKI_DEVELOPMENT):
+        text = surface.read_text(encoding="utf-8")
+        assert "MINIO_EXTRA_CONSUMERS" in text
+        assert "daydreams:MINIO_BUCKET_DAYDREAMS" in text

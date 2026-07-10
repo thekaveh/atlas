@@ -24,22 +24,38 @@ echo "minio-init: alias 'local' configured"
 # Each consumer: primary bucket name var, access-key var, secret-key var,
 # optional comma-separated extra bucket vars.
 # Format: CONSUMER:BUCKET_VAR:ACCESS_VAR:SECRET_VAR[:EXTRA_BUCKET_VAR,...]
-for entry in \
-    "comfyui:MINIO_BUCKET_COMFYUI:MINIO_COMFYUI_ACCESS_KEY:MINIO_COMFYUI_SECRET_KEY" \
-    "backend:MINIO_BUCKET_BACKEND:MINIO_BACKEND_ACCESS_KEY:MINIO_BACKEND_SECRET_KEY" \
-    "n8n:MINIO_BUCKET_N8N:MINIO_N8N_ACCESS_KEY:MINIO_N8N_SECRET_KEY" \
-    "jupyter:MINIO_BUCKET_JUPYTER:MINIO_JUPYTER_ACCESS_KEY:MINIO_JUPYTER_SECRET_KEY" \
-    "docling:MINIO_BUCKET_DOCLING:MINIO_DOCLING_ACCESS_KEY:MINIO_DOCLING_SECRET_KEY" \
-    "langfuse:MINIO_BUCKET_LANGFUSE:MINIO_LANGFUSE_ACCESS_KEY:MINIO_LANGFUSE_SECRET_KEY" \
-    "mlflow:MINIO_BUCKET_MLFLOW:MINIO_MLFLOW_ACCESS_KEY:MINIO_MLFLOW_SECRET_KEY" \
-    "label-studio:MINIO_BUCKET_LABEL_STUDIO:MINIO_LABEL_STUDIO_ACCESS_KEY:MINIO_LABEL_STUDIO_SECRET_KEY" \
-    "iceberg:MINIO_BUCKET_ICEBERG_LAKEHOUSE:MINIO_ICEBERG_ACCESS_KEY:MINIO_ICEBERG_SECRET_KEY:MINIO_BUCKET_ICEBERG_JARS,MINIO_BUCKET_ICEBERG_CHECKPOINTS,MINIO_BUCKET_ICEBERG_LANDING" \
-; do
+consumer_entries='
+comfyui:MINIO_BUCKET_COMFYUI:MINIO_COMFYUI_ACCESS_KEY:MINIO_COMFYUI_SECRET_KEY
+backend:MINIO_BUCKET_BACKEND:MINIO_BACKEND_ACCESS_KEY:MINIO_BACKEND_SECRET_KEY
+n8n:MINIO_BUCKET_N8N:MINIO_N8N_ACCESS_KEY:MINIO_N8N_SECRET_KEY
+jupyter:MINIO_BUCKET_JUPYTER:MINIO_JUPYTER_ACCESS_KEY:MINIO_JUPYTER_SECRET_KEY
+docling:MINIO_BUCKET_DOCLING:MINIO_DOCLING_ACCESS_KEY:MINIO_DOCLING_SECRET_KEY
+langfuse:MINIO_BUCKET_LANGFUSE:MINIO_LANGFUSE_ACCESS_KEY:MINIO_LANGFUSE_SECRET_KEY
+mlflow:MINIO_BUCKET_MLFLOW:MINIO_MLFLOW_ACCESS_KEY:MINIO_MLFLOW_SECRET_KEY
+label-studio:MINIO_BUCKET_LABEL_STUDIO:MINIO_LABEL_STUDIO_ACCESS_KEY:MINIO_LABEL_STUDIO_SECRET_KEY
+iceberg:MINIO_BUCKET_ICEBERG_LAKEHOUSE:MINIO_ICEBERG_ACCESS_KEY:MINIO_ICEBERG_SECRET_KEY:MINIO_BUCKET_ICEBERG_JARS,MINIO_BUCKET_ICEBERG_CHECKPOINTS,MINIO_BUCKET_ICEBERG_LANDING
+'
+
+if [ -n "${MINIO_EXTRA_CONSUMERS:-}" ]; then
+    for extra_entry in $MINIO_EXTRA_CONSUMERS; do
+        consumer_entries="${consumer_entries}
+${extra_entry}"
+    done
+fi
+
+printf '%s\n' "$consumer_entries" | while IFS= read -r entry; do
+    [ -z "$entry" ] && continue
+
     consumer=$(echo "$entry" | cut -d: -f1)
     bucket_var=$(echo "$entry" | cut -d: -f2)
     access_var=$(echo "$entry" | cut -d: -f3)
     secret_var=$(echo "$entry" | cut -d: -f4)
     extra_bucket_vars=$(echo "$entry" | cut -d: -f5-)
+
+    if [ -z "$consumer" ] || [ -z "$bucket_var" ] || [ -z "$access_var" ] || [ -z "$secret_var" ]; then
+        echo "minio-init: ERROR — invalid consumer entry '$entry'; expected CONSUMER:BUCKET_VAR:ACCESS_VAR:SECRET_VAR[:EXTRA_BUCKET_VAR,...]" >&2
+        exit 1
+    fi
 
     # Resolve variable values via indirection
     eval "bucket=\${$bucket_var:-}"
