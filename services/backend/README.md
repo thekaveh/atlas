@@ -6,7 +6,7 @@ The backend is `_SOURCE`-trivial — it has only one variant, `container` — be
 
 ## 1. Overview
 
-Source: `services/backend/app/`. The FastAPI app boots in `app/main.py`, mounts feature routes (`/memory`, `/research`, `/storage`, `/health`, `/workflows`, `/media/*`, `/comfyui/*`, `/api/ray/*`, `/api/chunk`), and reads adaptive env vars at startup. LangMem (LangChain's long-term-memory layer) is bundled in: `LANGMEM_ENABLED=true` by default, with extraction/embedding models resolved from `LITELLM_DEFAULT_MODEL` / `LITELLM_EMBEDDING_MODEL` (set by `litellm-init` from the YAML catalog + env). Chonkie powers `/api/chunk` so n8n, notebooks, and downstream services can request token, recursive, or semantic text chunks through the Backend rather than importing the library independently. A small pytest suite lives at `app/app/tests/` (Ray client/routes and chunking service/API tests; run in the required CI job); local iteration is edit-in-place — the compose fragment bind-mounts `./app/app` onto `/app` and `uvicorn[standard] --reload` (via `watchfiles`) hot-reloads on every source edit. Only requirements.txt changes need a `docker compose up --force-recreate backend`.
+Source: `services/backend/app/`. The FastAPI app boots in `app/main.py`, mounts feature routes (`/memory`, `/research`, `/storage`, `/health`, `/workflows`, `/media/*`, `/comfyui/*`, `/api/ray/*`, `/api/chunk`, `/api/rag/evaluate`), and reads adaptive env vars at startup. LangMem (LangChain's long-term-memory layer) is bundled in: `LANGMEM_ENABLED=true` by default, with extraction/embedding models resolved from `LITELLM_DEFAULT_MODEL` / `LITELLM_EMBEDDING_MODEL` (set by `litellm-init` from the YAML catalog + env). Chonkie powers `/api/chunk` so n8n, notebooks, and downstream services can request token, recursive, or semantic text chunks through the Backend rather than importing the library independently. Ragas powers `/api/rag/evaluate` so callers can score supplied questions, answers, contexts, and optional references through Atlas-owned LiteLLM routing instead of adding evaluator packages to each service. A small pytest suite lives at `app/app/tests/` (Ray client/routes, chunking service/API tests, and Ragas contract/API tests; run in the required CI job); local iteration is edit-in-place — the compose fragment bind-mounts `./app/app` onto `/app` and `uvicorn[standard] --reload` (via `watchfiles`) hot-reloads on every source edit. Only requirements.txt changes need a `docker compose up --force-recreate backend`.
 
 ## 2. Access
 
@@ -16,6 +16,7 @@ Source: `services/backend/app/`. The FastAPI app boots in `app/main.py`, mounts 
 | Kong | `http://api.localhost:${KONG_HTTP_PORT}` | Requires `./start.sh --setup-hosts`. Recommended for browser-side calls; optionally protected by `BACKEND_KONG_AUTH`. |
 | Health | `GET /health` | Returns a minimal `{status, version}` response. |
 | Chunking | `POST /api/chunk` | Chonkie-backed token, recursive, and semantic text splitting for RAG ingestion clients. |
+| RAG evaluation | `POST /api/rag/evaluate` | Ragas-backed objective metrics over supplied question/answer/context records. |
 
 Canonical port table: [Ports and Routes](../../docs/deployment/ports-and-routes.md).
 
@@ -128,6 +129,22 @@ recursive and semantic chunking report an ignored-overlap reason because the
 current Chonkie APIs do not expose overlap controls for those strategies. The
 semantic strategy uses `CHONKIE_SEMANTIC_EMBEDDING_MODEL` unless service code
 injects a test embedding model.
+
+Ragas evaluation surface:
+
+```bash
+RAGAS_EVALUATOR_MODEL=            # empty = LITELLM_DEFAULT_MODEL
+RAGAS_EMBEDDINGS_MODEL=           # empty = LITELLM_EMBEDDING_MODEL
+```
+
+`POST /api/rag/evaluate` accepts one or more records with `question`, `answer`,
+`contexts`, and optional `ground_truth`. Supported metrics are `faithfulness`,
+`answer_relevancy`, `context_precision`, and `context_recall`; context precision
+and recall require `ground_truth` because Ragas needs a reference answer. The
+backend builds Ragas `SingleTurnSample` records, routes evaluator model calls
+through `LITELLM_BASE_URL` / `LITELLM_API_KEY`, and returns per-record metric
+scores plus runner metadata. Unit tests use a fake runner and never call live
+LLMs.
 
 ## 4. Architecture & wiring
 

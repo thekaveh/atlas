@@ -43,6 +43,13 @@ from chunking_service import (
     ChunkingError,
     chunk_text,
 )
+from rag_eval_service import (
+    RagEvaluationDependencyError,
+    RagEvaluationError,
+    RagEvaluationRequest,
+    RagEvaluationResponse,
+    evaluate_rag_records,
+)
 
 
 def _fal_source_enabled() -> bool:
@@ -480,6 +487,23 @@ async def chunk_document_text(request: ChunkRequest):
             detail=str(e),
         )
     except ChunkingError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+
+
+@app.post("/api/rag/evaluate", response_model=RagEvaluationResponse)
+async def evaluate_rag_quality(request: RagEvaluationRequest):
+    """Evaluate supplied RAG answers and contexts with Ragas metrics."""
+    try:
+        return await asyncio.to_thread(evaluate_rag_records, request)
+    except RagEvaluationDependencyError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(e),
+        )
+    except (RagEvaluationError, ValueError) as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),

@@ -129,6 +129,8 @@ seconds a future auto-consolidation scheduler would use.
 | GRAPHITI_LLM_MODEL | backend |  | Optional LiteLLM model id for Graphiti extraction. Empty falls back to LANGMEM_EXTRACTION_MODEL, then LITELLM_DEFAULT_MODEL. |
 | GRAPHITI_EMBEDDING_MODEL | backend |  | Optional LiteLLM embedding model id for Graphiti. Empty falls back to LANGMEM_EMBEDDING_MODEL, then LITELLM_EMBEDDING_MODEL. |
 | GRAPHITI_EXPOSE_TO_AGENTS | backend | False | Must remain false for this backend-only evaluation; Hermes/OpenClaw exposure and Graphiti MCP are deferred. |
+| RAGAS_EVALUATOR_MODEL | backend |  | Optional LiteLLM model id for Backend Ragas evaluation. Empty falls back to LITELLM_DEFAULT_MODEL. |
+| RAGAS_EMBEDDINGS_MODEL | backend |  | Optional LiteLLM embedding model id for Backend Ragas answer-relevancy evaluation. Empty falls back to LITELLM_EMBEDDING_MODEL. |
 | BACKUP_SOURCE | backup | disabled | Deployment mode: container (enable the runner) or disabled (default). |
 | BACKUP_BUCKET | backup | atlas-backups | Target bucket for backups. |
 | BACKUP_S3_ALIAS_URL | backup | http://minio:9000 | S3 endpoint. Default = on-box MinIO; set to an external S3 URL for offsite. |
