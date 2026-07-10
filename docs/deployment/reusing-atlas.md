@@ -305,6 +305,8 @@ cd infra
 ./start.sh env backfill
 ./start.sh --consumer ../atlas.consumer.yml compose validate
 ./start.sh --consumer ../atlas.consumer.yml doctor
+./start.sh compose validate
+./start.sh doctor
 ./start.sh --no-tui --detach
 ```
 
@@ -339,7 +341,8 @@ cd infra
 `./start.sh doctor` does not start containers. It runs a registry of preflight
 checks for the assembled consumer integration: consumer manifest validation,
 Compose validation, `_user` overlay environment references, plugin directory
-sanity, model sidecar parsing, consumer endpoint reporting, and tracked-file cleanliness for the Atlas
+sanity, model sidecar parsing, consumer endpoint reporting, and tracked-file
+cleanliness for the Atlas
 checkout. Checks that require Docker are reported as `skipped` when Docker is
 unavailable; Docker-free checks still run. Text output is intended for local
 debugging, while `--format json` is intended for consumer CI. The command exits
