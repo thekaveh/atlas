@@ -327,6 +327,7 @@ services:
       FAL_ENABLE_SAFETY_CHECKER: 'true'
       FAL_KEY: ''
       FAL_MODEL: fal-ai/flux/dev
+      FAL_MODEL_LICENSE: fal/provider-terms
       FAL_OUTPUT_FORMAT: jpeg
       FAL_SOURCE: disabled
       FAL_TIMEOUT_SECONDS: '120'

@@ -25,10 +25,13 @@ env:
     description: "fal.ai API key. Required only when FAL_SOURCE=enabled. The backend also exposes it to fal-client as FAL_KEY."
   - name: FAL_MODEL
     default: "fal-ai/flux/dev"
-    description: "fal.ai model endpoint used for text-to-image generation."
+    description: "Default fal.ai model endpoint used by the media gateway for text-to-image generation."
+  - name: FAL_MODEL_LICENSE
+    default: "fal/provider-terms"
+    description: "License or terms marker returned in normalized media operation responses when provider-specific model licensing is not more specific."
   - name: FAL_TIMEOUT_SECONDS
     default: 120
-    description: "Backend request timeout budget for synchronous fal.ai generation calls."
+    description: "Backend timeout budget for FAL media submit/poll operations and the compatibility route."
   - name: FAL_OUTPUT_FORMAT
     default: jpeg
     description: "Requested output format for compatible fal.ai image models: jpeg or png."

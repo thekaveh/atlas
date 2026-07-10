@@ -6,7 +6,7 @@ The backend is `_SOURCE`-trivial — it has only one variant, `container` — be
 
 ## 1. Overview
 
-Source: `services/backend/app/`. The FastAPI app boots in `app/main.py`, mounts feature routes (`/memory`, `/research`, `/storage`, `/health`, `/workflows`, `/comfyui/*`, `/api/ray/*`), and reads adaptive env vars at startup. LangMem (LangChain's long-term-memory layer) is bundled in: `LANGMEM_ENABLED=true` by default, with extraction/embedding models resolved from `LITELLM_DEFAULT_MODEL` / `LITELLM_EMBEDDING_MODEL` (set by `litellm-init` from the YAML catalog + env). A small pytest suite lives at `app/app/tests/` (Ray client/routes; run in the required CI job); local iteration is edit-in-place — the compose fragment bind-mounts `./app/app` onto `/app` and `uvicorn[standard] --reload` (via `watchfiles`) hot-reloads on every source edit. Only requirements.txt changes need a `docker compose up --force-recreate backend`.
+Source: `services/backend/app/`. The FastAPI app boots in `app/main.py`, mounts feature routes (`/memory`, `/research`, `/storage`, `/health`, `/workflows`, `/media/*`, `/comfyui/*`, `/api/ray/*`), and reads adaptive env vars at startup. LangMem (LangChain's long-term-memory layer) is bundled in: `LANGMEM_ENABLED=true` by default, with extraction/embedding models resolved from `LITELLM_DEFAULT_MODEL` / `LITELLM_EMBEDDING_MODEL` (set by `litellm-init` from the YAML catalog + env). A small pytest suite lives at `app/app/tests/` (Ray client/routes; run in the required CI job); local iteration is edit-in-place — the compose fragment bind-mounts `./app/app` onto `/app` and `uvicorn[standard] --reload` (via `watchfiles`) hot-reloads on every source edit. Only requirements.txt changes need a `docker compose up --force-recreate backend`.
 
 ## 2. Access
 
@@ -98,6 +98,20 @@ CELERY_RESULT_BACKEND=             # auto-managed when CELERY_SOURCE=container
 
 Adaptive listing comes from `runtime_adaptive.backend.adapts_to` in `services/backend/service.yml`.
 
+Hosted media gateway:
+
+```bash
+FAL_SOURCE=disabled
+FAL_API_KEY=
+FAL_MODEL=fal-ai/flux/dev
+FAL_MODEL_LICENSE=fal/provider-terms
+FAL_TIMEOUT_SECONDS=120
+FAL_OUTPUT_FORMAT=jpeg
+FAL_ENABLE_SAFETY_CHECKER=true
+```
+
+When `FAL_SOURCE=enabled`, `POST /media/generate` accepts a provider-neutral request with `provider`, `modality`, `model`, and `input` fields. The initial registry supports `provider=fal` with `modality=image`; unsupported provider/modality pairs return `400` before any provider client is initialized. `POST /media/generate` returns `202` with an operation id and `GET /media/operations/{operation_id}` polls the provider queue into a normalized response containing status, provider, model, modality, artifacts, cost, license, and provenance. `FAL_API_KEY` remains backend-only and is never returned in API responses. Operation state is process-local in this first pass; restart-durable storage and budget ledgers are tracked separately.
+
 ## 4. Architecture & wiring
 
 **Request flow (typical Open WebUI ↔ backend ↔ LiteLLM ↔ Ollama):**
@@ -126,6 +140,8 @@ When any optional service is `disabled`, the corresponding backend feature degra
 **Downstream plugin seam (`BACKEND_PLUGINS_DIR`):** after mounting its built-in routers, the app calls `load_plugins(app)` (`plugin_seam.py`). It scans `$BACKEND_PLUGINS_DIR` (default `/app/plugins`); an optional shared `$BACKEND_PLUGINS_DIR/requirements.txt` is installed first, then each immediate subdirectory that is an importable package exposing a module-level `router` (a FastAPI `APIRouter`) has its own optional `requirements.txt` installed before that package is imported and `include_router`'d into the app. It is a **no-op when the directory is absent**, so base Atlas is unaffected — the seam exists purely so a downstream consumer (e.g. one vendoring Atlas as a submodule) can add its own API routes without forking the backend. A plugin whose requirements fail to install is logged with the requirements path and pip output, then skipped before import; a shared requirements failure skips plugin loading for that startup. A plugin that fails to import is logged and skipped, never crashing the backend. Consumer-side walkthrough: [reusing-atlas.md §6.3](../../docs/deployment/reusing-atlas.md#63-adding-backend-api-routes-via-the-plugin-seam).
 
 **Graphiti experiment status:** `GET /memory/graphiti/status` returns the disabled-by-default experiment configuration and namespace pattern without importing `graphiti-core` or writing to Neo4j. Treat it as a readiness/contract endpoint for future backend-only Graphiti work, not as an active memory writer.
+
+**Hosted media gateway:** `POST /media/generate` is the provider-neutral submission surface for hosted creative generation. It dispatches by `provider`, `modality`, and `model`; today the registry includes FAL image generation and returns an operation id without blocking on long-running provider work. `GET /media/operations/{operation_id}` polls provider status and normalizes completed artifacts. The older `POST /comfyui/generate` route remains a compatibility surface for simple image calls and still routes to FAL when `FAL_SOURCE=enabled`; ComfyUI workflow/history/queue/image-file routes remain ComfyUI-specific.
 
 ## 5. LightRAG integration
 
