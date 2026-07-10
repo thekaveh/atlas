@@ -224,6 +224,26 @@ service account with the same inline scoped policy used by built-in consumers.
 Multiple entries may be separated by spaces; comma-separated extra bucket vars
 after the fourth field grant one consumer access to a small named bucket set.
 
+### 6.1.2 Scripted bring-up for automation
+
+For CI, cron, or parent-repo wrapper scripts, use the non-interactive detached
+path instead of backgrounding `start.sh` and killing it after a hand-written
+health poll:
+
+```bash
+./start.sh --no-tui --detach
+```
+
+`--detach` is also available as `--no-follow`. It runs the normal Atlas start
+pipeline, starts Compose in detached mode with its health wait enabled, prints a
+per-service status summary, and exits with `0` only when the final status
+summary is healthy. Add `--json` when a parent script needs machine-readable
+status:
+
+```bash
+./start.sh --no-tui --detach --json
+```
+
 ### 6.2 Adding Supabase SQL via the user migration slot
 
 To layer project-owned database objects onto Atlas's managed Supabase instance,
