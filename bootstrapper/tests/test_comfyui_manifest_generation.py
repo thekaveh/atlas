@@ -177,8 +177,8 @@ class TestGeneratorWritesFiles:
     def test_tsv_columns_and_null_sha256(self, tmp_path, monkeypatch):
         """TSV has 6 tab-separated columns; null sha256 → empty string."""
         catalog = [
-            _entry("ModelA", sha256="deadbeef"),
-            _entry("ModelB", sha256=None),   # null sha256 → ''
+            _entry("ModelA", filename="model-a.safetensors", sha256="deadbeef"),
+            _entry("ModelB", filename="model-b.safetensors", sha256=None),
         ]
         env = {"COMFYUI_SOURCE": "container", "COMFYUI_USER_MODELS": "ModelA,ModelB"}
 
@@ -551,13 +551,13 @@ def test_comfyui_service_exposes_pinned_core_ref():
     manifest = yaml.safe_load((REPO_ROOT / "services/comfyui/service.yml").read_text())
     env = {entry["name"]: entry for entry in manifest["env"]}
     assert env["COMFYUI_AUTO_UPDATE"]["default"] is True
-    assert env["COMFYUI_REF"]["default"] == "v0.9.2"
+    assert env["COMFYUI_REF"]["default"] == "v0.27.0"
 
     compose = (REPO_ROOT / "services/comfyui/compose.yml").read_text()
     start = compose.find("  comfyui:")
     end = compose.find("\n\nvolumes:", start)
     block = compose[start:end]
-    assert "COMFYUI_REF=${COMFYUI_REF:-v0.9.2}" in block
+    assert "COMFYUI_REF=${COMFYUI_REF:-v0.27.0}" in block
 
 
 # ---------------------------------------------------------------------------
@@ -593,7 +593,11 @@ class TestManifestRoundTrip:
 
     def test_tsv_rows_match_yaml_rows(self, tmp_path, monkeypatch):
         """TSV row count equals YAML model count."""
-        catalog = [_entry("M1"), _entry("M2"), _entry("M3")]
+        catalog = [
+            _entry("M1", filename="m1.safetensors"),
+            _entry("M2", filename="m2.safetensors"),
+            _entry("M3", filename="m3.safetensors"),
+        ]
         env = {"COMFYUI_SOURCE": "container", "COMFYUI_USER_MODELS": "M1,M2,M3"}
 
         import utils.comfyui_resolver as resolver
@@ -614,7 +618,10 @@ class TestManifestRoundTrip:
 
     def test_tsv_names_match_yaml_names(self, tmp_path, monkeypatch):
         """TSV name column matches YAML name field for every row."""
-        catalog = [_entry("X1"), _entry("X2")]
+        catalog = [
+            _entry("X1", filename="x1.safetensors"),
+            _entry("X2", filename="x2.safetensors"),
+        ]
         env = {"COMFYUI_SOURCE": "container", "COMFYUI_USER_MODELS": "X1,X2"}
 
         import utils.comfyui_resolver as resolver

@@ -159,15 +159,21 @@ def _badges_for_entry(
 ) -> list[str]:
     """Compose the badge list for one catalog entry.
 
-    Badge order: family, category, size, [pulled], custom-node warns,
-    hardware-mismatch warns. Warn-only — nothing is suppressed from
-    the option list based on hardware.
+    Badge order: family, category, size, precision/variant, license,
+    [pulled], custom-node warns, memory warns, license restrictions.
+    Warn-only — nothing is suppressed from the option list.
     """
     out: list[str] = [
         f"[{entry.family}]",
         entry.category,
         f"{entry.size_gb:.2f}GB",
     ]
+    if entry.precision:
+        out.append(f"[{entry.precision}]")
+    if entry.variant:
+        out.append(f"[{entry.variant}]")
+    if entry.license_name:
+        out.append(f"[{entry.license_name}]")
     if is_pulled:
         out.append("[pulled]")
     if entry.requires_custom_node:
@@ -181,7 +187,28 @@ def _badges_for_entry(
         and entry.min_vram_gb > gpu_mem_gb
     ):
         out.append(f"⚠ requires {entry.min_vram_gb:.0f} GB VRAM")
+    if entry.min_ram_gb is not None:
+        out.append(f"⚠ requires {entry.min_ram_gb:.0f} GB RAM")
+    out.extend(f"⚠ {restriction}" for restriction in entry.license_restrictions)
     return out
+
+
+def _entry_is_pulled(
+    entry: ComfyUILibraryEntry,
+    pulled_names: set[str],
+) -> bool:
+    """Return whether every physical artifact for an entry is present."""
+    if entry.files:
+        filenames = {
+            model_file.filename or _filename_of(model_file.url)
+            for model_file in entry.files
+        }
+        return bool(filenames) and filenames.issubset(pulled_names)
+    return (
+        entry.name in pulled_names
+        or _filename_of(entry.url) in pulled_names
+        or (entry.filename is not None and entry.filename in pulled_names)
+    )
 
 
 def _flat_option(
@@ -192,15 +219,9 @@ def _flat_option(
     gpu_mem_gb: float | None,
 ) -> _ComfyUIOption:
     """Build a single flat (non-family) option row for one entry."""
-    is_pulled = (
-        entry.name in pulled_names
-        or _filename_of(entry.url) in pulled_names
-        # download_models.sh saves under the catalog's filename column —
-        # for civitai/sidecar entries that's entry.filename (the URL path
-        # carries no usable name), so match it too or those models never
-        # show [pulled] on re-runs.
-        or (entry.filename is not None and entry.filename in pulled_names)
-    )
+    # download_models.sh saves under the catalog's filename column. Bundles
+    # are complete only when every declared file is present.
+    is_pulled = _entry_is_pulled(entry, pulled_names)
     group = (
         "Custom" if entry.source == "custom"
         else _display_group_for(entry.category)
@@ -245,11 +266,7 @@ def _family_parent_option(
     # Build leaf_details: variant_tag (= full repo name) → (label, badges)
     leaf_details: dict[str, tuple[str, tuple[str, ...]]] = {}
     for m in sorted(members, key=lambda x: (-x.popularity, x.name)):
-        is_pulled = (
-            m.name in pulled_names
-            or _filename_of(m.url) in pulled_names
-            or (m.filename is not None and m.filename in pulled_names)
-        )
+        is_pulled = _entry_is_pulled(m, pulled_names)
         leaf_badges = tuple(_badges_for_entry(m, is_pulled, gpu_mem_gb))
         leaf_details[m.name] = (m.name, leaf_badges)
 

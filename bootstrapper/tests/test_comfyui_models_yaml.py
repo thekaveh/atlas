@@ -48,9 +48,7 @@ def _entry_to_comparable(e: ComfyUILibraryEntry) -> dict:
     Excludes 'pulled' (wizard-time computed) and 'source' (set by the loader,
     differs between curated/fallback). Those are tested separately.
     """
-    d = dataclasses.asdict(e)
-    d["requires_custom_node"] = list(d["requires_custom_node"])
-    return d
+    return json.loads(json.dumps(dataclasses.asdict(e)))
 
 
 # ─── Schema validation ───────────────────────────────────────────────────────
@@ -74,10 +72,10 @@ def test_yaml_passes_schema():
 
 
 def test_yaml_has_expected_entry_count():
-    """Curated YAML must contain exactly 13 entries (snapshot count)."""
+    """Curated YAML must contain exactly 15 entries (snapshot count)."""
     data = yaml.safe_load(_YAML_PATH.read_text(encoding="utf-8"))
-    assert len(data["models"]) == 13, (
-        f"Expected 13 curated entries (snapshot count); got {len(data['models'])}"
+    assert len(data["models"]) == 15, (
+        f"Expected 15 curated entries (snapshot count); got {len(data['models'])}"
     )
 
 
@@ -310,11 +308,11 @@ def test_list_curated_raises_on_missing_yaml(monkeypatch, tmp_path):
         list_curated()
 
 
-def test_list_curated_returns_13_entries_happy_path():
-    """Happy path: list_curated() must return the 13 curated entries when
+def test_list_curated_returns_15_entries_happy_path():
+    """Happy path: list_curated() must return the 15 curated entries when
     services/comfyui/models.yaml is present and valid.
     """
     entries = list_curated()
-    assert len(entries) == 13, (
-        f"Expected 13 curated entries from list_curated(); got {len(entries)}"
+    assert len(entries) == 15, (
+        f"Expected 15 curated entries from list_curated(); got {len(entries)}"
     )
