@@ -109,6 +109,11 @@ point at http://kong-api-gateway:8000.
 | COMFYUI_INIT_SOURCE | comfyui | container | - |
 | COMFYUI_PORT | comfyui |  | - |
 | COMFYUI_LOCALHOST_PORT | comfyui | 8000 | Host port for the localhost source variant. URL is derived at compose-render time as http://host.docker.internal:8000. |
+| COMFYUI_MPS_LOCALHOST_PORT | comfyui | 8188 | Fixed host port the Atlas-managed Apple-Silicon/MPS ComfyUI listens on (source=managed-localhost-mps). Containers reach it as http://host.docker.internal:8188. Named with the _LOCALHOST_ host-port convention so the topology slot allocator leaves the fixed default intact. |
+| COMFYUI_MPS_REF | comfyui | v0.27.0 | Pinned upstream ComfyUI git ref the managed MPS host process checks out (mirrors COMFYUI_REF for the container path). A release tag or full commit SHA. |
+| COMFYUI_MPS_STATE_DIR | comfyui | ~/.atlas/comfyui-mps | Atlas-owned host state directory for the managed MPS ComfyUI: the pinned checkout, its venv, and the pid/log/status files. Never a container volume. |
+| COMFYUI_MPS_MODELS_PATH | comfyui | ~/Documents/ComfyUI/models | Existing host models directory the managed MPS process reuses (via extra_model_paths) so no weights are duplicated. Shared with COMFYUI_LOCAL_MODELS_PATH by default. |
+| COMFYUI_MPS_MIN_MEMORY_GB | comfyui | 16 | Minimum unified-memory headroom (GiB) the managed MPS preflight requires before launching ComfyUI; below this the preflight warns. |
 | COMFYUI_BASE_URL | comfyui | http://comfyui:18188 | In-container default. Runtime value is COMFYUI_ENDPOINT computed by hook. |
 | COMFYUI_KONG_URL | comfyui | http://kong-api-gateway:8000/comfyui | - |
 | COMFYUI_ARGS | comfyui | --listen | - |

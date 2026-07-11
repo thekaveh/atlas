@@ -14,7 +14,7 @@
 | CLOUD_ANTHROPIC_SOURCE | cloud-providers | disabled | enabled, disabled |
 | CLOUD_OPENROUTER_SOURCE | cloud-providers | disabled | enabled, disabled |
 | CLOUDFLARED_SOURCE | cloudflared | disabled | container, disabled |
-| COMFYUI_SOURCE | comfyui | container-cpu | container-cpu, container-gpu, localhost, disabled |
+| COMFYUI_SOURCE | comfyui | container-cpu | container-cpu, container-gpu, localhost, managed-localhost-mps, disabled |
 | CRAWL4AI_SOURCE | crawl4ai | disabled | container, disabled |
 | DOC_PROCESSOR_SOURCE | docling | disabled | disabled, docling-localhost, docling-container-gpu |
 | FAL_SOURCE | fal | disabled | enabled, disabled |

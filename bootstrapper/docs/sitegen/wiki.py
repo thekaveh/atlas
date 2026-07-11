@@ -5,7 +5,11 @@ from pathlib import Path
 from .model import DocsModel
 from .pages import ARCHITECTURE_PERSPECTIVES
 from .rendering import csv_or_dash, table
-from .services import _comfyui_krea2_section, _litellm_capability_section
+from .services import (
+    _comfyui_krea2_section,
+    _comfyui_managed_mps_section,
+    _litellm_capability_section,
+)
 
 
 def _source_vars(service) -> str:
@@ -312,7 +316,8 @@ Current categories include infra, data, llm, media, agents, apps, and aggregate/
         + "\n\n## 4. Dependency Summary\n\n"
         + table(["Service", "Required", "Optional", "Runtime Calls"], dependency_rows)
         + "\n"
-        + _comfyui_krea2_section(model, 5),
+        + _comfyui_krea2_section(model, 5)
+        + _comfyui_managed_mps_section(model, 6),
         wiki / "Architecture.md": """# Architecture
 
 ## 1. Stack Shape

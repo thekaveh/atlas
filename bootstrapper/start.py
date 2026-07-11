@@ -1493,7 +1493,13 @@ class AtlasStarter:
         # Finalize consumer RAG ingestion profiles (#413): write the compiled
         # profiles JSON + backend-mount overlay, or remove them when no consumer
         # declares rag_ingestion_profiles.
-        return self._finalize_consumer_rag_ingestion_profiles()
+        if not self._finalize_consumer_rag_ingestion_profiles():
+            return False
+        # Finalize the Atlas-managed Apple-Silicon/Metal ComfyUI host (#335):
+        # when COMFYUI_SOURCE=managed-localhost-mps, preflight + install +
+        # launch the native host process containers reach via host.docker.internal.
+        # A no-op for every other source (and never selected in CI's .env.example).
+        return self._finalize_managed_comfyui_mps()
 
     def _finalize_consumer_storage(self) -> bool:
         """Provision manifest-declared object stores (#404): generate scoped
@@ -1729,6 +1735,60 @@ class AtlasStarter:
             f"ingestion profile(s) from {', '.join(owners)}",
             "info",
         )
+        return True
+
+    def _finalize_managed_comfyui_mps(self) -> bool:
+        """Bring up the Atlas-managed Apple-Silicon/Metal ComfyUI host (#335).
+
+        Docker Desktop on macOS can't pass Metal into a Linux container, so the
+        ``managed-localhost-mps`` source runs a native ComfyUI process on the HOST
+        and containers reach it via ``host.docker.internal`` (identical wiring to
+        the unmanaged ``localhost`` source). When that source is selected, preflight
+        + install (idempotent — only the first run downloads Torch) + start the
+        host process here, before ``docker compose up``, so the endpoint is live
+        when downstream containers come up. A no-op for every other source, so CI
+        (whose ``.env.example`` default is ``container-cpu``) never touches it.
+
+        Fatal on failure: the user explicitly chose this source, and downstream
+        image generation is broken without the host process — surface it loudly
+        rather than boot a half-configured stack.
+        """
+        from services.comfyui_mps_manager import ComfyUiMpsError, manager_from_env
+
+        env = self.config_parser.parse_env_file()
+        if str(env.get("COMFYUI_SOURCE", "")).strip() != "managed-localhost-mps":
+            return True
+
+        manager = manager_from_env(env)
+        self.banner.show_status_message(
+            "  • COMFYUI_SOURCE=managed-localhost-mps — preparing the native "
+            "Apple-Silicon/Metal ComfyUI host (first run downloads Torch; this "
+            "can take several minutes)…",
+            "info",
+        )
+        try:
+            status = manager.ensure_running()
+        except ComfyUiMpsError as exc:
+            self.banner.show_status_message(
+                f"Managed ComfyUI (MPS) host could not start: {exc}", "error"
+            )
+            return False
+
+        health = manager.wait_healthy(timeout=60.0)
+        if health.get("reachable"):
+            self.banner.show_status_message(
+                f"  • Managed ComfyUI (MPS) is up on port {status.port} "
+                f"(device={health.get('device')}, pid={status.pid})",
+                "info",
+            )
+        else:
+            # Not fatal: ComfyUI loads lazily and downstream containers retry.
+            self.banner.show_status_message(
+                f"  • Managed ComfyUI (MPS) launched (pid={status.pid}, port "
+                f"{status.port}); still warming up — the first request loads the "
+                f"model. Logs: {status.log_file}",
+                "warning",
+            )
         return True
 
     def generate_litellm_configuration(self) -> bool:
@@ -3299,6 +3359,53 @@ def _doctor_check_submodule_clean(starter: "AtlasStarter") -> dict:
     )
 
 
+def _doctor_check_comfyui_mps(starter: "AtlasStarter") -> dict:
+    """Preflight the Atlas-managed Apple-Silicon/Metal ComfyUI host (#335).
+
+    Only meaningful when COMFYUI_SOURCE=managed-localhost-mps. The preflight is
+    read-only (no install, no launch) and CI-safe: on a non-Darwin/arm64 host it
+    reports ``fail`` (the source can't run here) with an actionable message; when
+    the source isn't selected the check is skipped entirely.
+    """
+    env_values = starter.config_parser.parse_env_file()
+    if str(env_values.get("COMFYUI_SOURCE", "")).strip() != "managed-localhost-mps":
+        return _doctor_result(
+            "comfyui-mps",
+            "skipped",
+            "COMFYUI_SOURCE is not managed-localhost-mps.",
+        )
+
+    from services.comfyui_mps_manager import manager_from_env
+
+    manager = manager_from_env(env_values)
+    pre = manager.preflight()
+    fails = [c for c in pre.checks if c["status"] == "fail"]
+    warns = [c for c in pre.checks if c["status"] == "warn"]
+    if fails:
+        return _doctor_result(
+            "comfyui-mps",
+            "fail",
+            "; ".join(f"{c['name']}: {c['detail']}" for c in fails),
+            details=pre.to_dict(),
+        )
+    status = manager.status()
+    if warns:
+        return _doctor_result(
+            "comfyui-mps",
+            "warn",
+            warns[0]["detail"],
+            details={**pre.to_dict(), "running": status.running, "pid": status.pid},
+        )
+    running = "running" if status.running else "not started"
+    return _doctor_result(
+        "comfyui-mps",
+        "pass",
+        f"Managed MPS host preflight passed (host process {running}; "
+        f"port {manager.port}, ref {manager.ref}).",
+        details={**pre.to_dict(), "running": status.running, "pid": status.pid},
+    )
+
+
 DOCTOR_CHECKS = [
     _doctor_check_consumer_manifests,
     _doctor_check_compose,
@@ -3309,6 +3416,7 @@ DOCTOR_CHECKS = [
     _doctor_check_litellm_models,
     _doctor_check_n8n_workflows,
     _doctor_check_rag_ingestion_profiles,
+    _doctor_check_comfyui_mps,
     _doctor_check_endpoints,
     _doctor_check_submodule_clean,
 ]
@@ -4568,6 +4676,104 @@ def endpoints_export_command(
         click.echo(f"Wrote {len(fields)} endpoint field(s) to {out}")
     else:
         click.echo(text, nl=False)
+
+
+@main.group("comfyui-mps")
+def comfyui_mps_group() -> None:
+    """Manage the native Apple-Silicon/Metal (MPS) ComfyUI host (#335).
+
+    Docker Desktop can't pass Metal into a Linux container, so
+    COMFYUI_SOURCE=managed-localhost-mps runs a native ComfyUI process on the
+    host that containers reach via host.docker.internal. These commands preflight,
+    install/update the pinned checkout + venv, and start/stop/inspect that process.
+    A normal ``./start.sh`` with that source runs install+start automatically; use
+    these for explicit lifecycle control or CI-safe preflight.
+    """
+
+
+def _comfyui_mps_manager():
+    from services.comfyui_mps_manager import manager_from_env
+
+    starter = AtlasStarter()
+    env = starter.config_parser.parse_env_file()
+    return manager_from_env(env)
+
+
+@comfyui_mps_group.command("preflight")
+def comfyui_mps_preflight_command() -> None:
+    """Run the read-only host probe (OS/arch, memory, Torch/MPS). No install."""
+    manager = _comfyui_mps_manager()
+    result = manager.preflight()
+    for check in result.checks:
+        click.echo(f"[{check['status'].upper()}] {check['name']}: {check['detail']}")
+    click.echo(f"\nPreflight: {result.status.upper()}")
+    if not result.ok:
+        raise click.exceptions.Exit(1)
+
+
+@comfyui_mps_group.command("install")
+@click.option("--update", is_flag=True, help="Refresh the checkout + reinstall requirements.")
+def comfyui_mps_install_command(update: bool) -> None:
+    """Idempotently install (or --update) the pinned ComfyUI checkout + venv."""
+    from services.comfyui_mps_manager import ComfyUiMpsError
+
+    manager = _comfyui_mps_manager()
+    try:
+        manager.install(update=update)
+    except ComfyUiMpsError as exc:
+        click.echo(f"Install failed: {exc}", err=True)
+        raise click.exceptions.Exit(1) from exc
+    click.echo(f"Installed ComfyUI {manager.ref} into {manager.state_dir}.")
+
+
+@comfyui_mps_group.command("start")
+def comfyui_mps_start_command() -> None:
+    """Launch the managed host process (idempotent — one process per host)."""
+    from services.comfyui_mps_manager import ComfyUiMpsError
+
+    manager = _comfyui_mps_manager()
+    try:
+        status = manager.start()
+    except ComfyUiMpsError as exc:
+        click.echo(f"Start failed: {exc}", err=True)
+        raise click.exceptions.Exit(1) from exc
+    click.echo(f"ComfyUI (MPS) running: pid={status.pid} port={status.port}")
+    click.echo(f"Logs: {status.log_file}")
+
+
+@comfyui_mps_group.command("stop")
+def comfyui_mps_stop_command() -> None:
+    """Stop the managed host process (SIGINT then SIGKILL)."""
+    manager = _comfyui_mps_manager()
+    stopped = manager.stop()
+    click.echo("Stopped." if stopped else "No managed ComfyUI (MPS) process was running.")
+
+
+@comfyui_mps_group.command("status")
+def comfyui_mps_status_command() -> None:
+    """Show the managed host process status (running / pid / installed ref)."""
+    manager = _comfyui_mps_manager()
+    status = manager.status()
+    click.echo(json.dumps(status.to_dict(), indent=2))
+
+
+@comfyui_mps_group.command("health")
+def comfyui_mps_health_command() -> None:
+    """Probe /system_stats and report reachability + compute device (mps/cpu)."""
+    manager = _comfyui_mps_manager()
+    health = manager.health()
+    click.echo(json.dumps(health, indent=2))
+    if not health.get("reachable"):
+        raise click.exceptions.Exit(1)
+
+
+@comfyui_mps_group.command("remove")
+@click.confirmation_option(prompt="Stop the process and delete the managed state directory?")
+def comfyui_mps_remove_command() -> None:
+    """Stop the process and delete the Atlas-owned state directory."""
+    manager = _comfyui_mps_manager()
+    manager.remove()
+    click.echo(f"Removed {manager.state_dir}.")
 
 
 if __name__ == "__main__":
