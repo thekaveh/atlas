@@ -397,6 +397,168 @@ def test_doctor_litellm_models_pass_when_none(tmp_path, monkeypatch) -> None:
     assert "No consumer LiteLLM models" in checks["litellm-models"]["message"]
 
 
+def _write_n8n_consumer(tmp_path: Path, name: str, body: str, workflow: str) -> Path:
+    import json
+    import textwrap
+
+    d = tmp_path / name
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "wf.json").write_text(
+        json.dumps({"name": "WF", "active": True, "nodes": [], "connections": {}}),
+        encoding="utf-8",
+    )
+    manifest = d / "atlas.consumer.yml"
+    manifest.write_text(f"name: {name}\n" + textwrap.dedent(body), encoding="utf-8")
+    return manifest
+
+
+def test_doctor_n8n_workflows_pass_when_valid(tmp_path, monkeypatch) -> None:
+    import start as start_module
+
+    manifest = _write_n8n_consumer(
+        tmp_path, "rag-showcase",
+        """
+        n8n_workflows:
+          version: 1
+          workflows:
+            - id: adaptive-rag
+              path: ./wf.json
+              active: "false"
+        """,
+        "wf.json",
+    )
+    _write_base_env(tmp_path, extra="N8N_API_KEY=k\n")
+    monkeypatch.setenv("ATLAS_CONSUMER_MANIFEST", str(manifest))
+    _patch_starter_paths(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        start_module.DockerManager,
+        "validate_compose_config",
+        lambda self: (0, "", "", ["docker", "compose", "config", "-q"]),
+    )
+
+    result = CliRunner().invoke(start_module.main, ["doctor", "--format", "json"])
+    assert result.exit_code == 0, result.output
+    checks = {entry["id"]: entry for entry in json.loads(result.output)["checks"]}
+    assert checks["n8n-workflows"]["status"] == "pass"
+    assert "adaptive-rag" in checks["n8n-workflows"]["details"]["workflows"]
+
+
+def test_doctor_n8n_workflows_warns_without_api_key(tmp_path, monkeypatch) -> None:
+    import start as start_module
+
+    manifest = _write_n8n_consumer(
+        tmp_path, "rag-showcase",
+        """
+        n8n_workflows:
+          version: 1
+          workflows:
+            - id: adaptive-rag
+              path: ./wf.json
+              active: "true"
+              required_webhooks:
+                - path: /webhook/adaptive-rag
+                  method: GET
+        """,
+        "wf.json",
+    )
+    # No N8N_API_KEY → active workflow + webhook → advisory warn.
+    _write_base_env(tmp_path)
+    monkeypatch.setenv("ATLAS_CONSUMER_MANIFEST", str(manifest))
+    _patch_starter_paths(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        start_module.DockerManager,
+        "validate_compose_config",
+        lambda self: (0, "", "", ["docker", "compose", "config", "-q"]),
+    )
+
+    result = CliRunner().invoke(start_module.main, ["doctor", "--format", "json"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    checks = {entry["id"]: entry for entry in payload["checks"]}
+    assert checks["n8n-workflows"]["status"] == "warn"
+    assert "N8N_API_KEY" in " ".join(checks["n8n-workflows"]["details"]["warnings"])
+    assert payload["ok"] is True
+
+
+def test_doctor_n8n_workflows_no_warn_for_fromjson_inactive_file(tmp_path, monkeypatch) -> None:
+    # Regression (#412 F9): a fromJson workflow whose FILE is inactive is not a
+    # live-activation case, so an unset N8N_API_KEY must NOT trigger the warning.
+    import start as start_module
+
+    d = tmp_path / "rag-showcase"
+    d.mkdir(parents=True)
+    (d / "wf.json").write_text(
+        json.dumps({"name": "WF", "active": False, "nodes": [], "connections": {}}),
+        encoding="utf-8",
+    )
+    manifest = d / "atlas.consumer.yml"
+    manifest.write_text(
+        "name: rag-showcase\n"
+        "n8n_workflows:\n  version: 1\n  workflows:\n"
+        "    - id: adaptive-rag\n      path: ./wf.json\n      active: fromJson\n"
+        "      required_webhooks:\n        - path: /webhook/adaptive-rag\n          method: GET\n",
+        encoding="utf-8",
+    )
+    _write_base_env(tmp_path)  # no N8N_API_KEY
+    monkeypatch.setenv("ATLAS_CONSUMER_MANIFEST", str(manifest))
+    _patch_starter_paths(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        start_module.DockerManager,
+        "validate_compose_config",
+        lambda self: (0, "", "", ["docker", "compose", "config", "-q"]),
+    )
+
+    result = CliRunner().invoke(start_module.main, ["doctor", "--format", "json"])
+    assert result.exit_code == 0, result.output
+    checks = {entry["id"]: entry for entry in json.loads(result.output)["checks"]}
+    assert checks["n8n-workflows"]["status"] == "pass"
+
+
+def test_doctor_n8n_workflows_fails_on_malformed(tmp_path, monkeypatch) -> None:
+    import start as start_module
+
+    d = tmp_path / "broken"
+    d.mkdir(parents=True)
+    (d / "wf.json").write_text("{not json", encoding="utf-8")
+    manifest = d / "atlas.consumer.yml"
+    manifest.write_text(
+        "name: broken\nn8n_workflows:\n  version: 1\n  workflows:\n"
+        "    - id: wf\n      path: ./wf.json\n",
+        encoding="utf-8",
+    )
+    _write_base_env(tmp_path)
+    monkeypatch.setenv("ATLAS_CONSUMER_MANIFEST", str(manifest))
+    _patch_starter_paths(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        start_module.DockerManager,
+        "validate_compose_config",
+        lambda self: (0, "", "", ["docker", "compose", "config", "-q"]),
+    )
+
+    result = CliRunner().invoke(start_module.main, ["doctor", "--format", "json"])
+    checks = {entry["id"]: entry for entry in json.loads(result.output)["checks"]}
+    assert checks["n8n-workflows"]["status"] == "fail"
+    assert "not valid JSON" in checks["n8n-workflows"]["message"]
+
+
+def test_doctor_n8n_workflows_pass_when_none(tmp_path, monkeypatch) -> None:
+    import start as start_module
+
+    _write_base_env(tmp_path)
+    _patch_starter_paths(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        start_module.DockerManager,
+        "validate_compose_config",
+        lambda self: (0, "", "", ["docker", "compose", "config", "-q"]),
+    )
+
+    result = CliRunner().invoke(start_module.main, ["doctor", "--format", "json"])
+    assert result.exit_code == 0, result.output
+    checks = {entry["id"]: entry for entry in json.loads(result.output)["checks"]}
+    assert checks["n8n-workflows"]["status"] == "pass"
+    assert "No consumer n8n workflows" in checks["n8n-workflows"]["message"]
+
+
 def test_consumer_doctor_docs_are_published_on_all_surfaces() -> None:
     reusing = REUSING_ATLAS.read_text(encoding="utf-8")
     assert "./start.sh doctor" in reusing

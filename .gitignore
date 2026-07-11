@@ -93,6 +93,8 @@ volumes/litellm/config.yaml
 volumes/litellm/consumer-models.yaml
 volumes/litellm/*.yml
 volumes/minio/consumer-storage.compose.yml
+volumes/n8n/consumer-workflows/
+volumes/n8n/consumer-workflows.compose.yml
 
 # Environment variables file
 .env
