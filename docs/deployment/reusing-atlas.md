@@ -239,7 +239,43 @@ networks:
 
 ### 6.1.2 Adding parent-owned MinIO buckets
 
-If your `_user` service needs object storage, do not fork
+**Preferred (declarative): the `storage:` block.** Register object stores in
+your `atlas.consumer.yml` and Atlas provisions everything — no compose override,
+no endpoint reverse-engineering, no URL rewriting:
+
+```yaml
+# atlas.consumer.yml
+name: daydreams
+storage:
+  buckets:
+    - name: artifacts              # store handle (unique per consumer)
+      bucket: daydreams-artifacts  # optional; default "<consumer>-<name>"
+```
+
+Atlas compiles each store to the `MINIO_EXTRA_CONSUMERS` grammar below, generates
+a scoped service-account credential once (persisted across restarts), writes the
+`minio-init` overlay for you (gitignored `volumes/minio/consumer-storage.compose.yml`),
+and exports stable per-store fields for your app to consume:
+
+```text
+ATLAS_STORE_DAYDREAMS_ARTIFACTS_BUCKET=daydreams-artifacts
+ATLAS_STORE_DAYDREAMS_ARTIFACTS_INTERNAL_ENDPOINT=http://minio:9000     # write path
+ATLAS_STORE_DAYDREAMS_ARTIFACTS_PUBLIC_ENDPOINT=http://localhost:${MINIO_PORT}  # browser read base
+ATLAS_STORE_DAYDREAMS_ARTIFACTS_REGION=us-east-1
+ATLAS_STORE_DAYDREAMS_ARTIFACTS_ACCESS_KEY_VAR=MINIO_DAYDREAMS_ARTIFACTS_ACCESS_KEY  # reference, not a raw secret
+ATLAS_STORE_DAYDREAMS_ARTIFACTS_SECRET_KEY_VAR=MINIO_DAYDREAMS_ARTIFACTS_SECRET_KEY
+```
+
+Bucket names are validated (S3 rules) and collision-checked against built-in
+buckets and across consumers. **Browser-safe presigning:** sign presigned GET
+URLs against the **public** endpoint (`…_PUBLIC_ENDPOINT`) — never sign against
+`minio:9000` and rewrite the host, which invalidates the signature. Use boto3
+with `endpoint_url=<public>` or the dependency-free reference presigner
+`bootstrapper/utils/s3_presign.py::presign_get_url`. See
+[services/minio/README.md §6.1–6.2](https://github.com/thekaveh/atlas/blob/main/services/minio/README.md).
+
+**Underlying grammar (still supported for `_user` overlays).** If your `_user`
+service needs object storage, do not fork
 `services/minio/init/scripts/init-minio.sh`. Instead, extend the existing
 `minio-init` service from the parent-owned overlay and pass
 `MINIO_EXTRA_CONSUMERS`. Each entry uses the same grammar as Atlas's built-in

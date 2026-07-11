@@ -593,6 +593,32 @@ class AtlasStarter:
         finally:
             tmp_path.unlink(missing_ok=True)
 
+    def _remove_env_keys_by_prefix(self, prefix: str) -> None:
+        """Drop every ``.env`` line whose KEY starts with ``prefix``. Used to
+        clear stale storage export vars before re-emitting the current set, so
+        a removed/renamed store leaves no dangling export."""
+        env_file_path = self.config_parser.env_file_path
+        if not env_file_path.exists():
+            return
+        content = env_file_path.read_text(encoding="utf-8")
+        kept = [
+            line
+            for line in content.splitlines(keepends=True)
+            if not line.lstrip().startswith(prefix)
+        ]
+        updated = "".join(kept)
+        if updated == content:
+            return
+        tmp_path = Path(str(env_file_path) + ".tmp")
+        try:
+            original_mode = os.stat(env_file_path).st_mode
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                os.chmod(tmp_path, original_mode)
+                f.write(updated)
+            os.replace(tmp_path, env_file_path)
+        finally:
+            tmp_path.unlink(missing_ok=True)
+
     def validate_persisted_project_name(self) -> bool:
         """Fail before mutating .env when its stored PROJECT_NAME is invalid."""
         try:
@@ -1446,7 +1472,84 @@ class AtlasStarter:
 
     def generate_service_configuration(self) -> bool:
         """Generate and update service configuration."""
-        return self.service_config.generate_and_update_env()
+        if not self.service_config.generate_and_update_env():
+            return False
+        # Finalize consumer object-storage (#404) AFTER endpoints are resolved
+        # into .env by generate_and_update_env, and before compose up. Covers
+        # both the linear flow and the TUI/launch pipeline (single call site).
+        return self._finalize_consumer_storage()
+
+    def _finalize_consumer_storage(self) -> bool:
+        """Provision manifest-declared object stores (#404): generate scoped
+        credentials (blank-only), export stable endpoint/credential-reference
+        fields, and write the Atlas-owned minio-init overlay so no consumer
+        compose override is needed. Idempotent; a no-storage config removes any
+        stale generated overlay.
+        """
+        from core.consumer_manifest import (
+            MINIO_STORAGE_OVERLAY_PATH,
+            compile_storage_exports,
+            storage_credential_tokens,
+        )
+
+        try:
+            config = self.config_parser.load_consumer_config()
+        except Exception as exc:  # ConsumerManifestError etc. — surface + fail
+            self.banner.show_status_message(
+                f"Consumer storage manifest error: {exc}", "error"
+            )
+            return False
+
+        overlay_path = self.root_dir / MINIO_STORAGE_OVERLAY_PATH
+        # Always clear stale export vars first — a removed or renamed store must
+        # not leave dangling ATLAS_STORE_* fields; the current set is re-emitted
+        # below. Provisioning (buckets / MINIO_EXTRA_CONSUMERS) lives only in the
+        # regenerated overlay, so there is nothing stale to strip from .env there.
+        self._remove_env_keys_by_prefix("ATLAS_STORE_")
+
+        if not config.storage:
+            if overlay_path.exists():
+                overlay_path.unlink()
+            return True
+
+        env = self.config_parser.parse_env_file()
+        if str(env.get("MINIO_SOURCE", "container")).strip() == "disabled":
+            # A storage declaration against disabled MinIO can't be provisioned;
+            # skip loudly rather than emit an unusable (empty-endpoint) contract.
+            if overlay_path.exists():
+                overlay_path.unlink()
+            self.banner.show_status_message(
+                "  • MINIO_SOURCE=disabled — skipping consumer storage "
+                f"provisioning for {len(config.storage)} declared store(s)",
+                "warning",
+            )
+            return True
+
+        # 1. Scoped credentials — generated once, persist across restarts.
+        tokens = storage_credential_tokens(config.storage)
+        self.key_generator.generate_and_update_extra_minio_consumer_keys(tokens)
+
+        # 2. Stable export fields (resolved endpoints track BASE_PORT/host).
+        exports = compile_storage_exports(
+            config.storage,
+            minio_endpoint=env.get("MINIO_ENDPOINT", ""),
+            minio_public_endpoint=env.get("MINIO_PUBLIC_ENDPOINT", ""),
+            minio_region=env.get("MINIO_REGION", "us-east-1"),
+        )
+        if exports:
+            self._merge_env_file_overrides(exports)
+
+        # 3. Atlas-owned minio-init overlay (routed via consumer overlays).
+        overlay = config.storage_overlay
+        if overlay is not None:
+            overlay.path.parent.mkdir(parents=True, exist_ok=True)
+            overlay.path.write_text(overlay.content, encoding="utf-8")
+
+        self.banner.show_status_message(
+            f"  • Provisioned {len(config.storage)} consumer object store(s)",
+            "info",
+        )
+        return True
     
     def generate_litellm_configuration(self) -> bool:
         """Write a STUB volumes/litellm/config.yaml so the bind mount has

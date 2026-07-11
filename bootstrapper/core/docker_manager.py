@@ -163,14 +163,19 @@ class DockerManager:
         user_dir = self.root_dir / "services" / "_user"
         overlays = sorted(user_dir.glob("*/compose.yml")) if user_dir.is_dir() else []
         consumer_overlays = list(self.config_parser.load_consumer_config().compose_overlays)
-        if not overlays:
-            if not consumer_overlays:
-                return []
+        # Atlas-owned minio-init storage overlay (#404), generated during
+        # generate_service_configuration when a consumer declares object stores.
+        from core.consumer_manifest import MINIO_STORAGE_OVERLAY_PATH
+        storage_overlay = self.root_dir / MINIO_STORAGE_OVERLAY_PATH
+        if not overlays and not consumer_overlays and not storage_overlay.exists():
+            return []
         file_args: List[str] = ['-f', 'docker-compose.yml']
         for overlay in overlays:
             file_args.extend(['-f', str(overlay.relative_to(self.root_dir))])
         for overlay in consumer_overlays:
             file_args.extend(['-f', str(overlay)])
+        if storage_overlay.exists():
+            file_args.extend(['-f', str(storage_overlay.relative_to(self.root_dir))])
         return file_args
 
     def execute_compose_command(
