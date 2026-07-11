@@ -559,6 +559,90 @@ def test_doctor_n8n_workflows_pass_when_none(tmp_path, monkeypatch) -> None:
     assert "No consumer n8n workflows" in checks["n8n-workflows"]["message"]
 
 
+def _write_rag_consumer(tmp_path: Path, name: str, on_unavailable: str) -> Path:
+    import textwrap
+
+    d = tmp_path / name
+    d.mkdir(parents=True, exist_ok=True)
+    manifest = d / "atlas.consumer.yml"
+    manifest.write_text(
+        f"name: {name}\n"
+        + textwrap.dedent(
+            f"""
+            rag_ingestion_profiles:
+              version: 1
+              profiles:
+                - name: showcase-default
+                  corpus: {{source: mount, path: raw}}
+                  vector_targets:
+                    - {{backend: weaviate, collection_prefix: RagShowcase, on_unavailable: {on_unavailable}}}
+            """
+        ),
+        encoding="utf-8",
+    )
+    return manifest
+
+
+def test_doctor_rag_ingestion_pass_when_target_skips(tmp_path, monkeypatch) -> None:
+    import start as start_module
+
+    manifest = _write_rag_consumer(tmp_path, "rag-showcase", "skip")
+    _write_base_env(tmp_path)  # no WEAVIATE_URL, but on_unavailable=skip → no warn
+    monkeypatch.setenv("ATLAS_CONSUMER_MANIFEST", str(manifest))
+    _patch_starter_paths(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        start_module.DockerManager,
+        "validate_compose_config",
+        lambda self: (0, "", "", ["docker", "compose", "config", "-q"]),
+    )
+
+    result = CliRunner().invoke(start_module.main, ["doctor", "--format", "json"])
+    assert result.exit_code == 0, result.output
+    checks = {entry["id"]: entry for entry in json.loads(result.output)["checks"]}
+    assert checks["rag-ingestion-profiles"]["status"] == "pass"
+    assert "showcase-default" in checks["rag-ingestion-profiles"]["details"]["profiles"]
+
+
+def test_doctor_rag_ingestion_warns_when_fail_target_disabled(tmp_path, monkeypatch) -> None:
+    import start as start_module
+
+    manifest = _write_rag_consumer(tmp_path, "rag-showcase", "fail")
+    _write_base_env(tmp_path)  # WEAVIATE_URL unset + on_unavailable=fail → warn
+    monkeypatch.setenv("ATLAS_CONSUMER_MANIFEST", str(manifest))
+    _patch_starter_paths(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        start_module.DockerManager,
+        "validate_compose_config",
+        lambda self: (0, "", "", ["docker", "compose", "config", "-q"]),
+    )
+
+    result = CliRunner().invoke(start_module.main, ["doctor", "--format", "json"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    checks = {entry["id"]: entry for entry in payload["checks"]}
+    assert checks["rag-ingestion-profiles"]["status"] == "warn"
+    assert "WEAVIATE_URL" in " ".join(checks["rag-ingestion-profiles"]["details"]["warnings"])
+    assert payload["ok"] is True
+
+
+def test_doctor_rag_ingestion_pass_when_none(tmp_path, monkeypatch) -> None:
+    import start as start_module
+
+    _write_base_env(tmp_path)
+    _patch_starter_paths(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        start_module.DockerManager,
+        "validate_compose_config",
+        lambda self: (0, "", "", ["docker", "compose", "config", "-q"]),
+    )
+
+    result = CliRunner().invoke(start_module.main, ["doctor", "--format", "json"])
+    assert result.exit_code == 0, result.output
+    checks = {entry["id"]: entry for entry in json.loads(result.output)["checks"]}
+    assert checks["rag-ingestion-profiles"]["status"] == "pass"
+    assert "No consumer RAG ingestion profiles" in checks["rag-ingestion-profiles"]["message"]
+
+
 def test_consumer_doctor_docs_are_published_on_all_surfaces() -> None:
     reusing = REUSING_ATLAS.read_text(encoding="utf-8")
     assert "./start.sh doctor" in reusing

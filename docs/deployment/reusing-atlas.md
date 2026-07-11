@@ -573,6 +573,52 @@ On `./start.sh`, the bootstrapper normalizes each workflow JSON to an **Atlas-na
 
 Downstream payoff: `rag-showcase` deletes its `import:workflow` + activate + restart + `/healthz`-poll sequence from `scripts/start-all.sh` and declares the workflow in the manifest.
 
+#### 6.3.4 Declaring RAG ingestion profiles with `rag_ingestion_profiles`
+
+A consumer that ships a RAG corpus (documents to parse, chunk, embed, and load into a vector store + LightRAG) can declare a versioned `rag_ingestion_profiles` block and have **Atlas own the repeatable ingestion lifecycle** — discover → parse → chunk → embed → vector-store write → LightRAG upload → drain → finalize — instead of hand-writing the orchestration and readiness logic around the same Atlas services.
+
+```yaml
+# atlas.consumer.yml
+name: rag-showcase
+rag_ingestion_profiles:
+  version: 1
+  profiles:
+    - name: showcase-default                 # stable, globally-unique profile id
+      corpus:
+        source: mount                         # mount | minio — NEVER an arbitrary host path
+        path: corpus/raw                       # mount: relative, under the backend corpus root
+        # bucket / prefix                      # minio: the object prefix to ingest
+      parser_order: [docling, tika, plain_text]  # first parser that succeeds wins; plain_text is the always-available fallback
+      chunker: { strategy: recursive, chunk_size: 700, overlap: 120 }  # Chonkie strategy
+      vector_targets:
+        - { backend: weaviate, collection_prefix: RagShowcase, on_unavailable: fail }
+      graph_targets:
+        - { backend: lightrag, mode: upload_documents, wait_for_extraction: true, timeout_seconds: 3600, on_unavailable: skip }
+```
+
+On `./start.sh`, the bootstrapper validates + normalizes each profile, hashes it into a stable **`revision`**, writes the gitignored `volumes/backend/rag-ingestion-profiles.json`, and generates a compose overlay that bind-mounts that file into the backend and sets `RAG_INGESTION_PROFILES_FILE`. The backend exposes an async job API to submit ingestions headlessly:
+
+```bash
+# Submit (async when the Celery tier is enabled, else runs in-request); returns an ingestion id.
+curl -XPOST "$BACKEND_URL/api/rag/ingestions" -H 'content-type: application/json' \
+     -d '{"profile":"showcase-default"}'
+# Poll machine-readable status (phases, counts, timing, per-file errors).
+curl "$BACKEND_URL/api/rag/ingestions/<ingestion_id>"
+```
+
+**What the contract enforces / provides:**
+
+- **No arbitrary host paths.** A `mount` corpus is a relative path resolved **under the backend corpus root** (`RAG_INGESTION_CORPUS_ROOT`, default `/app/corpus`); an absolute path, a `~`, or a `..` segment is rejected at load and again at runtime. The only other input mode is a MinIO bucket/prefix.
+- **Observable phases.** The job records `discover → parse → chunk → embed → vector_write → lightrag_upload → drain → finalize`, each with status, counts, timing, and a note; a `GET` returns the full machine-readable record.
+- **Actionable failures.** A per-file parse failure is recorded (file, phase, upstream service, HTTP status/body) and **isolated** — other files still ingest. A capability failure or a drain timeout fails the job with a clear message.
+- **Capability-gated targets.** Each `vector_target`/`graph_target` declares `on_unavailable: fail | skip`. When the backend's SOURCE is disabled (its endpoint env var is empty), Atlas either fails the job or records a visible **skip** — never silently degrades. `./start.sh doctor` warns up front when an `on_unavailable: fail` target's backend is unset.
+- **Idempotent, namespaced, no duplicate writes.** The ingestion key is **consumer + profile + revision + corpus digest**: an identical re-submit returns the existing job without re-running it. Weaviate classes are namespaced `{collection_prefix}_{profile}` (collisions rejected at load), and objects use a deterministic id so a re-run upserts rather than duplicates. A profile edit flips the `revision`, forcing a fresh ingestion.
+- **Drain with a timeout.** When a LightRAG target sets `wait_for_extraction: true`, Atlas polls the extraction pipeline until idle or `timeout_seconds`, then finalizes (or fails on timeout).
+
+Live ingestion against running Docling/Tika/Weaviate/LightRAG is an **optional** live test; the unit suite validates the contract, the phase state machine, capability semantics, idempotency, and path safety with fake upstreams.
+
+Downstream payoff: `rag-showcase` keeps owning its datasets, comparison reports, and approach-specific plugins, while Atlas owns the repeatable ingestion lifecycle across documents, vector stores, and LightRAG.
+
 ### 6.4 Consuming auto-managed endpoint variables
 
 Atlas's bootstrapper computes a set of **auto-managed endpoint variables** in `.env` that resolve to the correct internal URL for whichever `*_SOURCE` mode is active. Downstream consumers (whether Method A standalone or Method B submodule) should bridge these into their own service variables rather than hard-coding a URL.
