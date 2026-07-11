@@ -51,7 +51,7 @@ _PERMUTATIONS = [
     ),
     ("WEAVIATE_SOURCE", ["container", "localhost", "disabled"]),
     ("NEO4J_GRAPH_DB_SOURCE", ["container", "localhost", "disabled"]),
-    ("COMFYUI_SOURCE", ["container-cpu", "container-gpu", "localhost", "disabled"]),
+    ("COMFYUI_SOURCE", ["container-cpu", "container-gpu", "localhost", "managed-localhost-mps", "disabled"]),
     (
         "STT_PROVIDER_SOURCE",
         [

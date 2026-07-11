@@ -28,6 +28,9 @@ sources:
     - id: localhost
       label: "Host (existing ComfyUI on this machine)"
       profiles: [default]
+    - id: managed-localhost-mps
+      label: "Host (Apple Silicon / Metal MPS, Atlas-managed)"
+      profiles: [default]
     - id: disabled
       label: "Disabled"
 
@@ -41,6 +44,21 @@ env:
   - name: COMFYUI_LOCALHOST_PORT
     default: "8000"
     description: "Host port for the localhost source variant. URL is derived at compose-render time as http://host.docker.internal:8000."
+  - name: COMFYUI_MPS_LOCALHOST_PORT
+    default: "8188"
+    description: "Fixed host port the Atlas-managed Apple-Silicon/MPS ComfyUI listens on (source=managed-localhost-mps). Containers reach it as http://host.docker.internal:8188. Named with the _LOCALHOST_ host-port convention so the topology slot allocator leaves the fixed default intact."
+  - name: COMFYUI_MPS_REF
+    default: "v0.27.0"
+    description: "Pinned upstream ComfyUI git ref the managed MPS host process checks out (mirrors COMFYUI_REF for the container path). A release tag or full commit SHA."
+  - name: COMFYUI_MPS_STATE_DIR
+    default: "~/.atlas/comfyui-mps"
+    description: "Atlas-owned host state directory for the managed MPS ComfyUI: the pinned checkout, its venv, and the pid/log/status files. Never a container volume."
+  - name: COMFYUI_MPS_MODELS_PATH
+    default: "~/Documents/ComfyUI/models"
+    description: "Existing host models directory the managed MPS process reuses (via extra_model_paths) so no weights are duplicated. Shared with COMFYUI_LOCAL_MODELS_PATH by default."
+  - name: COMFYUI_MPS_MIN_MEMORY_GB
+    default: "16"
+    description: "Minimum unified-memory headroom (GiB) the managed MPS preflight requires before launching ComfyUI; below this the preflight warns."
   - name: COMFYUI_BASE_URL
     default: "http://comfyui:18188"
     description: "In-container default. Runtime value is COMFYUI_ENDPOINT computed by hook."
@@ -163,6 +181,17 @@ runtime_sc:
       environment:
         COMFYUI_ENDPOINT: http://host.docker.internal:${COMFYUI_LOCALHOST_PORT:-8000}
         COMFYUI_LOCAL_MODELS_PATH: ${COMFYUI_LOCAL_MODELS_PATH:-~/Documents/ComfyUI/models}
+      deploy: {}
+      extra_hosts:
+      - host.docker.internal:host-gateway
+    managed-localhost-mps:
+      # Atlas launches a native Apple-Silicon/Metal ComfyUI on the HOST (Docker
+      # Desktop can't pass Metal into a Linux container), so no container runs
+      # (scale 0) — containers reach the managed process via host.docker.internal.
+      scale: 0
+      environment:
+        COMFYUI_ENDPOINT: http://host.docker.internal:${COMFYUI_MPS_LOCALHOST_PORT:-8188}
+        COMFYUI_LOCAL_MODELS_PATH: ${COMFYUI_MPS_MODELS_PATH:-~/Documents/ComfyUI/models}
       deploy: {}
       extra_hosts:
       - host.docker.internal:host-gateway

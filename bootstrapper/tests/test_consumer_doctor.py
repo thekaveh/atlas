@@ -147,6 +147,86 @@ def test_doctor_accepts_common_plugin_requirement_markers(tmp_path, monkeypatch)
     assert checks["plugins"]["details"]["requirement_entries"] == 1
 
 
+# ─── Managed Apple-Silicon/Metal ComfyUI preflight (#335) ───────────────
+
+def _stub_compose_ok(monkeypatch) -> None:
+    import start as start_module
+
+    monkeypatch.setattr(
+        start_module.DockerManager,
+        "validate_compose_config",
+        lambda self: (0, "", "", ["docker", "compose", "config", "-q"]),
+    )
+
+
+def test_doctor_comfyui_mps_skipped_when_source_not_selected(tmp_path, monkeypatch) -> None:
+    import start as start_module
+
+    _write_base_env(tmp_path)  # COMFYUI_SOURCE unset → default container path
+    _patch_starter_paths(monkeypatch, tmp_path)
+    _stub_compose_ok(monkeypatch)
+
+    result = CliRunner().invoke(start_module.main, ["doctor", "--format", "json"])
+
+    assert result.exit_code == 0, result.output
+    checks = {entry["id"]: entry for entry in json.loads(result.output)["checks"]}
+    assert checks["comfyui-mps"]["status"] == "skipped"
+
+
+def test_doctor_comfyui_mps_fails_on_unsupported_host(tmp_path, monkeypatch) -> None:
+    import start as start_module
+    from services import comfyui_mps_manager as mps
+
+    _write_base_env(
+        tmp_path,
+        extra=(
+            "COMFYUI_SOURCE=managed-localhost-mps\n"
+            f"COMFYUI_MPS_STATE_DIR={tmp_path}/mps-state\n"
+        ),
+    )
+    _patch_starter_paths(monkeypatch, tmp_path)
+    _stub_compose_ok(monkeypatch)
+    # Force a non-Apple host regardless of where the suite runs.
+    monkeypatch.setattr(mps.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(mps.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(mps.shutil, "which", lambda name: f"/usr/bin/{name}")
+
+    result = CliRunner().invoke(start_module.main, ["doctor", "--format", "json"])
+
+    assert result.exit_code == 1  # a fail check flips the overall exit code
+    checks = {entry["id"]: entry for entry in json.loads(result.output)["checks"]}
+    assert checks["comfyui-mps"]["status"] == "fail"
+    assert "macOS" in checks["comfyui-mps"]["message"] or "Apple" in checks["comfyui-mps"]["message"]
+
+
+def test_doctor_comfyui_mps_passes_on_apple_silicon(tmp_path, monkeypatch) -> None:
+    import start as start_module
+    from services import comfyui_mps_manager as mps
+
+    _write_base_env(
+        tmp_path,
+        extra=(
+            "COMFYUI_SOURCE=managed-localhost-mps\n"
+            f"COMFYUI_MPS_STATE_DIR={tmp_path}/mps-state\n"
+        ),
+    )
+    _patch_starter_paths(monkeypatch, tmp_path)
+    _stub_compose_ok(monkeypatch)
+    monkeypatch.setattr(mps.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(mps.platform, "machine", lambda: "arm64")
+    monkeypatch.setattr(mps.shutil, "which", lambda name: f"/usr/bin/{name}")
+    # Patch the probe method (not subprocess.run) so the sibling
+    # submodule-cleanliness git-status check is unaffected.
+    monkeypatch.setattr(mps.ComfyUiMpsManager, "_unified_memory_gb", lambda self: 64)
+
+    result = CliRunner().invoke(start_module.main, ["doctor", "--format", "json"])
+
+    assert result.exit_code == 0, result.output
+    checks = {entry["id"]: entry for entry in json.loads(result.output)["checks"]}
+    assert checks["comfyui-mps"]["status"] == "pass"
+    assert checks["comfyui-mps"]["details"]["running"] is False
+
+
 def _write_plugin(plugins_dir: Path, dirname: str, manifest_body: str) -> None:
     pkg = plugins_dir / dirname
     pkg.mkdir(parents=True)
