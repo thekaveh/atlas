@@ -155,6 +155,70 @@ Weights load lazily on the first request, so a freshly launched process is reach
 """
 
 
+def _comfyui_hunyuan3d_section(model: DocsModel, section_number: int) -> str:
+    catalog_path = model.root / "services" / "comfyui" / "models.yaml"
+    catalog = yaml.safe_load(catalog_path.read_text(encoding="utf-8"))
+    entry = next(
+        (e for e in catalog["models"] if e.get("name") == "hunyuan3d-2"), None
+    )
+    if entry is None:
+        return ""
+
+    revision = "unknown"
+    marker = "/resolve/"
+    if marker in entry["url"]:
+        revision = entry["url"].split(marker, 1)[1].split("/", 1)[0]
+
+    inventory = table(
+        ["Model", "Catalog ID", "Precision", "Disk", "RAM", "VRAM"],
+        [[
+            "Hunyuan3D-2",
+            f"`{entry['name']}`",
+            str(entry["precision"]),
+            f"{entry['size_gb']:.3f} GB",
+            f"{entry['min_ram_gb']:.0f} GB",
+            f"{entry['min_vram_gb']:.0f} GB",
+        ]],
+    )
+    artifact = table(
+        ["Role", "Target", "Bytes", "SHA-256"],
+        [[
+            "dit checkpoint",
+            f"`{entry['target_dir']}/{entry['filename']}`",
+            f"{entry['size_bytes']:,}",
+            f"`{entry['sha256']}`",
+        ]],
+    )
+    restriction_lines = "\n".join(f"- {item}" for item in entry["license_restrictions"])
+    return f"""
+## {section_number}. Hunyuan3D-2 Native Image to 3D
+
+Atlas curates the ComfyUI-core **native** Hunyuan3D-2 single-image shape generator. Unlike TRELLIS/Pixal3D (which need CUDA sparse kernels), Hunyuan3D-2's DiT is pure Torch, so it runs on Apple-Silicon **MPS** through the managed source. The entry is a large optional download — it is never `essential`, so it stages only when explicitly selected (`COMFYUI_USER_MODELS=hunyuan3d-2`).
+
+Native support is **shape-only**: geometry generation with no texture, PBR, or material stage (that path is CUDA-bound and intentionally excluded from this bundle).
+
+### {section_number}.1 Inventory
+
+{inventory}
+
+### {section_number}.2 Pinned Artifact
+
+{artifact}
+
+The URL and license are pinned to Hugging Face revision `{revision}`. The dit checkpoint is a `mesh_model` but its `target_dir` overrides to `checkpoints` so `ImageOnlyCheckpointLoader` resolves it.
+
+### {section_number}.3 Workflow
+
+The API-ready example is `services/comfyui/workflows/hunyuan3d-2-image-to-glb-api.json`. It uses only ComfyUI-core native nodes — `ImageOnlyCheckpointLoader` → `CLIPVisionEncode` → `Hunyuan3Dv2Conditioning` → `KSampler` → `VAEDecodeHunyuan3D` → `VoxelToMeshBasic` → `SaveGLB` — so no custom node and no CUDA sparse kernels are required. The terminal `SaveGLB` writes a shape-only `.glb`. A marked `live` MPS smoke (opt-in, `ATLAS_COMFYUI_LIVE_ENDPOINT`) renders a real mesh and validates the GLB container; it is not part of generic CI.
+
+### {section_number}.4 License
+
+Model weights use the [{entry['license_name']}]({entry['license_url']}). Operators must review the authoritative license before deployment:
+
+{restriction_lines}
+"""
+
+
 def _litellm_capability_section(model: DocsModel, section_number: int) -> str:
     del model
     return f"""
@@ -253,6 +317,7 @@ Use `./start.sh` to configure this service through the wizard or pass the matchi
     if service.name == "comfyui":
         profile += _comfyui_krea2_section(model, 12)
         profile += _comfyui_managed_mps_section(model, 13)
+        profile += _comfyui_hunyuan3d_section(model, 14)
     if service.name == "litellm":
         profile += _litellm_capability_section(model, 12)
     return profile

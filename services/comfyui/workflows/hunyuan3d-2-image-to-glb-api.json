@@ -1,0 +1,76 @@
+{
+  "_comment": "Atlas example — ComfyUI-core NATIVE Hunyuan3D-2 single-image to 3D shape (GLB). Shape-only: geometry, no texture/PBR (that stage is CUDA-bound). Uses only ComfyUI-core nodes (no custom nodes) so it is MPS-runnable on Apple Silicon. Requires the 'hunyuan3d-2' catalog model (services/comfyui/models.yaml) staged to models/checkpoints/hunyuan3d-dit-v2.safetensors. Place an input image at models/../input/example.png (or edit node 2). POST as {\"prompt\": {...}} to /prompt.",
+  "prompt": {
+    "1": {
+      "class_type": "ImageOnlyCheckpointLoader",
+      "inputs": {
+        "ckpt_name": "hunyuan3d-dit-v2.safetensors"
+      }
+    },
+    "2": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "example.png"
+      }
+    },
+    "3": {
+      "class_type": "CLIPVisionEncode",
+      "inputs": {
+        "clip_vision": ["1", 1],
+        "image": ["2", 0],
+        "crop": "center"
+      }
+    },
+    "4": {
+      "class_type": "Hunyuan3Dv2Conditioning",
+      "inputs": {
+        "clip_vision_output": ["3", 0]
+      }
+    },
+    "5": {
+      "class_type": "EmptyLatentHunyuan3Dv2",
+      "inputs": {
+        "resolution": 3072,
+        "batch_size": 1
+      }
+    },
+    "6": {
+      "class_type": "KSampler",
+      "inputs": {
+        "seed": 338,
+        "steps": 50,
+        "cfg": 5.0,
+        "sampler_name": "euler",
+        "scheduler": "normal",
+        "denoise": 1.0,
+        "model": ["1", 0],
+        "positive": ["4", 0],
+        "negative": ["4", 1],
+        "latent_image": ["5", 0]
+      }
+    },
+    "7": {
+      "class_type": "VAEDecodeHunyuan3D",
+      "inputs": {
+        "samples": ["6", 0],
+        "vae": ["1", 2],
+        "num_chunks": 8000,
+        "octree_resolution": 256
+      }
+    },
+    "8": {
+      "class_type": "VoxelToMeshBasic",
+      "inputs": {
+        "voxel": ["7", 0],
+        "threshold": 0.6
+      }
+    },
+    "9": {
+      "class_type": "SaveGLB",
+      "inputs": {
+        "mesh": ["8", 0],
+        "filename_prefix": "mesh/Atlas_Hunyuan3D2_Shape"
+      }
+    }
+  }
+}
