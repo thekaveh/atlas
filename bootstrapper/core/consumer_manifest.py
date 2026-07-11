@@ -117,12 +117,72 @@ class LitellmModel:
 
 
 @dataclass(frozen=True)
-class LitellmArtifact:
-    """An Atlas-generated LiteLLM runtime artifact (path + content) written under
-    the gitignored ``volumes/litellm`` tree and regenerated every start."""
+class GeneratedArtifact:
+    """An Atlas-generated runtime artifact (path + content) written under the
+    gitignored ``volumes/`` tree and regenerated every start (LiteLLM config,
+    n8n seed plan, compose overlays, …)."""
 
     path: Path
     content: str
+
+
+# Back-compat alias: #411 introduced this as ``LitellmArtifact``; the type is
+# generic (any generated path+content artifact), so #412 reuses it under the
+# neutral name while keeping the original name importable.
+LitellmArtifact = GeneratedArtifact
+
+
+@dataclass(frozen=True)
+class N8nWebhookProbe:
+    """A declared production-webhook readiness probe for a seeded workflow (#412).
+
+    ``probe`` gates whether Atlas actually *calls* the endpoint — a GET/HEAD probe
+    is safe to issue, but a POST probe can trigger workflow side effects, so it is
+    opt-in (must be explicitly ``probe: true``). ``expect_status`` is the status
+    that means "webhook registered / ready".
+    """
+
+    path: str
+    method: str
+    expect_status: int
+    probe: bool
+
+
+@dataclass(frozen=True)
+class N8nWorkflow:
+    """One consumer-owned n8n workflow to seed (#412).
+
+    ``consumer`` is the manifest-derived owner (non-spoofable); ``id`` is a stable,
+    globally-unique workflow id used as the idempotency key for import/update — so
+    repeated startup never duplicates the workflow and a removed manifest drops
+    only its own workflows. ``source_path`` is the resolved workflow JSON on the
+    host; ``active`` is the activation policy (``fromJson`` | ``true`` | ``false``).
+    """
+
+    consumer: str
+    id: str
+    source_path: Path
+    active: str
+    checksum: str | None = None
+    version: str | None = None
+    webhooks: tuple[N8nWebhookProbe, ...] = ()
+
+    @property
+    def container_path(self) -> str:
+        """Deterministic mount path inside the Atlas-owned n8n-seed container."""
+        return f"/consumer-workflows/{self.id}.json"
+
+    @property
+    def seed_id(self) -> str:
+        """The namespaced id the workflow is imported under in n8n's DB.
+
+        The declared ``id`` is the manifest identity (globally unique across
+        consumers); the imported DB id is prefixed with the Atlas-reserved
+        ``atlas-consumer-`` namespace so an ``n8n import:workflow`` upsert can
+        never collide with — and silently overwrite — a hand-created or
+        stack-staged workflow whose id is unprefixed (e.g. ``research-simple``).
+        """
+        return f"{N8N_SEED_ID_NAMESPACE}{self.id}"
 
 
 @dataclass(frozen=True)
@@ -135,6 +195,7 @@ class ConsumerRecord:
     ollama_models: tuple[str, ...] = ()
     storage: tuple[StorageStore, ...] = ()
     litellm_models: tuple[LitellmModel, ...] = ()
+    n8n_workflows: tuple[N8nWorkflow, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -147,6 +208,11 @@ class ConsumerConfig:
     litellm_models: tuple[LitellmModel, ...] = ()
     litellm_models_file: LitellmArtifact | None = None
     litellm_overlay: LitellmArtifact | None = None
+    n8n_workflows: tuple[N8nWorkflow, ...] = ()
+    # Generated seed artifacts: the normalized per-workflow JSON files (id
+    # rewritten to the stable declared id) plus the plan.json the seed reads.
+    n8n_artifacts: tuple[GeneratedArtifact, ...] = ()
+    n8n_overlay: GeneratedArtifact | None = None
 
     @property
     def is_empty(self) -> bool:
@@ -879,6 +945,428 @@ def render_litellm_models_overlay(models: Iterable[LitellmModel]) -> str | None:
     return "\n".join(lines) + "\n"
 
 
+# ─── Consumer n8n workflow seeding contract (#412) ───────────────────
+#
+# A consumer declares n8n workflows to seed in a versioned ``n8n_workflows``
+# block. Atlas normalizes each workflow JSON to a stable, consumer-owned id (the
+# idempotency key), strips it of embedded credential material, compiles a seed
+# plan, and generates a compose overlay that runs an Atlas-owned ``n8n-seed``
+# container (the n8n image, sharing the n8n schema) which imports/updates each
+# workflow AFTER n8n is healthy — keyed by the stable id so repeated startup
+# never duplicates an active workflow and never touches another consumer's or a
+# user's workflow. Declared production webhooks can be probed for readiness
+# (opt-in; a POST probe requires explicit ``probe: true`` because it can trigger
+# side effects). All artifacts are regenerated every start, so removing a
+# manifest drops only that consumer's workflows.
+
+# Generated artifacts live under the gitignored volumes/ runtime tree.
+N8N_CONSUMER_WORKFLOWS_DIR = Path("volumes/n8n/consumer-workflows")
+N8N_CONSUMER_PLAN_PATH = N8N_CONSUMER_WORKFLOWS_DIR / "plan.json"
+N8N_CONSUMER_OVERLAY_PATH = Path("volumes/n8n/consumer-workflows.compose.yml")
+
+# Atlas-reserved id namespace for seeded workflows. Every imported workflow's DB
+# id is prefixed with this so an upsert can never collide with a user/stack
+# workflow — Atlas owns (and may reconcile/delete) exactly the ids under it.
+N8N_SEED_ID_NAMESPACE = "atlas-consumer-"
+
+# Top-level workflow fields stripped during normalization: they carry runtime
+# state / pinned execution payloads (a secret-leak carrier) and have no place in
+# a fresh seed template.
+_N8N_STRIPPED_FIELDS = ("staticData", "pinData")
+
+_N8N_ID_RE = __import__("re").compile(r"^[a-z0-9][a-z0-9._-]*$")
+_N8N_ACTIVE_POLICIES = frozenset({"fromJson", "true", "false"})
+_N8N_WEBHOOK_METHODS = frozenset({"GET", "HEAD", "POST"})
+_N8N_ALLOWED_WORKFLOW_KEYS = frozenset(
+    {"id", "path", "active", "checksum", "version", "required_webhooks", "owner"}
+)
+_N8N_ALLOWED_WEBHOOK_KEYS = frozenset({"path", "method", "expect_status", "probe"})
+
+
+def _parse_n8n_webhook(
+    raw: Any, *, workflow_id: str, origin: str
+) -> N8nWebhookProbe:
+    if not isinstance(raw, Mapping):
+        raise ConsumerManifestError(
+            f"n8n_workflows[{workflow_id!r}].required_webhooks entries must be "
+            f"mappings ({origin})"
+        )
+    unknown = {str(k) for k in raw.keys()} - _N8N_ALLOWED_WEBHOOK_KEYS
+    if unknown:
+        raise ConsumerManifestError(
+            f"n8n_workflows[{workflow_id!r}] webhook has unknown field(s) "
+            f"{sorted(unknown)}; allowed: {sorted(_N8N_ALLOWED_WEBHOOK_KEYS)} ({origin})"
+        )
+    path = str(raw.get("path") or "").strip()
+    if not path.startswith("/"):
+        raise ConsumerManifestError(
+            f"n8n_workflows[{workflow_id!r}] webhook path {path!r} must start with "
+            f"'/' ({origin})"
+        )
+    method = str(raw.get("method") or "GET").strip().upper()
+    if method not in _N8N_WEBHOOK_METHODS:
+        raise ConsumerManifestError(
+            f"n8n_workflows[{workflow_id!r}] webhook method {method!r} must be one of "
+            f"{sorted(_N8N_WEBHOOK_METHODS)} ({origin})"
+        )
+    raw_status = raw.get("expect_status", 200)
+    if isinstance(raw_status, bool) or not isinstance(raw_status, int):
+        raise ConsumerManifestError(
+            f"n8n_workflows[{workflow_id!r}] webhook expect_status must be an integer "
+            f"({origin})"
+        )
+    raw_probe = raw.get("probe", False)
+    if not isinstance(raw_probe, bool):
+        raise ConsumerManifestError(
+            f"n8n_workflows[{workflow_id!r}] webhook probe must be a boolean ({origin})"
+        )
+    # A POST probe can trigger workflow side effects, so it is opt-in: it is only
+    # actually issued when explicitly ``probe: true``. (Non-probe POST webhooks
+    # are still tracked for route-collision detection but never called.)
+    return N8nWebhookProbe(
+        path=path, method=method, expect_status=int(raw_status), probe=bool(raw_probe)
+    )
+
+
+def _parse_n8n_workflows_block(
+    data: Mapping[str, Any],
+    consumer_name: str,
+    base_dir: Path,
+    manifest_path: Path,
+) -> list[N8nWorkflow]:
+    """Parse + validate a manifest ``n8n_workflows:`` block into rows."""
+    raw_block = data.get("n8n_workflows")
+    if not raw_block:
+        return []
+    origin = str(manifest_path)
+    if not isinstance(raw_block, Mapping):
+        raise ConsumerManifestError(f"n8n_workflows must be a mapping in {manifest_path}")
+    version = raw_block.get("version")
+    if version != 1:
+        raise ConsumerManifestError(
+            f"n8n_workflows.version must be 1 (got {version!r}) in {manifest_path}"
+        )
+    raw_workflows = raw_block.get("workflows")
+    if not isinstance(raw_workflows, list) or not raw_workflows:
+        raise ConsumerManifestError(
+            f"n8n_workflows.workflows must be a non-empty list in {manifest_path}"
+        )
+
+    workflows: list[N8nWorkflow] = []
+    seen: set[str] = set()
+    for raw in raw_workflows:
+        if not isinstance(raw, Mapping):
+            raise ConsumerManifestError(
+                f"n8n_workflows.workflows entries must be mappings in {manifest_path}"
+            )
+        unknown = {str(k) for k in raw.keys()} - _N8N_ALLOWED_WORKFLOW_KEYS
+        if unknown:
+            raise ConsumerManifestError(
+                f"n8n_workflows entry has unknown field(s) {sorted(unknown)}; allowed: "
+                f"{sorted(_N8N_ALLOWED_WORKFLOW_KEYS)} ({origin})"
+            )
+        wid = str(raw.get("id") or "").strip()
+        if not wid:
+            raise ConsumerManifestError(
+                f"n8n_workflows entry requires a stable id in {manifest_path}"
+            )
+        if not _N8N_ID_RE.match(wid):
+            raise ConsumerManifestError(
+                f"n8n_workflows id {wid!r} must match [a-z0-9][a-z0-9._-]* ({origin})"
+            )
+        if wid in seen:
+            raise ConsumerManifestError(
+                f"duplicate n8n_workflows id {wid!r} for consumer {consumer_name!r} "
+                f"({origin})"
+            )
+        seen.add(wid)
+
+        # Ownership is derived from the manifest; an explicit owner may only
+        # RESTATE the consumer's own name, never claim another's.
+        owner = raw.get("owner")
+        if owner is not None and str(owner).strip() != consumer_name:
+            raise ConsumerManifestError(
+                f"n8n_workflows entry {wid!r} declares owner {str(owner)!r} but ownership "
+                f"is derived from the manifest ({consumer_name!r}) and cannot be spoofed "
+                f"({origin})"
+            )
+
+        raw_path = raw.get("path")
+        if raw_path is None:
+            raise ConsumerManifestError(
+                f"n8n_workflows entry {wid!r} requires a path ({origin})"
+            )
+        source_path = _resolve_existing_file(
+            base_dir, str(raw_path), label=f"n8n_workflows[{wid!r}].path"
+        )
+
+        active = str(raw.get("active") or "fromJson").strip()
+        if active not in _N8N_ACTIVE_POLICIES:
+            raise ConsumerManifestError(
+                f"n8n_workflows entry {wid!r} active {active!r} must be one of "
+                f"{sorted(_N8N_ACTIVE_POLICIES)} ({origin})"
+            )
+
+        checksum = raw.get("checksum")
+        if checksum is not None:
+            checksum = str(checksum).strip()
+            _validate_n8n_checksum(source_path, checksum, workflow_id=wid, origin=origin)
+
+        version_field = raw.get("version")
+        version_field = None if version_field is None else str(version_field)
+
+        webhooks = tuple(
+            _parse_n8n_webhook(w, workflow_id=wid, origin=origin)
+            for w in _as_list(raw.get("required_webhooks"))
+        )
+
+        # Load + validate the workflow JSON (parseable, mapping, credential-safe).
+        _load_and_check_workflow_json(source_path, workflow_id=wid, origin=origin)
+
+        workflows.append(
+            N8nWorkflow(
+                consumer=consumer_name,
+                id=wid,
+                source_path=source_path,
+                active=active,
+                checksum=checksum,
+                version=version_field,
+                webhooks=webhooks,
+            )
+        )
+    return workflows
+
+
+def _validate_n8n_checksum(
+    path: Path, checksum: str, *, workflow_id: str, origin: str
+) -> None:
+    """Verify an optional ``sha256:<hex>`` checksum against the workflow file."""
+    import hashlib
+
+    algo, _, expected = checksum.partition(":")
+    if algo.lower() != "sha256" or not expected:
+        raise ConsumerManifestError(
+            f"n8n_workflows[{workflow_id!r}] checksum must be 'sha256:<hex>' ({origin})"
+        )
+    actual = hashlib.sha256(path.read_bytes()).hexdigest()
+    if actual.lower() != expected.strip().lower():
+        raise ConsumerManifestError(
+            f"n8n_workflows[{workflow_id!r}] checksum mismatch for {path}: expected "
+            f"{expected}, got {actual} ({origin})"
+        )
+
+
+def _load_and_check_workflow_json(
+    path: Path, *, workflow_id: str, origin: str
+) -> dict[str, Any]:
+    """Load a workflow JSON and reject embedded credential material.
+
+    n8n stores credential *secrets* separately; a node references a credential by
+    a ``{id, name}`` mapping only. Anything else under a node's ``credentials`` —
+    a string/list value (a raw secret), or a mapping with keys beyond id/name (a
+    ``data`` payload) — means secret material was exported into the workflow,
+    which must never live in a seeded file or a generated log. Malformed JSON is
+    rejected here so a bad file surfaces at load, not at container runtime.
+
+    Note: ``staticData`` (runtime cursor/token state) and ``pinData`` (pinned
+    execution payloads, which routinely carry response bodies with tokens) are
+    the other secret carriers in an n8n export; they are *stripped* during
+    normalization (see ``compile_n8n_normalized_workflow``) rather than rejected,
+    since a fresh seed template has no business shipping either.
+    """
+    import json
+
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise ConsumerManifestError(
+            f"n8n_workflows[{workflow_id!r}] {path} is not valid JSON: {exc} ({origin})"
+        ) from exc
+    if not isinstance(doc, dict):
+        raise ConsumerManifestError(
+            f"n8n_workflows[{workflow_id!r}] {path} must be a JSON object ({origin})"
+        )
+    for node in doc.get("nodes", []) or []:
+        if not isinstance(node, Mapping):
+            continue
+        creds = node.get("credentials")
+        if not isinstance(creds, Mapping):
+            continue
+        for cred_type, cred_ref in creds.items():
+            # A credential reference MUST be a mapping of exactly {id, name}. A
+            # non-mapping value (string/list/number) is a raw inline secret; a
+            # mapping with extra keys is an embedded credential ``data`` payload.
+            if not isinstance(cred_ref, Mapping):
+                raise ConsumerManifestError(
+                    f"n8n_workflows[{workflow_id!r}] credential {cred_type!r} must be a "
+                    f"{{id, name}} reference, not an inline value; never embed secrets "
+                    f"({origin})"
+                )
+            extra = {str(k) for k in cred_ref.keys()} - {"id", "name"}
+            if extra:
+                raise ConsumerManifestError(
+                    f"n8n_workflows[{workflow_id!r}] embeds credential material "
+                    f"({cred_type}: {sorted(extra)}); reference credentials by "
+                    f"id/name only, never inline secrets ({origin})"
+                )
+    return doc
+
+
+def _validate_n8n_collisions(workflows: Iterable[N8nWorkflow]) -> None:
+    """Reject id collisions across consumers and duplicate webhook routes."""
+    owner: dict[str, str] = {}
+    route_owner: dict[str, str] = {}
+    for wf in workflows:
+        if wf.id in owner and owner[wf.id] != wf.consumer:
+            raise ConsumerManifestError(
+                f"n8n_workflows id {wf.id!r} declared by multiple consumers "
+                f"({owner[wf.id]} and {wf.consumer})"
+            )
+        if wf.id in owner:
+            raise ConsumerManifestError(
+                f"duplicate n8n_workflows id {wf.id!r} for consumer {wf.consumer!r}"
+            )
+        owner[wf.id] = wf.consumer
+        for probe in wf.webhooks:
+            key = f"{probe.method} {probe.path}"
+            if key in route_owner:
+                raise ConsumerManifestError(
+                    f"n8n_workflows webhook route {key!r} declared by two workflows "
+                    f"({route_owner[key]} and {wf.id})"
+                )
+            route_owner[key] = wf.id
+
+
+def compile_n8n_normalized_workflow(workflow: N8nWorkflow) -> str:
+    """Render the normalized workflow JSON the seed imports.
+
+    The top-level ``id`` is set to the Atlas-reserved namespaced ``seed_id`` (the
+    idempotency key that can't collide with a user/stack workflow), the
+    activation policy is baked in when it is not ``fromJson`` (so
+    ``n8n import:workflow`` upserts with the intended active state), and
+    runtime/pinned state fields that could carry secrets are stripped.
+    """
+    import json
+
+    doc = _load_and_check_workflow_json(
+        workflow.source_path, workflow_id=workflow.id, origin=str(workflow.source_path)
+    )
+    doc["id"] = workflow.seed_id
+    if workflow.active == "true":
+        doc["active"] = True
+    elif workflow.active == "false":
+        doc["active"] = False
+    # ``fromJson`` leaves the file's own ``active`` field untouched.
+    for stripped in _N8N_STRIPPED_FIELDS:
+        doc.pop(stripped, None)
+    return json.dumps(doc, indent=2, sort_keys=True) + "\n"
+
+
+def compile_n8n_plan(workflows: Iterable[N8nWorkflow]) -> str:
+    """Render the seed plan the n8n-seed container reads (deterministic)."""
+    import json
+
+    plan = {
+        "version": 1,
+        # The reserved id namespace the seed reconciles: any workflow in n8n
+        # under this prefix that is NOT in ``workflows`` below is an orphan from a
+        # since-removed manifest entry and is deactivated + deleted by the seed.
+        "namespace": N8N_SEED_ID_NAMESPACE,
+        "workflows": [
+            {
+                "id": wf.id,               # declared id (manifest identity, logs)
+                "seed_id": wf.seed_id,     # namespaced DB id (import/activate key)
+                "consumer": wf.consumer,
+                "file": wf.container_path,
+                "active": wf.active,
+                "webhooks": [
+                    {
+                        "path": p.path,
+                        "method": p.method,
+                        "expect_status": p.expect_status,
+                        "probe": p.probe,
+                    }
+                    for p in wf.webhooks
+                ],
+            }
+            for wf in workflows
+        ],
+    }
+    return json.dumps(plan, indent=2, sort_keys=True) + "\n"
+
+
+def compile_n8n_artifacts(
+    workflows: Iterable[N8nWorkflow], root: Path
+) -> list[GeneratedArtifact]:
+    """Build every generated seed file: one normalized workflow JSON per row plus
+    the plan.json the seed container reads."""
+    workflows = list(workflows)
+    artifacts: list[GeneratedArtifact] = []
+    for wf in workflows:
+        artifacts.append(
+            GeneratedArtifact(
+                path=root / N8N_CONSUMER_WORKFLOWS_DIR / f"{wf.id}.json",
+                content=compile_n8n_normalized_workflow(wf),
+            )
+        )
+    artifacts.append(
+        GeneratedArtifact(
+            path=root / N8N_CONSUMER_PLAN_PATH,
+            content=compile_n8n_plan(workflows),
+        )
+    )
+    return artifacts
+
+
+def render_n8n_seed_overlay(workflows: Iterable[N8nWorkflow]) -> str:
+    """Render the compose overlay that runs the Atlas-owned ``n8n-seed`` container.
+
+    The container uses the n8n image (so it has the ``n8n`` CLI + the n8n schema)
+    and imports the normalized workflows AFTER n8n is healthy. Bind-mount paths
+    are repo-root-relative because the overlay is merged via ``-f`` (project
+    directory = repo root), NOT the native ``include:`` directive.
+    """
+    workflows = list(workflows)
+    lines = [
+        "# AUTO-GENERATED by Atlas consumer n8n workflow contract (#412) — do not edit.",
+        "# Seeds consumer-declared workflows into n8n after it is healthy, keyed by",
+        "# a stable id (idempotent). Regenerated every start; a removed manifest",
+        "# drops only its own workflows.",
+        "services:",
+        "  n8n-seed:",
+        "    image: ${N8N_IMAGE}",
+        "    container_name: ${PROJECT_NAME}-n8n-seed",
+        '    restart: "no"',
+        "    depends_on:",
+        "      n8n:",
+        "        condition: service_healthy",
+        "    environment:",
+        "      DB_TYPE: postgresdb",
+        "      DB_POSTGRESDB_HOST: ${SUPAVISOR_DB_HOST:-supabase-db}",
+        "      DB_POSTGRESDB_PORT: ${SUPAVISOR_DB_PORT_VALUE:-5432}",
+        "      DB_POSTGRESDB_DATABASE: ${SUPABASE_DB_NAME}",
+        "      DB_POSTGRESDB_USER: ${SUPAVISOR_DB_USER:-${SUPABASE_DB_USER}}",
+        "      DB_POSTGRESDB_PASSWORD: ${SUPABASE_DB_PASSWORD}",
+        "      DB_POSTGRESDB_SCHEMA: n8n",
+        "      DB_SCHEMA: n8n",
+        "      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}",
+        "      # Public-API key (optional) — when set, the seed activates workflows",
+        "      # via the API so production webhooks register on the RUNNING n8n",
+        "      # without a restart. Empty → import-only; webhook registers next boot.",
+        "      N8N_API_KEY: ${N8N_API_KEY:-}",
+        "      # In-network base URL the seed uses for /healthz + webhook probes.",
+        "      N8N_SEED_BASE_URL: http://n8n:5678",
+        "      N8N_SEED_PLAN: /consumer-workflows/plan.json",
+        '    entrypoint: ["/bin/sh", "/scripts/seed-workflows.sh"]',
+        "    volumes:",
+        "      - ./services/n8n/init/scripts:/scripts:ro",
+        "      - ./volumes/n8n/consumer-workflows:/consumer-workflows:ro",
+        "    networks:",
+        "      - backend-network",
+    ]
+    return "\n".join(lines) + "\n"
+
+
 def load_consumer_config(
     root_dir: Path | str,
     *,
@@ -899,6 +1387,7 @@ def load_consumer_config(
     ollama_models: list[str] = []
     all_storage: list[StorageStore] = []
     all_litellm: list[LitellmModel] = []
+    all_n8n: list[N8nWorkflow] = []
 
     for manifest_path in manifest_paths:
         data = _load_manifest(manifest_path)
@@ -981,6 +1470,11 @@ def load_consumer_config(
         record_litellm = _parse_litellm_models_block(data, consumer_name, manifest_path)
         all_litellm.extend(record_litellm)
 
+        record_n8n = _parse_n8n_workflows_block(
+            data, consumer_name, base_dir, manifest_path
+        )
+        all_n8n.extend(record_n8n)
+
         consumers.append(
             ConsumerRecord(
                 name=consumer_name,
@@ -991,6 +1485,7 @@ def load_consumer_config(
                 ollama_models=tuple(_ordered_union(record_ollama)),
                 storage=tuple(record_storage),
                 litellm_models=tuple(record_litellm),
+                n8n_workflows=tuple(record_n8n),
             )
         )
 
@@ -1033,6 +1528,17 @@ def load_consumer_config(
                 content=overlay_content,
             )
 
+    n8n_artifacts: tuple[GeneratedArtifact, ...] = ()
+    n8n_overlay: GeneratedArtifact | None = None
+    if all_n8n:
+        # Workflow ids are globally unique + webhook routes non-colliding.
+        _validate_n8n_collisions(all_n8n)
+        n8n_artifacts = tuple(compile_n8n_artifacts(all_n8n, root))
+        n8n_overlay = GeneratedArtifact(
+            path=root / N8N_CONSUMER_OVERLAY_PATH,
+            content=render_n8n_seed_overlay(all_n8n),
+        )
+
     return ConsumerConfig(
         consumers=tuple(consumers),
         env_overrides=env_overrides,
@@ -1042,4 +1548,7 @@ def load_consumer_config(
         litellm_models=tuple(all_litellm),
         litellm_models_file=litellm_models_file,
         litellm_overlay=litellm_overlay,
+        n8n_workflows=tuple(all_n8n),
+        n8n_artifacts=n8n_artifacts,
+        n8n_overlay=n8n_overlay,
     )

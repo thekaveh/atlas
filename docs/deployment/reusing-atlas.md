@@ -203,6 +203,12 @@ litellm_models:                       # expose plugin routes as LiteLLM models (
     - name: graph-rag
       api_base: "${ATLAS_BACKEND_INTERNAL}/graph-rag/v1"
       api_key_var: RAG_SHOWCASE_API_KEY
+n8n_workflows:                        # seed + activate n8n workflows (§6.3.3)
+  version: 1
+  workflows:
+    - id: adaptive-rag
+      path: ./n8n/adaptive-rag.workflow.json
+      active: "true"
 ```
 
 Atlas validates the declared paths before Compose runs, merges manifest env
@@ -532,6 +538,40 @@ Because LiteLLM's config is regenerated from YAML + env on every start, Atlas **
 - **Preflight cross-check.** [`./start.sh doctor`](#615-consumer-doctor-for-ci-preflight) validates the block and cross-checks each backend-hosted model's first route segment against the declared `plugin.yml` `route_prefix`es (§6.3.1) — a model pointing at a route no plugin serves surfaces as an advisory warning rather than a dead `/v1/models` entry.
 
 This is exactly how a RAG-showcase-style consumer retires a bespoke `register_models.py`: declare the approaches and flavor aliases in the manifest and let Atlas own the LiteLLM wiring.
+
+#### 6.3.3 Seeding n8n workflows with `n8n_workflows`
+
+A consumer that ships n8n workflows (e.g. an adaptive-RAG webhook flow) can have Atlas **import, activate, and readiness-check** them instead of hand-writing an import/restart/poll script. Declare a versioned `n8n_workflows` block in `atlas.consumer.yml`:
+
+```yaml
+# atlas.consumer.yml
+name: rag-showcase
+n8n_workflows:
+  version: 1
+  workflows:
+    - id: adaptive-rag                        # stable, consumer-scoped idempotency key
+      path: ./n8n/adaptive-rag.workflow.json  # resolved relative to the manifest
+      active: "true"                          # fromJson | "true" | "false"
+      checksum: "sha256:…"                    # optional integrity pin
+      required_webhooks:
+        - path: /webhook/adaptive-rag
+          method: GET
+          expect_status: 200
+          probe: true                         # GET/HEAD probes are safe; POST needs explicit probe: true
+```
+
+On `./start.sh`, the bootstrapper normalizes each workflow JSON to an **Atlas-namespaced id** `atlas-consumer-<id>` (baking in the activation policy and stripping the runtime-state carriers `staticData`/`pinData`), writes the gitignored `volumes/n8n/consumer-workflows/` + a `plan.json`, and generates a compose overlay that runs an Atlas-owned **`n8n-seed`** container (the n8n image, sharing the n8n schema). After n8n is healthy, the seed imports each workflow with `n8n import:workflow` — **keyed by the namespaced `atlas-consumer-<id>`, so re-running startup updates the workflow in place and never creates a duplicate active workflow**. (The seeder uses **node**, not `wget`, for its API calls: the n8n image is Alpine/BusyBox and its `wget` has no `--method`.)
+
+**What the contract enforces:**
+
+- **Stable, owned, unique ids — auto-namespaced.** `id` is the idempotency key; it is globally unique across consumers and ownership is manifest-derived (a spoofed `owner:` is rejected). The declared `id` is the identity you see in logs, but the **imported DB id is the reserved `atlas-consumer-<id>`** — Atlas owns that id namespace, so a seeded workflow **can never overwrite a workflow an operator built by hand in the UI** (or a stack workflow) even if the ids look the same; you no longer have to hand-namespace to stay clear of user workflows. A removed manifest — or a removed single workflow — drops **only** its own generated artifacts on the next start, and (when `N8N_API_KEY` is set) the seed **reconciles**: any `atlas-consumer-*` workflow no longer declared is deactivated + deleted so a since-removed entry doesn't orphan a live webhook. Another consumer's or a user's workflows are never touched.
+- **Credentials never in the workflow JSON.** A node may reference a credential by a `{id, name}` mapping only; a raw string/list value (an inline secret) or a mapping with extra keys (an embedded credential `data` payload) is **rejected at load**, as are the runtime-state carriers `staticData`/`pinData` (stripped during normalization). The generated `plan.json` and overlay carry only ids/paths/statuses — never the workflow body — and the seed logs never print workflow content.
+- **Validated up front.** Malformed JSON, a missing file, an `active`/`version` outside the allowed set, a checksum mismatch, and duplicate webhook routes are all rejected at load; [`./start.sh doctor`](#615-consumer-doctor-for-ci-preflight) re-checks the files and warns when an **effectively-active** workflow (respecting `fromJson`) declares webhooks but `N8N_API_KEY` is unset.
+- **Webhook readiness (opt-in).** Declared webhooks are probed for readiness after import. A `GET`/`HEAD` probe is safe to issue; a **`POST` probe is opt-in** (`probe: true`) because it can trigger workflow side effects — a POST webhook without it is tracked for route-collision detection but never called.
+- **Activation without a restart, when possible.** When `N8N_API_KEY` is set, the seed activates each workflow through the n8n public API (checking the HTTP status and warning on a non-2xx) so its production webhook registers on the **running** instance. Without a key the workflow is still imported and its active state persisted; the production webhook then registers on the next n8n restart (the doctor surfaces this).
+- **Best-effort, never aborts launch.** A per-workflow import/activation failure is logged and isolated — the `n8n-seed` container always exits 0 — so one bad consumer workflow can't fail a `docker compose up --wait`.
+
+Downstream payoff: `rag-showcase` deletes its `import:workflow` + activate + restart + `/healthz`-poll sequence from `scripts/start-all.sh` and declares the workflow in the manifest.
 
 ### 6.4 Consuming auto-managed endpoint variables
 

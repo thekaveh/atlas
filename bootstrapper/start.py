@@ -1483,7 +1483,12 @@ class AtlasStarter:
         # consumer-models.yaml (merged by litellm-init) + the api-key overlay,
         # or remove them when no consumer declares litellm_models. Same call
         # site so both the linear and TUI/launch flows are covered.
-        return self._finalize_consumer_litellm_models()
+        if not self._finalize_consumer_litellm_models():
+            return False
+        # Finalize consumer n8n workflow seeding (#412): write the normalized
+        # workflow JSONs + plan + seed overlay, or remove stale artifacts when no
+        # consumer declares n8n_workflows.
+        return self._finalize_consumer_n8n_workflows()
 
     def _finalize_consumer_storage(self) -> bool:
         """Provision manifest-declared object stores (#404): generate scoped
@@ -1607,6 +1612,65 @@ class AtlasStarter:
         owners = sorted({model.consumer for model in config.litellm_models})
         self.banner.show_status_message(
             f"  • Merged {len(config.litellm_models)} consumer LiteLLM model(s) "
+            f"from {', '.join(owners)}",
+            "info",
+        )
+        return True
+
+    def _finalize_consumer_n8n_workflows(self) -> bool:
+        """Materialize consumer-owned n8n workflow seeding (#412): write the
+        normalized workflow JSONs + plan.json into the gitignored seed dir and the
+        seed compose overlay, or remove any stale generated artifacts when no
+        consumer declares n8n_workflows. Idempotent; a removed manifest (or a
+        removed single workflow) drops exactly its own artifacts on the next start.
+        """
+        from core.consumer_manifest import (
+            N8N_CONSUMER_OVERLAY_PATH,
+            N8N_CONSUMER_WORKFLOWS_DIR,
+        )
+
+        try:
+            config = self.config_parser.load_consumer_config()
+        except Exception as exc:  # ConsumerManifestError etc. — surface + fail
+            self.banner.show_status_message(
+                f"Consumer n8n workflow manifest error: {exc}", "error"
+            )
+            return False
+
+        seed_dir = self.root_dir / N8N_CONSUMER_WORKFLOWS_DIR
+        overlay_path = self.root_dir / N8N_CONSUMER_OVERLAY_PATH
+
+        # No consumer declares n8n_workflows → remove any stale generated
+        # artifacts so a warm restart doesn't re-seed removed workflows.
+        if not config.n8n_workflows:
+            if seed_dir.exists():
+                for stale in seed_dir.glob("*.json"):
+                    stale.unlink()
+            if overlay_path.exists():
+                overlay_path.unlink()
+            return True
+
+        seed_dir.mkdir(parents=True, exist_ok=True)
+        # Drop stale *.json (workflows removed since the last start) before
+        # writing the current set — otherwise a removed workflow's file lingers
+        # and the seed would re-import it.
+        current_files = {artifact.path.name for artifact in config.n8n_artifacts}
+        for stale in seed_dir.glob("*.json"):
+            if stale.name not in current_files:
+                stale.unlink()
+        for artifact in config.n8n_artifacts:
+            artifact.path.parent.mkdir(parents=True, exist_ok=True)
+            artifact.path.write_text(artifact.content, encoding="utf-8")
+
+        if config.n8n_overlay is not None:
+            config.n8n_overlay.path.parent.mkdir(parents=True, exist_ok=True)
+            config.n8n_overlay.path.write_text(
+                config.n8n_overlay.content, encoding="utf-8"
+            )
+
+        owners = sorted({wf.consumer for wf in config.n8n_workflows})
+        self.banner.show_status_message(
+            f"  • Seeding {len(config.n8n_workflows)} consumer n8n workflow(s) "
             f"from {', '.join(owners)}",
             "info",
         )
@@ -2979,6 +3043,85 @@ def _doctor_check_litellm_models(starter: "AtlasStarter") -> dict:
     )
 
 
+def _doctor_check_n8n_workflows(starter: "AtlasStarter") -> dict:
+    """Validate consumer-declared n8n workflows to seed (#412).
+
+    Load-time already validated the files (JSON parseable, credential-safe,
+    checksum, stable/unique id, non-colliding webhook routes); a parse failure
+    surfaces as a fail here. This check re-confirms each source file still exists
+    and adds an operational signal: an active workflow with declared webhooks but
+    no ``N8N_API_KEY`` will only register its production webhook after an n8n
+    restart (the seed can't activate it live without a key). Secrets never appear.
+    """
+    try:
+        config = starter.config_parser.load_consumer_config()
+    except ValueError as exc:
+        return _doctor_result(
+            "n8n-workflows",
+            "fail",
+            f"Consumer n8n workflow validation failed: {exc}",
+        )
+    if not config.n8n_workflows:
+        return _doctor_result(
+            "n8n-workflows",
+            "pass",
+            "No consumer n8n workflows declared.",
+        )
+
+    warnings: list[str] = []
+    for wf in config.n8n_workflows:
+        if not wf.source_path.is_file():
+            warnings.append(
+                f"workflow {wf.id!r} (owner {wf.consumer}) source file is missing: "
+                f"{wf.source_path}"
+            )
+
+    def _effective_active(wf) -> bool:
+        # Resolve the actual imported-active state so the warning only fires for
+        # workflows that will really be active. ``fromJson`` defers to the file's
+        # own ``active`` flag, so a fromJson workflow whose file is inactive is
+        # NOT a live-activation case and must not trigger the no-key warning.
+        if wf.active == "true":
+            return True
+        if wf.active == "false":
+            return False
+        try:
+            return bool(json.loads(wf.source_path.read_text(encoding="utf-8")).get("active"))
+        except (OSError, ValueError):
+            return False
+
+    env_values = starter.config_parser.parse_env_file()
+    has_api_key = bool(env_values.get("N8N_API_KEY", "").strip())
+    if not has_api_key:
+        needs_live = [
+            wf.id
+            for wf in config.n8n_workflows
+            if wf.webhooks and _effective_active(wf)
+        ]
+        if needs_live:
+            warnings.append(
+                "N8N_API_KEY is unset — active workflows with declared webhooks "
+                f"({', '.join(needs_live)}) register their production webhook only "
+                "after an n8n restart (the seed cannot activate them live)."
+            )
+
+    ids = [wf.id for wf in config.n8n_workflows]
+    owners = sorted({wf.consumer for wf in config.n8n_workflows})
+    if warnings:
+        return _doctor_result(
+            "n8n-workflows",
+            "warn",
+            warnings[0],
+            details={"warnings": warnings, "workflows": ids, "owners": owners},
+        )
+    return _doctor_result(
+        "n8n-workflows",
+        "pass",
+        f"{len(ids)} consumer n8n workflow(s) valid: {', '.join(ids)}.",
+        details={"workflows": ids, "owners": owners},
+    )
+
+
 def _doctor_check_endpoints(starter: "AtlasStarter") -> dict:
     env_values = starter.config_parser.parse_env_file()
     endpoints = {
@@ -3051,6 +3194,7 @@ DOCTOR_CHECKS = [
     _doctor_check_plugin_manifests,
     _doctor_check_model_sidecars,
     _doctor_check_litellm_models,
+    _doctor_check_n8n_workflows,
     _doctor_check_endpoints,
     _doctor_check_submodule_clean,
 ]
