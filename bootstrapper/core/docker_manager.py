@@ -171,14 +171,17 @@ class DockerManager:
         from core.consumer_manifest import (
             LITELLM_CONSUMER_OVERLAY_PATH,
             MINIO_STORAGE_OVERLAY_PATH,
+            N8N_CONSUMER_OVERLAY_PATH,
         )
         storage_overlay = self.root_dir / MINIO_STORAGE_OVERLAY_PATH
         litellm_overlay = self.root_dir / LITELLM_CONSUMER_OVERLAY_PATH
+        n8n_overlay = self.root_dir / N8N_CONSUMER_OVERLAY_PATH
         if (
             not overlays
             and not consumer_overlays
             and not storage_overlay.exists()
             and not litellm_overlay.exists()
+            and not n8n_overlay.exists()
         ):
             return []
         file_args: List[str] = ['-f', 'docker-compose.yml']
@@ -190,6 +193,8 @@ class DockerManager:
             file_args.extend(['-f', str(storage_overlay.relative_to(self.root_dir))])
         if litellm_overlay.exists():
             file_args.extend(['-f', str(litellm_overlay.relative_to(self.root_dir))])
+        if n8n_overlay.exists():
+            file_args.extend(['-f', str(n8n_overlay.relative_to(self.root_dir))])
         return file_args
 
     def execute_compose_command(

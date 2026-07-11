@@ -63,6 +63,10 @@ def _discover_shell_init_scripts() -> list[Path]:
     return sorted(REPO_ROOT.glob("services/*/**/scripts/*.sh"))
 
 
+def _discover_node_init_scripts() -> list[Path]:
+    return sorted(REPO_ROOT.glob("services/*/**/scripts/*.js"))
+
+
 @pytest.mark.parametrize(
     "script_path",
     _discover_init_scripts(),
@@ -108,6 +112,32 @@ def test_shell_init_script_parses(script_path: Path) -> None:
         pytest.skip("bash not on PATH")
     result = subprocess.run(
         [bash, "-n", str(script_path)],
+        capture_output=True, text=True, check=False, timeout=10,
+        encoding="utf-8", errors="replace",
+    )
+    assert result.returncode == 0, (
+        f"{script_path.relative_to(REPO_ROOT)} does not parse:\n"
+        f"{result.stderr}"
+    )
+
+
+@pytest.mark.parametrize(
+    "script_path",
+    _discover_node_init_scripts(),
+    ids=lambda p: str(p.relative_to(REPO_ROOT)),
+)
+def test_node_init_script_parses(script_path: Path) -> None:
+    """Every `.js` init script (e.g. the n8n consumer-workflow seeder, which
+    must use node for HTTP because the n8n image's BusyBox wget has no
+    `--method`) must pass `node --check` (parse-only, no execution).
+    Skipped if `node` is not on PATH (it always is in the n8n image; the
+    bootstrapper test venv may lack it).
+    """
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node not on PATH")
+    result = subprocess.run(
+        [node, "--check", str(script_path)],
         capture_output=True, text=True, check=False, timeout=10,
         encoding="utf-8", errors="replace",
     )
