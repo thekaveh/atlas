@@ -147,6 +147,86 @@ def test_doctor_accepts_common_plugin_requirement_markers(tmp_path, monkeypatch)
     assert checks["plugins"]["details"]["requirement_entries"] == 1
 
 
+def _write_plugin(plugins_dir: Path, dirname: str, manifest_body: str) -> None:
+    pkg = plugins_dir / dirname
+    pkg.mkdir(parents=True)
+    (pkg / "__init__.py").write_text("router = None\n", encoding="utf-8")
+    (pkg / "plugin.yml").write_text(manifest_body, encoding="utf-8")
+
+
+def test_doctor_plugin_manifests_pass_when_valid(tmp_path, monkeypatch) -> None:
+    import start as start_module
+
+    plugins_dir = tmp_path / "plugins"
+    plugins_dir.mkdir()
+    _write_plugin(
+        plugins_dir, "tableau",
+        "plugin_manifest_version: 1\nname: tableau\nroute_prefix: /tableau\nauth: key-auth\n",
+    )
+    _write_base_env(tmp_path, extra=f"BACKEND_PLUGINS_DIR={plugins_dir}\n")
+    _patch_starter_paths(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        start_module.DockerManager,
+        "validate_compose_config",
+        lambda self: (0, "", "", ["docker", "compose", "config", "-q"]),
+    )
+
+    result = CliRunner().invoke(start_module.main, ["doctor", "--format", "json"])
+    assert result.exit_code == 0, result.output
+    checks = {entry["id"]: entry for entry in json.loads(result.output)["checks"]}
+    assert checks["plugin-manifests"]["status"] == "pass"
+    assert "tableau" in checks["plugin-manifests"]["details"]["plugins"]
+
+
+def test_doctor_plugin_manifests_warns_on_missing_required_env(tmp_path, monkeypatch) -> None:
+    import start as start_module
+
+    plugins_dir = tmp_path / "plugins"
+    plugins_dir.mkdir()
+    _write_plugin(
+        plugins_dir, "tableau",
+        "plugin_manifest_version: 1\nname: tableau\nroute_prefix: /tableau\n"
+        "env:\n  - name: LITELLM_MASTER_KEY\n    required: true\n    secret: true\n",
+    )
+    _write_base_env(tmp_path, extra=f"BACKEND_PLUGINS_DIR={plugins_dir}\n")
+    _patch_starter_paths(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        start_module.DockerManager,
+        "validate_compose_config",
+        lambda self: (0, "", "", ["docker", "compose", "config", "-q"]),
+    )
+
+    result = CliRunner().invoke(start_module.main, ["doctor", "--format", "json"])
+    # warn does not fail the doctor (a missing plugin env is advisory)
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    checks = {entry["id"]: entry for entry in payload["checks"]}
+    assert checks["plugin-manifests"]["status"] == "warn"
+    warnings = " ".join(checks["plugin-manifests"]["details"]["warnings"])
+    assert "LITELLM_MASTER_KEY" in warnings and "required" in warnings
+    assert payload["ok"] is True
+
+
+def test_doctor_plugin_manifests_reports_malformed(tmp_path, monkeypatch) -> None:
+    import start as start_module
+
+    plugins_dir = tmp_path / "plugins"
+    plugins_dir.mkdir()
+    _write_plugin(plugins_dir, "broken", "plugin_manifest_version: 2\nname: broken\nroute_prefix: /broken\n")
+    _write_base_env(tmp_path, extra=f"BACKEND_PLUGINS_DIR={plugins_dir}\n")
+    _patch_starter_paths(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        start_module.DockerManager,
+        "validate_compose_config",
+        lambda self: (0, "", "", ["docker", "compose", "config", "-q"]),
+    )
+
+    result = CliRunner().invoke(start_module.main, ["doctor", "--format", "json"])
+    checks = {entry["id"]: entry for entry in json.loads(result.output)["checks"]}
+    assert checks["plugin-manifests"]["status"] == "warn"
+    assert "invalid plugin.yml" in " ".join(checks["plugin-manifests"]["details"]["warnings"])
+
+
 def test_consumer_doctor_docs_are_published_on_all_surfaces() -> None:
     reusing = REUSING_ATLAS.read_text(encoding="utf-8")
     assert "./start.sh doctor" in reusing

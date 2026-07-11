@@ -196,12 +196,31 @@ app.include_router(ray_router)
 # Generic downstream extension seam — no-op unless a consumer mounts
 # $BACKEND_PLUGINS_DIR with plugin packages. See plugin_seam.py.
 from plugin_seam import load_plugins  # noqa: E402
-load_plugins(app)
+# Inventory of mounted plugins (name, route prefix, health/docs, auth, env
+# summary with secrets masked, load status). Populated at startup; served by
+# GET /plugins so operators can see what is mounted and what env it declares.
+PLUGIN_INVENTORY: List[Dict[str, Any]] = load_plugins(app)
 
 
 class HealthResponse(BaseModel):
     status: str
     version: str
+
+
+class PluginInventoryResponse(BaseModel):
+    plugins: List[Dict[str, Any]]
+
+
+@app.get("/plugins", response_model=PluginInventoryResponse, tags=["plugins"])
+async def list_plugins() -> PluginInventoryResponse:
+    """Inventory of mounted backend plugins (#402).
+
+    Lists each discovered plugin's name, route prefix, health/docs metadata,
+    per-plugin auth policy, declared env (secret values masked as ``***``), and
+    load status (``loaded`` / ``skipped`` / ``error``). Manifest-less plugins
+    appear with ``manifest: false`` and minimal metadata.
+    """
+    return PluginInventoryResponse(plugins=PLUGIN_INVENTORY)
 
 
 class AsyncJobQueuedResponse(BaseModel):

@@ -442,6 +442,56 @@ def health():
 
 Your routes are then served by the same backend — reachable at `backend:8000` in-network, or via Kong at `api.localhost/...`. This is the recommended way to add backend endpoints (e.g. a `/rag` surface) for a downstream showcase without maintaining a fork. See [`services/backend/README.md` §4](https://github.com/thekaveh/atlas/blob/main/services/backend/README.md) for the backend-side description.
 
+#### 6.3.1 Declaring a typed plugin contract with `plugin.yml`
+
+A plugin package MAY ship an optional **`plugin.yml`** next to its `__init__.py`. Absent → the plugin loads exactly as above (fully backward compatible). Present → it declares a **versioned, typed, validated contract** so operators can *see* what is mounted and what env it needs, a missing/typo'd var surfaces as a startup **diagnostic** instead of a runtime 500, and per-plugin Kong auth has a place to live:
+
+```yaml
+# my-plugins/tableau/plugin.yml
+plugin_manifest_version: 1
+name: tableau                       # unique, kebab-case
+route_prefix: /tableau             # must not overlap another plugin or a built-in route
+health_path: /tableau/health
+docs_url: https://github.com/thekaveh/tableau
+auth: key-auth                     # inherit | open | key-auth
+env:
+  - name: TABLEAU_EXECUTION
+    type: enum
+    values: [fake, comfyui]
+    default: comfyui
+  - name: LITELLM_MASTER_KEY
+    required: true                 # missing → startup + doctor warning
+    secret: true                   # masked everywhere (inventory, doctor, logs)
+```
+
+A RAG-shaped plugin declares its dependency endpoints and role/model/flavor files the same way:
+
+```yaml
+# backend_plugins/rag/plugin.yml
+plugin_manifest_version: 1
+name: rag
+route_prefix: /rag
+health_path: /rag/health
+auth: inherit
+depends_on: [litellm, weaviate, lightrag, n8n]
+env:
+  - name: RAG_ROLES_FILE
+    required: true
+  - name: RAG_MODELS_FILE
+    required: true
+  - name: RAG_FLAVORS_FILE
+    required: true
+```
+
+**What the contract buys you:**
+
+- **Inventory.** `GET /plugins` on the backend lists every mounted plugin — name, route prefix, health/docs, auth policy, declared env (secret values masked as `***`), and load status (`loaded` / `skipped` / `error`). Secret *values* are never exposed, but env-var names/flags are; `/plugins` is served under the backend route, so it inherits `BACKEND_KONG_AUTH` (open in local-dev default, gated once you set `key-auth`).
+- **Startup + preflight validation.** The seam validates declared env at boot, and [`./start.sh doctor`](#615-consumer-doctor-for-ci-preflight) re-validates it before launch: required-but-missing and enum/type mismatches are reported by plugin + var name. Secret values are never echoed.
+- **Fail-fast, isolated.** A present-but-malformed `plugin.yml` does **not** degrade to manifest-less loading — that one plugin is **skipped** with a structured error and the others stay healthy. Duplicate plugin names, overlapping prefixes, and prefixes that shadow a built-in backend route (`api`, `comfyui`, `documents`, `health`, `jobs`, `media`, `memory`, `plugins`, `research`, `storage`, `workflows`) are rejected before mounting.
+- **Per-plugin Kong auth.** `auth: key-auth` puts Kong key-auth on that plugin's `route_prefix`; `auth: open` opts a prefix out even when the backend default (`BACKEND_KONG_AUTH`) is `key-auth`; `auth: inherit` follows the default. Atlas composes these into route-level Kong policies so an `open` prefix is not weakened by a `key-auth` default and vice versa (base Atlas, with no plugins, emits the historical single backend route unchanged). Per-prefix `key-auth` reuses the `BACKEND_KONG_API_KEY` credential; distinct per-prefix credentials remain a future extension.
+
+The `plugin_manifest_version` is a hard-pinned contract version — a manifest built for a version this backend does not understand is skipped rather than mis-read. The canonical schema is [`bootstrapper/schemas/plugin.schema.json`](https://github.com/thekaveh/atlas/blob/main/bootstrapper/schemas/plugin.schema.json).
+
 ### 6.4 Consuming auto-managed endpoint variables
 
 Atlas's bootstrapper computes a set of **auto-managed endpoint variables** in `.env` that resolve to the correct internal URL for whichever `*_SOURCE` mode is active. Downstream consumers (whether Method A standalone or Method B submodule) should bridge these into their own service variables rather than hard-coding a URL.

@@ -41,7 +41,12 @@ class KongConfigGenerator:
         """
         self.config_parser = config_parser
         self.env_vars = {}
-        
+        # Per-plugin Kong auth overrides derived from plugin.yml manifests (#402):
+        # an ordered list of (route_prefix, mode) where mode is 'open' or
+        # 'key-auth'. Empty (the default and the base-Atlas case) → the backend
+        # route is emitted exactly as before, so there is no drift.
+        self.plugin_route_auth: list[tuple[str, str]] = []
+
     def load_environment_variables(self):
         """Load current environment variables from .env file."""
         self.env_vars = self.config_parser.parse_env_file()
@@ -165,7 +170,7 @@ class KongConfigGenerator:
             }
         ]
 
-        if self._backend_kong_auth_mode() == 'key-auth':
+        if self._backend_uses_key_auth():
             backend_api_key = self.get_env_value('BACKEND_KONG_API_KEY', '')
             if not backend_api_key:
                 raise ValueError(
@@ -1555,38 +1560,111 @@ class KongConfigGenerator:
 
         return services
     
+    def _backend_auth_plugins(self, mode: str) -> List[Dict[str, Any]]:
+        """Kong auth plugin stack for a backend route in the given auth mode.
+
+        ``key-auth`` → [key-auth, acl(backend_api)] (requires BACKEND_KONG_API_KEY).
+        ``disabled`` / ``open`` → [] (no auth). ``cors`` lives at the service
+        level so it applies to every route regardless of auth composition.
+        """
+        if mode != 'key-auth':
+            return []
+        if not self.get_env_value('BACKEND_KONG_API_KEY', ''):
+            raise ValueError(
+                "BACKEND_KONG_AUTH=key-auth requires BACKEND_KONG_API_KEY"
+            )
+        return [
+            {'name': 'key-auth', 'config': {'key_names': ['apikey']}},
+            {'name': 'acl', 'config': {'allow': ['backend_api']}},
+        ]
+
+    def _backend_uses_key_auth(self) -> bool:
+        """True when the base default OR any per-plugin override is key-auth
+        (so a consumer/credential must be materialized)."""
+        if self._backend_kong_auth_mode() == 'key-auth':
+            return True
+        return any(mode == 'key-auth' for _prefix, mode in self.plugin_route_auth)
+
     def generate_backend_service(self) -> Optional[Dict[str, Any]]:
-        """Generate Backend API service configuration based on SOURCE."""
+        """Generate Backend API service configuration based on SOURCE.
+
+        With no per-plugin auth overrides (the base-Atlas case) this emits the
+        historical single ``backend-api-all`` route with a service-level plugin
+        stack — byte-identical to before. When plugin.yml manifests declare
+        per-prefix auth (#402), the route is split: one route per overridden
+        prefix carries its own auth stack, and the catch-all keeps the backend
+        default (``BACKEND_KONG_AUTH``). Auth plugins move to the route level so
+        an ``open`` prefix is not weakened by a ``key-auth`` default and vice
+        versa; ``cors`` stays at the service level (applies to all routes).
+        """
         source = self.get_env_value('BACKEND_SOURCE')
-        
+
         if source == 'disabled':
             return None
 
-        plugins = [{'name': 'cors'}]
-        if self._backend_kong_auth_mode() == 'key-auth':
-            if not self.get_env_value('BACKEND_KONG_API_KEY', ''):
-                raise ValueError(
-                    "BACKEND_KONG_AUTH=key-auth requires BACKEND_KONG_API_KEY"
-                )
-            plugins.extend(
-                [
-                    {'name': 'key-auth', 'config': {'key_names': ['apikey']}},
-                    {'name': 'acl', 'config': {'allow': ['backend_api']}},
-                ]
-            )
+        base_mode = self._backend_kong_auth_mode()
 
+        # Backward-compatible fast path: no per-plugin overrides → the exact
+        # historical shape (auth at service level, single catch-all route).
+        if not self.plugin_route_auth:
+            plugins = [{'name': 'cors'}]
+            plugins.extend(self._backend_auth_plugins(base_mode))
+            return {
+                'name': 'backend-api',
+                'url': 'http://backend:8000/',
+                'routes': [
+                    {
+                        'name': 'backend-api-all',
+                        'strip_path': False,
+                        'hosts': ['api.localhost']
+                    }
+                ],
+                'plugins': plugins
+            }
+
+        # Route-level composition. Each path-bearing prefix route outranks the
+        # host-only catch-all in Kong's router (a route with a `paths` match is
+        # more specific than one matching host alone), so prefix requests hit
+        # their own auth stack and everything else falls through to the default.
+        # Route names are de-duplicated because distinct prefixes can slugify to
+        # the same name (e.g. /a/b and /a-b) and Kong rejects duplicate route
+        # names for the WHOLE declarative config (#402 review H1).
+        routes: List[Dict[str, Any]] = []
+        used_names: set[str] = set()
+        for prefix, mode in self.plugin_route_auth:
+            base = f'backend-api-{self._route_slug(prefix)}'
+            name = base
+            suffix = 2
+            while name in used_names:
+                name = f'{base}-{suffix}'
+                suffix += 1
+            used_names.add(name)
+            routes.append({
+                'name': name,
+                'strip_path': False,
+                'hosts': ['api.localhost'],
+                'paths': [prefix],
+                'plugins': self._backend_auth_plugins(mode),
+            })
+        routes.append({
+            'name': 'backend-api-all',
+            'strip_path': False,
+            'hosts': ['api.localhost'],
+            'plugins': self._backend_auth_plugins(base_mode),
+        })
         return {
             'name': 'backend-api',
             'url': 'http://backend:8000/',
-            'routes': [
-                {
-                    'name': 'backend-api-all',
-                    'strip_path': False,
-                    'hosts': ['api.localhost']
-                }
-            ],
-            'plugins': plugins
+            'routes': routes,
+            'plugins': [{'name': 'cors'}],
         }
+
+    @staticmethod
+    def _route_slug(prefix: str) -> str:
+        """Kong-safe route-name slug from a path prefix (/tableau/x → tableau-x)."""
+        slug = prefix.strip('/').replace('/', '-')
+        slug = ''.join(ch if (ch.isalnum() or ch == '-') else '-' for ch in slug)
+        return slug or 'root'
     
     def generate_openwebui_service(self) -> Optional[Dict[str, Any]]:
         """Generate Open WebUI service configuration based on SOURCE."""
