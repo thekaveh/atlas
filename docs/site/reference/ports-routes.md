@@ -51,5 +51,6 @@ Generated summary of model-backed service port variables and Kong aliases. Use t
 | trino | data | `TRINO_PORT` | `trino.localhost` | [Deployment route reference](../../deployment/ports-and-routes.md#2-kong-hostnames) |
 | tts-provider | media | `TTS_PROVIDER_PORT` | `tts.localhost` | [Deployment route reference](../../deployment/ports-and-routes.md#2-kong-hostnames) |
 | verba | apps | `VERBA_PORT` | `verba.localhost` | [Deployment route reference](../../deployment/ports-and-routes.md#2-kong-hostnames) |
+| vllm-metal | llm | `VLLM_METAL_LOCALHOST_PORT` | `-` | [Deployment route reference](../../deployment/ports-and-routes.md#2-kong-hostnames) |
 | weaviate | data | `WEAVIATE_PORT`, `WEAVIATE_GRPC_PORT`, `WEAVIATE_LOCALHOST_PORT` | `weaviate.localhost` | [Deployment route reference](../../deployment/ports-and-routes.md#2-kong-hostnames) |
 | zeppelin | apps | `ZEPPELIN_PORT` | `zeppelin.localhost` | [Deployment route reference](../../deployment/ports-and-routes.md#2-kong-hostnames) |

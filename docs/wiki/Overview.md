@@ -26,7 +26,7 @@ The public site and wiki are generated from the same model:
 | apps | 10 | backend, jenkins, jupyterhub, label-studio, llm-graph-builder, local-deep-researcher, mlflow, open-webui, verba, zeppelin |
 | data | 10 | iceberg-rest, minio, neo4j, redis, redpanda, spark, supabase, supavisor, trino, weaviate |
 | infra | 11 | backup, cloudflared, globals, grafana, kong, langfuse, loki, otel-collector, prometheus, ray, tempo |
-| llm | 4 | cloud-providers, litellm, ollama, tei-reranker |
+| llm | 5 | cloud-providers, litellm, ollama, tei-reranker, vllm-metal |
 | media | 13 | asset-baker, asset-worker, blender-mcp, chatterbox, comfyui, crawl4ai, docling, fal, parakeet, searxng, speaches, tika, tts-provider |
 
 ## 4. Navigation

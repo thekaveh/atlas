@@ -721,6 +721,17 @@ time.
 | VERBA_OPENAI_MODEL | verba |  | Optional Verba OpenAI generator model name. Empty lets Verba list LiteLLM models. |
 | VERBA_OPENAI_EMBED_MODEL | verba |  | Optional Verba OpenAI-compatible embedding model name. Empty keeps upstream default behavior. |
 | VERBA_DEFAULT_DEPLOYMENT | verba | Docker | Verba deployment selector. Atlas uses Docker to target the external Weaviate container. |
+| VLLM_METAL_SOURCE | vllm-metal | disabled | Options: managed-localhost (bootstrapper-supervised host process on Apple silicon), disabled. |
+| VLLM_METAL_MODEL | vllm-metal | Qwen/Qwen2.5-7B-Instruct | Hugging Face model id served by the managed vLLM Metal process and registered with LiteLLM under the same alias. |
+| VLLM_METAL_LOCALHOST_PORT | vllm-metal | 8000 | Host port the managed vLLM Metal OpenAI server listens on. Not a BASE_PORT slot — vLLM Metal has no Kong route or exposed stack port. |
+| VLLM_METAL_PLUGIN_VERSION | vllm-metal | 0.3.0 | Pinned vllm-metal plugin version installed into the managed host venv. |
+| VLLM_METAL_CORE_VERSION | vllm-metal |  | Optional pinned vllm core version (blank = let the vllm-metal plugin resolve a compatible core). |
+| VLLM_METAL_PYTHON | vllm-metal | python3.12 | Python interpreter used to build the managed host venv (vllm-metal requires 3.12). |
+| VLLM_METAL_STATE_DIR | vllm-metal | ~/.atlas/vllm-metal | Host directory holding the managed venv plus the pid / log / status files. |
+| VLLM_METAL_MODELS_PATH | vllm-metal |  | Optional Hugging Face cache dir (HF_HOME) for the managed process. Blank = default HF cache. |
+| VLLM_METAL_MIN_MEMORY_GB | vllm-metal | 16 | Minimum unified memory (GB) the preflight requires before install / start. |
+| VLLM_METAL_SCALE | vllm-metal |  | Always 0 — vLLM Metal never runs as a container. Reserved for interface parity with container services. |
+| VLLM_METAL_ENDPOINT | vllm-metal |  | Resolved docker-internal URL of the managed host process (http://host.docker.internal:${VLLM_METAL_LOCALHOST_PORT}). Consumed by litellm-init to register the model. Blank when disabled. |
 | WEAVIATE_SOURCE | weaviate | container | - |
 | WEAVIATE_PORT | weaviate |  | - |
 | WEAVIATE_GRPC_PORT | weaviate |  | - |

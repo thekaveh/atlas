@@ -92,4 +92,5 @@ data_flow:
     - cloud-providers
     - hermes
     - lightrag
+    - vllm-metal
     - otel-collector

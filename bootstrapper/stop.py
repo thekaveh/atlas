@@ -184,6 +184,33 @@ Examples:
                 f"Could not stop the managed ComfyUI (MPS) host: {exc}", "warning"
             )
 
+    def stop_managed_vllm_metal(self) -> None:
+        """Stop the Atlas-managed vLLM Metal host process (#379).
+
+        The ``managed-localhost`` source runs a native vLLM process on the host
+        (not a container), so ``docker compose down`` never touches it — Atlas
+        must tear it down explicitly. A no-op when the source isn't selected or no
+        process is running. Best-effort: never blocks the rest of the stop flow.
+        """
+        try:
+            if not self.config_parser.env_file_exists():
+                return
+            env = self.config_parser.parse_env_file()
+            if str(env.get("VLLM_METAL_SOURCE", "")).strip() != "managed-localhost":
+                return
+            from services.vllm_metal_manager import manager_from_env
+
+            manager = manager_from_env(env)
+            if manager.stop():
+                self.banner.show_status_message(
+                    "Stopped the managed Apple-Silicon/Metal vLLM host process.",
+                    "info",
+                )
+        except Exception as exc:  # noqa: BLE001 — teardown must never break stop
+            self.banner.show_status_message(
+                f"Could not stop the managed vLLM (Metal) host: {exc}", "warning"
+            )
+
     def cleanup_hosts_entries(self) -> bool:
         """Clean up hosts file entries if requested."""
         self.banner.show_section_header("Cleaning Up Hosts File", "🧹")
@@ -288,6 +315,10 @@ def main(project_name, cold, clean_hosts, help_usage):
         # Step 2b: Stop the Atlas-managed Apple-Silicon/Metal ComfyUI host
         # process (#335) — a native host process compose `down` never touches.
         stopper.stop_managed_comfyui_mps()
+
+        # Step 2c: Stop the Atlas-managed Apple-Silicon/Metal vLLM host
+        # process (#379) — likewise a native host process compose ignores.
+        stopper.stop_managed_vllm_metal()
 
         # Step 3: Clean up hosts entries if requested
         hosts_ok = True

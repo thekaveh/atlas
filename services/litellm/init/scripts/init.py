@@ -542,6 +542,52 @@ def lightrag_model_entry() -> dict[str, Any] | None:
     }
 
 
+def vllm_metal_model_entry() -> dict[str, Any] | None:
+    """Return a model_list entry for the managed vLLM Metal model (#379).
+
+    Returns None unless VLLM_METAL_SOURCE == ``managed-localhost`` AND both
+    VLLM_METAL_ENDPOINT and VLLM_METAL_MODEL are non-empty (the bootstrapper
+    blanks the endpoint for disabled sources). vLLM's OpenAI-compatible
+    server lives at ``<endpoint>/v1``, so LiteLLM's ``openai/<model>``
+    passthrough is sufficient — the same shape used for Hermes.
+
+    The served model name IS the Hugging Face id the managed process was
+    launched with (VLLM_METAL_MODEL), so the LiteLLM alias and the upstream
+    model name match, keeping ``/v1/models`` honest. Env is re-read here
+    (not captured at import) so the entry is unit-testable in isolation.
+
+    The managed process binds 127.0.0.1 and runs without auth, so a
+    placeholder api_key is sent (LiteLLM's openai adapter rejects an empty
+    key) and ignored upstream.
+    """
+    if os.environ.get("VLLM_METAL_SOURCE", "disabled").strip().lower() != "managed-localhost":
+        return None
+    endpoint = os.environ.get("VLLM_METAL_ENDPOINT", "").strip()
+    if not endpoint:
+        return None
+    model = os.environ.get("VLLM_METAL_MODEL", "").strip()
+    if not model:
+        return None
+    base = endpoint.rstrip("/")
+    if not base.endswith("/v1"):
+        base = f"{base}/v1"
+    return {
+        "model_name": model,
+        "litellm_params": {
+            "model": f"openai/{model}",
+            "api_base": base,
+            "api_key": "sk-noauth",
+        },
+        "model_info": {
+            "mode": "chat",
+            "description": (
+                "Managed vLLM Metal (Apple-silicon) model served on the host "
+                "and fronted by LiteLLM."
+            ),
+        },
+    }
+
+
 def load_consumer_model_rows() -> list[dict[str, Any]]:
     """Load bootstrapper-generated consumer-owned model rows (#411).
 
@@ -613,6 +659,14 @@ def render_config(active_rows: list[Any]) -> dict[str, Any]:
         model_list.append(lightrag_entry)
         print(
             f"  ↳ appended lightrag entry → {lightrag_entry['litellm_params']['api_base']}",
+            flush=True,
+        )
+    vllm_metal_entry = vllm_metal_model_entry()
+    if vllm_metal_entry is not None:
+        model_list.append(vllm_metal_entry)
+        print(
+            f"  ↳ appended vllm-metal entry ({vllm_metal_entry['model_name']}) → "
+            f"{vllm_metal_entry['litellm_params']['api_base']}",
             flush=True,
         )
     # Consumer-owned rows (#411) merge last so a downstream integration's models

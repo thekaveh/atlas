@@ -145,6 +145,11 @@ EXPECTED_DISCOVERED = frozenset({
     # broker + console for the data-eng track. Single-row family wired via
     # 'redpanda_source' in source_mapping.
     "Redpanda Console",
+    # vLLM (Metal) (added 2026-07-11, #379) — managed Apple-silicon vLLM host
+    # process. Virtual manifest (no container), wired via 'vllm_metal_source'
+    # in source_mapping with managed-localhost / disabled. Registered with
+    # LiteLLM as an OpenAI-compatible upstream.
+    "vLLM (Metal)",
 })
 
 

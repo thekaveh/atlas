@@ -76,6 +76,7 @@
 | [litellm](litellm.md) | LiteLLM gateway (LLM router) | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | LITELLM_SOURCE | container | container | supabase, redis |
 | [ollama](ollama.md) | Ollama (local LLM engine) | all | LLM_PROVIDER_SOURCE | ollama-container-cpu | ollama-container-cpu, ollama-container-gpu, ollama-localhost, none | supabase, litellm |
 | [tei-reranker](tei-reranker.md) | TEI Reranker (mxbai-rerank-base-v1) | all, gen-ai-rag, ml-eng | TEI_RERANKER_SOURCE | disabled | container-cpu, container-gpu, localhost, disabled | - |
+| [vllm-metal](vllm-metal.md) | vLLM (Metal) — managed Apple-silicon LLM server | all, gen-ai-eng | VLLM_METAL_SOURCE | disabled | managed-localhost, disabled | litellm |
 
 ### 1.7. media
 
