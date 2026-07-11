@@ -3,7 +3,9 @@ from __future__ import annotations
 import asyncio
 import os
 import uuid
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
+
+import media_registry
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -15,6 +17,9 @@ def _env_bool(name: str, default: bool) -> bool:
 
 class FalClient:
     """Small async wrapper around the blocking fal-client SDK."""
+
+    # Media modalities this client can submit/poll through the fal queue.
+    SUPPORTED_MODALITIES = ("image", "image_to_3d")
 
     def __init__(
         self,
@@ -122,13 +127,16 @@ class FalClient:
         input: Dict[str, Any],
         model: Optional[str] = None,
     ) -> Dict[str, Any]:
-        if modality != "image":
+        if modality not in self.SUPPORTED_MODALITIES:
             raise ValueError(f"Unsupported FAL media modality: {modality}")
         if not self.api_key:
             raise ValueError("FAL_API_KEY is required when FAL_SOURCE=enabled")
 
         selected_model = (model or self.model).strip()
-        arguments = self._image_arguments(input)
+        if modality == "image_to_3d":
+            arguments = self._image_to_3d_arguments(input)
+        else:
+            arguments = self._image_arguments(input)
         submitted = await asyncio.to_thread(self._submit, selected_model, arguments)
         operation_id = self._extract_request_id(submitted)
 
@@ -141,7 +149,7 @@ class FalClient:
         )
 
     async def get_media_operation(self, *, operation_id: str, modality: str) -> Dict[str, Any]:
-        if modality != "image":
+        if modality not in self.SUPPORTED_MODALITIES:
             raise ValueError(f"Unsupported FAL media modality: {modality}")
         if not self.api_key:
             raise ValueError("FAL_API_KEY is required when FAL_SOURCE=enabled")
@@ -164,9 +172,23 @@ class FalClient:
             raw=raw,
         )
         if result_payload:
-            artifacts = self._extract_artifacts(result_payload)
-            payload["artifacts"] = artifacts
-            payload["artifact_url"] = artifacts[0]["url"] if artifacts else None
+            if modality == "image_to_3d":
+                artifacts, provider_fields = self._extract_glb_artifacts(
+                    result_payload, self.model
+                )
+                if provider_fields:
+                    payload["provenance"]["provider_fields"] = provider_fields
+                payload["artifacts"] = artifacts
+                # The normalized artifact_url is the GLB specifically — never a
+                # shadowing preview image when the GLB key is absent.
+                glb = next(
+                    (a for a in artifacts if a.get("role") == "model_glb"), None
+                )
+                payload["artifact_url"] = glb["url"] if glb else None
+            else:
+                artifacts = self._extract_artifacts(result_payload)
+                payload["artifacts"] = artifacts
+                payload["artifact_url"] = artifacts[0]["url"] if artifacts else None
             payload["raw"] = result_payload
         return payload
 
@@ -188,6 +210,35 @@ class FalClient:
             arguments["seed"] = input_payload["seed"]
         if input_payload.get("negative_prompt"):
             arguments["negative_prompt"] = input_payload["negative_prompt"]
+        return arguments
+
+    def _image_to_3d_arguments(self, input_payload: Dict[str, Any]) -> Dict[str, Any]:
+        image = input_payload.get("image")
+        if not isinstance(image, str) or not image.strip():
+            raise ValueError(
+                "image_to_3d input requires a non-empty 'image' (URL or data URI)"
+            )
+        # fal's 3D API takes the input image under `image_url`; the gateway has
+        # already hosted/conditioned it, so this is a URL or an accepted data URI.
+        arguments: Dict[str, Any] = {"image_url": image.strip()}
+        if input_payload.get("seed") is not None:
+            arguments["seed"] = input_payload["seed"]
+        # Optional, provider-tolerant passthroughs (each endpoint ignores keys
+        # it does not recognize).
+        for flag in (
+            "texture",
+            "pbr",
+            "texture_size",
+            "face_limit",
+            "guidance_scale",
+            "num_inference_steps",
+            "quad",
+        ):
+            if input_payload.get(flag) is not None:
+                arguments[flag] = input_payload[flag]
+        extra = input_payload.get("extra")
+        if isinstance(extra, dict):
+            arguments.update(extra)
         return arguments
 
     def _submit(self, model: str, arguments: Dict[str, Any]) -> Any:
@@ -225,6 +276,15 @@ class FalClient:
         modality: str,
         raw: Dict[str, Any],
     ) -> Dict[str, Any]:
+        license_value, cost_usd = self._license_and_cost(model, modality)
+        provenance: Dict[str, Any] = {
+            "provider_request_id": operation_id,
+            "modality": modality,
+        }
+        if modality == "image_to_3d":
+            # image→3D endpoints do not report a settled cost in the result, so
+            # the normalized cost is the registry estimate — flag the basis.
+            provenance["cost_basis"] = "estimated"
         return {
             "operation_id": operation_id,
             "status": status,
@@ -233,11 +293,20 @@ class FalClient:
             "modality": modality,
             "artifact_url": None,
             "artifacts": [],
-            "cost_usd": None,
-            "license": self.license,
-            "provenance": {"provider_request_id": operation_id},
+            "cost_usd": cost_usd,
+            "license": license_value,
+            "provenance": provenance,
             "raw": raw,
         }
+
+    def _license_and_cost(
+        self, model: str, modality: str
+    ) -> Tuple[str, Optional[float]]:
+        if modality == "image_to_3d":
+            entry = media_registry.lookup(model)
+            if entry is not None:
+                return entry.license, entry.estimated_cost_usd
+        return self.license, None
 
     def _extract_request_id(self, payload: Any) -> str:
         if isinstance(payload, dict):
@@ -251,19 +320,33 @@ class FalClient:
         return str(value or f"fal-{uuid.uuid4()}")
 
     def _normalize_status(self, payload: Any) -> str:
+        # fal-client's queue `status()` returns type-discriminated dataclasses
+        # (`Queued` / `InProgress` / `Completed`) whose *class name* signals
+        # state and which carry no `.status`/`.state` attribute; a failed job is
+        # a `Completed` carrying a truthy `error`/`error_type`. We fall back to
+        # dict / string shapes for forward-compat and provider-client stubs.
+        error: Any = None
         if isinstance(payload, dict):
             raw = payload.get("status") or payload.get("state")
+            error = payload.get("error") or payload.get("error_type")
         else:
             raw = getattr(payload, "status", None) or getattr(payload, "state", None)
+            error = getattr(payload, "error", None) or getattr(payload, "error_type", None)
+            if raw is None:
+                # Real fal Status objects signal state by class name only.
+                raw = type(payload).__name__
         status_value = str(raw or "running").strip().lower()
         if status_value in {"completed", "complete", "succeeded", "success"}:
-            return "succeeded"
+            # A completed operation carrying an error is a failure.
+            return "failed" if error else "succeeded"
         if status_value in {"failed", "error"}:
             return "failed"
         if status_value in {"cancelled", "canceled"}:
             return "cancelled"
         if status_value in {"in_queue", "queued", "submitted"}:
             return "submitted"
+        if status_value in {"in_progress", "inprogress", "running"}:
+            return "running"
         return "running"
 
     def _extract_artifacts(self, payload: Dict[str, Any]) -> list[Dict[str, Any]]:
@@ -280,6 +363,115 @@ class FalClient:
                 }
             )
         return artifacts
+
+    def _extract_glb_artifacts(
+        self, payload: Dict[str, Any], model: str
+    ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+        """Normalize an image→3D result into artifacts + leftover fields.
+
+        Probes the per-model GLB / preview / texture response keys (ports
+        DayDreams' ``extractGlbUrl``) and returns the GLB first so the gateway
+        surfaces it as the normalized ``artifact_url``. Response keys that were
+        not recognized are returned separately so the caller can preserve them
+        under a namespaced provenance bag.
+        """
+
+        entry = media_registry.lookup(model)
+        glb_keys = entry.glb_keys if entry else media_registry.GLB_RESPONSE_KEYS
+        preview_keys = (
+            entry.preview_keys if entry else media_registry.PREVIEW_RESPONSE_KEYS
+        )
+        texture_keys = (
+            entry.texture_keys if entry else media_registry.TEXTURE_RESPONSE_KEYS
+        )
+
+        artifacts: List[Dict[str, Any]] = []
+        consumed: set[str] = set()
+
+        glb = self._probe_url(payload, glb_keys, consumed)
+        if glb:
+            artifacts.append(
+                {
+                    "url": glb["url"],
+                    "content_type": glb.get("content_type") or "model/gltf-binary",
+                    "role": "model_glb",
+                    "source_key": glb["key"],
+                }
+            )
+        preview = self._probe_url(payload, preview_keys, consumed)
+        if preview:
+            artifacts.append(
+                {
+                    "url": preview["url"],
+                    "content_type": preview.get("content_type") or "image/png",
+                    "role": "preview",
+                    "source_key": preview["key"],
+                }
+            )
+        for texture in self._probe_url_list(payload, texture_keys, consumed):
+            artifacts.append(
+                {
+                    "url": texture["url"],
+                    "content_type": texture.get("content_type"),
+                    "role": "texture",
+                    "source_key": texture["key"],
+                }
+            )
+
+        provider_fields = {
+            key: value for key, value in payload.items() if key not in consumed
+        }
+        return artifacts, provider_fields
+
+    @staticmethod
+    def _coerce_url(value: Any) -> Optional[Dict[str, Any]]:
+        # A response key may hold a bare URL string or an object with a `url`.
+        if isinstance(value, str) and value.strip():
+            return {"url": value.strip(), "content_type": None}
+        if isinstance(value, dict) and value.get("url"):
+            return {
+                "url": value["url"],
+                "content_type": value.get("content_type") or value.get("mime_type"),
+            }
+        return None
+
+    def _probe_url(
+        self, payload: Dict[str, Any], keys: Tuple[str, ...], consumed: set
+    ) -> Optional[Dict[str, Any]]:
+        found: Optional[Dict[str, Any]] = None
+        for key in keys:
+            if key not in payload:
+                continue
+            coerced = self._coerce_url(payload[key])
+            if coerced is None:
+                # A recognized key holding a non-URL value (e.g. vendor
+                # metadata) is left for provider_fields, not silently dropped.
+                continue
+            consumed.add(key)
+            if found is None:
+                coerced["key"] = key
+                found = coerced
+        return found
+
+    def _probe_url_list(
+        self, payload: Dict[str, Any], keys: Tuple[str, ...], consumed: set
+    ) -> List[Dict[str, Any]]:
+        out: List[Dict[str, Any]] = []
+        for key in keys:
+            if key not in payload:
+                continue
+            value = payload[key]
+            items = value if isinstance(value, list) else [value]
+            coerced_any = False
+            for item in items:
+                coerced = self._coerce_url(item)
+                if coerced:
+                    coerced["key"] = key
+                    out.append(coerced)
+                    coerced_any = True
+            if coerced_any:
+                consumed.add(key)
+        return out
 
     def _object_to_dict(self, payload: Any) -> Dict[str, Any]:
         if isinstance(payload, dict):
