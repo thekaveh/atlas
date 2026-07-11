@@ -181,7 +181,17 @@ class ConfigParser:
         """Load optional parent-owned consumer manifests for this checkout."""
         from core.consumer_manifest import load_consumer_config
 
-        return load_consumer_config(self.root_dir)
+        # #415: a consumer LightRAG query profile may only set enable_rerank=true
+        # when this deployment has opted the backend rerank adapter in. Resolve
+        # the flag from .env so profile validation matches the runtime wiring.
+        env = self.parse_env_file()
+        adapter_enabled = (
+            (env.get("LIGHTRAG_RERANK_ADAPTER_ENABLED") or "").strip().lower() == "true"
+        )
+        return load_consumer_config(
+            self.root_dir,
+            lightrag_rerank_adapter_enabled=adapter_enabled,
+        )
     
     def parse_env_file(self) -> Dict[str, str]:
         """

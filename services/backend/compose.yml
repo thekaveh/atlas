@@ -140,6 +140,13 @@ services:
       GRAPHITI_EXPOSE_TO_AGENTS: ${GRAPHITI_EXPOSE_TO_AGENTS:-false}
       RAGAS_EVALUATOR_MODEL: ${RAGAS_EVALUATOR_MODEL:-}
       RAGAS_EMBEDDINGS_MODEL: ${RAGAS_EMBEDDINGS_MODEL:-}
+      # LightRAG → TEI rerank adapter (#415). TEI_RERANKER_ENDPOINT is resolved
+      # by tei-reranker's own config generation; the adapter route reads it to
+      # forward {query, texts}. Token + timeout gate + configure the route.
+      TEI_RERANKER_ENDPOINT: ${TEI_RERANKER_ENDPOINT:-}
+      LIGHTRAG_RERANK_ADAPTER_ENABLED: ${LIGHTRAG_RERANK_ADAPTER_ENABLED:-false}
+      LIGHTRAG_RERANK_ADAPTER_TOKEN: ${LIGHTRAG_RERANK_ADAPTER_TOKEN:-}
+      LIGHTRAG_RERANK_ADAPTER_TIMEOUT_SECONDS: ${LIGHTRAG_RERANK_ADAPTER_TIMEOUT_SECONDS:-30}
     volumes:
       - ./app/app:/app
       - backend-data:/app/data

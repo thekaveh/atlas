@@ -160,6 +160,9 @@ seconds a future auto-consolidation scheduler would use.
 | GRAPHITI_EXPOSE_TO_AGENTS | backend | False | Must remain false for this backend-only evaluation; Hermes/OpenClaw exposure and Graphiti MCP are deferred. |
 | RAGAS_EVALUATOR_MODEL | backend |  | Optional LiteLLM model id for Backend Ragas evaluation. Empty falls back to LITELLM_DEFAULT_MODEL. |
 | RAGAS_EMBEDDINGS_MODEL | backend |  | Optional LiteLLM embedding model id for Backend Ragas answer-relevancy evaluation. Empty falls back to LITELLM_EMBEDDING_MODEL. |
+| LIGHTRAG_RERANK_ADAPTER_ENABLED | backend | false | Opt-in for the backend LightRAG rerank adapter route (POST /lightrag/rerank, #415). When true AND TEI_RERANKER_SOURCE is enabled, the bootstrapper wires LightRAG's rerank binding to the adapter and consumer query profiles may set enable_rerank=true. Default false keeps direct LightRAG->TEI rerank disabled (payload shapes are incompatible). |
+| LIGHTRAG_RERANK_ADAPTER_TOKEN | backend |  | Auto-generated bearer token guarding the /lightrag/rerank adapter route. Handed to LightRAG as RERANK_BINDING_API_KEY so the two share one secret. Send as `Authorization: Bearer <value>`. |
+| LIGHTRAG_RERANK_ADAPTER_TIMEOUT_SECONDS | backend | 30 | Per-request timeout (seconds) the /lightrag/rerank adapter allows when calling the TEI reranker before returning 504. |
 | BACKUP_SOURCE | backup | disabled | Deployment mode: container (enable the runner) or disabled (default). |
 | BACKUP_BUCKET | backup | atlas-backups | Target bucket for backups. |
 | BACKUP_S3_ALIAS_URL | backup | http://minio:9000 | S3 endpoint. Default = on-box MinIO; set to an external S3 URL for offsite. |
