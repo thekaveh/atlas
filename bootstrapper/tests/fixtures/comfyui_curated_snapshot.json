@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "_note": "Characterization snapshot of the complete curated catalog plus the bundled fallback catalog. Keep it exact when intentional catalog entries are added.",
-  "curated_count": 15,
+  "curated_count": 16,
   "fallback_count": 23,
   "entries": [
     {
@@ -380,6 +380,38 @@
       "license_restrictions": [
         "Enterprise license required at or above $1,000,000 USD ($1M) annual revenue for commercial use.",
         "Reasonable and appropriate content filtering is required for deployments."
+      ]
+    },
+    {
+      "name": "hunyuan3d-2",
+      "family": "Hunyuan3D-2",
+      "category": "mesh_model",
+      "size_gb": 4.928151562,
+      "url": "https://huggingface.co/tencent/Hunyuan3D-2/resolve/9cd649ba6913f7a852e3286bad86bfa9a2d83dcf/hunyuan3d-dit-v2-0/model.fp16.safetensors",
+      "sha256": "360bc281fc956d4acac0c3d36d5ec0ebf8cdddbf4b8892e894d12419388d479b",
+      "target_dir": "checkpoints",
+      "min_vram_gb": 8.0,
+      "cpu_supported": false,
+      "requires_custom_node": [],
+      "popularity": 72,
+      "source": "curated",
+      "pulled": false,
+      "cloud_only": false,
+      "notes": "Native ComfyUI image\u21923D shape generation (Hunyuan3D-2 DiT). MPS-runnable; shape-only \u2014 texture/PBR is CUDA-bound and excluded.",
+      "filename": "hunyuan3d-dit-v2.safetensors",
+      "essential": false,
+      "precision": "fp16",
+      "variant": null,
+      "host_constraints": [],
+      "files": [],
+      "size_bytes": 4928151562,
+      "min_ram_gb": 16.0,
+      "license_name": "Tencent Hunyuan Community License",
+      "license_url": "https://huggingface.co/tencent/Hunyuan3D-2/blob/9cd649ba6913f7a852e3286bad86bfa9a2d83dcf/LICENSE.txt",
+      "license_restrictions": [
+        "Territory-restricted \u2014 not licensed for use in the European Union, the United Kingdom, or South Korea.",
+        "Products or services with over 100 million monthly active users require a separate license from Tencent.",
+        "Use is subject to the Tencent Hunyuan Community License Agreement and its Acceptable Use Policy."
       ]
     },
     {

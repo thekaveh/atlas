@@ -309,3 +309,41 @@ models:
         sha256: a70580f0213e67967ee9c95f05bb400e8fb08307e017a924bf3441223e023d1f
         target_dir: vae
         precision: bf16
+
+  # ── Hunyuan3D-2 (native ComfyUI image→3D, MPS-runnable) ────────────────
+  # ComfyUI CORE natively supports Hunyuan3D-2 single-image shape generation
+  # (pure torch DiT → MPS-runnable on Apple Silicon; no custom node, no CUDA
+  # sparse kernels — unlike TRELLIS/Pixal3D). The committed example workflow
+  # services/comfyui/workflows/hunyuan3d-2-image-to-glb-api.json drives
+  # ImageOnlyCheckpointLoader → CLIPVisionEncode → Hunyuan3Dv2Conditioning →
+  # KSampler → VAEDecodeHunyuan3D → VoxelToMeshBasic → SaveGLB.
+  #
+  # SHAPE-ONLY: native support is geometry only — texture/PBR/material
+  # generation is CUDA-bound and intentionally excluded from this bundle.
+  # Large + optional: NOT essential, so it downloads only on explicit wizard
+  # selection (COMFYUI_USER_MODELS=hunyuan3d-2), never on an empty set. The dit
+  # checkpoint loads from models/checkpoints (ImageOnlyCheckpointLoader), so
+  # target_dir overrides the mesh_model default (mesh_models) to checkpoints.
+
+  - name: hunyuan3d-2
+    family: Hunyuan3D-2
+    category: mesh_model
+    target_dir: checkpoints
+    filename: hunyuan3d-dit-v2.safetensors
+    size_gb: 4.928151562
+    size_bytes: 4928151562
+    url: https://huggingface.co/tencent/Hunyuan3D-2/resolve/9cd649ba6913f7a852e3286bad86bfa9a2d83dcf/hunyuan3d-dit-v2-0/model.fp16.safetensors
+    sha256: 360bc281fc956d4acac0c3d36d5ec0ebf8cdddbf4b8892e894d12419388d479b
+    min_vram_gb: 8.0
+    min_ram_gb: 16.0
+    cpu_supported: false
+    requires_custom_node: []
+    popularity: 72
+    precision: fp16
+    notes: Native ComfyUI image→3D shape generation (Hunyuan3D-2 DiT). MPS-runnable; shape-only — texture/PBR is CUDA-bound and excluded.
+    license_name: Tencent Hunyuan Community License
+    license_url: https://huggingface.co/tencent/Hunyuan3D-2/blob/9cd649ba6913f7a852e3286bad86bfa9a2d83dcf/LICENSE.txt
+    license_restrictions:
+      - Territory-restricted — not licensed for use in the European Union, the United Kingdom, or South Korea.
+      - Products or services with over 100 million monthly active users require a separate license from Tencent.
+      - Use is subject to the Tencent Hunyuan Community License Agreement and its Acceptable Use Policy.

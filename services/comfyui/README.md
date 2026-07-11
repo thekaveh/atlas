@@ -313,3 +313,50 @@ uv run --project bootstrapper pytest bootstrapper/tests/test_comfyui_mps_manager
 ATLAS_COMFYUI_LIVE_ENDPOINT=http://localhost:8188 \
   uv run --project bootstrapper pytest bootstrapper/tests/test_krea2_catalog.py -m live -q
 ```
+
+## 11. Hunyuan3D-2 native image→3D (MPS-runnable, shape-only)
+
+Atlas curates the ComfyUI-**core** native Hunyuan3D-2 single-image shape generator (`track:creative-3d`). Unlike TRELLIS/Pixal3D — which need CUDA sparse kernels — Hunyuan3D-2's DiT is pure Torch, so it runs on Apple-Silicon **MPS** through the managed source (§10). It is a large optional download: **never `essential`**, so it stages only when explicitly selected (`COMFYUI_USER_MODELS=hunyuan3d-2`), never on an empty selection.
+
+Native support is **shape-only** — geometry generation with **no texture / PBR / material** stage (that path is CUDA-bound and intentionally excluded from this bundle).
+
+### 11.1 Inventory
+
+| Model | Catalog ID | Category | Precision | Disk | RAM | VRAM |
+|-------|-----------|----------|-----------|------|-----|------|
+| Hunyuan3D-2 | `hunyuan3d-2` | `mesh_model` | fp16 | 4.928 GB | 16 GB | 8 GB |
+
+### 11.2 Pinned artifact
+
+| Role | Target | Bytes | SHA-256 |
+|------|--------|-------|---------|
+| dit checkpoint | `checkpoints/hunyuan3d-dit-v2.safetensors` | 4,928,151,562 | `360bc281fc956d4acac0c3d36d5ec0ebf8cdddbf4b8892e894d12419388d479b` |
+
+The URL and license are pinned to immutable revision [`9cd649ba6913f7a852e3286bad86bfa9a2d83dcf`](https://huggingface.co/tencent/Hunyuan3D-2/tree/9cd649ba6913f7a852e3286bad86bfa9a2d83dcf) of [`tencent/Hunyuan3D-2`](https://huggingface.co/tencent/Hunyuan3D-2). The dit checkpoint's category is `mesh_model` but its `target_dir` overrides to `checkpoints` so ComfyUI's `ImageOnlyCheckpointLoader` resolves it. Native Hunyuan3D-2 support predates Atlas's pinned ComfyUI ref (`COMFYUI_REF` / `COMFYUI_MPS_REF`, default `v0.27.0`).
+
+### 11.3 Core-node workflow
+
+[`workflows/hunyuan3d-2-image-to-glb-api.json`](./workflows/hunyuan3d-2-image-to-glb-api.json) is an API-ready single-image → shape example. It uses only ComfyUI-core native nodes — `ImageOnlyCheckpointLoader` → `CLIPVisionEncode` → `Hunyuan3Dv2Conditioning` → `KSampler` → `VAEDecodeHunyuan3D` → `VoxelToMeshBasic` → `SaveGLB` — so **no custom node** and no CUDA sparse kernels are required. The terminal `SaveGLB` emits a shape-only `.glb`. Put an input image at ComfyUI's `input/example.png` (or edit node `2`), then:
+
+```bash
+curl -XPOST "$COMFYUI_ENDPOINT/prompt" -H 'content-type: application/json' \
+  --data-binary @services/comfyui/workflows/hunyuan3d-2-image-to-glb-api.json
+```
+
+### 11.4 License
+
+The weights use the [Tencent Hunyuan Community License](https://huggingface.co/tencent/Hunyuan3D-2/blob/9cd649ba6913f7a852e3286bad86bfa9a2d83dcf/LICENSE.txt). Material operator obligations:
+
+- **Territory-restricted** — not licensed for use in the European Union, the United Kingdom, or South Korea.
+- Products or services with over **100 million monthly active users** require a separate license from Tencent.
+- Use is subject to the Tencent Hunyuan Community License Agreement and its Acceptable Use Policy.
+
+### 11.5 Verification
+
+Offline catalog/workflow/GLB-structure tests run on generic CI (`bootstrapper/tests/test_comfyui_hunyuan3d_workflow.py`). Rendering a real mesh is an opt-in `live` smoke — official docs alone do not prove MPS support:
+
+```bash
+# Bring up the managed MPS host (§10), select the model, then:
+ATLAS_COMFYUI_LIVE_ENDPOINT=http://localhost:8188 \
+  uv run --project bootstrapper pytest bootstrapper/tests/test_comfyui_hunyuan3d_workflow.py -m live -q
+```
