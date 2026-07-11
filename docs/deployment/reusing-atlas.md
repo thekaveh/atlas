@@ -467,6 +467,50 @@ services:
 
 This ensures your consumer works transparently across all `*_SOURCE` values (container, localhost, etc.) without per-source branching. The same pattern applies to `OLLAMA_ENDPOINT`, `MINIO_ENDPOINT`, and any future auto-managed endpoint Atlas adds.
 
+### 6.5 Exporting the endpoint contract (`endpoints export`)
+
+For non-Python consumers (web/desktop shells, devservers) and submodule parents
+that would otherwise hand-grep `.env`, Atlas emits a **stable, machine-readable
+endpoint contract**:
+
+```bash
+./start.sh endpoints export --format env    # KEY=value on stdout
+./start.sh endpoints export --format json   # JSON object on stdout
+```
+
+The field **names are a compatibility contract** — a rename is a breaking change.
+For every consumer-relevant service (Backend/Kong, LiteLLM, ComfyUI, Ollama,
+MinIO, Weaviate, Neo4j, n8n, Redis, Supabase) it emits the active SOURCE mode and
+each applicable URL as a **distinct named field**:
+
+| Field | Meaning |
+|---|---|
+| `ATLAS_<SVC>_SOURCE` | active SOURCE mode (a `disabled` service emits only this) |
+| `ATLAS_<SVC>_CONTAINER_ENDPOINT` | in-network URL (e.g. `http://minio:9000`) |
+| `ATLAS_<SVC>_HOST_ENDPOINT` | host URL (e.g. `http://localhost:63020`) |
+| `ATLAS_<SVC>_KONG_ENDPOINT` | Kong `*.localhost` route (when exposed) |
+| `ATLAS_<SVC>_PUBLIC_ENDPOINT` | browser-facing public read base (MinIO presigned reads) |
+
+Plus `ATLAS_KONG_GATEWAY` and every per-consumer `ATLAS_STORE_*` field from the
+[storage contract](#612-adding-parent-owned-minio-buckets) (#404). Host/Kong URLs
+track `BASE_PORT`, and the internal vs public MinIO endpoints are distinct — sign
+presigned URLs against `ATLAS_MINIO_PUBLIC_ENDPOINT`.
+
+**Secrets.** By default the output contains **no secret values** — infra secrets
+(e.g. the Redis password inside `REDIS_URL`) are emitted as `${VAR}` references.
+`--with-secrets` resolves **only consumer-scoped credentials** (the storage
+access/secret keys), never infra secrets, and **refuses stdout** — it requires an
+explicit `--output PATH`:
+
+```bash
+# Submodule parent: capture the contract next to the parent app on every bring-up
+(cd infra && ./start.sh endpoints export --format env --output ../atlas-consumer.env)
+```
+
+Output is deterministic and byte-stable for the same inputs, so a consumer's
+overlay doctor can diff it across runs. This replaces per-consumer `.env`
+grepping and the hand-maintained endpoint/URL-rewrite bridges.
+
 ---
 
 ## 7. Readiness
