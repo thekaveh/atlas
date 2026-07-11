@@ -72,7 +72,7 @@ _No downstream consumers._
 
 ### 5.5 Future — Candidate new services
 
-- Blender-native MCP server packaging if upstream provides a hardened, container-friendly mode.
+- A drivable, in-network **`container` source** (headed-but-virtual Blender via Xvfb/EGL) for the agentic composition stage — under evaluation, gated behind a validation spike and go/no-go thresholds. See [`docs/strategy/blender-mcp-container-source-evaluation.md`](../../docs/strategy/blender-mcp-container-source-evaluation.md) (#410). Until that spike passes, this service stays `localhost | disabled`.
 - Asset validation queue that runs glTF-Transform checks on generated GLB files before publication.
 
 ### 5.6 Future — Unused features in this service
