@@ -5,6 +5,7 @@
 | Service | Category | Tracks | SOURCE | Values | Dependencies |
 | --- | --- | --- | --- | --- | --- |
 | airflow | agents | all, data-eng | AIRFLOW_SOURCE | container, disabled | supabase, litellm, redis |
+| asset-baker | media | all, gen-ai-creative | ASSET_BAKER_SOURCE | container-cpu, disabled | minio |
 | asset-worker | media | all, gen-ai-creative | ASSET_WORKER_SOURCE | container, disabled | minio |
 | backend | apps | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | BACKEND_SOURCE | - | supabase, redis, litellm |
 | backup | infra | all | BACKUP_SOURCE | container, disabled | supabase, minio |
@@ -67,6 +68,7 @@
 | Service | Title | Category | Kind | Tracks | SOURCE |
 | --- | --- | --- | --- | --- | --- |
 | airflow | Apache Airflow (DAG orchestrator) | agents | container | all, data-eng | AIRFLOW_SOURCE |
+| asset-baker | Asset Baker (Blender HP→LP bake) | media | container | all, gen-ai-creative | ASSET_BAKER_SOURCE |
 | asset-worker | Asset Worker (glTF post-processing) | media | container | all, gen-ai-creative | ASSET_WORKER_SOURCE |
 | backend | Backend API (FastAPI) | apps | container | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | BACKEND_SOURCE |
 | backup | Backup / restore (Postgres + volumes -> S3) | infra | container | all | BACKUP_SOURCE |
@@ -129,6 +131,7 @@
 | SOURCE | Service | Default | Values |
 | --- | --- | --- | --- |
 | AIRFLOW_SOURCE | airflow | disabled | container, disabled |
+| ASSET_BAKER_SOURCE | asset-baker | disabled | container-cpu, disabled |
 | ASSET_WORKER_SOURCE | asset-worker | disabled | container, disabled |
 | BACKEND_SOURCE | backend | container | - |
 | BACKUP_SOURCE | backup | disabled | container, disabled |
@@ -194,6 +197,7 @@
 | Service | Required | Optional | Runtime Calls |
 | --- | --- | --- | --- |
 | airflow | supabase, litellm, redis | spark, minio, iceberg-rest, redpanda, weaviate, neo4j | supabase, spark, redpanda, minio, iceberg-rest, litellm, weaviate, neo4j, redis |
+| asset-baker | minio | backend, comfyui, fal, blender-mcp, asset-worker | minio |
 | asset-worker | minio | backend, comfyui, fal, blender-mcp | minio |
 | backend | supabase, redis, litellm | weaviate, kong, celery, supavisor | supabase, weaviate, litellm, comfyui, fal, n8n, ray, local-deep-researcher, celery, supavisor, tika, lightrag, minio, otel-collector |
 | backup | supabase, minio | - | supabase, minio |

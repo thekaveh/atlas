@@ -5,6 +5,7 @@
 | SOURCE | Service | Default | Values |
 | --- | --- | --- | --- |
 | AIRFLOW_SOURCE | airflow | disabled | container, disabled |
+| ASSET_BAKER_SOURCE | asset-baker | disabled | container-cpu, disabled |
 | ASSET_WORKER_SOURCE | asset-worker | disabled | container, disabled |
 | BACKEND_SOURCE | backend | container | - |
 | BACKUP_SOURCE | backup | disabled | container, disabled |

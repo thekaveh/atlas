@@ -1516,7 +1516,12 @@ class ServiceConfig:
         asset_worker_source = self.service_sources.get('ASSET_WORKER_SOURCE', 'disabled')
         asset_worker_config = self.get_service_config('asset-worker', asset_worker_source)
         env_vars['ASSET_WORKER_SCALE'] = str(asset_worker_config.get('scale', 0))
-        
+
+        # Asset Baker configuration (Blender HP→LP bake worker)
+        asset_baker_source = self.service_sources.get('ASSET_BAKER_SOURCE', 'disabled')
+        asset_baker_config = self.get_service_config('asset-baker', asset_baker_source)
+        env_vars['ASSET_BAKER_SCALE'] = str(asset_baker_config.get('scale', 0))
+
         # Neo4j configuration
         neo4j_source = self.service_sources.get('NEO4J_GRAPH_DB_SOURCE', 'container')
         neo4j_config = self.get_service_config('neo4j-graph-db', neo4j_source)

@@ -1,0 +1,54 @@
+# services/asset-baker/compose.yml — Blender headless HP→LP bake API
+services:
+  asset-baker:
+    build:
+      context: ./app
+      args:
+        BASE_IMAGE: ${ASSET_BAKER_IMAGE:-python:3.12.9-slim}
+        BLENDER_VERSION: ${ASSET_BAKER_BLENDER_VERSION:-4.3.2}
+    image: ${PROJECT_NAME}-asset-baker:local
+    container_name: ${PROJECT_NAME}-asset-baker
+    restart: unless-stopped
+    deploy:
+      replicas: ${ASSET_BAKER_SCALE:-0}
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      PROJECT_NAME: ${PROJECT_NAME}
+      ASSET_BAKER_ARTIFACT_DIR: ${ASSET_BAKER_ARTIFACT_DIR:-/data/artifacts}
+      ASSET_BAKER_MINIO_ENABLED: ${ASSET_BAKER_MINIO_ENABLED:-true}
+      ASSET_BAKER_MINIO_BUCKET: ${ASSET_BAKER_MINIO_BUCKET:-asset-baker}
+      ASSET_BAKER_MINIO_ENDPOINT: ${ASSET_BAKER_MINIO_ENDPOINT:-http://minio:9000}
+      ASSET_BAKER_MINIO_ACCESS_KEY: ${ASSET_BAKER_MINIO_ACCESS_KEY:-${MINIO_ROOT_USER}}
+      ASSET_BAKER_MINIO_SECRET_KEY: ${ASSET_BAKER_MINIO_SECRET_KEY:-${MINIO_ROOT_PASSWORD}}
+      MINIO_REGION: ${MINIO_REGION:-us-east-1}
+      ASSET_BAKER_TARGET_TRIS: ${ASSET_BAKER_TARGET_TRIS:-39000}
+      ASSET_BAKER_TEX_SIZE: ${ASSET_BAKER_TEX_SIZE:-2048}
+      ASSET_BAKER_CANONICAL_SIZE: ${ASSET_BAKER_CANONICAL_SIZE:-4.0}
+      ASSET_BAKER_BRIGHTNESS_MIN: ${ASSET_BAKER_BRIGHTNESS_MIN:-0.05}
+      ASSET_BAKER_TIMEOUT_SECONDS: ${ASSET_BAKER_TIMEOUT_SECONDS:-600}
+      ASSET_BAKER_MAX_UPLOAD_MB: ${ASSET_BAKER_MAX_UPLOAD_MB:-200}
+      ASSET_BAKER_CONCURRENCY: ${ASSET_BAKER_CONCURRENCY:-1}
+    ports:
+      - "${HOST_BIND_IP:-}${ASSET_BAKER_PORT}:8096"
+    volumes:
+      - asset-baker-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8096/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 45s
+    logging:
+      driver: json-file
+      options:
+        max-size: "${LOG_MAX_SIZE:-10m}"
+        max-file: "${LOG_MAX_FILE:-3}"
+    networks:
+      - backend-network
+
+volumes:
+  asset-baker-data:
+    name: ${PROJECT_NAME}-asset-baker-data
+    driver: local

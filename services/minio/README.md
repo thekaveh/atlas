@@ -280,6 +280,7 @@ _No upstream calls._
 | iceberg-rest | data |
 | spark | data |
 | trino | data |
+| asset-baker | media |
 | asset-worker | media |
 | airflow | agents |
 | backend | apps |

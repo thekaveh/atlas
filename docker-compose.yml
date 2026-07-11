@@ -48,6 +48,7 @@ include:
   - services/weaviate/compose.yml
   - services/comfyui/compose.yml
   - services/asset-worker/compose.yml
+  - services/asset-baker/compose.yml
   - services/crawl4ai/compose.yml
   - services/tika/compose.yml
   - services/parakeet/compose.yml
