@@ -300,12 +300,13 @@ _Engine-only manifests (speaches, chatterbox) are not listed — they're selecte
 | Media | Crawl4AI | 63050 | crawl4ai.localhost |
 | Media | Document Processor | 63051 | docling.localhost |
 | Media | FAL Cloud Media | — | — |
-| Media | Asset Worker | 63052 | asset-worker.localhost |
-| Media | ComfyUI | 63053 | comfyui.localhost |
-| Media | STT Provider | 63054 | stt.localhost |
-| Media | SearxNG | 63055 | search.localhost |
-| Media | Apache Tika | 63056 | tika.localhost |
-| Media | TTS Provider | 63057 | tts.localhost |
+| Media | Asset Baker | 63052 | asset-baker.localhost |
+| Media | Asset Worker | 63053 | asset-worker.localhost |
+| Media | ComfyUI | 63054 | comfyui.localhost |
+| Media | STT Provider | 63055 | stt.localhost |
+| Media | SearxNG | 63056 | search.localhost |
+| Media | Apache Tika | 63057 | tika.localhost |
+| Media | TTS Provider | 63058 | tts.localhost |
 | Agents & Workflows | Apache Airflow | 63070 | airflow.localhost |
 | Agents & Workflows | Celery Worker | — | — |
 | Agents & Workflows | Flower | 63071 | flower.localhost |
