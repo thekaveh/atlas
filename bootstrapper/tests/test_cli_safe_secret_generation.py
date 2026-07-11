@@ -114,3 +114,11 @@ def test_generate_lightrag_api_key_returns_prefixed_secret():
     key = gen.generate_lightrag_api_key()
     assert key.startswith("sk-lightrag-")
     assert len(key) > len("sk-lightrag-") + 20  # token_urlsafe entropy floor
+
+
+def test_generate_lightrag_rerank_adapter_token_returns_prefixed_secret():
+    from utils.key_generator import KeyGenerator
+    gen = KeyGenerator()
+    key = gen.generate_lightrag_rerank_adapter_token()
+    assert key.startswith("sk-lightrag-rerank-")
+    assert len(key) > len("sk-lightrag-rerank-") + 20  # token_urlsafe entropy floor

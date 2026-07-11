@@ -367,14 +367,40 @@ def test_over_maximum_bound_rejected(tmp_path: Path) -> None:
 # ── rerank rejection (needs #415 adapter) ───────────────────────────
 
 def test_rerank_enabled_rejected(tmp_path: Path) -> None:
+    # Default (adapter disabled): rerank-on profiles are rejected so they cannot
+    # be pointed at TEI's incompatible /rerank payload (#414/#415).
     manifest = _write_consumer(
         tmp_path,
         "c",
         "lightrag_query_profiles:\n  version: 1\n  profiles:\n    - {name: p, mode: hybrid, enable_rerank: true}\n",
     )
     _write_root(tmp_path)
-    with pytest.raises(ConsumerManifestError, match="enable_rerank=true is not supported"):
+    with pytest.raises(
+        ConsumerManifestError,
+        match="enable_rerank=true requires the LightRAG rerank adapter to be enabled",
+    ):
         _load(tmp_path, manifest)
+
+
+def test_rerank_enabled_allowed_when_adapter_enabled(tmp_path: Path) -> None:
+    # #415: with the backend adapter enabled, a rerank-on profile is valid and
+    # its enable_rerank flag is carried through to the compiled registry.
+    manifest = _write_consumer(
+        tmp_path,
+        "c",
+        "lightrag_query_profiles:\n  version: 1\n  profiles:\n    - {name: p, mode: hybrid, enable_rerank: true}\n",
+    )
+    _write_root(tmp_path)
+    config = load_consumer_config(
+        tmp_path,
+        explicit_paths=[str(manifest)],
+        lightrag_rerank_adapter_enabled=True,
+    )
+    assert config.lightrag_query_profiles[0].enable_rerank is True
+    compiled = json.loads(
+        compile_lightrag_query_profiles_file(config.lightrag_query_profiles)
+    )
+    assert compiled["profiles"][0]["enable_rerank"] is True
 
 
 def test_rerank_non_bool_rejected(tmp_path: Path) -> None:

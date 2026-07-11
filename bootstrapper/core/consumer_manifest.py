@@ -2133,6 +2133,8 @@ def _parse_lightrag_query_profiles_block(
     data: Mapping[str, Any],
     consumer_name: str,
     manifest_path: Path,
+    *,
+    adapter_enabled: bool = False,
 ) -> list[LightragQueryProfile]:
     block = data.get("lightrag_query_profiles")
     if block is None:
@@ -2213,16 +2215,18 @@ def _parse_lightrag_query_profiles_block(
             raise ConsumerManifestError(
                 f"lightrag_query_profiles[{name!r}] enable_rerank must be a boolean ({origin})"
             )
-        if rerank_raw:
-            # No LightRAG-compatible rerank adapter exists yet: LightRAG's built-in
-            # rerank clients and TEI's /rerank payload are incompatible (#415 adds
-            # the adapter). Reject rerank-on profiles rather than silently pointing
-            # them at TEI (which would 4xx/5xx at query time).
+        if rerank_raw and not adapter_enabled:
+            # LightRAG's built-in rerank clients POST {query, documents} while
+            # TEI's /rerank expects {query, texts}; the two are wire-incompatible.
+            # #415 adds a backend adapter route that translates between them, but
+            # it must be explicitly enabled. Reject rerank-on profiles when the
+            # adapter is off rather than silently pointing them at TEI (which
+            # would 4xx/5xx at query time).
             raise ConsumerManifestError(
-                f"lightrag_query_profiles[{name!r}] enable_rerank=true is not supported: no "
-                f"LightRAG-compatible rerank adapter is active yet (see #415). Leave rerank "
-                f"disabled until a compatible adapter endpoint lands; do not point the profile "
-                f"directly at TEI ({origin})"
+                f"lightrag_query_profiles[{name!r}] enable_rerank=true requires the LightRAG "
+                f"rerank adapter to be enabled: set LIGHTRAG_RERANK_ADAPTER_ENABLED=true (with "
+                f"TEI_RERANKER_SOURCE enabled) so LightRAG reranks through the backend adapter "
+                f"instead of directly at TEI (#415) ({origin})"
             )
 
         query_llm_model = _lightrag_optional_model_ref(
@@ -2271,7 +2275,7 @@ def _parse_lightrag_query_profiles_block(
                 top_k=top_k,
                 chunk_top_k=chunk_top_k,
                 max_total_tokens=max_total_tokens,
-                enable_rerank=False,
+                enable_rerank=rerank_raw,
                 query_llm_model=query_llm_model,
                 embedding_model=embedding_model,
                 description=description,
@@ -2353,8 +2357,15 @@ def load_consumer_config(
     root_dir: Path | str,
     *,
     explicit_paths: Iterable[str] | None = None,
+    lightrag_rerank_adapter_enabled: bool = False,
 ) -> ConsumerConfig:
-    """Load and validate all configured consumer manifests."""
+    """Load and validate all configured consumer manifests.
+
+    ``lightrag_rerank_adapter_enabled`` reflects the deployment's
+    ``LIGHTRAG_RERANK_ADAPTER_ENABLED`` flag (#415). It gates whether a
+    consumer's LightRAG query profile may set ``enable_rerank=true`` — rerank-on
+    profiles are only valid when the backend adapter route is enabled.
+    """
     root = Path(root_dir)
     manifest_paths = discover_consumer_manifest_paths(root, explicit_paths=explicit_paths)
     if not manifest_paths:
@@ -2465,7 +2476,10 @@ def load_consumer_config(
         all_rag.extend(record_rag)
 
         record_lightrag_profiles = _parse_lightrag_query_profiles_block(
-            data, consumer_name, manifest_path
+            data,
+            consumer_name,
+            manifest_path,
+            adapter_enabled=lightrag_rerank_adapter_enabled,
         )
         all_lightrag_profiles.extend(record_lightrag_profiles)
         # Optional #411 integration (opt-in, not coupled): a profile with a

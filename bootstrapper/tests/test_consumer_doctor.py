@@ -834,3 +834,64 @@ def test_consumer_doctor_docs_are_published_on_all_surfaces() -> None:
         assert "./start.sh doctor" in text
         assert "--format json" in text
         assert "overlay" in text.lower()
+
+
+# ─── LightRAG rerank adapter doctor check (#415) ────────────────────
+
+
+def test_doctor_rerank_adapter_pass_when_disabled(tmp_path, monkeypatch) -> None:
+    import start as start_module
+
+    _write_base_env(tmp_path)  # no LIGHTRAG_RERANK_ADAPTER_ENABLED → default off
+    _patch_starter_paths(monkeypatch, tmp_path)
+    _stub_compose_ok(monkeypatch)
+
+    result = CliRunner().invoke(start_module.main, ["doctor", "--format", "json"])
+    assert result.exit_code == 0, result.output
+    checks = {entry["id"]: entry for entry in json.loads(result.output)["checks"]}
+    assert checks["lightrag-rerank-adapter"]["status"] == "pass"
+    assert "disabled" in checks["lightrag-rerank-adapter"]["message"]
+
+
+def test_doctor_rerank_adapter_warns_when_enabled_but_tei_disabled(tmp_path, monkeypatch) -> None:
+    import start as start_module
+
+    _write_base_env(
+        tmp_path,
+        extra=(
+            "LIGHTRAG_RERANK_ADAPTER_ENABLED=true\n"
+            "LIGHTRAG_SOURCE=container\n"
+            "TEI_RERANKER_SOURCE=disabled\n"
+            "LIGHTRAG_RERANK_ADAPTER_TOKEN=sk-lightrag-rerank-x\n"
+        ),
+    )
+    _patch_starter_paths(monkeypatch, tmp_path)
+    _stub_compose_ok(monkeypatch)
+
+    result = CliRunner().invoke(start_module.main, ["doctor", "--format", "json"])
+    assert result.exit_code == 0, result.output
+    checks = {entry["id"]: entry for entry in json.loads(result.output)["checks"]}
+    assert checks["lightrag-rerank-adapter"]["status"] == "warn"
+    assert "TEI_RERANKER_SOURCE" in checks["lightrag-rerank-adapter"]["message"]
+
+
+def test_doctor_rerank_adapter_pass_when_fully_wired(tmp_path, monkeypatch) -> None:
+    import start as start_module
+
+    _write_base_env(
+        tmp_path,
+        extra=(
+            "LIGHTRAG_RERANK_ADAPTER_ENABLED=true\n"
+            "LIGHTRAG_SOURCE=container\n"
+            "TEI_RERANKER_SOURCE=container-cpu\n"
+            "LIGHTRAG_RERANK_ADAPTER_TOKEN=sk-lightrag-rerank-x\n"
+        ),
+    )
+    _patch_starter_paths(monkeypatch, tmp_path)
+    _stub_compose_ok(monkeypatch)
+
+    result = CliRunner().invoke(start_module.main, ["doctor", "--format", "json"])
+    assert result.exit_code == 0, result.output
+    checks = {entry["id"]: entry for entry in json.loads(result.output)["checks"]}
+    assert checks["lightrag-rerank-adapter"]["status"] == "pass"
+    assert "wired to TEI" in checks["lightrag-rerank-adapter"]["message"]

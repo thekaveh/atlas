@@ -190,6 +190,30 @@ When any optional service is `disabled`, the corresponding backend feature degra
 
 When `LIGHTRAG_SOURCE != disabled`, the backend receives `LIGHTRAG_ENDPOINT` and `LIGHTRAG_API_KEY` env vars. The RAG ingestion job engine (§4, #413) uses them as a `graph_target` — uploading parsed documents and draining the extraction pipeline with a timeout. A consumer can still add a bespoke `/rag` route without manifest changes via the plugin seam described in §4 (mount a `rag` route package under `BACKEND_PLUGINS_DIR`).
 
+### 5.1 LightRAG → TEI rerank adapter (`POST /lightrag/rerank`, #415)
+
+LightRAG can rerank its retrieved chunks with a cross-encoder for a quality lift, but its built-in Jina/Cohere rerank clients POST `{"query", "documents"}` and read back `{"results": [{"index", "relevance_score"}]}`, while Atlas's [TEI reranker](../tei-reranker/README.md) `/rerank` speaks a *different* wire shape — `{"query", "texts"}` in, a sorted top-level array of `{"index", "score"}` out. The two are not wire-compatible, which is why Atlas historically kept `RERANK_BINDING=null` and [#414](../../docs/deployment/reusing-atlas.md#635-declaring-lightrag-query-profiles-with-lightrag_query_profiles) rejected `enable_rerank: true` query profiles.
+
+`POST /lightrag/rerank` is the translation seam that closes that gap. It is a thin backend route (`app/app/lightrag_rerank_adapter.py`), not a new service: it owns no model and holds no state — it rewrites LightRAG's request into TEI's shape, calls the TEI reranker, and maps TEI's `score` back to LightRAG's `relevance_score` (preserving the original document index, best-first order, and honoring `top_n`). Direct LightRAG→TEI wiring stays forbidden.
+
+**Enabling it.** Off by default. Set `LIGHTRAG_RERANK_ADAPTER_ENABLED=true` **with** `TEI_RERANKER_SOURCE` enabled (and LightRAG enabled). The bootstrapper then wires LightRAG's rerank binding to `http://backend:8000/lightrag/rerank` (binding `jina`) and consumer query profiles may set `enable_rerank: true`. `./start.sh doctor` warns (`lightrag-rerank-adapter` check) if the flag is on but a prerequisite service is off, since reranking would silently be a no-op.
+
+| Env var | Default | Purpose |
+|---|---|---|
+| `LIGHTRAG_RERANK_ADAPTER_ENABLED` | `false` | Opt-in. Gates the LightRAG↔TEI wiring and `enable_rerank` query profiles. |
+| `LIGHTRAG_RERANK_ADAPTER_TOKEN` | *(auto-generated)* | Bearer token guarding the route; handed to LightRAG as `RERANK_BINDING_API_KEY` so both sides share one secret. Masked as a `secret`. |
+| `LIGHTRAG_RERANK_ADAPTER_TIMEOUT_SECONDS` | `30` | Per-request timeout calling TEI before the route returns 504. |
+| `TEI_RERANKER_ENDPOINT` | *(resolved)* | Resolved by the TEI reranker service; the route forwards `{query, texts}` here. |
+
+**Auth & errors.** The route requires `Authorization: Bearer <LIGHTRAG_RERANK_ADAPTER_TOKEN>` (constant-time compared): missing/invalid → `401`, token unset (adapter not configured) → `503`. Input is bounded (query/document sizes and count); an empty document list short-circuits to `{"results": []}` without calling TEI. TEI errors surface as `502` (upstream error / malformed body), `504` (timeout), or `503` (TEI unreachable / not configured). Enabling reranking trades a little latency (an extra cross-encoder pass over retrieved chunks) for better passage ordering; leave it off if latency-sensitive.
+
+```bash
+curl -X POST http://localhost:${BACKEND_PORT}/lightrag/rerank \
+  -H "Authorization: Bearer ${LIGHTRAG_RERANK_ADAPTER_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "what is graph-augmented RAG?", "documents": ["…", "…"], "top_n": 3}'
+```
+
 ## 6. Dependencies & Integrations
 
 > Auto-generated section — the **Current** subsections are derived from `services/backend/service.yml`'s `data_flow.calls` field (and inverse passes). Re-run `python -m bootstrapper.docs.regen backend` after manifest changes.

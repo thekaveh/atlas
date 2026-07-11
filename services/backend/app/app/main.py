@@ -1,6 +1,7 @@
-from fastapi import FastAPI, HTTPException, status, UploadFile, File, Query, Request
+from fastapi import FastAPI, HTTPException, status, UploadFile, File, Query, Request, Depends
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, ConfigDict, Field
 from storage3 import SyncStorageClient as StorageClient
 from typing import Optional, cast, Dict, Any, List, Union, Literal
@@ -12,6 +13,7 @@ import asyncpg
 import yaml
 import re
 import time
+import secrets
 
 from n8n_client import N8nClient
 from research_service import ResearchService
@@ -64,6 +66,14 @@ from rag_eval_service import (
     RagEvaluationRequest,
     RagEvaluationResponse,
     evaluate_rag_records,
+)
+from lightrag_rerank_adapter import (
+    RerankAdapterRequest,
+    RerankAdapterResponse,
+    RerankAdapterDependencyError,
+    RerankAdapterTimeoutError,
+    RerankAdapterUpstreamError,
+    rerank_via_tei,
 )
 
 
@@ -540,6 +550,70 @@ async def evaluate_rag_quality(request: RagEvaluationRequest):
     except (RagEvaluationError, ValueError) as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+
+
+# ─── LightRAG → TEI rerank adapter (#415) ────────────────────────────
+# LightRAG's Jina/Cohere rerank clients speak {query, documents} and read
+# {"results": [{index, relevance_score}]}; TEI's /rerank speaks {query, texts}
+# and returns a sorted array of {index, score}. This route is the translation
+# seam. It is the ONLY sanctioned LightRAG→TEI path: LightRAG is never wired
+# directly at TEI (the payload shapes are incompatible). The route is auth-gated
+# by a generated bearer token so nothing on the backend network can drive the
+# reranker anonymously; the same token is handed to LightRAG's
+# RERANK_BINDING_API_KEY when the operator opts the adapter in.
+_lightrag_rerank_bearer = HTTPBearer(auto_error=False)
+
+
+def _require_lightrag_rerank_token(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(_lightrag_rerank_bearer),
+) -> None:
+    expected = (os.getenv("LIGHTRAG_RERANK_ADAPTER_TOKEN") or "").strip()
+    if not expected:
+        # No token configured → the adapter has not been enabled. Fail closed
+        # rather than serving reranks with no authentication.
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="LightRAG rerank adapter is not configured (LIGHTRAG_RERANK_ADAPTER_TOKEN unset)",
+        )
+    supplied = credentials.credentials if credentials is not None else ""
+    scheme = (credentials.scheme if credentials is not None else "") or ""
+    if scheme.lower() != "bearer" or not secrets.compare_digest(supplied, expected):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing bearer token for the LightRAG rerank adapter",
+        )
+
+
+@app.post(
+    "/lightrag/rerank",
+    response_model=RerankAdapterResponse,
+    tags=["lightrag"],
+    dependencies=[Depends(_require_lightrag_rerank_token)],
+)
+async def lightrag_rerank(request: RerankAdapterRequest):
+    """Rerank LightRAG-retrieved documents by proxying to the TEI reranker.
+
+    Accepts LightRAG's {query, documents} payload, forwards {query, texts} to
+    TEI, and returns {"results": [{index, relevance_score}]}. Requires a valid
+    ``Authorization: Bearer <LIGHTRAG_RERANK_ADAPTER_TOKEN>``.
+    """
+    try:
+        return await asyncio.to_thread(rerank_via_tei, request)
+    except RerankAdapterDependencyError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(e),
+        )
+    except RerankAdapterTimeoutError as e:
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail=str(e),
+        )
+    except RerankAdapterUpstreamError as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
             detail=str(e),
         )
 
