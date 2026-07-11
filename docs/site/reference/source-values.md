@@ -63,5 +63,6 @@
 | TRINO_SOURCE | trino | disabled | container, disabled |
 | TTS_PROVIDER_SOURCE | tts-provider | speaches-container-cpu | speaches-container-cpu, speaches-container-gpu, chatterbox-container-gpu, chatterbox-localhost, disabled |
 | VERBA_SOURCE | verba | disabled | container, disabled |
+| VLLM_METAL_SOURCE | vllm-metal | disabled | managed-localhost, disabled |
 | WEAVIATE_SOURCE | weaviate | container | container, localhost, disabled |
 | ZEPPELIN_SOURCE | zeppelin | disabled | container, disabled |

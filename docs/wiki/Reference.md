@@ -67,6 +67,7 @@ The public site publishes SOURCE values, environment variables, ports, routes, t
 | TRINO_SOURCE | trino | disabled | container, disabled |
 | TTS_PROVIDER_SOURCE | tts-provider | speaches-container-cpu | speaches-container-cpu, speaches-container-gpu, chatterbox-container-gpu, chatterbox-localhost, disabled |
 | VERBA_SOURCE | verba | disabled | container, disabled |
+| VLLM_METAL_SOURCE | vllm-metal | disabled | managed-localhost, disabled |
 | WEAVIATE_SOURCE | weaviate | container | container, localhost, disabled |
 | ZEPPELIN_SOURCE | zeppelin | disabled | container, disabled |
 
@@ -791,6 +792,17 @@ time.
 | VERBA_OPENAI_MODEL | verba |  | Optional Verba OpenAI generator model name. Empty lets Verba list LiteLLM models. |
 | VERBA_OPENAI_EMBED_MODEL | verba |  | Optional Verba OpenAI-compatible embedding model name. Empty keeps upstream default behavior. |
 | VERBA_DEFAULT_DEPLOYMENT | verba | Docker | Verba deployment selector. Atlas uses Docker to target the external Weaviate container. |
+| VLLM_METAL_SOURCE | vllm-metal | disabled | Options: managed-localhost (bootstrapper-supervised host process on Apple silicon), disabled. |
+| VLLM_METAL_MODEL | vllm-metal | Qwen/Qwen2.5-7B-Instruct | Hugging Face model id served by the managed vLLM Metal process and registered with LiteLLM under the same alias. |
+| VLLM_METAL_LOCALHOST_PORT | vllm-metal | 8000 | Host port the managed vLLM Metal OpenAI server listens on. Not a BASE_PORT slot — vLLM Metal has no Kong route or exposed stack port. |
+| VLLM_METAL_PLUGIN_VERSION | vllm-metal | 0.3.0 | Pinned vllm-metal plugin version installed into the managed host venv. |
+| VLLM_METAL_CORE_VERSION | vllm-metal |  | Optional pinned vllm core version (blank = let the vllm-metal plugin resolve a compatible core). |
+| VLLM_METAL_PYTHON | vllm-metal | python3.12 | Python interpreter used to build the managed host venv (vllm-metal requires 3.12). |
+| VLLM_METAL_STATE_DIR | vllm-metal | ~/.atlas/vllm-metal | Host directory holding the managed venv plus the pid / log / status files. |
+| VLLM_METAL_MODELS_PATH | vllm-metal |  | Optional Hugging Face cache dir (HF_HOME) for the managed process. Blank = default HF cache. |
+| VLLM_METAL_MIN_MEMORY_GB | vllm-metal | 16 | Minimum unified memory (GB) the preflight requires before install / start. |
+| VLLM_METAL_SCALE | vllm-metal |  | Always 0 — vLLM Metal never runs as a container. Reserved for interface parity with container services. |
+| VLLM_METAL_ENDPOINT | vllm-metal |  | Resolved docker-internal URL of the managed host process (http://host.docker.internal:${VLLM_METAL_LOCALHOST_PORT}). Consumed by litellm-init to register the model. Blank when disabled. |
 | WEAVIATE_SOURCE | weaviate | container | - |
 | WEAVIATE_PORT | weaviate |  | - |
 | WEAVIATE_GRPC_PORT | weaviate |  | - |
@@ -821,7 +833,7 @@ time.
 | Track | Description | Services |
 | --- | --- | --- |
 | gen-ai-rag | Retrieval-augmented generation — vectors, graph, reranker, doc ingest, web search, workflow automation. | open-webui, supavisor, n8n, weaviate, neo4j, lightrag, doc-processor, tei-reranker, searxng, mcp-servers, langfuse, otel-collector, tempo, loki, local-deep-researcher, crawl4ai, tika, llm-graph-builder, verba, celery |
-| gen-ai-eng | Agentic apps + workflows with voice, vision, and search. | open-webui, supavisor, n8n, hermes, openclaw, jupyterhub, comfyui, neo4j, stt-provider, tts-provider, searxng, mcp-servers, langfuse, otel-collector, tempo, loki, local-deep-researcher, tika, celery |
+| gen-ai-eng | Agentic apps + workflows with voice, vision, and search. | open-webui, supavisor, n8n, hermes, openclaw, jupyterhub, comfyui, neo4j, stt-provider, tts-provider, searxng, mcp-servers, vllm-metal, langfuse, otel-collector, tempo, loki, local-deep-researcher, tika, celery |
 | gen-ai-creative | Multimodal generation — image, voice, vision, doc. | open-webui, comfyui, asset-worker, asset-baker, fal, stt-provider, tts-provider, multi2vec-clip, doc-processor, blender-mcp, langfuse, otel-collector, tempo, loki |
 | ml-eng | Distributed training/inference + notebooks + experiment storage. | spark, ray, jupyterhub, zeppelin, open-webui, supavisor, minio, tei-reranker, langfuse, otel-collector, tempo, loki, mlflow, label-studio |
 | data-eng | Batch + lakehouse + graph + vector with orchestration. | spark, airflow, jupyterhub, zeppelin, jenkins, supavisor, minio, iceberg-rest, trino, redpanda, weaviate, neo4j |
@@ -857,7 +869,7 @@ time.
 | label-studio | supabase, minio | jupyterhub, mlflow | supabase, minio |
 | langfuse | supabase, redis, minio, litellm, kong, ray | - | supabase, redis, minio, litellm |
 | lightrag | litellm | supabase, neo4j, redis, docling | litellm, supabase, neo4j, redis, docling |
-| litellm | supabase, redis | - | supabase, redis, ollama, cloud-providers, hermes, lightrag, otel-collector |
+| litellm | supabase, redis | - | supabase, redis, ollama, cloud-providers, hermes, lightrag, vllm-metal, otel-collector |
 | llm-graph-builder | neo4j, litellm, kong | minio, docling | neo4j, litellm, minio, docling |
 | local-deep-researcher | searxng, litellm | crawl4ai | litellm, searxng, crawl4ai |
 | loki | kong, ray | - | - |
@@ -888,6 +900,7 @@ time.
 | trino | minio, iceberg-rest | spark, zeppelin, jupyterhub, airflow | iceberg-rest, minio |
 | tts-provider | litellm | - | - |
 | verba | weaviate, litellm, kong | docling, open-webui, jupyterhub | weaviate, litellm |
+| vllm-metal | litellm | - | - |
 | weaviate | supabase, litellm | - | litellm, multi2vec-clip |
 | zeppelin | spark | supabase, minio, iceberg-rest, redpanda, trino | spark, supabase, minio, iceberg-rest, redpanda, trino |
 
@@ -940,5 +953,6 @@ time.
 | trino | TRINO_PORT | trino.localhost |
 | tts-provider | TTS_PROVIDER_PORT | tts.localhost |
 | verba | VERBA_PORT | verba.localhost |
+| vllm-metal | VLLM_METAL_LOCALHOST_PORT | - |
 | weaviate | WEAVIATE_PORT, WEAVIATE_GRPC_PORT, WEAVIATE_LOCALHOST_PORT | weaviate.localhost |
 | zeppelin | ZEPPELIN_PORT | zeppelin.localhost |

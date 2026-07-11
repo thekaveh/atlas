@@ -29,7 +29,7 @@
 | label-studio | supabase, minio | jupyterhub, mlflow | supabase, minio |
 | langfuse | supabase, redis, minio, litellm, kong, ray | - | supabase, redis, minio, litellm |
 | lightrag | litellm | supabase, neo4j, redis, docling | litellm, supabase, neo4j, redis, docling |
-| litellm | supabase, redis | - | supabase, redis, ollama, cloud-providers, hermes, lightrag, otel-collector |
+| litellm | supabase, redis | - | supabase, redis, ollama, cloud-providers, hermes, lightrag, vllm-metal, otel-collector |
 | llm-graph-builder | neo4j, litellm, kong | minio, docling | neo4j, litellm, minio, docling |
 | local-deep-researcher | searxng, litellm | crawl4ai | litellm, searxng, crawl4ai |
 | loki | kong, ray | - | - |
@@ -60,5 +60,6 @@
 | trino | minio, iceberg-rest | spark, zeppelin, jupyterhub, airflow | iceberg-rest, minio |
 | tts-provider | litellm | - | - |
 | verba | weaviate, litellm, kong | docling, open-webui, jupyterhub | weaviate, litellm |
+| vllm-metal | litellm | - | - |
 | weaviate | supabase, litellm | - | litellm, multi2vec-clip |
 | zeppelin | spark | supabase, minio, iceberg-rest, redpanda, trino | spark, supabase, minio, iceberg-rest, redpanda, trino |

@@ -169,6 +169,9 @@ class ServiceConfig:
         # Generate LightRAG configuration
         env_vars.update(self._generate_lightrag_config())
 
+        # Generate vLLM Metal (managed-localhost) configuration
+        env_vars.update(self._generate_vllm_metal_config())
+
         # Generate Local Deep Researcher extraction mode and Crawl4AI API
         # configuration. Crawl4AI runs after the LDR mode helper so the
         # service-level endpoint remains available to n8n whenever the service
@@ -768,6 +771,34 @@ class ServiceConfig:
             )
             env_vars['LIGHTRAG_SCALE'] = '1'
             env_vars['LIGHTRAG_INIT_SCALE'] = '1'
+        return env_vars
+
+    def _generate_vllm_metal_config(self) -> Dict[str, str]:
+        """Resolve vLLM Metal (managed-localhost) endpoint and scale.
+
+        vLLM Metal is a virtual, managed-localhost-only service: the
+        bootstrapper installs and supervises a native vLLM process on the
+        host (Apple-silicon Metal backend, via the ``vllm-metal`` plugin)
+        and registers its OpenAI-compatible endpoint with LiteLLM. There is
+        no container source and no Kong route — consumers reach the model
+        only through LiteLLM's `/v1` upstream, so the sole auto-managed
+        outputs are the docker-internal endpoint and a scale sentinel.
+
+        Mirrors _generate_lightrag_config's `localhost` branch: the endpoint
+        resolves to ``http://<localhost_host>:<VLLM_METAL_LOCALHOST_PORT>``
+        (host.docker.internal from inside compose) and scale stays 0 because
+        nothing runs as a container.
+        """
+        source_value = self.service_sources.get('VLLM_METAL_SOURCE', 'disabled')
+        env_vars: Dict[str, str] = {}
+        if source_value == 'managed-localhost':
+            current_env = self.config_parser.parse_env_file()
+            port = current_env.get('VLLM_METAL_LOCALHOST_PORT', '8000')
+            env_vars['VLLM_METAL_ENDPOINT'] = f'http://{self.localhost_host}:{port}'
+            env_vars['VLLM_METAL_SCALE'] = '0'
+        else:  # disabled
+            env_vars['VLLM_METAL_ENDPOINT'] = ''
+            env_vars['VLLM_METAL_SCALE'] = '0'
         return env_vars
 
     def _generate_ray_config(self, source_value: str, shared_env: dict) -> dict:

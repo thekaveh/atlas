@@ -1505,7 +1505,14 @@ class AtlasStarter:
         # when COMFYUI_SOURCE=managed-localhost-mps, preflight + install +
         # launch the native host process containers reach via host.docker.internal.
         # A no-op for every other source (and never selected in CI's .env.example).
-        return self._finalize_managed_comfyui_mps()
+        if not self._finalize_managed_comfyui_mps():
+            return False
+        # Finalize the Atlas-managed vLLM Metal host (#379): when
+        # VLLM_METAL_SOURCE=managed-localhost, preflight + install + launch the
+        # native host vLLM process that litellm-init registers as an
+        # OpenAI-compatible upstream. A no-op for every other source (and never
+        # selected in CI's .env.example, whose default is `disabled`).
+        return self._finalize_managed_vllm_metal()
 
     def _finalize_consumer_storage(self) -> bool:
         """Provision manifest-declared object stores (#404): generate scoped
@@ -1848,6 +1855,64 @@ class AtlasStarter:
                 f"  • Managed ComfyUI (MPS) launched (pid={status.pid}, port "
                 f"{status.port}); still warming up — the first request loads the "
                 f"model. Logs: {status.log_file}",
+                "warning",
+            )
+        return True
+
+    def _finalize_managed_vllm_metal(self) -> bool:
+        """Bring up the Atlas-managed vLLM Metal host (#379).
+
+        Docker Desktop on macOS can't pass Metal into a Linux container, so the
+        ``managed-localhost`` source runs a native vLLM process on the HOST (via
+        the ``vllm-metal`` plugin) and LiteLLM reaches it as an OpenAI-compatible
+        upstream at ``host.docker.internal:<port>/v1``. When that source is
+        selected, preflight + install (idempotent — only the first run installs
+        the wheel + downloads weights) + start the host process here, before
+        ``docker compose up``, so the endpoint is live when litellm-init renders
+        the model_list. A no-op for every other source, so CI (whose
+        ``.env.example`` default is ``disabled``) never touches it.
+
+        Fatal on failure: the user explicitly chose this source, so surface a
+        broken host process loudly rather than boot a stack whose LiteLLM
+        upstream is dead.
+        """
+        from services.vllm_metal_manager import VllmMetalError, manager_from_env
+
+        env = self.config_parser.parse_env_file()
+        if str(env.get("VLLM_METAL_SOURCE", "")).strip() != "managed-localhost":
+            return True
+
+        manager = manager_from_env(env)
+        self.banner.show_status_message(
+            "  • VLLM_METAL_SOURCE=managed-localhost — preparing the native "
+            "Apple-Silicon/Metal vLLM host (first run installs the wheel and "
+            "downloads model weights; this can take several minutes)…",
+            "info",
+        )
+        try:
+            status = manager.ensure_running()
+        except VllmMetalError as exc:
+            self.banner.show_status_message(
+                f"Managed vLLM (Metal) host could not start: {exc}", "error"
+            )
+            return False
+
+        health = manager.wait_healthy(timeout=120.0)
+        if health.get("reachable"):
+            self.banner.show_status_message(
+                f"  • Managed vLLM (Metal) is up on port {status.port} "
+                f"(pid={status.pid}); LiteLLM will register model "
+                f"'{env.get('VLLM_METAL_MODEL', '').strip()}'.",
+                "info",
+            )
+        else:
+            # Not fatal: vLLM loads weights lazily and litellm-init retries the
+            # upstream; the first completion request blocks until the model is
+            # resident.
+            self.banner.show_status_message(
+                f"  • Managed vLLM (Metal) launched (pid={status.pid}, port "
+                f"{status.port}); still loading weights — the first request "
+                f"blocks until ready. Logs: {status.log_file}",
                 "warning",
             )
         return True
@@ -3564,6 +3629,54 @@ def _doctor_check_comfyui_mps(starter: "AtlasStarter") -> dict:
     )
 
 
+def _doctor_check_vllm_metal(starter: "AtlasStarter") -> dict:
+    """Preflight the Atlas-managed vLLM Metal host (#379).
+
+    Only meaningful when VLLM_METAL_SOURCE=managed-localhost. The preflight is
+    read-only (no install, no launch) and CI-safe: on a non-Darwin/arm64 host it
+    reports ``fail`` (the source can't run here) with an actionable message; when
+    the source isn't selected the check is skipped entirely.
+    """
+    env_values = starter.config_parser.parse_env_file()
+    if str(env_values.get("VLLM_METAL_SOURCE", "")).strip() != "managed-localhost":
+        return _doctor_result(
+            "vllm-metal",
+            "skipped",
+            "VLLM_METAL_SOURCE is not managed-localhost.",
+        )
+
+    from services.vllm_metal_manager import manager_from_env
+
+    manager = manager_from_env(env_values)
+    pre = manager.preflight()
+    fails = [c for c in pre.checks if c["status"] == "fail"]
+    warns = [c for c in pre.checks if c["status"] == "warn"]
+    if fails:
+        return _doctor_result(
+            "vllm-metal",
+            "fail",
+            "; ".join(f"{c['name']}: {c['detail']}" for c in fails),
+            details=pre.to_dict(),
+        )
+    status = manager.status()
+    if warns:
+        return _doctor_result(
+            "vllm-metal",
+            "warn",
+            warns[0]["detail"],
+            details={**pre.to_dict(), "running": status.running, "pid": status.pid},
+        )
+    running = "running" if status.running else "not started"
+    return _doctor_result(
+        "vllm-metal",
+        "pass",
+        f"Managed vLLM Metal host preflight passed (host process {running}; "
+        f"port {manager.port}, model {manager.model}, "
+        f"plugin vllm-metal=={manager.plugin_version}).",
+        details={**pre.to_dict(), "running": status.running, "pid": status.pid},
+    )
+
+
 DOCTOR_CHECKS = [
     _doctor_check_consumer_manifests,
     _doctor_check_compose,
@@ -3577,6 +3690,7 @@ DOCTOR_CHECKS = [
     _doctor_check_lightrag_query_profiles,
     _doctor_check_lightrag_rerank_adapter,
     _doctor_check_comfyui_mps,
+    _doctor_check_vllm_metal,
     _doctor_check_endpoints,
     _doctor_check_submodule_clean,
 ]
@@ -3755,6 +3869,10 @@ def _print_doctor_text(results: list[dict]) -> None:
                                  'localhost', 'disabled'],
                                 case_sensitive=False),
               help='Override TEI_RERANKER_SOURCE')
+@click.option('--vllm-metal-source',
+              type=click.Choice(['managed-localhost', 'disabled'],
+                                case_sensitive=False),
+              help='Override VLLM_METAL_SOURCE (Apple-silicon Metal managed host)')
 @click.option('--neo4j-graph-db-source',
               type=click.Choice(['container', 'localhost',
                                 'disabled'], case_sensitive=False),
@@ -3863,6 +3981,7 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
          stt_provider_source, tts_provider_source,
          doc_processor_source, openclaw_source, hermes_source,
          lightrag_source, tei_reranker_source,
+         vllm_metal_source,
          neo4j_graph_db_source,
          multi2vec_clip_source,
          ray_source, ray_worker_count,
@@ -3959,6 +4078,7 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
                     'hermes_source': hermes_source,
                     'lightrag_source': lightrag_source,
                     'tei_reranker_source': tei_reranker_source,
+                    'vllm_metal_source': vllm_metal_source,
                     'neo4j_graph_db_source': neo4j_graph_db_source,
                     'multi2vec_clip_source': multi2vec_clip_source,
                     'ray_source': ray_source,
@@ -4192,6 +4312,7 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
             'hermes_source': hermes_source,
             'lightrag_source': lightrag_source,
             'tei_reranker_source': tei_reranker_source,
+            'vllm_metal_source': vllm_metal_source,
             'neo4j_graph_db_source': neo4j_graph_db_source,
             'multi2vec_clip_source': multi2vec_clip_source,
             'ray_source': ray_source,
@@ -4937,6 +5058,107 @@ def comfyui_mps_health_command() -> None:
 def comfyui_mps_remove_command() -> None:
     """Stop the process and delete the Atlas-owned state directory."""
     manager = _comfyui_mps_manager()
+    manager.remove()
+    click.echo(f"Removed {manager.state_dir}.")
+
+
+@main.group("vllm-metal")
+def vllm_metal_group() -> None:
+    """Manage the native Apple-Silicon/Metal vLLM host (#379).
+
+    Docker Desktop can't pass Metal into a Linux container, so
+    VLLM_METAL_SOURCE=managed-localhost runs a native vLLM process on the host
+    (via the ``vllm-metal`` plugin) that LiteLLM reaches as an OpenAI-compatible
+    upstream at host.docker.internal:<port>/v1. These commands preflight,
+    install/update the pinned wheel + venv, and start/stop/inspect that process.
+    A normal ``./start.sh`` with that source runs install+start automatically;
+    use these for explicit lifecycle control or CI-safe preflight.
+    """
+
+
+def _vllm_metal_manager():
+    from services.vllm_metal_manager import manager_from_env
+
+    starter = AtlasStarter()
+    env = starter.config_parser.parse_env_file()
+    return manager_from_env(env)
+
+
+@vllm_metal_group.command("preflight")
+def vllm_metal_preflight_command() -> None:
+    """Run the read-only host probe (OS/arch, Python 3.12, memory, quant). No install."""
+    manager = _vllm_metal_manager()
+    result = manager.preflight()
+    for check in result.checks:
+        click.echo(f"[{check['status'].upper()}] {check['name']}: {check['detail']}")
+    click.echo(f"\nPreflight: {result.status.upper()}")
+    if not result.ok:
+        raise click.exceptions.Exit(1)
+
+
+@vllm_metal_group.command("install")
+@click.option("--update", is_flag=True, help="Reinstall/upgrade the pinned vllm-metal wheel.")
+def vllm_metal_install_command(update: bool) -> None:
+    """Idempotently install (or --update) the pinned vllm-metal wheel + venv."""
+    from services.vllm_metal_manager import VllmMetalError
+
+    manager = _vllm_metal_manager()
+    try:
+        manager.install(update=update)
+    except VllmMetalError as exc:
+        click.echo(f"Install failed: {exc}", err=True)
+        raise click.exceptions.Exit(1) from exc
+    click.echo(
+        f"Installed vllm-metal=={manager.plugin_version} into {manager.state_dir}."
+    )
+
+
+@vllm_metal_group.command("start")
+def vllm_metal_start_command() -> None:
+    """Launch the managed host process (idempotent — one process per host)."""
+    from services.vllm_metal_manager import VllmMetalError
+
+    manager = _vllm_metal_manager()
+    try:
+        status = manager.start()
+    except VllmMetalError as exc:
+        click.echo(f"Start failed: {exc}", err=True)
+        raise click.exceptions.Exit(1) from exc
+    click.echo(f"vLLM (Metal) running: pid={status.pid} port={status.port}")
+    click.echo(f"Logs: {status.log_file}")
+
+
+@vllm_metal_group.command("stop")
+def vllm_metal_stop_command() -> None:
+    """Stop the managed host process (SIGINT then SIGKILL)."""
+    manager = _vllm_metal_manager()
+    stopped = manager.stop()
+    click.echo("Stopped." if stopped else "No managed vLLM (Metal) process was running.")
+
+
+@vllm_metal_group.command("status")
+def vllm_metal_status_command() -> None:
+    """Show the managed host process status (running / pid / installed version)."""
+    manager = _vllm_metal_manager()
+    status = manager.status()
+    click.echo(json.dumps(status.to_dict(), indent=2))
+
+
+@vllm_metal_group.command("health")
+def vllm_metal_health_command() -> None:
+    """Probe /v1/models and report reachability + served model ids."""
+    manager = _vllm_metal_manager()
+    health = manager.health()
+    click.echo(json.dumps(health, indent=2))
+    if not health.get("reachable"):
+        raise click.exceptions.Exit(1)
+
+
+@vllm_metal_group.command("remove")
+@click.confirmation_option(prompt="Stop the process and delete the managed state directory?")
+def vllm_metal_remove_command() -> None:
+    """Stop the process and delete the Atlas-owned state directory."""
+    manager = _vllm_metal_manager()
     manager.remove()
     click.echo(f"Removed {manager.state_dir}.")
 
