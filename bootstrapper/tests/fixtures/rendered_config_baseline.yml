@@ -466,6 +466,14 @@ services:
       LITELLM_DEFAULT_MODEL: ollama/qwen3.6:latest
       LITELLM_EMBEDDING_MODEL: ollama/nomic-embed-text
       MAX_UPLOAD_BYTES: '104857600'
+      MEDIA_BUDGET_ALLOW_UNKNOWN_COST: 'false'
+      MEDIA_BUDGET_CONSUMER_CAPS: ''
+      MEDIA_BUDGET_CURRENCY: USD
+      MEDIA_BUDGET_DEFAULT_USD: ''
+      MEDIA_BUDGET_ENABLED: 'false'
+      MEDIA_BUDGET_RETENTION_DAYS: ''
+      MEDIA_BUDGET_STORE: postgres
+      MEDIA_DISABLED_PROVIDERS: ''
       N8N_API_KEY: ''
       N8N_BASE_URL: http://n8n:5678
       NEO4J_PASSWORD: neo4j_password
