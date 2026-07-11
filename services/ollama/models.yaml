@@ -12,6 +12,12 @@ content:
     default: true
     description: "Qwen3.6 multimodal — strong content + vision, default content model"
     badges: [default]
+    metadata_version: 1
+    kind: chat
+    adapter: ollama_chat
+    capabilities: {chat: true, tools: true, reasoning: true, structured_output: true}
+    request_defaults: {think: false}
+    recommended_roles: [extract, keyword, query, judge]
 # `dim:` is the model's output vector dimension. The wizard pre-selects the
 # embedding model whose dim matches the consumer's required dimension — the
 # backend memory_facts vector(768) column (model_resolver.MEMORY_FACTS_EMBEDDING_DIM).
@@ -25,10 +31,34 @@ embeddings:
     default: true
     description: "Nomic text embeddings — small, fast"
     badges: [default, embeddings]
+    metadata_version: 1
+    kind: embedding
+    adapter: ollama
+    capabilities: {embedding: true}
+    recommended_roles: [embedding]
   - name: qwen3-embedding:0.6b
     dim: 1536
     default: true
     description: "Qwen3 embeddings, 0.6B — top of MTEB multilingual leaderboard"
     badges: [default, embeddings]
+    metadata_version: 1
+    kind: embedding
+    adapter: ollama
+    capabilities: {embedding: true}
+    recommended_roles: [embedding]
+  - name: bge-m3
+    dim: 1024
+    description: "BAAI multilingual embedding model — dense, sparse, and multi-vector retrieval"
+    badges: [embeddings]
+    metadata_version: 1
+    kind: embedding
+    adapter: ollama
+    capabilities: {embedding: true}
+    recommended_roles: [embedding]
 vision:
   - name: qwen3.6:latest
+    metadata_version: 1
+    kind: chat
+    adapter: ollama_chat
+    capabilities: {vision: true}
+    recommended_roles: [vision]
