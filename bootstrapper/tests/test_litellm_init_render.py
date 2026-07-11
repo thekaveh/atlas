@@ -415,3 +415,115 @@ class TestLlmCatalogComment:
         from utils import llm_catalog  # noqa: F401
         assert hasattr(llm_catalog, "OLLAMA_DEFAULT_CATALOG")
         assert hasattr(llm_catalog, "CLOUD_CATALOG")
+
+
+class TestConsumerModelMerge:
+    """#411 — init.py merges bootstrapper-generated consumer-owned model rows
+    from LITELLM_CONSUMER_MODELS_FILE into the rendered config, after the stack
+    rows, without crashing on a missing/malformed file.
+    """
+
+    _GOOD_FILE = (
+        "# generated\n"
+        "model_list:\n"
+        "  - model_name: graph-rag\n"
+        "    litellm_params:\n"
+        "      model: openai/graph-rag\n"
+        "      api_base: http://backend:8000/graph-rag/v1\n"
+        "      api_key: os.environ/RAG_KEY\n"
+        "    model_info:\n"
+        "      atlas_owner: rag-showcase\n"
+        "      atlas_managed: true\n"
+        "  - model_name: vanilla-rag\n"
+        "    litellm_params:\n"
+        "      model: openai/vanilla-rag\n"
+        "      api_base: http://backend:8000/vanilla-rag/v1\n"
+        "    model_info:\n"
+        "      atlas_owner: rag-showcase\n"
+    )
+
+    def test_render_config_appends_consumer_rows(self, tmp_path):
+        f = tmp_path / "consumer-models.yaml"
+        f.write_text(self._GOOD_FILE, encoding="utf-8")
+        mod = _load_init_module({
+            "LITELLM_CONSUMER_MODELS_FILE": str(f),
+            "LLM_PROVIDER_SOURCE": "none",
+            "HERMES_SOURCE": "disabled",
+            "LIGHTRAG_SOURCE": "disabled",
+        })
+        config = mod.render_config([])
+        names = [row["model_name"] for row in config["model_list"]]
+        assert names[-2:] == ["graph-rag", "vanilla-rag"]
+        graph = next(r for r in config["model_list"] if r["model_name"] == "graph-rag")
+        assert graph["litellm_params"]["api_base"] == "http://backend:8000/graph-rag/v1"
+        assert graph["model_info"]["atlas_owner"] == "rag-showcase"
+
+    def test_missing_file_is_noop(self, tmp_path):
+        mod = _load_init_module({
+            "LITELLM_CONSUMER_MODELS_FILE": str(tmp_path / "does-not-exist.yaml"),
+            "LLM_PROVIDER_SOURCE": "none",
+            "HERMES_SOURCE": "disabled",
+            "LIGHTRAG_SOURCE": "disabled",
+        })
+        assert mod.load_consumer_model_rows() == []
+        config = mod.render_config([])
+        names = [row["model_name"] for row in config["model_list"]]
+        assert "graph-rag" not in names
+
+    def test_malformed_rows_skipped(self, tmp_path):
+        f = tmp_path / "consumer-models.yaml"
+        f.write_text(
+            "model_list:\n"
+            "  - model_name: keep-me\n"
+            "    litellm_params: {model: openai/keep-me, api_base: http://backend:8000/x}\n"
+            "  - litellm_params: {model: openai/no-name}\n"  # missing model_name
+            "  - not-a-mapping\n",
+            encoding="utf-8",
+        )
+        mod = _load_init_module({"LITELLM_CONSUMER_MODELS_FILE": str(f)})
+        rows = mod.load_consumer_model_rows()
+        assert [r["model_name"] for r in rows] == ["keep-me"]
+
+    def test_invalid_yaml_degrades_without_crash(self, tmp_path):
+        f = tmp_path / "consumer-models.yaml"
+        f.write_text("model_list: [unclosed\n", encoding="utf-8")
+        mod = _load_init_module({"LITELLM_CONSUMER_MODELS_FILE": str(f)})
+        assert mod.load_consumer_model_rows() == []
+
+    def test_consumer_row_colliding_with_stack_is_skipped(self, tmp_path):
+        """Last-line anti-hijack: a consumer row whose model_name collides with an
+        already-rendered stack row (here the runtime hermes-agent) is SKIPPED, so
+        the stack row always wins — even if the generated file was hand-crafted to
+        bypass the bootstrapper's host-side reserved-alias reject.
+        """
+        f = tmp_path / "consumer-models.yaml"
+        f.write_text(
+            "model_list:\n"
+            "  - model_name: hermes-agent\n"          # collides with the stack row
+            "    litellm_params:\n"
+            "      model: openai/hermes-agent\n"
+            "      api_base: http://backend:8000/evil/v1\n"
+            "    model_info:\n"
+            "      atlas_owner: attacker\n"
+            "  - model_name: safe-consumer-model\n"    # unique → should be kept
+            "    litellm_params:\n"
+            "      model: openai/safe-consumer-model\n"
+            "      api_base: http://backend:8000/safe/v1\n",
+            encoding="utf-8",
+        )
+        mod = _load_init_module({
+            "LITELLM_CONSUMER_MODELS_FILE": str(f),
+            "LLM_PROVIDER_SOURCE": "none",
+            "HERMES_SOURCE": "container",                 # renders the stack hermes row
+            "HERMES_ENDPOINT": "http://hermes:9000",
+            "LIGHTRAG_SOURCE": "disabled",
+        })
+        config = mod.render_config([])
+        hermes_rows = [r for r in config["model_list"] if r["model_name"] == "hermes-agent"]
+        # Exactly one hermes-agent, and it is the STACK row (not the consumer's).
+        assert len(hermes_rows) == 1
+        assert hermes_rows[0]["litellm_params"]["api_base"] == "http://hermes:9000/v1"
+        assert "evil" not in hermes_rows[0]["litellm_params"]["api_base"]
+        # The non-colliding consumer row is still merged.
+        names = [r["model_name"] for r in config["model_list"]]
+        assert "safe-consumer-model" in names

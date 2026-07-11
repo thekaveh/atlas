@@ -94,6 +94,17 @@ HERMES_ENDPOINT = os.environ.get("HERMES_ENDPOINT", "").strip()
 
 CONFIG_OUT = Path(os.environ.get("LITELLM_CONFIG_OUT", "/litellm-config/config.yaml"))
 
+# Consumer-owned model rows (#411) — a bootstrapper-generated, fully-resolved
+# YAML file (``model_list: [...]``) written under the shared /litellm-config
+# mount. Atlas resolves ownership + api_base + secret references host-side, so
+# init.py only *merges* the rows; it never resolves templates or credentials.
+# Default lives in the same bind mount as CONFIG_OUT — no extra mount needed.
+CONSUMER_MODELS_FILE = Path(
+    os.environ.get(
+        "LITELLM_CONSUMER_MODELS_FILE", "/litellm-config/consumer-models.yaml"
+    )
+)
+
 
 # ─── DB connection ────────────────────────────────────────────────────
 # NOTE: psycopg2 is imported lazily inside ensure_litellm_db() so that
@@ -531,6 +542,54 @@ def lightrag_model_entry() -> dict[str, Any] | None:
     }
 
 
+def load_consumer_model_rows() -> list[dict[str, Any]]:
+    """Load bootstrapper-generated consumer-owned model rows (#411).
+
+    The file is produced host-side by the Atlas consumer LiteLLM contract with
+    ownership, api_base, and secret references already resolved. init.py trusts
+    it (it is Atlas-owned, gitignored, regenerated every start) and only merges
+    valid ``model_name`` rows. A missing/empty/malformed file is non-fatal — the
+    stack and catalog rows still render — so a bad consumer artifact degrades to
+    "no consumer models" rather than crashing litellm-init.
+    """
+    if not CONSUMER_MODELS_FILE.is_file():
+        return []
+    try:
+        data = yaml.safe_load(CONSUMER_MODELS_FILE.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError as exc:
+        print(
+            f"  ⚠ could not parse consumer models file {CONSUMER_MODELS_FILE}: {exc} "
+            "— skipping consumer model rows",
+            flush=True,
+        )
+        return []
+    if not isinstance(data, dict):
+        print(
+            f"  ⚠ consumer models file {CONSUMER_MODELS_FILE} is not a mapping "
+            "— skipping consumer model rows",
+            flush=True,
+        )
+        return []
+    rows = data.get("model_list") or []
+    if not isinstance(rows, list):
+        print(
+            f"  ⚠ consumer models file {CONSUMER_MODELS_FILE} model_list is not a list "
+            "— skipping consumer model rows",
+            flush=True,
+        )
+        return []
+    valid: list[dict[str, Any]] = []
+    for row in rows:
+        if isinstance(row, dict) and row.get("model_name"):
+            valid.append(row)
+        else:
+            print(
+                f"  ⚠ skipping malformed consumer model row: {row!r}",
+                flush=True,
+            )
+    return valid
+
+
 def render_config(active_rows: list[Any]) -> dict[str, Any]:
     """Build the complete config.yaml dict (model_list + settings).
     The settings half comes from bootstrapper/utils/litellm_settings.py
@@ -554,6 +613,42 @@ def render_config(active_rows: list[Any]) -> dict[str, Any]:
         model_list.append(lightrag_entry)
         print(
             f"  ↳ appended lightrag entry → {lightrag_entry['litellm_params']['api_base']}",
+            flush=True,
+        )
+    # Consumer-owned rows (#411) merge last so a downstream integration's models
+    # appear in /v1/models alongside the stack's — Open WebUI, n8n, backend all
+    # discover them for free. Ordering after the stack rows keeps the stack
+    # deterministic; a removed manifest simply drops its rows from this file.
+    #
+    # Authoritative anti-hijack guard: the stack rows are rendered FIRST, so
+    # ``existing`` holds every stack/catalog/ollama/hermes/lightrag model_name.
+    # A consumer row whose alias collides is SKIPPED (never appended) — LiteLLM
+    # treats duplicate model_names as one load-balanced deployment group, so an
+    # un-skipped collision would silently route a fraction of a stack model's
+    # traffic to the consumer's endpoint. Skipping here (using the ACTUAL rendered
+    # set, so no drift vs a re-derivation) makes the stack row always win, even if
+    # the host-side reserved-alias check was bypassed. The bootstrapper rejects
+    # catalog collisions up front; this is the last-line defense in depth.
+    existing = {
+        row.get("model_name")
+        for row in model_list
+        if isinstance(row, dict) and row.get("model_name")
+    }
+    for row in load_consumer_model_rows():
+        name = row["model_name"]
+        owner = row.get("model_info", {}).get("atlas_owner", "?")
+        if name in existing:
+            print(
+                f"  ⚠ consumer model '{name}' (owner={owner}) collides with an "
+                "existing stack model — skipping to protect the stack row",
+                flush=True,
+            )
+            continue
+        existing.add(name)
+        model_list.append(row)
+        print(
+            f"  ↳ appended consumer model '{name}' (owner={owner}) → "
+            f"{row.get('litellm_params', {}).get('api_base', '?')}",
             flush=True,
         )
     return {

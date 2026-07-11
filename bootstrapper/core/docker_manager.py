@@ -163,11 +163,23 @@ class DockerManager:
         user_dir = self.root_dir / "services" / "_user"
         overlays = sorted(user_dir.glob("*/compose.yml")) if user_dir.is_dir() else []
         consumer_overlays = list(self.config_parser.load_consumer_config().compose_overlays)
-        # Atlas-owned minio-init storage overlay (#404), generated during
-        # generate_service_configuration when a consumer declares object stores.
-        from core.consumer_manifest import MINIO_STORAGE_OVERLAY_PATH
+        # Atlas-owned generated overlays, produced during
+        # generate_service_configuration when a consumer declares the relevant
+        # section: the minio-init storage overlay (#404) and the litellm api-key
+        # overlay (#411, injects consumer api-key references into the litellm
+        # container so it resolves os.environ/<VAR> at request time).
+        from core.consumer_manifest import (
+            LITELLM_CONSUMER_OVERLAY_PATH,
+            MINIO_STORAGE_OVERLAY_PATH,
+        )
         storage_overlay = self.root_dir / MINIO_STORAGE_OVERLAY_PATH
-        if not overlays and not consumer_overlays and not storage_overlay.exists():
+        litellm_overlay = self.root_dir / LITELLM_CONSUMER_OVERLAY_PATH
+        if (
+            not overlays
+            and not consumer_overlays
+            and not storage_overlay.exists()
+            and not litellm_overlay.exists()
+        ):
             return []
         file_args: List[str] = ['-f', 'docker-compose.yml']
         for overlay in overlays:
@@ -176,6 +188,8 @@ class DockerManager:
             file_args.extend(['-f', str(overlay)])
         if storage_overlay.exists():
             file_args.extend(['-f', str(storage_overlay.relative_to(self.root_dir))])
+        if litellm_overlay.exists():
+            file_args.extend(['-f', str(litellm_overlay.relative_to(self.root_dir))])
         return file_args
 
     def execute_compose_command(

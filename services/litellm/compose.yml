@@ -22,6 +22,12 @@ services:
       # cloud-only setups. See .env.example LITELLM_OLLAMA_UPSTREAM.
       LITELLM_OLLAMA_UPSTREAM: ${LITELLM_OLLAMA_UPSTREAM-http://ollama:11434}
       LITELLM_CONFIG_OUT: /litellm-config/config.yaml
+      # Consumer-owned model rows (#411) — a bootstrapper-generated,
+      # fully-resolved YAML file that init.py merges into config.yaml before
+      # LiteLLM starts. Lives in the /litellm-config bind mount (below), so no
+      # extra mount is needed. Absent unless a consumer manifest declares
+      # litellm_models; init.py degrades cleanly when the file is missing.
+      LITELLM_CONSUMER_MODELS_FILE: /litellm-config/consumer-models.yaml
       # Where llm_catalog looks for the YAML catalogs (ollama-models.yaml /
       # litellm-models.yaml). Points at the dedicated /atlas-models mount below
       # — NOT nested under the read-only /catalog bind mount (see volumes).

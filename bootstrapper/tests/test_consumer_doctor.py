@@ -227,6 +227,176 @@ def test_doctor_plugin_manifests_reports_malformed(tmp_path, monkeypatch) -> Non
     assert "invalid plugin.yml" in " ".join(checks["plugin-manifests"]["details"]["warnings"])
 
 
+def _write_consumer_manifest(tmp_path: Path, name: str, body: str) -> Path:
+    import textwrap
+
+    d = tmp_path / name
+    d.mkdir(parents=True, exist_ok=True)
+    manifest = d / "atlas.consumer.yml"
+    manifest.write_text(f"name: {name}\n" + textwrap.dedent(body), encoding="utf-8")
+    return manifest
+
+
+def test_doctor_litellm_models_pass_when_route_matches_plugin(tmp_path, monkeypatch) -> None:
+    import start as start_module
+
+    plugins_dir = tmp_path / "plugins"
+    plugins_dir.mkdir()
+    _write_plugin(
+        plugins_dir, "graphrag",
+        "plugin_manifest_version: 1\nname: graphrag\nroute_prefix: /graph-rag\n",
+    )
+    manifest = _write_consumer_manifest(
+        tmp_path, "rag-showcase",
+        """
+        litellm_models:
+          version: 1
+          models:
+            - name: graph-rag
+              api_base: "${ATLAS_BACKEND_INTERNAL}/graph-rag/v1"
+              api_key_var: RAG_KEY
+        """,
+    )
+    _write_base_env(tmp_path, extra=f"BACKEND_PLUGINS_DIR={plugins_dir}\n")
+    monkeypatch.setenv("ATLAS_CONSUMER_MANIFEST", str(manifest))
+    _patch_starter_paths(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        start_module.DockerManager,
+        "validate_compose_config",
+        lambda self: (0, "", "", ["docker", "compose", "config", "-q"]),
+    )
+
+    result = CliRunner().invoke(start_module.main, ["doctor", "--format", "json"])
+    assert result.exit_code == 0, result.output
+    checks = {entry["id"]: entry for entry in json.loads(result.output)["checks"]}
+    assert checks["litellm-models"]["status"] == "pass"
+    assert "graph-rag" in checks["litellm-models"]["details"]["models"]
+    assert "rag-showcase" in checks["litellm-models"]["details"]["owners"]
+
+
+def test_doctor_litellm_models_warns_on_unmatched_route(tmp_path, monkeypatch) -> None:
+    import start as start_module
+
+    plugins_dir = tmp_path / "plugins"
+    plugins_dir.mkdir()
+    # Plugin serves /tableau, but the model points at /graph-rag → warn.
+    _write_plugin(
+        plugins_dir, "tableau",
+        "plugin_manifest_version: 1\nname: tableau\nroute_prefix: /tableau\n",
+    )
+    manifest = _write_consumer_manifest(
+        tmp_path, "rag-showcase",
+        """
+        litellm_models:
+          version: 1
+          models:
+            - name: graph-rag
+              api_base: "${ATLAS_BACKEND_INTERNAL}/graph-rag/v1"
+        """,
+    )
+    _write_base_env(tmp_path, extra=f"BACKEND_PLUGINS_DIR={plugins_dir}\n")
+    monkeypatch.setenv("ATLAS_CONSUMER_MANIFEST", str(manifest))
+    _patch_starter_paths(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        start_module.DockerManager,
+        "validate_compose_config",
+        lambda self: (0, "", "", ["docker", "compose", "config", "-q"]),
+    )
+
+    result = CliRunner().invoke(start_module.main, ["doctor", "--format", "json"])
+    # warn is advisory — doctor stays green.
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    checks = {entry["id"]: entry for entry in payload["checks"]}
+    assert checks["litellm-models"]["status"] == "warn"
+    warnings = " ".join(checks["litellm-models"]["details"]["warnings"])
+    assert "/graph-rag" in warnings and "no declared plugin route_prefix" in warnings
+    assert payload["ok"] is True
+
+
+def test_doctor_litellm_models_no_warn_on_builtin_route(tmp_path, monkeypatch) -> None:
+    import start as start_module
+
+    # A plugin exists (so the cross-check is active), but the model points at a
+    # BUILT-IN backend route (/research is a reserved route prefix), which is a
+    # legitimate target — the doctor must not cry wolf.
+    plugins_dir = tmp_path / "plugins"
+    plugins_dir.mkdir()
+    _write_plugin(
+        plugins_dir, "tableau",
+        "plugin_manifest_version: 1\nname: tableau\nroute_prefix: /tableau\n",
+    )
+    manifest = _write_consumer_manifest(
+        tmp_path, "research-consumer",
+        """
+        litellm_models:
+          version: 1
+          models:
+            - name: deep-research
+              api_base: "${ATLAS_BACKEND_INTERNAL}/research/v1"
+        """,
+    )
+    _write_base_env(tmp_path, extra=f"BACKEND_PLUGINS_DIR={plugins_dir}\n")
+    monkeypatch.setenv("ATLAS_CONSUMER_MANIFEST", str(manifest))
+    _patch_starter_paths(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        start_module.DockerManager,
+        "validate_compose_config",
+        lambda self: (0, "", "", ["docker", "compose", "config", "-q"]),
+    )
+
+    result = CliRunner().invoke(start_module.main, ["doctor", "--format", "json"])
+    assert result.exit_code == 0, result.output
+    checks = {entry["id"]: entry for entry in json.loads(result.output)["checks"]}
+    assert checks["litellm-models"]["status"] == "pass"
+
+
+def test_doctor_litellm_models_fails_on_invalid_api_base(tmp_path, monkeypatch) -> None:
+    import start as start_module
+
+    manifest = _write_consumer_manifest(
+        tmp_path, "ssrf",
+        """
+        litellm_models:
+          version: 1
+          models:
+            - name: exfil
+              api_base: "http://evil.example.com/v1"
+        """,
+    )
+    _write_base_env(tmp_path)
+    monkeypatch.setenv("ATLAS_CONSUMER_MANIFEST", str(manifest))
+    _patch_starter_paths(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        start_module.DockerManager,
+        "validate_compose_config",
+        lambda self: (0, "", "", ["docker", "compose", "config", "-q"]),
+    )
+
+    result = CliRunner().invoke(start_module.main, ["doctor", "--format", "json"])
+    checks = {entry["id"]: entry for entry in json.loads(result.output)["checks"]}
+    assert checks["litellm-models"]["status"] == "fail"
+    assert "not an approved Atlas endpoint" in checks["litellm-models"]["message"]
+
+
+def test_doctor_litellm_models_pass_when_none(tmp_path, monkeypatch) -> None:
+    import start as start_module
+
+    _write_base_env(tmp_path)
+    _patch_starter_paths(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        start_module.DockerManager,
+        "validate_compose_config",
+        lambda self: (0, "", "", ["docker", "compose", "config", "-q"]),
+    )
+
+    result = CliRunner().invoke(start_module.main, ["doctor", "--format", "json"])
+    assert result.exit_code == 0, result.output
+    checks = {entry["id"]: entry for entry in json.loads(result.output)["checks"]}
+    assert checks["litellm-models"]["status"] == "pass"
+    assert "No consumer LiteLLM models" in checks["litellm-models"]["message"]
+
+
 def test_consumer_doctor_docs_are_published_on_all_surfaces() -> None:
     reusing = REUSING_ATLAS.read_text(encoding="utf-8")
     assert "./start.sh doctor" in reusing

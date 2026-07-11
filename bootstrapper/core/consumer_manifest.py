@@ -72,6 +72,60 @@ class StorageOverlay:
 
 
 @dataclass(frozen=True)
+class LitellmModel:
+    """One consumer-owned LiteLLM model row (#411).
+
+    ``api_base`` is the *resolved* concrete in-network URL (Atlas endpoint
+    templates already substituted); ``model`` is the OpenAI-compatible provider
+    handle (``openai/<alias>``). ``api_key_var`` is a **reference** to an env var
+    name — never a literal secret. ``consumer`` is the manifest-derived owner
+    (non-spoofable); it is stamped into ``model_info.atlas_owner`` so a removed
+    manifest can drop exactly its own rows.
+    """
+
+    consumer: str
+    name: str
+    api_base: str
+    model: str
+    api_key_var: str | None = None
+    description: str | None = None
+    tags: tuple[str, ...] = ()
+    model_info: Mapping[str, Any] = field(default_factory=dict)
+
+    def to_row(self) -> dict[str, Any]:
+        """Render the LiteLLM ``model_list`` entry (config.yaml shape)."""
+        params: dict[str, Any] = {"model": self.model, "api_base": self.api_base}
+        if self.api_key_var:
+            # LiteLLM resolves ``os.environ/<VAR>`` at request time (same form
+            # as the stack hermes-agent row). The secret VALUE never appears here.
+            params["api_key"] = f"os.environ/{self.api_key_var}"
+        # Ownership markers first so a consumer-supplied model_info cannot
+        # override them (they are filtered out of the user block below).
+        info: dict[str, Any] = {"atlas_owner": self.consumer, "atlas_managed": True}
+        if self.description:
+            info["description"] = self.description
+        if self.tags:
+            info["tags"] = list(self.tags)
+        for key, value in self.model_info.items():
+            if key not in ("atlas_owner", "atlas_managed"):
+                info[str(key)] = value
+        return {
+            "model_name": self.name,
+            "litellm_params": params,
+            "model_info": info,
+        }
+
+
+@dataclass(frozen=True)
+class LitellmArtifact:
+    """An Atlas-generated LiteLLM runtime artifact (path + content) written under
+    the gitignored ``volumes/litellm`` tree and regenerated every start."""
+
+    path: Path
+    content: str
+
+
+@dataclass(frozen=True)
 class ConsumerRecord:
     name: str
     manifest_path: Path
@@ -80,6 +134,7 @@ class ConsumerRecord:
     comfyui_sidecars: tuple[Path, ...] = ()
     ollama_models: tuple[str, ...] = ()
     storage: tuple[StorageStore, ...] = ()
+    litellm_models: tuple[LitellmModel, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -89,6 +144,9 @@ class ConsumerConfig:
     compose_overlays: list[Path] = field(default_factory=list)
     storage: tuple[StorageStore, ...] = ()
     storage_overlay: StorageOverlay | None = None
+    litellm_models: tuple[LitellmModel, ...] = ()
+    litellm_models_file: LitellmArtifact | None = None
+    litellm_overlay: LitellmArtifact | None = None
 
     @property
     def is_empty(self) -> bool:
@@ -489,6 +547,338 @@ def render_minio_storage_overlay(stores: Iterable[StorageStore]) -> str:
     return "\n".join(lines) + "\n"
 
 
+# ─── Consumer LiteLLM model contract (#411) ──────────────────────────
+#
+# A consumer declares OpenAI-compatible model aliases (typically served by its
+# own #402 backend plugin routes) in a versioned ``litellm_models:`` block.
+# Atlas resolves each ``api_base`` against an allowlist of approved in-network
+# Atlas endpoints, stamps manifest-derived ownership, and compiles the rows to a
+# generated file that ``litellm-init`` merges into the LiteLLM config BEFORE
+# LiteLLM starts (declarative merge — no admin API calls). A companion compose
+# overlay injects the referenced api-key env vars into the ``litellm`` container
+# so it can resolve ``os.environ/<VAR>`` at request time. Both artifacts are
+# regenerated every start, so removing a manifest drops only its rows.
+
+# Generated LiteLLM artifacts live under the gitignored volumes/ runtime tree.
+LITELLM_CONSUMER_MODELS_PATH = Path("volumes/litellm/consumer-models.yaml")
+LITELLM_CONSUMER_OVERLAY_PATH = Path("volumes/litellm/consumer-models.compose.yml")
+
+# Approved Atlas in-network endpoint templates for consumer ``api_base``. A
+# consumer references a token (``${ATLAS_BACKEND_INTERNAL}``) and Atlas
+# substitutes the concrete in-network base URL. This is an *allowlist*: the
+# resolved host:port MUST be one of these Atlas services, so a generated LiteLLM
+# row can never point at an arbitrary external host (SSRF / exfiltration surface)
+# and arbitrary unresolved ``${...}`` interpolation or a URL that carries a
+# credential (userinfo / query / fragment) is rejected. In-network URLs use fixed
+# container-internal ports, so they are BASE_PORT-independent and resolve without env.
+LITELLM_ENDPOINT_TEMPLATES: dict[str, str] = {
+    # Atlas backend (FastAPI) — where #402 backend plugins mount their
+    # OpenAI-compatible routes. The container listens on a fixed internal :8000.
+    "ATLAS_BACKEND_INTERNAL": "http://backend:8000",
+}
+
+# The two runtime-stitched stack rows (see init.py hermes/lightrag). The full
+# reserved set (``_reserved_litellm_aliases()``) unions these with every YAML
+# catalog model name so a consumer can't hijack a stack model alias.
+_RESERVED_LITELLM_ALIASES_BASE = frozenset({"hermes-agent", "lightrag"})
+
+# Only these keys are accepted on a model entry; ``api_key`` (a literal secret)
+# is rejected with a dedicated message pointing at ``api_key_var``.
+_LITELLM_ALLOWED_MODEL_KEYS = frozenset(
+    {"name", "api_base", "api_key_var", "description", "tags", "model_info", "owner"}
+)
+
+_LITELLM_ALIAS_RE = __import__("re").compile(r"^[a-z0-9][a-z0-9._-]*$")
+_LITELLM_ENV_VAR_RE = __import__("re").compile(r"^[A-Z][A-Z0-9_]*$")
+_LITELLM_TOKEN_RE = __import__("re").compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+
+
+def _reserved_litellm_aliases() -> frozenset[str]:
+    """Stack-owned aliases a consumer may not claim.
+
+    Unions the two runtime-stitched rows (hermes-agent, lightrag) with every
+    model name declared in the YAML catalogs (openai/anthropic/openrouter/ollama),
+    so a consumer alias like ``gpt-4o`` or ``nomic-embed-text`` is rejected up
+    front instead of silently shadowing the stack row in ``model_list``. The set
+    is catalog-derived (single source of truth). A catalog-load failure degrades
+    to the static pair — init.py's merge-time skip still protects the stack rows
+    regardless (defense in depth), so this stays a fail-fast convenience.
+    """
+    reserved = set(_RESERVED_LITELLM_ALIASES_BASE)
+    try:
+        try:
+            from utils import llm_catalog  # bootstrapper package context
+        except ImportError:
+            import llm_catalog  # container / loose-import context
+        for entry in llm_catalog.all_catalog_entries():
+            name = str(getattr(entry, "name", "")).strip().lower()
+            if name:
+                reserved.add(name)
+    except Exception:  # noqa: BLE001 — best-effort; init.py is the hard guard
+        pass
+    return frozenset(reserved)
+
+
+def _approved_litellm_hosts() -> set[str]:
+    import urllib.parse
+
+    return {
+        urllib.parse.urlparse(base).netloc
+        for base in LITELLM_ENDPOINT_TEMPLATES.values()
+    }
+
+
+def _resolve_litellm_api_base(raw: str, *, alias: str, origin: str) -> str:
+    """Resolve + validate a consumer ``api_base`` to a concrete in-network URL.
+
+    Substitutes approved ``${ATLAS_*}`` templates, then rejects (a) any remaining
+    interpolation, (b) a URL carrying a credential — userinfo, query string, or
+    fragment (structural, so no denylist to bypass), and (c) a resolved host that
+    is not an approved Atlas endpoint. The result is a clean ``scheme://host/path``.
+    """
+    import urllib.parse
+
+    value = str(raw).strip()
+    if not value:
+        raise ConsumerManifestError(
+            f"litellm_models entry {alias!r} requires a non-empty api_base ({origin})"
+        )
+
+    def _sub(match: "Any") -> str:
+        token = match.group(1)
+        if token not in LITELLM_ENDPOINT_TEMPLATES:
+            raise ConsumerManifestError(
+                f"litellm_models entry {alias!r} references unapproved endpoint "
+                f"template ${{{token}}}; approved: "
+                f"{', '.join(sorted(LITELLM_ENDPOINT_TEMPLATES))} ({origin})"
+            )
+        return LITELLM_ENDPOINT_TEMPLATES[token]
+
+    resolved = _LITELLM_TOKEN_RE.sub(_sub, value)
+    if "${" in resolved or "$(" in resolved:
+        raise ConsumerManifestError(
+            f"litellm_models entry {alias!r} api_base has unresolved interpolation "
+            f"after template substitution: {resolved!r} ({origin})"
+        )
+    parsed = urllib.parse.urlparse(resolved)
+    if parsed.scheme not in ("http", "https"):
+        raise ConsumerManifestError(
+            f"litellm_models entry {alias!r} api_base must be an http(s) URL: "
+            f"{resolved!r} ({origin})"
+        )
+    if parsed.username or parsed.password or "@" in parsed.netloc:
+        raise ConsumerManifestError(
+            f"litellm_models entry {alias!r} api_base may not embed userinfo "
+            f"credentials ({origin})"
+        )
+    # A LiteLLM api_base is a clean base URL (scheme://host/path). A query string
+    # or fragment has no legitimate role here and is the usual carrier for a
+    # credential literal (?authorization=…, ?api_key=…, #token). Reject the whole
+    # class STRUCTURALLY rather than denylisting parameter names — a denylist
+    # ("api_key=" only) misses "authorization=", bare bearer tokens, and %-encoded
+    # variants, leaking the secret into the generated file and the init log.
+    if parsed.query or parsed.fragment:
+        raise ConsumerManifestError(
+            f"litellm_models entry {alias!r} api_base may not contain a query string "
+            f"or fragment (credentials belong in api_key_var, not the URL): "
+            f"{resolved!r} ({origin})"
+        )
+    allowed = _approved_litellm_hosts()
+    if parsed.netloc not in allowed:
+        raise ConsumerManifestError(
+            f"litellm_models entry {alias!r} api_base host {parsed.netloc!r} is not an "
+            f"approved Atlas endpoint; resolve via one of "
+            f"{', '.join('${' + t + '}' for t in sorted(LITELLM_ENDPOINT_TEMPLATES))} "
+            f"(approved hosts: {', '.join(sorted(allowed))}) ({origin})"
+        )
+    # Strip a trailing slash for byte-stable output; LiteLLM expects a bare base.
+    return resolved.rstrip("/")
+
+
+def _parse_litellm_models_block(
+    data: Mapping[str, Any], consumer_name: str, manifest_path: Path
+) -> list[LitellmModel]:
+    """Parse + validate a manifest ``litellm_models:`` block into rows."""
+    raw_block = data.get("litellm_models")
+    if not raw_block:
+        return []
+    origin = str(manifest_path)
+    if not isinstance(raw_block, Mapping):
+        raise ConsumerManifestError(f"litellm_models must be a mapping in {manifest_path}")
+    version = raw_block.get("version")
+    if version != 1:
+        raise ConsumerManifestError(
+            f"litellm_models.version must be 1 (got {version!r}) in {manifest_path}"
+        )
+    raw_models = raw_block.get("models")
+    if not isinstance(raw_models, list) or not raw_models:
+        raise ConsumerManifestError(
+            f"litellm_models.models must be a non-empty list in {manifest_path}"
+        )
+
+    reserved = _reserved_litellm_aliases()
+    models: list[LitellmModel] = []
+    seen: set[str] = set()
+    for raw in raw_models:
+        if not isinstance(raw, Mapping):
+            raise ConsumerManifestError(
+                f"litellm_models.models entries must be mappings in {manifest_path}"
+            )
+        keys = {str(k) for k in raw.keys()}
+        if "api_key" in keys:
+            raise ConsumerManifestError(
+                f"litellm_models entry may not set a literal api_key; use api_key_var "
+                f"(an env var NAME) for secret references ({origin})"
+            )
+        unknown = keys - _LITELLM_ALLOWED_MODEL_KEYS
+        if unknown:
+            raise ConsumerManifestError(
+                f"litellm_models entry has unknown field(s) {sorted(unknown)}; allowed: "
+                f"{sorted(_LITELLM_ALLOWED_MODEL_KEYS)} ({origin})"
+            )
+        name = str(raw.get("name") or "").strip()
+        if not name:
+            raise ConsumerManifestError(
+                f"litellm_models entry requires a name in {manifest_path}"
+            )
+        if not _LITELLM_ALIAS_RE.match(name):
+            raise ConsumerManifestError(
+                f"litellm_models alias {name!r} must match [a-z0-9][a-z0-9._-]* ({origin})"
+            )
+        if name in reserved:
+            raise ConsumerManifestError(
+                f"litellm_models alias {name!r} is reserved for a stack-owned model "
+                f"(a runtime row or a YAML catalog model) — pick a distinct alias ({origin})"
+            )
+        if name in seen:
+            raise ConsumerManifestError(
+                f"duplicate litellm_models alias {name!r} for consumer "
+                f"{consumer_name!r} ({origin})"
+            )
+        seen.add(name)
+
+        # Ownership is derived from the manifest; an explicit owner may only
+        # RESTATE the consumer's own name, never claim another's.
+        owner = raw.get("owner")
+        if owner is not None and str(owner).strip() != consumer_name:
+            raise ConsumerManifestError(
+                f"litellm_models entry {name!r} declares owner {str(owner)!r} but "
+                f"ownership is derived from the manifest ({consumer_name!r}) and cannot "
+                f"be spoofed ({origin})"
+            )
+
+        raw_api_base = raw.get("api_base")
+        if raw_api_base is None:
+            raise ConsumerManifestError(
+                f"litellm_models entry {name!r} requires an api_base ({origin})"
+            )
+        api_base = _resolve_litellm_api_base(str(raw_api_base), alias=name, origin=origin)
+
+        api_key_var = raw.get("api_key_var")
+        if api_key_var is not None:
+            api_key_var = str(api_key_var).strip()
+            if not _LITELLM_ENV_VAR_RE.match(api_key_var):
+                raise ConsumerManifestError(
+                    f"litellm_models entry {name!r} api_key_var {api_key_var!r} must be an "
+                    f"UPPER_SNAKE env var NAME (a reference, not a literal secret) ({origin})"
+                )
+
+        description = raw.get("description")
+        if description is not None:
+            description = str(description)
+        tags = tuple(
+            str(tag).strip() for tag in _as_list(raw.get("tags")) if str(tag).strip()
+        )
+        model_info_raw = raw.get("model_info") or {}
+        if model_info_raw and not isinstance(model_info_raw, Mapping):
+            raise ConsumerManifestError(
+                f"litellm_models entry {name!r} model_info must be a mapping ({origin})"
+            )
+
+        models.append(
+            LitellmModel(
+                consumer=consumer_name,
+                name=name,
+                api_base=api_base,
+                model=f"openai/{name}",
+                api_key_var=api_key_var or None,
+                description=description,
+                tags=tags,
+                model_info=dict(model_info_raw),
+            )
+        )
+    return models
+
+
+def _validate_litellm_collisions(models: Iterable[LitellmModel]) -> None:
+    """Reject alias collisions across every consumer (aliases are globally unique
+    in the single generated LiteLLM config)."""
+    owner: dict[str, str] = {}
+    for model in models:
+        if model.name in owner and owner[model.name] != model.consumer:
+            raise ConsumerManifestError(
+                f"litellm_models alias {model.name!r} declared by multiple consumers "
+                f"({owner[model.name]} and {model.consumer})"
+            )
+        if model.name in owner:
+            raise ConsumerManifestError(
+                f"duplicate litellm_models alias {model.name!r} for consumer "
+                f"{model.consumer!r}"
+            )
+        owner[model.name] = model.consumer
+
+
+def compile_litellm_model_rows(models: Iterable[LitellmModel]) -> list[dict[str, Any]]:
+    """Compile rows to the LiteLLM ``model_list`` shape (deterministic order)."""
+    return [model.to_row() for model in models]
+
+
+def render_litellm_models_file(models: Iterable[LitellmModel]) -> str:
+    """Render the generated ``consumer-models.yaml`` merged by litellm-init."""
+    rows = compile_litellm_model_rows(models)
+    body = yaml.safe_dump({"model_list": rows}, sort_keys=False, default_flow_style=False)
+    header = (
+        "# AUTO-GENERATED by Atlas consumer LiteLLM contract (#411) — do not edit.\n"
+        "# Consumer-owned model rows merged into the LiteLLM config by\n"
+        "# services/litellm/init/scripts/init.py BEFORE LiteLLM starts.\n"
+        "# Regenerated every ./start.sh from the consumer manifest(s); a removed\n"
+        "# manifest removes only its rows — stack rows (hermes/lightrag) untouched.\n"
+    )
+    return header + body
+
+
+def litellm_credential_vars(models: Iterable[LitellmModel]) -> list[str]:
+    """Ordered-unique api-key var NAMES the litellm container must receive."""
+    out: list[str] = []
+    seen: set[str] = set()
+    for model in models:
+        if model.api_key_var and model.api_key_var not in seen:
+            out.append(model.api_key_var)
+            seen.add(model.api_key_var)
+    return out
+
+
+def render_litellm_models_overlay(models: Iterable[LitellmModel]) -> str | None:
+    """Render a compose overlay injecting consumer api-key *references* into the
+    ``litellm`` container. Returns None when no model declares an api_key_var
+    (nothing to inject). Only var NAMES appear — never resolved secret values."""
+    cred_vars = litellm_credential_vars(models)
+    if not cred_vars:
+        return None
+    lines = [
+        "# AUTO-GENERATED by Atlas consumer LiteLLM contract (#411) — do not edit.",
+        "# Injects consumer-declared api-key references into the litellm container",
+        "# so it resolves os.environ/<VAR> at request time. Regenerated every start.",
+        "services:",
+        "  litellm:",
+        "    environment:",
+    ]
+    for var in cred_vars:
+        # Reference only — the value is sourced from .env (consumer-supplied).
+        lines.append(f"      {var}: ${{{var}:-}}")
+    return "\n".join(lines) + "\n"
+
+
 def load_consumer_config(
     root_dir: Path | str,
     *,
@@ -508,6 +898,7 @@ def load_consumer_config(
     comfyui_sidecars: list[Path] = []
     ollama_models: list[str] = []
     all_storage: list[StorageStore] = []
+    all_litellm: list[LitellmModel] = []
 
     for manifest_path in manifest_paths:
         data = _load_manifest(manifest_path)
@@ -587,6 +978,9 @@ def load_consumer_config(
         record_storage = _parse_storage_block(data, consumer_name, manifest_path)
         all_storage.extend(record_storage)
 
+        record_litellm = _parse_litellm_models_block(data, consumer_name, manifest_path)
+        all_litellm.extend(record_litellm)
+
         consumers.append(
             ConsumerRecord(
                 name=consumer_name,
@@ -596,6 +990,7 @@ def load_consumer_config(
                 comfyui_sidecars=tuple(record_comfyui),
                 ollama_models=tuple(_ordered_union(record_ollama)),
                 storage=tuple(record_storage),
+                litellm_models=tuple(record_litellm),
             )
         )
 
@@ -622,10 +1017,29 @@ def load_consumer_config(
             content=render_minio_storage_overlay(all_storage),
         )
 
+    litellm_models_file: LitellmArtifact | None = None
+    litellm_overlay: LitellmArtifact | None = None
+    if all_litellm:
+        # Aliases are globally unique across consumers (one generated config).
+        _validate_litellm_collisions(all_litellm)
+        litellm_models_file = LitellmArtifact(
+            path=root / LITELLM_CONSUMER_MODELS_PATH,
+            content=render_litellm_models_file(all_litellm),
+        )
+        overlay_content = render_litellm_models_overlay(all_litellm)
+        if overlay_content:
+            litellm_overlay = LitellmArtifact(
+                path=root / LITELLM_CONSUMER_OVERLAY_PATH,
+                content=overlay_content,
+            )
+
     return ConsumerConfig(
         consumers=tuple(consumers),
         env_overrides=env_overrides,
         compose_overlays=compose_overlays,
         storage=tuple(all_storage),
         storage_overlay=storage_overlay,
+        litellm_models=tuple(all_litellm),
+        litellm_models_file=litellm_models_file,
+        litellm_overlay=litellm_overlay,
     )
