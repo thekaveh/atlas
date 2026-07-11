@@ -140,6 +140,7 @@ curl -sX POST http://localhost:${LITELLM_PORT}/v1/chat/completions \
 | litellm ↔ | llm |
 | hermes | agents |
 | n8n | agents |
+| backend | apps |
 
 ### 5.3 Architecture diagram
 

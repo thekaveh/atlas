@@ -179,4 +179,6 @@ data_flow:
     - celery
     - supavisor
     - tika
+    - lightrag
+    - minio
     - otel-collector

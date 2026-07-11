@@ -186,6 +186,126 @@ class N8nWorkflow:
 
 
 @dataclass(frozen=True)
+class RagCorpus:
+    """A RAG ingestion profile's corpus source (#413).
+
+    Only two input modes are allowed — a consumer-mounted read-only directory
+    (``mount``, a repo-relative path resolved under the backend's corpus root, so
+    the ingestion API can never be pointed at an arbitrary host filesystem path)
+    or a MinIO bucket/prefix (``minio``). This is the security boundary in the
+    Final feasibility triage: "the API must not accept arbitrary host paths".
+    """
+
+    source: str  # "mount" | "minio"
+    path: str | None = None  # mount: repo/container-relative, no leading '/' or '..'
+    bucket: str | None = None  # minio
+    prefix: str | None = None  # minio
+
+    def as_dict(self) -> dict[str, Any]:
+        out: dict[str, Any] = {"source": self.source}
+        if self.source == "mount":
+            out["path"] = self.path
+        else:
+            out["bucket"] = self.bucket
+            out["prefix"] = self.prefix
+        return out
+
+
+@dataclass(frozen=True)
+class RagChunker:
+    """Chunking policy for a RAG ingestion profile (#413). ``strategy`` maps to a
+    Chonkie chunker (token | recursive | semantic); room for #375 semantic."""
+
+    strategy: str
+    chunk_size: int
+    overlap: int
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "strategy": self.strategy,
+            "chunk_size": self.chunk_size,
+            "overlap": self.overlap,
+        }
+
+
+@dataclass(frozen=True)
+class RagVectorTarget:
+    """A vector-store write target. ``on_unavailable`` defines fail/skip semantics
+    when the backend's SOURCE is disabled (never silently degrade)."""
+
+    backend: str  # "weaviate"
+    collection_prefix: str
+    on_unavailable: str  # "fail" | "skip"
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "backend": self.backend,
+            "collection_prefix": self.collection_prefix,
+            "on_unavailable": self.on_unavailable,
+        }
+
+
+@dataclass(frozen=True)
+class RagGraphTarget:
+    """A graph-RAG (LightRAG) write target with drain/wait + timeout."""
+
+    backend: str  # "lightrag"
+    mode: str  # "upload_documents"
+    wait_for_extraction: bool
+    timeout_seconds: int
+    on_unavailable: str  # "fail" | "skip"
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "backend": self.backend,
+            "mode": self.mode,
+            "wait_for_extraction": self.wait_for_extraction,
+            "timeout_seconds": self.timeout_seconds,
+            "on_unavailable": self.on_unavailable,
+        }
+
+
+@dataclass(frozen=True)
+class RagIngestionProfile:
+    """One consumer-declared, versioned RAG ingestion profile (#413).
+
+    ``consumer`` is the manifest-derived owner (non-spoofable). ``name`` is the
+    stable, globally-unique profile id a submit references. ``revision`` is a
+    content hash of the normalized profile — the third field of the ingestion
+    idempotency key (consumer + profile + revision + corpus digest), so a profile
+    edit forces a fresh ingestion while an unchanged one dedups.
+    """
+
+    consumer: str
+    name: str
+    corpus: RagCorpus
+    parser_order: tuple[str, ...]
+    chunker: RagChunker
+    vector_targets: tuple[RagVectorTarget, ...]
+    graph_targets: tuple[RagGraphTarget, ...]
+
+    def normalized(self) -> dict[str, Any]:
+        """The canonical (revision-independent) profile dict the backend reads."""
+        return {
+            "consumer": self.consumer,
+            "name": self.name,
+            "corpus": self.corpus.as_dict(),
+            "parser_order": list(self.parser_order),
+            "chunker": self.chunker.as_dict(),
+            "vector_targets": [t.as_dict() for t in self.vector_targets],
+            "graph_targets": [t.as_dict() for t in self.graph_targets],
+        }
+
+    @property
+    def revision(self) -> str:
+        import hashlib
+        import json
+
+        payload = json.dumps(self.normalized(), sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
+@dataclass(frozen=True)
 class ConsumerRecord:
     name: str
     manifest_path: Path
@@ -196,6 +316,7 @@ class ConsumerRecord:
     storage: tuple[StorageStore, ...] = ()
     litellm_models: tuple[LitellmModel, ...] = ()
     n8n_workflows: tuple[N8nWorkflow, ...] = ()
+    rag_ingestion_profiles: tuple[RagIngestionProfile, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -213,6 +334,11 @@ class ConsumerConfig:
     # rewritten to the stable declared id) plus the plan.json the seed reads.
     n8n_artifacts: tuple[GeneratedArtifact, ...] = ()
     n8n_overlay: GeneratedArtifact | None = None
+    rag_ingestion_profiles: tuple[RagIngestionProfile, ...] = ()
+    # Generated profiles file the backend reads at runtime, plus a compose overlay
+    # that bind-mounts it into the backend + points RAG_INGESTION_PROFILES_FILE.
+    rag_ingestion_file: GeneratedArtifact | None = None
+    rag_ingestion_overlay: GeneratedArtifact | None = None
 
     @property
     def is_empty(self) -> bool:
@@ -1379,6 +1505,407 @@ def render_n8n_seed_overlay(workflows: Iterable[N8nWorkflow]) -> str:
     return "\n".join(lines) + "\n"
 
 
+# ─── Consumer RAG ingestion profile contract (#413) ──────────────────
+#
+# A consumer declares versioned ``rag_ingestion_profiles`` describing a
+# repeatable ingestion lifecycle (discover → parse → chunk → embed → vector
+# write → LightRAG upload → drain → finalize) over an Atlas-mounted corpus or a
+# MinIO prefix. Atlas validates + normalizes each profile, hashes it into a
+# stable ``revision`` (the third field of the ingestion idempotency key), and
+# compiles a single JSON profiles file the backend reads at runtime plus a
+# compose overlay that bind-mounts it into the backend and points
+# ``RAG_INGESTION_PROFILES_FILE`` at it. The backend owns the ingestion engine;
+# the manifest owns only the declarative profile. All artifacts regenerate every
+# start, so removing a manifest drops only that consumer's profiles.
+
+RAG_INGESTION_PROFILES_PATH = Path("volumes/backend/rag-ingestion-profiles.json")
+RAG_INGESTION_OVERLAY_PATH = Path("volumes/backend/rag-ingestion-profiles.compose.yml")
+# Fixed path the profiles file is mounted at inside the backend container.
+RAG_INGESTION_CONTAINER_PATH = "/app/rag-ingestion-profiles.json"
+
+_RAG_NAME_RE = __import__("re").compile(r"^[a-z0-9][a-z0-9._-]*$")
+_RAG_IDENT_RE = __import__("re").compile(r"^[A-Za-z][A-Za-z0-9_]*$")
+_RAG_CORPUS_SOURCES = frozenset({"mount", "minio"})
+_RAG_PARSERS = frozenset({"docling", "tika", "crawl4ai", "plain_text"})
+_RAG_CHUNK_STRATEGIES = frozenset({"token", "recursive", "semantic"})
+_RAG_VECTOR_BACKENDS = frozenset({"weaviate"})
+_RAG_GRAPH_BACKENDS = frozenset({"lightrag"})
+_RAG_GRAPH_MODES = frozenset({"upload_documents"})
+_RAG_UNAVAIL = frozenset({"fail", "skip"})
+_RAG_ALLOWED_PROFILE_KEYS = frozenset(
+    {"name", "owner", "corpus", "parser_order", "chunker", "vector_targets", "graph_targets"}
+)
+_RAG_ALLOWED_CORPUS_KEYS = frozenset({"source", "path", "bucket", "prefix"})
+_RAG_ALLOWED_CHUNKER_KEYS = frozenset({"strategy", "chunk_size", "overlap"})
+_RAG_ALLOWED_VECTOR_KEYS = frozenset({"backend", "collection_prefix", "on_unavailable"})
+_RAG_ALLOWED_GRAPH_KEYS = frozenset(
+    {"backend", "mode", "wait_for_extraction", "timeout_seconds", "on_unavailable"}
+)
+
+
+def _rag_int(raw: Any, *, field_name: str, profile: str, origin: str, minimum: int) -> int:
+    if isinstance(raw, bool) or not isinstance(raw, int):
+        raise ConsumerManifestError(
+            f"rag_ingestion_profiles[{profile!r}] {field_name} must be an integer ({origin})"
+        )
+    if raw < minimum:
+        raise ConsumerManifestError(
+            f"rag_ingestion_profiles[{profile!r}] {field_name} must be >= {minimum} ({origin})"
+        )
+    return int(raw)
+
+
+def _parse_rag_corpus(raw: Any, *, profile: str, origin: str) -> RagCorpus:
+    if not isinstance(raw, Mapping):
+        raise ConsumerManifestError(
+            f"rag_ingestion_profiles[{profile!r}] corpus must be a mapping ({origin})"
+        )
+    unknown = {str(k) for k in raw.keys()} - _RAG_ALLOWED_CORPUS_KEYS
+    if unknown:
+        raise ConsumerManifestError(
+            f"rag_ingestion_profiles[{profile!r}] corpus has unknown field(s) "
+            f"{sorted(unknown)}; allowed: {sorted(_RAG_ALLOWED_CORPUS_KEYS)} ({origin})"
+        )
+    source = str(raw.get("source") or "").strip()
+    if source not in _RAG_CORPUS_SOURCES:
+        raise ConsumerManifestError(
+            f"rag_ingestion_profiles[{profile!r}] corpus.source {source!r} must be one of "
+            f"{sorted(_RAG_CORPUS_SOURCES)} ({origin})"
+        )
+    if source == "mount":
+        path = str(raw.get("path") or "").strip()
+        if not path:
+            raise ConsumerManifestError(
+                f"rag_ingestion_profiles[{profile!r}] corpus.path is required for source=mount "
+                f"({origin})"
+            )
+        # Security boundary: a mount corpus is a repo/container-relative path only.
+        # An absolute path or a '..' segment could escape the read-only corpus root
+        # and point the ingestion engine at an arbitrary host location.
+        if path.startswith("/") or path.startswith("~"):
+            raise ConsumerManifestError(
+                f"rag_ingestion_profiles[{profile!r}] corpus.path {path!r} must be relative "
+                f"(no leading '/' or '~') — arbitrary host paths are not allowed ({origin})"
+            )
+        if ".." in Path(path).parts:
+            raise ConsumerManifestError(
+                f"rag_ingestion_profiles[{profile!r}] corpus.path {path!r} must not contain "
+                f"'..' — it may not escape the corpus root ({origin})"
+            )
+        return RagCorpus(source="mount", path=path)
+    bucket = str(raw.get("bucket") or "").strip()
+    prefix = str(raw.get("prefix") or "").strip()
+    if not bucket or not prefix:
+        raise ConsumerManifestError(
+            f"rag_ingestion_profiles[{profile!r}] corpus source=minio requires both bucket "
+            f"and prefix ({origin})"
+        )
+    return RagCorpus(source="minio", bucket=bucket, prefix=prefix)
+
+
+def _parse_rag_chunker(raw: Any, *, profile: str, origin: str) -> RagChunker:
+    if raw is None:
+        # A sensible default so a minimal profile just works.
+        return RagChunker(strategy="recursive", chunk_size=700, overlap=120)
+    if not isinstance(raw, Mapping):
+        raise ConsumerManifestError(
+            f"rag_ingestion_profiles[{profile!r}] chunker must be a mapping ({origin})"
+        )
+    unknown = {str(k) for k in raw.keys()} - _RAG_ALLOWED_CHUNKER_KEYS
+    if unknown:
+        raise ConsumerManifestError(
+            f"rag_ingestion_profiles[{profile!r}] chunker has unknown field(s) "
+            f"{sorted(unknown)}; allowed: {sorted(_RAG_ALLOWED_CHUNKER_KEYS)} ({origin})"
+        )
+    strategy = str(raw.get("strategy") or "recursive").strip()
+    if strategy not in _RAG_CHUNK_STRATEGIES:
+        raise ConsumerManifestError(
+            f"rag_ingestion_profiles[{profile!r}] chunker.strategy {strategy!r} must be one of "
+            f"{sorted(_RAG_CHUNK_STRATEGIES)} ({origin})"
+        )
+    # Bounds mirror the backend ChunkRequest limits (chunk_size <= 8192,
+    # overlap <= 2048) so an out-of-range value is rejected here rather than
+    # crashing the chunk phase at ingestion time.
+    chunk_size = _rag_int(
+        raw.get("chunk_size", 700), field_name="chunker.chunk_size", profile=profile,
+        origin=origin, minimum=1,
+    )
+    if chunk_size > 8192:
+        raise ConsumerManifestError(
+            f"rag_ingestion_profiles[{profile!r}] chunker.chunk_size ({chunk_size}) must be "
+            f"<= 8192 ({origin})"
+        )
+    overlap = _rag_int(
+        raw.get("overlap", 0), field_name="chunker.overlap", profile=profile,
+        origin=origin, minimum=0,
+    )
+    if overlap > 2048:
+        raise ConsumerManifestError(
+            f"rag_ingestion_profiles[{profile!r}] chunker.overlap ({overlap}) must be <= 2048 "
+            f"({origin})"
+        )
+    if overlap >= chunk_size:
+        raise ConsumerManifestError(
+            f"rag_ingestion_profiles[{profile!r}] chunker.overlap ({overlap}) must be < "
+            f"chunk_size ({chunk_size}) ({origin})"
+        )
+    return RagChunker(strategy=strategy, chunk_size=chunk_size, overlap=overlap)
+
+
+def _parse_rag_vector_target(raw: Any, *, profile: str, origin: str) -> RagVectorTarget:
+    if not isinstance(raw, Mapping):
+        raise ConsumerManifestError(
+            f"rag_ingestion_profiles[{profile!r}] vector_targets entries must be mappings ({origin})"
+        )
+    unknown = {str(k) for k in raw.keys()} - _RAG_ALLOWED_VECTOR_KEYS
+    if unknown:
+        raise ConsumerManifestError(
+            f"rag_ingestion_profiles[{profile!r}] vector target has unknown field(s) "
+            f"{sorted(unknown)}; allowed: {sorted(_RAG_ALLOWED_VECTOR_KEYS)} ({origin})"
+        )
+    backend = str(raw.get("backend") or "").strip()
+    if backend not in _RAG_VECTOR_BACKENDS:
+        raise ConsumerManifestError(
+            f"rag_ingestion_profiles[{profile!r}] vector target backend {backend!r} must be one "
+            f"of {sorted(_RAG_VECTOR_BACKENDS)} ({origin})"
+        )
+    prefix = str(raw.get("collection_prefix") or "").strip()
+    if not _RAG_IDENT_RE.match(prefix):
+        raise ConsumerManifestError(
+            f"rag_ingestion_profiles[{profile!r}] vector target collection_prefix {prefix!r} must "
+            f"match {_RAG_IDENT_RE.pattern} (a valid Weaviate class prefix) ({origin})"
+        )
+    on_unavailable = str(raw.get("on_unavailable") or "fail").strip()
+    if on_unavailable not in _RAG_UNAVAIL:
+        raise ConsumerManifestError(
+            f"rag_ingestion_profiles[{profile!r}] vector target on_unavailable {on_unavailable!r} "
+            f"must be one of {sorted(_RAG_UNAVAIL)} ({origin})"
+        )
+    return RagVectorTarget(
+        backend=backend, collection_prefix=prefix, on_unavailable=on_unavailable
+    )
+
+
+def _parse_rag_graph_target(raw: Any, *, profile: str, origin: str) -> RagGraphTarget:
+    if not isinstance(raw, Mapping):
+        raise ConsumerManifestError(
+            f"rag_ingestion_profiles[{profile!r}] graph_targets entries must be mappings ({origin})"
+        )
+    unknown = {str(k) for k in raw.keys()} - _RAG_ALLOWED_GRAPH_KEYS
+    if unknown:
+        raise ConsumerManifestError(
+            f"rag_ingestion_profiles[{profile!r}] graph target has unknown field(s) "
+            f"{sorted(unknown)}; allowed: {sorted(_RAG_ALLOWED_GRAPH_KEYS)} ({origin})"
+        )
+    backend = str(raw.get("backend") or "").strip()
+    if backend not in _RAG_GRAPH_BACKENDS:
+        raise ConsumerManifestError(
+            f"rag_ingestion_profiles[{profile!r}] graph target backend {backend!r} must be one of "
+            f"{sorted(_RAG_GRAPH_BACKENDS)} ({origin})"
+        )
+    mode = str(raw.get("mode") or "upload_documents").strip()
+    if mode not in _RAG_GRAPH_MODES:
+        raise ConsumerManifestError(
+            f"rag_ingestion_profiles[{profile!r}] graph target mode {mode!r} must be one of "
+            f"{sorted(_RAG_GRAPH_MODES)} ({origin})"
+        )
+    wait = raw.get("wait_for_extraction", True)
+    if not isinstance(wait, bool):
+        raise ConsumerManifestError(
+            f"rag_ingestion_profiles[{profile!r}] graph target wait_for_extraction must be a "
+            f"boolean ({origin})"
+        )
+    timeout = _rag_int(
+        raw.get("timeout_seconds", 3600), field_name="graph target timeout_seconds",
+        profile=profile, origin=origin, minimum=1,
+    )
+    on_unavailable = str(raw.get("on_unavailable") or "skip").strip()
+    if on_unavailable not in _RAG_UNAVAIL:
+        raise ConsumerManifestError(
+            f"rag_ingestion_profiles[{profile!r}] graph target on_unavailable {on_unavailable!r} "
+            f"must be one of {sorted(_RAG_UNAVAIL)} ({origin})"
+        )
+    return RagGraphTarget(
+        backend=backend, mode=mode, wait_for_extraction=bool(wait),
+        timeout_seconds=timeout, on_unavailable=on_unavailable,
+    )
+
+
+def _parse_rag_ingestion_profiles_block(
+    data: Mapping[str, Any],
+    consumer_name: str,
+    manifest_path: Path,
+) -> list[RagIngestionProfile]:
+    block = data.get("rag_ingestion_profiles")
+    if block is None:
+        return []
+    origin = str(manifest_path)
+    if not isinstance(block, Mapping):
+        raise ConsumerManifestError(
+            f"rag_ingestion_profiles must be a mapping with version + profiles ({origin})"
+        )
+    if block.get("version") != 1:
+        raise ConsumerManifestError(
+            f"rag_ingestion_profiles.version must be 1 ({origin})"
+        )
+    raw_profiles = block.get("profiles")
+    if not isinstance(raw_profiles, list) or not raw_profiles:
+        raise ConsumerManifestError(
+            f"rag_ingestion_profiles.profiles must be a non-empty list ({origin})"
+        )
+
+    profiles: list[RagIngestionProfile] = []
+    seen: set[str] = set()
+    for raw in raw_profiles:
+        if not isinstance(raw, Mapping):
+            raise ConsumerManifestError(
+                f"rag_ingestion_profiles.profiles entries must be mappings ({origin})"
+            )
+        unknown = {str(k) for k in raw.keys()} - _RAG_ALLOWED_PROFILE_KEYS
+        if unknown:
+            raise ConsumerManifestError(
+                f"rag_ingestion_profiles entry has unknown field(s) {sorted(unknown)}; "
+                f"allowed: {sorted(_RAG_ALLOWED_PROFILE_KEYS)} ({origin})"
+            )
+        name = str(raw.get("name") or "").strip()
+        if not _RAG_NAME_RE.match(name):
+            raise ConsumerManifestError(
+                f"rag_ingestion_profiles name {name!r} must match {_RAG_NAME_RE.pattern} ({origin})"
+            )
+        if name in seen:
+            raise ConsumerManifestError(
+                f"duplicate rag_ingestion_profiles name {name!r} for consumer "
+                f"{consumer_name!r} ({origin})"
+            )
+        seen.add(name)
+
+        # Ownership is manifest-derived; an explicit owner may only RESTATE it.
+        owner = raw.get("owner")
+        if owner is not None and str(owner).strip() != consumer_name:
+            raise ConsumerManifestError(
+                f"rag_ingestion_profiles entry {name!r} declares owner {str(owner)!r} but "
+                f"ownership is derived from the manifest ({consumer_name!r}) and cannot be "
+                f"spoofed ({origin})"
+            )
+
+        corpus = _parse_rag_corpus(raw.get("corpus"), profile=name, origin=origin)
+
+        parser_raw = raw.get("parser_order")
+        if parser_raw is None:
+            parser_order = ["plain_text"]
+        else:
+            if not isinstance(parser_raw, list) or not parser_raw:
+                raise ConsumerManifestError(
+                    f"rag_ingestion_profiles[{name!r}] parser_order must be a non-empty list "
+                    f"({origin})"
+                )
+            parser_order = [str(p).strip() for p in parser_raw]
+            bad = [p for p in parser_order if p not in _RAG_PARSERS]
+            if bad:
+                raise ConsumerManifestError(
+                    f"rag_ingestion_profiles[{name!r}] parser_order has invalid parser(s) "
+                    f"{bad}; allowed: {sorted(_RAG_PARSERS)} ({origin})"
+                )
+        # plain_text is the always-available last-resort fallback; append it if
+        # the consumer omitted it so a parse phase can never dead-end.
+        if "plain_text" not in parser_order:
+            parser_order.append("plain_text")
+
+        chunker = _parse_rag_chunker(raw.get("chunker"), profile=name, origin=origin)
+
+        vector_targets = tuple(
+            _parse_rag_vector_target(v, profile=name, origin=origin)
+            for v in _as_list(raw.get("vector_targets"))
+        )
+        graph_targets = tuple(
+            _parse_rag_graph_target(g, profile=name, origin=origin)
+            for g in _as_list(raw.get("graph_targets"))
+        )
+        if not vector_targets and not graph_targets:
+            raise ConsumerManifestError(
+                f"rag_ingestion_profiles[{name!r}] must declare at least one vector_target or "
+                f"graph_target ({origin})"
+            )
+
+        profiles.append(
+            RagIngestionProfile(
+                consumer=consumer_name,
+                name=name,
+                corpus=corpus,
+                parser_order=tuple(parser_order),
+                chunker=chunker,
+                vector_targets=vector_targets,
+                graph_targets=graph_targets,
+            )
+        )
+    return profiles
+
+
+def _validate_rag_ingestion_collisions(profiles: Iterable[RagIngestionProfile]) -> None:
+    """Reject profile-name collisions across consumers and duplicate Weaviate
+    collections (a shared class would let one profile clobber another's vectors)."""
+    owner: dict[str, str] = {}
+    collection_owner: dict[str, str] = {}
+    for profile in profiles:
+        if profile.name in owner and owner[profile.name] != profile.consumer:
+            raise ConsumerManifestError(
+                f"rag_ingestion_profiles name {profile.name!r} declared by multiple consumers "
+                f"({owner[profile.name]} and {profile.consumer})"
+            )
+        owner[profile.name] = profile.consumer
+        for target in profile.vector_targets:
+            # The backend namespaces the class as ``{prefix}_{profile}`` — reject a
+            # collision so two profiles can't write into the same Weaviate class.
+            collection = f"{target.collection_prefix}_{profile.name}"
+            if collection in collection_owner:
+                raise ConsumerManifestError(
+                    f"rag_ingestion_profiles Weaviate collection {collection!r} declared by two "
+                    f"profiles ({collection_owner[collection]} and {profile.name})"
+                )
+            collection_owner[collection] = profile.name
+
+
+def compile_rag_ingestion_profiles_file(profiles: Iterable[RagIngestionProfile]) -> str:
+    """Render the deterministic JSON profiles file the backend reads at runtime.
+
+    Each profile carries its ``revision`` (content hash) so the backend can build
+    the ingestion idempotency key without re-hashing the source manifest.
+    """
+    import json
+
+    doc = {
+        "version": 1,
+        "profiles": [
+            {**profile.normalized(), "revision": profile.revision}
+            for profile in profiles
+        ],
+    }
+    return json.dumps(doc, indent=2, sort_keys=True) + "\n"
+
+
+def render_rag_ingestion_overlay(profiles: Iterable[RagIngestionProfile]) -> str:
+    """Render the compose overlay that bind-mounts the generated profiles file into
+    the backend and points ``RAG_INGESTION_PROFILES_FILE`` at it.
+
+    Bind-mount paths are repo-root-relative because the overlay is merged via
+    ``-f`` (project directory = repo root), NOT the native ``include:`` directive.
+    """
+    profiles = list(profiles)
+    lines = [
+        "# AUTO-GENERATED by Atlas consumer RAG ingestion contract (#413) — do not edit.",
+        "# Mounts the compiled rag_ingestion_profiles into the backend so the",
+        "# /api/rag/ingestions engine can resolve a profile by name. Regenerated",
+        "# every start; a removed manifest drops the file + this overlay.",
+        "services:",
+        "  backend:",
+        "    environment:",
+        f"      RAG_INGESTION_PROFILES_FILE: {RAG_INGESTION_CONTAINER_PATH}",
+        "    volumes:",
+        f"      - ./{RAG_INGESTION_PROFILES_PATH.as_posix()}:{RAG_INGESTION_CONTAINER_PATH}:ro",
+    ]
+    return "\n".join(lines) + "\n"
+
+
 def load_consumer_config(
     root_dir: Path | str,
     *,
@@ -1400,6 +1927,7 @@ def load_consumer_config(
     all_storage: list[StorageStore] = []
     all_litellm: list[LitellmModel] = []
     all_n8n: list[N8nWorkflow] = []
+    all_rag: list[RagIngestionProfile] = []
 
     for manifest_path in manifest_paths:
         data = _load_manifest(manifest_path)
@@ -1487,6 +2015,11 @@ def load_consumer_config(
         )
         all_n8n.extend(record_n8n)
 
+        record_rag = _parse_rag_ingestion_profiles_block(
+            data, consumer_name, manifest_path
+        )
+        all_rag.extend(record_rag)
+
         consumers.append(
             ConsumerRecord(
                 name=consumer_name,
@@ -1498,6 +2031,7 @@ def load_consumer_config(
                 storage=tuple(record_storage),
                 litellm_models=tuple(record_litellm),
                 n8n_workflows=tuple(record_n8n),
+                rag_ingestion_profiles=tuple(record_rag),
             )
         )
 
@@ -1551,6 +2085,20 @@ def load_consumer_config(
             content=render_n8n_seed_overlay(all_n8n),
         )
 
+    rag_ingestion_file: GeneratedArtifact | None = None
+    rag_ingestion_overlay: GeneratedArtifact | None = None
+    if all_rag:
+        # Profile names are globally unique + Weaviate collections non-colliding.
+        _validate_rag_ingestion_collisions(all_rag)
+        rag_ingestion_file = GeneratedArtifact(
+            path=root / RAG_INGESTION_PROFILES_PATH,
+            content=compile_rag_ingestion_profiles_file(all_rag),
+        )
+        rag_ingestion_overlay = GeneratedArtifact(
+            path=root / RAG_INGESTION_OVERLAY_PATH,
+            content=render_rag_ingestion_overlay(all_rag),
+        )
+
     return ConsumerConfig(
         consumers=tuple(consumers),
         env_overrides=env_overrides,
@@ -1563,4 +2111,7 @@ def load_consumer_config(
         n8n_workflows=tuple(all_n8n),
         n8n_artifacts=n8n_artifacts,
         n8n_overlay=n8n_overlay,
+        rag_ingestion_profiles=tuple(all_rag),
+        rag_ingestion_file=rag_ingestion_file,
+        rag_ingestion_overlay=rag_ingestion_overlay,
     )

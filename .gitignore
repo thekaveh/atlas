@@ -95,6 +95,8 @@ volumes/litellm/*.yml
 volumes/minio/consumer-storage.compose.yml
 volumes/n8n/consumer-workflows/
 volumes/n8n/consumer-workflows.compose.yml
+volumes/backend/rag-ingestion-profiles.json
+volumes/backend/rag-ingestion-profiles.compose.yml
 
 # Environment variables file
 .env
