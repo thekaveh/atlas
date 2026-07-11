@@ -1983,6 +1983,7 @@ services:
       LIGHTRAG_SOURCE: disabled
       LITELLM_ANTHROPIC_ENABLED: 'false'
       LITELLM_CONFIG_OUT: /litellm-config/config.yaml
+      LITELLM_CONSUMER_MODELS_FILE: /litellm-config/consumer-models.yaml
       LITELLM_DB_NAME: litellm
       LITELLM_OLLAMA_UPSTREAM: ''
       LITELLM_OPENAI_ENABLED: 'false'

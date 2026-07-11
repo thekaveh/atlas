@@ -1477,7 +1477,13 @@ class AtlasStarter:
         # Finalize consumer object-storage (#404) AFTER endpoints are resolved
         # into .env by generate_and_update_env, and before compose up. Covers
         # both the linear flow and the TUI/launch pipeline (single call site).
-        return self._finalize_consumer_storage()
+        if not self._finalize_consumer_storage():
+            return False
+        # Finalize consumer LiteLLM model rows (#411): write the generated
+        # consumer-models.yaml (merged by litellm-init) + the api-key overlay,
+        # or remove them when no consumer declares litellm_models. Same call
+        # site so both the linear and TUI/launch flows are covered.
+        return self._finalize_consumer_litellm_models()
 
     def _finalize_consumer_storage(self) -> bool:
         """Provision manifest-declared object stores (#404): generate scoped
@@ -1550,7 +1556,62 @@ class AtlasStarter:
             "info",
         )
         return True
-    
+
+    def _finalize_consumer_litellm_models(self) -> bool:
+        """Materialize consumer-owned LiteLLM model rows (#411): write the
+        generated ``consumer-models.yaml`` (merged by litellm-init into the
+        LiteLLM config before startup) and the companion api-key compose overlay
+        (injects consumer api-key references into the litellm container).
+        Idempotent; a no-models config removes any stale generated artifacts so a
+        removed manifest drops only its own rows on a warm restart.
+        """
+        from core.consumer_manifest import (
+            LITELLM_CONSUMER_MODELS_PATH,
+            LITELLM_CONSUMER_OVERLAY_PATH,
+        )
+
+        try:
+            config = self.config_parser.load_consumer_config()
+        except Exception as exc:  # ConsumerManifestError etc. — surface + fail
+            self.banner.show_status_message(
+                f"Consumer LiteLLM manifest error: {exc}", "error"
+            )
+            return False
+
+        models_path = self.root_dir / LITELLM_CONSUMER_MODELS_PATH
+        overlay_path = self.root_dir / LITELLM_CONSUMER_OVERLAY_PATH
+
+        # No consumer declares litellm_models → remove any stale generated
+        # artifacts so nothing leaks into a later, model-less start.
+        if not config.litellm_models:
+            for stale in (models_path, overlay_path):
+                if stale.exists():
+                    stale.unlink()
+            return True
+
+        artifact = config.litellm_models_file
+        if artifact is not None:
+            artifact.path.parent.mkdir(parents=True, exist_ok=True)
+            artifact.path.write_text(artifact.content, encoding="utf-8")
+
+        # The overlay only exists when at least one model declares an api_key_var.
+        # Remove a stale overlay when the current config no longer needs one.
+        if config.litellm_overlay is not None:
+            config.litellm_overlay.path.parent.mkdir(parents=True, exist_ok=True)
+            config.litellm_overlay.path.write_text(
+                config.litellm_overlay.content, encoding="utf-8"
+            )
+        elif overlay_path.exists():
+            overlay_path.unlink()
+
+        owners = sorted({model.consumer for model in config.litellm_models})
+        self.banner.show_status_message(
+            f"  • Merged {len(config.litellm_models)} consumer LiteLLM model(s) "
+            f"from {', '.join(owners)}",
+            "info",
+        )
+        return True
+
     def generate_litellm_configuration(self) -> bool:
         """Write a STUB volumes/litellm/config.yaml so the bind mount has
         a file to attach to. The real model_list is rendered by
@@ -2827,6 +2888,97 @@ def _doctor_check_model_sidecars(starter: "AtlasStarter") -> dict:
     )
 
 
+def _doctor_check_litellm_models(starter: "AtlasStarter") -> dict:
+    """Validate consumer-declared LiteLLM model rows (#411).
+
+    Load-time already resolved api_base against the approved endpoint allowlist
+    and stamped manifest-derived ownership (a parse failure surfaces as a fail
+    here). This check adds the cross-surface validation the triage calls for:
+    each backend-hosted model's first route segment is cross-checked against the
+    declared #402 backend plugin route_prefixes (when any manifests are present),
+    so a model pointing at a route no plugin serves surfaces as a startup
+    diagnostic rather than a dead /v1/models entry. Secrets never appear (rows
+    carry only ``os.environ/<VAR>`` references).
+    """
+    from core.consumer_manifest import LITELLM_ENDPOINT_TEMPLATES
+
+    try:
+        config = starter.config_parser.load_consumer_config()
+    except ValueError as exc:
+        return _doctor_result(
+            "litellm-models",
+            "fail",
+            f"Consumer LiteLLM model validation failed: {exc}",
+        )
+    if not config.litellm_models:
+        return _doctor_result(
+            "litellm-models",
+            "pass",
+            "No consumer LiteLLM models declared.",
+        )
+
+    import urllib.parse
+
+    backend_host = urllib.parse.urlparse(
+        LITELLM_ENDPOINT_TEMPLATES["ATLAS_BACKEND_INTERNAL"]
+    ).netloc
+
+    # Declared #402 backend plugin route heads (empty when no manifests present)
+    # plus the built-in backend route prefixes (research/health/… are legitimate
+    # targets even with no plugin manifest, so they must never trip the warning).
+    from core.plugin_manifest import RESERVED_ROUTE_PREFIXES
+
+    env_values = starter.config_parser.parse_env_file()
+    plugin_dirs = _resolve_plugin_dirs(starter, env_values)
+    plugin_heads: set[str] = set()
+    have_manifests = False
+    if plugin_dirs:
+        from core.plugin_manifest import discover_plugin_manifests
+
+        discovery = discover_plugin_manifests(plugin_dirs)
+        have_manifests = bool(discovery.manifests)
+        plugin_heads = {m.prefix_head for m in discovery.manifests}
+
+    warnings: list[str] = []
+    for model in config.litellm_models:
+        parsed = urllib.parse.urlparse(model.api_base)
+        if parsed.netloc != backend_host:
+            continue  # non-backend endpoints have no plugin route to match
+        segments = [seg for seg in parsed.path.split("/") if seg]
+        head = segments[0] if segments else ""
+        # Only warn when plugin manifests exist but none serves this route AND
+        # it isn't a built-in backend route — a route with no manifests may be
+        # served by a built-in route or a plugin added later, so we don't cry
+        # wolf on the manifest-less case or on a legitimate built-in prefix.
+        if (
+            have_manifests
+            and head
+            and head not in plugin_heads
+            and head not in RESERVED_ROUTE_PREFIXES
+        ):
+            warnings.append(
+                f"model {model.name!r} (owner {model.consumer}) points at backend "
+                f"route /{head}, which matches no declared plugin route_prefix "
+                f"({', '.join('/' + h for h in sorted(plugin_heads)) or 'none'})"
+            )
+
+    owners = sorted({model.consumer for model in config.litellm_models})
+    names = [model.name for model in config.litellm_models]
+    if warnings:
+        return _doctor_result(
+            "litellm-models",
+            "warn",
+            warnings[0],
+            details={"warnings": warnings, "models": names, "owners": owners},
+        )
+    return _doctor_result(
+        "litellm-models",
+        "pass",
+        f"{len(names)} consumer LiteLLM model(s) valid: {', '.join(names)}.",
+        details={"models": names, "owners": owners},
+    )
+
+
 def _doctor_check_endpoints(starter: "AtlasStarter") -> dict:
     env_values = starter.config_parser.parse_env_file()
     endpoints = {
@@ -2898,6 +3050,7 @@ DOCTOR_CHECKS = [
     _doctor_check_plugins,
     _doctor_check_plugin_manifests,
     _doctor_check_model_sidecars,
+    _doctor_check_litellm_models,
     _doctor_check_endpoints,
     _doctor_check_submodule_clean,
 ]
