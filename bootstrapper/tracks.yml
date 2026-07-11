@@ -41,7 +41,7 @@ tracks:
   - key: gen-ai-creative
     display_name: Generative AI · Creative
     description: Multimodal generation — image, voice, vision, doc.
-    services: [open-webui, comfyui, asset-worker, fal, stt-provider, tts-provider,
+    services: [open-webui, comfyui, asset-worker, asset-baker, fal, stt-provider, tts-provider,
                multi2vec-clip, doc-processor, blender-mcp, langfuse,
                otel-collector, tempo, loki]
 

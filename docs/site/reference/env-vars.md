@@ -21,6 +21,24 @@
 | AIRFLOW_SCHEDULER_CPU_LIMIT | airflow | 1.0 | Container CPU limit for airflow-scheduler (deploy.resources.limits.cpus). 1.0 core is sufficient for LocalExecutor task scheduling on a dev/staging host. |
 | AIRFLOW_DAG_PROCESSOR_MEMORY_LIMIT | airflow | 2g | Container memory limit for airflow-dag-processor (deploy.resources.limits.memory). DAG parsing is Python-heavy but short-lived per cycle; 2 g prevents unbounded growth from parsing pathological DAG files. |
 | AIRFLOW_DAG_PROCESSOR_CPU_LIMIT | airflow | 1.0 | Container CPU limit for airflow-dag-processor (deploy.resources.limits.cpus). 1.0 core covers the periodic DAG file parsing cycle. |
+| ASSET_BAKER_SOURCE | asset-baker | disabled | Deployment mode for the Blender HP→LP bake worker. container-cpu runs deterministic Cycles-CPU bakes (GPU-optional, deferred). |
+| ASSET_BAKER_PORT | asset-baker |  | Host port for the asset-baker API (in-container listen port is 8096). |
+| ASSET_BAKER_SCALE | asset-baker |  | - |
+| ASSET_BAKER_ENDPOINT | asset-baker |  | In-network URL for the asset-baker API. |
+| ASSET_BAKER_BLENDER_VERSION | asset-baker | 4.3.2 | Pinned headless Blender version (>= 4.3) downloaded into the asset-baker image. Blender bundles its own Python + numpy for the bake script. |
+| ASSET_BAKER_ARTIFACT_DIR | asset-baker | /data/artifacts | Local artifact cache used when MinIO upload is disabled or for direct downloads. |
+| ASSET_BAKER_MINIO_ENABLED | asset-baker | True | When true, baked LP GLBs + textures are written to MinIO using content-addressed keys. |
+| ASSET_BAKER_MINIO_BUCKET | asset-baker | asset-baker | MinIO bucket for baked LP GLB + texture outputs. |
+| ASSET_BAKER_MINIO_ENDPOINT | asset-baker |  | In-network MinIO S3 API endpoint used by the worker. |
+| ASSET_BAKER_MINIO_ACCESS_KEY | asset-baker |  | Optional MinIO access key override. Empty uses MINIO_ROOT_USER in compose (scoped credentials recommended in production). |
+| ASSET_BAKER_MINIO_SECRET_KEY | asset-baker |  | Optional MinIO secret key override. Empty uses MINIO_ROOT_PASSWORD in compose. |
+| ASSET_BAKER_TARGET_TRIS | asset-baker | 39000 | Default low-poly triangle budget the decimate stage targets (overridable per request). |
+| ASSET_BAKER_TEX_SIZE | asset-baker | 2048 | Default baked BaseColor/Normal texture resolution (square). 2k measured 30–200 s/asset on CPU; overridable per request. |
+| ASSET_BAKER_CANONICAL_SIZE | asset-baker | 4.0 | Canonical max-dimension (units) each mesh is scaled to before remesh so the relative voxel/ray heuristics are stable regardless of the raw GLB import scale. |
+| ASSET_BAKER_BRIGHTNESS_MIN | asset-baker | 0.05 | Mean-brightness QA gate: a baked BaseColor whose mean < this is a silently-failed (black) bake and is refused with a non-zero result. |
+| ASSET_BAKER_TIMEOUT_SECONDS | asset-baker | 600 | Hard wall-clock ceiling for a single bake subprocess; exceeded bakes are killed and reported as timeout. |
+| ASSET_BAKER_MAX_UPLOAD_MB | asset-baker | 200 | Maximum accepted GLB input size (MiB). Larger uploads/refs are rejected before a Blender process is spawned. |
+| ASSET_BAKER_CONCURRENCY | asset-baker | 1 | Maximum concurrent bake subprocesses. Default 1 — a single Cycles bake saturates CPU and concurrent bakes are net-negative. |
 | ASSET_WORKER_SOURCE | asset-worker | disabled | Deployment mode for the glTF post-processing worker. |
 | ASSET_WORKER_PORT | asset-worker |  | Host port for the asset-worker API (in-container listen port is 8095). |
 | ASSET_WORKER_SCALE | asset-worker |  | - |

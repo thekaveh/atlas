@@ -273,6 +273,63 @@ services:
       target: /opt/airflow/logs
       type: volume
       volume: {}
+  asset-baker:
+    build:
+      args:
+        BASE_IMAGE: python:3.12.9-slim
+        BLENDER_VERSION: 4.3.2
+      context: '{REPO_ROOT}/services/asset-baker/app'
+      dockerfile: Dockerfile
+    container_name: atlas-asset-baker
+    depends_on:
+      minio:
+        condition: service_healthy
+        required: true
+    deploy:
+      replicas: 0
+    environment:
+      ASSET_BAKER_ARTIFACT_DIR: /data/artifacts
+      ASSET_BAKER_BRIGHTNESS_MIN: '0.05'
+      ASSET_BAKER_CANONICAL_SIZE: '4.0'
+      ASSET_BAKER_CONCURRENCY: '1'
+      ASSET_BAKER_MAX_UPLOAD_MB: '200'
+      ASSET_BAKER_MINIO_ACCESS_KEY: minioadmin
+      ASSET_BAKER_MINIO_BUCKET: asset-baker
+      ASSET_BAKER_MINIO_ENABLED: 'true'
+      ASSET_BAKER_MINIO_ENDPOINT: http://minio:9000
+      ASSET_BAKER_MINIO_SECRET_KEY: ''
+      ASSET_BAKER_TARGET_TRIS: '39000'
+      ASSET_BAKER_TEX_SIZE: '2048'
+      ASSET_BAKER_TIMEOUT_SECONDS: '600'
+      MINIO_REGION: us-east-1
+      PROJECT_NAME: atlas
+    healthcheck:
+      interval: 30s
+      retries: 5
+      start_period: 45s
+      test:
+      - CMD-SHELL
+      - curl -fsS http://localhost:8096/health || exit 1
+      timeout: 10s
+    image: atlas-asset-baker:local
+    logging:
+      driver: json-file
+      options:
+        max-file: '3'
+        max-size: 10m
+    networks:
+      backend-network: null
+    ports:
+    - mode: ingress
+      protocol: tcp
+      published: '63052'
+      target: 8096
+    restart: unless-stopped
+    volumes:
+    - source: asset-baker-data
+      target: /data
+      type: volume
+      volume: {}
   asset-worker:
     build:
       args:
@@ -315,7 +372,7 @@ services:
     ports:
     - mode: ingress
       protocol: tcp
-      published: '63052'
+      published: '63053'
       target: 8095
     restart: unless-stopped
     volumes:
@@ -737,7 +794,7 @@ services:
     ports:
     - mode: ingress
       protocol: tcp
-      published: '63053'
+      published: '63054'
       target: 18188
     restart: unless-stopped
     volumes:
@@ -3426,7 +3483,7 @@ services:
       replicas: 1
     environment:
       FORCE_OWNERSHIP: '1'
-      SEARXNG_BASE_URL: http://localhost:63055
+      SEARXNG_BASE_URL: http://localhost:63056
       SEARXNG_SECRET: ''
     healthcheck:
       interval: 30s
@@ -3451,7 +3508,7 @@ services:
     ports:
     - mode: ingress
       protocol: tcp
-      published: '63055'
+      published: '63056'
       target: 8080
     restart: unless-stopped
     volumes:
@@ -4176,7 +4233,7 @@ services:
     ports:
     - mode: ingress
       protocol: tcp
-      published: '63056'
+      published: '63057'
       target: 9998
     restart: unless-stopped
     security_opt:
@@ -4526,6 +4583,9 @@ volumes:
   airflow-logs:
     driver: local
     name: atlas-airflow-logs
+  asset-baker-data:
+    driver: local
+    name: atlas-asset-baker-data
   asset-worker-data:
     driver: local
     name: atlas-asset-worker-data

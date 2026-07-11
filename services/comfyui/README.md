@@ -23,7 +23,7 @@ Canonical port table: [Ports and Routes](../../docs/deployment/ports-and-routes.
 
 ```bash
 COMFYUI_SOURCE=container-cpu                # container-cpu | container-gpu | localhost | managed-localhost-mps | disabled
-COMFYUI_PORT=63053                          # computed by topology.py
+COMFYUI_PORT=63054                          # computed by topology.py
 COMFYUI_BASE_URL=http://comfyui:18188       # in-container default
 COMFYUI_ARGS=--listen                       # static — passed verbatim; add --cpu (CPU) or --force-fp16 (GPU) yourself (compose default when unset: --listen --cpu)
 COMFYUI_PLATFORM=linux/amd64

@@ -1130,6 +1130,7 @@ class AtlasStarter:
             'LITELLM_PORT',
             'LOCAL_DEEP_RESEARCHER_PORT',
             'ASSET_WORKER_PORT',
+            'ASSET_BAKER_PORT',
             'SEARXNG_PORT',
             'CRAWL4AI_PORT',
             'TIKA_PORT',
@@ -3515,6 +3516,9 @@ def _print_doctor_text(results: list[dict]) -> None:
 @click.option('--asset-worker-source',
               type=click.Choice(['container', 'disabled'], case_sensitive=False),
               help='Override ASSET_WORKER_SOURCE — glTF post-processing worker.')
+@click.option('--asset-baker-source',
+              type=click.Choice(['container-cpu', 'disabled'], case_sensitive=False),
+              help='Override ASSET_BAKER_SOURCE — Blender headless HP→LP bake worker.')
 @click.option('--fal-source',
               type=click.Choice(['enabled', 'disabled'], case_sensitive=False),
               help='Override FAL_SOURCE — cloud media provider for backend generation routes.')
@@ -3693,7 +3697,7 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
          openai_models, anthropic_models, openrouter_models,
          ollama_models, ollama_custom_models,
          comfyui_models, comfyui_custom_models_file,
-         comfyui_source, asset_worker_source, fal_source, weaviate_source, minio_source, n8n_source, searxng_source,
+         comfyui_source, asset_worker_source, asset_baker_source, fal_source, weaviate_source, minio_source, n8n_source, searxng_source,
          crawl4ai_source, tika_source, llm_graph_builder_source,
          celery_source, supavisor_source, mcp_servers_source, blender_mcp_source,
          jupyterhub_source, open_web_ui_source, local_deep_researcher_source,
@@ -3774,6 +3778,7 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
                     'llm_provider_source': llm_provider_source,
                     'comfyui_source': comfyui_source,
                     'asset_worker_source': asset_worker_source,
+                    'asset_baker_source': asset_baker_source,
                     'weaviate_source': weaviate_source,
                     'minio_source': minio_source,
                     'n8n_source': n8n_source,
@@ -4005,6 +4010,7 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
             'cloud_openrouter_source': cloud_openrouter_source,
             'comfyui_source': comfyui_source,
             'asset_worker_source': asset_worker_source,
+            'asset_baker_source': asset_baker_source,
             'fal_source': fal_source,
             'weaviate_source': weaviate_source,
             'minio_source': minio_source,
