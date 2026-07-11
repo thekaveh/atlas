@@ -264,3 +264,319 @@ def test_fal_client_sends_negative_prompt_when_provided(monkeypatch):
     assert captured["model"] == "fal-ai/flux/dev"
     assert captured["arguments"]["prompt"] == "orbital blue glass library"
     assert captured["arguments"]["negative_prompt"] == "low detail"
+
+
+# --- image_to_3d modality (#340) --------------------------------------------
+
+# These mimic the REAL fal-client (>=0.8.0) queue `status()` return types:
+# type-discriminated dataclasses whose *class name* signals state, carrying no
+# `.status`/`.state` attribute. A failed job is a `Completed` with a truthy
+# `error`. The class NAMES must stay exactly Completed/InProgress/Queued —
+# `_normalize_status` reads `type(payload).__name__`.
+
+
+class Completed:  # noqa: D401 - mirrors fal_client.client.Completed
+    def __init__(self, error=None, error_type=None):
+        self.logs = None
+        self.metrics = {}
+        self.error = error
+        self.error_type = error_type
+
+
+class InProgress:  # mirrors fal_client.client.InProgress
+    def __init__(self):
+        self.logs = []
+
+
+class Queued:  # mirrors fal_client.client.Queued
+    def __init__(self, position=0):
+        self.position = position
+
+
+def _stub_fal_queue(monkeypatch, *, result_payload, status_obj=None):
+    captured: dict = {}
+
+    def fake_submit(model, *, arguments):
+        captured["submit"] = {"model": model, "arguments": arguments}
+        return types.SimpleNamespace(request_id="fal-3d-1")
+
+    def fake_status(model, request_id):
+        captured["status"] = {"model": model, "request_id": request_id}
+        # Default to the real "job finished" shape, not a fabricated .status.
+        return status_obj if status_obj is not None else Completed()
+
+    def fake_result(model, request_id):
+        captured["result"] = {"model": model, "request_id": request_id}
+        return result_payload
+
+    monkeypatch.setitem(
+        sys.modules,
+        "fal_client",
+        types.SimpleNamespace(
+            submit=fake_submit, status=fake_status, result=fake_result
+        ),
+    )
+    return captured
+
+
+def test_fal_client_submits_and_polls_image_to_3d_glb(monkeypatch):
+    captured = _stub_fal_queue(
+        monkeypatch,
+        result_payload={
+            "model_mesh": {"url": "https://cdn.example/mesh.glb"},
+            "seed": 7,
+            "some_vendor_field": {"quality": "high"},
+        },
+    )
+
+    from fal_media_client import FalClient
+
+    client = FalClient(api_key="fal-key", model="fal-ai/trellis")
+    submitted = asyncio.run(
+        client.submit_media_operation(
+            modality="image_to_3d",
+            input={"image": "https://cdn.example/sprite.png", "seed": 7},
+        )
+    )
+    polled = asyncio.run(
+        client.get_media_operation(operation_id="fal-3d-1", modality="image_to_3d")
+    )
+
+    # Input image goes under fal's image_url key; the gateway already hosted it.
+    assert captured["submit"]["arguments"]["image_url"] == "https://cdn.example/sprite.png"
+    assert captured["submit"]["arguments"]["seed"] == 7
+    assert submitted["operation_id"] == "fal-3d-1"
+    assert submitted["status"] == "submitted"
+    assert submitted["modality"] == "image_to_3d"
+    # Registry-driven license + estimated cost.
+    assert submitted["license"] == "MIT"
+    assert submitted["cost_usd"] == 0.05
+    assert submitted["provenance"]["cost_basis"] == "estimated"
+
+    assert polled["status"] == "succeeded"
+    assert polled["artifact_url"] == "https://cdn.example/mesh.glb"
+    glb = polled["artifacts"][0]
+    assert glb["role"] == "model_glb"
+    assert glb["content_type"] == "model/gltf-binary"
+    assert glb["source_key"] == "model_mesh"
+    # Unknown provider fields preserved under a namespaced provenance bag; the
+    # consumed seed/model_mesh keys are not duplicated there.
+    provider_fields = polled["provenance"]["provider_fields"]
+    assert provider_fields["some_vendor_field"] == {"quality": "high"}
+    assert provider_fields["seed"] == 7
+    assert "model_mesh" not in provider_fields
+
+
+def test_fal_client_image_to_3d_response_key_variants(monkeypatch):
+    from fal_media_client import FalClient
+
+    variants = {
+        "model_glb": "https://cdn.example/a.glb",
+        "model": "https://cdn.example/b.glb",
+        "mesh": {"url": "https://cdn.example/c.glb"},
+        "pbr_model": {"url": "https://cdn.example/d.glb"},
+        "base_model": "https://cdn.example/e.glb",
+    }
+    for key, value in variants.items():
+        _stub_fal_queue(monkeypatch, result_payload={key: value})
+        client = FalClient(api_key="fal-key", model="fal-ai/hunyuan3d/v2")
+        polled = asyncio.run(
+            client.get_media_operation(operation_id="fal-3d-1", modality="image_to_3d")
+        )
+        assert polled["status"] == "succeeded"
+        expected = value["url"] if isinstance(value, dict) else value
+        assert polled["artifact_url"] == expected, f"key={key}"
+        assert polled["artifacts"][0]["source_key"] == key
+
+
+def test_fal_client_image_to_3d_requires_image(monkeypatch):
+    _stub_fal_queue(monkeypatch, result_payload={})
+    from fal_media_client import FalClient
+
+    client = FalClient(api_key="fal-key", model="fal-ai/trellis")
+    try:
+        asyncio.run(
+            client.submit_media_operation(modality="image_to_3d", input={})
+        )
+    except ValueError as e:
+        assert "image" in str(e)
+    else:  # pragma: no cover
+        raise AssertionError("missing image must raise ValueError")
+
+
+def test_fal_client_image_to_3d_real_status_shapes(monkeypatch):
+    """Lock the production contract: fal's queue status() returns Queued /
+    InProgress / Completed dataclasses (state = class name, no .status attr).
+    A genuinely completed job MUST normalize to 'succeeded' and extract the GLB
+    (regression guard for the _normalize_status attribute-only bug)."""
+    from fal_media_client import FalClient
+
+    # Completed with no error -> succeeded + GLB extracted.
+    _stub_fal_queue(
+        monkeypatch,
+        result_payload={"model_glb": "https://cdn.example/real.glb"},
+        status_obj=Completed(),
+    )
+    client = FalClient(api_key="fal-key", model="fal-ai/trellis")
+    polled = asyncio.run(
+        client.get_media_operation(operation_id="fal-3d-1", modality="image_to_3d")
+    )
+    assert polled["status"] == "succeeded"
+    assert polled["artifact_url"] == "https://cdn.example/real.glb"
+
+    # InProgress -> running.
+    _stub_fal_queue(monkeypatch, result_payload={}, status_obj=InProgress())
+    polled = asyncio.run(
+        client.get_media_operation(operation_id="fal-3d-1", modality="image_to_3d")
+    )
+    assert polled["status"] == "running"
+    assert polled["artifact_url"] is None
+
+    # Queued -> submitted.
+    _stub_fal_queue(monkeypatch, result_payload={}, status_obj=Queued(position=2))
+    polled = asyncio.run(
+        client.get_media_operation(operation_id="fal-3d-1", modality="image_to_3d")
+    )
+    assert polled["status"] == "submitted"
+
+
+def test_fal_client_image_to_3d_failed_status_has_no_artifact(monkeypatch):
+    # Real fal shape: a failed job is a Completed carrying a truthy error; the
+    # result must NOT be fetched and no artifact is produced.
+    def fake_status(model, request_id):
+        return Completed(error="mesh generation failed", error_type="InternalError")
+
+    def fake_result(model, request_id):  # pragma: no cover - must not be called
+        raise AssertionError("result must not be fetched for a failed operation")
+
+    monkeypatch.setitem(
+        sys.modules,
+        "fal_client",
+        types.SimpleNamespace(status=fake_status, result=fake_result),
+    )
+
+    from fal_media_client import FalClient
+
+    client = FalClient(api_key="fal-key", model="fal-ai/trellis")
+    polled = asyncio.run(
+        client.get_media_operation(operation_id="fal-3d-1", modality="image_to_3d")
+    )
+    assert polled["status"] == "failed"
+    assert polled["artifact_url"] is None
+    assert polled["artifacts"] == []
+
+
+def test_fal_client_image_to_3d_cancelled_status_string_shape(monkeypatch):
+    # Forward-compat: a dict/string-shaped status reporting cancellation still
+    # normalizes to 'cancelled' (the real SDK has no distinct cancelled class).
+    monkeypatch.setitem(
+        sys.modules,
+        "fal_client",
+        types.SimpleNamespace(
+            status=lambda model, request_id: {"status": "CANCELED"}
+        ),
+    )
+    from fal_media_client import FalClient
+
+    client = FalClient(api_key="fal-key", model="fal-ai/trellis")
+    polled = asyncio.run(
+        client.get_media_operation(operation_id="fal-3d-1", modality="image_to_3d")
+    )
+    assert polled["status"] == "cancelled"
+
+
+def test_fal_client_image_to_3d_preview_without_glb_yields_no_artifact_url(monkeypatch):
+    # GLB key absent but a preview present: artifact_url must be None (the GLB),
+    # never the shadowing preview PNG. The preview still appears in artifacts[].
+    _stub_fal_queue(
+        monkeypatch,
+        result_payload={"preview_image": {"url": "https://cdn.example/preview.png"}},
+    )
+    from fal_media_client import FalClient
+
+    client = FalClient(api_key="fal-key", model="fal-ai/trellis")
+    polled = asyncio.run(
+        client.get_media_operation(operation_id="fal-3d-1", modality="image_to_3d")
+    )
+    assert polled["status"] == "succeeded"
+    assert polled["artifact_url"] is None
+    assert [a["role"] for a in polled["artifacts"]] == ["preview"]
+
+
+def test_fal_client_image_to_3d_preserves_non_url_value_under_known_key(monkeypatch):
+    # A recognized GLB key holding a non-URL vendor object must be preserved
+    # under provenance.provider_fields, not silently dropped.
+    _stub_fal_queue(
+        monkeypatch,
+        result_payload={
+            "model_mesh": {"url": "https://cdn.example/mesh.glb"},
+            "model": {"job": "abc", "meta": 1},  # known key, no url
+        },
+    )
+    from fal_media_client import FalClient
+
+    client = FalClient(api_key="fal-key", model="fal-ai/trellis")
+    polled = asyncio.run(
+        client.get_media_operation(operation_id="fal-3d-1", modality="image_to_3d")
+    )
+    assert polled["artifact_url"] == "https://cdn.example/mesh.glb"
+    assert polled["provenance"]["provider_fields"]["model"] == {"job": "abc", "meta": 1}
+
+
+def test_fal_client_image_to_3d_malformed_result_is_empty(monkeypatch):
+    # Succeeded status but a result missing every known GLB key must degrade to
+    # no artifacts rather than raising.
+    _stub_fal_queue(
+        monkeypatch, result_payload={"unexpected": "no-mesh-here"}
+    )
+    from fal_media_client import FalClient
+
+    client = FalClient(api_key="fal-key", model="fal-ai/trellis")
+    polled = asyncio.run(
+        client.get_media_operation(operation_id="fal-3d-1", modality="image_to_3d")
+    )
+    assert polled["status"] == "succeeded"
+    assert polled["artifact_url"] is None
+    assert polled["artifacts"] == []
+    assert polled["provenance"]["provider_fields"] == {"unexpected": "no-mesh-here"}
+
+
+def test_fal_client_image_to_3d_tripo_license_and_cost(monkeypatch):
+    _stub_fal_queue(
+        monkeypatch,
+        result_payload={"pbr_model": "https://cdn.example/tripo.glb"},
+    )
+    from fal_media_client import FalClient
+
+    client = FalClient(
+        api_key="fal-key", model="fal-ai/tripo3d/tripo/v2.5/image-to-3d"
+    )
+    polled = asyncio.run(
+        client.get_media_operation(operation_id="fal-3d-1", modality="image_to_3d")
+    )
+    assert polled["license"] == "tripo-commercial-gated"
+    assert polled["cost_usd"] == 0.20
+    assert polled["provenance"]["provider_request_id"] == "fal-3d-1"
+
+
+def test_fal_client_image_to_3d_extracts_preview_and_textures(monkeypatch):
+    _stub_fal_queue(
+        monkeypatch,
+        result_payload={
+            "model_glb": "https://cdn.example/model.glb",
+            "preview_image": {"url": "https://cdn.example/preview.png"},
+            "textures": [
+                {"url": "https://cdn.example/albedo.png"},
+                "https://cdn.example/normal.png",
+            ],
+        },
+    )
+    from fal_media_client import FalClient
+
+    client = FalClient(api_key="fal-key", model="fal-ai/trellis")
+    polled = asyncio.run(
+        client.get_media_operation(operation_id="fal-3d-1", modality="image_to_3d")
+    )
+    roles = [a["role"] for a in polled["artifacts"]]
+    assert roles == ["model_glb", "preview", "texture", "texture"]
+    assert polled["artifact_url"] == "https://cdn.example/model.glb"

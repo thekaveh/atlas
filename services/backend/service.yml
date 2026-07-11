@@ -27,6 +27,12 @@ env:
   - name: BACKEND_STORAGE_ALLOWED_BUCKETS
     default: default
     description: "Comma-separated Supabase Storage bucket allowlist accepted by /storage/upload."
+  - name: BACKEND_MEDIA_INPUT_BUCKET
+    default: default
+    description: "Atlas storage bucket the media gateway hosts image_to_3d inputs in when a provider (e.g. Tripo) rejects data-URI inputs. Objects are written under the media-inputs/ prefix."
+  - name: BACKEND_MEDIA_INPUT_PUBLIC_BASE_URL
+    default: ""
+    description: "Optional public base URL for hosted media inputs. When set, hosted image_to_3d input URLs are formed as <base>/<bucket>/<key> so the provider's cloud can fetch them through a reachable ingress; empty falls back to the storage client's public URL."
   - name: BACKEND_CORS_ORIGINS
     default: "*"
     description: "Comma-separated browser origins accepted by the backend CORS middleware. Default preserves local-development permissiveness."

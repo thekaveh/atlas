@@ -55,6 +55,8 @@
 | BACKEND_SCALE | backend |  | Always 1 (BACKEND_SOURCE is single-valued). |
 | MAX_UPLOAD_BYTES | backend | 104857600 | Maximum accepted /storage/upload body size in bytes before the backend returns 413. |
 | BACKEND_STORAGE_ALLOWED_BUCKETS | backend | default | Comma-separated Supabase Storage bucket allowlist accepted by /storage/upload. |
+| BACKEND_MEDIA_INPUT_BUCKET | backend | default | Atlas storage bucket the media gateway hosts image_to_3d inputs in when a provider (e.g. Tripo) rejects data-URI inputs. Objects are written under the media-inputs/ prefix. |
+| BACKEND_MEDIA_INPUT_PUBLIC_BASE_URL | backend |  | Optional public base URL for hosted media inputs. When set, hosted image_to_3d input URLs are formed as <base>/<bucket>/<key> so the provider's cloud can fetch them through a reachable ingress; empty falls back to the storage client's public URL. |
 | BACKEND_CORS_ORIGINS | backend | * | Comma-separated browser origins accepted by the backend CORS middleware. Default preserves local-development permissiveness. |
 | BACKEND_CORS_ALLOW_ORIGIN_REGEX | backend |  | Optional regex accepted by the backend CORS middleware for wildcard subdomain policies. |
 | BACKEND_KONG_AUTH | backend | disabled | Default gateway authentication mode for the api.localhost backend route: disabled (default local-dev behavior) or key-auth (requires apikey header). A backend plugin's plugin.yml `auth: open/key-auth` overrides this per route prefix (#402). |
@@ -176,6 +178,7 @@ point at http://kong-api-gateway:8000.
 | FAL_SOURCE | fal | disabled | Enables fal.ai as the backend provider for simple media generation routes. |
 | FAL_API_KEY | fal |  | fal.ai API key. Required only when FAL_SOURCE=enabled. The backend also exposes it to fal-client as FAL_KEY. |
 | FAL_MODEL | fal | fal-ai/flux/dev | Default fal.ai model endpoint used by the media gateway for text-to-image generation. |
+| FAL_IMAGE_TO_3D_MODEL | fal | fal-ai/trellis | Default fal.ai endpoint id for the media gateway's image_to_3d modality. Must resolve to a curated registry entry (Hunyuan3D / TRELLIS / Tripo / Rodin / Pixal3D); TRELLIS is the MIT-licensed default. |
 | FAL_MODEL_LICENSE | fal | fal/provider-terms | License or terms marker returned in normalized media operation responses when provider-specific model licensing is not more specific. |
 | FAL_TIMEOUT_SECONDS | fal | 120 | Backend timeout budget for FAL media submit/poll operations and the compatibility route. |
 | FAL_OUTPUT_FORMAT | fal | jpeg | Requested output format for compatible fal.ai image models: jpeg or png. |

@@ -26,6 +26,9 @@ env:
   - name: FAL_MODEL
     default: "fal-ai/flux/dev"
     description: "Default fal.ai model endpoint used by the media gateway for text-to-image generation."
+  - name: FAL_IMAGE_TO_3D_MODEL
+    default: "fal-ai/trellis"
+    description: "Default fal.ai endpoint id for the media gateway's image_to_3d modality. Must resolve to a curated registry entry (Hunyuan3D / TRELLIS / Tripo / Rodin / Pixal3D); TRELLIS is the MIT-licensed default."
   - name: FAL_MODEL_LICENSE
     default: "fal/provider-terms"
     description: "License or terms marker returned in normalized media operation responses when provider-specific model licensing is not more specific."
