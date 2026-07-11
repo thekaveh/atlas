@@ -28,7 +28,14 @@ from memory_models import (
 )
 from ray_routes import router as ray_router
 from celery_app import celery_is_enabled, get_celery_job_status
-from celery_tasks import memory_consolidate_task
+from celery_tasks import memory_consolidate_task, rag_ingestion_task
+from rag_ingestion import (
+    ProfileNotFoundError,
+    RagIngestionQueuedResponse,
+    RagIngestionRecordResponse,
+    RagIngestionRequest,
+    RagIngestionService,
+)
 from graphiti_experiment import GraphitiExperimentConfig
 from document_extraction import (
     DocumentExtractionError,
@@ -527,6 +534,113 @@ async def evaluate_rag_quality(request: RagEvaluationRequest):
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         )
+
+
+# ─── RAG ingestion job contract (#413) ───────────────────────────────
+# Atlas owns the repeatable ingestion lifecycle; a consumer declares a
+# rag_ingestion_profile and submits jobs headlessly. A single process-wide
+# service holds the store (Redis when configured, else in-memory) so the submit
+# endpoint and the synchronous fallback share state; the Celery worker rebuilds
+# its own service against the same Redis when the async path is used.
+_rag_ingestion_service: Optional[RagIngestionService] = None
+
+
+def get_rag_ingestion_service() -> RagIngestionService:
+    global _rag_ingestion_service
+    if _rag_ingestion_service is None:
+        _rag_ingestion_service = RagIngestionService()
+    return _rag_ingestion_service
+
+
+@app.post(
+    "/api/rag/ingestions",
+    response_model=RagIngestionQueuedResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def submit_rag_ingestion(request: RagIngestionRequest, async_job: bool = True):
+    """Submit a RAG ingestion job for a declared profile (#413).
+
+    ``async_job=true`` (default) dispatches the Celery worker when the tier is
+    enabled; otherwise the job runs synchronously in-request. Idempotent by
+    consumer + profile revision + corpus digest: a re-submit of the same corpus
+    returns the existing job without re-running it.
+    """
+    service = get_rag_ingestion_service()
+    try:
+        record, created = service.submit(request.profile, corpus_path=request.corpus_path)
+    except ProfileNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Unknown rag_ingestion profile: {request.profile!r}",
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+    if not created:
+        return RagIngestionQueuedResponse(
+            ingestion_id=record.id,
+            job_id=None,
+            status=record.status,
+            message="Idempotent: existing ingestion returned (not re-run).",
+        )
+
+    if async_job and celery_is_enabled():
+        try:
+            task = await asyncio.to_thread(
+                rag_ingestion_task.apply_async, kwargs={"ingestion_id": record.id}
+            )
+        except Exception as e:  # noqa: BLE001 - broker unreachable
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=f"Failed to queue RAG ingestion: {str(e)}",
+            )
+        return RagIngestionQueuedResponse(
+            ingestion_id=record.id,
+            job_id=task.id,
+            status="pending",
+            message="RAG ingestion queued.",
+        )
+
+    # Synchronous fallback (Celery disabled or async_job=false).
+    final = await service.run(record.id)
+    return RagIngestionQueuedResponse(
+        ingestion_id=final.id,
+        job_id=None,
+        status=final.status,
+        message="RAG ingestion completed synchronously.",
+    )
+
+
+@app.get("/api/rag/ingestions", response_model=List[RagIngestionRecordResponse])
+async def list_rag_ingestions():
+    """List RAG ingestion jobs (machine-readable)."""
+    service = get_rag_ingestion_service()
+    return [RagIngestionRecordResponse(**r.to_dict()) for r in service.store.list()]
+
+
+@app.get("/api/rag/ingestions/{ingestion_id}", response_model=RagIngestionRecordResponse)
+async def get_rag_ingestion(ingestion_id: str):
+    """Return the durable, machine-readable state of one ingestion job."""
+    service = get_rag_ingestion_service()
+    record = service.store.get(ingestion_id)
+    if record is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Unknown ingestion id: {ingestion_id!r}",
+        )
+    return RagIngestionRecordResponse(**record.to_dict())
+
+
+@app.post("/api/rag/ingestions/{ingestion_id}/cancel", response_model=RagIngestionRecordResponse)
+async def cancel_rag_ingestion(ingestion_id: str):
+    """Request cooperative cancellation of a running ingestion job."""
+    service = get_rag_ingestion_service()
+    if not service.store.request_cancel(ingestion_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Unknown ingestion id: {ingestion_id!r}",
+        )
+    return RagIngestionRecordResponse(**service.store.get(ingestion_id).to_dict())
 
 
 # Research API Models

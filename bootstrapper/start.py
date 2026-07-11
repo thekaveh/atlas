@@ -1488,7 +1488,12 @@ class AtlasStarter:
         # Finalize consumer n8n workflow seeding (#412): write the normalized
         # workflow JSONs + plan + seed overlay, or remove stale artifacts when no
         # consumer declares n8n_workflows.
-        return self._finalize_consumer_n8n_workflows()
+        if not self._finalize_consumer_n8n_workflows():
+            return False
+        # Finalize consumer RAG ingestion profiles (#413): write the compiled
+        # profiles JSON + backend-mount overlay, or remove them when no consumer
+        # declares rag_ingestion_profiles.
+        return self._finalize_consumer_rag_ingestion_profiles()
 
     def _finalize_consumer_storage(self) -> bool:
         """Provision manifest-declared object stores (#404): generate scoped
@@ -1672,6 +1677,56 @@ class AtlasStarter:
         self.banner.show_status_message(
             f"  • Seeding {len(config.n8n_workflows)} consumer n8n workflow(s) "
             f"from {', '.join(owners)}",
+            "info",
+        )
+        return True
+
+    def _finalize_consumer_rag_ingestion_profiles(self) -> bool:
+        """Materialize consumer-owned RAG ingestion profiles (#413): write the
+        compiled profiles JSON + the backend-mount compose overlay, or remove any
+        stale generated artifacts when no consumer declares rag_ingestion_profiles.
+        Idempotent; a removed manifest drops exactly its own artifacts next start.
+        """
+        from core.consumer_manifest import (
+            RAG_INGESTION_OVERLAY_PATH,
+            RAG_INGESTION_PROFILES_PATH,
+        )
+
+        try:
+            config = self.config_parser.load_consumer_config()
+        except Exception as exc:  # ConsumerManifestError etc. — surface + fail
+            self.banner.show_status_message(
+                f"Consumer RAG ingestion manifest error: {exc}", "error"
+            )
+            return False
+
+        profiles_path = self.root_dir / RAG_INGESTION_PROFILES_PATH
+        overlay_path = self.root_dir / RAG_INGESTION_OVERLAY_PATH
+
+        if not config.rag_ingestion_profiles:
+            # Remove stale artifacts so a warm restart doesn't mount removed
+            # profiles into the backend.
+            if profiles_path.exists():
+                profiles_path.unlink()
+            if overlay_path.exists():
+                overlay_path.unlink()
+            return True
+
+        if config.rag_ingestion_file is not None:
+            config.rag_ingestion_file.path.parent.mkdir(parents=True, exist_ok=True)
+            config.rag_ingestion_file.path.write_text(
+                config.rag_ingestion_file.content, encoding="utf-8"
+            )
+        if config.rag_ingestion_overlay is not None:
+            config.rag_ingestion_overlay.path.parent.mkdir(parents=True, exist_ok=True)
+            config.rag_ingestion_overlay.path.write_text(
+                config.rag_ingestion_overlay.content, encoding="utf-8"
+            )
+
+        owners = sorted({p.consumer for p in config.rag_ingestion_profiles})
+        self.banner.show_status_message(
+            f"  • Registering {len(config.rag_ingestion_profiles)} consumer RAG "
+            f"ingestion profile(s) from {', '.join(owners)}",
             "info",
         )
         return True
@@ -3122,6 +3177,64 @@ def _doctor_check_n8n_workflows(starter: "AtlasStarter") -> dict:
     )
 
 
+def _doctor_check_rag_ingestion_profiles(starter: "AtlasStarter") -> dict:
+    """Validate consumer-declared RAG ingestion profiles to register (#413).
+
+    Load-time already validated the profiles (unique names, corpus path safety,
+    parser/chunker/target schema, collection collisions); a parse failure surfaces
+    as a fail here. This check adds an operational signal: a profile whose vector
+    or graph target has ``on_unavailable: fail`` but whose backend endpoint is
+    unset in .env will hard-fail that ingestion at runtime — surface it now.
+    """
+    try:
+        config = starter.config_parser.load_consumer_config()
+    except ValueError as exc:
+        return _doctor_result(
+            "rag-ingestion-profiles",
+            "fail",
+            f"Consumer RAG ingestion profile validation failed: {exc}",
+        )
+    if not config.rag_ingestion_profiles:
+        return _doctor_result(
+            "rag-ingestion-profiles",
+            "pass",
+            "No consumer RAG ingestion profiles declared.",
+        )
+
+    env_values = starter.config_parser.parse_env_file()
+    # Endpoint env var that gates each target backend (empty = disabled).
+    endpoint_var = {"weaviate": "WEAVIATE_URL", "lightrag": "LIGHTRAG_ENDPOINT"}
+    warnings: list[str] = []
+    for profile in config.rag_ingestion_profiles:
+        targets = [
+            (t.backend, t.on_unavailable) for t in profile.vector_targets
+        ] + [(t.backend, t.on_unavailable) for t in profile.graph_targets]
+        for backend, on_unavailable in targets:
+            var = endpoint_var.get(backend)
+            enabled = bool(env_values.get(var, "").strip()) if var else True
+            if on_unavailable == "fail" and not enabled:
+                warnings.append(
+                    f"profile {profile.name!r} target {backend} is on_unavailable=fail "
+                    f"but {var} is unset — ingestion will hard-fail until it is enabled."
+                )
+
+    names = [p.name for p in config.rag_ingestion_profiles]
+    owners = sorted({p.consumer for p in config.rag_ingestion_profiles})
+    if warnings:
+        return _doctor_result(
+            "rag-ingestion-profiles",
+            "warn",
+            warnings[0],
+            details={"warnings": warnings, "profiles": names, "owners": owners},
+        )
+    return _doctor_result(
+        "rag-ingestion-profiles",
+        "pass",
+        f"{len(names)} consumer RAG ingestion profile(s) valid: {', '.join(names)}.",
+        details={"profiles": names, "owners": owners},
+    )
+
+
 def _doctor_check_endpoints(starter: "AtlasStarter") -> dict:
     env_values = starter.config_parser.parse_env_file()
     endpoints = {
@@ -3195,6 +3308,7 @@ DOCTOR_CHECKS = [
     _doctor_check_model_sidecars,
     _doctor_check_litellm_models,
     _doctor_check_n8n_workflows,
+    _doctor_check_rag_ingestion_profiles,
     _doctor_check_endpoints,
     _doctor_check_submodule_clean,
 ]

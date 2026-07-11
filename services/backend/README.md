@@ -6,7 +6,7 @@ The backend is `_SOURCE`-trivial — it has only one variant, `container` — be
 
 ## 1. Overview
 
-Source: `services/backend/app/`. The FastAPI app boots in `app/main.py`, mounts feature routes (`/memory`, `/research`, `/storage`, `/health`, `/workflows`, `/media/*`, `/comfyui/*`, `/api/ray/*`, `/api/chunk`, `/api/rag/evaluate`), and reads adaptive env vars at startup. LangMem (LangChain's long-term-memory layer) is bundled in: `LANGMEM_ENABLED=true` by default, with extraction/embedding models resolved from `LITELLM_DEFAULT_MODEL` / `LITELLM_EMBEDDING_MODEL` (set by `litellm-init` from the YAML catalog + env). Chonkie powers `/api/chunk` so n8n, notebooks, and downstream services can request token, recursive, or semantic text chunks through the Backend rather than importing the library independently. Ragas powers `/api/rag/evaluate` so callers can score supplied questions, answers, contexts, and optional references through Atlas-owned LiteLLM routing instead of adding evaluator packages to each service. A small pytest suite lives at `app/app/tests/` (Ray client/routes, chunking service/API tests, and Ragas contract/API tests; run in the required CI job); local iteration is edit-in-place — the compose fragment bind-mounts `./app/app` onto `/app` and `uvicorn[standard] --reload` (via `watchfiles`) hot-reloads on every source edit. Only requirements.txt changes need a `docker compose up --force-recreate backend`.
+Source: `services/backend/app/`. The FastAPI app boots in `app/main.py`, mounts feature routes (`/memory`, `/research`, `/storage`, `/health`, `/workflows`, `/media/*`, `/comfyui/*`, `/api/ray/*`, `/api/chunk`, `/api/rag/evaluate`, `/api/rag/ingestions`), and reads adaptive env vars at startup. LangMem (LangChain's long-term-memory layer) is bundled in: `LANGMEM_ENABLED=true` by default, with extraction/embedding models resolved from `LITELLM_DEFAULT_MODEL` / `LITELLM_EMBEDDING_MODEL` (set by `litellm-init` from the YAML catalog + env). Chonkie powers `/api/chunk` so n8n, notebooks, and downstream services can request token, recursive, or semantic text chunks through the Backend rather than importing the library independently. Ragas powers `/api/rag/evaluate` so callers can score supplied questions, answers, contexts, and optional references through Atlas-owned LiteLLM routing instead of adding evaluator packages to each service. A small pytest suite lives at `app/app/tests/` (Ray client/routes, chunking service/API tests, Ragas contract/API tests, and the RAG ingestion engine/API tests; run in the required CI job); local iteration is edit-in-place — the compose fragment bind-mounts `./app/app` onto `/app` and `uvicorn[standard] --reload` (via `watchfiles`) hot-reloads on every source edit. Only requirements.txt changes need a `docker compose up --force-recreate backend`.
 
 ## 2. Access
 
@@ -17,6 +17,7 @@ Source: `services/backend/app/`. The FastAPI app boots in `app/main.py`, mounts 
 | Health | `GET /health` | Returns a minimal `{status, version}` response. |
 | Chunking | `POST /api/chunk` | Chonkie-backed token, recursive, and semantic text splitting for RAG ingestion clients. |
 | RAG evaluation | `POST /api/rag/evaluate` | Ragas-backed objective metrics over supplied question/answer/context records. |
+| RAG ingestion | `POST /api/rag/ingestions`, `GET /api/rag/ingestions[/{id}]`, `POST /api/rag/ingestions/{id}/cancel` | Generic ingestion job over a consumer `rag_ingestion_profile` (discover → parse → chunk → embed → vector write → LightRAG upload → drain → finalize) with machine-readable per-phase status. |
 
 Canonical port table: [Ports and Routes](../../docs/deployment/ports-and-routes.md).
 
@@ -181,9 +182,11 @@ When any optional service is `disabled`, the corresponding backend feature degra
 
 **RAG chunking gateway:** `POST /api/chunk` centralizes Chonkie text splitting in the Backend. n8n workflows, notebooks, and future ingestion routes should call this endpoint so chunking defaults, offsets, overlap behavior, and semantic model selection stay consistent across Atlas. JupyterHub also installs Chonkie for exploratory notebook work, but the Backend endpoint is the canonical runtime API.
 
+**RAG ingestion job engine (`rag_ingestion/`, #413):** `POST /api/rag/ingestions` runs a generic, repeatable ingestion lifecycle over a consumer-declared `rag_ingestion_profile` — discover → parse (Docling → Tika → plain-text fallback) → chunk (Chonkie) → embed (LiteLLM) → vector-store write (Weaviate, class namespaced `{collection_prefix}_{profile}`) → LightRAG upload → drain (poll extraction with a timeout) → finalize. Each phase records status, counts, timing, and actionable per-file errors, and every target is **capability-gated** by its backend's endpoint env var with per-target `on_unavailable: fail | skip` semantics. Jobs are **idempotent** by consumer + profile revision + corpus digest and run through the Celery tier when enabled (else synchronously in-request); state is held in the ingestion store (Redis when `REDIS_URL` is set, else in-memory). The profiles themselves are declared in `atlas.consumer.yml` and compiled by the bootstrapper into `RAG_INGESTION_PROFILES_FILE`; corpus inputs are a consumer-mounted read-only path under `RAG_INGESTION_CORPUS_ROOT` (default `/app/corpus`) or a MinIO prefix — never an arbitrary host path. Consumer-side walkthrough: [reusing-atlas.md §6.3.4](../../docs/deployment/reusing-atlas.md#634-declaring-rag-ingestion-profiles-with-rag_ingestion_profiles). Covered by `app/app/tests/test_rag_ingestion.py` + `test_rag_ingestion_api.py` (fake upstreams; a live round-trip is an optional test).
+
 ## 5. LightRAG integration
 
-When `LIGHTRAG_SOURCE != disabled`, the backend receives `LIGHTRAG_ENDPOINT` and `LIGHTRAG_API_KEY` env vars. No `/rag` route is currently implemented; a downstream consumer can add one without manifest changes via the plugin seam described in §4 (mount a `rag` route package under `BACKEND_PLUGINS_DIR`).
+When `LIGHTRAG_SOURCE != disabled`, the backend receives `LIGHTRAG_ENDPOINT` and `LIGHTRAG_API_KEY` env vars. The RAG ingestion job engine (§4, #413) uses them as a `graph_target` — uploading parsed documents and draining the extraction pipeline with a timeout. A consumer can still add a bespoke `/rag` route without manifest changes via the plugin seam described in §4 (mount a `rag` route package under `BACKEND_PLUGINS_DIR`).
 
 ## 6. Dependencies & Integrations
 
@@ -195,6 +198,7 @@ When `LIGHTRAG_SOURCE != disabled`, the backend receives `LIGHTRAG_ENDPOINT` and
 |---|---|
 | otel-collector | infra |
 | ray | infra |
+| minio | data |
 | supabase | data |
 | supavisor | data |
 | weaviate | data |
@@ -203,6 +207,7 @@ When `LIGHTRAG_SOURCE != disabled`, the backend receives `LIGHTRAG_ENDPOINT` and
 | fal | media |
 | tika | media |
 | celery | agents |
+| lightrag | agents |
 | n8n ↔ | agents |
 | local-deep-researcher | apps |
 
