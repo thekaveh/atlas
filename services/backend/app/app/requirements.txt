@@ -37,6 +37,11 @@ passlib>=1.7.4
 chonkie>=1.7.0,<2
 ragas==0.4.3
 fal-client>=0.8.0
+# Pillow: image_to_3d input conditioning (media_input.py) composites
+# transparent inputs onto a neutral background before submission. Imported
+# lazily at request time only, so it stays out of main.py's import closure and
+# the CI backend unit-test venv.
+Pillow>=10.3.0
 ollama>=0.6.2
 numpy>=1.26.0
 pytz>=2024.1

@@ -17,6 +17,8 @@ from n8n_client import N8nClient
 from research_service import ResearchService
 from comfyui_client import ComfyUIClient
 from fal_media_client import FalClient
+import media_registry
+from media_input import prepare_image_input, ImageInputError, ImageHostingError
 from uuid import UUID as _UUID
 from memory_service import MemoryService
 from memory_models import (
@@ -928,16 +930,52 @@ def _media_timeout_seconds(request_timeout: Optional[int] = None) -> int:
 def _normalize_media_route(provider: str, modality: str, model: Optional[str]) -> tuple[str, str, str]:
     normalized_provider = (provider or "").strip().lower()
     normalized_modality = (modality or "").strip().lower()
-    selected_model = (model or os.getenv("FAL_MODEL") or "fal-ai/flux/dev").strip()
     if normalized_provider == "fal" and normalized_modality == "image":
+        selected_model = (model or os.getenv("FAL_MODEL") or "fal-ai/flux/dev").strip()
         return normalized_provider, normalized_modality, selected_model
+    if normalized_provider == "fal" and normalized_modality == "image_to_3d":
+        requested = (model or media_registry.default_model_id()).strip()
+        entry = media_registry.lookup(requested)
+        if entry is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Unknown image_to_3d model '{requested}'. Supported: "
+                    + ", ".join(media_registry.known_ids())
+                ),
+            )
+        # Resolve aliases to the canonical endpoint id.
+        return normalized_provider, normalized_modality, entry.model_id
     raise HTTPException(
         status_code=status.HTTP_400_BAD_REQUEST,
         detail=(
             "Unsupported media route: Atlas currently supports "
-            "provider=fal with modality=image"
+            "provider=fal with modality=image or modality=image_to_3d"
         ),
     )
+
+
+def _media_input_uploader(data: bytes, content_type: str, key: str) -> str:
+    """Host an image_to_3d input in Atlas storage and return its public URL.
+
+    Used for providers that reject data-URI inputs (Tripo) and for inputs the
+    gateway conditioned into fresh bytes. Runs synchronously off the event loop
+    (called from within ``prepare_image_input`` under ``asyncio.to_thread``).
+    """
+
+    bucket = (os.getenv("BACKEND_MEDIA_INPUT_BUCKET") or "default").strip() or "default"
+    bucket_ref = storage_client.from_(bucket)
+    bucket_ref.upload(
+        path=key,
+        file=data,
+        file_options={"content-type": content_type, "upsert": "true"},
+    )
+    base = (os.getenv("BACKEND_MEDIA_INPUT_PUBLIC_BASE_URL") or "").strip()
+    if base:
+        # Operators point this at a publicly reachable ingress so the provider's
+        # cloud can fetch the hosted object.
+        return f"{base.rstrip('/')}/{bucket}/{key}"
+    return bucket_ref.get_public_url(key)
 
 
 def _media_response(payload: Dict[str, Any]) -> MediaOperationResponse:
@@ -1028,18 +1066,53 @@ async def submit_media_generation(request: MediaGenerateRequest):
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="FAL_SOURCE=enabled is required for provider=fal media generation",
         )
-    if "prompt" not in request.input:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Media input must include prompt for modality=image",
-        )
+
+    if modality == "image":
+        if "prompt" not in request.input:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Media input must include prompt for modality=image",
+            )
+        prepared_input = request.input
+    else:  # image_to_3d
+        if not request.input.get("image"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Media input must include image for modality=image_to_3d",
+            )
+        # Fail fast on a missing key before any (side-effecting) storage write.
+        _require_fal_api_key()
+        entry = media_registry.lookup(model)
+        try:
+            # prepare_image_input performs (optional) Pillow compositing and a
+            # blocking storage upload; run it off the event loop.
+            prepared = await asyncio.to_thread(
+                prepare_image_input,
+                request.input["image"],
+                needs_hosted_url=bool(entry and entry.needs_hosted_url),
+                accepts_data_uri=bool(entry.accepts_data_uri) if entry else True,
+                condition_transparent=True,
+                uploader=_media_input_uploader,
+            )
+        except ImageInputError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e),
+            )
+        except ImageHostingError as e:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=str(e),
+            )
+        prepared_input = dict(request.input)
+        prepared_input["image"] = prepared.image
 
     api_key = _require_fal_api_key()
     try:
         async with FalClient(api_key=api_key, model=model) as client:
             payload = await client.submit_media_operation(
                 modality=modality,
-                input=request.input,
+                input=prepared_input,
                 model=model,
             )
     except HTTPException:
