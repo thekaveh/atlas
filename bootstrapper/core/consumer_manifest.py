@@ -306,6 +306,115 @@ class RagIngestionProfile:
 
 
 @dataclass(frozen=True)
+class LightragQueryProfile:
+    """One consumer-declared, versioned LightRAG *query* profile (#414).
+
+    A named side-by-side query flavor (mode + retrieval bounds), distinct from the
+    role-specific model *defaults* (``LIGHTRAG_EXTRACT_*`` / ``LIGHTRAG_KEYWORD_*``
+    / ``LIGHTRAG_QUERY_*`` env vars): those pick which model runs each LightRAG
+    role, whereas a profile bundles the per-query knobs (mode, ``top_k``,
+    ``chunk_top_k``, ``max_total_tokens``, ``enable_rerank``) a caller selects by
+    name for evaluation or as a UI flavor.
+
+    ``consumer`` is the manifest-derived owner (non-spoofable). ``name`` is the
+    stable, globally-unique profile id. The numeric bounds are *optional*: an
+    omitted field inherits the deployment ``LIGHTRAG_QUERY_*`` env default —
+    precedence is request-override > profile > service-env-default. ``mode`` has no
+    env default (it is runtime-selected), so it is always explicit. ``revision`` is
+    a content hash of the normalized profile so a consumer can detect a changed
+    flavor without re-reading the manifest.
+    """
+
+    consumer: str
+    name: str
+    mode: str
+    top_k: int | None = None
+    chunk_top_k: int | None = None
+    max_total_tokens: int | None = None
+    enable_rerank: bool = False
+    query_llm_model: str | None = None
+    embedding_model: str | None = None
+    description: str | None = None
+    litellm_alias: str | None = None
+
+    def normalized(self) -> dict[str, Any]:
+        """The canonical (revision-independent) profile dict the backend reads.
+
+        Omitted numeric bounds are left out entirely so the backend falls back to
+        the deployment ``LIGHTRAG_QUERY_*`` env default (documented precedence).
+        Carries no secrets — only the flavor knobs and model-name references.
+        """
+        data: dict[str, Any] = {
+            "consumer": self.consumer,
+            "name": self.name,
+            "mode": self.mode,
+            "enable_rerank": self.enable_rerank,
+        }
+        if self.top_k is not None:
+            data["top_k"] = self.top_k
+        if self.chunk_top_k is not None:
+            data["chunk_top_k"] = self.chunk_top_k
+        if self.max_total_tokens is not None:
+            data["max_total_tokens"] = self.max_total_tokens
+        if self.query_llm_model:
+            data["query_llm_model"] = self.query_llm_model
+        if self.embedding_model:
+            data["embedding_model"] = self.embedding_model
+        if self.description:
+            data["description"] = self.description
+        if self.litellm_alias:
+            data["litellm_alias"] = self.litellm_alias
+        return data
+
+    @property
+    def revision(self) -> str:
+        import hashlib
+        import json
+
+        payload = json.dumps(self.normalized(), sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+    def to_litellm_alias(self) -> "LitellmModel | None":
+        """Optional #411 integration: when the profile opts in with a
+        ``litellm_alias``, render a consumer-owned LiteLLM row that surfaces this
+        flavor as a selectable OpenWebUI/LiteLLM model.
+
+        The row points at the backend's in-network profile-aware OpenAI route
+        (``${ATLAS_BACKEND_INTERNAL}`` — where #402 backend plugins mount), and the
+        profile knobs ride along in ``model_info`` so the alias and the profile
+        stay a single source of truth. Returns ``None`` when no alias is declared,
+        so the coupling is strictly opt-in (a no-alias profile emits no row).
+        """
+        if not self.litellm_alias:
+            return None
+        info: dict[str, Any] = {
+            "atlas_lightrag_profile": self.name,
+            "lightrag_mode": self.mode,
+            "lightrag_enable_rerank": self.enable_rerank,
+        }
+        if self.top_k is not None:
+            info["lightrag_top_k"] = self.top_k
+        if self.chunk_top_k is not None:
+            info["lightrag_chunk_top_k"] = self.chunk_top_k
+        if self.max_total_tokens is not None:
+            info["lightrag_max_total_tokens"] = self.max_total_tokens
+        if self.query_llm_model:
+            info["lightrag_query_llm_model"] = self.query_llm_model
+        return LitellmModel(
+            consumer=self.consumer,
+            name=self.litellm_alias,
+            api_base=LITELLM_ENDPOINT_TEMPLATES["ATLAS_BACKEND_INTERNAL"],
+            model=f"openai/{self.litellm_alias}",
+            description=(
+                self.description
+                or f"LightRAG query profile {self.name!r} ({self.mode})"
+            ),
+            tags=("lightrag", "graph-rag", self.mode),
+            model_info=info,
+        )
+
+
+@dataclass(frozen=True)
 class ConsumerRecord:
     name: str
     manifest_path: Path
@@ -317,6 +426,7 @@ class ConsumerRecord:
     litellm_models: tuple[LitellmModel, ...] = ()
     n8n_workflows: tuple[N8nWorkflow, ...] = ()
     rag_ingestion_profiles: tuple[RagIngestionProfile, ...] = ()
+    lightrag_query_profiles: tuple[LightragQueryProfile, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -339,6 +449,11 @@ class ConsumerConfig:
     # that bind-mounts it into the backend + points RAG_INGESTION_PROFILES_FILE.
     rag_ingestion_file: GeneratedArtifact | None = None
     rag_ingestion_overlay: GeneratedArtifact | None = None
+    lightrag_query_profiles: tuple[LightragQueryProfile, ...] = ()
+    # Generated LightRAG query-profile registry the backend reads at runtime, plus
+    # a compose overlay that bind-mounts it + points LIGHTRAG_QUERY_PROFILES_FILE.
+    lightrag_query_profiles_file: GeneratedArtifact | None = None
+    lightrag_query_profiles_overlay: GeneratedArtifact | None = None
 
     @property
     def is_empty(self) -> bool:
@@ -1906,6 +2021,334 @@ def render_rag_ingestion_overlay(profiles: Iterable[RagIngestionProfile]) -> str
     return "\n".join(lines) + "\n"
 
 
+# ─── Consumer LightRAG query profile registry (#414) ─────────────────
+#
+# A consumer declares versioned ``lightrag_query_profiles`` — named, side-by-side
+# LightRAG query flavors (mode + retrieval bounds) that a backend plugin, the
+# doctor, or an Open WebUI model alias can select by name. This is distinct from
+# the role-specific model *defaults* (``LIGHTRAG_EXTRACT_*`` / ``LIGHTRAG_KEYWORD_*``
+# / ``LIGHTRAG_QUERY_*`` env vars), which pick which model runs each LightRAG role
+# for the single deployment-wide default: a profile bundles the per-query knobs a
+# caller picks by name for evaluation / UI flavors. Atlas validates + normalizes
+# each profile, hashes it to a stable ``revision``, and compiles one deterministic
+# JSON registry the backend reads at runtime plus a compose overlay that mounts it
+# and points ``LIGHTRAG_QUERY_PROFILES_FILE`` at it. All artifacts regenerate every
+# start, so a deployment with no profiles stays byte/behavior compatible and a
+# removed manifest drops only that consumer's profiles.
+#
+# Precedence (documented + carried in the artifact): a per-request query parameter
+# overrides the profile, which overrides the deployment ``LIGHTRAG_QUERY_*`` env
+# default. An omitted numeric bound therefore inherits the env default at runtime.
+
+LIGHTRAG_QUERY_PROFILES_PATH = Path("volumes/backend/lightrag-query-profiles.json")
+LIGHTRAG_QUERY_PROFILES_OVERLAY_PATH = Path(
+    "volumes/backend/lightrag-query-profiles.compose.yml"
+)
+# Fixed path the profiles registry is mounted at inside the backend container.
+LIGHTRAG_QUERY_PROFILES_CONTAINER_PATH = "/app/lightrag-query-profiles.json"
+
+# The five LightRAG-supported retrieval modes (HKUDS/LightRAG QueryParam.mode).
+# ``LIGHTRAG_QUERY_MODE`` is NOT an Atlas env var — mode is runtime-selected — so a
+# profile's ``mode`` is always explicit (no env default to inherit).
+_LIGHTRAG_QUERY_MODES = frozenset({"local", "global", "hybrid", "mix", "naive"})
+# Optional model references (query LLM / embedding) are model-handle strings, never
+# secrets — a LiteLLM alias or ``provider/model`` handle (``/`` is legitimate, e.g.
+# ``openai/gpt-4o``). The value is recorded as an opaque reference, never resolved as
+# a filesystem path, so the charset only needs to bar whitespace and shell/interpolation
+# metacharacters (``$``, ``{`` etc. are excluded) rather than ``..`` path segments.
+_LIGHTRAG_MODEL_REF_RE = __import__("re").compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
+_LIGHTRAG_ALLOWED_PROFILE_KEYS = frozenset(
+    {
+        "name",
+        "owner",
+        "mode",
+        "top_k",
+        "chunk_top_k",
+        "max_total_tokens",
+        "enable_rerank",
+        "query_llm_model",
+        "embedding_model",
+        "description",
+        "litellm_alias",
+    }
+)
+# Upper bounds catch fat-finger configs (a top_k of 100000 would OOM the backend);
+# the lower bound is a strict positive (>0) — zero/negative retrieval is unsupported.
+_LIGHTRAG_INT_BOUNDS = {
+    "top_k": 10_000,
+    "chunk_top_k": 10_000,
+    "max_total_tokens": 2_000_000,
+}
+
+
+def _lightrag_optional_int(
+    raw: Any, *, field_name: str, profile: str, origin: str
+) -> int | None:
+    """Validate an optional bounded positive-int profile bound.
+
+    ``None`` (omitted) is allowed — the runtime inherits the ``LIGHTRAG_QUERY_*``
+    env default. A present value must be a real ``int`` (``bool`` is rejected —
+    ``isinstance(True, int)`` is truthy in Python), strictly positive, and within
+    the field's sane upper bound.
+    """
+    if raw is None:
+        return None
+    maximum = _LIGHTRAG_INT_BOUNDS[field_name]
+    if isinstance(raw, bool) or not isinstance(raw, int):
+        raise ConsumerManifestError(
+            f"lightrag_query_profiles[{profile!r}] {field_name} must be an integer "
+            f"({origin})"
+        )
+    if raw <= 0:
+        raise ConsumerManifestError(
+            f"lightrag_query_profiles[{profile!r}] {field_name} must be a positive "
+            f"integer (> 0); got {raw} ({origin})"
+        )
+    if raw > maximum:
+        raise ConsumerManifestError(
+            f"lightrag_query_profiles[{profile!r}] {field_name} ({raw}) exceeds the "
+            f"maximum {maximum} ({origin})"
+        )
+    return int(raw)
+
+
+def _lightrag_optional_model_ref(
+    raw: Any, *, field_name: str, profile: str, origin: str
+) -> str | None:
+    if raw is None:
+        return None
+    value = str(raw).strip()
+    if not value:
+        return None
+    if not _LIGHTRAG_MODEL_REF_RE.match(value):
+        raise ConsumerManifestError(
+            f"lightrag_query_profiles[{profile!r}] {field_name} {value!r} must match "
+            f"{_LIGHTRAG_MODEL_REF_RE.pattern} (a model-name reference, not a secret) "
+            f"({origin})"
+        )
+    return value
+
+
+def _parse_lightrag_query_profiles_block(
+    data: Mapping[str, Any],
+    consumer_name: str,
+    manifest_path: Path,
+) -> list[LightragQueryProfile]:
+    block = data.get("lightrag_query_profiles")
+    if block is None:
+        return []
+    origin = str(manifest_path)
+    if not isinstance(block, Mapping):
+        raise ConsumerManifestError(
+            f"lightrag_query_profiles must be a mapping with version + profiles ({origin})"
+        )
+    if block.get("version") != 1:
+        raise ConsumerManifestError(
+            f"lightrag_query_profiles.version must be 1 ({origin})"
+        )
+    raw_profiles = block.get("profiles")
+    if not isinstance(raw_profiles, list) or not raw_profiles:
+        raise ConsumerManifestError(
+            f"lightrag_query_profiles.profiles must be a non-empty list ({origin})"
+        )
+
+    reserved_aliases = _reserved_litellm_aliases()
+    profiles: list[LightragQueryProfile] = []
+    seen: set[str] = set()
+    for raw in raw_profiles:
+        if not isinstance(raw, Mapping):
+            raise ConsumerManifestError(
+                f"lightrag_query_profiles.profiles entries must be mappings ({origin})"
+            )
+        unknown = {str(k) for k in raw.keys()} - _LIGHTRAG_ALLOWED_PROFILE_KEYS
+        if unknown:
+            raise ConsumerManifestError(
+                f"lightrag_query_profiles entry has unknown field(s) {sorted(unknown)}; "
+                f"allowed: {sorted(_LIGHTRAG_ALLOWED_PROFILE_KEYS)} ({origin})"
+            )
+        name = str(raw.get("name") or "").strip()
+        if not _RAG_NAME_RE.match(name):
+            raise ConsumerManifestError(
+                f"lightrag_query_profiles name {name!r} must match {_RAG_NAME_RE.pattern} "
+                f"({origin})"
+            )
+        if name in seen:
+            raise ConsumerManifestError(
+                f"duplicate lightrag_query_profiles name {name!r} for consumer "
+                f"{consumer_name!r} ({origin})"
+            )
+        seen.add(name)
+
+        # Ownership is manifest-derived; an explicit owner may only RESTATE it.
+        owner = raw.get("owner")
+        if owner is not None and str(owner).strip() != consumer_name:
+            raise ConsumerManifestError(
+                f"lightrag_query_profiles entry {name!r} declares owner {str(owner)!r} but "
+                f"ownership is derived from the manifest ({consumer_name!r}) and cannot be "
+                f"spoofed ({origin})"
+            )
+
+        mode = str(raw.get("mode") or "").strip()
+        if mode not in _LIGHTRAG_QUERY_MODES:
+            raise ConsumerManifestError(
+                f"lightrag_query_profiles[{name!r}] mode {mode!r} must be one of "
+                f"{sorted(_LIGHTRAG_QUERY_MODES)} ({origin})"
+            )
+
+        top_k = _lightrag_optional_int(
+            raw.get("top_k"), field_name="top_k", profile=name, origin=origin
+        )
+        chunk_top_k = _lightrag_optional_int(
+            raw.get("chunk_top_k"), field_name="chunk_top_k", profile=name, origin=origin
+        )
+        max_total_tokens = _lightrag_optional_int(
+            raw.get("max_total_tokens"),
+            field_name="max_total_tokens",
+            profile=name,
+            origin=origin,
+        )
+
+        rerank_raw = raw.get("enable_rerank", False)
+        if not isinstance(rerank_raw, bool):
+            raise ConsumerManifestError(
+                f"lightrag_query_profiles[{name!r}] enable_rerank must be a boolean ({origin})"
+            )
+        if rerank_raw:
+            # No LightRAG-compatible rerank adapter exists yet: LightRAG's built-in
+            # rerank clients and TEI's /rerank payload are incompatible (#415 adds
+            # the adapter). Reject rerank-on profiles rather than silently pointing
+            # them at TEI (which would 4xx/5xx at query time).
+            raise ConsumerManifestError(
+                f"lightrag_query_profiles[{name!r}] enable_rerank=true is not supported: no "
+                f"LightRAG-compatible rerank adapter is active yet (see #415). Leave rerank "
+                f"disabled until a compatible adapter endpoint lands; do not point the profile "
+                f"directly at TEI ({origin})"
+            )
+
+        query_llm_model = _lightrag_optional_model_ref(
+            raw.get("query_llm_model"),
+            field_name="query_llm_model",
+            profile=name,
+            origin=origin,
+        )
+        embedding_model = _lightrag_optional_model_ref(
+            raw.get("embedding_model"),
+            field_name="embedding_model",
+            profile=name,
+            origin=origin,
+        )
+
+        description = raw.get("description")
+        if description is not None:
+            description = str(description)
+
+        litellm_alias = raw.get("litellm_alias")
+        if litellm_alias is not None:
+            litellm_alias = str(litellm_alias).strip()
+            if not litellm_alias:
+                litellm_alias = None
+        if litellm_alias is not None:
+            # The alias becomes a real #411 LiteLLM row, so it must satisfy the same
+            # alias contract (charset + not a stack-reserved name). Cross-consumer
+            # global uniqueness is enforced later by _validate_litellm_collisions on
+            # the merged row list.
+            if not _LITELLM_ALIAS_RE.match(litellm_alias):
+                raise ConsumerManifestError(
+                    f"lightrag_query_profiles[{name!r}] litellm_alias {litellm_alias!r} must "
+                    f"match {_LITELLM_ALIAS_RE.pattern} ({origin})"
+                )
+            if litellm_alias in reserved_aliases:
+                raise ConsumerManifestError(
+                    f"lightrag_query_profiles[{name!r}] litellm_alias {litellm_alias!r} is "
+                    f"reserved for a stack-owned model — pick a distinct alias ({origin})"
+                )
+
+        profiles.append(
+            LightragQueryProfile(
+                consumer=consumer_name,
+                name=name,
+                mode=mode,
+                top_k=top_k,
+                chunk_top_k=chunk_top_k,
+                max_total_tokens=max_total_tokens,
+                enable_rerank=False,
+                query_llm_model=query_llm_model,
+                embedding_model=embedding_model,
+                description=description,
+                litellm_alias=litellm_alias,
+            )
+        )
+    return profiles
+
+
+def _validate_lightrag_query_profiles_collisions(
+    profiles: Iterable[LightragQueryProfile],
+) -> None:
+    """Reject profile-name collisions across consumers (names are the global,
+    namespaced selection key in the single generated registry)."""
+    owner: dict[str, str] = {}
+    for profile in profiles:
+        if profile.name in owner and owner[profile.name] != profile.consumer:
+            raise ConsumerManifestError(
+                f"lightrag_query_profiles name {profile.name!r} declared by multiple consumers "
+                f"({owner[profile.name]} and {profile.consumer})"
+            )
+        if profile.name in owner:
+            raise ConsumerManifestError(
+                f"duplicate lightrag_query_profiles name {profile.name!r} for consumer "
+                f"{profile.consumer!r}"
+            )
+        owner[profile.name] = profile.consumer
+
+
+def compile_lightrag_query_profiles_file(
+    profiles: Iterable[LightragQueryProfile],
+) -> str:
+    """Render the deterministic JSON registry the backend reads at runtime.
+
+    Carries a top-level ``precedence`` contract (request > profile > service env
+    default) so a runtime consumer resolves an omitted bound against the deployment
+    ``LIGHTRAG_QUERY_*`` env default. Each profile carries its ``revision`` (content
+    hash). Secrets never appear — only flavor knobs + model-name references.
+    """
+    import json
+
+    doc = {
+        "version": 1,
+        "precedence": ["request", "profile", "service_env_default"],
+        "profiles": [
+            {**profile.normalized(), "revision": profile.revision}
+            for profile in profiles
+        ],
+    }
+    return json.dumps(doc, indent=2, sort_keys=True) + "\n"
+
+
+def render_lightrag_query_profiles_overlay(
+    profiles: Iterable[LightragQueryProfile],
+) -> str:
+    """Render the compose overlay that bind-mounts the generated registry into the
+    backend and points ``LIGHTRAG_QUERY_PROFILES_FILE`` at it.
+
+    Bind-mount paths are repo-root-relative because the overlay is merged via
+    ``-f`` (project directory = repo root), NOT the native ``include:`` directive.
+    """
+    list(profiles)  # accept any iterable; content is path-only (registry is separate)
+    lines = [
+        "# AUTO-GENERATED by Atlas consumer LightRAG query profile registry (#414) — do not edit.",
+        "# Mounts the compiled lightrag_query_profiles into the backend so query",
+        "# flavors resolve by name. Regenerated every start; a removed manifest drops",
+        "# the file + this overlay (deployments with no profiles stay compatible).",
+        "services:",
+        "  backend:",
+        "    environment:",
+        f"      LIGHTRAG_QUERY_PROFILES_FILE: {LIGHTRAG_QUERY_PROFILES_CONTAINER_PATH}",
+        "    volumes:",
+        f"      - ./{LIGHTRAG_QUERY_PROFILES_PATH.as_posix()}:{LIGHTRAG_QUERY_PROFILES_CONTAINER_PATH}:ro",
+    ]
+    return "\n".join(lines) + "\n"
+
+
 def load_consumer_config(
     root_dir: Path | str,
     *,
@@ -1928,6 +2371,7 @@ def load_consumer_config(
     all_litellm: list[LitellmModel] = []
     all_n8n: list[N8nWorkflow] = []
     all_rag: list[RagIngestionProfile] = []
+    all_lightrag_profiles: list[LightragQueryProfile] = []
 
     for manifest_path in manifest_paths:
         data = _load_manifest(manifest_path)
@@ -2020,6 +2464,24 @@ def load_consumer_config(
         )
         all_rag.extend(record_rag)
 
+        record_lightrag_profiles = _parse_lightrag_query_profiles_block(
+            data, consumer_name, manifest_path
+        )
+        all_lightrag_profiles.extend(record_lightrag_profiles)
+        # Optional #411 integration (opt-in, not coupled): a profile with a
+        # litellm_alias becomes a consumer-owned LiteLLM row pointing at the
+        # backend's profile-aware OpenAI route. Merge those rows into the litellm
+        # accumulation so they are collision-checked with every other alias and
+        # attributed to this consumer for removal semantics.
+        profile_aliases = [
+            alias
+            for alias in (p.to_litellm_alias() for p in record_lightrag_profiles)
+            if alias is not None
+        ]
+        if profile_aliases:
+            record_litellm = list(record_litellm) + profile_aliases
+            all_litellm.extend(profile_aliases)
+
         consumers.append(
             ConsumerRecord(
                 name=consumer_name,
@@ -2032,6 +2494,7 @@ def load_consumer_config(
                 litellm_models=tuple(record_litellm),
                 n8n_workflows=tuple(record_n8n),
                 rag_ingestion_profiles=tuple(record_rag),
+                lightrag_query_profiles=tuple(record_lightrag_profiles),
             )
         )
 
@@ -2099,6 +2562,20 @@ def load_consumer_config(
             content=render_rag_ingestion_overlay(all_rag),
         )
 
+    lightrag_query_profiles_file: GeneratedArtifact | None = None
+    lightrag_query_profiles_overlay: GeneratedArtifact | None = None
+    if all_lightrag_profiles:
+        # Profile names are globally unique across consumers (single registry).
+        _validate_lightrag_query_profiles_collisions(all_lightrag_profiles)
+        lightrag_query_profiles_file = GeneratedArtifact(
+            path=root / LIGHTRAG_QUERY_PROFILES_PATH,
+            content=compile_lightrag_query_profiles_file(all_lightrag_profiles),
+        )
+        lightrag_query_profiles_overlay = GeneratedArtifact(
+            path=root / LIGHTRAG_QUERY_PROFILES_OVERLAY_PATH,
+            content=render_lightrag_query_profiles_overlay(all_lightrag_profiles),
+        )
+
     return ConsumerConfig(
         consumers=tuple(consumers),
         env_overrides=env_overrides,
@@ -2114,4 +2591,7 @@ def load_consumer_config(
         rag_ingestion_profiles=tuple(all_rag),
         rag_ingestion_file=rag_ingestion_file,
         rag_ingestion_overlay=rag_ingestion_overlay,
+        lightrag_query_profiles=tuple(all_lightrag_profiles),
+        lightrag_query_profiles_file=lightrag_query_profiles_file,
+        lightrag_query_profiles_overlay=lightrag_query_profiles_overlay,
     )

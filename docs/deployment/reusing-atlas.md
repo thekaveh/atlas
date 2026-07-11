@@ -619,6 +619,45 @@ Live ingestion against running Docling/Tika/Weaviate/LightRAG is an **optional**
 
 Downstream payoff: `rag-showcase` keeps owning its datasets, comparison reports, and approach-specific plugins, while Atlas owns the repeatable ingestion lifecycle across documents, vector stores, and LightRAG.
 
+#### 6.3.5 Declaring LightRAG query profiles with `lightrag_query_profiles`
+
+A consumer that runs **side-by-side graph-RAG evaluations** (or wants named UI flavors) can declare a versioned `lightrag_query_profiles` block. Each profile is a **named LightRAG query flavor** — a bundle of the per-query knobs a caller selects by name — so Open WebUI users pick "graph-rag local k=30" versus "graph-rag hybrid k=10" without the downstream app hard-coding mode/top-k/token-budget choices.
+
+```yaml
+# atlas.consumer.yml
+name: rag-showcase
+lightrag_query_profiles:
+  version: 1
+  profiles:
+    - name: graph-hybrid-default              # stable, globally-unique profile id
+      mode: hybrid                             # local | global | hybrid | mix | naive
+      top_k: 10                                # bounded positive ints; omit → inherit env default
+      chunk_top_k: 5
+      max_total_tokens: 12000
+      enable_rerank: false                     # true is rejected until the #415 adapter lands
+    - name: graph-local-wide
+      mode: local
+      top_k: 30                                # chunk_top_k / max_total_tokens omitted → env default
+      query_llm_model: gpt-4o                  # optional model references (a LiteLLM alias / handle)
+      litellm_alias: graph-rag-local-wide      # optional: surface this flavor as a LiteLLM model
+```
+
+On `./start.sh`, the bootstrapper validates + normalizes each profile, hashes it into a stable **`revision`**, writes the gitignored `volumes/backend/lightrag-query-profiles.json`, and generates a compose overlay that bind-mounts that file into the backend and sets `LIGHTRAG_QUERY_PROFILES_FILE`. A backend plugin reads the registry to resolve a flavor by name; `./start.sh doctor` reports the registered profiles (and warns when profiles are declared but `LIGHTRAG_ENDPOINT` is unset, so flavors can't yet be served).
+
+**How this differs from role-specific model settings.** The `LIGHTRAG_EXTRACT_*` / `LIGHTRAG_KEYWORD_*` / `LIGHTRAG_QUERY_*` env vars pick **which model runs each LightRAG role** for the single deployment-wide default — one active configuration at a time. A query profile is a **named, per-query flavor** you select at call time; many coexist, so you can compare modes/retrieval bounds across the same corpus without editing Atlas-tracked env. Profiles never replace those env defaults — they layer on top of them (see precedence below).
+
+**What the contract enforces / provides:**
+
+- **Supported modes only.** `mode` is required and must be one of `local | global | hybrid | mix | naive` (LightRAG's `QueryParam.mode`). There is no `LIGHTRAG_QUERY_MODE` env var — mode is runtime-selected — so the profile always states it explicitly.
+- **Bounded positive integers.** `top_k`, `chunk_top_k`, and `max_total_tokens` are optional; a present value must be a strictly-positive integer within a sane cap (a YAML boolean or float is rejected). An **omitted** bound is left out of the registry so the backend inherits the deployment `LIGHTRAG_QUERY_*` default.
+- **Precedence.** The compiled registry carries an explicit `precedence: [request, profile, service_env_default]` contract: a per-request query parameter overrides the profile, which overrides the service env default. That is how an omitted bound resolves at runtime.
+- **Rerank stays off until an adapter exists.** `enable_rerank: true` is **rejected at load** — LightRAG's built-in rerank clients and TEI's `/rerank` payload are incompatible, so a rerank-on profile would fail at query time. It becomes valid once the compatible adapter endpoint (#415) is active; a profile must never point directly at TEI.
+- **Namespaced + collision-free.** Profile names are globally unique across consumers (rejected at load), and ownership is manifest-derived (a spoofed `owner` is rejected). A removed manifest drops exactly its own profiles next start, so a **deployment with no profiles stays byte- and behavior-compatible** with the single-default LightRAG.
+- **No secrets.** The registry contains only flavor knobs and model-name **references** — never credentials.
+- **Optional LiteLLM alias (opt-in, not coupled).** A profile that sets `litellm_alias` also emits a consumer-owned [`litellm_models`](#632-exposing-plugin-models-to-litellm-with-litellm_models) row pointing at the backend's profile-aware OpenAI route, so the flavor appears as a selectable model in Open WebUI / LiteLLM. The alias shares the global LiteLLM alias namespace (reserved + cross-consumer collisions rejected). A profile with no `litellm_alias` generates no row.
+
+Downstream payoff: `rag-showcase` moves its graph-RAG flavor definitions out of bespoke code/config into a reusable Atlas profile contract — comparable, documentable, and visible to Open WebUI users.
+
 ### 6.4 Consuming auto-managed endpoint variables
 
 Atlas's bootstrapper computes a set of **auto-managed endpoint variables** in `.env` that resolve to the correct internal URL for whichever `*_SOURCE` mode is active. Downstream consumers (whether Method A standalone or Method B submodule) should bridge these into their own service variables rather than hard-coding a URL.

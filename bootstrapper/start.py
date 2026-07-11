@@ -1496,6 +1496,11 @@ class AtlasStarter:
         # declares rag_ingestion_profiles.
         if not self._finalize_consumer_rag_ingestion_profiles():
             return False
+        # Finalize consumer LightRAG query profiles (#414): write the compiled
+        # query-profile registry JSON + backend-mount overlay, or remove them
+        # when no consumer declares lightrag_query_profiles.
+        if not self._finalize_consumer_lightrag_query_profiles():
+            return False
         # Finalize the Atlas-managed Apple-Silicon/Metal ComfyUI host (#335):
         # when COMFYUI_SOURCE=managed-localhost-mps, preflight + install +
         # launch the native host process containers reach via host.docker.internal.
@@ -1734,6 +1739,61 @@ class AtlasStarter:
         self.banner.show_status_message(
             f"  • Registering {len(config.rag_ingestion_profiles)} consumer RAG "
             f"ingestion profile(s) from {', '.join(owners)}",
+            "info",
+        )
+        return True
+
+    def _finalize_consumer_lightrag_query_profiles(self) -> bool:
+        """Materialize consumer-owned LightRAG query profiles (#414): write the
+        compiled query-profile registry JSON + the backend-mount compose overlay,
+        or remove any stale generated artifacts when no consumer declares
+        lightrag_query_profiles. Idempotent; a removed manifest drops exactly its
+        own artifacts next start, so a no-profile deployment stays compatible.
+        """
+        from core.consumer_manifest import (
+            LIGHTRAG_QUERY_PROFILES_OVERLAY_PATH,
+            LIGHTRAG_QUERY_PROFILES_PATH,
+        )
+
+        try:
+            config = self.config_parser.load_consumer_config()
+        except Exception as exc:  # ConsumerManifestError etc. — surface + fail
+            self.banner.show_status_message(
+                f"Consumer LightRAG query profile manifest error: {exc}", "error"
+            )
+            return False
+
+        profiles_path = self.root_dir / LIGHTRAG_QUERY_PROFILES_PATH
+        overlay_path = self.root_dir / LIGHTRAG_QUERY_PROFILES_OVERLAY_PATH
+
+        if not config.lightrag_query_profiles:
+            # Remove stale artifacts so a warm restart doesn't mount removed
+            # profiles into the backend.
+            if profiles_path.exists():
+                profiles_path.unlink()
+            if overlay_path.exists():
+                overlay_path.unlink()
+            return True
+
+        if config.lightrag_query_profiles_file is not None:
+            config.lightrag_query_profiles_file.path.parent.mkdir(
+                parents=True, exist_ok=True
+            )
+            config.lightrag_query_profiles_file.path.write_text(
+                config.lightrag_query_profiles_file.content, encoding="utf-8"
+            )
+        if config.lightrag_query_profiles_overlay is not None:
+            config.lightrag_query_profiles_overlay.path.parent.mkdir(
+                parents=True, exist_ok=True
+            )
+            config.lightrag_query_profiles_overlay.path.write_text(
+                config.lightrag_query_profiles_overlay.content, encoding="utf-8"
+            )
+
+        owners = sorted({p.consumer for p in config.lightrag_query_profiles})
+        self.banner.show_status_message(
+            f"  • Registering {len(config.lightrag_query_profiles)} consumer LightRAG "
+            f"query profile(s) from {', '.join(owners)}",
             "info",
         )
         return True
@@ -3296,6 +3356,55 @@ def _doctor_check_rag_ingestion_profiles(starter: "AtlasStarter") -> dict:
     )
 
 
+def _doctor_check_lightrag_query_profiles(starter: "AtlasStarter") -> dict:
+    """Validate consumer-declared LightRAG query profiles to register (#414).
+
+    Load-time already validated each profile (unique namespaced names, supported
+    mode, bounded positive integers, rerank rejection, alias contract); a parse
+    failure surfaces as a fail here. This check adds an operational signal: a
+    profile can only be *served* when LightRAG itself is reachable, so warn when
+    profiles are declared but ``LIGHTRAG_ENDPOINT`` is unset (the registry mounts
+    fine, but every flavor would 5xx at query time until LightRAG is enabled).
+    """
+    try:
+        config = starter.config_parser.load_consumer_config()
+    except ValueError as exc:
+        return _doctor_result(
+            "lightrag-query-profiles",
+            "fail",
+            f"Consumer LightRAG query profile validation failed: {exc}",
+        )
+    if not config.lightrag_query_profiles:
+        return _doctor_result(
+            "lightrag-query-profiles",
+            "pass",
+            "No consumer LightRAG query profiles declared.",
+        )
+
+    names = [p.name for p in config.lightrag_query_profiles]
+    owners = sorted({p.consumer for p in config.lightrag_query_profiles})
+    aliases = sorted(
+        {p.litellm_alias for p in config.lightrag_query_profiles if p.litellm_alias}
+    )
+    env_values = starter.config_parser.parse_env_file()
+    lightrag_enabled = bool(env_values.get("LIGHTRAG_ENDPOINT", "").strip())
+    if not lightrag_enabled:
+        return _doctor_result(
+            "lightrag-query-profiles",
+            "warn",
+            f"{len(names)} LightRAG query profile(s) declared but LIGHTRAG_ENDPOINT is "
+            f"unset — the registry mounts but flavors cannot be served until LightRAG "
+            f"is enabled.",
+            details={"profiles": names, "owners": owners, "aliases": aliases},
+        )
+    return _doctor_result(
+        "lightrag-query-profiles",
+        "pass",
+        f"{len(names)} consumer LightRAG query profile(s) valid: {', '.join(names)}.",
+        details={"profiles": names, "owners": owners, "aliases": aliases},
+    )
+
+
 def _doctor_check_endpoints(starter: "AtlasStarter") -> dict:
     env_values = starter.config_parser.parse_env_file()
     endpoints = {
@@ -3417,6 +3526,7 @@ DOCTOR_CHECKS = [
     _doctor_check_litellm_models,
     _doctor_check_n8n_workflows,
     _doctor_check_rag_ingestion_profiles,
+    _doctor_check_lightrag_query_profiles,
     _doctor_check_comfyui_mps,
     _doctor_check_endpoints,
     _doctor_check_submodule_clean,
