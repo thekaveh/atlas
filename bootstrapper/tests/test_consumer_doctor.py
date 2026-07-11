@@ -723,6 +723,106 @@ def test_doctor_rag_ingestion_pass_when_none(tmp_path, monkeypatch) -> None:
     assert "No consumer RAG ingestion profiles" in checks["rag-ingestion-profiles"]["message"]
 
 
+def _write_lightrag_profile_consumer(tmp_path: Path, name: str, alias: str = "") -> Path:
+    d = tmp_path / name
+    d.mkdir(parents=True, exist_ok=True)
+    manifest = d / "atlas.consumer.yml"
+    lines = [
+        f"name: {name}",
+        "lightrag_query_profiles:",
+        "  version: 1",
+        "  profiles:",
+        "    - name: graph-hybrid-default",
+        "      mode: hybrid",
+        "      top_k: 10",
+    ]
+    if alias:
+        lines.append(f"      litellm_alias: {alias}")
+    manifest.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return manifest
+
+
+def test_doctor_lightrag_profiles_pass_when_endpoint_set(tmp_path, monkeypatch) -> None:
+    import start as start_module
+
+    manifest = _write_lightrag_profile_consumer(tmp_path, "rag-showcase")
+    _write_base_env(tmp_path, extra="LIGHTRAG_ENDPOINT=http://lightrag:9621\n")
+    monkeypatch.setenv("ATLAS_CONSUMER_MANIFEST", str(manifest))
+    _patch_starter_paths(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        start_module.DockerManager,
+        "validate_compose_config",
+        lambda self: (0, "", "", ["docker", "compose", "config", "-q"]),
+    )
+
+    result = CliRunner().invoke(start_module.main, ["doctor", "--format", "json"])
+    assert result.exit_code == 0, result.output
+    checks = {entry["id"]: entry for entry in json.loads(result.output)["checks"]}
+    assert checks["lightrag-query-profiles"]["status"] == "pass"
+    assert "graph-hybrid-default" in checks["lightrag-query-profiles"]["details"]["profiles"]
+
+
+def test_doctor_lightrag_profiles_warn_when_endpoint_unset(tmp_path, monkeypatch) -> None:
+    import start as start_module
+
+    manifest = _write_lightrag_profile_consumer(tmp_path, "rag-showcase")
+    _write_base_env(tmp_path)  # no LIGHTRAG_ENDPOINT → warn
+    monkeypatch.setenv("ATLAS_CONSUMER_MANIFEST", str(manifest))
+    _patch_starter_paths(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        start_module.DockerManager,
+        "validate_compose_config",
+        lambda self: (0, "", "", ["docker", "compose", "config", "-q"]),
+    )
+
+    result = CliRunner().invoke(start_module.main, ["doctor", "--format", "json"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    checks = {entry["id"]: entry for entry in payload["checks"]}
+    assert checks["lightrag-query-profiles"]["status"] == "warn"
+    assert "LIGHTRAG_ENDPOINT" in checks["lightrag-query-profiles"]["message"]
+    assert payload["ok"] is True  # warn does not fail the run
+
+
+def test_doctor_lightrag_profiles_reports_alias(tmp_path, monkeypatch) -> None:
+    import start as start_module
+
+    manifest = _write_lightrag_profile_consumer(
+        tmp_path, "rag-showcase", alias="graph-rag-hybrid"
+    )
+    _write_base_env(tmp_path, extra="LIGHTRAG_ENDPOINT=http://lightrag:9621\n")
+    monkeypatch.setenv("ATLAS_CONSUMER_MANIFEST", str(manifest))
+    _patch_starter_paths(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        start_module.DockerManager,
+        "validate_compose_config",
+        lambda self: (0, "", "", ["docker", "compose", "config", "-q"]),
+    )
+
+    result = CliRunner().invoke(start_module.main, ["doctor", "--format", "json"])
+    assert result.exit_code == 0, result.output
+    checks = {entry["id"]: entry for entry in json.loads(result.output)["checks"]}
+    assert checks["lightrag-query-profiles"]["details"]["aliases"] == ["graph-rag-hybrid"]
+
+
+def test_doctor_lightrag_profiles_pass_when_none(tmp_path, monkeypatch) -> None:
+    import start as start_module
+
+    _write_base_env(tmp_path)
+    _patch_starter_paths(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        start_module.DockerManager,
+        "validate_compose_config",
+        lambda self: (0, "", "", ["docker", "compose", "config", "-q"]),
+    )
+
+    result = CliRunner().invoke(start_module.main, ["doctor", "--format", "json"])
+    assert result.exit_code == 0, result.output
+    checks = {entry["id"]: entry for entry in json.loads(result.output)["checks"]}
+    assert checks["lightrag-query-profiles"]["status"] == "pass"
+    assert "No consumer LightRAG query profiles" in checks["lightrag-query-profiles"]["message"]
+
+
 def test_consumer_doctor_docs_are_published_on_all_surfaces() -> None:
     reusing = REUSING_ATLAS.read_text(encoding="utf-8")
     assert "./start.sh doctor" in reusing
