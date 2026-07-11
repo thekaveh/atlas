@@ -5,7 +5,7 @@ from pathlib import Path
 from .model import DocsModel
 from .pages import ARCHITECTURE_PERSPECTIVES
 from .rendering import csv_or_dash, table
-from .services import _comfyui_krea2_section
+from .services import _comfyui_krea2_section, _litellm_capability_section
 
 
 def _source_vars(service) -> str:
@@ -298,7 +298,8 @@ Init companions should be documented with the service they prepare and represent
 Service categories describe the role of the service family in Atlas. They also influence wizard grouping, generated references, and visual grouping in the docs.
 
 Current categories include infra, data, llm, media, agents, apps, and aggregate/doc-only surfaces.
-""",
+"""
+        + _litellm_capability_section(model, 14),
         wiki / "Tracks.md": "# Tracks\n\n## 1. Track Matrix\n\n"
         + table(["Track", "Description", "Services"], track_rows)
         + "\n\n## 2. Selection Behavior\n\n- `all` means no track filtering.\n- Explicit CLI SOURCE flags override track defaults with a warning.\n- Prometheus, Grafana, cloud keys, and the LLM engine stay globally prompted, while their defaults can still be disabled.\n\n## 3. Wizard Behavior\n\n- Track selection happens before service SOURCE prompts.\n- Out-of-track source-configurable services are skipped and force-disabled.\n- Explicit command-line SOURCE flags are preserved even when they cross track boundaries.\n- Locked core services remain part of the runtime foundation.\n\n## 4. Adding Or Changing Tracks\n\n- Update `bootstrapper/tracks.yml`.\n- Confirm every listed service has manifest/topology coverage.\n- Regenerate docs and wiki output.\n- Run track-membership and docs-site checks before opening a PR.\n",

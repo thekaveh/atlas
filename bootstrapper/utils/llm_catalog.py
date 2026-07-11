@@ -9,9 +9,8 @@ Three consumers import this module:
     + env; consumed by ``litellm-init`` and ``ollama-pull``).
   • ``litellm-init`` (renders ``volumes/litellm/config.yaml`` via
     ``model_resolver.active_models()`` — no DB query involved. Catalog
-    capability metadata (content / structured_content / vision /
-    embeddings) is consumed by the wizard and backend,
-    NOT by litellm-init at config-render time).
+    capability metadata is preserved through model resolution and consumed
+    by litellm-init when selecting adapters and rendering model metadata).
 
 Catalog data lives in YAML files rather than in this module:
 
@@ -67,6 +66,20 @@ from typing import Dict, List, Tuple
 import yaml
 
 
+METADATA_VERSION = 1
+KNOWN_KINDS = {"chat", "embedding"}
+KNOWN_ADAPTERS = {"ollama", "ollama_chat", "openai", "anthropic", "openrouter"}
+KNOWN_CAPABILITIES = {
+    "chat", "embedding", "tools", "vision", "reasoning", "structured_output",
+}
+KNOWN_ROLES = {"extract", "keyword", "query", "judge", "embedding", "vision"}
+PROVIDER_ADAPTERS = {
+    "openai": "openai",
+    "anthropic": "anthropic",
+    "openrouter": "openrouter",
+}
+
+
 @dataclass
 class CatalogEntry:
     """One catalog row.
@@ -101,6 +114,14 @@ class CatalogEntry:
     # ``model_resolver.dim_for_model_id`` to match the consumer's required
     # dimension (see ``model_resolver.MEMORY_FACTS_EMBEDDING_DIM``).
     dim: int | None = None
+    # Versioned, provider-neutral metadata. ``None`` marks legacy or
+    # live-discovered entries that require conservative runtime inference.
+    metadata_version: int | None = None
+    kind: str | None = None
+    adapter: str | None = None
+    capabilities: Dict[str, bool] = field(default_factory=dict)
+    request_defaults: Dict[str, object] = field(default_factory=dict)
+    recommended_roles: List[str] = field(default_factory=list)
 
 
 # ─── YAML loader ─────────────────────────────────────────────────────
@@ -170,6 +191,12 @@ def _parse_section(
             "badges": raw.get("badges", []),
             "default_active": raw.get("default", False),
             "dim": raw.get("dim"),
+            "metadata_version": raw.get("metadata_version"),
+            "kind": raw.get("kind"),
+            "adapter": raw.get("adapter"),
+            "capabilities": raw.get("capabilities", {}),
+            "request_defaults": raw.get("request_defaults", {}),
+            "recommended_roles": raw.get("recommended_roles", []),
         }))
     return results
 
@@ -203,6 +230,12 @@ def _build_entries(
                 "badges": [],
                 "default_active": False,
                 "dim": None,
+                "metadata_version": None,
+                "kind": None,
+                "adapter": None,
+                "capabilities": {},
+                "request_defaults": {},
+                "recommended_roles": [],
             }
 
         state = merged[key]
@@ -226,8 +259,36 @@ def _build_entries(
         if state["dim"] is None and attrs.get("dim") is not None:
             state["dim"] = attrs["dim"]
 
+        for field_name in ("metadata_version", "kind", "adapter"):
+            value = attrs.get(field_name)
+            if value is None:
+                continue
+            current = state[field_name]
+            if current is not None and current != value:
+                raise ValueError(
+                    f"{prov}/{name} has conflicting {field_name}: "
+                    f"{current!r} vs {value!r}"
+                )
+            state[field_name] = value
+
+        for field_name in ("capabilities", "request_defaults"):
+            for item_key, value in attrs.get(field_name, {}).items():
+                current = state[field_name].get(item_key)
+                if current is not None and current != value:
+                    raise ValueError(
+                        f"{prov}/{name} has conflicting {field_name}.{item_key}: "
+                        f"{current!r} vs {value!r}"
+                    )
+                state[field_name][item_key] = value
+
+        for role in attrs.get("recommended_roles", []):
+            if role not in state["recommended_roles"]:
+                state["recommended_roles"].append(role)
+
     entries = []
     for state in merged.values():
+        _validate_metadata_state(state)
+
         entries.append(CatalogEntry(
             provider=state["provider"],
             name=state["name"],
@@ -241,8 +302,98 @@ def _build_entries(
             default_active=state["default_active"],
             badges=list(state["badges"]),
             dim=state["dim"],
+            metadata_version=state["metadata_version"],
+            kind=state["kind"],
+            adapter=state["adapter"],
+            capabilities=dict(state["capabilities"]),
+            request_defaults=dict(state["request_defaults"]),
+            recommended_roles=list(state["recommended_roles"]),
         ))
     return entries
+
+
+def expected_adapter(provider: str, kind: str) -> str | None:
+    """Return the only supported adapter for a known provider/kind pair."""
+    if provider == "ollama":
+        return "ollama" if kind == "embedding" else "ollama_chat"
+    return PROVIDER_ADAPTERS.get(provider)
+
+
+def _validate_metadata_state(state: dict) -> None:
+    """Enforce schema semantics on the runtime YAML-loading path."""
+    provider = state["provider"]
+    name = state["name"]
+    label = f"{provider}/{name}"
+    version = state["metadata_version"]
+    has_metadata = any(
+        (
+            state["kind"] is not None,
+            state["adapter"] is not None,
+            bool(state["capabilities"]),
+            bool(state["request_defaults"]),
+            bool(state["recommended_roles"]),
+        )
+    )
+    if has_metadata and version is None:
+        raise ValueError(f"{label} capability metadata requires metadata_version")
+    if version is not None and version != METADATA_VERSION:
+        raise ValueError(f"{label} has unsupported metadata_version {version!r}")
+    if state["kind"] is not None and state["kind"] not in KNOWN_KINDS:
+        raise ValueError(f"{label} has unknown kind {state['kind']!r}")
+    if state["adapter"] is not None and state["adapter"] not in KNOWN_ADAPTERS:
+        raise ValueError(f"{label} has unknown adapter {state['adapter']!r}")
+
+    unknown_capabilities = set(state["capabilities"]) - KNOWN_CAPABILITIES
+    if unknown_capabilities:
+        raise ValueError(f"{label} has unknown capabilities {sorted(unknown_capabilities)!r}")
+    if any(not isinstance(value, bool) for value in state["capabilities"].values()):
+        raise ValueError(f"{label} capability values must be booleans")
+    unknown_roles = set(state["recommended_roles"]) - KNOWN_ROLES
+    if unknown_roles:
+        raise ValueError(f"{label} has unknown recommended roles {sorted(unknown_roles)!r}")
+    if set(state["request_defaults"]) - {"think"}:
+        raise ValueError(f"{label} has unsupported request_defaults")
+    if "think" in state["request_defaults"] and not isinstance(
+        state["request_defaults"]["think"], bool
+    ):
+        raise ValueError(f"{label} request_defaults.think must be boolean")
+
+    effective_kind = state["kind"]
+    if effective_kind is None and version is not None:
+        if state["embeddings"] and not (state["content"] or state["vision"]):
+            effective_kind = "embedding"
+        elif state["content"] or state["vision"]:
+            effective_kind = "chat"
+
+    if version is not None and effective_kind == "embedding":
+        if state["dim"] is None:
+            raise ValueError(f"{label} kind=embedding requires dim")
+        if state["request_defaults"]:
+            raise ValueError(f"{label} kind=embedding cannot declare request_defaults")
+
+    capabilities = state["capabilities"]
+    if effective_kind == "embedding" and (
+        state["content"]
+        or state["vision"]
+        or capabilities.get("chat") is True
+        or capabilities.get("embedding") is False
+    ):
+        raise ValueError(f"{label} has contradictory embedding metadata")
+    if effective_kind == "chat" and (
+        state["embeddings"]
+        or capabilities.get("embedding") is True
+        or capabilities.get("chat") is False
+    ):
+        raise ValueError(f"{label} has contradictory chat metadata")
+
+    adapter = state["adapter"]
+    if adapter is not None and effective_kind is not None:
+        required = expected_adapter(provider, effective_kind)
+        if required is not None and adapter != required:
+            raise ValueError(
+                f"{label} provider {provider} requires adapter {required} "
+                f"for kind {effective_kind}; got {adapter}"
+            )
 
 
 def _load_ollama_catalog(models_dir: Path) -> List[CatalogEntry]:

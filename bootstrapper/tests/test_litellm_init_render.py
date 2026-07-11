@@ -132,8 +132,9 @@ class TestDefaultOllamaConfig:
             "LLM_PROVIDER_SOURCE": "ollama-container-cpu",
         })
         rows = mod.fetch_active_models()
-        providers = {r[0] for r in rows}
-        names = {r[1] for r in rows}
+        assert all(hasattr(row, "provider") and hasattr(row, "kind") for row in rows)
+        providers = {row.provider for row in rows}
+        names = {row.name for row in rows}
         assert "ollama" in providers
         assert "qwen3.6:latest" in names
         # Embedding models should also be in the default active set
@@ -222,7 +223,7 @@ class TestCloudEnabled:
             "OPENAI_USER_MODELS": "gpt-5",
         })
         rows = mod.fetch_active_models()
-        assert ("openai", "gpt-5") in rows, (
+        assert any(row.provider == "openai" and row.name == "gpt-5" for row in rows), (
             f"Expected (openai, gpt-5) in rows, got: {rows}"
         )
 
@@ -251,10 +252,112 @@ class TestCloudEnabled:
             "OPENAI_API_KEY": "sk-test-x",
         })
         rows = mod.fetch_active_models()
-        openai_rows = [r for r in rows if r[0] == "openai"]
+        openai_rows = [row for row in rows if row.provider == "openai"]
         assert not openai_rows, (
             f"Expected no openai rows when disabled, got: {openai_rows}"
         )
+
+
+class TestCapabilityMetadataRendering:
+    def test_bge_m3_metadata_overrides_name_heuristic(self):
+        mod = _load_init_module({
+            "LLM_PROVIDER_SOURCE": "ollama-container-cpu",
+            "OLLAMA_USER_MODELS": "bge-m3",
+        })
+        rows = mod.fetch_active_models()
+        assert len(rows) == 1
+        assert rows[0].kind == "embedding"
+        assert rows[0].dim == 1024
+
+        rendered = mod.render_model_list(rows)
+        bare = next(entry for entry in rendered if entry["model_name"] == "bge-m3")
+        assert bare["litellm_params"]["model"] == "ollama/bge-m3"
+        assert "think" not in bare["litellm_params"]
+        assert bare["model_info"]["mode"] == "embedding"
+        assert bare["model_info"]["output_vector_size"] == 1024
+        atlas = bare["model_info"]["atlas_model_metadata"]
+        assert atlas["metadata_version"] == 1
+        assert atlas["catalog_name"] == "bge-m3"
+        assert atlas["recommended_roles"] == ["embedding"]
+
+    def test_partial_metadata_infers_only_missing_adapter_with_warning(self, capsys):
+        from utils.llm_catalog import CatalogEntry
+
+        mod = _load_init_module({"LLM_PROVIDER_SOURCE": "ollama-container-cpu"})
+        partial = CatalogEntry(
+            provider="ollama",
+            name="partial-chat",
+            metadata_version=1,
+            kind="chat",
+            capabilities={"chat": True},
+        )
+
+        rendered = mod.render_model_list([partial])
+        bare = next(entry for entry in rendered if entry["model_name"] == partial.name)
+        assert bare["litellm_params"]["model"] == "ollama_chat/partial-chat"
+        assert "think" not in bare["litellm_params"]
+        atlas = bare["model_info"]["atlas_model_metadata"]
+        assert atlas["metadata_version"] == 1
+        assert atlas["inferred"] is True
+        assert atlas["inferred_fields"] == ["adapter"]
+        assert "missing adapter metadata" in capsys.readouterr().out
+
+    def test_renderer_rejects_provider_adapter_mismatch(self):
+        from utils.llm_catalog import CatalogEntry
+
+        mod = _load_init_module({"LLM_PROVIDER_SOURCE": "none"})
+        contradictory = CatalogEntry(
+            provider="openai",
+            name="contradictory-chat",
+            metadata_version=1,
+            kind="chat",
+            adapter="anthropic",
+            capabilities={"chat": True},
+        )
+        with pytest.raises(ValueError, match="provider openai requires adapter openai"):
+            mod.render_model_list([contradictory])
+
+    def test_request_defaults_are_per_model(self):
+        from utils.llm_catalog import CatalogEntry
+
+        mod = _load_init_module({
+            "LLM_PROVIDER_SOURCE": "ollama-container-cpu",
+            "OLLAMA_USER_MODELS": None,
+        })
+        explicit = CatalogEntry(
+            provider="ollama",
+            name="chat-without-defaults",
+            metadata_version=1,
+            kind="chat",
+            adapter="ollama_chat",
+            capabilities={"chat": True},
+        )
+        rendered = mod.render_model_list([explicit])
+        bare = next(entry for entry in rendered if entry["model_name"] == explicit.name)
+        assert "think" not in bare["litellm_params"]
+
+        qwen = next(
+            row for row in mod.fetch_active_models()
+            if row.name == "qwen3.6:latest"
+        )
+        qwen_bare = next(
+            entry for entry in mod.render_model_list([qwen])
+            if entry["model_name"] == qwen.name
+        )
+        assert qwen_bare["litellm_params"]["think"] is False
+
+    def test_legacy_custom_model_uses_warned_embedding_heuristic(self, capsys):
+        mod = _load_init_module({
+            "LLM_PROVIDER_SOURCE": "ollama-container-cpu",
+            "OLLAMA_USER_MODELS": "",
+            "OLLAMA_CUSTOM_MODELS": "legacy-embedder",
+        })
+        rows = mod.fetch_active_models()
+        legacy = next(row for row in rows if row.name == "legacy-embedder")
+        rendered = mod.render_model_list([legacy])
+        bare = next(entry for entry in rendered if entry["model_name"] == legacy.name)
+        assert bare["litellm_params"]["model"] == "ollama/legacy-embedder"
+        assert "missing capability metadata" in capsys.readouterr().out
 
 
 # ---------------------------------------------------------------------------

@@ -264,8 +264,8 @@ def _maybe_fetch_ollama_tags() -> list[str] | None:
         return []
 
 
-def fetch_active_models() -> list[tuple[str, str]]:
-    """Return [(provider, name)] for every active model, computed from
+def fetch_active_models() -> list[Any]:
+    """Return typed catalog entries for every active model, computed from
     the YAML catalogs + env vars via ``model_resolver`` — no DB query.
 
     Previously this function queried ``SELECT provider, name FROM
@@ -278,11 +278,73 @@ def fetch_active_models() -> list[tuple[str, str]]:
     """
     mr = _load_catalog_module("model_resolver")
     tags = _maybe_fetch_ollama_tags()
-    entries = mr.active_models(os.environ, ollama_tags=tags)
-    return [(e.provider, e.name) for e in entries]
+    return mr.active_models(os.environ, ollama_tags=tags)
 
 
-def render_model_list(active_rows: list[tuple[str, str]]) -> list[dict[str, Any]]:
+def _model_info(
+    row: Any,
+    *,
+    kind: str,
+    adapter: str,
+    inferred_fields: list[str],
+) -> dict[str, Any]:
+    """Render LiteLLM-known flags plus Atlas' versioned metadata namespace."""
+    capabilities = dict(getattr(row, "capabilities", {}) or {})
+    info: dict[str, Any] = {"mode": kind}
+    known_flags = {
+        "tools": "supports_function_calling",
+        "vision": "supports_vision",
+        "reasoning": "supports_reasoning",
+        "structured_output": "supports_response_schema",
+    }
+    for capability, litellm_key in known_flags.items():
+        if capability in capabilities:
+            info[litellm_key] = capabilities[capability]
+    dimension = getattr(row, "dim", None)
+    if kind == "embedding" and dimension is not None:
+        info["output_vector_size"] = dimension
+    info["atlas_model_metadata"] = {
+        "metadata_version": getattr(row, "metadata_version", None) or 0,
+        "inferred": bool(inferred_fields),
+        "inferred_fields": inferred_fields,
+        "provider": row.provider,
+        "catalog_name": row.name,
+        "kind": kind,
+        "adapter": adapter,
+        "capabilities": capabilities,
+        "recommended_roles": list(getattr(row, "recommended_roles", []) or []),
+    }
+    return info
+
+
+def _resolved_metadata(row: Any) -> tuple[str, str, list[str]]:
+    """Resolve only missing fields and reject contradictory declarations."""
+    inferred_fields: list[str] = []
+    kind = getattr(row, "kind", None)
+    if kind is None:
+        if getattr(row, "embeddings", 0) and not (
+            getattr(row, "content", 0) or getattr(row, "vision", 0)
+        ):
+            kind = "embedding"
+        else:
+            kind = "embedding" if "embed" in row.name.lower() else "chat"
+        inferred_fields.append("kind")
+
+    catalog = _load_catalog_module("llm_catalog")
+    required_adapter = catalog.expected_adapter(row.provider, kind)
+    adapter = getattr(row, "adapter", None)
+    if adapter is None:
+        adapter = required_adapter or row.provider
+        inferred_fields.append("adapter")
+    elif required_adapter is not None and adapter != required_adapter:
+        raise ValueError(
+            f"{row.provider}/{row.name} provider {row.provider} requires adapter "
+            f"{required_adapter} for kind {kind}; got {adapter}"
+        )
+    return kind, adapter, inferred_fields
+
+
+def render_model_list(active_rows: list[Any]) -> list[dict[str, Any]]:
     """Build LiteLLM's ``model_list`` from active model rows.
 
     Per-provider routing rules:
@@ -293,7 +355,31 @@ def render_model_list(active_rows: list[tuple[str, str]]) -> list[dict[str, Any]
                        (names are already prefixed ``openrouter/...`` in the catalog)
     """
     out: list[dict[str, Any]] = []
-    for provider, name in active_rows:
+    for row in active_rows:
+        provider = row.provider
+        name = row.name
+        legacy = getattr(row, "metadata_version", None) is None
+        kind, adapter, inferred_fields = _resolved_metadata(row)
+        if legacy:
+            print(
+                f"  ⚠ model '{provider}/{name}' is missing capability metadata; "
+                "using legacy name/provider inference",
+                flush=True,
+            )
+        elif inferred_fields:
+            missing = " and ".join(inferred_fields)
+            print(
+                f"  ⚠ model '{provider}/{name}' is missing {missing} metadata; "
+                "using provider/section inference",
+                flush=True,
+            )
+        model_info = _model_info(
+            row,
+            kind=kind,
+            adapter=adapter,
+            inferred_fields=inferred_fields,
+        )
+
         if provider == "ollama":
             # Register Ollama models under BOTH names so every consumer
             # path works:
@@ -328,46 +414,25 @@ def render_model_list(active_rows: list[tuple[str, str]]) -> list[dict[str, Any]
             #     param all flow through correctly. **This is what
             #     every chat consumer expects.**
             #
-            # Embedding models, however, are SERVED by /v1/embeddings
-            # — which LiteLLM only routes via the ``ollama/`` provider
-            # (``ollama_chat/`` rejects embedding requests with
-            # ``Unmapped LLM provider for this endpoint``). So:
-            # embeddings get ``ollama/``, chat models get
-            # ``ollama_chat/``. Detection is name-based ("embed" substring).
-            # The curated catalog embeddings all carry it (nomic-embed-text,
-            # qwen3-embedding:0.6b), so defaults are correct. CAVEAT: a
-            # user-added embedding model WITHOUT "embed" in its name (e.g.
-            # ``bge-m3``, ``e5-large``) would be mis-registered as a chat model
-            # and fail /v1/embeddings — the resolver discards role info, so the
-            # name is the only signal here. See services/litellm/README.md →
-            # "Ollama adapter choice".
-            #
-            # ``think: false`` is set on chat entries only — it
-            # defaults thinking-capable models to write their answer
-            # straight into ``content`` instead of the side-channel
-            # ``reasoning`` field. Non-thinking models ignore the
-            # param. Consumers that explicitly want the thinking
-            # trace can re-enable per-request by sending
-            # ``"think": true`` in their chat-completions body.
-            is_embedding = "embed" in name.lower()
-            if is_embedding:
-                ollama_params = {
-                    "model": f"ollama/{name}",
-                    "api_base": LITELLM_OLLAMA_UPSTREAM,
-                }
+            # Curated metadata is authoritative. Only metadata-free custom or
+            # live-discovered models retain the warned name heuristic.
+            ollama_params = {
+                "model": f"{adapter}/{name}",
+                "api_base": LITELLM_OLLAMA_UPSTREAM,
+            }
+            if legacy and kind == "chat":
+                ollama_params["think"] = False
             else:
-                ollama_params = {
-                    "model": f"ollama_chat/{name}",
-                    "api_base": LITELLM_OLLAMA_UPSTREAM,
-                    "think": False,
-                }
+                ollama_params.update(getattr(row, "request_defaults", {}) or {})
             out.append({
                 "model_name": f"ollama/{name}",
                 "litellm_params": dict(ollama_params),
+                "model_info": dict(model_info),
             })
             out.append({
                 "model_name": name,
                 "litellm_params": dict(ollama_params),
+                "model_info": dict(model_info),
             })
             continue
         if provider == "openai":
@@ -397,6 +462,7 @@ def render_model_list(active_rows: list[tuple[str, str]]) -> list[dict[str, Any]
         else:
             print(f"  ⚠ skipping unknown provider '{provider}' for model '{name}'", flush=True)
             continue
+        entry["model_info"] = model_info
         out.append(entry)
     return out
 
@@ -465,7 +531,7 @@ def lightrag_model_entry() -> dict[str, Any] | None:
     }
 
 
-def render_config(active_rows: list[tuple[str, str]]) -> dict[str, Any]:
+def render_config(active_rows: list[Any]) -> dict[str, Any]:
     """Build the complete config.yaml dict (model_list + settings).
     The settings half comes from bootstrapper/utils/litellm_settings.py
     via the bind-mounted /catalog dir — single source of truth shared
@@ -533,8 +599,8 @@ def main() -> int:
         ensure_litellm_db()
         rows = fetch_active_models()
         if rows:
-            first = f"{rows[0][0]}/{rows[0][1]}"
-            last = f"{rows[-1][0]}/{rows[-1][1]}"
+            first = f"{rows[0].provider}/{rows[0].name}"
+            last = f"{rows[-1].provider}/{rows[-1].name}"
             print(
                 f"  ↳ {len(rows)} active model(s) from YAML catalogs "
                 f"(first={first}, last={last})",

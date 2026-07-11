@@ -143,14 +143,57 @@ LiteLLM ships two Ollama integrations and **they are not interchangeable**:
 | `ollama_chat/<model>` | `/api/chat` | Chat completions (`/v1/chat/completions`) | Real OpenAI-shaped: multi-turn history, tool calls, vision payloads, and the Ollama-native `think` parameter all flow through. |
 | `ollama/<model>` | `/api/generate` | Embeddings (`/v1/embeddings`) | Single-prompt completion. Tool calls do **not** work; multi-turn history is flattened to a single prompt; the `think` parameter is silently dropped. Required for embedding routes because `ollama_chat/` rejects `/v1/embeddings` with `Unmapped LLM provider for this endpoint`. |
 
-`services/litellm/init/scripts/init.py::render_model_list` picks per-row using a
-name heuristic: any model whose name contains `embed` (case-insensitive)
-gets `ollama/` for the `/v1/embeddings` path; everything else gets
-`ollama_chat/` + `think: false` so chat completions return populated
-`content` (see next section).
+`services/litellm/init/scripts/init.py::render_model_list` uses the versioned
+catalog metadata described below. Curated `kind: embedding` entries get
+`ollama/`; curated `kind: chat` entries get their declared adapter. A
+metadata-free custom or live-discovered model uses the legacy name heuristic
+with a visible startup warning so existing operator-defined models remain
+compatible.
 
-If you add a new Ollama embedding model whose name doesn't contain
-"embed", either rename it or extend the heuristic.
+### 7.1 Versioned model capability metadata
+
+Catalog rows may declare `metadata_version: 1` with these provider-neutral
+fields:
+
+| Field | Purpose |
+|---|---|
+| `kind` | Distinguishes `chat` from `embedding`. |
+| `adapter` | Selects a LiteLLM adapter such as `ollama_chat`, `ollama`, `openai`, `anthropic`, or `openrouter`. |
+| `capabilities` | Declares chat, embedding, tools, vision, reasoning, and structured-output support. |
+| `request_defaults` | Applies model-specific request defaults such as `think: false`. |
+| `recommended_roles` | Recommends `extract`, `keyword`, `query`, `judge`, `embedding`, or `vision` roles. |
+| `dim` | Records an embedding model's output vector dimension. |
+
+The loader merges metadata when a model appears in multiple role sections and
+rejects conflicts. Embedding entries require `dim` and cannot carry chat-only
+request defaults. LiteLLM receives standard `model_info` fields plus a
+namespaced `atlas_model_metadata` block, allowing LightRAG and future consumers
+to assign `extract`, `query`, and other roles without provider, model-family,
+or hardware assumptions. The curated `bge-m3` row proves that embedding
+routing does not depend on `embed` appearing in the model name.
+
+Detailed metadata is available from authenticated `GET /v1/model/info`;
+`GET /v1/models` is the compatibility listing and does not expose the complete
+`model_info` payload:
+
+```bash
+curl -s http://localhost:${LITELLM_PORT}/v1/model/info \
+  -H "Authorization: Bearer ${LITELLM_MASTER_KEY}"
+```
+
+LightRAG and other consumers should select `extract`, `query`, or another role
+with this deterministic procedure:
+
+1. Keep rows with `inferred: false`, the required `kind` or capability, and the
+   role in `atlas_model_metadata.recommended_roles`.
+2. Apply an explicit operator preference when one is configured.
+3. Otherwise use lexical `(provider, catalog_name, model_name)` order as the
+   provider-neutral fallback.
+4. Deduplicate Ollama's dual aliases by `(provider, catalog_name)` and retain
+   the operator's preferred alias.
+
+This ordering is deterministic without assuming Ollama, Apple Silicon, a
+specific model family, or any other hardware/provider combination.
 
 ## 8. Thinking models (`think: false`)
 
@@ -160,9 +203,11 @@ When the proxy's `max_tokens` budget is exceeded mid-`<think>` block —
 or when a consumer like Hermes Agent only reads `content` — the
 response arrives empty.
 
-`init.py` therefore sets `think: false` on every Ollama **chat** entry
-in `model_list`. Non-thinking models ignore the flag; thinking models
-write their answer straight into `content` instead of `reasoning`.
+`init.py` applies `think: false` only when a model's catalog
+`request_defaults` declares it. Qwen3.6 uses that default so its answer is
+written into `content` instead of `reasoning`; unrelated chat models do not
+inherit it. Legacy metadata-free chat models retain the old default for
+backward compatibility and emit a warning.
 
 Consumers that explicitly want the thinking trace can override
 per-request:
