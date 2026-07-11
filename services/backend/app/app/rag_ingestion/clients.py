@@ -56,6 +56,17 @@ class MountCorpusReader:
             p for p in target.rglob("*") if p.is_file()
         )
         for path in paths:
+            # Re-verify containment on the RESOLVED real path of every discovered
+            # file: rglob + read_bytes follow symlinks, so a symlink planted inside
+            # a consumer-controlled mount (e.g. ``docs/leak -> /app/.env``) would
+            # otherwise escape the corpus root and exfiltrate host/container files.
+            # The top-level check above only covers the declared directory.
+            resolved = path.resolve()
+            if root != resolved and root not in resolved.parents:
+                raise CorpusPathError(
+                    f"corpus file {path.relative_to(root)!s} resolves outside the corpus "
+                    f"root {root} (symlink escape) — refusing to ingest"
+                )
             files.append(CorpusFile(name=str(path.relative_to(root)), content=path.read_bytes()))
         return files
 

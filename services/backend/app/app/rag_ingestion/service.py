@@ -300,11 +300,9 @@ class RagIngestionService:
         state["vectors"] = vectors
         record.phase("embed").counts = {"vectors": len(vectors)}
 
-    def _target_unavailable(self, record: IngestionRecord, phase: str, backend: str, service: str, on_unavailable: str) -> None:
-        error = IngestionError(
-            phase=phase, service=service,
-            message=f"{backend} target requested but {service} is disabled/unreachable",
-        )
+    def _target_unavailable(self, record: IngestionRecord, phase: str, backend: str, service: str, on_unavailable: str, detail: Optional[str] = None) -> None:
+        message = detail or f"{backend} target requested but {service} is disabled/unreachable"
+        error = IngestionError(phase=phase, service=service, message=message)
         if on_unavailable == "fail":
             raise PhaseFatal(error)
         # skip: a skipped target is visible (phase status + note) but is NOT a job
@@ -327,10 +325,21 @@ class RagIngestionService:
         total = 0
         for target in targets:
             embedded = all("vector" in c for c in state["chunks"])
-            if not self.deps.weaviate.available() or not embedded:
+            if not self.deps.weaviate.available():
                 self._target_unavailable(
                     record, "vector_write", "weaviate", "weaviate",
                     target.get("on_unavailable", "fail"),
+                    detail="weaviate target requested but weaviate is disabled/unreachable",
+                )
+                return
+            if not embedded:
+                # Vectors were never produced — the embedder (LiteLLM), not
+                # Weaviate, is the disabled dependency. Attribute it correctly so
+                # the operator investigates the right service.
+                self._target_unavailable(
+                    record, "vector_write", "weaviate", "embedder",
+                    target.get("on_unavailable", "fail"),
+                    detail="no embeddings produced — the embedder (LITELLM_BASE_URL) is disabled",
                 )
                 return
             class_name = f"{target['collection_prefix']}_{profile.name}"

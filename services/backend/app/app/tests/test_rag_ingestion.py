@@ -306,6 +306,43 @@ def test_corpus_path_safety_rejects_escape(tmp_path, monkeypatch):
             reader.discover({"source": "mount", "path": bad})
 
 
+def test_corpus_symlink_escape_rejected(tmp_path, monkeypatch):
+    # Regression (blocking): a symlink planted inside a consumer-controlled mount
+    # corpus must NOT let discover() read a file outside the corpus root, even
+    # though the top-level directory path itself is contained.
+    root = tmp_path / "root"
+    (root / "docs").mkdir(parents=True)
+    secret = tmp_path / "outside-secret.txt"
+    secret.write_text("SUPER-SECRET-ENV", encoding="utf-8")
+    link = root / "docs" / "leak"
+    try:
+        link.symlink_to(secret)
+    except (OSError, NotImplementedError):
+        import pytest as _pytest
+        _pytest.skip("symlinks unsupported on this platform")
+    monkeypatch.setenv("RAG_INGESTION_CORPUS_ROOT", str(root))
+    reader = MountCorpusReader()
+    with pytest.raises(CorpusPathError):
+        reader.discover({"source": "mount", "path": "docs"})
+
+
+def test_embedder_disabled_is_attributed_to_embedder_not_weaviate(tmp_path, monkeypatch):
+    # Regression: when the embedder is disabled but Weaviate is available, the
+    # vector_write failure must name the embedder (LiteLLM), not misdiagnose Weaviate.
+    _corpus(tmp_path, monkeypatch, {"a.txt": "content body here"})
+    pf = _profiles_file(tmp_path, vector=[{"backend": "weaviate", "collection_prefix": "P", "on_unavailable": "fail"}])
+
+    class DisabledEmbedder:
+        def available(self):
+            return False
+
+    svc = _service(tmp_path, Deps(embedder=DisabledEmbedder(), weaviate=FakeWeaviate(available=True), lightrag=FakeLightrag(available=False), poll_interval=0.01), pf)
+    _, _, final = _run(svc)
+    assert final.status == "failed"
+    assert final.errors[0]["service"] == "embedder"
+    assert "LITELLM" in final.errors[0]["message"] or "embedder" in final.errors[0]["message"]
+
+
 def test_corpus_override_only_for_mount(tmp_path, monkeypatch):
     _corpus(tmp_path, monkeypatch, {"a.txt": "x"})
     pf = _profiles_file(tmp_path, corpus={"source": "minio", "bucket": "b", "prefix": "p/"})
