@@ -45,10 +45,11 @@ failing status code when validation fails.
 Use `./start.sh --consumer ./atlas.consumer.yml doctor` for consumer CI
 preflight before starting containers. The doctor runs an extensible check
 registry for consumer manifest validation, Compose validation, `_user` overlay
-env references, plugin directories, model sidecars, endpoint reporting, and
-tracked-file cleanliness. Docker-dependent checks are marked skipped when Docker
-is unavailable; Docker-free checks still run. Use `--format json` for CI
-parsing. Any failed check exits non-zero.
+env references, plugin directories, plugin.yml manifest + declared-env
+validation, model sidecars, endpoint reporting, and tracked-file cleanliness.
+Docker-dependent checks are marked skipped when Docker is unavailable;
+Docker-free checks still run. Use `--format json` for CI parsing. Any failed
+check exits non-zero.
 
 ## 5. Endpoint Contract Export
 
@@ -63,6 +64,23 @@ consumer-scoped credentials and refuses stdout (requires `--output PATH`).
 Output is deterministic and byte-stable, so parent wrappers can diff it across
 runs. See [reusing-atlas.md §6.5](https://github.com/thekaveh/atlas/blob/main/docs/deployment/reusing-atlas.md).
 
-## 6. Health And Logs
+## 6. Backend Plugin Manifest
+
+A backend plugin package mounted under `BACKEND_PLUGINS_DIR` may ship an optional
+`plugin.yml` (`plugin_manifest_version: 1`) declaring a typed, validated
+contract: `name`, `route_prefix`, `health_path`/`docs_url`, `auth:
+inherit|open|key-auth`, and typed/`default`/`required`/`secret` `env`. Absent →
+the plugin loads exactly as before (backward compatible). A present-but-malformed
+manifest skips only that plugin with a structured error and leaves others
+healthy; duplicate names, overlapping prefixes, and prefixes shadowing a built-in
+backend route are rejected before mounting. Declared env is validated at startup
+and by the consumer doctor (required-missing / enum / type warnings, secrets
+masked as `***`). `GET /plugins` returns the resulting inventory. Per-plugin
+`auth` composes into route-level Kong policies so `key-auth`/`open` apply per
+prefix without weakening unrelated backend routes; base Atlas (no plugins) emits
+the historical single backend route unchanged. See
+[reusing-atlas.md §6.3.1](https://github.com/thekaveh/atlas/blob/main/docs/deployment/reusing-atlas.md#631-declaring-a-typed-plugin-contract-with-pluginyml).
+
+## 7. Health And Logs
 
 The launch phase streams Docker Compose output through the Textual UI. The same command path works without the TUI in non-interactive environments.

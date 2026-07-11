@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://atlas/schemas/plugin.schema.json",
+  "title": "Backend Plugin Manifest",
+  "description": "Schema for an optional plugin.yml next to a backend plugin package mounted at BACKEND_PLUGINS_DIR (#402). Absent → the plugin loads exactly as before (fully backward compatible). Present → it declares a typed, validated config contract: route prefix, health/docs metadata, typed/default/required/secret env, dependency endpoints, and per-plugin Kong auth. A present-but-malformed manifest does NOT degrade to manifest-less loading — the plugin is skipped and a structured error is reported, leaving other plugins healthy.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["plugin_manifest_version", "name", "route_prefix"],
+  "properties": {
+    "plugin_manifest_version": {
+      "const": 1,
+      "description": "Manifest schema version. Only 1 is defined today; a mismatched version is a hard error (skip the plugin), so consumers pin a version they were built against."
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*[a-z0-9]$",
+      "description": "Stable plugin identifier (kebab-case). Must be unique across all mounted plugins; a duplicate name is rejected before mounting."
+    },
+    "route_prefix": {
+      "type": "string",
+      "pattern": "^/[A-Za-z0-9._~-]+(?:/[A-Za-z0-9._~-]+)*$",
+      "description": "The URL path prefix this plugin's router mounts under (e.g. /tableau). Must be at least one non-empty path segment (bare '/' is rejected — it would match the whole backend). Must not overlap another plugin's prefix (raw-prefix containment) or shadow a built-in backend route (api, comfyui, documents, health, jobs, media, memory, plugins, research, storage, workflows). Drives per-plugin Kong auth composition."
+    },
+    "health_path": {
+      "type": "string",
+      "pattern": "^/[A-Za-z0-9._~-]+(?:/[A-Za-z0-9._~-]+)*$",
+      "description": "Optional health endpoint the plugin exposes (e.g. /tableau/health), surfaced in the plugin inventory."
+    },
+    "docs_url": {
+      "type": "string",
+      "description": "Optional documentation link (URL or repo path) surfaced in the plugin inventory and generated docs."
+    },
+    "auth": {
+      "type": "string",
+      "enum": ["inherit", "open", "key-auth"],
+      "default": "inherit",
+      "description": "Per-plugin Kong auth policy for route_prefix. inherit = use the backend default (BACKEND_KONG_AUTH); open = no auth on this prefix even when the backend default is key-auth; key-auth = require an API key on this prefix even when the backend default is open/disabled."
+    },
+    "env": {
+      "type": "array",
+      "description": "Declared environment contract. Validated at startup and by the consumer doctor: required-but-missing → warning naming plugin + var; enum/type mismatches flagged. Secret values are masked in all state/doctor/docs/log output.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]*$",
+            "description": "Environment variable name (UPPER_SNAKE_CASE)."
+          },
+          "type": {
+            "type": "string",
+            "enum": ["string", "int", "bool", "enum"],
+            "default": "string",
+            "description": "Declared type. int/bool/enum values are validated; a mismatch is flagged (non-fatal warning)."
+          },
+          "values": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Allowed values for type=enum."
+          },
+          "default": {
+            "type": "string",
+            "description": "Default value documented for operators (not injected by Atlas)."
+          },
+          "required": {
+            "type": "boolean",
+            "default": false,
+            "description": "If true, a missing/empty value produces a startup + doctor warning naming the plugin and var."
+          },
+          "secret": {
+            "type": "boolean",
+            "default": false,
+            "description": "If true, the value is masked in every state/UI/doctor/docs/log/exception surface."
+          },
+          "description": {
+            "type": "string",
+            "description": "Human-readable purpose of the variable."
+          }
+        }
+      }
+    },
+    "depends_on": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Optional list of upstream dependency names (e.g. litellm, weaviate, lightrag, n8n) surfaced for health/visibility. Documentation-only in v1; reserved as a versioned extension point for future narrow resource hooks."
+    }
+  }
+}

@@ -35,7 +35,7 @@ env:
     description: "Optional regex accepted by the backend CORS middleware for wildcard subdomain policies."
   - name: BACKEND_KONG_AUTH
     default: disabled
-    description: "Gateway authentication mode for the api.localhost backend route: disabled (default local-dev behavior) or key-auth (requires apikey header)."
+    description: "Default gateway authentication mode for the api.localhost backend route: disabled (default local-dev behavior) or key-auth (requires apikey header). A backend plugin's plugin.yml `auth: open|key-auth` overrides this per route prefix (#402)."
   - name: BACKEND_KONG_API_KEY
     default: ""
     secret: true

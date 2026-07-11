@@ -19,7 +19,20 @@ import subprocess
 import sys
 from pathlib import Path
 
+from plugin_manifest import (
+    PluginManifest,
+    PluginManifestError,
+    RESERVED_ROUTE_PREFIXES,
+    load_manifest,
+    prefixes_overlap,
+    validate_env,
+)
+
 _log = logging.getLogger("uvicorn.error")
+
+# Populated by load_plugins(); exposed to the app (GET /plugins) as the plugin
+# inventory. Each entry is a JSON-safe dict with secrets already masked.
+PLUGIN_INVENTORY: list[dict] = []
 
 # pip runs at backend import time (load_plugins is called from main.py at
 # startup), so a hung download (flaky index, slow mirror, network partition)
@@ -96,7 +109,63 @@ def _plugin_roots() -> list[Path]:
     return [Path(part) for part in raw.split(os.pathsep) if part.strip()]
 
 
-def _load_plugins_from_dir(app, plugins_dir: Path, installed_requirements: set[Path]) -> None:
+def _inventory_entry(
+    name: str,
+    status: str,
+    *,
+    manifest: PluginManifest | None = None,
+    error: str | None = None,
+) -> dict:
+    """Build a JSON-safe inventory row (secrets already masked)."""
+    entry: dict = {
+        "name": name,
+        "status": status,  # loaded | skipped | error
+        "manifest": manifest is not None,
+        "route_prefix": manifest.route_prefix if manifest else None,
+        "health_path": manifest.health_path if manifest else None,
+        "docs_url": manifest.docs_url if manifest else None,
+        "auth": manifest.auth if manifest else None,
+        "depends_on": list(manifest.depends_on) if manifest else [],
+        "env": manifest.env_summary(dict(os.environ)) if manifest else [],
+    }
+    if error is not None:
+        entry["error"] = error
+    return entry
+
+
+def _register_manifest(
+    manifest: PluginManifest,
+    seen_names: dict[str, str],
+    seen_prefixes: dict[str, str],
+) -> str | None:
+    """Reject duplicate names / overlapping / reserved prefixes BEFORE mounting.
+
+    Overlap is raw-prefix containment (Kong-accurate), not just first-segment
+    equality, so ``/a`` vs ``/ab`` and ``/heal`` vs the built-in ``/health`` are
+    both caught (#402 review M1). Returns a human-readable conflict reason, or
+    None when the manifest is clear to load. Populates the seen-maps on success.
+    """
+    prefix = manifest.route_prefix
+    for reserved in RESERVED_ROUTE_PREFIXES:
+        if prefixes_overlap(prefix, f"/{reserved}"):
+            return f"route_prefix {prefix!r} shadows built-in backend route /{reserved}"
+    if manifest.name in seen_names:
+        return f"duplicate plugin name {manifest.name!r} (already provided by {seen_names[manifest.name]!r})"
+    for other_prefix, other_name in seen_prefixes.items():
+        if prefixes_overlap(prefix, other_prefix):
+            return f"route_prefix {prefix!r} overlaps prefix {other_prefix!r} claimed by {other_name!r}"
+    seen_names[manifest.name] = manifest.name
+    seen_prefixes[prefix] = manifest.name
+    return None
+
+
+def _load_plugins_from_dir(
+    app,
+    plugins_dir: Path,
+    installed_requirements: set[Path],
+    seen_names: dict[str, str],
+    seen_prefixes: dict[str, str],
+) -> None:
     if not plugins_dir.is_dir():
         return
     try:
@@ -109,10 +178,38 @@ def _load_plugins_from_dir(app, plugins_dir: Path, installed_requirements: set[P
     for entry in sorted(plugins_dir.iterdir()):
         if not (entry.is_dir() and (entry / "__init__.py").is_file()):
             continue
+
+        # Load & validate the optional manifest BEFORE installing requirements
+        # or importing, so a malformed manifest fails fast without executing any
+        # plugin code (import side effects, pip). A present-but-malformed
+        # manifest skips THIS plugin only — it does not degrade to manifest-less
+        # loading, and other plugins stay healthy.
+        try:
+            manifest = load_manifest(entry)
+        except PluginManifestError as exc:
+            _log.error("%s; skipping plugin", exc)
+            PLUGIN_INVENTORY.append(_inventory_entry(entry.name, "error", error=exc.message))
+            continue
+
+        if manifest is not None:
+            conflict = _register_manifest(manifest, seen_names, seen_prefixes)
+            if conflict is not None:
+                _log.error("plugin seam: %s; skipping plugin %r", conflict, entry.name)
+                PLUGIN_INVENTORY.append(
+                    _inventory_entry(manifest.name, "skipped", manifest=manifest, error=conflict)
+                )
+                continue
+            for warning in validate_env(manifest, dict(os.environ)):
+                _log.warning("plugin seam: %s", warning)
+
         try:
             _install_requirements(entry, installed_requirements)
         except PluginRequirementsInstallError:
             _log.exception("plugin seam: requirements failed for plugin %r; skipping plugin", entry.name)
+            name = manifest.name if manifest else entry.name
+            PLUGIN_INVENTORY.append(
+                _inventory_entry(name, "error", manifest=manifest, error="requirements install failed")
+            )
             continue
         try:
             module = importlib.import_module(entry.name)
@@ -120,11 +217,27 @@ def _load_plugins_from_dir(app, plugins_dir: Path, installed_requirements: set[P
             if router is not None:
                 app.include_router(router)
                 _log.info("plugin seam: loaded plugin %r", entry.name)
+            name = manifest.name if manifest else entry.name
+            PLUGIN_INVENTORY.append(_inventory_entry(name, "loaded", manifest=manifest))
         except Exception:  # one bad plugin must not crash the backend
             _log.exception("plugin seam: failed to load plugin %r", entry.name)
+            name = manifest.name if manifest else entry.name
+            PLUGIN_INVENTORY.append(
+                _inventory_entry(name, "error", manifest=manifest, error="import failed")
+            )
 
 
-def load_plugins(app) -> None:
+def load_plugins(app) -> list[dict]:
+    """Discover, validate, and mount plugins; return the plugin inventory.
+
+    The returned list (also available as module-level ``PLUGIN_INVENTORY``) is
+    JSON-safe with secret env values masked, suitable for the ``GET /plugins``
+    endpoint and generated docs.
+    """
+    PLUGIN_INVENTORY.clear()
     installed_requirements: set[Path] = set()
+    seen_names: dict[str, str] = {}
+    seen_prefixes: dict[str, str] = {}
     for plugins_dir in _plugin_roots():
-        _load_plugins_from_dir(app, plugins_dir, installed_requirements)
+        _load_plugins_from_dir(app, plugins_dir, installed_requirements, seen_names, seen_prefixes)
+    return list(PLUGIN_INVENTORY)

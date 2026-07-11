@@ -10,7 +10,7 @@ Submodule consumers should keep project-owned overlays, branding, wrapper script
 
 - `atlas.consumer.yml` in the parent repository.
 - `compose/<name>-overlay.yml` in the parent repository and referenced from `compose_overlays`.
-- `backend/plugins/` and model sidecars referenced from the manifest when needed.
+- `backend/plugins/` (each package optionally declaring a typed `plugin.yml`) and model sidecars referenced from the manifest when needed.
 - `scripts/start-infra.sh` as the parent-owned launcher that force-sets `PROJECT_NAME`, `BRAND_*`, and required `*_SOURCE` values.
 
 Use `./infra/start.sh --consumer ./atlas.consumer.yml` so Atlas can validate

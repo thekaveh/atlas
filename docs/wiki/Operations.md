@@ -45,10 +45,11 @@ failing status code when validation fails.
 Use `./start.sh --consumer ./atlas.consumer.yml doctor` for consumer CI
 preflight before starting containers. The doctor runs an extensible check
 registry for consumer manifest validation, Compose validation, `_user` overlay
-env references, plugin directories, model sidecars, endpoint reporting, and
-tracked-file cleanliness. Docker-dependent checks are marked skipped when Docker
-is unavailable; Docker-free checks still run. Use `--format json` for CI
-parsing. Any failed check exits non-zero.
+env references, plugin directories, plugin.yml manifest + declared-env
+validation, model sidecars, endpoint reporting, and tracked-file cleanliness.
+Docker-dependent checks are marked skipped when Docker is unavailable;
+Docker-free checks still run. Use `--format json` for CI parsing. Any failed
+check exits non-zero.
 
 ## 5. Endpoint Contract Export
 
@@ -62,11 +63,28 @@ consumer-scoped credentials and refuses stdout (requires `--output PATH`).
 Output is deterministic and byte-stable. See
 [reusing-atlas.md §6.5](https://github.com/thekaveh/atlas/blob/main/docs/deployment/reusing-atlas.md).
 
-## 6. Launch Flow
+## 6. Backend Plugin Manifest
+
+A backend plugin mounted under `BACKEND_PLUGINS_DIR` may ship an optional
+`plugin.yml` (`plugin_manifest_version: 1`) declaring a typed, validated
+contract: `name`, `route_prefix`, `health_path`/`docs_url`, `auth:
+inherit|open|key-auth`, and typed/`default`/`required`/`secret` `env`. Absent →
+the plugin loads exactly as before. A present-but-malformed manifest skips only
+that plugin with a structured error and leaves others healthy; duplicate names,
+overlapping prefixes, and prefixes shadowing a built-in backend route are
+rejected before mounting. Declared env is validated at startup and by the
+consumer doctor (required-missing / enum / type warnings, secrets masked as
+`***`). `GET /plugins` returns the inventory. Per-plugin `auth` composes into
+route-level Kong policies so `key-auth`/`open` apply per prefix without weakening
+unrelated backend routes; base Atlas (no plugins) emits the historical single
+backend route unchanged. See
+[reusing-atlas.md §6.3.1](https://github.com/thekaveh/atlas/blob/main/docs/deployment/reusing-atlas.md#631-declaring-a-typed-plugin-contract-with-pluginyml).
+
+## 7. Launch Flow
 
 The Textual UI handles the wizard, service summary, launch confirmation, and streamed Compose logs. Non-TTY shells use the linear fallback.
 
-## 6. Verification Commands
+## 8. Verification Commands
 
 ```bash
 uv run --project bootstrapper python scripts/check-docs-site.py
@@ -74,10 +92,10 @@ uv run --project bootstrapper python scripts/export-docs-wiki.py --check
 uv run --project bootstrapper python scripts/check_doc_links.py
 ```
 
-## 7. Reset Behavior
+## 9. Reset Behavior
 
 Use `./stop.sh --cold` when a service needs a fresh volume state. Use the normal stop path when preserving local state matters.
 
-## 8. Gateway Behavior
+## 10. Gateway Behavior
 
 Kong aliases depend on hosts setup and generated route configuration. Direct ports remain useful for local smoke tests and troubleshooting.
