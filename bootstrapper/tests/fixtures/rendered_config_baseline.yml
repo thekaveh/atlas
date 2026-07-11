@@ -2073,6 +2073,9 @@ services:
       PGPASSWORD: password
       PGPORT: '5432'
       PGUSER: supabase_admin
+      VLLM_METAL_ENDPOINT: ''
+      VLLM_METAL_MODEL: Qwen/Qwen2.5-7B-Instruct
+      VLLM_METAL_SOURCE: disabled
     extra_hosts:
     - host.docker.internal=
     networks:

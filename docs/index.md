@@ -29,7 +29,7 @@
 
 ## 2. Documentation Scope
 
-This site indexes 58 service families, 7 tracks, and 52 SOURCE-configurable surfaces from repository-owned source files.
+This site indexes 59 service families, 7 tracks, and 53 SOURCE-configurable surfaces from repository-owned source files.
 
 ## 3. Publication Surfaces
 

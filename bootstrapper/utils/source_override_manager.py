@@ -109,6 +109,7 @@ class SourceOverrideManager:
             'airflow_webserver_source': 'AIRFLOW_SOURCE',
             'tei_reranker_source': 'TEI_RERANKER_SOURCE',
             'lightrag_source': 'LIGHTRAG_SOURCE',
+            'vllm_metal_source': 'VLLM_METAL_SOURCE',
         }
     
     def collect_overrides(self, **kwargs) -> Dict[str, str]:

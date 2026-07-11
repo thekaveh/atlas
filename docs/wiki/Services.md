@@ -60,6 +60,7 @@
 | trino | data | all, data-eng | TRINO_SOURCE | container, disabled | minio, iceberg-rest |
 | tts-provider | media | all, gen-ai-creative, gen-ai-eng | TTS_PROVIDER_SOURCE | speaches-container-cpu, speaches-container-gpu, chatterbox-container-gpu, chatterbox-localhost, disabled | litellm |
 | verba | apps | all, gen-ai-rag | VERBA_SOURCE | container, disabled | weaviate, litellm, kong |
+| vllm-metal | llm | all, gen-ai-eng | VLLM_METAL_SOURCE | managed-localhost, disabled | litellm |
 | weaviate | data | all, data-eng, gen-ai-rag | WEAVIATE_SOURCE | container, localhost, disabled | supabase, litellm |
 | zeppelin | apps | all, data-eng, ml-eng | ZEPPELIN_SOURCE | container, disabled | spark |
 
@@ -123,6 +124,7 @@
 | trino | Trino | data | container | all, data-eng | TRINO_SOURCE |
 | tts-provider | TTS provider (text-to-speech engine selector) | media | virtual | all, gen-ai-creative, gen-ai-eng | TTS_PROVIDER_SOURCE |
 | verba | Verba (archived Weaviate RAG UI) | apps | container | all, gen-ai-rag | VERBA_SOURCE |
+| vllm-metal | vLLM (Metal) — managed Apple-silicon LLM server | llm | virtual | all, gen-ai-eng | VLLM_METAL_SOURCE |
 | weaviate | Weaviate (vector database) | data | container | all, data-eng, gen-ai-rag | WEAVIATE_SOURCE |
 | zeppelin | Apache Zeppelin (Spark-first notebook) | apps | container | all, data-eng, ml-eng | ZEPPELIN_SOURCE |
 
@@ -189,6 +191,7 @@
 | TRINO_SOURCE | trino | disabled | container, disabled |
 | TTS_PROVIDER_SOURCE | tts-provider | speaches-container-cpu | speaches-container-cpu, speaches-container-gpu, chatterbox-container-gpu, chatterbox-localhost, disabled |
 | VERBA_SOURCE | verba | disabled | container, disabled |
+| VLLM_METAL_SOURCE | vllm-metal | disabled | managed-localhost, disabled |
 | WEAVIATE_SOURCE | weaviate | container | container, localhost, disabled |
 | ZEPPELIN_SOURCE | zeppelin | disabled | container, disabled |
 
@@ -221,7 +224,7 @@
 | label-studio | supabase, minio | jupyterhub, mlflow | supabase, minio |
 | langfuse | supabase, redis, minio, litellm, kong, ray | - | supabase, redis, minio, litellm |
 | lightrag | litellm | supabase, neo4j, redis, docling | litellm, supabase, neo4j, redis, docling |
-| litellm | supabase, redis | - | supabase, redis, ollama, cloud-providers, hermes, lightrag, otel-collector |
+| litellm | supabase, redis | - | supabase, redis, ollama, cloud-providers, hermes, lightrag, vllm-metal, otel-collector |
 | llm-graph-builder | neo4j, litellm, kong | minio, docling | neo4j, litellm, minio, docling |
 | local-deep-researcher | searxng, litellm | crawl4ai | litellm, searxng, crawl4ai |
 | loki | kong, ray | - | - |
@@ -252,6 +255,7 @@
 | trino | minio, iceberg-rest | spark, zeppelin, jupyterhub, airflow | iceberg-rest, minio |
 | tts-provider | litellm | - | - |
 | verba | weaviate, litellm, kong | docling, open-webui, jupyterhub | weaviate, litellm |
+| vllm-metal | litellm | - | - |
 | weaviate | supabase, litellm | - | litellm, multi2vec-clip |
 | zeppelin | spark | supabase, minio, iceberg-rest, redpanda, trino | spark, supabase, minio, iceberg-rest, redpanda, trino |
 

@@ -17,6 +17,7 @@ This matrix lists every `*_SOURCE` variable currently exposed in `.env.example`.
 | SOURCE variable | Default | Options | Category | Notes |
 |---|---|---|---|---|
 | `LLM_PROVIDER_SOURCE` | `ollama-container-cpu` | `ollama-container-cpu`, `ollama-container-gpu`, `ollama-localhost`, `none` | User-facing | Local Ollama upstream behind LiteLLM. Use `none` for cloud-only operation. |
+| `VLLM_METAL_SOURCE` | `disabled` | `managed-localhost`, `disabled` | User-facing optional | Managed Apple-silicon (Metal) vLLM host process, registered with LiteLLM as an OpenAI-compatible upstream. macOS/arm64 + Python 3.12 only; no container source and no Kong route. |
 | `CLOUD_OPENAI_SOURCE` | `disabled` | `enabled`, `disabled` | User-facing | Toggles OpenAI as a LiteLLM upstream. Requires `OPENAI_API_KEY`. |
 | `CLOUD_ANTHROPIC_SOURCE` | `disabled` | `enabled`, `disabled` | User-facing | Toggles Anthropic as a LiteLLM upstream. Requires `ANTHROPIC_API_KEY`. |
 | `CLOUD_OPENROUTER_SOURCE` | `disabled` | `enabled`, `disabled` | User-facing | Toggles OpenRouter as a LiteLLM upstream. Requires `OPENROUTER_API_KEY`. |

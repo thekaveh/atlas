@@ -22,9 +22,9 @@ Use `./start.sh --setup-hosts` for Kong `*.localhost` aliases. Use `./stop.sh --
 
 ## 5. Generated Surface Count
 
-- SOURCE surfaces: `61`
-- Environment variables: `706`
-- Services with ports or aliases: `47`
+- SOURCE surfaces: `62`
+- Environment variables: `717`
+- Services with ports or aliases: `48`
 
 ## 6. Safe Editing Rules
 

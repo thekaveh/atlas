@@ -52,6 +52,9 @@ _PERMUTATIONS = [
     ("WEAVIATE_SOURCE", ["container", "localhost", "disabled"]),
     ("NEO4J_GRAPH_DB_SOURCE", ["container", "localhost", "disabled"]),
     ("COMFYUI_SOURCE", ["container-cpu", "container-gpu", "localhost", "managed-localhost-mps", "disabled"]),
+    # vLLM Metal is virtual (no compose fragment) — both values just toggle
+    # the litellm-init env passthrough, so each must still merge cleanly.
+    ("VLLM_METAL_SOURCE", ["managed-localhost", "disabled"]),
     (
         "STT_PROVIDER_SOURCE",
         [

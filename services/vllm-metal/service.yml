@@ -1,0 +1,105 @@
+# services/vllm-metal/service.yml — virtual manifest owning VLLM_METAL_SOURCE
+#
+# vLLM Metal is a managed-localhost-only LLM server for Apple silicon.
+# There is NO container image: on `managed-localhost` the bootstrapper
+# installs the `vllm-metal` plugin into a host Python 3.12 venv and
+# supervises a native `vllm serve` process (Metal/MPS backend). Its
+# OpenAI-compatible endpoint is registered with LiteLLM, so consumers
+# reach the model only through the gateway — never directly, and there is
+# no Kong route or exposed stack port.
+#
+# Parallel to how `cloud-providers` owns its toggles without a container:
+# a virtual manifest is the single source of truth for the source knob,
+# lifecycle env, and the auto-managed endpoint. The managed host process
+# is supervised by bootstrapper/services/vllm_metal_manager.py (cloned
+# from the ComfyUI MPS managed-host pattern, #335).
+name: vllm-metal
+label: "vLLM (Metal) — managed Apple-silicon LLM server"
+category: llm
+docs: services/vllm-metal/README.md
+virtual: true
+containers: []
+
+sources:
+  var: VLLM_METAL_SOURCE
+  default: disabled
+  options:
+    - id: managed-localhost
+      label: "Managed host process (Apple-silicon Metal)"
+      profiles: [default]
+    - id: disabled
+      label: "Disabled"
+
+env:
+  - name: VLLM_METAL_SOURCE
+    default: disabled
+    description: "Options: managed-localhost (bootstrapper-supervised host process on Apple silicon), disabled."
+  - name: VLLM_METAL_MODEL
+    default: "Qwen/Qwen2.5-7B-Instruct"
+    description: "Hugging Face model id served by the managed vLLM Metal process and registered with LiteLLM under the same alias."
+  - name: VLLM_METAL_LOCALHOST_PORT
+    default: "8000"
+    description: "Host port the managed vLLM Metal OpenAI server listens on. Not a BASE_PORT slot — vLLM Metal has no Kong route or exposed stack port."
+  - name: VLLM_METAL_PLUGIN_VERSION
+    default: "0.3.0"
+    description: "Pinned vllm-metal plugin version installed into the managed host venv."
+  - name: VLLM_METAL_CORE_VERSION
+    default: ""
+    description: "Optional pinned vllm core version (blank = let the vllm-metal plugin resolve a compatible core)."
+  - name: VLLM_METAL_PYTHON
+    default: "python3.12"
+    description: "Python interpreter used to build the managed host venv (vllm-metal requires 3.12)."
+  - name: VLLM_METAL_STATE_DIR
+    default: "~/.atlas/vllm-metal"
+    description: "Host directory holding the managed venv plus the pid / log / status files."
+  - name: VLLM_METAL_MODELS_PATH
+    default: ""
+    description: "Optional Hugging Face cache dir (HF_HOME) for the managed process. Blank = default HF cache."
+  - name: VLLM_METAL_MIN_MEMORY_GB
+    default: "16"
+    description: "Minimum unified memory (GB) the preflight requires before install / start."
+  - name: VLLM_METAL_SCALE
+    auto_managed: true
+    description: "Always 0 — vLLM Metal never runs as a container. Reserved for interface parity with container services."
+  - name: VLLM_METAL_ENDPOINT
+    auto_managed: true
+    description: "Resolved docker-internal URL of the managed host process (http://host.docker.internal:${VLLM_METAL_LOCALHOST_PORT}). Consumed by litellm-init to register the model. Blank when disabled."
+
+depends_on:
+  required:
+    - litellm
+  optional: []
+
+exports: []
+
+rows:
+  - display_name: "vLLM (Metal)"
+    source_var: VLLM_METAL_SOURCE
+    scale_var: VLLM_METAL_SCALE
+    description: "Apple-silicon Metal LLM server (managed host process, LiteLLM-fronted). No exposed stack port."
+    localhost_endpoint_var: VLLM_METAL_ENDPOINT
+
+# ─────────────────────────────────────────────────────────
+# Bootstrapper runtime data (migrated from the legacy
+# bootstrapper/service-configs.yml). Slices owned by this
+# manifest. Synthesized into the runtime dict by
+# bootstrapper/services/sc_synthesizer.py.
+# ─────────────────────────────────────────────────────────
+runtime_sc:
+  vllm_metal:
+    managed-localhost:
+      scale: 0
+      environment:
+        VLLM_METAL_ENDPOINT: "http://host.docker.internal:${VLLM_METAL_LOCALHOST_PORT:-8000}"
+      deploy: {}
+      extra_hosts:
+        - host.docker.internal:host-gateway
+    disabled:
+      scale: 0
+      environment:
+        VLLM_METAL_ENDPOINT: ""
+      deploy: {}
+      extra_hosts: []
+
+data_flow:
+  calls: []

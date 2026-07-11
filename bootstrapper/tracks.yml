@@ -34,7 +34,7 @@ tracks:
     display_name: Generative AI · Engineering
     description: Agentic apps + workflows with voice, vision, and search.
     services: [open-webui, supavisor, n8n, hermes, openclaw, jupyterhub, comfyui, neo4j,
-               stt-provider, tts-provider, searxng, mcp-servers,
+               stt-provider, tts-provider, searxng, mcp-servers, vllm-metal,
                langfuse, otel-collector, tempo, loki,
                local-deep-researcher, tika, celery]
 

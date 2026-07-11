@@ -108,8 +108,9 @@ nav:
     - 5.2.54. trino: site/services/trino.md
     - 5.2.55. tts-provider: site/services/tts-provider.md
     - 5.2.56. verba: site/services/verba.md
-    - 5.2.57. weaviate: site/services/weaviate.md
-    - 5.2.58. zeppelin: site/services/zeppelin.md
+    - 5.2.57. vllm-metal: site/services/vllm-metal.md
+    - 5.2.58. weaviate: site/services/weaviate.md
+    - 5.2.59. zeppelin: site/services/zeppelin.md
 - 6. Architecture:
   - 6.1. Overview: site/architecture/index.md
   - 6.2. Diagram Catalog: architecture/index.md

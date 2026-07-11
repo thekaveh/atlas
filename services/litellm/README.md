@@ -344,6 +344,7 @@ curl -sX POST http://localhost:${LITELLM_PORT}/v1/chat/completions \
 | supabase | data |
 | cloud-providers | llm |
 | ollama | llm |
+| vllm-metal | llm |
 | hermes ↔ | agents |
 | lightrag ↔ | agents |
 
