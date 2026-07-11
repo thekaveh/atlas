@@ -177,6 +177,70 @@ mc alias set local http://localhost:${MINIO_PORT} "$MINIO_BACKEND_ACCESS_KEY" "$
 mc cp ./somefile local/backend/somefile
 ```
 
+### 6.1 Declarative consumer storage contract (`storage:`)
+
+A downstream consumer (see [reusing-atlas.md](../../docs/deployment/reusing-atlas.md))
+declares object stores in its `atlas.consumer.yml` instead of hand-writing a
+`minio-init` compose override and reverse-engineering endpoints:
+
+```yaml
+# atlas.consumer.yml
+name: daydreams
+storage:
+  buckets:
+    - name: artifacts              # store handle (unique per consumer)
+      bucket: daydreams-artifacts  # optional; default "<consumer>-<name>"
+      extra_buckets: [daydreams-thumbs]   # optional, share the scoped account
+```
+
+Atlas compiles each store to the existing `MINIO_EXTRA_CONSUMERS` grammar
+(no init logic is forked): it sets `MINIO_BUCKET_<KEY>`, appends the
+`CONSUMER:BUCKET_VAR:ACCESS_VAR:SECRET_VAR[:EXTRA…]` entry, generates a scoped
+service-account credential once (persisted, never rotated on restart), and
+**generates the `minio-init` overlay for you** (a gitignored
+`volumes/minio/consumer-storage.compose.yml`) so no consumer compose override is
+required. Bucket names are validated (S3 rules) and collision-checked against
+built-in buckets and across consumers.
+
+Each store also exports stable, per-store fields (consumed by #345 endpoint
+wiring) — bucket, **distinct** internal vs public-read endpoints, region, and
+**credential references** (variable names, never raw secret values):
+
+```text
+ATLAS_STORE_DAYDREAMS_ARTIFACTS_BUCKET=daydreams-artifacts
+ATLAS_STORE_DAYDREAMS_ARTIFACTS_INTERNAL_ENDPOINT=http://minio:9000
+ATLAS_STORE_DAYDREAMS_ARTIFACTS_PUBLIC_ENDPOINT=http://localhost:${MINIO_PORT}
+ATLAS_STORE_DAYDREAMS_ARTIFACTS_REGION=us-east-1
+ATLAS_STORE_DAYDREAMS_ARTIFACTS_ACCESS_KEY_VAR=MINIO_DAYDREAMS_ARTIFACTS_ACCESS_KEY
+ATLAS_STORE_DAYDREAMS_ARTIFACTS_SECRET_KEY_VAR=MINIO_DAYDREAMS_ARTIFACTS_SECRET_KEY
+```
+
+The public endpoint tracks `BASE_PORT`/host changes automatically. The
+underlying `MINIO_EXTRA_CONSUMERS` overlay path (§6 above and
+[reusing-atlas.md §6.1.2](../../docs/deployment/reusing-atlas.md#612-adding-parent-owned-minio-buckets))
+remains supported for existing `_user` integrations.
+
+### 6.2 Browser-safe presigned URLs (sign against the public host)
+
+Presigned-URL signatures cover the request **host**, so signing against the
+internal endpoint (`minio:9000`) and then rewriting the URL to the public host
+produces an invalid signature — a standing bug class. **Never rewrite a signed
+URL.** Sign directly against the browser-visible public endpoint:
+
+- With boto3: create the client with `endpoint_url` set to the **public** base
+  (`ATLAS_STORE_<KEY>_PUBLIC_ENDPOINT`) before calling `generate_presigned_url`.
+- Dependency-free: use Atlas's reference presigner
+  `bootstrapper/utils/s3_presign.py::presign_get_url(endpoint=<public>, …)`,
+  which signs against the exact host you pass and returns the URL verbatim
+  (path-style by default, TTL-bounded, with optional
+  `response_content_type` / `response_content_disposition`).
+
+An opt-in live smoke test
+(`bootstrapper/tests/test_storage_presign_e2e.py`, `ATLAS_STORAGE_E2E=1`)
+uploads with the scoped credential against the internal endpoint and fetches
+the object through a presigned URL signed against the public endpoint — proving
+the round-trip without root credentials.
+
 ## 7. Source variants
 
 `MINIO_SOURCE` may be:

@@ -91,6 +91,7 @@ data/
 volumes/api/kong-dynamic.yml
 volumes/litellm/config.yaml
 volumes/litellm/*.yml
+volumes/minio/consumer-storage.compose.yml
 
 # Environment variables file
 .env
