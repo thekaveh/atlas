@@ -34,8 +34,15 @@ def test_curated_covers_noisy_categories():
 
 
 def test_curated_all_have_valid_target_dir():
+    # target_dir defaults to CATEGORY_TARGET_DIR[category]. The schema allows a
+    # per-entry override when a loader reads a different directory than the logical
+    # category (e.g. Hunyuan3D-2 is a mesh_model whose dit checkpoint ships to
+    # `checkpoints` for ImageOnlyCheckpointLoader). Overrides are pinned by name so
+    # a mislabeled entry still fails on every non-override entry.
+    overrides = {"hunyuan3d-2": "checkpoints"}
     for e in list_curated():
-        assert e.target_dir == CATEGORY_TARGET_DIR[e.category]
+        expected = overrides.get(e.name, CATEGORY_TARGET_DIR[e.category])
+        assert e.target_dir == expected
         assert e.source == "curated"
 
 

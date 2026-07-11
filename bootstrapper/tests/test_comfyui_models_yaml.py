@@ -39,6 +39,16 @@ _SNAPSHOT_PATH = (
     Path(__file__).resolve().parent / "fixtures" / "comfyui_curated_snapshot.json"
 )
 
+# Curated entries whose loader reads a directory different from their category
+# default, so ``target_dir`` is intentionally overridden. Pinned by name so the
+# per-category target_dir invariant still catches a mislabeled entry everywhere
+# else. Keyed by catalog ``name`` → expected ``target_dir``.
+KNOWN_TARGET_DIR_OVERRIDES = {
+    # Hunyuan3D-2's dit checkpoint is a mesh_model but loads from models/checkpoints
+    # via ImageOnlyCheckpointLoader (#338).
+    "hunyuan3d-2": "checkpoints",
+}
+
 
 # ─── Helper ──────────────────────────────────────────────────────────────────
 
@@ -72,10 +82,10 @@ def test_yaml_passes_schema():
 
 
 def test_yaml_has_expected_entry_count():
-    """Curated YAML must contain exactly 15 entries (snapshot count)."""
+    """Curated YAML must contain exactly 16 entries (snapshot count)."""
     data = yaml.safe_load(_YAML_PATH.read_text(encoding="utf-8"))
-    assert len(data["models"]) == 15, (
-        f"Expected 15 curated entries (snapshot count); got {len(data['models'])}"
+    assert len(data["models"]) == 16, (
+        f"Expected 16 curated entries (snapshot count); got {len(data['models'])}"
     )
 
 
@@ -201,12 +211,24 @@ def test_fallback_entries_match_snapshot_field_by_field():
 # ─── Loader correctness ──────────────────────────────────────────────────────
 
 def test_curated_all_have_valid_target_dir():
-    """Each curated entry's target_dir must match CATEGORY_TARGET_DIR."""
+    """Each curated entry's target_dir must be its category default OR an
+    explicitly-registered per-entry override.
+
+    The schema supports a per-entry ``target_dir`` override for models whose loader
+    reads a different directory than their logical category (e.g. Hunyuan3D-2 is a
+    ``mesh_model`` but its dit checkpoint ships to ``checkpoints`` for
+    ImageOnlyCheckpointLoader). Overrides are pinned by name here — NOT accepted as
+    "any known subdir" — so a mislabeled entry (a ``vae`` accidentally pointed at
+    ``loras``) still fails on every non-override entry.
+    """
     for e in list_curated():
-        expected = CATEGORY_TARGET_DIR[e.category]
+        default = CATEGORY_TARGET_DIR[e.category]
+        expected = KNOWN_TARGET_DIR_OVERRIDES.get(e.name, default)
         assert e.target_dir == expected, (
-            f"Entry '{e.name}': target_dir={e.target_dir!r}; "
-            f"expected {expected!r} for category '{e.category}'"
+            f"Entry '{e.name}': target_dir={e.target_dir!r}; expected {expected!r} "
+            f"(category default {default!r}"
+            + (f"; override → {expected!r}" if e.name in KNOWN_TARGET_DIR_OVERRIDES else "")
+            + ")"
         )
 
 
@@ -308,11 +330,11 @@ def test_list_curated_raises_on_missing_yaml(monkeypatch, tmp_path):
         list_curated()
 
 
-def test_list_curated_returns_15_entries_happy_path():
-    """Happy path: list_curated() must return the 15 curated entries when
+def test_list_curated_returns_16_entries_happy_path():
+    """Happy path: list_curated() must return the 16 curated entries when
     services/comfyui/models.yaml is present and valid.
     """
     entries = list_curated()
-    assert len(entries) == 15, (
-        f"Expected 15 curated entries from list_curated(); got {len(entries)}"
+    assert len(entries) == 16, (
+        f"Expected 16 curated entries from list_curated(); got {len(entries)}"
     )

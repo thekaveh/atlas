@@ -6,6 +6,7 @@ from .model import DocsModel
 from .pages import ARCHITECTURE_PERSPECTIVES
 from .rendering import csv_or_dash, table
 from .services import (
+    _comfyui_hunyuan3d_section,
     _comfyui_krea2_section,
     _comfyui_managed_mps_section,
     _litellm_capability_section,
@@ -317,7 +318,8 @@ Current categories include infra, data, llm, media, agents, apps, and aggregate/
         + table(["Service", "Required", "Optional", "Runtime Calls"], dependency_rows)
         + "\n"
         + _comfyui_krea2_section(model, 5)
-        + _comfyui_managed_mps_section(model, 6),
+        + _comfyui_managed_mps_section(model, 6)
+        + _comfyui_hunyuan3d_section(model, 7),
         wiki / "Architecture.md": """# Architecture
 
 ## 1. Stack Shape

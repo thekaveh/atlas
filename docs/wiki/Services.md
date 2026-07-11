@@ -322,3 +322,35 @@ The read-only preflight checks OS (macOS) and arch (arm64) — a hard fail elsew
 ### 6.3 Cold/Warm Health, Unsupported Hosts, Upgrades, Logs, Removal
 
 Weights load lazily on the first request, so a freshly launched process is reachable but cold; `health` reports reachability and the compute device (`mps` when `/system_stats` shows a non-CPU device). On non-Apple hosts (Linux, Intel Macs, Windows) the preflight fails with an explicit unsupported-host message and install refuses — Atlas never claims a Linux container is Metal-capable. Upgrade or roll back by setting `COMFYUI_MPS_REF` and running `comfyui-mps install --update` then `stop`/`start`. Logs are at `${COMFYUI_MPS_STATE_DIR}/comfyui-mps.log`. `comfyui-mps remove` stops the process and deletes the state directory while leaving the reused host models directory untouched. n8n receives no `COMFYUI_ENDPOINT` injection for any ComfyUI source and is documented as excluded here; the managed source is consumed identically to every other source by the consumers that do receive the endpoint.
+
+## 7. Hunyuan3D-2 Native Image to 3D
+
+Atlas curates the ComfyUI-core **native** Hunyuan3D-2 single-image shape generator. Unlike TRELLIS/Pixal3D (which need CUDA sparse kernels), Hunyuan3D-2's DiT is pure Torch, so it runs on Apple-Silicon **MPS** through the managed source. The entry is a large optional download — it is never `essential`, so it stages only when explicitly selected (`COMFYUI_USER_MODELS=hunyuan3d-2`).
+
+Native support is **shape-only**: geometry generation with no texture, PBR, or material stage (that path is CUDA-bound and intentionally excluded from this bundle).
+
+### 7.1 Inventory
+
+| Model | Catalog ID | Precision | Disk | RAM | VRAM |
+| --- | --- | --- | --- | --- | --- |
+| Hunyuan3D-2 | `hunyuan3d-2` | fp16 | 4.928 GB | 16 GB | 8 GB |
+
+### 7.2 Pinned Artifact
+
+| Role | Target | Bytes | SHA-256 |
+| --- | --- | --- | --- |
+| dit checkpoint | `checkpoints/hunyuan3d-dit-v2.safetensors` | 4,928,151,562 | `360bc281fc956d4acac0c3d36d5ec0ebf8cdddbf4b8892e894d12419388d479b` |
+
+The URL and license are pinned to Hugging Face revision `9cd649ba6913f7a852e3286bad86bfa9a2d83dcf`. The dit checkpoint is a `mesh_model` but its `target_dir` overrides to `checkpoints` so `ImageOnlyCheckpointLoader` resolves it.
+
+### 7.3 Workflow
+
+The API-ready example is `services/comfyui/workflows/hunyuan3d-2-image-to-glb-api.json`. It uses only ComfyUI-core native nodes — `ImageOnlyCheckpointLoader` → `CLIPVisionEncode` → `Hunyuan3Dv2Conditioning` → `KSampler` → `VAEDecodeHunyuan3D` → `VoxelToMeshBasic` → `SaveGLB` — so no custom node and no CUDA sparse kernels are required. The terminal `SaveGLB` writes a shape-only `.glb`. A marked `live` MPS smoke (opt-in, `ATLAS_COMFYUI_LIVE_ENDPOINT`) renders a real mesh and validates the GLB container; it is not part of generic CI.
+
+### 7.4 License
+
+Model weights use the [Tencent Hunyuan Community License](https://huggingface.co/tencent/Hunyuan3D-2/blob/9cd649ba6913f7a852e3286bad86bfa9a2d83dcf/LICENSE.txt). Operators must review the authoritative license before deployment:
+
+- Territory-restricted — not licensed for use in the European Union, the United Kingdom, or South Korea.
+- Products or services with over 100 million monthly active users require a separate license from Tencent.
+- Use is subject to the Tencent Hunyuan Community License Agreement and its Acceptable Use Policy.
