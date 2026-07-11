@@ -90,6 +90,16 @@ Two non-obvious constraints make this split load-bearing — each one previously
 
 When you add a new resolver module that `litellm-init` exec-loads, keep the dual-context import shape — `try: from utils import X` / `except ImportError: import X` — so it works both in the bootstrapper venv (package context) and the container (`/catalog` loose modules). Coverage: `bootstrapper/tests/test_litellm_init_loose_imports.py` (loose import, both catalog layouts) and `test_compose_nested_mounts.py` (no file mounted inside a `:ro` parent).
 
+### 5.3 Consumer-declared model rows (#411)
+
+A downstream integration can surface its own OpenAI-compatible routes (typically served by a [backend plugin](../backend/README.md)) as first-class LiteLLM models by declaring a `litellm_models` block in `atlas.consumer.yml` — see [reusing-atlas.md §6.3.2](../../docs/deployment/reusing-atlas.md#632-exposing-plugin-models-to-litellm-with-litellm_models). Because the config is regenerated declaratively on every start, Atlas **merges** owned rows rather than calling the LiteLLM admin API:
+
+1. The bootstrapper resolves each row host-side — ownership is stamped from the manifest name (non-spoofable), `api_base` must resolve (via `${ATLAS_BACKEND_INTERNAL}` → `http://backend:8000`) to a clean base URL with no userinfo/query/fragment (blocking credential leakage and off-stack SSRF), aliases may not collide with a YAML-catalog model name (`gpt-4o`, `nomic-embed-text`, …) or the runtime rows, and secrets stay as `os.environ/<VAR>` references — and writes the gitignored `volumes/litellm/consumer-models.yaml` (`model_list: [...]`).
+2. `services/litellm/init/scripts/init.py::load_consumer_model_rows()` reads that file (path from `LITELLM_CONSUMER_MODELS_FILE`, in the shared `/litellm-config` mount) and appends the rows to `model_list` **after** the stack rows (`hermes-agent`, `lightrag`) and catalog models — **skipping** any row whose alias collides with an already-rendered stack model (the stack row always wins). A missing/malformed file degrades to "no consumer models" — it never aborts `litellm-init`.
+3. A companion generated compose overlay (`volumes/litellm/consumer-models.compose.yml`) passes each declared `api_key_var` into the `litellm` container so it resolves the reference at request time.
+
+Effect: the consumer's aliases appear in `/v1/models` for Open WebUI, n8n, and the backend with **no registration script**. Removing the manifest removes only that consumer's rows on the next start; stack and sibling rows are untouched. Coverage: `bootstrapper/tests/test_consumer_litellm_models.py`, `test_litellm_init_render.py::TestConsumerModelMerge`, `test_consumer_doctor.py`.
+
 ## 6. Access
 
 | Surface | URL | Notes |

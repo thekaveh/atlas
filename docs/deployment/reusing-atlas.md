@@ -197,6 +197,12 @@ model_sidecars:
     - ./models/comfyui-custom-models.yaml
   ollama:
     - llama3.2:latest
+litellm_models:                       # expose plugin routes as LiteLLM models (§6.3.2)
+  version: 1
+  models:
+    - name: graph-rag
+      api_base: "${ATLAS_BACKEND_INTERNAL}/graph-rag/v1"
+      api_key_var: RAG_SHOWCASE_API_KEY
 ```
 
 Atlas validates the declared paths before Compose runs, merges manifest env
@@ -491,6 +497,41 @@ env:
 - **Per-plugin Kong auth.** `auth: key-auth` puts Kong key-auth on that plugin's `route_prefix`; `auth: open` opts a prefix out even when the backend default (`BACKEND_KONG_AUTH`) is `key-auth`; `auth: inherit` follows the default. Atlas composes these into route-level Kong policies so an `open` prefix is not weakened by a `key-auth` default and vice versa (base Atlas, with no plugins, emits the historical single backend route unchanged). Per-prefix `key-auth` reuses the `BACKEND_KONG_API_KEY` credential; distinct per-prefix credentials remain a future extension.
 
 The `plugin_manifest_version` is a hard-pinned contract version — a manifest built for a version this backend does not understand is skipped rather than mis-read. The canonical schema is [`bootstrapper/schemas/plugin.schema.json`](https://github.com/thekaveh/atlas/blob/main/bootstrapper/schemas/plugin.schema.json).
+
+#### 6.3.2 Exposing plugin models to LiteLLM with `litellm_models`
+
+A backend plugin (§6.3) that serves an OpenAI-compatible route can surface that route as a **first-class model in LiteLLM** — so Open WebUI, n8n, the backend, and any other LiteLLM consumer discover it through `/v1/models` with **no registration script**. Declare a versioned `litellm_models` block in `atlas.consumer.yml`:
+
+```yaml
+# atlas.consumer.yml
+name: rag-showcase
+backend_plugins:
+  - ./backend/plugins            # serves /graph-rag, /vanilla-rag, … (§6.3)
+litellm_models:
+  version: 1
+  models:
+    - name: graph-rag                                   # the LiteLLM alias / model_name
+      api_base: "${ATLAS_BACKEND_INTERNAL}/graph-rag/v1"  # approved Atlas endpoint template
+      api_key_var: RAG_SHOWCASE_API_KEY                 # a secret *reference* (env var NAME)
+      description: Graph RAG over Neo4j
+      tags: [rag, graph]
+      model_info:
+        mode: chat
+    - name: vanilla-rag
+      api_base: "${ATLAS_BACKEND_INTERNAL}/vanilla-rag/v1"
+```
+
+Because LiteLLM's config is regenerated from YAML + env on every start, Atlas **merges owned model rows into the declarative config before LiteLLM boots** — it never calls the LiteLLM admin API. On `./start.sh`, the bootstrapper resolves each row, writes the gitignored `volumes/litellm/consumer-models.yaml`, and `litellm-init` appends those rows to `config.yaml` after the stack rows (`hermes-agent`, `lightrag`) and catalog models.
+
+**What the contract enforces:**
+
+- **Ownership is derived from the manifest, not spoofable.** Every generated row is stamped with `model_info.atlas_owner: <consumer>`. An explicit `owner:` may only restate the consumer's own name — claiming another's is rejected. A removed manifest removes **only that consumer's** rows on the next start; stack rows and sibling-consumer rows are untouched.
+- **Approved endpoints only.** `api_base` is resolved against an allowlist of in-network Atlas endpoint templates — currently `${ATLAS_BACKEND_INTERNAL}` (`http://backend:8000`, where §6.3 plugins mount). It must resolve to a **clean base URL** (`scheme://host/path`): an arbitrary external host, an unapproved `${...}` template, leftover unresolved interpolation, userinfo credentials (`user:pass@…`), or **any query string or fragment** (the usual carrier for `?authorization=…`, `?api_key=…`, `#token`) is **rejected at load**. So a generated LiteLLM row can never exfiltrate to an off-stack host or carry a secret into the config file or startup log.
+- **Secrets stay references.** Use `api_key_var` (an `UPPER_SNAKE` env var name), never a literal `api_key`. Atlas renders `api_key: os.environ/<VAR>` (the same form as the stack `hermes-agent` row) and generates a compose overlay that passes that var into the `litellm` container so it resolves at request time. The secret **value** appears in no generated file, overlay, log, or doctor output.
+- **Unique, non-reserved aliases.** Aliases are globally unique across all consumers (one generated config) and may not shadow a stack-owned alias — that reserved set is **catalog-derived**: the runtime rows (`hermes-agent`, `lightrag`) *and* every YAML-catalog model name (`gpt-4o`, `nomic-embed-text`, …), rejected up front. As a last-line defense, `litellm-init` also **skips** any consumer row whose alias collides with an already-rendered stack model, so a stack model can never be silently hijacked (LiteLLM would otherwise load-balance duplicate `model_name`s across both endpoints).
+- **Preflight cross-check.** [`./start.sh doctor`](#615-consumer-doctor-for-ci-preflight) validates the block and cross-checks each backend-hosted model's first route segment against the declared `plugin.yml` `route_prefix`es (§6.3.1) — a model pointing at a route no plugin serves surfaces as an advisory warning rather than a dead `/v1/models` entry.
+
+This is exactly how a RAG-showcase-style consumer retires a bespoke `register_models.py`: declare the approaches and flavor aliases in the manifest and let Atlas own the LiteLLM wiring.
 
 ### 6.4 Consuming auto-managed endpoint variables
 

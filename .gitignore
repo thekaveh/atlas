@@ -90,6 +90,7 @@ data/
 # might want to track — doesn't get silently hidden by a directory glob.
 volumes/api/kong-dynamic.yml
 volumes/litellm/config.yaml
+volumes/litellm/consumer-models.yaml
 volumes/litellm/*.yml
 volumes/minio/consumer-storage.compose.yml
 
