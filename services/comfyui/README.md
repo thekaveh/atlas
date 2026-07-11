@@ -22,7 +22,7 @@ Canonical port table: [Ports and Routes](../../docs/deployment/ports-and-routes.
 ## 3. Configuration
 
 ```bash
-COMFYUI_SOURCE=container-cpu                # container-cpu | container-gpu | localhost | disabled
+COMFYUI_SOURCE=container-cpu                # container-cpu | container-gpu | localhost | managed-localhost-mps | disabled
 COMFYUI_PORT=63053                          # computed by topology.py
 COMFYUI_BASE_URL=http://comfyui:18188       # in-container default
 COMFYUI_ARGS=--listen                       # static — passed verbatim; add --cpu (CPU) or --force-fp16 (GPU) yourself (compose default when unset: --listen --cpu)
@@ -41,6 +41,16 @@ Localhost overrides:
 ```bash
 COMFYUI_LOCALHOST_PORT=8000                 # URL is derived as http://host.docker.internal:8000 at compose-render time
 COMFYUI_LOCAL_MODELS_PATH=~/Documents/ComfyUI/models   # bind-mounted when SOURCE=localhost
+```
+
+Managed Apple-Silicon / Metal (MPS) overrides (`SOURCE=managed-localhost-mps`; see §10):
+
+```bash
+COMFYUI_MPS_LOCALHOST_PORT=8188             # fixed host port; URL is http://host.docker.internal:8188 (named _LOCALHOST_ so the slot allocator leaves it fixed)
+COMFYUI_MPS_REF=v0.27.0                     # pinned upstream ComfyUI git ref the managed host checks out (mirrors COMFYUI_REF)
+COMFYUI_MPS_STATE_DIR=~/.atlas/comfyui-mps  # Atlas-owned host state dir: pinned checkout + venv + pid/log/status files
+COMFYUI_MPS_MODELS_PATH=~/Documents/ComfyUI/models   # existing host models dir reused via extra_model_paths (no duplicate weights)
+COMFYUI_MPS_MIN_MEMORY_GB=16                # unified-memory floor the preflight warns below
 ```
 
 Auto-managed (do not edit manually):
@@ -115,6 +125,10 @@ COMFYUI_SCALE / COMFYUI_INIT_SCALE
 **Generated images don't appear in Supabase.** Confirm `COMFYUI_UPLOAD_TO_SUPABASE=true` and `SUPABASE_SERVICE_KEY` is valid. Upload happens after each successful workflow; failure mode is silent retry (check `docker logs <project>-comfyui` for `[supabase upload] …`).
 
 **Localhost mode (`COMFYUI_SOURCE=localhost`) — containers can't reach host.** Linux Docker needs `host.docker.internal` mapped to the host gateway. The bootstrapper injects `extra_hosts: ["host.docker.internal:host-gateway"]` automatically; if you bypassed it, that's the gap. Kong's compose has the same wiring for the same reason.
+
+**Managed MPS mode (`COMFYUI_SOURCE=managed-localhost-mps`) — `unsupported host` at start.** That source runs a native Metal process and only works on Apple Silicon (macOS/arm64). On Linux/Intel/Windows the preflight fails by design. Run `./start.sh comfyui-mps preflight` to see which check failed; use `container-cpu`/`container-gpu` or unmanaged `localhost` on non-Apple hosts. See §10.
+
+**Managed MPS mode — health shows `device: cpu` or an fp8 model crashes.** MPS requires BF16 weights; `fp8`/`fp8-scaled` variants crash on Metal. `./start.sh comfyui-mps preflight` warns on fp8 catalog picks. If `health` reports `device: cpu`, Torch didn't pick up Metal — reinstall with `./start.sh comfyui-mps install --update`. A freshly started host is *reachable but cold*; the first request loads the model (~9–13 s) — that's not a hang.
 
 **`ws://comfyui:18188/ws` 502s through Kong.** Kong's WebSocket support is wired but consumers using `comfyui.localhost` instead of `comfyui:18188` may hit timeout-related drops. From sibling containers prefer the internal DNS name.
 
@@ -230,5 +244,72 @@ Offline tests validate the immutable artifact metadata, bundle expansion, shared
 
 ```bash
 ATLAS_COMFYUI_LIVE_ENDPOINT=http://localhost:${COMFYUI_PORT} \
+  uv run --project bootstrapper pytest bootstrapper/tests/test_krea2_catalog.py -m live -q
+```
+
+## 10. Managed Apple-Silicon / Metal (MPS) source
+
+`COMFYUI_SOURCE=managed-localhost-mps` is a **managed** host source for Apple Silicon (M-series) Macs. Docker Desktop on macOS cannot pass Metal into a Linux container, so instead of a container Atlas installs and runs a **native ComfyUI process on the host** and points `COMFYUI_ENDPOINT` at it — turning the unmanaged `localhost` mode (where you install, update, and launch ComfyUI yourself) into a provisioned one. Every downstream consumer (backend, Open WebUI, JupyterHub, Celery, consumer manifests) resolves the same `COMFYUI_ENDPOINT` contract, so nothing downstream cares that the source is a host process rather than a container.
+
+**One process per host.** A single ComfyUI instance already saturates the GPU on Apple Silicon; a second instance on the same box is net-negative (GPU contention). The managed source therefore runs exactly one process, keyed by a PID file. Parallelism comes from more machines, not more instances.
+
+### 10.1 What Atlas manages
+
+- **Pinned checkout + venv** — `COMFYUI_MPS_REF` (default `v0.27.0`, mirroring `COMFYUI_REF`) is checked out into `COMFYUI_MPS_STATE_DIR` (default `~/.atlas/comfyui-mps`) with a dedicated venv holding Metal-enabled Torch. Install is **idempotent**: only the first run downloads Torch; later runs reuse the venv and just re-pin the ref.
+- **Host models reuse** — the process reads `COMFYUI_MPS_MODELS_PATH` (default `~/Documents/ComfyUI/models`, shared with `COMFYUI_LOCAL_MODELS_PATH`) through a generated `extra_model_paths.yaml`, so an existing Krea 2 / Flux install is used in place with **no duplicate weights**.
+- **Fixed port + PID/log/status files** — the process listens on `COMFYUI_MPS_LOCALHOST_PORT` (default `8188`, `127.0.0.1` only). `comfyui-mps.pid`, `comfyui-mps.log`, and `status.json` live under the state dir. A start aborts if the port is already taken by an unrelated process.
+
+### 10.2 Lifecycle
+
+A normal `./start.sh` with this source runs preflight → install → start automatically before `docker compose up`, and `./stop.sh` stops the host process (a container `down` never touches it). For explicit control there is a headless CLI:
+
+```bash
+./start.sh comfyui-mps preflight     # read-only host probe (OS/arch, memory, Torch/MPS, per-model precision). No install.
+./start.sh comfyui-mps install       # idempotent pinned checkout + venv + Metal Torch
+./start.sh comfyui-mps install --update   # refresh the checkout + reinstall requirements (upgrade path)
+./start.sh comfyui-mps start         # launch the host process (idempotent — one per host)
+./start.sh comfyui-mps status        # running / pid / installed ref (JSON)
+./start.sh comfyui-mps health        # probe /system_stats: reachability + compute device (mps/cpu)
+./start.sh comfyui-mps stop          # SIGINT then SIGKILL
+./start.sh comfyui-mps remove        # stop + delete the state dir (checkout, venv, logs)
+```
+
+The same preflight also runs as a CI-safe doctor check: `./start.sh doctor` reports a `comfyui-mps` line — `skipped` when the source isn't selected, `fail` with an actionable message on an unsupported host, `pass`/`warn` on Apple Silicon.
+
+### 10.3 Preflight (the narrow MPS probe)
+
+`preflight` is read-only and never launches anything. It checks: **OS** (macOS) and **arch** (arm64) — a hard `fail` elsewhere; **git** + **python3** presence; **unified-memory headroom** against `COMFYUI_MPS_MIN_MEMORY_GB` (`warn` below the floor — large BF16 bundles may OOM); **Torch/MPS availability** (`torch.backends.mps.is_available()`, only after the venv exists); and **per-model precision** — `fp8`/`fp8-scaled` weights crash on MPS and are flagged `warn` with a "use a BF16 variant" hint (BF16 is required; this is the ComfyUI-specific slice of the media preflight).
+
+### 10.4 Cold vs warm, and health
+
+Weights load **lazily on the first request** (~9–13 s slower than a warm request on an M2 Ultra). `health` reports `reachable` and the compute `device` (`mps` when `/system_stats` shows a non-CPU device). A freshly launched process is *reachable but cold*; the first generation warms it. `./start.sh` waits up to 60 s for reachability and prints a warm/cold line — a still-warming host is **not** an error (downstream containers retry), so read first-request latency as model load, not a hang.
+
+### 10.5 Unsupported hosts
+
+On anything that is not macOS/arm64 (Linux CI, Intel Macs, Windows) the preflight `fail`s with an explicit message and `install`/`ensure_running` refuse to proceed — Atlas never claims a Linux container is Metal-capable. Selecting this source on such a host surfaces the error at `./start.sh` time rather than booting a half-configured stack.
+
+### 10.6 Upgrades, rollback, logs, removal
+
+- **Upgrade / rollback** — change `COMFYUI_MPS_REF` in `.env` (a release tag or full commit SHA) and run `./start.sh comfyui-mps install --update && ./start.sh comfyui-mps stop && ./start.sh comfyui-mps start`. The checkout is force-pinned to the ref, so rollback is just setting the older ref and re-installing.
+- **Logs** — `tail -f "${COMFYUI_MPS_STATE_DIR/#\~/$HOME}/comfyui-mps.log"` (default `~/.atlas/comfyui-mps/comfyui-mps.log`), the same file `status`/`start` report.
+- **Removal** — `./start.sh comfyui-mps remove` stops the process and deletes the state dir. Your host models dir (`COMFYUI_MPS_MODELS_PATH`) is **never** touched — it is reused, not owned.
+
+### 10.7 n8n is excluded (unchanged)
+
+n8n does not receive `COMFYUI_ENDPOINT` injection today for **any** ComfyUI source (`n8n-nodes-comfyui` is installed, but users hand-enter `http://comfyui:18188` in workflow credentials — tracked as a "Missing pair integration" in [`services/n8n/README.md`](../n8n/README.md#6-dependencies--integrations)). The managed-MPS source does not change that: it is consumed identically to every other source by the backend, Open WebUI, JupyterHub, and Celery, which **do** receive the endpoint. Wiring n8n is out of scope here and left to that separately-tracked integration.
+
+### 10.8 Verification
+
+Host lifecycle, failure recovery, and the preflight are covered by fully-mocked unit tests (`bootstrapper/tests/test_comfyui_mps_manager.py`) that run on generic Linux CI. Two opt-in Darwin-arm64 `live` checks prove the real path without downloading duplicate weights:
+
+```bash
+# 1. Bring the managed host up (reuses your existing host models dir):
+./start.sh comfyui-mps install && ./start.sh comfyui-mps start
+
+# 2. Prove /system_stats reports MPS:
+uv run --project bootstrapper pytest bootstrapper/tests/test_comfyui_mps_manager.py -m live -q
+
+# 3. Run one Krea 2 Turbo generation against the managed endpoint (reuses the same live smoke as container sources):
+ATLAS_COMFYUI_LIVE_ENDPOINT=http://localhost:8188 \
   uv run --project bootstrapper pytest bootstrapper/tests/test_krea2_catalog.py -m live -q
 ```

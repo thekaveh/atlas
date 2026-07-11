@@ -157,10 +157,37 @@ Examples:
         finally:
             self.docker_manager.project_name_override = previous_project
                 
+    def stop_managed_comfyui_mps(self) -> None:
+        """Stop the Atlas-managed Apple-Silicon/Metal ComfyUI host process (#335).
+
+        The ``managed-localhost-mps`` source runs a native ComfyUI process on the
+        host (not a container), so ``docker compose down`` never touches it — Atlas
+        must tear it down explicitly. A no-op when the source isn't selected or no
+        process is running. Best-effort: never blocks the rest of the stop flow.
+        """
+        try:
+            if not self.config_parser.env_file_exists():
+                return
+            env = self.config_parser.parse_env_file()
+            if str(env.get("COMFYUI_SOURCE", "")).strip() != "managed-localhost-mps":
+                return
+            from services.comfyui_mps_manager import manager_from_env
+
+            manager = manager_from_env(env)
+            if manager.stop():
+                self.banner.show_status_message(
+                    "Stopped the managed Apple-Silicon/Metal ComfyUI host process.",
+                    "info",
+                )
+        except Exception as exc:  # noqa: BLE001 — teardown must never break stop
+            self.banner.show_status_message(
+                f"Could not stop the managed ComfyUI (MPS) host: {exc}", "warning"
+            )
+
     def cleanup_hosts_entries(self) -> bool:
         """Clean up hosts file entries if requested."""
         self.banner.show_section_header("Cleaning Up Hosts File", "🧹")
-        
+
         return self.hosts_manager.cleanup_hosts_entries()
         
     def show_final_status(self, cold_stop: bool, clean_hosts: bool, services_ok: bool = True, hosts_ok: bool = True):
@@ -257,6 +284,10 @@ def main(project_name, cold, clean_hosts, help_usage):
         # cleanup and the final status still run, but exit non-zero at the
         # end — scripts/CI need a truthful exit code for a failed `down`.
         services_ok = stopper.stop_services(cold, project_name)
+
+        # Step 2b: Stop the Atlas-managed Apple-Silicon/Metal ComfyUI host
+        # process (#335) — a native host process compose `down` never touches.
+        stopper.stop_managed_comfyui_mps()
 
         # Step 3: Clean up hosts entries if requested
         hosts_ok = True

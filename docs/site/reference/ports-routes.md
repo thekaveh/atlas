@@ -12,7 +12,7 @@ Generated summary of model-backed service port variables and Kong aliases. Use t
 | blender-mcp | media | `BLENDER_MCP_LOCALHOST_PORT` | `-` | [Deployment route reference](../../deployment/ports-and-routes.md#2-kong-hostnames) |
 | celery | agents | `FLOWER_PORT` | `flower.localhost` | [Deployment route reference](../../deployment/ports-and-routes.md#2-kong-hostnames) |
 | chatterbox | media | `CHATTERBOX_PORT`, `CHATTERBOX_LOCALHOST_PORT` | `-` | [Deployment route reference](../../deployment/ports-and-routes.md#2-kong-hostnames) |
-| comfyui | media | `COMFYUI_PORT`, `COMFYUI_LOCALHOST_PORT` | `comfyui.localhost` | [Deployment route reference](../../deployment/ports-and-routes.md#2-kong-hostnames) |
+| comfyui | media | `COMFYUI_PORT`, `COMFYUI_LOCALHOST_PORT`, `COMFYUI_MPS_LOCALHOST_PORT` | `comfyui.localhost` | [Deployment route reference](../../deployment/ports-and-routes.md#2-kong-hostnames) |
 | crawl4ai | media | `CRAWL4AI_PORT` | `crawl4ai.localhost` | [Deployment route reference](../../deployment/ports-and-routes.md#2-kong-hostnames) |
 | docling | media | `DOC_PROCESSOR_PORT`, `DOCLING_LOCALHOST_PORT` | `docling.localhost` | [Deployment route reference](../../deployment/ports-and-routes.md#2-kong-hostnames) |
 | globals | infra | `BASE_PORT` | `-` | [Deployment route reference](../../deployment/ports-and-routes.md#2-kong-hostnames) |

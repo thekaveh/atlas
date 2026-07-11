@@ -13,7 +13,7 @@
 | chatterbox | media | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | - | - | tts-provider |
 | cloud-providers | llm | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | CLOUD_OPENAI_SOURCE, CLOUD_ANTHROPIC_SOURCE, CLOUD_OPENROUTER_SOURCE | enabled, disabled | litellm |
 | cloudflared | infra | all | CLOUDFLARED_SOURCE | container, disabled | kong |
-| comfyui | media | all, gen-ai-creative, gen-ai-eng | COMFYUI_SOURCE | container-cpu, container-gpu, localhost, disabled | supabase, litellm, ollama |
+| comfyui | media | all, gen-ai-creative, gen-ai-eng | COMFYUI_SOURCE | container-cpu, container-gpu, localhost, managed-localhost-mps, disabled | supabase, litellm, ollama |
 | crawl4ai | media | all, gen-ai-rag | CRAWL4AI_SOURCE | container, disabled | - |
 | doc-processor | aggregate | all, gen-ai-creative, gen-ai-rag | - | - | - |
 | docling | media | all | DOC_PROCESSOR_SOURCE | disabled, docling-localhost, docling-container-gpu | - |
@@ -138,7 +138,7 @@
 | CLOUD_ANTHROPIC_SOURCE | cloud-providers | disabled | enabled, disabled |
 | CLOUD_OPENROUTER_SOURCE | cloud-providers | disabled | enabled, disabled |
 | CLOUDFLARED_SOURCE | cloudflared | disabled | container, disabled |
-| COMFYUI_SOURCE | comfyui | container-cpu | container-cpu, container-gpu, localhost, disabled |
+| COMFYUI_SOURCE | comfyui | container-cpu | container-cpu, container-gpu, localhost, managed-localhost-mps, disabled |
 | CRAWL4AI_SOURCE | crawl4ai | disabled | container, disabled |
 | DOC_PROCESSOR_SOURCE | docling | disabled | disabled, docling-localhost, docling-container-gpu |
 | FAL_SOURCE | fal | disabled | enabled, disabled |
@@ -290,3 +290,31 @@ Model weights use the [Krea 2 Community License](https://huggingface.co/krea/Kre
 The 1024-square generation check is an opt-in `live` pytest and is not part of generic CI.
 
 Container sources default `COMFYUI_MEMORY_LIMIT` to a 40 GB hard ceiling. Docker does not reserve that memory; smaller workloads consume only what they need, while Krea 2 can exceed the former 4 GB limit.
+
+## 6. Managed Apple-Silicon / Metal (MPS) Source
+
+`COMFYUI_SOURCE=managed-localhost-mps` is a managed host source for Apple Silicon Macs. Docker Desktop on macOS cannot pass Metal into a Linux container, so Atlas installs and runs a native ComfyUI process on the host and points `COMFYUI_ENDPOINT` at it. Every downstream consumer — backend, Open WebUI, JupyterHub, and Celery — resolves the identical `COMFYUI_ENDPOINT` contract, so nothing downstream depends on whether the source is a container or a host process. One process runs per host: a single instance already saturates the Apple Silicon GPU, and a second is net-negative.
+
+### 6.1 What Atlas Manages
+
+Atlas checks out a pinned ComfyUI ref (`COMFYUI_MPS_REF`, default `v0.27.0`) into an Atlas-owned state directory (`COMFYUI_MPS_STATE_DIR`, default `~/.atlas/comfyui-mps`) with a dedicated venv holding Metal-enabled Torch. Install is idempotent — only the first run downloads Torch. The process reuses the existing host models directory (`COMFYUI_MPS_MODELS_PATH`, default `~/Documents/ComfyUI/models`) through a generated `extra_model_paths.yaml`, so weights are never duplicated. It listens on a fixed loopback port (`COMFYUI_MPS_LOCALHOST_PORT`, default `8188`) with PID, log, and status files under the state directory, and refuses to start if the port is already taken.
+
+### 6.2 Lifecycle And Preflight
+
+A normal `./start.sh` with this source runs preflight, install, and start automatically before Compose; `./stop.sh` stops the host process. Explicit control is available headless:
+
+```bash
+./start.sh comfyui-mps preflight
+./start.sh comfyui-mps install [--update]
+./start.sh comfyui-mps start
+./start.sh comfyui-mps status
+./start.sh comfyui-mps health
+./start.sh comfyui-mps stop
+./start.sh comfyui-mps remove
+```
+
+The read-only preflight checks OS (macOS) and arch (arm64) — a hard fail elsewhere — plus git/python3 presence, unified-memory headroom against `COMFYUI_MPS_MIN_MEMORY_GB` (default `16`), Torch/MPS availability once the venv exists, and per-model precision: `fp8`/`fp8-scaled` weights crash on MPS and warn with a "use a BF16 variant" hint. The same preflight runs as a CI-safe `comfyui-mps` doctor check.
+
+### 6.3 Cold/Warm Health, Unsupported Hosts, Upgrades, Logs, Removal
+
+Weights load lazily on the first request, so a freshly launched process is reachable but cold; `health` reports reachability and the compute device (`mps` when `/system_stats` shows a non-CPU device). On non-Apple hosts (Linux, Intel Macs, Windows) the preflight fails with an explicit unsupported-host message and install refuses — Atlas never claims a Linux container is Metal-capable. Upgrade or roll back by setting `COMFYUI_MPS_REF` and running `comfyui-mps install --update` then `stop`/`start`. Logs are at `${COMFYUI_MPS_STATE_DIR}/comfyui-mps.log`. `comfyui-mps remove` stops the process and deletes the state directory while leaving the reused host models directory untouched. n8n receives no `COMFYUI_ENDPOINT` injection for any ComfyUI source and is documented as excluded here; the managed source is consumed identically to every other source by the consumers that do receive the endpoint.
