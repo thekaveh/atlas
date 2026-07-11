@@ -1664,6 +1664,30 @@ class AtlasStarter:
                 "warning",
             )
 
+    def _derive_plugin_route_auth(self) -> list:
+        """Derive per-prefix Kong auth overrides from plugin.yml manifests (#402).
+
+        Returns an ordered list of (route_prefix, mode) for non-inherit auth.
+        A malformed/conflicting *plugin* manifest is handled inside
+        ``discover_plugin_manifests`` (collected as an error, its plugin dropped)
+        and never raises — the consumer doctor surfaces those. This deliberately
+        does NOT swallow other exceptions: an Atlas-internal failure (missing
+        schema, import error) must **fail closed** through the caller's handler,
+        which aborts Kong generation with a visible message, rather than silently
+        downgrading a ``key-auth`` prefix to the (possibly open) default
+        (#402 review M2).
+        """
+        from core.plugin_manifest import (
+            derive_route_auth,
+            discover_plugin_manifests,
+        )
+
+        plugin_dirs = _resolve_plugin_dirs(self)
+        if not plugin_dirs:
+            return []
+        discovery = discover_plugin_manifests(plugin_dirs)
+        return derive_route_auth(discovery.manifests)
+
     def generate_kong_configuration(self) -> bool:
         """Generate dynamic Kong configuration based on SOURCE values."""
         try:
@@ -1673,6 +1697,11 @@ class AtlasStarter:
             generator.overridden_services = getattr(
                 self, "active_track_overrides", frozenset()
             )
+            # Per-plugin Kong auth (#402): read plugin.yml manifests from the
+            # resolved plugin dirs and derive the (route_prefix, mode) overrides
+            # so key-auth/open can be expressed per prefix. Empty for base Atlas
+            # (no plugins) → the backend route is emitted exactly as before.
+            generator.plugin_route_auth = self._derive_plugin_route_auth()
             # Pre-flight: same root-owned-from-prior-container guard as
             # the litellm bind-mount uses (kong-api-gateway also writes
             # nothing into volumes/api but the bootstrapper drops the
@@ -2615,6 +2644,29 @@ def _doctor_check_overlay_env(starter: "AtlasStarter") -> dict:
     )
 
 
+def _resolve_plugin_dirs(starter: "AtlasStarter", env_values: dict | None = None) -> list[Path]:
+    """Resolve BACKEND_PLUGINS_DIR to existing host directories.
+
+    Relative parts resolve from the bootstrapper root (matching how the compose
+    mount is authored). Nonexistent parts are skipped — this is a best-effort
+    host-side view used by the doctor and the Kong plugin-auth derivation.
+    """
+    if env_values is None:
+        env_values = starter.config_parser.parse_env_file()
+    raw_path = env_values.get("BACKEND_PLUGINS_DIR", "").strip()
+    dirs: list[Path] = []
+    for raw_part in raw_path.split(os.pathsep):
+        raw_part = raw_part.strip()
+        if not raw_part:
+            continue
+        plugins_dir = Path(raw_part).expanduser()
+        if not plugins_dir.is_absolute():
+            plugins_dir = starter.config_parser.root_dir / plugins_dir
+        if plugins_dir.exists():
+            dirs.append(plugins_dir)
+    return dirs
+
+
 def _doctor_check_plugins(starter: "AtlasStarter") -> dict:
     env_values = starter.config_parser.parse_env_file()
     raw_path = env_values.get("BACKEND_PLUGINS_DIR", "").strip()
@@ -2673,6 +2725,54 @@ def _doctor_check_plugins(starter: "AtlasStarter") -> dict:
             "requirement_files": requirement_files,
             "requirement_entries": requirement_entries,
         },
+    )
+
+
+def _doctor_check_plugin_manifests(starter: "AtlasStarter") -> dict:
+    """Validate optional plugin.yml manifests + their declared env (#402).
+
+    Reports malformed manifests and env problems (required-missing, type/enum
+    mismatch) as warnings naming the plugin and var, so a bad manifest surfaces
+    as a startup diagnostic rather than a runtime 500. Secret values are never
+    echoed. Manifest-less plugins are ignored here (the plugins check covers the
+    directory itself).
+    """
+    from core.plugin_manifest import (
+        discover_plugin_manifests,
+        validate_plugin_env,
+    )
+
+    env_values = starter.config_parser.parse_env_file()
+    plugin_dirs = _resolve_plugin_dirs(starter, env_values)
+    if not plugin_dirs:
+        return _doctor_result(
+            "plugin-manifests",
+            "pass",
+            "No plugin directories to scan for manifests.",
+        )
+    discovery = discover_plugin_manifests(plugin_dirs)
+    warnings: list[str] = list(discovery.errors)
+    for manifest in discovery.manifests:
+        warnings.extend(validate_plugin_env(manifest, env_values))
+    names = [m.name for m in discovery.manifests]
+    if warnings:
+        return _doctor_result(
+            "plugin-manifests",
+            "warn",
+            warnings[0],
+            details={"warnings": warnings, "plugins": names},
+        )
+    if not names:
+        return _doctor_result(
+            "plugin-manifests",
+            "pass",
+            "No plugin.yml manifests found.",
+        )
+    return _doctor_result(
+        "plugin-manifests",
+        "pass",
+        f"{len(names)} plugin manifest(s) valid: {', '.join(names)}.",
+        details={"plugins": names},
     )
 
 
@@ -2796,6 +2896,7 @@ DOCTOR_CHECKS = [
     _doctor_check_compose,
     _doctor_check_overlay_env,
     _doctor_check_plugins,
+    _doctor_check_plugin_manifests,
     _doctor_check_model_sidecars,
     _doctor_check_endpoints,
     _doctor_check_submodule_clean,

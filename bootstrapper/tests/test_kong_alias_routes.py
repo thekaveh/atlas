@@ -142,6 +142,120 @@ def test_backend_kong_auth_key_auth_requires_generated_key():
         _generate("BACKEND_KONG_AUTH=key-auth\nBACKEND_KONG_API_KEY=\n")
 
 
+# ── per-plugin route-level auth composition (#402) ──────────────────────────
+
+def _generate_with_plugin_auth(env_body: str, plugin_route_auth: list) -> dict:
+    """Like _generate, but injects the per-plugin (prefix, mode) overrides the
+    bootstrapper derives from plugin.yml manifests."""
+    from core.config_parser import ConfigParser
+    from utils.kong_config_generator import KongConfigGenerator
+
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    cp = ConfigParser(str(repo_root))
+    g = KongConfigGenerator(cp)
+    g.plugin_route_auth = list(plugin_route_auth)
+    overrides: dict[str, str] = {}
+    for line in env_body.splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            k, _, v = line.partition("=")
+            overrides[k.strip()] = v.strip()
+
+    def _stub_load():
+        g.env_vars = cp.parse_env_file()
+        g.env_vars.update(overrides)
+
+    g.load_environment_variables = _stub_load  # type: ignore[method-assign]
+    return g.generate_kong_config()
+
+
+def _plugin_names(node: dict) -> list[str]:
+    return [p["name"] for p in node.get("plugins", [])]
+
+
+def test_backend_route_auth_empty_is_historical_single_route():
+    """No overrides → byte-identical to the pre-#402 shape (regression guard)."""
+    config = _generate_with_plugin_auth("", [])
+    backend = _service(config, "backend-api")
+    assert backend["plugins"] == [{"name": "cors"}]
+    assert backend["routes"] == [
+        {"name": "backend-api-all", "strip_path": False, "hosts": ["api.localhost"]}
+    ]
+
+
+def test_backend_route_auth_open_prefix_opts_out_of_key_auth_default():
+    """Base key-auth + an `open` prefix: the open route carries NO key-auth
+    plugin (credential isolation), the catch-all keeps key-auth."""
+    config = _generate_with_plugin_auth(
+        "BACKEND_KONG_AUTH=key-auth\nBACKEND_KONG_API_KEY=sk-backend-test\n",
+        [("/public", "open")],
+    )
+    backend = _service(config, "backend-api")
+    # cors stays at the service level; auth composes per route.
+    assert backend["plugins"] == [{"name": "cors"}]
+    routes = {r["name"]: r for r in backend["routes"]}
+    assert _plugin_names(routes["backend-api-public"]) == []          # open → no auth
+    assert routes["backend-api-public"]["paths"] == ["/public"]
+    assert _plugin_names(routes["backend-api-all"]) == ["key-auth", "acl"]
+    # consumer still materialized (base is key-auth)
+    assert any(c["username"] == "backend_api_user" for c in config["consumers"])
+
+
+def test_backend_route_auth_key_auth_prefix_on_open_default():
+    """Base disabled + a `key-auth` prefix: only that prefix requires the key;
+    the catch-all is open. Consumer/credential materialized for the prefix."""
+    config = _generate_with_plugin_auth(
+        "BACKEND_KONG_AUTH=disabled\nBACKEND_KONG_API_KEY=sk-backend-test\n",
+        [("/tableau", "key-auth")],
+    )
+    backend = _service(config, "backend-api")
+    routes = {r["name"]: r for r in backend["routes"]}
+    assert _plugin_names(routes["backend-api-tableau"]) == ["key-auth", "acl"]
+    assert routes["backend-api-tableau"]["paths"] == ["/tableau"]
+    assert _plugin_names(routes["backend-api-all"]) == []            # open catch-all
+    consumers = [c for c in config["consumers"] if c["username"] == "backend_api_user"]
+    assert consumers and consumers[0]["keyauth_credentials"] == [{"key": "sk-backend-test"}]
+
+
+def test_backend_route_auth_key_auth_prefix_requires_key():
+    import pytest
+
+    with pytest.raises(ValueError, match="BACKEND_KONG_API_KEY"):
+        _generate_with_plugin_auth(
+            "BACKEND_KONG_AUTH=disabled\nBACKEND_KONG_API_KEY=\n",
+            [("/tableau", "key-auth")],
+        )
+
+
+def test_backend_route_auth_multiple_prefixes_catchall_last():
+    """Specific prefix routes are declared before the host-only catch-all so a
+    longer path wins; each prefix keeps its own auth stack."""
+    config = _generate_with_plugin_auth(
+        "BACKEND_KONG_AUTH=key-auth\nBACKEND_KONG_API_KEY=sk-backend-test\n",
+        [("/tableau", "key-auth"), ("/public", "open")],
+    )
+    backend = _service(config, "backend-api")
+    route_names = [r["name"] for r in backend["routes"]]
+    assert route_names == ["backend-api-tableau", "backend-api-public", "backend-api-all"]
+    assert route_names[-1] == "backend-api-all"  # catch-all last
+    routes = {r["name"]: r for r in backend["routes"]}
+    assert _plugin_names(routes["backend-api-tableau"]) == ["key-auth", "acl"]
+    assert _plugin_names(routes["backend-api-public"]) == []
+
+
+def test_backend_route_auth_slug_collision_deduped():
+    """Distinct prefixes that slugify to the same name (`/a/b` and `/a-b`) must
+    still yield UNIQUE Kong route names, else the whole declarative config is
+    rejected and the gateway fails to load (review H1)."""
+    config = _generate_with_plugin_auth(
+        "BACKEND_KONG_AUTH=disabled\nBACKEND_KONG_API_KEY=sk-backend-test\n",
+        [("/a/b", "open"), ("/a-b", "key-auth")],
+    )
+    backend = _service(config, "backend-api")
+    names = [r["name"] for r in backend["routes"]]
+    assert len(names) == len(set(names)), f"duplicate route names: {names}"
+
+
 def test_alias_only_services_route_to_expected_containers():
     """Container-mode sources produce a Kong route per alias, pointing
     at the right internal container URL."""
