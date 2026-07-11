@@ -11,6 +11,8 @@
 ./start.sh doctor
 ./start.sh doctor --format json
 ./start.sh --consumer ./atlas.consumer.yml doctor --format json
+./start.sh endpoints export --format env
+./start.sh endpoints export --format json
 ./start.sh --no-tui --detach
 ./start.sh --no-tui --detach --json
 ./stop.sh
@@ -48,7 +50,19 @@ tracked-file cleanliness. Docker-dependent checks are marked skipped when Docker
 is unavailable; Docker-free checks still run. Use `--format json` for CI
 parsing. Any failed check exits non-zero.
 
-## 5. Launch Flow
+## 5. Endpoint Contract Export
+
+Use `./start.sh endpoints export --format env|json` to emit a stable,
+machine-readable consumer endpoint contract: canonical, distinct
+container/host/Kong/public endpoints and active SOURCE modes per
+consumer-relevant service, plus every per-consumer `ATLAS_STORE_*` storage
+field. The field names are a compatibility contract. Output is secret-free by
+default (infra secrets are `${VAR}` references); `--with-secrets` resolves only
+consumer-scoped credentials and refuses stdout (requires `--output PATH`).
+Output is deterministic and byte-stable. See
+[reusing-atlas.md §6.5](https://github.com/thekaveh/atlas/blob/main/docs/deployment/reusing-atlas.md).
+
+## 6. Launch Flow
 
 The Textual UI handles the wizard, service summary, launch confirmation, and streamed Compose logs. Non-TTY shells use the linear fallback.
 

@@ -3996,5 +3996,67 @@ def doctor_command(output_format: str) -> None:
         raise click.exceptions.Exit(1)
 
 
+@main.group("endpoints")
+def endpoints_group() -> None:
+    """Consumer endpoint export commands (stable machine-readable contract)."""
+
+
+@endpoints_group.command("export")
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["env", "json"], case_sensitive=False),
+    default="env",
+    show_default=True,
+    help="Output format for consumers.",
+)
+@click.option(
+    "--with-secrets",
+    is_flag=True,
+    help="Resolve consumer-scoped credentials (storage keys). Requires --output; "
+    "refused to stdout. Never resolves infra secrets (e.g. the Redis password).",
+)
+@click.option(
+    "--output",
+    "output_path",
+    type=str,
+    default=None,
+    help="Write to PATH instead of stdout (required with --with-secrets).",
+)
+def endpoints_export_command(
+    output_format: str, with_secrets: bool, output_path: str | None
+) -> None:
+    """Export the stable consumer endpoint contract as env or JSON.
+
+    Emits canonical, distinct container/host/Kong/public endpoints and active
+    SOURCE modes per consumer-relevant service, plus per-consumer storage
+    fields. Secrets are ``${VAR}`` references unless ``--with-secrets`` (which
+    resolves only consumer-scoped credentials and refuses stdout). Deterministic
+    and byte-stable for the same inputs.
+    """
+    from core.endpoints_contract import build_export, render_env, render_json
+
+    if with_secrets and not output_path:
+        click.echo(
+            "Refusing to write secrets to stdout; pass --output PATH with "
+            "--with-secrets.",
+            err=True,
+        )
+        raise click.exceptions.Exit(2)
+
+    starter = AtlasStarter()
+    env = starter.config_parser.parse_env_file()
+    fields = build_export(env, with_secrets=with_secrets)
+    text = render_json(fields) if output_format.lower() == "json" else render_env(fields)
+
+    if output_path:
+        out = Path(output_path).expanduser()
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(text, encoding="utf-8")
+        click.echo(f"Wrote {len(fields)} endpoint field(s) to {out}")
+    else:
+        click.echo(text, nl=False)
+
+
 if __name__ == "__main__":
     main()
