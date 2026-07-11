@@ -54,3 +54,26 @@ Use `./start.sh` to configure this service through the wizard or pass the matchi
 
 - Source README: [services/litellm/README.md](https://github.com/thekaveh/atlas/blob/main/services/litellm/README.md)
 - Public docs home: [https://thekaveh.github.io/atlas/](https://thekaveh.github.io/atlas/)
+
+## 12. Model Capability Contract
+
+Atlas catalog entries can carry `metadata_version: 1` metadata so adapter selection and downstream model assignment do not depend on model-name guesses. The contract is provider-neutral and travels with each typed catalog entry through resolution into LiteLLM `model_info`.
+
+### 12.1 Fields
+
+| Field | Purpose |
+|---|---|
+| `kind` | Distinguishes `chat` from `embedding` models. |
+| `adapter` | Selects the LiteLLM provider adapter, including `ollama_chat` and `ollama`. |
+| `capabilities` | Declares chat, embedding, tools, vision, reasoning, and structured-output support. |
+| `request_defaults` | Applies model-specific defaults such as `think: false`; defaults are never imposed on every chat model. |
+| `recommended_roles` | Recommends consumer roles: `extract`, `keyword`, `query`, `judge`, `embedding`, and `vision`. |
+| `dim` | Records the output dimension required for embedding compatibility checks. |
+
+### 12.2 Resolution And Compatibility
+
+Curated metadata is authoritative. Metadata-free custom or live-discovered models remain compatible through a conservative, visibly warned fallback heuristic. Embedding entries require `dim`, cannot carry chat request defaults, and are emitted with LiteLLM `mode: embedding` plus `output_vector_size`.
+
+LightRAG and other consumers can inspect the namespaced `atlas_model_metadata` block to map models to roles such as `extract` and `query` without hard-coding a provider, model family, or hardware assumption.
+
+Retrieve the detailed records from authenticated `GET /v1/model/info`; the compatibility-oriented `GET /v1/models` response does not expose the complete `model_info` payload. Select a role deterministically by filtering for `inferred: false`, the required `kind` or capability, and a matching `recommended_roles` value. Apply an explicit operator preference when configured. Otherwise use lexical `(provider, catalog_name, model_name)` order as a provider-neutral fallback. For Ollama's dual aliases, deduplicate rows by `(provider, catalog_name)` and retain the operator's preferred alias.

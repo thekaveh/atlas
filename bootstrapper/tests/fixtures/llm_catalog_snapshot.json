@@ -245,5 +245,17 @@
     "capabilities": [
       "embeddings"
     ]
+  },
+  {
+    "provider": "ollama",
+    "name": "bge-m3",
+    "description": "BAAI multilingual embedding model \u2014 dense, sparse, and multi-vector retrieval",
+    "badges": [
+      "embeddings"
+    ],
+    "default_active": false,
+    "capabilities": [
+      "embeddings"
+    ]
   }
 ]

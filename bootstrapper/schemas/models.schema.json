@@ -6,15 +6,18 @@
     {
       "title": "Flat-sections format (Ollama)",
       "description": "Top-level keys are section names (content, embeddings, vision), each an array of model entries.",
-      "$ref": "#/definitions/sectionMap"
+      "$ref": "#/definitions/ollamaSectionMap"
     },
     {
       "title": "Provider-keyed format (LiteLLM / cloud)",
       "description": "Top-level keys are provider names; each value is a section map.",
       "type": "object",
-      "additionalProperties": {
-        "$ref": "#/definitions/sectionMap"
+      "properties": {
+        "openai": {"$ref": "#/definitions/openaiSectionMap"},
+        "anthropic": {"$ref": "#/definitions/anthropicSectionMap"},
+        "openrouter": {"$ref": "#/definitions/openrouterSectionMap"}
       },
+      "additionalProperties": {"$ref": "#/definitions/sectionMap"},
       "minProperties": 1
     }
   ],
@@ -22,29 +25,169 @@
     "sectionMap": {
       "type": "object",
       "properties": {
-        "content":    {"$ref": "#/definitions/entryList"},
-        "embeddings": {"$ref": "#/definitions/entryList"},
-        "vision":     {"$ref": "#/definitions/entryList"}
+        "content": {"$ref": "#/definitions/contentEntryList"},
+        "embeddings": {"$ref": "#/definitions/embeddingEntryList"},
+        "vision": {"$ref": "#/definitions/visionEntryList"}
       },
       "additionalProperties": false,
       "minProperties": 1
     },
-    "entryList": {
+    "ollamaSectionMap": {
+      "allOf": [
+        {"$ref": "#/definitions/sectionMap"},
+        {
+          "properties": {
+            "content": {"items": {"$ref": "#/definitions/ollamaChatAdapter"}},
+            "embeddings": {"items": {"$ref": "#/definitions/ollamaEmbeddingAdapter"}},
+            "vision": {"items": {"$ref": "#/definitions/ollamaChatAdapter"}}
+          }
+        }
+      ]
+    },
+    "openaiSectionMap": {
+      "allOf": [
+        {"$ref": "#/definitions/sectionMap"},
+        {"properties": {
+          "content": {"items": {"$ref": "#/definitions/openaiAdapter"}},
+          "embeddings": {"items": {"$ref": "#/definitions/openaiAdapter"}},
+          "vision": {"items": {"$ref": "#/definitions/openaiAdapter"}}
+        }}
+      ]
+    },
+    "anthropicSectionMap": {
+      "allOf": [
+        {"$ref": "#/definitions/sectionMap"},
+        {"properties": {
+          "content": {"items": {"$ref": "#/definitions/anthropicAdapter"}},
+          "embeddings": {"items": {"$ref": "#/definitions/anthropicAdapter"}},
+          "vision": {"items": {"$ref": "#/definitions/anthropicAdapter"}}
+        }}
+      ]
+    },
+    "openrouterSectionMap": {
+      "allOf": [
+        {"$ref": "#/definitions/sectionMap"},
+        {"properties": {
+          "content": {"items": {"$ref": "#/definitions/openrouterAdapter"}},
+          "embeddings": {"items": {"$ref": "#/definitions/openrouterAdapter"}},
+          "vision": {"items": {"$ref": "#/definitions/openrouterAdapter"}}
+        }}
+      ]
+    },
+    "contentEntryList": {
       "type": "array",
-      "items": {"$ref": "#/definitions/entry"},
+      "items": {
+        "allOf": [
+          {"$ref": "#/definitions/entry"},
+          {"$ref": "#/definitions/chatSectionSemantics"}
+        ]
+      },
       "minItems": 1
     },
+    "embeddingEntryList": {
+      "type": "array",
+      "items": {
+        "allOf": [
+          {"$ref": "#/definitions/entry"},
+          {"$ref": "#/definitions/embeddingSectionSemantics"}
+        ]
+      },
+      "minItems": 1
+    },
+    "visionEntryList": {
+      "type": "array",
+      "items": {
+        "allOf": [
+          {"$ref": "#/definitions/entry"},
+          {"$ref": "#/definitions/chatSectionSemantics"}
+        ]
+      },
+      "minItems": 1
+    },
+    "chatSectionSemantics": {
+      "properties": {
+        "kind": {"const": "chat"},
+        "capabilities": {
+          "properties": {
+            "chat": {"const": true},
+            "embedding": {"const": false}
+          }
+        }
+      }
+    },
+    "embeddingSectionSemantics": {
+      "properties": {
+        "kind": {"const": "embedding"},
+        "capabilities": {
+          "properties": {
+            "chat": {"const": false},
+            "embedding": {"const": true}
+          }
+        },
+        "request_defaults": {"type": "object", "maxProperties": 0}
+      },
+      "allOf": [
+        {
+          "if": {"required": ["metadata_version"]},
+          "then": {"required": ["dim"]}
+        }
+      ]
+    },
+    "ollamaChatAdapter": {"properties": {"adapter": {"const": "ollama_chat"}}},
+    "ollamaEmbeddingAdapter": {"properties": {"adapter": {"const": "ollama"}}},
+    "openaiAdapter": {"properties": {"adapter": {"const": "openai"}}},
+    "anthropicAdapter": {"properties": {"adapter": {"const": "anthropic"}}},
+    "openrouterAdapter": {"properties": {"adapter": {"const": "openrouter"}}},
     "entry": {
       "type": "object",
       "required": ["name"],
       "properties": {
-        "name":         {"type": "string", "minLength": 1},
-        "default":      {"type": "boolean"},
-        "description":  {"type": "string"},
-        "badges":       {"type": "array", "items": {"type": "string"}},
-        "dim":          {"type": "integer", "minimum": 1, "description": "Embedding output vector dimension; matched against the consumer's required dimension (backend memory_facts vector(768))."}
+        "name": {"type": "string", "minLength": 1},
+        "default": {"type": "boolean"},
+        "description": {"type": "string"},
+        "badges": {"type": "array", "items": {"type": "string"}},
+        "dim": {"type": "integer", "minimum": 1, "description": "Embedding output vector dimension; matched against the consumer's required dimension (backend memory_facts vector(768))."},
+        "metadata_version": {"const": 1},
+        "kind": {"enum": ["chat", "embedding"]},
+        "adapter": {"enum": ["ollama", "ollama_chat", "openai", "anthropic", "openrouter"]},
+        "capabilities": {
+          "type": "object",
+          "properties": {
+            "chat": {"type": "boolean"},
+            "embedding": {"type": "boolean"},
+            "tools": {"type": "boolean"},
+            "vision": {"type": "boolean"},
+            "reasoning": {"type": "boolean"},
+            "structured_output": {"type": "boolean"}
+          },
+          "additionalProperties": false
+        },
+        "request_defaults": {
+          "type": "object",
+          "properties": {"think": {"type": "boolean"}},
+          "additionalProperties": false
+        },
+        "recommended_roles": {
+          "type": "array",
+          "items": {"enum": ["extract", "keyword", "query", "judge", "embedding", "vision"]},
+          "uniqueItems": true
+        }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "anyOf": [
+              {"required": ["kind"]},
+              {"required": ["adapter"]},
+              {"required": ["capabilities"]},
+              {"required": ["request_defaults"]},
+              {"required": ["recommended_roles"]}
+            ]
+          },
+          "then": {"required": ["metadata_version"]}
+        }
+      ]
     }
   }
 }
