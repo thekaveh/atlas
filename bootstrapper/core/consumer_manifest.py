@@ -1190,8 +1190,20 @@ def _load_and_check_workflow_json(
         if not isinstance(node, Mapping):
             continue
         creds = node.get("credentials")
-        if not isinstance(creds, Mapping):
+        if creds is None:
             continue
+        # A real n8n export always emits ``credentials`` as a type-keyed mapping
+        # ({cred_type: {id, name}}). A non-mapping CONTAINER (a list/string/number)
+        # is a hand-crafted attempt to smuggle secret material in a shape the
+        # per-type loop below would never inspect — reject it outright rather than
+        # skip it (skipping is exactly the fail-open hole that let a list/string
+        # credential value reach the seeded file).
+        if not isinstance(creds, Mapping):
+            raise ConsumerManifestError(
+                f"n8n_workflows[{workflow_id!r}] node credentials must be a mapping of "
+                f"{{credential_type: {{id, name}}}}, not a {type(creds).__name__}; "
+                f"never embed secrets ({origin})"
+            )
         for cred_type, cred_ref in creds.items():
             # A credential reference MUST be a mapping of exactly {id, name}. A
             # non-mapping value (string/list/number) is a raw inline secret; a

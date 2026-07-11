@@ -146,15 +146,32 @@ async function main() {
   // Reconcile removed workflows (Atlas owns the atlas-consumer-* id namespace).
   if (KEY) {
     const declared = new Set(workflows.map((w) => w.seed_id));
-    const list = await request('GET', '/api/v1/workflows?limit=250', { headers: authHeaders() });
-    if (ok(list.status)) {
-      let data = [];
-      try {
-        data = JSON.parse(list.body).data || [];
-      } catch (e) {
-        data = [];
+    // The n8n public API caps limit at 250 and paginates the rest via
+    // nextCursor. Follow every page — a partial (first-page-only) list would
+    // silently miss orphans on instances with >250 total workflows.
+    const all = [];
+    let cursor = '';
+    let listOk = true;
+    for (let guard = 0; guard < 1000; guard++) {
+      const q = '/api/v1/workflows?limit=250' + (cursor ? '&cursor=' + encodeURIComponent(cursor) : '');
+      const page = await request('GET', q, { headers: authHeaders() });
+      if (!ok(page.status)) {
+        log(`WARN - could not list workflows for reconcile (HTTP ${page.status || 'none'}); orphans not cleaned this run`);
+        listOk = false;
+        break;
       }
-      for (const w of data) {
+      let body = {};
+      try {
+        body = JSON.parse(page.body) || {};
+      } catch (e) {
+        body = {};
+      }
+      for (const w of body.data || []) all.push(w);
+      cursor = body.nextCursor || '';
+      if (!cursor) break;
+    }
+    if (listOk) {
+      for (const w of all) {
         if (typeof w.id === 'string' && w.id.startsWith(namespace) && !declared.has(w.id)) {
           await request('POST', `/api/v1/workflows/${encodeURIComponent(w.id)}/deactivate`, {
             headers: authHeaders(),
@@ -165,8 +182,6 @@ async function main() {
           log(`✓ reconciled: removed orphaned workflow '${w.id}' (HTTP ${d.status || 'none'})`);
         }
       }
-    } else {
-      log(`WARN - could not list workflows for reconcile (HTTP ${list.status || 'none'}); orphans not cleaned this run`);
     }
   } else {
     log('note: N8N_API_KEY unset — cannot reconcile removed workflows; orphaned atlas-consumer-* workflows persist until a key is set');

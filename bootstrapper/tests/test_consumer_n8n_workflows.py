@@ -529,6 +529,31 @@ def test_inline_string_credential_reference_rejected(tmp_path: Path) -> None:
         load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
 
 
+@pytest.mark.parametrize(
+    "creds",
+    [
+        [{"data": {"token": "SUPERSECRET-list"}}],  # list container
+        "ENCRYPTED-BLOB",                            # string container
+    ],
+    ids=["list", "string"],
+)
+def test_non_mapping_credentials_container_rejected(tmp_path: Path, creds) -> None:
+    # Regression: a node whose whole ``credentials`` field is a NON-mapping
+    # container (list/string) must be rejected — the old guard skipped it,
+    # letting the embedded secret flow verbatim into the seeded file.
+    _write_root(tmp_path)
+    leaky = _workflow_json(nodes=[{"name": "n1", "credentials": creds}])
+    manifest = _write_consumer(
+        tmp_path, "smuggle",
+        "n8n_workflows:\n  version: 1\n  workflows:\n    - id: wf\n      path: ./wf.json\n",
+        {"wf.json": leaky},
+    )
+    with pytest.raises(ConsumerManifestError, match="node credentials must be a mapping"):
+        load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
+    # And no artifact carrying the secret was produced.
+    assert not (tmp_path / "volumes/n8n/consumer-workflows/wf.json").exists()
+
+
 def test_static_and_pin_data_stripped_from_normalized(tmp_path: Path) -> None:
     # Regression: staticData (runtime cursors/tokens) and pinData (pinned
     # execution payloads) are secret carriers and must not survive normalization.
