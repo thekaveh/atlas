@@ -24,6 +24,7 @@ EXPECTED_OWNER = {
     "memory_facts": "14-backend-memory.sql",
     "memory_sessions": "14-backend-memory.sql",
     "memory_consolidation_log": "14-backend-memory.sql",
+    "media_spend_ledger": "17-backend-media-ledger.sql",
 }
 SLICE_FILES = sorted({v for v in EXPECTED_OWNER.values()})
 

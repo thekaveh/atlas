@@ -57,6 +57,14 @@
 | BACKEND_STORAGE_ALLOWED_BUCKETS | backend | default | Comma-separated Supabase Storage bucket allowlist accepted by /storage/upload. |
 | BACKEND_MEDIA_INPUT_BUCKET | backend | default | Atlas storage bucket the media gateway hosts image_to_3d inputs in when a provider (e.g. Tripo) rejects data-URI inputs. Objects are written under the media-inputs/ prefix. |
 | BACKEND_MEDIA_INPUT_PUBLIC_BASE_URL | backend |  | Optional public base URL for hosted media inputs. When set, hosted image_to_3d input URLs are formed as <base>/<bucket>/<key> so the provider's cloud can fetch them through a reachable ingress; empty falls back to the storage client's public URL. |
+| MEDIA_BUDGET_ENABLED | backend | False | Enables the media-gateway spend ledger + budget enforcement (#342). Disabled by default: when off, the gateway records no ledger rows and enforces no caps. |
+| MEDIA_BUDGET_STORE | backend | postgres | Ledger store backend: 'postgres' (durable, media_spend_ledger table) or 'memory' (process-local, non-durable — testing/ephemeral). Only used when MEDIA_BUDGET_ENABLED=true. |
+| MEDIA_BUDGET_CURRENCY | backend | USD | Currency label recorded on media spend ledger rows. |
+| MEDIA_BUDGET_DEFAULT_USD | backend |  | Default per-consumer/project spend cap in USD. Empty = no default cap (ledger records without hard-stop). Per-consumer overrides go in MEDIA_BUDGET_CONSUMER_CAPS. |
+| MEDIA_BUDGET_CONSUMER_CAPS | backend |  | Optional JSON map of per-scope caps, keyed by 'consumer' or 'consumer:project', e.g. {"rag-showcase":25,"rag-showcase:demo":5}. Overrides MEDIA_BUDGET_DEFAULT_USD for matching scopes. |
+| MEDIA_DISABLED_PROVIDERS | backend |  | Comma-separated media providers to kill-switch off (e.g. 'fal'). A disabled provider hard-stops its own submissions without downing the gateway or other providers. |
+| MEDIA_BUDGET_ALLOW_UNKNOWN_COST | backend | False | When false (default), a budgeted submission for a model with no known cost is rejected rather than billed an unknown amount (never silently $0). Set true to allow unknown-cost submissions under a cap. |
+| MEDIA_BUDGET_RETENTION_DAYS | backend |  | Optional retention window in days for media spend ledger rows; empty keeps rows indefinitely. Pruning is invoked on demand via the budget engine. |
 | BACKEND_CORS_ORIGINS | backend | * | Comma-separated browser origins accepted by the backend CORS middleware. Default preserves local-development permissiveness. |
 | BACKEND_CORS_ALLOW_ORIGIN_REGEX | backend |  | Optional regex accepted by the backend CORS middleware for wildcard subdomain policies. |
 | BACKEND_KONG_AUTH | backend | disabled | Default gateway authentication mode for the api.localhost backend route: disabled (default local-dev behavior) or key-auth (requires apikey header). A backend plugin's plugin.yml `auth: open/key-auth` overrides this per route prefix (#402). |
