@@ -461,6 +461,9 @@ services:
       LANGMEM_NAMESPACE: default
       LIGHTRAG_API_KEY: ''
       LIGHTRAG_ENDPOINT: ''
+      LIGHTRAG_RERANK_ADAPTER_ENABLED: 'false'
+      LIGHTRAG_RERANK_ADAPTER_TIMEOUT_SECONDS: '30'
+      LIGHTRAG_RERANK_ADAPTER_TOKEN: ''
       LITELLM_API_KEY: ''
       LITELLM_BASE_URL: http://litellm:4000
       LITELLM_DEFAULT_MODEL: ollama/qwen3.6:latest
@@ -493,6 +496,7 @@ services:
       STT_ENDPOINT: ''
       SUPABASE_ANON_KEY: ''
       SUPABASE_SERVICE_KEY: ''
+      TEI_RERANKER_ENDPOINT: ''
       TIKA_ENDPOINT: ''
       TIKA_MAX_FILE_SIZE: '52428800'
       TIKA_TIMEOUT_SECONDS: '30'
@@ -1871,6 +1875,7 @@ services:
       QUERY_MAX_ASYNC_LLM: ''
       REDIS_URI: ''
       RERANK_BINDING: 'null'
+      RERANK_BINDING_API_KEY: ''
       RERANK_BINDING_HOST: ''
       RERANK_BY_DEFAULT: 'false'
       RERANK_MODEL: mixedbread-ai/mxbai-rerank-base-v1

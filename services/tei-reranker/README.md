@@ -10,7 +10,7 @@ HuggingFace `text-embeddings-inference` running `mixedbread-ai/mxbai-rerank-base
 
 **Why this model:** mxbai-rerank-base-v1 ships ONNX out of the box (so the amd64 ORT backend in `cpu-1.9` loads it cleanly) AND is light enough (~184 M params) that the arm64 candle backend in `cpu-arm64-latest` completes warmup successfully on Apple Silicon. BGE-reranker-v2-m3 was the original spec'd model but its safetensors-only distribution + ~560 M params caused the arm64 candle backend to crash silently during warmup (RestartCount climbed in live smoke until the model was swapped 2026-06-07).
 
-The service is reusable by consumers that send TEI's request body shape (`query` plus `texts`). Atlas does not directly wire stock LightRAG to TEI today because LightRAG's built-in Jina/Cohere rerank clients send `query` plus `documents`, which TEI rejects without an adapter.
+The service is reusable by consumers that send TEI's request body shape (`query` plus `texts`). Atlas never wires stock LightRAG *directly* to TEI, because LightRAG's built-in Jina/Cohere rerank clients send `query` plus `documents`, which TEI rejects. LightRAG reaches this reranker through the backend rerank adapter (`POST /lightrag/rerank`, #415), which translates `{query, documents}` ↔ `{query, texts}`; enable it with `LIGHTRAG_RERANK_ADAPTER_ENABLED=true` (see the [backend README §5.1](../backend/README.md#51-lightrag--tei-rerank-adapter-post-lightragrerank-415)).
 
 ## 2. Source variants
 

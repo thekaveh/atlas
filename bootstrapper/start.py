@@ -3405,6 +3405,54 @@ def _doctor_check_lightrag_query_profiles(starter: "AtlasStarter") -> dict:
     )
 
 
+def _doctor_check_lightrag_rerank_adapter(starter: "AtlasStarter") -> dict:
+    """Operational signal for the LightRAG → TEI rerank adapter (#415).
+
+    The adapter route always exists on the backend, but it only reranks when
+    LightRAG is wired to it. Wiring happens only when the operator opts in
+    (``LIGHTRAG_RERANK_ADAPTER_ENABLED=true``) AND both LightRAG and the TEI
+    reranker are enabled. Warn on the mismatch — flag on but a prerequisite
+    service off — because reranking would silently be a no-op (RERANK_BINDING
+    stays ``null``).
+    """
+    env_values = starter.config_parser.parse_env_file()
+    flag = (env_values.get("LIGHTRAG_RERANK_ADAPTER_ENABLED", "") or "").strip().lower() == "true"
+    if not flag:
+        return _doctor_result(
+            "lightrag-rerank-adapter",
+            "pass",
+            "LightRAG rerank adapter disabled (default) — LightRAG will not rerank through TEI.",
+        )
+    lightrag_enabled = (env_values.get("LIGHTRAG_SOURCE", "disabled") or "disabled").strip() != "disabled"
+    tei_enabled = (env_values.get("TEI_RERANKER_SOURCE", "disabled") or "disabled").strip() != "disabled"
+    missing = []
+    if not lightrag_enabled:
+        missing.append("LIGHTRAG_SOURCE")
+    if not tei_enabled:
+        missing.append("TEI_RERANKER_SOURCE")
+    if missing:
+        return _doctor_result(
+            "lightrag-rerank-adapter",
+            "warn",
+            "LIGHTRAG_RERANK_ADAPTER_ENABLED=true but "
+            f"{' and '.join(missing)} is disabled — reranking will be a no-op "
+            "until both LightRAG and the TEI reranker are enabled.",
+            details={"missing": missing},
+        )
+    if not (env_values.get("LIGHTRAG_RERANK_ADAPTER_TOKEN", "") or "").strip():
+        return _doctor_result(
+            "lightrag-rerank-adapter",
+            "warn",
+            "LightRAG rerank adapter enabled but LIGHTRAG_RERANK_ADAPTER_TOKEN is empty — "
+            "the /lightrag/rerank route will 503 until a token is generated (re-run start).",
+        )
+    return _doctor_result(
+        "lightrag-rerank-adapter",
+        "pass",
+        "LightRAG rerank adapter enabled and wired to TEI through the backend route.",
+    )
+
+
 def _doctor_check_endpoints(starter: "AtlasStarter") -> dict:
     env_values = starter.config_parser.parse_env_file()
     endpoints = {
@@ -3527,6 +3575,7 @@ DOCTOR_CHECKS = [
     _doctor_check_n8n_workflows,
     _doctor_check_rag_ingestion_profiles,
     _doctor_check_lightrag_query_profiles,
+    _doctor_check_lightrag_rerank_adapter,
     _doctor_check_comfyui_mps,
     _doctor_check_endpoints,
     _doctor_check_submodule_clean,

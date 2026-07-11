@@ -15,7 +15,7 @@ In this stack, LightRAG reuses existing infrastructure:
 - **Graph store** → Neo4j (`Neo4JStorage`).
 - **KV + doc-status** → Redis (`RedisKVStorage`).
 - **Document parsing** → Docling (when `DOC_PROCESSOR_SOURCE != disabled`).
-- **Reranking** defaults off. Atlas does not directly wire LightRAG to TEI today because LightRAG's built-in Jina/Cohere rerank clients send a payload shape that TEI's `/rerank` endpoint does not accept.
+- **Reranking** defaults off. LightRAG's built-in Jina/Cohere rerank clients send a payload shape (`{query, documents}`) that TEI's `/rerank` endpoint (`{query, texts}`) does not accept, so Atlas never wires LightRAG directly to TEI. To enable reranking, route it through the backend rerank adapter (`POST /lightrag/rerank`, #415): set `LIGHTRAG_RERANK_ADAPTER_ENABLED=true` with `TEI_RERANKER_SOURCE` enabled — see the [backend README §5.1](../backend/README.md#51-lightrag--tei-rerank-adapter-post-lightragrerank-415).
 
 When any of these backends is disabled, LightRAG transparently falls back to in-process file backends (`NanoVectorDBStorage` / `NetworkXStorage` / `JsonKVStorage`). Multimodal images become text-only when docling is disabled.
 
@@ -43,7 +43,7 @@ LIGHTRAG_KEYWORD_LLM_MODEL=                         # empty = inherit LLM_MODEL
 LIGHTRAG_QUERY_LLM_MODEL=                           # empty = inherit LLM_MODEL
 LIGHTRAG_EXTRACT_MAX_ASYNC_LLM=                     # empty = inherit MAX_ASYNC_LLM
 LIGHTRAG_QUERY_LLM_TIMEOUT=                         # empty = inherit LLM_TIMEOUT
-LIGHTRAG_QUERY_ENABLE_RERANK=false                  # direct TEI rerank needs an adapter
+LIGHTRAG_QUERY_ENABLE_RERANK=false                  # rerank via backend adapter (#415); needs LIGHTRAG_RERANK_ADAPTER_ENABLED=true + TEI
 LIGHTRAG_QUERY_TOP_K=10                             # graph query KG top-k
 LIGHTRAG_QUERY_CHUNK_TOP_K=5                        # graph query chunk top-k
 LIGHTRAG_QUERY_MAX_TOTAL_TOKENS=12000               # graph query context budget
@@ -53,7 +53,7 @@ LIGHTRAG_VLM_PROCESS_ENABLE=true                    # vision LLM for images/figu
 
 LightRAG v1.5 supports role-specific LLM settings for extraction, keyword extraction, and final query answering. Atlas exposes those as `LIGHTRAG_EXTRACT_*`, `LIGHTRAG_KEYWORD_*`, and `LIGHTRAG_QUERY_*` inputs, then maps them to LightRAG's native `EXTRACT_*`, `KEYWORD_*`, and `QUERY_*` runtime environment names. Leave a role value empty to inherit the base LightRAG runtime `LLM_*` settings; the base model name itself is resolved by `lightrag-init` when `LIGHTRAG_LLM_MODEL` is empty.
 
-Atlas also exposes LightRAG's query defaults as `LIGHTRAG_QUERY_ENABLE_RERANK`, `LIGHTRAG_QUERY_TOP_K`, `LIGHTRAG_QUERY_CHUNK_TOP_K`, and `LIGHTRAG_QUERY_MAX_TOTAL_TOKENS`. Numeric query values default to concrete integers because LightRAG v1.5 parses those env vars as integers and does not accept empty strings. `LIGHTRAG_QUERY_ENABLE_RERANK` defaults to `false` because direct LightRAG-to-TEI reranking is not wire-compatible yet: LightRAG sends `{query, documents}` through its Jina/Cohere clients, while TEI expects `{query, texts}`. Re-enable reranking only when routing through a compatible adapter or custom rerank binding.
+Atlas also exposes LightRAG's query defaults as `LIGHTRAG_QUERY_ENABLE_RERANK`, `LIGHTRAG_QUERY_TOP_K`, `LIGHTRAG_QUERY_CHUNK_TOP_K`, and `LIGHTRAG_QUERY_MAX_TOTAL_TOKENS`. Numeric query values default to concrete integers because LightRAG v1.5 parses those env vars as integers and does not accept empty strings. `LIGHTRAG_QUERY_ENABLE_RERANK` defaults to `false` because direct LightRAG-to-TEI reranking is not wire-compatible: LightRAG sends `{query, documents}` through its Jina/Cohere clients, while TEI expects `{query, texts}`. Enable reranking by routing through the backend rerank adapter (#415): set `LIGHTRAG_RERANK_ADAPTER_ENABLED=true` (with `TEI_RERANKER_SOURCE` enabled), which wires `RERANK_BINDING=jina` / `RERANK_BINDING_HOST=http://backend:8000/lightrag/rerank` and hands LightRAG the adapter's bearer token as `RERANK_BINDING_API_KEY`. See the [backend README §5.1](../backend/README.md#51-lightrag--tei-rerank-adapter-post-lightragrerank-415).
 
 For local Ollama graph RAG, use a fast non-reasoning model for `EXTRACT` and `KEYWORD`, and reserve the stronger answer model for `QUERY`:
 
@@ -183,5 +183,5 @@ _No high-confidence opportunities identified._
 - **First boot logs missing PostgreSQL tables** — expected on a cold volume. LightRAG probes for its tables, logs relation-missing errors, then creates the tables and indexes before reporting healthy.
 - **`OPENAI_API_KEY` warning at startup** — LightRAG checks env even when using `openai`-compatible Ollama. Harmless; the actual key is the `LITELLM_MASTER_KEY` forwarded as `LLM_BINDING_API_KEY`.
 - **Empty KG after ingestion** — verify `LIGHTRAG_LLM_MODEL` actually points at a chat-capable model. Some embedding-only Ollama tags will silently produce empty triples.
-- **Rerank does not run even when TEI is enabled** — expected with the stock stack. LightRAG's direct rerank clients and TEI's `/rerank` request body are incompatible without an adapter, so Atlas emits `RERANK_BINDING=null` by default.
+- **Rerank does not run even when TEI is enabled** — expected unless the rerank adapter is enabled. LightRAG's direct rerank clients and TEI's `/rerank` request body are incompatible, so Atlas emits `RERANK_BINDING=null` by default. To turn reranking on, set `LIGHTRAG_RERANK_ADAPTER_ENABLED=true` (with `TEI_RERANKER_SOURCE` enabled) so LightRAG reranks through the backend adapter (`POST /lightrag/rerank`, #415); `./start.sh doctor` warns if the flag is on but TEI/LightRAG is off.
 - **`pgvector` dim mismatch** — drop and rerun the migration when changing `LIGHTRAG_EMBEDDING_DIM`: `psql ... -c "DROP SCHEMA lightrag CASCADE"` then restart.

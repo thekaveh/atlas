@@ -67,9 +67,38 @@ def test_lightrag_adaptive_disables_direct_tei_rerank_when_tei_enabled(env_with_
     }))
     env = sc.generate_service_environment()
     # Atlas's TEI endpoint expects {query, texts}; LightRAG's jina/cohere
-    # clients send {query, documents}. Until Atlas ships an adapter, do not
-    # auto-wire LightRAG query rerank directly to TEI.
+    # clients send {query, documents}. The backend adapter (#415) bridges the
+    # two, but it is OFF by default (LIGHTRAG_RERANK_ADAPTER_ENABLED unset), so
+    # rerank stays disabled and LightRAG is never wired directly to TEI.
     assert env.get("TEI_RERANKER_ENDPOINT") == "http://tei-reranker:80"
+    assert env.get("LIGHTRAG_RERANK_BINDING_HOST", "") == ""
+    assert env.get("LIGHTRAG_RERANK_BINDING") == "null"
+
+
+def test_lightrag_adaptive_wires_backend_adapter_when_enabled(env_with_overrides):
+    sc = _sc(env_with_overrides({
+        "LIGHTRAG_SOURCE": "container",
+        "TEI_RERANKER_SOURCE": "container-cpu",
+        "LIGHTRAG_RERANK_ADAPTER_ENABLED": "true",
+    }))
+    env = sc.generate_service_environment()
+    # #415: opting the adapter in with TEI enabled routes LightRAG rerank
+    # through the backend adapter route — NEVER directly at tei-reranker.
+    host = env.get("LIGHTRAG_RERANK_BINDING_HOST", "")
+    assert host == "http://backend:8000/lightrag/rerank"
+    assert "tei-reranker" not in host
+    assert env.get("LIGHTRAG_RERANK_BINDING") == "jina"
+
+
+def test_lightrag_adaptive_stays_null_when_adapter_enabled_but_tei_disabled(env_with_overrides):
+    sc = _sc(env_with_overrides({
+        "LIGHTRAG_SOURCE": "container",
+        "TEI_RERANKER_SOURCE": "disabled",
+        "LIGHTRAG_RERANK_ADAPTER_ENABLED": "true",
+    }))
+    env = sc.generate_service_environment()
+    # Flag on but TEI off → no reranker to reach. Stay null/blank (no-op) rather
+    # than wiring a host that would 5xx at query time.
     assert env.get("LIGHTRAG_RERANK_BINDING_HOST", "") == ""
     assert env.get("LIGHTRAG_RERANK_BINDING") == "null"
 

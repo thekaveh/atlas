@@ -1667,13 +1667,30 @@ class ServiceConfig:
         if lightrag_source != 'disabled':
             lightrag_raw_env = self.config_parser.parse_env_file()
 
-            # Reranker — keep direct LightRAG->TEI rerank disabled. LightRAG's
-            # jina/cohere clients POST `{query, documents}`, while Atlas's TEI
-            # /rerank endpoint expects `{query, texts}`. Emit the literal
-            # `null` rather than blank because LightRAG hard-crashes on an
-            # empty RERANK_BINDING value.
-            env_vars['LIGHTRAG_RERANK_BINDING_HOST'] = ''
-            env_vars['LIGHTRAG_RERANK_BINDING'] = 'null'
+            # Reranker (#415). LightRAG's jina/cohere clients POST
+            # `{query, documents}`, while Atlas's TEI /rerank endpoint expects
+            # `{query, texts}` — wire-incompatible. When the operator opts the
+            # backend adapter in (LIGHTRAG_RERANK_ADAPTER_ENABLED=true) AND TEI
+            # is enabled, route LightRAG rerank through the backend adapter
+            # route, which translates the two shapes. Atlas never wires LightRAG
+            # directly at TEI. Otherwise emit the literal `null` rather than a
+            # blank binding because LightRAG hard-crashes on an empty value.
+            tei_source = sources.get('TEI_RERANKER_SOURCE', 'disabled')
+            adapter_enabled = (
+                (lightrag_raw_env.get('LIGHTRAG_RERANK_ADAPTER_ENABLED', 'false') or 'false')
+                .strip()
+                .lower()
+                == 'true'
+            )
+            if adapter_enabled and tei_source != 'disabled':
+                # backend listens on :8000 inside backend-network (shared with
+                # lightrag). The route is auth-gated by LIGHTRAG_RERANK_ADAPTER_TOKEN,
+                # handed to LightRAG below as RERANK_BINDING_API_KEY.
+                env_vars['LIGHTRAG_RERANK_BINDING_HOST'] = 'http://backend:8000/lightrag/rerank'
+                env_vars['LIGHTRAG_RERANK_BINDING'] = 'jina'
+            else:
+                env_vars['LIGHTRAG_RERANK_BINDING_HOST'] = ''
+                env_vars['LIGHTRAG_RERANK_BINDING'] = 'null'
 
             # Docling — mirror DOCLING_ENDPOINT.
             env_vars['LIGHTRAG_DOCLING_ENDPOINT'] = parent_vars.get('DOCLING_ENDPOINT', '')

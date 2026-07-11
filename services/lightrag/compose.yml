@@ -102,6 +102,10 @@ services:
       # container can never boot-loop.
       RERANK_BINDING: ${LIGHTRAG_RERANK_BINDING:-null}
       RERANK_BINDING_HOST: ${LIGHTRAG_RERANK_BINDING_HOST}
+      # Bearer token for the backend rerank adapter (#415). Blank unless the
+      # adapter is enabled; the backend route rejects an empty/wrong token.
+      # LightRAG sends it as `Authorization: Bearer <key>` on rerank calls.
+      RERANK_BINDING_API_KEY: ${LIGHTRAG_RERANK_ADAPTER_TOKEN:-}
       RERANK_MODEL: mixedbread-ai/mxbai-rerank-base-v1
     volumes:
       - lightrag-data:/app/data

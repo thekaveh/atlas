@@ -432,6 +432,24 @@ class KeyGenerator:
         new_key = self.generate_lightrag_token_secret()
         return self.update_env_key('LIGHTRAG_TOKEN_SECRET', new_key)
 
+    def generate_lightrag_rerank_adapter_token(self) -> str:
+        """Bearer token for the backend LightRAG rerank adapter route (#415).
+
+        The backend's ``POST /lightrag/rerank`` requires this token; it is also
+        handed to LightRAG as ``RERANK_BINDING_API_KEY`` so the two share one
+        secret. Same posture as HERMES_API_KEY / LIGHTRAG_API_KEY.
+        """
+        return f"sk-lightrag-rerank-{_cli_safe_token_urlsafe(32)}"
+
+    def generate_and_update_lightrag_rerank_adapter_token(self, force: bool = False) -> bool:
+        """Generate LIGHTRAG_RERANK_ADAPTER_TOKEN when absent. Idempotent so a
+        running adapter keeps its token across re-runs."""
+        current_value = self.get_current_env_value('LIGHTRAG_RERANK_ADAPTER_TOKEN')
+        if not force and current_value:
+            return True
+        new_key = self.generate_lightrag_rerank_adapter_token()
+        return self.update_env_key('LIGHTRAG_RERANK_ADAPTER_TOKEN', new_key)
+
     def generate_webui_secret_key(self) -> str:
         """Open WebUI JWT/session signing key. Used by Open WebUI itself
         AND by ``services/open-webui/init/scripts/register-{tools,functions}.py``
@@ -943,6 +961,14 @@ class KeyGenerator:
                 results['LIGHTRAG_API_KEY'] = self.generate_and_update_lightrag_api_key(force=False)
             if not self.get_current_env_value("LIGHTRAG_TOKEN_SECRET"):
                 results['LIGHTRAG_TOKEN_SECRET'] = self.generate_and_update_lightrag_token_secret(force=False)
+            # LightRAG rerank adapter bearer token (#415). Generated whenever
+            # LightRAG is enabled — even if the adapter is off today — so a
+            # later LIGHTRAG_RERANK_ADAPTER_ENABLED=true flip needs no manual
+            # secret edit. Idempotent: a live token is preserved.
+            if not self.get_current_env_value("LIGHTRAG_RERANK_ADAPTER_TOKEN"):
+                results['LIGHTRAG_RERANK_ADAPTER_TOKEN'] = (
+                    self.generate_and_update_lightrag_rerank_adapter_token(force=False)
+                )
 
         # Open WebUI JWT/session signing key. Upgrades the shipped
         # ``"secret"`` placeholder to a real 32-byte token; preserves
