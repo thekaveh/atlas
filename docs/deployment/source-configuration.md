@@ -23,6 +23,7 @@ This matrix lists every `*_SOURCE` variable currently exposed in `.env.example`.
 | `LITELLM_SOURCE` | `container` | `container` | Infra / always-on | LiteLLM gateway. Always on; not user-disableable. |
 | `COMFYUI_SOURCE` | `container-cpu` | `container-cpu`, `container-gpu`, `localhost`, `disabled` | User-facing | Image generation service. |
 | `ASSET_WORKER_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | glTF post-processing worker for upright, normalized, optimized 3D assets. |
+| `ASSET_BAKER_SOURCE` | `disabled` | `container-cpu`, `disabled` | User-facing optional | Blender headless HP→LP bake worker (voxel-remesh → decimate → Smart-UV → bake color+normal). Cycles CPU; ~2 GB Blender image. |
 | `FAL_SOURCE` | `disabled` | `enabled`, `disabled` | User-facing optional | Cloud media provider for backend simple generation routes. Requires `FAL_API_KEY` only when enabled. |
 | `PROMETHEUS_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Observability scraper + TSDB. Bundles node-exporter and cAdvisor; gates postgres-exporter / redis-exporter sidecars. |
 | `GRAFANA_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Observability dashboards + unified alerting. Pre-provisions the Prometheus datasource and 7 starter dashboards. |

@@ -29,6 +29,7 @@ class SourceOverrideManager:
             'cloud_openrouter_source': 'CLOUD_OPENROUTER_SOURCE',
             'comfyui_source': 'COMFYUI_SOURCE',
             'asset_worker_source': 'ASSET_WORKER_SOURCE',
+            'asset_baker_source': 'ASSET_BAKER_SOURCE',
             'fal_source': 'FAL_SOURCE',
             'weaviate_source': 'WEAVIATE_SOURCE',
             'minio_source': 'MINIO_SOURCE',

@@ -37,6 +37,7 @@ EXPECTED_DISCOVERED = frozenset({
     "LLM Engine",
     "ComfyUI",
     "Asset Worker",
+    "Asset Baker",
     "Document Processor",
     "MinIO Console",
     "n8n",
