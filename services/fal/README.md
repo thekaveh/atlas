@@ -15,6 +15,7 @@ Atlas does not run a FAL container. The backend reads `FAL_SOURCE`, `FAL_API_KEY
 | Media gateway (image) | `POST /media/generate` with `{"modality":"image"}` | Submits FAL text-to-image operations and returns an operation id. |
 | Media gateway (image→3D) | `POST /media/generate` with `{"modality":"image_to_3d"}` | Submits a hosted image→3D operation (Hunyuan3D / TRELLIS / Tripo / Rodin / Pixal3D) and returns an operation id. |
 | Operation polling | `GET /media/operations/{operation_id}` | Polls provider status and returns normalized artifacts (the GLB is the primary `artifact_url`), cost, license, and provenance. |
+| Spend read | `GET /media/spend?consumer=<c>` | Scoped spend read (committed/reserved totals + rows for one consumer). Empty unless `MEDIA_BUDGET_ENABLED=true`. |
 | Compatibility route | `POST /comfyui/generate` | Uses FAL for simple image generation when `FAL_SOURCE=enabled`; otherwise preserves the existing ComfyUI path. |
 | Kong | No direct route | FAL is a server-side provider only. The API key stays in the backend environment. |
 
@@ -69,6 +70,18 @@ Atlas models FAL as a virtual media service:
 | `fal-ai/tripo3d/tripo/v2.5/image-to-3d` | Tripo | tripo-commercial-gated | gated to Pro/Enterprise | **requires hosted URL** |
 | `fal-ai/hyper3d/rodin` | Rodin (Hyper3D) | hyper3d-provider-terms | conditional | data URI ok |
 | `fal-ai/pixal3d/image-to-3d` | Pixal3D | pixal3d-provider-terms | conditional | data URI ok (endpoint id unverified) |
+
+### 4.2 Spend ledger & budgets
+
+Hosted media generation has no LiteLLM-style spend accounting of its own, so the media gateway carries its own cost ledger + budget engine — **disabled by default** (`MEDIA_BUDGET_ENABLED=false`), backend-owned, no new service SOURCE. When enabled:
+
+- **Every generation is recorded.** A reservation is created *before* the provider is invoked with the estimated cost (from the image→3D registry; text-to-image has no per-model price today), then reconciled to the final cost on completion. Rows are immutable per operation (`consumer`/`project`, provider/model, estimated + final cost, currency, pricing timestamp, artifact refs, status) in `public.media_spend_ledger`.
+- **Budget cap hard-stop.** Over-limit submissions return `402` **before** any provider call or storage write. Caps come from `MEDIA_BUDGET_DEFAULT_USD` and per-scope `MEDIA_BUDGET_CONSUMER_CAPS` (JSON keyed by `consumer` or `consumer:project`). Reservations are concurrency-safe — two simultaneous submissions at the remaining-budget boundary cannot both pass.
+- **Per-provider kill-switch.** `MEDIA_DISABLED_PROVIDERS` (CSV, e.g. `fal`) returns `403` for a disabled provider without downing the gateway or other providers.
+- **Unknown cost is never $0.** A budgeted submission for a model with no known cost is rejected (`402`) unless `MEDIA_BUDGET_ALLOW_UNKNOWN_COST=true`, in which case it is recorded with a `NULL` (not zero) cost.
+- **Scoped reads.** `GET /media/spend?consumer=<c>[&project=<p>]` returns that consumer's totals + rows only; provider keys and other consumers' records are never exposed.
+
+Attribution comes from the request `consumer`/`project` fields or the `X-Atlas-Consumer`/`X-Atlas-Project` headers (default `default`) — a pragmatic key, not authentication; gateway-level identity remains #345 follow-up work. `MEDIA_BUDGET_*` and `MEDIA_DISABLED_PROVIDERS` are declared on the backend service.
 
 ## 5. Dependencies & Integrations
 

@@ -541,6 +541,28 @@ CREATE TABLE public.comfyui_workflows (
 
 ALTER TABLE public.comfyui_workflows OWNER TO supabase_admin;
 
+CREATE TABLE public.media_spend_ledger (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    operation_id character varying(255) NOT NULL,
+    consumer character varying(255) DEFAULT 'default'::character varying NOT NULL,
+    project character varying(255) DEFAULT 'default'::character varying NOT NULL,
+    provider character varying(100) NOT NULL,
+    model character varying(255) NOT NULL,
+    model_version character varying(100),
+    modality character varying(64) NOT NULL,
+    status character varying(32) NOT NULL,
+    currency character varying(8) DEFAULT 'USD'::character varying NOT NULL,
+    estimated_cost_usd numeric(12,6),
+    final_cost_usd numeric(12,6),
+    pricing_source_ts timestamp with time zone,
+    artifact_refs jsonb DEFAULT '[]'::jsonb NOT NULL,
+    reason text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+ALTER TABLE public.media_spend_ledger OWNER TO supabase_admin;
+
 CREATE TABLE public.memory_consolidation_log (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
     user_id uuid,
@@ -717,6 +739,9 @@ ALTER TABLE ONLY public.comfyui_generations
 ALTER TABLE ONLY public.comfyui_workflows
     ADD CONSTRAINT comfyui_workflows_pkey PRIMARY KEY (id);
 
+ALTER TABLE ONLY public.media_spend_ledger
+    ADD CONSTRAINT media_spend_ledger_pkey PRIMARY KEY (id);
+
 ALTER TABLE ONLY public.memory_consolidation_log
     ADD CONSTRAINT memory_consolidation_log_pkey PRIMARY KEY (id);
 
@@ -772,6 +797,10 @@ CREATE INDEX idx_comfyui_generations_status ON public.comfyui_generations USING 
 CREATE INDEX idx_comfyui_workflows_active ON public.comfyui_workflows USING btree (active);
 
 CREATE INDEX idx_comfyui_workflows_category ON public.comfyui_workflows USING btree (category);
+
+CREATE UNIQUE INDEX idx_media_spend_ledger_operation ON public.media_spend_ledger USING btree (operation_id);
+
+CREATE INDEX idx_media_spend_ledger_scope ON public.media_spend_ledger USING btree (consumer, project, created_at);
 
 CREATE INDEX idx_memory_consolidation_user_id ON public.memory_consolidation_log USING btree (user_id);
 
@@ -5487,6 +5516,11 @@ GRANT ALL ON TABLE public.comfyui_workflows TO postgres;
 GRANT ALL ON TABLE public.comfyui_workflows TO anon;
 GRANT ALL ON TABLE public.comfyui_workflows TO authenticated;
 GRANT ALL ON TABLE public.comfyui_workflows TO service_role;
+
+GRANT ALL ON TABLE public.media_spend_ledger TO postgres;
+GRANT ALL ON TABLE public.media_spend_ledger TO anon;
+GRANT ALL ON TABLE public.media_spend_ledger TO authenticated;
+GRANT ALL ON TABLE public.media_spend_ledger TO service_role;
 
 GRANT ALL ON TABLE public.memory_consolidation_log TO postgres;
 GRANT ALL ON TABLE public.memory_consolidation_log TO anon;

@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, status, UploadFile, File, Query
+from fastapi import FastAPI, HTTPException, status, UploadFile, File, Query, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, Field
@@ -19,7 +19,13 @@ from comfyui_client import ComfyUIClient
 from fal_media_client import FalClient
 import media_registry
 from media_input import prepare_image_input, ImageInputError, ImageHostingError
-from uuid import UUID as _UUID
+import media_ledger
+from media_ledger import (
+    BudgetExceeded,
+    ProviderDisabled,
+    UnknownCostRejected,
+)
+from uuid import UUID as _UUID, uuid4
 from memory_service import MemoryService
 from memory_models import (
     MemoryExtractRequest, MemoryRecallRequest, MemoryConsolidateRequest,
@@ -896,6 +902,24 @@ class MediaGenerateRequest(BaseModel):
     model: Optional[str] = Field(default=None, max_length=255)
     input: Dict[str, Any] = Field(default_factory=dict)
     timeout_seconds: Optional[int] = Field(default=None, ge=1, le=3600)
+    # Spend attribution (#342). Falls back to the X-Atlas-Consumer/-Project
+    # headers, then "default". Enforced only when MEDIA_BUDGET_ENABLED=true.
+    consumer: Optional[str] = Field(default=None, max_length=255)
+    project: Optional[str] = Field(default=None, max_length=255)
+
+
+class MediaSpendResponse(BaseModel):
+    """Scoped spend read for a single consumer (optionally one project)."""
+
+    enabled: bool
+    consumer: str
+    project: Optional[str] = None
+    currency: str = "USD"
+    cap_usd: Optional[float] = None
+    committed_usd: float = 0.0
+    reserved_usd: float = 0.0
+    remaining_usd: Optional[float] = None
+    records: List[Dict[str, Any]] = Field(default_factory=list)
 
 
 class MediaOperationResponse(BaseModel):
@@ -916,6 +940,80 @@ class MediaOperationResponse(BaseModel):
 
 
 MEDIA_OPERATIONS: Dict[str, Dict[str, Any]] = {}
+
+# Media spend ledger + budget engine (#342). Disabled by default; when disabled
+# every engine method is a no-op and the gateway behaves exactly as before.
+MEDIA_BUDGET_ENGINE = media_ledger.build_engine()
+
+
+def _resolve_consumer_project(
+    request: MediaGenerateRequest, http_request: Optional[Request]
+) -> tuple[str, str]:
+    """Attribution key: request body wins, then X-Atlas-* headers, then default.
+
+    This is a pragmatic attribution key (not authentication); gateway-level
+    identity/authorization remains #345's future work.
+    """
+    headers = http_request.headers if http_request is not None else {}
+    consumer = (
+        request.consumer
+        or headers.get("X-Atlas-Consumer")
+        or "default"
+    ).strip() or "default"
+    project = (
+        request.project
+        or headers.get("X-Atlas-Project")
+        or "default"
+    ).strip() or "default"
+    return consumer, project
+
+
+def _estimate_media_cost(
+    provider: str, modality: str, model: str
+) -> tuple[Optional[float], Optional[Any], Optional[str]]:
+    """Estimated per-run cost + pricing capture timestamp + model family.
+
+    image_to_3d prices come from the curated registry; the text-to-image path
+    has no per-model price today, so its cost is unknown (None) — never $0.
+    """
+    if modality == "image_to_3d":
+        entry = media_registry.lookup(model)
+        if entry is not None:
+            # The canonical endpoint id already encodes the version, so
+            # model_version stays None rather than duplicating the family.
+            return entry.estimated_cost_usd, media_ledger._utcnow(), None
+    return None, None, None
+
+
+def _media_artifact_refs(payload: Dict[str, Any]) -> tuple[str, ...]:
+    refs: List[str] = []
+    primary = payload.get("artifact_url")
+    if primary:
+        refs.append(str(primary))
+    for artifact in payload.get("artifacts") or []:
+        url = artifact.get("url") if isinstance(artifact, dict) else None
+        if url and url not in refs:
+            refs.append(str(url))
+    return tuple(refs)
+
+
+async def _maybe_reconcile_ledger(
+    operation_id: str, operation: Dict[str, Any], payload: Dict[str, Any]
+) -> None:
+    """Reconcile the spend ledger once, when an operation reaches a terminal
+    status. Succeeded commits the spend; failed/cancelled/timeout release it."""
+    if not operation.get("budget_tracked") or operation.get("reconciled"):
+        return
+    op_status = str(payload.get("status", ""))
+    if op_status not in ("succeeded", "failed", "cancelled", "timeout"):
+        return
+    await MEDIA_BUDGET_ENGINE.reconcile(
+        operation_id=operation_id,
+        status=op_status,
+        final_cost_usd=payload.get("cost_usd"),
+        artifact_refs=_media_artifact_refs(payload),
+    )
+    operation["reconciled"] = True
 
 
 def _media_timeout_seconds(request_timeout: Optional[int] = None) -> int:
@@ -1054,7 +1152,9 @@ async def get_comfyui_models():
     response_model=MediaOperationResponse,
     status_code=status.HTTP_202_ACCEPTED,
 )
-async def submit_media_generation(request: MediaGenerateRequest):
+async def submit_media_generation(
+    request: MediaGenerateRequest, http_request: Request
+):
     """Submit a provider-neutral hosted media generation operation."""
     provider, modality, model = _normalize_media_route(
         request.provider,
@@ -1067,21 +1167,53 @@ async def submit_media_generation(request: MediaGenerateRequest):
             detail="FAL_SOURCE=enabled is required for provider=fal media generation",
         )
 
+    # Cheap input validation first (clear 400s before any accounting work).
+    if modality == "image" and "prompt" not in request.input:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Media input must include prompt for modality=image",
+        )
+    if modality == "image_to_3d" and not request.input.get("image"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Media input must include image for modality=image_to_3d",
+        )
+
+    # Budget: reserve estimated cost BEFORE the provider call (and before any
+    # side-effecting storage write). No-op when budgets are disabled.
+    consumer, project = _resolve_consumer_project(request, http_request)
+    estimated_cost, pricing_ts, model_version = _estimate_media_cost(
+        provider, modality, model
+    )
+    reservation_id = f"resv-{uuid4()}"
+    try:
+        reservation = await MEDIA_BUDGET_ENGINE.reserve(
+            operation_id=reservation_id,
+            consumer=consumer,
+            project=project,
+            provider=provider,
+            model=model,
+            modality=modality,
+            estimated_cost_usd=estimated_cost,
+            pricing_source_ts=pricing_ts,
+            model_version=model_version,
+        )
+    except ProviderDisabled as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
+    except (BudgetExceeded, UnknownCostRejected) as e:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED, detail=str(e)
+        )
+
     if modality == "image":
-        if "prompt" not in request.input:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Media input must include prompt for modality=image",
-            )
         prepared_input = request.input
     else:  # image_to_3d
-        if not request.input.get("image"):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Media input must include image for modality=image_to_3d",
-            )
         # Fail fast on a missing key before any (side-effecting) storage write.
-        _require_fal_api_key()
+        try:
+            _require_fal_api_key()
+        except HTTPException:
+            await MEDIA_BUDGET_ENGINE.release(reservation_id)
+            raise
         entry = media_registry.lookup(model)
         try:
             # prepare_image_input performs (optional) Pillow compositing and a
@@ -1095,11 +1227,13 @@ async def submit_media_generation(request: MediaGenerateRequest):
                 uploader=_media_input_uploader,
             )
         except ImageInputError as e:
+            await MEDIA_BUDGET_ENGINE.release(reservation_id)
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=str(e),
             )
         except ImageHostingError as e:
+            await MEDIA_BUDGET_ENGINE.release(reservation_id)
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail=str(e),
@@ -1107,8 +1241,8 @@ async def submit_media_generation(request: MediaGenerateRequest):
         prepared_input = dict(request.input)
         prepared_input["image"] = prepared.image
 
-    api_key = _require_fal_api_key()
     try:
+        api_key = _require_fal_api_key()
         async with FalClient(api_key=api_key, model=model) as client:
             payload = await client.submit_media_operation(
                 modality=modality,
@@ -1116,19 +1250,35 @@ async def submit_media_generation(request: MediaGenerateRequest):
                 model=model,
             )
     except HTTPException:
+        await MEDIA_BUDGET_ENGINE.release(reservation_id)
         raise
     except ValueError as e:
+        await MEDIA_BUDGET_ENGINE.release(reservation_id)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         )
     except Exception as e:
+        await MEDIA_BUDGET_ENGINE.release(reservation_id)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Failed to submit media generation with FAL: {str(e)}",
         )
 
     operation_id = str(payload["operation_id"])
+    # Re-key the reservation to the provider's operation id so poll-time
+    # reconciliation can find it. The provider call already succeeded, so a
+    # ledger bookkeeping hiccup here must not 500 the request or permanently
+    # orphan the reservation: on failure, free the temp-id reservation
+    # best-effort and continue (this operation's spend goes untracked rather
+    # than holding the consumer's budget forever).
+    try:
+        await MEDIA_BUDGET_ENGINE.attach_operation(reservation_id, operation_id)
+    except Exception:
+        try:
+            await MEDIA_BUDGET_ENGINE.release(reservation_id)
+        except Exception:
+            pass
     MEDIA_OPERATIONS[operation_id] = {
         "provider": provider,
         "modality": modality,
@@ -1136,6 +1286,10 @@ async def submit_media_generation(request: MediaGenerateRequest):
         "created_at": time.monotonic(),
         "timeout_seconds": _media_timeout_seconds(request.timeout_seconds),
         "last_payload": payload,
+        "consumer": consumer,
+        "project": project,
+        "budget_tracked": reservation is not None,
+        "reconciled": False,
     }
     return _media_response(payload)
 
@@ -1154,6 +1308,9 @@ async def get_media_operation(operation_id: str):
         payload = dict(operation["last_payload"])
         payload["status"] = "timeout"
         MEDIA_OPERATIONS[operation_id]["last_payload"] = payload
+        await _maybe_reconcile_ledger(
+            operation_id, MEDIA_OPERATIONS[operation_id], payload
+        )
         return _media_response(payload)
 
     provider = operation["provider"]
@@ -1189,7 +1346,24 @@ async def get_media_operation(operation_id: str):
         )
 
     MEDIA_OPERATIONS[operation_id]["last_payload"] = payload
+    await _maybe_reconcile_ledger(operation_id, MEDIA_OPERATIONS[operation_id], payload)
     return _media_response(payload)
+
+
+@app.get("/media/spend", response_model=MediaSpendResponse)
+async def get_media_spend(
+    consumer: str = Query(..., min_length=1, max_length=255),
+    project: Optional[str] = Query(default=None, max_length=255),
+):
+    """Scoped spend read for a single consumer (optionally one project).
+
+    Returns that consumer's ledger rows + committed/reserved totals only — never
+    provider keys or another consumer's records. Requires an explicit consumer.
+    """
+    if not MEDIA_BUDGET_ENGINE.enabled:
+        return MediaSpendResponse(enabled=False, consumer=consumer, project=project)
+    summary = await MEDIA_BUDGET_ENGINE.spend(consumer=consumer, project=project)
+    return MediaSpendResponse(enabled=True, **summary)
 
 
 @app.post("/comfyui/generate", response_model=ComfyUIResponse)
