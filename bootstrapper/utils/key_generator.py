@@ -720,6 +720,31 @@ class KeyGenerator:
 
         return results
 
+    def generate_and_update_extra_minio_consumer_keys(
+        self, tokens, force: bool = False
+    ) -> Dict[str, bool]:
+        """Generate MINIO_<TOKEN>_ACCESS_KEY + _SECRET_KEY for manifest-declared
+        consumer storage tokens (#404), only when blank. Mirrors the built-in
+        consumer-key rotator so scoped secrets persist across restarts.
+        """
+        results: Dict[str, bool] = {}
+        for token in tokens:
+            access_var = f'MINIO_{token}_ACCESS_KEY'
+            secret_var = f'MINIO_{token}_SECRET_KEY'
+            if force or not self.get_current_env_value(access_var):
+                results[access_var] = self.update_env_key(
+                    access_var, self.generate_minio_access_key()
+                )
+            else:
+                results[access_var] = True
+            if force or not self.get_current_env_value(secret_var):
+                results[secret_var] = self.update_env_key(
+                    secret_var, self.generate_minio_secret_key()
+                )
+            else:
+                results[secret_var] = True
+        return results
+
     # ─── Airflow secrets ───────────────────────────────────────────────
     # Airflow 3.x requires four bootstrapper-generated secrets on first
     # run: Fernet (Connection-password encryption), AIRFLOW__API__SECRET_KEY
