@@ -12,7 +12,7 @@ Atlas does not run a FAL container. The backend reads `FAL_SOURCE`, `FAL_API_KEY
 |---|---|---|
 | Atlas SOURCE | `FAL_SOURCE=disabled` | Default. No FAL calls are made and no API key is required. |
 | FAL provider | `FAL_SOURCE=enabled` | Enables FAL-backed hosted media generation through the backend. |
-| Media gateway (image) | `POST /media/generate` with `{"modality":"image"}` | Submits FAL text-to-image operations and returns an operation id. |
+| Media gateway (image) | `POST /media/generate` with `{"modality":"image"}` | Submits FAL image operations and returns an operation id. Text→image by default; include an init image (`image_url` / `image` / `init_image`, URL or data URI) plus optional `strength` for **img2img** (#453). Size accepts flat `width`/`height` (which win) or a nested `image_size` object. |
 | Media gateway (image→3D) | `POST /media/generate` with `{"modality":"image_to_3d"}` | Submits a hosted image→3D operation (Hunyuan3D / TRELLIS / Tripo / Rodin / Pixal3D) and returns an operation id. |
 | Operation polling | `GET /media/operations/{operation_id}` | Polls provider status and returns normalized artifacts (the GLB is the primary `artifact_url`), cost, license, and provenance. |
 | Spend read | `GET /media/spend?consumer=<c>` | Scoped spend read (committed/reserved totals + rows for one consumer). Empty unless `MEDIA_BUDGET_ENABLED=true`. |
