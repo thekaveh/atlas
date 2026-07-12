@@ -566,3 +566,171 @@ def test_media_operation_times_out(monkeypatch):
     polled = client.get("/media/operations/fal-3d-9")
     assert polled.status_code == 200
     assert polled.json()["status"] == "timeout"
+
+
+# ── #518: POST /media/operations/{id}/cancel ────────────────────────────────
+def _seed_inflight_operation(main, operation_id="fal-req-cxl", budget_tracked=True):
+    main.MEDIA_OPERATIONS[operation_id] = {
+        "provider": "fal",
+        "modality": "image",
+        "model": "fal-ai/flux/dev",
+        "created_at": __import__("time").monotonic(),
+        "timeout_seconds": 120,
+        "last_payload": {
+            "operation_id": operation_id,
+            "status": "in_progress",
+            "provider": "fal",
+            "model": "fal-ai/flux/dev",
+            "modality": "image",
+            "artifact_url": None,
+            "artifacts": [],
+            "cost_usd": None,
+            "license": "fal/provider-terms",
+            "provenance": {"provider_request_id": operation_id},
+            "raw": {},
+        },
+        "consumer": "default",
+        "project": None,
+        "budget_tracked": budget_tracked,
+        "reconciled": False,
+    }
+    return operation_id
+
+
+class _ReconcileSpy:
+    def __init__(self):
+        self.calls = []
+
+    async def reconcile(self, **kwargs):
+        self.calls.append(kwargs)
+
+
+class _CancelFalClient:
+    """FalClient stub whose provider cancel outcome is configurable."""
+
+    result = True
+    constructions = 0
+
+    def __init__(self, *args, **kwargs):
+        type(self).constructions += 1
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return None
+
+    async def cancel_media_operation(self, **kwargs):
+        if isinstance(type(self).result, Exception):
+            raise type(self).result
+        return type(self).result
+
+
+def test_media_cancel_unknown_operation_returns_404(monkeypatch):
+    main = _fresh_main(monkeypatch)
+    from fastapi.testclient import TestClient
+
+    response = TestClient(main.app).post("/media/operations/nope/cancel")
+    assert response.status_code == 404
+
+
+def test_media_cancel_marks_terminal_releases_budget_and_propagates(monkeypatch):
+    """#518 core: cancel → terminal `cancelled`, ledger reconciled with
+    status=cancelled (reservation release, #342), provider cancel delivered."""
+    main = _fresh_main(monkeypatch)
+    op_id = _seed_inflight_operation(main)
+    spy = _ReconcileSpy()
+    monkeypatch.setattr(main, "MEDIA_BUDGET_ENGINE", spy, raising=False)
+    _CancelFalClient.result = True
+    monkeypatch.setattr(main, "FalClient", _CancelFalClient, raising=False)
+
+    from fastapi.testclient import TestClient
+
+    response = TestClient(main.app).post(f"/media/operations/{op_id}/cancel")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "cancelled"
+    assert body["provenance"]["provider_cancelled"] is True
+    # Ledger settled exactly once with the spend-releasing status.
+    assert len(spy.calls) == 1
+    assert spy.calls[0]["status"] == "cancelled"
+    assert spy.calls[0]["operation_id"] == op_id
+    assert main.MEDIA_OPERATIONS[op_id]["reconciled"] is True
+
+
+def test_media_cancel_is_idempotent_409_when_already_terminal(monkeypatch):
+    main = _fresh_main(monkeypatch)
+    op_id = _seed_inflight_operation(main)
+    spy = _ReconcileSpy()
+    monkeypatch.setattr(main, "MEDIA_BUDGET_ENGINE", spy, raising=False)
+    _CancelFalClient.result = True
+    monkeypatch.setattr(main, "FalClient", _CancelFalClient, raising=False)
+
+    from fastapi.testclient import TestClient
+
+    client = TestClient(main.app)
+    assert client.post(f"/media/operations/{op_id}/cancel").status_code == 200
+    second = client.post(f"/media/operations/{op_id}/cancel")
+    assert second.status_code == 409
+    # Reconcile ran once, not twice.
+    assert len(spy.calls) == 1
+
+
+def test_media_poll_after_cancel_is_stable_and_skips_provider(monkeypatch):
+    """AC: GET reports status=cancelled after cancel — and never re-polls the
+    provider (the payload must not flip back to the provider's status)."""
+    main = _fresh_main(monkeypatch)
+    op_id = _seed_inflight_operation(main, budget_tracked=False)
+    _CancelFalClient.result = True
+    _CancelFalClient.constructions = 0
+    monkeypatch.setattr(main, "FalClient", _CancelFalClient, raising=False)
+
+    from fastapi.testclient import TestClient
+
+    client = TestClient(main.app)
+    assert client.post(f"/media/operations/{op_id}/cancel").status_code == 200
+    constructions_after_cancel = _CancelFalClient.constructions
+
+    poll = client.get(f"/media/operations/{op_id}")
+    assert poll.status_code == 200
+    assert poll.json()["status"] == "cancelled"
+    # No new FalClient was constructed for the poll — terminal is stable.
+    assert _CancelFalClient.constructions == constructions_after_cancel
+
+
+def test_media_cancel_degrades_when_provider_cancel_fails(monkeypatch):
+    """Best-effort contract: an undeliverable provider cancel still cancels
+    server-side and releases the budget."""
+    main = _fresh_main(monkeypatch)
+    op_id = _seed_inflight_operation(main)
+    spy = _ReconcileSpy()
+    monkeypatch.setattr(main, "MEDIA_BUDGET_ENGINE", spy, raising=False)
+    _CancelFalClient.result = RuntimeError("fal queue unreachable")
+    monkeypatch.setattr(main, "FalClient", _CancelFalClient, raising=False)
+
+    from fastapi.testclient import TestClient
+
+    response = TestClient(main.app).post(f"/media/operations/{op_id}/cancel")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "cancelled"
+    assert body["provenance"]["provider_cancelled"] is False
+    assert len(spy.calls) == 1
+
+
+def test_media_cancel_works_server_side_when_fal_disabled(monkeypatch):
+    """Even with the provider unavailable (FAL_SOURCE=disabled) the op is
+    cancelled server-side and stops counting against spend."""
+    main = _fresh_main(monkeypatch, fal_source="disabled", fal_api_key="")
+    op_id = _seed_inflight_operation(main)
+    spy = _ReconcileSpy()
+    monkeypatch.setattr(main, "MEDIA_BUDGET_ENGINE", spy, raising=False)
+
+    from fastapi.testclient import TestClient
+
+    response = TestClient(main.app).post(f"/media/operations/{op_id}/cancel")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "cancelled"
+    assert body["provenance"]["provider_cancelled"] is False
+    assert len(spy.calls) == 1

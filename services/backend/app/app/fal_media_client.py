@@ -272,6 +272,36 @@ class FalClient:
 
         return self._call_with_fal_key(fal_client.status, model, operation_id)
 
+    async def cancel_media_operation(self, *, operation_id: str, modality: str) -> bool:
+        """Best-effort provider-side cancel of an in-flight operation (#518).
+
+        Returns True when the provider accepted the cancel, False when the
+        cancel could not be delivered (SDK without ``cancel``, network error,
+        already-settled request, …). Callers treat False as a safe no-op: the
+        gateway still marks the operation terminal ``cancelled`` server-side
+        and releases the budget reservation — the provider call is purely to
+        stop paid work early where FAL's queue supports it.
+        """
+        if modality not in self.SUPPORTED_MODALITIES:
+            raise ValueError(f"Unsupported FAL media modality: {modality}")
+        if not self.api_key:
+            raise ValueError("FAL_API_KEY is required when FAL_SOURCE=enabled")
+        try:
+            await asyncio.to_thread(self._cancel, self.model, operation_id)
+            return True
+        except Exception:  # noqa: BLE001 — best-effort by contract
+            return False
+
+    def _cancel(self, model: str, operation_id: str) -> Any:
+        import fal_client  # type: ignore[import-not-found]
+
+        # Older fal-client releases don't expose queue cancel — treat that as
+        # an undeliverable cancel (caller degrades to server-side-only).
+        cancel_fn = getattr(fal_client, "cancel", None)
+        if cancel_fn is None:
+            raise RuntimeError("fal_client.cancel is unavailable in this SDK version")
+        return self._call_with_fal_key(cancel_fn, model, operation_id)
+
     def _result(self, model: str, operation_id: str) -> Dict[str, Any]:
         import fal_client  # type: ignore[import-not-found]
 
