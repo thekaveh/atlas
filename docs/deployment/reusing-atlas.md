@@ -332,7 +332,11 @@ health poll:
 `--detach` is also available as `--no-follow`. It runs the normal Atlas start
 pipeline, starts Compose in detached mode with its health wait enabled, prints a
 per-service status summary, and exits with `0` only when the final status
-summary is healthy. Add `--json` when a parent script needs machine-readable
+summary is healthy. A nonzero Compose `up --wait` return is re-inspected before
+failing: when every service is running/healthy and every one-shot init exited
+`0`, it is classified as the known benign one-shot race and startup continues
+to the final summary; genuine failures still fail and name the offending
+service and exit code (#508). Add `--json` when a parent script needs machine-readable
 status:
 
 ```bash
