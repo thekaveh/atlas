@@ -679,3 +679,37 @@ def test_fal_image_submit_accepts_nested_image_size_fallback(monkeypatch):
         {"prompt": "p", "width": 800, "image_size": {"width": 1280, "height": 720}},
     )
     assert captured["arguments"]["image_size"] == {"width": 800, "height": 720}
+
+
+# ── #518: FalClient.cancel_media_operation (provider-side cancel hook) ──────
+def test_fal_client_cancel_delivers_via_sdk(monkeypatch):
+    captured = {}
+
+    def fake_cancel(model, request_id):
+        captured["model"] = model
+        captured["request_id"] = request_id
+
+    monkeypatch.setitem(
+        sys.modules, "fal_client", types.SimpleNamespace(cancel=fake_cancel)
+    )
+    from fal_media_client import FalClient
+
+    client = FalClient(api_key="fal-key", model="fal-ai/flux/dev")
+    ok = asyncio.run(
+        client.cancel_media_operation(operation_id="fal-req-9", modality="image")
+    )
+    assert ok is True
+    assert captured == {"model": "fal-ai/flux/dev", "request_id": "fal-req-9"}
+
+
+def test_fal_client_cancel_safe_noop_without_sdk_support(monkeypatch):
+    """Older fal-client releases without `cancel` → False (server-side cancel
+    proceeds), never an exception."""
+    monkeypatch.setitem(sys.modules, "fal_client", types.SimpleNamespace())
+    from fal_media_client import FalClient
+
+    client = FalClient(api_key="fal-key", model="fal-ai/flux/dev")
+    ok = asyncio.run(
+        client.cancel_media_operation(operation_id="fal-req-9", modality="image")
+    )
+    assert ok is False

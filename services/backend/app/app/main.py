@@ -1368,6 +1368,12 @@ async def submit_media_generation(
     return _media_response(payload)
 
 
+# Terminal media-operation statuses — once reached, polls return the stored
+# payload without re-hitting the provider (a cancelled op must stay cancelled,
+# #518), and _maybe_reconcile_ledger settles the spend exactly once.
+_TERMINAL_MEDIA_STATUSES = ("succeeded", "failed", "cancelled", "timeout")
+
+
 @app.get("/media/operations/{operation_id}", response_model=MediaOperationResponse)
 async def get_media_operation(operation_id: str):
     """Poll a hosted media generation operation."""
@@ -1377,6 +1383,11 @@ async def get_media_operation(operation_id: str):
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Media operation {operation_id} not found",
         )
+    # Terminal payloads are stable: never re-poll the provider (a cancelled op
+    # must not flip back to the provider's in-flight status, #518).
+    last_payload = dict(operation.get("last_payload") or {})
+    if str(last_payload.get("status", "")) in _TERMINAL_MEDIA_STATUSES:
+        return _media_response(last_payload)
     elapsed = time.monotonic() - float(operation["created_at"])
     if elapsed > int(operation["timeout_seconds"]):
         payload = dict(operation["last_payload"])
@@ -1419,6 +1430,66 @@ async def get_media_operation(operation_id: str):
             detail=f"Failed to poll media operation with FAL: {str(e)}",
         )
 
+    MEDIA_OPERATIONS[operation_id]["last_payload"] = payload
+    await _maybe_reconcile_ledger(operation_id, MEDIA_OPERATIONS[operation_id], payload)
+    return _media_response(payload)
+
+
+@app.post(
+    "/media/operations/{operation_id}/cancel",
+    response_model=MediaOperationResponse,
+)
+async def cancel_media_operation(operation_id: str):
+    """Cancel an in-flight media operation (#518).
+
+    Transitions the operation to terminal ``cancelled`` and releases its
+    budget reservation via the existing reconcile path (failed/cancelled/
+    timeout release the spend — #342). Where the provider supports it, the
+    provider-side operation is cancelled too (best-effort: an undeliverable
+    provider cancel still cancels server-side, so billing/reconciling against
+    the op stops either way). Idempotency: ``404`` for an unknown operation,
+    ``409`` for an already-terminal one (succeeded/failed/cancelled/timeout).
+    """
+    operation = MEDIA_OPERATIONS.get(operation_id)
+    if not operation:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Media operation {operation_id} not found",
+        )
+    last_payload = dict(operation.get("last_payload") or {})
+    current_status = str(last_payload.get("status", ""))
+    if current_status in _TERMINAL_MEDIA_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Media operation {operation_id} is already terminal "
+                f"({current_status})"
+            ),
+        )
+
+    # Best-effort provider propagation — never blocks the server-side cancel.
+    provider_cancelled = False
+    if (
+        operation.get("provider") == "fal"
+        and _fal_source_enabled()
+        and _fal_api_key()
+    ):
+        try:
+            async with FalClient(
+                api_key=_fal_api_key(), model=operation["model"]
+            ) as client:
+                provider_cancelled = await client.cancel_media_operation(
+                    operation_id=operation_id,
+                    modality=operation["modality"],
+                )
+        except Exception:  # noqa: BLE001 — best-effort by contract
+            provider_cancelled = False
+
+    payload = dict(last_payload)
+    payload["status"] = "cancelled"
+    provenance = dict(payload.get("provenance") or {})
+    provenance["provider_cancelled"] = provider_cancelled
+    payload["provenance"] = provenance
     MEDIA_OPERATIONS[operation_id]["last_payload"] = payload
     await _maybe_reconcile_ledger(operation_id, MEDIA_OPERATIONS[operation_id], payload)
     return _media_response(payload)

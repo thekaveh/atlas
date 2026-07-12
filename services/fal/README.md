@@ -15,6 +15,7 @@ Atlas does not run a FAL container. The backend reads `FAL_SOURCE`, `FAL_API_KEY
 | Media gateway (image) | `POST /media/generate` with `{"modality":"image"}` | Submits FAL image operations and returns an operation id. Text→image by default; include an init image (`image_url` / `image` / `init_image`, URL or data URI) plus optional `strength` for **img2img** (#453). Size accepts flat `width`/`height` (which win) or a nested `image_size` object. |
 | Media gateway (image→3D) | `POST /media/generate` with `{"modality":"image_to_3d"}` | Submits a hosted image→3D operation (Hunyuan3D / TRELLIS / Tripo / Rodin / Pixal3D) and returns an operation id. |
 | Operation polling | `GET /media/operations/{operation_id}` | Polls provider status and returns normalized artifacts (the GLB is the primary `artifact_url`), cost, license, and provenance. |
+| Operation cancel | `POST /media/operations/{operation_id}/cancel` | Cancels an in-flight operation (#518): terminal `cancelled`, budget reservation released, provider-side cancel propagated best-effort (`provenance.provider_cancelled`). Idempotent — `404` unknown, `409` already-terminal. |
 | Spend read | `GET /media/spend?consumer=<c>` | Scoped spend read (committed/reserved totals + rows for one consumer). Empty unless `MEDIA_BUDGET_ENABLED=true`. |
 | Compatibility route | `POST /comfyui/generate` | Uses FAL for simple image generation when `FAL_SOURCE=enabled`; otherwise preserves the existing ComfyUI path. |
 | Kong | No direct route | FAL is a server-side provider only. The API key stays in the backend environment. |
@@ -50,7 +51,7 @@ Atlas models FAL as a virtual media service:
 - Service category: `media`.
 - Source values: `disabled` and `enabled`.
 - Runtime ownership: no compose service, no container, no volume, and no Kong route.
-- Backend integration: `POST /media/generate` submits hosted image operations to FAL and `GET /media/operations/{operation_id}` polls provider status. `POST /comfyui/generate` still chooses FAL first when `FAL_SOURCE=enabled`, keeping existing Open WebUI and n8n callers compatible.
+- Backend integration: `POST /media/generate` submits hosted image operations to FAL, `GET /media/operations/{operation_id}` polls provider status, and `POST /media/operations/{operation_id}/cancel` cancels an in-flight operation (terminal `cancelled` + budget release + best-effort provider cancel, #518). `POST /comfyui/generate` still chooses FAL first when `FAL_SOURCE=enabled`, keeping existing Open WebUI and n8n callers compatible.
 - ComfyUI-specific routes: workflow execution, queue inspection, history lookup, cancellation, and image file proxying remain ComfyUI-specific.
 - Secret handling: `FAL_API_KEY` is server-side only. The backend maps it to `FAL_KEY` for the fal.ai Python client and never exposes it to browser clients.
 - Operation state: the first media-gateway pass stores submitted operation metadata in the backend process. Restart-durable operation storage, media spend limits, and cost ledgers remain follow-up work.
