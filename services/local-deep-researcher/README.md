@@ -99,6 +99,7 @@ LITELLM_API_KEY=${LITELLM_MASTER_KEY}
 
 ### 5.5 Future — Candidate new services
 
+- **open_deep_research (langchain-ai)** — *Headline:* multi-agent deep-research engine (supervisor + parallel sub-researchers) evaluated as a disabled-by-default **opt-in second research engine complementing LDR** (LDR stays the fast/local/key-free tier). GO-conditional per [`docs/strategy/langchain-stack-evaluation.md`](../../docs/strategy/langchain-stack-evaluation.md) (#532) — gated on a key-free LiteLLM+SearXNG boot at acceptable cost; its `messages`/`final_report` schema needs a per-engine branch in the backend research client.
 - **Langfuse** ([details](../../docs/research/candidates/langfuse.md)) — *Headline:* self-hosted LLM observability with a first-class LangChain/LangGraph callback. *Wires into:* litellm, hermes, n8n, comfyui.
 - **Firecrawl** ([details](../../docs/research/candidates/firecrawl.md)) — *Headline:* self-hosted JS-rendering scraper that returns clean markdown, replacing LDR's `FETCH_FULL_PAGE` DuckDuckGo path with structured extraction. *Wires into:* n8n, backend, hermes.
 - **Crawl4AI** ([details](../../docs/research/candidates/crawl4ai.md)) — *Headline:* LLM-native crawler with built-in chunking and markdown extraction, deployable as a sidecar to LDR. *Wires into:* n8n, weaviate, backend.
