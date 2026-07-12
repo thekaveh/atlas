@@ -334,7 +334,7 @@ _Engine-only manifests (speaches, chatterbox) are not listed — they're selecte
 
 | Service | Direct URL | Kong URL | Purpose | Auth required |
 |---------|------------|----------|---------|---------------|
-| **Atlas Dashboard** | http://localhost:63000 | http://localhost:63000 | Generated service directory with SOURCE state, track context, route links, auth notes, and browser-side reachability checks | None |
+| **Atlas Dashboard** | http://localhost:63000 | http://localhost:63000 | Generated service directory: category-grouped service cards (click-through to each Kong alias dashboard), dark/light themes, SOURCE state, track context, auth notes, and browser-side reachability checks | None |
 | **Open WebUI** | http://localhost:63096 | http://chat.localhost:63000 | AI chat interface | Create account |
 | **n8n** | http://localhost:63075 | http://n8n.localhost:63000 | Workflow automation | Owner setup on first visit |
 | **Supabase Studio** | http://localhost:63019 | http://supabase-studio.localhost:63000 | Database management | Kong route: `kong_admin` / `DASHBOARD_PASSWORD` from `.env` (direct port is ungated) |
