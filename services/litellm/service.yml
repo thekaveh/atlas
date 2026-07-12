@@ -94,4 +94,5 @@ data_flow:
     - lightrag
     - vllm-metal
     - fal
+    - tei-reranker
     - otel-collector

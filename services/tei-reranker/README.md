@@ -52,6 +52,21 @@ curl -s http://localhost:${TEI_RERANKER_PORT}/rerank \
 # → [{"index": 0, "score": ...}, ...]
 ```
 
+### 4.1 Stack-standard rerank via LiteLLM (#516)
+
+When `TEI_RERANKER_SOURCE != disabled` with a resolved endpoint, `litellm-init` also registers a **`tei-rerank`** model on the LiteLLM gateway, so any consumer gets a standard **Cohere-shaped `POST /v1/rerank`** fronting TEI — with LiteLLM's unified auth, cost logging, and retries — instead of bespoke per-consumer TEI wiring:
+
+```bash
+curl -s http://localhost:${LITELLM_PORT}/v1/rerank \
+  -H "Authorization: Bearer ${LITELLM_MASTER_KEY}" \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"tei-rerank","query":"…","documents":["…","…"]}'
+# → {"results": [{"index": 0, "relevance_score": ...}, ...]}
+```
+
+- **Note:** `/rerank` is **not** an OpenAI modality — it is the Cohere-shaped API (`{query, documents}`). LiteLLM registers TEI via the **`huggingface/`** rerank provider, which translates the Cohere request into TEI's native `{query, texts}` shape. The `infinity`/`jina`/`cohere` prefixes would send `{query, documents}` and break against TEI (the mismatch documented in `services/lightrag/service.yml`) — so the `huggingface/` prefix is pinned.
+- **Relationship to #415.** The backend `/lightrag/rerank` adapter still serves LightRAG's specific client shape; the LiteLLM `/v1/rerank` route is the stack-standard path for general consumers. No api_key is needed — TEI is unauthenticated in-network and the endpoint is resolved into `config.yaml` at init time.
+
 ## 5. Dependencies & Integrations
 
 > Auto-generated section — the **Current** subsections are derived from `services/tei-reranker/service.yml`'s `data_flow.calls` field (and inverse passes). Re-run `python -m bootstrapper.docs.regen tei-reranker` after manifest changes.
@@ -65,6 +80,7 @@ _No upstream calls._
 | Service | Category |
 |---|---|
 | kong | infra |
+| litellm | llm |
 
 ### 5.3 Architecture diagram
 
