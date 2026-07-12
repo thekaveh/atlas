@@ -5,57 +5,56 @@ Reads service dependencies from the synthesized runtime config (assembled
 from per-manifest `runtime_deps:` blocks under services/<name>/service.yml)
 and enforces them during service startup, ensuring required dependencies
 are available.
+
+Service enablement (scale/source lookup) is DERIVED from the same manifests
+(#503): each ``services/<name>/service.yml`` already declares the canonical
+``sources.var`` plus its ``*_SCALE`` env vars, so there is no second
+hand-maintained service map to fall out of date. Before this, newer
+manifest services (trino / redpanda / iceberg-rest) were missing from the
+local dicts and fell through to "assume enabled" — a disabled Trino then
+failed startup with a false "trino requires minio" violation.
 """
 
+from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Dict, List, Optional
+
 from core.config_parser import ConfigParser
 from utils.source_override_manager import SourceOverrideManager
 
 
+@dataclass(frozen=True)
+class _ServiceEnablementInfo:
+    """Manifest-derived enablement metadata for one dependency name.
+
+    ``source_var``  — the manifest's canonical ``sources.var`` (or the unique
+                      row-level source var for manifests without a ``sources:``
+                      block, e.g. backend). None when ambiguous (supabase) or
+                      absent (engine-only manifests like speaches/chatterbox —
+                      their availability is decided by their aggregator).
+    ``scale_var``   — the best-matching ``*_SCALE`` env var for THIS name:
+                      the name-derived exact match when the manifest declares
+                      it (``n8n-worker`` → ``N8N_WORKER_SCALE``), else the
+                      manifest's primary row scale var (``openclaw-gateway``
+                      → ``OPENCLAW_SCALE``). None when neither exists.
+    ``all_scale_vars`` — every ``*_SCALE`` env var the manifest declares;
+                      the auto-resolve write path zeroes all of them so a
+                      disabled family takes its init/worker siblings down
+                      (the old hand-written n8n special case, generalized).
+    """
+
+    source_var: Optional[str] = None
+    scale_var: Optional[str] = None
+    all_scale_vars: tuple = field(default_factory=tuple)
+
+
+# Cache of services-dir → {name: _ServiceEnablementInfo}. Manifest loading
+# walks the services tree; dependency checks run several times per start.
+_ENABLEMENT_CACHE: Dict[str, Dict[str, _ServiceEnablementInfo]] = {}
+
+
 class DependencyManager:
     """Manages service dependencies based on YAML configuration."""
-
-    # Single source of truth for service → scale-env-var mapping.
-    # Consumed by both ``get_service_scale`` (read path) and
-    # ``auto_resolve_dependency_violations`` (write path) — having two
-    # local copies of this dict caused the auto-resolve path to silently
-    # skip hermes / openclaw-gateway when their `requires:` deps were
-    # violated.
-    _SCALE_VAR_MAPPING: Dict[str, str] = {
-        'n8n': 'N8N_SCALE',
-        'n8n-worker': 'N8N_SCALE',  # n8n-worker uses same scale as n8n
-        'weaviate': 'WEAVIATE_SCALE',
-        'minio': 'MINIO_SCALE',
-        'neo4j-graph-db': 'NEO4J_SCALE',
-        'searxng': 'SEARXNG_SCALE',
-        'backend': 'BACKEND_SCALE',
-        'jupyterhub': 'JUPYTERHUB_SCALE',
-        'openclaw-gateway': 'OPENCLAW_SCALE',
-        'hermes': 'HERMES_SCALE',
-    }
-
-    # Fallback mapping consulted when a service has no direct *_SCALE env
-    # var — used to derive scale from its *_SOURCE setting instead.
-    # Engine-level services that select via an aggregator's variant
-    # (parakeet / speaches / chatterbox / docling — selected via the
-    # STT_PROVIDER_SOURCE / TTS_PROVIDER_SOURCE / DOC_PROCESSOR_SOURCE
-    # variant string, not a direct *_SOURCE env var) intentionally have
-    # no entry here; their availability is decided by the aggregator,
-    # not by this lookup.
-    _SOURCE_VAR_MAPPING: Dict[str, str] = {
-        'weaviate': 'WEAVIATE_SOURCE',
-        'minio': 'MINIO_SOURCE',
-        'n8n': 'N8N_SOURCE',
-        'neo4j-graph-db': 'NEO4J_GRAPH_DB_SOURCE',
-        'searxng': 'SEARXNG_SOURCE',
-        'backend': 'BACKEND_SOURCE',
-        'jupyterhub': 'JUPYTERHUB_SOURCE',
-        'openclaw-gateway': 'OPENCLAW_SOURCE',
-        'hermes': 'HERMES_SOURCE',
-        'comfyui': 'COMFYUI_SOURCE',
-        'local-deep-researcher': 'LOCAL_DEEP_RESEARCHER_SOURCE',
-        'open-web-ui': 'OPEN_WEB_UI_SOURCE',
-    }
 
     def __init__(self, config_parser: Optional[ConfigParser] = None):
         """
@@ -94,36 +93,112 @@ class DependencyManager:
             
         return self.yaml_config.get('service_dependencies', {})
         
+    def _services_dirs(self) -> List[Path]:
+        """Candidate services dirs: the configured root first (consumer
+        checkouts), then the packaged repo tree (synthetic test roots point
+        their ConfigParser at a tmp dir with no services/)."""
+        dirs: List[Path] = []
+        root = getattr(self.config_parser, "root_dir", None)
+        if root:
+            dirs.append(Path(root) / "services")
+        dirs.append(Path(__file__).resolve().parents[2] / "services")
+        return dirs
+
+    def _enablement_lookup(self) -> Dict[str, _ServiceEnablementInfo]:
+        """Build (once per services dir) the manifest-derived name →
+        enablement-info map covering every manifest name AND container name,
+        so dependency keys like ``openclaw-gateway`` / ``n8n-worker`` /
+        ``neo4j-graph-db`` resolve without a hand-maintained alias table."""
+        for services_dir in self._services_dirs():
+            key = str(services_dir.resolve()) if services_dir.exists() else None
+            if key is None:
+                continue
+            cached = _ENABLEMENT_CACHE.get(key)
+            if cached is not None:
+                return cached
+            try:
+                from services.manifests import load_manifests
+
+                manifests = load_manifests(services_dir)
+            except Exception:  # noqa: BLE001 — fall through to next candidate
+                continue
+
+            lookup: Dict[str, _ServiceEnablementInfo] = {}
+            for m in manifests:
+                if m.sources is not None:
+                    source_var: Optional[str] = m.sources.var
+                else:
+                    # Manifests without a sources: block (backend) still carry
+                    # a canonical per-row source var — use it only when every
+                    # row agrees (supabase's rows diverge → ambiguous → None).
+                    row_vars = {r.source_var for r in m.rows if r.source_var}
+                    source_var = row_vars.pop() if len(row_vars) == 1 else None
+
+                all_scales = tuple(
+                    e.name for e in m.env if e.name.endswith("_SCALE")
+                )
+                primary_scale = next(
+                    (r.scale_var for r in m.rows if r.scale_var), None
+                )
+
+                for name in [m.name, *[str(c) for c in m.containers]]:
+                    derived = name.upper().replace("-", "_") + "_SCALE"
+                    scale_var = (
+                        derived
+                        if derived in all_scales
+                        else primary_scale
+                    )
+                    lookup.setdefault(
+                        name,
+                        _ServiceEnablementInfo(
+                            source_var=source_var,
+                            scale_var=scale_var,
+                            all_scale_vars=all_scales,
+                        ),
+                    )
+            _ENABLEMENT_CACHE[key] = lookup
+            return lookup
+        return {}
+
     def get_service_scale(self, service_name: str) -> int:
         """
         Get the current scale setting for a service from environment.
-        
+
+        Resolution order (manifest-derived, #503):
+
+        1. An explicit integer in the service's ``*_SCALE`` env var wins —
+           this is what a completed start computes and what auto-resolve
+           writes (``N8N_SCALE=0`` while ``N8N_SOURCE`` stays ``container``).
+        2. Blank/garbage scale (fresh ``.env``: auto_managed vars render as
+           ``VAR=``) falls through to the SOURCE signal: ``disabled`` → 0.
+           This is the #503 fix — a disabled Trino/Redpanda/Iceberg-REST on
+           a fresh env no longer masquerades as enabled.
+        3. No signal at all → assume enabled (aggregator-selected engines,
+           always-on families like supabase).
+
         Args:
             service_name: Name of the service
-            
+
         Returns:
             int: Scale value (0 = disabled, 1+ = enabled)
         """
+        info = self._enablement_lookup().get(service_name)
         env_vars = self.config_parser.parse_env_file()
 
-        scale_var = self._SCALE_VAR_MAPPING.get(service_name)
-        if not scale_var:
-            # If no explicit scale var, check if service is disabled via SOURCE
+        if info and info.scale_var:
+            raw = (env_vars.get(info.scale_var, "") or "").strip()
+            if raw:
+                try:
+                    return int(raw)
+                except ValueError:
+                    pass  # garbage → fall through to the source signal
+
+        if info and info.source_var:
             source_vars = self.config_parser.parse_service_sources()
-            source_var = self._SOURCE_VAR_MAPPING.get(service_name)
-            if source_var and source_vars.get(source_var) == 'disabled':
+            if source_vars.get(info.source_var) == 'disabled':
                 return 0
-            return 1  # Assume enabled if no explicit scale or source
-            
-        # auto_managed: true scale vars render to .env.example as
-        # ``VAR=`` (blank). int("") raises ValueError, so coerce blank/
-        # missing values to the same "assume enabled" default the source
-        # fallback above returns.
-        raw = (env_vars.get(scale_var, "") or "").strip()
-        try:
-            return int(raw) if raw else 1
-        except ValueError:
-            return 1
+
+        return 1  # Assume enabled if no explicit scale or source
         
     def check_service_dependencies(self) -> bool:
         """
@@ -190,44 +265,43 @@ class DependencyManager:
             list: List of services that were auto-disabled
         """
         disabled_services = []
-        
+
         for violation in self.dependency_violations:
             service_name = violation['service']
-            
-            # Handle N8N services which need multiple scale variables updated
-            if service_name in ['n8n', 'n8n-worker']:
-                # When disabling n8n, also disable worker and init services.
-                # service_config wrote all three scales BEFORE this runs
-                # (start.py step 4 vs 4.1), so zeroing only N8N_SCALE would
-                # leave n8n-worker and n8n-init running against a dead main.
-                scale_vars_to_update = ['N8N_SCALE', 'N8N_WORKER_SCALE', 'N8N_INIT_SCALE']
 
-                # Route through SourceOverrideManager's atomic, mode-preserving
-                # writer (tmp + os.replace) instead of an in-place open(...,'w'):
-                # a crash mid-write must not truncate the secrets-bearing .env,
-                # and a user-chmod'd 0600 .env must keep its mode. This matches
-                # every other .env writer in the codebase.
-                if SourceOverrideManager(self.config_parser).update_env_file(
-                    {scale_var: '0' for scale_var in scale_vars_to_update}
-                ):
-                    disabled_services.append(service_name)
-                else:
-                    print(f"[ERROR] Failed to disable {service_name}")
-            
+            # Manifest-derived (#503): zero EVERY *_SCALE var the violating
+            # service's manifest declares, so a disabled family takes its
+            # init/worker siblings down with it (n8n → N8N_SCALE +
+            # N8N_WORKER_SCALE + N8N_INIT_SCALE — the old hand-written n8n
+            # special case, generalized to every manifest family). Using the
+            # same lookup as get_service_scale keeps the read and write paths
+            # consistent by construction.
+            info = self._enablement_lookup().get(service_name)
+            scale_vars_to_update = list(info.all_scale_vars) if info else []
+
+            if not scale_vars_to_update:
+                # Actionable, explicit refusal (per #503 AC): never silently
+                # skip — and never mask a disabled service as enabled.
+                print(
+                    f"[ERROR] Cannot auto-resolve dependency violation for "
+                    f"'{service_name}': its manifest declares no *_SCALE env "
+                    f"vars to zero. Disable it explicitly via its *_SOURCE "
+                    f"setting instead."
+                )
+                continue
+
+            # Route through SourceOverrideManager's atomic, mode-preserving
+            # writer (tmp + os.replace) instead of an in-place open(...,'w'):
+            # a crash mid-write must not truncate the secrets-bearing .env,
+            # and a user-chmod'd 0600 .env must keep its mode. This matches
+            # every other .env writer in the codebase.
+            if SourceOverrideManager(self.config_parser).update_env_file(
+                {scale_var: '0' for scale_var in scale_vars_to_update}
+            ):
+                disabled_services.append(service_name)
             else:
-                # Single source of truth (class-level _SCALE_VAR_MAPPING)
-                # ensures n8n / hermes / openclaw-gateway resolve here the
-                # same way they do in get_service_scale.
-                scale_var = self._SCALE_VAR_MAPPING.get(service_name)
-                if scale_var:
-                    # Same atomic, mode-preserving writer as the N8N branch above.
-                    if SourceOverrideManager(self.config_parser).update_env_file(
-                        {scale_var: '0'}
-                    ):
-                        disabled_services.append(service_name)
-                    else:
-                        print(f"[ERROR] Failed to disable {service_name}")
-                    
+                print(f"[ERROR] Failed to disable {service_name}")
+
         return disabled_services
         
     def get_dependency_violations(self) -> List[Dict]:
