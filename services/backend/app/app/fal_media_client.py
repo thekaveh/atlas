@@ -193,8 +193,14 @@ class FalClient:
         return payload
 
     def _image_arguments(self, input_payload: Dict[str, Any]) -> Dict[str, Any]:
-        width = int(input_payload.get("width") or 512)
-        height = int(input_payload.get("height") or 512)
+        # Size: flat width/height keys win; a nested `image_size` object is
+        # accepted as a fallback (#453 — previously it was silently ignored
+        # and the request defaulted to 512×512).
+        nested_size = input_payload.get("image_size")
+        if not isinstance(nested_size, dict):
+            nested_size = {}
+        width = int(input_payload.get("width") or nested_size.get("width") or 512)
+        height = int(input_payload.get("height") or nested_size.get("height") or 512)
         steps = int(input_payload.get("steps") or 20)
         cfg = float(input_payload.get("cfg") or input_payload.get("guidance_scale") or 7.0)
         arguments: Dict[str, Any] = {
@@ -210,6 +216,21 @@ class FalClient:
             arguments["seed"] = input_payload["seed"]
         if input_payload.get("negative_prompt"):
             arguments["negative_prompt"] = input_payload["negative_prompt"]
+        # img2img pass-through (#453): forward an init image (accepted under
+        # image_url / image / init_image) to FAL's img2img key — the same
+        # `image_url` convention _image_to_3d_arguments uses — plus the
+        # optional `strength` denoise knob. Previously these were silently
+        # dropped, degrading every img2img request to text2img.
+        init_image = None
+        for key in ("image_url", "image", "init_image"):
+            value = input_payload.get(key)
+            if isinstance(value, str) and value.strip():
+                init_image = value.strip()
+                break
+        if init_image is not None:
+            arguments["image_url"] = init_image
+            if input_payload.get("strength") is not None:
+                arguments["strength"] = float(input_payload["strength"])
         return arguments
 
     def _image_to_3d_arguments(self, input_payload: Dict[str, Any]) -> Dict[str, Any]:
