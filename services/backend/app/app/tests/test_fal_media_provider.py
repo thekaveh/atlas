@@ -580,3 +580,102 @@ def test_fal_client_image_to_3d_extracts_preview_and_textures(monkeypatch):
     roles = [a["role"] for a in polled["artifacts"]]
     assert roles == ["model_glb", "preview", "texture", "texture"]
     assert polled["artifact_url"] == "https://cdn.example/model.glb"
+
+
+# ── #453: img2img pass-through + nested image_size fallback ─────────────────
+def _submit_image_operation(monkeypatch, input_payload):
+    """Drive submit_media_operation(modality='image') with a stubbed fal_client
+    and return the exact arguments dict handed to fal_client.submit."""
+    captured = {}
+
+    class _Handle:
+        request_id = "fal-img-1"
+
+    def fake_submit(model, *, arguments):
+        captured["model"] = model
+        captured["arguments"] = arguments
+        return _Handle()
+
+    monkeypatch.setitem(
+        sys.modules, "fal_client", types.SimpleNamespace(submit=fake_submit)
+    )
+    from fal_media_client import FalClient
+
+    client = FalClient(
+        api_key="fal-key",
+        model="fal-ai/flux/dev",
+        output_format="jpeg",
+        enable_safety_checker=True,
+    )
+    submitted = asyncio.run(
+        client.submit_media_operation(modality="image", input=input_payload)
+    )
+    return captured, submitted
+
+
+def test_fal_image_submit_forwards_img2img_init_image_and_strength(monkeypatch):
+    """#453: image_url + strength reach fal_client.submit instead of being
+    silently dropped to text2img."""
+    captured, submitted = _submit_image_operation(
+        monkeypatch,
+        {
+            "prompt": "expand this sprite",
+            "image_url": "data:image/webp;base64,AAAA",
+            "strength": 0.4,
+            "width": 1024,
+            "height": 1024,
+        },
+    )
+    args = captured["arguments"]
+    assert args["image_url"] == "data:image/webp;base64,AAAA"
+    assert args["strength"] == 0.4
+    assert args["image_size"] == {"width": 1024, "height": 1024}
+    assert submitted["status"] == "submitted"
+
+
+def test_fal_image_submit_accepts_image_and_init_image_aliases(monkeypatch):
+    """#453: `image` and `init_image` are accepted aliases for the init image."""
+    for alias in ("image", "init_image"):
+        captured, _ = _submit_image_operation(
+            monkeypatch,
+            {"prompt": "variation", alias: "https://cdn.example/sprite.png"},
+        )
+        assert captured["arguments"]["image_url"] == "https://cdn.example/sprite.png"
+        # strength omitted → not injected
+        assert "strength" not in captured["arguments"]
+
+
+def test_fal_image_submit_text2img_contract_unchanged(monkeypatch):
+    """#453 no-regression lock: without an init image the arguments dict is
+    exactly the historical text2img shape (no image_url / strength keys)."""
+    captured, _ = _submit_image_operation(
+        monkeypatch,
+        {"prompt": "neon data center", "width": 640, "height": 480, "steps": 28,
+         "cfg": 3.5, "seed": 123},
+    )
+    assert captured["arguments"] == {
+        "prompt": "neon data center",
+        "image_size": {"width": 640, "height": 480},
+        "num_inference_steps": 28,
+        "guidance_scale": 3.5,
+        "seed": 123,
+        "num_images": 1,
+        "enable_safety_checker": True,
+        "output_format": "jpeg",
+    }
+
+
+def test_fal_image_submit_accepts_nested_image_size_fallback(monkeypatch):
+    """#453 (secondary): a nested image_size object no longer silently
+    defaults to 512x512; flat width/height keys still win when both present."""
+    captured, _ = _submit_image_operation(
+        monkeypatch,
+        {"prompt": "p", "image_size": {"width": 1280, "height": 720}},
+    )
+    assert captured["arguments"]["image_size"] == {"width": 1280, "height": 720}
+
+    captured, _ = _submit_image_operation(
+        monkeypatch,
+        {"prompt": "p", "width": 800, "image_size": {"width": 1280, "height": 720}},
+    )
+    assert captured["arguments"]["image_size"] == {"width": 800, "height": 720}
