@@ -869,7 +869,7 @@ time.
 | label-studio | supabase, minio | jupyterhub, mlflow | supabase, minio |
 | langfuse | supabase, redis, minio, litellm, kong, ray | - | supabase, redis, minio, litellm |
 | lightrag | litellm | supabase, neo4j, redis, docling | litellm, supabase, neo4j, redis, docling |
-| litellm | supabase, redis | - | supabase, redis, ollama, cloud-providers, hermes, lightrag, vllm-metal, fal, otel-collector |
+| litellm | supabase, redis | - | supabase, redis, ollama, cloud-providers, hermes, lightrag, vllm-metal, fal, tei-reranker, otel-collector |
 | llm-graph-builder | neo4j, litellm, kong | minio, docling | neo4j, litellm, minio, docling |
 | local-deep-researcher | searxng, litellm | crawl4ai | litellm, searxng, crawl4ai |
 | loki | kong, ray | - | - |

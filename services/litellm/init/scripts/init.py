@@ -629,6 +629,48 @@ def fal_model_entry() -> dict[str, Any] | None:
     }
 
 
+def tei_rerank_model_entry() -> dict[str, Any] | None:
+    """Return a model_list entry for TEI reranking via LiteLLM's /v1/rerank (#516).
+
+    Returns None unless TEI_RERANKER_SOURCE != ``disabled`` AND both
+    TEI_RERANKER_ENDPOINT and TEI_RERANKER_MODEL_ID are non-empty (the
+    bootstrapper blanks the endpoint for the disabled source).
+
+    Uses LiteLLM's ``huggingface/<model>`` rerank provider pointed at the
+    self-hosted TEI endpoint. This matters: the ``huggingface`` provider speaks
+    TEI's native ``{query, texts}`` wire shape, whereas the ``infinity`` /
+    ``jina`` / ``cohere`` prefixes send ``{query, documents}`` and would break
+    against TEI (the mismatch documented in services/lightrag/service.yml). The
+    result is a stack-standard, Cohere-shaped ``POST /v1/rerank`` fronting TEI —
+    ``/v1/rerank`` is not an OpenAI modality, so no api_key directive is needed
+    (TEI is unauthenticated in-network). Env is re-read here so the entry is
+    unit-testable in isolation.
+    """
+    if os.environ.get("TEI_RERANKER_SOURCE", "disabled").strip().lower() == "disabled":
+        return None
+    endpoint = os.environ.get("TEI_RERANKER_ENDPOINT", "").strip()
+    if not endpoint:
+        return None
+    model_id = os.environ.get("TEI_RERANKER_MODEL_ID", "").strip()
+    if not model_id:
+        return None
+    return {
+        "model_name": "tei-rerank",
+        "litellm_params": {
+            # `huggingface/` (NOT infinity/jina/cohere) → TEI's {query, texts}.
+            "model": f"huggingface/{model_id}",
+            "api_base": endpoint.rstrip("/"),
+        },
+        "model_info": {
+            "mode": "rerank",
+            "description": (
+                "Cross-encoder reranking via self-hosted TEI, exposed as the "
+                "stack-standard Cohere-shaped /v1/rerank through LiteLLM."
+            ),
+        },
+    }
+
+
 def load_consumer_model_rows() -> list[dict[str, Any]]:
     """Load bootstrapper-generated consumer-owned model rows (#411).
 
@@ -716,6 +758,14 @@ def render_config(active_rows: list[Any]) -> dict[str, Any]:
         print(
             f"  ↳ appended fal image entry ({fal_entry['model_name']}) → "
             f"{fal_entry['litellm_params']['model']}",
+            flush=True,
+        )
+    tei_rerank_entry = tei_rerank_model_entry()
+    if tei_rerank_entry is not None:
+        model_list.append(tei_rerank_entry)
+        print(
+            f"  ↳ appended tei-rerank entry ({tei_rerank_entry['model_name']}) → "
+            f"{tei_rerank_entry['litellm_params']['api_base']}",
             flush=True,
         )
     # Consumer-owned rows (#411) merge last so a downstream integration's models

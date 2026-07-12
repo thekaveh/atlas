@@ -2077,6 +2077,9 @@ services:
       PGPASSWORD: password
       PGPORT: '5432'
       PGUSER: supabase_admin
+      TEI_RERANKER_ENDPOINT: ''
+      TEI_RERANKER_MODEL_ID: mixedbread-ai/mxbai-rerank-base-v1
+      TEI_RERANKER_SOURCE: disabled
       VLLM_METAL_ENDPOINT: ''
       VLLM_METAL_MODEL: Qwen/Qwen2.5-7B-Instruct
       VLLM_METAL_SOURCE: disabled
