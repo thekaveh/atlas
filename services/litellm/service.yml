@@ -93,4 +93,5 @@ data_flow:
     - hermes
     - lightrag
     - vllm-metal
+    - fal
     - otel-collector
