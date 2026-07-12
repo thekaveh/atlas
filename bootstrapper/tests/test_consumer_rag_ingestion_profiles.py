@@ -88,8 +88,8 @@ def test_profiles_file_and_overlay_generated(tmp_path: Path) -> None:
     assert config.rag_ingestion_overlay is not None
     overlay = config.rag_ingestion_overlay.content
     assert "backend:" in overlay
-    assert "RAG_INGESTION_PROFILES_FILE: /app/rag-ingestion-profiles.json" in overlay
-    assert "./volumes/backend/rag-ingestion-profiles.json:/app/rag-ingestion-profiles.json:ro" in overlay
+    assert "RAG_INGESTION_PROFILES_FILE: /atlas-consumer-config/rag-ingestion-profiles.json" in overlay
+    assert "./volumes/backend/rag-ingestion-profiles.json:/atlas-consumer-config/rag-ingestion-profiles.json:ro" in overlay
 
 
 def test_plain_text_auto_appended_as_fallback(tmp_path: Path) -> None:
@@ -390,3 +390,27 @@ def test_revision_changes_when_profile_changes(tmp_path: Path) -> None:
     r1 = load_consumer_config(tmp_path, explicit_paths=[str(m1)]).rag_ingestion_profiles[0].revision
     r2 = load_consumer_config(tmp_path, explicit_paths=[str(m2)]).rag_ingestion_profiles[0].revision
     assert r1 != r2  # chunk_size change flips the revision
+
+
+def test_generated_registry_mounts_avoid_app_source_bind():
+    """#533: both generated consumer registries must mount OUTSIDE /app.
+
+    The backend binds ./app/app:/app (services/backend/compose.yml), and Docker
+    Desktop/VirtioFS rejects creating a nested single-file mountpoint inside a
+    host-directory bind ("mountpoint … is outside of rootfs"). The reserved
+    /atlas-consumer-config/ directory is the internal Atlas container contract
+    for generated consumer registries.
+    """
+    from core.consumer_manifest import (
+        LIGHTRAG_QUERY_PROFILES_CONTAINER_PATH,
+        RAG_INGESTION_CONTAINER_PATH,
+    )
+
+    for path in (RAG_INGESTION_CONTAINER_PATH, LIGHTRAG_QUERY_PROFILES_CONTAINER_PATH):
+        assert not path.startswith("/app/"), (
+            f"{path}: generated registries must not mount inside the /app "
+            "source bind (Docker Desktop/VirtioFS rejects nested mountpoints)"
+        )
+        assert path.startswith("/atlas-consumer-config/"), (
+            f"{path}: expected the reserved /atlas-consumer-config/ contract dir"
+        )

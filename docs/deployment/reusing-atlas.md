@@ -602,7 +602,7 @@ rag_ingestion_profiles:
         - { backend: lightrag, mode: upload_documents, wait_for_extraction: true, timeout_seconds: 3600, on_unavailable: skip }
 ```
 
-On `./start.sh`, the bootstrapper validates + normalizes each profile, hashes it into a stable **`revision`**, writes the gitignored `volumes/backend/rag-ingestion-profiles.json`, and generates a compose overlay that bind-mounts that file into the backend and sets `RAG_INGESTION_PROFILES_FILE`. The backend exposes an async job API to submit ingestions headlessly:
+On `./start.sh`, the bootstrapper validates + normalizes each profile, hashes it into a stable **`revision`**, writes the gitignored `volumes/backend/rag-ingestion-profiles.json`, and generates a compose overlay that bind-mounts that file into the backend at the reserved internal contract path `/atlas-consumer-config/rag-ingestion-profiles.json` and sets `RAG_INGESTION_PROFILES_FILE` to it. (The reserved `/atlas-consumer-config/` directory sits *outside* the backend's `/app` source bind — Docker Desktop/VirtioFS rejects nested single-file mountpoints inside a bound directory, #533.) The backend exposes an async job API to submit ingestions headlessly:
 
 ```bash
 # Submit (async when the Celery tier is enabled, else runs in-request); returns an ingestion id.
@@ -648,7 +648,7 @@ lightrag_query_profiles:
       litellm_alias: graph-rag-local-wide      # optional: surface this flavor as a LiteLLM model
 ```
 
-On `./start.sh`, the bootstrapper validates + normalizes each profile, hashes it into a stable **`revision`**, writes the gitignored `volumes/backend/lightrag-query-profiles.json`, and generates a compose overlay that bind-mounts that file into the backend and sets `LIGHTRAG_QUERY_PROFILES_FILE`. A backend plugin reads the registry to resolve a flavor by name; `./start.sh doctor` reports the registered profiles (and warns when profiles are declared but `LIGHTRAG_ENDPOINT` is unset, so flavors can't yet be served).
+On `./start.sh`, the bootstrapper validates + normalizes each profile, hashes it into a stable **`revision`**, writes the gitignored `volumes/backend/lightrag-query-profiles.json`, and generates a compose overlay that bind-mounts that file into the backend at `/atlas-consumer-config/lightrag-query-profiles.json` (the same reserved contract directory as §6.3.4) and sets `LIGHTRAG_QUERY_PROFILES_FILE` to it. A backend plugin reads the registry to resolve a flavor by name; `./start.sh doctor` reports the registered profiles (and warns when profiles are declared but `LIGHTRAG_ENDPOINT` is unset, so flavors can't yet be served).
 
 **How this differs from role-specific model settings.** The `LIGHTRAG_EXTRACT_*` / `LIGHTRAG_KEYWORD_*` / `LIGHTRAG_QUERY_*` env vars pick **which model runs each LightRAG role** for the single deployment-wide default — one active configuration at a time. A query profile is a **named, per-query flavor** you select at call time; many coexist, so you can compare modes/retrieval bounds across the same corpus without editing Atlas-tracked env. Profiles never replace those env defaults — they layer on top of them (see precedence below).
 

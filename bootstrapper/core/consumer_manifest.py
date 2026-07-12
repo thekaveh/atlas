@@ -1636,7 +1636,12 @@ def render_n8n_seed_overlay(workflows: Iterable[N8nWorkflow]) -> str:
 RAG_INGESTION_PROFILES_PATH = Path("volumes/backend/rag-ingestion-profiles.json")
 RAG_INGESTION_OVERLAY_PATH = Path("volumes/backend/rag-ingestion-profiles.compose.yml")
 # Fixed path the profiles file is mounted at inside the backend container.
-RAG_INGESTION_CONTAINER_PATH = "/app/rag-ingestion-profiles.json"
+# Lives under the reserved /atlas-consumer-config/ directory — NOT /app —
+# because /app is already a host-directory source bind; Docker Desktop/
+# VirtioFS rejects creating a nested single-file mountpoint inside it
+# ("mountpoint … is outside of rootfs", #533). The reserved directory is an
+# internal Atlas container contract for generated consumer registries.
+RAG_INGESTION_CONTAINER_PATH = "/atlas-consumer-config/rag-ingestion-profiles.json"
 
 _RAG_NAME_RE = __import__("re").compile(r"^[a-z0-9][a-z0-9._-]*$")
 _RAG_IDENT_RE = __import__("re").compile(r"^[A-Za-z][A-Za-z0-9_]*$")
@@ -2045,7 +2050,9 @@ LIGHTRAG_QUERY_PROFILES_OVERLAY_PATH = Path(
     "volumes/backend/lightrag-query-profiles.compose.yml"
 )
 # Fixed path the profiles registry is mounted at inside the backend container.
-LIGHTRAG_QUERY_PROFILES_CONTAINER_PATH = "/app/lightrag-query-profiles.json"
+# Under the reserved /atlas-consumer-config/ directory (see
+# RAG_INGESTION_CONTAINER_PATH above for the VirtioFS rationale, #533).
+LIGHTRAG_QUERY_PROFILES_CONTAINER_PATH = "/atlas-consumer-config/lightrag-query-profiles.json"
 
 # The five LightRAG-supported retrieval modes (HKUDS/LightRAG QueryParam.mode).
 # ``LIGHTRAG_QUERY_MODE`` is NOT an Atlas env var — mode is runtime-selected — so a

@@ -98,10 +98,10 @@ def test_registry_and_overlay_generated(tmp_path: Path) -> None:
 
     assert config.lightrag_query_profiles_overlay is not None
     overlay = config.lightrag_query_profiles_overlay.content
-    assert "LIGHTRAG_QUERY_PROFILES_FILE: /app/lightrag-query-profiles.json" in overlay
+    assert "LIGHTRAG_QUERY_PROFILES_FILE: /atlas-consumer-config/lightrag-query-profiles.json" in overlay
     assert (
         "./volumes/backend/lightrag-query-profiles.json"
-        ":/app/lightrag-query-profiles.json:ro"
+        ":/atlas-consumer-config/lightrag-query-profiles.json:ro"
     ) in overlay
 
 
