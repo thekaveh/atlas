@@ -29,7 +29,7 @@ Atlas uses this service according to its manifest, topology row, SOURCE settings
 
 - Required dependencies: `supabase, redis`
 - Optional dependencies: `-`
-- Runtime calls: `supabase, redis, ollama, cloud-providers, hermes, lightrag, vllm-metal, otel-collector`
+- Runtime calls: `supabase, redis, ollama, cloud-providers, hermes, lightrag, vllm-metal, fal, otel-collector`
 
 ## 7. Source Values
 
@@ -39,7 +39,7 @@ Atlas uses this service according to its manifest, topology row, SOURCE settings
 
 ## 8. Runtime Integration
 
-The manifest data-flow list declares runtime calls to `supabase, redis, ollama, cloud-providers, hermes, lightrag, vllm-metal, otel-collector`. The topology row supplies aliases and port surfaces used by the generated gateway and service references.
+The manifest data-flow list declares runtime calls to `supabase, redis, ollama, cloud-providers, hermes, lightrag, vllm-metal, fal, otel-collector`. The topology row supplies aliases and port surfaces used by the generated gateway and service references.
 
 ## 9. Architecture
 

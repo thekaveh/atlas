@@ -83,6 +83,14 @@ Hosted media generation has no LiteLLM-style spend accounting of its own, so the
 
 Attribution comes from the request `consumer`/`project` fields or the `X-Atlas-Consumer`/`X-Atlas-Project` headers (default `default`) — a pragmatic key, not authentication; gateway-level identity remains #345 follow-up work. `MEDIA_BUDGET_*` and `MEDIA_DISABLED_PROVIDERS` are declared on the backend service.
 
+### 4.3 LiteLLM text→image route (#515)
+
+When `FAL_SOURCE=enabled` with `FAL_API_KEY` set, `litellm-init` also registers a **`fal-image`** model on the LiteLLM gateway via LiteLLM's native `fal_ai` image provider (`model: fal_ai/${FAL_MODEL}`, gated + disabled-tolerant like the `hermes`/`vllm-metal` rows). This lets OpenAI-shaped clients (Open WebUI image generation, n8n, notebooks) reach fal **text→image** through the single `http://litellm:4000/v1/images/generations` surface with LiteLLM's unified auth, spend logging, and retries — no bespoke backend call needed.
+
+- **Scope is text→image only.** fal **image→3D** (§4.1) and video/audio stay on the Backend media gateway — LiteLLM has no 3D/video modality, and the gateway owns the curated registry + normalized provenance + MinIO storage.
+- **Provenance boundary.** The LiteLLM route returns raw image data (b64/URL) and does **not** perform Atlas provenance/storage; the Backend media gateway (`POST /media/generate`) remains authoritative wherever durable provenance/storage is required. The two paths **complement** each other.
+- **Key wiring.** The `fal-image` row references `os.environ/FAL_AI_API_KEY`, which the LiteLLM *server* resolves at request time; the compose fragment sets `FAL_AI_API_KEY=${FAL_API_KEY}` on the litellm container. The key is never written into `config.yaml`.
+
 ## 5. Dependencies & Integrations
 
 > Auto-generated section — the **Current** subsections are derived from `services/fal/service.yml`'s `data_flow.calls` field (and inverse passes). Re-run `python -m bootstrapper.docs.regen fal` after manifest changes.
@@ -95,6 +103,7 @@ _No upstream calls._
 
 | Service | Category |
 |---|---|
+| litellm | llm |
 | backend | apps |
 
 ### 5.3 Architecture diagram

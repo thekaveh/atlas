@@ -68,6 +68,14 @@ services:
       VLLM_METAL_SOURCE: ${VLLM_METAL_SOURCE:-disabled}
       VLLM_METAL_ENDPOINT: ${VLLM_METAL_ENDPOINT:-}
       VLLM_METAL_MODEL: ${VLLM_METAL_MODEL:-}
+      # fal.ai text→image passthrough (#515) — init.py's fal_model_entry()
+      # returns None unless FAL_SOURCE=enabled with FAL_API_KEY + FAL_MODEL set,
+      # so litellm-init needs these to decide whether to register the `fal-image`
+      # row (native fal_ai provider). init only gates on FAL_API_KEY presence;
+      # the litellm SERVER resolves the value at request time (see below).
+      FAL_SOURCE: ${FAL_SOURCE:-disabled}
+      FAL_MODEL: ${FAL_MODEL:-}
+      FAL_API_KEY: ${FAL_API_KEY:-}
       # Langfuse tracing toggle — init.py reads this when rendering
       # litellm_settings.success_callback.
       LANGFUSE_SOURCE: ${LANGFUSE_SOURCE:-disabled}
@@ -137,6 +145,11 @@ services:
       # services/litellm/init/scripts/init.py when HERMES_SOURCE != disabled) references
       # ``os.environ/HERMES_API_KEY`` for its bearer token.
       HERMES_API_KEY: ${HERMES_API_KEY:-}
+      # fal.ai key for the native `fal_ai` image provider (#515) — the
+      # `fal-image` model_list row references ``os.environ/FAL_AI_API_KEY``,
+      # which the proxy resolves at request time. Sourced from the operator's
+      # FAL_API_KEY; harmless (unused) when fal is disabled.
+      FAL_AI_API_KEY: ${FAL_API_KEY:-}
       # Langfuse gateway tracing — litellm-init adds success_callback:
       # ["langfuse"] only when LANGFUSE_SOURCE=container. These env vars are
       # harmless when the callback is absent.

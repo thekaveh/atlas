@@ -1976,6 +1976,7 @@ services:
     environment:
       ANTHROPIC_API_KEY: ''
       DATABASE_URL: postgresql://supabase_admin:password@supabase-db:5432/litellm
+      FAL_AI_API_KEY: ''
       HERMES_API_KEY: ''
       LANGFUSE_BASE_URL: ''
       LANGFUSE_PUBLIC_KEY: ''
@@ -2048,6 +2049,9 @@ services:
       ANTHROPIC_API_KEY: ''
       ANTHROPIC_USER_MODELS: ''
       ATLAS_MODELS_DIR: /atlas-models
+      FAL_API_KEY: ''
+      FAL_MODEL: fal-ai/flux/dev
+      FAL_SOURCE: disabled
       HERMES_ENDPOINT: ''
       HERMES_SOURCE: container
       LANGFUSE_SOURCE: disabled
