@@ -25,8 +25,9 @@
 <line x1="300" y1="148" x2="360" y2="260" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
 <line x1="300" y1="216" x2="360" y2="260" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
 <line x1="300" y1="310" x2="360" y2="260" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-<line x1="360" y1="266" x2="300" y2="316" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-<text x="330" y="281" fill="#94a3b8" font-size="9" text-anchor="middle">↔ bidirectional</text>
+<line x1="300" y1="378" x2="360" y2="260" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+<line x1="360" y1="266" x2="300" y2="384" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+<text x="330" y="315" fill="#94a3b8" font-size="9" text-anchor="middle">↔ bidirectional</text>
 <line x1="560" y1="260" x2="620" y2="80" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
 <line x1="560" y1="260" x2="620" y2="174" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
 <line x1="560" y1="260" x2="620" y2="242" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
@@ -71,15 +72,26 @@
 <g class="cluster">
   <rect x="60" y="294" width="240" height="58" rx="8"
         fill="rgba(30,41,59,0.35)"
+        stroke="#fb923c" stroke-width="1" stroke-dasharray="4,4" stroke-opacity="0.4"/>
+  <text x="70" y="308" fill="#fb923c" font-size="9" font-weight="700"
+        text-anchor="start" style="letter-spacing:0.06em;text-transform:uppercase;">media</text>
+  <text x="290" y="308" fill="#fb923c" font-size="9" font-weight="600"
+        text-anchor="end">1</text>
+</g>
+
+<g><rect x="68" y="318" width="108" height="22" rx="4" fill="#0f172a"/><rect x="68" y="318" width="108" height="22" rx="4" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1"/><text x="122" y="333" fill="white" font-size="10" text-anchor="middle">fal</text></g>
+<g class="cluster">
+  <rect x="60" y="362" width="240" height="58" rx="8"
+        fill="rgba(30,41,59,0.35)"
         stroke="#34d399" stroke-width="1" stroke-dasharray="4,4" stroke-opacity="0.4"/>
-  <text x="70" y="308" fill="#34d399" font-size="9" font-weight="700"
+  <text x="70" y="376" fill="#34d399" font-size="9" font-weight="700"
         text-anchor="start" style="letter-spacing:0.06em;text-transform:uppercase;">agents</text>
-  <text x="290" y="308" fill="#34d399" font-size="9" font-weight="600"
+  <text x="290" y="376" fill="#34d399" font-size="9" font-weight="600"
         text-anchor="end">2</text>
 </g>
 
-<g><rect x="68" y="318" width="108" height="22" rx="4" fill="#0f172a"/><rect x="68" y="318" width="108" height="22" rx="4" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1"/><text x="122" y="333" fill="white" font-size="10" text-anchor="middle">hermes</text></g>
-<g><rect x="180" y="318" width="108" height="22" rx="4" fill="#0f172a"/><rect x="180" y="318" width="108" height="22" rx="4" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1"/><text x="234" y="333" fill="white" font-size="10" text-anchor="middle">lightrag</text></g>
+<g><rect x="68" y="386" width="108" height="22" rx="4" fill="#0f172a"/><rect x="68" y="386" width="108" height="22" rx="4" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1"/><text x="122" y="401" fill="white" font-size="10" text-anchor="middle">hermes</text></g>
+<g><rect x="180" y="386" width="108" height="22" rx="4" fill="#0f172a"/><rect x="180" y="386" width="108" height="22" rx="4" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1"/><text x="234" y="401" fill="white" font-size="10" text-anchor="middle">lightrag</text></g>
 </g>
 <g>
 <g class="cluster">

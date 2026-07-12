@@ -588,6 +588,47 @@ def vllm_metal_model_entry() -> dict[str, Any] | None:
     }
 
 
+def fal_model_entry() -> dict[str, Any] | None:
+    """Return a model_list entry for fal.ai text→image (#515).
+
+    Returns None unless FAL_SOURCE == ``enabled`` AND both FAL_API_KEY and
+    FAL_MODEL are non-empty. Uses LiteLLM's native ``fal_ai`` image provider
+    (``model: fal_ai/<fal-endpoint>``, callable at ``POST /v1/images/generations``)
+    so OpenAI-shaped image clients reach fal through the one gateway.
+
+    Scope is **text→image only**: fal image→3D and video/audio stay on the
+    Backend media gateway (LiteLLM has no 3D/video modality). Env is re-read
+    here (not captured at import) so the entry is unit-testable in isolation.
+
+    The provider key is referenced as ``os.environ/FAL_AI_API_KEY`` — a directive
+    the LiteLLM *server* resolves at request time (the compose fragment sets
+    ``FAL_AI_API_KEY=${FAL_API_KEY}`` on the litellm container). init only needs
+    to see FAL_API_KEY to decide whether to register the row.
+    """
+    if os.environ.get("FAL_SOURCE", "disabled").strip().lower() != "enabled":
+        return None
+    # Gate on key presence — the server resolves the actual value at runtime.
+    if not os.environ.get("FAL_API_KEY", "").strip():
+        return None
+    model = os.environ.get("FAL_MODEL", "").strip()
+    if not model:
+        return None
+    return {
+        "model_name": "fal-image",
+        "litellm_params": {
+            "model": f"fal_ai/{model}",
+            "api_key": "os.environ/FAL_AI_API_KEY",
+        },
+        "model_info": {
+            "mode": "image_generation",
+            "description": (
+                "fal.ai text→image via LiteLLM's native fal_ai provider. "
+                "Image→3D and video/audio remain on the Backend media gateway."
+            ),
+        },
+    }
+
+
 def load_consumer_model_rows() -> list[dict[str, Any]]:
     """Load bootstrapper-generated consumer-owned model rows (#411).
 
@@ -667,6 +708,14 @@ def render_config(active_rows: list[Any]) -> dict[str, Any]:
         print(
             f"  ↳ appended vllm-metal entry ({vllm_metal_entry['model_name']}) → "
             f"{vllm_metal_entry['litellm_params']['api_base']}",
+            flush=True,
+        )
+    fal_entry = fal_model_entry()
+    if fal_entry is not None:
+        model_list.append(fal_entry)
+        print(
+            f"  ↳ appended fal image entry ({fal_entry['model_name']}) → "
+            f"{fal_entry['litellm_params']['model']}",
             flush=True,
         )
     # Consumer-owned rows (#411) merge last so a downstream integration's models

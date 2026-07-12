@@ -345,6 +345,7 @@ curl -sX POST http://localhost:${LITELLM_PORT}/v1/chat/completions \
 | cloud-providers | llm |
 | ollama | llm |
 | vllm-metal | llm |
+| fal | media |
 | hermes ↔ | agents |
 | lightrag ↔ | agents |
 
