@@ -2290,11 +2290,61 @@ class AtlasStarter:
             result = self.docker_manager.start_services(detached=True, wait=wait)
         
         if result != 0:
-            self.banner.show_status_message("Failed to start some services", "error")
-            return False
+            # Known benign race (#508): `up -d --wait` can return nonzero when
+            # an enabled one-shot init exits 0 during the wait window (Compose
+            # reports e.g. "container …-n8n-init exited (0)"), even though the
+            # whole stack converged. Before failing, inspect the resolved
+            # state — if every reported service is running/healthy or exited
+            # 0, continue to the normal one-shot verification instead of
+            # false-failing automation consumers. Genuine failures (nonzero
+            # exits, unhealthy/non-running services) still fail, with names.
+            if not (wait and self._up_wait_race_converged()):
+                self.banner.show_status_message("Failed to start some services", "error")
+                return False
         if not self.verify_one_shot_init_containers():
             return False
         self.banner.show_status_message("All services started successfully", "success")
+        return True
+
+    def _up_wait_race_converged(self) -> bool:
+        """Classify a nonzero ``up -d --wait`` as the benign one-shot race (#508).
+
+        Returns True only when ``compose ps`` reports at least one service and
+        EVERY reported service is ok per ``_compose_row_status`` (long-lived:
+        running + healthy/no-healthcheck; one-shots: exited 0). Any other
+        outcome — inspection error, empty stack, nonzero exit, unhealthy or
+        non-running service — returns False and names the offenders, so a
+        genuine failure keeps failing loudly.
+        """
+        rows, error = self.docker_manager.compose_ps_json()
+        if error is not None:
+            self.banner.show_status_message(
+                f"Could not inspect services after nonzero `up --wait`: {error}",
+                "error",
+            )
+            return False
+        if not rows:
+            return False
+
+        services = [self._compose_row_status(row) for row in rows]
+        failing = [entry for entry in services if not entry["ok"]]
+        if failing:
+            for entry in failing:
+                exit_note = (
+                    f", exit code {entry['exit_code']}" if entry["exit_code"] else ""
+                )
+                self.banner.show_status_message(
+                    f"{entry['service']}: {entry['reason']}{exit_note}",
+                    "error",
+                )
+            return False
+
+        self.banner.show_status_message(
+            "Compose `up --wait` returned nonzero, but every service is "
+            "running/healthy and every one-shot exited 0 — continuing "
+            "(known successful one-shot init race).",
+            "warning",
+        )
         return True
 
     @staticmethod
