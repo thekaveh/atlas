@@ -563,6 +563,35 @@ class AtlasStarter:
 
         return applied_overrides
 
+    def materialize_consumer_env_for_preflight(self) -> Dict[str, str]:
+        """Persist the consumer manifest's derived ``env_overrides`` into ``.env``
+        before a standalone ``doctor`` / ``compose validate``.
+
+        The full ``start`` flow materializes these (via ``_apply_env_user_overlay``),
+        but the preflight subcommands validate the assembled compose *without*
+        applying them — so a consumer overlay that interpolates ``${BACKEND_PLUGINS_DIR}``
+        (etc.) fails on a fresh checkout that has never started (#451). This applies
+        the same derived, deterministic values a real start would write, so preflight
+        validates the same assembled config a launch produces.
+
+        Quiet by construction (no banner) so ``doctor --format json`` stays
+        machine-clean. No-op when there is no ``.env`` yet or no overrides.
+        Returns the overrides applied (empty dict when none).
+        """
+        if not self.config_parser.env_file_path.exists():
+            return {}
+        try:
+            consumer_config = self.config_parser.load_consumer_config()
+        except Exception:  # noqa: BLE001 — best-effort: a malformed manifest
+            # must surface through the doctor's own consumer-manifest check
+            # (which reports it as a structured `fail`), not crash preflight
+            # before any check has run.
+            return {}
+        overrides = consumer_config.env_overrides or {}
+        if overrides:
+            self._merge_env_file_overrides(overrides)
+        return overrides
+
     def _merge_env_file_overrides(self, overrides: Dict[str, str]) -> None:
         """Replace or append env keys without duplicate-key ambiguity."""
         env_file_path = self.config_parser.env_file_path
@@ -4857,6 +4886,9 @@ def compose_group() -> None:
 def compose_validate_command() -> None:
     """Validate the assembled Compose config, including user overlays."""
     starter = AtlasStarter()
+    # Materialize the consumer manifest's derived env (#451) so overlays that
+    # interpolate ${BACKEND_PLUGINS_DIR} etc. resolve — mirroring a real start.
+    starter.materialize_consumer_env_for_preflight()
     try:
         returncode, stdout, stderr, _cmd = starter.docker_manager.validate_compose_config()
     except (RuntimeError, ValueError) as exc:
@@ -4889,6 +4921,10 @@ def compose_validate_command() -> None:
 def doctor_command(output_format: str) -> None:
     """Run headless consumer preflight checks without starting services."""
     starter = AtlasStarter()
+    # Materialize the consumer manifest's derived env (#451) before the checks
+    # (which validate the assembled compose) so ${BACKEND_PLUGINS_DIR}-style
+    # overlays resolve on a fresh checkout. Quiet — keeps --format json clean.
+    starter.materialize_consumer_env_for_preflight()
     results = _run_consumer_doctor(starter)
     ok = not any(result["status"] == "fail" for result in results)
     payload = {"ok": ok, "checks": results}
