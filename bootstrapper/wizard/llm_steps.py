@@ -84,6 +84,17 @@ def cloud_models_title(provider_name: str) -> str:
     return f"{provider_name} Cloud  ·  models"
 
 
+def fal_secret_title() -> str:
+    """Wizard step title for the FAL Cloud Media API-key (secret) step (#517).
+
+    FAL is a paid cloud media provider, so — like the cloud LLM providers —
+    it is prompted with a masked API-token step (enter a key to enable, leave
+    blank to keep disabled) instead of a plain enabled/disabled source tile.
+    The apply side in integration._selections_to_args matches this exact title.
+    """
+    return "FAL Cloud Media  ·  API key"
+
+
 # ─── helpers ───────────────────────────────────────────────────────────
 
 
@@ -677,6 +688,57 @@ def build_cloud_steps(
             ),
         ))
     return cloud_steps
+
+
+def build_fal_secret_step(
+    env_vars: Dict[str, str],
+    warn: Callable[[str], None],
+) -> List[PromptStep]:
+    """Build the single masked API-token step for FAL Cloud Media (#517).
+
+    Mirrors the cloud-provider secret step (`kind="secret"`, KEEP/CLEAR
+    sentinels) but for a media provider: entering a key enables fal and
+    persists the key; leaving it blank keeps fal disabled. There is no model
+    multiselect (fal uses FAL_MODEL). ``service_name`` is intentionally empty
+    so the grid-row source handler never writes the raw key into a row.
+    """
+    existing_key = (env_vars.get("FAL_API_KEY", "") or "").strip()
+    existing_source = (env_vars.get("FAL_SOURCE", "disabled") or "").strip().lower()
+    if existing_key and existing_source == "enabled":
+        subtitle = (
+            "fal.ai is already enabled. Press Enter to keep the saved key, "
+            "type a replacement key, or type 'clear' to disable."
+        )
+        keep_hint = (
+            "key saved and fal enabled  ·  Enter keeps enabled  ·  "
+            "type a new key to replace  ·  type \"clear\" + Enter to disable"
+        )
+    elif existing_key:
+        subtitle = (
+            "A fal.ai key is saved but FAL_SOURCE is disabled. Press Enter to "
+            "enable with the saved key, type a replacement key, or 'clear' to remove it."
+        )
+        keep_hint = (
+            "key saved but fal disabled  ·  Enter enables with saved key  ·  "
+            "type a new key to replace  ·  type \"clear\" + Enter to remove"
+        )
+    else:
+        subtitle = (
+            "Paste your fal.ai API key to enable cloud media (image generation, "
+            "image→3D). Press Enter (empty) to leave disabled. The key is stored in .env."
+        )
+        keep_hint = None
+    return [PromptStep(
+        title=fal_secret_title(),
+        step_index=0, step_total=0,
+        heading="Enable fal.ai cloud media?",
+        subtitle=subtitle,
+        options=[],
+        default_value=existing_key,
+        service_name="",
+        kind="secret",
+        secret_keep_hint=keep_hint,
+    )]
 
 
 # ─── Default model steps ───────────────────────────────────────────────

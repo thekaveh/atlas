@@ -474,6 +474,14 @@ def _build_steps_and_rows(
         )
 
     for i, svc in enumerate(services_info):
+        # FAL (#517): a paid cloud media provider prompted with a masked
+        # API-token step (spliced right after ComfyUI below), NOT a plain
+        # enabled/disabled source tile — entering a key enables it, blank keeps
+        # it disabled. Skip its normal source step here. FAL stays discovered
+        # (so it keeps its grid row + off-track force-disable), and its apply
+        # logic lives in _selections_to_args alongside the cloud secrets.
+        if svc.key == "fal":
+            continue
         # Per-option secondary_number: attach the inline integer input to
         # the specific option rows where it makes sense.
         # • Ray: worker count on the container-cpu / container-gpu rows.
@@ -637,6 +645,27 @@ def _build_steps_and_rows(
                     steps.append(_dc_replace(_sub, skip_if_prev=_combined))
             else:
                 steps.extend(_comfyui_substeps)
+            # Splice the FAL Cloud Media API-token (secret) step RIGHT AFTER the
+            # ComfyUI step (#517) — same `media` category, adjacent in the flow.
+            # FAL's plain source step was skipped above; here it becomes a masked
+            # token step (key → enabled, blank → disabled). Track-skip wrapped for
+            # `fal` so it only shows in tracks where FAL is in scope.
+            from wizard.llm_steps import build_fal_secret_step
+            _fal_steps = build_fal_secret_step(env_vars, _wizard_warn)
+            if _track_registry is not None:
+                from dataclasses import replace as _dc_replace_fal
+                _track_skip_fal = _make_track_skip(
+                    "fal",
+                    always_on=_always_on,
+                    overridden=_overridden,
+                    registry=_track_registry,
+                )
+                steps.extend(
+                    _dc_replace_fal(_fs, skip_if_prev=_track_skip_fal)
+                    for _fs in _fal_steps
+                )
+            else:
+                steps.extend(_fal_steps)
 
     steps.append(PromptStep(
         title="Cold start  ·  rebuild", step_index=len(services_info) + 2,
@@ -799,6 +828,7 @@ def _selections_to_args(
         LLM_DEFAULT_VISION_TITLE,
         cloud_models_title,
         cloud_secret_title,
+        fal_secret_title,
     )
     env_vars = env_vars or {}
 
@@ -904,6 +934,34 @@ def _selections_to_args(
         if models_v.strip() == "":
             source_args[cli_arg] = "disabled"
             cloud_api_keys[api_key_var] = ""
+
+    # ─── FAL media-provider secret (#517) ────────────────────────────
+    # FAL's plain enabled/disabled source step is replaced by a masked
+    # API-token step (spliced after ComfyUI), so its source is derived from
+    # the key here rather than the generic source loop above. Mirrors the
+    # cloud secret semantics exactly:
+    #   None              → step never visited (off-track) → leave .env as-is.
+    #   SECRET_KEEP       → Enter past a saved key; auto-promote to enabled
+    #                       only when a key exists but the source was disabled.
+    #   SECRET_CLEAR / "" → disable + wipe the key (no fal_source=enabled with
+    #                       a blank key — the runtime footgun this ticket fixes).
+    #   real key string   → enable + persist the key.
+    # FAL_API_KEY rides the cloud_api_keys bag (a generic var→value .env
+    # writer), so no new plumbing is needed.
+    fal_secret_v = selections.get(fal_secret_title())
+    if fal_secret_v is None:
+        pass
+    elif fal_secret_v == SECRET_KEEP:
+        existing_source = (env_vars.get("FAL_SOURCE", "disabled") or "").strip().lower()
+        existing_key = (env_vars.get("FAL_API_KEY", "") or "").strip()
+        if existing_source != "enabled" and existing_key:
+            source_args["fal_source"] = "enabled"
+    elif fal_secret_v == SECRET_CLEAR or fal_secret_v == "":
+        source_args["fal_source"] = "disabled"
+        cloud_api_keys["FAL_API_KEY"] = ""
+    else:
+        source_args["fal_source"] = "enabled"
+        cloud_api_keys["FAL_API_KEY"] = fal_secret_v
 
     # Single unified Ollama models step (replaces the previous
     # pulled+library split). Container modes show library only;
