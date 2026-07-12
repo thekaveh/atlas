@@ -276,3 +276,156 @@ def test_consumer_manifest_docs_are_published_on_all_surfaces() -> None:
         text = path.read_text(encoding="utf-8")
         assert "atlas.consumer.yml" in text
         assert "--consumer" in text
+
+
+def _patch_starter_root(start_module, monkeypatch, tmp_path: Path) -> None:
+    """Route a freshly-constructed AtlasStarter at tmp_path (repo-root fixture)."""
+    original_init = start_module.AtlasStarter.__init__
+
+    def init_with_tmp_root(self):
+        original_init(self)
+        self.config_parser.root_dir = tmp_path
+        self.config_parser.env_file_path = tmp_path / ".env"
+        self.config_parser.env_example_path = tmp_path / ".env.example"
+        self.docker_manager.root_dir = tmp_path
+        self.docker_manager.config_parser.root_dir = tmp_path
+        self.docker_manager.config_parser.env_file_path = tmp_path / ".env"
+        self.docker_manager.config_parser.env_example_path = tmp_path / ".env.example"
+
+    monkeypatch.setattr(start_module.AtlasStarter, "__init__", init_with_tmp_root)
+
+
+def test_materialize_consumer_env_for_preflight_writes_env(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#451 helper: consumer env_overrides are persisted into .env, quietly."""
+    import start as start_module
+
+    _write_minimal_root(tmp_path)
+    manifest = _write_consumer(tmp_path, "preflight")
+    monkeypatch.setenv("ATLAS_CONSUMER_MANIFEST", str(manifest))
+    _patch_starter_root(start_module, monkeypatch, tmp_path)
+
+    starter = start_module.AtlasStarter()
+    applied = starter.materialize_consumer_env_for_preflight()
+
+    assert applied["BACKEND_PLUGINS_DIR"] == str(manifest.parent / "backend" / "plugins")
+    env_text = (tmp_path / ".env").read_text(encoding="utf-8")
+    assert f"BACKEND_PLUGINS_DIR={manifest.parent / 'backend' / 'plugins'}" in env_text
+    assert (
+        f"COMFYUI_CUSTOM_MODELS_FILE={manifest.parent / 'models' / 'custom-models.yaml'}"
+        in env_text
+    )
+
+
+def test_materialize_consumer_env_for_preflight_noop_without_env_or_manifest(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#451 helper: no .env → no-op (never creates one); no manifest → no writes."""
+    import start as start_module
+
+    _write_minimal_root(tmp_path)
+    monkeypatch.delenv("ATLAS_CONSUMER_MANIFEST", raising=False)
+    _patch_starter_root(start_module, monkeypatch, tmp_path)
+
+    # No manifest registered → .env unchanged.
+    before = (tmp_path / ".env").read_text(encoding="utf-8")
+    starter = start_module.AtlasStarter()
+    assert starter.materialize_consumer_env_for_preflight() == {}
+    assert (tmp_path / ".env").read_text(encoding="utf-8") == before
+
+    # Fresh checkout with no .env at all → no-op, and no .env is created.
+    (tmp_path / ".env").unlink()
+    manifest = _write_consumer(tmp_path, "noenv")
+    monkeypatch.setenv("ATLAS_CONSUMER_MANIFEST", str(manifest))
+    starter = start_module.AtlasStarter()
+    assert starter.materialize_consumer_env_for_preflight() == {}
+    assert not (tmp_path / ".env").exists()
+
+
+def test_compose_validate_materializes_consumer_env(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#451: `compose validate --consumer` persists the derived env before
+    invoking the compose subprocess, so `${BACKEND_PLUGINS_DIR}`-interpolating
+    overlays resolve on a fresh checkout that never ran a full start."""
+    import start as start_module
+
+    _write_minimal_root(tmp_path)
+    manifest = _write_consumer(tmp_path, "validate")
+    _patch_starter_root(start_module, monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        start_module.DockerManager,
+        "detect_docker_compose_command",
+        lambda self: "docker compose",
+    )
+
+    env_at_call: dict[str, str] = {}
+
+    class Result:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    def fake_run(cmd, **_kwargs):
+        env_at_call["env_text"] = (tmp_path / ".env").read_text(encoding="utf-8")
+        return Result()
+
+    monkeypatch.setattr(start_module.subprocess, "run", fake_run)
+
+    result = CliRunner().invoke(
+        start_module.main,
+        ["--consumer", str(manifest), "compose", "validate"],
+    )
+
+    assert result.exit_code == 0, result.output
+    # The derived env was already in .env when the compose subprocess ran.
+    assert (
+        f"BACKEND_PLUGINS_DIR={manifest.parent / 'backend' / 'plugins'}"
+        in env_at_call["env_text"]
+    )
+
+
+def test_doctor_materializes_consumer_env_and_keeps_json_clean(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#451: `doctor --format json` persists the derived env (so its compose
+    check validates the same config a real start produces) while stdout stays
+    pure JSON (no banner noise from the quiet helper)."""
+    import json as json_module
+
+    import start as start_module
+
+    _write_minimal_root(tmp_path)
+    manifest = _write_consumer(tmp_path, "doctor")
+    _patch_starter_root(start_module, monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        start_module.DockerManager,
+        "detect_docker_compose_command",
+        lambda self: "docker compose",
+    )
+
+    class Result:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    monkeypatch.setattr(
+        start_module.subprocess, "run", lambda cmd, **_kwargs: Result()
+    )
+
+    result = CliRunner().invoke(
+        start_module.main,
+        ["--consumer", str(manifest), "doctor", "--format", "json"],
+    )
+
+    assert result.exit_code == 0, result.output
+    env_text = (tmp_path / ".env").read_text(encoding="utf-8")
+    assert f"BACKEND_PLUGINS_DIR={manifest.parent / 'backend' / 'plugins'}" in env_text
+    # stdout must be parseable JSON — the quiet helper adds no banner lines.
+    payload = json_module.loads(result.output)
+    assert payload["ok"] is True
