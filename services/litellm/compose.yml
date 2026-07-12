@@ -76,6 +76,15 @@ services:
       FAL_SOURCE: ${FAL_SOURCE:-disabled}
       FAL_MODEL: ${FAL_MODEL:-}
       FAL_API_KEY: ${FAL_API_KEY:-}
+      # TEI rerank passthrough (#516) — init.py's tei_rerank_model_entry()
+      # returns None unless TEI_RERANKER_SOURCE != disabled with a resolved
+      # endpoint, so litellm-init needs these to register the `tei-rerank` row
+      # (huggingface/ rerank provider → TEI's {query, texts}). No api_key: TEI is
+      # unauthenticated in-network, and the api_base is resolved into config.yaml
+      # at init time, so the litellm SERVER needs no extra env.
+      TEI_RERANKER_SOURCE: ${TEI_RERANKER_SOURCE:-disabled}
+      TEI_RERANKER_ENDPOINT: ${TEI_RERANKER_ENDPOINT:-}
+      TEI_RERANKER_MODEL_ID: ${TEI_RERANKER_MODEL_ID:-}
       # Langfuse tracing toggle — init.py reads this when rendering
       # litellm_settings.success_callback.
       LANGFUSE_SOURCE: ${LANGFUSE_SOURCE:-disabled}
