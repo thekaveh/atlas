@@ -102,3 +102,88 @@ def test_automation_docs_name_detach_as_scripted_bring_up() -> None:
         assert "--no-tui --detach" in text
         assert "--no-follow" in text
         assert "scripted" in text.lower() or "automation" in text.lower()
+
+
+# ── #508: nonzero `up --wait` + converged stack = benign one-shot race ──────
+def _race_starter(monkeypatch, *, up_result: int, ps_rows, ps_error=None):
+    import start as start_module
+
+    starter = start_module.AtlasStarter()
+    monkeypatch.setattr(
+        starter.docker_manager, "start_services",
+        lambda detached=True, wait=False, **_kw: up_result,
+    )
+    monkeypatch.setattr(
+        starter.docker_manager, "compose_ps_json",
+        lambda: (ps_rows, ps_error),
+    )
+    # One-shot verification is exercised separately; keep it green here.
+    monkeypatch.setattr(starter, "verify_one_shot_init_containers", lambda: True)
+    return starter
+
+
+_HEALTHY_ROWS = [
+    {"Service": "backend", "State": "running", "Health": "healthy"},
+    {"Service": "litellm", "State": "running", "Health": ""},
+    {"Service": "n8n-init", "State": "exited", "ExitCode": 0,
+     "Status": "exited (0)"},
+    {"Service": "litellm-init", "State": "exited", "ExitCode": 0,
+     "Status": "exited (0)"},
+]
+
+
+def test_up_wait_nonzero_with_converged_stack_is_benign(monkeypatch) -> None:
+    """#508 repro: compose returns nonzero while ps shows only healthy/running
+    services and exited-zero one-shots → startup continues (no false fail)."""
+    starter = _race_starter(monkeypatch, up_result=1, ps_rows=list(_HEALTHY_ROWS))
+    assert starter.start_docker_services(cold_start=False, wait=True) is True
+
+
+def test_up_wait_race_recovery_is_repeatable_for_warm_starts(monkeypatch) -> None:
+    """AC: verified for repeated warm starts — the classifier is stateless, so
+    hitting the race on consecutive `up --wait` runs recovers each time."""
+    starter = _race_starter(monkeypatch, up_result=1, ps_rows=list(_HEALTHY_ROWS))
+    assert starter.start_docker_services(cold_start=False, wait=True) is True
+    assert starter.start_docker_services(cold_start=False, wait=True) is True
+
+
+def test_up_wait_nonzero_with_failed_one_shot_still_fails(monkeypatch, capsys) -> None:
+    """AC: a genuine nonzero one-shot exit still fails and names service+code."""
+    rows = list(_HEALTHY_ROWS) + [
+        {"Service": "weaviate-init", "State": "exited", "ExitCode": 2,
+         "Status": "exited (2)"},
+    ]
+    starter = _race_starter(monkeypatch, up_result=1, ps_rows=rows)
+    assert starter.start_docker_services(cold_start=False, wait=True) is False
+    out = capsys.readouterr().out
+    assert "weaviate-init" in out
+    assert "2" in out
+
+
+def test_up_wait_nonzero_with_unhealthy_service_still_fails(monkeypatch, capsys) -> None:
+    """AC: unhealthy long-lived services still fail startup."""
+    rows = list(_HEALTHY_ROWS) + [
+        {"Service": "weaviate", "State": "running", "Health": "unhealthy"},
+    ]
+    starter = _race_starter(monkeypatch, up_result=1, ps_rows=rows)
+    assert starter.start_docker_services(cold_start=False, wait=True) is False
+    assert "weaviate" in capsys.readouterr().out
+
+
+def test_up_wait_nonzero_with_ps_error_or_empty_still_fails(monkeypatch) -> None:
+    starter = _race_starter(monkeypatch, up_result=1, ps_rows=[],
+                            ps_error="docker compose ps failed")
+    assert starter.start_docker_services(cold_start=False, wait=True) is False
+    starter = _race_starter(monkeypatch, up_result=1, ps_rows=[])
+    assert starter.start_docker_services(cold_start=False, wait=True) is False
+
+
+def test_nonzero_up_without_wait_never_recovers(monkeypatch) -> None:
+    """The race only exists under --wait; the non-wait path keeps failing fast."""
+    starter = _race_starter(monkeypatch, up_result=1, ps_rows=list(_HEALTHY_ROWS))
+    assert starter.start_docker_services(cold_start=False, wait=False) is False
+
+
+def test_zero_up_result_skips_race_inspection(monkeypatch) -> None:
+    starter = _race_starter(monkeypatch, up_result=0, ps_rows=[])
+    assert starter.start_docker_services(cold_start=False, wait=True) is True
