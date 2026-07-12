@@ -25,6 +25,8 @@ Enable from the CLI with:
 ./start.sh --fal-source enabled --fal-api-key <your-fal-key>
 ```
 
+**Interactive wizard (#517).** FAL is a paid cloud provider, so — like the OpenAI / Anthropic / OpenRouter cloud LLM keys — the wizard prompts for it with a **masked API-token step** placed right after the ComfyUI step (both are `media`), rather than a plain enabled/disabled tile: **enter a key to enable fal, or leave it blank to keep it disabled.** Entering a key sets `FAL_SOURCE=enabled` + `FAL_API_KEY`; a blank / `clear` leaves (or sets) `FAL_SOURCE=disabled` and wipes the key. This closes a footgun — it is no longer possible to enable fal in the wizard without a key (which would fail the backend guard `FAL_SOURCE=enabled requires FAL_API_KEY`). FAL still appears in the services grid as a media service.
+
 ## 3. Configuration
 
 | Variable | Default | Purpose |
