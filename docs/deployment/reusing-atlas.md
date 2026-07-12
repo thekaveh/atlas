@@ -364,7 +364,13 @@ default, and prints the keys it added or filled grouped by their source section.
 `./start.sh compose validate` runs the assembled `docker compose config -q`
 path, including every `services/_user/<name>/compose.yml` overlay, and rewrites
 common missing-variable failures into a service and variable summary before
-printing Compose's raw stderr for debugging.
+printing Compose's raw stderr for debugging. Before validating, it materializes
+the consumer manifest's derived env (`BACKEND_PLUGINS_DIR`,
+`COMFYUI_CUSTOM_MODELS_FILE`, `OLLAMA_CUSTOM_MODELS`) into `.env` — the same
+values a full start writes — so an overlay that interpolates
+`${BACKEND_PLUGINS_DIR}` validates on a fresh checkout that has never started
+(no manual `export` workaround needed). `doctor` does the same before running
+its checks.
 
 Exit codes:
 
