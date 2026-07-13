@@ -76,7 +76,7 @@ torchaudio==2.4.1
 # Deep Learning — higher-level frameworks
 torchmetrics==1.4.2
 mlflow==3.14.0
-label-studio-sdk==2.0.0
+label-studio-sdk==2.0.23
 
 # Graph Neural Networks (PyG) — wheels matched to torch 2.4 CPU build
 --find-links https://data.pyg.org/whl/torch-2.4.0+cpu.html  # index uses minor version (covers torch 2.4.x)
