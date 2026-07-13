@@ -47,7 +47,8 @@ def test_multipart_glb_postprocess_stores_content_addressed_local_artifact(
     assert body["artifact"]["content_type"] == "model/gltf-binary"
     assert body["download_url"] == f"/gltf/artifacts/{expected_sha}.glb"
     assert body["normalization"] == {
-        "method": "min-aabb-auto-upright",
+        "method": "keep",
+        "up_axis": "keep",
         "base_y": 0,
         "normalize_axis": "height",
         "target_height_m": 1.8,

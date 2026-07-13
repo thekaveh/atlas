@@ -6,12 +6,17 @@ from pydantic import BaseModel, Field, model_validator
 
 
 NormalizeAxis = Literal["height", "width"]
+# Orientation handling (#524). glTF is +Y-up by spec, so the default is to
+# TRUST the incoming orientation and only scale/center/ground: reorientation
+# is opt-in, never a silent guess.
+UpAxis = Literal["keep", "auto", "x", "y", "z"]
 
 
 class PostprocessParams(BaseModel):
     target_height_m: float | None = Field(default=None, gt=0)
     target_width_m: float | None = Field(default=None, gt=0)
     normalize_axis: NormalizeAxis = "height"
+    up_axis: UpAxis = "keep"
     simplify_ratio: float | None = Field(default=None, gt=0, le=1)
     draco: bool = False
     meshopt: bool = True
@@ -61,8 +66,18 @@ class PostprocessResponse(BaseModel):
 
 
 def normalization_metadata(params: PostprocessParams) -> dict[str, float | int | str | None]:
+    # Report the algorithm actually run (#524) — not a fixed label. `keep`
+    # (default) performs no reorientation; `auto` runs the minimum-AABB-volume
+    # pitch/roll search; x|y|z is an explicit axis remap.
+    if params.up_axis == "keep":
+        method = "keep"
+    elif params.up_axis == "auto":
+        method = "min-aabb-volume"
+    else:
+        method = f"axis:{params.up_axis}"
     metadata: dict[str, float | int | str | None] = {
-        "method": "min-aabb-auto-upright",
+        "method": method,
+        "up_axis": params.up_axis,
         "base_y": 0,
         "normalize_axis": params.normalize_axis,
     }

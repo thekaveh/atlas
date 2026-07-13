@@ -126,20 +126,7 @@ def _transform_positions(
     positions: list[tuple[float, float, float]],
     params: PostprocessParams,
 ) -> list[tuple[float, float, float]]:
-    mins = [min(point[i] for point in positions) for i in range(3)]
-    maxs = [max(point[i] for point in positions) for i in range(3)]
-    extents = [maxs[i] - mins[i] for i in range(3)]
-    up_axis = max(range(3), key=lambda i: extents[i])
-
-    def remap(point: tuple[float, float, float]) -> tuple[float, float, float]:
-        x, y, z = point
-        if up_axis == 0:
-            return (y, x, z)
-        if up_axis == 2:
-            return (x, z, y)
-        return (x, y, z)
-
-    remapped = [remap(point) for point in positions]
+    remapped = _orient_positions(positions, params)
     mins = [min(point[i] for point in remapped) for i in range(3)]
     maxs = [max(point[i] for point in remapped) for i in range(3)]
     height = max(maxs[1] - mins[1], 1e-9)
@@ -156,6 +143,102 @@ def _transform_positions(
         ((point[0] - center_x) * scale, (point[1] - mins[1]) * scale, (point[2] - center_z) * scale)
         for point in remapped
     ]
+
+
+def _orient_positions(
+    positions: list[tuple[float, float, float]],
+    params: PostprocessParams,
+) -> list[tuple[float, float, float]]:
+    """Apply the requested orientation policy (#524).
+
+    ``keep`` (default) and ``y`` perform NO reorientation — glTF is +Y-up by
+    spec, so incoming orientation is trusted and only scale/center/ground
+    runs. ``x``/``z`` explicitly remap that axis to +Y (the historical swap,
+    now opt-in). ``auto`` runs a genuine minimum-AABB-volume search over
+    small pitch/roll tilts (what the metadata name promises) with a dead-band
+    so a model already within a few degrees of Y-up is never touched — even
+    when it is wider than tall (the extent-argmax bug this replaces).
+    """
+    if params.up_axis in ("keep", "y"):
+        return positions
+    if params.up_axis == "x":
+        return [(y, x, z) for x, y, z in positions]
+    if params.up_axis == "z":
+        return [(x, z, y) for x, y, z in positions]
+    return _auto_upright(positions)
+
+
+# auto (min-AABB-volume) search bounds: small tilts only — never axis swaps.
+_AUTO_MAX_TILT_DEG = 45.0
+_AUTO_COARSE_STEP_DEG = 5.0
+_AUTO_FINE_STEP_DEG = 1.0
+# Dead-band: don't rotate when identity is already (near-)optimal.
+_AUTO_DEADBAND_DEG = 3.0
+_AUTO_MIN_IMPROVEMENT = 0.02  # best must beat identity volume by >2%
+# AABB-volume search runs on a subsample so huge meshes stay fast; the chosen
+# rotation is then applied to every vertex.
+_AUTO_SAMPLE_LIMIT = 2048
+
+
+def _auto_upright(
+    positions: list[tuple[float, float, float]],
+) -> list[tuple[float, float, float]]:
+    import math
+
+    stride = max(1, len(positions) // _AUTO_SAMPLE_LIMIT)
+    sample = positions[::stride]
+
+    def rotate(
+        points: list[tuple[float, float, float]], rx: float, rz: float
+    ) -> list[tuple[float, float, float]]:
+        cx, sx = math.cos(rx), math.sin(rx)
+        cz, sz = math.cos(rz), math.sin(rz)
+        out = []
+        for x, y, z in points:
+            # pitch about X
+            y1 = y * cx - z * sx
+            z1 = y * sx + z * cx
+            # roll about Z
+            x2 = x * cz - y1 * sz
+            y2 = x * sz + y1 * cz
+            out.append((x2, y2, z1))
+        return out
+
+    def aabb_volume(points: list[tuple[float, float, float]]) -> float:
+        mins = [min(p[i] for p in points) for i in range(3)]
+        maxs = [max(p[i] for p in points) for i in range(3)]
+        return max(
+            (maxs[0] - mins[0]) * (maxs[1] - mins[1]) * (maxs[2] - mins[2]),
+            1e-12,
+        )
+
+    identity_volume = aabb_volume(sample)
+
+    def search(center_rx: float, center_rz: float, span: float, step: float):
+        best = (identity_volume, 0.0, 0.0)
+        steps = int(span // step)
+        for i in range(-steps, steps + 1):
+            for j in range(-steps, steps + 1):
+                rx = center_rx + i * step
+                rz = center_rz + j * step
+                if abs(rx) > _AUTO_MAX_TILT_DEG or abs(rz) > _AUTO_MAX_TILT_DEG:
+                    continue
+                volume = aabb_volume(
+                    rotate(sample, math.radians(rx), math.radians(rz))
+                )
+                if volume < best[0]:
+                    best = (volume, rx, rz)
+        return best
+
+    _, rx, rz = search(0.0, 0.0, _AUTO_MAX_TILT_DEG, _AUTO_COARSE_STEP_DEG)
+    best_volume, rx, rz = search(rx, rz, _AUTO_COARSE_STEP_DEG, _AUTO_FINE_STEP_DEG)
+
+    near_upright = abs(rx) <= _AUTO_DEADBAND_DEG and abs(rz) <= _AUTO_DEADBAND_DEG
+    improvement = (identity_volume - best_volume) / identity_volume
+    if near_upright or improvement <= _AUTO_MIN_IMPROVEMENT:
+        return positions
+
+    return rotate(positions, math.radians(rx), math.radians(rz))
 
 
 def _write_positions(
