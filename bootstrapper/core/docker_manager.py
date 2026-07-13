@@ -302,35 +302,106 @@ class DockerManager:
             
         return self.execute_compose_command(args)
     
+    def enabled_service_targets(self) -> Optional[list[str]]:
+        """Derive the enabled-service target set from the RENDERED compose
+        projection (#504).
+
+        ``docker compose up`` with no service list evaluates/builds local
+        ``build:`` images for the WHOLE assembled graph before honoring zero
+        replicas — so a broken build for a disabled service (e.g. asset-baker
+        with ``ASSET_BAKER_SOURCE=disabled``) aborts an unrelated track
+        bring-up. Passing an explicit target list makes Compose plan only the
+        listed services plus their ``depends_on`` companions.
+
+        The set is derived from ``docker compose config --format json`` — the
+        resolved configuration itself (env scales, tracks, overrides, and
+        consumer overlays all already applied) — never a hand-maintained
+        allowlist. A service is enabled when ``deploy.replicas`` is absent or
+        non-zero.
+
+        Returns the sorted enabled service names, or ``None`` when the
+        projection cannot be computed (fail-open: callers fall back to the
+        historical full-graph ``up``, which must never be *less* available
+        than before this optimization).
+        """
+        cmd = self._build_compose_command(['config', '--format', 'json'])
+        try:
+            result = subprocess.run(
+                cmd,
+                cwd=str(self.root_dir),
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                check=False,
+                encoding="utf-8",
+                errors="replace",
+            )
+            if result.returncode != 0:
+                return None
+            services = (json.loads(result.stdout) or {}).get("services") or {}
+        except Exception:  # noqa: BLE001 — fail-open by contract
+            return None
+        if not services:
+            return None
+
+        enabled: list[str] = []
+        disabled: list[str] = []
+        for name, spec in services.items():
+            replicas = ((spec or {}).get("deploy") or {}).get("replicas")
+            if replicas is None or int(replicas) != 0:
+                enabled.append(name)
+            else:
+                disabled.append(name)
+        enabled.sort()
+        disabled.sort()
+        # Make the selected target set inspectable for debugging (#504 AC).
+        if disabled:
+            self._on_command(
+                f"      Targeting {len(enabled)} enabled services "
+                f"(excluding {len(disabled)} disabled: {', '.join(disabled)})"
+            )
+        return enabled
+
     def start_services(
         self,
         detached: bool = True,
         wait: bool = False,
         wait_timeout_seconds: int = 900,
+        services: Optional[list[str]] = None,
     ) -> int:
         """
         Start Docker compose services.
         Always uses --force-recreate to ensure containers are recreated with new port settings.
         This matches the original Bash script behavior.
-        
+
+        Targets only the enabled services from the rendered projection (#504)
+        so Compose never builds/pulls images belonging solely to disabled or
+        out-of-track services; dependency companions of enabled services are
+        included by Compose automatically. Pass ``services`` to override, or
+        rely on the fail-open derivation (None → full graph, as before).
+
         Args:
             detached: Whether to run in detached mode (-d flag)
-            
+
         Returns:
             int: Return code from the command
         """
         args = ['up']
-        
+
         if detached:
             args.append('-d')
-            
+
         # Always use --force-recreate to match original Bash behavior
         # This ensures containers are recreated with updated port settings
         args.append('--force-recreate')
 
         if wait:
             args.extend(['--wait', '--wait-timeout', str(wait_timeout_seconds)])
-            
+
+        targets = services if services is not None else self.enabled_service_targets()
+        if targets:
+            args.extend(targets)
+
         return self.execute_compose_command(args)
 
     def validate_compose_config(self) -> tuple[int, str, str, list[str]]:
@@ -509,25 +580,36 @@ class DockerManager:
             
         return all_successful
     
-    def build_services(self, no_cache: bool = False, pull: bool = False) -> int:
+    def build_services(
+        self,
+        no_cache: bool = False,
+        pull: bool = False,
+        services: Optional[list[str]] = None,
+    ) -> int:
         """
         Build Docker compose services with optional flags.
-        
+
         Args:
             no_cache: Whether to build without cache (--no-cache flag)
             pull: Whether to pull latest images (--pull flag)
-            
+            services: Optional explicit target list (#504) — when given,
+                only these services' images are built (disabled services'
+                broken builds can't abort a cold start).
+
         Returns:
             int: Return code from the command
         """
         args = ['build']
-        
+
         if no_cache:
             args.append('--no-cache')
-            
+
         if pull:
             args.append('--pull')
-            
+
+        if services:
+            args.extend(services)
+
         return self.execute_compose_command(args)
     
     def show_container_status(self) -> int:
