@@ -49,6 +49,7 @@ The default `ASSET_WORKER_SOURCE=disabled` keeps the worker out of normal starts
 | `target_height_m` | no | Target height after normalization when `normalize_axis=height`. |
 | `target_width_m` | no | Target max horizontal width after normalization when `normalize_axis=width`. |
 | `normalize_axis` | no | `height` or `width`; default `height`. |
+| `up_axis` | no | Orientation policy (#524): `keep` (default — trust the incoming +Y-up orientation; scale/center/ground only), `auto` (minimum-AABB-volume search over small pitch/roll tilts; never rotates a model already within a few degrees of Y-up), or `x`/`y`/`z` (explicitly remap that axis to +Y). |
 | `simplify_ratio` | no | glTF-Transform simplification ratio from `0` to `1`. |
 | `draco` | no | Enables Draco mesh compression. |
 | `meshopt` | no | Enables Meshopt mesh compression when Draco is not selected. |
@@ -83,7 +84,8 @@ Both endpoints return a normalized artifact envelope:
   },
   "download_url": null,
   "normalization": {
-    "method": "min-AABB auto-upright",
+    "method": "keep",
+    "up_axis": "keep",
     "base_y": 0,
     "normalize_axis": "height",
     "target_height_m": 1.8
@@ -99,6 +101,10 @@ Both endpoints return a normalized artifact envelope:
 ```
 
 When `ASSET_WORKER_MINIO_ENABLED=false`, the worker stores the optimized GLB under `ASSET_WORKER_ARTIFACT_DIR/gltf/<sha256>.glb` and returns `download_url=/gltf/artifacts/<sha256>.glb`. The normalization places the base-at-y=0 before scaling.
+
+### 4.4 Scope boundary — mechanical conditioning only
+
+This service performs **mechanical glTF conditioning**: scale-to-target, center-XZ, ground-at-`y=0`, and mesh/texture optimization. **Orientation policy is the consumer's** — glTF is +Y-up by spec, so by default (`up_axis=keep`) incoming orientation is trusted and never second-guessed; reorientation (`auto` or an explicit axis) is strictly opt-in per request (#524). Product-specific asset rules (which assets to reorient, semantic up-ness, placement conventions) belong in the consuming pipeline, not here.
 
 ## 5. Architecture & Wiring
 
