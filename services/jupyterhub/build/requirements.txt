@@ -49,8 +49,8 @@ ccxt==4.5.64
 # Lakehouse clients
 # Keep boto3/s3fs aligned through botocore + fsspec to avoid slow resolver
 # backtracking and to stay compatible with the notebook ML dependency set.
-boto3==1.35.36
-botocore==1.35.36
+boto3==1.43.46
+botocore==1.43.46
 aiobotocore==2.15.2
 s3fs==2024.9.0
 fsspec==2024.9.0
