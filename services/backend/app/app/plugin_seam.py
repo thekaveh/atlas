@@ -47,6 +47,52 @@ except ValueError:
     _PIP_INSTALL_TIMEOUT = 300
 
 
+# Writable install target for plugin requirements (#559). The image runs as
+# `appuser` with root-owned system site-packages and no $HOME, so a plain
+# `pip install` (and pip's automatic --user fallback) dies with EACCES and the
+# seam skipped every plugin that declared a package the image doesn't
+# preinstall. Installing with `pip --target` into this pre-created directory —
+# inserted into sys.path BEFORE any plugin import — sidesteps all three
+# footguns from the report: no writable site-packages needed, no $HOME/user-
+# site involved, and no CPython cached-None path-importer trap (the directory
+# exists before Python ever scans it; importlib.invalidate_caches() after each
+# install is belt-and-braces).
+_PLUGIN_SITE_ENV = "BACKEND_PLUGINS_SITE_DIR"
+_PLUGIN_SITE_DEFAULT = "/tmp/atlas-plugins-site"
+_plugin_site_dir: Path | None = None
+
+
+def _ensure_plugin_site() -> Path | None:
+    """Create the writable plugin site dir and put it on sys.path (once).
+
+    Returns the directory, or None when it cannot be created — in which case
+    installs degrade to the historical un-targeted `pip install` (correct for
+    images whose site-packages IS writable, e.g. root-run dev containers).
+    """
+    global _plugin_site_dir
+    site_dir = Path(os.getenv(_PLUGIN_SITE_ENV, _PLUGIN_SITE_DEFAULT))
+    try:
+        site_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:  # degrade, never block startup
+        _log.warning(
+            "plugin seam: cannot create plugin site dir %s (%s); "
+            "falling back to un-targeted pip install",
+            site_dir,
+            exc,
+        )
+        _plugin_site_dir = None
+        return None
+    # Insert BEFORE any plugin import so the FileFinder for this path is
+    # created against an existing directory (footgun #2: a sys.path entry
+    # whose directory is missing at first import is permanently cached as
+    # None for the life of the process).
+    if str(site_dir) not in sys.path:
+        sys.path.insert(0, str(site_dir))
+    importlib.invalidate_caches()
+    _plugin_site_dir = site_dir
+    return site_dir
+
+
 class PluginRequirementsInstallError(RuntimeError):
     """Raised when pip cannot install a plugin requirements file."""
 
@@ -75,9 +121,16 @@ def _install_requirements(directory: Path, installed: set[Path] | None = None) -
         if resolved in installed:
             return
     _log.info("plugin seam: installing %s", reqs)
+    pip_cmd = [sys.executable, "-m", "pip", "install", "--no-cache-dir"]
+    if _plugin_site_dir is not None:
+        # #559: install into the pre-created writable site dir (already on
+        # sys.path). --upgrade lets successive boots refresh packages that
+        # are already present in the target without erroring.
+        pip_cmd += ["--target", str(_plugin_site_dir), "--upgrade"]
+    pip_cmd += ["-r", str(reqs)]
     try:
         subprocess.run(
-            [sys.executable, "-m", "pip", "install", "--no-cache-dir", "-r", str(reqs)],
+            pip_cmd,
             check=True,
             capture_output=True,
             text=True,
@@ -100,6 +153,9 @@ def _install_requirements(directory: Path, installed: set[Path] | None = None) -
                 + f"\nplugin seam: pip install timed out after {_PIP_INSTALL_TIMEOUT}s",
             ),
         ) from exc
+    # Newly-installed packages must be visible to the imports that follow —
+    # refresh importlib's finder caches (#559 footgun #2).
+    importlib.invalidate_caches()
     if installed is not None:
         installed.add(resolved)
 
@@ -235,6 +291,9 @@ def load_plugins(app) -> list[dict]:
     endpoint and generated docs.
     """
     PLUGIN_INVENTORY.clear()
+    # #559: prepare the writable install target and put it on sys.path BEFORE
+    # any requirements install or plugin import.
+    _ensure_plugin_site()
     installed_requirements: set[Path] = set()
     seen_names: dict[str, str] = {}
     seen_prefixes: dict[str, str] = {}
