@@ -2269,22 +2269,32 @@ class AtlasStarter:
         
         if cold_start:
             self.banner.show_status_message("Starting containers with fresh build (cold start)...", "info")
-            
+
+            # Enabled-service target set from the rendered projection (#504) —
+            # a broken build for a disabled/out-of-track service must not
+            # abort the cold start. None (projection failure) falls back to
+            # the historical full-graph build/up.
+            targets = self.docker_manager.enabled_service_targets()
+
             # Build images without cache (matching original Bash script behavior)
             print("    - Building images without cache...")
-            build_result = self.docker_manager.build_services(no_cache=True, pull=False)
-            
+            build_result = self.docker_manager.build_services(
+                no_cache=True, pull=False, services=targets
+            )
+
             if build_result != 0:
                 self.banner.show_status_message("Failed to build some services", "error")
                 return False
-                
+
             print("    - Starting containers...")
-            # Start with force recreate for cold start 
+            # Start with force recreate for cold start
             up_args = ['up', '-d', '--force-recreate']
             if wait:
                 up_args.extend(['--wait', '--wait-timeout', '900'])
+            if targets:
+                up_args.extend(targets)
             result = self.docker_manager.execute_compose_command(up_args)
-            
+
         else:
             self.banner.show_status_message("Starting Atlas services...", "info")
             result = self.docker_manager.start_services(detached=True, wait=wait)

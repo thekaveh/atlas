@@ -1680,13 +1680,22 @@ class WizardScreen(Screen):
 
             self._write_status("", style="", source="pipeline")
 
+            # Enabled-service target set from the rendered projection (#504):
+            # Compose plans builds for the WHOLE graph when `up` has no
+            # service list, so a broken build for a disabled service would
+            # abort the launch. None (projection failure) → full graph.
+            import asyncio as _asyncio
+            targets = await _asyncio.to_thread(
+                self._starter.docker_manager.enabled_service_targets
+            )
+
             if cold:
                 self._write_status("🧹 Cold-start cleanup",
                                    style="bold cyan", source="pipeline")
                 await self._cold_cleanup()
                 self._write_status("📦 Building images (cold start)…",
                                    style="bold cyan", source="pipeline")
-                rc = await self._run_compose(["build", "--no-cache"])
+                rc = await self._run_compose(["build", "--no-cache", *(targets or [])])
                 if rc != 0:
                     self._write_status("❌ Build failed", style="bold red",
                                        source="pipeline")
@@ -1694,7 +1703,7 @@ class WizardScreen(Screen):
 
             self._write_status("🚀 Starting containers…",
                                style="bold cyan", source="pipeline")
-            rc = await self._run_compose(["up", "-d", "--force-recreate"])
+            rc = await self._run_compose(["up", "-d", "--force-recreate", *(targets or [])])
             if rc != 0:
                 self._write_status("❌ Start failed — capturing per-service logs to launch log",
                                    style="bold red", source="pipeline")
