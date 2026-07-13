@@ -46,6 +46,10 @@ def test_docker_start_services_can_wait_for_health(monkeypatch) -> None:
         return 0
 
     monkeypatch.setattr(manager, "execute_compose_command", fake_execute)
+    # #504: targeting is fail-open — pin the projection to None here so this
+    # test deterministically asserts the historical full-graph argv shape
+    # (the targeted argv is covered by test_targeted_compose_up.py).
+    monkeypatch.setattr(manager, "enabled_service_targets", lambda: None)
 
     assert manager.start_services(detached=True, wait=True, wait_timeout_seconds=123) == 0
     assert captured == [

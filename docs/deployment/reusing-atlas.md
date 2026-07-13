@@ -332,7 +332,12 @@ health poll:
 `--detach` is also available as `--no-follow`. It runs the normal Atlas start
 pipeline, starts Compose in detached mode with its health wait enabled, prints a
 per-service status summary, and exits with `0` only when the final status
-summary is healthy. A nonzero Compose `up --wait` return is re-inspected before
+summary is healthy. Startup targets only the **enabled** services from the
+rendered Compose projection (derived from the resolved configuration — tracks,
+overrides, and consumer overlays included), so a broken local build belonging
+to a disabled/out-of-track service can no longer abort the bring-up; the
+selected target set (and the excluded disabled services) is echoed for
+debugging (#504). A nonzero Compose `up --wait` return is re-inspected before
 failing: when every service is running/healthy and every one-shot init exited
 `0`, it is classified as the known benign one-shot race and startup continues
 to the final summary; genuine failures still fail and name the offending
