@@ -73,6 +73,9 @@ env:
   - name: BACKEND_PLUGINS_PIP_TIMEOUT_SECONDS
     default: 300
     description: "Timeout in seconds for `pip install` of backend plugin requirements (plugin_seam) at startup. The install runs at backend import time, so an unbounded hang would block startup; raise for slow networks."
+  - name: BACKEND_PLUGINS_SITE_DIR
+    default: /tmp/atlas-plugins-site
+    description: "Writable directory the plugin seam pip-installs plugin requirements into (`pip --target`) and prepends to sys.path before plugin imports (#559). The image runs as appuser with root-owned site-packages and no $HOME, so untargeted installs fail with EACCES. Must be creatable by the backend user; falls back to untargeted pip install when it cannot be created."
   - name: LANGMEM_ENABLED
     default: true
   - name: LANGMEM_MEMORY_NAMESPACE

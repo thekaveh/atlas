@@ -98,14 +98,18 @@ def test_load_plugins_installs_shared_and_per_plugin_requirements_in_order(tmp_p
     import plugin_seam
 
     def fake_run(cmd, **kwargs):
-        assert cmd[:6] == [
+        # #559: the seam now installs with `--target <site dir> --upgrade`
+        # into the pre-created writable plugin site; the invocation prefix and
+        # the `-r <requirements>` tail are otherwise unchanged.
+        assert cmd[:5] == [
             sys.executable,
             "-m",
             "pip",
             "install",
             "--no-cache-dir",
-            "-r",
         ]
+        assert "--target" in cmd and "--upgrade" in cmd
+        assert cmd[-2] == "-r"
         assert kwargs == {"check": True, "capture_output": True, "text": True, "timeout": 300}
         requirement_path = Path(cmd[-1]).resolve().relative_to(tmp_path.resolve())
         events.append(("install", str(requirement_path)))
@@ -330,3 +334,128 @@ def test_inventory_masks_secret_env(tmp_path, monkeypatch):
     token_row = next(r for r in entry["env"] if r["name"] == "SEC_TOKEN")
     assert token_row["value"] == "***"
     assert "top-secret-value" not in repr(inventory)
+
+
+# ── #559: pip --target into a pre-created writable site dir ─────────────────
+def _write_plugin(tmp_path, name="siteplug", requirement="boto3"):
+    plugin = tmp_path / name
+    plugin.mkdir(parents=True)
+    (plugin / "__init__.py").write_text(
+        "from fastapi import APIRouter\nrouter = APIRouter()\n"
+    )
+    (plugin / "requirements.txt").write_text(f"{requirement}\n")
+    return plugin
+
+
+def test_install_targets_writable_site_dir_on_sys_path(tmp_path, monkeypatch):
+    """#559 core: requirements install with `--target <site dir> --upgrade`,
+    and the pre-created site dir is on sys.path BEFORE any plugin import (so
+    CPython's path-finder cache is built against an existing directory)."""
+    import plugin_seam
+    from fastapi import FastAPI
+
+    site_dir = tmp_path / "plugin-site"
+    monkeypatch.setenv("BACKEND_PLUGINS_SITE_DIR", str(site_dir))
+    plugins_root = tmp_path / "plugins"
+    _write_plugin(plugins_root)
+    monkeypatch.setenv("BACKEND_PLUGINS_DIR", str(plugins_root))
+
+    pip_calls: list[list[str]] = []
+
+    def fake_run(cmd, **kwargs):
+        pip_calls.append(list(cmd))
+        # The site dir must already exist and be on sys.path at install time.
+        assert site_dir.is_dir()
+        assert str(site_dir) in sys.path
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(plugin_seam.subprocess, "run", fake_run)
+    plugin_seam.load_plugins(FastAPI())
+
+    assert pip_calls, "per-plugin requirements should trigger a pip install"
+    for cmd in pip_calls:
+        target_idx = cmd.index("--target")
+        assert cmd[target_idx + 1] == str(site_dir)
+        assert "--upgrade" in cmd
+        assert "-r" in cmd
+
+
+def test_site_dir_creation_failure_degrades_to_untargeted_install(tmp_path, monkeypatch):
+    """Fail-open: when the site dir cannot be created, installs run without
+    --target (correct for images whose site-packages is writable) and startup
+    is never blocked."""
+    import plugin_seam
+    from fastapi import FastAPI
+
+    # A path under a FILE cannot be mkdir'd → OSError path.
+    blocker = tmp_path / "blocker"
+    blocker.write_text("")
+    monkeypatch.setenv("BACKEND_PLUGINS_SITE_DIR", str(blocker / "site"))
+    plugins_root = tmp_path / "plugins"
+    _write_plugin(plugins_root)
+    monkeypatch.setenv("BACKEND_PLUGINS_DIR", str(plugins_root))
+
+    pip_calls: list[list[str]] = []
+
+    def fake_run(cmd, **kwargs):
+        pip_calls.append(list(cmd))
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(plugin_seam.subprocess, "run", fake_run)
+    plugin_seam.load_plugins(FastAPI())
+
+    assert pip_calls
+    for cmd in pip_calls:
+        assert "--target" not in cmd
+
+
+def test_install_invalidates_import_caches(tmp_path, monkeypatch):
+    """#559 footgun 2: after a successful install, importlib caches are
+    refreshed so packages that appeared mid-process become importable."""
+    import plugin_seam
+    from fastapi import FastAPI
+
+    monkeypatch.setenv("BACKEND_PLUGINS_SITE_DIR", str(tmp_path / "site"))
+    plugins_root = tmp_path / "plugins"
+    _write_plugin(plugins_root)
+    monkeypatch.setenv("BACKEND_PLUGINS_DIR", str(plugins_root))
+    monkeypatch.setattr(
+        plugin_seam.subprocess,
+        "run",
+        lambda cmd, **kw: subprocess.CompletedProcess(cmd, 0, "", ""),
+    )
+    calls = {"n": 0}
+    real_invalidate = plugin_seam.importlib.invalidate_caches
+
+    def counting_invalidate():
+        calls["n"] += 1
+        real_invalidate()
+
+    monkeypatch.setattr(plugin_seam.importlib, "invalidate_caches", counting_invalidate)
+    plugin_seam.load_plugins(FastAPI())
+    # once at site setup + once per successful install (>=1 plugin reqs)
+    assert calls["n"] >= 2
+
+
+def test_no_home_environment_regression_shape(tmp_path, monkeypatch):
+    """The report's EACCES shape (no $HOME, root site-packages) cannot recur:
+    the pip command never relies on user-site — it always carries an explicit
+    --target when the site dir is available."""
+    import plugin_seam
+    from fastapi import FastAPI
+
+    monkeypatch.delenv("HOME", raising=False)
+    monkeypatch.setenv("BACKEND_PLUGINS_SITE_DIR", str(tmp_path / "site"))
+    plugins_root = tmp_path / "plugins"
+    _write_plugin(plugins_root)
+    monkeypatch.setenv("BACKEND_PLUGINS_DIR", str(plugins_root))
+
+    pip_calls: list[list[str]] = []
+    monkeypatch.setattr(
+        plugin_seam.subprocess,
+        "run",
+        lambda cmd, **kw: (pip_calls.append(list(cmd)), subprocess.CompletedProcess(cmd, 0, "", ""))[1],
+    )
+    plugin_seam.load_plugins(FastAPI())
+    assert pip_calls and all("--target" in cmd for cmd in pip_calls)
+    assert all("--user" not in cmd for cmd in pip_calls)
