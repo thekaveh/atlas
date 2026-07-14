@@ -5,13 +5,12 @@ import sys
 from pathlib import Path
 
 from click.testing import CliRunner
+from tests.three_surface_test_utils import surface_text
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "bootstrapper"))
 REUSING_ATLAS = REPO_ROOT / "docs" / "deployment" / "reusing-atlas.md"
-SITE_OPERATIONS = REPO_ROOT / "docs" / "site" / "operations.md"
-WIKI_OPERATIONS = REPO_ROOT / "docs" / "wiki" / "Operations.md"
 
 
 def _write_base_env(tmp_path: Path, extra: str = "") -> None:
@@ -829,8 +828,10 @@ def test_consumer_doctor_docs_are_published_on_all_surfaces() -> None:
     assert "./start.sh doctor --format json" in reusing
     assert "consumer CI" in reusing
 
-    for path in (SITE_OPERATIONS, WIKI_OPERATIONS):
-        text = path.read_text(encoding="utf-8")
+    for text in (
+        surface_text("docs/operations.md", "site"),
+        surface_text("docs/operations.md", "wiki"),
+    ):
         assert "./start.sh doctor" in text
         assert "--format json" in text
         assert "overlay" in text.lower()

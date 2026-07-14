@@ -10,6 +10,7 @@ import pytest
 import yaml
 
 from utils import llm_catalog
+from tests.three_surface_test_utils import surface_text
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -357,13 +358,12 @@ def test_non_embed_named_embedding_is_explicit_and_dimensioned() -> None:
 
 
 def test_capability_docs_are_synchronized_across_three_surfaces() -> None:
-    surfaces = [
-        ROOT / "services/litellm/README.md",
-        ROOT / "docs/site/services/litellm.md",
-        ROOT / "docs/wiki/Core-Concepts.md",
-    ]
-    for path in surfaces:
-        text = path.read_text(encoding="utf-8")
+    surfaces = (
+        (ROOT / "services/litellm/README.md").read_text(encoding="utf-8"),
+        surface_text("services/litellm/README.md", "site"),
+        surface_text("services/litellm/README.md", "wiki"),
+    )
+    for text in surfaces:
         assert "metadata_version" in text
         assert "recommended_roles" in text
         assert "LightRAG" in text

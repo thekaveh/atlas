@@ -99,6 +99,8 @@ When `LIGHTRAG_SOURCE != disabled`, the env vars `LIGHTRAG_ENDPOINT` and `LIGHTR
 - Auth: Bearer token from `={{$env.LIGHTRAG_API_KEY}}`
 - Body (JSON): `{"query": "/hybrid Your question"}`
 
+<a id="6-dependencies--integrations"></a>
+
 ## 6. Dependencies & Integrations
 
 > Auto-generated section — the **Current** subsections are derived from `services/n8n/service.yml`'s `data_flow.calls` field (and inverse passes). Re-run `python -m bootstrapper.docs.regen n8n` after manifest changes.

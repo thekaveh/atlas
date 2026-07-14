@@ -7,6 +7,7 @@ import yaml
 from core.config_parser import ConfigParser
 from tracks import is_in_track, load_tracks
 from utils.source_override_manager import SourceOverrideManager
+from tests.three_surface_test_utils import surface_text
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -85,18 +86,17 @@ def test_asset_baker_track_membership_and_cli_mapping() -> None:
 
 def test_asset_baker_env_docs_and_site_surfaces() -> None:
     env_example = (ROOT / ".env.example").read_text(encoding="utf-8")
-    service_page = ROOT / "docs" / "site" / "services" / "asset-baker.md"
-    source_values = ROOT / "docs" / "site" / "reference" / "source-values.md"
-    ports_routes = ROOT / "docs" / "site" / "reference" / "ports-routes.md"
-    wiki_services = ROOT / "docs" / "wiki" / "Services.md"
+    service_page = surface_text("services/asset-baker/README.md", "site")
+    source_values = surface_text("docs/reference/source-values.md", "site")
+    ports_routes = surface_text("docs/reference/ports-routes.md", "site")
+    wiki_service = surface_text("services/asset-baker/README.md", "wiki")
 
     assert "ASSET_BAKER_SOURCE=disabled" in env_example
     assert "ASSET_BAKER_MINIO_BUCKET=asset-baker" in env_example
-    assert service_page.exists()
-    assert "services/asset-baker/README.md" in service_page.read_text(encoding="utf-8")
-    assert "ASSET_BAKER_SOURCE" in source_values.read_text(encoding="utf-8")
-    assert "asset-baker.localhost" in ports_routes.read_text(encoding="utf-8")
-    assert "asset-baker" in wiki_services.read_text(encoding="utf-8")
+    assert "POST /assets/bake" in service_page
+    assert "ASSET_BAKER_SOURCE" in source_values
+    assert "asset-baker.localhost" in ports_routes
+    assert "POST /assets/bake" in wiki_service
 
 
 def test_asset_baker_readme_documents_api_and_bake_contract() -> None:
