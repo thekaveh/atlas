@@ -42,6 +42,15 @@ env:
   - name: BACKEND_MEDIA_INPUT_PUBLIC_BASE_URL
     default: ""
     description: "Optional public base URL for hosted media inputs. When set, hosted image_to_3d input URLs are formed as <base>/<bucket>/<key> so the provider's cloud can fetch them through a reachable ingress; empty falls back to the storage client's public URL."
+  - name: MEDIA_REQUEST_MAX_BYTES
+    default: 41943040
+    description: "Maximum POST /media/generate request body size in bytes. Oversized declared and streamed bodies are rejected with HTTP 413 before route parsing."
+  - name: MEDIA_INPUT_MAX_BYTES
+    default: 26214400
+    description: "Maximum decoded image data-URI size in bytes, including conditioned output. Oversized base64 payloads are rejected before decoding."
+  - name: MEDIA_INPUT_MAX_PIXELS
+    default: 40000000
+    description: "Maximum decoded or conditioned image pixel count. Dimensions are checked before full Pillow conversion to bound decompression and canvas memory."
   - name: MEDIA_BUDGET_ENABLED
     default: false
     description: "Enables the media-gateway spend ledger + budget enforcement (#342). Disabled by default: when off, the gateway records no ledger rows and enforces no caps."

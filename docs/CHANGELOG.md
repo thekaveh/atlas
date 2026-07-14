@@ -41,6 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Transactional memory extraction** — LangMem extraction now releases PostgreSQL during LiteLLM calls, validates model output shape, commits facts and session completion atomically under a per-user quota lock, and records terminal failures. Recall and summarization no longer pin database connections while awaiting model responses.
 - **Truthful startup controls and verification** — the Textual launch UI now permits detachment only after Compose startup and required init jobs finish, verifies Redpanda and Zeppelin one-shot initialization, uses readable secondary text contrast, and keeps Airflow's opt-in build-validation target aligned with the runtime 3.3.0 image.
 - **Complete optional operations controls** — Backup and Cloudflare Tunnel now have matching CLI and wizard SOURCE controls, and backup/restore package, database, archive, and S3 commands enforce a configurable positive deadline instead of waiting forever.
+- **Bounded hosted-media inputs** — the Backend rejects oversized media request streams before route parsing, rejects oversized inline images before base64 decoding, and checks source and conditioned image dimensions before Pillow allocation. Media budget configuration now fails closed for malformed booleans, stores, caps, retention, and missing durable-store credentials.
 
 ### Fixed — 2026-07-13 — Synchronized three-surface documentation
 

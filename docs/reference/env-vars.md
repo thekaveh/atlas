@@ -62,6 +62,9 @@
 | BACKEND_STORAGE_ALLOWED_BUCKETS | backend | default | Comma-separated Supabase Storage bucket allowlist accepted by /storage/upload. |
 | BACKEND_MEDIA_INPUT_BUCKET | backend | default | Atlas storage bucket the media gateway hosts image_to_3d inputs in when a provider (e.g. Tripo) rejects data-URI inputs. Objects are written under the media-inputs/ prefix. |
 | BACKEND_MEDIA_INPUT_PUBLIC_BASE_URL | backend |  | Optional public base URL for hosted media inputs. When set, hosted image_to_3d input URLs are formed as <base>/<bucket>/<key> so the provider's cloud can fetch them through a reachable ingress; empty falls back to the storage client's public URL. |
+| MEDIA_REQUEST_MAX_BYTES | backend | 41943040 | Maximum POST /media/generate request body size in bytes. Oversized declared and streamed bodies are rejected with HTTP 413 before route parsing. |
+| MEDIA_INPUT_MAX_BYTES | backend | 26214400 | Maximum decoded image data-URI size in bytes, including conditioned output. Oversized base64 payloads are rejected before decoding. |
+| MEDIA_INPUT_MAX_PIXELS | backend | 40000000 | Maximum decoded or conditioned image pixel count. Dimensions are checked before full Pillow conversion to bound decompression and canvas memory. |
 | MEDIA_BUDGET_ENABLED | backend | False | Enables the media-gateway spend ledger + budget enforcement (#342). Disabled by default: when off, the gateway records no ledger rows and enforces no caps. |
 | MEDIA_BUDGET_STORE | backend | postgres | Ledger store backend: 'postgres' (durable, media_spend_ledger table) or 'memory' (process-local, non-durable — testing/ephemeral). Only used when MEDIA_BUDGET_ENABLED=true. |
 | MEDIA_BUDGET_CURRENCY | backend | USD | Currency label recorded on media spend ledger rows. |

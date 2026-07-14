@@ -21,8 +21,17 @@ from research_service import ResearchService
 from comfyui_client import ComfyUIClient
 from fal_media_client import FalClient
 import media_registry
-from media_input import prepare_image_input, ImageInputError, ImageHostingError
+from media_input import (
+    ImageHostingError,
+    ImageInputError,
+    prepare_image_input,
+    validate_media_input_config,
+)
 import media_ledger
+from media_request_limit import (
+    MediaRequestLimitMiddleware,
+    media_request_max_bytes_from_env,
+)
 from media_operation_store import (
     TERMINAL_MEDIA_STATUSES,
     build_media_operation_store,
@@ -181,6 +190,12 @@ app = FastAPI(
     description=f"Backend API for {PROJECT_NAME}",
     version="0.1.0",
     lifespan=_lifespan,
+)
+
+validate_media_input_config()
+app.add_middleware(
+    MediaRequestLimitMiddleware,
+    max_bytes=media_request_max_bytes_from_env(),
 )
 
 from observability import configure_otel  # noqa: E402
