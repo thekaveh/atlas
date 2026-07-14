@@ -5,8 +5,11 @@ def test_find_links_returns_links_and_images_without_code_fences() -> None:
     markdown = """
 [guide](docs/guide.md)
 ![diagram](assets/diagram.svg)
+<a href="docs/html-guide.md">HTML guide</a>
+<img src="assets/html-diagram.svg" alt="HTML diagram">
 ```
 [ignored](https://thekaveh.github.io/atlas/)
+<a href="https://github.com/thekaveh/atlas/wiki/Ignored">ignored</a>
 ```
 """
 
@@ -15,6 +18,8 @@ def test_find_links_returns_links_and_images_without_code_fences() -> None:
     assert [(link.target, link.is_image) for link in links] == [
         ("docs/guide.md", False),
         ("assets/diagram.svg", True),
+        ("docs/html-guide.md", False),
+        ("assets/html-diagram.svg", True),
     ]
 
 

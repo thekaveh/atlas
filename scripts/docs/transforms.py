@@ -12,6 +12,11 @@ from .manifest import Manifest
 _MARKDOWN_LINK_RE = re.compile(
     r"(?P<image>!)?\[(?P<label>[^\]]*)\]\((?P<target><[^>]+>|[^)\s]+)(?P<title>\s+[^)]*)?\)"
 )
+_HTML_HREF_RE = re.compile(
+    r"(?P<prefix><a\b[^>]*?\bhref\s*=\s*)(?P<quote>[\"'])"
+    r"(?P<target>.*?)(?P=quote)",
+    re.IGNORECASE,
+)
 _SCHEME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*:")
 
 
@@ -34,6 +39,11 @@ def _canonical_target(source_path: str, target: str) -> str:
 def _relative_output(output_path: str, target_path: str) -> str:
     parent = PurePosixPath(output_path).parent.as_posix()
     return posixpath.relpath(target_path, parent if parent != "." else ".")
+
+
+def _mapped_page(canonical: str, source_map: dict[str, str]) -> str | None:
+    candidates = (canonical, f"{canonical}.md", f"{canonical}/index.md")
+    return next((source_map[candidate] for candidate in candidates if candidate in source_map), None)
 
 
 def rewrite_for_surface(
@@ -77,6 +87,29 @@ def rewrite_for_surface(
             return match.group(0)
         return label
 
+    def rewrite_html_href(match: re.Match[str]) -> str:
+        raw_target = match.group("target")
+        target, separator, anchor = raw_target.partition("#")
+        if (
+            not target
+            or target.startswith("#")
+            or _SCHEME_RE.match(target)
+            or target.startswith("//")
+            or is_forbidden(raw_target, surface)
+        ):
+            return match.group(0)
+        canonical = _canonical_target(source_path, target)
+        mapped = _mapped_page(canonical, source_map)
+        if mapped is None:
+            return match.group(0)
+        rewritten = _relative_output(output_path, mapped)
+        if separator:
+            rewritten += f"#{anchor}"
+        return (
+            f"{match.group('prefix')}{match.group('quote')}"
+            f"{rewritten}{match.group('quote')}"
+        )
+
     output: list[str] = []
     in_fence = False
     for line in markdown.splitlines(keepends=True):
@@ -86,5 +119,8 @@ def rewrite_for_surface(
         elif in_fence:
             output.append(line)
         else:
-            output.append(_MARKDOWN_LINK_RE.sub(rewrite_match, line))
+            rendered = _MARKDOWN_LINK_RE.sub(rewrite_match, line)
+            if surface == "wiki":
+                rendered = _HTML_HREF_RE.sub(rewrite_html_href, rendered)
+            output.append(rendered)
     return "".join(output)
