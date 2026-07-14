@@ -12,9 +12,10 @@ import asyncio
 import json
 from pathlib import Path
 
+import httpx
 import pytest
 
-from rag_ingestion.clients import CorpusPathError, MountCorpusReader
+from rag_ingestion.clients import CorpusPathError, LightRagClient, MountCorpusReader
 from rag_ingestion.profiles import ProfileNotFoundError, load_profiles
 from rag_ingestion.service import Deps, RagIngestionService
 from rag_ingestion.store import InMemoryIngestionStore
@@ -62,6 +63,15 @@ class FakeLightrag:
             self._busy_cycles -= 1
             return True
         return False
+
+
+class FailingLightrag(FakeLightrag):
+    async def upload(self, documents):
+        request = httpx.Request("POST", "http://lightrag:9621/documents/text")
+        response = httpx.Response(400, request=request, text="x" * 1200)
+        raise httpx.HTTPStatusError(
+            "LightRAG rejected the document", request=request, response=response
+        )
 
 
 class RaisingExtractor:
@@ -131,6 +141,72 @@ def test_end_to_end_completes(tmp_path, monkeypatch):
     assert weav.classes == ["RagShowcase_showcase-default"]
     assert final.content_digest
     assert [p.status for p in final.phases if p.name == "drain"] == ["completed"]
+
+
+def test_lightrag_client_uses_current_file_source_contract(monkeypatch):
+    requests = []
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+    class FakeAsyncClient:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def post(self, url, **kwargs):
+            requests.append((url, kwargs))
+            return FakeResponse()
+
+    monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)
+    client = LightRagClient(endpoint="http://lightrag:9621", api_key="secret")
+
+    uploaded = asyncio.run(
+        client.upload([{"text": "graph text", "source": "graph_native/a.txt"}])
+    )
+
+    assert uploaded == 1
+    assert requests[0][1]["json"] == {
+        "text": "graph text",
+        "file_source": "graph_native/a.txt",
+    }
+    assert "description" not in requests[0][1]["json"]
+
+
+def test_lightrag_failure_records_bounded_upstream_body(tmp_path, monkeypatch):
+    _corpus(tmp_path, monkeypatch, {"a.txt": "content"})
+    monkeypatch.setattr(
+        "chunking_service.chunk_text",
+        lambda request: type(
+            "ChunkResponse",
+            (),
+            {"chunks": [type("Chunk", (), {"index": 0, "content": request.text})()]},
+        )(),
+    )
+    pf = _profiles_file(tmp_path)
+    svc = _service(
+        tmp_path,
+        Deps(
+            embedder=FakeEmbedder(),
+            weaviate=FakeWeaviate(),
+            lightrag=FailingLightrag(),
+            poll_interval=0.01,
+        ),
+        pf,
+    )
+
+    _, _, final = _run(svc)
+
+    assert final.status == "failed"
+    assert final.errors[0]["http_status"] == 400
+    assert final.errors[0]["body"] == "x" * 500
+    assert final.phase("lightrag_upload").error["body"] == "x" * 500
 
 
 def test_idempotent_resubmit_dedups(tmp_path, monkeypatch):
