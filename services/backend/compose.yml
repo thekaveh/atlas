@@ -73,6 +73,7 @@ services:
       N8N_BASE_URL: http://n8n:5678
       COMFYUI_BASE_URL: ${COMFYUI_ENDPOINT:-http://comfyui:18188}
       COMFYUI_ENABLED: true
+      COMFYUI_SOURCE: ${COMFYUI_SOURCE:-disabled}
       COMFYUI_MANIFEST_PATH: /comfyui-manifest/selected-models.yaml
       FAL_SOURCE: ${FAL_SOURCE:-disabled}
       FAL_API_KEY: ${FAL_API_KEY:-}

@@ -432,6 +432,7 @@ services:
       COMFYUI_BASE_URL: http://comfyui:18188
       COMFYUI_ENABLED: 'true'
       COMFYUI_MANIFEST_PATH: /comfyui-manifest/selected-models.yaml
+      COMFYUI_SOURCE: container-cpu
       DATABASE_URL: postgresql://supabase_admin:password@supabase-db:5432/postgres
       DOCLING_ENDPOINT: ''
       FAL_API_KEY: ''
