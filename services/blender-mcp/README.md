@@ -1,4 +1,4 @@
-# Blender MCP
+# 5.2.6. Blender MCP
 
 ## 1. Overview
 

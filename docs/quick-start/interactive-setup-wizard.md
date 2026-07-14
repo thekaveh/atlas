@@ -1,4 +1,4 @@
-# Interactive Setup Wizard
+# 2.2. Interactive Setup Wizard
 
 Atlas includes an interactive Textual TUI wizard that guides you through configuring all services step by step. It launches automatically when you run `./start.sh` with no arguments.
 

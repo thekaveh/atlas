@@ -1,4 +1,4 @@
-# SOURCE Configuration Model
+# 6.4. SOURCE Configuration Model
 
 Container, localhost, disabled, none, cloud-provider enablement, and adaptive-service behavior.
 
@@ -16,8 +16,3 @@ A service's SOURCE value selects its deployment mode, not merely an image varian
 - `bootstrapper/tracks.yml`
 - `services/topology.py`
 - `docs/deployment/source-configuration.md`
-
-## 4. Maintenance
-
-Regenerate this page and `source-configuration-model.html` after changing a represented service,
-route, SOURCE mode, track, dependency, or data-flow boundary.

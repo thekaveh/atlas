@@ -1,4 +1,4 @@
-# Atlas Platform Overview
+# 6.2. Atlas Platform Overview
 
 User entrypoints, Kong, apps, agents, LLM core, data stores, and cloud-provider boundaries.
 
@@ -16,8 +16,3 @@ Clients enter through Kong or a deliberately published direct port. Application 
 - `bootstrapper/tracks.yml`
 - `services/topology.py`
 - `docs/deployment/source-configuration.md`
-
-## 4. Maintenance
-
-Regenerate this page and `platform-overview.html` after changing a represented service,
-route, SOURCE mode, track, dependency, or data-flow boundary.

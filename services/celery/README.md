@@ -1,4 +1,4 @@
-# Celery + Flower (async jobs)
+# 5.2.7. Celery + Flower (async jobs)
 
 Redis-backed backend worker tier for Atlas long-running jobs. It starts disabled by default:
 

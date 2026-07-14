@@ -146,6 +146,8 @@ data_flow:
     - kong
     - litellm
     - backend
+    - asset-worker
+    - asset-baker
     - n8n
     - weaviate
     - minio

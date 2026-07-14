@@ -1,4 +1,4 @@
-# SOURCE Configuration Guide
+# 7.2. SOURCE Configuration Guide
 
 This guide explains the SOURCE-based configuration system that makes Atlas flexible and modular.
 
@@ -519,8 +519,8 @@ PROMETHEUS_SOURCE=disabled
 PROMETHEUS_SOURCE=container
 PROMETHEUS_RETENTION_DAYS=7   # 1..365 — wizard prompts inline on the source step
 ```
-- **Use case**: Stack-wide observability — scrapes Kong, LiteLLM, Weaviate, n8n (web + worker), MinIO, Backend, plus the postgres/redis sidecars and cAdvisor/node-exporter. JupyterHub + Hermes scrape jobs were retired (the JupyterHub image is single-user `jupyter/datascience-notebook` with no `/metrics`; the third-party Hermes image likewise has no `/metrics` endpoint)
-- **Pros**: 13 pre-configured scrape jobs, recording-rules folder ready to extend, Kong-aliased UI at `prometheus.localhost`
+- **Use case**: Stack-wide observability — scrapes Prometheus itself, Grafana, Kong, LiteLLM, Weaviate, n8n (web + worker), MinIO, Backend, Asset Worker, Asset Baker, plus the postgres/redis sidecars and cAdvisor/node-exporter. JupyterHub + Hermes scrape jobs were retired (the JupyterHub image is single-user `jupyter/datascience-notebook` with no `/metrics`; the third-party Hermes image likewise has no `/metrics` endpoint)
+- **Pros**: 15 pre-configured scrape jobs, recording-rules folder ready to extend, Kong-aliased UI at `prometheus.localhost`
 - **Cons**: cAdvisor polls every container every 5s and node-exporter polls `/proc` continuously — non-trivial overhead on a laptop
 - **Requirements**: ~500 MB image disk + retention-day-dependent disk for the TSDB volume
 
@@ -600,7 +600,7 @@ ZEPPELIN_SOURCE=container
 SPARK_SOURCE=container   # REQUIRED — Zeppelin hard-fails without Spark
 ```
 - **Use case**: Web-based notebook authoring against the in-cluster Spark master
-- **Pros**: Pre-configured Spark interpreter (standalone master RPC + MinIO S3A + Iceberg REST catalog), Kong-aliased UI at `zeppelin.localhost`, persists notebooks to a named volume. JDBC interpreter ships with credentials in env but needs a one-time UI setup.
+- **Pros**: Pre-configured Spark interpreter (standalone master RPC + MinIO S3A + Iceberg REST catalog), loopback-only direct UI at `http://127.0.0.1:${ZEPPELIN_PORT}`, and persistent notebooks in a named volume. JDBC interpreter ships with credentials in env but needs a one-time UI setup.
 - **Cons**: Adds ~1.5 GB image disk + ~512 MB RAM
 - **Containers**: `zeppelin`, `zeppelin-init` (one-shot — seeds and restarts the Spark interpreter when Atlas-owned settings drift)
 - **Requirements**: `SPARK_SOURCE=container`

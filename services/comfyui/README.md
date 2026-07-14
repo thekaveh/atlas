@@ -1,4 +1,4 @@
-# ComfyUI
+# 5.2.11. ComfyUI
 
 Node-based image generation workflow engine. ComfyUI runs as a single container with a web UI on its own port, exposing an HTTP API (`/prompt`, `/history/{id}`, `/view`) and a WebSocket (`/ws`) that streams `executing`/`executed`/`progress` events while a workflow runs. The stack treats ComfyUI as a media-tier engine: backend, Hermes, and Open WebUI consume it through Kong (browser) or directly via the internal Docker DNS name; n8n reaches it through the backend (`backend:8000/comfyui/*`), not directly.
 

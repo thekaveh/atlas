@@ -1,4 +1,4 @@
-# Parakeet (STT engine)
+# 5.2.40. Parakeet (STT engine)
 
 Parakeet is one of the STT engines selectable via `STT_PROVIDER_SOURCE`. It is
 documented under the **STT Provider** aggregator rather than as a standalone

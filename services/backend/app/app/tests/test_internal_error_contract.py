@@ -19,13 +19,18 @@ def test_unexpected_error_logs_exception_without_exposing_detail(
     import main
 
     secret = "postgresql://admin:secret@database/internal"
-    with caplog.at_level(logging.ERROR, logger=main.__name__):
-        error = main._unexpected_error("List workflows", RuntimeError(secret))
+    try:
+        raise RuntimeError(secret)
+    except RuntimeError as exc:
+        with caplog.at_level(logging.ERROR, logger=main.__name__):
+            error = main._unexpected_error("List workflows", exc)
 
     assert error.status_code == 500
     assert error.detail == "List workflows failed"
     assert secret not in error.detail
-    assert secret in caplog.text
+    assert secret not in caplog.text
+    assert "error_type=RuntimeError" in caplog.text
+    assert "test_internal_error_contract.py" in caplog.text
 
 
 def test_generic_exception_handlers_never_interpolate_errors_into_http_detail() -> None:

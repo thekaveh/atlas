@@ -89,10 +89,10 @@ Service admission contract:
   is needed.
 - Default posture: keep Zeppelin disabled by default unless an existing track
   or explicit CLI/source choice enables it.
-- Ports: no new host ports; keep the existing `ZEPPELIN_PORT` assignment.
-- Kong alias: unchanged `zeppelin.localhost`.
-- Dependencies: keep Spark required; add or document optional/runtime edges to
-  MinIO, Supabase, and Iceberg REST when the lakehouse catalog is seeded.
+- Ports: no new host ports; keep `ZEPPELIN_PORT` bound to host loopback.
+- Kong alias: none while Zeppelin ships without authentication.
+- Dependencies: keep Spark and MinIO required; document optional/runtime edges
+  to Supabase and Iceberg REST when the lakehouse catalog is seeded.
 - Topology/data flow: `services/zeppelin/service.yml` should include
   `iceberg-rest` in `depends_on.optional` and `data_flow.calls` when the seeded
   catalog becomes part of the runtime contract.
@@ -101,8 +101,8 @@ Service admission contract:
   when `ZEPPELIN_SOURCE=disabled`, and should update/restart interpreter
   settings idempotently through Zeppelin's REST API or an equivalent mounted
   config.
-- Secrets: use existing MinIO root/S3A values and scoped Iceberg MinIO
-  credentials; do not introduce new secrets for this path.
+- Secrets: use scoped Spark/S3A and Iceberg MinIO credentials; do not expose
+  MinIO root credentials to the notebook process.
 - Wizard text: describe Zeppelin as a Spark-first notebook with zero-touch
   standalone Spark and lakehouse catalog setup when enabled. Do not present
   `spark.remote=sc://spark-connect:15002` as the happy path for Zeppelin.

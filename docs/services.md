@@ -1,4 +1,4 @@
-# Service Catalog
+# 5.1. Service Catalog
 
 ## 1. Service Catalog
 
@@ -35,7 +35,7 @@
 | [mlflow](../services/mlflow/README.md) | MLflow (experiment tracking + artifacts) | all, ml-eng, trading | MLFLOW_SOURCE | disabled | container, disabled | supabase, minio |
 | [open-webui](../services/open-webui/README.md) | Open WebUI (chat interface) | all, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng | OPEN_WEB_UI_SOURCE | container | container, disabled | supabase, redis, litellm |
 | [verba](../services/verba/README.md) | Verba (archived Weaviate RAG UI) | all, gen-ai-rag | VERBA_SOURCE | disabled | container, disabled | weaviate, litellm, kong |
-| [zeppelin](../services/zeppelin/README.md) | Apache Zeppelin (Spark-first notebook) | all, data-eng, ml-eng | ZEPPELIN_SOURCE | disabled | container, disabled | spark |
+| [zeppelin](../services/zeppelin/README.md) | Apache Zeppelin (Spark-first notebook) | all, data-eng, ml-eng | ZEPPELIN_SOURCE | disabled | container, disabled | spark, minio |
 
 ### 1.4. data
 

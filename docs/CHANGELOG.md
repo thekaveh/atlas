@@ -1,4 +1,4 @@
-# Changelog
+# 9.5. Changelog
 
 All notable changes to Atlas (formerly GenAI Vanilla) will be documented in this file.
 
@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed — 2026-07-14 — Startup and API safety boundaries
 
+- **Canonical documentation headings and links** — all 102 manifest-owned pages now carry their hierarchical number in the canonical H1, and the generator rejects heading drift instead of silently rewriting it. Atlas repository blob links map to their generated site/wiki pages, and top-level architecture views use explicit labelled relationships rather than generic sequential arrows.
+- **Asset processor capacity and telemetry** — Asset Worker now honors multipart `up_axis`, bounds concurrent transformations with `429` admission control, and exposes the same Prometheus HTTP counters and duration histograms as Asset Baker. Both processors emit structured lifecycle logs and are present in the bundled Prometheus scrape configuration.
+- **Asset build integrity** — Asset Baker verifies the published SHA-256 checksum for its pinned Blender 4.3.2 archive before extraction.
+- **Zeppelin network and storage boundary** — the unauthenticated Zeppelin UI is loopback-only and no longer receives a Kong alias. Its Spark interpreter uses a generated MinIO service account scoped to event-log and lakehouse workflow buckets instead of MinIO root credentials.
+- **Research failure redaction** — detailed Local Deep Researcher errors remain in Backend logs while persisted status and research-log responses expose a stable non-sensitive failure message.
 - **Project-scoped cold cleanup** — `start.sh --cold` and `stop.sh --cold` now remove only the active Atlas Compose project's containers, orphans, and named volumes. Cleanup failures stop startup before secret rotation and propagate a nonzero exit status instead of falling through to a partial launch.
 - **Managed-host lifecycle rollback** — native ComfyUI MPS and vLLM Metal processes now start at the launch boundary under an ownership lock, roll back only when the current invocation created them and the stack fails to converge, and remain discoverable by `stop.sh` after their SOURCE selection changes. Native teardown failures propagate a nonzero stop status.
 - **Readiness and private runtime files** — Neo4j now publishes a real Cypher health check for dependents that require `service_healthy`; generated `.env` and endpoint-export files are written atomically with owner-only permissions.

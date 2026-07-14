@@ -1,4 +1,4 @@
-# Security, Auth, And Secrets Boundary
+# 6.11. Security, Auth, And Secrets Boundary
 
 Supabase, Kong, service auth notes, API keys, local secrets, cloud keys, and intentionally unauthenticated local surfaces.
 
@@ -16,8 +16,3 @@ Supabase identities and scoped service credentials protect Backend data planes, 
 - `bootstrapper/tracks.yml`
 - `services/topology.py`
 - `docs/deployment/source-configuration.md`
-
-## 4. Maintenance
-
-Regenerate this page and `security-auth-secrets-boundary.html` after changing a represented service,
-route, SOURCE mode, track, dependency, or data-flow boundary.

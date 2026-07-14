@@ -1,4 +1,4 @@
-# Label Studio
+# 5.2.23. Label Studio
 
 ## 1. Overview
 

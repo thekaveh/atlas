@@ -189,13 +189,27 @@ def test_architecture_pages_explain_the_views_without_publication_instructions()
         text = page.read_text(encoding="utf-8")
         assert "## 2. How To Read This View" in text, page
         assert "## 3. Source Files" in text, page
-        assert "## 4. Maintenance" in text, page
+        assert "## 4. Maintenance" not in text, page
         assert "architecture-diagram design system" not in text, page
         assert "dark slate background" not in text, page
         interactive = page.with_suffix(".html").read_text(encoding="utf-8")
         assert "How to read this view" in interactive, page
         assert "architecture-diagram design system" not in interactive, page
         assert "Update trigger" not in interactive, page
+
+    source_model = (DIAGRAMS_DIR / "source-configuration-model.html").read_text(
+        encoding="utf-8"
+    )
+    assert 'data-source="SOURCE Var" data-target="container"' in source_model
+    assert 'data-source="SOURCE Var" data-target="localhost"' in source_model
+    assert 'data-source="container" data-target="localhost"' not in source_model
+
+    network = (DIAGRAMS_DIR / "network-routing-topology.html").read_text(
+        encoding="utf-8"
+    )
+    assert 'data-source="Browser" data-target="*.localhost"' in network
+    assert 'data-source="Browser" data-target="Direct Ports"' in network
+    assert 'data-source="Kong" data-target="Direct Ports"' not in network
 
 
 def test_wiki_contains_the_complete_manifest_page_set_and_navigation() -> None:
@@ -208,7 +222,9 @@ def test_wiki_contains_the_complete_manifest_page_set_and_navigation() -> None:
     assert "[5.2.11. comfyui](5.2.11-comfyui)" in sidebar
     for page in manifest.pages:
         text = (WIKI_DIR / page.wiki_path).read_text(encoding="utf-8")
-        assert text.startswith(f"# {page.number}. {page.title}")
+        canonical = (ROOT / page.source).read_text(encoding="utf-8")
+        assert text.splitlines()[0] == canonical.splitlines()[0]
+        assert text.startswith(f"# {page.number}. ")
         assert not any(is_forbidden(link.target, "wiki") for link in find_links(text))
 
 
@@ -340,7 +356,9 @@ def test_docs_do_not_reference_retired_required_check_counts() -> None:
 def test_generated_pages_have_manifest_numbered_h1_and_local_numbered_sections() -> None:
     for page in _manifest().pages:
         text = (DOCS_SITE / page.site_path).read_text(encoding="utf-8")
-        assert text.startswith(f"# {page.number}. {page.title}")
+        canonical = (ROOT / page.source).read_text(encoding="utf-8")
+        assert text.splitlines()[0] == canonical.splitlines()[0]
+        assert text.startswith(f"# {page.number}. ")
         headings = [line for line in text.splitlines() if line.startswith("## ")]
         assert headings, page.source
         if page.source != "docs/CHANGELOG.md":

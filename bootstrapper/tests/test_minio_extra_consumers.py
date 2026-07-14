@@ -35,6 +35,9 @@ BUILT_IN_CONSUMER_ENV = {
     "MINIO_BUCKET_JUPYTER": "jupyter",
     "MINIO_JUPYTER_ACCESS_KEY": "jupyter-ak",
     "MINIO_JUPYTER_SECRET_KEY": "jupyter-sk",
+    "MINIO_BUCKET_SPARK_HISTORY": "spark-history",
+    "MINIO_SPARK_ACCESS_KEY": "spark-ak",
+    "MINIO_SPARK_SECRET_KEY": "spark-sk",
     "MINIO_BUCKET_DOCLING": "docling",
     "MINIO_DOCLING_ACCESS_KEY": "docling-ak",
     "MINIO_DOCLING_SECRET_KEY": "docling-sk",
@@ -88,6 +91,25 @@ def test_asset_processors_use_scoped_minio_accounts() -> None:
             f"{service}_MINIO_BUCKET:MINIO_{service}_ACCESS_KEY:"
             f"MINIO_{service}_SECRET_KEY::MINIO_BUCKET_ASSET_INPUTS"
         ) in init_script
+
+
+def test_spark_consumer_uses_scoped_lakehouse_account() -> None:
+    manifest = yaml.safe_load(MINIO_MANIFEST.read_text(encoding="utf-8"))
+    env_vars = {entry["name"]: entry for entry in manifest["env"]}
+    compose = yaml.safe_load(MINIO_COMPOSE.read_text(encoding="utf-8"))
+    init_env = compose["services"]["minio-init"]["environment"]
+    init_script = MINIO_INIT.read_text(encoding="utf-8")
+
+    assert env_vars["MINIO_BUCKET_SPARK_HISTORY"]["default"] == "spark-history"
+    assert env_vars["MINIO_SPARK_ACCESS_KEY"]["secret"] is True
+    assert env_vars["MINIO_SPARK_SECRET_KEY"]["secret"] is True
+    assert init_env["MINIO_SPARK_ACCESS_KEY"] == "${MINIO_SPARK_ACCESS_KEY}"
+    assert (
+        "spark:MINIO_BUCKET_SPARK_HISTORY:MINIO_SPARK_ACCESS_KEY:"
+        "MINIO_SPARK_SECRET_KEY:MINIO_BUCKET_ICEBERG_LAKEHOUSE,"
+        "MINIO_BUCKET_ICEBERG_JARS,MINIO_BUCKET_ICEBERG_CHECKPOINTS,"
+        "MINIO_BUCKET_ICEBERG_LANDING"
+    ) in init_script
 
 
 def test_asset_processor_input_policy_is_read_only() -> None:

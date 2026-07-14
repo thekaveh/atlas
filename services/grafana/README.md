@@ -1,4 +1,4 @@
-# Grafana (observability UI + alerting)
+# 5.2.17. Grafana (observability UI + alerting)
 
 Grafana runs as a single container in the stack's `infra` band. It pre-provisions a Prometheus datasource pointing at the in-cluster Prometheus, plus 7 starter dashboards under the **Atlas** folder. Persistence uses SQLite on a named volume — single-replica only.
 

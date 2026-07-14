@@ -1,4 +1,4 @@
-# Multi2Vec CLIP
+# 5.2.33. Multi2Vec CLIP
 
 Multimodal CLIP vectorizer module for Weaviate. Runs the [`semitechnologies/multi2vec-clip`](https://github.com/weaviate/multi2vec-clip-inference) image (the Docker repo dropped the `-inference` suffix; the GitHub source repo kept it), exposing `POST /vectorize` and `GET /meta` on internal port `8080`. Today its only consumer is Weaviate (via the `multi2vec-clip` module — `CLIP_INFERENCE_API=http://multi2vec-clip:8080`); the data-flow graph shows no other service calling it directly, but the same `/vectorize` endpoint is reachable from every container on the `backend-network`.
 

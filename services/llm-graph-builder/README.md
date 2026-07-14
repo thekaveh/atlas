@@ -1,4 +1,4 @@
-# Neo4j LLM Graph Builder
+# 5.2.27. Neo4j LLM Graph Builder
 
 ## 1. Overview
 Neo4j LLM Graph Builder is a disabled-by-default Atlas `apps` service for turning documents and web sources into a Neo4j knowledge graph, then chatting over the resulting graph. It is the first GraphRAG-oriented builder UI in the `gen-ai-rag` track and complements LightRAG by providing an operator-facing document-to-graph workflow against Atlas' existing Neo4j and LiteLLM services.

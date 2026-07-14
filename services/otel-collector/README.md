@@ -1,4 +1,4 @@
-# OpenTelemetry Collector
+# 5.2.39. OpenTelemetry Collector
 
 ## 1. Overview
 

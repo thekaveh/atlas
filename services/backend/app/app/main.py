@@ -15,6 +15,7 @@ import yaml
 import re
 import time
 import secrets
+import traceback
 from datetime import datetime, timezone
 
 from n8n_client import N8nClient
@@ -114,10 +115,15 @@ logger = logging.getLogger(__name__)
 
 def _unexpected_error(operation: str, exc: Exception, *, status_code: int = 500) -> HTTPException:
     """Log an unexpected failure without exposing its details to API clients."""
+    stack = " <- ".join(
+        f"{os.path.basename(frame.filename)}:{frame.lineno}:{frame.name}"
+        for frame in traceback.extract_tb(exc.__traceback__)
+    ) or "unavailable"
     logger.error(
-        "%s failed",
+        "%s failed (error_type=%s, stack=%s)",
         operation,
-        exc_info=(type(exc), exc, exc.__traceback__),
+        type(exc).__name__,
+        stack,
     )
     return HTTPException(status_code=status_code, detail=f"{operation} failed")
 

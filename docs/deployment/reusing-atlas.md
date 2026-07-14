@@ -1,4 +1,4 @@
-# Reusing Atlas as Infrastructure
+# 8.6. Reusing Atlas as Infrastructure
 
 How to use Atlas as the backing infrastructure / platform for another project — for example a RAG-showcase app that needs Weaviate + Neo4j + an LLM gateway + object storage without standing those up itself.
 

@@ -2,14 +2,18 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import logging
 import os
 import secrets
 import shutil
 import tempfile
+import threading
+import time
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
+from prometheus_fastapi_instrumentator import Instrumentator
 
 from .models import (
     RefPostprocessRequest,
@@ -20,6 +24,9 @@ from .models import (
 )
 from .runner import GltfTransformError, run_gltf_transform
 from .storage import ArtifactStorage, ArtifactTooLargeError, CONTENT_TYPE
+
+
+logger = logging.getLogger(__name__)
 
 
 def create_app(*, api_token: str | None = None) -> FastAPI:
@@ -34,10 +41,12 @@ def create_app(*, api_token: str | None = None) -> FastAPI:
     expected_token = (
         api_token if api_token is not None else os.getenv("ASSET_WORKER_API_TOKEN", "")
     )
+    concurrency = max(1, int(os.getenv("ASSET_WORKER_CONCURRENCY", "1")))
+    app.state.transform_semaphore = threading.Semaphore(concurrency)
 
     @app.middleware("http")
-    async def require_api_token(request: Request, call_next):
-        if request.url.path == "/health":
+    async def require_api_token_and_admit(request: Request, call_next):
+        if request.url.path in {"/health", "/metrics"}:
             return await call_next(request)
         if not expected_token:
             return JSONResponse(
@@ -50,7 +59,31 @@ def create_app(*, api_token: str | None = None) -> FastAPI:
                 status_code=401,
                 content={"detail": "Invalid Asset Worker bearer token"},
             )
-        return await call_next(request)
+        admitted = False
+        if request.method == "POST" and request.url.path in {
+            "/gltf/postprocess",
+            "/gltf/postprocess/ref",
+        }:
+            if not app.state.transform_semaphore.acquire(blocking=False):
+                logger.info("asset_transform_rejected reason=busy")
+                return JSONResponse(
+                    status_code=429,
+                    content={"detail": "Asset worker is busy; retry later"},
+                )
+            admitted = True
+        try:
+            return await call_next(request)
+        except asyncio.CancelledError:
+            active_work = getattr(request.state, "asset_work_task", None)
+            if active_work is not None and not active_work.done():
+                try:
+                    await asyncio.shield(active_work)
+                except (Exception, asyncio.CancelledError):
+                    pass
+            raise
+        finally:
+            if admitted:
+                app.state.transform_semaphore.release()
 
     @app.get("/health")
     def health() -> JSONResponse:
@@ -63,10 +96,12 @@ def create_app(*, api_token: str | None = None) -> FastAPI:
 
     @app.post("/gltf/postprocess", response_model=PostprocessResponse)
     async def postprocess_upload(
+        request: Request,
         file: UploadFile = File(...),
         target_height_m: float | None = Form(default=None),
         target_width_m: float | None = Form(default=None),
         normalize_axis: str = Form(default="height"),
+        up_axis: str = Form(default="keep"),
         simplify_ratio: float | None = Form(default=None),
         draco: bool = Form(default=False),
         meshopt: bool = Form(default=True),
@@ -78,28 +113,34 @@ def create_app(*, api_token: str | None = None) -> FastAPI:
             target_height_m=target_height_m,
             target_width_m=target_width_m,
             normalize_axis=normalize_axis,
+            up_axis=up_axis,
             simplify_ratio=simplify_ratio,
             draco=draco,
             meshopt=meshopt,
             ktx2=ktx2,
             collider_decimation=collider_decimation,
         )
-        with tempfile.TemporaryDirectory(prefix="asset-worker-upload-") as tmp:
-            input_path = Path(tmp) / "input.glb"
-            await asyncio.to_thread(_copy_upload_to_path, file.file, input_path)
-            return await asyncio.to_thread(_process_path, input_path, params)
+        return await _run_blocking_request(request, _process_upload, file.file, params)
 
     @app.post("/gltf/postprocess/ref", response_model=PostprocessResponse)
-    def postprocess_ref(
-        request: RefPostprocessRequest,
+    async def postprocess_ref(
+        payload: RefPostprocessRequest,
+        request: Request,
     ) -> PostprocessResponse:
-        _require_allowed_bucket(request.input.bucket)
+        _require_allowed_bucket(payload.input.bucket)
+        return await _run_blocking_request(request, _process_reference, payload)
+
+    def _process_reference(payload: RefPostprocessRequest) -> PostprocessResponse:
         storage = ArtifactStorage()
         try:
-            data = storage.fetch(request.input.bucket, request.input.key)
+            data = storage.fetch(payload.input.bucket, payload.input.key)
         except ArtifactTooLargeError as exc:
             raise HTTPException(status_code=413, detail=str(exc)) from exc
-        return _process_bytes(data, request.params, storage=storage)
+        return _process_bytes(
+            data,
+            payload.params,
+            storage=storage,
+        )
 
     @app.get("/gltf/artifacts/{sha256}.glb")
     def get_local_artifact(
@@ -112,7 +153,24 @@ def create_app(*, api_token: str | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="Artifact not found")
         return FileResponse(path, media_type=CONTENT_TYPE, filename=f"{sha256}.glb")
 
+    Instrumentator(
+        excluded_handlers=["/metrics", "/health"],
+        should_group_status_codes=True,
+    ).instrument(app).expose(app, endpoint="/metrics")
     return app
+
+
+async def _run_blocking_request(request: Request, function, *args):
+    task = asyncio.create_task(asyncio.to_thread(function, *args))
+    request.state.asset_work_task = task
+    return await asyncio.shield(task)
+
+
+def _process_upload(source, params: PostprocessParams) -> PostprocessResponse:
+    with tempfile.TemporaryDirectory(prefix="asset-worker-upload-") as tmp:
+        input_path = Path(tmp) / "input.glb"
+        _copy_upload_to_path(source, input_path)
+        return _process_path(input_path, params)
 
 
 def _process_bytes(
@@ -136,14 +194,21 @@ def _process_path(
 ) -> PostprocessResponse:
     _enforce_input_size(input_path.stat().st_size)
     storage = storage or ArtifactStorage()
+    started_at = time.monotonic()
+    logger.info("asset_transform_started")
     with tempfile.TemporaryDirectory(prefix="asset-worker-") as tmp:
         output_path = Path(tmp) / "output.glb"
         try:
             run_gltf_transform(input_path, output_path, params)
         except GltfTransformError as exc:
+            logger.warning("asset_transform_failed kind=%s", exc.kind)
             status = 504 if exc.kind == "timeout" else 422
             raise HTTPException(status_code=status, detail=str(exc)) from exc
         output = output_path.read_bytes()
+    logger.info(
+        "asset_transform_completed duration_seconds=%.3f",
+        time.monotonic() - started_at,
+    )
 
     sha = hashlib.sha256(output).hexdigest()
     artifact = storage.store(output, sha256=sha)

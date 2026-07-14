@@ -1,4 +1,4 @@
-# Contributing — adding or modifying a service
+# 9.2. Contributing — adding or modifying a service
 
 The stack uses a **per-service folder layout** under `services/<name>/`. Each service family (one or more co-lifecycled containers) owns:
 

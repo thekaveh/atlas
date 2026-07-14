@@ -1,4 +1,4 @@
-# Ports and Routes
+# 7.3. Ports and Routes
 
 Ports and Kong hostnames are derived from `BASE_PORT` in `.env` (default `63000`) and the per-category slot allocator in `bootstrapper/services/topology.py`. Move the whole stack with `./start.sh --base-port <port>` or by editing `BASE_PORT`.
 
@@ -51,7 +51,6 @@ Active aliases (every `*-localhost` source also routes through `host.docker.inte
 - `supabase-studio.localhost` → Supabase Studio dashboard (basic-auth: `DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD` from `.env`)
 - `tts.localhost` → TTS engine — container resolves to `speaches:8000` or `chatterbox:4123`; localhost routes via `host.docker.internal`
 - `weaviate.localhost` → Weaviate REST API (`WEAVIATE_SOURCE != disabled`)
-- `zeppelin.localhost` → Zeppelin notebook UI — routes to in-container `zeppelin:8080` (`ZEPPELIN_SOURCE != disabled`; gated on `SPARK_SOURCE != disabled`)
 - `prometheus.localhost` → Prometheus UI + API (`PROMETHEUS_SOURCE != disabled`; no auth — Kong-gated, internal-only scrape paths)
 - `grafana.localhost` → Grafana dashboards + alerting UI (`GRAFANA_SOURCE != disabled`; admin login via `GRAFANA_ADMIN_USERNAME` / auto-generated `GRAFANA_ADMIN_PASSWORD`)
 

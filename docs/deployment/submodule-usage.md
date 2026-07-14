@@ -1,4 +1,4 @@
-# Using atlas as a Git Submodule
+# 8.7. Using atlas as a Git Submodule
 
 This guide explains how to use Atlas as a git submodule in your project, allowing you to build on top of it as an infrastructure foundation while maintaining the ability to contribute back to the project.
 

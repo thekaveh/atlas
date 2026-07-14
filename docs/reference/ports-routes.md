@@ -1,4 +1,4 @@
-# Ports And Routes
+# 10.4. Ports And Routes
 
 ## 1. Generated Ports And Routes Matrix
 
@@ -53,4 +53,4 @@ Generated summary of model-backed service port variables and Kong aliases. Use t
 | verba | apps | `VERBA_PORT` | `verba.localhost` | [Deployment route reference](../deployment/ports-and-routes.md#2-kong-hostnames) |
 | vllm-metal | llm | `VLLM_METAL_LOCALHOST_PORT` | `-` | [Deployment route reference](../deployment/ports-and-routes.md#2-kong-hostnames) |
 | weaviate | data | `WEAVIATE_PORT`, `WEAVIATE_GRPC_PORT`, `WEAVIATE_LOCALHOST_PORT` | `weaviate.localhost` | [Deployment route reference](../deployment/ports-and-routes.md#2-kong-hostnames) |
-| zeppelin | apps | `ZEPPELIN_PORT` | `zeppelin.localhost` | [Deployment route reference](../deployment/ports-and-routes.md#2-kong-hostnames) |
+| zeppelin | apps | `ZEPPELIN_PORT` | `-` | [Deployment route reference](../deployment/ports-and-routes.md#2-kong-hostnames) |

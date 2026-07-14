@@ -1,4 +1,4 @@
-# Chatterbox (TTS engine)
+# 5.2.8. Chatterbox (TTS engine)
 
 Chatterbox is one of the TTS engines selectable via `TTS_PROVIDER_SOURCE`. It is
 documented under the **TTS Provider** aggregator rather than as a standalone

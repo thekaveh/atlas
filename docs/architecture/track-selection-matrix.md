@@ -1,4 +1,4 @@
-# Track Selection Matrix
+# 6.5. Track Selection Matrix
 
 How Atlas tracks map to service families and force-disable out-of-track services.
 
@@ -16,8 +16,3 @@ Tracks reduce the wizard to a workflow-oriented service set. Services outside th
 - `bootstrapper/tracks.yml`
 - `services/topology.py`
 - `docs/deployment/source-configuration.md`
-
-## 4. Maintenance
-
-Regenerate this page and `track-selection-matrix.html` after changing a represented service,
-route, SOURCE mode, track, dependency, or data-flow boundary.

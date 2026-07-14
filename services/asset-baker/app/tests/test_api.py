@@ -30,6 +30,15 @@ def test_health_requires_blender_binary(monkeypatch) -> None:
     assert response.json() == {"status": "ok", "blender": True}
 
 
+def test_metrics_are_available_without_asset_token() -> None:
+    from asset_baker import api
+
+    response = TestClient(api.create_app(api_token=_TOKEN)).get("/metrics")
+
+    assert response.status_code == 200
+    assert "http_requests_total" in response.text
+
+
 def _fake_artifacts(out_dir, *, with_textures=True, color_mean=0.42, mode="bake"):
     from asset_baker.runner import BakeArtifacts
 

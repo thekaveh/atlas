@@ -536,17 +536,19 @@ def test_spark_history_route_exists_with_preserve_host():
     assert svc["routes"][0].get("preserve_host") is True
 
 
-def test_zeppelin_route_exists_with_preserve_host():
-    """Zeppelin notebook UI is an SPA — preserve_host=True keeps it routable
-    via the alias. Gated on ZEPPELIN_SOURCE=container."""
+def test_zeppelin_is_not_exposed_through_kong():
+    """Zeppelin has no built-in authentication, so it must remain loopback-only."""
     config = _generate("ZEPPELIN_SOURCE=container\nSPARK_SOURCE=container\n")
     svc = next(
         (s for s in config["services"] if s["name"] == "zeppelin"),
         None,
     )
-    assert svc is not None, "zeppelin service missing from Kong config"
-    assert "zeppelin.localhost" in svc["routes"][0]["hosts"]
-    assert svc["routes"][0].get("preserve_host") is True
+    assert svc is None
+    repo_root = Path(__file__).resolve().parents[2]
+    audit_script = (repo_root / "scripts" / "check-kong-routes.py").read_text(
+        encoding="utf-8"
+    )
+    assert "zeppelin.localhost" not in audit_script
 
 
 def test_airflow_route_exists_with_preserve_host():

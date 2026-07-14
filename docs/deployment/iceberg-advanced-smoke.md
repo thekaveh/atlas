@@ -1,4 +1,4 @@
-# Iceberg Advanced Smoke
+# 8.4. Iceberg Advanced Smoke
 
 This opt-in smoke validates the advanced lakehouse contract requested by the
 data-eng track without adding infrastructure.

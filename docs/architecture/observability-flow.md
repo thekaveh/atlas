@@ -1,4 +1,4 @@
-# Observability Flow
+# 6.10. Observability Flow
 
 Prometheus, Grafana, Langfuse, OpenTelemetry Collector, Tempo, Loki, and service instrumentation boundaries.
 
@@ -16,8 +16,3 @@ Metrics, traces, logs, and LLM telemetry follow separate collection paths. Prome
 - `bootstrapper/tracks.yml`
 - `services/topology.py`
 - `docs/deployment/source-configuration.md`
-
-## 4. Maintenance
-
-Regenerate this page and `observability-flow.html` after changing a represented service,
-route, SOURCE mode, track, dependency, or data-flow boundary.

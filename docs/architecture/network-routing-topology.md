@@ -1,4 +1,4 @@
-# Network And Routing Topology
+# 6.6. Network And Routing Topology
 
 Host ports, Kong aliases, direct service ports, backend-network-only services, and localhost-mode boundaries.
 
@@ -16,8 +16,3 @@ Kong provides stable `*.localhost` entrypoints while published ports support dir
 - `bootstrapper/tracks.yml`
 - `services/topology.py`
 - `docs/deployment/source-configuration.md`
-
-## 4. Maintenance
-
-Regenerate this page and `network-routing-topology.html` after changing a represented service,
-route, SOURCE mode, track, dependency, or data-flow boundary.

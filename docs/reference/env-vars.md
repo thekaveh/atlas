@@ -1,4 +1,4 @@
-# Environment Variables
+# 10.3. Environment Variables
 
 ## 1. Generated Environment Matrix
 
@@ -28,6 +28,7 @@
 | ASSET_BAKER_API_TOKEN | asset-baker |  | Auto-generated bearer token required by all Asset Baker data and processing routes; /health remains unauthenticated. |
 | ASSET_BAKER_ALLOWED_INPUT_BUCKETS | asset-baker |  | Optional comma- or space-separated reference-route bucket allowlist; blank follows MINIO_BUCKET_ASSET_INPUTS. |
 | ASSET_BAKER_BLENDER_VERSION | asset-baker | 4.3.2 | Pinned headless Blender version (>= 4.3) downloaded into the asset-baker image. Blender bundles its own Python + numpy for the bake script. |
+| ASSET_BAKER_BLENDER_SHA256 | asset-baker | 4da1c956673c0485e63054e563ee69198cc8f80d8157dd7592dffc8a6a5592e6 | SHA-256 checksum verified before extracting the pinned Blender archive. Update it with ASSET_BAKER_BLENDER_VERSION from Blender's published checksum file. |
 | ASSET_BAKER_ARTIFACT_DIR | asset-baker | /data/artifacts | Local artifact cache used when MinIO upload is disabled or for direct downloads. |
 | ASSET_BAKER_MINIO_ENABLED | asset-baker | True | When true, baked LP GLBs + textures are written to MinIO using content-addressed keys. |
 | ASSET_BAKER_MINIO_BUCKET | asset-baker | asset-baker | MinIO bucket for baked LP GLB + texture outputs. |
@@ -50,6 +51,7 @@
 | ASSET_WORKER_GLTF_TRANSFORM_VERSION | asset-worker | 4.4.1 | Pinned @gltf-transform/cli version installed in the asset-worker image. |
 | ASSET_WORKER_MAX_UPLOAD_MB | asset-worker | 200 | Maximum GLB upload or MinIO reference size in MiB. Input is streamed and rejected before transformation when this limit is exceeded. |
 | ASSET_WORKER_TIMEOUT_SECONDS | asset-worker | 300 | Per-command timeout for gltf-transform inspect, validate, and optimize subprocesses. |
+| ASSET_WORKER_CONCURRENCY | asset-worker | 1 | Maximum concurrent glTF mutation requests; saturated workers reject new work with HTTP 429 before request-body parsing or object-store fetch. |
 | ASSET_WORKER_ARTIFACT_DIR | asset-worker | /data/artifacts | Local artifact cache used when MinIO upload is disabled or for direct downloads. |
 | ASSET_WORKER_MINIO_ENABLED | asset-worker | True | When true, optimized GLBs are written to MinIO using content-addressed keys. |
 | ASSET_WORKER_MINIO_BUCKET | asset-worker | asset-worker | MinIO bucket for optimized GLB outputs. |
@@ -496,6 +498,9 @@ Do not edit by hand — the bootstrapper owns this value.
 | MINIO_BUCKET_JUPYTER | minio | jupyter | - |
 | MINIO_JUPYTER_ACCESS_KEY | minio |  | Auto-generated scoped MinIO access key for the jupyter bucket. |
 | MINIO_JUPYTER_SECRET_KEY | minio |  | Auto-generated scoped MinIO secret key for the jupyter bucket. |
+| MINIO_BUCKET_SPARK_HISTORY | minio | spark-history | Spark event-log bucket used by Zeppelin and the Spark History Server. |
+| MINIO_SPARK_ACCESS_KEY | minio |  | Auto-generated scoped MinIO access key for Spark event logs and lakehouse workflow buckets. |
+| MINIO_SPARK_SECRET_KEY | minio |  | Auto-generated scoped MinIO secret key for Spark event logs and lakehouse workflow buckets. |
 | MINIO_BUCKET_DOCLING | minio | docling | - |
 | MINIO_DOCLING_ACCESS_KEY | minio |  | Auto-generated scoped MinIO access key for the docling bucket. |
 | MINIO_DOCLING_SECRET_KEY | minio |  | Auto-generated scoped MinIO secret key for the docling bucket. |

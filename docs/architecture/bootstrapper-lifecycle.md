@@ -1,4 +1,4 @@
-# Bootstrapper Lifecycle
+# 6.3. Bootstrapper Lifecycle
 
 How start.sh flows through env loading, migrations, manifest synthesis, track filtering, Kong generation, compose assembly, and launch logs.
 
@@ -16,8 +16,3 @@ Startup is an ordered configuration pipeline. Atlas loads and migrates the envir
 - `bootstrapper/tracks.yml`
 - `services/topology.py`
 - `docs/deployment/source-configuration.md`
-
-## 4. Maintenance
-
-Regenerate this page and `bootstrapper-lifecycle.html` after changing a represented service,
-route, SOURCE mode, track, dependency, or data-flow boundary.

@@ -1,4 +1,4 @@
-# Quick Start
+# 2.1. Quick Start
 
 ## 1. Launch Atlas
 

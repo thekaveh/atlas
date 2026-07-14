@@ -1,4 +1,4 @@
-# Atlas Roadmap
+# 9.6. Atlas Roadmap
 
 This document outlines future development plans and enhancements for Atlas.
 
@@ -125,7 +125,7 @@ _Delivered — see "Completed" section below for the LiteLLM gateway entry._
 **Monitoring stack (Prometheus + Grafana)** — *Shipped 2026-05-31 (observability bundle); JupyterHub + Hermes scrape jobs subsequently removed as unreachable.*
 - ✅ Prometheus scraper + TSDB with bundled node-exporter (host metrics) and cAdvisor (container metrics), bundled as `services/prometheus/`.
 - ✅ Grafana with 7 pre-provisioned dashboards (stack overview, LiteLLM, Kong, Postgres+Redis, Containers+Host, n8n, app-tier) — `services/grafana/`.
-- ✅ 13 scrape targets — Kong, LiteLLM, Weaviate, n8n + n8n-worker, MinIO, Backend, Prom+Grafana self, node-exporter, cAdvisor, plus postgres-exporter and redis-exporter sidecars. (JupyterHub + Hermes scrape jobs were removed as unreachable post-ship — JupyterHub ships single-user, no `/metrics`; the upstream Hermes image has no exporter. See `services/prometheus/README.md` §4 and the CHANGELOG entry.)
+- ✅ 15 scrape targets — Kong, LiteLLM, Weaviate, n8n + n8n-worker, MinIO, Backend, Asset Worker, Asset Baker, Prometheus + Grafana self, node-exporter, cAdvisor, plus postgres-exporter and redis-exporter sidecars. (JupyterHub + Hermes scrape jobs were removed as unreachable post-ship — JupyterHub ships single-user, no `/metrics`; the upstream Hermes image has no exporter. See `services/prometheus/README.md` §4 and the CHANGELOG entry.)
 - ✅ Unified Grafana alerting enabled (no separate Alertmanager); contact points / rules to be added by users.
 - ✅ Loki (logs) + Tempo (traces) + OpenTelemetry collector — the full observability triangle, shipped as `services/{loki,tempo,otel-collector}/` with Tempo + Loki datasources provisioned in Grafana (`services/grafana/config/provisioning/datasources/tempo-loki.yml`).
 

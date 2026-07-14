@@ -1,4 +1,4 @@
-# Troubleshooting Guide
+# 2.3. Troubleshooting Guide
 
 This guide covers common issues and their solutions when using Atlas.
 

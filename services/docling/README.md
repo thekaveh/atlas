@@ -1,4 +1,4 @@
-# Docling (Document Processor engine)
+# 5.2.14. Docling (Document Processor engine)
 
 Docling is the engine behind the **Document Processor** role selectable via
 `DOC_PROCESSOR_SOURCE`. It is documented under the **Document Processor**

@@ -1,4 +1,4 @@
-# Asset Baker
+# 5.2.2. Asset Baker
 
 ## 1. Overview
 
@@ -18,8 +18,9 @@ There is **no MCP surface, by design**: this is a deterministic batch stage whos
 | Kong alias | `http://asset-baker.localhost:${KONG_HTTP_PORT}` | Requires `./start.sh --setup-hosts`; generated only when the service is enabled. |
 | Internal API | `http://asset-baker:8096` | Used by sibling containers through `ASSET_BAKER_ENDPOINT`. |
 | Health | `GET /health` | Returns `200` only when the configured Blender executable is available; otherwise returns `503`. |
+| Metrics | `GET /metrics` | Prometheus request counters and duration histograms; intentionally unauthenticated for in-network scraping. |
 
-Every route except `GET /health` requires `Authorization: Bearer ${ASSET_BAKER_API_TOKEN}`. Atlas generates the token on first startup; requests fail closed with `503` if authentication is not configured.
+Every route except `GET /health` and `GET /metrics` requires `Authorization: Bearer ${ASSET_BAKER_API_TOKEN}`. Atlas generates the token on first startup; requests fail closed with `503` if authentication is not configured.
 
 ## 3. Configuration
 
@@ -28,6 +29,7 @@ Every route except `GET /health` requires `Authorization: Bearer ${ASSET_BAKER_A
 | `ASSET_BAKER_SOURCE` | `disabled` | Enables the containerized worker when set to `container-cpu`. |
 | `ASSET_BAKER_IMAGE` | `python:3.12.9-slim` | Base image; the Dockerfile downloads pinned Blender on top. |
 | `ASSET_BAKER_BLENDER_VERSION` | `4.3.2` | Pinned headless Blender (≥ 4.3) installed in the image; bundles Python + numpy. |
+| `ASSET_BAKER_BLENDER_SHA256` | `4da1c956...a5592e6` | Published SHA-256 verified before the pinned Blender archive is extracted. |
 | `ASSET_BAKER_PORT` | computed | Host port assigned by Atlas' topology allocator. |
 | `ASSET_BAKER_API_TOKEN` | generated | Bearer token required by upload, reference-bake, and artifact-download routes. |
 | `ASSET_BAKER_ALLOWED_INPUT_BUCKETS` | _(blank)_ | Optional comma- or space-separated MinIO bucket allowlist. Blank follows `MINIO_BUCKET_ASSET_INPUTS`. |
@@ -150,7 +152,9 @@ Outputs are SHA-256 content-addressed and written to MinIO (`bake/<sha256>.{glb,
 
 ### 6.2 Current — Downstream (services that call this)
 
-_No downstream consumers._
+| Service | Category |
+|---|---|
+| prometheus | infra |
 
 ### 6.3 Architecture diagram
 

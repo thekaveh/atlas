@@ -11,7 +11,11 @@ from research_client import (
     ResearchResult,
     ResearchStatus,
 )
-from research_service import ResearchService
+from research_service import (
+    ResearchService,
+    _PUBLIC_RESEARCH_FAILURE,
+    _log_task_exception,
+)
 
 
 class _Transaction:
@@ -99,6 +103,145 @@ def test_cancelled_background_task_records_terminal_failure():
     assert recorded == [
         ("local-session-1", "Research worker stopped before completion")
     ]
+
+
+def test_background_failure_persists_stable_public_message(caplog):
+    service = object.__new__(ResearchService)
+    service._active_tasks = {}
+    recorded = []
+
+    async def mark_running(_session_id):
+        return True
+
+    async def execute_research(_session_id, _request):
+        raise RuntimeError("upstream body contains secret-token")
+
+    async def record_failure(session_id, message):
+        recorded.append((session_id, message))
+        return True
+
+    async def heartbeat(_session_id):
+        await asyncio.Event().wait()
+
+    service._mark_research_running = mark_running
+    service._execute_research = execute_research
+    service._record_research_failure = record_failure
+    service._heartbeat_research = heartbeat
+
+    with caplog.at_level("ERROR"):
+        asyncio.run(
+            service._run_research_background(
+                "local-session-1", "atlas", 1, "searxng", None
+            )
+        )
+
+    assert recorded == [("local-session-1", _PUBLIC_RESEARCH_FAILURE)]
+    assert "secret-token" not in recorded[0][1]
+    assert "research execution failed" in caplog.text
+    assert "secret-token" not in caplog.text
+
+
+def test_background_failure_redacts_secondary_persistence_exception(caplog):
+    service = object.__new__(ResearchService)
+    service._active_tasks = {}
+
+    async def mark_running(_session_id):
+        return True
+
+    async def execute_research(_session_id, _request):
+        raise RuntimeError("provider secret-token")
+
+    async def record_failure(_session_id, _message):
+        raise RuntimeError("database secret-token")
+
+    async def heartbeat(_session_id):
+        await asyncio.Event().wait()
+
+    service._mark_research_running = mark_running
+    service._execute_research = execute_research
+    service._record_research_failure = record_failure
+    service._heartbeat_research = heartbeat
+
+    with caplog.at_level("ERROR"):
+        asyncio.run(
+            service._run_research_background(
+                "local-session-1", "atlas", 1, "searxng", None
+            )
+        )
+
+    assert "secret-token" not in caplog.text
+    assert "error_type=RuntimeError" in caplog.text
+
+
+def test_background_task_callback_redacts_exception_message(caplog):
+    async def fail():
+        raise RuntimeError("task secret-token")
+
+    async def scenario():
+        task = asyncio.create_task(fail())
+        await asyncio.sleep(0)
+        with caplog.at_level("ERROR"):
+            _log_task_exception("local-session-1")(task)
+
+    asyncio.run(scenario())
+
+    assert "secret-token" not in caplog.text
+    assert "error_type=RuntimeError" in caplog.text
+
+
+def test_health_check_redacts_dependency_exception_messages(caplog):
+    service = object.__new__(ResearchService)
+    service._active_tasks = {}
+
+    async def db_failure():
+        raise RuntimeError("database secret-token")
+
+    class FailedClient:
+        async def health_check(self):
+            raise RuntimeError("provider secret-token")
+
+    service._get_db_connection = db_failure
+    service.research_client = FailedClient()
+
+    with caplog.at_level("WARNING"):
+        health = asyncio.run(service.health_check())
+
+    assert health["database"] == "unhealthy"
+    assert health["research_client"] == "unhealthy"
+    assert "secret-token" not in str(health)
+    assert "secret-token" not in caplog.text
+
+
+@pytest.mark.parametrize("loop_name", ["heartbeat", "maintenance"])
+def test_research_loops_redact_dependency_exception_messages(
+    monkeypatch, caplog, loop_name
+):
+    service = object.__new__(ResearchService)
+    service.heartbeat_interval = 1
+    sleep_calls = 0
+
+    async def bounded_sleep(_seconds):
+        nonlocal sleep_calls
+        sleep_calls += 1
+        if sleep_calls > 1:
+            raise asyncio.CancelledError()
+
+    async def fail(*_args):
+        raise RuntimeError("database secret-token")
+
+    monkeypatch.setattr(asyncio, "sleep", bounded_sleep)
+    if loop_name == "heartbeat":
+        service._write_research_heartbeat = fail
+        coroutine = service._heartbeat_research("local-session-1")
+    else:
+        service.recover_stale_sessions = fail
+        coroutine = service._maintenance_loop()
+
+    with caplog.at_level("WARNING"), pytest.raises(asyncio.CancelledError):
+        asyncio.run(coroutine)
+
+    assert "secret-token" not in caplog.text
+    assert "error_type=RuntimeError" in caplog.text
 
 
 def test_stale_research_sessions_are_terminalized_with_logs():

@@ -1,4 +1,4 @@
-# Document Processor Service
+# 5.2.13. Document Processor Service
 
 AI-powered document processing using IBM's Docling library with OpenAI-compatible API.
 

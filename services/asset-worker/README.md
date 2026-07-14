@@ -1,4 +1,4 @@
-# Asset Worker
+# 5.2.3. Asset Worker
 
 ## 1. Overview
 
@@ -14,8 +14,9 @@ This service exists so image-to-3D providers, Blender/DayDreams flows, and futur
 | Kong alias | `http://asset-worker.localhost:${KONG_HTTP_PORT}` | Requires `./start.sh --setup-hosts`; generated only when the service is enabled. |
 | Internal API | `http://asset-worker:8095` | Used by sibling containers through `ASSET_WORKER_ENDPOINT`. |
 | Health | `GET /health` | Returns `200` only when the configured glTF-Transform executable is available; otherwise returns `503`. |
+| Metrics | `GET /metrics` | Prometheus request counters and duration histograms; intentionally unauthenticated for in-network scraping. |
 
-Every route except `GET /health` requires `Authorization: Bearer ${ASSET_WORKER_API_TOKEN}`. Atlas generates the token on first startup; requests fail closed with `503` if authentication is not configured.
+Every route except `GET /health` and `GET /metrics` requires `Authorization: Bearer ${ASSET_WORKER_API_TOKEN}`. Atlas generates the token on first startup; requests fail closed with `503` if authentication is not configured.
 
 ## 3. Configuration
 
@@ -26,6 +27,7 @@ Every route except `GET /health` requires `Authorization: Bearer ${ASSET_WORKER_
 | `ASSET_WORKER_GLTF_TRANSFORM_VERSION` | `4.4.1` | Pinned `@gltf-transform/cli` version installed in the image. |
 | `ASSET_WORKER_MAX_UPLOAD_MB` | `200` | Maximum uploaded or MinIO-referenced GLB size. Inputs are streamed and rejected with `413` before transformation when exceeded. |
 | `ASSET_WORKER_TIMEOUT_SECONDS` | `300` | Per-command timeout for `inspect`, `validate`, and `optimize`. A timeout returns `504`. |
+| `ASSET_WORKER_CONCURRENCY` | `1` | Maximum concurrent mutation requests. A saturated worker rejects new work with `429` before acquiring its input. |
 | `ASSET_WORKER_PORT` | computed | Host port assigned by Atlas' topology allocator. |
 | `ASSET_WORKER_API_TOKEN` | generated | Bearer token required by upload, reference-processing, and artifact-download routes. |
 | `ASSET_WORKER_ALLOWED_INPUT_BUCKETS` | _(blank)_ | Optional comma- or space-separated MinIO bucket allowlist. Blank follows `MINIO_BUCKET_ASSET_INPUTS`. |
@@ -125,7 +127,7 @@ This service performs **mechanical glTF conditioning**: scale-to-target, center-
 
 ## 5. Architecture & Wiring
 
-The worker performs three operations in order. Uploaded bodies are copied to bounded temporary files in chunks, and the blocking transformation pipeline runs in a worker thread so health and concurrent API requests remain responsive.
+The worker performs three operations in order. Uploaded bodies are copied to bounded temporary files in chunks, and the blocking transformation pipeline runs in a worker thread so health and concurrent API requests remain responsive. A process-wide semaphore admits mutation requests before request-body parsing or object-store fetch; requests beyond `ASSET_WORKER_CONCURRENCY` receive `429` without consuming transformation, upload-spooling, or MinIO-fetch capacity.
 
 1. Normalize geometry by reading float32 GLB `POSITION` accessors, choosing the largest min-AABB extent as the upright axis, remapping that axis to Y, placing the base at `y=0`, centering X/Z around the origin, and scaling to the requested target height or width.
 2. Run `gltf-transform inspect`, `gltf-transform validate`, and `gltf-transform optimize` with the requested simplification and compression settings.
@@ -143,7 +145,9 @@ The service is intentionally separate from the media gateway. Provider-specific 
 
 ### 6.2 Current — Downstream (services that call this)
 
-_No downstream consumers._
+| Service | Category |
+|---|---|
+| prometheus | infra |
 
 ### 6.3 Architecture diagram
 

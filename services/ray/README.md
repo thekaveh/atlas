@@ -1,4 +1,4 @@
-# Ray
+# 5.2.42. Ray
 
 Distributed-compute substrate for the stack. Ray runs as a head + worker cluster reachable from JupyterHub, Backend (via REST), and any host Python via `ray.init("ray://localhost:<RAY_CLIENT_PORT>")`.
 

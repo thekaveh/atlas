@@ -1,4 +1,4 @@
-# Prometheus (metrics scraper + TSDB)
+# 5.2.41. Prometheus (metrics scraper + TSDB)
 
 Prometheus runs as a family of three containers in the stack's `infra` band: the main `prometheus` server, `node-exporter` for host-level metrics, and `cadvisor` for per-container metrics. All three share a single lifecycle — `PROMETHEUS_SOURCE` is one toggle that scales them as a unit.
 
@@ -42,7 +42,7 @@ The bootstrapper's `_generate_prometheus_config()` hook writes all five scale va
 
 ## 4. Scrape targets
 
-13 targets ship in `config/prometheus.yml`:
+15 targets ship in `config/prometheus.yml`:
 
 | Job | Target | Notes |
 |---|---|---|
@@ -57,6 +57,8 @@ The bootstrapper's `_generate_prometheus_config()` hook writes all five scale va
 | `n8n-worker` | `n8n-worker:5678` | Queue mode runs executions worker-side — execution-data counters live here |
 | `minio` | `minio:9000/minio/v2/metrics/cluster` | Requires `MINIO_PROMETHEUS_AUTH_TYPE=public` |
 | `backend` | `backend:8000/metrics` | `prometheus-fastapi-instrumentator` middleware |
+| `asset-worker` | `asset-worker:8095` | Auth-free operational metrics; asset mutation routes remain bearer-token protected |
+| `asset-baker` | `asset-baker:8096` | Auth-free operational metrics; asset mutation routes remain bearer-token protected |
 | `postgres-exporter` | `postgres-exporter:9187` | Sidecar embedded in Supabase family; scales 1↔0 with `PROMETHEUS_SOURCE` |
 | `redis-exporter` | `redis-exporter:9121` | Sidecar embedded in Redis family; scales 1↔0 with `PROMETHEUS_SOURCE` |
 
@@ -77,6 +79,8 @@ Ollama is **deliberately not scraped** — LiteLLM is its gateway and emits per-
 | supabase | data |
 | weaviate | data |
 | litellm | llm |
+| asset-baker | media |
+| asset-worker | media |
 | n8n | agents |
 | backend | apps |
 

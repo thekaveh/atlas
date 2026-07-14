@@ -1,4 +1,4 @@
-# Redis
+# 5.2.43. Redis
 
 Shared cache, queue, and pub/sub broker for the stack. The manifest comment is blunt: Redis is "consumed by half the stack." It has one container, one source variant (`container`), no GPU paths, and no init container. Despite being infrastructure rather than a feature, Redis is the single most cross-cutting service in the project — n8n's queue mode, Kong's rate-limit cache, Open WebUI's WebSocket store, LightRAG's KV layer, and JupyterHub notebooks all share this one instance.
 

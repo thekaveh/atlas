@@ -6,6 +6,7 @@ services:
       args:
         BASE_IMAGE: ${ASSET_BAKER_IMAGE:-python:3.12.9-slim}
         BLENDER_VERSION: ${ASSET_BAKER_BLENDER_VERSION:-4.3.2}
+        BLENDER_SHA256: ${ASSET_BAKER_BLENDER_SHA256:-4da1c956673c0485e63054e563ee69198cc8f80d8157dd7592dffc8a6a5592e6}
     image: ${PROJECT_NAME}-asset-baker:local
     container_name: ${PROJECT_NAME}-asset-baker
     restart: unless-stopped

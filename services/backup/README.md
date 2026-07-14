@@ -1,4 +1,4 @@
-# Backup / restore
+# 5.2.5. Backup / restore
 
 On-demand backup runner for the Atlas stack. Captures a Postgres custom-format dump (`pg_dump -Fc`) and tarballs of key named volumes, then pushes everything to an S3-compatible bucket (on-box MinIO by default, any external S3 endpoint otherwise). Restore is equally one-shot: pull the dump from S3 and feed it to `pg_restore --clean`.
 

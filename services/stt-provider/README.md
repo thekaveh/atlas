@@ -1,4 +1,4 @@
-# STT Provider
+# 5.2.48. STT Provider
 
 Pluggable speech-to-text layer. All backends speak the OpenAI
 `/v1/audio/transcriptions` protocol.

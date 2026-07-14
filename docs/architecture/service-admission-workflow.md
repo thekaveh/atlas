@@ -1,4 +1,4 @@
-# Service Admission Workflow
+# 6.12. Service Admission Workflow
 
 Manifest, compose fragment, topology row, env assembler, docs regeneration, diagrams, tests, and CI drift gates.
 
@@ -16,8 +16,3 @@ A service enters Atlas through one declarative chain: its manifest owns SOURCE v
 - `bootstrapper/tracks.yml`
 - `services/topology.py`
 - `docs/deployment/source-configuration.md`
-
-## 4. Maintenance
-
-Regenerate this page and `service-admission-workflow.html` after changing a represented service,
-route, SOURCE mode, track, dependency, or data-flow boundary.

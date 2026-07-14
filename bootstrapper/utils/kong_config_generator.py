@@ -315,10 +315,6 @@ class KongConfigGenerator:
         if spark_history_service:
             services.append(spark_history_service)
 
-        zeppelin_service = self.generate_zeppelin_service()
-        if zeppelin_service:
-            services.append(zeppelin_service)
-
         airflow_service = self.generate_airflow_service()
         if airflow_service:
             services.append(airflow_service)
@@ -1236,7 +1232,7 @@ class KongConfigGenerator:
         }
 
     # ── Uniform SPA-style routes ─────────────────────────────────────
-    # Five services share one exact route shape: gate on SOURCE ==
+    # Four services share one exact route shape: gate on SOURCE ==
     # 'container', route the whole host with preserve_host (SPAs bake
     # hostnames into redirects/assets — reference_kong_preserve_host)
     # and CORS only. Data-driven so the next observability-style
@@ -1254,8 +1250,6 @@ class KongConfigGenerator:
         # Airflow: same alias serves the Web UI and the REST API (/api/v2/).
         ('AIRFLOW_SOURCE', 'airflow', 'http://airflow-webserver:8080/',
          'airflow.localhost'),
-        ('ZEPPELIN_SOURCE', 'zeppelin', 'http://zeppelin:8080/',
-         'zeppelin.localhost'),
     ]
 
     def _generate_simple_container_route(
@@ -1295,9 +1289,6 @@ class KongConfigGenerator:
 
     def generate_airflow_service(self) -> Optional[Dict[str, Any]]:
         return self._generate_simple_container_route(*self._SIMPLE_CONTAINER_ROUTES[3])
-
-    def generate_zeppelin_service(self) -> Optional[Dict[str, Any]]:
-        return self._generate_simple_container_route(*self._SIMPLE_CONTAINER_ROUTES[4])
 
     def generate_grafana_service(self) -> Optional[Dict[str, Any]]:
         """Kong route for Grafana UI.

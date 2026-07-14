@@ -1,4 +1,4 @@
-# Redpanda
+# 5.2.44. Redpanda
 
 ## 1. Overview
 

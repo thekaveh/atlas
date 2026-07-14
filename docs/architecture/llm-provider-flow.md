@@ -1,4 +1,4 @@
-# LLM Provider Flow
+# 6.8. LLM Provider Flow
 
 Ollama, LiteLLM, cloud passthroughs, Open WebUI, backend, MCP/tool access, and trace hooks.
 
@@ -16,8 +16,3 @@ Open WebUI, Backend routes, agents, and tools call LiteLLM rather than binding t
 - `bootstrapper/tracks.yml`
 - `services/topology.py`
 - `docs/deployment/source-configuration.md`
-
-## 4. Maintenance
-
-Regenerate this page and `llm-provider-flow.html` after changing a represented service,
-route, SOURCE mode, track, dependency, or data-flow boundary.

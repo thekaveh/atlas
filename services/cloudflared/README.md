@@ -1,4 +1,4 @@
-# Cloudflare Tunnel
+# 5.2.10. Cloudflare Tunnel
 
 Egress-only public-edge service that terminates TLS at Cloudflare's global network and proxies inbound traffic to Kong. Disabled by default; enable when you need a publicly reachable Atlas stack without opening inbound firewall ports.
 

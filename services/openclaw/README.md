@@ -1,4 +1,4 @@
-# OpenClaw AI Agent Service
+# 5.2.38. OpenClaw AI Agent Service
 
 Open-source AI agent for messaging platforms with web-based administration dashboard.
 

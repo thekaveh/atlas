@@ -48,6 +48,9 @@ env:
   - name: ASSET_WORKER_TIMEOUT_SECONDS
     default: "300"
     description: "Per-command timeout for gltf-transform inspect, validate, and optimize subprocesses."
+  - name: ASSET_WORKER_CONCURRENCY
+    default: "1"
+    description: "Maximum concurrent glTF mutation requests; saturated workers reject new work with HTTP 429 before request-body parsing or object-store fetch."
   - name: ASSET_WORKER_ARTIFACT_DIR
     default: "/data/artifacts"
     description: "Local artifact cache used when MinIO upload is disabled or for direct downloads."

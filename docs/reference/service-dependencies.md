@@ -1,4 +1,4 @@
-# Service Dependencies
+# 10.6. Service Dependencies
 
 ## 1. Generated Dependency Matrix
 
@@ -25,7 +25,7 @@
 | iceberg-rest | minio, supabase | - | minio, supabase |
 | jenkins | minio | airflow, spark | minio |
 | jupyterhub | supabase, redis, litellm | minio, iceberg-rest, spark, redpanda | litellm, hermes, weaviate, neo4j, supabase, ray, spark, redpanda, comfyui, n8n, backend, searxng, minio, iceberg-rest, mlflow, label-studio |
-| kong | supabase, redis | - | backend, open-webui, jupyterhub, n8n, hermes, openclaw, local-deep-researcher, minio, supabase, weaviate, neo4j, comfyui, searxng, stt-provider, tts-provider, doc-processor, litellm, ollama, airflow, spark, zeppelin, lightrag, tei-reranker, verba, grafana, prometheus, ray |
+| kong | supabase, redis | - | backend, open-webui, jupyterhub, n8n, hermes, openclaw, local-deep-researcher, minio, supabase, weaviate, neo4j, comfyui, searxng, stt-provider, tts-provider, doc-processor, litellm, ollama, airflow, spark, lightrag, tei-reranker, verba, grafana, prometheus, ray |
 | label-studio | supabase, minio | jupyterhub, mlflow | supabase, minio |
 | langfuse | supabase, redis, minio, litellm, kong, ray | - | supabase, redis, minio, litellm |
 | lightrag | litellm | supabase, neo4j, redis, docling | litellm, supabase, neo4j, redis, docling |
@@ -44,7 +44,7 @@
 | openclaw | litellm | - | litellm |
 | otel-collector | tempo | loki | tempo |
 | parakeet | litellm | - | - |
-| prometheus | supabase, redis, kong, ray | - | kong, litellm, backend, n8n, weaviate, minio, supabase, redis, grafana |
+| prometheus | supabase, redis, kong, ray | - | kong, litellm, backend, asset-worker, asset-baker, n8n, weaviate, minio, supabase, redis, grafana |
 | ray | supabase, redis | - | - |
 | redis | supabase | - | - |
 | redpanda | - | spark, jupyterhub, zeppelin, airflow, iceberg-rest, minio | - |
@@ -62,4 +62,4 @@
 | verba | weaviate, litellm, kong | docling, open-webui, jupyterhub | weaviate, litellm |
 | vllm-metal | litellm | - | - |
 | weaviate | supabase, litellm | - | litellm, multi2vec-clip |
-| zeppelin | spark | supabase, minio, iceberg-rest, redpanda, trino | spark, supabase, minio, iceberg-rest, redpanda, trino |
+| zeppelin | spark, minio | supabase, iceberg-rest, redpanda, trino | spark, supabase, minio, iceberg-rest, redpanda, trino |

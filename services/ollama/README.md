@@ -1,4 +1,4 @@
-# Ollama (LLM upstream behind LiteLLM)
+# 5.2.36. Ollama (LLM upstream behind LiteLLM)
 
 **Internal port:** 11434 (no host port mapping for `ollama-container-*` — Ollama is reached over the compose network only)
 **SOURCE variable:** `LLM_PROVIDER_SOURCE`

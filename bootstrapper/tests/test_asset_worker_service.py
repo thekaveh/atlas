@@ -106,5 +106,6 @@ def test_asset_worker_readme_documents_api_and_postprocess_contract() -> None:
         "KTX2",
         "collider decimation",
         "ASSET_WORKER_SOURCE=disabled",
+        "before request-body parsing or object-store fetch",
     ]:
         assert required in text

@@ -1,4 +1,4 @@
-# SearXNG
+# 5.2.45. SearXNG
 
 Privacy-preserving metasearch engine. SearXNG aggregates results from 200+ upstream engines (Google, Bing, DuckDuckGo, Brave, Wikipedia, arXiv, Crossref, etc.) without keeping logs, fingerprinting users, or sending API keys. The stack uses it as the default search backend for Local Deep Researcher, Hermes, and n8n's seeded `searxng-research-workflow.json` (Open WebUI's web-search toggle is wired off today — see §5.4).
 

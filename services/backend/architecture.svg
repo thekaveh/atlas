@@ -27,7 +27,7 @@
 <line x1="300" y1="336" x2="360" y2="315" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
 <line x1="300" y1="430" x2="360" y2="315" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
 <line x1="360" y1="321" x2="300" y2="436" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-<text x="330" y="368" fill="#94a3b8" font-size="9" text-anchor="middle">↔ bidirectional</text>
+<text x="330" y="368" fill="#94a3b8" font-size="9" text-anchor="middle">two-way</text>
 <line x1="300" y1="524" x2="360" y2="315" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
 <line x1="560" y1="315" x2="620" y2="80" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
 <line x1="560" y1="315" x2="620" y2="148" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>

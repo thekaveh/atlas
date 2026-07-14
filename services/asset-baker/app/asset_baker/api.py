@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import secrets
 import shutil
 import tempfile
 import threading
+import time
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
+from prometheus_fastapi_instrumentator import Instrumentator
 
 from .models import (
     ArtifactRef,
@@ -24,6 +27,9 @@ from .models import (
 )
 from .runner import BakeError, run_bake
 from .storage import ArtifactStorage, ArtifactTooLargeError
+
+
+logger = logging.getLogger(__name__)
 
 
 def create_app(*, api_token: str | None = None) -> FastAPI:
@@ -42,7 +48,7 @@ def create_app(*, api_token: str | None = None) -> FastAPI:
 
     @app.middleware("http")
     async def require_api_token(request: Request, call_next):
-        if request.url.path == "/health":
+        if request.url.path in {"/health", "/metrics"}:
             return await call_next(request)
         if not expected_token:
             return JSONResponse(
@@ -127,6 +133,10 @@ def create_app(*, api_token: str | None = None) -> FastAPI:
         media = GLB_CONTENT_TYPE if ext == "glb" else PNG_CONTENT_TYPE
         return FileResponse(path, media_type=media, filename=f"{sha256}.{ext}")
 
+    Instrumentator(
+        excluded_handlers=["/metrics", "/health"],
+        should_group_status_codes=True,
+    ).instrument(app).expose(app, endpoint="/metrics")
     return app
 
 
@@ -158,13 +168,17 @@ def _process_path(
     storage = storage or ArtifactStorage()
 
     if not semaphore.acquire(blocking=False):
+        logger.info("asset_bake_rejected reason=busy")
         raise HTTPException(status_code=429, detail="Bake worker is busy; retry later")
+    started_at = time.monotonic()
+    logger.info("asset_bake_started")
     try:
         with tempfile.TemporaryDirectory(prefix="asset-baker-") as tmp:
             out_dir = Path(tmp) / "out"
             try:
                 artifacts = run_bake(input_path, out_dir, resolved)
             except BakeError as exc:
+                logger.warning("asset_bake_failed kind=%s", exc.kind)
                 status = 504 if exc.kind == "timeout" else 422
                 raise HTTPException(status_code=status, detail=str(exc)) from exc
             glb_bytes = artifacts.glb_path.read_bytes()
@@ -179,6 +193,10 @@ def _process_path(
             record = artifacts.summary
     finally:
         semaphore.release()
+    logger.info(
+        "asset_bake_completed duration_seconds=%.3f",
+        time.monotonic() - started_at,
+    )
 
     sha = hashlib.sha256(glb_bytes).hexdigest()
     glb_artifact = storage.store(

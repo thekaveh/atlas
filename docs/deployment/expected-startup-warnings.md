@@ -1,4 +1,4 @@
-# Expected Startup Warnings
+# 8.3. Expected Startup Warnings
 
 The first ~60 seconds after `./start.sh` produce a handful of warnings and one-shot ERROR lines that look alarming but are either (a) library-internal noise we can't suppress without forking, (b) intentional secure defaults, or (c) startup races that don't recur and don't affect functionality. This page enumerates the ones we've investigated and decided to live with, so future operators don't chase them.
 

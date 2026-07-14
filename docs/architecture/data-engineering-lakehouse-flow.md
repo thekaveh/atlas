@@ -1,4 +1,4 @@
-# Data Engineering Lakehouse Flow
+# 6.9. Data Engineering Lakehouse Flow
 
 MinIO, Iceberg REST, Spark, JupyterHub, Zeppelin, Airflow, Trino, Redpanda, Jenkins, and init containers.
 
@@ -16,8 +16,3 @@ MinIO is the object data plane and Iceberg REST owns table metadata. Spark and T
 - `bootstrapper/tracks.yml`
 - `services/topology.py`
 - `docs/deployment/source-configuration.md`
-
-## 4. Maintenance
-
-Regenerate this page and `data-engineering-lakehouse-flow.html` after changing a represented service,
-route, SOURCE mode, track, dependency, or data-flow boundary.

@@ -1,4 +1,4 @@
-# Apache Zeppelin (Spark-first notebook)
+# 5.2.59. Apache Zeppelin (Spark-first notebook)
 
 Zeppelin runs as a single container in the stack's `apps` band. The Spark interpreter is intended for the in-stack standalone Spark cluster (`spark://spark-master:7077`) plus MinIO S3A. `zeppelin-init` also seeds a Trino JDBC interpreter when `TRINO_SOURCE=container`; Supabase Postgres remains a manual JDBC profile. Notebooks live in `services/zeppelin/notebooks/`, bind-mounted into the container.
 
@@ -34,7 +34,7 @@ Seeded values include:
 - MinIO S3A settings for `s3a://` reads/writes and Spark event logs
 - Iceberg REST catalog settings for `lakehouse` at `http://iceberg-rest:8181`
 
-Manual recovery path: open Zeppelin (`http://localhost:${ZEPPELIN_PORT}` or `http://zeppelin.localhost:${KONG_HTTP_PORT}`), go to top-right user menu → **Interpreter** → `spark`, and verify the values above. Click **Save**, then confirm the restart prompt if you make changes.
+Manual recovery path: open Zeppelin at `http://localhost:${ZEPPELIN_PORT}`, go to top-right user menu → **Interpreter** → `spark`, and verify the values above. Click **Save**, then confirm the restart prompt if you make changes.
 
 ### 1.3 Verify it works
 
@@ -105,10 +105,9 @@ Because execution happens on the server, `%spark` (Scala) and `%spark.pyspark` c
 
 | Surface | URL | Auth |
 |---|---|---|
-| Direct | `http://localhost:${ZEPPELIN_PORT}` | None |
-| Kong | `http://zeppelin.localhost:${KONG_HTTP_PORT}` | None |
+| Direct | `http://localhost:${ZEPPELIN_PORT}` | None; the published port is always bound to `127.0.0.1`. |
 
-No authentication ships pre-configured. For real use, enable Shiro auth via `conf/shiro.ini` (see [Zeppelin upstream docs](https://zeppelin.apache.org/docs/0.12.0/setup/security/shiro_authentication.html)).
+No authentication ships pre-configured, so Atlas does not publish Zeppelin through Kong and does not honor a wider `HOST_BIND_IP` for this service. Reach a remote Atlas host through the SSH tunnel documented in §1.6. Configure Zeppelin authentication before introducing any external reverse-proxy route.
 
 ## 3. Configuration
 
@@ -122,7 +121,7 @@ ZEPPELIN_PORT=                     # auto-assigned (apps band)
 ## 4. Integration with the stack
 
 - **Spark** (required) — `%spark` cells use the standalone Spark interpreter path selected in the Zeppelin backend decision: `SPARK_HOME` plus `spark.master=spark://spark-master:7077`.
-- **MinIO** — `s3a://` credentials come from the seeded Spark interpreter/Spark submit configuration.
+- **MinIO** — `s3a://` credentials come from the generated `MINIO_SPARK_*` service account. It is limited to the Spark event-log and lakehouse workflow buckets; Zeppelin never receives MinIO root credentials.
 - **Iceberg REST** (optional) — when `ICEBERG_REST_SOURCE=container`, the seeded `lakehouse` catalog points to `http://iceberg-rest:8181` and uses the scoped Iceberg MinIO credentials for S3FileIO.
 - **Trino** (optional) — when `TRINO_SOURCE=container`, `zeppelin-init` waits for `http://trino:8080/v1/info` and creates or updates a named JDBC interpreter profile `trino` (group `jdbc`) with `default.driver=io.trino.jdbc.TrinoDriver`, `default.url=jdbc:trino://trino:8080/lakehouse`, `default.user=atlas`, and dependency `io.trino:trino-jdbc:482`. Then `%trino SHOW CATALOGS` works without manual UI setup. Trino still requires `MINIO_SOURCE=container` and `ICEBERG_REST_SOURCE=container`; if `TRINO_SOURCE=disabled`, the init script logs a skip and leaves existing JDBC settings alone.
 - **Supabase Postgres** — JDBC connection details exposed as env vars (`ZEPPELIN_JDBC_POSTGRES_URL` / `_USER` / `_PASSWORD`). Zeppelin does not auto-bind these to the JDBC interpreter — one-time setup: open Zeppelin → Interpreter → `+ Create`, name it `postgres` with interpreter group `jdbc`, and set `default.driver=org.postgresql.Driver`, `default.url=jdbc:postgresql://supabase-db:5432/${SUPABASE_DB_NAME}` (copy the exact value from the container's `ZEPPELIN_JDBC_POSTGRES_URL` env — `${SUPABASE_DB_NAME}` defaults to `postgres` but is configurable), `default.user`/`default.password` from the corresponding env vars. Then `%postgres SELECT version()` works — note the old `%jdbc(postgres)` prefix syntax was removed in Zeppelin 0.12 (the interpreter warns "not supported anymore" and falls back to `default.*`). Tracked as a future improvement (bind-mount `conf/interpreter.json` so this is zero-touch).
@@ -172,9 +171,7 @@ maintenance procedures including `rewrite_data_files`, `expire_snapshots`, and
 
 ### 6.2 Current — Downstream (services that call this)
 
-| Service | Category |
-|---|---|
-| kong | infra |
+_No downstream consumers._
 
 ### 6.3 Architecture diagram
 
@@ -198,7 +195,7 @@ _No high-confidence opportunities identified._
 
 - **Spark interpreter says "no master URL"** — `SPARK_MASTER` env var is missing from the container. Check the compose env block; the manifest's runtime_sc + compose.yml dual-write should ensure it. Restart the container after fixing.
 - **First `%spark` cell after stack-up errors with "connection refused"** — Zeppelin's `depends_on` gates on `spark-master: service_healthy` and `spark-init: service_completed_successfully`, but a cold Spark worker or freshly restarted interpreter can still take a few seconds to accept driver/executor traffic. Confirm `spark.master=spark://spark-master:7077` in the `spark` interpreter settings, then re-run the cell once the Spark master UI shows a live worker.
-- **S3A: "Access Denied" on s3a://...** — MinIO root credentials drift between `.env` and what the container received. `docker exec ${PROJECT_NAME}-zeppelin env | grep -E 'MINIO|SPARK_SUBMIT_OPTIONS'` to confirm. Re-run `./start.sh` to refresh.
+- **S3A: "Access Denied" on s3a://...** — the generated `MINIO_SPARK_ACCESS_KEY` / `MINIO_SPARK_SECRET_KEY` or scoped policy is missing from the container. `docker exec ${PROJECT_NAME}-zeppelin env | grep -E 'MINIO|SPARK_SUBMIT_OPTIONS'` to confirm. Re-run `./start.sh` to provision the account and refresh the interpreter.
 - **JDBC interpreter "Interpreter not properly configured"** — Zeppelin does not auto-bind the `ZEPPELIN_JDBC_POSTGRES_*` env vars to a JDBC interpreter profile. Walk through §4's one-time UI setup, then restart it (Interpreter → postgres → Restart). Supabase Postgres also must be running (it's a required dep of the stack).
 - **`%trino` is missing or cannot load the driver** — confirm both `ZEPPELIN_SOURCE=container` and `TRINO_SOURCE=container`, then check `docker logs ${PROJECT_NAME}-zeppelin-init`. The init script should report either "trino JDBC interpreter created" or "already configured". The interpreter dependency must include `io.trino:trino-jdbc:482`.
 - **"Notebook won't save"** — `/notebook` is bind-mounted from `services/zeppelin/notebooks/`. Confirm `services/zeppelin/notebooks/` exists and is writable by the host user. Zeppelin writes new .zpln files there.

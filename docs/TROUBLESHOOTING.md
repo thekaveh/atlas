@@ -1,4 +1,4 @@
-# Troubleshooting
+# 8.2. Troubleshooting
 
 Common startup and shutdown problems and their fixes. If you hit something not covered here, open an issue.
 

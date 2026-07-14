@@ -27,14 +27,16 @@ _DocsDumper.add_representer(
 )
 
 
-def _number_h1(markdown: str, page: Page) -> str:
+def _validate_numbered_h1(markdown: str, page: Page) -> str:
     lines = markdown.splitlines(keepends=True)
-    for index, line in enumerate(lines):
+    for line in lines:
         if line.startswith("# "):
-            newline = "\n" if line.endswith("\n") else ""
-            lines[index] = f"# {page.number}. {page.title}{newline}"
-            return "".join(lines)
-    return f"# {page.number}. {page.title}\n\n{markdown}"
+            if line.startswith(f"# {page.number}. "):
+                return markdown
+            raise ValueError(
+                f"{page.source}: canonical H1 must start with '# {page.number}. '"
+            )
+    raise ValueError(f"{page.source}: canonical page is missing an H1")
 
 
 def _diagram_asset_maps(manifest: Manifest, surface: str) -> dict[str, str]:
@@ -66,7 +68,7 @@ def _render_pages(manifest: Manifest, repo_root: Path, destination: Path, surfac
             source_map=source_map,
             asset_map=asset_map,
         )
-        rendered = _number_h1(rendered, page)
+        rendered = _validate_numbered_h1(rendered, page)
         target = destination / output
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(rendered.rstrip() + "\n", encoding="utf-8")

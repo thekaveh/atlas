@@ -1,4 +1,4 @@
-# vLLM (Metal) — managed Apple-silicon LLM server
+# 5.2.57. vLLM (Metal) — managed Apple-silicon LLM server
 
 > Virtual, managed-localhost-only service (#379). There is **no container
 > image**: when `VLLM_METAL_SOURCE=managed-localhost`, the Atlas bootstrapper

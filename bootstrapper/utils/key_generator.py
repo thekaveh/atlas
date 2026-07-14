@@ -45,6 +45,7 @@ class KeyGenerator:
         "BACKEND",
         "N8N",
         "JUPYTER",
+        "SPARK",
         "DOCLING",
         "LANGFUSE",
         "MLFLOW",

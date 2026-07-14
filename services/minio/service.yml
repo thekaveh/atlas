@@ -144,6 +144,17 @@ env:
     default: ""
     secret: true
     description: "Auto-generated scoped MinIO secret key for the jupyter bucket."
+  - name: MINIO_BUCKET_SPARK_HISTORY
+    default: spark-history
+    description: "Spark event-log bucket used by Zeppelin and the Spark History Server."
+  - name: MINIO_SPARK_ACCESS_KEY
+    default: ""
+    secret: true
+    description: "Auto-generated scoped MinIO access key for Spark event logs and lakehouse workflow buckets."
+  - name: MINIO_SPARK_SECRET_KEY
+    default: ""
+    secret: true
+    description: "Auto-generated scoped MinIO secret key for Spark event logs and lakehouse workflow buckets."
   - name: MINIO_BUCKET_DOCLING
     default: docling
   - name: MINIO_DOCLING_ACCESS_KEY

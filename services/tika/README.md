@@ -1,4 +1,4 @@
-# Apache Tika
+# 5.2.53. Apache Tika
 
 ## 1. Overview
 Apache Tika is Atlas' disabled-by-default fallback extractor for long-tail document formats that Docling does not target well. It is a degraded plain-text path, not a replacement for Docling's structure-aware PDF, Office, image, table, OCR, and chunking pipeline.

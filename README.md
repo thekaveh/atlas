@@ -253,7 +253,7 @@ The stack uses **SOURCE variables** to control how services are deployed.
 - **JupyterHub** (`JUPYTERHUB_SOURCE=container|disabled`) — data science IDE
 
 **Observability bundle (opt-in, disabled by default):**
-- **Prometheus** (`PROMETHEUS_SOURCE=container|disabled`) — metrics scraper + TSDB bundled with `node-exporter` and `cAdvisor`. When enabled, 13 scrape jobs cover Kong, LiteLLM, Weaviate, n8n (web + worker), MinIO, Backend, Postgres (via `postgres-exporter` sidecar in the Supabase family), and Redis (via `redis-exporter` sidecar in the Redis family), plus four self / infrastructure targets (prometheus, grafana, node-exporter, cAdvisor). JupyterHub and Hermes are deferred — see `services/prometheus/README.md` §4. Retention is user-configurable via `--prometheus-retention-days` (default 7).
+- **Prometheus** (`PROMETHEUS_SOURCE=container|disabled`) — metrics scraper + TSDB bundled with `node-exporter` and `cAdvisor`. When enabled, 15 scrape jobs cover Kong, LiteLLM, Weaviate, n8n (web + worker), MinIO, Backend, Asset Worker, Asset Baker, Postgres (via `postgres-exporter` sidecar in the Supabase family), and Redis (via `redis-exporter` sidecar in the Redis family), plus four self / infrastructure targets (Prometheus, Grafana, node-exporter, cAdvisor). JupyterHub and Hermes are deferred — see `services/prometheus/README.md` §4. Retention is user-configurable via `--prometheus-retention-days` (default 7).
 - **Grafana** (`GRAFANA_SOURCE=container|disabled`) — dashboards + unified alerting UI on top of Prometheus. Pre-provisions the Prometheus datasource and 7 starter dashboards (stack overview, LiteLLM, Kong, Postgres+Redis, Containers+Host, n8n, app-tier). Admin login is auto-generated on first bootstrap (`GRAFANA_ADMIN_USERNAME` / `GRAFANA_ADMIN_PASSWORD` in `.env`).
 
 <!-- TOPOLOGY:BEGIN -->
@@ -323,7 +323,7 @@ _Engine-only manifests (speaches, chatterbox) are not listed — they're selecte
 | Apps & UIs | Open WebUI | 63096 | chat.localhost |
 | Apps & UIs | Local Deep Researcher | 63097 | research.localhost |
 | Apps & UIs | Verba | 63098 | verba.localhost |
-| Apps & UIs | Apache Zeppelin | 63099 | zeppelin.localhost |
+| Apps & UIs | Apache Zeppelin | 63099 | — |
 <!-- TOPOLOGY:END -->
 
 ## 4. Core Services
@@ -352,9 +352,9 @@ _Engine-only manifests (speaches, chatterbox) are not listed — they're selecte
 | **Apache Spark** | http://localhost:63027 | http://spark.localhost:63000 | Standalone Spark cluster for batch / SQL / DataFrame work. Spark Connect on `:15002`. Disabled by default; opt-in via `--spark-source container --spark-workers N`. | None |
 | **Trino** | http://localhost:63029 | http://trino.localhost:63000 | SQL query engine over the Iceberg REST + MinIO lakehouse catalog. Disabled by default; opt-in via `--trino-source container --iceberg-rest-source container --minio-source container`. | Kong route: `kong_admin` / `DASHBOARD_PASSWORD` from `.env` (direct port is ungated) |
 | **Redpanda Console** | http://localhost:63011 | http://redpanda.localhost:63000 | Kafka-compatible streaming broker console. Kafka clients use `redpanda:9092` in-network or `localhost:63010` from the host. Disabled by default; opt-in via `--redpanda-source container`. | Kong route: `kong_admin` / `DASHBOARD_PASSWORD` from `.env` (direct port is ungated) |
-| **Apache Zeppelin** | http://localhost:63099 | http://zeppelin.localhost:63000 | Spark-first notebook UI. Spark interpreter pre-configured for the in-stack standalone Spark master plus MinIO S3A and Iceberg REST; JDBC interpreter ships with credentials in env vars but needs a one-time UI-driven `postgres` profile setup. Requires Spark (gated). Disabled by default. | None |
+| **Apache Zeppelin** | http://127.0.0.1:63099 | — | Spark-first notebook UI. Spark interpreter pre-configured for the in-stack standalone Spark master plus MinIO S3A and Iceberg REST; JDBC interpreter ships with credentials in env vars but needs a one-time UI-driven `postgres` profile setup. Requires Spark (gated). Disabled by default. | None |
 | **Apache Airflow** | http://localhost:63070 | http://airflow.localhost:63000 | Code-defined DAG orchestrator. LocalExecutor + AI/ML SDK with LiteLLM-wired LLM operators. Disabled by default. | `admin` / auto-generated `AIRFLOW_ADMIN_PASSWORD` |
-| **Prometheus** | http://localhost:63006 | http://prometheus.localhost:63000 | Metrics scraper + TSDB. Disabled by default; opt-in via `--prometheus-source container`. Bundled with `node-exporter` and `cAdvisor`. 13 scrape jobs cover the application + infra tiers — see [services/prometheus/README.md](services/prometheus/README.md). | None |
+| **Prometheus** | http://localhost:63006 | http://prometheus.localhost:63000 | Metrics scraper + TSDB. Disabled by default; opt-in via `--prometheus-source container`. Bundled with `node-exporter` and `cAdvisor`. 15 scrape jobs cover the application + infra tiers — see [services/prometheus/README.md](services/prometheus/README.md). | None |
 | **Grafana** | http://localhost:63009 | http://grafana.localhost:63000 | Observability dashboards + unified alerting on top of Prometheus. Disabled by default; opt-in via `--grafana-source container`. 7 starter dashboards ship pre-provisioned. | `admin` / auto-generated `GRAFANA_ADMIN_PASSWORD` (first-run) |
 | **LightRAG** | `http://lightrag.localhost:${KONG_HTTP_PORT}` (WebUI), `http://localhost:${LIGHTRAG_API_PORT}/webui` | http://lightrag.localhost:63000 | Graph-augmented RAG server. KG + vector + multimodal ingestion. Disabled by default. | None |
 | **TEI Reranker** | `http://localhost:${TEI_RERANKER_PORT}/rerank` (API only) | http://rerank.localhost:63000 | Cross-encoder reranker (default `mixedbread-ai/mxbai-rerank-base-v1`) for RAG quality lift. Disabled by default. | None |

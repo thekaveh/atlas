@@ -29,6 +29,7 @@ def _env(env: dict[str, str], name: str, default: str = "") -> str:
 def build_atlas_properties(env: dict[str, str]) -> dict[str, str]:
     minio_endpoint = _env(env, "MINIO_ENDPOINT", "http://minio:9000")
     minio_region = _env(env, "MINIO_REGION", "us-east-1")
+    spark_history_bucket = _env(env, "MINIO_BUCKET_SPARK_HISTORY", "spark-history")
     lakehouse_bucket = _env(env, "MINIO_BUCKET_ICEBERG_LAKEHOUSE", "lakehouse")
     iceberg_rest_uri = _env(env, "ICEBERG_REST_URI", "http://iceberg-rest:8181")
 
@@ -41,13 +42,13 @@ def build_atlas_properties(env: dict[str, str]) -> dict[str, str]:
         "spark.driver.bindAddress": "0.0.0.0",
         "spark.driver.host": "zeppelin",
         "spark.hadoop.fs.s3a.endpoint": minio_endpoint,
-        "spark.hadoop.fs.s3a.access.key": _env(env, "MINIO_ROOT_USER"),
-        "spark.hadoop.fs.s3a.secret.key": _env(env, "MINIO_ROOT_PASSWORD"),
+        "spark.hadoop.fs.s3a.access.key": _env(env, "MINIO_SPARK_ACCESS_KEY"),
+        "spark.hadoop.fs.s3a.secret.key": _env(env, "MINIO_SPARK_SECRET_KEY"),
         "spark.hadoop.fs.s3a.path.style.access": "true",
         "spark.hadoop.fs.s3a.endpoint.region": minio_region,
         "spark.hadoop.fs.s3a.connection.ssl.enabled": "false",
         "spark.eventLog.enabled": "true",
-        "spark.eventLog.dir": "s3a://spark-history/",
+        "spark.eventLog.dir": f"s3a://{spark_history_bucket}/",
         "spark.sql.extensions": "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions",
         "spark.sql.catalog.lakehouse": "org.apache.iceberg.spark.SparkCatalog",
         "spark.sql.catalog.lakehouse.type": "rest",

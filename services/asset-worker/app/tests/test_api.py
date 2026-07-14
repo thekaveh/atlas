@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
+import threading
+
+import httpx2 as httpx
 
 import pytest
 from fastapi.testclient import TestClient
@@ -30,6 +34,15 @@ def test_health_requires_gltf_transform_binary(monkeypatch) -> None:
     assert response.json() == {"status": "ok", "gltf_transform": True}
 
 
+def test_metrics_are_available_without_asset_token() -> None:
+    from asset_worker import api
+
+    response = TestClient(api.create_app(api_token=_TOKEN)).get("/metrics")
+
+    assert response.status_code == 200
+    assert "http_requests_total" in response.text
+
+
 def test_multipart_glb_postprocess_stores_content_addressed_local_artifact(
     monkeypatch, tmp_path
 ) -> None:
@@ -54,6 +67,7 @@ def test_multipart_glb_postprocess_stores_content_addressed_local_artifact(
         data={
             "target_height_m": "1.8",
             "normalize_axis": "height",
+            "up_axis": "auto",
             "simplify_ratio": "0.5",
             "draco": "true",
             "meshopt": "true",
@@ -72,8 +86,8 @@ def test_multipart_glb_postprocess_stores_content_addressed_local_artifact(
     assert body["artifact"]["content_type"] == "model/gltf-binary"
     assert body["download_url"] == f"/gltf/artifacts/{expected_sha}.glb"
     assert body["normalization"] == {
-        "method": "keep",
-        "up_axis": "keep",
+        "method": "min-aabb-volume",
+        "up_axis": "auto",
         "base_y": 0,
         "normalize_axis": "height",
         "target_height_m": 1.8,
@@ -86,6 +100,7 @@ def test_multipart_glb_postprocess_stores_content_addressed_local_artifact(
         "collider_decimation": 0.25,
     }
     assert calls[0][2].target_height_m == 1.8
+    assert calls[0][2].up_axis == "auto"
     assert calls[0][2].draco is True
 
     downloaded = client.get(body["download_url"])
@@ -252,3 +267,105 @@ def test_minio_reference_rejects_oversize_object_before_read(monkeypatch) -> Non
     with pytest.raises(ArtifactTooLargeError):
         storage.fetch("raw-assets", "large.glb")
     assert body.closed is True
+
+
+@pytest.mark.parametrize(
+    ("path", "request_kwargs"),
+    [
+        (
+            "/gltf/postprocess",
+            {"files": {"file": ("scene.glb", b"raw-glb", "model/gltf-binary")}},
+        ),
+        (
+            "/gltf/postprocess/ref",
+            {
+                "json": {
+                    "input": {"bucket": "raw-assets", "key": "mesh.glb"},
+                    "params": {},
+                }
+            },
+        ),
+    ],
+)
+def test_saturated_worker_returns_429(monkeypatch, tmp_path, path, request_kwargs) -> None:
+    from asset_worker import api
+
+    class BusySemaphore:
+        def acquire(self, *, blocking):
+            assert blocking is False
+            return False
+
+        def release(self):
+            raise AssertionError("an unacquired semaphore must not be released")
+
+    class FakeStorage:
+        def fetch(self, bucket, key):
+            raise AssertionError("busy requests must not fetch input objects")
+
+    def fail_copy(*_args):
+        raise AssertionError("busy requests must not spool uploads")
+
+    monkeypatch.setattr(api, "ArtifactStorage", FakeStorage)
+    monkeypatch.setattr(api, "_copy_upload_to_path", fail_copy)
+    monkeypatch.setenv("ASSET_WORKER_ARTIFACT_DIR", str(tmp_path))
+    app = api.create_app(api_token=_TOKEN)
+    app.state.transform_semaphore = BusySemaphore()
+
+    response = TestClient(
+        app, headers={"Authorization": f"Bearer {_TOKEN}"}
+    ).post(path, **request_kwargs)
+
+    assert response.status_code == 429
+
+
+def test_cancelled_request_holds_slot_until_transform_thread_exits(
+    monkeypatch, tmp_path
+) -> None:
+    from asset_worker import api
+
+    started = threading.Event()
+    release = threading.Event()
+    calls = 0
+
+    def blocking_run(_input_path, output_path, _params):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            started.set()
+            assert release.wait(timeout=5)
+        output_path.write_bytes(b"optimized")
+
+    monkeypatch.setattr(api, "run_gltf_transform", blocking_run)
+    monkeypatch.setenv("ASSET_WORKER_ARTIFACT_DIR", str(tmp_path))
+    monkeypatch.setenv("ASSET_WORKER_MINIO_ENABLED", "false")
+    app = api.create_app(api_token=_TOKEN)
+
+    async def scenario() -> int:
+        transport = httpx.ASGITransport(app=app)
+        headers = {"Authorization": f"Bearer {_TOKEN}"}
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="http://asset-worker.test",
+            headers=headers,
+        ) as client:
+            first = asyncio.create_task(
+                client.post(
+                    "/gltf/postprocess",
+                    files={"file": ("first.glb", b"raw", "model/gltf-binary")},
+                )
+            )
+            assert await asyncio.to_thread(started.wait, 2)
+            first.cancel()
+            await asyncio.sleep(0.05)
+
+            second = await client.post(
+                "/gltf/postprocess",
+                files={"file": ("second.glb", b"raw", "model/gltf-binary")},
+            )
+            release.set()
+            with pytest.raises(asyncio.CancelledError):
+                await first
+            return second.status_code
+
+    assert asyncio.run(scenario()) == 429
+    assert calls == 1

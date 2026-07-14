@@ -43,6 +43,9 @@ env:
   - name: ASSET_BAKER_BLENDER_VERSION
     default: "4.3.2"
     description: "Pinned headless Blender version (>= 4.3) downloaded into the asset-baker image. Blender bundles its own Python + numpy for the bake script."
+  - name: ASSET_BAKER_BLENDER_SHA256
+    default: "4da1c956673c0485e63054e563ee69198cc8f80d8157dd7592dffc8a6a5592e6"
+    description: "SHA-256 checksum verified before extracting the pinned Blender archive. Update it with ASSET_BAKER_BLENDER_VERSION from Blender's published checksum file."
   - name: ASSET_BAKER_ARTIFACT_DIR
     default: "/data/artifacts"
     description: "Local artifact cache used when MinIO upload is disabled or for direct downloads."

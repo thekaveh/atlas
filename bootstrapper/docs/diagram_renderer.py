@@ -267,7 +267,7 @@ def _edges(graph: DepGraph, up_clusters: "OrderedDict[str, list[DepEdge]]",
             )
             parts.append(
                 f'<text x="{(x1 + focus_x) // 2}" y="{(y1 + focus_y_center) // 2 - 4}" '
-                f'fill="#94a3b8" font-size="9" text-anchor="middle">↔ bidirectional</text>'
+                f'fill="#94a3b8" font-size="9" text-anchor="middle">two-way</text>'
             )
         cy += ch + CLUSTER_GAP
 

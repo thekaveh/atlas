@@ -1,4 +1,4 @@
-# Data And RAG Flow
+# 6.7. Data And RAG Flow
 
 Ingestion, document processing, object storage, vector and graph stores, backend APIs, Open WebUI, and tool/MCP-adjacent flows.
 
@@ -16,8 +16,3 @@ The Backend coordinates ingestion: processors extract source material, MinIO pre
 - `bootstrapper/tracks.yml`
 - `services/topology.py`
 - `docs/deployment/source-configuration.md`
-
-## 4. Maintenance
-
-Regenerate this page and `data-rag-flow.html` after changing a represented service,
-route, SOURCE mode, track, dependency, or data-flow boundary.

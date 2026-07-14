@@ -17,6 +17,7 @@ from research_client import (
 
 
 logger = logging.getLogger(__name__)
+_PUBLIC_RESEARCH_FAILURE = "Research failed; inspect backend logs for details"
 
 
 def _positive_env_int(name: str, default: int) -> int:
@@ -45,9 +46,9 @@ def _log_task_exception(session_id: str):
             return
         if exc is not None:
             logger.error(
-                "research bg task crashed (session_id=%s)",
+                "research bg task crashed (session_id=%s, error_type=%s)",
                 session_id,
-                exc_info=exc,
+                type(exc).__name__,
             )
     return _callback
 
@@ -166,19 +167,28 @@ class ResearchService:
                 )
             except Exception as record_error:
                 logger.error(
-                    "cancelled research could not be terminalized (session_id=%s)",
+                    "cancelled research could not be terminalized "
+                    "(session_id=%s, error_type=%s)",
                     session_id,
-                    exc_info=record_error,
+                    type(record_error).__name__,
                 )
             raise
         except Exception as e:
+            logger.error(
+                "research execution failed (session_id=%s, error_type=%s)",
+                session_id,
+                type(e).__name__,
+            )
             try:
-                await self._record_research_failure(session_id, str(e))
+                await self._record_research_failure(
+                    session_id, _PUBLIC_RESEARCH_FAILURE
+                )
             except Exception as record_error:
                 logger.error(
-                    "research failure could not be persisted (session_id=%s)",
+                    "research failure could not be persisted "
+                    "(session_id=%s, error_type=%s)",
                     session_id,
-                    exc_info=record_error,
+                    type(record_error).__name__,
                 )
 
         finally:
@@ -229,9 +239,9 @@ class ResearchService:
                 await self._write_research_heartbeat(session_id)
             except Exception as exc:
                 logger.warning(
-                    "research heartbeat failed (session_id=%s): %s",
+                    "research heartbeat failed (session_id=%s, error_type=%s)",
                     session_id,
-                    exc,
+                    type(exc).__name__,
                 )
 
     async def recover_stale_sessions(self) -> int:
@@ -276,7 +286,10 @@ class ResearchService:
                         "terminalized %s stale research session(s)", recovered
                     )
             except Exception as exc:
-                logger.warning("research maintenance sweep failed: %s", exc)
+                logger.warning(
+                    "research maintenance sweep failed (error_type=%s)",
+                    type(exc).__name__,
+                )
 
     async def start_maintenance(self) -> None:
         await self.recover_stale_sessions()
@@ -631,13 +644,21 @@ class ResearchService:
                 await conn.close()
             results["database"] = "healthy"
         except Exception as e:
-            results["database"] = f"unhealthy: {str(e)}"
+            logger.warning(
+                "research database health check failed (error_type=%s)",
+                type(e).__name__,
+            )
+            results["database"] = "unhealthy"
         
         # Test research client
         try:
             client_health = await self.research_client.health_check()
             results["research_client"] = client_health["status"]
         except Exception as e:
-            results["research_client"] = f"unhealthy: {str(e)}"
+            logger.warning(
+                "research client health check failed (error_type=%s)",
+                type(e).__name__,
+            )
+            results["research_client"] = "unhealthy"
         
         return results

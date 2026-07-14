@@ -1,4 +1,4 @@
-# Crawl4AI
+# 5.2.12. Crawl4AI
 
 ## 1. Overview
 Crawl4AI provides a local, token-protected web extraction API for pages that need browser-backed rendering before Atlas services can summarize, ingest, or index them. Atlas pins the Docker server image to `unclecode/crawl4ai:0.9.0` because the upstream Docker API is now secure-by-default and requires `CRAWL4AI_API_TOKEN` for every endpoint except `GET /health`.
