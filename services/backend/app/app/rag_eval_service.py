@@ -132,13 +132,23 @@ def _validate_metric_requirements(
             )
 
 
-def _metric_objects(metric_names: list[str]):
+def _metric_objects(metric_names: list[str], *, llm, embeddings):
+    """Construct the requested Ragas metric instances for the pinned
+    ``ragas==0.4.3`` runtime.
+
+    The ``ragas.metrics.collections`` metrics are the *modern* metrics: they
+    require an ``InstructorLLM`` (built via :func:`ragas.llms.llm_factory`),
+    not the legacy ``LangchainLLMWrapper``, and they take the llm/embeddings
+    at construction (a no-arg ``Metric()`` raises ``TypeError``). The class
+    exported for answer-relevancy is ``AnswerRelevancy`` (``ResponseRelevancy``
+    does not exist in 0.4.3 — it was the surface symptom of #596).
+    """
     try:
         from ragas.metrics.collections import (
+            AnswerRelevancy,
             ContextPrecision,
             ContextRecall,
             Faithfulness,
-            ResponseRelevancy,
         )
     except ModuleNotFoundError as exc:
         raise RagEvaluationDependencyError(
@@ -146,23 +156,34 @@ def _metric_objects(metric_names: list[str]):
             "and langchain-community>=0.3.0,<0.4"
         ) from exc
 
-    registry = {
-        "faithfulness": Faithfulness,
-        "answer_relevancy": ResponseRelevancy,
-        "context_precision": ContextPrecision,
-        "context_recall": ContextRecall,
-    }
-    return [registry[name]() for name in metric_names]
+    if "answer_relevancy" in metric_names and embeddings is None:
+        raise ValueError(
+            "answer_relevancy requires an embeddings model — set "
+            "RAGAS_EMBEDDINGS_MODEL or LITELLM_EMBEDDING_MODEL"
+        )
+
+    def build(name: str):
+        if name == "answer_relevancy":
+            return AnswerRelevancy(llm=llm, embeddings=embeddings)
+        if name == "faithfulness":
+            return Faithfulness(llm=llm)
+        if name == "context_precision":
+            return ContextPrecision(llm=llm)
+        if name == "context_recall":
+            return ContextRecall(llm=llm)
+        raise ValueError(f"Unknown Ragas metric: {name}")
+
+    return [build(name) for name in metric_names]
 
 
 def _run_ragas_evaluation(
     records: list[dict[str, Any]], metrics: list[str], config: dict[str, Any]
 ) -> list[dict[str, Any]]:
     try:
-        from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+        from openai import OpenAI
         from ragas import EvaluationDataset, SingleTurnSample, evaluate
-        from ragas.embeddings import LangchainEmbeddingsWrapper
-        from ragas.llms import LangchainLLMWrapper
+        from ragas.embeddings import OpenAIEmbeddings
+        from ragas.llms import llm_factory
     except ModuleNotFoundError as exc:
         raise RagEvaluationDependencyError(
             "Ragas evaluation dependencies are not installed or are incompatible"
@@ -179,28 +200,26 @@ def _run_ragas_evaluation(
     ]
     dataset = EvaluationDataset(samples=samples)
 
-    llm = LangchainLLMWrapper(
-        ChatOpenAI(
-            model=config["evaluator_model"],
-            api_key=config["llm_api_key"],
-            base_url=config["llm_base_url"],
-            temperature=0,
-        )
+    # ragas 0.4.3's collections metrics require the modern InstructorLLM
+    # abstraction. Build one from an OpenAI-compatible client pointed at the
+    # LiteLLM gateway (the same base_url/key the legacy LangchainLLMWrapper
+    # used); llm_factory wraps it into the InstructorLLM the metrics expect.
+    openai_client = OpenAI(
+        api_key=config["llm_api_key"],
+        base_url=config["llm_base_url"],
     )
+    llm = llm_factory(config["evaluator_model"], client=openai_client)
     embeddings = None
     if config.get("embeddings_model"):
-        embeddings = LangchainEmbeddingsWrapper(
-            OpenAIEmbeddings(
-                model=config["embeddings_model"],
-                api_key=config["llm_api_key"],
-                base_url=config["llm_base_url"],
-            )
+        embeddings = OpenAIEmbeddings(
+            client=openai_client,
+            model=config["embeddings_model"],
         )
 
     try:
         result = evaluate(
             dataset,
-            metrics=_metric_objects(metrics),
+            metrics=_metric_objects(metrics, llm=llm, embeddings=embeddings),
             llm=llm,
             embeddings=embeddings,
             show_progress=False,
