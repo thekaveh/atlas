@@ -6,6 +6,8 @@ Python implementation of stop.sh with full feature parity.
 Cross-platform stop script for Atlas — the self-hosted engineering platform.
 """
 
+import os
+import subprocess
 import sys
 from pathlib import Path
 import click
@@ -17,6 +19,48 @@ from utils.banner import BannerDisplay
 from utils.hosts_manager import HostsManager
 from core.config_parser import ConfigParser
 from core.docker_manager import DockerManager
+
+
+def _run_privileged_hosts_cleanup() -> bool:
+    """Elevate only the hosts-file mutation, never the repository workflow."""
+    from utils.system import is_elevated
+
+    if is_elevated():
+        return HostsManager().cleanup_hosts_entries()
+    if os.name == "nt":
+        print("  • Please run from an Administrator shell to modify the hosts file")
+        return False
+
+    bootstrapper_dir = Path(__file__).resolve().parent
+    repo_root = bootstrapper_dir.parent
+    env = os.environ.copy()
+    existing_pythonpath = env.get("PYTHONPATH")
+    env["PYTHONPATH"] = (
+        str(bootstrapper_dir)
+        if not existing_pythonpath
+        else f"{bootstrapper_dir}{os.pathsep}{existing_pythonpath}"
+    )
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    helper = (
+        "from utils.hosts_manager import HostsManager; "
+        "raise SystemExit(0 if HostsManager().cleanup_hosts_entries() else 1)"
+    )
+    print("  • --clean-hosts needs to edit your hosts file; requesting sudo for that write only.")
+    result = subprocess.run(
+        [
+            "sudo",
+            "env",
+            f"PYTHONPATH={env['PYTHONPATH']}",
+            "PYTHONDONTWRITEBYTECODE=1",
+            sys.executable,
+            "-c",
+            helper,
+        ],
+        cwd=repo_root,
+        env=env,
+        check=False,
+    )
+    return result.returncode == 0
 
 
 class AtlasStopper:
@@ -215,7 +259,7 @@ Examples:
         """Clean up hosts file entries if requested."""
         self.banner.show_section_header("Cleaning Up Hosts File", "🧹")
 
-        return self.hosts_manager.cleanup_hosts_entries()
+        return _run_privileged_hosts_cleanup()
         
     def show_final_status(self, cold_stop: bool, clean_hosts: bool, services_ok: bool = True, hosts_ok: bool = True):
         """Display final stop status and next steps."""
@@ -239,8 +283,8 @@ Examples:
                 self.banner.console.print("   ✅ Hosts file entries cleaned up")
             else:
                 self.banner.console.print(
-                    "   ⚠️  Hosts file cleanup FAILED (needs sudo?) — run "
-                    "./stop.sh --clean-hosts again with privileges",
+                    "   ⚠️  Hosts file cleanup FAILED — re-run "
+                    "./stop.sh --clean-hosts from an interactive terminal that can approve sudo",
                     style="bold bright_yellow",
                 )
             
@@ -331,7 +375,7 @@ def main(project_name, cold, clean_hosts, help_usage):
             cold, clean_hosts, services_ok=services_ok, hosts_ok=hosts_ok,
         )
 
-        if not services_ok:
+        if not services_ok or not hosts_ok:
             sys.exit(1)
         
     except KeyboardInterrupt:

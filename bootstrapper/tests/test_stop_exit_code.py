@@ -6,6 +6,7 @@ so a failed stop was undetectable to scripts and CI.
 from __future__ import annotations
 
 import click.testing
+import sys
 
 import stop as stop_module
 
@@ -59,6 +60,53 @@ def test_main_exits_zero_when_stop_succeeds(monkeypatch):
     )
     result = click.testing.CliRunner().invoke(stop_module.main, [])
     assert result.exit_code == 0
+
+
+def test_main_exits_nonzero_when_requested_hosts_cleanup_fails(monkeypatch):
+    monkeypatch.setattr(
+        stop_module.AtlasStopper, "show_configuration_info",
+        lambda self, cold, clean, project_name_override=None: "atlas",
+    )
+    monkeypatch.setattr(
+        stop_module.AtlasStopper, "stop_services",
+        lambda self, cold, project_name: True,
+    )
+    monkeypatch.setattr(
+        stop_module.AtlasStopper, "ensure_dependencies_available", lambda self: True,
+    )
+    monkeypatch.setattr(
+        stop_module.AtlasStopper, "cleanup_hosts_entries", lambda self: False,
+    )
+
+    result = click.testing.CliRunner().invoke(stop_module.main, ["--clean-hosts"])
+
+    assert result.exit_code == 1
+
+
+def test_privileged_hosts_cleanup_uses_bytecode_free_python_child(monkeypatch):
+    import utils.system
+
+    calls = []
+
+    class Result:
+        returncode = 0
+
+    monkeypatch.setattr(utils.system, "is_elevated", lambda: False)
+    monkeypatch.setattr(
+        stop_module.subprocess,
+        "run",
+        lambda args, **kwargs: calls.append((args, kwargs)) or Result(),
+    )
+
+    assert stop_module._run_privileged_hosts_cleanup() is True
+    args, kwargs = calls[0]
+    assert args[:2] == ["sudo", "env"]
+    assert sys.executable in args
+    assert f"PYTHONPATH={kwargs['env']['PYTHONPATH']}" in args
+    assert "PYTHONDONTWRITEBYTECODE=1" in args
+    assert "stop.sh" not in args
+    assert kwargs["env"]["PYTHONDONTWRITEBYTECODE"] == "1"
+    assert "bootstrapper" in kwargs["env"]["PYTHONPATH"]
 
 
 def test_main_exits_nonzero_when_compose_version_preflight_fails(monkeypatch):

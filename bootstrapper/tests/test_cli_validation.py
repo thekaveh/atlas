@@ -65,7 +65,10 @@ def test_privileged_hosts_helper_uses_bytecode_free_python_child(monkeypatch):
     assert start_module._run_privileged_hosts_setup() is True
     assert calls, "expected a privileged helper subprocess"
     args, kwargs = calls[0]
-    assert args[:2] == ["sudo", sys.executable]
+    assert args[:2] == ["sudo", "env"]
+    assert sys.executable in args
+    assert f"PYTHONPATH={kwargs['env']['PYTHONPATH']}" in args
+    assert "PYTHONDONTWRITEBYTECODE=1" in args
     assert "start.sh" not in args
     assert kwargs["env"]["PYTHONDONTWRITEBYTECODE"] == "1"
     assert "bootstrapper" in kwargs["env"]["PYTHONPATH"]

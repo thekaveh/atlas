@@ -10,6 +10,7 @@ import re
 import sys
 import os
 import json
+import shlex
 import subprocess
 import tempfile
 from datetime import date
@@ -99,7 +100,15 @@ def _run_privileged_hosts_setup() -> bool:
     )
     print("  • --setup-hosts needs to edit your hosts file; requesting sudo for that write only.")
     result = subprocess.run(
-        ["sudo", sys.executable, "-c", helper],
+        [
+            "sudo",
+            "env",
+            f"PYTHONPATH={env['PYTHONPATH']}",
+            "PYTHONDONTWRITEBYTECODE=1",
+            sys.executable,
+            "-c",
+            helper,
+        ],
         cwd=repo_root,
         env=env,
         check=False,
@@ -2085,15 +2094,12 @@ class AtlasStarter:
         root-owned with 755 mode, blocking subsequent re-writes.
 
         Strategy: if the directory exists and is not writable, attempt
-        a 777 chmod. If chmod also fails (very rare — usually root-owned
-        with strict mode), wipe and recreate. Both branches log what
-        they did so the user can see why their permissions changed.
+        a 777 chmod. If chmod also fails (usually because another user owns
+        it), preserve the directory and report the ownership repair command.
 
-        Never raises — falls back to letting the original write fail
-        with its native error if neither chmod nor recreate works.
+        Never raises — falls back to letting the original write fail with its
+        native error when ownership prevents the permission repair.
         """
-        import shutil
-
         if not path.exists():
             path.mkdir(parents=True, exist_ok=True)
             return
@@ -2114,21 +2120,15 @@ class AtlasStarter:
         except OSError:
             pass
 
-        # chmod failed — last-ditch: wipe and recreate as the current user.
-        try:
-            shutil.rmtree(path)
-            path.mkdir(parents=True, exist_ok=True)
-            self.banner.show_status_message(
-                f"  • Recreated {path} (prior run left it unwritable)",
-                "info",
-            )
-        except OSError as exc:
-            self.banner.show_status_message(
-                f"  • Could not fix permissions on {path}: {exc} — "
-                f"if a container write fails, run `sudo rm -rf {path}` "
-                f"and re-run ./start.sh",
-                "warning",
-            )
+        # Never delete a bind-mounted directory to recover permissions: it may
+        # contain user models, generated configuration, or application state.
+        self.banner.show_status_message(
+            f"  • Could not make {path} writable; existing contents were preserved. "
+            f"Repair ownership with `sudo chown -R $(id -u):$(id -g) "
+            f"{shlex.quote(str(path))}` "
+            f"and re-run ./start.sh",
+            "warning",
+        )
 
     def _derive_plugin_route_auth(self) -> list:
         """Derive per-prefix Kong auth overrides from plugin.yml manifests (#402).
