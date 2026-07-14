@@ -242,8 +242,9 @@ def build(
                     manifest,
                     repo_root,
                     root / "site" / "assets" / "img",
-                    root / "png",
+                    repo_root / "docs" / "diagrams" / "img",
                     root / "wiki" / "img" if wiki else None,
+                    check_png=True,
                 )
             if site:
                 _assert_dirs_equal(generated / "site", root / "site")

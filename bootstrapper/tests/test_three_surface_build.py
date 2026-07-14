@@ -73,6 +73,21 @@ def test_build_check_detects_no_difference_after_second_render(tmp_path: Path) -
     build(root / "docs" / "manifest.yaml", root, site=True, wiki=True, check=True)
 
 
+def test_build_check_does_not_rerender_committed_pngs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _repo(tmp_path)
+    manifest = root / "docs" / "manifest.yaml"
+    build(manifest, root, site=True, wiki=True, check=False)
+
+    def fail_if_called(*args: object, **kwargs: object) -> None:
+        raise AssertionError("check mode must not compare platform-specific renderer output")
+
+    monkeypatch.setattr("scripts.docs.render_diagrams.svg_to_png", fail_if_called)
+
+    build(manifest, root, site=True, wiki=True, check=True)
+
+
 def test_build_check_detects_committed_diagram_png_drift_without_rewriting_it(
     tmp_path: Path,
 ) -> None:
@@ -86,3 +101,17 @@ def test_build_check_detects_committed_diagram_png_drift_without_rewriting_it(
         build(manifest, root, site=True, wiki=True, check=True)
 
     assert png.read_bytes() == b"stale"
+
+
+def test_build_check_detects_png_stale_after_master_changes(tmp_path: Path) -> None:
+    root = _repo(tmp_path)
+    manifest = root / "docs" / "manifest.yaml"
+    build(manifest, root, site=True, wiki=True, check=False)
+    master = root / "docs" / "diagram.html"
+    master.write_text(
+        master.read_text(encoding="utf-8").replace("#020617", "#0ea5e9"),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeError, match="diagram PNG is stale"):
+        build(manifest, root, site=True, wiki=True, check=True)

@@ -2,7 +2,12 @@ from pathlib import Path
 
 import pytest
 
-from scripts.docs.render_diagrams import extract_svg, svg_to_png
+from scripts.docs.render_diagrams import (
+    diagram_source_fingerprint,
+    extract_svg,
+    png_source_fingerprint,
+    svg_to_png,
+)
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -47,6 +52,11 @@ def test_svg_to_png_writes_png_signature(tmp_path: Path) -> None:
     )
 
     assert output.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
+    assert png_source_fingerprint(output) == diagram_source_fingerprint(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20">'
+        '<rect width="20" height="20" fill="#020617"/></svg>',
+        width=40,
+    )
 
 
 def test_platform_html_and_svg_masters_stay_synchronized() -> None:
