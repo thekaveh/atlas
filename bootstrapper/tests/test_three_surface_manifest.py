@@ -75,3 +75,12 @@ def test_load_manifest_rejects_missing_source(tmp_path: Path) -> None:
 
     with pytest.raises(ManifestError, match="does not exist"):
         load_manifest(manifest_path, tmp_path)
+
+
+def test_diagram_catalog_does_not_become_the_development_section_index() -> None:
+    root = Path(__file__).resolve().parents[2]
+    manifest = load_manifest(root / "docs" / "manifest.yaml", root)
+
+    diagram_catalog = next(page for page in manifest.pages if page.id == "diagram-catalog")
+
+    assert diagram_catalog.site_path.as_posix() == "diagrams/catalog.md"
