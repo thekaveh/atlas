@@ -44,6 +44,8 @@ BACKUP_IMAGE=postgres:17.10-alpine        # image providing pg_dump (major >= su
 
 Set `BACKUP_S3_ALIAS_URL` to an AWS S3 or compatible endpoint (e.g. `https://s3.us-east-1.amazonaws.com`) for offsite backups. Credentials are shared with MinIO (`MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD`); for external S3 set these to the IAM access key / secret.
 
+`BACKUP_SOURCE` is enforced by the one-shot container entrypoint. Both backup and restore commands exit before installing tools or touching data while the source is `disabled`; set it to `container` to authorize on-demand runs. `BACKUP_SCALE` remains zero in both modes because the runner is never a long-running service.
+
 Timed execution: the runner has no internal scheduler. Wire it to the Airflow DAG or n8n workflow that owns your backup schedule — invoke `docker compose run --rm backup` from the orchestrator.
 
 ## 4. Architecture & wiring

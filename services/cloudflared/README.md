@@ -37,7 +37,7 @@ CLOUDFLARED_IMAGE=cloudflare/cloudflared:2026.6.1
 4. In the dashboard, add a public hostname pointing at `http://kong-api-gateway:8000` (service type HTTP, URL `kong-api-gateway:8000`).
 5. Restart the stack: `./start.sh`.
 
-If `CLOUDFLARE_TUNNEL_TOKEN` is empty when `CLOUDFLARED_SOURCE=container`, the daemon exits immediately with an authentication error.
+If `CLOUDFLARE_TUNNEL_TOKEN` is empty when `CLOUDFLARED_SOURCE=container`, Atlas rejects the configuration before Compose starts. This prevents the tunnel from entering an authentication-failure restart loop.
 
 ## 4. Architecture & wiring
 

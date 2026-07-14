@@ -22,6 +22,7 @@ services:
     entrypoint: ["sh", "/scripts/entrypoint.sh"]
     command: ["/scripts/backup-all.sh"]
     environment:
+      BACKUP_SOURCE: ${BACKUP_SOURCE:-disabled}
       SUPABASE_DB_USER: ${SUPABASE_DB_USER}
       SUPABASE_DB_PASSWORD: ${SUPABASE_DB_PASSWORD}
       SUPABASE_DB_NAME: ${SUPABASE_DB_NAME}

@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Pinned Local Deep Researcher runtime** — Local Deep Researcher now materializes a manifest-owned full upstream commit SHA, verifies the upstream `uv.lock` digest, and synchronizes a private environment from Atlas' committed hash-pinned runtime lock. Restarts reuse the detached checkout without pulling a mutable branch or resolving either project or LangGraph CLI dependencies again.
 - **Locked CI environments** — all three `services-lint` jobs now synchronize bootstrapper dependencies with `--locked`, so tests and audit scripts fail on lock drift instead of silently resolving or modifying a different dependency graph.
 - **CLI/manifest parity** — `--comfyui-source` now accepts the manifest-supported `managed-localhost-mps` mode, Prometheus retention enforces the same 1–365 day range as the wizard, and `--track` help includes the shipped trading profile.
+- **Effective optional-service gates** — Cloudflare Tunnel container mode now fails validation before startup when its named-tunnel token is blank, and the on-demand backup entrypoint rejects backup/restore runs while `BACKUP_SOURCE=disabled` instead of treating enabled and disabled identically.
 
 ### Fixed — 2026-07-13 — Synchronized three-surface documentation
 

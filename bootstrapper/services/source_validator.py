@@ -306,6 +306,9 @@ class SourceValidator:
         if not self._validate_fal_key_present(service_sources):
             all_valid = False
 
+        if not self._validate_cloudflared_token_present(service_sources):
+            all_valid = False
+
         return all_valid
 
     def enforce_runtime_invariants(self) -> bool:
@@ -523,6 +526,23 @@ class SourceValidator:
         self.validation_errors.append(
             "❌ FAL_SOURCE=enabled requires FAL_API_KEY. Set FAL_API_KEY in "
             ".env or pass --fal-api-key, or set FAL_SOURCE=disabled."
+        )
+        return False
+
+    def _validate_cloudflared_token_present(
+        self, service_sources: Dict[str, str]
+    ) -> bool:
+        """An enabled named tunnel cannot start without its dashboard token."""
+        if service_sources.get('CLOUDFLARED_SOURCE', 'disabled') != 'container':
+            return True
+
+        env_vars = self.config_parser.parse_env_file()
+        if (env_vars.get('CLOUDFLARE_TUNNEL_TOKEN', '') or '').strip():
+            return True
+
+        self.validation_errors.append(
+            "❌ CLOUDFLARED_SOURCE=container requires CLOUDFLARE_TUNNEL_TOKEN. "
+            "Set the token in .env or set CLOUDFLARED_SOURCE=disabled."
         )
         return False
     

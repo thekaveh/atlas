@@ -18,6 +18,11 @@
 # Alpine's `minio-client` package installs the binary as `mcli`, not `mc`; we
 # symlink it so backup-all.sh / restore-postgres.sh can call `mc` unchanged.
 set -e
+if [ "${BACKUP_SOURCE:-disabled}" != "container" ]; then
+    echo "backup: disabled; set BACKUP_SOURCE=container before running backup or restore" >&2
+    exit 64
+fi
+
 if ! command -v mc >/dev/null 2>&1; then
     apk add --no-cache minio-client
     ln -sf /usr/bin/mcli /usr/local/bin/mc
