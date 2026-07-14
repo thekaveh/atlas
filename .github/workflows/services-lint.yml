@@ -84,37 +84,15 @@ jobs:
         working-directory: bootstrapper
         run: uv run python -m tools.validate_fragments
 
-      - name: Backend unit tests (ray client/routes)
+      - name: Backend unit tests
         working-directory: services/backend/app/app
-        # The backend suite stubs `ray` in-process, so only main.py's
-        # import closure is needed — NOT the full requirements.txt
-        # (which build-validation already pip-installs in Docker).
         run: |
           BACKEND_TEST_VENV="${RUNNER_TEMP:-$PWD}/backend-ci-venv"
           uv venv "$BACKEND_TEST_VENV"
-          # Pins mirror services/backend/app/app/requirements.txt's floors.
-          # If you bump a floor there, bump it here too — the inline list
-          # does NOT read requirements.txt (per
-          # project_ci_inline_install_bypass memory). fastapi<0.137 cap:
-          # >=0.136 pulls starlette 1.x, whose `_IncludedRouter` breaks
-          # prometheus-fastapi-instrumentator's route iterator (PR #88).
-          # pytest-asyncio omitted intentionally — backend tests in
-          # services/backend/app/app/tests/ contain no asyncio markers
-          # (Ray client + routes are tested with httpx + sync stubs).
-          VIRTUAL_ENV="$BACKEND_TEST_VENV" uv pip install \
-            'pytest>=9.1.1' \
-            'fastapi>=0.110.0,<0.137' \
-            'httpx>=0.27.0' \
-            'pydantic>=2.6.0' \
-            'asyncpg>=0.31.0' \
-            'storage3>=0.7.0' \
-            'prometheus-fastapi-instrumentator>=7.0.0' \
-            'python-multipart>=0.0.9' \
-            'pyyaml>=6.0' \
-            'chonkie>=1.7.0,<2' \
-            'ragas==0.4.3' \
-            'langchain-community>=0.3.0,<0.4' \
-            'celery[redis]>=5.6.2,<5.7'
+          # The application requirements own the tested import closure and
+          # pytest plugins. A hand-maintained subset previously drifted until
+          # CI could not collect the identity and async suites.
+          VIRTUAL_ENV="$BACKEND_TEST_VENV" uv pip install -r requirements.txt
           "$BACKEND_TEST_VENV/bin/python" -m pytest tests/ -q
 
   compose-equivalence:

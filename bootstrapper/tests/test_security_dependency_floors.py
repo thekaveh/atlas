@@ -54,6 +54,16 @@ def test_small_api_frameworks_resolve_patched_security_baselines() -> None:
     assert "protobuf>=5.29.6,<5.30" in parakeet_gpu
 
 
+def test_backend_ci_installs_the_owned_test_contract() -> None:
+    requirements = _text("services/backend/app/app/requirements.txt")
+    workflow = _text(".github/workflows/services-lint.yml")
+
+    assert "pytest-asyncio>=1.4.0" in requirements
+    assert "httpx2>=2.6.0" in requirements
+    assert "uv pip install -r requirements.txt" in workflow
+    assert "pytest-asyncio omitted intentionally" not in workflow
+
+
 def test_airflow_uses_supported_core_and_unfrozen_provider_security_fixes() -> None:
     manifest = _text("services/airflow/service.yml")
     compose = _text("services/airflow/compose.yml")

@@ -317,7 +317,7 @@ async def _read_upload_file_limited(
         total += len(chunk)
         if total > max_bytes:
             raise HTTPException(
-                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
                 detail=f"{label} exceeds maximum size of {max_bytes} bytes",
             )
         chunks.append(chunk)
@@ -564,7 +564,7 @@ async def extract_document(file: UploadFile = File(...)):
         return result.to_dict()
     except DocumentTooLargeError as e:
         raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
             detail=str(e),
         )
     except ExtractionUnavailableError as e:
