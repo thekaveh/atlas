@@ -259,6 +259,18 @@ def test_start_idempotent_when_already_running(tmp_path, monkeypatch):
     assert status.pid == 4242
 
 
+def test_start_with_ownership_distinguishes_existing_process(tmp_path, monkeypatch):
+    mgr = _mgr(tmp_path)
+    monkeypatch.setattr(
+        mgr, "status", lambda: mod.ProcessStatus(True, 4242, mgr.port)
+    )
+
+    status, created = mgr.start_with_ownership()
+
+    assert status.pid == 4242
+    assert created is False
+
+
 def test_start_raises_when_venv_missing(tmp_path, monkeypatch):
     mgr = _mgr(tmp_path)
     monkeypatch.setattr(mgr, "status", lambda: mod.ProcessStatus(False, None, mgr.port))
@@ -294,8 +306,9 @@ def test_start_launches_and_writes_pid(tmp_path, monkeypatch):
         return _FakeProc()
 
     monkeypatch.setattr(mod.subprocess, "Popen", fake_popen)
-    status = mgr.start()
+    status, created = mgr.start_with_ownership()
     assert status.running and status.pid == 9911
+    assert created is True
     assert mgr.pid_file.read_text().strip() == "9911"
     # Correct entrypoint + model wiring.
     assert "vllm.entrypoints.openai.api_server" in captured["args"]
@@ -303,6 +316,33 @@ def test_start_launches_and_writes_pid(tmp_path, monkeypatch):
     assert "Qwen/Qwen2.5-7B-Instruct" in captured["args"]
     assert "--port" in captured["args"]
     assert str(mgr.port) in captured["args"]
+
+
+def test_launch_metadata_failure_terminates_new_process(tmp_path, monkeypatch):
+    mgr = _mgr(tmp_path)
+    mgr.venv_python.parent.mkdir(parents=True, exist_ok=True)
+    mgr.venv_python.write_text("#!/bin/sh\n")
+    monkeypatch.setattr(mgr, "_port_in_use", lambda: False)
+    monkeypatch.setattr(
+        mod.subprocess,
+        "Popen",
+        lambda *_args, **_kwargs: type("Proc", (), {"pid": 5150})(),
+    )
+    monkeypatch.setattr(
+        mgr,
+        "_write_status",
+        lambda **_kwargs: (_ for _ in ()).throw(OSError("metadata failed")),
+    )
+    terminated: list[int] = []
+    monkeypatch.setattr(
+        mgr, "_terminate_pid", lambda pid: terminated.append(pid) or True
+    )
+
+    with pytest.raises(VllmMetalError, match="child was terminated"):
+        mgr.start_with_ownership()
+
+    assert terminated == [5150]
+    assert not mgr.pid_file.exists()
 
 
 def test_start_sets_hf_home_when_cache_dir(tmp_path, monkeypatch):
@@ -400,7 +440,7 @@ def test_remove_stops_and_deletes_state(tmp_path, monkeypatch):
     mgr = _mgr(tmp_path)
     mgr.state_dir.mkdir(parents=True, exist_ok=True)
     (mgr.state_dir / "marker").write_text("x")
-    monkeypatch.setattr(mgr, "stop", lambda: True)
+    monkeypatch.setattr(mgr, "_stop_locked", lambda: True)
     mgr.remove()
     assert not mgr.state_dir.exists()
 

@@ -85,3 +85,22 @@ public. See
 ## 7. Health And Logs
 
 The launch phase streams Docker Compose output through the Textual UI. The same command path works without the TUI in non-interactive environments.
+
+## 8. Managed Host Lifecycle
+
+Apple-Silicon ComfyUI MPS and vLLM Metal sources run as native host processes,
+outside Docker Compose. Atlas starts selected managed hosts only after
+configuration, dependency, route, host, and localhost validation completes and
+the operator confirms launch. If image build, Compose startup, or a required
+init container fails, startup rolls back only the host processes created by
+that invocation; a host that was running beforehand remains untouched. A
+state-directory launch lock serializes concurrent launchers so exactly one can
+own a newly created process.
+
+After the stack converges, the native processes remain part of the running
+Atlas deployment. A normal `./stop.sh` discovers and stops them from their
+managed state directories even when their current SOURCE values are disabled
+or changed. Native cleanup still runs when Docker or Compose preflight fails;
+the command retains a nonzero status because container teardown could not run.
+A native process that remains live after the stop attempt also makes `stop.sh`
+exit nonzero.

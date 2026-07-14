@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed — 2026-07-14 — Startup and API safety boundaries
 
 - **Project-scoped cold cleanup** — `start.sh --cold` and `stop.sh --cold` now remove only the active Atlas Compose project's containers, orphans, and named volumes. Cleanup failures stop startup before secret rotation and propagate a nonzero exit status instead of falling through to a partial launch.
+- **Managed-host lifecycle rollback** — native ComfyUI MPS and vLLM Metal processes now start at the launch boundary under an ownership lock, roll back only when the current invocation created them and the stack fails to converge, and remain discoverable by `stop.sh` after their SOURCE selection changes. Native teardown failures propagate a nonzero stop status.
 - **Readiness and private runtime files** — Neo4j now publishes a real Cypher health check for dependents that require `service_healthy`; generated `.env` and endpoint-export files are written atomically with owner-only permissions.
 - **Ray job API authorization** — every Backend `/api/ray` route now requires the auto-generated `RAY_JOB_API_TOKEN` as an HTTP bearer token, including calls made through the direct Backend port. Ray's native unauthenticated dashboard, GCS, and client ports are bound to loopback by default.
 - **Non-destructive permission recovery** — an unwritable bind-mount directory is never deleted as a repair strategy; Atlas preserves its contents and reports the ownership command needed before retrying.

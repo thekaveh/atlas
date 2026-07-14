@@ -27,8 +27,14 @@ import subprocess
 import time
 import urllib.request
 from dataclasses import dataclass, field
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Optional
+
+try:  # Native Windows can import this module for a no-op disabled-source stop.
+    import fcntl
+except ImportError:  # pragma: no cover - exercised only by native Windows Python
+    fcntl = None  # type: ignore[assignment]
 
 COMFYUI_REPO = "https://github.com/comfyanonymous/ComfyUI.git"
 
@@ -39,6 +45,7 @@ _OK = "ok"
 _WARN = "warn"
 _FAIL = "fail"
 _SKIPPED = "skipped"
+_LOCK_TIMEOUT_SECONDS = 30.0
 
 # Standard ComfyUI model subdirs mapped onto the reused host models dir so a
 # managed process never re-downloads weights the user already has.
@@ -89,6 +96,10 @@ class ProcessStatus:
 class ComfyUiMpsError(RuntimeError):
     """A managed-MPS lifecycle failure (unsupported host, install/launch error)."""
 
+    def __init__(self, message: str, *, surviving_process: bool = False) -> None:
+        super().__init__(message)
+        self.surviving_process = surviving_process
+
 
 class ComfyUiMpsManager:
     def __init__(
@@ -113,6 +124,10 @@ class ComfyUiMpsManager:
         self.log_file = self.state_dir / "comfyui-mps.log"
         self.status_file = self.state_dir / "status.json"
         self.model_paths_file = self.state_dir / "extra_model_paths.yaml"
+        self.launch_lock_file = (
+            self.state_dir.parent / f".{self.state_dir.name}.launch.lock"
+        )
+        self._untracked_pid: Optional[int] = None
 
     # ── venv python ──────────────────────────────────────────────────
     @property
@@ -225,6 +240,10 @@ class ComfyUiMpsManager:
             raise ComfyUiMpsError(
                 "preflight failed: " + "; ".join(f"{c['name']}: {c['detail']}" for c in fails)
             )
+        with self._launch_guard():
+            self._install_locked(update=update)
+
+    def _install_locked(self, *, update: bool = False) -> None:
         self.state_dir.mkdir(parents=True, exist_ok=True)
 
         if not self.repo_dir.exists():
@@ -276,9 +295,18 @@ class ComfyUiMpsManager:
 
     # ── start / stop / status ────────────────────────────────────────
     def start(self) -> ProcessStatus:
+        status, _created = self.start_with_ownership()
+        return status
+
+    def start_with_ownership(self) -> tuple[ProcessStatus, bool]:
+        """Start atomically and report whether this call created the process."""
+        with self._launch_guard():
+            return self._start_locked()
+
+    def _start_locked(self) -> tuple[ProcessStatus, bool]:
         existing = self.status()
         if existing.running:
-            return existing  # idempotent — one process per host
+            return existing, False  # idempotent — one process per host
         if not self.venv_python.exists():
             raise ComfyUiMpsError("ComfyUI venv is not installed — run install first")
         if self._port_in_use():
@@ -301,17 +329,66 @@ class ComfyUiMpsManager:
             )
         finally:
             log.close()
-        self.pid_file.write_text(str(proc.pid), encoding="utf-8")
-        self._write_status(installed_ref=self.ref, pid=proc.pid)
-        return ProcessStatus(
-            running=True, pid=proc.pid, port=self.port,
-            installed_ref=self.ref, log_file=str(self.log_file),
+        self._untracked_pid = proc.pid
+        try:
+            self.pid_file.write_text(str(proc.pid), encoding="utf-8")
+            self._write_status(installed_ref=self.ref, pid=proc.pid)
+        except BaseException as exc:
+            if self._terminate_pid(proc.pid):
+                self._clear_pid()
+                self._untracked_pid = None
+                raise ComfyUiMpsError(
+                    f"failed to record managed ComfyUI pid {proc.pid}; the child "
+                    "was terminated"
+                ) from exc
+            raise ComfyUiMpsError(
+                f"failed to record managed ComfyUI pid {proc.pid}, and the child "
+                "could not be terminated; retry ./stop.sh or terminate that pid",
+                surviving_process=True,
+            ) from exc
+        self._untracked_pid = None
+        return (
+            ProcessStatus(
+                running=True, pid=proc.pid, port=self.port,
+                installed_ref=self.ref, log_file=str(self.log_file),
+            ),
+            True,
         )
 
+    @contextmanager
+    def _launch_guard(self):
+        """Serialize native installation/start decisions across launchers."""
+        self.state_dir.mkdir(parents=True, exist_ok=True)
+        with self.launch_lock_file.open("a+", encoding="utf-8") as lock:
+            if fcntl is None:
+                yield
+                return
+            deadline = time.monotonic() + _LOCK_TIMEOUT_SECONDS
+            while True:
+                try:
+                    fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError as exc:
+                    if time.monotonic() >= deadline:
+                        raise ComfyUiMpsError(
+                            "timed out waiting for another managed ComfyUI "
+                            "lifecycle operation"
+                        ) from exc
+                    time.sleep(0.1)
+            try:
+                yield
+            finally:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+
     def stop(self) -> bool:
-        pid = self._read_pid()
+        with self._launch_guard():
+            return self._stop_locked()
+
+    def _stop_locked(self) -> bool:
+        pid = self._read_pid() or self._untracked_pid
         if pid is None or not self._pid_alive(pid):
             self._clear_pid()
+            self._untracked_pid = None
             return False
         # PID-reuse guard: the OS may have recycled a crashed ComfyUI's pid onto
         # an unrelated process. Only signal when we can't positively prove the
@@ -319,7 +396,18 @@ class ComfyUiMpsManager:
         if self._pid_is_stranger(pid):
             self._clear_pid()
             self._write_status(installed_ref=self.ref, pid=None)
+            self._untracked_pid = None
             return False
+        if not self._terminate_pid(pid):
+            # Be honest: the process outlived SIGKILL (e.g. EPERM). Keep the
+            # pidfile so a retry/operator can act; don't claim success.
+            return False
+        self._clear_pid()
+        self._write_status(installed_ref=self.ref, pid=None)
+        self._untracked_pid = None
+        return True
+
+    def _terminate_pid(self, pid: int) -> bool:
         try:
             os.kill(pid, signal.SIGINT)
             deadline = time.monotonic() + 10
@@ -331,21 +419,14 @@ class ComfyUiMpsManager:
                 os.kill(pid, signal.SIGKILL)
         except OSError:
             pass
-        # Reap if we are the parent (same-process start→stop); harmless otherwise.
         try:
             os.waitpid(pid, os.WNOHANG)
         except (ChildProcessError, OSError):
             pass
-        if self._pid_alive(pid):
-            # Be honest: the process outlived SIGKILL (e.g. EPERM). Keep the
-            # pidfile so a retry/operator can act; don't claim success.
-            return False
-        self._clear_pid()
-        self._write_status(installed_ref=self.ref, pid=None)
-        return True
+        return not self._pid_alive(pid)
 
     def status(self) -> ProcessStatus:
-        pid = self._read_pid()
+        pid = self._read_pid() or self._untracked_pid
         running = pid is not None and self._pid_alive(pid)
         ref = None
         if self.status_file.exists():
@@ -360,6 +441,11 @@ class ComfyUiMpsManager:
 
     def ensure_running(self) -> ProcessStatus:
         """Full launch path: preflight (fatal on fail) → install → start."""
+        status, _created = self.ensure_running_with_ownership()
+        return status
+
+    def ensure_running_with_ownership(self) -> tuple[ProcessStatus, bool]:
+        """Run the full launch path and atomically report process ownership."""
         pre = self.preflight()
         if not pre.ok:
             fails = [c for c in pre.checks if c["status"] == _FAIL]
@@ -367,14 +453,24 @@ class ComfyUiMpsManager:
                 "unsupported host for managed-localhost-mps: "
                 + "; ".join(f"{c['name']}: {c['detail']}" for c in fails)
             )
-        self.install()
-        return self.start()
+        with self._launch_guard():
+            existing = self.status()
+            if existing.running:
+                return existing, False
+            self._install_locked()
+            return self._start_locked()
 
     def remove(self) -> None:
         """Stop the process and delete the Atlas-owned state directory."""
-        self.stop()
-        if self.state_dir.exists():
-            shutil.rmtree(self.state_dir, ignore_errors=True)
+        with self._launch_guard():
+            self._stop_locked()
+            if self.status().running:
+                raise ComfyUiMpsError(
+                    "refusing to remove managed ComfyUI state while its process "
+                    "is still running"
+                )
+            if self.state_dir.exists():
+                shutil.rmtree(self.state_dir)
 
     # ── health ───────────────────────────────────────────────────────
     def health(self, *, timeout: float = 3.0) -> dict:

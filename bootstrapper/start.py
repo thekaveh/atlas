@@ -236,6 +236,9 @@ class AtlasStarter:
         self.source_override_manager = SourceOverrideManager(self.config_parser)
         self.active_track = None
         self.active_track_overrides = frozenset()
+        # Managers recorded here were started by this AtlasStarter invocation.
+        # Pre-existing native hosts are deliberately never rollback-owned.
+        self._managed_hosts_started_this_run: list[tuple[str, object]] = []
 
 
     def show_banner(self):
@@ -1601,18 +1604,7 @@ class AtlasStarter:
         # when no consumer declares lightrag_query_profiles.
         if not self._finalize_consumer_lightrag_query_profiles():
             return False
-        # Finalize the Atlas-managed Apple-Silicon/Metal ComfyUI host (#335):
-        # when COMFYUI_SOURCE=managed-localhost-mps, preflight + install +
-        # launch the native host process containers reach via host.docker.internal.
-        # A no-op for every other source (and never selected in CI's .env.example).
-        if not self._finalize_managed_comfyui_mps():
-            return False
-        # Finalize the Atlas-managed vLLM Metal host (#379): when
-        # VLLM_METAL_SOURCE=managed-localhost, preflight + install + launch the
-        # native host vLLM process that litellm-init registers as an
-        # OpenAI-compatible upstream. A no-op for every other source (and never
-        # selected in CI's .env.example, whose default is `disabled`).
-        return self._finalize_managed_vllm_metal()
+        return True
 
     def _finalize_consumer_storage(self) -> bool:
         """Provision manifest-declared object stores (#404): generate scoped
@@ -1905,6 +1897,58 @@ class AtlasStarter:
         )
         return True
 
+    def start_managed_host_processes(self) -> bool:
+        """Start selected native hosts immediately before Compose startup.
+
+        Configuration generation remains side-effect free, and a later managed
+        host failure rolls back only processes created by this invocation.
+        """
+        try:
+            if not self._finalize_managed_comfyui_mps():
+                self.rollback_managed_host_processes()
+                return False
+            if not self._finalize_managed_vllm_metal():
+                self.rollback_managed_host_processes()
+                return False
+        except BaseException:
+            self.rollback_managed_host_processes()
+            raise
+        return True
+
+    def rollback_managed_host_processes(self) -> bool:
+        """Stop native hosts started by this invocation, in reverse order."""
+        remaining: list[tuple[str, object]] = []
+        all_stopped = True
+        for label, manager in reversed(self._managed_hosts_started_this_run):
+            try:
+                stopped = manager.stop()
+                still_running = manager.status().running
+            except Exception as exc:  # noqa: BLE001 - preserve other cleanup
+                self.banner.show_status_message(
+                    f"Could not roll back managed {label} host: {exc}", "warning"
+                )
+                remaining.append((label, manager))
+                all_stopped = False
+                continue
+            if stopped or not still_running:
+                self.banner.show_status_message(
+                    f"Rolled back managed {label} host started by this launch.",
+                    "info",
+                )
+            else:
+                self.banner.show_status_message(
+                    f"Managed {label} host is still running after rollback.",
+                    "warning",
+                )
+                remaining.append((label, manager))
+                all_stopped = False
+        self._managed_hosts_started_this_run = list(reversed(remaining))
+        return all_stopped
+
+    def commit_managed_host_processes(self) -> None:
+        """Release rollback ownership after the stack has converged."""
+        self._managed_hosts_started_this_run.clear()
+
     def _finalize_managed_comfyui_mps(self) -> bool:
         """Bring up the Atlas-managed Apple-Silicon/Metal ComfyUI host (#335).
 
@@ -1935,12 +1979,18 @@ class AtlasStarter:
             "info",
         )
         try:
-            status = manager.ensure_running()
+            status, created = manager.ensure_running_with_ownership()
         except ComfyUiMpsError as exc:
+            if exc.surviving_process:
+                self._managed_hosts_started_this_run.append(
+                    ("ComfyUI (MPS)", manager)
+                )
             self.banner.show_status_message(
                 f"Managed ComfyUI (MPS) host could not start: {exc}", "error"
             )
             return False
+        if created:
+            self._managed_hosts_started_this_run.append(("ComfyUI (MPS)", manager))
 
         health = manager.wait_healthy(timeout=60.0)
         if health.get("reachable"):
@@ -1990,12 +2040,18 @@ class AtlasStarter:
             "info",
         )
         try:
-            status = manager.ensure_running()
+            status, created = manager.ensure_running_with_ownership()
         except VllmMetalError as exc:
+            if exc.surviving_process:
+                self._managed_hosts_started_this_run.append(
+                    ("vLLM (Metal)", manager)
+                )
             self.banner.show_status_message(
                 f"Managed vLLM (Metal) host could not start: {exc}", "error"
             )
             return False
+        if created:
+            self._managed_hosts_started_this_run.append(("vLLM (Metal)", manager))
 
         health = manager.wait_healthy(timeout=120.0)
         if health.get("reachable"):
@@ -2351,6 +2407,7 @@ class AtlasStarter:
 
             if build_result != 0:
                 self.banner.show_status_message("Failed to build some services", "error")
+                self.rollback_managed_host_processes()
                 return False
 
             print("    - Starting containers...")
@@ -2377,9 +2434,12 @@ class AtlasStarter:
             # exits, unhealthy/non-running services) still fail, with names.
             if not (wait and self._up_wait_race_converged()):
                 self.banner.show_status_message("Failed to start some services", "error")
+                self.rollback_managed_host_processes()
                 return False
         if not self.verify_one_shot_init_containers():
+            self.rollback_managed_host_processes()
             return False
+        self.commit_managed_host_processes()
         self.banner.show_status_message("All services started successfully", "success")
         return True
 
@@ -4963,6 +5023,8 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
         if not starter.show_pre_launch_summary(track=track, assume_yes=detach or json_output):
             starter.banner.console.print("\n  [color(245)]Launch cancelled.[/color(245)]")
             sys.exit(0)
+        if not starter.start_managed_host_processes():
+            sys.exit(1)
         if not starter.start_docker_services(cold_start=cold, wait=detach or json_output):
             sys.exit(1)
         starter.show_container_status_and_verify_ports()
@@ -4980,9 +5042,11 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
         # error" with exit 1 via the catch-all below.
         raise
     except KeyboardInterrupt:
+        starter.rollback_managed_host_processes()
         print("\n❌ Startup interrupted by user")
         sys.exit(1)
     except Exception as e:
+        starter.rollback_managed_host_processes()
         # Anything reaching here is an unexpected bug (click.ClickException
         # and KeyboardInterrupt are handled above). Emit the full traceback
         # to stderr so the failure is triageable; the prior handler's bare

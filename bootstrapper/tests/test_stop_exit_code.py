@@ -6,9 +6,26 @@ so a failed stop was undetectable to scripts and CI.
 from __future__ import annotations
 
 import click.testing
+import pytest
 import sys
 
 import stop as stop_module
+
+
+@pytest.fixture(autouse=True)
+def _isolate_native_host_state(monkeypatch):
+    """CLI tests must never inspect or signal the developer's real host PIDs."""
+    from services import comfyui_mps_manager, vllm_metal_manager
+
+    class IdleManager:
+        def status(self):
+            return type("Status", (), {"running": False})()
+
+        def stop(self):
+            return False
+
+    monkeypatch.setattr(comfyui_mps_manager, "manager_from_env", lambda _env: IdleManager())
+    monkeypatch.setattr(vllm_metal_manager, "manager_from_env", lambda _env: IdleManager())
 
 
 def _stopper_with_stop_result(monkeypatch, rc: int):
@@ -62,6 +79,89 @@ def test_main_exits_zero_when_stop_succeeds(monkeypatch):
     assert result.exit_code == 0
 
 
+def test_managed_host_stop_ignores_current_source_selection(monkeypatch):
+    from services import comfyui_mps_manager
+
+    stopper = stop_module.AtlasStopper()
+
+    class Manager:
+        running = True
+
+        def status(self):
+            return type("Status", (), {"running": self.running})()
+
+        def stop(self):
+            self.running = False
+            return True
+
+    manager = Manager()
+    monkeypatch.setattr(stopper.config_parser, "env_file_exists", lambda: True)
+    monkeypatch.setattr(
+        stopper.config_parser,
+        "parse_env_file",
+        lambda: {"COMFYUI_SOURCE": "disabled"},
+    )
+    monkeypatch.setattr(comfyui_mps_manager, "manager_from_env", lambda _env: manager)
+
+    assert stopper.stop_managed_comfyui_mps() is True
+
+
+def test_managed_host_stop_checks_default_state_without_env(monkeypatch):
+    from services import vllm_metal_manager
+
+    stopper = stop_module.AtlasStopper()
+    seen: list[dict[str, str]] = []
+    stop_calls: list[bool] = []
+    manager = type(
+        "Manager",
+        (),
+        {
+            "status": lambda self: type("Status", (), {"running": False})(),
+            "stop": lambda self: stop_calls.append(True) or False,
+        },
+    )()
+    monkeypatch.setattr(stopper.config_parser, "env_file_exists", lambda: False)
+    monkeypatch.setattr(
+        vllm_metal_manager,
+        "manager_from_env",
+        lambda env: seen.append(env) or manager,
+    )
+
+    assert stopper.stop_managed_vllm_metal() is True
+    assert seen == [{}]
+    assert stop_calls == [True]
+
+
+def test_main_exits_nonzero_when_managed_host_remains_running(monkeypatch):
+    monkeypatch.setattr(
+        stop_module.AtlasStopper,
+        "show_configuration_info",
+        lambda self, cold, clean, project_name_override=None: "atlas",
+    )
+    monkeypatch.setattr(
+        stop_module.AtlasStopper, "ensure_dependencies_available", lambda self: True,
+    )
+    monkeypatch.setattr(
+        stop_module.AtlasStopper,
+        "stop_services",
+        lambda self, cold, project_name: True,
+    )
+    monkeypatch.setattr(
+        stop_module.AtlasStopper,
+        "stop_managed_comfyui_mps",
+        lambda self: False,
+    )
+    monkeypatch.setattr(
+        stop_module.AtlasStopper,
+        "stop_managed_vllm_metal",
+        lambda self: True,
+    )
+
+    result = click.testing.CliRunner().invoke(stop_module.main, [])
+
+    assert result.exit_code == 1
+
+
 def test_main_exits_nonzero_when_requested_hosts_cleanup_fails(monkeypatch):
     monkeypatch.setattr(
         stop_module.AtlasStopper, "show_configuration_info",
@@ -110,6 +210,7 @@ def test_privileged_hosts_cleanup_uses_bytecode_free_python_child(monkeypatch):
 
 
 def test_main_exits_nonzero_when_compose_version_preflight_fails(monkeypatch):
+    native_stops: list[str] = []
     monkeypatch.setattr(
         stop_module.AtlasStopper,
         "show_configuration_info",
@@ -127,10 +228,21 @@ def test_main_exits_nonzero_when_compose_version_preflight_fails(monkeypatch):
             AssertionError("stop_services should not run")
         ),
     )
+    monkeypatch.setattr(
+        stop_module.AtlasStopper,
+        "stop_managed_comfyui_mps",
+        lambda self: native_stops.append("comfyui") or True,
+    )
+    monkeypatch.setattr(
+        stop_module.AtlasStopper,
+        "stop_managed_vllm_metal",
+        lambda self: native_stops.append("vllm") or True,
+    )
 
     result = click.testing.CliRunner().invoke(stop_module.main, [])
 
     assert result.exit_code == 1
+    assert native_stops == ["comfyui", "vllm"]
 
 
 def test_main_exits_2_for_invalid_persisted_project_before_preflights(tmp_path, monkeypatch):

@@ -49,7 +49,7 @@ def test_n8n_init_completes_before_runtime_starts() -> None:
     assert compose["n8n"]["depends_on"]["n8n-init"] == {
         "condition": "service_completed_successfully"
     }
-    assert "n8n" not in compose["n8n-init"].get("depends_on", {})
+    assert "depends_on" not in compose["n8n-init"]
     assert compose["n8n-init"]["volumes"][-1] == "n8n-data:/home/node/.n8n"
 
 

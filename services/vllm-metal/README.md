@@ -80,9 +80,14 @@ host port beyond loopback.
 ## 4. Lifecycle (managed host)
 
 A normal `./start.sh` with `VLLM_METAL_SOURCE=managed-localhost` runs
-preflight → install → start automatically before `docker compose up`, and
-`./stop.sh` tears the host process down. For explicit control (or a CI-safe,
-read-only preflight) use the `vllm-metal` CLI group:
+preflight → install → start at the launch boundary, immediately before
+`docker compose up`. If image build, Compose startup, or a required init
+container fails, Atlas stops a vLLM process created by that launch; it does not
+stop an instance that was already running. After the stack converges, the host
+process becomes part of the running stack. `./stop.sh` tears it down even if
+`VLLM_METAL_SOURCE` has since changed, because Compose cannot reach native host
+processes. For explicit control (or a CI-safe, read-only preflight) use the
+`vllm-metal` CLI group:
 
 ```bash
 python bootstrapper/start.py vllm-metal preflight   # OS/arch/py3.12/memory/quant probe (no install)

@@ -71,6 +71,16 @@ _FAMILY_FLAG_STEM = {
 }
 
 
+async def _await_uncancellable(task: asyncio.Task):
+    """Wait for a thread-backed task despite repeated cancellation requests."""
+    while not task.done():
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            continue
+    return task.result()
+
+
 _SETUP_HINTS = [
     (("↑", "↓"), "navigate"),
     (("space",), "toggle"),
@@ -1704,6 +1714,8 @@ class WizardScreen(Screen):
 
         self._write_status("⚙ Running setup pipeline", style="bold cyan",
                            source="pipeline")
+        managed_hosts_pending = False
+        managed_host_start_task: asyncio.Task | None = None
         try:
             for i, (label, fn) in enumerate(steps, start=1):
                 self._write_status(f"  · {label}…", style="dim",
@@ -1724,6 +1736,20 @@ class WizardScreen(Screen):
                                    source="pipeline")
 
             self._write_status("", style="", source="pipeline")
+
+            self._write_status("  · Start managed host services…", style="dim",
+                               source="pipeline")
+            managed_hosts_pending = True
+            managed_host_start_task = asyncio.create_task(
+                asyncio.to_thread(starter.start_managed_host_processes)
+            )
+            if not await asyncio.shield(managed_host_start_task):
+                self._write_status("  ✗ Start managed host services failed",
+                                   style="bold red", source="pipeline")
+                self._mark_launch_failed()
+                return
+            self._write_status("  ✓ Start managed host services", style="bold green",
+                               source="pipeline")
 
             # Enabled-service target set from the rendered projection (#504):
             # Compose plans builds for the WHOLE graph when `up` has no
@@ -1772,6 +1798,8 @@ class WizardScreen(Screen):
                 )
                 self._mark_launch_failed()
                 return
+            starter.commit_managed_host_processes()
+            managed_hosts_pending = False
             self._write_status("✅ All services started",
                                style="bold green", source="pipeline")
             self._launch_detach_ready = True
@@ -1821,6 +1849,24 @@ class WizardScreen(Screen):
                 self._safe_log(tb_line, source="pipeline", level="error")
             self._mark_launch_failed()
         finally:
+            # asyncio.to_thread cannot cancel its worker. If the Textual worker
+            # is cancelled during native startup, wait for that thread to
+            # settle before touching the ownership ledger and rolling back.
+            if managed_host_start_task is not None:
+                with contextlib.suppress(Exception):
+                    await _await_uncancellable(managed_host_start_task)
+            if managed_hosts_pending:
+                rollback_task = asyncio.create_task(
+                    asyncio.to_thread(starter.rollback_managed_host_processes)
+                )
+                rollback_ok = await _await_uncancellable(rollback_task)
+                if not rollback_ok:
+                    self._write_status(
+                        "❌ Managed host rollback incomplete; run ./stop.sh and "
+                        "inspect the managed-host logs.",
+                        style="bold red",
+                        source="pipeline",
+                    )
             starter.banner = original_banner
             try:
                 starter.docker_manager.set_command_echo_callback(print)
