@@ -2135,15 +2135,17 @@ services:
           memory: '8589934592'
     environment:
       AUTHENTICATION_REQUIRED: 'false'
+      BUCKET_FAILED_FILE: ''
+      BUCKET_UPLOAD_FILE: ''
       DEFAULT_DIFFBOT_CHAT_MODEL: atlas_litellm
       DIFFBOT_API_KEY: ''
       EMBEDDING_MODEL: all-MiniLM-L6-v2
       EMBEDDING_PROVIDER: sentence-transformer
       ENABLE_USER_AGENT: 'true'
       ENTITY_EMBEDDING: 'false'
-      GCP_LOG_METRICS_ENABLED: 'False'
-      GCS_FILE_CACHE: 'False'
-      GOOGLE_APPLICATION_CREDENTIALS: /root/.config/gcloud/application_default_credentials.json
+      GCP_LOG_METRICS_ENABLED: 'false'
+      GCS_FILE_CACHE: 'false'
+      GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/atlas-llm-graph-builder-gcp.json
       GOOGLE_CLOUD_PROJECT: ''
       GRAPH_CLEANUP_MODEL: atlas_litellm
       IS_EMBEDDING: 'true'
@@ -2155,6 +2157,7 @@ services:
       NEO4J_URI: ''
       NEO4J_USERNAME: neo4j
       OPENAI_API_KEY: ''
+      PROJECT_ID: ''
       TRACK_USER_USAGE: 'false'
       UPDATE_GRAPH_CHUNKS_PROCESSED: '20'
       USER_AGENT: Atlas-LLM-Graph-Builder
@@ -2179,6 +2182,11 @@ services:
     networks:
       backend-network: null
     restart: unless-stopped
+    volumes:
+    - read_only: true
+      source: '{REPO_ROOT}/services/llm-graph-builder/config/disabled-gcp-credentials.json'
+      target: /run/secrets/atlas-llm-graph-builder-gcp.json
+      type: bind
   llm-graph-builder-frontend:
     build:
       args:

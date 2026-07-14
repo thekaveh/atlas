@@ -393,6 +393,13 @@ Do not edit by hand — the bootstrapper owns this value.
 | LLM_GRAPH_BUILDER_MODEL_ID | llm-graph-builder | atlas_litellm | Model id shown in the Graph Builder UI. Atlas maps this id to LiteLLM's OpenAI-compatible endpoint. |
 | LLM_GRAPH_BUILDER_LLM_MODEL | llm-graph-builder |  | LiteLLM model alias used behind atlas_litellm. Empty = use LITELLM_DEFAULT_MODEL. |
 | LLM_GRAPH_BUILDER_NEO4J_DATABASE | llm-graph-builder | neo4j | Neo4j database name for Graph Builder data. Use a dedicated database on editions that support it. |
+| LLM_GRAPH_BUILDER_DIFFBOT_API_KEY | llm-graph-builder |  | Optional Diffbot API key for upstream Diffbot extraction/model features. Atlas' default LiteLLM path does not require it. |
+| LLM_GRAPH_BUILDER_GCP_LOG_METRICS_ENABLED | llm-graph-builder | False | Enable the upstream Google Cloud logging integration. Requires project id and an ADC credential file. |
+| LLM_GRAPH_BUILDER_GCS_FILE_CACHE | llm-graph-builder | False | Store uploaded and failed files in GCS instead of local container storage. Requires the full GCP and bucket configuration. |
+| LLM_GRAPH_BUILDER_GCP_PROJECT_ID | llm-graph-builder |  | Google Cloud project id used by optional GCS caching and Cloud logging. |
+| LLM_GRAPH_BUILDER_GCS_UPLOAD_BUCKET | llm-graph-builder |  | GCS bucket for uploaded files when LLM_GRAPH_BUILDER_GCS_FILE_CACHE=true. |
+| LLM_GRAPH_BUILDER_GCS_FAILED_BUCKET | llm-graph-builder |  | GCS bucket for failed files when LLM_GRAPH_BUILDER_GCS_FILE_CACHE=true. |
+| LLM_GRAPH_BUILDER_GCP_CREDENTIALS_FILE | llm-graph-builder |  | Absolute host path to a Google ADC JSON file. Mounted read-only only for the Graph Builder backend. |
 | LLM_GRAPH_BUILDER_REACT_APP_SOURCES | llm-graph-builder | local,wiki,web | Comma-separated upstream source picker values compiled into the frontend. |
 | LLM_GRAPH_BUILDER_CHAT_MODES | llm-graph-builder | vector,graph_vector,graph,fulltext,graph_vector_fulltext,entity_vector,global_vector | Comma-separated chat modes compiled into the frontend. |
 | LLM_GRAPH_BUILDER_TIME_PER_PAGE | llm-graph-builder | 50 | - |

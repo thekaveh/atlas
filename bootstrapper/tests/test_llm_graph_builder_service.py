@@ -8,6 +8,7 @@ import yaml
 
 from core.config_parser import ConfigParser
 from services.service_config import ServiceConfig
+from services.source_validator import SourceValidator
 from services.topology import get_topology, invalidate_cache
 from tracks import is_in_track, load_tracks
 from utils.kong_config_generator import KongConfigGenerator
@@ -61,6 +62,14 @@ def test_llm_graph_builder_manifest_admission_contract() -> None:
     assert env_vars["LLM_GRAPH_BUILDER_MODEL_ID"]["default"] == "atlas_litellm"
     assert env_vars["LLM_GRAPH_BUILDER_LLM_MODEL"]["default"] == ""
     assert env_vars["LLM_GRAPH_BUILDER_NEO4J_DATABASE"]["default"] == "neo4j"
+    assert env_vars["LLM_GRAPH_BUILDER_DIFFBOT_API_KEY"]["default"] == ""
+    assert env_vars["LLM_GRAPH_BUILDER_DIFFBOT_API_KEY"]["secret"] is True
+    assert env_vars["LLM_GRAPH_BUILDER_GCP_LOG_METRICS_ENABLED"]["default"] is False
+    assert env_vars["LLM_GRAPH_BUILDER_GCS_FILE_CACHE"]["default"] is False
+    assert env_vars["LLM_GRAPH_BUILDER_GCP_PROJECT_ID"]["default"] == ""
+    assert env_vars["LLM_GRAPH_BUILDER_GCS_UPLOAD_BUCKET"]["default"] == ""
+    assert env_vars["LLM_GRAPH_BUILDER_GCS_FAILED_BUCKET"]["default"] == ""
+    assert env_vars["LLM_GRAPH_BUILDER_GCP_CREDENTIALS_FILE"]["default"] == ""
     assert "default" not in env_vars["LLM_GRAPH_BUILDER_PORT"]
     for auto_var in (
         "LLM_GRAPH_BUILDER_BACKEND_SCALE",
@@ -113,6 +122,13 @@ def test_llm_graph_builder_topology_track_and_env_example_contract() -> None:
         "LLM_GRAPH_BUILDER_MODEL_ID=atlas_litellm",
         "LLM_GRAPH_BUILDER_LLM_MODEL=",
         "LLM_GRAPH_BUILDER_NEO4J_DATABASE=neo4j",
+        "LLM_GRAPH_BUILDER_DIFFBOT_API_KEY=",
+        "LLM_GRAPH_BUILDER_GCP_LOG_METRICS_ENABLED=false",
+        "LLM_GRAPH_BUILDER_GCS_FILE_CACHE=false",
+        "LLM_GRAPH_BUILDER_GCP_PROJECT_ID=",
+        "LLM_GRAPH_BUILDER_GCS_UPLOAD_BUCKET=",
+        "LLM_GRAPH_BUILDER_GCS_FAILED_BUCKET=",
+        "LLM_GRAPH_BUILDER_GCP_CREDENTIALS_FILE=",
         "LLM_GRAPH_BUILDER_REACT_APP_SOURCES=local,wiki,web",
         "LLM_GRAPH_BUILDER_BACKEND_SCALE=",
         "LLM_GRAPH_BUILDER_FRONTEND_SCALE=",
@@ -204,9 +220,167 @@ def test_llm_graph_builder_compose_contract() -> None:
     assert backend["environment"]["NEO4J_PASSWORD"] == "${GRAPH_DB_PASSWORD}"
     assert backend["environment"]["NEO4J_DATABASE"] == "${LLM_GRAPH_BUILDER_NEO4J_DATABASE:-neo4j}"
     assert backend["environment"]["LLM_MODEL_CONFIG_ATLAS_LITELLM"] == "${LLM_GRAPH_BUILDER_LITELLM_MODEL_CONFIG}"
+    assert backend["environment"]["DIFFBOT_API_KEY"] == (
+        "${LLM_GRAPH_BUILDER_DIFFBOT_API_KEY:-${DIFFBOT_API_KEY:-}}"
+    )
+    assert backend["environment"]["GCP_LOG_METRICS_ENABLED"] == "${LLM_GRAPH_BUILDER_GCP_LOG_METRICS_ENABLED:-false}"
+    assert backend["environment"]["GCS_FILE_CACHE"] == "${LLM_GRAPH_BUILDER_GCS_FILE_CACHE:-false}"
+    project_fallback = (
+        "${LLM_GRAPH_BUILDER_GCP_PROJECT_ID:-${GOOGLE_CLOUD_PROJECT:-}}"
+    )
+    assert backend["environment"]["PROJECT_ID"] == project_fallback
+    assert backend["environment"]["GOOGLE_CLOUD_PROJECT"] == project_fallback
+    assert backend["environment"]["BUCKET_UPLOAD_FILE"] == "${LLM_GRAPH_BUILDER_GCS_UPLOAD_BUCKET:-}"
+    assert backend["environment"]["BUCKET_FAILED_FILE"] == "${LLM_GRAPH_BUILDER_GCS_FAILED_BUCKET:-}"
+    credential_mount = backend["volumes"][0]
+    assert credential_mount["source"] == "${LLM_GRAPH_BUILDER_GCP_CREDENTIALS_FILE:-./config/disabled-gcp-credentials.json}"
+    assert credential_mount["target"] == "/run/secrets/atlas-llm-graph-builder-gcp.json"
+    assert credential_mount["read_only"] is True
     assert backend["depends_on"]["neo4j-graph-db"]["condition"] == "service_healthy"
     assert backend["depends_on"]["litellm"]["condition"] == "service_healthy"
     assert frontend["depends_on"]["llm-graph-builder-backend"]["condition"] == "service_healthy"
+
+
+def test_llm_graph_builder_gcp_features_require_complete_config(
+    env_with_overrides, tmp_path: Path
+) -> None:
+    missing_env = env_with_overrides(
+        {
+            "LLM_GRAPH_BUILDER_SOURCE": "container",
+            "NEO4J_GRAPH_DB_SOURCE": "container",
+            "LLM_GRAPH_BUILDER_GCS_FILE_CACHE": "true",
+            "LLM_GRAPH_BUILDER_GCP_PROJECT_ID": "",
+            "LLM_GRAPH_BUILDER_GCS_UPLOAD_BUCKET": "",
+            "LLM_GRAPH_BUILDER_GCS_FAILED_BUCKET": "",
+            "LLM_GRAPH_BUILDER_GCP_CREDENTIALS_FILE": "",
+        }
+    )
+    parser = ConfigParser(str(REPO_ROOT))
+    parser.env_file_path = missing_env
+    validator = SourceValidator(parser)
+    assert validator.validate_all_sources() is False
+    errors = "\n".join(validator.get_validation_errors())
+    for required in (
+        "LLM_GRAPH_BUILDER_GCP_PROJECT_ID",
+        "LLM_GRAPH_BUILDER_GCS_UPLOAD_BUCKET",
+        "LLM_GRAPH_BUILDER_GCS_FAILED_BUCKET",
+        "LLM_GRAPH_BUILDER_GCP_CREDENTIALS_FILE",
+    ):
+        assert required in errors
+
+    credentials = tmp_path / "gcp.json"
+    credentials.write_text(
+        '{"type":"service_account","client_email":"atlas@example.invalid",'
+        '"private_key":"not-a-real-key","token_uri":"https://oauth2.googleapis.com/token"}\n',
+        encoding="utf-8",
+    )
+    configured_env = env_with_overrides(
+        {
+            "LLM_GRAPH_BUILDER_SOURCE": "container",
+            "NEO4J_GRAPH_DB_SOURCE": "container",
+            "LLM_GRAPH_BUILDER_GCS_FILE_CACHE": "true",
+            "LLM_GRAPH_BUILDER_GCP_PROJECT_ID": "atlas-project",
+            "LLM_GRAPH_BUILDER_GCS_UPLOAD_BUCKET": "uploads",
+            "LLM_GRAPH_BUILDER_GCS_FAILED_BUCKET": "failed",
+            "LLM_GRAPH_BUILDER_GCP_CREDENTIALS_FILE": str(credentials),
+        }
+    )
+    parser.env_file_path = configured_env
+    validator = SourceValidator(parser)
+    assert validator.validate_all_sources() is True
+
+    legacy_project_env = env_with_overrides(
+        {
+            "LLM_GRAPH_BUILDER_SOURCE": "container",
+            "NEO4J_GRAPH_DB_SOURCE": "container",
+            "LLM_GRAPH_BUILDER_GCP_LOG_METRICS_ENABLED": "true",
+            "LLM_GRAPH_BUILDER_GCP_PROJECT_ID": "",
+            "GOOGLE_CLOUD_PROJECT": "legacy-atlas-project",
+            "LLM_GRAPH_BUILDER_GCP_CREDENTIALS_FILE": str(credentials),
+        }
+    )
+    parser.env_file_path = legacy_project_env
+    validator = SourceValidator(parser)
+    assert validator.validate_all_sources() is True
+
+    relative_env = env_with_overrides(
+        {
+            "LLM_GRAPH_BUILDER_SOURCE": "container",
+            "NEO4J_GRAPH_DB_SOURCE": "container",
+            "LLM_GRAPH_BUILDER_GCP_LOG_METRICS_ENABLED": "true",
+            "LLM_GRAPH_BUILDER_GCP_PROJECT_ID": "atlas-project",
+            "LLM_GRAPH_BUILDER_GCP_CREDENTIALS_FILE": "credentials/gcp.json",
+        }
+    )
+    parser.env_file_path = relative_env
+    validator = SourceValidator(parser)
+    assert validator.validate_all_sources() is False
+    assert "must be an absolute host path" in "\n".join(
+        validator.get_validation_errors()
+    )
+
+
+def test_llm_graph_builder_gcp_rejects_ambiguous_or_inactive_credentials(
+    env_with_overrides, tmp_path: Path
+) -> None:
+    credentials = tmp_path / "gcp.json"
+    credentials.write_text(
+        '{"type":"authorized_user","client_id":"id","client_secret":"secret",'
+        '"refresh_token":"token"}\n',
+        encoding="utf-8",
+    )
+    parser = ConfigParser(str(REPO_ROOT))
+
+    inactive_env = env_with_overrides(
+        {
+            "LLM_GRAPH_BUILDER_SOURCE": "container",
+            "NEO4J_GRAPH_DB_SOURCE": "container",
+            "LLM_GRAPH_BUILDER_GCP_LOG_METRICS_ENABLED": "false",
+            "LLM_GRAPH_BUILDER_GCS_FILE_CACHE": "false",
+            "LLM_GRAPH_BUILDER_GCP_CREDENTIALS_FILE": str(credentials),
+        }
+    )
+    parser.env_file_path = inactive_env
+    validator = SourceValidator(parser)
+    assert validator.validate_all_sources() is False
+    assert "is set while both" in "\n".join(validator.get_validation_errors())
+
+    ambiguous_env = env_with_overrides(
+        {
+            "LLM_GRAPH_BUILDER_SOURCE": "container",
+            "NEO4J_GRAPH_DB_SOURCE": "container",
+            "LLM_GRAPH_BUILDER_GCP_LOG_METRICS_ENABLED": "on",
+        }
+    )
+    parser.env_file_path = ambiguous_env
+    validator = SourceValidator(parser)
+    assert validator.validate_all_sources() is False
+    assert "true/false, 1/0, or yes/no" in "\n".join(
+        validator.get_validation_errors()
+    )
+
+
+def test_llm_graph_builder_gcp_rejects_malformed_adc(
+    env_with_overrides, tmp_path: Path
+) -> None:
+    credentials = tmp_path / "gcp.json"
+    credentials.write_text("{}\n", encoding="utf-8")
+    env_path = env_with_overrides(
+        {
+            "LLM_GRAPH_BUILDER_SOURCE": "container",
+            "NEO4J_GRAPH_DB_SOURCE": "container",
+            "LLM_GRAPH_BUILDER_GCP_LOG_METRICS_ENABLED": "true",
+            "LLM_GRAPH_BUILDER_GCP_PROJECT_ID": "atlas-project",
+            "LLM_GRAPH_BUILDER_GCP_CREDENTIALS_FILE": str(credentials),
+        }
+    )
+    parser = ConfigParser(str(REPO_ROOT))
+    parser.env_file_path = env_path
+    validator = SourceValidator(parser)
+    assert validator.validate_all_sources() is False
+    assert "structurally complete Google ADC JSON" in "\n".join(
+        validator.get_validation_errors()
+    )
 
 
 def test_llm_graph_builder_kong_routes_only_when_container(tmp_path: Path) -> None:
@@ -260,6 +434,8 @@ def test_llm_graph_builder_docs_describe_setup_and_guardrails() -> None:
         "Docling",
         "document-to-graph",
         "LLM_GRAPH_BUILDER_NEO4J_DATABASE",
+        "LLM_GRAPH_BUILDER_GCS_FILE_CACHE",
+        "LLM_GRAPH_BUILDER_GCP_CREDENTIALS_FILE",
         "namespace",
         "rollback",
     ):

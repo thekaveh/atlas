@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Locked CI environments** — all three `services-lint` jobs now synchronize bootstrapper dependencies with `--locked`, so tests and audit scripts fail on lock drift instead of silently resolving or modifying a different dependency graph.
 - **CLI/manifest parity** — `--comfyui-source` now accepts the manifest-supported `managed-localhost-mps` mode, Prometheus retention enforces the same 1–365 day range as the wizard, and `--track` help includes the shipped trading profile.
 - **Effective optional-service gates** — Cloudflare Tunnel container mode now fails validation before startup when its named-tunnel token is blank, and the on-demand backup entrypoint rejects backup/restore runs while `BACKUP_SOURCE=disabled` instead of treating enabled and disabled identically.
+- **Graph Builder optional configuration** — Diffbot and Google Cloud options are now manifest-owned and namespaced; GCS caching has project/bucket wiring, ADC credentials mount read-only into the backend, and incomplete enabled GCP configurations fail validation before Compose.
 
 ### Fixed — 2026-07-13 — Synchronized three-surface documentation
 

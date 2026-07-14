@@ -7,6 +7,9 @@ module asserts that every *_SOURCE value in .env matches one of those options.
 Python implementation of the validate_source_values() function from start.sh.
 """
 
+import json
+import os
+from pathlib import Path
 from typing import Dict, List, Optional, Set
 from core.config_parser import ConfigParser
 
@@ -309,6 +312,9 @@ class SourceValidator:
         if not self._validate_cloudflared_token_present(service_sources):
             all_valid = False
 
+        if not self._validate_graph_builder_gcp_config(service_sources):
+            all_valid = False
+
         return all_valid
 
     def enforce_runtime_invariants(self) -> bool:
@@ -545,6 +551,141 @@ class SourceValidator:
             "Set the token in .env or set CLOUDFLARED_SOURCE=disabled."
         )
         return False
+
+    def _validate_graph_builder_gcp_config(
+        self, service_sources: Dict[str, str]
+    ) -> bool:
+        """GCP-backed Graph Builder features need a complete credential set."""
+        if service_sources.get('LLM_GRAPH_BUILDER_SOURCE', 'disabled') != 'container':
+            return True
+
+        env_vars = self.config_parser.parse_env_file()
+        truthy = {'1', 'true', 'yes'}
+        falsy = {'0', 'false', 'no', ''}
+        flag_values = {
+            name: env_vars.get(name, '').strip().lower()
+            for name in (
+                'LLM_GRAPH_BUILDER_GCP_LOG_METRICS_ENABLED',
+                'LLM_GRAPH_BUILDER_GCS_FILE_CACHE',
+            )
+        }
+        invalid_flags = [
+            f"{name}={value!r}"
+            for name, value in flag_values.items()
+            if value not in truthy | falsy
+        ]
+        if invalid_flags:
+            self.validation_errors.append(
+                "❌ LLM Graph Builder GCP feature flags accept only "
+                "true/false, 1/0, or yes/no: " + ", ".join(invalid_flags) + "."
+            )
+            return False
+
+        logs_enabled = flag_values['LLM_GRAPH_BUILDER_GCP_LOG_METRICS_ENABLED'] in truthy
+        cache_enabled = flag_values['LLM_GRAPH_BUILDER_GCS_FILE_CACHE'] in truthy
+        credential_value = env_vars.get(
+            'LLM_GRAPH_BUILDER_GCP_CREDENTIALS_FILE', ''
+        ).strip()
+        if not logs_enabled and not cache_enabled:
+            if credential_value:
+                self.validation_errors.append(
+                    "❌ LLM_GRAPH_BUILDER_GCP_CREDENTIALS_FILE is set while both "
+                    "Graph Builder GCP features are disabled. Clear the path or enable "
+                    "the feature that needs it."
+                )
+                return False
+            return True
+
+        project_id = (
+            env_vars.get('LLM_GRAPH_BUILDER_GCP_PROJECT_ID', '')
+            or env_vars.get('GOOGLE_CLOUD_PROJECT', '')
+        ).strip()
+        missing = []
+        if not project_id:
+            missing.append('LLM_GRAPH_BUILDER_GCP_PROJECT_ID')
+        if not credential_value:
+            missing.append('LLM_GRAPH_BUILDER_GCP_CREDENTIALS_FILE')
+        if cache_enabled:
+            missing.extend(
+                name
+                for name in (
+                    'LLM_GRAPH_BUILDER_GCS_UPLOAD_BUCKET',
+                    'LLM_GRAPH_BUILDER_GCS_FAILED_BUCKET',
+                )
+                if not env_vars.get(name, '').strip()
+            )
+        if missing:
+            self.validation_errors.append(
+                "❌ Enabled LLM Graph Builder GCP features require: "
+                + ", ".join(missing)
+                + "."
+            )
+            return False
+
+        credential_path = Path(
+            os.path.expandvars(credential_value)
+        ).expanduser()
+        if not credential_path.is_absolute():
+            self.validation_errors.append(
+                "❌ LLM_GRAPH_BUILDER_GCP_CREDENTIALS_FILE must be an absolute "
+                "host path so Compose and startup validation resolve the same file."
+            )
+            return False
+        try:
+            credential_text = credential_path.read_text(encoding='utf-8')
+        except OSError:
+            self.validation_errors.append(
+                "❌ LLM_GRAPH_BUILDER_GCP_CREDENTIALS_FILE does not name a readable file: "
+                f"{credential_path}."
+            )
+            return False
+
+        try:
+            credential_info = json.loads(credential_text)
+        except (TypeError, ValueError):
+            credential_info = None
+        required_by_type = {
+            'authorized_user': {'client_id', 'client_secret', 'refresh_token'},
+            'service_account': {'client_email', 'private_key', 'token_uri'},
+            'external_account': {
+                'audience', 'subject_token_type', 'token_url', 'credential_source',
+            },
+            'external_account_authorized_user': {
+                'audience', 'refresh_token', 'token_url', 'client_id', 'client_secret',
+            },
+            'impersonated_service_account': {
+                'source_credentials', 'service_account_impersonation_url',
+            },
+            'gdch_service_account': {
+                'format_version', 'private_key_id', 'private_key', 'name', 'project',
+                'token_uri',
+            },
+        }
+        credential_type = (
+            credential_info.get('type') if isinstance(credential_info, dict) else None
+        )
+        required_fields = required_by_type.get(credential_type)
+        missing_fields = (
+            sorted(
+                field
+                for field in required_fields
+                if not credential_info.get(field)
+            )
+            if required_fields is not None
+            else []
+        )
+        if required_fields is None or missing_fields:
+            detail = (
+                f"; missing fields: {', '.join(missing_fields)}"
+                if missing_fields
+                else ""
+            )
+            self.validation_errors.append(
+                "❌ LLM_GRAPH_BUILDER_GCP_CREDENTIALS_FILE must contain a "
+                f"recognized, structurally complete Google ADC JSON document{detail}."
+            )
+            return False
+        return True
     
     def validate_sources_for_profile(
         self, service_sources: dict, profile: str
