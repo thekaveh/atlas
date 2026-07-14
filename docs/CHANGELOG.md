@@ -2783,4 +2783,4 @@ To roll back: `cp .env.backup.<timestamp> .env && sed -i '' '/BOOTSTRAPPER_PORT_
 
 ---
 
-*For more details on any release, see the corresponding [GitHub release](https://github.com/thekaveh/atlas/releases) or [documentation](https://github.com/thekaveh/atlas/blob/main/docs/README.md).*
+*For more details on any release, see the corresponding [Git tag](https://github.com/thekaveh/atlas/tags) or [documentation](https://github.com/thekaveh/atlas/blob/main/docs/README.md).*
