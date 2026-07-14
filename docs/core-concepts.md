@@ -24,7 +24,7 @@ Overlay precedence is `.env.example` baseline, generated or existing `.env`, sib
 
 ## 6. Hosted Media Gateway
 
-The backend exposes `POST /media/generate` and `GET /media/operations/{operation_id}` as the provider-neutral hosted media surface. Requests dispatch by `provider`, `modality`, and `model`; the initial registry supports `provider=fal` with `modality=image`. Provider API keys stay in the backend environment, and responses normalize status, artifacts, cost, license, and provenance for downstream consumers.
+The backend exposes `POST /media/generate` and `GET /media/operations/{operation_id}` as the provider-neutral hosted media surface. Requests dispatch by `provider`, `modality`, and `model`; the registry supports `provider=fal` with `modality=image` and `modality=image_to_3d`, and `provider=comfyui` with `modality=image` (the managed/local ComfyUI host, #519). Provider API keys stay in the backend environment, and responses normalize status, artifacts, cost, license, and provenance for downstream consumers.
 
 ## 7. RAG Chunking Gateway
 
