@@ -24,6 +24,15 @@ env:
   - name: MAX_UPLOAD_BYTES
     default: 104857600
     description: "Maximum accepted /storage/upload body size in bytes before the backend returns 413."
+  - name: RAG_INGESTION_MAX_FILE_BYTES
+    default: 104857600
+    description: "Maximum bytes loaded from any single mounted or MinIO RAG corpus file. Oversize files fail ingestion before unbounded allocation."
+  - name: RAG_INGESTION_MAX_CORPUS_BYTES
+    default: 1073741824
+    description: "Maximum aggregate bytes loaded by one RAG corpus discovery pass across mounted or MinIO files."
+  - name: RAG_INGESTION_MAX_FILES
+    default: 10000
+    description: "Maximum number of files accepted in one mounted or MinIO RAG corpus discovery pass."
   - name: BACKEND_STORAGE_ALLOWED_BUCKETS
     default: default
     description: "Comma-separated Supabase Storage bucket allowlist accepted by /storage/upload."

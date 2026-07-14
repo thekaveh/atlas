@@ -16,7 +16,12 @@ from pathlib import Path
 import httpx
 import pytest
 
-from rag_ingestion.clients import CorpusPathError, LightRagClient, MountCorpusReader
+from rag_ingestion.clients import (
+    CorpusPathError,
+    LightRagClient,
+    MinioCorpusReader,
+    MountCorpusReader,
+)
 from rag_ingestion.profiles import ProfileNotFoundError, load_profiles
 from rag_ingestion.service import Deps, RagIngestionService
 from rag_ingestion.store import InMemoryIngestionStore
@@ -545,6 +550,99 @@ def test_corpus_symlink_escape_rejected(tmp_path, monkeypatch):
     reader = MountCorpusReader()
     with pytest.raises(CorpusPathError):
         reader.discover({"source": "mount", "path": "docs"})
+
+
+def test_mount_corpus_rejects_file_over_configured_limit(tmp_path, monkeypatch):
+    _corpus(tmp_path, monkeypatch, {"large.txt": "12345"})
+    monkeypatch.setenv("RAG_INGESTION_MAX_FILE_BYTES", "4")
+    monkeypatch.setenv("RAG_INGESTION_MAX_CORPUS_BYTES", "100")
+
+    with pytest.raises(ValueError, match="large.txt.*4 bytes"):
+        MountCorpusReader().discover({"source": "mount", "path": "docs"})
+
+
+def test_mount_corpus_rejects_aggregate_over_configured_limit(tmp_path, monkeypatch):
+    _corpus(tmp_path, monkeypatch, {"a.txt": "1234", "b.txt": "5678"})
+    monkeypatch.setenv("RAG_INGESTION_MAX_FILE_BYTES", "10")
+    monkeypatch.setenv("RAG_INGESTION_MAX_CORPUS_BYTES", "7")
+
+    with pytest.raises(ValueError, match="corpus.*7 bytes"):
+        MountCorpusReader().discover({"source": "mount", "path": "docs"})
+
+
+def test_mount_corpus_rejects_file_count_over_configured_limit(tmp_path, monkeypatch):
+    _corpus(tmp_path, monkeypatch, {"a.txt": "", "b.txt": "", "c.txt": ""})
+    monkeypatch.setenv("RAG_INGESTION_MAX_FILES", "2")
+
+    with pytest.raises(ValueError, match="more than 2 files"):
+        MountCorpusReader().discover({"source": "mount", "path": "docs"})
+
+
+def test_minio_corpus_rejects_oversize_metadata_before_download(monkeypatch):
+    import minio
+
+    get_calls = []
+
+    class Object:
+        object_name = "large.bin"
+        size = 5
+
+    class FakeClient:
+        def list_objects(self, *args, **kwargs):
+            return [Object()]
+
+        def get_object(self, *args, **kwargs):
+            get_calls.append(args)
+            raise AssertionError("oversize object must not be downloaded")
+
+    monkeypatch.setattr(minio, "Minio", lambda *args, **kwargs: FakeClient())
+    monkeypatch.setenv("MINIO_ENDPOINT", "http://minio:9000")
+    monkeypatch.setenv("RAG_INGESTION_MAX_FILE_BYTES", "4")
+    monkeypatch.setenv("RAG_INGESTION_MAX_CORPUS_BYTES", "100")
+
+    with pytest.raises(ValueError, match="large.bin.*4 bytes"):
+        MinioCorpusReader().discover(
+            {"source": "minio", "bucket": "corpus", "prefix": "docs/"}
+        )
+    assert get_calls == []
+
+
+def test_minio_corpus_bounds_stream_when_size_metadata_is_missing(monkeypatch):
+    import io
+    import minio
+
+    response = io.BytesIO(b"12345")
+    response.close = lambda: None
+    response.release_conn = lambda: None
+
+    class Object:
+        object_name = "unknown-size.bin"
+        size = None
+
+    class FakeClient:
+        def list_objects(self, *args, **kwargs):
+            return [Object()]
+
+        def get_object(self, *args, **kwargs):
+            return response
+
+    monkeypatch.setattr(minio, "Minio", lambda *args, **kwargs: FakeClient())
+    monkeypatch.setenv("MINIO_ENDPOINT", "http://minio:9000")
+    monkeypatch.setenv("RAG_INGESTION_MAX_FILE_BYTES", "4")
+    monkeypatch.setenv("RAG_INGESTION_MAX_CORPUS_BYTES", "100")
+
+    with pytest.raises(ValueError, match="unknown-size.bin.*4 bytes"):
+        MinioCorpusReader().discover(
+            {"source": "minio", "bucket": "corpus", "prefix": "docs/"}
+        )
+
+
+def test_corpus_fingerprint_enforces_the_same_resource_limits(tmp_path, monkeypatch):
+    _corpus(tmp_path, monkeypatch, {"large.txt": "12345"})
+    monkeypatch.setenv("RAG_INGESTION_MAX_FILE_BYTES", "4")
+
+    with pytest.raises(ValueError, match="large.txt.*4 bytes"):
+        MountCorpusReader().fingerprint({"source": "mount", "path": "docs"})
 
 
 def test_embedder_disabled_is_attributed_to_embedder_not_weaviate(tmp_path, monkeypatch):

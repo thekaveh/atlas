@@ -56,6 +56,9 @@
 | BACKEND_PORT | backend |  | - |
 | BACKEND_SCALE | backend |  | Always 1 (BACKEND_SOURCE is single-valued). |
 | MAX_UPLOAD_BYTES | backend | 104857600 | Maximum accepted /storage/upload body size in bytes before the backend returns 413. |
+| RAG_INGESTION_MAX_FILE_BYTES | backend | 104857600 | Maximum bytes loaded from any single mounted or MinIO RAG corpus file. Oversize files fail ingestion before unbounded allocation. |
+| RAG_INGESTION_MAX_CORPUS_BYTES | backend | 1073741824 | Maximum aggregate bytes loaded by one RAG corpus discovery pass across mounted or MinIO files. |
+| RAG_INGESTION_MAX_FILES | backend | 10000 | Maximum number of files accepted in one mounted or MinIO RAG corpus discovery pass. |
 | BACKEND_STORAGE_ALLOWED_BUCKETS | backend | default | Comma-separated Supabase Storage bucket allowlist accepted by /storage/upload. |
 | BACKEND_MEDIA_INPUT_BUCKET | backend | default | Atlas storage bucket the media gateway hosts image_to_3d inputs in when a provider (e.g. Tripo) rejects data-URI inputs. Objects are written under the media-inputs/ prefix. |
 | BACKEND_MEDIA_INPUT_PUBLIC_BASE_URL | backend |  | Optional public base URL for hosted media inputs. When set, hosted image_to_3d input URLs are formed as <base>/<bucket>/<key> so the provider's cloud can fetch them through a reachable ingress; empty falls back to the storage client's public URL. |
