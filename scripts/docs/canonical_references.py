@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 
 from bootstrapper.docs.sitegen.model import load_docs_model
-from bootstrapper.docs.sitegen.pages import reference_pages, static_pages
+from bootstrapper.docs.sitegen.pages import architecture_pages, reference_pages, static_pages
 from bootstrapper.docs.sitegen.services import service_pages
 
 
@@ -32,6 +32,7 @@ def render_canonical_references(repo_root: Path) -> dict[Path, str]:
     static = static_pages(model)
     services = service_pages(model)
     references = reference_pages(model)
+    architecture = architecture_pages(model)
     old_site = repo_root / "docs" / "site"
     rendered = {
         repo_root / "docs" / "tracks.md": _final_newline(static[old_site / "tracks.md"]),
@@ -46,6 +47,8 @@ def render_canonical_references(repo_root: Path) -> dict[Path, str]:
         target = repo_root / "docs" / "reference" / source.name
         transformed = _ports_reference(content) if source.name == "ports-routes.md" else content
         rendered[target] = _final_newline(transformed)
+    for source, content in architecture.items():
+        rendered[source] = _final_newline(content)
     return rendered
 
 

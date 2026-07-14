@@ -1,8 +1,8 @@
 [project]
 name = "atlas-bootstrapper"
-# Tracks the product version (BRAND_VERSION in .env / AppState). The project
-# is pre-1.0 and unreleased (CHANGELOG is still [Unreleased]); the old 1.0.0
-# here was a stale scaffold default that contradicted the 0.1.0 shown to users.
+# Tracks the tagged product version (BRAND_VERSION in .env / AppState). Atlas
+# remains pre-1.0; post-v0.1.0 changes stay under CHANGELOG's [Unreleased]
+# section until the next semantic-version tag is cut.
 version = "0.1.0"
 description = "Atlas bootstrapper - cross-platform startup and management scripts"
 requires-python = ">=3.10"

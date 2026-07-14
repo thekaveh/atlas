@@ -8,9 +8,9 @@ import yaml
 
 
 REPO = Path(__file__).resolve().parents[2]
-EXPECTED_REF = "0be4c86ea71e1671ff273dfc07dc1aab45ed22f8"
+EXPECTED_REF = "38f769f84380f2065de76021ac7c5215f88aa39e"
 EXPECTED_CLI = "0.4.31"
-EXPECTED_LOCK_SHA256 = "93480f1963d5d09a0c4ffc255aa2dcc75362a7a7f0df831847aecd073c03e7fe"
+EXPECTED_LOCK_SHA256 = "26fc35ac377836de6628e5f7b180944c4d4bd50a5e9f0200bd6e663f20e35c1a"
 RUNTIME_LIB = (
     REPO
     / "services/local-deep-researcher/build/scripts/runtime-lib.sh"

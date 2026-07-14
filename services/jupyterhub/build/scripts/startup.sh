@@ -74,12 +74,12 @@ if [ ! -f /home/jovyan/work/README.md ]; then
     cat > /home/jovyan/work/README.md << 'EOF'
 # Welcome to JupyterHub - Atlas
 
-This Jupyter environment is pre-configured to work with all services in Atlas.
+This Jupyter environment is pre-configured for Atlas's core notebook integrations.
 
 ## Sample Notebooks
 
 Check the `examples/` directory for sample notebooks demonstrating:
-- `00_environment_check.ipynb` - Verify all service connections
+- `00_environment_check.ipynb` - Inspect configured integrations and run bounded core-service probes
 - `01_litellm_basics.ipynb` - LLM access via the LiteLLM gateway
 - `02_langchain_rag.ipynb` - RAG pipeline with Weaviate
 - `03_neo4j_graphs.ipynb` - Knowledge graphs with Neo4j
@@ -97,7 +97,7 @@ Check the `examples/` directory for sample notebooks demonstrating:
 
 ## Available Services
 
-All service URLs are available as environment variables:
+The following integration URLs are available as environment variables:
 - `LITELLM_BASE_URL` / `LITELLM_API_KEY` - Unified LLM gateway
 - `OPENAI_API_BASE` / `OPENAI_API_KEY` - Same gateway, OpenAI-style names (works with the `openai` Python SDK and LangChain)
 - `WEAVIATE_URL` - Vector database

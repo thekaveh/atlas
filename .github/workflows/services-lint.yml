@@ -89,10 +89,11 @@ jobs:
         run: |
           BACKEND_TEST_VENV="${RUNNER_TEMP:-$PWD}/backend-ci-venv"
           uv venv "$BACKEND_TEST_VENV"
-          # The application requirements own the tested import closure and
-          # pytest plugins. A hand-maintained subset previously drifted until
-          # CI could not collect the identity and async suites.
-          VIRTUAL_ENV="$BACKEND_TEST_VENV" uv pip install -r requirements.txt
+          # Runtime and test requirements jointly own the tested import
+          # closure. Both are repository-managed; no inline CI subset may
+          # drift from the application or pytest plugin contracts.
+          VIRTUAL_ENV="$BACKEND_TEST_VENV" uv pip install \
+            -r requirements.txt -r requirements-dev.txt
           "$BACKEND_TEST_VENV/bin/python" -m pytest tests/ -q
 
   compose-equivalence:

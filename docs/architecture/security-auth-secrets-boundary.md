@@ -6,15 +6,18 @@ Supabase, Kong, service auth notes, API keys, local secrets, cloud keys, and int
 
 [Open the interactive diagram](./security-auth-secrets-boundary.html).
 
-## 2. Source Files
+## 2. How To Read This View
+
+Supabase identities and scoped service credentials protect Backend data planes, while Kong applies gateway policy at published aliases. Generated local secrets and cloud keys stay in runtime configuration. Any deliberately unauthenticated local port remains an operator-trusted development boundary.
+
+## 3. Source Files
 
 - `services/*/service.yml`
 - `bootstrapper/tracks.yml`
 - `services/topology.py`
 - `docs/deployment/source-configuration.md`
 
-## 3. Update Rule
+## 4. Maintenance
 
-Update this page and `security-auth-secrets-boundary.html` when the represented architecture surface
-changes. Use the `architecture-diagram` design system: dark slate background,
-JetBrains Mono, split perspectives, readable labels, and no overloaded mega-diagram.
+Regenerate this page and `security-auth-secrets-boundary.html` after changing a represented service,
+route, SOURCE mode, track, dependency, or data-flow boundary.

@@ -6,15 +6,18 @@ How Atlas tracks map to service families and force-disable out-of-track services
 
 [Open the interactive diagram](./track-selection-matrix.html).
 
-## 2. Source Files
+## 2. How To Read This View
+
+Tracks reduce the wizard to a workflow-oriented service set. Services outside that set are force-disabled after prompting, while an explicit CLI source override remains authoritative and is reported to the operator.
+
+## 3. Source Files
 
 - `services/*/service.yml`
 - `bootstrapper/tracks.yml`
 - `services/topology.py`
 - `docs/deployment/source-configuration.md`
 
-## 3. Update Rule
+## 4. Maintenance
 
-Update this page and `track-selection-matrix.html` when the represented architecture surface
-changes. Use the `architecture-diagram` design system: dark slate background,
-JetBrains Mono, split perspectives, readable labels, and no overloaded mega-diagram.
+Regenerate this page and `track-selection-matrix.html` after changing a represented service,
+route, SOURCE mode, track, dependency, or data-flow boundary.

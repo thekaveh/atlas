@@ -182,6 +182,22 @@ def test_diagram_masters_and_surface_assets_are_complete() -> None:
         assert f"img/service-{name}.png" in wiki
 
 
+def test_architecture_pages_explain_the_views_without_publication_instructions() -> None:
+    for page in DIAGRAMS_DIR.glob("*.md"):
+        if page.name in {"README.md", "index.md"}:
+            continue
+        text = page.read_text(encoding="utf-8")
+        assert "## 2. How To Read This View" in text, page
+        assert "## 3. Source Files" in text, page
+        assert "## 4. Maintenance" in text, page
+        assert "architecture-diagram design system" not in text, page
+        assert "dark slate background" not in text, page
+        interactive = page.with_suffix(".html").read_text(encoding="utf-8")
+        assert "How to read this view" in interactive, page
+        assert "architecture-diagram design system" not in interactive, page
+        assert "Update trigger" not in interactive, page
+
+
 def test_wiki_contains_the_complete_manifest_page_set_and_navigation() -> None:
     manifest = _manifest()
     expected = {page.wiki_path.as_posix() for page in manifest.pages} | {"_Sidebar.md", "_Footer.md"}

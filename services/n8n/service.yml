@@ -39,18 +39,12 @@ env:
     default: ""
     secret: true
     description: "n8n public-API key (n8n CE issues these only via the UI: Settings → n8n API). Consumed by the backend's /workflows endpoints; while empty those endpoints currently return backend errors from failed upstream n8n calls."
-  - name: N8N_AUTH_ENABLED
-    default: true
   - name: N8N_HOST
     default: "n8n.localhost"
   - name: N8N_PROTOCOL
     default: http
   - name: N8N_EXECUTIONS_MODE
     default: queue
-  - name: N8N_COMMUNITY_PACKAGES_ENABLED
-    default: true
-  - name: N8N_COMMUNITY_PACKAGES_ALLOW_TOOL_USAGE
-    default: true
   - name: N8N_INIT_SOURCE
     default: container
   - name: N8N_INIT_NODES

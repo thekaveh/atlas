@@ -83,7 +83,7 @@ service-role key is deliberately not injected.
 
 | Notebook | Description |
 |----------|-------------|
-| `00_environment_check.ipynb` | Verify all service connections |
+| `00_environment_check.ipynb` | Inspect configured core integrations and run bounded HTTP/database connectivity probes without printing credential-bearing URLs. |
 | `01_litellm_basics.ipynb` | LLM inference via the LiteLLM gateway (Ollama upstream) |
 | `02_langchain_rag.ipynb` | RAG pipeline with Weaviate |
 | `03_neo4j_graphs.ipynb` | Knowledge graph queries |

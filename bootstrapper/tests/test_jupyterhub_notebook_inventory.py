@@ -65,6 +65,41 @@ def test_jupyterhub_notebook_inventory_matches_docs_and_starter_notebook():
     assert startup_mentions == notebooks
 
 
+def test_environment_check_is_bounded_redacted_and_truthfully_scoped():
+    notebook = json.loads((NOTEBOOK_DIR / "00_environment_check.ipynb").read_text())
+    markdown = "\n".join(
+        "".join(cell.get("source", []))
+        for cell in notebook.get("cells", [])
+        if cell.get("cell_type") == "markdown"
+    )
+    code = "\n".join(
+        "".join(cell.get("source", []))
+        for cell in notebook.get("cells", [])
+        if cell.get("cell_type") == "code"
+    )
+
+    headings = [line for line in markdown.splitlines() if line.startswith("## ")]
+    assert headings
+    assert all(re.match(r"^## \d+\. ", heading) for heading in headings)
+    assert "all Atlas services" not in markdown
+    assert "configured (value hidden)" in code
+    assert 'os.getenv("DATABASE_URL", "not set")' not in code
+    assert 'os.getenv("REDIS_URL", "not set")' not in code
+    assert "timeout=5.0" in code
+    assert 'connect_args={"connect_timeout": 5}' in code
+    assert "socket_connect_timeout=5" in code
+    assert "connection_timeout=5" in code
+    for variable in (
+        "LITELLM_BASE_URL",
+        "WEAVIATE_URL",
+        "COMFYUI_BASE_URL",
+        "N8N_BASE_URL",
+        "SEARXNG_URL",
+        "BACKEND_API_URL",
+    ):
+        assert variable in code
+
+
 def test_jupyterhub_notebook_cell_ids_are_nbformat_45_complete_and_unique():
     for path in sorted(NOTEBOOK_DIR.glob("*.ipynb")):
         notebook = json.loads(path.read_text(encoding="utf-8"))

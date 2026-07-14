@@ -23,9 +23,9 @@ Canonical port table: [Ports and Routes](../../docs/deployment/ports-and-routes.
 ```bash
 LOCAL_DEEP_RESEARCHER_SOURCE=container       # container | disabled
 LOCAL_DEEP_RESEARCHER_PORT=63097             # computed by topology.py
-LOCAL_DEEP_RESEARCHER_REF=0be4c86ea71e1671ff273dfc07dc1aab45ed22f8
+LOCAL_DEEP_RESEARCHER_REF=38f769f84380f2065de76021ac7c5215f88aa39e
 LOCAL_DEEP_RESEARCHER_LANGGRAPH_CLI_VERSION=0.4.31
-LOCAL_DEEP_RESEARCHER_UPSTREAM_LOCK_SHA256=93480f1963d5d09a0c4ffc255aa2dcc75362a7a7f0df831847aecd073c03e7fe
+LOCAL_DEEP_RESEARCHER_UPSTREAM_LOCK_SHA256=26fc35ac377836de6628e5f7b180944c4d4bd50a5e9f0200bd6e663f20e35c1a
 LOCAL_DEEP_RESEARCHER_LOOPS=3                # max research iterations
 LOCAL_DEEP_RESEARCHER_SEARCH_API=searxng     # only searxng is wired today; tavily/perplexity supported upstream
 LOCAL_DEEP_RESEARCHER_WORKERS=3              # langgraph dev --n-workers

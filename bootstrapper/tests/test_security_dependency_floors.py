@@ -56,11 +56,17 @@ def test_small_api_frameworks_resolve_patched_security_baselines() -> None:
 
 def test_backend_ci_installs_the_owned_test_contract() -> None:
     requirements = _text("services/backend/app/app/requirements.txt")
+    dev_requirements = _text("services/backend/app/app/requirements-dev.txt")
     workflow = _text(".github/workflows/services-lint.yml")
+    dockerfile = _text("services/backend/app/Dockerfile")
 
-    assert "pytest-asyncio>=1.4.0" in requirements
-    assert "httpx2>=2.6.0" in requirements
-    assert "uv pip install -r requirements.txt" in workflow
+    assert "pytest" not in requirements
+    assert "httpx2" not in requirements
+    assert "pytest>=9.1.1" in dev_requirements
+    assert "pytest-asyncio>=1.4.0" in dev_requirements
+    assert "httpx2>=2.6.0" in dev_requirements
+    assert '-r requirements.txt -r requirements-dev.txt' in workflow
+    assert "requirements-dev.txt" not in dockerfile
     assert "pytest-asyncio omitted intentionally" not in workflow
 
 
@@ -158,6 +164,44 @@ def test_jupyter_binary_ml_stack_uses_supported_security_baseline() -> None:
     assert "torch-spline-conv" not in requirements
     assert "torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0" in dockerfile
     assert "--index-url https://download.pytorch.org/whl/cpu" in dockerfile
+
+
+def test_dependabot_torch_coordination_matches_current_compiled_family() -> None:
+    dependabot = _text(".github/dependabot.yml")
+
+    assert "torch-2.11.0+cpu.html" in dependabot
+    assert "torch-2.4.0+cpu.html" not in dependabot
+    for package in (
+        "torch",
+        "torchvision",
+        "torchaudio",
+        "torch-scatter",
+        "torch-sparse",
+        "torch-cluster",
+        "pyg_lib",
+        "torch_geometric",
+    ):
+        assert f'dependency-name: "{package}"' in dependabot
+    for absent_package in ("torchao", "torch-spline-conv"):
+        assert f'dependency-name: "{absent_package}"' not in dependabot
+
+
+def test_n8n_does_not_publish_retired_noop_environment_knobs() -> None:
+    retired = {
+        "N8N_AUTH_ENABLED",
+        "N8N_ALLOW_CONNECTIONS_FROM",
+        "N8N_COMMUNITY_PACKAGES_ENABLED",
+        "N8N_COMMUNITY_PACKAGES_ALLOW_TOOL_USAGE",
+    }
+    surfaces = {
+        "manifest": _text("services/n8n/service.yml"),
+        "compose": _text("services/n8n/compose.yml"),
+        "generated env": _text(".env.example"),
+    }
+
+    for surface, content in surfaces.items():
+        for name in retired:
+            assert name not in content, f"{name} remains on the n8n {surface} surface"
 
 
 def test_ray_runtime_and_clients_move_in_lockstep() -> None:

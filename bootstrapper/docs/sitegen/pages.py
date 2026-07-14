@@ -66,6 +66,74 @@ ARCHITECTURE_PERSPECTIVES: dict[str, tuple[str, str, list[str]]] = {
     ),
 }
 
+ARCHITECTURE_INTERPRETATIONS: dict[str, str] = {
+    "platform-overview": (
+        "Clients enter through Kong or a deliberately published direct port. "
+        "Application and agent services consume the shared LLM and data layers; "
+        "LiteLLM keeps local inference and cloud-provider credentials behind one "
+        "OpenAI-compatible boundary."
+    ),
+    "bootstrapper-lifecycle": (
+        "Startup is an ordered configuration pipeline. Atlas loads and migrates "
+        "the environment, synthesizes manifests, applies track decisions, and "
+        "generates routes before Compose receives the final service graph. A "
+        "failure before launch must not be reported as a running stack."
+    ),
+    "source-configuration-model": (
+        "A service's SOURCE value selects its deployment mode, not merely an "
+        "image variant. Container modes create Compose workloads, localhost modes "
+        "redirect consumers to the host, and disabled modes remove workloads. The "
+        "LLM-specific `none` mode leaves LiteLLM available for cloud-only routing."
+    ),
+    "track-selection-matrix": (
+        "Tracks reduce the wizard to a workflow-oriented service set. Services "
+        "outside that set are force-disabled after prompting, while an explicit "
+        "CLI source override remains authoritative and is reported to the operator."
+    ),
+    "network-routing-topology": (
+        "Kong provides stable `*.localhost` entrypoints while published ports "
+        "support direct host access. Internal-only traffic remains on the Compose "
+        "backend network. Localhost modes cross the container boundary through "
+        "the configured host gateway instead of starting a duplicate workload."
+    ),
+    "data-rag-flow": (
+        "The Backend coordinates ingestion: processors extract source material, "
+        "MinIO preserves objects, Weaviate stores vector representations, and "
+        "Neo4j stores graph relationships. Open WebUI and tool callers consume "
+        "that assembled retrieval surface through Backend APIs."
+    ),
+    "llm-provider-flow": (
+        "Open WebUI, Backend routes, agents, and tools call LiteLLM rather than "
+        "binding to a provider. LiteLLM dispatches to local Ollama or enabled cloud "
+        "providers and exposes one model catalog. Tracing observes requests without "
+        "becoming part of the inference data path."
+    ),
+    "data-engineering-lakehouse-flow": (
+        "MinIO is the object data plane and Iceberg REST owns table metadata. "
+        "Spark and Trino execute against that shared lakehouse; JupyterHub, "
+        "Zeppelin, and Airflow submit interactive or scheduled work, while "
+        "Redpanda supplies streaming inputs."
+    ),
+    "observability-flow": (
+        "Metrics, traces, logs, and LLM telemetry follow separate collection paths. "
+        "Prometheus scrapes metrics, the OpenTelemetry Collector forwards traces, "
+        "Loki stores logs, and Grafana correlates those stores; Langfuse remains the "
+        "LLM-specific request and evaluation surface."
+    ),
+    "security-auth-secrets-boundary": (
+        "Supabase identities and scoped service credentials protect Backend data "
+        "planes, while Kong applies gateway policy at published aliases. Generated "
+        "local secrets and cloud keys stay in runtime configuration. Any deliberately "
+        "unauthenticated local port remains an operator-trusted development boundary."
+    ),
+    "service-admission-workflow": (
+        "A service enters Atlas through one declarative chain: its manifest owns "
+        "SOURCE values and metadata, Compose owns workloads, topology owns placement "
+        "and ports, and the env/docs generators project those records. Drift and "
+        "integration tests prevent a partial service definition from landing."
+    ),
+}
+
 
 def _asset_href(page: Path, docs_root: Path, asset: Path) -> str:
     return os.path.relpath(docs_root / asset, page.parent).replace(os.sep, "/")
@@ -405,7 +473,10 @@ uv run --project bootstrapper python scripts/check-track-membership.py
 
 
 def _architecture_diagram_html(
-    slug: str, title: str, description: str, nodes: list[str]
+    title: str,
+    description: str,
+    interpretation: str,
+    nodes: list[str],
 ) -> str:
     boxes = []
     arrows = []
@@ -448,13 +519,11 @@ def _architecture_diagram_html(
     body {{ margin: 0; background: #020617; color: #e2e8f0; font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }}
     main {{ max-width: 1120px; margin: 0 auto; padding: 32px; }}
     .frame {{ border: 1px solid #1e293b; border-radius: 14px; background: #020617; padding: 20px; }}
-    .cards {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 16px; }}
-    .card {{ border: 1px solid #1e293b; border-radius: 8px; padding: 12px; background: #0f172a; }}
-    .card h3 {{ align-items: center; color: #e2e8f0; display: flex; font-size: 13px; gap: 8px; margin: 0 0 8px; }}
-    .card h3::before, .signal {{ background: #22d3ee; border-radius: 999px; box-shadow: 0 0 18px rgba(34, 211, 238, 0.74); content: ''; display: inline-block; height: 8px; width: 8px; }}
-    .card p {{ color: #94a3b8; font-size: 12px; line-height: 1.5; margin: 0; }}
+    .interpretation {{ border-left: 3px solid #22d3ee; margin-top: 20px; padding: 2px 0 2px 16px; }}
+    .interpretation h2 {{ color: #e2e8f0; font-size: 15px; margin: 0 0 8px; }}
+    .interpretation p {{ color: #94a3b8; font-size: 13px; line-height: 1.6; margin: 0; }}
+    .signal {{ background: #22d3ee; border-radius: 999px; box-shadow: 0 0 18px rgba(34, 211, 238, 0.74); content: ''; display: inline-block; height: 8px; width: 8px; }}
     .title {{ align-items: center; display: flex; gap: 10px; }}
-    footer {{ color: #64748b; font-size: 11px; margin-top: 16px; }}
   </style>
 </head>
 <body>
@@ -477,12 +546,10 @@ def _architecture_diagram_html(
         {''.join(boxes)}
       </svg>
     </div>
-    <div class="cards">
-      <div class="card"><h3>Source files</h3><p>Manifests, topology, tracks, and documentation sources.</p></div>
-      <div class="card"><h3>Update trigger</h3><p>Service, routing, SOURCE, track, or architecture changes.</p></div>
-      <div class="card"><h3>Diagram ID</h3><p>{html.escape(slug)}</p></div>
-    </div>
-    <footer>Generated for Atlas documentation using the architecture-diagram design system.</footer>
+    <section class="interpretation">
+      <h2>How to read this view</h2>
+      <p>{html.escape(interpretation)}</p>
+    </section>
   </main>
 </body>
 </html>"""
@@ -493,7 +560,10 @@ def architecture_pages(model: DocsModel) -> dict[Path, str]:
     pages: dict[Path, str] = {}
     rows = []
     for slug, (title, description, nodes) in ARCHITECTURE_PERSPECTIVES.items():
-        pages[arch / f"{slug}.html"] = _architecture_diagram_html(slug, title, description, nodes)
+        interpretation = ARCHITECTURE_INTERPRETATIONS[slug]
+        pages[arch / f"{slug}.html"] = _architecture_diagram_html(
+            title, description, interpretation, nodes
+        )
         pages[arch / f"{slug}.md"] = f"""# {title}
 
 {description}
@@ -502,18 +572,21 @@ def architecture_pages(model: DocsModel) -> dict[Path, str]:
 
 [Open the interactive diagram](./{slug}.html).
 
-## 2. Source Files
+## 2. How To Read This View
+
+{interpretation}
+
+## 3. Source Files
 
 - `services/*/service.yml`
 - `bootstrapper/tracks.yml`
 - `services/topology.py`
 - `docs/deployment/source-configuration.md`
 
-## 3. Update Rule
+## 4. Maintenance
 
-Update this page and `{slug}.html` when the represented architecture surface
-changes. Use the `architecture-diagram` design system: dark slate background,
-JetBrains Mono, split perspectives, readable labels, and no overloaded mega-diagram.
+Regenerate this page and `{slug}.html` after changing a represented service,
+route, SOURCE mode, track, dependency, or data-flow boundary.
 """
         rows.append([f"[{title}]({slug}.md)", description])
     catalog = (

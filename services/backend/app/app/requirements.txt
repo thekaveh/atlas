@@ -1,5 +1,5 @@
 # API Framework
-# fastapi 0.136 started pulling starlette 1.x, which introduced a new
+# fastapi 0.137 started pulling starlette 1.x, which introduced a new
 # `_IncludedRouter` class for mounted sub-routers. prometheus-fastapi-
 # instrumentator (both 7.x and 8.0.0) iterates the route list assuming
 # every router has a `.path` attribute and trips an AttributeError on
@@ -85,11 +85,6 @@ minio>=7.2.0
 redis>=5.0.1
 hiredis>=3.4.0
 celery[redis]>=5.6.2,<5.7
-
-# Testing
-pytest>=9.1.1
-pytest-asyncio>=1.4.0
-httpx2>=2.6.0
 
 # n8n integration
 requests>=2.33.0

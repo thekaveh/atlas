@@ -20,7 +20,7 @@ def test_chonkie_dependency_is_limited_to_backend_and_jupyterhub_surfaces() -> N
 
     assert "chonkie>=1.7.0,<2" in backend_requirements
     assert "chonkie>=1.7.0,<2" in jupyter_requirements
-    assert "uv pip install -r requirements.txt" in workflow
+    assert "-r requirements.txt -r requirements-dev.txt" in workflow
 
     for unexpected_path in (
         "services/docling/app/requirements.txt",

@@ -1,7 +1,7 @@
 # Generated from the manifest-pinned upstream uv.lock plus the exact
 # langgraph-cli[inmem], setuptools, and wheel versions documented in the service README.
-# upstream-ref: 0be4c86ea71e1671ff273dfc07dc1aab45ed22f8
-# upstream-lock-sha256: 93480f1963d5d09a0c4ffc255aa2dcc75362a7a7f0df831847aecd073c03e7fe
+# upstream-ref: 38f769f84380f2065de76021ac7c5215f88aa39e
+# upstream-lock-sha256: 26fc35ac377836de6628e5f7b180944c4d4bd50a5e9f0200bd6e663f20e35c1a
 # langgraph-cli-version: 0.4.31
 aiohappyeyeballs==2.6.1 \
     --hash=sha256:c3f9d0113123803ccadfdf3f0faa505bc78e6a72d1cc4806cbd719826e943558 \
@@ -952,9 +952,9 @@ langgraph-api==0.11.0 ; python_full_version >= '3.11' \
     --hash=sha256:301f8b417db8e60455a9200721429fba056858b618e1511e9d94aa8407aa0bf0 \
     --hash=sha256:a415e978d71765d24b55ac2e77e538809620bbb0fdc24bf9791f2f632d581620
     # via langgraph-cli
-langgraph-checkpoint==4.0.1 \
-    --hash=sha256:b433123735df11ade28829e40ce25b9be614930cd50245ff2af60629234befd9 \
-    --hash=sha256:e3adcd7a0e0166f3b48b8cf508ce0ea366e7420b5a73aa81289888727769b034
+langgraph-checkpoint==4.1.1 \
+    --hash=sha256:25d29144b082827218e7bc3f1e9b0566a4bb007895cd6cc26f66a8428739f56e \
+    --hash=sha256:6c2bdb530c91f91d7d9c1bd100925d0fc4f498d418c17f3587d1526279482a25
     # via
     #   langgraph
     #   langgraph-api
@@ -974,9 +974,9 @@ langgraph-runtime-inmem==0.31.0 ; python_full_version >= '3.11' \
     # via
     #   langgraph-api
     #   langgraph-cli
-langgraph-sdk==0.3.12 \
-    --hash=sha256:44323804965d6ec2a07127b3cf08a0428ea6deaeb172c2d478d5cd25540e3327 \
-    --hash=sha256:c9c9ec22b3c0fcd352e2b8f32a815164f69446b8648ca22606329f4ff4c59a71
+langgraph-sdk==0.3.15 \
+    --hash=sha256:29e805003d2c6e296823dd71992610976fd0428cefaa8b3304fd91f2247037de \
+    --hash=sha256:3838773acf7456d158165385d49f48f1e856f28b56ccd99ea139a8f27004815d
     # via
     #   langgraph
     #   langgraph-api

@@ -6,15 +6,18 @@ User entrypoints, Kong, apps, agents, LLM core, data stores, and cloud-provider 
 
 [Open the interactive diagram](./platform-overview.html).
 
-## 2. Source Files
+## 2. How To Read This View
+
+Clients enter through Kong or a deliberately published direct port. Application and agent services consume the shared LLM and data layers; LiteLLM keeps local inference and cloud-provider credentials behind one OpenAI-compatible boundary.
+
+## 3. Source Files
 
 - `services/*/service.yml`
 - `bootstrapper/tracks.yml`
 - `services/topology.py`
 - `docs/deployment/source-configuration.md`
 
-## 3. Update Rule
+## 4. Maintenance
 
-Update this page and `platform-overview.html` when the represented architecture surface
-changes. Use the `architecture-diagram` design system: dark slate background,
-JetBrains Mono, split perspectives, readable labels, and no overloaded mega-diagram.
+Regenerate this page and `platform-overview.html` after changing a represented service,
+route, SOURCE mode, track, dependency, or data-flow boundary.
