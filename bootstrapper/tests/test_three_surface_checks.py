@@ -4,6 +4,7 @@ from scripts.docs.check_docs import (
     check_completeness,
     check_placeholders,
     check_self_containment,
+    check_wiki_links,
 )
 from scripts.docs.manifest import load_manifest
 
@@ -80,3 +81,22 @@ def test_placeholders_ignore_internal_plans(tmp_path: Path) -> None:
     findings = check_placeholders(tmp_path)
 
     assert [finding.path for finding in findings] == ["docs/public.md"]
+
+
+def test_wiki_link_check_reports_missing_markdown_and_html_targets(tmp_path: Path) -> None:
+    wiki = tmp_path / "generated" / "wiki"
+    (wiki / "assets").mkdir(parents=True)
+    (wiki / "Home.md").write_text(
+        "[Good](2.1-Guide)\n"
+        '<a href="missing/">Missing HTML</a>\n'
+        "![Missing image](assets/missing.png)\n",
+        encoding="utf-8",
+    )
+    (wiki / "2.1-Guide.md").write_text("# Guide\n", encoding="utf-8")
+
+    findings = check_wiki_links(tmp_path, wiki)
+
+    assert [finding.message for finding in findings] == [
+        "missing local wiki target: missing/",
+        "missing local wiki target: assets/missing.png",
+    ]

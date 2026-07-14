@@ -9,6 +9,11 @@ WIKI_URL = "https://github.com/thekaveh/atlas/wiki"
 SITE_URL = "https://thekaveh.github.io/atlas"
 
 _LINK_RE = re.compile(r"(?P<image>!)?\[[^\]]*\]\((?P<target><[^>]+>|[^)\s]+)(?:\s+[^)]*)?\)")
+_HTML_LINK_RE = re.compile(
+    r"<(?P<tag>a|img)\b[^>]*?\b(?:href|src)\s*=\s*"
+    r"(?P<quote>[\"'])(?P<target>.*?)(?P=quote)[^>]*>",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -32,11 +37,24 @@ def _without_fenced_code(markdown: str) -> str:
 
 
 def find_links(markdown: str) -> list[Link]:
-    links: list[Link] = []
-    for match in _LINK_RE.finditer(_without_fenced_code(markdown)):
+    text = _without_fenced_code(markdown)
+    links: list[tuple[int, Link]] = []
+    for match in _LINK_RE.finditer(text):
         target = match.group("target").strip("<>")
-        links.append(Link(target=target, is_image=bool(match.group("image"))))
-    return links
+        links.append(
+            (match.start(), Link(target=target, is_image=bool(match.group("image"))))
+        )
+    for match in _HTML_LINK_RE.finditer(text):
+        links.append(
+            (
+                match.start(),
+                Link(
+                    target=match.group("target"),
+                    is_image=match.group("tag").lower() == "img",
+                ),
+            )
+        )
+    return [link for _, link in sorted(links, key=lambda item: item[0])]
 
 
 def is_forbidden(target: str, surface: str) -> bool:

@@ -60,3 +60,39 @@ and [Docker](https://docs.docker.com/).
     assert "notebook" in rendered and "demo.ipynb" not in rendered
     assert "source" in rendered and "github.com/thekaveh/atlas" not in rendered
     assert "[Docker](https://docs.docker.com/)" in rendered
+
+
+def test_rewrite_maps_html_anchors_to_numbered_wiki_pages() -> None:
+    markdown = """<a href="quick-start/">Quick Start</a>
+<a href="services/">Service Catalog</a>
+<a href="https://docs.docker.com/">Docker</a>
+"""
+
+    rendered = rewrite_for_surface(
+        markdown,
+        surface="wiki",
+        source_path="docs/index.md",
+        output_path="Home.md",
+        source_map={
+            "docs/quick-start/index.md": "2.1-Launch-Atlas.md",
+            "docs/services.md": "5.1-Service-Catalog.md",
+        },
+    )
+
+    assert '<a href="2.1-Launch-Atlas.md">Quick Start</a>' in rendered
+    assert '<a href="5.1-Service-Catalog.md">Service Catalog</a>' in rendered
+    assert '<a href="https://docs.docker.com/">Docker</a>' in rendered
+
+
+def test_rewrite_leaves_site_html_anchors_on_pretty_urls() -> None:
+    markdown = '<a href="quick-start/">Quick Start</a>\n'
+
+    rendered = rewrite_for_surface(
+        markdown,
+        surface="site",
+        source_path="docs/index.md",
+        output_path="index.md",
+        source_map={"docs/quick-start/index.md": "quick-start/index.md"},
+    )
+
+    assert rendered == markdown
