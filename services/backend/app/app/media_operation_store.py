@@ -30,6 +30,9 @@ class InMemoryMediaOperationStore:
         self._records: dict[str, dict[str, Any]] = {}
         self._lock = asyncio.Lock()
 
+    async def ensure_available(self) -> None:
+        return None
+
     async def create(self, operation: dict[str, Any]) -> dict[str, Any]:
         operation_id = str(operation["operation_id"])
         async with self._lock:
@@ -141,6 +144,9 @@ return 1
             socket_timeout=3,
         )
         self._ttl = _ttl_seconds()
+
+    async def ensure_available(self) -> None:
+        await self._redis.ping()
 
     async def create(self, operation: dict[str, Any]) -> dict[str, Any]:
         operation_id = str(operation["operation_id"])

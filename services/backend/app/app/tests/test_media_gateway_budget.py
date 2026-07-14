@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import importlib
 import os
 import sys
@@ -33,6 +34,7 @@ def _fresh_main(monkeypatch, *, budget_enabled, default_cap="", disabled_provide
 
 class _CapturingFalClient:
     captured: dict = {}
+    cancel_result = True
 
     def __init__(self, *args, **kwargs):
         _CapturingFalClient.captured["init"] = kwargs
@@ -74,6 +76,13 @@ class _CapturingFalClient:
             "provenance": {"provider_request_id": operation_id},
             "raw": {},
         }
+
+    async def cancel_media_operation(self, *, operation_id, modality):
+        _CapturingFalClient.captured["cancel"] = {
+            "operation_id": operation_id,
+            "modality": modality,
+        }
+        return self.cancel_result
 
 
 class _ExplodingFalClient:
@@ -193,6 +202,115 @@ def test_attach_failure_does_not_500_and_releases_reservation(monkeypatch):
     spend = client.get("/media/spend", params={"consumer": "acme"}).json()
     # Reservation was released best-effort; budget is not permanently held.
     assert spend["reserved_usd"] == 0.0
+    operation = asyncio.run(main.MEDIA_OPERATION_STORE.get("fal-3d-9"))
+    assert operation["budget_tracked"] is False
+
+
+def test_state_store_preflight_blocks_provider_and_budget_reservation(monkeypatch):
+    main = _fresh_main(monkeypatch, budget_enabled=True, default_cap=10.0)
+    monkeypatch.setattr(main, "FalClient", _ExplodingFalClient, raising=False)
+
+    async def unavailable():
+        raise RuntimeError("redis unavailable")
+
+    monkeypatch.setattr(
+        main.MEDIA_OPERATION_STORE, "ensure_available", unavailable, raising=False
+    )
+
+    from fastapi.testclient import TestClient
+
+    client = TestClient(main.app)
+    response = _submit(client, consumer="acme")
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Media operation state store is unavailable"
+    spend = client.get("/media/spend", params={"consumer": "acme"}).json()
+    assert spend["records"] == []
+
+
+def test_state_persistence_failure_retries_then_cancels_provider(monkeypatch):
+    main = _fresh_main(monkeypatch, budget_enabled=True, default_cap=10.0)
+    _CapturingFalClient.captured = {}
+    _CapturingFalClient.cancel_result = True
+    monkeypatch.setattr(main, "FalClient", _CapturingFalClient, raising=False)
+    attempts = 0
+
+    async def fail_create(_operation):
+        nonlocal attempts
+        attempts += 1
+        raise RuntimeError("redis write failed")
+
+    monkeypatch.setattr(main.MEDIA_OPERATION_STORE, "create", fail_create)
+
+    from fastapi.testclient import TestClient
+
+    client = TestClient(main.app)
+    response = _submit(client, consumer="acme")
+    assert response.status_code == 503
+    assert attempts == 3
+    assert response.json()["detail"] == {
+        "message": "Provider accepted the operation but Atlas could not persist its state",
+        "provider_operation_id": "fal-3d-9",
+        "provider_cancelled": True,
+        "manual_reconciliation_required": False,
+    }
+    assert _CapturingFalClient.captured["cancel"] == {
+        "operation_id": "fal-3d-9",
+        "modality": "image_to_3d",
+    }
+    spend = client.get("/media/spend", params={"consumer": "acme"}).json()
+    assert spend["reserved_usd"] == 0.0
+
+
+def test_state_persistence_retry_recovers_without_provider_cancel(monkeypatch):
+    main = _fresh_main(monkeypatch, budget_enabled=True, default_cap=10.0)
+    _CapturingFalClient.captured = {}
+    _CapturingFalClient.cancel_result = True
+    monkeypatch.setattr(main, "FalClient", _CapturingFalClient, raising=False)
+    original_create = main.MEDIA_OPERATION_STORE.create
+    attempts = 0
+
+    async def transient_create(operation):
+        nonlocal attempts
+        attempts += 1
+        if attempts < 3:
+            raise RuntimeError("transient redis write failure")
+        return await original_create(operation)
+
+    monkeypatch.setattr(main.MEDIA_OPERATION_STORE, "create", transient_create)
+
+    from fastapi.testclient import TestClient
+
+    response = _submit(TestClient(main.app), consumer="acme")
+    assert response.status_code == 202
+    assert attempts == 3
+    assert "cancel" not in _CapturingFalClient.captured
+    operation = asyncio.run(main.MEDIA_OPERATION_STORE.get("fal-3d-9"))
+    assert operation["budget_tracked"] is True
+
+
+def test_uncancelled_unpersisted_operation_retains_budget_reservation(monkeypatch):
+    main = _fresh_main(monkeypatch, budget_enabled=True, default_cap=10.0)
+    _CapturingFalClient.captured = {}
+    _CapturingFalClient.cancel_result = False
+    monkeypatch.setattr(main, "FalClient", _CapturingFalClient, raising=False)
+
+    async def fail_create(_operation):
+        raise RuntimeError("redis write failed")
+
+    monkeypatch.setattr(main.MEDIA_OPERATION_STORE, "create", fail_create)
+
+    from fastapi.testclient import TestClient
+
+    client = TestClient(main.app)
+    response = _submit(client, consumer="acme")
+    assert response.status_code == 503
+    detail = response.json()["detail"]
+    assert detail["provider_operation_id"] == "fal-3d-9"
+    assert detail["provider_cancelled"] is False
+    assert detail["manual_reconciliation_required"] is True
+    spend = client.get("/media/spend", params={"consumer": "acme"}).json()
+    assert spend["reserved_usd"] == 0.05
+    assert spend["records"][0]["operation_id"] == "fal-3d-9"
 
 
 def test_reconcile_commits_on_successful_poll(monkeypatch):

@@ -68,6 +68,11 @@ def test_reconciliation_marker_is_shared_store_state() -> None:
     asyncio.run(scenario())
 
 
+def test_in_memory_media_store_is_always_available() -> None:
+    store = InMemoryMediaOperationStore()
+    assert asyncio.run(store.ensure_available()) is None
+
+
 def test_terminal_payload_can_only_be_enriched_without_changing_status() -> None:
     async def scenario():
         store = InMemoryMediaOperationStore()
@@ -114,3 +119,23 @@ def test_redis_media_store_configures_bounded_socket_deadlines(monkeypatch) -> N
     assert store._redis is sentinel
     assert captured["socket_connect_timeout"] == 3
     assert captured["socket_timeout"] == 3
+
+
+def test_redis_media_store_readiness_pings_redis(monkeypatch) -> None:
+    import redis.asyncio as redis
+
+    class FakeRedis:
+        def __init__(self):
+            self.calls = 0
+
+        async def ping(self):
+            self.calls += 1
+            return True
+
+    fake = FakeRedis()
+    monkeypatch.setattr(redis.Redis, "from_url", lambda *_a, **_k: fake)
+    store = RedisMediaOperationStore("redis://redis:6379/0")
+
+    asyncio.run(store.ensure_available())
+
+    assert fake.calls == 1

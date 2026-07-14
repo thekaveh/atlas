@@ -8,6 +8,7 @@ from typing import Optional, cast, Dict, Any, List, Union, Literal
 from contextlib import asynccontextmanager
 import os
 import asyncio
+import logging
 import httpx
 import asyncpg
 import yaml
@@ -106,6 +107,9 @@ from backend_identity import (
     research_owner_id,
 )
 from readiness import check_backend_readiness
+
+
+logger = logging.getLogger(__name__)
 
 
 def _fal_source_enabled() -> bool:
@@ -1153,6 +1157,46 @@ MEDIA_OPERATION_STORE = build_media_operation_store()
 # every engine method is a no-op and the gateway behaves exactly as before.
 MEDIA_BUDGET_ENGINE = media_ledger.build_engine()
 
+_MEDIA_STATE_PERSIST_DELAYS = (0.0, 0.05, 0.2)
+
+
+async def _require_media_operation_store() -> None:
+    try:
+        await MEDIA_OPERATION_STORE.ensure_available()
+    except Exception as exc:
+        logger.warning("Media operation state store preflight failed: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Media operation state store is unavailable",
+        ) from exc
+
+
+async def _persist_media_operation(operation: Dict[str, Any]) -> None:
+    last_error: Optional[Exception] = None
+    for delay in _MEDIA_STATE_PERSIST_DELAYS:
+        if delay:
+            await asyncio.sleep(delay)
+        try:
+            await MEDIA_OPERATION_STORE.create(operation)
+            return
+        except Exception as exc:
+            last_error = exc
+    assert last_error is not None
+    raise last_error
+
+
+async def _cancel_unpersisted_media_operation(
+    *, api_key: str, model: str, operation_id: str, modality: str
+) -> bool:
+    try:
+        async with FalClient(api_key=api_key, model=model) as client:
+            return await client.cancel_media_operation(
+                operation_id=operation_id,
+                modality=modality,
+            )
+    except Exception:
+        return False
+
 
 def _resolve_consumer_project(
     request: MediaGenerateRequest,
@@ -1392,6 +1436,11 @@ async def submit_media_generation(
             detail="Media input must include image for modality=image_to_3d",
         )
 
+    # Prove the shared operation store is reachable before reserving budget,
+    # hosting input, or submitting paid provider work. Persistence is checked
+    # again after submission and compensated if that later write still fails.
+    await _require_media_operation_store()
+
     # Budget: reserve estimated cost BEFORE the provider call (and before any
     # side-effecting storage write). No-op when budgets are disabled.
     consumer, project = _resolve_consumer_project(request, http_request, principal)
@@ -1485,14 +1534,17 @@ async def submit_media_generation(
     # orphan the reservation: on failure, free the temp-id reservation
     # best-effort and continue (this operation's spend goes untracked rather
     # than holding the consumer's budget forever).
+    budget_tracked = reservation is not None
+    budget_cleanup_failed = False
     try:
         await MEDIA_BUDGET_ENGINE.attach_operation(reservation_id, operation_id)
     except Exception:
+        budget_tracked = False
         try:
             await MEDIA_BUDGET_ENGINE.release(reservation_id)
         except Exception:
-            pass
-    await MEDIA_OPERATION_STORE.create({
+            budget_cleanup_failed = reservation is not None
+    operation = {
         "operation_id": operation_id,
         "provider": provider,
         "modality": modality,
@@ -1503,9 +1555,46 @@ async def submit_media_generation(
         "consumer": consumer,
         "project": project,
         "owner_scope": principal_scope_key(principal),
-        "budget_tracked": reservation is not None,
+        "budget_tracked": budget_tracked,
         "reconciled": False,
-    })
+    }
+    try:
+        await _persist_media_operation(operation)
+    except Exception as exc:
+        provider_cancelled = await _cancel_unpersisted_media_operation(
+            api_key=api_key,
+            model=model,
+            operation_id=operation_id,
+            modality=modality,
+        )
+        manual_reconciliation_required = (
+            not provider_cancelled or budget_cleanup_failed
+        )
+        if provider_cancelled and budget_tracked:
+            try:
+                await MEDIA_BUDGET_ENGINE.release(operation_id)
+            except Exception:
+                manual_reconciliation_required = True
+        logger.error(
+            "Provider accepted media operation %s but state persistence failed; "
+            "provider_cancelled=%s manual_reconciliation_required=%s: %s",
+            operation_id,
+            provider_cancelled,
+            manual_reconciliation_required,
+            exc,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "message": (
+                    "Provider accepted the operation but Atlas could not "
+                    "persist its state"
+                ),
+                "provider_operation_id": operation_id,
+                "provider_cancelled": provider_cancelled,
+                "manual_reconciliation_required": manual_reconciliation_required,
+            },
+        ) from exc
     return _media_response(payload)
 
 
