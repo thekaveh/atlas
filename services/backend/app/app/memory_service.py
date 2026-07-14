@@ -415,9 +415,17 @@ Extract the facts as JSON:"""
             await conn.close()
 
     async def consolidate(
-        self, user_id: Optional[str] = None
+        self,
+        user_id: Optional[str] = None,
+        *,
+        retry_transient: bool = False,
     ) -> Dict[str, Any]:
-        """Consolidate/deduplicate user memories."""
+        """Consolidate/deduplicate user memories.
+
+        Worker callers opt into re-raising transient upstream failures so
+        Celery can retry them. The synchronous API keeps the historical
+        best-effort behavior and continues with the next user.
+        """
         self._check_enabled()
         await self._ensure_initialized()
 
@@ -506,6 +514,16 @@ Extract the facts as JSON:"""
                     actions = actions["actions"]
                 if not isinstance(actions, list):
                     actions = []
+            except (
+                TimeoutError,
+                ConnectionError,
+                httpx.TimeoutException,
+                httpx.NetworkError,
+            ) as e:
+                if retry_transient:
+                    raise
+                logger.warning(f"Consolidation LLM call failed for user {uid}: {e}")
+                continue
             except Exception as e:
                 logger.warning(f"Consolidation LLM call failed for user {uid}: {e}")
                 continue

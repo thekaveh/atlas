@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 
+import pytest
 from fastapi.testclient import TestClient
 
 
@@ -140,3 +141,54 @@ def test_postprocess_requires_glb_input(monkeypatch, tmp_path) -> None:
 
     assert response.status_code == 400
     assert "GLB" in response.json()["detail"]
+
+
+def test_postprocess_rejects_oversize_upload_before_transform(
+    monkeypatch, tmp_path
+) -> None:
+    from asset_worker import api
+
+    transformed = False
+
+    def fake_run(*args):
+        nonlocal transformed
+        transformed = True
+
+    monkeypatch.setattr(api, "run_gltf_transform", fake_run)
+    monkeypatch.setenv("ASSET_WORKER_MAX_UPLOAD_MB", "0.00001")
+    monkeypatch.setenv("ASSET_WORKER_ARTIFACT_DIR", str(tmp_path))
+
+    response = TestClient(api.create_app()).post(
+        "/gltf/postprocess",
+        files={"file": ("large.glb", b"x" * 1024, "model/gltf-binary")},
+    )
+
+    assert response.status_code == 413
+    assert transformed is False
+
+
+def test_minio_reference_rejects_oversize_object_before_read(monkeypatch) -> None:
+    from asset_worker.storage import ArtifactStorage, ArtifactTooLargeError
+
+    class Body:
+        closed = False
+
+        def read(self, size):
+            raise AssertionError("oversize body must not be read")
+
+        def close(self):
+            self.closed = True
+
+    body = Body()
+
+    class Client:
+        def get_object(self, **kwargs):
+            return {"Body": body, "ContentLength": 1024}
+
+    storage = ArtifactStorage()
+    monkeypatch.setenv("ASSET_WORKER_MAX_UPLOAD_MB", "0.00001")
+    monkeypatch.setattr(storage, "_client", lambda: Client())
+
+    with pytest.raises(ArtifactTooLargeError):
+        storage.fetch("raw-assets", "large.glb")
+    assert body.closed is True

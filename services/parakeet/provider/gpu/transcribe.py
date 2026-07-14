@@ -3,6 +3,7 @@ NVIDIA NeMo-based transcription implementation for Parakeet-TDT
 Optimized for NVIDIA GPUs with CUDA acceleration
 """
 
+import asyncio
 import os
 import logging
 import nemo.collections.asr as nemo_asr
@@ -12,6 +13,9 @@ logger = logging.getLogger(__name__)
 
 # Global model (loaded once on startup)
 _model = None
+_transcription_semaphore = asyncio.Semaphore(
+    max(1, int(os.getenv("PARAKEET_CONCURRENCY", "1")))
+)
 
 def load_model():
     """Load Parakeet model using NVIDIA NeMo (lazy loading)"""
@@ -67,19 +71,14 @@ async def transcribe_audio(
         dict: Transcription result with text and optional timestamps
     """
     try:
-        # Load model (lazy loading)
-        model = load_model()
-
-        # Transcribe using NeMo
-        logger.info(f"Transcribing audio file: {audio_path}")
-
-        # NeMo transcription. timestamps=True so the hypothesis carries
-        # word/segment timing when requested (NeMo only populates
-        # .timestamp — note: not "timestep" — when asked at
-        # transcribe() time).
-        transcription = model.transcribe(
-            [audio_path], timestamps=bool(return_timestamps),
-        )
+        async with _transcription_semaphore:
+            model = await asyncio.to_thread(load_model)
+            logger.info(f"Transcribing audio file: {audio_path}")
+            transcription = await asyncio.to_thread(
+                model.transcribe,
+                [audio_path],
+                timestamps=bool(return_timestamps),
+            )
 
         # Extract text result. For RNNT/TDT models NeMo returns
         # List[Hypothesis] EVEN without return_hypotheses — indexing

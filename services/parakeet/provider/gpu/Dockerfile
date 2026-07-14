@@ -17,6 +17,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy shared API server and utilities
 COPY shared/api_server.py /app/
 COPY shared/utils.py /app/
+COPY bounded_upload.py /app/
 
 # Copy GPU-specific transcription logic
 COPY gpu/transcribe.py /app/

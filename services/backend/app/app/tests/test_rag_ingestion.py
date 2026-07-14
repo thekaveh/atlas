@@ -465,6 +465,58 @@ def test_unexpected_phase_error_marks_failed_not_crash(tmp_path, monkeypatch):
     assert any("kaboom" in e["message"] for e in final.errors)
 
 
+def test_worker_transient_error_is_persisted_for_retry_and_reraised(
+    tmp_path, monkeypatch
+):
+    _corpus(tmp_path, monkeypatch, {"a.txt": "content body"})
+    pf = _profiles_file(
+        tmp_path,
+        vector=[
+            {
+                "backend": "weaviate",
+                "collection_prefix": "P",
+                "on_unavailable": "fail",
+            }
+        ],
+    )
+
+    class TransientEmbedder:
+        def available(self):
+            return True
+
+        async def embed(self, texts):
+            raise ConnectionError("temporary LiteLLM outage")
+
+    store = InMemoryIngestionStore()
+    svc = RagIngestionService(
+        store=store,
+        deps=Deps(
+            embedder=TransientEmbedder(),
+            weaviate=FakeWeaviate(),
+            lightrag=FakeLightrag(available=False),
+            poll_interval=0.01,
+        ),
+        profiles_path=pf,
+    )
+    record, _ = svc.submit("showcase-default")
+
+    with pytest.raises(ConnectionError, match="temporary LiteLLM outage"):
+        asyncio.run(svc.run(record.id, retry_transient=True))
+
+    persisted = store.get(record.id)
+    assert persisted is not None
+    assert persisted.status == "pending"
+    assert persisted.phase("embed").status == "pending"
+    assert persisted.phase("embed").note == "waiting for Celery retry"
+    assert persisted.errors == []
+
+    svc.deps.embedder = FakeEmbedder()
+    completed = asyncio.run(svc.run(record.id, retry_transient=True))
+    assert completed.status == "completed"
+    assert completed.phase("embed").status == "completed"
+    assert completed.phase("embed").note is None
+
+
 def test_corpus_path_safety_rejects_escape(tmp_path, monkeypatch):
     root = tmp_path / "root"
     root.mkdir()

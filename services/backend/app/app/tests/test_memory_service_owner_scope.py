@@ -47,6 +47,54 @@ def _service():
     return svc
 
 
+def test_consolidate_reraises_transient_llm_failure_for_worker(monkeypatch):
+    import memory_service
+
+    class FactsConn:
+        async def fetch(self, query, *params):
+            return [
+                {
+                    "id": "00000000-0000-4000-8000-000000000001",
+                    "content": "first",
+                    "fact_type": "observation",
+                    "confidence": 0.9,
+                    "namespace": "default",
+                    "created_at": datetime.now(timezone.utc),
+                    "metadata": {},
+                },
+                {
+                    "id": "00000000-0000-4000-8000-000000000002",
+                    "content": "second",
+                    "fact_type": "observation",
+                    "confidence": 0.8,
+                    "namespace": "default",
+                    "created_at": datetime.now(timezone.utc),
+                    "metadata": {},
+                },
+            ]
+
+        async def close(self):
+            pass
+
+    svc = _service()
+    svc._get_extraction_model = AsyncMock(return_value="ollama/test")
+    svc._litellm_complete = AsyncMock(
+        side_effect=TimeoutError("temporary LiteLLM timeout")
+    )
+    monkeypatch.setattr(
+        memory_service, "connect_postgres", AsyncMock(return_value=FactsConn())
+    )
+
+    try:
+        asyncio.run(
+            svc.consolidate(user_id="user-1", retry_transient=True)
+        )
+    except TimeoutError as exc:
+        assert str(exc) == "temporary LiteLLM timeout"
+    else:
+        raise AssertionError("worker-mode consolidation swallowed a transient error")
+
+
 def test_update_memory_is_scoped_to_owner(monkeypatch):
     import memory_service
 

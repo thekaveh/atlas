@@ -5,6 +5,8 @@ import os
 import sys
 from uuid import uuid4
 
+import pytest
+
 
 def _stub_required_env(monkeypatch):
     for var, default in (
@@ -217,14 +219,31 @@ def test_memory_consolidate_task_calls_memory_service(monkeypatch):
     seen = {}
 
     class FakeMemoryService:
-        async def consolidate(self, *, user_id):
+        async def consolidate(self, *, user_id, retry_transient):
             seen["user_id"] = user_id
+            seen["retry_transient"] = retry_transient
             return result
 
     monkeypatch.setattr(celery_tasks, "MemoryService", FakeMemoryService)
 
     assert celery_tasks.run_memory_consolidate(None) == result
     assert seen["user_id"] is None
+    assert seen["retry_transient"] is True
+
+
+def test_memory_consolidate_worker_propagates_transient_llm_failure(monkeypatch):
+    _stub_required_env(monkeypatch)
+    import celery_tasks
+
+    class FakeMemoryService:
+        async def consolidate(self, *, user_id, retry_transient):
+            assert retry_transient is True
+            raise TimeoutError("temporary LiteLLM timeout")
+
+    monkeypatch.setattr(celery_tasks, "MemoryService", FakeMemoryService)
+
+    with pytest.raises(TimeoutError, match="temporary LiteLLM timeout"):
+        celery_tasks.run_memory_consolidate("user-1")
 
 
 def test_job_status_redacts_failure_tracebacks(monkeypatch):

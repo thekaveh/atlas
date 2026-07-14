@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 
+import pytest
 from fastapi.testclient import TestClient
 
 
@@ -217,6 +218,33 @@ def test_content_length_guard_rejects_oversize_before_buffering(monkeypatch):
     # A modest body passes the header pre-check (post-read guard is authoritative).
     small = SimpleNamespace(headers={"content-length": "2048"})
     api._enforce_content_length(small)  # must not raise
+
+
+def test_minio_reference_rejects_oversize_object_before_read(monkeypatch) -> None:
+    from asset_baker.storage import ArtifactStorage, ArtifactTooLargeError
+
+    class Body:
+        closed = False
+
+        def read(self, size):
+            raise AssertionError("oversize body must not be read")
+
+        def close(self):
+            self.closed = True
+
+    body = Body()
+
+    class Client:
+        def get_object(self, **kwargs):
+            return {"Body": body, "ContentLength": 1024}
+
+    storage = ArtifactStorage()
+    monkeypatch.setenv("ASSET_BAKER_MAX_UPLOAD_MB", "0.00001")
+    monkeypatch.setattr(storage, "_client", lambda: Client())
+
+    with pytest.raises(ArtifactTooLargeError):
+        storage.fetch("raw-assets", "large.glb")
+    assert body.closed is True
 
 
 def test_worker_busy_returns_429(monkeypatch, tmp_path):

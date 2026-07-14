@@ -704,7 +704,9 @@ async def submit_rag_ingestion(request: RagIngestionRequest, async_job: bool = T
     """
     service = get_rag_ingestion_service()
     try:
-        record, created = service.submit(request.profile, corpus_path=request.corpus_path)
+        record, created = await asyncio.to_thread(
+            service.submit, request.profile, corpus_path=request.corpus_path
+        )
     except ProfileNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -727,8 +729,10 @@ async def submit_rag_ingestion(request: RagIngestionRequest, async_job: bool = T
                 rag_ingestion_task.apply_async, kwargs={"ingestion_id": record.id}
             )
         except Exception as e:  # noqa: BLE001 - broker unreachable
-            service.mark_dispatch_failed(
-                record.id, f"Failed to queue RAG ingestion: {str(e)}"
+            await asyncio.to_thread(
+                service.mark_dispatch_failed,
+                record.id,
+                f"Failed to queue RAG ingestion: {str(e)}",
             )
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -759,7 +763,8 @@ async def submit_rag_ingestion(request: RagIngestionRequest, async_job: bool = T
 async def list_rag_ingestions():
     """List RAG ingestion jobs (machine-readable)."""
     service = get_rag_ingestion_service()
-    return [RagIngestionRecordResponse(**r.to_dict()) for r in service.store.list()]
+    records = await asyncio.to_thread(service.store.list)
+    return [RagIngestionRecordResponse(**r.to_dict()) for r in records]
 
 
 @app.get(
@@ -770,7 +775,7 @@ async def list_rag_ingestions():
 async def get_rag_ingestion(ingestion_id: str):
     """Return the durable, machine-readable state of one ingestion job."""
     service = get_rag_ingestion_service()
-    record = service.store.get(ingestion_id)
+    record = await asyncio.to_thread(service.store.get, ingestion_id)
     if record is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -787,14 +792,18 @@ async def get_rag_ingestion(ingestion_id: str):
 async def cancel_rag_ingestion(ingestion_id: str):
     """Request cooperative cancellation of a running ingestion job."""
     service = get_rag_ingestion_service()
-    if not service.store.request_cancel(
-        ingestion_id, datetime.now(timezone.utc).isoformat()
-    ):
+    cancelled = await asyncio.to_thread(
+        service.store.request_cancel,
+        ingestion_id,
+        datetime.now(timezone.utc).isoformat(),
+    )
+    if not cancelled:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Unknown ingestion id: {ingestion_id!r}",
         )
-    return RagIngestionRecordResponse(**service.store.get(ingestion_id).to_dict())
+    record = await asyncio.to_thread(service.store.get, ingestion_id)
+    return RagIngestionRecordResponse(**record.to_dict())
 
 
 # Research API Models

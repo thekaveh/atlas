@@ -83,6 +83,8 @@ for the whisper.cpp walkthrough and Linux build instructions, or
 | `SPEACHES_STT_MODEL` | `Systran/faster-distil-whisper-large-v3` | HuggingFace repo of the model to preload. ⚠ Not wired into Open WebUI (it hardcodes `AUDIO_STT_MODEL: whisper-1`), and Speaches aliases `whisper-1` → `Systran/faster-whisper-large-v3` (the non-distil build) — so preload **that** id, not the distil one, to satisfy a `whisper-1` request. |
 | `PARAKEET_MODEL` | `nvidia/parakeet-tdt-0.6b-v3` | Or `…-v2` for English-only (slightly faster). |
 | `PARAKEET_GPU_IMAGE` | `nvcr.io/nvidia/pytorch:26.06-py3` | Base for the Parakeet GPU Dockerfile. |
+| `PARAKEET_MAX_UPLOAD_BYTES` | `104857600` | Maximum audio upload size for Parakeet GPU and localhost APIs; larger requests return `413`. |
+| `PARAKEET_CONCURRENCY` | `1` | Maximum concurrent inference calls per Parakeet provider process. |
 | `PARAKEET_LOCALHOST_PORT` | `63042` | Host port where a host-side Parakeet server listens. URL is derived as `http://host.docker.internal:63042`. |
 | `WHISPER_CPP_LOCALHOST_PORT` | `63042` | Host port where a host-side whisper.cpp server listens (same freed slot as parakeet — the two modes are mutually exclusive). URL is derived as `http://host.docker.internal:63042`. |
 | `HUGGING_FACE_HUB_TOKEN` | (empty) | For gated models. |
@@ -117,6 +119,8 @@ resolves `model` against its executor registry and returns HTTP 404 if that
 model isn't installed locally (see the preload note above). `whisper-1` is the
 most compatible value — Speaches aliases it to `Systran/faster-whisper-large-v3`
 (which must be preloaded), and the OpenAI client library defaults to it.
+
+Both Atlas-managed Parakeet providers stream request bodies to bounded temporary files and offload model inference from the API event loop. Temporary files are removed after success, rejection, or inference failure.
 
 ## 6. Open WebUI integration
 

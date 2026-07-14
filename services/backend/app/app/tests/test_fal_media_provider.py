@@ -4,8 +4,10 @@ import asyncio
 import importlib
 import os
 import sys
+import time
 import types
 
+import pytest
 
 def _stub_required_env(monkeypatch):
     for var, default in (
@@ -291,6 +293,67 @@ class InProgress:  # mirrors fal_client.client.InProgress
 class Queued:  # mirrors fal_client.client.Queued
     def __init__(self, position=0):
         self.position = position
+
+
+def test_fal_queue_submit_applies_configured_timeout(monkeypatch):
+    from fal_media_client import FalClient
+
+    client = FalClient(api_key="fal-key", model="fal-ai/flux/dev")
+    client.timeout_seconds = 0.01
+
+    def slow_submit(*args):
+        time.sleep(0.1)
+        return {"request_id": "late"}
+
+    monkeypatch.setattr(client, "_submit", slow_submit)
+
+    with pytest.raises(asyncio.TimeoutError):
+        asyncio.run(
+            client.submit_media_operation(
+                modality="image", input={"prompt": "atlas"}
+            )
+        )
+
+
+def test_fal_queue_status_and_result_apply_configured_timeout(monkeypatch):
+    from fal_media_client import FalClient
+
+    client = FalClient(api_key="fal-key", model="fal-ai/flux/dev")
+    client.timeout_seconds = 0.01
+
+    def slow_status(*args):
+        time.sleep(0.1)
+        return Completed()
+
+    monkeypatch.setattr(client, "_status", slow_status)
+    with pytest.raises(asyncio.TimeoutError):
+        asyncio.run(
+            client.get_media_operation(operation_id="fal-1", modality="image")
+        )
+
+    monkeypatch.setattr(client, "_status", lambda *args: Completed())
+    monkeypatch.setattr(client, "_result", slow_status)
+    with pytest.raises(asyncio.TimeoutError):
+        asyncio.run(
+            client.get_media_operation(operation_id="fal-1", modality="image")
+        )
+
+
+def test_fal_queue_cancel_timeout_degrades_to_false(monkeypatch):
+    from fal_media_client import FalClient
+
+    client = FalClient(api_key="fal-key", model="fal-ai/flux/dev")
+    client.timeout_seconds = 0.01
+
+    def slow_cancel(*args):
+        time.sleep(0.1)
+
+    monkeypatch.setattr(client, "_cancel", slow_cancel)
+
+    cancelled = asyncio.run(
+        client.cancel_media_operation(operation_id="fal-1", modality="image")
+    )
+    assert cancelled is False
 
 
 def _stub_fal_queue(monkeypatch, *, result_payload, status_obj=None):

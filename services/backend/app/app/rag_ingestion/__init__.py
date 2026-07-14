@@ -38,5 +38,5 @@ def run_rag_ingestion(ingestion_id: str) -> Dict[str, Any]:
     """Synchronous entrypoint for the Celery worker: run an already-submitted
     ingestion to completion and return its final record dict."""
     service = RagIngestionService()
-    record = asyncio.run(service.run(ingestion_id))
+    record = asyncio.run(service.run(ingestion_id, retry_transient=True))
     return record.to_dict()

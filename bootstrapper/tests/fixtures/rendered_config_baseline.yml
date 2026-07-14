@@ -346,11 +346,13 @@ services:
       replicas: 0
     environment:
       ASSET_WORKER_ARTIFACT_DIR: /data/artifacts
+      ASSET_WORKER_MAX_UPLOAD_MB: '200'
       ASSET_WORKER_MINIO_ACCESS_KEY: minioadmin
       ASSET_WORKER_MINIO_BUCKET: asset-worker
       ASSET_WORKER_MINIO_ENABLED: 'true'
       ASSET_WORKER_MINIO_ENDPOINT: http://minio:9000
       ASSET_WORKER_MINIO_SECRET_KEY: ''
+      ASSET_WORKER_TIMEOUT_SECONDS: '300'
       MINIO_REGION: us-east-1
       PROJECT_NAME: atlas
     healthcheck:

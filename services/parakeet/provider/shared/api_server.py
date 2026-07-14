@@ -7,9 +7,10 @@ from fastapi import FastAPI, File, UploadFile, HTTPException, Form
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import os
-import tempfile
 import logging
 from typing import Optional
+
+from bounded_upload import EmptyUploadError, UploadTooLargeError, spool_upload
 
 # Import backend-specific transcriber
 try:
@@ -86,26 +87,22 @@ async def transcribe(
     Returns:
         Transcription result in requested format
     """
+    tmp_path = None
     try:
         logger.info(f"Received transcription request: file={file.filename}, language={language}, format={response_format}")
 
-        # Save uploaded file temporarily
-        with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(file.filename or "audio.wav")[1]) as tmp:
-            content = await file.read()
-            tmp.write(content)
-            tmp_path = tmp.name
+        max_bytes = int(os.getenv("PARAKEET_MAX_UPLOAD_BYTES", "104857600"))
+        suffix = os.path.splitext(file.filename or "audio.wav")[1] or ".wav"
+        tmp_path = await spool_upload(file, max_bytes=max_bytes, suffix=suffix)
 
         logger.info(f"Saved temporary file: {tmp_path}")
 
         # Transcribe using backend-specific function
         result = await transcribe_audio(
-            audio_path=tmp_path,
+            audio_path=str(tmp_path),
             language=language,
             temperature=temperature
         )
-
-        # Clean up temporary file
-        os.unlink(tmp_path)
 
         # Format response based on response_format
         if response_format == "json":
@@ -117,15 +114,18 @@ async def transcribe(
         else:
             return {"text": result["text"]}
 
+    except UploadTooLargeError as e:
+        raise HTTPException(status_code=413, detail=str(e)) from e
+    except EmptyUploadError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Transcription error: {str(e)}", exc_info=True)
-        # Clean up temp file if it exists
-        try:
-            if 'tmp_path' in locals():
-                os.unlink(tmp_path)
-        except Exception:
-            pass
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if tmp_path is not None:
+            tmp_path.unlink(missing_ok=True)
 
 @app.post("/v1/audio/transcriptions/advanced")
 async def transcribe_advanced(
@@ -148,31 +148,34 @@ async def transcribe_advanced(
     Returns:
         Detailed transcription result with timestamps
     """
+    tmp_path = None
     try:
         logger.info(f"Received advanced transcription request: file={file.filename}, timestamps={return_timestamps}, word_timestamps={word_timestamps}")
 
-        with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(file.filename or "audio.wav")[1]) as tmp:
-            content = await file.read()
-            tmp.write(content)
-            tmp_path = tmp.name
+        max_bytes = int(os.getenv("PARAKEET_MAX_UPLOAD_BYTES", "104857600"))
+        suffix = os.path.splitext(file.filename or "audio.wav")[1] or ".wav"
+        tmp_path = await spool_upload(file, max_bytes=max_bytes, suffix=suffix)
 
         result = await transcribe_audio(
-            audio_path=tmp_path,
+            audio_path=str(tmp_path),
             return_timestamps=return_timestamps,
             word_timestamps=word_timestamps
         )
 
-        os.unlink(tmp_path)
         return result
 
+    except UploadTooLargeError as e:
+        raise HTTPException(status_code=413, detail=str(e)) from e
+    except EmptyUploadError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Advanced transcription error: {str(e)}", exc_info=True)
-        try:
-            if 'tmp_path' in locals():
-                os.unlink(tmp_path)
-        except Exception:
-            pass
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if tmp_path is not None:
+            tmp_path.unlink(missing_ok=True)
 
 if __name__ == "__main__":
     import uvicorn

@@ -21,7 +21,7 @@ from .models import (
     resolve_params,
 )
 from .runner import BakeError, run_bake
-from .storage import ArtifactStorage
+from .storage import ArtifactStorage, ArtifactTooLargeError
 
 
 def create_app() -> FastAPI:
@@ -63,12 +63,20 @@ def create_app() -> FastAPI:
             mode=mode,  # pydantic validates the Literal
         )
         file.file.seek(0)
-        return _process_bytes(file.file.read(), params, semaphore=app.state.bake_semaphore)
+        with tempfile.TemporaryDirectory(prefix="asset-baker-upload-") as tmp:
+            input_path = Path(tmp) / "input.glb"
+            _copy_upload_to_path(file.file, input_path)
+            return _process_path(
+                input_path, params, semaphore=app.state.bake_semaphore
+            )
 
     @app.post("/assets/bake/ref", response_model=BakeResponse)
     def bake_ref(request: RefBakeRequest) -> BakeResponse:
         storage = ArtifactStorage()
-        data = storage.fetch(request.input.bucket, request.input.key)
+        try:
+            data = storage.fetch(request.input.bucket, request.input.key)
+        except ArtifactTooLargeError as exc:
+            raise HTTPException(status_code=413, detail=str(exc)) from exc
         return _process_bytes(
             data, request.params, storage=storage, semaphore=app.state.bake_semaphore
         )
@@ -94,6 +102,22 @@ def _process_bytes(
     semaphore: threading.Semaphore,
 ) -> BakeResponse:
     _enforce_size(data)
+    with tempfile.TemporaryDirectory(prefix="asset-baker-") as tmp:
+        input_path = Path(tmp) / "input.glb"
+        input_path.write_bytes(data)
+        return _process_path(
+            input_path, params, storage=storage, semaphore=semaphore
+        )
+
+
+def _process_path(
+    input_path: Path,
+    params: BakeParams,
+    *,
+    semaphore: threading.Semaphore,
+    storage: ArtifactStorage | None = None,
+) -> BakeResponse:
+    _enforce_input_size(input_path.stat().st_size)
     resolved = resolve_params(params)
     storage = storage or ArtifactStorage()
 
@@ -101,10 +125,7 @@ def _process_bytes(
         raise HTTPException(status_code=429, detail="Bake worker is busy; retry later")
     try:
         with tempfile.TemporaryDirectory(prefix="asset-baker-") as tmp:
-            tmpdir = Path(tmp)
-            input_path = tmpdir / "input.glb"
-            out_dir = tmpdir / "out"
-            input_path.write_bytes(data)
+            out_dir = Path(tmp) / "out"
             try:
                 artifacts = run_bake(input_path, out_dir, resolved)
             except BakeError as exc:
@@ -153,11 +174,40 @@ def _process_bytes(
 
 
 def _enforce_size(data: bytes) -> None:
-    if not data:
-        raise HTTPException(status_code=400, detail="GLB input is empty")
+    _enforce_input_size(len(data))
+
+
+def _max_upload_bytes() -> int:
     max_mb = float(os.getenv("ASSET_BAKER_MAX_UPLOAD_MB", "200"))
-    if len(data) > max_mb * 1024 * 1024:
-        raise HTTPException(status_code=413, detail=f"GLB exceeds {max_mb:.0f} MiB limit")
+    return max(1, int(max_mb * 1024 * 1024))
+
+
+def _enforce_input_size(size: int) -> None:
+    if size == 0:
+        raise HTTPException(status_code=400, detail="GLB input is empty")
+    max_bytes = _max_upload_bytes()
+    if size > max_bytes:
+        raise HTTPException(
+            status_code=413, detail=f"GLB exceeds {max_bytes} byte limit"
+        )
+
+
+def _copy_upload_to_path(source, path: Path) -> None:
+    max_bytes = _max_upload_bytes()
+    total = 0
+    with path.open("wb") as stream:
+        while True:
+            chunk = source.read(1024 * 1024)
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > max_bytes:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"GLB exceeds {max_bytes} byte limit",
+                )
+            stream.write(chunk)
+    _enforce_input_size(total)
 
 
 def _enforce_content_length(request: Request) -> None:

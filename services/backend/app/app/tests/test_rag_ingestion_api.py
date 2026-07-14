@@ -233,6 +233,27 @@ def test_list_and_cancel(tmp_path, monkeypatch):
     assert missing.status_code == 404
 
 
+def test_rag_store_calls_are_offloaded_from_async_routes(tmp_path, monkeypatch):
+    main = _reload_main(monkeypatch)
+    from fastapi.testclient import TestClient
+
+    service = _fake_service(tmp_path, monkeypatch)
+    monkeypatch.setattr(main, "get_rag_ingestion_service", lambda: service)
+    service.submit("showcase-default")
+    offloaded = []
+
+    async def tracking_to_thread(fn, *args, **kwargs):
+        offloaded.append(getattr(fn, "__name__", repr(fn)))
+        return fn(*args, **kwargs)
+
+    monkeypatch.setattr(main.asyncio, "to_thread", tracking_to_thread)
+
+    response = TestClient(main.app).get("/api/rag/ingestions")
+
+    assert response.status_code == 200
+    assert "list" in offloaded
+
+
 def test_get_unknown_ingestion_returns_404(tmp_path, monkeypatch):
     main = _reload_main(monkeypatch)
     from fastapi.testclient import TestClient

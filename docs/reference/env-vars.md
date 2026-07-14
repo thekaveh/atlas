@@ -44,6 +44,8 @@
 | ASSET_WORKER_SCALE | asset-worker |  | - |
 | ASSET_WORKER_ENDPOINT | asset-worker |  | In-network URL for the asset-worker API. |
 | ASSET_WORKER_GLTF_TRANSFORM_VERSION | asset-worker | 4.4.1 | Pinned @gltf-transform/cli version installed in the asset-worker image. |
+| ASSET_WORKER_MAX_UPLOAD_MB | asset-worker | 200 | Maximum GLB upload or MinIO reference size in MiB. Input is streamed and rejected before transformation when this limit is exceeded. |
+| ASSET_WORKER_TIMEOUT_SECONDS | asset-worker | 300 | Per-command timeout for gltf-transform inspect, validate, and optimize subprocesses. |
 | ASSET_WORKER_ARTIFACT_DIR | asset-worker | /data/artifacts | Local artifact cache used when MinIO upload is disabled or for direct downloads. |
 | ASSET_WORKER_MINIO_ENABLED | asset-worker | True | When true, optimized GLBs are written to MinIO using content-addressed keys. |
 | ASSET_WORKER_MINIO_BUCKET | asset-worker | asset-worker | MinIO bucket for optimized GLB outputs. |
@@ -187,6 +189,7 @@ point at http://kong-api-gateway:8000.
 | DOCLING_USE_OCR | docling | auto | - |
 | DOCLING_TABLE_MODE | docling | accurate | - |
 | DOCLING_MAX_FILE_SIZE | docling | 52428800 | - |
+| DOCLING_CONCURRENCY | docling | 1 | Maximum concurrent Docling conversions per provider process. Default 1 prevents duplicate model loads and GPU memory contention. |
 | DOCLING_ENABLE_FORMULAS | docling | True | - |
 | DOCLING_ENABLE_CODE_BLOCKS | docling | True | - |
 | DOCLING_CHUNK_SIZE | docling | 512 | - |
@@ -579,6 +582,8 @@ Do not edit by hand — the bootstrapper owns this value.
 | PARAKEET_MODEL | parakeet | nvidia/parakeet-tdt-0.6b-v3 | - |
 | PARAKEET_GPU_DEVICE | parakeet | cuda | - |
 | PARAKEET_GPU_COMPUTE_TYPE | parakeet | float16 | - |
+| PARAKEET_MAX_UPLOAD_BYTES | parakeet | 104857600 | Maximum accepted audio upload size in bytes for Parakeet GPU and localhost APIs. Uploads are streamed to temporary storage and rejected with 413 when exceeded. |
+| PARAKEET_CONCURRENCY | parakeet | 1 | Maximum concurrent Parakeet inference calls per provider process. Default 1 prevents model thread-safety and GPU memory contention. |
 | PARAKEET_LOCALHOST_PORT | parakeet | 63042 | Host port for the parakeet-localhost source variant. URL is derived at compose-render time as http://host.docker.internal:63042. |
 | WHISPER_CPP_LOCALHOST_PORT | parakeet | 63042 | Host port for the whisper-cpp-localhost source variant, same as parakeet because the two modes are mutually exclusive. URL is derived at compose-render time as http://host.docker.internal:63042. |
 | HUGGING_FACE_HUB_TOKEN | parakeet |  | Shared by parakeet, speaches, chatterbox, docling for model downloads. Consumed by ${HUGGING_FACE_HUB_TOKEN} interpolation in those services' compose blocks; owned here as its historic home. |

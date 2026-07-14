@@ -25,8 +25,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from fastapi import FastAPI, File, UploadFile, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
-import tempfile
 import logging
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from bounded_upload import EmptyUploadError, UploadTooLargeError, spool_upload
 
 # Import processor
 from processor import process_document
@@ -71,16 +73,17 @@ async def convert_document(
     chunk_overlap: int = Form(default=50)
 ):
     """Convert documents to structured format"""
+    tmp_path = None
     try:
         logger.info(f"Processing: {file.filename}")
-
-        with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(file.filename or "document.pdf")[1]) as tmp:
-            content = await file.read()
-            tmp.write(content)
-            tmp_path = tmp.name
+        max_bytes = int(os.getenv("DOCLING_MAX_FILE_SIZE", "52428800"))
+        suffix = os.path.splitext(file.filename or "document.pdf")[1] or ".pdf"
+        tmp_path = await spool_upload(
+            file, max_bytes=max_bytes, suffix=suffix
+        )
 
         result = await process_document(
-            file_path=tmp_path,
+            file_path=str(tmp_path),
             output_format=output_format,
             use_ocr=use_ocr,
             table_mode=table_mode,
@@ -89,17 +92,20 @@ async def convert_document(
             chunk_overlap=chunk_overlap
         )
 
-        os.unlink(tmp_path)
         return result
 
+    except UploadTooLargeError as e:
+        raise HTTPException(status_code=413, detail=str(e)) from e
+    except EmptyUploadError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error: {str(e)}", exc_info=True)
-        if 'tmp_path' in locals():
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if tmp_path is not None:
+            tmp_path.unlink(missing_ok=True)
 
 if __name__ == "__main__":
     import uvicorn

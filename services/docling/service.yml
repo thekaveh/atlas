@@ -40,6 +40,9 @@ env:
     default: accurate
   - name: DOCLING_MAX_FILE_SIZE
     default: 52428800
+  - name: DOCLING_CONCURRENCY
+    default: 1
+    description: "Maximum concurrent Docling conversions per provider process. Default 1 prevents duplicate model loads and GPU memory contention."
   - name: DOCLING_ENABLE_FORMULAS
     default: true
   - name: DOCLING_ENABLE_CODE_BLOCKS

@@ -3,6 +3,7 @@ Docling GPU Processor
 Handles document processing using Docling library with GPU acceleration
 """
 
+import asyncio
 import os
 import time
 from typing import Optional
@@ -15,6 +16,15 @@ try:
 except ImportError:
     # Fallback for development
     DocumentConverter = None
+
+
+_conversion_semaphore = asyncio.Semaphore(
+    max(1, int(os.getenv("DOCLING_CONCURRENCY", "1")))
+)
+
+
+def _convert_document(file_path: str):
+    return DocumentConverter().convert(file_path)
 
 
 async def process_document(
@@ -52,11 +62,8 @@ async def process_document(
         raise ImportError("Docling library not installed. Install with: pip install docling")
 
     try:
-        # Initialize converter with configuration
-        converter = DocumentConverter()
-
-        # Convert document
-        result = converter.convert(file_path)
+        async with _conversion_semaphore:
+            result = await asyncio.to_thread(_convert_document, file_path)
         doc = result.document
 
         # Export to requested format
@@ -89,17 +96,7 @@ async def process_document(
             formulas = len(doc.equations)
 
     except Exception as e:
-        # Fallback to basic text extraction if Docling processing fails
-        import traceback
-        error_msg = f"Docling processing failed: {str(e)}\n{traceback.format_exc()}"
-        print(f"Warning: {error_msg}")
-
-        # Return minimal response
-        content = f"# Document Processing Error\n\nUnable to process document with Docling.\n\nError: {str(e)}\n\nFile: {file_path}\nFormat: {source_format}\nSize: {file_size} bytes"
-        pages = 1
-        tables = 0
-        images = 0
-        formulas = 0
+        raise RuntimeError(f"Docling processing failed: {e}") from e
 
     processing_time = time.time() - start_time
 

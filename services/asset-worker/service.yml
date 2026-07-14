@@ -35,6 +35,12 @@ env:
   - name: ASSET_WORKER_GLTF_TRANSFORM_VERSION
     default: "4.4.1"
     description: "Pinned @gltf-transform/cli version installed in the asset-worker image."
+  - name: ASSET_WORKER_MAX_UPLOAD_MB
+    default: "200"
+    description: "Maximum GLB upload or MinIO reference size in MiB. Input is streamed and rejected before transformation when this limit is exceeded."
+  - name: ASSET_WORKER_TIMEOUT_SECONDS
+    default: "300"
+    description: "Per-command timeout for gltf-transform inspect, validate, and optimize subprocesses."
   - name: ASSET_WORKER_ARTIFACT_DIR
     default: "/data/artifacts"
     description: "Local artifact cache used when MinIO upload is disabled or for direct downloads."

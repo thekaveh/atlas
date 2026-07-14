@@ -2,10 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import os
+import threading
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
 
 import media_registry
+
+
+_FAL_ENV_LOCK = threading.Lock()
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -81,9 +85,8 @@ class FalClient:
             # (and the empty case matches the exact-arguments test contract).
             arguments["negative_prompt"] = negative_prompt
 
-        result = await asyncio.wait_for(
-            asyncio.to_thread(self._subscribe, arguments),
-            timeout=self.timeout_seconds,
+        result = await self._call_blocking_with_timeout(
+            self._subscribe, arguments
         )
         request_id = (
             result.get("request_id")
@@ -118,7 +121,9 @@ class FalClient:
     def _subscribe(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
         import fal_client  # type: ignore[import-not-found]
 
-        return self._call_with_fal_key(fal_client.subscribe, self.model, arguments=arguments)
+        return self._sdk_call(
+            fal_client, "subscribe", self.model, arguments=arguments
+        )
 
     async def submit_media_operation(
         self,
@@ -137,7 +142,9 @@ class FalClient:
             arguments = self._image_to_3d_arguments(input)
         else:
             arguments = self._image_arguments(input)
-        submitted = await asyncio.to_thread(self._submit, selected_model, arguments)
+        submitted = await self._call_blocking_with_timeout(
+            self._submit, selected_model, arguments
+        )
         operation_id = self._extract_request_id(submitted)
 
         return self._operation_payload(
@@ -154,11 +161,15 @@ class FalClient:
         if not self.api_key:
             raise ValueError("FAL_API_KEY is required when FAL_SOURCE=enabled")
 
-        status_payload = await asyncio.to_thread(self._status, self.model, operation_id)
+        status_payload = await self._call_blocking_with_timeout(
+            self._status, self.model, operation_id
+        )
         normalized_status = self._normalize_status(status_payload)
         result_payload: Dict[str, Any] = {}
         if normalized_status == "succeeded":
-            result_payload = await asyncio.to_thread(self._result, self.model, operation_id)
+            result_payload = await self._call_blocking_with_timeout(
+                self._result, self.model, operation_id
+            )
 
         raw = {
             "status": self._object_to_dict(status_payload),
@@ -265,12 +276,14 @@ class FalClient:
     def _submit(self, model: str, arguments: Dict[str, Any]) -> Any:
         import fal_client  # type: ignore[import-not-found]
 
-        return self._call_with_fal_key(fal_client.submit, model, arguments=arguments)
+        return self._sdk_call(
+            fal_client, "submit", model, arguments=arguments
+        )
 
     def _status(self, model: str, operation_id: str) -> Any:
         import fal_client  # type: ignore[import-not-found]
 
-        return self._call_with_fal_key(fal_client.status, model, operation_id)
+        return self._sdk_call(fal_client, "status", model, operation_id)
 
     async def cancel_media_operation(self, *, operation_id: str, modality: str) -> bool:
         """Best-effort provider-side cancel of an in-flight operation (#518).
@@ -287,7 +300,9 @@ class FalClient:
         if not self.api_key:
             raise ValueError("FAL_API_KEY is required when FAL_SOURCE=enabled")
         try:
-            await asyncio.to_thread(self._cancel, self.model, operation_id)
+            await self._call_blocking_with_timeout(
+                self._cancel, self.model, operation_id
+            )
             return True
         except Exception:  # noqa: BLE001 — best-effort by contract
             return False
@@ -300,23 +315,41 @@ class FalClient:
         cancel_fn = getattr(fal_client, "cancel", None)
         if cancel_fn is None:
             raise RuntimeError("fal_client.cancel is unavailable in this SDK version")
-        return self._call_with_fal_key(cancel_fn, model, operation_id)
+        return self._sdk_call(fal_client, "cancel", model, operation_id)
 
     def _result(self, model: str, operation_id: str) -> Dict[str, Any]:
         import fal_client  # type: ignore[import-not-found]
 
-        return self._call_with_fal_key(fal_client.result, model, operation_id)
+        return self._sdk_call(fal_client, "result", model, operation_id)
+
+    def _sdk_call(self, module, method: str, *args, **kwargs):
+        client_type = getattr(module, "SyncClient", None)
+        if client_type is not None:
+            client = client_type(
+                key=self.api_key,
+                default_timeout=float(self.timeout_seconds),
+            )
+            return getattr(client, method)(*args, **kwargs)
+        return self._call_with_fal_key(
+            getattr(module, method), *args, **kwargs
+        )
 
     def _call_with_fal_key(self, func, *args, **kwargs):
-        previous = os.environ.get("FAL_KEY")
-        os.environ["FAL_KEY"] = self.api_key
-        try:
-            return func(*args, **kwargs)
-        finally:
-            if previous is None:
-                os.environ.pop("FAL_KEY", None)
-            else:
-                os.environ["FAL_KEY"] = previous
+        with _FAL_ENV_LOCK:
+            previous = os.environ.get("FAL_KEY")
+            os.environ["FAL_KEY"] = self.api_key
+            try:
+                return func(*args, **kwargs)
+            finally:
+                if previous is None:
+                    os.environ.pop("FAL_KEY", None)
+                else:
+                    os.environ["FAL_KEY"] = previous
+
+    async def _call_blocking_with_timeout(self, func, *args):
+        return await asyncio.wait_for(
+            asyncio.to_thread(func, *args), timeout=self.timeout_seconds
+        )
 
     def _operation_payload(
         self,

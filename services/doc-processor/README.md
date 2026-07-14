@@ -93,10 +93,13 @@ curl -X POST http://localhost:63051/v1/document/convert \
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `DOCLING_MAX_FILE_SIZE` | Max file size in bytes | `52428800` (50MB) |
+| `DOCLING_CONCURRENCY` | Maximum concurrent conversions per provider process | `1` |
 | `DOCLING_ENABLE_FORMULAS` | Extract mathematical formulas | `true` |
 | `DOCLING_ENABLE_CODE_BLOCKS` | Extract code blocks | `true` |
 | `DOCLING_CHUNK_SIZE` | Default chunk size for RAG | `512` |
 | `DOCLING_CHUNK_OVERLAP` | Default chunk overlap | `50` |
+
+Container and localhost providers stream uploads to bounded temporary files. Files larger than `DOCLING_MAX_FILE_SIZE` return `413`, empty uploads return `400`, and conversion failures return a non-success response so Backend fallback and ingestion logic cannot index an error message as document content.
 
 ### 4.4 Localhost-Specific
 

@@ -13,12 +13,15 @@ the Celery task and tests drive it via ``asyncio.run`` so no event loop or
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import time
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+
+import httpx
 
 from .clients import (
     CorpusFile,
@@ -34,6 +37,7 @@ from .models import (
     STATUS_CANCELLED,
     STATUS_COMPLETED,
     STATUS_FAILED,
+    STATUS_PENDING,
     STATUS_RUNNING,
     IngestionError,
     IngestionRecord,
@@ -53,6 +57,14 @@ class PhaseFatal(RuntimeError):
 
 class IngestionCancelled(RuntimeError):
     pass
+
+
+TRANSIENT_EXCEPTIONS = (
+    TimeoutError,
+    ConnectionError,
+    httpx.TimeoutException,
+    httpx.NetworkError,
+)
 
 
 def _now_iso() -> str:
@@ -170,17 +182,19 @@ class RagIngestionService:
         )
 
     # ── run (orchestrate) ────────────────────────────────────────────
-    def _refresh_cancel(self, record: IngestionRecord) -> None:
-        latest = self.store.get(record.id)
+    async def _refresh_cancel(self, record: IngestionRecord) -> None:
+        latest = await asyncio.to_thread(self.store.get, record.id)
         if latest is not None and latest.cancel_requested:
             record.cancel_requested = True
 
-    def _persist(self, record: IngestionRecord) -> None:
+    async def _persist(self, record: IngestionRecord) -> None:
         record.updated_at = _now_iso()
-        self.store.save(record)
+        await asyncio.to_thread(self.store.save, record)
 
-    async def run(self, ingestion_id: str) -> IngestionRecord:
-        record = self.store.get(ingestion_id)
+    async def run(
+        self, ingestion_id: str, *, retry_transient: bool = False
+    ) -> IngestionRecord:
+        record = await asyncio.to_thread(self.store.get, ingestion_id)
         if record is None:
             raise KeyError(ingestion_id)
         if record.is_terminal:
@@ -189,7 +203,7 @@ class RagIngestionService:
         corpus = dict(profile.corpus)
 
         record.status = STATUS_RUNNING
-        self._persist(record)
+        await self._persist(record)
 
         state: Dict[str, Any] = {"files": [], "docs": [], "chunks": [], "vectors": []}
         try:
@@ -197,38 +211,64 @@ class RagIngestionService:
                 "discover", "parse", "chunk", "embed",
                 "vector_write", "lightrag_upload", "drain", "finalize",
             ):
-                self._refresh_cancel(record)
+                await self._refresh_cancel(record)
                 if record.cancel_requested:
                     record.status = STATUS_CANCELLED
-                    self._persist(record)
+                    await self._persist(record)
                     return record
                 await self._run_phase(name, record, profile, corpus, state)
-                self._persist(record)
+                await self._persist(record)
         except IngestionCancelled:
             record.status = STATUS_CANCELLED
-            self._persist(record)
+            await self._persist(record)
             return record
         except PhaseFatal as fatal:
             record.add_error(fatal.error)
             self._mark_failed_phase(record, fatal.error.phase, fatal.error)
             record.status = STATUS_FAILED
-            self._persist(record)
+            await self._persist(record)
+            return record
+        except TRANSIENT_EXCEPTIONS as exc:
+            if retry_transient:
+                running = next(
+                    (
+                        phase
+                        for phase in record.phases
+                        if phase.status == STATUS_RUNNING
+                    ),
+                    record.phase("finalize"),
+                )
+                running.status = STATUS_PENDING
+                running.started_at = None
+                running.ended_at = None
+                running.duration_ms = None
+                running.error = None
+                running.note = "waiting for Celery retry"
+                record.status = STATUS_PENDING
+                await self._persist(record)
+                raise
+            await self._record_unexpected_failure(record, exc)
             return record
         except Exception as exc:  # noqa: BLE001 - any unexpected phase error is a
             # recorded, actionable job failure — never a crashed worker.
-            running = next(
-                (p.name for p in record.phases if p.status == STATUS_RUNNING), "finalize"
-            )
-            error = IngestionError(phase=running, message=f"unexpected error: {exc}")
-            record.add_error(error)
-            self._mark_failed_phase(record, running, error)
-            record.status = STATUS_FAILED
-            self._persist(record)
+            await self._record_unexpected_failure(record, exc)
             return record
 
         record.status = STATUS_FAILED if record.errors and self._has_fatal_phase(record) else STATUS_COMPLETED
-        self._persist(record)
+        await self._persist(record)
         return record
+
+    async def _record_unexpected_failure(
+        self, record: IngestionRecord, exc: Exception
+    ) -> None:
+        running = next(
+            (p.name for p in record.phases if p.status == STATUS_RUNNING), "finalize"
+        )
+        error = IngestionError(phase=running, message=f"unexpected error: {exc}")
+        record.add_error(error)
+        self._mark_failed_phase(record, running, error)
+        record.status = STATUS_FAILED
+        await self._persist(record)
 
     def _has_fatal_phase(self, record: IngestionRecord) -> bool:
         return any(p.status == STATUS_FAILED for p in record.phases)
@@ -247,6 +287,10 @@ class RagIngestionService:
         phase = record.phase(name)
         phase.status = STATUS_RUNNING
         phase.started_at = _now_iso()
+        phase.ended_at = None
+        phase.duration_ms = None
+        phase.note = None
+        phase.error = None
         start = time.monotonic()
         try:
             handler = getattr(self, f"_phase_{name}")
@@ -393,6 +437,8 @@ class RagIngestionService:
                 total += await self.deps.weaviate.write_objects(class_name, objects)
             except PhaseFatal:
                 raise
+            except TRANSIENT_EXCEPTIONS:
+                raise
             except Exception as exc:  # noqa: BLE001 - upstream write failure is fatal
                 raise PhaseFatal(
                     IngestionError(
@@ -420,6 +466,8 @@ class RagIngestionService:
             docs = [{"text": d.text, "source": d.name} for d in state["docs"] if d.text.strip()]
             try:
                 uploaded += await self.deps.lightrag.upload(docs)
+            except TRANSIENT_EXCEPTIONS:
+                raise
             except Exception as exc:  # noqa: BLE001
                 http_status, body = _http_error_details(exc)
                 raise PhaseFatal(
@@ -452,7 +500,7 @@ class RagIngestionService:
                             message=f"extraction did not drain within {timeout}s",
                         )
                     )
-                self._refresh_cancel(record)
+                await self._refresh_cancel(record)
                 if record.cancel_requested:
                     raise IngestionCancelled()
                 await asyncio.sleep(self.deps.poll_interval)

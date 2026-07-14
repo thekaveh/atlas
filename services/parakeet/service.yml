@@ -66,6 +66,12 @@ env:
     default: cuda
   - name: PARAKEET_GPU_COMPUTE_TYPE
     default: float16
+  - name: PARAKEET_MAX_UPLOAD_BYTES
+    default: 104857600
+    description: "Maximum accepted audio upload size in bytes for Parakeet GPU and localhost APIs. Uploads are streamed to temporary storage and rejected with 413 when exceeded."
+  - name: PARAKEET_CONCURRENCY
+    default: 1
+    description: "Maximum concurrent Parakeet inference calls per provider process. Default 1 prevents model thread-safety and GPU memory contention."
   - name: PARAKEET_LOCALHOST_PORT
     default: "63042"
     description: "Host port for the parakeet-localhost source variant. URL is derived at compose-render time as http://host.docker.internal:63042."
