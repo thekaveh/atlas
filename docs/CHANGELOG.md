@@ -38,6 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Bounded RAG corpus discovery** — mounted and MinIO-backed RAG ingestion now enforce manifest-owned per-file, aggregate-byte, and file-count limits while reading in bounded chunks. Oversize metadata is rejected before download and unknown-size streams remain bounded, preventing corpus discovery from allocating arbitrary Backend memory.
 - **Correct Development documentation navigation** — the generated site now publishes the Diagram Catalog as the explicit 9.4 child page instead of allowing MkDocs to mistake its canonical `README.md` source for the Development section index.
 - **RAG parser and runtime boundaries** — ingestion now calls the real keyword-only document-extraction contract, honors each declared Docling/Tika parser slot exactly, offloads synchronous corpus and Chonkie work from the API event loop, and applies finite Redis connect/read deadlines to shared RAG and media operation state.
+- **Transactional memory extraction** — LangMem extraction now releases PostgreSQL during LiteLLM calls, validates model output shape, commits facts and session completion atomically under a per-user quota lock, and records terminal failures. Recall and summarization no longer pin database connections while awaiting model responses.
 
 ### Fixed — 2026-07-13 — Synchronized three-surface documentation
 

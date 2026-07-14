@@ -103,6 +103,8 @@ LANGMEM_EXTRACTION_MODEL=          # empty = LITELLM_DEFAULT_MODEL (resolved by 
 LANGMEM_EMBEDDING_MODEL=
 ```
 
+Extraction creates the session first, releases PostgreSQL while LiteLLM runs, then commits accepted facts and the completed session in one transaction. A per-user transaction advisory lock makes `LANGMEM_MAX_FACTS_PER_USER` authoritative across concurrent Backend replicas. Malformed model output or a database failure records a terminal failed session; vector indexing remains a best-effort post-commit step. Recall and profile summarization likewise release their database connections before remote model calls.
+
 Graphiti temporal graph memory experiment:
 
 ```bash
