@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pytest
-from pydantic import ValidationError
 
 from rag_eval_service import (
     RagEvaluationRecord,
@@ -70,7 +69,10 @@ def test_rag_eval_builds_litellm_backed_runner_payload(monkeypatch):
     }
 
 
-def test_reference_metrics_require_ground_truth():
+def test_reference_metrics_not_evaluable_without_ground_truth(monkeypatch):
+    """#597: context_precision/recall without ground_truth are not_evaluable
+    (None score) — the request succeeds instead of failing the whole batch."""
+    monkeypatch.setenv("LITELLM_DEFAULT_MODEL", "ollama/qwen3.6:latest")
     request = RagEvaluationRequest(
         records=[
             RagEvaluationRecord(
@@ -82,17 +84,87 @@ def test_reference_metrics_require_ground_truth():
         metrics=["context_precision"],
     )
 
-    with pytest.raises(ValueError, match="ground_truth"):
-        evaluate_rag_records(request, runner=lambda *_args, **_kwargs: [])
+    def runner(records, metrics, config):
+        # The record lacks ground_truth → context_precision is not eligible →
+        # the runner is NOT called for it.
+        raise AssertionError("runner should not be called for an ineligible metric")
+
+    response = evaluate_rag_records(request, runner=runner)
+    assert response.results[0].scores["context_precision"] is None
 
 
-def test_rag_eval_record_rejects_empty_contexts():
-    with pytest.raises(ValidationError):
-        RagEvaluationRecord(
-            question="What is Atlas?",
-            answer="Atlas is a local engineering platform.",
-            contexts=[],
-        )
+def test_contextless_record_allows_answer_relevancy_and_marks_faithfulness_not_evaluable(monkeypatch):
+    """#597 core: a contextless record (e.g. a graph-RAG answer) is valid and
+    answer_relevancy is evaluated, while faithfulness is not_evaluable."""
+    monkeypatch.setenv("LITELLM_DEFAULT_MODEL", "ollama/qwen3.6:latest")
+    request = RagEvaluationRequest(
+        records=[
+            RagEvaluationRecord(
+                question="Which services depend on Project Cedar?",
+                answer="Service A and Service B depend on Project Cedar.",
+                contexts=[],
+            )
+        ],
+        metrics=["answer_relevancy", "faithfulness"],
+    )
+
+    captured: dict[str, object] = {}
+
+    def runner(records, metrics, config):
+        captured["metrics"] = metrics
+        captured["records"] = records
+        # Only answer_relevancy should reach the runner (faithfulness needs contexts).
+        return [{"scores": {"answer_relevancy": 0.77}}]
+
+    response = evaluate_rag_records(request, runner=runner)
+    assert captured["metrics"] == ["answer_relevancy"]
+    assert response.results[0].scores["answer_relevancy"] == 0.77
+    assert response.results[0].scores["faithfulness"] is None  # not_evaluable
+
+
+def test_mixed_context_batch_groups_records_by_eligibility(monkeypatch):
+    """A batch with one contextless and one contextual record runs the runner
+    twice (one per eligibility group) and scores each correctly."""
+    monkeypatch.setenv("LITELLM_DEFAULT_MODEL", "ollama/qwen3.6:latest")
+    request = RagEvaluationRequest(
+        records=[
+            RagEvaluationRecord(
+                question="Q1", answer="A1", contexts=[],  # answer_relevancy only
+            ),
+            RagEvaluationRecord(
+                question="Q2", answer="A2", contexts=["C2"],  # both metrics
+            ),
+        ],
+        metrics=["answer_relevancy", "faithfulness"],
+    )
+
+    calls: list[list[str]] = []
+
+    def runner(records, metrics, config):
+        calls.append(list(metrics))
+        return [{"scores": {m: 0.5 for m in metrics}} for _ in records]
+
+    response = evaluate_rag_records(request, runner=runner)
+    # Two groups: the contextless record (answer_relevancy) and the
+    # contextual one (answer_relevancy + faithfulness).
+    assert ["answer_relevancy"] in calls
+    assert any("faithfulness" in c for c in calls)
+    # Record 0: faithfulness not_evaluable.
+    assert response.results[0].scores["faithfulness"] is None
+    assert response.results[0].scores["answer_relevancy"] == 0.5
+    # Record 1: both evaluable.
+    assert response.results[1].scores["faithfulness"] == 0.5
+    assert response.results[1].scores["answer_relevancy"] == 0.5
+
+
+def test_contextless_record_is_now_schema_valid():
+    """#597: contexts=[] is accepted at schema validation (previously rejected)."""
+    record = RagEvaluationRecord(
+        question="What is Atlas?",
+        answer="Atlas is a local engineering platform.",
+        contexts=[],
+    )
+    assert record.contexts == []
 
 
 # ── #596: metric import + construction against the pinned ragas==0.4.3 ──────
