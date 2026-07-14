@@ -19,6 +19,17 @@ from research_client import (
 logger = logging.getLogger(__name__)
 
 
+def _positive_env_int(name: str, default: int) -> int:
+    raw = (os.getenv(name) or str(default)).strip()
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be a positive integer") from exc
+    if value <= 0:
+        raise ValueError(f"{name} must be a positive integer")
+    return value
+
+
 def _log_task_exception(session_id: str):
     """Build an add_done_callback that surfaces silent task crashes.
 
@@ -51,6 +62,11 @@ class ResearchService:
         
         self.research_client = ResearchClient()
         self._active_tasks = {}  # Track background tasks
+        self.lease_seconds = _positive_env_int(
+            "RESEARCH_SESSION_LEASE_SECONDS", 300
+        )
+        self.heartbeat_interval = max(1, min(30, self.lease_seconds // 3))
+        self._maintenance_task: Optional[asyncio.Task[Any]] = None
 
     async def _get_db_connection(self):
         """Get database connection.
@@ -76,19 +92,21 @@ class ResearchService:
         conn = await self._get_db_connection()
         
         try:
-            await conn.execute("""
-                INSERT INTO public.research_sessions 
-                (id, query, status, max_loops, search_api, user_id, started_at)
-                VALUES ($1, $2, $3, $4, $5, $6, $7)
-            """, session_id, query, ResearchStatus.PENDING.value, max_loops, search_api, 
-                UUID(user_id) if user_id else None, datetime.now(timezone.utc))
-            
-            # Log the start
-            await conn.execute("""
-                INSERT INTO public.research_logs (session_id, step_number, step_type, message)
-                VALUES ($1, $2, $3, $4)
-            """, session_id, 1, "start", f"Research session started for query: {query}")
-            
+            async with conn.transaction():
+                await conn.execute("""
+                    INSERT INTO public.research_sessions
+                    (id, query, status, max_loops, search_api, user_id, started_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7)
+                """, session_id, query, ResearchStatus.PENDING.value, max_loops,
+                    search_api, UUID(user_id) if user_id else None,
+                    datetime.now(timezone.utc))
+
+                await conn.execute("""
+                    INSERT INTO public.research_logs
+                    (session_id, step_number, step_type, message)
+                    VALUES ($1, $2, $3, $4)
+                """, session_id, 1, "start",
+                    f"Research session started for query: {query}")
         finally:
             await conn.close()
 
@@ -120,10 +138,15 @@ class ResearchService:
         user_id: Optional[str]
     ):
         """Run research in background and update database"""
+        heartbeat_task: Optional[asyncio.Task[Any]] = None
         try:
             started = await self._mark_research_running(session_id)
             if not started:
                 return
+
+            heartbeat_task = asyncio.create_task(
+                self._heartbeat_research(session_id)
+            )
 
             # Create request for research client
             request = ResearchRequest(
@@ -136,6 +159,18 @@ class ResearchService:
             # Execute research using the actual local-deep-researcher service
             await self._execute_research(session_id, request)
 
+        except asyncio.CancelledError:
+            try:
+                await self._record_research_failure(
+                    session_id, "Research worker stopped before completion"
+                )
+            except Exception as record_error:
+                logger.error(
+                    "cancelled research could not be terminalized (session_id=%s)",
+                    session_id,
+                    exc_info=record_error,
+                )
+            raise
         except Exception as e:
             try:
                 await self._record_research_failure(session_id, str(e))
@@ -147,6 +182,9 @@ class ResearchService:
                 )
 
         finally:
+            if heartbeat_task is not None:
+                heartbeat_task.cancel()
+                await asyncio.gather(heartbeat_task, return_exceptions=True)
             # Clean up task reference
             if session_id in self._active_tasks:
                 del self._active_tasks[session_id]
@@ -157,7 +195,7 @@ class ResearchService:
         try:
             row = await conn.fetchrow("""
                 UPDATE public.research_sessions
-                SET status = $1, started_at = $2
+                SET status = $1, started_at = $2, heartbeat_at = $2
                 WHERE id = $3 AND status = $4
                 RETURNING id
             """, ResearchStatus.RUNNING.value, datetime.now(timezone.utc),
@@ -172,6 +210,89 @@ class ResearchService:
             return True
         finally:
             await conn.close()
+
+    async def _write_research_heartbeat(self, session_id: str) -> None:
+        conn = await self._get_db_connection()
+        try:
+            await conn.execute("""
+                UPDATE public.research_sessions
+                SET heartbeat_at = now()
+                WHERE id = $1 AND status = $2
+            """, session_id, ResearchStatus.RUNNING.value)
+        finally:
+            await conn.close()
+
+    async def _heartbeat_research(self, session_id: str) -> None:
+        while True:
+            await asyncio.sleep(self.heartbeat_interval)
+            try:
+                await self._write_research_heartbeat(session_id)
+            except Exception as exc:
+                logger.warning(
+                    "research heartbeat failed (session_id=%s): %s",
+                    session_id,
+                    exc,
+                )
+
+    async def recover_stale_sessions(self) -> int:
+        """Terminalize abandoned pending/running sessions under one transaction."""
+
+        conn = await self._get_db_connection()
+        try:
+            async with conn.transaction():
+                rows = await conn.fetch("""
+                    UPDATE public.research_sessions
+                    SET status = 'failed',
+                        completed_at = now(),
+                        error_message = 'Research worker lease expired'
+                    WHERE (
+                        status = 'pending'
+                        AND created_at < now() - ($1 * interval '1 second')
+                    ) OR (
+                        status = 'running'
+                        AND COALESCE(heartbeat_at, started_at, updated_at, created_at)
+                            < now() - ($1 * interval '1 second')
+                    )
+                    RETURNING id
+                """, self.lease_seconds)
+                for row in rows:
+                    await conn.execute("""
+                        INSERT INTO public.research_logs
+                        (session_id, step_number, step_type, message)
+                        VALUES ($1, $2, $3, $4)
+                    """, row["id"], 99, "error",
+                        "Research failed: worker lease expired")
+                return len(rows)
+        finally:
+            await conn.close()
+
+    async def _maintenance_loop(self) -> None:
+        while True:
+            await asyncio.sleep(self.heartbeat_interval)
+            try:
+                recovered = await self.recover_stale_sessions()
+                if recovered:
+                    logger.warning(
+                        "terminalized %s stale research session(s)", recovered
+                    )
+            except Exception as exc:
+                logger.warning("research maintenance sweep failed: %s", exc)
+
+    async def start_maintenance(self) -> None:
+        await self.recover_stale_sessions()
+        if self._maintenance_task is None or self._maintenance_task.done():
+            self._maintenance_task = asyncio.create_task(self._maintenance_loop())
+
+    async def aclose(self) -> None:
+        tasks = list(self._active_tasks.values())
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        if self._maintenance_task is not None:
+            self._maintenance_task.cancel()
+            await asyncio.gather(self._maintenance_task, return_exceptions=True)
+            self._maintenance_task = None
 
     async def _append_research_log(
         self, session_id: str, step: int, step_type: str, message: str

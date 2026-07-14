@@ -680,6 +680,7 @@ CREATE TABLE public.research_sessions (
     started_at timestamp with time zone,
     completed_at timestamp with time zone,
     error_message text,
+    heartbeat_at timestamp with time zone,
     CONSTRAINT research_sessions_status_check CHECK (((status)::text = ANY ((ARRAY['pending'::character varying, 'running'::character varying, 'completed'::character varying, 'failed'::character varying, 'cancelled'::character varying])::text[])))
 );
 
@@ -859,6 +860,8 @@ CREATE INDEX idx_research_logs_session_id ON public.research_logs USING btree (s
 CREATE INDEX idx_research_results_session_id ON public.research_results USING btree (session_id);
 
 CREATE INDEX idx_research_sessions_created_at ON public.research_sessions USING btree (created_at);
+
+CREATE INDEX idx_research_sessions_heartbeat ON public.research_sessions USING btree (status, heartbeat_at);
 
 CREATE INDEX idx_research_sessions_status ON public.research_sessions USING btree (status);
 

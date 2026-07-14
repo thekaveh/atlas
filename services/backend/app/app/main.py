@@ -180,13 +180,15 @@ _SAFE_STORAGE_FILENAME = re.compile(r"^[A-Za-z0-9._ -]{1,255}$")
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
-    yield
-    # Graceful shutdown: close the process-lifetime n8n client so httpx
-    # doesn't warn about an unclosed client and its keep-alive sockets
-    # close deterministically. (n8n_client is the only long-lived HTTP
-    # client; ComfyUIClient and the memory/research clients are per-call.)
-    await n8n_client.aclose()
-    await MEDIA_OPERATION_STORE.aclose()
+    await research_service.start_maintenance()
+    try:
+        yield
+    finally:
+        # Terminalize local research work before closing process-lifetime
+        # clients and shared stores.
+        await research_service.aclose()
+        await n8n_client.aclose()
+        await MEDIA_OPERATION_STORE.aclose()
 
 
 app = FastAPI(

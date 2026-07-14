@@ -14,6 +14,158 @@ from research_client import (
 from research_service import ResearchService
 
 
+class _Transaction:
+    def __init__(self, conn):
+        self.conn = conn
+
+    async def __aenter__(self):
+        self.conn.in_transaction = True
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        self.conn.in_transaction = False
+
+
+def test_research_session_creation_and_start_log_are_atomic():
+    class Conn:
+        def __init__(self):
+            self.in_transaction = False
+            self.execute_calls = 0
+
+        def transaction(self):
+            return _Transaction(self)
+
+        async def execute(self, *_args):
+            assert self.in_transaction is True
+            self.execute_calls += 1
+
+        async def close(self):
+            return None
+
+    conn = Conn()
+    service = object.__new__(ResearchService)
+    service._active_tasks = {}
+    service._maintenance_task = None
+
+    async def get_conn():
+        return conn
+
+    async def background(*_args):
+        return None
+
+    service._get_db_connection = get_conn
+    service._run_research_background = background
+
+    async def scenario():
+        result = await service.start_research("atlas")
+        await service._active_tasks[result["session_id"]]
+
+    asyncio.run(scenario())
+
+    assert conn.execute_calls == 2
+
+
+def test_cancelled_background_task_records_terminal_failure():
+    service = object.__new__(ResearchService)
+    service._active_tasks = {}
+    recorded = []
+
+    async def mark_running(_session_id):
+        return True
+
+    async def execute_research(_session_id, _request):
+        raise asyncio.CancelledError()
+
+    async def record_failure(session_id, message):
+        recorded.append((session_id, message))
+        return True
+
+    async def heartbeat(_session_id):
+        await asyncio.Event().wait()
+
+    service._mark_research_running = mark_running
+    service._execute_research = execute_research
+    service._record_research_failure = record_failure
+    service._heartbeat_research = heartbeat
+
+    async def scenario():
+        with pytest.raises(asyncio.CancelledError):
+            await service._run_research_background(
+                "local-session-1", "atlas", 1, "searxng", None
+            )
+
+    asyncio.run(scenario())
+
+    assert recorded == [
+        ("local-session-1", "Research worker stopped before completion")
+    ]
+
+
+def test_stale_research_sessions_are_terminalized_with_logs():
+    class Conn:
+        def __init__(self):
+            self.in_transaction = False
+            self.logs = []
+
+        def transaction(self):
+            return _Transaction(self)
+
+        async def fetch(self, sql, *args):
+            assert self.in_transaction is True
+            assert "heartbeat_at" in sql
+            assert args == (300,)
+            return [{"id": "stale-pending"}, {"id": "stale-running"}]
+
+        async def execute(self, sql, *args):
+            assert self.in_transaction is True
+            assert "INSERT INTO public.research_logs" in sql
+            self.logs.append(args)
+
+        async def close(self):
+            return None
+
+    conn = Conn()
+    service = object.__new__(ResearchService)
+    service.lease_seconds = 300
+
+    async def get_conn():
+        return conn
+
+    service._get_db_connection = get_conn
+
+    recovered = asyncio.run(service.recover_stale_sessions())
+
+    assert recovered == 2
+    assert [args[0] for args in conn.logs] == ["stale-pending", "stale-running"]
+
+
+def test_research_heartbeat_updates_only_running_session():
+    class Conn:
+        def __init__(self):
+            self.calls = []
+
+        async def execute(self, sql, *args):
+            self.calls.append((sql, args))
+
+        async def close(self):
+            return None
+
+    conn = Conn()
+    service = object.__new__(ResearchService)
+
+    async def get_conn():
+        return conn
+
+    service._get_db_connection = get_conn
+
+    asyncio.run(service._write_research_heartbeat("local-session-1"))
+
+    sql, args = conn.calls[0]
+    assert "heartbeat_at" in sql
+    assert "status = $2" in sql
+    assert args == ("local-session-1", ResearchStatus.RUNNING.value)
+
+
 def test_execute_research_discards_remote_pending_request_when_cancelled_before_wait():
     class FakeResearchClient:
         def __init__(self):

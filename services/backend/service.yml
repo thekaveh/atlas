@@ -33,6 +33,9 @@ env:
   - name: RAG_INGESTION_MAX_FILES
     default: 10000
     description: "Maximum number of files accepted in one mounted or MinIO RAG corpus discovery pass."
+  - name: RESEARCH_SESSION_LEASE_SECONDS
+    default: 300
+    description: "Maximum age in seconds for pending research work or a running session heartbeat before the Backend atomically marks the abandoned session failed."
   - name: BACKEND_STORAGE_ALLOWED_BUCKETS
     default: default
     description: "Comma-separated Supabase Storage bucket allowlist accepted by /storage/upload."

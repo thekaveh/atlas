@@ -43,6 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Complete optional operations controls** — Backup and Cloudflare Tunnel now have matching CLI and wizard SOURCE controls, and backup/restore package, database, archive, and S3 commands enforce a configurable positive deadline instead of waiting forever.
 - **Bounded hosted-media inputs** — the Backend rejects oversized media request streams before route parsing, rejects oversized inline images before base64 decoding, and checks source and conditioned image dimensions before Pillow allocation. Media budget configuration now fails closed for malformed booleans, stores, caps, retention, and missing durable-store credentials.
 - **Compensated media submission** — hosted-media submission now preflights shared operation storage before paid provider work, retries post-submit persistence, and attempts provider cancellation when durable state cannot be recorded. Recovery responses preserve the provider operation id and retain spend reservations for uncancelled work requiring manual reconciliation.
+- **Leased research execution** — research session creation and its first log are atomic, running work maintains database heartbeats, and every Backend replica terminalizes abandoned pending/running rows after a configurable lease. Graceful shutdown records interrupted local tasks as failed before process exit.
 
 ### Fixed — 2026-07-13 — Synchronized three-surface documentation
 

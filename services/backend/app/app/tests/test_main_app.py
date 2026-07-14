@@ -298,14 +298,24 @@ def test_lifespan_closes_n8n_client(monkeypatch):
     from fastapi.testclient import TestClient
     import main
 
-    closed = {"v": False}
+    closed = {"n8n": False, "research": False, "research_started": False}
 
     async def fake_aclose():
-        closed["v"] = True
+        closed["n8n"] = True
+
+    async def fake_research_start():
+        closed["research_started"] = True
+
+    async def fake_research_close():
+        closed["research"] = True
 
     monkeypatch.setattr(main.n8n_client, "aclose", fake_aclose)
+    monkeypatch.setattr(
+        main.research_service, "start_maintenance", fake_research_start
+    )
+    monkeypatch.setattr(main.research_service, "aclose", fake_research_close)
     # Entering and exiting the context manager runs lifespan startup +
     # shutdown.
     with TestClient(main.app):
         pass
-    assert closed["v"] is True
+    assert closed == {"n8n": True, "research": True, "research_started": True}
