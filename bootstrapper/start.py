@@ -3882,7 +3882,7 @@ def _print_doctor_text(results: list[dict]) -> None:
 @click.option('--skip-hosts', is_flag=True, help='Skip hosts file checks and setup')
 @click.option('--track', type=str, default=None,
               help='Pre-select a wizard profile (track) — gen-ai-rag, '
-                   'gen-ai-eng, gen-ai-creative, ml-eng, data-eng, all. '
+                   'gen-ai-eng, gen-ai-creative, ml-eng, data-eng, trading, all. '
                    'Skips the wizard track-picker. In-track services are '
                    'prompted as usual; out-of-track services are disabled. '
                    'Use --list-tracks to see members.')
@@ -3940,7 +3940,7 @@ def _print_doctor_text(results: list[dict]) -> None:
                    'a file outside the repo (e.g. /etc/atlas/my-models.yaml).')
 @click.option('--comfyui-source',
               type=click.Choice(['container-cpu', 'container-gpu', 'localhost',
-                                'disabled'], case_sensitive=False),
+                                'managed-localhost-mps', 'disabled'], case_sensitive=False),
               help='Override COMFYUI_SOURCE')
 @click.option('--asset-worker-source',
               type=click.Choice(['container', 'disabled'], case_sensitive=False),
@@ -4499,6 +4499,10 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
             user_model_selections['RAY_WORKER_COUNT'] = str(ray_worker_count)
         # Prometheus retention days — same pattern.
         if prometheus_retention_days is not None:
+            if not 1 <= prometheus_retention_days <= 365:
+                raise click.UsageError(
+                    "--prometheus-retention-days must be in 1-365"
+                )
             user_model_selections['PROMETHEUS_RETENTION_DAYS'] = str(prometheus_retention_days)
         # Spark worker count — same pattern as Ray's worker count. Clamp 1-8
         # to match the wizard's SecondaryNumberInput contract.

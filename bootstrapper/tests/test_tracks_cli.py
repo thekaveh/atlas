@@ -47,6 +47,12 @@ def test_track_unknown_exits_two():
     assert "gen-ai-rag" in r.stderr
 
 
+def test_track_help_lists_trading_profile():
+    r = _run("--help")
+    assert r.returncode == 0
+    assert "trading" in r.stdout
+
+
 def test_off_track_flag_emits_warning():
     """--track gen-ai-rag --comfyui-source container-gpu must emit
     a stderr warning since comfyui is excluded from gen-ai-rag.
