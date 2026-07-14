@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — 2026-07-13 — ComfyUI media-gateway provider
+
+- **Media gateway multi-provider (#519)** — `POST /media/generate` now accepts `provider=comfyui, modality=image`, routing the same submit/poll/cancel seam to the managed/localhost ComfyUI host (`COMFYUI_ENDPOINT`) that #335 ships. Local generation is genuinely free (`cost_usd=0.0`, still ledger-recorded for provenance); the `artifact_url` is a backend `/comfyui/image/{filename}` proxy path. Text2img (CheckpointLoaderSimple for SD1.5/SDXL; the split UNETLoader/CLIPLoader(krea2)/VAELoader graph for Krea 2) and img2img (init image + `strength`, #453 contract parity) are both supported, as is `POST /media/operations/{id}/cancel` (#518 parity: queue-delete + interrupt). Closes the multi-provider half of #339's charter; unblocks the local-ComfyUI side of the Tableau #26 E2E.
+- **Promotion sync:** `develop` was merge-synced with the current `main` tip before promoting the ComfyUI provider work, preserving strict-mode branch ordering while keeping the documentation record current.
+
 ### Fixed — 2026-07-13 — Synchronized three-surface documentation
 
 - **Canonical publication pipeline (#606 / #607)** — repository Markdown, the MkDocs `.io` site, and the native GitHub wiki now derive from one ordered manifest with strict drift, self-containment, local-link, diagram, and notebook-source checks. The public hierarchy covers 102 pages, 59 service guides, and 71 synchronized architecture diagrams.
