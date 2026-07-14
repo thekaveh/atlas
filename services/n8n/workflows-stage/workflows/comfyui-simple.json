@@ -21,6 +21,10 @@
     {
       "parameters": {
         "url": "http://backend:8000/comfyui/generate",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{"name": "Authorization", "value": "={{ 'Bearer ' + $env.BACKEND_N8N_API_TOKEN }}"}]
+        },
         "sendBody": true,
         "bodyParameters": {
           "parameters": [

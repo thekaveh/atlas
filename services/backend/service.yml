@@ -70,6 +70,25 @@ env:
     default: ""
     secret: true
     description: "Auto-generated key accepted by Kong when BACKEND_KONG_AUTH=key-auth. Send as `apikey: <value>`."
+  - name: BACKEND_IDENTITY_AUTH
+    default: required
+    description: "Application identity boundary for backend routes: required (default) accepts Supabase user JWTs or the trusted internal-service token; disabled is an explicit emergency rollback mode."
+  - name: BACKEND_INTERNAL_API_TOKEN
+    default: ""
+    secret: true
+    description: "Auto-generated full-operator bearer token. Reserve for trusted administration; first-party services use narrower caller tokens."
+  - name: BACKEND_N8N_API_TOKEN
+    default: ""
+    secret: true
+    description: "Auto-generated n8n bearer accepted only by the research, memory-automation, legacy ComfyUI, and storage-upload routes used by bundled workflows."
+  - name: BACKEND_NOTEBOOK_API_TOKEN
+    default: ""
+    secret: true
+    description: "Auto-generated bearer token exposed to JupyterHub and accepted only by stateless backend document extraction, chunking, and RAG evaluation routes."
+  - name: BACKEND_OPEN_WEBUI_API_TOKEN
+    default: ""
+    secret: true
+    description: "Auto-generated Open WebUI bearer accepted only by memory and legacy ComfyUI routes used by bundled server-side tools and functions."
   - name: BACKEND_PLUGINS_PIP_TIMEOUT_SECONDS
     default: 300
     description: "Timeout in seconds for `pip install` of backend plugin requirements (plugin_seam) at startup. The install runs at backend import time, so an unbounded hang would block startup; raise for slow networks."

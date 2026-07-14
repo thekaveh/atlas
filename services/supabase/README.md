@@ -126,6 +126,22 @@ The stack uses Supabase Auth (GoTrue) for user authentication and management wit
 4. **Service Role Access**: Use `SUPABASE_SERVICE_KEY` for admin operations (handle securely)
 5. **User Management**: Use Supabase Studio interface at `http://localhost:${SUPABASE_STUDIO_PORT}`
 
+Supabase Auth identities are synchronized into `public.users` by the
+idempotent `public.handle_auth_user_sync()` trigger in `10-users.sql`. The same
+script backfills existing `auth.users` rows. This keeps the authenticated JWT
+subject usable as the owner foreign key for Backend research and memory data;
+profile names come from `raw_user_meta_data.name`, then `full_name`, then the
+email local part, with a stable fallback. Existing matching rows are updated,
+while unrelated legacy `public.users` rows remain intact.
+Deleting an Auth account deletes its synchronized owner row and cascades the
+associated research and memory records through their existing foreign keys.
+
+Row-level security permits authenticated users to read or update only the row
+whose id matches `auth.uid()` and permits the service role to manage all rows;
+anonymous callers have no policy. The synchronization function is trigger-only:
+execute privilege is revoked from public API roles despite its required
+`SECURITY DEFINER` ownership.
+
 ## 4. Individual Services
 
 ### 4.1 PostgreSQL Database

@@ -69,6 +69,11 @@
 | BACKEND_CORS_ALLOW_ORIGIN_REGEX | backend |  | Optional regex accepted by the backend CORS middleware for wildcard subdomain policies. |
 | BACKEND_KONG_AUTH | backend | disabled | Default gateway authentication mode for the api.localhost backend route: disabled (default local-dev behavior) or key-auth (requires apikey header). A backend plugin's plugin.yml `auth: open/key-auth` overrides this per route prefix (#402). |
 | BACKEND_KONG_API_KEY | backend |  | Auto-generated key accepted by Kong when BACKEND_KONG_AUTH=key-auth. Send as `apikey: <value>`. |
+| BACKEND_IDENTITY_AUTH | backend | required | Application identity boundary for backend routes: required (default) accepts Supabase user JWTs or the trusted internal-service token; disabled is an explicit emergency rollback mode. |
+| BACKEND_INTERNAL_API_TOKEN | backend |  | Auto-generated full-operator bearer token. Reserve for trusted administration; first-party services use narrower caller tokens. |
+| BACKEND_N8N_API_TOKEN | backend |  | Auto-generated n8n bearer accepted only by the research, memory-automation, legacy ComfyUI, and storage-upload routes used by bundled workflows. |
+| BACKEND_NOTEBOOK_API_TOKEN | backend |  | Auto-generated bearer token exposed to JupyterHub and accepted only by stateless backend document extraction, chunking, and RAG evaluation routes. |
+| BACKEND_OPEN_WEBUI_API_TOKEN | backend |  | Auto-generated Open WebUI bearer accepted only by memory and legacy ComfyUI routes used by bundled server-side tools and functions. |
 | BACKEND_PLUGINS_PIP_TIMEOUT_SECONDS | backend | 300 | Timeout in seconds for `pip install` of backend plugin requirements (plugin_seam) at startup. The install runs at backend import time, so an unbounded hang would block startup; raise for slow networks. |
 | BACKEND_PLUGINS_SITE_DIR | backend | /tmp/atlas-plugins-site | Writable directory the plugin seam pip-installs plugin requirements into (`pip --target`) and prepends to sys.path before plugin imports (#559). The image runs as appuser with root-owned site-packages, so untargeted installs fail with EACCES even though appuser has a writable home/cache for runtime dependencies. Must be creatable by the backend user; falls back to untargeted pip install when it cannot be created. |
 | LANGMEM_ENABLED | backend | True | - |

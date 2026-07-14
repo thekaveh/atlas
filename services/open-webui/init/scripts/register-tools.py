@@ -28,6 +28,10 @@ ADMIN_NAME = os.environ.get("ADMIN_NAME", "Admin")
 
 MAX_RETRIES = 60
 RETRY_INTERVAL = 5
+UUID_PATTERN = (
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-"
+    r"[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+)
 
 
 def wait_for_webui():
@@ -120,6 +124,70 @@ def get_admin_user_id():
         )
         time.sleep(RETRY_INTERVAL)
     return None
+
+
+def backend_user_sync_sql():
+    return f"""
+    CREATE OR REPLACE FUNCTION public.handle_open_webui_user_sync()
+    RETURNS TRIGGER
+    LANGUAGE plpgsql
+    SECURITY DEFINER
+    SET search_path = ''
+    AS $sync$
+    DECLARE
+        candidate_id text := CASE WHEN TG_OP = 'DELETE' THEN OLD.id ELSE NEW.id END;
+    BEGIN
+        IF candidate_id !~* '{UUID_PATTERN}' THEN
+            RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+        END IF;
+        IF TG_OP = 'DELETE' THEN
+            DELETE FROM public.users
+            WHERE id = candidate_id::uuid
+              AND NOT EXISTS (
+                  SELECT 1 FROM auth.users WHERE id = candidate_id::uuid
+              );
+            RETURN OLD;
+        END IF;
+        INSERT INTO public.users (id, name)
+        VALUES (
+            candidate_id::uuid,
+            COALESCE(NULLIF(BTRIM(NEW.name), ''), 'Open WebUI user')
+        )
+        ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name
+        WHERE NOT EXISTS (
+            SELECT 1 FROM auth.users WHERE id = candidate_id::uuid
+        );
+        RETURN NEW;
+    END;
+    $sync$;
+
+    REVOKE ALL ON FUNCTION public.handle_open_webui_user_sync()
+        FROM PUBLIC, anon, authenticated, service_role;
+    DROP TRIGGER IF EXISTS on_open_webui_user_sync ON public."user";
+    CREATE TRIGGER on_open_webui_user_sync
+        AFTER INSERT OR DELETE OR UPDATE OF name ON public."user"
+        FOR EACH ROW EXECUTE FUNCTION public.handle_open_webui_user_sync();
+
+    INSERT INTO public.users (id, name)
+    SELECT
+        id::uuid,
+        COALESCE(NULLIF(BTRIM(name), ''), 'Open WebUI user')
+    FROM public."user"
+    WHERE id ~* '{UUID_PATTERN}'
+    ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name
+    WHERE NOT EXISTS (
+        SELECT 1 FROM auth.users WHERE id = public.users.id
+    );
+    """
+
+
+def install_backend_user_sync():
+    """Keep Open WebUI identities valid for Backend memory foreign keys."""
+    print("open-webui-init: Synchronizing Open WebUI users with Backend owners...")
+    with psycopg2.connect(DATABASE_URL, connect_timeout=5) as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(backend_user_sync_sql())
+    print("open-webui-init: Backend owner synchronization ready")
 
 
 def generate_token(admin_id):
@@ -228,6 +296,8 @@ def register_tools(token):
 def main():
     if not wait_for_webui():
         sys.exit(1)
+
+    install_backend_user_sync()
 
     admin_id = get_admin_user_id()
     if not admin_id:

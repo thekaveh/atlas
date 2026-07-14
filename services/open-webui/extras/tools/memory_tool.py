@@ -9,6 +9,7 @@ version: 1.0.0
 license: MIT
 """
 
+import os
 import requests
 from pydantic import BaseModel, Field
 
@@ -26,6 +27,11 @@ class Tools:
 
     def __init__(self):
         self.valves = self.Valves()
+
+    @staticmethod
+    def _backend_headers() -> dict[str, str]:
+        token = (os.getenv("BACKEND_OPEN_WEBUI_API_TOKEN") or "").strip()
+        return {"Authorization": f"Bearer {token}"} if token else {}
 
     def remember(self, conversation: str, __user__: dict | None = None) -> str:
         """
@@ -51,6 +57,7 @@ class Tools:
 
             response = requests.post(
                 f"{self.valves.backend_url}/memory/extract",
+                headers=self._backend_headers(),
                 json={
                     "user_id": user_id,
                     "messages": messages,
@@ -105,6 +112,7 @@ class Tools:
         try:
             response = requests.post(
                 f"{self.valves.backend_url}/memory/recall",
+                headers=self._backend_headers(),
                 json={
                     "user_id": user_id,
                     "query": query,
@@ -166,6 +174,7 @@ class Tools:
         try:
             response = requests.delete(
                 f"{self.valves.backend_url}/memory/{memory_id}",
+                headers=self._backend_headers(),
                 params={"user_id": user_id},
                 timeout=self.valves.timeout,
             )
@@ -203,6 +212,7 @@ class Tools:
         try:
             response = requests.get(
                 f"{self.valves.backend_url}/memory/user/{user_id}",
+                headers=self._backend_headers(),
                 params={"namespace": "default", "limit": 50},
                 timeout=self.valves.timeout,
             )

@@ -75,6 +75,22 @@ from lightrag_rerank_adapter import (
     RerankAdapterUpstreamError,
     rerank_via_tei,
 )
+from backend_identity import (
+    BackendPrincipal,
+    authorize_media_scope,
+    authorize_user_id,
+    principal_scope_key,
+    require_backend_principal,
+    require_comfy_automation_principal,
+    require_comfy_read_principal,
+    require_memory_automation_principal,
+    require_memory_principal,
+    require_n8n_operator_principal,
+    require_research_principal,
+    require_service_principal,
+    require_stateless_principal,
+    research_owner_id,
+)
 
 
 def _fal_source_enabled() -> bool:
@@ -236,7 +252,12 @@ class PluginInventoryResponse(BaseModel):
     plugins: List[Dict[str, Any]]
 
 
-@app.get("/plugins", response_model=PluginInventoryResponse, tags=["plugins"])
+@app.get(
+    "/plugins",
+    response_model=PluginInventoryResponse,
+    tags=["plugins"],
+    dependencies=[Depends(require_service_principal)],
+)
 async def list_plugins() -> PluginInventoryResponse:
     """Inventory of mounted backend plugins (#402).
 
@@ -341,7 +362,11 @@ async def root():
     }
 
 
-@app.get("/jobs/{job_id}", response_model=JobStatusResponse)
+@app.get(
+    "/jobs/{job_id}",
+    response_model=JobStatusResponse,
+    dependencies=[Depends(require_service_principal)],
+)
 async def get_job_status(job_id: str):
     """Get Celery async-job state from the result backend."""
     if not celery_is_enabled():
@@ -391,7 +416,11 @@ class WorkflowResponse(BaseModel):
 
 
 
-@app.get("/workflows", response_model=List[WorkflowResponse])
+@app.get(
+    "/workflows",
+    response_model=List[WorkflowResponse],
+    dependencies=[Depends(require_service_principal)],
+)
 async def list_workflows():
     """List all n8n workflows"""
     try:
@@ -404,7 +433,11 @@ async def list_workflows():
         )
 
 
-@app.get("/workflows/{workflow_id}", response_model=WorkflowResponse)
+@app.get(
+    "/workflows/{workflow_id}",
+    response_model=WorkflowResponse,
+    dependencies=[Depends(require_service_principal)],
+)
 async def get_workflow(workflow_id: str):
     """Get a specific n8n workflow by ID"""
     try:
@@ -428,7 +461,11 @@ async def get_workflow(workflow_id: str):
 
 
 
-@app.post("/storage/upload", response_model=StorageResponse)
+@app.post(
+    "/storage/upload",
+    response_model=StorageResponse,
+    dependencies=[Depends(require_n8n_operator_principal)],
+)
 async def upload_file(file: UploadFile = File(...), bucket: str = "default"):
     """Upload a file to Supabase Storage"""
     try:
@@ -483,7 +520,10 @@ async def upload_file(file: UploadFile = File(...), bucket: str = "default"):
         )
 
 
-@app.post("/documents/extract")
+@app.post(
+    "/documents/extract",
+    dependencies=[Depends(require_stateless_principal)],
+)
 async def extract_document(file: UploadFile = File(...)):
     """Extract text for RAG ingestion using Docling first, then Tika fallback."""
     if not file.filename:
@@ -520,7 +560,11 @@ async def extract_document(file: UploadFile = File(...)):
         )
 
 
-@app.post("/api/chunk", response_model=ChunkResponse)
+@app.post(
+    "/api/chunk",
+    response_model=ChunkResponse,
+    dependencies=[Depends(require_stateless_principal)],
+)
 async def chunk_document_text(request: ChunkRequest):
     """Chunk text for RAG ingestion using Chonkie-backed strategies."""
     try:
@@ -537,7 +581,11 @@ async def chunk_document_text(request: ChunkRequest):
         )
 
 
-@app.post("/api/rag/evaluate", response_model=RagEvaluationResponse)
+@app.post(
+    "/api/rag/evaluate",
+    response_model=RagEvaluationResponse,
+    dependencies=[Depends(require_stateless_principal)],
+)
 async def evaluate_rag_quality(request: RagEvaluationRequest):
     """Evaluate supplied RAG answers and contexts with Ragas metrics."""
     try:
@@ -638,6 +686,7 @@ def get_rag_ingestion_service() -> RagIngestionService:
     "/api/rag/ingestions",
     response_model=RagIngestionQueuedResponse,
     status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(require_service_principal)],
 )
 async def submit_rag_ingestion(request: RagIngestionRequest, async_job: bool = True):
     """Submit a RAG ingestion job for a declared profile (#413).
@@ -693,14 +742,22 @@ async def submit_rag_ingestion(request: RagIngestionRequest, async_job: bool = T
     )
 
 
-@app.get("/api/rag/ingestions", response_model=List[RagIngestionRecordResponse])
+@app.get(
+    "/api/rag/ingestions",
+    response_model=List[RagIngestionRecordResponse],
+    dependencies=[Depends(require_service_principal)],
+)
 async def list_rag_ingestions():
     """List RAG ingestion jobs (machine-readable)."""
     service = get_rag_ingestion_service()
     return [RagIngestionRecordResponse(**r.to_dict()) for r in service.store.list()]
 
 
-@app.get("/api/rag/ingestions/{ingestion_id}", response_model=RagIngestionRecordResponse)
+@app.get(
+    "/api/rag/ingestions/{ingestion_id}",
+    response_model=RagIngestionRecordResponse,
+    dependencies=[Depends(require_service_principal)],
+)
 async def get_rag_ingestion(ingestion_id: str):
     """Return the durable, machine-readable state of one ingestion job."""
     service = get_rag_ingestion_service()
@@ -713,7 +770,11 @@ async def get_rag_ingestion(ingestion_id: str):
     return RagIngestionRecordResponse(**record.to_dict())
 
 
-@app.post("/api/rag/ingestions/{ingestion_id}/cancel", response_model=RagIngestionRecordResponse)
+@app.post(
+    "/api/rag/ingestions/{ingestion_id}/cancel",
+    response_model=RagIngestionRecordResponse,
+    dependencies=[Depends(require_service_principal)],
+)
 async def cancel_rag_ingestion(ingestion_id: str):
     """Request cooperative cancellation of a running ingestion job."""
     service = get_rag_ingestion_service()
@@ -780,20 +841,22 @@ class ResearchLogResponse(BaseModel):
 
 # Research API Endpoints
 @app.post("/research/start", response_model=ResearchResponse)
-async def start_research(request: ResearchStartRequest):
+async def start_research(
+    request: ResearchStartRequest,
+    principal: BackendPrincipal = Depends(require_research_principal),
+):
     """Start a new research session"""
     # Validate user_id like every other user-id-bearing route (the other
     # research routes call _validate_uuid_param too) — without this an
     # invalid user_id reaches UUID() in research_service and surfaces as an
     # opaque 500 instead of a clean 400.
-    if request.user_id is not None:
-        _validate_uuid_param(request.user_id, "user_id")
+    user_id = authorize_user_id(principal, request.user_id)
     try:
         result = await research_service.start_research(
             query=request.query,
             max_loops=request.max_loops or 3,
             search_api=request.search_api or "searxng",
-            user_id=request.user_id
+            user_id=user_id
         )
         return ResearchResponse(**result)
     except Exception as e:
@@ -804,11 +867,16 @@ async def start_research(request: ResearchStartRequest):
 
 
 @app.get("/research/{session_id}/status", response_model=ResearchSessionResponse)
-async def get_research_status(session_id: str):
+async def get_research_status(
+    session_id: str,
+    principal: BackendPrincipal = Depends(require_research_principal),
+):
     """Get the status of a research session"""
     _validate_uuid_param(session_id, "session_id")
     try:
-        result = await research_service.get_research_status(session_id)
+        result = await research_service.get_research_status(
+            session_id, owner_user_id=research_owner_id(principal)
+        )
         if not result:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -825,11 +893,16 @@ async def get_research_status(session_id: str):
 
 
 @app.get("/research/{session_id}/result", response_model=ResearchResultResponse)
-async def get_research_result(session_id: str):
+async def get_research_result(
+    session_id: str,
+    principal: BackendPrincipal = Depends(require_research_principal),
+):
     """Get the result of a completed research session"""
     _validate_uuid_param(session_id, "session_id")
     try:
-        result = await research_service.get_research_result(session_id)
+        result = await research_service.get_research_result(
+            session_id, owner_user_id=research_owner_id(principal)
+        )
         if not result:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -846,11 +919,16 @@ async def get_research_result(session_id: str):
 
 
 @app.post("/research/{session_id}/cancel", response_model=ResearchResponse)
-async def cancel_research(session_id: str):
+async def cancel_research(
+    session_id: str,
+    principal: BackendPrincipal = Depends(require_research_principal),
+):
     """Cancel a running research session"""
     _validate_uuid_param(session_id, "session_id")
     try:
-        success = await research_service.cancel_research(session_id)
+        success = await research_service.cancel_research(
+            session_id, owner_user_id=research_owner_id(principal)
+        )
         if not success:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -877,11 +955,16 @@ async def cancel_research(session_id: str):
 
 
 @app.get("/research/{session_id}/logs", response_model=List[ResearchLogResponse])
-async def get_research_logs(session_id: str):
+async def get_research_logs(
+    session_id: str,
+    principal: BackendPrincipal = Depends(require_research_principal),
+):
     """Get logs for a research session"""
     _validate_uuid_param(session_id, "session_id")
     try:
-        logs = await research_service.get_research_logs(session_id)
+        logs = await research_service.get_research_logs(
+            session_id, owner_user_id=research_owner_id(principal)
+        )
         if logs is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -901,14 +984,14 @@ async def get_research_logs(session_id: str):
 async def list_research_sessions(
     user_id: Optional[str] = None,
     limit: int = Query(default=50, ge=1, le=100),
-    offset: int = Query(default=0, ge=0)
+    offset: int = Query(default=0, ge=0),
+    principal: BackendPrincipal = Depends(require_research_principal),
 ):
     """List research sessions"""
-    if user_id is not None:
-        _validate_uuid_param(user_id, "user_id")
+    effective_user_id = authorize_user_id(principal, user_id)
     try:
         sessions = await research_service.list_user_sessions(
-            user_id=user_id,
+            user_id=effective_user_id,
             limit=limit,
             offset=offset,
         )
@@ -920,7 +1003,10 @@ async def list_research_sessions(
         )
 
 
-@app.get("/research/health")
+@app.get(
+    "/research/health",
+    dependencies=[Depends(require_research_principal)],
+)
 async def research_health_check():
     """Health check for research service"""
     try:
@@ -1021,25 +1107,21 @@ MEDIA_BUDGET_ENGINE = media_ledger.build_engine()
 
 
 def _resolve_consumer_project(
-    request: MediaGenerateRequest, http_request: Optional[Request]
+    request: MediaGenerateRequest,
+    http_request: Optional[Request],
+    principal: BackendPrincipal,
 ) -> tuple[str, str]:
-    """Attribution key: request body wins, then X-Atlas-* headers, then default.
-
-    This is a pragmatic attribution key (not authentication); gateway-level
-    identity/authorization remains #345's future work.
-    """
+    """Resolve media attribution and bind user callers to their JWT subject."""
     headers = http_request.headers if http_request is not None else {}
-    consumer = (
+    claimed_consumer = (
         request.consumer
         or headers.get("X-Atlas-Consumer")
-        or "default"
-    ).strip() or "default"
-    project = (
+    )
+    claimed_project = (
         request.project
         or headers.get("X-Atlas-Project")
-        or "default"
-    ).strip() or "default"
-    return consumer, project
+    )
+    return authorize_media_scope(principal, claimed_consumer, claimed_project)
 
 
 def _estimate_media_cost(
@@ -1169,7 +1251,10 @@ def _media_response(payload: Dict[str, Any]) -> MediaOperationResponse:
 
 
 # ComfyUI API Endpoints
-@app.get("/comfyui/health")
+@app.get(
+    "/comfyui/health",
+    dependencies=[Depends(require_comfy_read_principal)],
+)
 async def comfyui_health_check():
     """Health check for the configured image generation provider."""
     if _fal_source_enabled():
@@ -1204,7 +1289,10 @@ async def comfyui_health_check():
         }
 
 
-@app.get("/comfyui/models")
+@app.get(
+    "/comfyui/models",
+    dependencies=[Depends(require_comfy_read_principal)],
+)
 async def get_comfyui_models():
     """Get available ComfyUI models"""
     try:
@@ -1227,7 +1315,9 @@ async def get_comfyui_models():
     status_code=status.HTTP_202_ACCEPTED,
 )
 async def submit_media_generation(
-    request: MediaGenerateRequest, http_request: Request
+    request: MediaGenerateRequest,
+    http_request: Request,
+    principal: BackendPrincipal = Depends(require_backend_principal),
 ):
     """Submit a provider-neutral hosted media generation operation."""
     provider, modality, model = _normalize_media_route(
@@ -1255,7 +1345,7 @@ async def submit_media_generation(
 
     # Budget: reserve estimated cost BEFORE the provider call (and before any
     # side-effecting storage write). No-op when budgets are disabled.
-    consumer, project = _resolve_consumer_project(request, http_request)
+    consumer, project = _resolve_consumer_project(request, http_request, principal)
     estimated_cost, pricing_ts, model_version = _estimate_media_cost(
         provider, modality, model
     )
@@ -1362,6 +1452,7 @@ async def submit_media_generation(
         "last_payload": payload,
         "consumer": consumer,
         "project": project,
+        "owner_scope": principal_scope_key(principal),
         "budget_tracked": reservation is not None,
         "reconciled": False,
     }
@@ -1375,10 +1466,24 @@ _TERMINAL_MEDIA_STATUSES = ("succeeded", "failed", "cancelled", "timeout")
 
 
 @app.get("/media/operations/{operation_id}", response_model=MediaOperationResponse)
-async def get_media_operation(operation_id: str):
+async def get_media_operation(
+    operation_id: str,
+    principal: BackendPrincipal = Depends(require_backend_principal),
+):
     """Poll a hosted media generation operation."""
     operation = MEDIA_OPERATIONS.get(operation_id)
     if not operation:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Media operation {operation_id} not found",
+        )
+    operation_owner = operation.get("owner_scope")
+    if (
+        operation_owner is None and principal.subject != "auth-disabled"
+    ) or (
+        operation_owner is not None
+        and operation_owner != principal_scope_key(principal)
+    ):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Media operation {operation_id} not found",
@@ -1439,7 +1544,10 @@ async def get_media_operation(operation_id: str):
     "/media/operations/{operation_id}/cancel",
     response_model=MediaOperationResponse,
 )
-async def cancel_media_operation(operation_id: str):
+async def cancel_media_operation(
+    operation_id: str,
+    principal: BackendPrincipal = Depends(require_backend_principal),
+):
     """Cancel an in-flight media operation (#518).
 
     Transitions the operation to terminal ``cancelled`` and releases its
@@ -1452,6 +1560,17 @@ async def cancel_media_operation(operation_id: str):
     """
     operation = MEDIA_OPERATIONS.get(operation_id)
     if not operation:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Media operation {operation_id} not found",
+        )
+    operation_owner = operation.get("owner_scope")
+    if (
+        operation_owner is None and principal.subject != "auth-disabled"
+    ) or (
+        operation_owner is not None
+        and operation_owner != principal_scope_key(principal)
+    ):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Media operation {operation_id} not found",
@@ -1497,21 +1616,33 @@ async def cancel_media_operation(operation_id: str):
 
 @app.get("/media/spend", response_model=MediaSpendResponse)
 async def get_media_spend(
-    consumer: str = Query(..., min_length=1, max_length=255),
+    consumer: Optional[str] = Query(default=None, min_length=1, max_length=255),
     project: Optional[str] = Query(default=None, max_length=255),
+    principal: BackendPrincipal = Depends(require_backend_principal),
 ):
     """Scoped spend read for a single consumer (optionally one project).
 
     Returns that consumer's ledger rows + committed/reserved totals only — never
     provider keys or another consumer's records. Requires an explicit consumer.
     """
+    consumer, resolved_project = authorize_media_scope(principal, consumer, project)
     if not MEDIA_BUDGET_ENGINE.enabled:
-        return MediaSpendResponse(enabled=False, consumer=consumer, project=project)
-    summary = await MEDIA_BUDGET_ENGINE.spend(consumer=consumer, project=project)
+        return MediaSpendResponse(
+            enabled=False,
+            consumer=consumer,
+            project=resolved_project if project is not None else None,
+        )
+    summary = await MEDIA_BUDGET_ENGINE.spend(
+        consumer=consumer, project=resolved_project if project is not None else None
+    )
     return MediaSpendResponse(enabled=True, **summary)
 
 
-@app.post("/comfyui/generate", response_model=ComfyUIResponse)
+@app.post(
+    "/comfyui/generate",
+    response_model=ComfyUIResponse,
+    dependencies=[Depends(require_comfy_automation_principal)],
+)
 async def generate_image(request: ComfyUIGenerateRequest):
     """Generate an image using the configured media provider."""
     if _fal_source_enabled():
@@ -1617,7 +1748,11 @@ async def generate_image(request: ComfyUIGenerateRequest):
         )
 
 
-@app.post("/comfyui/workflow", response_model=ComfyUIResponse)
+@app.post(
+    "/comfyui/workflow",
+    response_model=ComfyUIResponse,
+    dependencies=[Depends(require_comfy_automation_principal)],
+)
 async def execute_comfyui_workflow(request: ComfyUIWorkflowRequest):
     """Execute a custom ComfyUI workflow"""
     try:
@@ -1667,7 +1802,10 @@ async def execute_comfyui_workflow(request: ComfyUIWorkflowRequest):
         )
 
 
-@app.get("/comfyui/history/{prompt_id}")
+@app.get(
+    "/comfyui/history/{prompt_id}",
+    dependencies=[Depends(require_comfy_automation_principal)],
+)
 async def get_generation_history(prompt_id: str):
     """Get ComfyUI generation history for a specific prompt"""
     try:
@@ -1684,7 +1822,10 @@ async def get_generation_history(prompt_id: str):
         )
 
 
-@app.get("/comfyui/queue")
+@app.get(
+    "/comfyui/queue",
+    dependencies=[Depends(require_comfy_automation_principal)],
+)
 async def get_queue_status():
     """Get ComfyUI queue status"""
     try:
@@ -1701,7 +1842,10 @@ async def get_queue_status():
         )
 
 
-@app.post("/comfyui/cancel/{prompt_id}")
+@app.post(
+    "/comfyui/cancel/{prompt_id}",
+    dependencies=[Depends(require_comfy_automation_principal)],
+)
 async def cancel_generation(prompt_id: str):
     """Cancel a ComfyUI generation"""
     try:
@@ -1718,7 +1862,10 @@ async def cancel_generation(prompt_id: str):
         )
 
 
-@app.get("/comfyui/image/{filename}")
+@app.get(
+    "/comfyui/image/{filename}",
+    dependencies=[Depends(require_comfy_automation_principal)],
+)
 async def get_generated_image(filename: str, subfolder: str = "", folder_type: str = "output"):
     """Get a generated image from ComfyUI"""
     try:
@@ -1760,7 +1907,10 @@ async def get_generated_image(filename: str, subfolder: str = "", folder_type: s
 
 
 # ComfyUI Model Management Endpoints
-@app.get("/comfyui/db/models")
+@app.get(
+    "/comfyui/db/models",
+    dependencies=[Depends(require_comfy_automation_principal)],
+)
 async def get_comfyui_db_models(active_only: bool = True, essential_only: bool = False):
     """Get ComfyUI models from the manifest file written by the bootstrapper at startup.
 
@@ -1814,11 +1964,15 @@ async def get_comfyui_db_models(active_only: bool = True, essential_only: bool =
 # =============================================================================
 
 @app.post("/memory/extract", response_model=MemoryExtractResponse)
-async def memory_extract(request: MemoryExtractRequest):
+async def memory_extract(
+    request: MemoryExtractRequest,
+    principal: BackendPrincipal = Depends(require_memory_principal),
+):
     """Extract and store memory facts from conversation messages."""
+    user_id = authorize_user_id(principal, request.user_id)
     try:
         result = await memory_service.extract_facts(
-            user_id=request.user_id,
+            user_id=user_id,
             messages=[message.model_dump() for message in request.messages],
             namespace=request.namespace,
             conversation_id=request.conversation_id,
@@ -1836,11 +1990,15 @@ async def memory_extract(request: MemoryExtractRequest):
 
 
 @app.post("/memory/recall", response_model=MemoryRecallResponse)
-async def memory_recall(request: MemoryRecallRequest):
+async def memory_recall(
+    request: MemoryRecallRequest,
+    principal: BackendPrincipal = Depends(require_memory_principal),
+):
     """Recall relevant memories for a query using semantic search."""
+    user_id = authorize_user_id(principal, request.user_id)
     try:
         result = await memory_service.recall(
-            user_id=request.user_id,
+            user_id=user_id,
             query=request.query,
             namespace=request.namespace,
             limit=request.limit,
@@ -1863,9 +2021,12 @@ async def memory_recall(request: MemoryRecallRequest):
     response_model=Union[MemoryConsolidateResponse, AsyncJobQueuedResponse],
 )
 async def memory_consolidate(
-    request: MemoryConsolidateRequest, async_job: bool = False
+    request: MemoryConsolidateRequest,
+    async_job: bool = False,
+    principal: BackendPrincipal = Depends(require_memory_automation_principal),
 ):
     """Consolidate and deduplicate user memories."""
+    user_id = authorize_user_id(principal, request.user_id)
     if async_job:
         if not celery_is_enabled():
             raise HTTPException(
@@ -1875,7 +2036,7 @@ async def memory_consolidate(
         try:
             task = await asyncio.to_thread(
                 memory_consolidate_task.apply_async,
-                kwargs={"user_id": request.user_id}
+                kwargs={"user_id": user_id}
             )
         except Exception as e:
             raise HTTPException(
@@ -1889,12 +2050,12 @@ async def memory_consolidate(
                 status="pending",
                 message="Memory consolidation queued",
                 task="memory_consolidate",
-                request={"user_id": request.user_id},
+                request={"user_id": user_id},
             ).model_dump(),
         )
 
     try:
-        result = await memory_service.consolidate(user_id=request.user_id)
+        result = await memory_service.consolidate(user_id=user_id)
         return MemoryConsolidateResponse(**result)
     except RuntimeError as e:
         raise HTTPException(
@@ -1908,11 +2069,16 @@ async def memory_consolidate(
 
 
 @app.post("/memory/summarize", response_model=MemorySummarizeResponse)
-async def memory_summarize(request: MemorySummarizeRequest):
+async def memory_summarize(
+    request: MemorySummarizeRequest,
+    principal: BackendPrincipal = Depends(require_memory_principal),
+):
     """Generate a natural-language summary of a user's memory profile."""
+    user_id = authorize_user_id(principal, request.user_id)
     try:
         result = await memory_service.summarize(
-            user_id=request.user_id, namespace=request.namespace
+            user_id=user_id,
+            namespace=request.namespace,
         )
         return MemorySummarizeResponse(**result)
     except RuntimeError as e:
@@ -1932,9 +2098,10 @@ async def memory_list(
     namespace: str = Query(default="default", min_length=1, max_length=128),
     limit: int = Query(default=50, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
+    principal: BackendPrincipal = Depends(require_memory_principal),
 ):
     """List all active memories for a user."""
-    _validate_uuid_param(user_id, "user_id")
+    user_id = authorize_user_id(principal, user_id)
     try:
         result = await memory_service.list_memories(
             user_id=user_id,
@@ -1959,10 +2126,11 @@ async def memory_update(
     memory_id: str,
     request: MemoryUpdateRequest,
     user_id: str = Query(...),
+    principal: BackendPrincipal = Depends(require_memory_principal),
 ):
     """Update a specific memory fact."""
     _validate_uuid_param(memory_id, "memory_id")
-    _validate_uuid_param(user_id, "user_id")
+    user_id = authorize_user_id(principal, user_id)
     try:
         updates = request.model_dump(exclude_none=True)
         result = await memory_service.update_memory(memory_id, user_id, updates)
@@ -1986,10 +2154,14 @@ async def memory_update(
 
 
 @app.delete("/memory/{memory_id}", response_model=Dict[str, Any])
-async def memory_delete(memory_id: str, user_id: str = Query(...)):
+async def memory_delete(
+    memory_id: str,
+    user_id: str = Query(...),
+    principal: BackendPrincipal = Depends(require_memory_principal),
+):
     """Delete (deactivate) a specific memory fact."""
     _validate_uuid_param(memory_id, "memory_id")
-    _validate_uuid_param(user_id, "user_id")
+    user_id = authorize_user_id(principal, user_id)
     try:
         success = await memory_service.delete_memory(memory_id, user_id)
         if not success:
@@ -2011,14 +2183,22 @@ async def memory_delete(memory_id: str, user_id: str = Query(...)):
         )
 
 
-@app.get("/memory/health", response_model=MemoryHealthResponse)
+@app.get(
+    "/memory/health",
+    response_model=MemoryHealthResponse,
+    dependencies=[Depends(require_memory_automation_principal)],
+)
 async def memory_health_check():
     """Health check for the LangMem memory service."""
     result = await memory_service.health_check()
     return MemoryHealthResponse(**result)
 
 
-@app.get("/memory/graphiti/status", response_model=Dict[str, Any])
+@app.get(
+    "/memory/graphiti/status",
+    response_model=Dict[str, Any],
+    dependencies=[Depends(require_backend_principal)],
+)
 async def graphiti_experiment_status():
     """Report the disabled-by-default backend-only Graphiti experiment plan."""
     return GraphitiExperimentConfig.from_env().status_payload()

@@ -261,7 +261,7 @@ def test_research_cancel_reports_best_effort_local_cancellation(monkeypatch):
     from fastapi.testclient import TestClient
     import main
 
-    async def fake_cancel(session_id):
+    async def fake_cancel(session_id, owner_user_id=None):
         return True
 
     monkeypatch.setattr(main.research_service, "cancel_research", fake_cancel)
@@ -280,7 +280,7 @@ def test_research_logs_returns_404_when_session_is_absent(monkeypatch):
     from fastapi.testclient import TestClient
     import main
 
-    async def fake_logs(session_id):
+    async def fake_logs(session_id, owner_user_id=None):
         return None
 
     monkeypatch.setattr(main.research_service, "get_research_logs", fake_logs)

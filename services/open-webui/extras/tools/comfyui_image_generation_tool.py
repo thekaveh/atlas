@@ -9,6 +9,7 @@ version: 1.0.0
 license: MIT
 """
 
+import os
 import requests
 from pydantic import BaseModel, Field
 from typing import Optional, List
@@ -36,6 +37,11 @@ class Tools:
 
     def __init__(self):
         self.valves = self.Valves()
+
+    @staticmethod
+    def _backend_headers() -> dict[str, str]:
+        token = (os.getenv("BACKEND_OPEN_WEBUI_API_TOKEN") or "").strip()
+        return {"Authorization": f"Bearer {token}"} if token else {}
 
     def generate_image(
         self,
@@ -75,7 +81,9 @@ class Tools:
         try:
             # First check if ComfyUI service is healthy
             health_resp = requests.get(
-                f"{self.valves.backend_url}/comfyui/health", timeout=10
+                f"{self.valves.backend_url}/comfyui/health",
+                headers=self._backend_headers(),
+                timeout=10,
             )
 
             if health_resp.status_code != 200:
@@ -100,6 +108,7 @@ class Tools:
             # Send generation request
             resp = requests.post(
                 f"{self.valves.backend_url}/comfyui/generate",
+                headers=self._backend_headers(),
                 json=generation_data,
                 timeout=self.valves.timeout,
             )
@@ -154,6 +163,7 @@ class Tools:
                                     try:
                                         img_resp = requests.get(
                                             f"{self.valves.backend_url}/comfyui/image/{filename}",
+                                            headers=self._backend_headers(),
                                             timeout=30,
                                         )
                                         if img_resp.status_code == 200:
@@ -204,6 +214,7 @@ class Tools:
         try:
             resp = requests.get(
                 f"{self.valves.backend_url}/comfyui/db/models?active_only=true",
+                headers=self._backend_headers(),
                 timeout=30,
             )
 
@@ -270,7 +281,9 @@ class Tools:
         try:
             # Check health
             health_resp = requests.get(
-                f"{self.valves.backend_url}/comfyui/health", timeout=10
+                f"{self.valves.backend_url}/comfyui/health",
+                headers=self._backend_headers(),
+                timeout=10,
             )
 
             output = ["🔍 **ComfyUI Service Status**\n"]
@@ -293,7 +306,9 @@ class Tools:
             # Check queue status
             try:
                 queue_resp = requests.get(
-                    f"{self.valves.backend_url}/comfyui/queue", timeout=10
+                    f"{self.valves.backend_url}/comfyui/queue",
+                    headers=self._backend_headers(),
+                    timeout=10,
                 )
 
                 if queue_resp.status_code == 200:

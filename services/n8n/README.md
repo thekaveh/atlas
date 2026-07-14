@@ -53,7 +53,17 @@ DB_POSTGRESDB_USER=supabase_admin
 DB_POSTGRESDB_PASSWORD=${SUPABASE_DB_PASSWORD}
 QUEUE_BULL_REDIS_HOST=redis
 QUEUE_BULL_REDIS_PASSWORD=${REDIS_PASSWORD}
+BACKEND_N8N_API_TOKEN=            # auto-generated workflow-scoped bearer
 ```
+
+The bundled Backend-calling workflows attach
+`Authorization: Bearer $env.BACKEND_N8N_API_TOKEN` to every request. The
+value is present on both the n8n web and worker containers because queue-mode
+executions run on the worker. Workflow expressions can read this value, so the
+Backend accepts it only on the research, memory-automation, legacy ComfyUI, and
+storage-upload routes used by the bundled workflows. It cannot access plugin,
+workflow-administration, generic-job, or RAG-ingestion operator routes. Do not
+return it in webhook payloads, execution output, or browser-side code.
 
 **Required runtime dep:** `weaviate` (per `runtime_deps.n8n.requires`). With `WEAVIATE_SOURCE=disabled`, n8n is force-disabled with an error message — the stack design treats Weaviate-backed vector ops as load-bearing for the seeded AI workflows.
 

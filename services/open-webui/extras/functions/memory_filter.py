@@ -12,6 +12,7 @@ type: filter
 
 import sys
 import threading
+import os
 import requests
 from pydantic import BaseModel, Field
 from typing import Optional
@@ -33,6 +34,11 @@ class Filter:
 
     def __init__(self):
         self.valves = self.Valves()
+
+    @staticmethod
+    def _backend_headers() -> dict[str, str]:
+        token = (os.getenv("BACKEND_OPEN_WEBUI_API_TOKEN") or "").strip()
+        return {"Authorization": f"Bearer {token}"} if token else {}
 
     async def inlet(self, body: dict, __user__: Optional[dict] = None) -> dict:
         """Pre-request hook: pass through without modification."""
@@ -72,6 +78,7 @@ class Filter:
 
                 requests.post(
                     f"{self.valves.backend_url}/memory/extract",
+                    headers=self._backend_headers(),
                     json={
                         "user_id": user_id,
                         "messages": formatted,

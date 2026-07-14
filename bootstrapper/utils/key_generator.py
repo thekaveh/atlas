@@ -176,6 +176,22 @@ class KeyGenerator:
         """Backend Kong key-auth credential for the api.localhost route."""
         return f"sk-backend-{_cli_safe_token_urlsafe(32)}"
 
+    def generate_backend_internal_api_token(self) -> str:
+        """Delegating bearer credential shared only with trusted services."""
+        return f"sk-atlas-internal-{_cli_safe_token_urlsafe(40)}"
+
+    def generate_backend_notebook_api_token(self) -> str:
+        """Bearer credential limited to stateless notebook-facing routes."""
+        return f"sk-atlas-notebook-{_cli_safe_token_urlsafe(40)}"
+
+    def generate_backend_n8n_api_token(self) -> str:
+        """Bearer credential limited to n8n's Backend integration routes."""
+        return f"sk-atlas-n8n-{_cli_safe_token_urlsafe(40)}"
+
+    def generate_backend_open_webui_api_token(self) -> str:
+        """Bearer credential limited to Open WebUI's Backend integration routes."""
+        return f"sk-atlas-openwebui-{_cli_safe_token_urlsafe(40)}"
+
     def generate_minio_root_password(self) -> str:
         """MinIO root password — 32-char URL-safe random."""
         return _cli_safe_token_urlsafe(24)
@@ -640,6 +656,43 @@ class KeyGenerator:
             return True
         return self.update_env_key('BACKEND_KONG_API_KEY', self.generate_backend_kong_api_key())
 
+    def generate_and_update_backend_internal_api_token(
+        self, force: bool = False
+    ) -> bool:
+        """Generate the trusted-service token only when it is absent."""
+        if not force and self.get_current_env_value('BACKEND_INTERNAL_API_TOKEN'):
+            return True
+        return self.update_env_key(
+            'BACKEND_INTERNAL_API_TOKEN', self.generate_backend_internal_api_token()
+        )
+
+    def generate_and_update_backend_notebook_api_token(
+        self, force: bool = False
+    ) -> bool:
+        """Generate the scoped notebook token only when it is absent."""
+        if not force and self.get_current_env_value('BACKEND_NOTEBOOK_API_TOKEN'):
+            return True
+        return self.update_env_key(
+            'BACKEND_NOTEBOOK_API_TOKEN', self.generate_backend_notebook_api_token()
+        )
+
+    def generate_and_update_backend_n8n_api_token(self, force: bool = False) -> bool:
+        if not force and self.get_current_env_value('BACKEND_N8N_API_TOKEN'):
+            return True
+        return self.update_env_key(
+            'BACKEND_N8N_API_TOKEN', self.generate_backend_n8n_api_token()
+        )
+
+    def generate_and_update_backend_open_webui_api_token(
+        self, force: bool = False
+    ) -> bool:
+        if not force and self.get_current_env_value('BACKEND_OPEN_WEBUI_API_TOKEN'):
+            return True
+        return self.update_env_key(
+            'BACKEND_OPEN_WEBUI_API_TOKEN',
+            self.generate_backend_open_webui_api_token(),
+        )
+
     def generate_and_update_webui_admin_password(self, force: bool = False) -> bool:
         """Rotate `OPEN_WEB_UI_ADMIN_PASSWORD` only when absent or still the
         `admin` placeholder. The open-webui-init container re-registers the
@@ -1056,6 +1109,18 @@ class KeyGenerator:
         results['REDIS_PASSWORD'] = self.generate_and_update_redis_password(force=False)
         results['DASHBOARD_PASSWORD'] = self.generate_and_update_kong_dashboard_password(force=False)
         results['BACKEND_KONG_API_KEY'] = self.generate_and_update_backend_kong_api_key(force=False)
+        results['BACKEND_INTERNAL_API_TOKEN'] = (
+            self.generate_and_update_backend_internal_api_token(force=False)
+        )
+        results['BACKEND_NOTEBOOK_API_TOKEN'] = (
+            self.generate_and_update_backend_notebook_api_token(force=False)
+        )
+        results['BACKEND_N8N_API_TOKEN'] = (
+            self.generate_and_update_backend_n8n_api_token(force=False)
+        )
+        results['BACKEND_OPEN_WEBUI_API_TOKEN'] = (
+            self.generate_and_update_backend_open_webui_api_token(force=False)
+        )
         results['OPEN_WEB_UI_ADMIN_PASSWORD'] = self.generate_and_update_webui_admin_password(force=False)
 
         return results

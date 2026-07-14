@@ -37,6 +37,10 @@
     {
       "parameters": {
         "url": "http://backend:8000/research/start",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{"name": "Authorization", "value": "={{ 'Bearer ' + $env.BACKEND_N8N_API_TOKEN }}"}]
+        },
         "sendBody": true,
         "bodyParameters": {
           "parameters": [
@@ -114,6 +118,10 @@
     {
       "parameters": {
         "url": "=http://backend:8000/research/{{ $json.sessionId }}/result",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{"name": "Authorization", "value": "={{ 'Bearer ' + $env.BACKEND_N8N_API_TOKEN }}"}]
+        },
         "options": {
           "response": {
             "response": {
@@ -152,6 +160,10 @@
     {
       "parameters": {
         "url": "http://backend:8000/storage/upload",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{"name": "Authorization", "value": "={{ 'Bearer ' + $env.BACKEND_N8N_API_TOKEN }}"}]
+        },
         "sendBody": true,
         "bodyParameters": {
           "parameters": [

@@ -84,10 +84,11 @@ services:
 
       SUPABASE_URL: http://kong-api-gateway:8000
       SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
-      SUPABASE_SERVICE_KEY: ${SUPABASE_SERVICE_KEY}
       N8N_BASE_URL: http://n8n:5678
       SEARXNG_URL: http://searxng:8080
       BACKEND_API_URL: http://backend:8000
+      # Scoped bearer for stateless backend notebook examples only.
+      BACKEND_NOTEBOOK_API_TOKEN: ${BACKEND_NOTEBOOK_API_TOKEN}
     # Override the upstream image's default CMD to add the three ServerApp
     # flags VS Code (and any other remote Jupyter client) needs.
     #

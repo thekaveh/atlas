@@ -56,6 +56,7 @@ services:
       LITELLM_BASE_URL: http://litellm:4000
       LITELLM_API_KEY: ${LITELLM_MASTER_KEY}
       LITELLM_DEFAULT_MODEL: ${LITELLM_DEFAULT_MODEL:-ollama/qwen3.6:latest}
+      BACKEND_N8N_API_TOKEN: ${BACKEND_N8N_API_TOKEN}
       # STT/TTS/DOC endpoints (available for workflows)
       STT_ENDPOINT: ${STT_ENDPOINT}
       TTS_ENDPOINT: ${TTS_ENDPOINT}
@@ -151,6 +152,7 @@ services:
       QUEUE_BULL_REDIS_PASSWORD: ${REDIS_PASSWORD}
       QUEUE_BULL_REDIS_DB: 0
       QUEUE_HEALTH_CHECK_ACTIVE: true
+      BACKEND_N8N_API_TOKEN: ${BACKEND_N8N_API_TOKEN}
       # Queue mode means execution-data writes happen HERE, not on the
       # main container — the worker-server serves /metrics when these are
       # set (scraped as the n8n-worker prometheus job).

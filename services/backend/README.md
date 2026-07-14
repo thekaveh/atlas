@@ -12,12 +12,12 @@ Source: `services/backend/app/`. The FastAPI app boots in `app/main.py`, mounts 
 
 | Path | URL | Notes |
 |---|---|---|
-| Direct | `http://localhost:${BACKEND_PORT}` (default `63093`) | Always exposed when the container is up. |
-| Kong | `http://api.localhost:${KONG_HTTP_PORT}` | Requires `./start.sh --setup-hosts`. Recommended for browser-side calls; optionally protected by `BACKEND_KONG_AUTH`. |
-| Health | `GET /health` | Returns a minimal `{status, version}` response. |
-| Chunking | `POST /api/chunk` | Chonkie-backed token, recursive, and semantic text splitting for RAG ingestion clients. |
-| RAG evaluation | `POST /api/rag/evaluate` | Ragas-backed objective metrics over supplied question/answer/context records. |
-| RAG ingestion | `POST /api/rag/ingestions`, `GET /api/rag/ingestions[/{id}]`, `POST /api/rag/ingestions/{id}/cancel` | Generic ingestion job over a consumer `rag_ingestion_profile` (discover → parse → chunk → embed → vector write → LightRAG upload → drain → finalize) with machine-readable per-phase status. |
+| Direct | `http://localhost:${BACKEND_PORT}` (default `63093`) | Always exposed when the container is up; application authentication is identical to Kong access. |
+| Kong | `http://api.localhost:${KONG_HTTP_PORT}` | Requires `./start.sh --setup-hosts`. Kong policy is an optional outer gate; application identity remains required on protected routes. |
+| Public diagnostics | `GET /`, `GET /health`, `GET /metrics`, API schema/docs | No bearer token. Do not publish metrics or schema routes beyond the intended network boundary. |
+| Chunking | `POST /api/chunk` | Chonkie-backed splitting; accepts a Supabase user JWT, the internal-service token, or the scoped notebook token. |
+| RAG evaluation | `POST /api/rag/evaluate` | Ragas-backed metrics; accepts the same stateless-route credentials as chunking. |
+| RAG ingestion | `POST /api/rag/ingestions`, `GET /api/rag/ingestions[/{id}]`, `POST /api/rag/ingestions/{id}/cancel` | Internal-service only. Generic ingestion job over a consumer `rag_ingestion_profile` with machine-readable per-phase status. |
 | Ray jobs | `/api/ray/jobs`, `/api/ray/jobs/{job_id}`, `/api/ray/cluster/status` | Requires `Authorization: Bearer ${RAY_JOB_API_TOKEN}` on direct and Kong access paths. |
 
 Canonical port table: [Ports and Routes](../../docs/deployment/ports-and-routes.md).
@@ -38,6 +38,32 @@ BACKEND_KONG_AUTH=disabled        # disabled (default) or key-auth
 BACKEND_KONG_API_KEY=             # auto-generated; send as apikey when key-auth is enabled
 ```
 
+Application identity (required by default on every non-public route):
+
+```bash
+BACKEND_IDENTITY_AUTH=required
+BACKEND_INTERNAL_API_TOKEN=       # auto-generated; full operator scope
+BACKEND_N8N_API_TOKEN=            # auto-generated; n8n workflow scope
+BACKEND_NOTEBOOK_API_TOKEN=       # auto-generated; stateless notebook routes only
+BACKEND_OPEN_WEBUI_API_TOKEN=     # auto-generated; memory/legacy ComfyUI scope
+SUPABASE_JWT_SECRET=              # verifies authenticated Supabase user JWTs
+```
+
+Supabase user JWTs bind memory, research, hosted-media operations, and spend
+reads to the JWT `sub`; caller-supplied user or consumer identifiers cannot
+impersonate another subject. The internal token is the full operator
+credential. Open WebUI and n8n use separate generated tokens that can delegate
+identifiers only within the route families their bundled integrations need.
+The notebook token is narrower still and is accepted only by
+`/documents/extract`, `/api/chunk`, and `/api/rag/evaluate`. Operator surfaces
+such as workflow administration, RAG ingestion, plugin inventory, and generic
+jobs require the internal token. Ray and LightRAG adapter routes retain their
+own dedicated machine tokens.
+
+`BACKEND_IDENTITY_AUTH=disabled` is an explicit emergency rollback mode. It
+removes the application identity boundary and must not be used on an exposed
+deployment.
+
 `BACKEND_KONG_AUTH=disabled` preserves the local-development default: Kong adds
 only CORS to `api.localhost`. Set `BACKEND_KONG_AUTH=key-auth` before exposing
 the gateway beyond a trusted workstation or private reverse proxy. In that
@@ -49,9 +75,9 @@ curl -H "Host: api.localhost" \
   http://localhost:${KONG_HTTP_PORT}/health
 ```
 
-The direct host port (`localhost:${BACKEND_PORT}`) bypasses Kong and is not
-protected by this setting; bind host ports to loopback or firewall them for
-shared environments.
+The direct host port bypasses Kong's optional API-key gate, but it does not
+bypass application identity. Bind host ports to loopback or firewall them in
+shared environments because the public diagnostics remain reachable.
 
 Ray job API authentication is independent of the optional Kong setting:
 
@@ -175,7 +201,7 @@ LLMs.
 4. LiteLLM dispatches to the registered provider (Ollama, Anthropic, OpenAI, etc.).
 
 **Required hard dependencies** (from `depends_on.required`):
-- `supabase` — Postgres (LangMem facts, public tables) and Storage (file uploads default to 100 MiB via `MAX_UPLOAD_BYTES`). The backend uses Supabase service credentials for outbound storage/database work, but it does **not** validate inbound Supabase JWTs today; add gateway or application auth before exposing backend routes beyond a trusted local host.
+- `supabase` — Postgres (LangMem facts, public tables) and Storage (file uploads default to 100 MiB via `MAX_UPLOAD_BYTES`). The backend uses service credentials for outbound storage/database work and verifies inbound authenticated-user JWTs for user-scoped routes. Supabase Auth users are synchronized into `public.users` so research and memory foreign keys remain satisfiable.
 - `redis` — declared required; `REDIS_URL` is injected for shared cache/queue plumbing, and the optional Celery worker tier uses Redis database 4 for async job broker/result state.
 - `litellm` — gated `service_healthy` in compose; backend's startup performs first-call probes against the gateway.
 
@@ -190,7 +216,7 @@ When any optional service is `disabled`, the corresponding backend feature degra
 
 **Downstream plugin seam (`BACKEND_PLUGINS_DIR`):** after mounting its built-in routers, the app calls `load_plugins(app)` (`plugin_seam.py`). It scans `$BACKEND_PLUGINS_DIR` (default `/app/plugins`); an optional shared `$BACKEND_PLUGINS_DIR/requirements.txt` is installed first, then each immediate subdirectory that is an importable package exposing a module-level `router` (a FastAPI `APIRouter`) has its own optional `requirements.txt` installed before that package is imported and `include_router`'d into the app. It is a **no-op when the directory is absent**, so base Atlas is unaffected — the seam exists purely so a downstream consumer (e.g. one vendoring Atlas as a submodule) can add its own API routes without forking the backend. A plugin whose requirements fail to install is logged with the requirements path and pip output, then skipped before import; a shared requirements failure skips plugin loading for that startup. Requirements install into a **writable plugin site** (`pip --target $BACKEND_PLUGINS_SITE_DIR`, default `/tmp/atlas-plugins-site`) that the seam pre-creates and prepends to `sys.path` before any plugin import — the image runs as `appuser` with root-owned site-packages and no `$HOME`, so untargeted installs would fail with `EACCES` (#559); no consumer-side tmpfs/`PYTHONUSERBASE` workaround is needed. A plugin that fails to import is logged and skipped, never crashing the backend. Consumer-side walkthrough: [reusing-atlas.md §6.3](../../docs/deployment/reusing-atlas.md#63-adding-backend-api-routes-via-the-plugin-seam).
 
-**Optional typed plugin manifest (`plugin.yml`, #402):** a plugin package MAY ship a `plugin.yml` next to its `__init__.py` (`plugin_manifest.py` validates it with Pydantic). Absent → the plugin loads exactly as above (backward compatible). Present → it declares a versioned contract (`plugin_manifest_version: 1`): `name`, `route_prefix`, `health_path`/`docs_url`, `auth: inherit|open|key-auth`, and typed/`default`/`required`/`secret` `env` plus `depends_on` hints. The seam validates the manifest **before** installing requirements or importing, so a **present-but-malformed** manifest skips only that plugin with a structured error (it does NOT degrade to manifest-less loading) and other plugins stay healthy; duplicate names, overlapping prefixes, and prefixes shadowing a built-in route (`api`, `comfyui`, `documents`, `health`, `jobs`, `media`, `memory`, `plugins`, `research`, `storage`, `workflows`) are rejected before mounting. Declared env is validated at startup (required-missing / enum / type warnings, secrets masked). `GET /plugins` returns the resulting inventory (secret env values shown as `***`). Per-plugin `auth` composes into route-level Kong policies (see the [kong service manifest](../kong/service.yml) and [reusing-atlas.md §6.3.1](../../docs/deployment/reusing-atlas.md#631-declaring-a-typed-plugin-contract-with-pluginyml)). Canonical schema: [`bootstrapper/schemas/plugin.schema.json`](../../bootstrapper/schemas/plugin.schema.json).
+**Optional typed plugin manifest (`plugin.yml`, #402):** a plugin package MAY ship a `plugin.yml` next to its `__init__.py` (`plugin_manifest.py` validates it with Pydantic). Absent manifests and `auth: inherit` use the Backend application identity boundary. `auth: key-auth` validates `BACKEND_KONG_API_KEY` both in Kong and inside the application, so the direct port cannot bypass it. `auth: open` is the only explicit public opt-out. The manifest also declares `name`, `route_prefix`, `health_path`/`docs_url`, typed env, and dependency hints. Validation occurs **before** requirements installation or import; malformed manifests, duplicate/overlapping/reserved prefixes, and import failures skip only the affected plugin. `GET /plugins` is internal-service only and masks secret env values. See [reusing-atlas.md §6.3.1](../../docs/deployment/reusing-atlas.md#631-declaring-a-typed-plugin-contract-with-pluginyml); canonical schema: [`bootstrapper/schemas/plugin.schema.json`](../../bootstrapper/schemas/plugin.schema.json).
 
 **Graphiti experiment status:** `GET /memory/graphiti/status` returns the disabled-by-default experiment configuration and namespace pattern without importing `graphiti-core` or writing to Neo4j. Treat it as a readiness/contract endpoint for future backend-only Graphiti work, not as an active memory writer.
 

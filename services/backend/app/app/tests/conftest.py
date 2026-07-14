@@ -5,9 +5,9 @@ in this branch). This is the bootstrap for that — Ray's job-submission
 surface is the first real test suite. Follow the patterns established
 here for future Backend test work.
 
-Note: Backend has no auth layer of its own — Kong handles external auth
-at the gateway edge. So these fixtures don't need an auth-bypass
-mechanism.
+Production identity-bearing and operator routes require backend bearer
+authentication. Tests default that boundary to the explicit rollback mode;
+security tests opt back into ``required`` and exercise real credentials.
 
 Import strategy: Backend modules use bare absolute imports (e.g.
 ``from ray_client import ...``), not relative dot-imports. The conftest
@@ -30,6 +30,12 @@ import pytest
 _APP_DIR = str(Path(__file__).parent.parent)
 if _APP_DIR not in sys.path:
     sys.path.insert(0, _APP_DIR)
+
+
+@pytest.fixture(autouse=True)
+def backend_identity_auth_disabled(monkeypatch):
+    """Keep legacy route tests focused; auth-specific tests re-enable it."""
+    monkeypatch.setenv("BACKEND_IDENTITY_AUTH", "disabled")
 
 
 @pytest.fixture
@@ -72,7 +78,7 @@ def mock_job_submission_client(monkeypatch):
 @pytest.fixture
 def fastapi_client(monkeypatch, ray_enabled_env, mock_job_submission_client):
     """A TestClient bound to the Backend app, with Ray-enabled env + mocked
-    JobSubmissionClient. No auth bypass needed (Backend has no auth).
+    JobSubmissionClient. Identity auth is disabled by the autouse test fixture.
 
     Sets required env vars that main.py validates at module load time so
     that importing ``from main import app`` succeeds in the test environment

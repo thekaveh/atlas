@@ -57,6 +57,7 @@ JUPYTERHUB_SOURCE=container     # Options: container, disabled
 JUPYTERHUB_IMAGE=quay.io/jupyter/datascience-notebook:python-3.11.10
 JUPYTERHUB_PORT=63094
 JUPYTERHUB_TOKEN=               # Optional: authentication token
+BACKEND_NOTEBOOK_API_TOKEN=     # Auto-generated; scoped Backend bearer
 ```
 
 > **Performance Tip**: The `python-3.11` tag provides stable Docker layer caching, reducing rebuild times from 8-10 minutes to 5-10 seconds on subsequent starts. Using `:latest` forces Docker to check for updates and rebuild layers every time.
@@ -66,6 +67,17 @@ JUPYTERHUB_TOKEN=               # Optional: authentication token
 - **No token set**: Auto-generated token shown in logs
 - **Custom token**: Set `JUPYTERHUB_TOKEN` in `.env`
 - **View token**: `docker logs ${PROJECT_NAME}-jupyterhub | grep token`
+
+`BACKEND_NOTEBOOK_API_TOKEN` is separate from Jupyter's login token. Atlas
+injects it into the server-side notebook environment so the bundled Chonkie
+and Ragas notebooks can call `/api/chunk` and `/api/rag/evaluate`. The Backend
+accepts it only on stateless document extraction, chunking, and evaluation
+routes; it cannot access memory, research, media ownership, storage, workflow,
+job, or ingestion operations. Do not print it or persist it in notebook output.
+This token scopes Backend API access only. JupyterHub remains an
+operator-trusted engineering environment with direct database and service
+credentials; it is not a hostile multi-tenant sandbox. The unused Supabase
+service-role key is deliberately not injected.
 
 ## 5. Sample Notebooks
 

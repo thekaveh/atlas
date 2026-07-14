@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from uuid import UUID
 
 import pytest
 
@@ -142,3 +143,48 @@ def test_cancel_research_does_not_clobber_terminal_status_after_stale_read():
 
     assert result is False
     assert conn.cancel_log_inserted is False
+
+
+@pytest.mark.parametrize(
+    "method_name",
+    [
+        "get_research_status",
+        "get_research_result",
+        "cancel_research",
+        "get_research_logs",
+    ],
+)
+def test_research_record_access_applies_owner_predicate(method_name):
+    class OwnerConn:
+        def __init__(self):
+            self.calls = []
+
+        async def fetchrow(self, sql, *args):
+            self.calls.append((sql, args))
+            return None
+
+        async def close(self):
+            return None
+
+    conn = OwnerConn()
+    service = object.__new__(ResearchService)
+    service._active_tasks = {}
+
+    async def get_conn():
+        return conn
+
+    service._get_db_connection = get_conn
+    owner_id = "00000000-0000-4000-8000-000000000001"
+    method = getattr(service, method_name)
+
+    asyncio.run(
+        method(
+            "00000000-0000-4000-8000-000000000099",
+            owner_user_id=owner_id,
+        )
+    )
+
+    sql, args = conn.calls[0]
+    assert "user_id" in sql
+    assert "::uuid" in sql
+    assert UUID(owner_id) in args

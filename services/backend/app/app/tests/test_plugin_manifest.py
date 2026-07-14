@@ -159,6 +159,14 @@ def test_prefixes_overlap_semantics():
     assert not prefixes_overlap("/tableau", "/rag")
 
 
+def test_lightrag_and_framework_routes_are_reserved():
+    from plugin_manifest import RESERVED_ROUTE_PREFIXES
+
+    assert {"docs", "lightrag", "metrics", "openapi.json", "redoc"}.issubset(
+        RESERVED_ROUTE_PREFIXES
+    )
+
+
 def test_env_summary_masks_secrets(tmp_path):
     m = load_manifest(_write(tmp_path, TABLEAU_YML))
     summary = m.env_summary({"TABLEAU_EXECUTION": "comfyui", "LITELLM_MASTER_KEY": "sk-super-secret"})

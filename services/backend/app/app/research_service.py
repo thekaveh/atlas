@@ -258,7 +258,9 @@ class ResearchService:
             WHERE id = $3
         """, ResearchStatus.COMPLETED.value, datetime.now(timezone.utc), session_id)
 
-    async def get_research_status(self, session_id: str) -> Optional[Dict[str, Any]]:
+    async def get_research_status(
+        self, session_id: str, owner_user_id: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
         """Get research session status"""
         conn = await self._get_db_connection()
         
@@ -268,7 +270,8 @@ class ResearchService:
                        created_at, updated_at, started_at, completed_at, error_message
                 FROM public.research_sessions 
                 WHERE id = $1
-            """, session_id)
+                  AND ($2::uuid IS NULL OR user_id = $2::uuid)
+            """, session_id, UUID(owner_user_id) if owner_user_id else None)
             
             if not row:
                 return None
@@ -289,7 +292,9 @@ class ResearchService:
         finally:
             await conn.close()
 
-    async def get_research_result(self, session_id: str) -> Optional[Dict[str, Any]]:
+    async def get_research_result(
+        self, session_id: str, owner_user_id: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
         """Get research results for a completed session"""
         conn = await self._get_db_connection()
         
@@ -300,7 +305,8 @@ class ResearchService:
                 FROM public.research_results r
                 JOIN public.research_sessions s ON r.session_id = s.id
                 WHERE r.session_id = $1
-            """, session_id)
+                  AND ($2::uuid IS NULL OR s.user_id = $2::uuid)
+            """, session_id, UUID(owner_user_id) if owner_user_id else None)
             
             if not row:
                 return None
@@ -363,7 +369,9 @@ class ResearchService:
         finally:
             await conn.close()
 
-    async def cancel_research(self, session_id: str) -> bool:
+    async def cancel_research(
+        self, session_id: str, owner_user_id: Optional[str] = None
+    ) -> bool:
         """Cancel a running research session"""
         conn = await self._get_db_connection()
         
@@ -376,9 +384,11 @@ class ResearchService:
                 UPDATE public.research_sessions
                 SET status = $1, completed_at = $2
                 WHERE id = $3 AND status IN ($4, $5)
+                  AND ($6::uuid IS NULL OR user_id = $6::uuid)
                 RETURNING id
             """, ResearchStatus.CANCELLED.value, datetime.now(timezone.utc), session_id,
-                ResearchStatus.PENDING.value, ResearchStatus.RUNNING.value)
+                ResearchStatus.PENDING.value, ResearchStatus.RUNNING.value,
+                UUID(owner_user_id) if owner_user_id else None)
 
             if not cancelled_row:
                 return False
@@ -397,14 +407,18 @@ class ResearchService:
         finally:
             await conn.close()
 
-    async def get_research_logs(self, session_id: str) -> Optional[List[Dict[str, Any]]]:
+    async def get_research_logs(
+        self, session_id: str, owner_user_id: Optional[str] = None
+    ) -> Optional[List[Dict[str, Any]]]:
         """Get research logs for a session"""
         conn = await self._get_db_connection()
         
         try:
             session_row = await conn.fetchrow("""
-                SELECT id FROM public.research_sessions WHERE id = $1
-            """, session_id)
+                SELECT id FROM public.research_sessions
+                WHERE id = $1
+                  AND ($2::uuid IS NULL OR user_id = $2::uuid)
+            """, session_id, UUID(owner_user_id) if owner_user_id else None)
             if not session_row:
                 return None
 

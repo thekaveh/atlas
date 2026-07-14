@@ -35,6 +35,14 @@ When [Hermes Agent](../hermes/README.md) is enabled (`HERMES_SOURCE != disabled`
 
 If a dependency is disabled, adaptive services should degrade where supported. Some implementation-level dependency cleanup is tracked separately as bootstrapper work and is outside this documentation pass.
 
+Bundled memory and ComfyUI tools call the Backend from Open WebUI's server
+process with the auto-generated `BACKEND_OPEN_WEBUI_API_TOKEN`. The header is
+attached to every Backend request and never sent to browser JavaScript. The
+tool code may delegate the authenticated Open WebUI user id, while the Backend
+accepts this caller token only on memory and legacy ComfyUI routes. The init
+container installs an idempotent trigger/backfill that maps valid Open WebUI
+UUIDs into `public.users`, preserving memory foreign-key ownership.
+
 ### 4.1 Atlas Safe Prompt Middleware
 
 Atlas ships a disabled-by-default `Atlas Safe Prompt Middleware` Filter Function in `extras/functions/atlas_safe_prompt_middleware.py`. The existing `open-webui-init` container registers it with Open WebUI on startup, but the function's own `enabled` valve defaults to `false`, so it is inert until an admin enables it from Open WebUI's Functions settings.

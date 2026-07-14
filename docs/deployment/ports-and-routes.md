@@ -22,7 +22,7 @@ Run once to add them to `/etc/hosts`:
 Active aliases (every `*-localhost` source also routes through `host.docker.internal`):
 
 - `airflow.localhost` → Airflow Web UI + REST API (`AIRFLOW_SOURCE != disabled`; same alias serves UI at `/` and REST API under `/api/v2/`). Web UI auth: `admin` / auto-generated `AIRFLOW_ADMIN_PASSWORD` (FAB session cookie). REST API auth: JWT bearer — POST credentials to `/auth/token` first, then attach `Authorization: Bearer <jwt>` to `/api/v2/...` calls. See [services/airflow/README.md](https://github.com/thekaveh/atlas/blob/main/services/airflow/README.md) §6 for the full two-step curl.
-- `api.localhost` → Backend API (always-on adaptive; optional `BACKEND_KONG_AUTH=key-auth` requires `apikey: ${BACKEND_KONG_API_KEY}`)
+- `api.localhost` → Backend API (always-on adaptive; protected routes always enforce application bearer identity, while optional `BACKEND_KONG_AUTH=key-auth` adds an outer `apikey: ${BACKEND_KONG_API_KEY}` gateway gate)
 - `chat.localhost` → Open WebUI (`OPEN_WEB_UI_SOURCE != disabled`)
 - `comfyui.localhost` → ComfyUI (`COMFYUI_SOURCE != disabled`)
 - `crawl4ai.localhost` → Crawl4AI extraction API (`CRAWL4AI_SOURCE=container`; Kong basic-auth/ACL plus Crawl4AI bearer token for API calls)

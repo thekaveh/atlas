@@ -418,8 +418,14 @@ services:
       ATLAS_OTEL_ENABLED: 'false'
       BACKEND_CORS_ALLOW_ORIGIN_REGEX: ''
       BACKEND_CORS_ORIGINS: '*'
+      BACKEND_IDENTITY_AUTH: required
+      BACKEND_INTERNAL_API_TOKEN: ''
+      BACKEND_KONG_API_KEY: ''
       BACKEND_MEDIA_INPUT_BUCKET: default
       BACKEND_MEDIA_INPUT_PUBLIC_BASE_URL: ''
+      BACKEND_N8N_API_TOKEN: ''
+      BACKEND_NOTEBOOK_API_TOKEN: ''
+      BACKEND_OPEN_WEBUI_API_TOKEN: ''
       BACKEND_STORAGE_ALLOWED_BUCKETS: default
       CELERY_BROKER_URL: ''
       CELERY_BROKER_VISIBILITY_TIMEOUT_SECONDS: '3600'
@@ -496,6 +502,7 @@ services:
       REDIS_URL: redis://:redis_password@redis:6379/0
       STT_ENDPOINT: ''
       SUPABASE_ANON_KEY: ''
+      SUPABASE_JWT_SECRET: ''
       SUPABASE_SERVICE_KEY: ''
       TEI_RERANKER_ENDPOINT: ''
       TIKA_ENDPOINT: ''
@@ -1309,6 +1316,7 @@ services:
       AWS_ENDPOINT_URL_S3: http://minio:9000
       AWS_SECRET_ACCESS_KEY: ''
       BACKEND_API_URL: http://backend:8000
+      BACKEND_NOTEBOOK_API_TOKEN: ''
       COMFYUI_BASE_URL: http://comfyui:18188
       DATABASE_URL: postgresql://supabase_admin:password@supabase-db:5432/postgres
       DOCLING_ENDPOINT: ''
@@ -1346,7 +1354,6 @@ services:
       SPARK_REMOTE: sc://spark-connect:15002
       STT_ENDPOINT: ''
       SUPABASE_ANON_KEY: ''
-      SUPABASE_SERVICE_KEY: ''
       SUPABASE_URL: http://kong-api-gateway:8000
       TTS_ENDPOINT: ''
       WEAVIATE_URL: http://weaviate:8080
@@ -2619,6 +2626,7 @@ services:
     deploy:
       replicas: 1
     environment:
+      BACKEND_N8N_API_TOKEN: ''
       CRAWL4AI_API_TOKEN: ''
       CRAWL4AI_ENDPOINT: ''
       DB_POSTGRESDB_DATABASE: postgres
@@ -2757,6 +2765,7 @@ services:
     deploy:
       replicas: 1
     environment:
+      BACKEND_N8N_API_TOKEN: ''
       CRAWL4AI_API_TOKEN: ''
       CRAWL4AI_ENDPOINT: ''
       DB_POSTGRESDB_DATABASE: postgres
@@ -2983,6 +2992,7 @@ services:
       AUDIO_TTS_OPENAI_API_BASE_URL: ''
       AUDIO_TTS_OPENAI_API_KEY: sk-unused
       AUDIO_TTS_VOICE: ''
+      BACKEND_OPEN_WEBUI_API_TOKEN: ''
       COMFYUI_BASE_URL: http://comfyui:18188
       DATABASE_URL: postgresql://supabase_admin:password@supabase-db:5432/postgres
       ENABLE_IMAGE_GENERATION: 'true'
