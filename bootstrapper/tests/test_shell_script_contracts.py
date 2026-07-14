@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
+
+import yaml
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -16,26 +19,52 @@ def test_weaviate_generated_env_quotes_embedding_model() -> None:
     assert "LITELLM_EMBEDDING_MODEL=$(quote_shell_env_value \"$model\")" in script
 
 
-def test_n8n_install_nodes_fails_when_required_nodes_fail() -> None:
+def test_n8n_install_nodes_uses_locked_prestart_install() -> None:
     script = (
         REPO_ROOT / "services" / "n8n" / "init" / "scripts" / "install-nodes.sh"
     ).read_text(encoding="utf-8")
 
-    failure_block_start = script.index("if [ $failure_count -gt 0 ]; then")
-    failure_block_end = script.index("else", failure_block_start)
-    failure_block = script[failure_block_start:failure_block_end]
+    assert "/rest/community-packages" not in script
+    assert "npm ci" in script
+    assert "--ignore-scripts" in script
+    assert "package-lock.json" in script
 
-    assert "exit 1" in failure_block
 
-
-def test_n8n_install_nodes_skips_after_owner_setup_auth_gate() -> None:
+def test_n8n_custom_node_specs_must_be_exactly_versioned() -> None:
     script = (
         REPO_ROOT / "services" / "n8n" / "init" / "scripts" / "install-nodes.sh"
     ).read_text(encoding="utf-8")
 
-    assert "401|403)" in script
-    assert "Assuming owner setup already completed" in script
-    assert "skipping first-boot community-node init" in script
+    assert "must pin an exact version" in script
+    assert "validate_exact_spec" in script
+
+
+def test_n8n_init_completes_before_runtime_starts() -> None:
+    compose = yaml.safe_load(
+        (REPO_ROOT / "services" / "n8n" / "compose.yml").read_text(
+            encoding="utf-8"
+        )
+    )["services"]
+
+    assert compose["n8n"]["depends_on"]["n8n-init"] == {
+        "condition": "service_completed_successfully"
+    }
+    assert "n8n" not in compose["n8n-init"].get("depends_on", {})
+    assert compose["n8n-init"]["volumes"][-1] == "n8n-data:/home/node/.n8n"
+
+
+def test_n8n_default_community_packages_are_exactly_locked() -> None:
+    config = REPO_ROOT / "services" / "n8n" / "init" / "config"
+    package = json.loads((config / "package.json").read_text(encoding="utf-8"))
+    lock = json.loads((config / "package-lock.json").read_text(encoding="utf-8"))
+
+    assert lock["packages"][""]["dependencies"] == package["dependencies"]
+    assert package["dependencies"]["n8n-workflow"] == "2.28.1"
+    for path, metadata in lock["packages"].items():
+        if not path or metadata.get("link"):
+            continue
+        assert metadata.get("version")
+        assert metadata.get("integrity"), path
 
 
 def test_local_deep_researcher_litellm_poll_has_per_attempt_timeout() -> None:

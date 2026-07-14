@@ -14,7 +14,7 @@ images:
     default: "n8nio/n8n:2.28.2"
     container: n8n
   - var: N8N_INIT_IMAGE
-    default: "alpine:3.24.1"
+    default: "n8nio/n8n:2.28.2"
     container: n8n-init
 
 sources:
@@ -54,7 +54,8 @@ env:
   - name: N8N_INIT_SOURCE
     default: container
   - name: N8N_INIT_NODES
-    default: "n8n-nodes-comfyui,@ksc1234/n8n-nodes-comfyui-image-to-image,n8n-nodes-mcp"
+    default: "n8n-nodes-comfyui@0.0.9,@ksc1234/n8n-nodes-comfyui-image-to-image@1.0.2"
+    description: "Exact community package specs installed before n8n starts. Atlas' default ComfyUI set uses the committed package-lock; n8n 2.28.2 already supplies first-party MCP nodes. Custom values must use name@x.y.z for every comma-separated package."
   # TZ is intentionally NOT declared here. main's .env.example doesn't expose
   # it; n8n's compose has `GENERIC_TIMEZONE: ${TZ:-UTC}` which falls back to
   # UTC when TZ is unset. Declaring TZ on the manifest would force a value

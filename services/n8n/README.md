@@ -32,7 +32,7 @@ N8N_PROTOCOL=http
 N8N_EXECUTIONS_MODE=queue           # queue (default, requires worker + redis) | regular (single-process)
 N8N_COMMUNITY_PACKAGES_ENABLED=true
 N8N_COMMUNITY_PACKAGES_ALLOW_TOOL_USAGE=true   # required for AI Agent nodes to use community nodes as tools
-N8N_INIT_NODES=n8n-nodes-comfyui,@ksc1234/n8n-nodes-comfyui-image-to-image,n8n-nodes-mcp
+N8N_INIT_NODES=n8n-nodes-comfyui@0.0.9,@ksc1234/n8n-nodes-comfyui-image-to-image@1.0.2
 ```
 
 Adaptive env (auto-injected based on active SOURCE values):
@@ -76,14 +76,14 @@ return it in webhook payloads, execution output, or browser-side code.
 3. `n8n-worker` polls Redis, picks up the job, runs the workflow, writes execution history back to Postgres.
 4. UI streams progress via Redis pub/sub back to the web container.
 
-**Init flow** (`n8n-init`, alpine + inline `npm install -g`):
+**Init flow** (`n8n-init`, pinned n8n image + npm lockfile):
 
-1. Wait for n8n web container to be reachable.
-2. Install each package in `N8N_INIT_NODES` into the user-node directory.
-3. Print next steps. The seeded workflow template in `services/n8n/init/config/`
+1. Before the n8n web or worker process starts, install the committed exact package set with `npm ci --omit=dev --ignore-scripts` into the shared `/home/node/.n8n/nodes` directory.
+2. `n8n-workflow` is pinned to the version inside `n8nio/n8n:2.28.2`, avoiding wildcard peer drift. n8n's first-party MCP client, tool, registry, and trigger nodes replace the redundant `n8n-nodes-mcp` community package and its vulnerable transitive chain. `N8N_INIT_NODES` can replace the default set only with comma-separated exact `name@x.y.z` specs; the former unversioned Atlas default is recognized as a compatibility alias for the committed lock.
+3. Print completion. The seeded workflow template in `services/n8n/init/config/`
    (mounted at `/config/`) is imported **manually** via the n8n UI — `n8n-init`
    does not auto-import workflows.
-4. Exit 0 only when every required community-node installation succeeded; otherwise exit 1 so startup can fail visibly.
+4. Exit 0 only when the complete package tree is installed; otherwise exit 1 and prevent n8n from starting. Initialization does not call n8n's authenticated internal REST API.
 
 **Hard dependencies** (`depends_on.required`): `supabase`, `redis`, `litellm`. Without LiteLLM, all AI Agent nodes (the most-used feature) 404.
 
@@ -165,7 +165,7 @@ When `LIGHTRAG_SOURCE != disabled`, the env vars `LIGHTRAG_ENDPOINT` and `LIGHTR
 
 ### 6.6 Future — Unused features in this service
 
-- **MCP Server Trigger node** — *Why pursue:* n8n can expose workflows as MCP tools that Hermes/LiteLLM clients consume, completing the bidirectional MCP story (we install the client node `n8n-nodes-mcp` but never run a server). *Effort:* small.
+- **MCP Server Trigger node** — *Why pursue:* the pinned n8n runtime already ships first-party MCP client, tool, registry, and trigger nodes, but bundled workflows do not yet expose an Atlas workflow as an MCP tool for Hermes/LiteLLM clients. *Effort:* small.
 - **Native Weaviate Vector Store cluster node** — *Why pursue:* upstream ships a native Weaviate vector-store node; workflows currently talk to Weaviate via raw HTTP. Switching unlocks embeddings + retrievers without custom code. *Effort:* small.
 - **Built-in webhook auth (header auth + signature verification)** — *Why pursue:* OpenClaw and external triggers need verified webhooks; n8n supports this but no defaults are baked into the manifest. *Effort:* small.
 

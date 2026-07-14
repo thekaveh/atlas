@@ -14,6 +14,8 @@ services:
       supavisor:
         condition: service_healthy
         required: false
+      n8n-init:
+        condition: service_completed_successfully
     deploy:
       replicas: ${N8N_SCALE:-1}
     environment:
@@ -193,24 +195,17 @@ services:
       - backend-network
 
   n8n-init:
-    image: ${N8N_INIT_IMAGE:-alpine:3.24.1}
+    image: ${N8N_INIT_IMAGE:-n8nio/n8n:2.28.2}
     container_name: ${PROJECT_NAME}-n8n-init
     restart: "no"
-    depends_on:
-      n8n:
-        condition: service_started
-      litellm:
-        condition: service_healthy
     deploy:
       replicas: ${N8N_INIT_SCALE:-1}
     environment:
-      N8N_HOST: n8n
-      N8N_PORT: 5678
-      N8N_INIT_NODES: ${N8N_INIT_NODES:-n8n-nodes-comfyui,@ksc1234/n8n-nodes-comfyui-image-to-image,n8n-nodes-mcp}
+      N8N_INIT_NODES: ${N8N_INIT_NODES:-n8n-nodes-comfyui@0.0.9,@ksc1234/n8n-nodes-comfyui-image-to-image@1.0.2}
     volumes:
-      - ./init/scripts:/scripts
-      - ./init/config:/config
-      - n8n-data:/n8n-data
+      - ./init/scripts:/scripts:ro
+      - ./init/config:/config:ro
+      - n8n-data:/home/node/.n8n
     networks:
       - backend-network
     entrypoint: ["/scripts/init-n8n.sh"]

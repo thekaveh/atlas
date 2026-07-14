@@ -523,7 +523,7 @@ Do not edit by hand — the bootstrapper owns this value.
 | N8N_COMMUNITY_PACKAGES_ENABLED | n8n | True | - |
 | N8N_COMMUNITY_PACKAGES_ALLOW_TOOL_USAGE | n8n | True | - |
 | N8N_INIT_SOURCE | n8n | container | - |
-| N8N_INIT_NODES | n8n | n8n-nodes-comfyui,@ksc1234/n8n-nodes-comfyui-image-to-image,n8n-nodes-mcp | - |
+| N8N_INIT_NODES | n8n | n8n-nodes-comfyui@0.0.9,@ksc1234/n8n-nodes-comfyui-image-to-image@1.0.2 | Exact community package specs installed before n8n starts. Atlas' default ComfyUI set uses the committed package-lock; n8n 2.28.2 already supplies first-party MCP nodes. Custom values must use name@x.y.z for every comma-separated package. |
 | N8N_SCALE | n8n |  | - |
 | N8N_WORKER_SCALE | n8n |  | - |
 | N8N_INIT_SCALE | n8n |  | - |
