@@ -25,6 +25,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from tests.three_surface_test_utils import surface_text
+
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _MODELS_YAML = _REPO_ROOT / "services" / "comfyui" / "models.yaml"
 _WORKFLOW = (
@@ -270,8 +272,8 @@ def test_glb_validator_rejects_corruption(mutate):
 
 def test_hunyuan3d_is_documented_on_all_three_surfaces():
     repo = (_REPO_ROOT / "services/comfyui/README.md").read_text(encoding="utf-8")
-    site = (_REPO_ROOT / "docs/site/services/comfyui.md").read_text(encoding="utf-8")
-    wiki = (_REPO_ROOT / "docs/wiki/Services.md").read_text(encoding="utf-8")
+    site = surface_text("services/comfyui/README.md", "site")
+    wiki = surface_text("services/comfyui/README.md", "wiki")
     for surface in (repo, site, wiki):
         assert "Hunyuan3D-2" in surface
         assert "hunyuan3d-2-image-to-glb-api.json" in surface

@@ -1,0 +1,731 @@
+surfaces:
+- repo
+- site
+- wiki
+numbering: baked
+sections:
+- id: overview
+  number: '1'
+  title: Overview
+  source: docs/index.md
+- id: quick-start
+  number: '2'
+  title: Quick Start
+  children:
+  - id: quick-start-index
+    number: '2.1'
+    title: Launch Atlas
+    source: docs/quick-start/index.md
+  - id: interactive-wizard
+    number: '2.2'
+    title: Interactive Setup Wizard
+    source: docs/quick-start/interactive-setup-wizard.md
+  - id: quick-start-troubleshooting
+    number: '2.3'
+    title: Quick Start Troubleshooting
+    source: docs/quick-start/troubleshooting.md
+- id: core-concepts
+  number: '3'
+  title: Core Concepts
+  source: docs/core-concepts.md
+- id: tracks
+  number: '4'
+  title: Tracks
+  source: docs/tracks.md
+- id: services
+  number: '5'
+  title: Services
+  children:
+  - id: services-index
+    number: '5.1'
+    title: Service Catalog
+    source: docs/services.md
+  - id: service-guides
+    number: '5.2'
+    title: Service Guides
+    children:
+    - id: service-airflow
+      number: 5.2.1
+      title: airflow
+      source: services/airflow/README.md
+      diagrams:
+      - service-airflow
+    - id: service-asset-baker
+      number: 5.2.2
+      title: asset-baker
+      source: services/asset-baker/README.md
+      diagrams:
+      - service-asset-baker
+    - id: service-asset-worker
+      number: 5.2.3
+      title: asset-worker
+      source: services/asset-worker/README.md
+      diagrams:
+      - service-asset-worker
+    - id: service-backend
+      number: 5.2.4
+      title: backend
+      source: services/backend/README.md
+      diagrams:
+      - service-backend
+    - id: service-backup
+      number: 5.2.5
+      title: backup
+      source: services/backup/README.md
+      diagrams:
+      - service-backup
+    - id: service-blender-mcp
+      number: 5.2.6
+      title: blender-mcp
+      source: services/blender-mcp/README.md
+      diagrams:
+      - service-blender-mcp
+    - id: service-celery
+      number: 5.2.7
+      title: celery
+      source: services/celery/README.md
+      diagrams:
+      - service-celery
+    - id: service-chatterbox
+      number: 5.2.8
+      title: chatterbox
+      source: services/chatterbox/README.md
+      diagrams:
+      - service-chatterbox
+    - id: service-cloud-providers
+      number: 5.2.9
+      title: cloud-providers
+      source: services/cloud-providers/README.md
+      diagrams:
+      - service-cloud-providers
+    - id: service-cloudflared
+      number: 5.2.10
+      title: cloudflared
+      source: services/cloudflared/README.md
+      diagrams:
+      - service-cloudflared
+    - id: service-comfyui
+      number: 5.2.11
+      title: comfyui
+      source: services/comfyui/README.md
+      diagrams:
+      - service-comfyui
+    - id: service-crawl4ai
+      number: 5.2.12
+      title: crawl4ai
+      source: services/crawl4ai/README.md
+      diagrams:
+      - service-crawl4ai
+    - id: service-doc-processor
+      number: 5.2.13
+      title: doc-processor
+      source: services/doc-processor/README.md
+      diagrams:
+      - service-doc-processor
+    - id: service-docling
+      number: 5.2.14
+      title: docling
+      source: services/docling/README.md
+      diagrams:
+      - service-docling
+    - id: service-fal
+      number: 5.2.15
+      title: fal
+      source: services/fal/README.md
+      diagrams:
+      - service-fal
+    - id: service-globals
+      number: 5.2.16
+      title: globals
+      source: services/globals/README.md
+      diagrams:
+      - service-globals
+    - id: service-grafana
+      number: 5.2.17
+      title: grafana
+      source: services/grafana/README.md
+      diagrams:
+      - service-grafana
+    - id: service-hermes
+      number: 5.2.18
+      title: hermes
+      source: services/hermes/README.md
+      diagrams:
+      - service-hermes
+    - id: service-iceberg-rest
+      number: 5.2.19
+      title: iceberg-rest
+      source: services/iceberg-rest/README.md
+      diagrams:
+      - service-iceberg-rest
+    - id: service-jenkins
+      number: 5.2.20
+      title: jenkins
+      source: services/jenkins/README.md
+      diagrams:
+      - service-jenkins
+    - id: service-jupyterhub
+      number: 5.2.21
+      title: jupyterhub
+      source: services/jupyterhub/README.md
+      diagrams:
+      - service-jupyterhub
+    - id: service-kong
+      number: 5.2.22
+      title: kong
+      source: services/kong/README.md
+      diagrams:
+      - service-kong
+    - id: service-label-studio
+      number: 5.2.23
+      title: label-studio
+      source: services/label-studio/README.md
+      diagrams:
+      - service-label-studio
+    - id: service-langfuse
+      number: 5.2.24
+      title: langfuse
+      source: services/langfuse/README.md
+      diagrams:
+      - service-langfuse
+    - id: service-lightrag
+      number: 5.2.25
+      title: lightrag
+      source: services/lightrag/README.md
+      diagrams:
+      - service-lightrag
+    - id: service-litellm
+      number: 5.2.26
+      title: litellm
+      source: services/litellm/README.md
+      diagrams:
+      - service-litellm
+    - id: service-llm-graph-builder
+      number: 5.2.27
+      title: llm-graph-builder
+      source: services/llm-graph-builder/README.md
+      diagrams:
+      - service-llm-graph-builder
+    - id: service-local-deep-researcher
+      number: 5.2.28
+      title: local-deep-researcher
+      source: services/local-deep-researcher/README.md
+      diagrams:
+      - service-local-deep-researcher
+    - id: service-loki
+      number: 5.2.29
+      title: loki
+      source: services/loki/README.md
+      diagrams:
+      - service-loki
+    - id: service-mcp-servers
+      number: 5.2.30
+      title: mcp-servers
+      source: services/mcp-servers/README.md
+      diagrams:
+      - service-mcp-servers
+    - id: service-minio
+      number: 5.2.31
+      title: minio
+      source: services/minio/README.md
+      diagrams:
+      - service-minio
+    - id: service-mlflow
+      number: 5.2.32
+      title: mlflow
+      source: services/mlflow/README.md
+      diagrams:
+      - service-mlflow
+    - id: service-multi2vec-clip
+      number: 5.2.33
+      title: multi2vec-clip
+      source: services/multi2vec-clip/README.md
+      diagrams:
+      - service-multi2vec-clip
+    - id: service-n8n
+      number: 5.2.34
+      title: n8n
+      source: services/n8n/README.md
+      diagrams:
+      - service-n8n
+    - id: service-neo4j
+      number: 5.2.35
+      title: neo4j
+      source: services/neo4j/README.md
+      diagrams:
+      - service-neo4j
+    - id: service-ollama
+      number: 5.2.36
+      title: ollama
+      source: services/ollama/README.md
+      diagrams:
+      - service-ollama
+    - id: service-open-webui
+      number: 5.2.37
+      title: open-webui
+      source: services/open-webui/README.md
+      diagrams:
+      - service-open-webui
+    - id: service-openclaw
+      number: 5.2.38
+      title: openclaw
+      source: services/openclaw/README.md
+      diagrams:
+      - service-openclaw
+    - id: service-otel-collector
+      number: 5.2.39
+      title: otel-collector
+      source: services/otel-collector/README.md
+      diagrams:
+      - service-otel-collector
+    - id: service-parakeet
+      number: 5.2.40
+      title: parakeet
+      source: services/parakeet/README.md
+      diagrams:
+      - service-parakeet
+    - id: service-prometheus
+      number: 5.2.41
+      title: prometheus
+      source: services/prometheus/README.md
+      diagrams:
+      - service-prometheus
+    - id: service-ray
+      number: 5.2.42
+      title: ray
+      source: services/ray/README.md
+      diagrams:
+      - service-ray
+    - id: service-redis
+      number: 5.2.43
+      title: redis
+      source: services/redis/README.md
+      diagrams:
+      - service-redis
+    - id: service-redpanda
+      number: 5.2.44
+      title: redpanda
+      source: services/redpanda/README.md
+      diagrams:
+      - service-redpanda
+    - id: service-searxng
+      number: 5.2.45
+      title: searxng
+      source: services/searxng/README.md
+      diagrams:
+      - service-searxng
+    - id: service-spark
+      number: 5.2.46
+      title: spark
+      source: services/spark/README.md
+      diagrams:
+      - service-spark
+    - id: service-speaches
+      number: 5.2.47
+      title: speaches
+      source: services/speaches/README.md
+      diagrams:
+      - service-speaches
+    - id: service-stt-provider
+      number: 5.2.48
+      title: stt-provider
+      source: services/stt-provider/README.md
+      diagrams:
+      - service-stt-provider
+    - id: service-supabase
+      number: 5.2.49
+      title: supabase
+      source: services/supabase/README.md
+      diagrams:
+      - service-supabase
+    - id: service-supavisor
+      number: 5.2.50
+      title: supavisor
+      source: services/supavisor/README.md
+      diagrams:
+      - service-supavisor
+    - id: service-tei-reranker
+      number: 5.2.51
+      title: tei-reranker
+      source: services/tei-reranker/README.md
+      diagrams:
+      - service-tei-reranker
+    - id: service-tempo
+      number: 5.2.52
+      title: tempo
+      source: services/tempo/README.md
+      diagrams:
+      - service-tempo
+    - id: service-tika
+      number: 5.2.53
+      title: tika
+      source: services/tika/README.md
+      diagrams:
+      - service-tika
+    - id: service-trino
+      number: 5.2.54
+      title: trino
+      source: services/trino/README.md
+      diagrams:
+      - service-trino
+    - id: service-tts-provider
+      number: 5.2.55
+      title: tts-provider
+      source: services/tts-provider/README.md
+      diagrams:
+      - service-tts-provider
+    - id: service-verba
+      number: 5.2.56
+      title: verba
+      source: services/verba/README.md
+      diagrams:
+      - service-verba
+    - id: service-vllm-metal
+      number: 5.2.57
+      title: vllm-metal
+      source: services/vllm-metal/README.md
+      diagrams:
+      - service-vllm-metal
+    - id: service-weaviate
+      number: 5.2.58
+      title: weaviate
+      source: services/weaviate/README.md
+      diagrams:
+      - service-weaviate
+    - id: service-zeppelin
+      number: 5.2.59
+      title: zeppelin
+      source: services/zeppelin/README.md
+      diagrams:
+      - service-zeppelin
+- id: architecture
+  number: '6'
+  title: Architecture
+  children:
+  - id: architecture-index
+    number: '6.1'
+    title: Platform Architecture
+    source: docs/architecture/index.md
+    diagrams:
+    - atlas-platform
+  - id: architecture-platform
+    number: '6.2'
+    title: Platform Overview
+    source: docs/architecture/platform-overview.md
+    diagrams:
+    - architecture-platform-overview
+  - id: architecture-bootstrapper
+    number: '6.3'
+    title: Bootstrapper Lifecycle
+    source: docs/architecture/bootstrapper-lifecycle.md
+    diagrams:
+    - architecture-bootstrapper-lifecycle
+  - id: architecture-source-model
+    number: '6.4'
+    title: SOURCE Model
+    source: docs/architecture/source-configuration-model.md
+    diagrams:
+    - architecture-source-configuration-model
+  - id: architecture-tracks
+    number: '6.5'
+    title: Track Matrix
+    source: docs/architecture/track-selection-matrix.md
+    diagrams:
+    - architecture-track-selection-matrix
+  - id: architecture-routing
+    number: '6.6'
+    title: Network Routing
+    source: docs/architecture/network-routing-topology.md
+    diagrams:
+    - architecture-network-routing-topology
+  - id: architecture-rag
+    number: '6.7'
+    title: RAG Flow
+    source: docs/architecture/data-rag-flow.md
+    diagrams:
+    - architecture-data-rag-flow
+  - id: architecture-llm
+    number: '6.8'
+    title: LLM Flow
+    source: docs/architecture/llm-provider-flow.md
+    diagrams:
+    - architecture-llm-provider-flow
+  - id: architecture-lakehouse
+    number: '6.9'
+    title: Lakehouse Flow
+    source: docs/architecture/data-engineering-lakehouse-flow.md
+    diagrams:
+    - architecture-data-engineering-lakehouse-flow
+  - id: architecture-observability
+    number: '6.10'
+    title: Observability Flow
+    source: docs/architecture/observability-flow.md
+    diagrams:
+    - architecture-observability-flow
+  - id: architecture-security
+    number: '6.11'
+    title: Security Boundary
+    source: docs/architecture/security-auth-secrets-boundary.md
+    diagrams:
+    - architecture-security-auth-secrets-boundary
+  - id: architecture-admission
+    number: '6.12'
+    title: Service Admission
+    source: docs/architecture/service-admission-workflow.md
+    diagrams:
+    - architecture-service-admission-workflow
+  - id: architecture-authoring
+    number: '6.13'
+    title: Diagram Authoring
+    source: docs/architecture/README.md
+- id: configuration
+  number: '7'
+  title: Configuration
+  children:
+  - id: configuration-index
+    number: '7.1'
+    title: Configuration Overview
+    source: docs/configuration.md
+  - id: source-configuration
+    number: '7.2'
+    title: SOURCE Configuration
+    source: docs/deployment/source-configuration.md
+  - id: ports-routes
+    number: '7.3'
+    title: Ports And Routes
+    source: docs/deployment/ports-and-routes.md
+- id: operations
+  number: '8'
+  title: Operations
+  children:
+  - id: operations-index
+    number: '8.1'
+    title: Operations Overview
+    source: docs/operations.md
+  - id: troubleshooting
+    number: '8.2'
+    title: Troubleshooting
+    source: docs/TROUBLESHOOTING.md
+  - id: startup-warnings
+    number: '8.3'
+    title: Expected Startup Warnings
+    source: docs/deployment/expected-startup-warnings.md
+  - id: iceberg-smoke
+    number: '8.4'
+    title: Iceberg Advanced Smoke Test
+    source: docs/deployment/iceberg-advanced-smoke.md
+  - id: releasing
+    number: '8.5'
+    title: Releasing
+    source: docs/deployment/releasing.md
+  - id: reusing-atlas
+    number: '8.6'
+    title: Reusing Atlas
+    source: docs/deployment/reusing-atlas.md
+  - id: submodule-usage
+    number: '8.7'
+    title: Submodule Usage
+    source: docs/deployment/submodule-usage.md
+- id: development
+  number: '9'
+  title: Development
+  children:
+  - id: development-index
+    number: '9.1'
+    title: Development Overview
+    source: docs/development.md
+  - id: contributing-services
+    number: '9.2'
+    title: Contributing Services
+    source: docs/CONTRIBUTING-services.md
+  - id: documentation-map
+    number: '9.3'
+    title: Documentation Map
+    source: docs/README.md
+  - id: diagram-catalog
+    number: '9.4'
+    title: Diagram Catalog
+    source: docs/diagrams/README.md
+  - id: changelog
+    number: '9.5'
+    title: Changelog
+    source: docs/CHANGELOG.md
+  - id: roadmap
+    number: '9.6'
+    title: Roadmap
+    source: docs/ROADMAP.md
+- id: reference
+  number: '10'
+  title: Reference
+  children:
+  - id: reference-index
+    number: '10.1'
+    title: Reference Index
+    source: docs/reference/index.md
+  - id: source-values
+    number: '10.2'
+    title: SOURCE Values
+    source: docs/reference/source-values.md
+  - id: environment-variables
+    number: '10.3'
+    title: Environment Variables
+    source: docs/reference/env-vars.md
+  - id: reference-ports
+    number: '10.4'
+    title: Ports And Routes Reference
+    source: docs/reference/ports-routes.md
+  - id: reference-tracks
+    number: '10.5'
+    title: Tracks Reference
+    source: docs/reference/tracks.md
+  - id: service-dependencies
+    number: '10.6'
+    title: Service Dependencies
+    source: docs/reference/service-dependencies.md
+  - id: manifest-fields
+    number: '10.7'
+    title: Manifest Fields
+    source: docs/reference/manifest-fields.md
+diagrams:
+- id: atlas-platform
+  master: docs/diagrams/architecture.html
+- id: architecture-bootstrapper-lifecycle
+  master: docs/architecture/bootstrapper-lifecycle.html
+- id: architecture-data-engineering-lakehouse-flow
+  master: docs/architecture/data-engineering-lakehouse-flow.html
+- id: architecture-data-rag-flow
+  master: docs/architecture/data-rag-flow.html
+- id: architecture-llm-provider-flow
+  master: docs/architecture/llm-provider-flow.html
+- id: architecture-network-routing-topology
+  master: docs/architecture/network-routing-topology.html
+- id: architecture-observability-flow
+  master: docs/architecture/observability-flow.html
+- id: architecture-platform-overview
+  master: docs/architecture/platform-overview.html
+- id: architecture-security-auth-secrets-boundary
+  master: docs/architecture/security-auth-secrets-boundary.html
+- id: architecture-service-admission-workflow
+  master: docs/architecture/service-admission-workflow.html
+- id: architecture-source-configuration-model
+  master: docs/architecture/source-configuration-model.html
+- id: architecture-track-selection-matrix
+  master: docs/architecture/track-selection-matrix.html
+- id: service-airflow
+  master: services/airflow/architecture.html
+- id: service-asset-baker
+  master: services/asset-baker/architecture.html
+- id: service-asset-worker
+  master: services/asset-worker/architecture.html
+- id: service-backend
+  master: services/backend/architecture.html
+- id: service-backup
+  master: services/backup/architecture.html
+- id: service-blender-mcp
+  master: services/blender-mcp/architecture.html
+- id: service-celery
+  master: services/celery/architecture.html
+- id: service-chatterbox
+  master: services/chatterbox/architecture.html
+- id: service-cloud-providers
+  master: services/cloud-providers/architecture.html
+- id: service-cloudflared
+  master: services/cloudflared/architecture.html
+- id: service-comfyui
+  master: services/comfyui/architecture.html
+- id: service-crawl4ai
+  master: services/crawl4ai/architecture.html
+- id: service-doc-processor
+  master: services/doc-processor/architecture.html
+- id: service-docling
+  master: services/docling/architecture.html
+- id: service-fal
+  master: services/fal/architecture.html
+- id: service-globals
+  master: services/globals/architecture.html
+- id: service-grafana
+  master: services/grafana/architecture.html
+- id: service-hermes
+  master: services/hermes/architecture.html
+- id: service-iceberg-rest
+  master: services/iceberg-rest/architecture.html
+- id: service-jenkins
+  master: services/jenkins/architecture.html
+- id: service-jupyterhub
+  master: services/jupyterhub/architecture.html
+- id: service-kong
+  master: services/kong/architecture.html
+- id: service-label-studio
+  master: services/label-studio/architecture.html
+- id: service-langfuse
+  master: services/langfuse/architecture.html
+- id: service-lightrag
+  master: services/lightrag/architecture.html
+- id: service-litellm
+  master: services/litellm/architecture.html
+- id: service-llm-graph-builder
+  master: services/llm-graph-builder/architecture.html
+- id: service-local-deep-researcher
+  master: services/local-deep-researcher/architecture.html
+- id: service-loki
+  master: services/loki/architecture.html
+- id: service-mcp-servers
+  master: services/mcp-servers/architecture.html
+- id: service-minio
+  master: services/minio/architecture.html
+- id: service-mlflow
+  master: services/mlflow/architecture.html
+- id: service-multi2vec-clip
+  master: services/multi2vec-clip/architecture.html
+- id: service-n8n
+  master: services/n8n/architecture.html
+- id: service-neo4j
+  master: services/neo4j/architecture.html
+- id: service-ollama
+  master: services/ollama/architecture.html
+- id: service-open-webui
+  master: services/open-webui/architecture.html
+- id: service-openclaw
+  master: services/openclaw/architecture.html
+- id: service-otel-collector
+  master: services/otel-collector/architecture.html
+- id: service-parakeet
+  master: services/parakeet/architecture.html
+- id: service-prometheus
+  master: services/prometheus/architecture.html
+- id: service-ray
+  master: services/ray/architecture.html
+- id: service-redis
+  master: services/redis/architecture.html
+- id: service-redpanda
+  master: services/redpanda/architecture.html
+- id: service-searxng
+  master: services/searxng/architecture.html
+- id: service-spark
+  master: services/spark/architecture.html
+- id: service-speaches
+  master: services/speaches/architecture.html
+- id: service-stt-provider
+  master: services/stt-provider/architecture.html
+- id: service-supabase
+  master: services/supabase/architecture.html
+- id: service-supavisor
+  master: services/supavisor/architecture.html
+- id: service-tei-reranker
+  master: services/tei-reranker/architecture.html
+- id: service-tempo
+  master: services/tempo/architecture.html
+- id: service-tika
+  master: services/tika/architecture.html
+- id: service-trino
+  master: services/trino/architecture.html
+- id: service-tts-provider
+  master: services/tts-provider/architecture.html
+- id: service-verba
+  master: services/verba/architecture.html
+- id: service-vllm-metal
+  master: services/vllm-metal/architecture.html
+- id: service-weaviate
+  master: services/weaviate/architecture.html
+- id: service-zeppelin
+  master: services/zeppelin/architecture.html

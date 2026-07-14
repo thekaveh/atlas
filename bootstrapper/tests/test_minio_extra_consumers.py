@@ -4,6 +4,8 @@ import os
 import subprocess
 from pathlib import Path
 
+from tests.three_surface_test_utils import surface_text
+
 import yaml
 
 
@@ -14,8 +16,6 @@ MINIO_INIT = REPO_ROOT / "services" / "minio" / "init" / "scripts" / "init-minio
 MINIO_README = REPO_ROOT / "services" / "minio" / "README.md"
 REUSING_ATLAS = REPO_ROOT / "docs" / "deployment" / "reusing-atlas.md"
 SUBMODULE_USAGE = REPO_ROOT / "docs" / "deployment" / "submodule-usage.md"
-SITE_DEVELOPMENT = REPO_ROOT / "docs" / "site" / "development.md"
-WIKI_DEVELOPMENT = REPO_ROOT / "docs" / "wiki" / "Development.md"
 ENV_EXAMPLE = REPO_ROOT / ".env.example"
 
 
@@ -138,7 +138,9 @@ def test_docs_cover_parent_owned_minio_extra_consumers() -> None:
     ):
         assert expected in canonical_docs
 
-    for surface in (SITE_DEVELOPMENT, WIKI_DEVELOPMENT):
-        text = surface.read_text(encoding="utf-8")
+    for text in (
+        surface_text("docs/development.md", "site"),
+        surface_text("docs/development.md", "wiki"),
+    ):
         assert "MINIO_EXTRA_CONSUMERS" in text
         assert "daydreams:MINIO_BUCKET_DAYDREAMS" in text

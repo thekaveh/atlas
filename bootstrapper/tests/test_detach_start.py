@@ -3,12 +3,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from tests.three_surface_test_utils import surface_text
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 START_PY = REPO_ROOT / "bootstrapper" / "start.py"
 REUSING_ATLAS = REPO_ROOT / "docs" / "deployment" / "reusing-atlas.md"
-SITE_OPERATIONS = REPO_ROOT / "docs" / "site" / "operations.md"
-WIKI_OPERATIONS = REPO_ROOT / "docs" / "wiki" / "Operations.md"
 
 
 def test_start_cli_declares_detach_no_follow_and_json_options() -> None:
@@ -101,8 +101,11 @@ def test_detached_json_status_summary_reports_unhealthy_service(monkeypatch, cap
 
 
 def test_automation_docs_name_detach_as_scripted_bring_up() -> None:
-    for path in (REUSING_ATLAS, SITE_OPERATIONS, WIKI_OPERATIONS):
-        text = path.read_text(encoding="utf-8")
+    for text in (
+        REUSING_ATLAS.read_text(encoding="utf-8"),
+        surface_text("docs/operations.md", "site"),
+        surface_text("docs/operations.md", "wiki"),
+    ):
         assert "--no-tui --detach" in text
         assert "--no-follow" in text
         assert "scripted" in text.lower() or "automation" in text.lower()

@@ -6,8 +6,6 @@
 
 A self-hosted, source-configurable, multi-disciplinary engineering platform — gen-AI, ML, and data — composable from a single Docker Compose stack.
 
-> **Documentation site:** <https://thekaveh.github.io/atlas/> — the rendered docs (built from this repo's `docs/` via MkDocs Material). A [GitHub Wiki](https://github.com/thekaveh/atlas/wiki) mirror is kept in sync. The in-repo paths below remain the source of truth.
-
 [![Atlas — interactive setup wizard streaming the launch phase, with the ASCII brand banner pinned at the top of the terminal](./docs/screenshots/wizard-running.png)](./docs/screenshots/wizard-running.png)
 
 *The Textual TUI wizard mid-launch: ASCII brand banner pinned at the top, stack overview + cloud-API status, filter + log-source chips, and the live `docker compose` log stream below. Captured during a normal `./start.sh` run.*
@@ -621,8 +619,6 @@ docker logs ${PROJECT_NAME}-ollama -f    # Check Ollama upstream logs (if enable
 For longer-form troubleshooting guides, see [docs/quick-start/troubleshooting.md](docs/quick-start/troubleshooting.md).
 
 ## 9. Documentation
-
-> The rendered documentation site is published at <https://thekaveh.github.io/atlas/> — built from this repo's `docs/` via MkDocs Material and deployed by `.github/workflows/docs-pages.yml`, with a [GitHub Wiki](https://github.com/thekaveh/atlas/wiki) mirror kept in sync. The in-repo paths below are the source of truth; the site and wiki are generated from them.
 
 The [documentation index](docs/README.md) is the top-level navigation hub.
 Key entry points by audience:
