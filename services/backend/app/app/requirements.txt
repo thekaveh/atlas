@@ -41,7 +41,7 @@ fal-client>=0.8.0
 # transparent inputs onto a neutral background before submission. Imported
 # lazily at request time only, so it stays out of main.py's import closure and
 # the CI backend unit-test venv.
-Pillow>=10.3.0
+Pillow>=12.3.0
 ollama>=0.6.2
 numpy>=1.26.0
 pytz>=2024.1
