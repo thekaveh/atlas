@@ -30,6 +30,8 @@ This page is the **overview and decision guide**. It answers: *can I reuse Atlas
 
 ---
 
+<a id="3-method-a--standalone--shared-network-the-rag-showcase-walkthrough"></a>
+
 ## 3. Method A — Standalone + shared network (the RAG-showcase walkthrough)
 
 Atlas runs as its own stack. Your RAG project is a separate Compose project that attaches to Atlas's network and addresses services by container DNS name. Nothing in your app repo needs to know Atlas's internals beyond the service hostnames.
@@ -100,6 +102,8 @@ If you'd rather not depend on individual service hostnames, route through Kong �
 
 ---
 
+<a id="4-method-b--git-submodule"></a>
+
 ## 4. Method B — Git submodule
 
 Vendor Atlas into your repo and run it from a subdirectory — best when your project and its infra ship as one versioned, reproducible unit.
@@ -114,6 +118,8 @@ cp .env.example .env                   # set PROJECT_NAME to your project
 Pin the submodule to a release **tag** rather than tracking `main`, so infra upgrades are explicit, reviewable commits — see [releasing.md](releasing.md) for the tag convention. This is the same shared-network model as Method A (your app joins `${PROJECT_NAME}-network`), with the difference that Atlas's source lives inside your repo at a pinned commit. The **complete** guide — directory layout, `.gitignore`, custom env-file location, integration patterns, contributing upstream, CI/CD, multiple stacks, troubleshooting — is [submodule-usage.md](submodule-usage.md).
 
 ---
+
+<a id="5-method-c--template--fork-and-why-not-published-images"></a>
 
 ## 5. Method C — Template / fork (and why not published images)
 

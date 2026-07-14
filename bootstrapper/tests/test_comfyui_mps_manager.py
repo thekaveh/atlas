@@ -21,6 +21,7 @@ from services.comfyui_mps_manager import (
     ComfyUiMpsManager,
     manager_from_env,
 )
+from tests.three_surface_test_utils import surface_text
 
 
 # ─────────────────────────── fakes / seams ───────────────────────────
@@ -550,8 +551,8 @@ def test_managed_mps_documented_on_all_three_surfaces():
     """The managed-MPS source + lifecycle must appear on repo README, MkDocs
     site, and GitHub wiki (mirrors the Krea three-surface contract)."""
     repo = (_ROOT / "services/comfyui/README.md").read_text(encoding="utf-8")
-    site = (_ROOT / "docs/site/services/comfyui.md").read_text(encoding="utf-8")
-    wiki = (_ROOT / "docs/wiki/Services.md").read_text(encoding="utf-8")
+    site = surface_text("services/comfyui/README.md", "site")
+    wiki = surface_text("services/comfyui/README.md", "wiki")
     for surface in (repo, site, wiki):
         assert "managed-localhost-mps" in surface
         assert "Managed Apple-Silicon" in surface
@@ -560,7 +561,7 @@ def test_managed_mps_documented_on_all_three_surfaces():
         assert "cold" in surface.lower() and "unsupported" in surface.lower()
         assert "BF16" in surface  # fp8-crashes-on-MPS precision constraint
     # Env knobs surface on the wiki + site reference tables too (manifest-derived).
-    assert "COMFYUI_MPS_STATE_DIR" in (_ROOT / "docs/wiki/Reference.md").read_text(encoding="utf-8")
+    assert "COMFYUI_MPS_STATE_DIR" in surface_text("docs/reference/env-vars.md", "wiki")
 
 
 # ─────────────────────────── optional live smoke ───────────────────────────

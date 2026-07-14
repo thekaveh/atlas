@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from tests.three_surface_test_utils import surface_text
+
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -44,8 +46,8 @@ def test_chonkie_notebook_and_docs_register_backend_runtime_contract() -> None:
             _read("services/backend/README.md"),
             _read("services/jupyterhub/README.md"),
             _read("services/jupyterhub/build/README.md"),
-            _read("docs/site/core-concepts.md"),
-            _read("docs/wiki/Core-Concepts.md"),
+            surface_text("docs/core-concepts.md", "site"),
+            surface_text("docs/core-concepts.md", "wiki"),
         ]
     )
 

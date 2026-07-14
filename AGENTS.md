@@ -215,9 +215,8 @@ uv run --project bootstrapper pytest bootstrapper/tests -k weaviate             
 Operational lint scripts that run outside pytest:
 
 ```bash
-uv run --project bootstrapper python scripts/generate-docs-site.py --check     # generated docs drift gate
-uv run --project bootstrapper python scripts/check-docs-site.py                # MkDocs strict build
-uv run --project bootstrapper python scripts/export-docs-wiki.py --check       # wiki export drift
+make docs-check                                                               # three-surface contracts + strict build + wiki dry run
+uv run --project bootstrapper python -m scripts.notebook_reproducibility      # notebook source cleanliness
 uv run --project bootstrapper python scripts/check_doc_links.py                # internal markdown link validator
 uv run --project bootstrapper python -m bootstrapper.docs.regen --all --check  # docs drift gate (exit 2 on drift)
 uv run --project bootstrapper python scripts/check-docs-drift.py               # docs structure audit

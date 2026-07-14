@@ -8,6 +8,8 @@ The stack uses a **per-service folder layout** under `services/<name>/`. Each se
 
 The thin top-level `docker-compose.yml` merges fragments via Compose's native `include:` directive (requires Compose ≥ v2.20; v2.26+ recommended).
 
+<a id="1-tldr--the-60-second-checklist"></a>
+
 ## 1. TL;DR — the 60-second checklist
 
 A maintainer who already understands the stack can land a new service in under an hour by following this list. Each step links to the relevant deep-dive section.
@@ -53,6 +55,8 @@ condenses it to one block, and the canonical regen + lint chain lives at
 byte-equivalence test or docs-drift gate in CI).
 
 > **First time adding a service?** Start with the [Pre-flight study](#4-pre-flight--study-the-candidate-service) below — it lists the upstream-doc questions whose answers feed every later decision.
+
+<a id="4-pre-flight--study-the-candidate-service"></a>
 
 ## 4. Pre-flight — study the candidate service
 
@@ -113,6 +117,8 @@ Once you understand the candidate, scan our existing service manifests (run `gre
 
 With pre-flight complete, the six decisions become near-mechanical — proceed to [Decision 1](#5-decision-1--folder-flavor-container-virtual-or-doc-only).
 
+<a id="5-decision-1--folder-flavor-container-virtual-or-doc-only"></a>
+
 ## 5. Decision 1 — Folder flavor: container, virtual, or doc-only
 
 Three legitimate flavors of folder live under `services/`. Pick the right one before writing anything else.
@@ -135,6 +141,8 @@ Three legitimate flavors of folder live under `services/`. Pick the right one be
 - Adding a virtual manifest with a compose fragment — the schema validator will reject it. Either remove `compose.yml` (if no container runs) or unset `virtual: true` and keep the compose fragment (container flavor).
 - Adding a doc-only folder when the role has env vars to manage — use a virtual manifest instead.
 
+<a id="6-decision-2--category"></a>
+
 ## 6. Decision 2 — Category
 
 Every manifest declares one of six categories. The category drives two things: the wizard block your row renders in, and the port-slot block your service draws from.
@@ -156,6 +164,8 @@ Every manifest declares one of six categories. The category drives two things: t
 > **Worked example — Qdrant:** Qdrant is a vector database. Its closest siblings in the stack are Weaviate and Supabase (which are also `data`-tier). → **`category: data`**.
 
 **How to pick when you're unsure:** find the most-similar existing service and use its category. If your service genuinely doesn't fit any of the six, that's a design conversation, not a category decision — open an issue first.
+
+<a id="7-decision-3--source-variants"></a>
 
 ## 7. Decision 3 — Source variants
 
@@ -185,6 +195,8 @@ Every user-configurable service has an `<SVC>_SOURCE` env var. The wizard reads 
 > - `container` — default, scale=1
 > - `localhost` — `QDRANT_LOCALHOST_PORT` defaults to `"6333"` (Qdrant's standard host port); the URL is derived at compose-render time as `http://host.docker.internal:6333`
 > - `disabled` — scale=0
+
+<a id="8-decision-4--port-allocation"></a>
 
 ## 8. Decision 4 — Port allocation
 
@@ -219,6 +231,8 @@ env:
 The `services/env_assembler.py` regen step emits the resolved port into `.env.example`. Never hand-edit `.env.example` — it's a generated artifact (byte-equivalence-tested in CI).
 
 > **Worked example — Qdrant:** Qdrant declares `QDRANT_PORT` with no default. Topology slots it into the `data` block at the next free offset, determined by where it lands in the topo sort relative to its siblings (Supabase microservices, Redis, MinIO, Neo4j, Weaviate). The exact number is auto-resolved at every regen — don't pin it.
+
+<a id="9-decision-5--dependencies-depends_onrequired--optional"></a>
 
 ## 9. Decision 5 — Dependencies (`depends_on.required` / `optional`)
 
@@ -264,6 +278,8 @@ But trimming `litellm` from `ollama.depends_on.required` correctly removed a fak
 ### 9.4 `data_flow.calls` is separate
 
 The `data_flow.calls` field is a runtime call graph that drives the architecture diagram and the per-service README's Dependencies & Integrations block. It is **independent** of `depends_on`. Use it to describe which services this one calls at runtime in the request path (excluding init-time bootstrap calls).
+
+<a id="10-decision-6--adaptive-behavior--when-to-write-a-hook"></a>
 
 ## 10. Decision 6 — Adaptive behavior + when to write a hook
 
@@ -314,6 +330,8 @@ Two adjacent fields that occasionally apply:
 - **`runtime_deps`** — declares optional runtime dependencies (services this one calls only if they're enabled). Drives the info-message shown to the user during the wizard.
 
 Use these only if your service is genuinely adaptive. Today eight manifests declare `runtime_adaptive` (backend, comfyui, hermes, jupyterhub, lightrag, n8n, ollama, weaviate); backend is the most heavily adaptive and the canonical reference. Don't reach for these fields by default — start with declarative `runtime_sc` and only escalate when the adaptive behavior is non-trivial.
+
+<a id="11-mechanics--putting-it-all-together"></a>
 
 ## 11. Mechanics — putting it all together
 
@@ -449,6 +467,8 @@ Add to the top-level `include:` block in the `# Data tier` section:
   - services/qdrant/compose.yml              # ← new
 ```
 
+<a id="114-bootstrapperutilssource_override_managerpy--register-the-cli-key"></a>
+
 ### 11.4 `bootstrapper/utils/source_override_manager.py` — register the CLI key
 
 This is a **mandatory registration step** that's easy to forget. `SourceOverrideManager.source_mapping` is a hardcoded dict; the wizard's `ServiceDiscovery.discover()` filters every service through it. **A service NOT in this mapping is silently dropped from the wizard** — the user never sees a prompt for it.
@@ -467,6 +487,8 @@ For a multi-container family (head + worker, or app + init), the runtime_sc top-
 The CLI flag binding in `bootstrapper/start.py` (`@click.option('--qdrant-source', …)` + the `source_args` dict) uses the family-level `qdrant_source` key — different from the discovery key for multi-container families. If your service is multi-container, you'll have TWO entries in `source_mapping` pointing to the SAME env var (one for CLI plumbing, one for discovery).
 
 The pinning test `bootstrapper/tests/test_wizard_app_discovery.py::test_source_mapping_includes_app_service_flags` enforces this — add your service's CLI key to the assertion list so future regressions fail loudly.
+
+<a id="12-after-you-save-the-files--regen--lint-commands-in-order"></a>
 
 ## 12. After you save the files — regen + lint commands in order
 
@@ -504,6 +526,8 @@ PYTHONPATH=bootstrapper uv run --project bootstrapper python -m bootstrapper.doc
 
 **Atlas hero art:** regenerate with `python bootstrapper/scripts/generate_logo.py` (needs `pip install pillow` + `chafa` on PATH); commit the refreshed `bootstrapper/ui/textual/assets/atlas_hero_*.json`. Not gated in CI.
 
+<a id="13-audit-script--ci-implications"></a>
+
 ## 13. Audit-script + CI implications
 
 After adding a service, check these allowlists. Skipping them means CI fails on the next push.
@@ -530,7 +554,7 @@ are REQUIRED branch-protection checks:
 |---|---|
 | **Manifest lint + unit tests** | `validate_fragments` lint + 1,300+ pytest tests + the backend's own pytest suite (`services/backend/app/app/tests/`). Catches: manifest schema violations, dependency cycles, env-example drift, category overflow, backend route regressions. |
 | **Compose merge + byte-equivalence + source-permutation matrix** | Renders `docker compose config` for the merged fragment list + verifies it matches the golden baseline + tests every source variant of every service. Catches: compose-syntax errors, source-permutation regressions. |
-| **Docs drift + audit scripts** | `regen --all --check` + the docs/site/wiki audit scripts (`check_doc_links` — incl. `#anchor` fragment validation, `check-compose-source-deps`, `check-docs-drift`, `check-docs-site`, `export-docs-wiki --check`, `check-kong-routes`, `validate_research_schema`, `check-track-membership`) + a `uv lock --locked` gate for the docling localhost provider. Catches: stale per-service docs, missing `REQUIRED_DEPENDS_ON` entries, Kong route default drift, broken links/anchors, research-schema violations, stale provider locks, and track-membership omissions. |
+| **Docs drift + audit scripts** | `regen --all --check` + `make docs-check` + the remaining audits (`check_doc_links` — including `#anchor` fragment validation, `check-compose-source-deps`, `check-docs-drift`, `check-kong-routes`, `validate_research_schema`, `check-track-membership`) + a `uv lock --locked` gate for the docling localhost provider. Catches: stale per-service docs, three-surface drift, cross-surface links, missing local assets, missing `REQUIRED_DEPENDS_ON` entries, Kong route default drift, broken links/anchors, research-schema violations, stale provider locks, and track-membership omissions. |
 | **Build-validation** | `docker buildx build` for every local non-GPU Compose build context plus every `services/*/init/Dockerfile` context; GPU provider builds are intentionally excluded for runner size/time. Catches: unsatisfiable pip pins, broken Dockerfiles, and init-image drift. |
 
 Run the equivalent of the four required jobs locally before pushing:
@@ -540,9 +564,7 @@ uv run --project bootstrapper pytest bootstrapper/tests -q                      
 (cd services/backend/app && uv run --python 3.11 --with-requirements app/requirements.txt python -m pytest app/tests -q)  # job 1 backend tests
 uv run --project bootstrapper python -m tools.validate_fragments                  # job 1 lint
 docker compose --env-file .env.example -f docker-compose.yml config -q            # job 2 merge check
-uv run --project bootstrapper python scripts/generate-docs-site.py --check        # job 3 generated docs drift
-uv run --project bootstrapper python scripts/check-docs-site.py                   # job 3 MkDocs strict build
-uv run --project bootstrapper python scripts/export-docs-wiki.py --check          # job 3 wiki export drift
+make docs-check                                                                    # job 3 three-surface contracts + strict build
 uv run --project bootstrapper python scripts/check_doc_links.py                   # job 3 link check
 uv run --project bootstrapper python -m bootstrapper.docs.regen --all --check     # job 3 docs drift
 uv run --project bootstrapper python scripts/check-docs-drift.py                  # job 3 docs structural audit
@@ -591,6 +613,8 @@ was missed. AST-based seam-parity tests
 (`tests/test_user_model_selections_seam_parity.py`,
 `tests/test_wizard_app_discovery.py`) guard all four — extend them when
 adding a picker.
+
+<a id="14-common-gotchas--anti-patterns"></a>
 
 ## 14. Common gotchas + anti-patterns
 

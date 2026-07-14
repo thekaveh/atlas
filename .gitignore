@@ -6,6 +6,8 @@ __pycache__/
 .Python
 build/
 /site/
+/generated/
+/mkdocs.yml
 # Tracked service-folder 'build/' dirs (Docker image source) — exempt from
 # the generic Python-build-artifact pattern above so 'git add' on tracked
 # files inside them doesn't warn/exit-non-zero on every new file.

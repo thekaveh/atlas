@@ -1,7 +1,5 @@
 name: docs-pages
 
-# Publishes the generated MkDocs documentation site and keeps the GitHub Wiki
-# in sync with the repo-owned docs/wiki export.
 on:
   push:
     branches: [main]
@@ -12,15 +10,18 @@ on:
       - "services/**/architecture.*"
       - "services/**/service.yml"
       - "bootstrapper/**"
+      - "scripts/docs/**"
       - "scripts/generate-docs-site.py"
       - "scripts/check-docs-site.py"
       - "scripts/export-docs-wiki.py"
-      - "mkdocs.yml"
+      - "Makefile"
+      - "bootstrapper/pyproject.toml"
+      - "bootstrapper/uv.lock"
       - ".github/workflows/docs-pages.yml"
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
   pages: write
   id-token: write
 
@@ -29,14 +30,14 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  publish:
-    name: Publish MkDocs and Wiki
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: https://thekaveh.github.io/atlas/
+  build:
+    name: Build documentation
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Install Cairo
+        run: sudo apt-get update && sudo apt-get install -y libcairo2
 
       - name: Set up Python
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
@@ -48,26 +49,64 @@ jobs:
         with:
           version: "0.11.19"
 
-      - name: Sync docs dependencies
-        working-directory: bootstrapper
-        run: uv sync --group dev
+      - name: Sync documentation dependencies
+        run: uv sync --project bootstrapper --group dev --locked
 
-      - name: Build generated MkDocs site
-        run: uv run --project bootstrapper python scripts/check-docs-site.py
-
-      - name: Sync GitHub Wiki
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: uv run --project bootstrapper python scripts/export-docs-wiki.py --push
+      - name: Validate and build documentation surfaces
+        run: make docs-check
 
       - name: Configure Pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6
 
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v4
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5
         with:
           path: site
 
+  deploy:
+    name: Deploy documentation
+    needs: build
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5
+
+  wiki:
+    name: Publish GitHub Wiki
+    needs: deploy
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Install Cairo
+        run: sudo apt-get update && sudo apt-get install -y libcairo2
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          version: "0.11.19"
+
+      - name: Sync documentation dependencies
+        run: uv sync --project bootstrapper --group dev --locked
+
+      - name: Install wiki deploy key
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.WIKI_DEPLOY_KEY }}" > ~/.ssh/wiki_key
+          chmod 600 ~/.ssh/wiki_key
+
+      - name: Build and publish wiki
+        env:
+          WIKI_DEPLOY_KEY: /home/runner/.ssh/wiki_key
+        run: |
+          uv run --project bootstrapper python -m scripts.docs.build_docs --wiki
+          uv run --project bootstrapper python -m scripts.docs.push_wiki --push

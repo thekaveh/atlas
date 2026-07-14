@@ -70,13 +70,13 @@ def _resolve_link_target(source: Path, target: str) -> Path:
     if resolved.exists():
         return resolved
 
-    docs_wiki = (ROOT / "docs" / "wiki").resolve()
-    try:
-        is_wiki_page = source.resolve().is_relative_to(docs_wiki)
-    except ValueError:
-        is_wiki_page = False
-    if is_wiki_page and not Path(target).suffix:
-        wiki_target = resolved.with_suffix(".md")
+    wiki_roots = (
+        (ROOT / "docs" / "wiki").resolve(),
+        (ROOT / "generated" / "wiki").resolve(),
+    )
+    is_wiki_page = any(source.resolve().is_relative_to(root) for root in wiki_roots)
+    if is_wiki_page and not target.lower().endswith(".md"):
+        wiki_target = Path(f"{resolved}.md")
         if wiki_target.exists():
             return wiki_target
 

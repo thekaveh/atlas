@@ -6,6 +6,8 @@ from pathlib import Path
 
 import yaml
 
+from tests.three_surface_test_utils import surface_text
+
 from core.config_parser import ConfigParser
 from services.manifests import load_manifests, option_in_profile
 from tracks import is_in_track, load_tracks
@@ -112,17 +114,16 @@ def test_blender_mcp_does_not_get_a_kong_route_or_compose_fragment() -> None:
 
 def test_env_example_and_docs_site_include_blender_mcp_without_kong_alias() -> None:
     env_example = (ROOT / ".env.example").read_text(encoding="utf-8")
-    service_page = ROOT / "docs" / "site" / "services" / "blender-mcp.md"
-    source_values = ROOT / "docs" / "site" / "reference" / "source-values.md"
-    ports_routes = ROOT / "docs" / "site" / "reference" / "ports-routes.md"
+    service_page = surface_text("services/blender-mcp/README.md", "site")
+    source_values = surface_text("docs/reference/source-values.md", "site")
+    ports_routes = surface_text("docs/reference/ports-routes.md", "site")
 
     assert "BLENDER_MCP_SOURCE=disabled" in env_example
     assert "BLENDER_MCP_HOST=localhost" in env_example
     assert "BLENDER_MCP_LOCALHOST_PORT=9876" in env_example
-    assert service_page.exists()
-    assert "services/blender-mcp/README.md" in service_page.read_text(encoding="utf-8")
-    assert "BLENDER_MCP_SOURCE" in source_values.read_text(encoding="utf-8")
-    assert "blender-mcp.localhost" not in ports_routes.read_text(encoding="utf-8")
+    assert "BLENDER_MCP_SOURCE" in service_page
+    assert "BLENDER_MCP_SOURCE" in source_values
+    assert "blender-mcp.localhost" not in ports_routes
 
 
 def test_blender_mcp_readme_documents_security_and_setup_contract() -> None:

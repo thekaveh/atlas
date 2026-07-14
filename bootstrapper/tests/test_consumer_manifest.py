@@ -6,13 +6,12 @@ from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
+from tests.three_surface_test_utils import surface_text
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "bootstrapper"))
 REUSING_ATLAS = REPO_ROOT / "docs" / "deployment" / "reusing-atlas.md"
-SITE_DEVELOPMENT = REPO_ROOT / "docs" / "site" / "development.md"
-WIKI_DEVELOPMENT = REPO_ROOT / "docs" / "wiki" / "Development.md"
 
 
 def _write_minimal_root(root: Path) -> None:
@@ -272,8 +271,10 @@ def test_consumer_manifest_docs_are_published_on_all_surfaces() -> None:
     assert "./start.sh --consumer" in reusing
     assert "scalar conflicts" in reusing
 
-    for path in (SITE_DEVELOPMENT, WIKI_DEVELOPMENT):
-        text = path.read_text(encoding="utf-8")
+    for text in (
+        surface_text("docs/development.md", "site"),
+        surface_text("docs/development.md", "wiki"),
+    ):
         assert "atlas.consumer.yml" in text
         assert "--consumer" in text
 

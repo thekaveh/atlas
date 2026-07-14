@@ -100,9 +100,8 @@ If you can't find what you're looking for:
 Run the local documentation drift and audit checks before committing docs changes:
 
 ```bash
-uv run --project bootstrapper python scripts/generate-docs-site.py --check
-uv run --project bootstrapper python scripts/check-docs-site.py
-uv run --project bootstrapper python scripts/export-docs-wiki.py --check
+make docs-check
+uv run --project bootstrapper python -m scripts.notebook_reproducibility
 uv run --project bootstrapper python scripts/check_doc_links.py
 uv run --project bootstrapper python -m bootstrapper.docs.regen --all --check
 uv run --project bootstrapper python scripts/check-docs-drift.py

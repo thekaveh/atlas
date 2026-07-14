@@ -10,12 +10,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from tests.three_surface_test_utils import surface_text
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 REUSING_ATLAS = REPO_ROOT / "docs" / "deployment" / "reusing-atlas.md"
 SUBMODULE_USAGE = REPO_ROOT / "docs" / "deployment" / "submodule-usage.md"
-SITE_DEVELOPMENT = REPO_ROOT / "docs" / "site" / "development.md"
-WIKI_DEVELOPMENT = REPO_ROOT / "docs" / "wiki" / "Development.md"
 ENV_EXAMPLE = REPO_ROOT / ".env.example"
 
 
@@ -86,9 +86,11 @@ def test_submodule_docs_cover_parent_repo_reference_layout() -> None:
     assert "DayDreams-style" in submodule
     assert "Explicit `--<service>-source` flags override track membership" in reusing
 
-    for surface in (SITE_DEVELOPMENT, WIKI_DEVELOPMENT):
-        surface_text = surface.read_text(encoding="utf-8")
-        assert "Parent-Repo Consumer Layout" in surface_text
-        assert "compose/<name>-overlay.yml" in surface_text
-        assert "scripts/setup-overlay.sh" in surface_text
-        assert "force-set" in surface_text
+    for rendered in (
+        surface_text("docs/development.md", "site"),
+        surface_text("docs/development.md", "wiki"),
+    ):
+        assert "Parent-Repo Consumer Layout" in rendered
+        assert "compose/<name>-overlay.yml" in rendered
+        assert "scripts/setup-overlay.sh" in rendered
+        assert "force-set" in rendered

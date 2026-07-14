@@ -3,7 +3,7 @@
 This opt-in smoke validates the advanced lakehouse contract requested by the
 data-eng track without adding infrastructure.
 
-## Scope
+## 1. Scope
 
 - No new service, no new SOURCE, no new port, no new Kong route, and no new
   wizard step.
@@ -16,7 +16,7 @@ data-eng track without adding infrastructure.
   `bronze`, `silver`, or `gold` namespaces because downstream projects own
   their medallion layout.
 
-## Start The Required Stack
+## 2. Start The Required Stack
 
 ```bash
 ./start.sh --track data-eng \
@@ -37,7 +37,7 @@ For the Zeppelin surface, also enable:
   --zeppelin-source container
 ```
 
-## Run The Smoke
+## 3. Run The Smoke
 
 Spark Connect path:
 
@@ -63,7 +63,7 @@ against `sc://spark-connect:15002`. The Zeppelin surface imports
 API and runs it with Zeppelin's seeded standalone Spark interpreter at
 `spark://spark-master:7077`.
 
-## Capabilities Covered
+## 4. Capabilities Covered
 
 - `MERGE INTO` row-level upsert against an Iceberg format-version 2 table.
 - Snapshot metadata and `VERSION AS OF` time travel.
@@ -78,7 +78,7 @@ API and runs it with Zeppelin's seeded standalone Spark interpreter at
 - Maintenance procedures: `rewrite_data_files`, `expire_snapshots`, and
   `remove_orphan_files`.
 
-## Notebook Surfaces
+## 5. Notebook Surfaces
 
 - JupyterHub: `services/jupyterhub/build/notebooks/12_iceberg_advanced_sql.ipynb`
   is the Spark Connect reference.
@@ -89,7 +89,7 @@ Keeping both surfaces matters because Spark Connect and Zeppelin's Spark-submit
 interpreter have different runtime paths even though they share the same
 Iceberg REST catalog, MinIO warehouse, and Spark image.
 
-## CI Posture
+## 6. CI Posture
 
 Normal CI stays static and hermetic. `bootstrapper/tests/test_iceberg_advanced_smoke_suite.py`
 guards that the script, notebooks, docs, advanced operations, S3A landing and
