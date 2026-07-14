@@ -74,7 +74,7 @@ jobs:
 
       - name: Sync dependencies
         working-directory: bootstrapper
-        run: uv sync --group dev
+        run: uv sync --group dev --locked
 
       - name: Run unit tests (loader, validator, assembler, hooks, CLI)
         working-directory: bootstrapper
@@ -139,7 +139,7 @@ jobs:
 
       - name: Sync dependencies
         working-directory: bootstrapper
-        run: uv sync --group dev
+        run: uv sync --group dev --locked
 
       - name: Materialize .env from .env.example
         # Compose interpolation reads .env at the project root. The matrix
@@ -182,7 +182,7 @@ jobs:
 
       - name: Sync dependencies
         working-directory: bootstrapper
-        run: uv sync --group dev
+        run: uv sync --group dev --locked
 
       - name: Materialize .env from .env.example
         # check-compose-source-deps.py invokes `docker compose config` to
