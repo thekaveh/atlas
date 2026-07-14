@@ -4,7 +4,7 @@ Airflow runs as a 4-container family in the stack's `agents` band: `airflow-webs
 
 ## 1. Overview
 
-Image: `apache/airflow:3.2.2` (Apache 2.0), wrapped by a local `services/airflow/build/Dockerfile` that adds the 9-provider bundle needed for the cross-stack integrations (apache-spark, amazon, postgres, redis, common-sql, weaviate, neo4j, openai, fab) plus `pyspark[connect]==4.1.2` (the `[connect]` extra pulls grpcio + companions; the Spark Connect smoke step in the sample DAG needs it). The image also installs Java 17, exposes PySpark's `spark-submit` on `PATH`, bakes the matching S3A/Iceberg jars into PySpark's jars directory, and builds `/opt/airflow/atlas-jars/atlas-lakehouse-smoke.jar` from source for the manual SparkSubmit lakehouse smoke. LocalExecutor is the only supported executor in v1 — tasks run in the scheduler's process pool. Metadata DB lives in a new `airflow` database on Supabase Postgres, created by `airflow-init` on first start.
+Image: `apache/airflow:3.3.0` (Apache 2.0), wrapped by a local `services/airflow/build/Dockerfile` that adds the 9-provider bundle needed for the cross-stack integrations (apache-spark, amazon, postgres, redis, common-sql, weaviate, neo4j, openai, fab) plus `pyspark[connect]==4.1.2` (the `[connect]` extra pulls grpcio + companions; the Spark Connect smoke step in the sample DAG needs it). The image also installs Java 17, exposes PySpark's `spark-submit` on `PATH`, bakes the matching S3A/Iceberg jars into PySpark's jars directory, and builds `/opt/airflow/atlas-jars/atlas-lakehouse-smoke.jar` from source for the manual SparkSubmit lakehouse smoke. LocalExecutor is the only supported executor in v1 — tasks run in the scheduler's process pool. Metadata DB lives in a new `airflow` database on Supabase Postgres, created by `airflow-init` on first start.
 
 ## 2. Access
 
@@ -20,7 +20,7 @@ Image: `apache/airflow:3.2.2` (Apache 2.0), wrapped by a local `services/airflow
 
 ```bash
 AIRFLOW_SOURCE=disabled              # container | disabled
-AIRFLOW_IMAGE=apache/airflow:3.2.2
+AIRFLOW_IMAGE=apache/airflow:3.3.0
 AIRFLOW_PORT=                        # auto-assigned (agents band)
 AIRFLOW_DB_USER=airflow              # role on Supabase Postgres
 AIRFLOW_DB_PASSWORD=                 # auto-generated

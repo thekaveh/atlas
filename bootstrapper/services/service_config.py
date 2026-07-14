@@ -825,8 +825,8 @@ class ServiceConfig:
             Dict of resolved env-var assignments. The caller merges this into
             the .env-example output.
         """
-        cpu_image = shared_env.get("RAY_IMAGE", "rayproject/ray:2.55.1") or "rayproject/ray:2.55.1"
-        gpu_image = shared_env.get("RAY_GPU_IMAGE", "rayproject/ray:2.55.1-gpu") or "rayproject/ray:2.55.1-gpu"
+        cpu_image = shared_env.get("RAY_IMAGE", "rayproject/ray:2.56.0") or "rayproject/ray:2.56.0"
+        gpu_image = shared_env.get("RAY_GPU_IMAGE", "rayproject/ray:2.56.0-gpu") or "rayproject/ray:2.56.0-gpu"
 
         # Read RAY_WORKER_COUNT from disk (where the wizard/CLI persists the
         # user's --ray-worker-count) with a safe fallback to the manifest

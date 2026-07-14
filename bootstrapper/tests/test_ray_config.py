@@ -46,10 +46,10 @@ def test_container_cpu_returns_cpu_image_and_resolved_scales():
     sc = _service_config_instance()
     out = sc._generate_ray_config(
         source_value="ray-container-cpu",
-        shared_env={"RAY_WORKER_COUNT": "3", "RAY_IMAGE": "rayproject/ray:2.55.1",
-                    "RAY_GPU_IMAGE": "rayproject/ray:2.55.1-gpu"},
+        shared_env={"RAY_WORKER_COUNT": "3", "RAY_IMAGE": "rayproject/ray:2.56.0",
+                    "RAY_GPU_IMAGE": "rayproject/ray:2.56.0-gpu"},
     )
-    assert out["RAY_IMAGE"] == "rayproject/ray:2.55.1"
+    assert out["RAY_IMAGE"] == "rayproject/ray:2.56.0"
     assert out["RAY_HEAD_SCALE"] == "1"
     assert out["RAY_WORKER_SCALE"] == "3"
     assert out["RAY_ADDRESS"] == "ray://ray-head:10001"
@@ -59,10 +59,10 @@ def test_container_gpu_returns_gpu_image_and_resolved_scales():
     sc = _service_config_instance()
     out = sc._generate_ray_config(
         source_value="ray-container-gpu",
-        shared_env={"RAY_WORKER_COUNT": "2", "RAY_IMAGE": "rayproject/ray:2.55.1",
-                    "RAY_GPU_IMAGE": "rayproject/ray:2.55.1-gpu"},
+        shared_env={"RAY_WORKER_COUNT": "2", "RAY_IMAGE": "rayproject/ray:2.56.0",
+                    "RAY_GPU_IMAGE": "rayproject/ray:2.56.0-gpu"},
     )
-    assert out["RAY_IMAGE"] == "rayproject/ray:2.55.1-gpu"
+    assert out["RAY_IMAGE"] == "rayproject/ray:2.56.0-gpu"
     assert out["RAY_HEAD_SCALE"] == "1"
     assert out["RAY_WORKER_SCALE"] == "2"
     assert out["RAY_ADDRESS"] == "ray://ray-head:10001"
@@ -85,8 +85,8 @@ def test_worker_count_zero_means_head_only():
     sc = _service_config_instance()
     out = sc._generate_ray_config(
         source_value="ray-container-cpu",
-        shared_env={"RAY_WORKER_COUNT": "0", "RAY_IMAGE": "rayproject/ray:2.55.1",
-                    "RAY_GPU_IMAGE": "rayproject/ray:2.55.1-gpu"},
+        shared_env={"RAY_WORKER_COUNT": "0", "RAY_IMAGE": "rayproject/ray:2.56.0",
+                    "RAY_GPU_IMAGE": "rayproject/ray:2.56.0-gpu"},
     )
     assert out["RAY_HEAD_SCALE"] == "1"  # head still on
     assert out["RAY_WORKER_SCALE"] == "0"  # head-only single-node Ray
@@ -99,8 +99,8 @@ def test_invalid_worker_count_falls_back_to_default():
     out = sc._generate_ray_config(
         source_value="ray-container-cpu",
         shared_env={"RAY_WORKER_COUNT": "not-a-number",
-                    "RAY_IMAGE": "rayproject/ray:2.55.1",
-                    "RAY_GPU_IMAGE": "rayproject/ray:2.55.1-gpu"},
+                    "RAY_IMAGE": "rayproject/ray:2.56.0",
+                    "RAY_GPU_IMAGE": "rayproject/ray:2.56.0-gpu"},
     )
     assert out["RAY_WORKER_SCALE"] == "2"
 
@@ -116,8 +116,8 @@ def test_worker_count_read_from_disk_not_shared_env():
     sc = _service_config_instance(env_on_disk={"RAY_WORKER_COUNT": "4"})
     out = sc._generate_ray_config(
         source_value="ray-container-cpu",
-        shared_env={"RAY_IMAGE": "rayproject/ray:2.55.1",
-                    "RAY_GPU_IMAGE": "rayproject/ray:2.55.1-gpu"},
+        shared_env={"RAY_IMAGE": "rayproject/ray:2.56.0",
+                    "RAY_GPU_IMAGE": "rayproject/ray:2.56.0-gpu"},
     )
     assert out["RAY_WORKER_SCALE"] == "4"
 
@@ -129,7 +129,7 @@ def test_worker_count_disk_overrides_shared_env():
     out = sc._generate_ray_config(
         source_value="ray-container-cpu",
         shared_env={"RAY_WORKER_COUNT": "2",
-                    "RAY_IMAGE": "rayproject/ray:2.55.1",
-                    "RAY_GPU_IMAGE": "rayproject/ray:2.55.1-gpu"},
+                    "RAY_IMAGE": "rayproject/ray:2.56.0",
+                    "RAY_GPU_IMAGE": "rayproject/ray:2.56.0-gpu"},
     )
     assert out["RAY_WORKER_SCALE"] == "6"

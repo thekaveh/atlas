@@ -4,10 +4,10 @@ import asyncio
 import time
 from uuid import uuid4
 
+import jwt
 import pytest
 from fastapi import HTTPException
 from fastapi.security import HTTPAuthorizationCredentials
-from jose import jwt
 
 from backend_identity import (
     BackendPrincipal,
@@ -22,12 +22,16 @@ from backend_identity import (
 )
 
 
+TEST_JWT_SECRET = "atlas-test-supabase-jwt-secret-32-bytes"
+WRONG_JWT_SECRET = "atlas-test-wrong-jwt-secret-32-bytes"
+
+
 def _credentials(token: str) -> HTTPAuthorizationCredentials:
     return HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
 
 
 def _user_headers(monkeypatch, subject: str) -> dict[str, str]:
-    secret = "supabase-jwt-secret"
+    secret = TEST_JWT_SECRET
     monkeypatch.setenv("SUPABASE_JWT_SECRET", secret)
     token = jwt.encode(
         {
@@ -54,7 +58,7 @@ def test_internal_service_token_can_delegate_user_identity(monkeypatch) -> None:
 
 
 def test_authenticated_supabase_jwt_is_bound_to_its_subject(monkeypatch) -> None:
-    secret = "supabase-jwt-secret"
+    secret = TEST_JWT_SECRET
     subject = str(uuid4())
     monkeypatch.setenv("BACKEND_IDENTITY_AUTH", "required")
     monkeypatch.setenv("BACKEND_INTERNAL_API_TOKEN", "internal-secret")
@@ -120,14 +124,14 @@ def test_authenticated_supabase_jwt_is_bound_to_its_subject(monkeypatch) -> None
                 "aud": "authenticated",
                 "exp": int(time.time()) + 60,
             },
-            "wrong-secret",
+            WRONG_JWT_SECRET,
             algorithm="HS256",
         ),
         lambda secret: "not-a-jwt",
     ],
 )
 def test_untrusted_tokens_are_rejected(monkeypatch, token_factory) -> None:
-    secret = "supabase-jwt-secret"
+    secret = TEST_JWT_SECRET
     monkeypatch.setenv("BACKEND_IDENTITY_AUTH", "required")
     monkeypatch.setenv("BACKEND_INTERNAL_API_TOKEN", "internal-secret")
     monkeypatch.setenv("SUPABASE_JWT_SECRET", secret)

@@ -1,7 +1,7 @@
 # services/ray/compose.yml — Ray distributed-compute cluster (head + workers)
 services:
   ray-head:
-    image: ${RAY_IMAGE:-rayproject/ray:2.55.1}
+    image: ${RAY_IMAGE:-rayproject/ray:2.56.0}
     container_name: ${PROJECT_NAME}-ray-head
     hostname: ray-head
     restart: unless-stopped
@@ -42,7 +42,7 @@ services:
     # ``ray start``), so letting it live in the container's writable
     # layer is correct — matches the upstream Ray Docker examples.
     healthcheck:
-      # rayproject/ray:2.55.1 ships wget but not curl — use wget so the
+      # rayproject/ray:2.56.0 ships wget but not curl — use wget so the
       # probe actually succeeds. A curl-based probe silently fails
       # ("command not found"), keeps ray-head unhealthy forever, and
       # blocks every dependent (ray-worker, backend, …) from starting.
@@ -60,7 +60,7 @@ services:
       - backend-network
 
   ray-worker:
-    image: ${RAY_IMAGE:-rayproject/ray:2.55.1}
+    image: ${RAY_IMAGE:-rayproject/ray:2.56.0}
     restart: unless-stopped
     deploy:
       replicas: ${RAY_WORKER_SCALE:-0}

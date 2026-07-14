@@ -8,9 +8,9 @@ from dataclasses import dataclass
 from typing import Literal
 from uuid import UUID
 
+import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBearer
-from jose import JWTError, jwt
 
 
 _BEARER = HTTPBearer(auto_error=False)
@@ -92,12 +92,12 @@ def _authenticate_backend_principal(
             jwt_secret,
             algorithms=["HS256"],
             audience="authenticated",
-            options={"require_exp": True, "require_sub": True},
+            options={"require": ["exp", "sub"]},
         )
         if claims.get("role") != "authenticated":
-            raise JWTError("unexpected Supabase role")
+            raise jwt.InvalidTokenError("unexpected Supabase role")
         subject = str(UUID(str(claims["sub"])))
-    except (JWTError, KeyError, TypeError, ValueError):
+    except (jwt.InvalidTokenError, KeyError, TypeError, ValueError):
         _unauthorized("Invalid or expired backend bearer token")
     return BackendPrincipal(kind="user", subject=subject)
 

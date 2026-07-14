@@ -9,11 +9,11 @@ containers:
 
 images:
   - var: RAY_IMAGE
-    default: "rayproject/ray:2.55.1"
+    default: "rayproject/ray:2.56.0"
     container: ray-head
     notes: "CPU build. Same image used for both head and CPU workers."
   - var: RAY_GPU_IMAGE
-    default: "rayproject/ray:2.55.1-gpu"
+    default: "rayproject/ray:2.56.0-gpu"
     container: ray-head
     notes: "GPU build with CUDA runtime. Selected by ray-container-gpu source."
 

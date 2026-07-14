@@ -33,14 +33,20 @@ on their host.
 - `urllib3` decompression-bomb (CVE-2026-44431/44432, high): **reachable**.
   The bootstrapper makes outbound HTTPS calls (Docker registry, Hugging Face,
   Ollama catalog). Floor-bumped immediately to clear.
-- `torch.load` deserialization RCE (CVE-2025-32434, critical) in
-  `torch==2.4.1` (Tier A, jupyterhub image): **unreachable**. No
-  `torch.load` / `torch.jit.script` / `weights_only` callsite exists
-  anywhere in `services/**`; notebooks load models through library APIs,
-  not attacker-supplied checkpoints. The pin is held back deliberately —
-  torch + PyTorch-Geometric must migrate in lockstep with the matching
-  `--find-links` wheel index (see the `dependabot.yml` ignore list), so
-  the fixed `torch>=2.6` is not a drop-in bump.
+- `torch.load` deserialization RCE (CVE-2025-32434, critical) in the former
+  `torch==2.4.1` JupyterHub image: **remediated**. JupyterHub now ships the
+  coordinated PyTorch 2.11 CPU trio and matching PyTorch-Geometric wheel set.
+- Ragas multimodal URL-processing SSRF (CVE-2026-6587): **unreachable**.
+  Backend exposes only a closed enum of text metrics and never imports the
+  vulnerable multimodal collection; Jupyter use is operator-authored code.
+- Transformers model-loading advisories below 5.3 in Parakeet GPU:
+  **operator-controlled**. NeMo 2.7.x requires Transformers 4.57.x, while
+  Atlas loads only the `PARAKEET_MODEL` chosen in process environment at
+  startup. Transcription requests cannot supply or change a model repository.
+- setuptools source-distribution exclusion bypass (CVE-2026-59890):
+  **platform/path unreachable** in runtime images. It affects sdist creation
+  on macOS normalization filesystems; Atlas services run Linux images and do
+  not build source distributions from request data.
 
 ## 4. Reporting a Vulnerability
 

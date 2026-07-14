@@ -7,7 +7,7 @@ services:
   airflow-dag-processor:
     build:
       args:
-        BASE_IMAGE: apache/airflow:3.2.2
+        BASE_IMAGE: apache/airflow:3.3.0
       context: '{REPO_ROOT}/services/airflow/build'
       dockerfile: Dockerfile
     command:
@@ -76,7 +76,7 @@ services:
   airflow-init:
     build:
       args:
-        BASE_IMAGE: apache/airflow:3.2.2
+        BASE_IMAGE: apache/airflow:3.3.0
       context: '{REPO_ROOT}/services/airflow/build'
       dockerfile: Dockerfile
     command:
@@ -131,7 +131,7 @@ services:
   airflow-scheduler:
     build:
       args:
-        BASE_IMAGE: apache/airflow:3.2.2
+        BASE_IMAGE: apache/airflow:3.3.0
       context: '{REPO_ROOT}/services/airflow/build'
       dockerfile: Dockerfile
     command:
@@ -200,7 +200,7 @@ services:
   airflow-webserver:
     build:
       args:
-        BASE_IMAGE: apache/airflow:3.2.2
+        BASE_IMAGE: apache/airflow:3.3.0
       context: '{REPO_ROOT}/services/airflow/build'
       dockerfile: Dockerfile
     command:
@@ -3317,7 +3317,7 @@ services:
       - wget -q --spider http://localhost:8265/api/version || exit 1
       timeout: 10s
     hostname: ray-head
-    image: rayproject/ray:2.55.1
+    image: rayproject/ray:2.56.0
     logging:
       driver: json-file
       options:
@@ -3360,7 +3360,7 @@ services:
         limits:
           cpus: 2
           memory: '4294967296'
-    image: rayproject/ray:2.55.1
+    image: rayproject/ray:2.56.0
     logging:
       driver: json-file
       options:
