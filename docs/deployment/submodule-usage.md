@@ -718,6 +718,23 @@ git commit -m "Update submodule reference"
 git submodule update --init
 ```
 
+**Guarantee: a legitimate `./start.sh` never dirties the Atlas checkout.**
+Every file the bootstrapper writes at runtime inside the repo tree — the
+Kong route file (`volumes/api/kong-dynamic.yml`), the LiteLLM configs
+(under `volumes/litellm/`), consumer-manifest overlays (under
+`volumes/minio/`, `volumes/n8n/`, `volumes/backend/`), the ComfyUI
+manifests (`volumes/comfyui/selected-models.yaml`, `active-models.tsv`,
+`active-custom-nodes.tsv`), plus `.env` and its `.env.backup.*` siblings
+at the repo root — is gitignored, so submodule-cleanliness checks in
+consumer CI stay green across starts. If `git -C infra status` reports
+tracked-file modifications after a start, that's an Atlas bug — please
+file it. (Pins that predate the `volumes/comfyui` untracking fix show
+exactly this symptom for the two ComfyUI manifest files. When bumping
+past the fix, discard the locally rewritten copies first —
+`git -C infra checkout -- volumes/comfyui/` — otherwise git refuses to
+apply the update because the incoming commit deletes files you have
+locally modified.)
+
 ## 9. Advanced Topics
 
 ### 9.1 Running Multiple Infrastructure Stacks
