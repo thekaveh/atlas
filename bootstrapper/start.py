@@ -1986,7 +1986,10 @@ class AtlasStarter:
         ``psql SELECT`` so ``download_models.sh``'s existing loop is unchanged.
 
         Skipped cleanly when ``COMFYUI_SOURCE == "disabled"``; that case
-        returns True (not an error).
+        returns True (not an error) after ensuring ``volumes/comfyui/``
+        exists — the always-on backend bind-mounts the directory, and a
+        Docker-auto-created one would be root-owned on rootful Linux
+        daemons (#568).
 
         Mirrors ``generate_litellm_configuration`` — see that method for the
         general pattern.
@@ -1995,9 +1998,15 @@ class AtlasStarter:
             from utils.comfyui_manifest_generator import ComfyUIManifestGenerator
             env = self.config_parser.parse_env_file()
             generator = ComfyUIManifestGenerator(env)
-            if not generator.is_enabled():
-                return True  # disabled — nothing to write
             manifest_dir = self.root_dir / "volumes/comfyui"
+            if not generator.is_enabled():
+                # Disabled — nothing to write, but keep the directory
+                # present: the always-on backend bind-mounts it, and a
+                # Docker-auto-created host dir is root-owned on rootful
+                # Linux daemons (#568). Plain mkdir only — no permission
+                # repair, so the tracked marker files are never wiped.
+                manifest_dir.mkdir(parents=True, exist_ok=True)
+                return True
             self._ensure_volume_dir_writable(manifest_dir)
             generator.write(manifest_dir)
             return True

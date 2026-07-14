@@ -217,7 +217,9 @@ ComfyUI sources, but the downstream init pipeline branches:
   `volumes/comfyui/selected-models.yaml` (manifest) and
   `volumes/comfyui/active-models.tsv`. It also maps required custom
   nodes through `services/comfyui/custom-nodes.yaml` and writes
-  `volumes/comfyui/active-custom-nodes.tsv`. `comfyui-init` then
+  `volumes/comfyui/active-custom-nodes.tsv` (all three are gitignored
+  runtime artifacts — regenerated every start, never committed).
+  `comfyui-init` then
   downloads each model in the model TSV into the `comfyui-models`
   volume via wget. The AI-Dock provisioning hook in the main ComfyUI
   container clones each allowlisted custom-node row into the

@@ -122,7 +122,9 @@ ollama pull qwen3:1.7b  # Smaller model
 # via wget. If models you picked never show up, check these logs:
 docker logs ${PROJECT_NAME}-comfyui-init -f
 
-# Verify the manifest was written at start (check volumes/comfyui/):
+# Verify the manifest was written at start (check volumes/comfyui/).
+# The manifests there are gitignored runtime artifacts — regenerated
+# on every non-disabled start, so a start never dirties the checkout:
 ls volumes/comfyui/
 
 # Check ComfyUI service status

@@ -99,6 +99,9 @@ volumes/backend/rag-ingestion-profiles.json
 volumes/backend/rag-ingestion-profiles.compose.yml
 volumes/backend/lightrag-query-profiles.json
 volumes/backend/lightrag-query-profiles.compose.yml
+volumes/comfyui/selected-models.yaml
+volumes/comfyui/active-models.tsv
+volumes/comfyui/active-custom-nodes.tsv
 
 # Environment variables file
 .env
