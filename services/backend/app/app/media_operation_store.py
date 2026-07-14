@@ -134,7 +134,12 @@ return 1
     def __init__(self, url: str) -> None:
         import redis.asyncio as redis
 
-        self._redis = redis.Redis.from_url(url, decode_responses=True)
+        self._redis = redis.Redis.from_url(
+            url,
+            decode_responses=True,
+            socket_connect_timeout=3,
+            socket_timeout=3,
+        )
         self._ttl = _ttl_seconds()
 
     async def create(self, operation: dict[str, Any]) -> dict[str, Any]:

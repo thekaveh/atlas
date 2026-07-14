@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
-from media_operation_store import InMemoryMediaOperationStore
+from media_operation_store import InMemoryMediaOperationStore, RedisMediaOperationStore
 
 
 def _operation() -> dict:
@@ -95,3 +95,22 @@ def test_terminal_payload_can_only_be_enriched_without_changing_status() -> None
         assert patched_wrong_status is False
 
     asyncio.run(scenario())
+
+
+def test_redis_media_store_configures_bounded_socket_deadlines(monkeypatch) -> None:
+    import redis.asyncio as redis
+
+    captured = {}
+    sentinel = object()
+
+    def fake_from_url(url, **kwargs):
+        captured.update({"url": url, **kwargs})
+        return sentinel
+
+    monkeypatch.setattr(redis.Redis, "from_url", fake_from_url)
+
+    store = RedisMediaOperationStore("redis://redis:6379/0")
+
+    assert store._redis is sentinel
+    assert captured["socket_connect_timeout"] == 3
+    assert captured["socket_timeout"] == 3

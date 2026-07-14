@@ -145,7 +145,12 @@ class RedisIngestionStore(IngestionStore):
     def __init__(self, url: str) -> None:
         import redis  # lazy — keeps main.py import closure redis-free
 
-        self._redis = redis.Redis.from_url(url, decode_responses=True)
+        self._redis = redis.Redis.from_url(
+            url,
+            decode_responses=True,
+            socket_connect_timeout=3,
+            socket_timeout=3,
+        )
 
     _CREATE_SCRIPT = """
 local current_id = redis.call('GET', KEYS[1])

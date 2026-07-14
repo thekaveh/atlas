@@ -179,6 +179,57 @@ def test_long_tail_extension_routes_to_tika_without_docling() -> None:
     assert [call[0] for call in client.calls] == ["http://tika:9998/tika/text"]
 
 
+def test_explicit_tika_selection_bypasses_docling() -> None:
+    client = FakeAsyncClient([FakeResponse(200, text="Forced Tika text")])
+    extractor = DocumentExtractor(
+        DocumentExtractorConfig(
+            docling_endpoint="http://docling-gpu:8000",
+            tika_endpoint="http://tika:9998",
+        ),
+        http_client=client,
+    )
+
+    result = _run(
+        extractor.extract(
+            content=b"plain bytes",
+            filename="notes.txt",
+            content_type="text/plain",
+            extractor="tika",
+        )
+    )
+
+    assert result.extractor == "tika"
+    assert result.content == "Forced Tika text"
+    assert [call[0] for call in client.calls] == ["http://tika:9998/tika/text"]
+
+
+def test_explicit_docling_selection_does_not_hide_unsupported_response() -> None:
+    client = FakeAsyncClient(
+        [FakeResponse(415, json_data={"detail": "unsupported format"})]
+    )
+    extractor = DocumentExtractor(
+        DocumentExtractorConfig(
+            docling_endpoint="http://docling-gpu:8000",
+            tika_endpoint="http://tika:9998",
+        ),
+        http_client=client,
+    )
+
+    with pytest.raises(DocumentExtractionError, match="Docling.*415"):
+        _run(
+            extractor.extract(
+                content=b"opaque",
+                filename="notes.unknown",
+                content_type="application/octet-stream",
+                extractor="docling",
+            )
+        )
+
+    assert [call[0] for call in client.calls] == [
+        "http://docling-gpu:8000/v1/document/convert"
+    ]
+
+
 def test_disabled_tika_after_docling_unsupported_is_clear_error() -> None:
     client = FakeAsyncClient(
         [FakeResponse(415, json_data={"detail": "unsupported format"})]

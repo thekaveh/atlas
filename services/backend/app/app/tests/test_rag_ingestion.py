@@ -12,19 +12,22 @@ import asyncio
 import json
 import threading
 from pathlib import Path
+from types import SimpleNamespace
 
 import httpx
 import pytest
 
 from rag_ingestion.clients import (
+    CorpusFile,
     CorpusPathError,
     LightRagClient,
     MinioCorpusReader,
     MountCorpusReader,
+    ParserAdapter,
 )
 from rag_ingestion.profiles import ProfileNotFoundError, load_profiles
 from rag_ingestion.service import Deps, RagIngestionService
-from rag_ingestion.store import InMemoryIngestionStore
+from rag_ingestion.store import InMemoryIngestionStore, RedisIngestionStore
 
 
 # ── fakes ────────────────────────────────────────────────────────────
@@ -82,8 +85,26 @@ class FailingLightrag(FakeLightrag):
 
 class RaisingExtractor:
     """Stands in for a reachable-but-failing Docling/Tika endpoint."""
-    async def extract(self, content, filename=None, content_type=None):
+    async def extract(
+        self, *, content, filename=None, content_type=None, extractor=None
+    ):
         raise RuntimeError("docling exploded")
+
+
+class KeywordOnlyExtractor:
+    def __init__(self):
+        self.calls = []
+
+    async def extract(self, *, content, filename, content_type, extractor=None):
+        self.calls.append(
+            {
+                "content": content,
+                "filename": filename,
+                "content_type": content_type,
+                "extractor": extractor,
+            }
+        )
+        return SimpleNamespace(content=f"parsed by {extractor}", extractor=extractor)
 
 
 # ── helpers ──────────────────────────────────────────────────────────
@@ -147,6 +168,88 @@ def test_end_to_end_completes(tmp_path, monkeypatch):
     assert weav.classes == ["RagShowcase_showcase-default"]
     assert final.content_digest
     assert [p.status for p in final.phases if p.name == "drain"] == ["completed"]
+
+
+def test_parser_adapter_uses_keyword_contract_and_exact_parser_selection():
+    extractor = KeywordOnlyExtractor()
+    parsed = asyncio.run(
+        ParserAdapter(extractor).parse(
+            CorpusFile("notes.txt", b"hello", "text/plain"),
+            ["tika", "plain_text"],
+        )
+    )
+
+    assert parsed.text == "parsed by tika"
+    assert parsed.parser == "tika"
+    assert extractor.calls == [
+        {
+            "content": b"hello",
+            "filename": "notes.txt",
+            "content_type": "text/plain",
+            "extractor": "tika",
+        }
+    ]
+
+
+def test_redis_ingestion_store_configures_bounded_socket_deadlines(monkeypatch):
+    import redis
+
+    captured = {}
+    sentinel = object()
+
+    def fake_from_url(url, **kwargs):
+        captured.update({"url": url, **kwargs})
+        return sentinel
+
+    monkeypatch.setattr(redis.Redis, "from_url", fake_from_url)
+
+    store = RedisIngestionStore("redis://redis:6379/0")
+
+    assert store._redis is sentinel
+    assert captured["socket_connect_timeout"] == 3
+    assert captured["socket_timeout"] == 3
+
+
+def test_sync_discovery_and_chunking_run_off_the_event_loop(tmp_path, monkeypatch):
+    _corpus(tmp_path, monkeypatch, {"a.txt": "the quick brown fox"})
+    pf = _profiles_file(tmp_path)
+    main_thread = threading.get_ident()
+    threads = {}
+
+    from rag_ingestion.clients import CorpusReader
+    import chunking_service
+
+    corpus = CorpusReader()
+    original_discover = corpus.discover
+    original_chunk = chunking_service.chunk_text
+
+    def checked_discover(*args, **kwargs):
+        threads["discover"] = threading.get_ident()
+        return original_discover(*args, **kwargs)
+
+    def checked_chunk(*args, **kwargs):
+        threads["chunk"] = threading.get_ident()
+        return original_chunk(*args, **kwargs)
+
+    monkeypatch.setattr(corpus, "discover", checked_discover)
+    monkeypatch.setattr(chunking_service, "chunk_text", checked_chunk)
+    svc = _service(
+        tmp_path,
+        Deps(
+            corpus=corpus,
+            embedder=FakeEmbedder(),
+            weaviate=FakeWeaviate(),
+            lightrag=FakeLightrag(),
+            poll_interval=0.01,
+        ),
+        pf,
+    )
+
+    _, _, final = _run(svc)
+
+    assert final.status == "completed"
+    assert threads["discover"] != main_thread
+    assert threads["chunk"] != main_thread
 
 
 def test_lightrag_client_uses_current_file_source_contract(monkeypatch):

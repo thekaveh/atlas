@@ -303,7 +303,9 @@ class RagIngestionService:
 
     # ── phases ───────────────────────────────────────────────────────
     async def _phase_discover(self, record, profile, corpus, state):
-        files: List[CorpusFile] = self.deps.corpus.discover(corpus, corpus.get("path"))
+        files: List[CorpusFile] = await asyncio.to_thread(
+            self.deps.corpus.discover, corpus, corpus.get("path")
+        )
         state["files"] = files
         record.counts["files_discovered"] = len(files)
         record.phase("discover").counts = {"files": len(files)}
@@ -348,8 +350,14 @@ class RagIngestionService:
         for doc in state["docs"]:
             if not doc.text.strip():
                 continue
-            resp = chunk_text(
-                ChunkRequest(text=doc.text, strategy=strategy, chunk_size=chunk_size, overlap=overlap)
+            resp = await asyncio.to_thread(
+                chunk_text,
+                ChunkRequest(
+                    text=doc.text,
+                    strategy=strategy,
+                    chunk_size=chunk_size,
+                    overlap=overlap,
+                ),
             )
             for tc in resp.chunks:
                 chunks.append({"source": doc.name, "index": tc.index, "content": tc.content})

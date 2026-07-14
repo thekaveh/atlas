@@ -397,7 +397,10 @@ class ParserAdapter:
                 if parser in ("docling", "tika"):
                     extractor = self._get_extractor()
                     result = await extractor.extract(
-                        file.content, filename=file.name, content_type=file.content_type
+                        content=file.content,
+                        filename=file.name,
+                        content_type=file.content_type,
+                        extractor=parser,
                     )
                     text = getattr(result, "content", None)
                     if text is None and isinstance(result, dict):

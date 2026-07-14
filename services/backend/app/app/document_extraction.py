@@ -105,6 +105,7 @@ class DocumentExtractor:
         content: bytes,
         filename: str,
         content_type: str | None,
+        extractor: str | None = None,
     ) -> DocumentExtractionResult:
         if len(content) > self.config.max_file_size:
             raise DocumentTooLargeError(
@@ -112,7 +113,17 @@ class DocumentExtractor:
                 f"{self.config.max_file_size} bytes"
             )
 
-        if self._is_long_tail(filename, content_type):
+        if extractor not in {None, "docling", "tika"}:
+            raise ValueError(f"Unsupported document extractor: {extractor}")
+        if extractor == "tika":
+            return await self._extract_with_tika(
+                content=content,
+                filename=filename,
+                content_type=content_type,
+                fallback_reason="parser-order",
+            )
+
+        if extractor is None and self._is_long_tail(filename, content_type):
             return await self._extract_with_tika(
                 content=content,
                 filename=filename,
@@ -127,7 +138,7 @@ class DocumentExtractor:
         if response.status_code == 200:
             return self._docling_result(response, filename, content_type, len(content))
 
-        if self._is_docling_unsupported(response):
+        if extractor is None and self._is_docling_unsupported(response):
             return await self._extract_with_tika(
                 content=content,
                 filename=filename,
