@@ -21,10 +21,15 @@ COPY ./app .
 # Copy configuration script
 COPY ./configure-backend.sh /usr/local/bin/configure-backend.sh
 
-# Create a non-root user and group
+# Create a non-root user with a writable home. Runtime dependencies such as
+# Chonkie/tokie download tokenizer metadata into the user cache.
 RUN groupadd --system --gid 1001 appgroup && \
-    useradd --system --uid 1001 --gid appgroup appuser && \
+    useradd --system --create-home --home-dir /home/appuser \
+      --uid 1001 --gid appgroup appuser && \
     chmod +x /usr/local/bin/configure-backend.sh
+
+ENV HOME=/home/appuser \
+    XDG_CACHE_HOME=/home/appuser/.cache
 
 # Switch to the non-root user
 USER appuser
