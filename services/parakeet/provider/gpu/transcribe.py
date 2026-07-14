@@ -17,6 +17,11 @@ _transcription_semaphore = asyncio.Semaphore(
     max(1, int(os.getenv("PARAKEET_CONCURRENCY", "1")))
 )
 
+
+def model_is_loaded() -> bool:
+    return _model is not None
+
+
 def load_model():
     """Load Parakeet model using NVIDIA NeMo (lazy loading)"""
     global _model

@@ -96,6 +96,7 @@ from backend_identity import (
     require_stateless_principal,
     research_owner_id,
 )
+from readiness import check_backend_readiness
 
 
 def _fal_source_enabled() -> bool:
@@ -190,12 +191,12 @@ configure_otel(app)
 # Scraped by the observability bundle's Prometheus at backend:8000/metrics.
 # Always on; the endpoint sits unscraped when PROMETHEUS_SOURCE=disabled.
 from prometheus_fastapi_instrumentator import Instrumentator  # noqa: E402
-# excluded_handlers keeps /metrics and /health out of the request
+# excluded_handlers keeps diagnostics out of the request
 # histogram (self-referential series + healthcheck noise pollute
 # rate() queries). should_group_status_codes folds 2xx/3xx/4xx/5xx
 # into class buckets, bounding the status_code label cardinality.
 Instrumentator(
-    excluded_handlers=["/metrics", "/health"],
+    excluded_handlers=["/metrics", "/health", "/ready"],
     should_group_status_codes=True,
 ).instrument(app).expose(app, endpoint="/metrics")
 
@@ -357,6 +358,18 @@ async def health_check():
         status="healthy",
         version="0.1.0",
     )
+
+
+@app.get("/ready")
+async def readiness_check():
+    """Readiness gate for required Backend dependencies."""
+    dependencies = await check_backend_readiness()
+    ready = all(value == "ready" for value in dependencies.values())
+    payload = {
+        "status": "ready" if ready else "unavailable",
+        "dependencies": dependencies,
+    }
+    return JSONResponse(status_code=200 if ready else 503, content=payload)
 
 
 @app.get("/")

@@ -19,6 +19,9 @@ and integration notes.
 - **In-container port:** 8000
 - **Host port:** `${DOC_PROCESSOR_PORT}` (computed from `BASE_PORT` by the
   bootstrapper)
+- **Readiness:** `GET /health` returns `200` only when the Docling converter can
+  be imported; an unavailable processor returns `503` without claiming models
+  are loaded.
 
 The manifest (`service.yml`) and compose fragment (`compose.yml`) in this folder
 are the bootstrapper's source of truth for those values; treat this README as a

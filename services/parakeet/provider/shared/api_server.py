@@ -3,7 +3,7 @@ OpenAI-compatible Speech-to-Text API Server
 Supports both MLX (Mac) and NVIDIA GPU (CUDA) backends
 """
 
-from fastapi import FastAPI, File, UploadFile, HTTPException, Form
+from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Response, status
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import os
@@ -14,7 +14,7 @@ from bounded_upload import EmptyUploadError, UploadTooLargeError, spool_upload
 
 # Import backend-specific transcriber
 try:
-    from transcribe import transcribe_audio
+    from transcribe import model_is_loaded, transcribe_audio
 except ImportError as e:
     logging.error(f"Failed to import transcribe module: {e}")
     raise
@@ -50,10 +50,14 @@ async def root():
     }
 
 @app.get("/health")
-async def health_check():
+async def health_check(response: Response):
     """Health check endpoint"""
+    ready = model_is_loaded()
+    if not ready:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     return {
-        "status": "healthy",
+        "status": "healthy" if ready else "loading",
+        "model_loaded": ready,
         "backend": os.getenv("PARAKEET_BACKEND", "cuda"),
         "device": os.getenv("PARAKEET_DEVICE", "unknown"),
         "model": os.getenv("PARAKEET_MODEL", "unknown")

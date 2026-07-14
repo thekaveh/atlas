@@ -23,6 +23,10 @@ _conversion_semaphore = asyncio.Semaphore(
 )
 
 
+def processor_ready() -> bool:
+    return DocumentConverter is not None
+
+
 def _convert_document(file_path: str):
     return DocumentConverter().convert(file_path)
 

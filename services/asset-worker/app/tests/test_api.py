@@ -6,6 +6,20 @@ import pytest
 from fastapi.testclient import TestClient
 
 
+def test_health_requires_gltf_transform_binary(monkeypatch) -> None:
+    from asset_worker import api
+
+    monkeypatch.setattr(api.shutil, "which", lambda _binary: None)
+    response = TestClient(api.create_app()).get("/health")
+    assert response.status_code == 503
+    assert response.json() == {"status": "unavailable", "gltf_transform": False}
+
+    monkeypatch.setattr(api.shutil, "which", lambda _binary: "/usr/bin/gltf-transform")
+    response = TestClient(api.create_app()).get("/health")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok", "gltf_transform": True}
+
+
 def test_multipart_glb_postprocess_stores_content_addressed_local_artifact(
     monkeypatch, tmp_path
 ) -> None:

@@ -493,7 +493,7 @@ services:
       NEO4J_USER: neo4j
       OTEL_EXPORTER_OTLP_ENDPOINT: ''
       OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
-      OTEL_PYTHON_FASTAPI_EXCLUDED_URLS: /metrics,/health
+      OTEL_PYTHON_FASTAPI_EXCLUDED_URLS: /metrics,/health,/ready
       OTEL_SERVICE_NAME: backend
       OTEL_TRACES_EXPORTER: otlp
       PROJECT_NAME: atlas
@@ -3192,6 +3192,16 @@ services:
         required: true
     deploy:
       replicas: 0
+    healthcheck:
+      interval: 30s
+      retries: 3
+      start_period: 10s
+      test:
+      - CMD
+      - /otelcol-contrib
+      - validate
+      - --config=/etc/otelcol/config.yaml
+      timeout: 10s
     image: otel/opentelemetry-collector-contrib:0.154.0
     logging:
       driver: json-file

@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import hashlib
 import os
+import shutil
 import tempfile
 import threading
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 from .models import (
     ArtifactRef,
@@ -40,8 +41,13 @@ def create_app() -> FastAPI:
     app.state.bake_semaphore = threading.Semaphore(concurrency)
 
     @app.get("/health")
-    def health() -> dict[str, str]:
-        return {"status": "ok"}
+    def health() -> JSONResponse:
+        binary = os.getenv("ASSET_BAKER_BLENDER_BIN", "blender")
+        ready = shutil.which(binary) is not None
+        return JSONResponse(
+            status_code=200 if ready else 503,
+            content={"status": "ok" if ready else "unavailable", "blender": ready},
+        )
 
     # Sync `def` so Starlette offloads the whole (blocking, up-to-600s) bake to
     # the threadpool instead of freezing the event loop / liveness probes.

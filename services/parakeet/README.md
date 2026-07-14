@@ -17,6 +17,8 @@ user-facing description, source-variant table, and configuration reference.
 - **In-container port:** 8000
 - **Host port:** `${STT_PROVIDER_PORT}` (computed from `BASE_PORT` by the
   bootstrapper)
+- **Readiness:** the GPU container preloads its configured model before Uvicorn
+  starts. `GET /health` returns `503` until that model is loaded.
 
 This manifest also owns the broader `STT_PROVIDER_SOURCE` enum (every STT
 option across engines), which is why it lives here historically rather than

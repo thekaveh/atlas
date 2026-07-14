@@ -212,6 +212,7 @@ def test_every_builtin_backend_route_has_an_explicit_identity_boundary(
         "/health",
         "/metrics",
         "/openapi.json",
+        "/ready",
         "/redoc",
     }
     accepted_boundaries = {

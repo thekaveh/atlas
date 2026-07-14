@@ -6,6 +6,20 @@ import pytest
 from fastapi.testclient import TestClient
 
 
+def test_health_requires_blender_binary(monkeypatch) -> None:
+    from asset_baker import api
+
+    monkeypatch.setattr(api.shutil, "which", lambda _binary: None)
+    response = TestClient(api.create_app()).get("/health")
+    assert response.status_code == 503
+    assert response.json() == {"status": "unavailable", "blender": False}
+
+    monkeypatch.setattr(api.shutil, "which", lambda _binary: "/opt/blender/blender")
+    response = TestClient(api.create_app()).get("/health")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok", "blender": True}
+
+
 def _fake_artifacts(out_dir, *, with_textures=True, color_mean=0.42, mode="bake"):
     from asset_baker.runner import BakeArtifacts
 

@@ -117,7 +117,7 @@ services:
       OTEL_SERVICE_NAME: backend
       OTEL_TRACES_EXPORTER: otlp
       OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
-      OTEL_PYTHON_FASTAPI_EXCLUDED_URLS: /metrics,/health
+      OTEL_PYTHON_FASTAPI_EXCLUDED_URLS: /metrics,/health,/ready
       # Ray — distributed compute (empty when RAY_SOURCE=disabled). The
       # runtime_adaptive declaration in service.yml writes .env only; this
       # block is the actual injection point (dual-write rule) — without

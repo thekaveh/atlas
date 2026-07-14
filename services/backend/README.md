@@ -6,7 +6,7 @@ The backend is `_SOURCE`-trivial — it has only one variant, `container` — be
 
 ## 1. Overview
 
-Source: `services/backend/app/`. The FastAPI app boots in `app/main.py`, mounts feature routes (`/memory`, `/research`, `/storage`, `/health`, `/workflows`, `/media/*`, `/comfyui/*`, `/api/ray/*`, `/api/chunk`, `/api/rag/evaluate`, `/api/rag/ingestions`), and reads adaptive env vars at startup. LangMem (LangChain's long-term-memory layer) is bundled in: `LANGMEM_ENABLED=true` by default, with extraction/embedding models resolved from `LITELLM_DEFAULT_MODEL` / `LITELLM_EMBEDDING_MODEL` (set by `litellm-init` from the YAML catalog + env). Chonkie powers `/api/chunk` so n8n, notebooks, and downstream services can request token, recursive, or semantic text chunks through the Backend rather than importing the library independently. Ragas powers `/api/rag/evaluate` so callers can score supplied questions, answers, contexts, and optional references through Atlas-owned LiteLLM routing instead of adding evaluator packages to each service. A small pytest suite lives at `app/app/tests/` (Ray client/routes, chunking service/API tests, Ragas contract/API tests, and the RAG ingestion engine/API tests; run in the required CI job); local iteration is edit-in-place — the compose fragment bind-mounts `./app/app` onto `/app` and `uvicorn[standard] --reload` (via `watchfiles`) hot-reloads on every source edit. Only requirements.txt changes need a `docker compose up --force-recreate backend`.
+Source: `services/backend/app/`. The FastAPI app boots in `app/main.py`, mounts feature routes (`/memory`, `/research`, `/storage`, `/health`, `/ready`, `/workflows`, `/media/*`, `/comfyui/*`, `/api/ray/*`, `/api/chunk`, `/api/rag/evaluate`, `/api/rag/ingestions`), and reads adaptive env vars at startup. LangMem (LangChain's long-term-memory layer) is bundled in: `LANGMEM_ENABLED=true` by default, with extraction/embedding models resolved from `LITELLM_DEFAULT_MODEL` / `LITELLM_EMBEDDING_MODEL` (set by `litellm-init` from the YAML catalog + env). Chonkie powers `/api/chunk` so n8n, notebooks, and downstream services can request token, recursive, or semantic text chunks through the Backend rather than importing the library independently. Ragas powers `/api/rag/evaluate` so callers can score supplied questions, answers, contexts, and optional references through Atlas-owned LiteLLM routing instead of adding evaluator packages to each service. A small pytest suite lives at `app/app/tests/` (Ray client/routes, chunking service/API tests, Ragas contract/API tests, and the RAG ingestion engine/API tests; run in the required CI job); local iteration is edit-in-place — the compose fragment bind-mounts `./app/app` onto `/app` and `uvicorn[standard] --reload` (via `watchfiles`) hot-reloads on every source edit. Only requirements.txt changes need a `docker compose up --force-recreate backend`.
 
 ## 2. Access
 
@@ -14,7 +14,7 @@ Source: `services/backend/app/`. The FastAPI app boots in `app/main.py`, mounts 
 |---|---|---|
 | Direct | `http://localhost:${BACKEND_PORT}` (default `63093`) | Always exposed when the container is up; application authentication is identical to Kong access. |
 | Kong | `http://api.localhost:${KONG_HTTP_PORT}` | Requires `./start.sh --setup-hosts`. Kong policy is an optional outer gate; application identity remains required on protected routes. |
-| Public diagnostics | `GET /`, `GET /health`, `GET /metrics`, API schema/docs | No bearer token. Do not publish metrics or schema routes beyond the intended network boundary. |
+| Public diagnostics | `GET /`, `GET /health`, `GET /ready`, `GET /metrics`, API schema/docs | No bearer token. `/health` is process liveness; `/ready` probes PostgreSQL, Redis, and LiteLLM and returns `503` until all are available. Do not publish metrics or schema routes beyond the intended network boundary. |
 | Chunking | `POST /api/chunk` | Chonkie-backed splitting; accepts a Supabase user JWT, the internal-service token, or the scoped notebook token. |
 | RAG evaluation | `POST /api/rag/evaluate` | Ragas-backed metrics; accepts the same stateless-route credentials as chunking. |
 | RAG ingestion | `POST /api/rag/ingestions`, `GET /api/rag/ingestions[/{id}]`, `POST /api/rag/ingestions/{id}/cancel` | Internal-service only. Generic ingestion job over a consumer `rag_ingestion_profile` with machine-readable per-phase status. |
@@ -204,7 +204,7 @@ LLMs.
 **Required hard dependencies** (from `depends_on.required`):
 - `supabase` — Postgres (LangMem facts, public tables) and Storage (file uploads default to 100 MiB via `MAX_UPLOAD_BYTES`). The backend uses service credentials for outbound storage/database work and verifies inbound authenticated-user JWTs for user-scoped routes. Supabase Auth users are synchronized into `public.users` so research and memory foreign keys remain satisfiable.
 - `redis` — declared required; `REDIS_URL` database 0 stores shared hosted-media operation state and RAG ingestion state, while the optional Celery worker tier uses Redis database 4 for async job broker/result state.
-- `litellm` — gated `service_healthy` in compose; backend's startup performs first-call probes against the gateway.
+- `litellm` — gated `service_healthy` in compose; the Backend readiness endpoint probes the gateway's liveness endpoint.
 
 **Optional adaptive dependencies** (from `runtime_deps.backend.optional`):
 - `neo4j-graph-db`, `searxng`, `n8n`, `weaviate`, `parakeet`, `speaches`, `chatterbox`, `docling`.
@@ -321,7 +321,7 @@ curl -X POST http://localhost:${BACKEND_PORT}/lightrag/rerank \
 
 ## 7. Troubleshooting
 
-**`/health` returns 503 for a specific upstream.** Read which upstream is failing from the response payload, then `docker logs <project>-<service>` for the failing service. The backend never crashes on upstream failure — it degrades.
+**`/ready` returns 503 for a required upstream.** Read which of `postgres`, `redis`, or `litellm` is `unavailable` in the response payload, then inspect that service's logs. `/health` remains a cheap process-liveness check so orchestration can distinguish a running process from one ready to serve traffic.
 
 **LangMem extraction silently fails.** Check that `LITELLM_DEFAULT_MODEL` is set (it is written into `.env` by `litellm-init` on first start from the YAML catalogs + env). Without a resolved default model, `LANGMEM_EXTRACTION_MODEL` remains empty and the consolidation loop short-circuits. Set it explicitly to a known model id (e.g. `ollama/qwen3:8b`).
 

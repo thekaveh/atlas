@@ -57,6 +57,7 @@ RESERVED_ROUTE_PREFIXES: frozenset[str] = frozenset(
         "docs",
         "openapi.json",
         "plugins",
+        "ready",
         "redoc",
         "research",
         "storage",

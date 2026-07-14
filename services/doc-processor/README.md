@@ -167,7 +167,9 @@ curl -X POST http://localhost:63051/v1/document/convert \
 
 ### 5.2 GET /health
 
-Health check endpoint.
+Readiness endpoint. It returns `200` only when the selected provider's document
+converter can be imported; otherwise it returns `503` and an empty
+`models_loaded` list.
 
 **Request:**
 

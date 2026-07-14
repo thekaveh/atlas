@@ -13,7 +13,7 @@ This service exists so image-to-3D providers, Blender/DayDreams flows, and futur
 | Direct API | `http://localhost:${ASSET_WORKER_PORT}` | Host-side FastAPI service when `ASSET_WORKER_SOURCE=container`. |
 | Kong alias | `http://asset-worker.localhost:${KONG_HTTP_PORT}` | Requires `./start.sh --setup-hosts`; generated only when the service is enabled. |
 | Internal API | `http://asset-worker:8095` | Used by sibling containers through `ASSET_WORKER_ENDPOINT`. |
-| Health | `GET /health` | Returns `{"status": "ok"}`. |
+| Health | `GET /health` | Returns `200` only when the configured glTF-Transform executable is available; otherwise returns `503`. |
 
 ## 3. Configuration
 

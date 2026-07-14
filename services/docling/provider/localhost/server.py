@@ -23,7 +23,7 @@ except ImportError:
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from fastapi import FastAPI, File, UploadFile, HTTPException, Form
+from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 import logging
 
@@ -31,7 +31,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from bounded_upload import EmptyUploadError, UploadTooLargeError, spool_upload
 
 # Import processor
-from processor import process_document
+from processor import process_document, processor_ready
 
 app = FastAPI(title="Docling Document Processor", version="1.0.0")
 
@@ -55,9 +55,12 @@ async def root():
     }
 
 @app.get("/health")
-async def health_check():
+async def health_check(response: Response):
+    ready = processor_ready()
+    if not ready:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     return {
-        "status": "healthy",
+        "status": "healthy" if ready else "unavailable",
         "backend": os.getenv("DOCLING_DEVICE", "cpu"),
         "device": os.getenv("DOCLING_DEVICE", "cpu")
     }

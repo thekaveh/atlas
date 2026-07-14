@@ -162,7 +162,7 @@ def test_prefixes_overlap_semantics():
 def test_lightrag_and_framework_routes_are_reserved():
     from plugin_manifest import RESERVED_ROUTE_PREFIXES
 
-    assert {"docs", "lightrag", "metrics", "openapi.json", "redoc"}.issubset(
+    assert {"docs", "lightrag", "metrics", "openapi.json", "ready", "redoc"}.issubset(
         RESERVED_ROUTE_PREFIXES
     )
 

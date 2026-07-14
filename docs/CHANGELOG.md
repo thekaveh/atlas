@@ -33,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Ray 2.56 runtime alignment** — Ray server images and Backend/Jupyter clients now move together on the 2.56 line, closing unsafe WebDataset deserialization paths without introducing client/server skew.
 - **Backend JWT verification** — Backend identity validation now uses PyJWT and requires `sub` plus `exp`; the verification-only HS256 path no longer pulls the signing-side-channel dependency inherited through `python-jose`.
 - **Notebook and speech ML baselines** — JupyterHub now installs the supported PyTorch 2.11 CPU trio and matching PyG wheel set, while Parakeet GPU uses NeMo 2.7.3 with patched ONNX and Protobuf floors. Residual upstream model-loader advisories are limited to operator-selected trusted model artifacts and are documented beside the compatibility pins.
+- **Truthful operational readiness** — Backend now separates cheap `/health` liveness from `/ready` probes for PostgreSQL, Redis, and LiteLLM, and its container health check uses readiness. Asset Worker, Asset Baker, Docling, and Parakeet no longer report healthy before their required executable, processor, or model is available. The OpenTelemetry Collector validates its mounted config on every health probe, while explicitly enabled but incomplete Backend tracing fails startup instead of silently disabling spans.
 
 ### Fixed — 2026-07-13 — Synchronized three-surface documentation
 

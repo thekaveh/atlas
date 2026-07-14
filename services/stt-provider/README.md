@@ -134,6 +134,11 @@ The bootstrapper writes:
 Open WebUI's microphone button starts working as soon as the STT service is
 healthy.
 
+For the managed Parakeet GPU source, healthy means the configured model is
+loaded: the container preloads it before starting the API and `/health` returns
+`503` until inference is available. Speaches retains its upstream process-level
+health semantics and may still download a model on first use.
+
 ## 7. Supported audio formats
 
 WAV (.wav), FLAC (.flac), MP3 (.mp3), M4A (.m4a), OGG (.ogg), OPUS (.opus),

@@ -26,6 +26,9 @@ services:
       PARAKEET_COMPUTE_TYPE: ${PARAKEET_GPU_COMPUTE_TYPE:-float16}
       PARAKEET_MAX_UPLOAD_BYTES: ${PARAKEET_MAX_UPLOAD_BYTES:-104857600}
       PARAKEET_CONCURRENCY: ${PARAKEET_CONCURRENCY:-1}
+      # Do not advertise HTTP readiness until the configured NeMo model has
+      # downloaded, initialized, and moved to the requested device.
+      PRELOAD_MODEL: "true"
       NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-all}
       HF_TOKEN: ${HUGGING_FACE_HUB_TOKEN}
     volumes:

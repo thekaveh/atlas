@@ -3,7 +3,7 @@ OpenAI-compatible Document Processing API Server
 Supports GPU backend for Docling (used by container)
 """
 
-from fastapi import FastAPI, File, UploadFile, HTTPException, Form
+from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 import os
 import logging
@@ -12,7 +12,7 @@ from bounded_upload import EmptyUploadError, UploadTooLargeError, spool_upload
 
 # Import backend-specific processor
 try:
-    from processor import process_document
+    from processor import process_document, processor_ready
 except ImportError as e:
     logging.error(f"Failed to import processor module: {e}")
     raise
@@ -47,12 +47,15 @@ async def root():
     }
 
 @app.get("/health", response_model=HealthResponse)
-async def health_check():
+async def health_check(response: Response):
+    ready = processor_ready()
+    if not ready:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     return HealthResponse(
-        status="healthy",
+        status="healthy" if ready else "unavailable",
         backend=os.getenv("DOCLING_DEVICE", "cpu"),
         device=os.getenv("DOCLING_DEVICE", "cpu"),
-        models_loaded=["DocLayNet", "TableFormer"]
+        models_loaded=["DocLayNet", "TableFormer"] if ready else []
     )
 
 @app.post("/v1/document/convert", response_model=ConversionResponse)

@@ -3,11 +3,12 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import os
+import shutil
 import tempfile
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 from .models import (
     RefPostprocessRequest,
@@ -28,8 +29,13 @@ def create_app() -> FastAPI:
     )
 
     @app.get("/health")
-    def health() -> dict[str, str]:
-        return {"status": "ok"}
+    def health() -> JSONResponse:
+        binary = os.getenv("ASSET_WORKER_GLTF_TRANSFORM_BIN", "gltf-transform")
+        ready = shutil.which(binary) is not None
+        return JSONResponse(
+            status_code=200 if ready else 503,
+            content={"status": "ok" if ready else "unavailable", "gltf_transform": ready},
+        )
 
     @app.post("/gltf/postprocess", response_model=PostprocessResponse)
     async def postprocess_upload(

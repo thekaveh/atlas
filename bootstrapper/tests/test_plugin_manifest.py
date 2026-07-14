@@ -136,7 +136,7 @@ def test_reserved_overlap_shorter_prefix_reported(tmp_path):
 def test_framework_and_lightrag_prefixes_are_reserved():
     from core.plugin_manifest import RESERVED_ROUTE_PREFIXES
 
-    assert {"docs", "lightrag", "metrics", "openapi.json", "redoc"}.issubset(
+    assert {"docs", "lightrag", "metrics", "openapi.json", "ready", "redoc"}.issubset(
         RESERVED_ROUTE_PREFIXES
     )
 
