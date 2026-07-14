@@ -65,6 +65,7 @@
 | MEDIA_DISABLED_PROVIDERS | backend |  | Comma-separated media providers to kill-switch off (e.g. 'fal'). A disabled provider hard-stops its own submissions without downing the gateway or other providers. |
 | MEDIA_BUDGET_ALLOW_UNKNOWN_COST | backend | False | When false (default), a budgeted submission for a model with no known cost is rejected rather than billed an unknown amount (never silently $0). Set true to allow unknown-cost submissions under a cap. |
 | MEDIA_BUDGET_RETENTION_DAYS | backend |  | Optional retention window in days for media spend ledger rows; empty keeps rows indefinitely. Pruning is invoked on demand via the budget engine. |
+| MEDIA_OPERATION_TTL_SECONDS | backend | 604800 | Redis retention in seconds for hosted media operation state. The default keeps terminal results available for seven days across Backend replicas and restarts. |
 | BACKEND_CORS_ORIGINS | backend | * | Comma-separated browser origins accepted by the backend CORS middleware. Default preserves local-development permissiveness. |
 | BACKEND_CORS_ALLOW_ORIGIN_REGEX | backend |  | Optional regex accepted by the backend CORS middleware for wildcard subdomain policies. |
 | BACKEND_KONG_AUTH | backend | disabled | Default gateway authentication mode for the api.localhost backend route: disabled (default local-dev behavior) or key-auth (requires apikey header). A backend plugin's plugin.yml `auth: open/key-auth` overrides this per route prefix (#402). |

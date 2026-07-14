@@ -75,6 +75,7 @@ _No upstream calls._
 | celery | agents |
 | lightrag | agents |
 | n8n | agents |
+| backend | apps |
 | open-webui | apps |
 
 ### 6.3 Architecture diagram

@@ -57,6 +57,9 @@ env:
   - name: MEDIA_BUDGET_RETENTION_DAYS
     default: ""
     description: "Optional retention window in days for media spend ledger rows; empty keeps rows indefinitely. Pruning is invoked on demand via the budget engine."
+  - name: MEDIA_OPERATION_TTL_SECONDS
+    default: 604800
+    description: "Redis retention in seconds for hosted media operation state. The default keeps terminal results available for seven days across Backend replicas and restarts."
   - name: BACKEND_CORS_ORIGINS
     default: "*"
     description: "Comma-separated browser origins accepted by the backend CORS middleware. Default preserves local-development permissiveness."
@@ -247,4 +250,5 @@ data_flow:
     - tika
     - lightrag
     - minio
+    - redis
     - otel-collector

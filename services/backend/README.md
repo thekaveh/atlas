@@ -151,11 +151,12 @@ FAL_MODEL_LICENSE=fal/provider-terms
 FAL_TIMEOUT_SECONDS=120
 FAL_OUTPUT_FORMAT=jpeg
 FAL_ENABLE_SAFETY_CHECKER=true
+MEDIA_OPERATION_TTL_SECONDS=604800
 ```
 
 When `FAL_SOURCE=enabled`, `POST /media/generate` accepts a provider-neutral request with `provider`, `modality`, `model`, and `input` fields (plus optional `consumer`/`project` attribution). The registry supports `provider=fal` with `modality=image` and `modality=image_to_3d`; unsupported provider/modality pairs return `400` before any provider client is initialized. `POST /media/generate` returns `202` with an operation id and `GET /media/operations/{operation_id}` polls the provider queue into a normalized response containing status, provider, model, modality, artifacts, cost, license, and provenance. `POST /media/operations/{operation_id}/cancel` cancels an in-flight operation (#518): it becomes terminal `cancelled` (stable on subsequent polls), its budget reservation is released via the spend-ledger reconcile path, and the provider-side operation is cancelled best-effort where supported (`provenance.provider_cancelled`); `404` for unknown ids, `409` when already terminal. `FAL_API_KEY` remains backend-only and is never returned in API responses.
 
-**Spend ledger & budgets (`MEDIA_BUDGET_ENABLED`, disabled by default).** When enabled, each generation reserves its estimated cost *before* the provider is invoked and records an immutable ledger row (`consumer`/`project`, provider/model, estimated + final cost, currency, pricing timestamp, artifact refs, status). Over-budget submissions are hard-stopped with `402` before any provider call; a per-provider kill-switch (`MEDIA_DISABLED_PROVIDERS`) returns `403` for a disabled provider without downing the gateway; reservations are concurrency-safe (two simultaneous submissions at the remaining-budget boundary cannot both pass); on completion the spend is reconciled (unknown provider costs are never silently recorded as `$0`). `GET /media/spend?consumer=<c>[&project=<p>]` returns that consumer's committed/reserved totals and rows only — never provider keys or another consumer's records. The durable store is `public.media_spend_ledger` (Postgres); operation-polling state remains process-local.
+**Spend ledger & budgets (`MEDIA_BUDGET_ENABLED`, disabled by default).** When enabled, each generation reserves its estimated cost *before* the provider is invoked and records an immutable ledger row (`consumer`/`project`, provider/model, estimated + final cost, currency, pricing timestamp, artifact refs, status). Over-budget submissions are hard-stopped with `402` before any provider call; a per-provider kill-switch (`MEDIA_DISABLED_PROVIDERS`) returns `403` for a disabled provider without downing the gateway; reservations are concurrency-safe (two simultaneous submissions at the remaining-budget boundary cannot both pass); on completion the spend is reconciled (unknown provider costs are never silently recorded as `$0`). `GET /media/spend?consumer=<c>[&project=<p>]` returns that consumer's committed/reserved totals and rows only — never provider keys or another consumer's records. The durable spend store is `public.media_spend_ledger` (Postgres). Polling and cancellation state is shared through Redis for `MEDIA_OPERATION_TTL_SECONDS` (seven days by default); terminal transitions are atomic, so concurrent polls, timeouts, and cancellation cannot replace the first terminal result.
 
 Chonkie chunking surface:
 
@@ -202,13 +203,15 @@ LLMs.
 
 **Required hard dependencies** (from `depends_on.required`):
 - `supabase` — Postgres (LangMem facts, public tables) and Storage (file uploads default to 100 MiB via `MAX_UPLOAD_BYTES`). The backend uses service credentials for outbound storage/database work and verifies inbound authenticated-user JWTs for user-scoped routes. Supabase Auth users are synchronized into `public.users` so research and memory foreign keys remain satisfiable.
-- `redis` — declared required; `REDIS_URL` is injected for shared cache/queue plumbing, and the optional Celery worker tier uses Redis database 4 for async job broker/result state.
+- `redis` — declared required; `REDIS_URL` database 0 stores shared hosted-media operation state and RAG ingestion state, while the optional Celery worker tier uses Redis database 4 for async job broker/result state.
 - `litellm` — gated `service_healthy` in compose; backend's startup performs first-call probes against the gateway.
 
 **Optional adaptive dependencies** (from `runtime_deps.backend.optional`):
 - `neo4j-graph-db`, `searxng`, `n8n`, `weaviate`, `parakeet`, `speaches`, `chatterbox`, `docling`.
 
 When any optional service is `disabled`, the corresponding backend feature degrades gracefully — `/storage/upload` returns 503 if Supabase Storage is down, and `/research/start` persists sessions in Supabase while `research_client.py` creates LangGraph threads and runs them through `/threads/{id}/runs/stream` on the Local Deep Researcher service.
+
+Research sessions use Supabase as their durable state boundary. The Backend closes its database connection before waiting on Local Deep Researcher, claims only `pending` sessions for execution, and commits a result under a row lock only while the session remains `running`. A cancellation or terminal status therefore cannot be revived or overwritten by a late remote response, including when the request and cancellation reach different Backend replicas.
 
 **Internal network:** all upstream calls use Docker DNS names on `backend-network`. No host-port hops; nothing reaches the host filesystem outside the mounted `./services/backend/app/` source directory.
 
@@ -267,6 +270,7 @@ curl -X POST http://localhost:${BACKEND_PORT}/lightrag/rerank \
 | otel-collector | infra |
 | ray | infra |
 | minio | data |
+| redis | data |
 | supabase | data |
 | supavisor | data |
 | weaviate | data |

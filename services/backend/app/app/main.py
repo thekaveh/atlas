@@ -23,6 +23,10 @@ from fal_media_client import FalClient
 import media_registry
 from media_input import prepare_image_input, ImageInputError, ImageHostingError
 import media_ledger
+from media_operation_store import (
+    TERMINAL_MEDIA_STATUSES,
+    build_media_operation_store,
+)
 from media_ledger import (
     BudgetExceeded,
     ProviderDisabled,
@@ -168,6 +172,7 @@ async def _lifespan(app: FastAPI):
     # close deterministically. (n8n_client is the only long-lived HTTP
     # client; ComfyUIClient and the memory/research clients are per-call.)
     await n8n_client.aclose()
+    await MEDIA_OPERATION_STORE.aclose()
 
 
 app = FastAPI(
@@ -1105,7 +1110,7 @@ class MediaOperationResponse(BaseModel):
     raw: Optional[Dict[str, Any]] = None
 
 
-MEDIA_OPERATIONS: Dict[str, Dict[str, Any]] = {}
+MEDIA_OPERATION_STORE = build_media_operation_store()
 
 # Media spend ledger + budget engine (#342). Disabled by default; when disabled
 # every engine method is a no-op and the gateway behaves exactly as before.
@@ -1160,14 +1165,15 @@ def _media_artifact_refs(payload: Dict[str, Any]) -> tuple[str, ...]:
 
 
 async def _maybe_reconcile_ledger(
-    operation_id: str, operation: Dict[str, Any], payload: Dict[str, Any]
+    operation_id: str, operation: Dict[str, Any]
 ) -> None:
     """Reconcile the spend ledger once, when an operation reaches a terminal
     status. Succeeded commits the spend; failed/cancelled/timeout release it."""
     if not operation.get("budget_tracked") or operation.get("reconciled"):
         return
+    payload = dict(operation.get("last_payload") or {})
     op_status = str(payload.get("status", ""))
-    if op_status not in ("succeeded", "failed", "cancelled", "timeout"):
+    if op_status not in TERMINAL_MEDIA_STATUSES:
         return
     await MEDIA_BUDGET_ENGINE.reconcile(
         operation_id=operation_id,
@@ -1175,7 +1181,7 @@ async def _maybe_reconcile_ledger(
         final_cost_usd=payload.get("cost_usd"),
         artifact_refs=_media_artifact_refs(payload),
     )
-    operation["reconciled"] = True
+    await MEDIA_OPERATION_STORE.mark_reconciled(operation_id)
 
 
 def _media_timeout_seconds(request_timeout: Optional[int] = None) -> int:
@@ -1449,11 +1455,12 @@ async def submit_media_generation(
             await MEDIA_BUDGET_ENGINE.release(reservation_id)
         except Exception:
             pass
-    MEDIA_OPERATIONS[operation_id] = {
+    await MEDIA_OPERATION_STORE.create({
+        "operation_id": operation_id,
         "provider": provider,
         "modality": modality,
         "model": model,
-        "created_at": time.monotonic(),
+        "created_at_epoch": time.time(),
         "timeout_seconds": _media_timeout_seconds(request.timeout_seconds),
         "last_payload": payload,
         "consumer": consumer,
@@ -1461,23 +1468,20 @@ async def submit_media_generation(
         "owner_scope": principal_scope_key(principal),
         "budget_tracked": reservation is not None,
         "reconciled": False,
-    }
+    })
     return _media_response(payload)
 
 
 # Terminal media-operation statuses — once reached, polls return the stored
 # payload without re-hitting the provider (a cancelled op must stay cancelled,
 # #518), and _maybe_reconcile_ledger settles the spend exactly once.
-_TERMINAL_MEDIA_STATUSES = ("succeeded", "failed", "cancelled", "timeout")
-
-
 @app.get("/media/operations/{operation_id}", response_model=MediaOperationResponse)
 async def get_media_operation(
     operation_id: str,
     principal: BackendPrincipal = Depends(require_backend_principal),
 ):
     """Poll a hosted media generation operation."""
-    operation = MEDIA_OPERATIONS.get(operation_id)
+    operation = await MEDIA_OPERATION_STORE.get(operation_id)
     if not operation:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -1497,17 +1501,23 @@ async def get_media_operation(
     # Terminal payloads are stable: never re-poll the provider (a cancelled op
     # must not flip back to the provider's in-flight status, #518).
     last_payload = dict(operation.get("last_payload") or {})
-    if str(last_payload.get("status", "")) in _TERMINAL_MEDIA_STATUSES:
+    if str(last_payload.get("status", "")) in TERMINAL_MEDIA_STATUSES:
+        await _maybe_reconcile_ledger(operation_id, operation)
         return _media_response(last_payload)
-    elapsed = time.monotonic() - float(operation["created_at"])
+    elapsed = time.time() - float(operation["created_at_epoch"])
     if elapsed > int(operation["timeout_seconds"]):
         payload = dict(operation["last_payload"])
         payload["status"] = "timeout"
-        MEDIA_OPERATIONS[operation_id]["last_payload"] = payload
-        await _maybe_reconcile_ledger(
-            operation_id, MEDIA_OPERATIONS[operation_id], payload
+        persisted, _ = await MEDIA_OPERATION_STORE.transition_payload(
+            operation_id, payload
         )
-        return _media_response(payload)
+        if persisted is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Media operation {operation_id} not found",
+            )
+        await _maybe_reconcile_ledger(operation_id, persisted)
+        return _media_response(dict(persisted["last_payload"]))
 
     provider = operation["provider"]
     if provider != "fal":
@@ -1541,9 +1551,16 @@ async def get_media_operation(
             detail=f"Failed to poll media operation with FAL: {str(e)}",
         )
 
-    MEDIA_OPERATIONS[operation_id]["last_payload"] = payload
-    await _maybe_reconcile_ledger(operation_id, MEDIA_OPERATIONS[operation_id], payload)
-    return _media_response(payload)
+    persisted, _ = await MEDIA_OPERATION_STORE.transition_payload(
+        operation_id, payload
+    )
+    if persisted is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Media operation {operation_id} not found",
+        )
+    await _maybe_reconcile_ledger(operation_id, persisted)
+    return _media_response(dict(persisted["last_payload"]))
 
 
 @app.post(
@@ -1564,7 +1581,7 @@ async def cancel_media_operation(
     the op stops either way). Idempotency: ``404`` for an unknown operation,
     ``409`` for an already-terminal one (succeeded/failed/cancelled/timeout).
     """
-    operation = MEDIA_OPERATIONS.get(operation_id)
+    operation = await MEDIA_OPERATION_STORE.get(operation_id)
     if not operation:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -1583,7 +1600,7 @@ async def cancel_media_operation(
         )
     last_payload = dict(operation.get("last_payload") or {})
     current_status = str(last_payload.get("status", ""))
-    if current_status in _TERMINAL_MEDIA_STATUSES:
+    if current_status in TERMINAL_MEDIA_STATUSES:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
@@ -1592,7 +1609,31 @@ async def cancel_media_operation(
             ),
         )
 
-    # Best-effort provider propagation — never blocks the server-side cancel.
+    payload = dict(last_payload)
+    payload["status"] = "cancelled"
+    provenance = dict(payload.get("provenance") or {})
+    provenance["provider_cancelled"] = False
+    payload["provenance"] = provenance
+    persisted, changed = await MEDIA_OPERATION_STORE.transition_payload(
+        operation_id, payload
+    )
+    if persisted is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Media operation {operation_id} not found",
+        )
+    if not changed:
+        final_status = str(persisted["last_payload"].get("status", ""))
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Media operation {operation_id} is already terminal "
+                f"({final_status})"
+            ),
+        )
+
+    # Persist cancellation before this best-effort provider call so a slow
+    # provider cannot race a successful poll and overwrite terminal state.
     provider_cancelled = False
     if (
         operation.get("provider") == "fal"
@@ -1610,14 +1651,16 @@ async def cancel_media_operation(
         except Exception:  # noqa: BLE001 — best-effort by contract
             provider_cancelled = False
 
-    payload = dict(last_payload)
-    payload["status"] = "cancelled"
+    payload = dict(persisted["last_payload"])
     provenance = dict(payload.get("provenance") or {})
     provenance["provider_cancelled"] = provider_cancelled
     payload["provenance"] = provenance
-    MEDIA_OPERATIONS[operation_id]["last_payload"] = payload
-    await _maybe_reconcile_ledger(operation_id, MEDIA_OPERATIONS[operation_id], payload)
-    return _media_response(payload)
+    enriched, _ = await MEDIA_OPERATION_STORE.replace_terminal_payload(
+        operation_id, "cancelled", payload
+    )
+    final_operation = enriched or persisted
+    await _maybe_reconcile_ledger(operation_id, final_operation)
+    return _media_response(dict(final_operation["last_payload"]))
 
 
 @app.get("/media/spend", response_model=MediaSpendResponse)

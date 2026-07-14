@@ -359,17 +359,21 @@ def test_media_operation_is_non_enumerating_across_user_principals(
     fastapi_client, monkeypatch
 ) -> None:
     import main
+    from media_operation_store import InMemoryMediaOperationStore
 
     monkeypatch.setenv("BACKEND_IDENTITY_AUTH", "required")
     monkeypatch.setenv("BACKEND_INTERNAL_API_TOKEN", "internal-secret")
     owner_id = str(uuid4())
     operation_id = "fal-owner-test"
-    main.MEDIA_OPERATIONS[operation_id] = {
+    original_store = main.MEDIA_OPERATION_STORE
+    main.MEDIA_OPERATION_STORE = InMemoryMediaOperationStore()
+    asyncio.run(main.MEDIA_OPERATION_STORE.create({
+        "operation_id": operation_id,
         "owner_scope": f"user:{owner_id}",
         "provider": "fal",
         "modality": "image",
         "model": "fal-ai/flux/dev",
-        "created_at": time.monotonic(),
+        "created_at_epoch": time.time(),
         "timeout_seconds": 60,
         "last_payload": {
             "operation_id": operation_id,
@@ -378,7 +382,7 @@ def test_media_operation_is_non_enumerating_across_user_principals(
             "model": "fal-ai/flux/dev",
             "modality": "image",
         },
-    }
+    }))
     try:
         owner_response = fastapi_client.get(
             f"/media/operations/{operation_id}",
@@ -389,7 +393,7 @@ def test_media_operation_is_non_enumerating_across_user_principals(
             headers=_user_headers(monkeypatch, str(uuid4())),
         )
     finally:
-        main.MEDIA_OPERATIONS.pop(operation_id, None)
+        main.MEDIA_OPERATION_STORE = original_store
 
     assert owner_response.status_code == 200
     assert peer_response.status_code == 404

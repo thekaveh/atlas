@@ -483,6 +483,7 @@ services:
       MEDIA_BUDGET_RETENTION_DAYS: ''
       MEDIA_BUDGET_STORE: postgres
       MEDIA_DISABLED_PROVIDERS: ''
+      MEDIA_OPERATION_TTL_SECONDS: '604800'
       N8N_API_KEY: ''
       N8N_BASE_URL: http://n8n:5678
       NEO4J_PASSWORD: neo4j_password

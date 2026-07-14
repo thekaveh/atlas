@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import importlib
 import json
 import os
@@ -559,9 +560,13 @@ def test_media_operation_times_out(monkeypatch):
     )
     assert submitted.status_code == 202
 
-    # Force the operation past its timeout budget.
-    main.MEDIA_OPERATIONS["fal-3d-9"]["created_at"] = 0.0
-    main.MEDIA_OPERATIONS["fal-3d-9"]["timeout_seconds"] = 1
+    # Advance the wall clock beyond the operation's timeout budget.
+    operation = asyncio.run(main.MEDIA_OPERATION_STORE.get("fal-3d-9"))
+    monkeypatch.setattr(
+        main.time,
+        "time",
+        lambda: operation["created_at_epoch"] + operation["timeout_seconds"] + 1,
+    )
 
     polled = client.get("/media/operations/fal-3d-9")
     assert polled.status_code == 200
@@ -570,11 +575,12 @@ def test_media_operation_times_out(monkeypatch):
 
 # ── #518: POST /media/operations/{id}/cancel ────────────────────────────────
 def _seed_inflight_operation(main, operation_id="fal-req-cxl", budget_tracked=True):
-    main.MEDIA_OPERATIONS[operation_id] = {
+    asyncio.run(main.MEDIA_OPERATION_STORE.create({
+        "operation_id": operation_id,
         "provider": "fal",
         "modality": "image",
         "model": "fal-ai/flux/dev",
-        "created_at": __import__("time").monotonic(),
+        "created_at_epoch": __import__("time").time(),
         "timeout_seconds": 120,
         "last_payload": {
             "operation_id": operation_id,
@@ -593,7 +599,7 @@ def _seed_inflight_operation(main, operation_id="fal-req-cxl", budget_tracked=Tr
         "project": None,
         "budget_tracked": budget_tracked,
         "reconciled": False,
-    }
+    }))
     return operation_id
 
 
@@ -655,7 +661,8 @@ def test_media_cancel_marks_terminal_releases_budget_and_propagates(monkeypatch)
     assert len(spy.calls) == 1
     assert spy.calls[0]["status"] == "cancelled"
     assert spy.calls[0]["operation_id"] == op_id
-    assert main.MEDIA_OPERATIONS[op_id]["reconciled"] is True
+    persisted = asyncio.run(main.MEDIA_OPERATION_STORE.get(op_id))
+    assert persisted["reconciled"] is True
 
 
 def test_media_cancel_is_idempotent_409_when_already_terminal(monkeypatch):
