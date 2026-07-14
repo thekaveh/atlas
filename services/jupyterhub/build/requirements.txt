@@ -49,8 +49,8 @@ ccxt==4.5.64
 # Lakehouse clients
 # Keep boto3/s3fs aligned through botocore + fsspec to avoid slow resolver
 # backtracking and to stay compatible with the notebook ML dependency set.
-boto3==1.35.36
-botocore==1.35.36
+boto3==1.43.48
+botocore==1.43.48
 aiobotocore==2.15.2
 s3fs==2024.9.0
 fsspec==2024.9.0
@@ -95,7 +95,7 @@ ray[client]>=2.55.1,<2.56
 # Lightweight Spark Connect client (~1.5 MB, no JVM/Spark distro) — notebook
 # 09_spark_connect talks to the spark-connect sidecar via sc://. Pinned to the
 # server's Spark version (apache/spark:4.1.2); a mismatch breaks the gRPC handshake.
-pyspark-client==4.1.2
+pyspark-client==4.2.0
 
 # ml-lab runtime support — see https://github.com/thekaveh/ml-lab
 # The package was previously published as `nnx-pytorch`; that distribution
