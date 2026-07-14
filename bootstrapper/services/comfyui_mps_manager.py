@@ -17,6 +17,7 @@ Linux CI; a real MPS round-trip is a separate ``live`` Darwin-arm64 test.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import platform
@@ -256,14 +257,16 @@ class ComfyUiMpsManager:
         # lands the new ref instead of failing on a missing object.
         self._checkout_ref()
 
-        if not self.venv_python.exists():
+        requirements_sha256 = self._requirements_sha256()
+        fresh = not self.venv_python.exists()
+        if fresh:
             self._run(["python3", "-m", "venv", str(self.venv_dir)])
             self._run([str(self.venv_python), "-m", "pip", "install", "--upgrade", "pip"])
             # torch's default macos-arm64 wheel ships Metal/MPS support.
             self._run([str(self.venv_python), "-m", "pip", "install", "torch", "torchvision", "torchaudio"])
             self._run([str(self.venv_python), "-m", "pip", "install", "-r",
                        str(self.repo_dir / "requirements.txt")])
-        elif update:
+        elif update or not self._installed_environment_matches(requirements_sha256):
             # Re-pin Torch too so a security/compat bump lands without a manual
             # venv wipe, then reconcile ComfyUI's own requirements.
             self._run([str(self.venv_python), "-m", "pip", "install", "--upgrade",
@@ -272,7 +275,27 @@ class ComfyUiMpsManager:
                        str(self.repo_dir / "requirements.txt")])
 
         self._write_model_paths()
-        self._write_status(installed_ref=self.ref)
+        self._write_status(
+            installed_ref=self.ref,
+            requirements_sha256=requirements_sha256,
+        )
+
+    def _requirements_sha256(self) -> str:
+        requirements = self.repo_dir / "requirements.txt"
+        try:
+            return hashlib.sha256(requirements.read_bytes()).hexdigest()
+        except OSError as exc:
+            raise ComfyUiMpsError("pinned ComfyUI checkout lacks requirements.txt") from exc
+
+    def _installed_environment_matches(self, requirements_sha256: str) -> bool:
+        try:
+            payload = json.loads(self.status_file.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return False
+        return (
+            payload.get("installed_ref") == self.ref
+            and payload.get("requirements_sha256") == requirements_sha256
+        )
 
     def _checkout_ref(self) -> None:
         """Force-checkout ``self.ref``, fetching once if the ref is unknown locally."""
@@ -332,7 +355,11 @@ class ComfyUiMpsManager:
         self._untracked_pid = proc.pid
         try:
             self.pid_file.write_text(str(proc.pid), encoding="utf-8")
-            self._write_status(installed_ref=self.ref, pid=proc.pid)
+            self._write_status(
+                installed_ref=self.ref,
+                requirements_sha256=self._requirements_sha256(),
+                pid=proc.pid,
+            )
         except BaseException as exc:
             if self._terminate_pid(proc.pid):
                 self._clear_pid()
@@ -386,7 +413,7 @@ class ComfyUiMpsManager:
 
     def _stop_locked(self) -> bool:
         pid = self._read_pid() or self._untracked_pid
-        if pid is None or not self._pid_alive(pid):
+        if pid is None or not self._managed_process_alive(pid):
             self._clear_pid()
             self._untracked_pid = None
             return False
@@ -409,25 +436,34 @@ class ComfyUiMpsManager:
 
     def _terminate_pid(self, pid: int) -> bool:
         try:
-            os.kill(pid, signal.SIGINT)
+            os.killpg(pid, signal.SIGINT)
             deadline = time.monotonic() + 10
             while time.monotonic() < deadline:
-                if not self._pid_alive(pid):
+                self._reap_child(pid)
+                if not self._managed_process_alive(pid):
                     break
                 time.sleep(0.2)
             else:
-                os.kill(pid, signal.SIGKILL)
+                os.killpg(pid, signal.SIGKILL)
+                deadline = time.monotonic() + 5
+                while self._managed_process_alive(pid) and time.monotonic() < deadline:
+                    self._reap_child(pid)
+                    time.sleep(0.1)
         except OSError:
             pass
+        self._reap_child(pid)
+        return not self._managed_process_alive(pid)
+
+    @staticmethod
+    def _reap_child(pid: int) -> None:
         try:
             os.waitpid(pid, os.WNOHANG)
         except (ChildProcessError, OSError):
             pass
-        return not self._pid_alive(pid)
 
     def status(self) -> ProcessStatus:
         pid = self._read_pid() or self._untracked_pid
-        running = pid is not None and self._pid_alive(pid)
+        running = pid is not None and self._managed_process_alive(pid)
         ref = None
         if self.status_file.exists():
             try:
@@ -547,6 +583,19 @@ class ComfyUiMpsManager:
             return True
         return True
 
+    @staticmethod
+    def _process_group_alive(pgid: int) -> bool:
+        try:
+            os.killpg(pgid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        return True
+
+    def _managed_process_alive(self, pid: int) -> bool:
+        return self._pid_alive(pid) or self._process_group_alive(pid)
+
     def _pid_is_stranger(self, pid: int) -> bool:
         """Best-effort: True only when we can PROVE ``pid`` is NOT our ComfyUI.
 
@@ -568,9 +617,22 @@ class ComfyUiMpsManager:
         markers = ("main.py", "ComfyUI", str(self.repo_dir), str(self.state_dir))
         return not any(marker in cmdline for marker in markers)
 
-    def _write_status(self, *, installed_ref: Optional[str], pid: Optional[int] = None) -> None:
+    def _write_status(
+        self,
+        *,
+        installed_ref: Optional[str],
+        requirements_sha256: Optional[str] = None,
+        pid: Optional[int] = None,
+    ) -> None:
         self.state_dir.mkdir(parents=True, exist_ok=True)
-        payload = {"installed_ref": installed_ref, "port": self.port, "pid": pid}
+        if requirements_sha256 is None and installed_ref and self.repo_dir.exists():
+            requirements_sha256 = self._requirements_sha256()
+        payload = {
+            "installed_ref": installed_ref,
+            "requirements_sha256": requirements_sha256,
+            "port": self.port,
+            "pid": pid,
+        }
         self.status_file.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 

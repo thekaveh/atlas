@@ -1,4 +1,4 @@
-"""Fast source-level reproducibility checks for committed Jupyter notebooks."""
+"""Fast source-hygiene checks for committed Jupyter notebooks."""
 
 from __future__ import annotations
 
@@ -54,7 +54,7 @@ def audit_notebooks(root: Path) -> list[str]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Audit committed notebook reproducibility metadata")
+    parser = argparse.ArgumentParser(description="Audit committed notebook source hygiene")
     parser.add_argument("--root", default="services/jupyterhub/build/notebooks")
     args = parser.parse_args()
     root = Path(args.root)
@@ -63,7 +63,7 @@ def main() -> None:
         print("\n".join(findings))
         raise SystemExit(1)
     count = len(list(root.rglob("*.ipynb")))
-    print(f"PASS {count} notebooks are clean and reproducible from source")
+    print(f"PASS {count} notebook sources have stable metadata and no committed outputs")
 
 
 if __name__ == "__main__":

@@ -56,15 +56,6 @@ langchain-core>=0.1.22
 # Ragas moves that import to the newer provider package.
 langchain-community>=0.3.0,<0.4
 langchain-openai>=0.0.8
-# langchain-groq 0.3.x (latest stable) requires groq>=0.30.0,<1. The
-# raw groq client was bumped to 1.4.0 by Dependabot without checking
-# langchain-groq compatibility — pin groq into the langchain-groq
-# accepted range so docker build resolves. Neither is imported by
-# backend code today; LiteLLM handles Groq routing internally with
-# its own client. Both kept as transitive ergonomics for callers
-# that may import them directly later.
-langchain-groq>=0.1.5
-groq>=0.30.0,<1
 langgraph>=0.0.15
 transformers>=4.39.3
 

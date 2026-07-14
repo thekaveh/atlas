@@ -61,8 +61,6 @@ Direct Supabase consumers intentionally remain direct until session/native behav
 
 ## 5. Dependencies & Integrations
 
-> Auto-generated section — the **Current** subsections are derived from `services/supavisor/service.yml`'s `data_flow.calls` field (and inverse passes). Re-run `python -m bootstrapper.docs.regen supavisor` after manifest changes.
-
 ### 5.1 Current — Upstream (this service calls)
 
 | Service | Category |

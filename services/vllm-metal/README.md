@@ -55,8 +55,8 @@ All knobs live in `.env` (regenerated from `services/vllm-metal/service.yml`).
 | `VLLM_METAL_SOURCE` | `disabled` | `managed-localhost` \| `disabled`. |
 | `VLLM_METAL_MODEL` | `Qwen/Qwen2.5-7B-Instruct` | Hugging Face model id served and registered under the same LiteLLM alias. |
 | `VLLM_METAL_LOCALHOST_PORT` | `8000` | Host port the managed OpenAI server listens on. Not a `BASE_PORT` slot. |
-| `VLLM_METAL_PLUGIN_VERSION` | `0.3.0` | Pinned `vllm-metal` plugin version installed into the managed venv. |
-| `VLLM_METAL_CORE_VERSION` | _(blank)_ | Optional pinned `vllm` core version; blank lets the plugin resolve a compatible core. |
+| `VLLM_METAL_PLUGIN_VERSION` | `0.3.0.dev20260713103604` | Atlas-verified upstream release wheel installed from GitHub with SHA-256 verification. Unverified overrides fail closed. |
+| `VLLM_METAL_CORE_VERSION` | `0.24.0` | Atlas-verified vLLM core release built from its checksum-pinned source archive. It must match the supported plugin release. |
 | `VLLM_METAL_PYTHON` | `python3.12` | Interpreter used to build the managed venv (vLLM Metal requires 3.12). |
 | `VLLM_METAL_STATE_DIR` | `~/.atlas/vllm-metal` | Host dir holding the venv + pid/log/status files. |
 | `VLLM_METAL_MODELS_PATH` | _(blank)_ | Optional Hugging Face cache dir (`HF_HOME`); blank = default HF cache. |
@@ -91,11 +91,11 @@ processes. For explicit control (or a CI-safe, read-only preflight) use the
 
 ```bash
 python bootstrapper/start.py vllm-metal preflight   # OS/arch/py3.12/memory/quant probe (no install)
-python bootstrapper/start.py vllm-metal install      # idempotent wheel + venv install (--update to re-pin)
+python bootstrapper/start.py vllm-metal install      # checksum-verified core + plugin install
 python bootstrapper/start.py vllm-metal start         # launch the host process (one per host)
 python bootstrapper/start.py vllm-metal status        # running / pid / installed version
 python bootstrapper/start.py vllm-metal health        # probe /v1/models
-python bootstrapper/start.py vllm-metal stop          # SIGINT then SIGKILL
+python bootstrapper/start.py vllm-metal stop          # stop the complete managed process group
 python bootstrapper/start.py vllm-metal remove         # stop + delete the state dir
 ```
 
@@ -105,8 +105,11 @@ unsupported host.
 
 The lifecycle is intentionally structurally identical to the #335 ComfyUI
 managed-MPS host so the two managed sources stay consistent: state dir + venv,
-pid/log/status files, idempotent install, a PID-reuse stranger guard on stop,
-and port-in-use refusal on start.
+pid/log/status files, a PID-reuse stranger guard on stop, and port-in-use
+refusal on start. Install compares the recorded core/plugin versions and
+installed distribution metadata on every launch, rebuilding stale environments
+without requiring `--update`. Stop and status operate on the whole process group so
+worker subprocesses cannot survive their managed server.
 
 ## 5. Architecture & wiring
 
@@ -131,8 +134,6 @@ and port-in-use refusal on start.
   `VLLM_METAL_ENDPOINT` / `VLLM_METAL_MODEL` to litellm-init.
 
 ## 6. Dependencies & Integrations
-
-> Auto-generated section — the **Current** subsections are derived from `services/vllm-metal/service.yml`'s `data_flow.calls` field (and inverse passes). Re-run `python -m bootstrapper.docs.regen vllm-metal` after manifest changes.
 
 ### 6.1 Current — Upstream (this service calls)
 

@@ -43,8 +43,6 @@ MetaMCP, Docker MCP Gateway, and `mcpo` remain later or conditional tools. MetaM
 
 ## 5. Dependencies & Integrations
 
-> Auto-generated section — the **Current** subsections are derived from `services/mcp-servers/service.yml`'s `data_flow.calls` field (and inverse passes). Re-run `python -m bootstrapper.docs.regen mcp-servers` after manifest changes.
-
 ### 5.1 Current — Upstream (this service calls)
 
 | Service | Category |

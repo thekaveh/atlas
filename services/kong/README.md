@@ -220,8 +220,6 @@ For more information on Kong's role in the overall architecture, see the system 
 
 ## 13. Dependencies & Integrations
 
-> Auto-generated section — the **Current** subsections are derived from `services/kong/service.yml`'s `data_flow.calls` field (and inverse passes). Re-run `python -m bootstrapper.docs.regen kong` after manifest changes.
-
 ### 13.1 Current — Upstream (this service calls)
 
 | Service | Category |

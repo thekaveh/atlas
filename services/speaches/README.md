@@ -32,8 +32,6 @@ pointer, not a duplicate of the aggregator docs.
 
 ## 2. Dependencies & Integrations
 
-> Auto-generated section — the **Current** subsections are derived from `services/speaches/service.yml`'s `data_flow.calls` field (and inverse passes). Re-run `python -m bootstrapper.docs.regen speaches` after manifest changes.
-
 ### 2.1 Current — Upstream (this service calls)
 
 _No upstream calls._

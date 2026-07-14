@@ -45,8 +45,6 @@ LiteLLM receives `LANGFUSE_BASE_URL`, `LANGFUSE_PUBLIC_KEY`, and `LANGFUSE_SECRE
 
 ## 5. Dependencies & Integrations
 
-> Auto-generated section — the **Current** subsections are derived from `services/langfuse/service.yml`'s `data_flow.calls` field (and inverse passes). Re-run `python -m bootstrapper.docs.regen langfuse` after manifest changes.
-
 ### 5.1 Current — Upstream (this service calls)
 
 | Service | Category |

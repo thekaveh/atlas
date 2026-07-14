@@ -110,8 +110,6 @@ Atlas does not create bronze/silver/gold namespaces at stack startup; data-eng-l
 
 ## 5. Dependencies & Integrations
 
-> Auto-generated section — the **Current** subsections are derived from `services/trino/service.yml`'s `data_flow.calls` field (and inverse passes). Re-run `python -m bootstrapper.docs.regen trino` after manifest changes.
-
 ### 5.1 Current — Upstream (this service calls)
 
 | Service | Category |

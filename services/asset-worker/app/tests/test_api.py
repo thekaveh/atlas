@@ -6,6 +6,16 @@ import pytest
 from fastapi.testclient import TestClient
 
 
+_TOKEN = "test-asset-worker-token"
+
+
+def _client(api) -> TestClient:
+    return TestClient(
+        api.create_app(api_token=_TOKEN),
+        headers={"Authorization": f"Bearer {_TOKEN}"},
+    )
+
+
 def test_health_requires_gltf_transform_binary(monkeypatch) -> None:
     from asset_worker import api
 
@@ -37,7 +47,7 @@ def test_multipart_glb_postprocess_stores_content_addressed_local_artifact(
     monkeypatch.setenv("ASSET_WORKER_ARTIFACT_DIR", str(tmp_path))
     monkeypatch.setenv("ASSET_WORKER_MINIO_ENABLED", "false")
 
-    client = TestClient(api.create_app())
+    client = _client(api)
     response = client.post(
         "/gltf/postprocess",
         files={"file": ("scene.glb", b"raw-glb", "model/gltf-binary")},
@@ -120,7 +130,7 @@ def test_minio_reference_postprocess_round_trips_through_content_addressed_bucke
     monkeypatch.setenv("ASSET_WORKER_ARTIFACT_DIR", str(tmp_path))
     monkeypatch.setenv("ASSET_WORKER_MINIO_ENABLED", "true")
 
-    client = TestClient(api.create_app())
+    client = _client(api)
     response = client.post(
         "/gltf/postprocess/ref",
         json={
@@ -147,7 +157,7 @@ def test_postprocess_requires_glb_input(monkeypatch, tmp_path) -> None:
 
     monkeypatch.setenv("ASSET_WORKER_ARTIFACT_DIR", str(tmp_path))
 
-    client = TestClient(api.create_app())
+    client = _client(api)
     response = client.post(
         "/gltf/postprocess",
         files={"file": ("scene.txt", b"not-glb", "text/plain")},
@@ -172,13 +182,49 @@ def test_postprocess_rejects_oversize_upload_before_transform(
     monkeypatch.setenv("ASSET_WORKER_MAX_UPLOAD_MB", "0.00001")
     monkeypatch.setenv("ASSET_WORKER_ARTIFACT_DIR", str(tmp_path))
 
-    response = TestClient(api.create_app()).post(
+    response = _client(api).post(
         "/gltf/postprocess",
         files={"file": ("large.glb", b"x" * 1024, "model/gltf-binary")},
     )
 
     assert response.status_code == 413
     assert transformed is False
+
+
+def test_mutating_routes_require_bearer_token() -> None:
+    from asset_worker import api
+
+    client = TestClient(api.create_app(api_token=_TOKEN))
+    response = client.post(
+        "/gltf/postprocess/ref",
+        json={"input": {"bucket": "raw-assets", "key": "mesh.glb"}, "params": {}},
+    )
+    assert response.status_code == 401
+
+
+def test_authentication_precedes_body_parsing_and_docs_are_disabled() -> None:
+    from asset_worker import api
+
+    client = TestClient(api.create_app(api_token=_TOKEN))
+    malformed = client.post(
+        "/gltf/postprocess",
+        content=b"not-a-multipart-body",
+        headers={"Content-Type": "multipart/form-data; boundary=missing"},
+    )
+    assert malformed.status_code == 401
+    for path in ("/docs", "/redoc", "/openapi.json"):
+        assert client.get(path, headers={"Authorization": f"Bearer {_TOKEN}"}).status_code == 404
+
+
+def test_reference_route_rejects_bucket_outside_allowlist(monkeypatch) -> None:
+    from asset_worker import api
+
+    monkeypatch.setenv("ASSET_WORKER_ALLOWED_INPUT_BUCKETS", "raw-assets")
+    response = _client(api).post(
+        "/gltf/postprocess/ref",
+        json={"input": {"bucket": "private", "key": "mesh.glb"}, "params": {}},
+    )
+    assert response.status_code == 403
 
 
 def test_minio_reference_rejects_oversize_object_before_read(monkeypatch) -> None:

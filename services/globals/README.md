@@ -52,8 +52,6 @@ Use `./start.sh` to configure this service through the wizard or pass the matchi
 
 ## 11. Dependencies & Integrations
 
-> Auto-generated section — the **Current** subsections are derived from `services/globals/service.yml`'s `data_flow.calls` field (and inverse passes). Re-run `python -m bootstrapper.docs.regen globals` after manifest changes.
-
 ### 11.1 Current — Upstream (this service calls)
 
 _No upstream calls._

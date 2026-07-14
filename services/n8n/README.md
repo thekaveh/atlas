@@ -117,8 +117,6 @@ When `LIGHTRAG_SOURCE != disabled`, the env vars `LIGHTRAG_ENDPOINT` and `LIGHTR
 
 ## 6. Dependencies & Integrations
 
-> Auto-generated section — the **Current** subsections are derived from `services/n8n/service.yml`'s `data_flow.calls` field (and inverse passes). Re-run `python -m bootstrapper.docs.regen n8n` after manifest changes.
-
 ### 6.1 Current — Upstream (this service calls)
 
 | Service | Category |

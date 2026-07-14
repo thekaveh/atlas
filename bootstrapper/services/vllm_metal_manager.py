@@ -24,6 +24,7 @@ managed-host sources stay structurally consistent.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import platform
@@ -31,7 +32,10 @@ import shutil
 import signal
 import socket
 import subprocess
+import tarfile
+import tempfile
 import time
+import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from contextlib import contextmanager
@@ -43,11 +47,15 @@ try:  # Native Windows can import this module for a no-op disabled-source stop.
 except ImportError:  # pragma: no cover - exercised only by native Windows Python
     fcntl = None  # type: ignore[assignment]
 
-# The vLLM Metal hardware plugin (Apache-2.0). Installed from PyPI; it pulls the
-# matching vLLM core. Requirements: macOS arm64 + Python 3.12.
+# The vLLM Metal hardware plugin (Apache-2.0). Atlas builds the matching core
+# from a checksum-pinned release archive, then installs the checksum-pinned
+# plugin wheel from GitHub Releases. Requirements: macOS arm64 + Python 3.12.
 # https://github.com/vllm-project/vllm-metal
 _VLLM_METAL_PACKAGE = "vllm-metal"
-_DEFAULT_PLUGIN_VERSION = "0.3.0"
+_DEFAULT_PLUGIN_VERSION = "0.3.0.dev20260713103604"
+_DEFAULT_CORE_VERSION = "0.24.0"
+_DEFAULT_PLUGIN_SHA256 = "7423302ad116656d712f4b52811ebca13a48d246bcde2b8c093b2a2a01d7c03f"
+_DEFAULT_CORE_SHA256 = "0862453adc1f3339f1a0c9dca1179c34d6ed6e118f87b6e5bddd120af614ac66"
 _DEFAULT_PYTHON = "python3.12"
 _REQUIRED_PY = (3, 12)
 _LOCK_TIMEOUT_SECONDS = 30.0
@@ -119,7 +127,7 @@ class VllmMetalManager:
         port: int = 8000,
         model: str = "Qwen/Qwen2.5-7B-Instruct",
         plugin_version: str = _DEFAULT_PLUGIN_VERSION,
-        core_version: str = "",
+        core_version: str = _DEFAULT_CORE_VERSION,
         python_bin: str = _DEFAULT_PYTHON,
         hf_cache_dir: Path | str | None = None,
         min_memory_gb: int = 16,
@@ -264,23 +272,120 @@ class VllmMetalManager:
         return None
 
     def _vllm_importable(self) -> Optional[bool]:
+        return self._installed_versions() is not None
+
+    def _installed_versions(self) -> Optional[tuple[str, str]]:
+        """Return the installed plugin/core versions after importing both APIs."""
         try:
             out = subprocess.run(
-                [str(self.venv_python), "-c", "import vllm"],
+                [
+                    str(self.venv_python),
+                    "-c",
+                    (
+                        "import importlib.metadata as m; "
+                        "import vllm; import vllm_metal; "
+                        "import vllm.entrypoints.openai.api_server; "
+                        "print(m.version('vllm-metal')); print(m.version('vllm'))"
+                    ),
+                ],
                 capture_output=True, text=True, timeout=60, check=False,
             )
         except (OSError, subprocess.SubprocessError):
             return None
-        return out.returncode == 0
+        versions = out.stdout.strip().splitlines()
+        if out.returncode != 0 or len(versions) != 2:
+            return None
+        return versions[0], versions[1]
 
     # ── install / update (idempotent) ────────────────────────────────
     def _pip_spec(self) -> list[str]:
-        """Pinned pip targets. The plugin pulls its matching vLLM core; an
-        explicit core pin is added only when the operator sets one."""
-        specs = [f"{_VLLM_METAL_PACKAGE}=={self.plugin_version}"]
-        if self.core_version:
-            specs.append(f"vllm=={self.core_version}")
-        return specs
+        """Return the plugin target; the compatible vLLM core is built separately."""
+        self._require_supported_release()
+        wheel = (
+            "https://github.com/vllm-project/vllm-metal/releases/download/"
+            f"v{self.plugin_version}/vllm_metal-{self.plugin_version}-"
+            "cp312-cp312-macosx_11_0_arm64.whl"
+        )
+        return [f"{_VLLM_METAL_PACKAGE} @ {wheel}#sha256={_DEFAULT_PLUGIN_SHA256}"]
+
+    def _require_supported_release(self) -> None:
+        if (
+            self.plugin_version != _DEFAULT_PLUGIN_VERSION
+            or self.core_version != _DEFAULT_CORE_VERSION
+        ):
+            raise VllmMetalError(
+                "unsupported vLLM Metal release override: Atlas has verified only "
+                f"plugin {_DEFAULT_PLUGIN_VERSION} with core {_DEFAULT_CORE_VERSION}"
+            )
+
+    def _installed_versions_match(self) -> bool:
+        try:
+            payload = json.loads(self.status_file.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return False
+        installed = self._installed_versions()
+        return (
+            payload.get("installed_version") == self.plugin_version
+            and payload.get("installed_core_version") == self.core_version
+            and installed is not None
+            and installed[0] == self.plugin_version
+            and installed[1].split("+", 1)[0] == self.core_version
+        )
+
+    def _install_core(self) -> None:
+        """Build the exact vLLM core release using its macOS CPU requirements."""
+        self._require_supported_release()
+        archive_url = (
+            "https://github.com/vllm-project/vllm/releases/download/"
+            f"v{self.core_version}/vllm-{self.core_version}.tar.gz"
+        )
+        with tempfile.TemporaryDirectory(prefix="atlas-vllm-metal-") as tmp:
+            archive = Path(tmp) / "vllm.tar.gz"
+            try:
+                urllib.request.urlretrieve(archive_url, archive)
+            except (OSError, urllib.error.URLError) as exc:
+                raise VllmMetalError(
+                    f"failed to download pinned vLLM core {self.core_version}"
+                ) from exc
+            digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+            if digest != _DEFAULT_CORE_SHA256:
+                raise VllmMetalError("pinned vLLM core archive checksum mismatch")
+            source_root = Path(tmp) / f"vllm-{self.core_version}"
+            try:
+                with tarfile.open(archive, "r:gz") as bundle:
+                    self._extract_archive_safely(bundle, Path(tmp))
+            except (OSError, tarfile.TarError) as exc:
+                raise VllmMetalError("failed to unpack pinned vLLM core archive") from exc
+            requirements = source_root / "requirements" / "cpu.txt"
+            if not requirements.is_file():
+                raise VllmMetalError("pinned vLLM core archive lacks requirements/cpu.txt")
+            self._run([
+                str(self.venv_python), "-m", "pip", "install", "-r", str(requirements),
+            ])
+            build_env = dict(os.environ)
+            build_env["CXXFLAGS"] = "-Wno-parentheses"
+            build_env["VLLM_TARGET_DEVICE"] = "cpu"
+            self._run([
+                str(self.venv_python), "-m", "pip", "install", str(source_root),
+            ], env=build_env)
+
+    @staticmethod
+    def _extract_archive_safely(bundle: tarfile.TarFile, destination: Path) -> None:
+        """Extract a source archive safely on every supported Python 3.10 patch."""
+        root = destination.resolve()
+        members = bundle.getmembers()
+        for member in members:
+            target = (root / member.name).resolve()
+            if root != target and root not in target.parents:
+                raise VllmMetalError("pinned vLLM core archive contains an unsafe path")
+            if not (member.isfile() or member.isdir()):
+                raise VllmMetalError(
+                    "pinned vLLM core archive contains an unsupported link or device"
+                )
+        if hasattr(tarfile, "data_filter"):
+            bundle.extractall(destination, members=members, filter="data")
+        else:  # Python 3.10.0-3.10.11, before tarfile extraction filters.
+            bundle.extractall(destination, members=members)
 
     def install(self, *, update: bool = False) -> None:
         pre = self.preflight()
@@ -295,16 +400,22 @@ class VllmMetalManager:
     def _install_locked(self, *, update: bool = False) -> None:
         self.state_dir.mkdir(parents=True, exist_ok=True)
 
-        if not self.venv_python.exists():
+        fresh = not self.venv_python.exists()
+        if fresh:
             self._run([self.python_bin, "-m", "venv", str(self.venv_dir)])
             self._run([str(self.venv_python), "-m", "pip", "install", "--upgrade", "pip"])
-            self._run([str(self.venv_python), "-m", "pip", "install", *self._pip_spec()])
-        elif update:
-            # Re-pin to the requested versions (a bump or a rollback both land
-            # here — pip installs the exact ``==`` spec either direction).
-            self._run([str(self.venv_python), "-m", "pip", "install", "--upgrade", *self._pip_spec()])
+        if fresh or update or not self._installed_versions_match():
+            self._install_core()
+            self._run([
+                str(self.venv_python), "-m", "pip", "install", "--upgrade", *self._pip_spec(),
+            ])
+            if self._vllm_importable() is not True:
+                raise VllmMetalError("vLLM API server is not importable after installation")
 
-        self._write_status(installed_version=self.plugin_version)
+        self._write_status(
+            installed_version=self.plugin_version,
+            installed_core_version=self.core_version,
+        )
 
     # ── start / stop / status ────────────────────────────────────────
     def start(self) -> ProcessStatus:
@@ -348,7 +459,11 @@ class VllmMetalManager:
         self._untracked_pid = proc.pid
         try:
             self.pid_file.write_text(str(proc.pid), encoding="utf-8")
-            self._write_status(installed_version=self.plugin_version, pid=proc.pid)
+            self._write_status(
+                installed_version=self.plugin_version,
+                installed_core_version=self.core_version,
+                pid=proc.pid,
+            )
         except BaseException as exc:
             if self._terminate_pid(proc.pid):
                 self._clear_pid()
@@ -404,7 +519,7 @@ class VllmMetalManager:
 
     def _stop_locked(self) -> bool:
         pid = self._read_pid() or self._untracked_pid
-        if pid is None or not self._pid_alive(pid):
+        if pid is None or not self._managed_process_alive(pid):
             self._clear_pid()
             self._untracked_pid = None
             return False
@@ -412,7 +527,11 @@ class VllmMetalManager:
         # pid. Only signal when we cannot prove the pid belongs to a stranger.
         if self._pid_is_stranger(pid):
             self._clear_pid()
-            self._write_status(installed_version=self.plugin_version, pid=None)
+            self._write_status(
+                installed_version=self.plugin_version,
+                installed_core_version=self.core_version,
+                pid=None,
+            )
             self._untracked_pid = None
             return False
         if not self._terminate_pid(pid):
@@ -420,31 +539,44 @@ class VllmMetalManager:
             # so a retry/operator can act; don't claim success.
             return False
         self._clear_pid()
-        self._write_status(installed_version=self.plugin_version, pid=None)
+        self._write_status(
+            installed_version=self.plugin_version,
+            installed_core_version=self.core_version,
+            pid=None,
+        )
         self._untracked_pid = None
         return True
 
     def _terminate_pid(self, pid: int) -> bool:
         try:
-            os.kill(pid, signal.SIGINT)
+            os.killpg(pid, signal.SIGINT)
             deadline = time.monotonic() + 10
             while time.monotonic() < deadline:
-                if not self._pid_alive(pid):
+                self._reap_child(pid)
+                if not self._managed_process_alive(pid):
                     break
                 time.sleep(0.2)
             else:
-                os.kill(pid, signal.SIGKILL)
+                os.killpg(pid, signal.SIGKILL)
+                deadline = time.monotonic() + 5
+                while self._managed_process_alive(pid) and time.monotonic() < deadline:
+                    self._reap_child(pid)
+                    time.sleep(0.1)
         except OSError:
             pass
+        self._reap_child(pid)
+        return not self._managed_process_alive(pid)
+
+    @staticmethod
+    def _reap_child(pid: int) -> None:
         try:
             os.waitpid(pid, os.WNOHANG)
         except (ChildProcessError, OSError):
             pass
-        return not self._pid_alive(pid)
 
     def status(self) -> ProcessStatus:
         pid = self._read_pid() or self._untracked_pid
-        running = pid is not None and self._pid_alive(pid)
+        running = pid is not None and self._managed_process_alive(pid)
         version = None
         model = self.model
         if self.status_file.exists():
@@ -523,8 +655,8 @@ class VllmMetalManager:
         return last
 
     # ── low-level host helpers (mockable) ────────────────────────────
-    def _run(self, cmd: list[str]) -> None:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    def _run(self, cmd: list[str], *, env: Optional[dict[str, str]] = None) -> None:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=False, env=env)
         if result.returncode != 0:
             raise VllmMetalError(
                 f"command failed ({' '.join(cmd[:3])}…): rc={result.returncode} "
@@ -560,6 +692,19 @@ class VllmMetalManager:
             return True
         return True
 
+    @staticmethod
+    def _process_group_alive(pgid: int) -> bool:
+        try:
+            os.killpg(pgid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        return True
+
+    def _managed_process_alive(self, pid: int) -> bool:
+        return self._pid_alive(pid) or self._process_group_alive(pid)
+
     def _pid_is_stranger(self, pid: int) -> bool:
         """Best-effort: True only when we can PROVE ``pid`` is NOT our vLLM.
 
@@ -581,10 +726,17 @@ class VllmMetalManager:
         markers = ("vllm.entrypoints", "vllm", str(self.venv_dir), str(self.state_dir))
         return not any(marker in cmdline for marker in markers)
 
-    def _write_status(self, *, installed_version: Optional[str], pid: Optional[int] = None) -> None:
+    def _write_status(
+        self,
+        *,
+        installed_version: Optional[str],
+        installed_core_version: Optional[str] = None,
+        pid: Optional[int] = None,
+    ) -> None:
         self.state_dir.mkdir(parents=True, exist_ok=True)
         payload = {
             "installed_version": installed_version,
+            "installed_core_version": installed_core_version,
             "port": self.port,
             "model": self.model,
             "pid": pid,
@@ -599,7 +751,10 @@ def manager_from_env(env: dict[str, str]) -> VllmMetalManager:
         port=int(env.get("VLLM_METAL_LOCALHOST_PORT", "8000") or "8000"),
         model=env.get("VLLM_METAL_MODEL", "Qwen/Qwen2.5-7B-Instruct"),
         plugin_version=env.get("VLLM_METAL_PLUGIN_VERSION", _DEFAULT_PLUGIN_VERSION) or _DEFAULT_PLUGIN_VERSION,
-        core_version=env.get("VLLM_METAL_CORE_VERSION", "") or "",
+        core_version=(
+            env.get("VLLM_METAL_CORE_VERSION", _DEFAULT_CORE_VERSION)
+            or _DEFAULT_CORE_VERSION
+        ),
         python_bin=env.get("VLLM_METAL_PYTHON", _DEFAULT_PYTHON) or _DEFAULT_PYTHON,
         hf_cache_dir=env.get("VLLM_METAL_MODELS_PATH") or None,
         min_memory_gb=int(env.get("VLLM_METAL_MIN_MEMORY_GB", "16") or "16"),

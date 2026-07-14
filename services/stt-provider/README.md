@@ -156,8 +156,6 @@ inference.
 
 ## 9. Dependencies & Integrations
 
-> Auto-generated section — the **Current** subsections are derived from the member manifests' `data_flow.calls` (`services/parakeet/service.yml`, `services/speaches/service.yml`). Re-run `python -m bootstrapper.docs.regen stt-provider` after changing them.
-
 ### 9.1 Current — Upstream (this service calls)
 
 _No upstream calls._

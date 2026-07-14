@@ -25,13 +25,15 @@
 | ASSET_BAKER_PORT | asset-baker |  | Host port for the asset-baker API (in-container listen port is 8096). |
 | ASSET_BAKER_SCALE | asset-baker |  | - |
 | ASSET_BAKER_ENDPOINT | asset-baker |  | In-network URL for the asset-baker API. |
+| ASSET_BAKER_API_TOKEN | asset-baker |  | Auto-generated bearer token required by all Asset Baker data and processing routes; /health remains unauthenticated. |
+| ASSET_BAKER_ALLOWED_INPUT_BUCKETS | asset-baker |  | Optional comma- or space-separated reference-route bucket allowlist; blank follows MINIO_BUCKET_ASSET_INPUTS. |
 | ASSET_BAKER_BLENDER_VERSION | asset-baker | 4.3.2 | Pinned headless Blender version (>= 4.3) downloaded into the asset-baker image. Blender bundles its own Python + numpy for the bake script. |
 | ASSET_BAKER_ARTIFACT_DIR | asset-baker | /data/artifacts | Local artifact cache used when MinIO upload is disabled or for direct downloads. |
 | ASSET_BAKER_MINIO_ENABLED | asset-baker | True | When true, baked LP GLBs + textures are written to MinIO using content-addressed keys. |
 | ASSET_BAKER_MINIO_BUCKET | asset-baker | asset-baker | MinIO bucket for baked LP GLB + texture outputs. |
 | ASSET_BAKER_MINIO_ENDPOINT | asset-baker |  | In-network MinIO S3 API endpoint used by the worker. |
-| ASSET_BAKER_MINIO_ACCESS_KEY | asset-baker |  | Optional MinIO access key override. Empty uses MINIO_ROOT_USER in compose (scoped credentials recommended in production). |
-| ASSET_BAKER_MINIO_SECRET_KEY | asset-baker |  | Optional MinIO secret key override. Empty uses MINIO_ROOT_PASSWORD in compose. |
+| ASSET_BAKER_MINIO_ACCESS_KEY | asset-baker |  | Optional MinIO access key override. Empty uses the generated asset-baker scoped MinIO account. |
+| ASSET_BAKER_MINIO_SECRET_KEY | asset-baker |  | Optional MinIO secret key override. Empty uses the generated asset-baker scoped MinIO account. |
 | ASSET_BAKER_TARGET_TRIS | asset-baker | 39000 | Default low-poly triangle budget the decimate stage targets (overridable per request). |
 | ASSET_BAKER_TEX_SIZE | asset-baker | 2048 | Default baked BaseColor/Normal texture resolution (square). 2k measured 30–200 s/asset on CPU; overridable per request. |
 | ASSET_BAKER_CANONICAL_SIZE | asset-baker | 4.0 | Canonical max-dimension (units) each mesh is scaled to before remesh so the relative voxel/ray heuristics are stable regardless of the raw GLB import scale. |
@@ -43,6 +45,8 @@
 | ASSET_WORKER_PORT | asset-worker |  | Host port for the asset-worker API (in-container listen port is 8095). |
 | ASSET_WORKER_SCALE | asset-worker |  | - |
 | ASSET_WORKER_ENDPOINT | asset-worker |  | In-network URL for the asset-worker API. |
+| ASSET_WORKER_API_TOKEN | asset-worker |  | Auto-generated bearer token required by all Asset Worker data and processing routes; /health remains unauthenticated. |
+| ASSET_WORKER_ALLOWED_INPUT_BUCKETS | asset-worker |  | Optional comma- or space-separated reference-route bucket allowlist; blank follows MINIO_BUCKET_ASSET_INPUTS. |
 | ASSET_WORKER_GLTF_TRANSFORM_VERSION | asset-worker | 4.4.1 | Pinned @gltf-transform/cli version installed in the asset-worker image. |
 | ASSET_WORKER_MAX_UPLOAD_MB | asset-worker | 200 | Maximum GLB upload or MinIO reference size in MiB. Input is streamed and rejected before transformation when this limit is exceeded. |
 | ASSET_WORKER_TIMEOUT_SECONDS | asset-worker | 300 | Per-command timeout for gltf-transform inspect, validate, and optimize subprocesses. |
@@ -50,8 +54,8 @@
 | ASSET_WORKER_MINIO_ENABLED | asset-worker | True | When true, optimized GLBs are written to MinIO using content-addressed keys. |
 | ASSET_WORKER_MINIO_BUCKET | asset-worker | asset-worker | MinIO bucket for optimized GLB outputs. |
 | ASSET_WORKER_MINIO_ENDPOINT | asset-worker |  | In-network MinIO S3 API endpoint used by the worker. |
-| ASSET_WORKER_MINIO_ACCESS_KEY | asset-worker |  | Optional MinIO access key override. Empty uses MINIO_ROOT_USER in compose. |
-| ASSET_WORKER_MINIO_SECRET_KEY | asset-worker |  | Optional MinIO secret key override. Empty uses MINIO_ROOT_PASSWORD in compose. |
+| ASSET_WORKER_MINIO_ACCESS_KEY | asset-worker |  | Optional MinIO access key override. Empty uses the generated asset-worker scoped MinIO account. |
+| ASSET_WORKER_MINIO_SECRET_KEY | asset-worker |  | Optional MinIO secret key override. Empty uses the generated asset-worker scoped MinIO account. |
 | BACKEND_SOURCE | backend | container | Adaptive core service; always container. Single-option. |
 | BACKEND_PORT | backend |  | - |
 | BACKEND_SCALE | backend |  | Always 1 (BACKEND_SOURCE is single-valued). |
@@ -472,7 +476,14 @@ Do not edit by hand — the bootstrapper owns this value.
 | MINIO_ENDPOINT | minio |  | In-network URL (S3 API). |
 | MINIO_PUBLIC_ENDPOINT | minio |  | Host-side URL (for browser redirects). |
 | MINIO_PUBLIC_CONSOLE_ENDPOINT | minio |  | - |
-| MINIO_EXTRA_CONSUMERS | minio |  | Optional space-separated parent-owned MinIO consumer entries using CONSUMER:BUCKET_VAR:ACCESS_VAR:SECRET_VAR[:EXTRA_BUCKET_VAR,...] grammar for services/_user overlays. |
+| MINIO_EXTRA_CONSUMERS | minio |  | Optional space-separated parent-owned MinIO entries using CONSUMER:BUCKET_VAR:ACCESS_VAR:SECRET_VAR[:RW_BUCKET_VAR,...[:RO_BUCKET_VAR,...]] grammar for services/_user overlays. |
+| MINIO_BUCKET_ASSET_INPUTS | minio | raw-assets | Shared input bucket for the Asset Worker and Asset Baker scoped service accounts. |
+| MINIO_ASSET_INGEST_ACCESS_KEY | minio |  | Auto-generated scoped MinIO access key for writing shared raw asset inputs. |
+| MINIO_ASSET_INGEST_SECRET_KEY | minio |  | Auto-generated scoped MinIO secret key for writing shared raw asset inputs. |
+| MINIO_ASSET_WORKER_ACCESS_KEY | minio |  | Auto-generated scoped MinIO access key for Asset Worker input and output buckets. |
+| MINIO_ASSET_WORKER_SECRET_KEY | minio |  | Auto-generated scoped MinIO secret key for Asset Worker input and output buckets. |
+| MINIO_ASSET_BAKER_ACCESS_KEY | minio |  | Auto-generated scoped MinIO access key for Asset Baker input and output buckets. |
+| MINIO_ASSET_BAKER_SECRET_KEY | minio |  | Auto-generated scoped MinIO secret key for Asset Baker input and output buckets. |
 | MINIO_BUCKET_COMFYUI | minio | comfyui | - |
 | MINIO_COMFYUI_ACCESS_KEY | minio |  | Auto-generated scoped MinIO access key for the comfyui bucket. |
 | MINIO_COMFYUI_SECRET_KEY | minio |  | Auto-generated scoped MinIO secret key for the comfyui bucket. |
@@ -752,8 +763,8 @@ time.
 | VLLM_METAL_SOURCE | vllm-metal | disabled | Options: managed-localhost (bootstrapper-supervised host process on Apple silicon), disabled. |
 | VLLM_METAL_MODEL | vllm-metal | Qwen/Qwen2.5-7B-Instruct | Hugging Face model id served by the managed vLLM Metal process and registered with LiteLLM under the same alias. |
 | VLLM_METAL_LOCALHOST_PORT | vllm-metal | 8000 | Host port the managed vLLM Metal OpenAI server listens on. Not a BASE_PORT slot — vLLM Metal has no Kong route or exposed stack port. |
-| VLLM_METAL_PLUGIN_VERSION | vllm-metal | 0.3.0 | Pinned vllm-metal plugin version installed into the managed host venv. |
-| VLLM_METAL_CORE_VERSION | vllm-metal |  | Optional pinned vllm core version (blank = let the vllm-metal plugin resolve a compatible core). |
+| VLLM_METAL_PLUGIN_VERSION | vllm-metal | 0.3.0.dev20260713103604 | Atlas-verified vllm-metal GitHub release wheel installed with checksum verification; unverified overrides are rejected. |
+| VLLM_METAL_CORE_VERSION | vllm-metal | 0.24.0 | Atlas-verified compatible vllm core source release; it must match the supported plugin release. |
 | VLLM_METAL_PYTHON | vllm-metal | python3.12 | Python interpreter used to build the managed host venv (vllm-metal requires 3.12). |
 | VLLM_METAL_STATE_DIR | vllm-metal | ~/.atlas/vllm-metal | Host directory holding the managed venv plus the pid / log / status files. |
 | VLLM_METAL_MODELS_PATH | vllm-metal |  | Optional Hugging Face cache dir (HF_HOME) for the managed process. Blank = default HF cache. |

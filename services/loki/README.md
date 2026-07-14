@@ -24,8 +24,6 @@ Grafana queries Loki directly. OpenTelemetry Collector does not export Atlas app
 
 ## 5. Dependencies & Integrations
 
-> Auto-generated section — the **Current** subsections are derived from `services/loki/service.yml`'s `data_flow.calls` field (and inverse passes). Re-run `python -m bootstrapper.docs.regen loki` after manifest changes.
-
 ### 5.1 Current — Upstream (this service calls)
 
 _No upstream calls._

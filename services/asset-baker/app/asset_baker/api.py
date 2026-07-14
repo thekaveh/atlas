@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import secrets
 import shutil
 import tempfile
 import threading
@@ -25,13 +26,36 @@ from .runner import BakeError, run_bake
 from .storage import ArtifactStorage, ArtifactTooLargeError
 
 
-def create_app() -> FastAPI:
+def create_app(*, api_token: str | None = None) -> FastAPI:
     app = FastAPI(
         title="Atlas Asset Baker",
         description="Blender headless HP→LP bake worker (voxel-remesh → decimate → "
         "Smart-UV → bake color+normal) for Atlas creative/3D pipelines.",
         version="0.1.0",
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
     )
+    expected_token = (
+        api_token if api_token is not None else os.getenv("ASSET_BAKER_API_TOKEN", "")
+    )
+
+    @app.middleware("http")
+    async def require_api_token(request: Request, call_next):
+        if request.url.path == "/health":
+            return await call_next(request)
+        if not expected_token:
+            return JSONResponse(
+                status_code=503,
+                content={"detail": "Asset Baker authentication is not configured"},
+            )
+        scheme, _, credential = request.headers.get("authorization", "").partition(" ")
+        if scheme.lower() != "bearer" or not secrets.compare_digest(credential, expected_token):
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "Invalid Asset Baker bearer token"},
+            )
+        return await call_next(request)
 
     # Bounded worker: a single Cycles bake saturates CPU, so concurrent bakes are
     # net-negative. Reject (429) rather than queue unboundedly when saturated.
@@ -77,7 +101,10 @@ def create_app() -> FastAPI:
             )
 
     @app.post("/assets/bake/ref", response_model=BakeResponse)
-    def bake_ref(request: RefBakeRequest) -> BakeResponse:
+    def bake_ref(
+        request: RefBakeRequest,
+    ) -> BakeResponse:
+        _require_allowed_bucket(request.input.bucket)
         storage = ArtifactStorage()
         try:
             data = storage.fetch(request.input.bucket, request.input.key)
@@ -88,7 +115,10 @@ def create_app() -> FastAPI:
         )
 
     @app.get("/assets/artifacts/{sha256}.{ext}")
-    def get_local_artifact(sha256: str, ext: str):
+    def get_local_artifact(
+        sha256: str,
+        ext: str,
+    ):
         if not _is_sha256(sha256) or ext not in ("glb", "png"):
             raise HTTPException(status_code=400, detail="Invalid artifact reference")
         path = ArtifactStorage().local_path(sha256, ext)
@@ -181,6 +211,13 @@ def _process_path(
 
 def _enforce_size(data: bytes) -> None:
     _enforce_input_size(len(data))
+
+
+def _require_allowed_bucket(bucket: str) -> None:
+    configured = os.getenv("ASSET_BAKER_ALLOWED_INPUT_BUCKETS", "raw-assets")
+    allowed = {value for value in configured.replace(",", " ").split() if value}
+    if bucket not in allowed:
+        raise HTTPException(status_code=403, detail="Input bucket is not allowed")
 
 
 def _max_upload_bytes() -> int:

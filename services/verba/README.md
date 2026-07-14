@@ -42,8 +42,6 @@ Open WebUI remains the primary Atlas chat surface. Verba is a reference RAG UI f
 
 ## 5. Dependencies & Integrations
 
-> Auto-generated section — the **Current** subsections are derived from `services/verba/service.yml`'s `data_flow.calls` field (and inverse passes). Re-run `python -m bootstrapper.docs.regen verba` after manifest changes.
-
 ### 5.1 Current — Upstream (this service calls)
 
 | Service | Category |

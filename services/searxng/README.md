@@ -63,8 +63,6 @@ Inherited from the default (no longer forked here): the full engine list with co
 
 ## 5. Dependencies & Integrations
 
-> Auto-generated section — the **Current** subsections are derived from `services/searxng/service.yml`'s `data_flow.calls` field (and inverse passes). Re-run `python -m bootstrapper.docs.regen searxng` after manifest changes.
-
 ### 5.1 Current — Upstream (this service calls)
 
 _No upstream calls._

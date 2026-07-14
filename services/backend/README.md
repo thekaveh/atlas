@@ -18,7 +18,7 @@ Source: `services/backend/app/`. The FastAPI app boots in `app/main.py`, mounts 
 | Chunking | `POST /api/chunk` | Chonkie-backed splitting; accepts a Supabase user JWT, the internal-service token, or the scoped notebook token. |
 | RAG evaluation | `POST /api/rag/evaluate` | Ragas-backed metrics; accepts the same stateless-route credentials as chunking. |
 | RAG ingestion | `POST /api/rag/ingestions`, `GET /api/rag/ingestions[/{id}]`, `POST /api/rag/ingestions/{id}/cancel` | Internal-service only. Generic ingestion job over a consumer `rag_ingestion_profile` with machine-readable per-phase status. |
-| Ray jobs | `/api/ray/jobs`, `/api/ray/jobs/{job_id}`, `/api/ray/cluster/status` | Requires `Authorization: Bearer ${RAY_JOB_API_TOKEN}` on direct and Kong access paths. |
+| Ray jobs | `POST /api/ray/jobs/submit`, `GET`/`DELETE /api/ray/jobs/{job_id}`, `/api/ray/cluster/status` | Requires `Authorization: Bearer ${RAY_JOB_API_TOKEN}` on direct and Kong access paths. |
 
 Canonical port table: [Ports and Routes](../../docs/deployment/ports-and-routes.md).
 
@@ -265,8 +265,6 @@ curl -X POST http://localhost:${BACKEND_PORT}/lightrag/rerank \
 ```
 
 ## 6. Dependencies & Integrations
-
-> Auto-generated section — the **Current** subsections are derived from `services/backend/service.yml`'s `data_flow.calls` field (and inverse passes). Re-run `python -m bootstrapper.docs.regen backend` after manifest changes.
 
 ### 6.1 Current — Upstream (this service calls)
 

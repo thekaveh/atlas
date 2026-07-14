@@ -92,7 +92,7 @@ Root credentials are NEVER surfaced to consumers — see Service accounts below.
 
 ## 4. Bucket layout
 
-Twelve buckets are pre-provisioned by `minio-init` across nine built-in consumers. Bucket names are the bare service identifier unless overridden:
+Fifteen buckets are pre-provisioned by `minio-init` across twelve built-in consumers. Bucket names are the bare service identifier unless overridden:
 
 | Bucket | Intended consumer |
 |---|---|
@@ -105,15 +105,23 @@ Twelve buckets are pre-provisioned by `minio-init` across nine built-in consumer
 | `mlflow` | MLflow experiment and model artifacts |
 | `label-studio` | Label Studio import/export and annotation assets |
 | `lakehouse`, `jars`, `checkpoints`, `landing` | Iceberg lakehouse storage, Spark artifacts, checkpoints, and landing data |
+| `raw-assets` | Shared input objects written by the scoped asset-ingest identity and accepted by Asset Worker and Asset Baker reference routes |
+| `asset-worker` | Asset Worker optimized GLB outputs |
+| `asset-baker` | Asset Baker baked GLB and texture outputs |
 
-Bucket names are overridable via `MINIO_BUCKET_<NAME>` env vars; hand-edits stick.
+Bucket names are overridable via `MINIO_BUCKET_<NAME>` env vars. The two
+pre-existing processor output settings remain canonical as
+`ASSET_WORKER_MINIO_BUCKET` and `ASSET_BAKER_MINIO_BUCKET`; provisioning and
+runtime writes consume those same values, so renamed buckets remain aligned.
 
 Parent-owned consumers can add their own bucket and scoped service account without
 forking Atlas by passing `MINIO_EXTRA_CONSUMERS` into `minio-init`. The value is a
-space-separated list of entries using the same grammar as the built-in consumers:
+space-separated list of entries using the same grammar as the built-in consumers.
+The fifth field adds writable buckets; the optional sixth field adds read-only
+buckets:
 
 ```text
-CONSUMER:BUCKET_VAR:ACCESS_VAR:SECRET_VAR[:EXTRA_BUCKET_VAR,...]
+CONSUMER:BUCKET_VAR:ACCESS_VAR:SECRET_VAR[:RW_BUCKET_VAR,...[:RO_BUCKET_VAR,...]]
 ```
 
 For example, a DayDreams-style parent overlay can define:
@@ -134,7 +142,7 @@ the generic `MINIO_EXTRA_CONSUMERS` hook.
 
 ## 5. Service accounts
 
-Each consumer has its own MinIO service account with an inline IAM policy scoped to one bucket (or a small named set for the iceberg account, which has four). Extra consumers declared via `MINIO_EXTRA_CONSUMERS` receive the same idempotent bucket, named policy, and inline service-account provisioning:
+Each consumer has its own MinIO service account with an inline IAM policy scoped to one bucket or a small named set. The Iceberg account has four writable buckets. The generated `MINIO_ASSET_INGEST_*` identity can populate `raw-assets` without root access. Each asset processor can read and list that shared input bucket, but can write or delete objects only in its own output bucket. Extra consumers declared via `MINIO_EXTRA_CONSUMERS` receive the same idempotent bucket, named policy, and inline service-account provisioning:
 
 ```json
 {
@@ -262,8 +270,6 @@ MinIO data lives in the `${PROJECT_NAME}-minio-data` named Docker volume mounted
 - **Logs:** `docker logs ${PROJECT_NAME}-minio` and `docker logs ${PROJECT_NAME}-minio-init`.
 
 ## 10. Dependencies & Integrations
-
-> Auto-generated section — the **Current** subsections are derived from `services/minio/service.yml`'s `data_flow.calls` field (and inverse passes). Re-run `python -m bootstrapper.docs.regen minio` after manifest changes.
 
 ### 10.1 Current — Upstream (this service calls)
 

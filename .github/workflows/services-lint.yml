@@ -96,6 +96,23 @@ jobs:
             -r requirements.txt -r requirements-dev.txt
           "$BACKEND_TEST_VENV/bin/python" -m pytest tests/ -q
 
+      - name: Asset processor API tests
+        run: |
+          ASSET_TEST_VENV="${RUNNER_TEMP:-$PWD}/asset-ci-venv"
+          uv venv "$ASSET_TEST_VENV"
+          VIRTUAL_ENV="$ASSET_TEST_VENV" uv pip install \
+            -r services/asset-worker/app/requirements.txt \
+            -r services/asset-baker/app/requirements.txt \
+            pytest httpx2
+          (
+            cd services/asset-worker/app
+            "$ASSET_TEST_VENV/bin/python" -m pytest tests/ -q
+          )
+          (
+            cd services/asset-baker/app
+            "$ASSET_TEST_VENV/bin/python" -m pytest tests/ -q
+          )
+
   compose-equivalence:
     name: Compose merge + byte-equivalence + source-permutation matrix
     runs-on: ubuntu-latest
@@ -209,7 +226,7 @@ jobs:
         run: uv run --project bootstrapper python scripts/refresh-local-deep-researcher-lock.py --check
 
   notebook-reproducibility:
-    name: Notebook source reproducibility
+    name: Notebook source hygiene
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0

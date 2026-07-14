@@ -19,6 +19,8 @@ There is **no MCP surface, by design**: this is a deterministic batch stage whos
 | Internal API | `http://asset-baker:8096` | Used by sibling containers through `ASSET_BAKER_ENDPOINT`. |
 | Health | `GET /health` | Returns `200` only when the configured Blender executable is available; otherwise returns `503`. |
 
+Every route except `GET /health` requires `Authorization: Bearer ${ASSET_BAKER_API_TOKEN}`. Atlas generates the token on first startup; requests fail closed with `503` if authentication is not configured.
+
 ## 3. Configuration
 
 | Variable | Default | Purpose |
@@ -27,11 +29,13 @@ There is **no MCP surface, by design**: this is a deterministic batch stage whos
 | `ASSET_BAKER_IMAGE` | `python:3.12.9-slim` | Base image; the Dockerfile downloads pinned Blender on top. |
 | `ASSET_BAKER_BLENDER_VERSION` | `4.3.2` | Pinned headless Blender (≥ 4.3) installed in the image; bundles Python + numpy. |
 | `ASSET_BAKER_PORT` | computed | Host port assigned by Atlas' topology allocator. |
+| `ASSET_BAKER_API_TOKEN` | generated | Bearer token required by upload, reference-bake, and artifact-download routes. |
+| `ASSET_BAKER_ALLOWED_INPUT_BUCKETS` | _(blank)_ | Optional comma- or space-separated MinIO bucket allowlist. Blank follows `MINIO_BUCKET_ASSET_INPUTS`. |
 | `ASSET_BAKER_ARTIFACT_DIR` | `/data/artifacts` | Local cache path for baked outputs and direct downloads. |
 | `ASSET_BAKER_MINIO_ENABLED` | `true` | Writes baked GLB + textures to MinIO when enabled. |
 | `ASSET_BAKER_MINIO_BUCKET` | `asset-baker` | Output bucket for content-addressed artifacts. |
 | `ASSET_BAKER_MINIO_ENDPOINT` | auto-managed | Internal MinIO S3 API endpoint. |
-| `ASSET_BAKER_MINIO_ACCESS_KEY` / `ASSET_BAKER_MINIO_SECRET_KEY` | empty | Optional credential override; compose falls back to MinIO root credentials (use scoped credentials in production). |
+| `ASSET_BAKER_MINIO_ACCESS_KEY` / `ASSET_BAKER_MINIO_SECRET_KEY` | empty | Optional credential override; compose otherwise uses the generated `MINIO_ASSET_BAKER_*` scoped account. |
 | `ASSET_BAKER_TARGET_TRIS` | `39000` | Default low-poly triangle budget (overridable per request). |
 | `ASSET_BAKER_TEX_SIZE` | `2048` | Default baked texture resolution (square). |
 | `ASSET_BAKER_CANONICAL_SIZE` | `4.0` | Canonical max-dimension each mesh is scaled to before remesh. |
@@ -54,6 +58,12 @@ The default `ASSET_BAKER_SOURCE=disabled` keeps the ~2 GB Blender worker out of 
 
 `POST /assets/bake` accepts `multipart/form-data`:
 
+```bash
+curl -H "Authorization: Bearer ${ASSET_BAKER_API_TOKEN}" \
+  -F file=@mesh.glb \
+  "http://localhost:${ASSET_BAKER_PORT}/assets/bake"
+```
+
 | Field | Required | Notes |
 |---|---:|---|
 | `file` | yes | Raw `.glb` file (plain GLB, not EXT_meshopt_compressed). |
@@ -72,6 +82,11 @@ The default `ASSET_BAKER_SOURCE=disabled` keeps the ~2 GB Blender worker out of 
   "params": {"target_tris": 15000, "tex_size": 2048, "mode": "bake"}
 }
 ```
+
+The request bucket must be listed in `ASSET_BAKER_ALLOWED_INPUT_BUCKETS`; other buckets return `403` before MinIO is contacted.
+Populate the default `raw-assets` bucket with the generated
+`MINIO_ASSET_INGEST_ACCESS_KEY` and `MINIO_ASSET_INGEST_SECRET_KEY`; that
+identity can write inputs without receiving MinIO root or processor-output access.
 
 ### 4.3 Response
 
@@ -127,8 +142,6 @@ Outputs are SHA-256 content-addressed and written to MinIO (`bake/<sha256>.{glb,
 
 ## 6. Dependencies & Integrations
 
-> Auto-generated section — the **Current** subsections are derived from `services/asset-baker/service.yml`'s `data_flow.calls` field (and inverse passes). Re-run `python -m bootstrapper.docs.regen asset-baker` after manifest changes.
-
 ### 6.1 Current — Upstream (this service calls)
 
 | Service | Category |
@@ -166,5 +179,7 @@ _No downstream consumers._
 - Thin foliage fragments into shards: pass `mode=skip` (foliage bypass) — buildings/props bake, foliage skips.
 - `429 Bake worker is busy`: bounded concurrency (`ASSET_BAKER_CONCURRENCY`, default 1) rejected a concurrent bake; retry after the in-flight bake finishes.
 - `504` bake timeout: raise `ASSET_BAKER_TIMEOUT_SECONDS` or lower `tex_size`/`target_tris` for very heavy assets.
-- MinIO upload failure: confirm `MINIO_SOURCE=container`, `ASSET_BAKER_MINIO_BUCKET`, and the MinIO credentials exposed to the worker.
+- `401 Invalid Asset Baker bearer token`: pass `Authorization: Bearer ${ASSET_BAKER_API_TOKEN}`.
+- `403 Input bucket is not allowed`: add the intended bucket to `ASSET_BAKER_ALLOWED_INPUT_BUCKETS`; do not broaden the list to unrelated or private buckets.
+- MinIO upload failure: confirm `MINIO_SOURCE=container`, `ASSET_BAKER_MINIO_BUCKET`, and the generated `MINIO_ASSET_BAKER_*` credentials.
 - Kong alias missing: confirm `ASSET_BAKER_SOURCE=container-cpu`, run `./start.sh --setup-hosts`, and regenerate routes through the normal startup flow.

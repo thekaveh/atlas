@@ -204,8 +204,6 @@ unified replacement is `TTS_ENDPOINT`.
 
 ## 9. Dependencies & Integrations
 
-> Auto-generated section — the **Current** subsections are derived from the member manifests' `data_flow.calls` (`services/chatterbox/service.yml`, `services/speaches/service.yml`, `services/tts-provider/service.yml`). Re-run `python -m bootstrapper.docs.regen tts-provider` after changing them.
-
 ### 9.1 Current — Upstream (this service calls)
 
 _No upstream calls._

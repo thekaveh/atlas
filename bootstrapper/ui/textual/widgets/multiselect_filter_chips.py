@@ -44,7 +44,7 @@ class _FilterChip(Static):
         padding: 0 2;
         margin-right: 1;
         background: #1a1b2c;
-        color: #565f89;
+        color: #8992b5;
     }
     _FilterChip.-active {
         background: #2c3e54;
@@ -109,7 +109,7 @@ class MultiselectFilterChips(Container):
         background: #0e0f18;
     }
     MultiselectFilterChips Static.mfc-label {
-        color: #565f89; padding-right: 2;
+        color: #8992b5; padding-right: 2;
         height: 1; width: 8; text-style: bold;
     }
     """

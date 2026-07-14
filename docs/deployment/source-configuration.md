@@ -904,11 +904,12 @@ Make sure `OPENAI_API_KEY` (or whichever cloud key matches your enabled `CLOUD_*
 Combine different approaches for optimal performance:
 
 ```bash
-./start.sh --llm-provider-source ollama-localhost \  # Local for speed
-          --comfyui-source container-gpu \           # Container for GPU
-          --weaviate-source container \              # Container for ease
-          --n8n-source container \                   # Full workflow features
-          --searxng-source disabled                  # Skip if not needed
+# Local LLM, containerized GPU image generation and data services, no search.
+./start.sh --llm-provider-source ollama-localhost \
+          --comfyui-source container-gpu \
+          --weaviate-source container \
+          --n8n-source container \
+          --searxng-source disabled
 ```
 
 ## 6. Environment File vs CLI Overrides

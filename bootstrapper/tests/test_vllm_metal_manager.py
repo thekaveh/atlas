@@ -13,8 +13,11 @@ import + per-model quantization) and its OpenAI /v1 surface.
 """
 from __future__ import annotations
 
+import hashlib
+import io
 import json
 import platform
+import tarfile
 from pathlib import Path
 
 import pytest
@@ -189,14 +192,102 @@ def test_preflight_vllm_ok_when_venv_importable(tmp_path, monkeypatch):
 
 
 # ─────────────────────────── pip spec ───────────────────────────
-def test_pip_spec_default_pins_only_plugin(tmp_path):
-    mgr = _mgr(tmp_path, plugin_version="0.3.0")
-    assert mgr._pip_spec() == ["vllm-metal==0.3.0"]
+def test_pip_spec_default_uses_checksum_pinned_release_wheel(tmp_path):
+    mgr = _mgr(tmp_path)
+    spec = mgr._pip_spec()
+    assert len(spec) == 1
+    assert "vllm_metal-0.3.0.dev20260713103604" in spec[0]
+    assert spec[0].endswith(
+        "#sha256=7423302ad116656d712f4b52811ebca13a48d246bcde2b8c093b2a2a01d7c03f"
+    )
+    assert mod._DEFAULT_CORE_SHA256 == (
+        "0862453adc1f3339f1a0c9dca1179c34d6ed6e118f87b6e5bddd120af614ac66"
+    )
 
 
-def test_pip_spec_adds_core_pin_when_set(tmp_path):
+def test_pip_spec_rejects_unverified_release_override(tmp_path):
     mgr = _mgr(tmp_path, plugin_version="0.3.0", core_version="0.6.3")
-    assert mgr._pip_spec() == ["vllm-metal==0.3.0", "vllm==0.6.3"]
+    with pytest.raises(VllmMetalError, match="verified only"):
+        mgr._pip_spec()
+
+
+def test_installed_versions_probe_imports_plugin_core_and_api(tmp_path, monkeypatch):
+    mgr = _mgr(tmp_path)
+    captured = {}
+
+    def fake_run(cmd, **kwargs):
+        captured["cmd"] = cmd
+        return _FakeCompleted(0, f"{mgr.plugin_version}\n{mgr.core_version}+cpu\n")
+
+    monkeypatch.setattr(mod.subprocess, "run", fake_run)
+
+    assert mgr._installed_versions() == (mgr.plugin_version, f"{mgr.core_version}+cpu")
+    probe = captured["cmd"][-1]
+    assert "import vllm_metal" in probe
+    assert "vllm.entrypoints.openai.api_server" in probe
+    assert "m.version('vllm-metal')" in probe
+
+
+def test_install_core_verifies_archive_and_build_contract(tmp_path, monkeypatch):
+    mgr = _mgr(tmp_path)
+    archive = tmp_path / "vllm.tar.gz"
+    prefix = f"vllm-{mgr.core_version}"
+    with tarfile.open(archive, "w:gz") as bundle:
+        payload = b"setuptools\n"
+        info = tarfile.TarInfo(f"{prefix}/requirements/cpu.txt")
+        info.size = len(payload)
+        bundle.addfile(info, io.BytesIO(payload))
+        project = b"[build-system]\nrequires=[]\n"
+        info = tarfile.TarInfo(f"{prefix}/pyproject.toml")
+        info.size = len(project)
+        bundle.addfile(info, io.BytesIO(project))
+
+    expected_digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+    downloads = []
+
+    def fake_download(url, destination):
+        downloads.append(url)
+        Path(destination).write_bytes(archive.read_bytes())
+
+    calls = []
+    monkeypatch.setattr(mod.urllib.request, "urlretrieve", fake_download)
+    monkeypatch.setattr(mod, "_DEFAULT_CORE_SHA256", expected_digest)
+    monkeypatch.setattr(mgr, "_run", lambda cmd, **kwargs: calls.append((cmd, kwargs)))
+
+    mgr._install_core()
+
+    assert downloads == [
+        f"https://github.com/vllm-project/vllm/releases/download/v{mgr.core_version}/"
+        f"vllm-{mgr.core_version}.tar.gz"
+    ]
+    assert calls[0][0][-1].endswith("requirements/cpu.txt")
+    assert calls[1][1]["env"]["VLLM_TARGET_DEVICE"] == "cpu"
+    assert calls[1][1]["env"]["CXXFLAGS"] == "-Wno-parentheses"
+
+
+def test_install_core_rejects_checksum_mismatch(tmp_path, monkeypatch):
+    mgr = _mgr(tmp_path)
+
+    def fake_download(url, destination):
+        Path(destination).write_bytes(b"not-the-pinned-archive")
+
+    monkeypatch.setattr(mod.urllib.request, "urlretrieve", fake_download)
+
+    with pytest.raises(VllmMetalError, match="checksum mismatch"):
+        mgr._install_core()
+
+
+def test_safe_archive_extraction_rejects_traversal(tmp_path):
+    archive = tmp_path / "unsafe.tar"
+    with tarfile.open(archive, "w") as bundle:
+        payload = b"owned"
+        info = tarfile.TarInfo("../outside")
+        info.size = len(payload)
+        bundle.addfile(info, io.BytesIO(payload))
+
+    with tarfile.open(archive) as bundle:
+        with pytest.raises(VllmMetalError, match="unsafe path"):
+            VllmMetalManager._extract_archive_safely(bundle, tmp_path / "extract")
 
 
 # ─────────────────────────── install ───────────────────────────
@@ -204,13 +295,20 @@ def test_install_happy_path_creates_venv_and_pip_installs(tmp_path, monkeypatch)
     _darwin_arm64(monkeypatch)
     mgr = _mgr(tmp_path)
     calls = []
-    monkeypatch.setattr(mgr, "_run", lambda cmd: calls.append(cmd))
+    monkeypatch.setattr(mgr, "_vllm_importable", lambda: True)
+    monkeypatch.setattr(mgr, "_run", lambda cmd, **kwargs: calls.append(cmd))
+    monkeypatch.setattr(
+        mgr,
+        "_install_core",
+        lambda: calls.append([str(mgr.venv_python), "-m", "pip", "install", "requirements/cpu.txt"]),
+    )
     # venv_python.exists() is False initially → full install path.
     mgr.install()
     joined = [" ".join(c) for c in calls]
     assert any("-m venv" in j for j in joined)
     assert any("pip install --upgrade pip" in j for j in joined)
-    assert any("vllm-metal==0.3.0" in j for j in joined)
+    assert any("requirements/cpu.txt" in j for j in joined)
+    assert any("vllm_metal-0.3.0.dev20260713103604" in j for j in joined)
     assert mgr.status_file.exists()
 
 
@@ -220,8 +318,20 @@ def test_install_idempotent_when_venv_exists(tmp_path, monkeypatch):
     mgr.venv_python.parent.mkdir(parents=True, exist_ok=True)
     mgr.venv_python.write_text("#!/bin/sh\n")
     monkeypatch.setattr(mgr, "_vllm_importable", lambda: True)
+    monkeypatch.setattr(
+        mgr, "_installed_versions", lambda: (mgr.plugin_version, f"{mgr.core_version}+cpu")
+    )
+    mgr._write_status(
+        installed_version=mgr.plugin_version,
+        installed_core_version=mgr.core_version,
+    )
     calls = []
-    monkeypatch.setattr(mgr, "_run", lambda cmd: calls.append(cmd))
+    monkeypatch.setattr(mgr, "_run", lambda cmd, **kwargs: calls.append(cmd))
+    monkeypatch.setattr(
+        mgr,
+        "_install_core",
+        lambda: calls.append([str(mgr.venv_python), "-m", "pip", "install", "requirements/cpu.txt"]),
+    )
     mgr.install()  # no update → nothing reinstalled
     assert calls == []
 
@@ -233,10 +343,39 @@ def test_install_update_reinstalls(tmp_path, monkeypatch):
     mgr.venv_python.write_text("#!/bin/sh\n")
     monkeypatch.setattr(mgr, "_vllm_importable", lambda: True)
     calls = []
-    monkeypatch.setattr(mgr, "_run", lambda cmd: calls.append(cmd))
+    monkeypatch.setattr(mgr, "_run", lambda cmd, **kwargs: calls.append(cmd))
+    monkeypatch.setattr(
+        mgr,
+        "_install_core",
+        lambda: calls.append([str(mgr.venv_python), "-m", "pip", "install", "requirements/cpu.txt"]),
+    )
     mgr.install(update=True)
     joined = [" ".join(c) for c in calls]
-    assert any("pip install --upgrade vllm-metal==0.3.0" in j for j in joined)
+    assert any("requirements/cpu.txt" in j for j in joined)
+    assert any("vllm_metal-0.3.0.dev20260713103604" in j for j in joined)
+
+
+def test_install_reconciles_stale_recorded_versions(tmp_path, monkeypatch):
+    _darwin_arm64(monkeypatch)
+    mgr = _mgr(tmp_path)
+    mgr.venv_python.parent.mkdir(parents=True, exist_ok=True)
+    mgr.venv_python.write_text("#!/bin/sh\n")
+    mgr.status_file.write_text(json.dumps({
+        "installed_version": "0.1.0",
+        "installed_core_version": "0.13.0",
+    }))
+    monkeypatch.setattr(mgr, "_vllm_importable", lambda: True)
+    monkeypatch.setattr(
+        mgr, "_installed_versions", lambda: (mgr.plugin_version, f"{mgr.core_version}+cpu")
+    )
+    calls = []
+    monkeypatch.setattr(mgr, "_run", lambda cmd, **kwargs: calls.append(cmd))
+    monkeypatch.setattr(mgr, "_install_core", lambda: calls.append(["install-core"]))
+
+    mgr.install()
+
+    assert ["install-core"] in calls
+    assert any("vllm_metal-0.3.0.dev20260713103604" in " ".join(c) for c in calls)
 
 
 def test_install_raises_on_failed_preflight(tmp_path, monkeypatch):
@@ -389,17 +528,94 @@ def test_stop_sigint_success(tmp_path, monkeypatch):
     mgr.pid_file.write_text("555")
     alive = {"v": True}
 
-    def fake_kill(pid, sig):
+    def fake_killpg(pid, sig):
         if sig == mod.signal.SIGINT:
             alive["v"] = False
         if sig == 0 and not alive["v"]:
             raise ProcessLookupError
 
     monkeypatch.setattr(mgr, "_pid_is_stranger", lambda pid: False)
-    monkeypatch.setattr(mod.os, "kill", fake_kill)
+    monkeypatch.setattr(mgr, "_managed_process_alive", lambda pid: alive["v"])
+    monkeypatch.setattr(mod.os, "killpg", fake_killpg)
     monkeypatch.setattr(mod.os, "waitpid", lambda pid, flags: (pid, 0))
     assert mgr.stop() is True
     assert not mgr.pid_file.exists()
+
+
+def test_stop_reaps_exited_leader_during_grace_period(tmp_path, monkeypatch):
+    mgr = _mgr(tmp_path)
+    mgr.state_dir.mkdir(parents=True, exist_ok=True)
+    mgr.pid_file.write_text("556")
+    state = {"alive": True, "signals": []}
+
+    monkeypatch.setattr(mgr, "_pid_is_stranger", lambda pid: False)
+    monkeypatch.setattr(mgr, "_managed_process_alive", lambda pid: state["alive"])
+    monkeypatch.setattr(
+        mod.os, "killpg", lambda pid, sig: state["signals"].append(sig)
+    )
+
+    def reap(pid, flags):
+        state["alive"] = False
+        return pid, 0
+
+    monkeypatch.setattr(mod.os, "waitpid", reap)
+
+    assert mgr.stop() is True
+    assert state["signals"] == [mod.signal.SIGINT]
+
+
+def test_stop_signals_process_group_when_leader_has_exited(tmp_path, monkeypatch):
+    mgr = _mgr(tmp_path)
+    mgr.state_dir.mkdir(parents=True, exist_ok=True)
+    mgr.pid_file.write_text("777")
+    alive = {"group": True}
+    monkeypatch.setattr(mgr, "_pid_alive", lambda pid: False)
+    monkeypatch.setattr(mgr, "_process_group_alive", lambda pgid: alive["group"])
+    monkeypatch.setattr(mgr, "_pid_is_stranger", lambda pid: False)
+    signals = []
+
+    def fake_killpg(pgid, sig):
+        signals.append((pgid, sig))
+        if sig == mod.signal.SIGINT:
+            alive["group"] = False
+
+    monkeypatch.setattr(mod.os, "killpg", fake_killpg)
+    monkeypatch.setattr(mod.os, "waitpid", lambda pid, flags: (pid, 0))
+
+    assert mgr.stop() is True
+    assert signals == [(777, mod.signal.SIGINT)]
+
+
+def test_stop_waits_for_group_after_sigkill(tmp_path, monkeypatch):
+    mgr = _mgr(tmp_path)
+    mgr.state_dir.mkdir(parents=True, exist_ok=True)
+    mgr.pid_file.write_text("888")
+    state = {"killed": False, "post_kill_probes": 0}
+
+    def alive(_pid):
+        if not state["killed"]:
+            return True
+        state["post_kill_probes"] += 1
+        return state["post_kill_probes"] < 3
+
+    def killpg(_pid, sig):
+        if sig == mod.signal.SIGKILL:
+            state["killed"] = True
+
+    clock = {"value": 0.0}
+    monkeypatch.setattr(mgr, "_managed_process_alive", alive)
+    monkeypatch.setattr(mgr, "_pid_is_stranger", lambda pid: False)
+    monkeypatch.setattr(mod.os, "killpg", killpg)
+    monkeypatch.setattr(mod.os, "waitpid", lambda pid, flags: (pid, 0))
+    monkeypatch.setattr(mod.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(
+        mod.time,
+        "monotonic",
+        lambda: clock.__setitem__("value", clock["value"] + 2.0) or clock["value"],
+    )
+
+    assert mgr.stop() is True
+    assert state["post_kill_probes"] >= 3
 
 
 # ─────────────────────────── status ───────────────────────────
@@ -408,12 +624,13 @@ def test_status_reflects_liveness(tmp_path, monkeypatch):
     mgr.state_dir.mkdir(parents=True, exist_ok=True)
     mgr.pid_file.write_text("321")
     mgr.status_file.write_text(json.dumps(
-        {"installed_version": "0.3.0", "port": 8000, "model": "Qwen/Qwen2.5-7B-Instruct", "pid": 321}
+        {"installed_version": mgr.plugin_version, "installed_core_version": mgr.core_version,
+         "port": 8000, "model": "Qwen/Qwen2.5-7B-Instruct", "pid": 321}
     ))
     monkeypatch.setattr(mgr, "_pid_alive", lambda pid: True)
     status = mgr.status()
     assert status.running and status.pid == 321
-    assert status.installed_version == "0.3.0"
+    assert status.installed_version == mgr.plugin_version
     assert status.model == "Qwen/Qwen2.5-7B-Instruct"
 
 
@@ -508,8 +725,8 @@ def test_manager_from_env_defaults():
     mgr = manager_from_env({})
     assert mgr.port == 8000
     assert mgr.model == "Qwen/Qwen2.5-7B-Instruct"
-    assert mgr.plugin_version == "0.3.0"
-    assert mgr.core_version == ""
+    assert mgr.plugin_version == "0.3.0.dev20260713103604"
+    assert mgr.core_version == "0.24.0"
     assert mgr.hf_cache_dir is None
 
 

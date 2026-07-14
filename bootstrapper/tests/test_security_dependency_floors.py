@@ -221,6 +221,23 @@ def test_ray_runtime_and_clients_move_in_lockstep() -> None:
 
 
 def test_ragas_advisory_surface_remains_unreachable() -> None:
-    service = _text("services/backend/app/app/rag_eval_service.py")
-    assert "MultiModalFaithfulness" not in service
-    assert "MultiModalRelevance" not in service
+    forbidden = ("MultiModalFaithfulness", "MultiModalRelevance", "DiskCache", "diskcache")
+    source_files = (
+        path
+        for source_root in (ROOT / "bootstrapper", ROOT / "scripts", ROOT / "services")
+        for path in source_root.rglob("*.py")
+        if not {"tests", ".venv", "site-packages"}.intersection(path.parts)
+    )
+    offenders = {
+        path.relative_to(ROOT).as_posix(): token
+        for path in source_files
+        for token in forbidden
+        if token in path.read_text(encoding="utf-8")
+    }
+    assert offenders == {}
+
+
+def test_backend_does_not_ship_unused_direct_groq_clients() -> None:
+    requirements = _text("services/backend/app/app/requirements.txt")
+    assert "langchain-groq" not in requirements
+    assert "\ngroq" not in requirements

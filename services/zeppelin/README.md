@@ -159,8 +159,6 @@ maintenance procedures including `rewrite_data_files`, `expire_snapshots`, and
 
 ## 6. Dependencies & Integrations
 
-> Auto-generated section — the **Current** subsections are derived from `services/zeppelin/service.yml`'s `data_flow.calls` field (and inverse passes). Re-run `python -m bootstrapper.docs.regen zeppelin` after manifest changes.
-
 ### 6.1 Current — Upstream (this service calls)
 
 | Service | Category |

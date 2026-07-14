@@ -290,8 +290,15 @@ def test_services_lint_gates_main_and_develop_and_runs_three_surface_check() -> 
     assert workflow[True]["pull_request"]["branches"] == ["main", "develop"]
     assert "make docs-check" in text
     assert "Install Cairo" in text
-    assert workflow["jobs"]["notebook-reproducibility"]["name"] == "Notebook source reproducibility"
+    assert workflow["jobs"]["notebook-reproducibility"]["name"] == "Notebook source hygiene"
     assert "python -m scripts.notebook_reproducibility" in text
+
+
+def test_source_configuration_shell_examples_do_not_comment_after_continuations() -> None:
+    source = (ROOT / "docs" / "deployment" / "source-configuration.md").read_text(
+        encoding="utf-8"
+    )
+    assert "\\  #" not in source
 
 
 def test_services_lint_build_validation_covers_all_local_build_contexts() -> None:

@@ -466,8 +466,6 @@ For the current high-level stack diagram, see [Architecture Diagram](../../docs/
 
 ## 15. Dependencies & Integrations
 
-> Auto-generated section — the **Current** subsections are derived from `services/jupyterhub/service.yml`'s `data_flow.calls` field (and inverse passes). Re-run `python -m bootstrapper.docs.regen jupyterhub` after manifest changes.
-
 ### 15.1 Current — Upstream (this service calls)
 
 | Service | Category |

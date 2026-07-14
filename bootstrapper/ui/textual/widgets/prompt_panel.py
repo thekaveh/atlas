@@ -350,7 +350,7 @@ class PromptPanel(Container):
         height: auto;
     }
     PromptPanel > .prompt-heading { height: 1; color: #e0e6f2; text-style: bold; }
-    PromptPanel > .prompt-subtitle { height: 1; color: #565f89; }
+    PromptPanel > .prompt-subtitle { height: 1; color: #8992b5; }
     PromptPanel > .prompt-spacer-2 { height: 1; }
     /* Scrollable option list — capped so a 230-entry library scrape
        doesn't blow past the viewport. The cursor is kept in view by
@@ -387,12 +387,12 @@ class PromptPanel(Container):
     }
     PromptPanel #number-hint {
         height: 1;
-        color: #3d4261;
+        color: #8992b5;
         padding-top: 1;
     }
     PromptPanel #secret-hint {
         height: auto;
-        color: #3d4261;
+        color: #8992b5;
         padding-top: 1;
     }
     PromptPanel > #conflict-slot { height: auto; }

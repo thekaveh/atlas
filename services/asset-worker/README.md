@@ -15,6 +15,8 @@ This service exists so image-to-3D providers, Blender/DayDreams flows, and futur
 | Internal API | `http://asset-worker:8095` | Used by sibling containers through `ASSET_WORKER_ENDPOINT`. |
 | Health | `GET /health` | Returns `200` only when the configured glTF-Transform executable is available; otherwise returns `503`. |
 
+Every route except `GET /health` requires `Authorization: Bearer ${ASSET_WORKER_API_TOKEN}`. Atlas generates the token on first startup; requests fail closed with `503` if authentication is not configured.
+
 ## 3. Configuration
 
 | Variable | Default | Purpose |
@@ -25,11 +27,13 @@ This service exists so image-to-3D providers, Blender/DayDreams flows, and futur
 | `ASSET_WORKER_MAX_UPLOAD_MB` | `200` | Maximum uploaded or MinIO-referenced GLB size. Inputs are streamed and rejected with `413` before transformation when exceeded. |
 | `ASSET_WORKER_TIMEOUT_SECONDS` | `300` | Per-command timeout for `inspect`, `validate`, and `optimize`. A timeout returns `504`. |
 | `ASSET_WORKER_PORT` | computed | Host port assigned by Atlas' topology allocator. |
+| `ASSET_WORKER_API_TOKEN` | generated | Bearer token required by upload, reference-processing, and artifact-download routes. |
+| `ASSET_WORKER_ALLOWED_INPUT_BUCKETS` | _(blank)_ | Optional comma- or space-separated MinIO bucket allowlist. Blank follows `MINIO_BUCKET_ASSET_INPUTS`. |
 | `ASSET_WORKER_ARTIFACT_DIR` | `/data/artifacts` | Local cache path for optimized GLBs and direct downloads. |
 | `ASSET_WORKER_MINIO_ENABLED` | `true` | Writes optimized GLBs to MinIO when enabled. |
 | `ASSET_WORKER_MINIO_BUCKET` | `asset-worker` | Output bucket for content-addressed artifacts. |
 | `ASSET_WORKER_MINIO_ENDPOINT` | auto-managed | Internal MinIO S3 API endpoint. |
-| `ASSET_WORKER_MINIO_ACCESS_KEY` / `ASSET_WORKER_MINIO_SECRET_KEY` | empty | Optional credential override; compose falls back to MinIO root credentials. |
+| `ASSET_WORKER_MINIO_ACCESS_KEY` / `ASSET_WORKER_MINIO_SECRET_KEY` | empty | Optional credential override; compose otherwise uses the generated `MINIO_ASSET_WORKER_*` scoped account. |
 
 Enable from the CLI with:
 
@@ -44,6 +48,12 @@ The default `ASSET_WORKER_SOURCE=disabled` keeps the worker out of normal starts
 ### 4.1 Uploaded GLB
 
 `POST /gltf/postprocess` accepts `multipart/form-data`:
+
+```bash
+curl -H "Authorization: Bearer ${ASSET_WORKER_API_TOKEN}" \
+  -F file=@mesh.glb \
+  "http://localhost:${ASSET_WORKER_PORT}/gltf/postprocess"
+```
 
 | Field | Required | Notes |
 |---|---:|---|
@@ -68,6 +78,11 @@ The default `ASSET_WORKER_SOURCE=disabled` keeps the worker out of normal starts
   "params": {"target_height_m": 1.8, "draco": true, "ktx2": true}
 }
 ```
+
+The request bucket must be listed in `ASSET_WORKER_ALLOWED_INPUT_BUCKETS`; other buckets return `403` before MinIO is contacted.
+Populate the default `raw-assets` bucket with the generated
+`MINIO_ASSET_INGEST_ACCESS_KEY` and `MINIO_ASSET_INGEST_SECRET_KEY`; that
+identity can write inputs without receiving MinIO root or processor-output access.
 
 ### 4.3 Response
 
@@ -120,8 +135,6 @@ The service is intentionally separate from the media gateway. Provider-specific 
 
 ## 6. Dependencies & Integrations
 
-> Auto-generated section — the **Current** subsections are derived from `services/asset-worker/service.yml`'s `data_flow.calls` field (and inverse passes). Re-run `python -m bootstrapper.docs.regen asset-worker` after manifest changes.
-
 ### 6.1 Current — Upstream (this service calls)
 
 | Service | Category |
@@ -155,5 +168,7 @@ _No high-confidence opportunities identified._
 
 - `400 Input must be a GLB file`: use a `.glb` filename and binary GLB payload.
 - `gltf-transform validate` failure: inspect the raw provider output; invalid GLB input is rejected before storage.
-- MinIO upload failure: confirm `MINIO_SOURCE=container`, `ASSET_WORKER_MINIO_BUCKET`, and the MinIO credentials exposed to the worker.
+- `401 Invalid Asset Worker bearer token`: pass `Authorization: Bearer ${ASSET_WORKER_API_TOKEN}`.
+- `403 Input bucket is not allowed`: add the intended bucket to `ASSET_WORKER_ALLOWED_INPUT_BUCKETS`; do not broaden the list to unrelated or private buckets.
+- MinIO upload failure: confirm `MINIO_SOURCE=container`, `ASSET_WORKER_MINIO_BUCKET`, and the generated `MINIO_ASSET_WORKER_*` credentials.
 - Kong alias missing: confirm `ASSET_WORKER_SOURCE=container`, run `./start.sh --setup-hosts`, and regenerate routes through the normal startup flow.

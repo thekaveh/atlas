@@ -71,8 +71,6 @@ query = (
 
 ## 5. Dependencies & Integrations
 
-> Auto-generated section — the **Current** subsections are derived from `services/redpanda/service.yml`'s `data_flow.calls` field (and inverse passes). Re-run `python -m bootstrapper.docs.regen redpanda` after manifest changes.
-
 ### 5.1 Current — Upstream (this service calls)
 
 _No upstream calls._

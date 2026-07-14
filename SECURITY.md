@@ -39,6 +39,13 @@ on their host.
 - Ragas multimodal URL-processing SSRF (CVE-2026-6587): **unreachable**.
   Backend exposes only a closed enum of text metrics and never imports the
   vulnerable multimodal collection; Jupyter use is operator-authored code.
+- DiskCache pickle deserialization (CVE-2025-69872): **unreachable in shipped
+  Backend routes**. `diskcache==5.6.3` is an unpatched transitive dependency of
+  Ragas and Instructor, but Atlas never constructs their optional disk-cache
+  adapters. Exploitation also requires write access to a cache directory that
+  a later process reads. Keep this exception only while those adapters remain
+  unused; remove it when upstream publishes a patched release or the transitive
+  dependency disappears.
 - Transformers model-loading advisories below 5.3 in Parakeet GPU:
   **operator-controlled**. NeMo 2.7.x requires Transformers 4.57.x, while
   Atlas loads only the `PARAKEET_MODEL` chosen in process environment at

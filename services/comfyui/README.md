@@ -74,8 +74,6 @@ COMFYUI_SCALE / COMFYUI_INIT_SCALE
 
 ## 5. Dependencies & Integrations
 
-> Auto-generated section — the **Current** subsections are derived from `services/comfyui/service.yml`'s `data_flow.calls` field (and inverse passes). Re-run `python -m bootstrapper.docs.regen comfyui` after manifest changes.
-
 ### 5.1 Current — Upstream (this service calls)
 
 | Service | Category |
@@ -257,7 +255,7 @@ ATLAS_COMFYUI_LIVE_ENDPOINT=http://localhost:${COMFYUI_PORT} \
 
 ### 10.1 What Atlas manages
 
-- **Pinned checkout + venv** — `COMFYUI_MPS_REF` (default `v0.27.0`, mirroring `COMFYUI_REF`) is checked out into `COMFYUI_MPS_STATE_DIR` (default `~/.atlas/comfyui-mps`) with a dedicated venv holding Metal-enabled Torch. Install is **idempotent**: only the first run downloads Torch; later runs reuse the venv and just re-pin the ref.
+- **Pinned checkout + reconciled venv** — `COMFYUI_MPS_REF` (default `v0.27.0`, mirroring `COMFYUI_REF`) is checked out into `COMFYUI_MPS_STATE_DIR` (default `~/.atlas/comfyui-mps`) with a dedicated venv holding Metal-enabled Torch. Every install compares the checkout ref and requirements fingerprint with recorded state; a changed pin or dependency file is reinstalled automatically, while unchanged environments are reused.
 - **Host models reuse** — the process reads `COMFYUI_MPS_MODELS_PATH` (default `~/Documents/ComfyUI/models`, shared with `COMFYUI_LOCAL_MODELS_PATH`) through a generated `extra_model_paths.yaml`, so an existing Krea 2 / Flux install is used in place with **no duplicate weights**.
 - **Fixed port + PID/log/status files** — the process listens on `COMFYUI_MPS_LOCALHOST_PORT` (default `8188`, `127.0.0.1` only). `comfyui-mps.pid`, `comfyui-mps.log`, and `status.json` live under the state dir. A start aborts if the port is already taken by an unrelated process.
 
@@ -268,11 +266,11 @@ A normal `./start.sh` with this source runs preflight → install → start at t
 ```bash
 ./start.sh comfyui-mps preflight     # read-only host probe (OS/arch, memory, Torch/MPS, per-model precision). No install.
 ./start.sh comfyui-mps install       # idempotent pinned checkout + venv + Metal Torch
-./start.sh comfyui-mps install --update   # refresh the checkout + reinstall requirements (upgrade path)
+./start.sh comfyui-mps install --update   # force a fresh dependency reconciliation
 ./start.sh comfyui-mps start         # launch the host process (idempotent — one per host)
 ./start.sh comfyui-mps status        # running / pid / installed ref (JSON)
 ./start.sh comfyui-mps health        # probe /system_stats: reachability + compute device (mps/cpu)
-./start.sh comfyui-mps stop          # SIGINT then SIGKILL
+./start.sh comfyui-mps stop          # stop the complete managed process group
 ./start.sh comfyui-mps remove        # stop + delete the state dir (checkout, venv, logs)
 ```
 
@@ -292,7 +290,7 @@ On anything that is not macOS/arm64 (Linux CI, Intel Macs, Windows) the prefligh
 
 ### 10.6 Upgrades, rollback, logs, removal
 
-- **Upgrade / rollback** — change `COMFYUI_MPS_REF` in `.env` (a release tag or full commit SHA) and run `./start.sh comfyui-mps install --update && ./start.sh comfyui-mps stop && ./start.sh comfyui-mps start`. The checkout is force-pinned to the ref, so rollback is just setting the older ref and re-installing.
+- **Upgrade / rollback** — change `COMFYUI_MPS_REF` in `.env` (a release tag or full commit SHA), then stop and start the service. Install detects the ref and requirements drift and reconciles the venv automatically; `install --update` remains available to force a rebuild. Stop targets the full process group so child workers do not survive the managed server.
 - **Logs** — `tail -f "${COMFYUI_MPS_STATE_DIR/#\~/$HOME}/comfyui-mps.log"` (default `~/.atlas/comfyui-mps/comfyui-mps.log`), the same file `status`/`start` report.
 - **Removal** — `./start.sh comfyui-mps remove` stops the process and deletes the state dir. Your host models dir (`COMFYUI_MPS_MODELS_PATH`) is **never** touched — it is reused, not owned.
 

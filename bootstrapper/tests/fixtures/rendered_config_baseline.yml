@@ -285,15 +285,20 @@ services:
       minio:
         condition: service_healthy
         required: true
+      minio-init:
+        condition: service_completed_successfully
+        required: true
     deploy:
       replicas: 0
     environment:
+      ASSET_BAKER_ALLOWED_INPUT_BUCKETS: raw-assets
+      ASSET_BAKER_API_TOKEN: ''
       ASSET_BAKER_ARTIFACT_DIR: /data/artifacts
       ASSET_BAKER_BRIGHTNESS_MIN: '0.05'
       ASSET_BAKER_CANONICAL_SIZE: '4.0'
       ASSET_BAKER_CONCURRENCY: '1'
       ASSET_BAKER_MAX_UPLOAD_MB: '200'
-      ASSET_BAKER_MINIO_ACCESS_KEY: minioadmin
+      ASSET_BAKER_MINIO_ACCESS_KEY: ''
       ASSET_BAKER_MINIO_BUCKET: asset-baker
       ASSET_BAKER_MINIO_ENABLED: 'true'
       ASSET_BAKER_MINIO_ENDPOINT: http://minio:9000
@@ -342,12 +347,17 @@ services:
       minio:
         condition: service_healthy
         required: true
+      minio-init:
+        condition: service_completed_successfully
+        required: true
     deploy:
       replicas: 0
     environment:
+      ASSET_WORKER_ALLOWED_INPUT_BUCKETS: raw-assets
+      ASSET_WORKER_API_TOKEN: ''
       ASSET_WORKER_ARTIFACT_DIR: /data/artifacts
       ASSET_WORKER_MAX_UPLOAD_MB: '200'
-      ASSET_WORKER_MINIO_ACCESS_KEY: minioadmin
+      ASSET_WORKER_MINIO_ACCESS_KEY: ''
       ASSET_WORKER_MINIO_BUCKET: asset-worker
       ASSET_WORKER_MINIO_ENABLED: 'true'
       ASSET_WORKER_MINIO_ENDPOINT: http://minio:9000
@@ -2465,8 +2475,17 @@ services:
     - /bin/sh
     - /scripts/init-minio.sh
     environment:
+      ASSET_BAKER_MINIO_BUCKET: asset-baker
+      ASSET_WORKER_MINIO_BUCKET: asset-worker
+      MINIO_ASSET_BAKER_ACCESS_KEY: ''
+      MINIO_ASSET_BAKER_SECRET_KEY: ''
+      MINIO_ASSET_INGEST_ACCESS_KEY: ''
+      MINIO_ASSET_INGEST_SECRET_KEY: ''
+      MINIO_ASSET_WORKER_ACCESS_KEY: ''
+      MINIO_ASSET_WORKER_SECRET_KEY: ''
       MINIO_BACKEND_ACCESS_KEY: ''
       MINIO_BACKEND_SECRET_KEY: ''
+      MINIO_BUCKET_ASSET_INPUTS: raw-assets
       MINIO_BUCKET_BACKEND: backend
       MINIO_BUCKET_COMFYUI: comfyui
       MINIO_BUCKET_DOCLING: docling

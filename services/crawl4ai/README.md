@@ -24,8 +24,6 @@ n8n receives `CRAWL4AI_ENDPOINT` and `CRAWL4AI_API_TOKEN` for HTTP Request nodes
 
 ## 5. Dependencies & Integrations
 
-> Auto-generated section — the **Current** subsections are derived from `services/crawl4ai/service.yml`'s `data_flow.calls` field (and inverse passes). Re-run `python -m bootstrapper.docs.regen crawl4ai` after manifest changes.
-
 ### 5.1 Current — Upstream (this service calls)
 
 _No upstream calls._

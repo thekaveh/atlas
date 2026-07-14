@@ -68,8 +68,6 @@ Redis visibility timeout is intentionally longer than the hard task time limit. 
 
 ## 6. Dependencies & Integrations
 
-> Auto-generated section — the **Current** subsections are derived from `services/celery/service.yml`'s `data_flow.calls` field (and inverse passes). Re-run `python -m bootstrapper.docs.regen celery` after manifest changes.
-
 ### 6.1 Current — Upstream (this service calls)
 
 | Service | Category |

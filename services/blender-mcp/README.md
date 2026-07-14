@@ -49,8 +49,6 @@ Atlas models Blender MCP as a virtual media service:
 
 ## 5. Dependencies & Integrations
 
-> Auto-generated section — the **Current** subsections are derived from `services/blender-mcp/service.yml`'s `data_flow.calls` field (and inverse passes). Re-run `python -m bootstrapper.docs.regen blender-mcp` after manifest changes.
-
 ### 5.1 Current — Upstream (this service calls)
 
 _No upstream calls._

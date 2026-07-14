@@ -3,11 +3,12 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import os
+import secrets
 import shutil
 import tempfile
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 
 from .models import (
@@ -21,12 +22,35 @@ from .runner import GltfTransformError, run_gltf_transform
 from .storage import ArtifactStorage, ArtifactTooLargeError, CONTENT_TYPE
 
 
-def create_app() -> FastAPI:
+def create_app(*, api_token: str | None = None) -> FastAPI:
     app = FastAPI(
         title="Atlas Asset Worker",
         description="glTF post-processing worker for Atlas creative and 3D pipelines.",
         version="0.1.0",
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
     )
+    expected_token = (
+        api_token if api_token is not None else os.getenv("ASSET_WORKER_API_TOKEN", "")
+    )
+
+    @app.middleware("http")
+    async def require_api_token(request: Request, call_next):
+        if request.url.path == "/health":
+            return await call_next(request)
+        if not expected_token:
+            return JSONResponse(
+                status_code=503,
+                content={"detail": "Asset Worker authentication is not configured"},
+            )
+        scheme, _, credential = request.headers.get("authorization", "").partition(" ")
+        if scheme.lower() != "bearer" or not secrets.compare_digest(credential, expected_token):
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "Invalid Asset Worker bearer token"},
+            )
+        return await call_next(request)
 
     @app.get("/health")
     def health() -> JSONResponse:
@@ -66,7 +90,10 @@ def create_app() -> FastAPI:
             return await asyncio.to_thread(_process_path, input_path, params)
 
     @app.post("/gltf/postprocess/ref", response_model=PostprocessResponse)
-    def postprocess_ref(request: RefPostprocessRequest) -> PostprocessResponse:
+    def postprocess_ref(
+        request: RefPostprocessRequest,
+    ) -> PostprocessResponse:
+        _require_allowed_bucket(request.input.bucket)
         storage = ArtifactStorage()
         try:
             data = storage.fetch(request.input.bucket, request.input.key)
@@ -75,7 +102,9 @@ def create_app() -> FastAPI:
         return _process_bytes(data, request.params, storage=storage)
 
     @app.get("/gltf/artifacts/{sha256}.glb")
-    def get_local_artifact(sha256: str):
+    def get_local_artifact(
+        sha256: str,
+    ):
         if not _is_sha256(sha256):
             raise HTTPException(status_code=400, detail="Invalid sha256")
         path = ArtifactStorage().local_path(sha256)
@@ -166,6 +195,13 @@ def _enforce_input_size(size: int) -> None:
 def _validate_glb_name(filename: str) -> None:
     if not filename.lower().endswith(".glb"):
         raise HTTPException(status_code=400, detail="Input must be a GLB file")
+
+
+def _require_allowed_bucket(bucket: str) -> None:
+    configured = os.getenv("ASSET_WORKER_ALLOWED_INPUT_BUCKETS", "raw-assets")
+    allowed = {value for value in configured.replace(",", " ").split() if value}
+    if bucket not in allowed:
+        raise HTTPException(status_code=403, detail="Input bucket is not allowed")
 
 
 def _is_sha256(value: str) -> bool:

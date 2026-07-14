@@ -24,8 +24,6 @@ Atlas builds a small local image from `ICEBERG_REST_IMAGE` because the upstream 
 
 ## 5. Dependencies & Integrations
 
-> Auto-generated section — the **Current** subsections are derived from `services/iceberg-rest/service.yml`'s `data_flow.calls` field (and inverse passes). Re-run `python -m bootstrapper.docs.regen iceberg-rest` after manifest changes.
-
 ### 5.1 Current — Upstream (this service calls)
 
 | Service | Category |

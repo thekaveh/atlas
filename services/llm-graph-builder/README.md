@@ -89,8 +89,6 @@ This rollback leaves existing graph data untouched by design.
 
 ## 10. Dependencies & Integrations
 
-> Auto-generated section — the **Current** subsections are derived from `services/llm-graph-builder/service.yml`'s `data_flow.calls` field (and inverse passes). Re-run `python -m bootstrapper.docs.regen llm-graph-builder` after manifest changes.
-
 ### 10.1 Current — Upstream (this service calls)
 
 | Service | Category |

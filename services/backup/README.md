@@ -74,8 +74,6 @@ Postgres data lives in `supabase-db-data` but is captured via `pg_dump` (not vol
 
 ## 5. Dependencies & Integrations
 
-> Auto-generated section — the **Current** subsections are derived from `services/backup/service.yml`'s `data_flow.calls` field (and inverse passes). Re-run `python -m bootstrapper.docs.regen backup` after manifest changes.
-
 ### 5.1 Current — Upstream (this service calls)
 
 | Service | Category |

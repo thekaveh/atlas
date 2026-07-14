@@ -112,6 +112,16 @@ from readiness import check_backend_readiness
 logger = logging.getLogger(__name__)
 
 
+def _unexpected_error(operation: str, exc: Exception, *, status_code: int = 500) -> HTTPException:
+    """Log an unexpected failure without exposing its details to API clients."""
+    logger.error(
+        "%s failed",
+        operation,
+        exc_info=(type(exc), exc, exc.__traceback__),
+    )
+    return HTTPException(status_code=status_code, detail=f"{operation} failed")
+
+
 def _fal_source_enabled() -> bool:
     return (os.getenv("FAL_SOURCE", "disabled") or "disabled").strip().lower() == "enabled"
 
@@ -417,11 +427,8 @@ async def get_job_status(job_id: str):
     try:
         payload = await asyncio.to_thread(get_celery_job_status, job_id)
         return JobStatusResponse(**payload)
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get job status: {str(e)}",
-        )
+    except Exception as exc:
+        raise _unexpected_error("Get job status", exc)
 
 
 # Initialize n8n client
@@ -466,11 +473,8 @@ async def list_workflows():
     try:
         workflows = await n8n_client.list_workflows()
         return workflows
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to list workflows: {str(e)}",
-        )
+    except Exception as exc:
+        raise _unexpected_error("List workflows", exc)
 
 
 @app.get(
@@ -483,21 +487,15 @@ async def get_workflow(workflow_id: str):
     try:
         workflow = await n8n_client.get_workflow(workflow_id)
         return workflow
-    except httpx.HTTPStatusError as e:
-        if e.response.status_code == 404:
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 404:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Workflow with ID {workflow_id} not found",
             )
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get workflow: {str(e)}",
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get workflow: {str(e)}",
-        )
+        raise _unexpected_error("Get workflow", exc)
+    except Exception as exc:
+        raise _unexpected_error("Get workflow", exc)
 
 
 
@@ -554,10 +552,8 @@ async def upload_file(file: UploadFile = File(...), bucket: str = "default"):
         return StorageResponse(bucket=bucket, path=filename, url=url)
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
-        )
+    except Exception as exc:
+        raise _unexpected_error("Upload file", exc)
 
 
 @app.post(
@@ -762,16 +758,17 @@ async def submit_rag_ingestion(request: RagIngestionRequest, async_job: bool = T
             task = await asyncio.to_thread(
                 rag_ingestion_task.apply_async, kwargs={"ingestion_id": record.id}
             )
-        except Exception as e:  # noqa: BLE001 - broker unreachable
+        except Exception as exc:  # noqa: BLE001 - broker unreachable
+            logger.exception("Queue RAG ingestion failed")
             await asyncio.to_thread(
                 service.mark_dispatch_failed,
                 record.id,
-                f"Failed to queue RAG ingestion: {str(e)}",
+                "RAG ingestion dispatch failed",
             )
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail=f"Failed to queue RAG ingestion: {str(e)}",
-            )
+                detail="Failed to queue RAG ingestion",
+            ) from exc
         return RagIngestionQueuedResponse(
             ingestion_id=record.id,
             job_id=task.id,
@@ -913,11 +910,8 @@ async def start_research(
             user_id=user_id
         )
         return ResearchResponse(**result)
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to start research: {str(e)}"
-        )
+    except Exception as exc:
+        raise _unexpected_error("Start research", exc)
 
 
 @app.get("/research/{session_id}/status", response_model=ResearchSessionResponse)
@@ -939,11 +933,8 @@ async def get_research_status(
         return ResearchSessionResponse(**result)
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get research status: {str(e)}"
-        )
+    except Exception as exc:
+        raise _unexpected_error("Get research status", exc)
 
 
 @app.get("/research/{session_id}/result", response_model=ResearchResultResponse)
@@ -965,11 +956,8 @@ async def get_research_result(
         return ResearchResultResponse(**result)
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get research result: {str(e)}"
-        )
+    except Exception as exc:
+        raise _unexpected_error("Get research result", exc)
 
 
 @app.post("/research/{session_id}/cancel", response_model=ResearchResponse)
@@ -1001,11 +989,8 @@ async def cancel_research(
         )
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to cancel research: {str(e)}"
-        )
+    except Exception as exc:
+        raise _unexpected_error("Cancel research", exc)
 
 
 @app.get("/research/{session_id}/logs", response_model=List[ResearchLogResponse])
@@ -1027,11 +1012,8 @@ async def get_research_logs(
         return [ResearchLogResponse(**log) for log in logs]
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get research logs: {str(e)}"
-        )
+    except Exception as exc:
+        raise _unexpected_error("Get research logs", exc)
 
 
 @app.get("/research/sessions", response_model=List[ResearchSessionResponse])
@@ -1050,11 +1032,8 @@ async def list_research_sessions(
             offset=offset,
         )
         return [ResearchSessionResponse(**session) for session in sessions]
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to list research sessions: {str(e)}"
-        )
+    except Exception as exc:
+        raise _unexpected_error("List research sessions", exc)
 
 
 @app.get(
@@ -1070,11 +1049,12 @@ async def research_health_check():
             "status": "healthy" if health["database"] == "healthy" else "degraded",
             "details": health
         }
-    except Exception as e:
+    except Exception:
+        logger.exception("Research health check failed")
         return {
-            "service": "research", 
+            "service": "research",
             "status": "unhealthy",
-            "error": str(e)
+            "error": "Research health check failed",
         }
 
 
@@ -1376,11 +1356,12 @@ async def comfyui_health_check():
                 "status": health.get("status", "unknown"),
                 "details": health
             }
-    except Exception as e:
+    except Exception:
+        logger.exception("ComfyUI health check failed")
         return {
             "service": "comfyui",
-            "status": "unhealthy", 
-            "error": str(e)
+            "status": "unhealthy",
+            "error": "ComfyUI health check failed",
         }
 
 
@@ -1397,11 +1378,8 @@ async def get_comfyui_models():
                 "success": True,
                 "models": models
             }
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get ComfyUI models: {str(e)}"
-        )
+    except Exception as exc:
+        raise _unexpected_error("Get ComfyUI models", exc)
 
 
 @app.post(
@@ -1522,11 +1500,12 @@ async def submit_media_generation(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         )
-    except Exception as e:
+    except Exception as exc:
         await MEDIA_BUDGET_ENGINE.release(reservation_id)
-        raise HTTPException(
+        raise _unexpected_error(
+            "Submit media generation with FAL",
+            exc,
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Failed to submit media generation with FAL: {str(e)}",
         )
 
     operation_id = str(payload["operation_id"])
@@ -1673,10 +1652,11 @@ async def get_media_operation(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         )
-    except Exception as e:
-        raise HTTPException(
+    except Exception as exc:
+        raise _unexpected_error(
+            "Poll media operation with FAL",
+            exc,
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Failed to poll media operation with FAL: {str(e)}",
         )
 
     persisted, _ = await MEDIA_OPERATION_STORE.transition_payload(
@@ -1857,11 +1837,8 @@ async def generate_image(request: ComfyUIGenerateRequest):
             )
         except HTTPException:
             raise
-        except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to generate image with FAL: {str(e)}",
-            )
+        except Exception as exc:
+            raise _unexpected_error("Generate image with FAL", exc)
 
     try:
         async with ComfyUIClient() as client:
@@ -1918,11 +1895,8 @@ async def generate_image(request: ComfyUIGenerateRequest):
                 
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to generate image: {str(e)}"
-        )
+    except Exception as exc:
+        raise _unexpected_error("Generate image", exc)
 
 
 @app.post(
@@ -1972,11 +1946,8 @@ async def execute_comfyui_workflow(request: ComfyUIWorkflowRequest):
                     message="Workflow queued"
                 )
                 
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to execute workflow: {str(e)}"
-        )
+    except Exception as exc:
+        raise _unexpected_error("Execute ComfyUI workflow", exc)
 
 
 @app.get(
@@ -1992,11 +1963,8 @@ async def get_generation_history(prompt_id: str):
                 "success": True,
                 "history": history
             }
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get history: {str(e)}"
-        )
+    except Exception as exc:
+        raise _unexpected_error("Get ComfyUI history", exc)
 
 
 @app.get(
@@ -2012,11 +1980,8 @@ async def get_queue_status():
                 "success": True,
                 "queue": queue
             }
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get queue status: {str(e)}"
-        )
+    except Exception as exc:
+        raise _unexpected_error("Get ComfyUI queue status", exc)
 
 
 @app.post(
@@ -2032,11 +1997,8 @@ async def cancel_generation(prompt_id: str):
                 "success": success,
                 "message": "Generation cancelled" if success else "Failed to cancel generation"
             }
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to cancel generation: {str(e)}"
-        )
+    except Exception as exc:
+        raise _unexpected_error("Cancel ComfyUI generation", exc)
 
 
 @app.get(
@@ -2066,21 +2028,15 @@ async def get_generated_image(filename: str, subfolder: str = "", folder_type: s
                 media_type=content_type,
                 headers={"Content-Disposition": f'inline; filename="{safe_name}"'}
             )
-    except httpx.HTTPStatusError as e:
-        if e.response.status_code == 404:
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 404:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Image {filename} not found",
             )
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get image: {str(e)}"
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get image: {str(e)}"
-        )
+        raise _unexpected_error("Get ComfyUI image", exc)
+    except Exception as exc:
+        raise _unexpected_error("Get ComfyUI image", exc)
 
 
 # ComfyUI Model Management Endpoints
@@ -2129,11 +2085,8 @@ async def get_comfyui_db_models(active_only: bool = True, essential_only: bool =
 
         return {"success": True, "models": models}
 
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to read ComfyUI manifest: {str(e)}",
-        )
+    except Exception as exc:
+        raise _unexpected_error("Read ComfyUI manifest", exc)
 
 
 # =============================================================================
@@ -2159,11 +2112,8 @@ async def memory_extract(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e)
         )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to extract memories: {str(e)}",
-        )
+    except Exception as exc:
+        raise _unexpected_error("Extract memories", exc)
 
 
 @app.post("/memory/recall", response_model=MemoryRecallResponse)
@@ -2186,11 +2136,8 @@ async def memory_recall(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e)
         )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to recall memories: {str(e)}",
-        )
+    except Exception as exc:
+        raise _unexpected_error("Recall memories", exc)
 
 
 @app.post(
@@ -2215,11 +2162,12 @@ async def memory_consolidate(
                 memory_consolidate_task.apply_async,
                 kwargs={"user_id": user_id}
             )
-        except Exception as e:
+        except Exception as exc:
+            logger.exception("Queue memory consolidation failed")
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail=f"Failed to queue memory consolidation: {str(e)}",
-            )
+                detail="Failed to queue memory consolidation",
+            ) from exc
         return JSONResponse(
             status_code=status.HTTP_202_ACCEPTED,
             content=AsyncJobQueuedResponse(
@@ -2238,11 +2186,8 @@ async def memory_consolidate(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e)
         )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to consolidate memories: {str(e)}",
-        )
+    except Exception as exc:
+        raise _unexpected_error("Consolidate memories", exc)
 
 
 @app.post("/memory/summarize", response_model=MemorySummarizeResponse)
@@ -2262,11 +2207,8 @@ async def memory_summarize(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e)
         )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to summarize memories: {str(e)}",
-        )
+    except Exception as exc:
+        raise _unexpected_error("Summarize memories", exc)
 
 
 @app.get("/memory/user/{user_id}", response_model=MemoryListResponse)
@@ -2291,11 +2233,8 @@ async def memory_list(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e)
         )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to list memories: {str(e)}",
-        )
+    except Exception as exc:
+        raise _unexpected_error("List memories", exc)
 
 
 @app.put("/memory/{memory_id}", response_model=Dict[str, Any])
@@ -2323,11 +2262,8 @@ async def memory_update(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e)
         )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to update memory: {str(e)}",
-        )
+    except Exception as exc:
+        raise _unexpected_error("Update memory", exc)
 
 
 @app.delete("/memory/{memory_id}", response_model=Dict[str, Any])
@@ -2353,11 +2289,8 @@ async def memory_delete(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e)
         )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to delete memory: {str(e)}",
-        )
+    except Exception as exc:
+        raise _unexpected_error("Delete memory", exc)
 
 
 @app.get(

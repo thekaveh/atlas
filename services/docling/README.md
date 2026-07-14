@@ -29,8 +29,6 @@ pointer, not a duplicate of the aggregator doc.
 
 ## 2. Dependencies & Integrations
 
-> Auto-generated section — the **Current** subsections are derived from `services/docling/service.yml`'s `data_flow.calls` field (and inverse passes). Re-run `python -m bootstrapper.docs.regen docling` after manifest changes.
-
 ### 2.1 Current — Upstream (this service calls)
 
 _No upstream calls._

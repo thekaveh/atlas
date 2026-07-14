@@ -50,6 +50,9 @@ class KeyGenerator:
         "MLFLOW",
         "LABEL_STUDIO",
         "ICEBERG",
+        "ASSET_INGEST",
+        "ASSET_WORKER",
+        "ASSET_BAKER",
     )
 
     # `.env.example` ships placeholders for credential vars whose canonical
@@ -476,6 +479,16 @@ class KeyGenerator:
         if not force and current_value:
             return True
         return self.update_env_key("RAY_JOB_API_TOKEN", self.generate_ray_job_api_token())
+
+    def generate_asset_api_token(self, service: str) -> str:
+        """Generate a bearer token for one of the isolated asset processors."""
+        return f"sk-{service.lower().replace('_', '-')}-{_cli_safe_token_urlsafe(32)}"
+
+    def generate_and_update_asset_api_token(self, service: str) -> bool:
+        var = f"{service}_API_TOKEN"
+        if self.get_current_env_value(var):
+            return True
+        return self.update_env_key(var, self.generate_asset_api_token(service))
 
     def generate_webui_secret_key(self) -> str:
         """Open WebUI JWT/session signing key. Used by Open WebUI itself
@@ -1017,6 +1030,12 @@ class KeyGenerator:
         # require an application-layer bearer token even when Ray is disabled.
         if not self.get_current_env_value("RAY_JOB_API_TOKEN"):
             results['RAY_JOB_API_TOKEN'] = self.generate_and_update_ray_job_api_token(force=False)
+        results["ASSET_WORKER_API_TOKEN"] = self.generate_and_update_asset_api_token(
+            "ASSET_WORKER"
+        )
+        results["ASSET_BAKER_API_TOKEN"] = self.generate_and_update_asset_api_token(
+            "ASSET_BAKER"
+        )
 
         # Supavisor local pooler secrets — generated even when disabled so a
         # later SUPAVISOR_SOURCE=container flip has the required values.

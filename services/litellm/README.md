@@ -333,8 +333,6 @@ curl -sX POST http://localhost:${LITELLM_PORT}/v1/chat/completions \
 
 ## 14. Dependencies & Integrations
 
-> Auto-generated section — the **Current** subsections are derived from `services/litellm/service.yml`'s `data_flow.calls` field (and inverse passes). Re-run `python -m bootstrapper.docs.regen litellm` after manifest changes.
-
 ### 14.1 Current — Upstream (this service calls)
 
 | Service | Category |

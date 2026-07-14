@@ -33,8 +33,6 @@ Trace correlation uses W3C `traceparent` first. Backend spans start or continue 
 
 ## 5. Dependencies & Integrations
 
-> Auto-generated section — the **Current** subsections are derived from `services/otel-collector/service.yml`'s `data_flow.calls` field (and inverse passes). Re-run `python -m bootstrapper.docs.regen otel-collector` after manifest changes.
-
 ### 5.1 Current — Upstream (this service calls)
 
 | Service | Category |

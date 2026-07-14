@@ -285,8 +285,6 @@ When `LIGHTRAG_SOURCE != disabled` AND `SUPABASE_DB_SOURCE != disabled`, `lightr
 
 ## 9. Dependencies & Integrations
 
-> Auto-generated section — the **Current** subsections are derived from `services/supabase/service.yml`'s `data_flow.calls` field (and inverse passes). Re-run `python -m bootstrapper.docs.regen supabase` after manifest changes.
-
 ### 9.1 Current — Upstream (this service calls)
 
 _No upstream calls._

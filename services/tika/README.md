@@ -41,8 +41,6 @@ The initial long-tail list includes EML, MSG, RTF, ODT, ODS, ODP, ZIP, TAR, GZIP
 
 ## 6. Dependencies & Integrations
 
-> Auto-generated section — the **Current** subsections are derived from `services/tika/service.yml`'s `data_flow.calls` field (and inverse passes). Re-run `python -m bootstrapper.docs.regen tika` after manifest changes.
-
 ### 6.1 Current — Upstream (this service calls)
 
 _No upstream calls._

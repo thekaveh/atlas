@@ -4,6 +4,7 @@ import asyncio
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+from uuid import UUID
 
 
 class FakeConn:
@@ -88,7 +89,10 @@ def test_consolidate_reraises_transient_llm_failure_for_worker(monkeypatch):
 
     try:
         asyncio.run(
-            svc.consolidate(user_id="user-1", retry_transient=True)
+            svc.consolidate(
+                user_id="00000000-0000-4000-8000-000000000001",
+                retry_transient=True,
+            )
         )
     except TimeoutError as exc:
         assert str(exc) == "temporary LiteLLM timeout"
@@ -122,6 +126,28 @@ def test_update_memory_is_scoped_to_owner(monkeypatch):
         "00000000-0000-4000-8000-000000000001",
         "00000000-0000-4000-8000-000000000002",
     ]
+
+
+def test_memory_database_boundaries_use_uuid_objects(monkeypatch):
+    import memory_service
+
+    user_id = "00000000-0000-4000-8000-000000000002"
+
+    class StrictUuidConn(FakeConn):
+        async def fetch(self, query, *params):
+            assert isinstance(params[0], UUID)
+            return []
+
+        async def fetchval(self, query, *params):
+            assert isinstance(params[0], UUID)
+            return 0
+
+    conn = StrictUuidConn()
+    monkeypatch.setattr(memory_service, "connect_postgres", AsyncMock(return_value=conn))
+
+    listed = asyncio.run(_service().list_memories(user_id))
+
+    assert listed["total"] == 0
 
 
 def test_delete_memory_is_scoped_to_owner(monkeypatch):

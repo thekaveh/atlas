@@ -151,6 +151,7 @@ class MemoryService:
 
         session_uuid = uuid4()
         session_id = str(session_uuid)
+        user_uuid = _to_uuid(user_id)
         conv_uuid = _to_uuid(conversation_id)
         conn = await connect_postgres(self.database_url)
         try:
@@ -161,7 +162,7 @@ class MemoryService:
                 VALUES ($1, $2, $3, 'running', now())
                 """,
                 session_uuid,
-                user_id,
+                user_uuid,
                 conv_uuid,
             )
         finally:
@@ -220,20 +221,20 @@ Extract the facts as JSON:"""
                 async with conn.transaction():
                     await conn.execute(
                         "SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))",
-                        user_id,
+                        user_uuid,
                     )
                     current_count = await conn.fetchval(
                         """
                         SELECT COUNT(*) FROM public.memory_facts
                         WHERE user_id = $1 AND is_active = true
                         """,
-                        user_id,
+                        user_uuid,
                     )
                     for fact_data in extracted_facts:
                         if current_count + len(stored_facts) >= self.max_facts:
                             logger.warning(
                                 "User %s reached max facts limit (%s)",
-                                user_id,
+                                user_uuid,
                                 self.max_facts,
                             )
                             break
@@ -263,7 +264,7 @@ Extract the facts as JSON:"""
                             RETURNING created_at, updated_at
                             """,
                             fact_uuid,
-                            user_id,
+                            user_uuid,
                             namespace,
                             content,
                             fact_type,
@@ -462,7 +463,7 @@ Extract the facts as JSON:"""
 
         # Resolve user list under a brief connection.
         if user_id:
-            user_ids = [user_id]
+            user_ids = [_to_uuid(user_id)]
         else:
             conn = await connect_postgres(self.database_url)
             try:
@@ -662,6 +663,7 @@ Extract the facts as JSON:"""
         """Generate a natural-language user memory profile."""
         self._check_enabled()
         await self._ensure_initialized()
+        user_uuid = _to_uuid(user_id)
 
         conn = await connect_postgres(self.database_url)
         try:
@@ -673,7 +675,7 @@ Extract the facts as JSON:"""
                 ORDER BY confidence DESC, updated_at DESC
                 LIMIT 50
                 """,
-                user_id,
+                user_uuid,
                 namespace,
             )
 
@@ -682,7 +684,7 @@ Extract the facts as JSON:"""
                 SELECT COUNT(*) FROM public.memory_facts
                 WHERE user_id = $1 AND namespace = $2 AND is_active = true
                 """,
-                user_id,
+                user_uuid,
                 namespace,
             )
 
@@ -730,6 +732,7 @@ Extract the facts as JSON:"""
     ) -> Dict[str, Any]:
         """List all memories for a user."""
         self._check_enabled()
+        user_uuid = _to_uuid(user_id)
 
         conn = await connect_postgres(self.database_url)
         try:
@@ -742,7 +745,7 @@ Extract the facts as JSON:"""
                 ORDER BY updated_at DESC
                 LIMIT $3 OFFSET $4
                 """,
-                user_id,
+                user_uuid,
                 namespace,
                 limit,
                 offset,
@@ -753,7 +756,7 @@ Extract the facts as JSON:"""
                 SELECT COUNT(*) FROM public.memory_facts
                 WHERE user_id = $1 AND namespace = $2 AND is_active = true
                 """,
-                user_id,
+                user_uuid,
                 namespace,
             )
 

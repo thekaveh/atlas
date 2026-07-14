@@ -28,8 +28,6 @@ values; treat this README as a pointer, not a duplicate of the aggregator doc.
 
 ## 2. Dependencies & Integrations
 
-> Auto-generated section — the **Current** subsections are derived from `services/parakeet/service.yml`'s `data_flow.calls` field (and inverse passes). Re-run `python -m bootstrapper.docs.regen parakeet` after manifest changes.
-
 ### 2.1 Current — Upstream (this service calls)
 
 _No upstream calls._

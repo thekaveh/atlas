@@ -142,8 +142,6 @@ This pattern — agent runtime → orchestrated workflow — pairs Hermes's reac
 
 ## 7. Dependencies & Integrations
 
-> Auto-generated section — the **Current** subsections are derived from `services/airflow/service.yml`'s `data_flow.calls` field (and inverse passes). Re-run `python -m bootstrapper.docs.regen airflow` after manifest changes.
-
 ### 7.1 Current — Upstream (this service calls)
 
 | Service | Category |

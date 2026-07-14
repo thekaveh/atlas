@@ -33,6 +33,13 @@ env:
   - name: ASSET_BAKER_ENDPOINT
     auto_managed: true
     description: "In-network URL for the asset-baker API."
+  - name: ASSET_BAKER_API_TOKEN
+    default: ""
+    secret: true
+    description: "Auto-generated bearer token required by all Asset Baker data and processing routes; /health remains unauthenticated."
+  - name: ASSET_BAKER_ALLOWED_INPUT_BUCKETS
+    default: ""
+    description: "Optional comma- or space-separated reference-route bucket allowlist; blank follows MINIO_BUCKET_ASSET_INPUTS."
   - name: ASSET_BAKER_BLENDER_VERSION
     default: "4.3.2"
     description: "Pinned headless Blender version (>= 4.3) downloaded into the asset-baker image. Blender bundles its own Python + numpy for the bake script."
@@ -51,11 +58,11 @@ env:
   - name: ASSET_BAKER_MINIO_ACCESS_KEY
     default: ""
     secret: true
-    description: "Optional MinIO access key override. Empty uses MINIO_ROOT_USER in compose (scoped credentials recommended in production)."
+    description: "Optional MinIO access key override. Empty uses the generated asset-baker scoped MinIO account."
   - name: ASSET_BAKER_MINIO_SECRET_KEY
     default: ""
     secret: true
-    description: "Optional MinIO secret key override. Empty uses MINIO_ROOT_PASSWORD in compose."
+    description: "Optional MinIO secret key override. Empty uses the generated asset-baker scoped MinIO account."
   - name: ASSET_BAKER_TARGET_TRIS
     default: "39000"
     description: "Default low-poly triangle budget the decimate stage targets (overridable per request)."

@@ -1,6 +1,11 @@
 """Readable Textual palette contracts."""
 
+from pathlib import Path
+
 from ui.textual import palette as P
+
+
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def _relative_luminance(color: str) -> float:
@@ -25,3 +30,15 @@ def _contrast(foreground: str, background: str) -> float:
 def test_muted_and_faint_text_remain_readable_on_primary_background():
     assert _contrast(P.TEXT_MUTED, P.BG) >= 4.5
     assert _contrast(P.TEXT_FAINT, P.BG) >= 4.5
+
+
+def test_interactive_hint_and_chip_text_do_not_use_decorative_dim_colors():
+    for relative in (
+        "bootstrapper/ui/textual/widgets/prompt_panel.py",
+        "bootstrapper/ui/textual/widgets/multiselect_filter_chips.py",
+        "bootstrapper/ui/textual/widgets/log_filter_chips.py",
+    ):
+        source = (ROOT / relative).read_text(encoding="utf-8")
+        assert "color: #565f89" not in source, relative
+        assert "color: #3d4261" not in source, relative
+    assert _contrast(P.TEXT_MUTED, P.BG_INSET) >= 4.5

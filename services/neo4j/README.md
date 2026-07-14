@@ -219,8 +219,6 @@ MATCH ()-[r]-() WHERE startNode(r) IS NULL OR endNode(r) IS NULL DELETE r
 
 ## 13. Dependencies & Integrations
 
-> Auto-generated section — the **Current** subsections are derived from `services/neo4j/service.yml`'s `data_flow.calls` field (and inverse passes). Re-run `python -m bootstrapper.docs.regen neo4j` after manifest changes.
-
 ### 13.1 Current — Upstream (this service calls)
 
 _No upstream calls._

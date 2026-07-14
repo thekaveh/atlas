@@ -85,8 +85,6 @@ Weaviate calls this endpoint internally on every `POST /v1/objects` against a co
 
 ## 5. Dependencies & Integrations
 
-> Auto-generated section — this is a doc-only folder (no `services/multi2vec-clip/service.yml`); its data-flow edges live in the owning family's manifest (see §4). Re-run `python -m bootstrapper.docs.regen multi2vec-clip` after changing them there.
-
 ### 5.1 Current — Upstream (this service calls)
 
 _No upstream calls._
