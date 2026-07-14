@@ -11,6 +11,8 @@ orchestrator turns that into fail/skip semantics per the profile target.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -38,7 +40,9 @@ class MountCorpusReader:
     """Reads a consumer-mounted read-only directory. The resolved path MUST stay
     within the corpus root — the security boundary against arbitrary host paths."""
 
-    def discover(self, corpus: Dict[str, Any], override_path: Optional[str] = None) -> List[CorpusFile]:
+    def _validated_paths(
+        self, corpus: Dict[str, Any], override_path: Optional[str] = None
+    ) -> tuple[Path, List[Path]]:
         rel = override_path or str(corpus.get("path") or "")
         if rel.startswith("/") or rel.startswith("~") or ".." in Path(rel).parts:
             raise CorpusPathError(
@@ -50,8 +54,7 @@ class MountCorpusReader:
         if root != target and root not in target.parents:
             raise CorpusPathError(f"corpus path {rel!r} escapes the corpus root {root}")
         if not target.exists():
-            return []
-        files: List[CorpusFile] = []
+            return root, []
         paths = [target] if target.is_file() else sorted(
             p for p in target.rglob("*") if p.is_file()
         )
@@ -67,8 +70,29 @@ class MountCorpusReader:
                     f"corpus file {path.relative_to(root)!s} resolves outside the corpus "
                     f"root {root} (symlink escape) — refusing to ingest"
                 )
+        return root, paths
+
+    def discover(self, corpus: Dict[str, Any], override_path: Optional[str] = None) -> List[CorpusFile]:
+        root, paths = self._validated_paths(corpus, override_path)
+        files: List[CorpusFile] = []
+        for path in paths:
             files.append(CorpusFile(name=str(path.relative_to(root)), content=path.read_bytes()))
         return files
+
+    def fingerprint(
+        self, corpus: Dict[str, Any], override_path: Optional[str] = None
+    ) -> str:
+        root, paths = self._validated_paths(corpus, override_path)
+        manifest = []
+        for path in paths:
+            digest = hashlib.sha256()
+            with path.open("rb") as stream:
+                for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                    digest.update(chunk)
+            manifest.append((str(path.relative_to(root)), digest.hexdigest()))
+        return hashlib.sha256(
+            json.dumps(manifest, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
 
 
 class MinioCorpusReader:
@@ -103,6 +127,34 @@ class MinioCorpusReader:
                 resp.release_conn()
         return files
 
+    def fingerprint(
+        self, corpus: Dict[str, Any], override_path: Optional[str] = None
+    ) -> str:
+        from minio import Minio
+        from urllib.parse import urlparse
+
+        parsed = urlparse(self._endpoint if "://" in self._endpoint else f"http://{self._endpoint}")
+        client = Minio(
+            parsed.netloc,
+            access_key=os.getenv("MINIO_ROOT_USER", os.getenv("MINIO_ACCESS_KEY", "")),
+            secret_key=os.getenv("MINIO_ROOT_PASSWORD", os.getenv("MINIO_SECRET_KEY", "")),
+            secure=parsed.scheme == "https",
+        )
+        bucket = str(corpus.get("bucket"))
+        prefix = str(corpus.get("prefix"))
+        manifest = sorted(
+            (
+                obj.object_name,
+                getattr(obj, "etag", None),
+                getattr(obj, "size", None),
+                str(getattr(obj, "last_modified", "")),
+            )
+            for obj in client.list_objects(bucket, prefix=prefix, recursive=True)
+        )
+        return hashlib.sha256(
+            json.dumps(manifest, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+
 
 class CorpusReader:
     """Dispatches to the mount or minio reader by ``corpus.source``."""
@@ -116,6 +168,13 @@ class CorpusReader:
         if source == "minio":
             return self._minio.discover(corpus, override_path)
         return self._mount.discover(corpus, override_path)
+
+    def fingerprint(
+        self, corpus: Dict[str, Any], override_path: Optional[str] = None
+    ) -> str:
+        if corpus.get("source") == "minio":
+            return self._minio.fingerprint(corpus, override_path)
+        return self._mount.fingerprint(corpus, override_path)
 
 
 # ─── parsing ─────────────────────────────────────────────────────────

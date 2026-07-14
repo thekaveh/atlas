@@ -99,13 +99,16 @@ class RagIngestionService:
         return get_profile(name, self._profiles_path)
 
     @staticmethod
-    def _idempotency_key(profile: LoadedProfile, corpus: Dict[str, Any]) -> str:
+    def _idempotency_key(
+        profile: LoadedProfile, corpus: Dict[str, Any], corpus_fingerprint: str
+    ) -> str:
         payload = "|".join(
             [
                 profile.consumer,
                 profile.name,
                 profile.revision,
                 json.dumps(corpus, sort_keys=True, separators=(",", ":")),
+                corpus_fingerprint,
             ]
         )
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
@@ -121,11 +124,10 @@ class RagIngestionService:
             if corpus.get("source") != "mount":
                 raise ValueError("corpus_path override is only valid for source=mount profiles")
             corpus = {**corpus, "path": corpus_path}
-        key = self._idempotency_key(profile, corpus)
-
-        existing = self.store.find_by_idempotency_key(key)
-        if existing is not None and existing.is_dedup_candidate:
-            return existing, False  # idempotent: identical corpus+profile → no re-run
+        corpus_fingerprint = self.deps.corpus.fingerprint(
+            corpus, corpus.get("path")
+        )
+        key = self._idempotency_key(profile, corpus, corpus_fingerprint)
 
         record = IngestionRecord(
             id=str(uuid.uuid4()),
@@ -133,6 +135,7 @@ class RagIngestionService:
             profile=profile.name,
             revision=profile.revision,
             idempotency_key=key,
+            content_digest=corpus_fingerprint[:16],
             created_at=_now_iso(),
             updated_at=_now_iso(),
         )
@@ -147,8 +150,24 @@ class RagIngestionService:
             "vectors_written": 0,
             "documents_uploaded": 0,
         }
-        self.store.save(record)
-        return record, True
+        return self.store.create_if_absent(record)
+
+    def mark_dispatch_failed(
+        self, ingestion_id: str, message: str
+    ) -> Optional[IngestionRecord]:
+        error = IngestionError(phase="dispatch", message=message)
+        return self.store.fail_pending_dispatch(
+            ingestion_id,
+            {
+                "phase": error.phase,
+                "message": error.message,
+                "file": error.file,
+                "service": error.service,
+                "http_status": error.http_status,
+                "body": error.body,
+            },
+            _now_iso(),
+        )
 
     # ── run (orchestrate) ────────────────────────────────────────────
     def _refresh_cancel(self, record: IngestionRecord) -> None:
@@ -244,10 +263,12 @@ class RagIngestionService:
         state["files"] = files
         record.counts["files_discovered"] = len(files)
         record.phase("discover").counts = {"files": len(files)}
-        # Content hash of the discovered manifest (provenance).
-        manifest = sorted((f.name, len(f.content)) for f in files)
+        # Content hash of the discovered bytes (provenance).
+        manifest = sorted(
+            (f.name, hashlib.sha256(f.content).hexdigest()) for f in files
+        )
         record.content_digest = hashlib.sha256(
-            json.dumps(manifest).encode("utf-8")
+            json.dumps(manifest, separators=(",", ":")).encode("utf-8")
         ).hexdigest()[:16]
 
     async def _phase_parse(self, record, profile, corpus, state):

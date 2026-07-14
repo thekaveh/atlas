@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
 from pathlib import Path
 
 import httpx
@@ -220,6 +221,32 @@ def test_idempotent_resubmit_dedups(tmp_path, monkeypatch):
     assert second.id == first.id
 
 
+def test_content_change_at_same_corpus_path_creates_fresh_ingestion(
+    tmp_path, monkeypatch
+):
+    root = _corpus(tmp_path, monkeypatch, {"a.txt": "first body"})
+    pf = _profiles_file(tmp_path)
+    svc = _service(
+        tmp_path,
+        Deps(
+            embedder=FakeEmbedder(),
+            weaviate=FakeWeaviate(),
+            lightrag=FakeLightrag(),
+            poll_interval=0.01,
+        ),
+        pf,
+    )
+    first, created_first = svc.submit("showcase-default")
+    asyncio.run(svc.run(first.id))
+
+    (root / "docs" / "a.txt").write_text("other body", encoding="utf-8")
+    second, created_second = svc.submit("showcase-default")
+
+    assert created_first is True
+    assert created_second is True
+    assert second.id != first.id
+
+
 def test_parser_fallback_to_plain_text(tmp_path, monkeypatch):
     _corpus(tmp_path, monkeypatch, {"a.txt": "fallback body text here"})
     pf = _profiles_file(tmp_path, parser_order=["docling", "plain_text"])
@@ -232,6 +259,72 @@ def test_parser_fallback_to_plain_text(tmp_path, monkeypatch):
     _, _, final = _run(svc)
     assert final.status == "completed"
     assert final.counts["documents_parsed"] == 1  # docling failed, plain_text succeeded
+
+
+def test_concurrent_submit_atomically_claims_one_idempotency_record(
+    tmp_path, monkeypatch
+):
+    _corpus(tmp_path, monkeypatch, {"a.txt": "content"})
+    pf = _profiles_file(tmp_path)
+    barrier = threading.Barrier(2)
+
+    class RacingStore(InMemoryIngestionStore):
+        def find_by_idempotency_key(self, key):
+            barrier.wait(timeout=5)
+            return super().find_by_idempotency_key(key)
+
+    svc = RagIngestionService(
+        store=RacingStore(),
+        deps=Deps(
+            embedder=FakeEmbedder(),
+            weaviate=FakeWeaviate(),
+            lightrag=FakeLightrag(),
+            poll_interval=0.01,
+        ),
+        profiles_path=pf,
+    )
+    results = []
+
+    def submit():
+        results.append(svc.submit("showcase-default"))
+
+    threads = [threading.Thread(target=submit) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=5)
+
+    assert all(not thread.is_alive() for thread in threads)
+    assert len(results) == 2
+    assert len({record.id for record, _ in results}) == 1
+    assert sorted(created for _, created in results) == [False, True]
+
+
+def test_cancellation_survives_a_stale_worker_save(tmp_path, monkeypatch):
+    _corpus(tmp_path, monkeypatch, {"a.txt": "content"})
+    pf = _profiles_file(tmp_path)
+    store = InMemoryIngestionStore()
+    svc = RagIngestionService(
+        store=store,
+        deps=Deps(
+            embedder=FakeEmbedder(),
+            weaviate=FakeWeaviate(),
+            lightrag=FakeLightrag(),
+            poll_interval=0.01,
+        ),
+        profiles_path=pf,
+    )
+    record, _ = svc.submit("showcase-default")
+    stale_worker_copy = store.get(record.id)
+
+    assert stale_worker_copy is not None
+    assert store.request_cancel(record.id) is True
+    stale_worker_copy.status = "running"
+    store.save(stale_worker_copy)
+
+    persisted = store.get(record.id)
+    assert persisted is not None
+    assert persisted.cancel_requested is True
 
 
 def test_vector_target_fail_when_weaviate_disabled(tmp_path, monkeypatch):

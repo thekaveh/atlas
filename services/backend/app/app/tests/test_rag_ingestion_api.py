@@ -169,6 +169,46 @@ def test_async_dispatch_queues_celery_task(tmp_path, monkeypatch):
     assert called["kwargs"]["ingestion_id"] == body["ingestion_id"]
 
 
+def test_async_dispatch_failure_releases_idempotency_key_for_retry(
+    tmp_path, monkeypatch
+):
+    main = _reload_main(monkeypatch)
+    from fastapi.testclient import TestClient
+
+    service = _fake_service(tmp_path, monkeypatch)
+    monkeypatch.setattr(main, "get_rag_ingestion_service", lambda: service)
+    monkeypatch.setattr(main, "celery_is_enabled", lambda: True)
+
+    def fail_dispatch(*, kwargs):
+        raise RuntimeError("broker unavailable")
+
+    async def fake_to_thread(fn, *args, **kwargs):
+        return fn(*args, **kwargs)
+
+    monkeypatch.setattr(main.rag_ingestion_task, "apply_async", fail_dispatch)
+    monkeypatch.setattr(main.asyncio, "to_thread", fake_to_thread)
+    client = TestClient(main.app)
+
+    failed = client.post(
+        "/api/rag/ingestions?async_job=true",
+        json={"profile": "showcase-default"},
+    )
+
+    assert failed.status_code == 503
+    failed_record = service.store.list()[0]
+    assert failed_record.status == "failed"
+    assert failed_record.errors[-1]["phase"] == "dispatch"
+
+    monkeypatch.setattr(main, "celery_is_enabled", lambda: False)
+    retried = client.post(
+        "/api/rag/ingestions?async_job=false",
+        json={"profile": "showcase-default"},
+    )
+    assert retried.status_code == 202
+    assert retried.json()["status"] == "completed"
+    assert retried.json()["ingestion_id"] != failed_record.id
+
+
 def test_list_and_cancel(tmp_path, monkeypatch):
     main = _reload_main(monkeypatch)
     from fastapi.testclient import TestClient

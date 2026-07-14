@@ -14,6 +14,7 @@ import yaml
 import re
 import time
 import secrets
+from datetime import datetime, timezone
 
 from n8n_client import N8nClient
 from research_service import ResearchService
@@ -721,6 +722,9 @@ async def submit_rag_ingestion(request: RagIngestionRequest, async_job: bool = T
                 rag_ingestion_task.apply_async, kwargs={"ingestion_id": record.id}
             )
         except Exception as e:  # noqa: BLE001 - broker unreachable
+            service.mark_dispatch_failed(
+                record.id, f"Failed to queue RAG ingestion: {str(e)}"
+            )
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail=f"Failed to queue RAG ingestion: {str(e)}",
@@ -778,7 +782,9 @@ async def get_rag_ingestion(ingestion_id: str):
 async def cancel_rag_ingestion(ingestion_id: str):
     """Request cooperative cancellation of a running ingestion job."""
     service = get_rag_ingestion_service()
-    if not service.store.request_cancel(ingestion_id):
+    if not service.store.request_cancel(
+        ingestion_id, datetime.now(timezone.utc).isoformat()
+    ):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Unknown ingestion id: {ingestion_id!r}",
