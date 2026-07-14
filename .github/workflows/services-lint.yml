@@ -226,6 +226,9 @@ jobs:
         # uv.lock at PR time instead of on a user's machine.
         run: uv lock --locked
 
+      - name: Local Deep Researcher runtime lock check
+        run: uv run --project bootstrapper python scripts/refresh-local-deep-researcher-lock.py --check
+
   notebook-reproducibility:
     name: Notebook source reproducibility
     runs-on: ubuntu-latest

@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Ray job API authorization** — every Backend `/api/ray` route now requires the auto-generated `RAY_JOB_API_TOKEN` as an HTTP bearer token, including calls made through the direct Backend port. Ray's native unauthenticated dashboard, GCS, and client ports are bound to loopback by default.
 - **Non-destructive permission recovery** — an unwritable bind-mount directory is never deleted as a repair strategy; Atlas preserves its contents and reports the ownership command needed before retrying.
 - **Truthful privileged hosts cleanup** — `stop.sh --clean-hosts` elevates only the hosts-file mutation and exits nonzero when the requested cleanup fails, while the repository workflow continues to reject whole-process sudo execution.
+- **Pinned Local Deep Researcher runtime** — Local Deep Researcher now materializes a manifest-owned full upstream commit SHA, verifies the upstream `uv.lock` digest, and synchronizes a private environment from Atlas' committed hash-pinned runtime lock. Restarts reuse the detached checkout without pulling a mutable branch or resolving either project or LangGraph CLI dependencies again.
 
 ### Fixed — 2026-07-13 — Synchronized three-surface documentation
 

@@ -417,6 +417,9 @@ Do not edit by hand — the bootstrapper owns this value.
 | LLM_GRAPH_BUILDER_LITELLM_MODEL_CONFIG | llm-graph-builder |  | Model config consumed as LLM_MODEL_CONFIG_ATLAS_LITELLM by the upstream backend. |
 | LOCAL_DEEP_RESEARCHER_SOURCE | local-deep-researcher | container | - |
 | LOCAL_DEEP_RESEARCHER_PORT | local-deep-researcher |  | - |
+| LOCAL_DEEP_RESEARCHER_REF | local-deep-researcher | 0be4c86ea71e1671ff273dfc07dc1aab45ed22f8 | Full upstream local-deep-researcher commit SHA materialized into the managed repo volume. Update deliberately after compatibility validation; runtime startup never follows a branch. |
+| LOCAL_DEEP_RESEARCHER_LANGGRAPH_CLI_VERSION | local-deep-researcher | 0.4.31 | Exact langgraph-cli[inmem] version used to serve the pinned source tree. |
+| LOCAL_DEEP_RESEARCHER_UPSTREAM_LOCK_SHA256 | local-deep-researcher | 93480f1963d5d09a0c4ffc255aa2dcc75362a7a7f0df831847aecd073c03e7fe | SHA-256 digest of uv.lock at LOCAL_DEEP_RESEARCHER_REF; startup rejects a source tree whose lock does not match. |
 | LOCAL_DEEP_RESEARCHER_LOOPS | local-deep-researcher | 3 | - |
 | LOCAL_DEEP_RESEARCHER_SEARCH_API | local-deep-researcher | searxng | - |
 | LOCAL_DEEP_RESEARCHER_WORKERS | local-deep-researcher | 3 | - |

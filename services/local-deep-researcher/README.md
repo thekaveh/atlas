@@ -6,7 +6,7 @@ LDR is **completely local** by design — it relies on the stack's LiteLLM gatew
 
 ## 1. Overview
 
-Image: `python:3.11.15-slim` (the build script clones the upstream repo and runs `pip install -e .` at startup). Source variants are minimal — `container` or `disabled`. There is no GPU path; LDR doesn't run inference itself, it orchestrates LiteLLM.
+Image: `python:3.11.15-slim`. At startup, the managed repo volume is checked out at the manifest-pinned upstream commit, verified, and installed with `pip install -e .`; restarts never pull a mutable branch. Source variants are minimal — `container` or `disabled`. There is no GPU path; LDR doesn't run inference itself, it orchestrates LiteLLM.
 
 ## 2. Access
 
@@ -23,6 +23,9 @@ Canonical port table: [Ports and Routes](../../docs/deployment/ports-and-routes.
 ```bash
 LOCAL_DEEP_RESEARCHER_SOURCE=container       # container | disabled
 LOCAL_DEEP_RESEARCHER_PORT=63097             # computed by topology.py
+LOCAL_DEEP_RESEARCHER_REF=0be4c86ea71e1671ff273dfc07dc1aab45ed22f8
+LOCAL_DEEP_RESEARCHER_LANGGRAPH_CLI_VERSION=0.4.31
+LOCAL_DEEP_RESEARCHER_UPSTREAM_LOCK_SHA256=93480f1963d5d09a0c4ffc255aa2dcc75362a7a7f0df831847aecd073c03e7fe
 LOCAL_DEEP_RESEARCHER_LOOPS=3                # max research iterations
 LOCAL_DEEP_RESEARCHER_SEARCH_API=searxng     # only searxng is wired today; tavily/perplexity supported upstream
 LOCAL_DEEP_RESEARCHER_WORKERS=3              # langgraph dev --n-workers
@@ -39,6 +42,10 @@ LITELLM_API_KEY=${LITELLM_MASTER_KEY}
 ```
 
 **Required hard dependencies** (`depends_on.required`): `searxng`, `litellm`. Without SearXNG, LDR has no search backend; without LiteLLM, no LLM to summarize. LDR is **DB-free** — it does not connect to Supabase. Research sessions are persisted to `public.research_*` by the **backend** (`research_service.py`), which calls this LangGraph server over HTTP; that supabase dependency belongs to the backend, not LDR.
+
+`LOCAL_DEEP_RESEARCHER_REF` must remain a full commit SHA. Its upstream `uv.lock` is verified against `LOCAL_DEEP_RESEARCHER_UPSTREAM_LOCK_SHA256`, while Atlas' committed `build/config/runtime-requirements.lock` combines that graph with the exact serving CLI and build-tool versions. The lock records all three manifest pins as provenance metadata, and startup rejects mismatches before replacing the prior source tree, synchronizing a private virtual environment with mandatory hashes, and installing the checked-out project without dependency resolution.
+
+To upgrade, update the three manifest pins, then run `uv run --project bootstrapper python scripts/refresh-local-deep-researcher-lock.py`. The refresh command checks out the exact revision, verifies its upstream lock digest, adds the exact CLI and build-tool pins without installing them, and commits both combined resolver inputs under `services/local-deep-researcher/locks/` plus the exported runtime lock. Run the same command with `--check` for the network-free byte-equivalence gate, then validate the LDR patches and backend contract in the same change.
 
 **Optional adaptive** (`runtime_deps.local-deep-researcher.optional`): `neo4j-graph-db`, `n8n`, `weaviate`, the media providers. Wiring exists in the manifest but nothing in the LDR code consumes them today — these are forward-looking hooks.
 

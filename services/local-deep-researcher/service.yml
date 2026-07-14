@@ -26,6 +26,15 @@ env:
     default: container
   - name: LOCAL_DEEP_RESEARCHER_PORT
     # default removed — computed by services/topology.py slot allocator
+  - name: LOCAL_DEEP_RESEARCHER_REF
+    default: "0be4c86ea71e1671ff273dfc07dc1aab45ed22f8"
+    description: "Full upstream local-deep-researcher commit SHA materialized into the managed repo volume. Update deliberately after compatibility validation; runtime startup never follows a branch."
+  - name: LOCAL_DEEP_RESEARCHER_LANGGRAPH_CLI_VERSION
+    default: "0.4.31"
+    description: "Exact langgraph-cli[inmem] version used to serve the pinned source tree."
+  - name: LOCAL_DEEP_RESEARCHER_UPSTREAM_LOCK_SHA256
+    default: "93480f1963d5d09a0c4ffc255aa2dcc75362a7a7f0df831847aecd073c03e7fe"
+    description: "SHA-256 digest of uv.lock at LOCAL_DEEP_RESEARCHER_REF; startup rejects a source tree whose lock does not match."
   - name: LOCAL_DEEP_RESEARCHER_LOOPS
     default: 3
   - name: LOCAL_DEEP_RESEARCHER_SEARCH_API
