@@ -30,6 +30,7 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
       BACKUP_BUCKET: ${BACKUP_BUCKET}
       BACKUP_S3_ALIAS_URL: ${BACKUP_S3_ALIAS_URL}
+      BACKUP_COMMAND_TIMEOUT_SECONDS: ${BACKUP_COMMAND_TIMEOUT_SECONDS:-900}
     volumes:
       - ./init/scripts:/scripts:ro
       - supabase-storage-data:/volumes/supabase-storage:ro

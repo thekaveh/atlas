@@ -561,6 +561,7 @@ services:
     - /scripts/entrypoint.sh
     environment:
       BACKUP_BUCKET: atlas-backups
+      BACKUP_COMMAND_TIMEOUT_SECONDS: '900'
       BACKUP_S3_ALIAS_URL: http://minio:9000
       BACKUP_SOURCE: disabled
       MINIO_ROOT_PASSWORD: ''

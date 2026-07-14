@@ -29,6 +29,8 @@ CLOUDFLARED_IMAGE=cloudflare/cloudflared:2026.6.1
 # CLOUDFLARED_SCALE is auto-managed: 1 when SOURCE=container, 0 when disabled
 ```
 
+The setup wizard exposes the same `container` / `disabled` choice. For automation, set `CLOUDFLARE_TUNNEL_TOKEN` in `.env`, then run `./start.sh --cloudflared-source container --detach`; source validation rejects container mode when the token is absent.
+
 **To enable:**
 
 1. Create a named tunnel in the Cloudflare Zero Trust dashboard (Zero Trust > Networks > Tunnels > Add a tunnel).

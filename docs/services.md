@@ -56,8 +56,8 @@
 
 | Service | Title | Tracks | SOURCE | Default | Values | Dependencies |
 | --- | --- | --- | --- | --- | --- | --- |
-| [backup](../services/backup/README.md) | Backup / restore (Postgres + volumes -> S3) | all | BACKUP_SOURCE | disabled | container, disabled | supabase, minio |
-| [cloudflared](../services/cloudflared/README.md) | Cloudflare Tunnel (public edge) | all | CLOUDFLARED_SOURCE | disabled | container, disabled | kong |
+| [backup](../services/backup/README.md) | Backup / restore (Postgres + volumes -> S3) | all, data-eng, ml-eng, trading | BACKUP_SOURCE | disabled | container, disabled | supabase, minio |
+| [cloudflared](../services/cloudflared/README.md) | Cloudflare Tunnel (public edge) | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | CLOUDFLARED_SOURCE | disabled | container, disabled | kong |
 | [globals](../services/globals/README.md) | Globals (project + branding) | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | - | - | - | - |
 | [grafana](../services/grafana/README.md) | Grafana (observability UI + alerting) | all | GRAFANA_SOURCE | disabled | container, disabled | prometheus, supabase, kong, ray |
 | [kong](../services/kong/README.md) | Kong (API gateway) | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | KONG_API_GATEWAY_SOURCE | container | container | supabase, redis |

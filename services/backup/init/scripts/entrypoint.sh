@@ -23,8 +23,20 @@ if [ "${BACKUP_SOURCE:-disabled}" != "container" ]; then
     exit 64
 fi
 
+TIMEOUT_SECONDS="${BACKUP_COMMAND_TIMEOUT_SECONDS:-900}"
+case "$TIMEOUT_SECONDS" in
+    ''|*[!0-9]*|0)
+        echo "backup: BACKUP_COMMAND_TIMEOUT_SECONDS must be a positive integer" >&2
+        exit 64
+        ;;
+esac
+
+run_bounded() {
+    timeout -s TERM -k 10 "$TIMEOUT_SECONDS" "$@"
+}
+
 if ! command -v mc >/dev/null 2>&1; then
-    apk add --no-cache minio-client
+    run_bounded apk add --no-cache minio-client
     ln -sf /usr/bin/mcli /usr/local/bin/mc
 fi
 exec sh "$@"

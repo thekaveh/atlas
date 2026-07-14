@@ -8,6 +8,9 @@ The container is **never long-running** (`BACKUP_SCALE=0`). It exists in compose
 # Run a full backup
 docker compose run --rm backup
 
+# Persist the enabled SOURCE through the Atlas CLI
+./start.sh --backup-source container --detach
+
 # Restore the latest backup
 docker compose run --rm backup /scripts/restore-postgres.sh
 
@@ -40,11 +43,16 @@ BACKUP_SOURCE=disabled          # set to container to enable
 BACKUP_BUCKET=atlas-backups     # target bucket
 BACKUP_S3_ALIAS_URL=http://minio:9000  # S3 endpoint; swap for external S3
 BACKUP_IMAGE=postgres:17.10-alpine        # image providing pg_dump (major >= supabase-db server)
+BACKUP_COMMAND_TIMEOUT_SECONDS=900        # positive per-command deadline
 ```
 
 Set `BACKUP_S3_ALIAS_URL` to an AWS S3 or compatible endpoint (e.g. `https://s3.us-east-1.amazonaws.com`) for offsite backups. Credentials are shared with MinIO (`MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD`); for external S3 set these to the IAM access key / secret.
 
 `BACKUP_SOURCE` is enforced by the one-shot container entrypoint. Both backup and restore commands exit before installing tools or touching data while the source is `disabled`; set it to `container` to authorize on-demand runs. `BACKUP_SCALE` remains zero in both modes because the runner is never a long-running service.
+
+The setup wizard exposes the same `container` / `disabled` choice. For automation, `./start.sh --backup-source container --detach` persists the selection before the one-shot `docker compose run` command is used.
+
+Every package-install, PostgreSQL, archive, and S3 command is terminated when `BACKUP_COMMAND_TIMEOUT_SECONDS` elapses. The value must be a positive integer; increase it for unusually large databases or volumes rather than disabling the deadline.
 
 Timed execution: the runner has no internal scheduler. Wire it to the Airflow DAG or n8n workflow that owns your backup schedule — invoke `docker compose run --rm backup` from the orchestrator.
 

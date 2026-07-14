@@ -109,6 +109,7 @@ seconds a future auto-consolidation scheduler would use.
 | BACKUP_SOURCE | backup | disabled | Deployment mode: container (enable the runner) or disabled (default). |
 | BACKUP_BUCKET | backup | atlas-backups | Target bucket for backups. |
 | BACKUP_S3_ALIAS_URL | backup | http://minio:9000 | S3 endpoint. Default = on-box MinIO; set to an external S3 URL for offsite. |
+| BACKUP_COMMAND_TIMEOUT_SECONDS | backup | 900 | Positive per-command deadline in seconds for package install, database, archive, and S3 operations. |
 | BACKUP_SCALE | backup |  | 0 (never long-running); the runner is invoked on demand via docker compose run. |
 | BLENDER_MCP_SOURCE | blender-mcp | disabled | Host-installed Blender MCP bridge source. Disabled by default because Blender MCP can execute generated Python code inside Blender. |
 | BLENDER_MCP_HOST | blender-mcp | localhost | Host where the Blender MCP add-on socket is listening. |

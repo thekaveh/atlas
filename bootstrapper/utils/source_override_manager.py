@@ -102,6 +102,8 @@ class SourceOverrideManager:
             'iceberg_rest_source': 'ICEBERG_REST_SOURCE',
             'trino_source': 'TRINO_SOURCE',
             'redpanda_source': 'REDPANDA_SOURCE',
+            'backup_source': 'BACKUP_SOURCE',
+            'cloudflared_source': 'CLOUDFLARED_SOURCE',
             # Airflow has a multi-container family (webserver + scheduler +
             # init) so source_configurable carries three keys. Map the
             # webserver as the discovery anchor (mirroring Ray's

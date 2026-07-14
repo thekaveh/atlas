@@ -6,7 +6,7 @@ enabled start. They were accidentally committed once (in 6b751672), which
 made every legitimate start dirty the Atlas checkout — and, for consumers
 vendoring Atlas as a submodule, fail their own submodule-cleanliness
 gates. These tests pin the fix: the outputs are gitignored and untracked,
-while the tracked marker files keep the directory itself present on fresh
+while the tracked README keeps the directory itself present on fresh
 clones (the always-on backend bind-mounts ``volumes/comfyui/``).
 """
 
@@ -23,10 +23,7 @@ RUNTIME_OUTPUTS = (
     "volumes/comfyui/active-custom-nodes.tsv",
 )
 
-MARKERS = (
-    "volumes/comfyui/.gitkeep",
-    "volumes/comfyui/README.md",
-)
+MARKERS = ("volumes/comfyui/README.md",)
 
 
 def _git(*args: str) -> subprocess.CompletedProcess:

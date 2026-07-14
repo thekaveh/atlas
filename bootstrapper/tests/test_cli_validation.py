@@ -68,6 +68,12 @@ def test_comfyui_managed_mps_source_is_accepted_by_cli():
     assert result.exit_code == 0
 
 
+@pytest.mark.parametrize("flag", ["--backup-source", "--cloudflared-source"])
+def test_optional_operations_source_flags_are_accepted(flag):
+    result = CliRunner().invoke(main, [flag, "disabled", "--list-tracks"])
+    assert result.exit_code == 0
+
+
 def test_setup_hosts_does_not_suggest_sudo_start(monkeypatch):
     import start as start_module
     import utils.system

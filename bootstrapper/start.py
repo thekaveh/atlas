@@ -4105,6 +4105,12 @@ def _print_doctor_text(results: list[dict]) -> None:
 @click.option('--redpanda-source',
               type=click.Choice(['container', 'disabled'], case_sensitive=False),
               help='Override REDPANDA_SOURCE — Kafka API streaming broker + console.')
+@click.option('--backup-source',
+              type=click.Choice(['container', 'disabled'], case_sensitive=False),
+              help='Override BACKUP_SOURCE — authorize the on-demand backup/restore runner.')
+@click.option('--cloudflared-source',
+              type=click.Choice(['container', 'disabled'], case_sensitive=False),
+              help='Override CLOUDFLARED_SOURCE — outbound Cloudflare Tunnel public edge.')
 @click.option('--no-tui', is_flag=True,
               help='Disable the TUI (wizard + Textual log app). Falls back to the legacy '
                    'linear flow with passthrough docker output. Useful for log capture, '
@@ -4158,6 +4164,8 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
          iceberg_rest_source,
          trino_source,
          redpanda_source,
+         backup_source,
+         cloudflared_source,
          no_tui, detach, json_output, no_splash, no_port_migrate, profile):
     """Start Atlas — the self-hosted engineering platform."""
 
@@ -4258,6 +4266,8 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
                     'iceberg_rest_source': iceberg_rest_source,
                     'trino_source': trino_source,
                     'redpanda_source': redpanda_source,
+                    'backup_source': backup_source,
+                    'cloudflared_source': cloudflared_source,
                 }
                 for cli_key, value in _flag_values.items():
                     if value is None or value == "disabled":
@@ -4492,6 +4502,8 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
             'iceberg_rest_source': iceberg_rest_source,
             'trino_source': trino_source,
             'redpanda_source': redpanda_source,
+            'backup_source': backup_source,
+            'cloudflared_source': cloudflared_source,
         }
         # Ray non-SOURCE settings (worker count) get plumbed via
         # update_env_file the same way the cloud-API keys do. Clamp 0-64 to
