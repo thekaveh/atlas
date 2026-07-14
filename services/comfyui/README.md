@@ -147,6 +147,8 @@ For general startup and routing issues, see [Troubleshooting](../../docs/quick-s
 - **`container-cpu` / `container-gpu`:** the bootstrapper resolves the active set via `comfyui_resolver` and writes `volumes/comfyui/selected-models.yaml`, `volumes/comfyui/active-models.tsv`, and `volumes/comfyui/active-custom-nodes.tsv`. `comfyui-init` downloads each model in the model TSV into the `comfyui-models` volume. The AI-Dock provisioning hook in the main ComfyUI container clones each allowlisted custom-node row into `comfyui-custom-nodes` and installs its requirements when enabled.
 - **`localhost`:** the bootstrapper still writes the manifest (so the backend `/comfyui/db/models` endpoint surfaces the active set to Open WebUI + n8n). `comfyui-init` does NOT run (scale=0) — you populate your host ComfyUI install's models directory yourself, same way you'd run `ollama pull <name>` on the host for Ollama localhost.
 
+All three files under `volumes/comfyui/` are **gitignored runtime artifacts** — rewritten on every non-`disabled` start, never hand-edited, never committed — so a normal start leaves the checkout (and any consumer's Atlas submodule) clean. The directory itself stays present on fresh clones via tracked marker files (`.gitkeep` plus a short README), because the always-on backend bind-mounts it read-only. The catalog you *do* edit is `services/comfyui/models.yaml`.
+
 CLI alternative (works for all non-disabled sources):
 ```bash
 ./start.sh --comfyui-models=sdxl-base-1.0,sdxl-vae,flux1-dev-Q4_K_S
