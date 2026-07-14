@@ -304,7 +304,7 @@ After confirmation, the wizard transitions in-place from prompts to the launch p
 - The brand panel and pre-launch summary stay **pinned** at the top — they never move while logs flow.
 - Below them, a bordered **Logs** pane streams `docker compose` build / up / port-verify / `logs -f` output, line-by-line.
 - Per-service container names (e.g. `atlas-supabase-db`, `atlas-ollama-pull`) are **color-coded** based on `bootstrapper/ui/textual/palette.py::SOURCE_COLORS`. Unknown service names get a stable hue from a small md5-based palette so every service in the stack remains visually distinguishable.
-- The full launch-phase output is also tee'd to `/tmp/atlas-launch-<timestamp>.log` for post-mortem inspection. See [Troubleshooting](troubleshooting.md#2-session-log).
+- The full launch-phase output is also tee'd to an owner-only `/tmp/atlas-launch-<timestamp>-<unique>.log` for post-mortem inspection. See [Troubleshooting](troubleshooting.md#2-session-log).
 - Press `Ctrl+Q` to detach cleanly from the wizard UI. `Ctrl+C` sends SIGINT — fine after services are up (already-detached compose containers keep running) but during the launch pipeline it may interrupt a compose step mid-flight, leaving the stack in a partial state. Either way, services that have finished starting keep running; resume log streaming with `docker compose logs -f <service>`.
 
 ## 10. Navigation

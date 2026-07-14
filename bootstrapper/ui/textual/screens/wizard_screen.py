@@ -24,6 +24,8 @@ import contextlib
 import os
 import signal
 import sys
+import tempfile
+from pathlib import Path
 from typing import Callable
 
 from rich.text import Text
@@ -1178,7 +1180,7 @@ class WizardScreen(Screen):
     # ─── launch-log tee ──────────────────────────────────────────────
 
     def _open_launch_log_tee(self, *, announce_in_pane: bool = True) -> None:
-        """Open ``/tmp/atlas-launch-<ts>.log`` for the duration
+        """Open ``/tmp/atlas-launch-<ts>-<unique>.log`` for the duration
         of the wizard. _write_status / _safe_log mirror their output
         into this file so a user who quits the wizard still has a
         record of what happened (cloud /v1/models fetch failures during
@@ -1189,20 +1191,36 @@ class WizardScreen(Screen):
         launch transition does the announce later when the pane is up.
         """
         import datetime
-        from pathlib import Path
         ts = datetime.datetime.now().strftime("%Y%m%dT%H%M%S")
-        path = Path(f"/tmp/atlas-launch-{ts}.log")
+        fh = None
+        path = None
         try:
+            fh = tempfile.NamedTemporaryFile(
+                mode="w",
+                buffering=1,
+                encoding="utf-8",
+                prefix=f"atlas-launch-{ts}-",
+                suffix=".log",
+                dir=tempfile.gettempdir(),
+                delete=False,
+            )
+            path = Path(fh.name)
             self._launch_log_path = path
-            self._launch_log_fh = open(path, "w", buffering=1, encoding="utf-8")  # line-buffered
-            self._launch_log_fh.write(f"# atlas session log — started {ts}\n")
-            self._launch_log_fh.flush()
+            self._launch_log_fh = fh
+            fh.write(f"# atlas session log — started {ts}\n")
+            fh.flush()
             if announce_in_pane and self._log_pane is not None:
                 self._log_pane.write_log(
                     f"📝 session log: {path}",
                     level="info", source="pipeline",
                 )
         except OSError as exc:  # noqa: BLE001
+            if fh is not None:
+                with contextlib.suppress(OSError):
+                    fh.close()
+            if path is not None:
+                with contextlib.suppress(OSError):
+                    path.unlink()
             self._launch_log_fh = None
             self._launch_log_path = None
             if self._log_pane is not None:

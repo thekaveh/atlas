@@ -17,7 +17,7 @@ The simplest reset is `cp .env.example .env` followed by `./start.sh --cold` —
 When `./start.sh` runs the Textual TUI, every line is tee'd to a timestamped file — both wizard-time diagnostic events (cloud `/v1/models` fetch failures, Ollama upstream discovery warnings, etc.) and the entire launch phase (build, port verification, `docker compose up`, per-service `logs --tail` on failure):
 
 ```
-/tmp/atlas-launch-<YYYYMMDDTHHMMSS>.log
+/tmp/atlas-launch-<YYYYMMDDTHHMMSS>-<unique>.log
 ```
 
 The most recent log is always:
