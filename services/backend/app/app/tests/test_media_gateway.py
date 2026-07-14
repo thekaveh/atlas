@@ -734,3 +734,299 @@ def test_media_cancel_works_server_side_when_fal_disabled(monkeypatch):
     assert body["status"] == "cancelled"
     assert body["provenance"]["provider_cancelled"] is False
     assert len(spy.calls) == 1
+
+
+# ── #519: provider=comfyui route parity (submit/poll/cancel/img2img) ───────
+def _fresh_main_comfyui(monkeypatch, *, comfyui_enabled: bool = True):
+    """Same stubbing as _fresh_main, plus the source-aware ComfyUI gate
+    (COMFYUI_SOURCE must be a non-disabled source, mirroring FAL_SOURCE)."""
+    main = _fresh_main(monkeypatch)
+    monkeypatch.setenv("COMFYUI_SOURCE", "container-cpu" if comfyui_enabled else "disabled")
+    return main
+
+
+class _FakeComfyUIMediaClient:
+    """ComfyUIMediaClient stub capturing submit/poll/cancel calls.
+
+    Constructed as ``ComfyUIMediaClient(model=...)`` (no api_key — local).
+    """
+
+    submit_kwargs = None
+    poll_kwargs = None
+    cancel_kwargs = None
+    submit_payload = None
+    poll_payload = None
+    cancel_result = True
+
+    def __init__(self, *args, **kwargs):
+        self.model = kwargs.get("model")
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return None
+
+    async def submit_media_operation(self, **kwargs):
+        type(self).submit_kwargs = kwargs
+        return type(self).submit_payload or {
+            "operation_id": "comfyui-prompt-1",
+            "status": "queued",
+            "provider": "comfyui",
+            "model": kwargs.get("model", "krea2-turbo-bf16"),
+            "modality": kwargs.get("modality", "image"),
+            "artifact_url": None,
+            "artifacts": [],
+            "cost_usd": 0.0,
+            "license": "local/self-hosted",
+            "provenance": {
+                "provider_request_id": "comfyui-prompt-1",
+                "modality": "image",
+                "cost_basis": "local_zero",
+            },
+            "raw": {"prompt_id": "comfyui-prompt-1"},
+        }
+
+    async def get_media_operation(self, **kwargs):
+        type(self).poll_kwargs = kwargs
+        return type(self).poll_payload or {
+            "operation_id": kwargs["operation_id"],
+            "status": "succeeded",
+            "provider": "comfyui",
+            "model": "krea2-turbo-bf16",
+            "modality": "image",
+            "artifact_url": "/comfyui/image/out.png?folder_type=output",
+            "artifacts": [
+                {
+                    "url": "/comfyui/image/out.png?folder_type=output",
+                    "role": "image",
+                    "content_type": "image/png",
+                    "filename": "out.png",
+                }
+            ],
+            "cost_usd": 0.0,
+            "license": "local/self-hosted",
+            "provenance": {"provider_request_id": kwargs["operation_id"], "cost_basis": "local_zero"},
+            "raw": {"history": {}},
+        }
+
+    async def cancel_media_operation(self, **kwargs):
+        type(self).cancel_kwargs = kwargs
+        result = type(self).cancel_result
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+
+def _reset_comfyui_fake():
+    # Class-level capture must reset between tests.
+    for attr in ("submit_kwargs", "poll_kwargs", "cancel_kwargs"):
+        setattr(_FakeComfyUIMediaClient, attr, None)
+    _FakeComfyUIMediaClient.submit_payload = None
+    _FakeComfyUIMediaClient.poll_payload = None
+    _FakeComfyUIMediaClient.cancel_result = True
+
+
+def test_comfyui_submit_returns_202_with_local_zero_cost_envelope(monkeypatch):
+    _reset_comfyui_fake()
+    main = _fresh_main_comfyui(monkeypatch)
+    monkeypatch.setattr(main, "ComfyUIMediaClient", _FakeComfyUIMediaClient, raising=False)
+
+    from fastapi.testclient import TestClient
+
+    response = TestClient(main.app).post(
+        "/media/generate",
+        json={
+            "modality": "image",
+            "provider": "comfyui",
+            "model": "krea2-turbo-bf16",
+            "input": {"prompt": "blue glass observatory", "width": 1024, "height": 1024},
+        },
+    )
+    assert response.status_code == 202
+    body = response.json()
+    assert body["operation_id"] == "comfyui-prompt-1"
+    assert body["status"] == "queued"
+    assert body["provider"] == "comfyui"
+    assert body["model"] == "krea2-turbo-bf16"
+    assert body["cost_usd"] == 0.0  # local generation is free, recorded
+    assert body["license"] == "local/self-hosted"
+    assert body["provenance"]["cost_basis"] == "local_zero"
+    assert body["operation_url"] == "/media/operations/comfyui-prompt-1"
+    # The client was constructed with the model only (no provider key).
+    assert _FakeComfyUIMediaClient.submit_kwargs["modality"] == "image"
+    assert _FakeComfyUIMediaClient.submit_kwargs["model"] == "krea2-turbo-bf16"
+    assert _FakeComfyUIMediaClient.submit_kwargs["input_payload"]["prompt"] == "blue glass observatory"
+
+
+def test_comfyui_submit_503_when_comfyui_not_enabled(monkeypatch):
+    _reset_comfyui_fake()
+    main = _fresh_main_comfyui(monkeypatch, comfyui_enabled=False)
+    monkeypatch.setattr(main, "ComfyUIMediaClient", _FakeComfyUIMediaClient, raising=False)
+
+    from fastapi.testclient import TestClient
+
+    response = TestClient(main.app).post(
+        "/media/generate",
+        json={"modality": "image", "provider": "comfyui", "model": "x", "input": {"prompt": "p"}},
+    )
+    assert response.status_code == 503
+    assert "COMFYUI_SOURCE" in response.json()["detail"]
+
+
+def test_comfyui_submit_503_when_source_disabled_despite_enabled_flag(monkeypatch):
+    """The gate is source-aware: COMFYUI_SOURCE=disabled → 503 even though
+    compose's COMFYUI_ENABLED stays true (the static flag alone is not trusted)."""
+    _reset_comfyui_fake()
+    main = _fresh_main(monkeypatch)
+    monkeypatch.setenv("COMFYUI_ENABLED", "true")  # compose hardcodes this
+    monkeypatch.setenv("COMFYUI_SOURCE", "disabled")
+    monkeypatch.setattr(main, "ComfyUIMediaClient", _FakeComfyUIMediaClient, raising=False)
+
+    from fastapi.testclient import TestClient
+
+    response = TestClient(main.app).post(
+        "/media/generate",
+        json={"modality": "image", "provider": "comfyui", "model": "x", "input": {"prompt": "p"}},
+    )
+    assert response.status_code == 503
+
+
+def test_comfyui_submit_400_without_model(monkeypatch):
+    _reset_comfyui_fake()
+    main = _fresh_main_comfyui(monkeypatch)
+    monkeypatch.setattr(main, "ComfyUIMediaClient", _FakeComfyUIMediaClient, raising=False)
+
+    from fastapi.testclient import TestClient
+
+    response = TestClient(main.app).post(
+        "/media/generate",
+        json={"modality": "image", "provider": "comfyui", "input": {"prompt": "p"}},
+    )
+    assert response.status_code == 400
+    assert "model" in response.json()["detail"].lower()
+
+
+def test_comfyui_poll_normalizes_succeeded_with_proxy_artifact(monkeypatch):
+    _reset_comfyui_fake()
+    main = _fresh_main_comfyui(monkeypatch)
+    monkeypatch.setattr(main, "ComfyUIMediaClient", _FakeComfyUIMediaClient, raising=False)
+
+    from fastapi.testclient import TestClient
+
+    client = TestClient(main.app)
+    submitted = client.post(
+        "/media/generate",
+        json={"modality": "image", "provider": "comfyui", "model": "krea2-turbo-bf16", "input": {"prompt": "p"}},
+    )
+    assert submitted.status_code == 202
+    op_id = submitted.json()["operation_id"]
+
+    polled = client.get(f"/media/operations/{op_id}")
+    assert polled.status_code == 200
+    body = polled.json()
+    assert body["status"] == "succeeded"
+    assert body["artifact_url"] == "/comfyui/image/out.png?folder_type=output"
+    assert body["artifacts"][0]["filename"] == "out.png"
+    assert body["cost_usd"] == 0.0
+    assert _FakeComfyUIMediaClient.poll_kwargs["operation_id"] == op_id
+
+
+def test_comfyui_cancel_marks_terminal_and_propagates(monkeypatch):
+    _reset_comfyui_fake()
+    main = _fresh_main_comfyui(monkeypatch)
+    monkeypatch.setattr(main, "ComfyUIMediaClient", _FakeComfyUIMediaClient, raising=False)
+
+    from fastapi.testclient import TestClient
+
+    client = TestClient(main.app)
+    submitted = client.post(
+        "/media/generate",
+        json={"modality": "image", "provider": "comfyui", "model": "krea2-turbo-bf16", "input": {"prompt": "p"}},
+    )
+    op_id = submitted.json()["operation_id"]
+
+    response = client.post(f"/media/operations/{op_id}/cancel")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "cancelled"
+    # provider cancel was delivered to ComfyUI (queue delete + interrupt).
+    assert body["provenance"]["provider_cancelled"] is True
+    assert _FakeComfyUIMediaClient.cancel_kwargs["operation_id"] == op_id
+
+
+def test_comfyui_cancel_on_terminal_returns_409(monkeypatch):
+    _reset_comfyui_fake()
+    main = _fresh_main_comfyui(monkeypatch)
+    monkeypatch.setattr(main, "ComfyUIMediaClient", _FakeComfyUIMediaClient, raising=False)
+
+    from fastapi.testclient import TestClient
+
+    client = TestClient(main.app)
+    submitted = client.post(
+        "/media/generate",
+        json={"modality": "image", "provider": "comfyui", "model": "krea2-turbo-bf16", "input": {"prompt": "p"}},
+    )
+    op_id = submitted.json()["operation_id"]
+    # Poll once to settle it as succeeded (terminal), then cancel must 409.
+    client.get(f"/media/operations/{op_id}")
+    response = client.post(f"/media/operations/{op_id}/cancel")
+    assert response.status_code == 409
+
+
+def test_comfyui_img2img_forwards_init_image_and_strength(monkeypatch):
+    _reset_comfyui_fake()
+    main = _fresh_main_comfyui(monkeypatch)
+    monkeypatch.setattr(main, "ComfyUIMediaClient", _FakeComfyUIMediaClient, raising=False)
+
+    from fastapi.testclient import TestClient
+
+    response = TestClient(main.app).post(
+        "/media/generate",
+        json={
+            "modality": "image",
+            "provider": "comfyui",
+            "model": "sdxl_base.safetensors",
+            "input": {
+                "prompt": "remix",
+                "image_url": "https://x/init.png",
+                "strength": 0.5,
+            },
+        },
+    )
+    assert response.status_code == 202
+    # img2img contract (#453 parity): init image + strength reach the client
+    # under the same accepted keys.
+    forwarded = _FakeComfyUIMediaClient.submit_kwargs["input_payload"]
+    assert forwarded["image_url"] == "https://x/init.png"
+    assert forwarded["strength"] == 0.5
+
+
+def test_comfyui_with_image_to_3d_modality_returns_400(monkeypatch):
+    """ComfyUI provider is image-only; image_to_3d stays on fal."""
+    _reset_comfyui_fake()
+    main = _fresh_main_comfyui(monkeypatch)
+    monkeypatch.setattr(main, "ComfyUIMediaClient", _FakeComfyUIMediaClient, raising=False)
+
+    from fastapi.testclient import TestClient
+
+    response = TestClient(main.app).post(
+        "/media/generate",
+        json={"modality": "image_to_3d", "provider": "comfyui", "model": "x", "input": {"image": "i"}},
+    )
+    assert response.status_code == 400
+
+
+def test_unknown_media_provider_returns_400(monkeypatch):
+    _reset_comfyui_fake()
+    main = _fresh_main_comfyui(monkeypatch)
+    monkeypatch.setattr(main, "ComfyUIMediaClient", _FakeComfyUIMediaClient, raising=False)
+
+    from fastapi.testclient import TestClient
+
+    response = TestClient(main.app).post(
+        "/media/generate",
+        json={"modality": "image", "provider": "acme", "model": "x", "input": {"prompt": "p"}},
+    )
+    assert response.status_code == 400
+    assert "provider" in response.json()["detail"].lower()
