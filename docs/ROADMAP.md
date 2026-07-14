@@ -4,7 +4,7 @@ This document outlines future development plans and enhancements for Atlas.
 
 ## 1. Current status
 
-The stack now orchestrates 53 service families (48 containerized + 5 virtual — re-derived from `services/*/service.yml`) across AI inference, workflow automation, data science, distributed compute (Ray, Spark), DAG orchestration (Airflow), notebook UIs (JupyterHub, Zeppelin), observability (Prometheus + Grafana + Loki + Tempo + OTel), document processing, speech, and the Supabase ecosystem. An additional set of candidate services is tracked across the Tier 1/2/3 sections below, including labelled sub-sections for the **3D / game-generation**, **financial / trading-AI**, and **RAG-enhancement** strategic tracks. Architectural milestones to date:
+The stack orchestrates repository-defined containerized and virtual service families across AI inference, workflow automation, data science, distributed compute (Ray, Spark), DAG orchestration (Airflow), notebook UIs (JupyterHub, Zeppelin), observability (Prometheus + Grafana + Loki + Tempo + OTel), document processing, speech, and the Supabase ecosystem. The generated documentation home and service catalog derive their current counts directly from `services/*/service.yml`, avoiding hand-maintained totals here. An additional set of candidate services is tracked across the Tier 1/2/3 sections below, including labelled sub-sections for the **3D / game-generation**, **financial / trading-AI**, and **RAG-enhancement** strategic tracks. Architectural milestones to date:
 - Dynamic Kong API Gateway configuration
 - Python cross-platform bootstrapping with CLI SOURCE overrides
 - Service integration spanning Ollama, ComfyUI, n8n, Open WebUI, SearxNG, Supabase, Neo4j, OpenClaw, Weaviate, JupyterHub, and more

@@ -189,7 +189,6 @@ project_name: ragshowcase
 brand:
   name: RAG Showcase
   tagline: "Atlas-backed retrieval playground"
-  repo_url: "https://github.com/example/rag-showcase"
 env:
   file: ./atlas.env.user
   values:
@@ -485,7 +484,7 @@ plugin_manifest_version: 1
 name: tableau                       # unique, kebab-case
 route_prefix: /tableau             # must not overlap another plugin or a built-in route
 health_path: /tableau/health
-docs_url: https://github.com/thekaveh/tableau
+docs_url: https://example.com
 auth: key-auth                     # inherit | open | key-auth
 env:
   - name: TABLEAU_EXECUTION

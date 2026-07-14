@@ -215,7 +215,7 @@ MATCH ()-[r]-() WHERE startNode(r) IS NULL OR endNode(r) IS NULL DELETE r
 - [Neo4j Documentation](https://neo4j.com/docs/)
 - [Cypher Query Language](https://neo4j.com/docs/cypher-manual/)
 - [Neo4j APOC Documentation](https://neo4j.com/docs/apoc/)
-- [Graph Data Modeling](https://neo4j.com/docs/graph-data-modeling/)
+- [Graph Modeling Tips](https://neo4j.com/docs/getting-started/data-modeling/modeling-tips/)
 
 ## 13. Dependencies & Integrations
 

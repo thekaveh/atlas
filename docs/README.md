@@ -5,7 +5,7 @@ Documentation index for Atlas.
 ## 1. Documentation structure
 
 ### 1.1 Quick Start guides
-- [Atlas documentation home](index.md) — generated MkDocs home for the Atlas `.io` / GitHub Pages documentation surface at <https://thekaveh.github.io/atlas/>
+- [Atlas documentation home](index.md) — overview and entry point for the complete documentation set
 - [Interactive Setup Wizard](quick-start/interactive-setup-wizard.md) — step-by-step guided configuration
 - [Troubleshooting](quick-start/troubleshooting.md) — common issues and solutions across the full stack
 - [Startup Troubleshooting](TROUBLESHOOTING.md) — quick fixes for first-launch errors (sudo recovery, Airflow ResolutionImpossible, n8n restart-loops); linked from `start.sh`'s own error output
@@ -94,28 +94,4 @@ If you can't find what you're looking for:
 
 - Found a typo or error? Open a PR.
 - Missing information? Open an issue.
-
-## 5. Maintainer checks
-
-Run the local documentation drift and audit checks before committing docs changes:
-
-```bash
-make docs-check
-uv run --project bootstrapper python -m scripts.notebook_reproducibility
-uv run --project bootstrapper python scripts/check_doc_links.py
-uv run --project bootstrapper python -m bootstrapper.docs.regen --all --check
-uv run --project bootstrapper python scripts/check-docs-drift.py
-uv run --project bootstrapper python scripts/check-compose-source-deps.py
-uv run --project bootstrapper python scripts/check-kong-routes.py
-uv run --project bootstrapper python scripts/validate_research_schema.py --all
-uv run --project bootstrapper python scripts/check-track-membership.py
-(cd services/docling/provider/localhost && uv lock --locked)
-```
-
-## 6. Maintainer publication
-
-After the Pages publish and wiki sync are merged and green, update the repository About URL if needed:
-
-```bash
-gh repo edit thekaveh/atlas --homepage https://thekaveh.github.io/atlas/
-```
+- Before submitting documentation changes, run the single root-safe gate: `make docs-check`.

@@ -96,7 +96,7 @@ JUPYTERHUB_TOKEN=               # Optional: authentication token
 | `07_ray_cluster.ipynb` | Distributed compute on the Ray cluster |
 | `08_scala_basics.ipynb` | Scala basics on the scala3 kernel |
 | `09_spark_connect.ipynb` | Spark Connect (gRPC) from Python |
-| `10_spark_scala.ipynb` | Spark with the Scala kernel |
+| `10_spark_scala.ipynb` | Spark Connect with Scala, including a MinIO round trip |
 | `11_financial_research_kit.ipynb` | Read-only OpenBB/CCXT research and paper portfolios |
 | `12_iceberg_advanced_sql.ipynb` | Advanced Iceberg SQL smoke through Spark Connect |
 | `13_chonkie_chunking.ipynb` | Chonkie token, recursive, optional semantic chunking, and Backend `/api/chunk` calls |

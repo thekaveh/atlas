@@ -24,13 +24,17 @@ services/
 ├── redis/
 │   ├── service.yml
 │   └── compose.yml
-└── … (~50 more service families — 53 manifests + 3 doc-only folders)
+└── … (additional manifest and documentation-only service families)
 ```
 
 A virtual service (e.g. `cloud-providers/`, `tts-provider/`, `globals/`) has
 only `service.yml` — no compose fragment because the service has no
 containers of its own; it owns env vars and source toggles that other
 services consume.
+
+Current service-family and SOURCE-surface counts are generated from the
+manifests into the documentation home and service catalog; this file does not
+duplicate those changing totals.
 
 ## 2. Adding or changing a service
 

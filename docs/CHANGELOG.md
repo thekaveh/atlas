@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Durable media and research operations** — hosted-media polling and cancellation state now uses Redis with atomic first-terminal-writer semantics across Backend replicas and restarts. Research releases database connections before remote waits, conditionally claims pending sessions, and transactionally stores results only while the session remains running, so cancellation cannot be overwritten by late work.
 - **Bounded provider inputs** — Asset Worker, Asset Baker, Docling, and Parakeet now stream multipart inputs to bounded temporary files, enforce the same limits on MinIO references, and keep blocking conversion/inference work off async API loops. Asset Worker subprocesses have explicit timeouts, and Docling conversion failures return errors instead of successful Markdown that downstream ingestion could index.
 - **Durable provider and worker retries** — every FAL SDK operation now honors `FAL_TIMEOUT_SECONDS`; RAG Redis access is offloaded from async routes; and transient RAG-ingestion or memory-consolidation failures reach Celery's bounded retry policy without leaving terminal or misleading job state.
+- **Executable examples and documentation hygiene** — bundled n8n research workflows now use the pinned node-field contract, preserve item context without execution-global mutation, and connect terminal/error branches. Notebook inventory, Python syntax, and direct-import declarations are gated; Python and Scala Spark examples both verify MinIO; public documentation no longer exposes publication mechanics, stale static service counts, or confirmed dead external references.
 
 ### Fixed — 2026-07-13 — Synchronized three-surface documentation
 
@@ -2096,7 +2097,7 @@ Highlights:
 ### Architecture diagrams — skill-driven rewrite
 
 The top-level architecture diagram (`docs/diagrams/architecture.svg`) is now
-hand-authored via the [`architecture-diagram` skill](https://github.com/anthropics/claude-code/tree/main/skills/architecture-diagram) — JetBrains Mono on a slate-950
+hand-authored through the `architecture-diagram` skill — JetBrains Mono on a slate-950
 background, category palette of cyan / emerald / violet / amber / rose /
 orange / slate, layered topological flow from external clients down
 through Kong → Apps → Agents → LLM Core → Media → Data → Ray. The

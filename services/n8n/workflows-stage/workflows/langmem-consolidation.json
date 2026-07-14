@@ -177,13 +177,5 @@
   },
   "settings": {
     "executionOrder": "v1"
-  },
-  "tags": [
-    {
-      "name": "memory"
-    },
-    {
-      "name": "langmem"
-    }
-  ]
+  }
 }

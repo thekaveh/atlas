@@ -20,6 +20,7 @@
     },
     {
       "parameters": {
+        "method": "POST",
         "url": "http://backend:8000/comfyui/generate",
         "sendHeaders": true,
         "headerParameters": {
@@ -146,19 +147,5 @@
   "meta": {
     "templateCredsSetupCompleted": true
   },
-  "id": "comfyui-simple",
-  "tags": [
-    {
-      "createdAt": "2024-01-15T12:00:00.000Z",
-      "updatedAt": "2024-01-15T12:00:00.000Z",
-      "id": "comfyui",
-      "name": "ComfyUI"
-    },
-    {
-      "createdAt": "2024-01-15T12:00:00.000Z",
-      "updatedAt": "2024-01-15T12:00:00.000Z",
-      "id": "simple",
-      "name": "Simple"
-    }
-  ]
+  "id": "comfyui-simple"
 }

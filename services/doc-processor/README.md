@@ -480,7 +480,7 @@ Identifies and extracts code blocks with syntax preservation.
 
 ## 15. References
 
-- [IBM Docling Documentation](https://ds4sd.github.io/docling/)
+- [Docling Documentation](https://docling-project.github.io/docling/)
 - [Docling GitHub](https://github.com/DS4SD/docling)
 - [TableFormer Paper](https://arxiv.org/abs/2203.01017)
 - [DocLayNet Dataset](https://github.com/DS4SD/DocLayNet)

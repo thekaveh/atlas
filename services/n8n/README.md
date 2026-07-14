@@ -91,7 +91,7 @@ return it in webhook payloads, execution output, or browser-side code.
 
 **Hermes wiring.** `HERMES_ENDPOINT` is injected so workflows can call into Hermes via the HTTP Request node. Inverse path (Hermes → n8n) is webhook-driven: n8n's public REST API has no execute endpoint, so expose a Webhook-trigger workflow and have Hermes POST to its URL.
 
-**Seeded workflows.** `services/n8n/init/config/searxng-research-workflow.json` ships as a worked example of the SearXNG → LiteLLM research pattern, imported manually via the n8n UI. Additional example workflows are staged under `services/n8n/workflows-stage/workflows/` for the same manual-import path.
+**Seeded workflows.** `services/n8n/init/config/searxng-research-workflow.json` ships as a worked example of the SearXNG → LiteLLM research pattern, imported manually via the n8n UI. Additional example workflows are staged under `services/n8n/workflows-stage/workflows/` for the same manual-import path. Repository tests validate the pinned HTTP Request/Webhook method fields, fresh-database importability, trigger reachability, and Code-node syntax. Research examples carry request/session context in ordinary items and explicit node references, poll before retrieving results, and produce terminal reports even when every session fails; they do not mutate `$execution.customData`.
 
 **Consumer workflow seeding (#412).** A downstream consumer no longer has to script workflow import/activation/readiness itself. It declares an `n8n_workflows` block in `atlas.consumer.yml` (see [reusing-atlas.md §6.3.3](../../docs/deployment/reusing-atlas.md#633-seeding-n8n-workflows-with-n8n_workflows)) and Atlas seeds them for it:
 

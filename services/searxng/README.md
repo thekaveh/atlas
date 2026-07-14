@@ -158,4 +158,4 @@ SearXNG aggregates upstream engines in parallel; aggregate latency tracks the sl
 - [SearXNG documentation](https://docs.searxng.org/) — admin + dev reference; covers `settings.yml`, engine configuration, and the limiter plugin.
 - [SearXNG search API](https://docs.searxng.org/dev/search_api.html) — exact request/response shape for `/search`.
 - [Engine settings reference](https://docs.searxng.org/admin/settings/settings_engines.html) — every engine's tunable knobs, useful when enabling scholarly engines.
-- [Botdetection / limiter](https://docs.searxng.org/admin/searx.botdetection.html) — explains the Redis/Valkey-backed limiter (not wired in this stack; see §3).
+- [Limiter](https://docs.searxng.org/admin/searx.limiter.html) — explains the Valkey-backed bot protection (not wired in this stack; see §3).

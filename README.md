@@ -12,7 +12,7 @@ A self-hosted, source-configurable, multi-disciplinary engineering platform — 
 
 [![Atlas — topologically-ordered architecture diagram](./docs/diagrams/architecture.svg)](./docs/diagrams/architecture.svg)
 
-*Topologically-ordered architecture: external clients enter via Kong, the gateway routes to Apps and Agents, which call the LLM Core (LiteLLM → Ollama + cloud) and the Media + Data tiers. Hand-authored via the [`architecture-diagram` skill](https://github.com/anthropics/claude-code/tree/main/skills/architecture-diagram); the per-service diagrams under `services/<name>/architecture.svg` share the same design system but are auto-regenerated from each manifest's `data_flow.calls`.*
+*Topologically ordered architecture: external clients enter through Kong, which routes to Apps and Agents; those services call the LLM Core (LiteLLM to Ollama and cloud providers) and the Media and Data tiers. Per-service diagrams under `services/<name>/architecture.svg` derive their relationships from each manifest's `data_flow.calls`.*
 
 ## 1. Quick Start
 
@@ -183,7 +183,7 @@ Key technical traits:
 
 ### 2.3 Architecture overview
 
-The canonical architecture diagram is embedded at the top of this README; the source lives at [`docs/diagrams/architecture.svg`](docs/diagrams/architecture.svg) — hand-authored via the [`architecture-diagram` skill](https://github.com/anthropics/claude-code/tree/main/skills/architecture-diagram) (cyan / emerald / violet / amber / rose / orange palette, JetBrains Mono, layered topological flow). See [`docs/diagrams/README.md`](docs/diagrams/README.md) for update instructions.
+The canonical architecture diagram is embedded at the top of this README; its source lives at [`docs/diagrams/architecture.svg`](docs/diagrams/architecture.svg). See [`docs/diagrams/README.md`](docs/diagrams/README.md) for update instructions.
 
 The diagram summarizes the full Atlas topology around Kong, Open WebUI, the always-on Backend API, the always-on LiteLLM gateway (fronting Ollama and any enabled cloud LLM providers), Supabase/PostgreSQL, Redis, Neo4j, Weaviate, n8n, ComfyUI, JupyterHub, SearxNG, Ray, and optional Hermes Agent / OpenClaw / STT/TTS/document-processing / LightRAG + TEI Reranker / Airflow + Spark + Zeppelin / Prometheus + Grafana services. Per-service diagrams (auto-regenerated from each manifest's `data_flow.calls`) live next to each service folder at `services/<name>/architecture.{svg,html}`.
 
