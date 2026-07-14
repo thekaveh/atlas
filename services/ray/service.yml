@@ -33,13 +33,13 @@ env:
     default: disabled
   - name: RAY_DASHBOARD_PORT
     # default removed — computed by services/topology.py slot allocator
-    description: "Host port for the Ray dashboard + REST job-submission API (in-container 8265)."
+    description: "Loopback-only host port for the Ray dashboard + native REST job-submission API (in-container 8265). Use the authenticated Kong route for remote access."
   - name: RAY_GCS_PORT
     # default removed — computed by services/topology.py slot allocator
-    description: "Host port for the Ray GCS (in-container 6379). Distinct from the project's Redis cache container; Ray bundles its own GCS process."
+    description: "Loopback-only host port for the Ray GCS (in-container 6379). Distinct from the project's Redis cache container; Ray bundles its own GCS process."
   - name: RAY_CLIENT_PORT
     # default removed — computed by services/topology.py slot allocator
-    description: "Host port for the Ray client server (in-container 10001). Used by host Python: `ray.init('ray://localhost:<port>')`."
+    description: "Loopback-only host port for the unauthenticated Ray client server (in-container 10001). Used only by trusted host Python: `ray.init('ray://localhost:<port>')`."
   - name: RAY_WORKER_COUNT
     default: 2
     description: "Number of ray-worker replicas. The wizard prompts for this with default 2. Valid values: 0 (head-only mode) and up. No hard upper bound — bounded by host resources."

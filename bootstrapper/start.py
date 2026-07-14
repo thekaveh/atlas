@@ -11,6 +11,7 @@ import sys
 import os
 import json
 import subprocess
+import tempfile
 from datetime import date
 from pathlib import Path
 import click
@@ -40,6 +41,30 @@ def _format_today() -> str:
     without freezing the system clock globally.
     """
     return date.today().isoformat()
+
+
+def _write_private_text(path: Path, text: str) -> None:
+    """Atomically replace *path* with an owner-readable text file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.",
+        dir=path.parent,
+        text=True,
+    )
+    temporary_path = Path(temporary_name)
+    try:
+        os.chmod(temporary_path, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            fd = -1
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_path, path)
+        os.chmod(path, 0o600)
+    finally:
+        if fd >= 0:
+            os.close(fd)
+        temporary_path.unlink(missing_ok=True)
 
 
 def _run_privileged_hosts_setup() -> bool:
@@ -660,6 +685,39 @@ class AtlasStarter:
             return False
         return True
 
+    def prepare_environment(
+        self,
+        cold_start: bool,
+        base_port: Optional[int] = None,
+        project_name: Optional[str] = None,
+    ) -> bool:
+        """Clean a cold project before replacing its credential-bearing env file."""
+        if cold_start:
+            # A fresh clone has no env file for Compose interpolation, and no
+            # existing credentials to preserve. Materialize it first. Existing
+            # installs must clean first so a failed `down --volumes` leaves the
+            # credential file matching any surviving volumes.
+            if not self.config_parser.env_file_exists():
+                if not self.setup_env_file(
+                    cold_start=True,
+                    base_port=base_port,
+                    project_name=project_name,
+                ):
+                    return False
+                return self.perform_cold_start_cleanup(project_name=project_name)
+            # Backfill is additive and preserves every existing credential. It
+            # gives upgraded Compose fragments all required interpolation keys
+            # without replacing the env file before volume deletion succeeds.
+            if not self.backfill_missing_env_vars():
+                return False
+            if not self.perform_cold_start_cleanup(project_name=project_name):
+                return False
+        return self.setup_env_file(
+            cold_start=cold_start,
+            base_port=base_port,
+            project_name=project_name,
+        )
+
     def setup_env_file(self, cold_start: bool, base_port: Optional[int] = None,
                        project_name: Optional[str] = None) -> bool:
         """
@@ -720,9 +778,12 @@ class AtlasStarter:
                 # Ensure parent directory exists (important for custom paths)
                 env_file_path.parent.mkdir(parents=True, exist_ok=True)
 
-                # Copy .env.example to target path (default or custom)
-                import shutil
-                shutil.copy2(env_example_path, env_file_path)
+                # Materialize atomically with owner-only permissions. A direct
+                # copy can leave a partial or briefly world-readable secret file.
+                _write_private_text(
+                    env_file_path,
+                    env_example_path.read_text(encoding="utf-8"),
+                )
                 self.banner.show_status_message(f"  • Copied {env_example_path}", "info")
                 self.banner.show_status_message(f"  •     to {env_file_path}", "info")
 
@@ -749,6 +810,7 @@ class AtlasStarter:
                 self.banner.show_status_message(f"Failed to create .env file: {e}", "error")
                 return False
 
+        os.chmod(env_file_path, 0o600)
         overlay_overrides = self._apply_env_user_overlay()
         if not self._persist_project_name(project_name):  # .env already exists and not cold start
             return False
@@ -2173,15 +2235,11 @@ class AtlasStarter:
         success = self.docker_manager.perform_cold_start_cleanup()
         
         if not success:
-            self.banner.show_status_message("Some issues occurred during cleanup", "warning")
+            self.banner.show_status_message("Cold cleanup failed; secrets were not rotated", "error")
         else:
             self.banner.show_status_message("Cold cleanup completed successfully", "success")
-            
-        # Add small delay as per original script
-        import time
-        time.sleep(2)
-            
-        return True  # Continue even if cleanup had issues
+
+        return success
         
     def generate_encryption_keys(self, cold_start: bool = False) -> bool:
         """
@@ -4565,7 +4623,7 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
 
         if wizard_requested:
             # Setup .env first so wizard can read current defaults.
-            if not starter.setup_env_file(cold_start=cold, base_port=base_port, project_name=project_name):
+            if not starter.prepare_environment(cold_start=cold, base_port=base_port, project_name=project_name):
                 sys.exit(1)
             # Backfill any keys added to .env.example since the user's
             # .env was last written — run BEFORE the wizard reads it,
@@ -4675,7 +4733,7 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
             if _is_tui_capable(no_tui_flag=no_tui):
                 # Make sure .env exists so the launch screen can build
                 # the Stack overview.
-                if not starter.setup_env_file(cold_start=cold, base_port=base_port, project_name=project_name):
+                if not starter.prepare_environment(cold_start=cold, base_port=base_port, project_name=project_name):
                     sys.exit(1)
                 # Backfill new .env.example keys before the launch
                 # screen renders the Stack overview from .env.
@@ -4741,7 +4799,7 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
         starter.profile = profile
         starter.show_banner()
 
-        if not starter.setup_env_file(cold_start=cold, base_port=base_port, project_name=project_name):
+        if not starter.prepare_environment(cold_start=cold, base_port=base_port, project_name=project_name):
             sys.exit(1)
 
         # Pull in any keys added to .env.example since the user's .env
@@ -4785,13 +4843,6 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
         # run_launch_flow); this branch covers the --no-tui linear path.
         starter.run_port_migration(no_port_migrate)
 
-        # Step 1.7: Cold start cleanup if requested (before port check).
-        # TUI-capable runs exit before reaching this point; the Textual
-        # wizard handles cold cleanup inline. This branch only fires for
-        # the --no-tui / non-TTY linear flow.
-        if cold:
-            starter.perform_cold_start_cleanup()
-        
         # Step 2: Validate SOURCE configurations.
         # Profile-source compatibility check runs first so --profile prod
         # with a dev-only source (e.g. ollama-localhost) fails fast with a
@@ -5062,8 +5113,7 @@ def endpoints_export_command(
 
     if output_path:
         out = Path(output_path).expanduser()
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(text, encoding="utf-8")
+        _write_private_text(out, text)
         click.echo(f"Wrote {len(fields)} endpoint field(s) to {out}")
     else:
         click.echo(text, nl=False)

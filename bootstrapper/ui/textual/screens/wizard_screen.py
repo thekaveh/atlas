@@ -202,6 +202,7 @@ class WizardScreen(Screen):
         prefilled_selections: dict | None = None,
         track_display_name: str | None = None,
         no_splash: bool = False,
+        on_launch_result: Callable[[int], None] | None = None,
     ) -> None:
         super().__init__()
         self._no_splash = no_splash
@@ -209,6 +210,7 @@ class WizardScreen(Screen):
         self._services = services
         self._brand = brand or BrandInfo()
         self._starter = starter
+        self._on_launch_result = on_launch_result
         self._stack_options_resolver = stack_options_resolver
         # Called when the user confirms a new base port; should return
         # an updated list of ServiceRows with recomputed ports.
@@ -396,6 +398,7 @@ class WizardScreen(Screen):
         """
         if event.state is not WorkerState.ERROR:
             return
+        self._mark_launch_failed()
         err = event.worker.error
         with contextlib.suppress(Exception):
             if self._log_pane is not None:
@@ -413,6 +416,11 @@ class WizardScreen(Screen):
                     severity="error",
                     timeout=10,
                 )
+
+    def _mark_launch_failed(self) -> None:
+        """Record a nonzero CLI result while leaving the error visible in the TUI."""
+        if self._on_launch_result is not None:
+            self._on_launch_result(1)
 
     # ─── setup phase ─────────────────────────────────────────────────
 
@@ -1670,10 +1678,12 @@ class WizardScreen(Screen):
                 except Exception as exc:  # noqa: BLE001
                     self._write_status(f"  ✗ {label} crashed: {exc}",
                                        style="bold red", source="pipeline")
+                    self._mark_launch_failed()
                     return
                 if not ok:
                     self._write_status(f"  ✗ {label} failed",
                                        style="bold red", source="pipeline")
+                    self._mark_launch_failed()
                     return
                 self._write_status(f"  ✓ {label}", style="bold green",
                                    source="pipeline")
@@ -1690,15 +1700,13 @@ class WizardScreen(Screen):
             )
 
             if cold:
-                self._write_status("🧹 Cold-start cleanup",
-                                   style="bold cyan", source="pipeline")
-                await self._cold_cleanup()
                 self._write_status("📦 Building images (cold start)…",
                                    style="bold cyan", source="pipeline")
                 rc = await self._run_compose(["build", "--no-cache", *(targets or [])])
                 if rc != 0:
                     self._write_status("❌ Build failed", style="bold red",
                                        source="pipeline")
+                    self._mark_launch_failed()
                     return
 
             self._write_status("🚀 Starting containers…",
@@ -1713,6 +1721,7 @@ class WizardScreen(Screen):
                     "for full output",
                     style="bold yellow", source="pipeline",
                 )
+                self._mark_launch_failed()
                 return
             ok = await asyncio.to_thread(
                 starter.verify_one_shot_init_containers,
@@ -1726,6 +1735,7 @@ class WizardScreen(Screen):
                     style="bold red",
                     source="pipeline",
                 )
+                self._mark_launch_failed()
                 return
             self._write_status("✅ All services started",
                                style="bold green", source="pipeline")
@@ -1772,6 +1782,7 @@ class WizardScreen(Screen):
             )
             for tb_line in traceback.format_exc().splitlines():
                 self._safe_log(tb_line, source="pipeline", level="error")
+            self._mark_launch_failed()
         finally:
             starter.banner = original_banner
             try:
@@ -1788,26 +1799,6 @@ class WizardScreen(Screen):
                 pass
             sys.stdout, sys.stderr = old_stdout, old_stderr
             self._close_launch_log_tee()
-
-    async def _cold_cleanup(self) -> None:
-        project_name = self._starter.config_parser.get_project_name()
-        self._write_status("  • Stopping and removing containers…",
-                           style="dim", source="pipeline")
-        await self._run_compose(["down", "--remove-orphans"])
-        self._write_status("  • Removing volumes…", style="dim", source="pipeline")
-        await self._run_compose(["down", "-v"])
-        self._write_status("  • Removing project network…",
-                           style="dim", source="pipeline")
-        await self._run_command(
-            ["docker", "network", "rm", f"{project_name}-network"],
-            ignore_errors=True,
-        )
-        self._write_status("  • Aggressive Docker system prune…",
-                           style="dim", source="pipeline")
-        await self._run_command(["docker", "system", "prune", "-f", "--volumes"])
-        self._write_status("  • General Docker system prune…",
-                           style="dim", source="pipeline")
-        await self._run_command(["docker", "system", "prune", "-f"])
 
     async def _run_command(
         self, cmd: list[str], *, ignore_errors: bool = False,

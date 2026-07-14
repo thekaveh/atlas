@@ -450,6 +450,17 @@ class KeyGenerator:
         new_key = self.generate_lightrag_rerank_adapter_token()
         return self.update_env_key('LIGHTRAG_RERANK_ADAPTER_TOKEN', new_key)
 
+    def generate_ray_job_api_token(self) -> str:
+        """Bearer token for Backend's command-capable Ray API routes."""
+        return f"sk-ray-job-{_cli_safe_token_urlsafe(32)}"
+
+    def generate_and_update_ray_job_api_token(self, force: bool = False) -> bool:
+        """Generate the Ray API token when absent and preserve live tokens."""
+        current_value = self.get_current_env_value("RAY_JOB_API_TOKEN")
+        if not force and current_value:
+            return True
+        return self.update_env_key("RAY_JOB_API_TOKEN", self.generate_ray_job_api_token())
+
     def generate_webui_secret_key(self) -> str:
         """Open WebUI JWT/session signing key. Used by Open WebUI itself
         AND by ``services/open-webui/init/scripts/register-{tools,functions}.py``
@@ -948,6 +959,11 @@ class KeyGenerator:
         # Crawl4AI Docker API bearer token — generated even when disabled so
         # enabling the service later does not require a manual secret edit.
         results['CRAWL4AI_API_TOKEN'] = self.generate_and_update_crawl4ai_api_token(force=False)
+
+        # Backend's Ray routes accept arbitrary job entrypoints, so they always
+        # require an application-layer bearer token even when Ray is disabled.
+        if not self.get_current_env_value("RAY_JOB_API_TOKEN"):
+            results['RAY_JOB_API_TOKEN'] = self.generate_and_update_ray_job_api_token(force=False)
 
         # Supavisor local pooler secrets — generated even when disabled so a
         # later SUPAVISOR_SOURCE=container flip has the required values.

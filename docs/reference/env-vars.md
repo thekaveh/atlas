@@ -91,6 +91,7 @@ seconds a future auto-consolidation scheduler would use.
 | GRAPHITI_EXPOSE_TO_AGENTS | backend | False | Must remain false for this backend-only evaluation; Hermes/OpenClaw exposure and Graphiti MCP are deferred. |
 | RAGAS_EVALUATOR_MODEL | backend |  | Optional LiteLLM model id for Backend Ragas evaluation. Empty falls back to LITELLM_DEFAULT_MODEL. |
 | RAGAS_EMBEDDINGS_MODEL | backend |  | Optional LiteLLM embedding model id for Backend Ragas answer-relevancy evaluation. Empty falls back to LITELLM_EMBEDDING_MODEL. |
+| RAY_JOB_API_TOKEN | backend |  | Auto-generated bearer token required by every /api/ray/* route. Send as Authorization: Bearer <value>. |
 | LIGHTRAG_RERANK_ADAPTER_ENABLED | backend | false | Opt-in for the backend LightRAG rerank adapter route (POST /lightrag/rerank, #415). When true AND TEI_RERANKER_SOURCE is enabled, the bootstrapper wires LightRAG's rerank binding to the adapter and consumer query profiles may set enable_rerank=true. Default false keeps direct LightRAG->TEI rerank disabled (payload shapes are incompatible). |
 | LIGHTRAG_RERANK_ADAPTER_TOKEN | backend |  | Auto-generated bearer token guarding the /lightrag/rerank adapter route. Handed to LightRAG as RERANK_BINDING_API_KEY so the two share one secret. Send as `Authorization: Bearer <value>`. |
 | LIGHTRAG_RERANK_ADAPTER_TIMEOUT_SECONDS | backend | 30 | Per-request timeout (seconds) the /lightrag/rerank adapter allows when calling the TEI reranker before returning 504. |
@@ -577,9 +578,9 @@ Do not edit by hand — the bootstrapper owns this value.
 | NODE_EXPORTER_SCALE | prometheus |  | - |
 | CADVISOR_SCALE | prometheus |  | - |
 | RAY_SOURCE | ray | disabled | - |
-| RAY_DASHBOARD_PORT | ray |  | Host port for the Ray dashboard + REST job-submission API (in-container 8265). |
-| RAY_GCS_PORT | ray |  | Host port for the Ray GCS (in-container 6379). Distinct from the project's Redis cache container; Ray bundles its own GCS process. |
-| RAY_CLIENT_PORT | ray |  | Host port for the Ray client server (in-container 10001). Used by host Python: `ray.init('ray://localhost:<port>')`. |
+| RAY_DASHBOARD_PORT | ray |  | Loopback-only host port for the Ray dashboard + native REST job-submission API (in-container 8265). Use the authenticated Kong route for remote access. |
+| RAY_GCS_PORT | ray |  | Loopback-only host port for the Ray GCS (in-container 6379). Distinct from the project's Redis cache container; Ray bundles its own GCS process. |
+| RAY_CLIENT_PORT | ray |  | Loopback-only host port for the unauthenticated Ray client server (in-container 10001). Used only by trusted host Python: `ray.init('ray://localhost:<port>')`. |
 | RAY_WORKER_COUNT | ray | 2 | Number of ray-worker replicas. The wizard prompts for this with default 2. Valid values: 0 (head-only mode) and up. No hard upper bound — bounded by host resources. |
 | RAY_HEAD_SCALE | ray |  | - |
 | RAY_WORKER_SCALE | ray |  | Resolved by the bootstrapper from RAY_WORKER_COUNT when source is ray-container-{cpu,gpu}; 0 otherwise. |

@@ -492,6 +492,7 @@ services:
       RAGAS_EVALUATOR_MODEL: ''
       RAY_ADDRESS: ''
       RAY_DASHBOARD_URL: ''
+      RAY_JOB_API_TOKEN: ''
       REDIS_URL: redis://:redis_password@redis:6379/0
       STT_ENDPOINT: ''
       SUPABASE_ANON_KEY: ''
@@ -2813,6 +2814,15 @@ services:
       NEO4J_browser_remote__content__hostname__whitelist: '*'
       NEO4J_dbms_security_procedures_unrestricted: apoc.*
       NEO4J_server_default__advertised__address: neo4j-graph-db
+    healthcheck:
+      interval: 10s
+      retries: 30
+      start_period: 1m0s
+      test:
+      - CMD-SHELL
+      - cypher-shell -u "$${NEO4J_AUTH%%/*}" -p "$${NEO4J_AUTH#*/}" "RETURN 1" >/dev/null
+        2>&1
+      timeout: 10s
     logging:
       driver: json-file
       options:
@@ -3292,14 +3302,17 @@ services:
       backend-network: null
     ports:
     - mode: ingress
+      host_ip: 127.0.0.1
       protocol: tcp
       published: '63002'
       target: 8265
     - mode: ingress
+      host_ip: 127.0.0.1
       protocol: tcp
       published: '63003'
       target: 6379
     - mode: ingress
+      host_ip: 127.0.0.1
       protocol: tcp
       published: '63004'
       target: 10001

@@ -393,7 +393,7 @@ _Engine-only manifests (speaches, chatterbox) are not listed — they're selecte
 ./start.sh --llm-provider-source ollama-localhost  # Any configuration flag skips the wizard
 ./start.sh --help            # Show all options
 ./stop.sh                    # Stop services, keep data
-./stop.sh --cold             # Stop and remove all data (also runs a global docker system prune)
+./stop.sh --cold             # Stop this Atlas project and remove its data volumes
 
 # Port and network
 ./start.sh --base-port 64000  # Custom port range
@@ -449,14 +449,13 @@ _Engine-only manifests (speaches, chatterbox) are not listed — they're selecte
 ```bash
 # Basic stop commands
 ./stop.sh                    # Stop services, keep data
-./stop.sh --cold             # Stop and remove all data (destructive; includes a global `docker system prune -f --volumes` that ALSO touches unused images/volumes belonging to OTHER docker projects on this host)
+./stop.sh --cold             # Stop and remove this Atlas project's containers, orphans, and data volumes
 ./stop.sh --clean-hosts      # Remove *.localhost entries from hosts file
 ./stop.sh --help             # Show all options
 
-# The --cold option removes all Docker volumes (data loss). The `docker
-# system prune -f --volumes` step is host-wide — any unrelated Docker
-# project's dangling volumes / images on the same machine are pruned too.
-# Use with caution — all database data will be permanently deleted.
+# The --cold option removes this Atlas Compose project's named volumes.
+# It does not prune images, networks, containers, or volumes owned by other
+# Docker projects. Atlas database and application data is permanently deleted.
 ```
 
 ### 5.2 Service access patterns

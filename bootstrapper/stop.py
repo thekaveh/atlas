@@ -71,7 +71,7 @@ Options:
 
 Examples:
   ./stop.sh                 # Stop all containers, preserve data
-  ./stop.sh --cold          # Stop containers, remove project volumes, AND run a global `docker system prune -f --volumes` (touches unused images/volumes of OTHER projects too)
+  ./stop.sh --cold          # Stop this project and remove its containers, orphans, and named volumes
   ./stop.sh --clean-hosts   # Stop containers and clean up hosts file
 """
         print(usage_text)
@@ -103,7 +103,7 @@ Examples:
         
         # Show stop options
         if cold_stop:
-            self.banner.show_status_message("Cold Stop: Yes (removing volumes and aggressive cleanup)", "warning")
+            self.banner.show_status_message("Cold Stop: Yes (removing project volumes)", "warning")
             
         if clean_hosts:
             self.banner.show_status_message("Clean Hosts: Yes (will remove hosts file entries)", "info")
@@ -130,11 +130,11 @@ Examples:
         self.docker_manager.project_name_override = project_name
         try:
             if cold_stop:
-                self.banner.show_status_message("Performing cold stop (removing volumes and aggressive cleanup)...", "warning")
+                self.banner.show_status_message("Performing cold stop (removing project volumes)...", "warning")
                 self.banner.console.print("⚠️ WARNING: This will permanently delete all data!", style="bold red")
                 print()
 
-                # Use the enhanced cold stop cleanup from Docker manager
+                # Use the project-scoped cold stop cleanup from Docker manager.
                 success = self.docker_manager.perform_cold_stop_cleanup()
 
                 if success:
@@ -228,8 +228,7 @@ Examples:
             self.banner.console.print("🎯 Atlas stopped with complete data cleanup", style="bold bright_green")
             self.banner.console.print("   ✅ All containers stopped and removed")
             self.banner.console.print("   ✅ All data volumes removed")
-            self.banner.console.print("   ✅ Project networks cleaned up")
-            self.banner.console.print("   ✅ Docker system pruned")
+            self.banner.console.print("   ✅ Project orphans and default network removed")
         else:
             self.banner.console.print("🎯 Atlas stopped successfully", style="bold bright_green")
             self.banner.console.print("   ✅ All containers stopped and removed")

@@ -18,6 +18,7 @@ Source: `services/backend/app/`. The FastAPI app boots in `app/main.py`, mounts 
 | Chunking | `POST /api/chunk` | Chonkie-backed token, recursive, and semantic text splitting for RAG ingestion clients. |
 | RAG evaluation | `POST /api/rag/evaluate` | Ragas-backed objective metrics over supplied question/answer/context records. |
 | RAG ingestion | `POST /api/rag/ingestions`, `GET /api/rag/ingestions[/{id}]`, `POST /api/rag/ingestions/{id}/cancel` | Generic ingestion job over a consumer `rag_ingestion_profile` (discover → parse → chunk → embed → vector write → LightRAG upload → drain → finalize) with machine-readable per-phase status. |
+| Ray jobs | `/api/ray/jobs`, `/api/ray/jobs/{job_id}`, `/api/ray/cluster/status` | Requires `Authorization: Bearer ${RAY_JOB_API_TOKEN}` on direct and Kong access paths. |
 
 Canonical port table: [Ports and Routes](../../docs/deployment/ports-and-routes.md).
 
@@ -51,6 +52,18 @@ curl -H "Host: api.localhost" \
 The direct host port (`localhost:${BACKEND_PORT}`) bypasses Kong and is not
 protected by this setting; bind host ports to loopback or firewall them for
 shared environments.
+
+Ray job API authentication is independent of the optional Kong setting:
+
+```bash
+RAY_JOB_API_TOKEN=             # auto-generated during Atlas setup
+
+curl -H "Authorization: Bearer ${RAY_JOB_API_TOKEN}" \
+  http://localhost:${BACKEND_PORT}/api/ray/cluster/status
+```
+
+Every `/api/ray` route requires this bearer token, including requests through
+the direct Backend port and deployments where `BACKEND_KONG_AUTH=disabled`.
 
 LangMem long-term memory:
 
@@ -94,6 +107,7 @@ NEO4J_PASSWORD=${GRAPH_DB_PASSWORD}
 KONG_URL=http://kong-api-gateway:8000
 SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
 REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+RAY_JOB_API_TOKEN=${RAY_JOB_API_TOKEN}
 CELERY_SOURCE=disabled
 CELERY_BROKER_URL=                 # auto-managed when CELERY_SOURCE=container
 CELERY_RESULT_BACKEND=             # auto-managed when CELERY_SOURCE=container

@@ -116,6 +116,7 @@ services:
       # these lines every /api/ray/* route 503'd even with Ray enabled.
       RAY_ADDRESS: ${RAY_ADDRESS:-}
       RAY_DASHBOARD_URL: ${RAY_DASHBOARD_URL:-}
+      RAY_JOB_API_TOKEN: ${RAY_JOB_API_TOKEN:-}
       # n8n public-API key — n8n CE only issues keys via its UI
       # (Settings → n8n API), so this stays empty until the operator
       # creates one; backend /workflows endpoints 401 without it.

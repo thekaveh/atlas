@@ -65,11 +65,11 @@ The stack now orchestrates 53 service families (48 containerized + 5 virtual —
 
 **Ray distributed-compute cluster**
 - Apache-2.0; the de-facto 2026 OSS distributed-compute framework. Generic substrate for "run N independent units of work in parallel across many CPUs and/or GPUs."
-- `services/ray/` ships head + worker containers under `RAY_SOURCE` with variants `ray-container-cpu`, `ray-container-gpu`, and `disabled`. (Authenticated remote Ray endpoints are deferred to the stack-wide authenticated-remote design.)
+- `services/ray/` ships head + worker containers under `RAY_SOURCE` with variants `ray-container-cpu`, `ray-container-gpu`, and `disabled`. Native unauthenticated dashboard, GCS, and client ports are loopback-only; remote native Ray endpoints remain deferred to the stack-wide authenticated-remote design.
 - Wizard wires `RAY_WORKER_COUNT` inline on the source step via the `SecondaryNumberInput` widget (the same pattern later generalised for the localhost-port override).
-- Backend exposes `/api/ray/{submit,status,stop,cluster-status}` REST endpoints gated on `RAY_ADDRESS` — returns 503 when Ray is disabled.
+- Backend exposes `POST /api/ray/jobs`, `GET`/`DELETE /api/ray/jobs/{job_id}`, and `GET /api/ray/cluster/status`. Every route requires the auto-generated `RAY_JOB_API_TOKEN` bearer token; valid authenticated requests return 503 when `RAY_ADDRESS` is disabled.
 - JupyterHub picks up `ray[client]` in its build image and ships a seeded `07_ray_cluster.ipynb` notebook.
-- Hermes Agent + Backend agents can dispatch compute jobs to the cluster via the Backend REST surface (Ray's `JobSubmissionClient` is not exposed directly outside Backend today).
+- Backend agents can dispatch compute jobs to the cluster via the bearer-protected Backend REST surface. Hermes integration remains future work because Hermes does not yet receive the scoped Ray API token.
 - Pipeline-agnostic by design — useful to every strategic track: parallel backtest sweeps (financial / trading-AI), parallel batch rendering and asset preparation (3D / Dreamscapes), parallel embedding pipelines and batch reranking (RAG specializations), Ray Tune parameter sweeps (data engineering).
 - **Honest scope note (preserved from the Tier 1 candidate write-up):** Ray's throughput value scales with parallel inference capacity. On a single-GPU Mac dev machine with no Docker GPU passthrough, Ray adds orchestration polish (pipeline chaining, retries, result aggregation, checkpointing) but **not transformative throughput** — a well-written `asyncio` script captures ~70–80% of the value at that scale. Ray earns its keep when crossing into (a) multi-GPU Linux hosts, (b) batch jobs in the millions-of-units range, or (c) workloads long enough that fault tolerance and resumability matter.
 - **Dask** (BSD-3) remains documented as the lighter single-machine alternative if Ray's footprint feels heavy for a given deployment.

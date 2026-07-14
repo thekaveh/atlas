@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — 2026-07-14 — Startup and API safety boundaries
+
+- **Project-scoped cold cleanup** — `start.sh --cold` and `stop.sh --cold` now remove only the active Atlas Compose project's containers, orphans, and named volumes. Cleanup failures stop startup before secret rotation and propagate a nonzero exit status instead of falling through to a partial launch.
+- **Readiness and private runtime files** — Neo4j now publishes a real Cypher health check for dependents that require `service_healthy`; generated `.env` and endpoint-export files are written atomically with owner-only permissions.
+- **Ray job API authorization** — every Backend `/api/ray` route now requires the auto-generated `RAY_JOB_API_TOKEN` as an HTTP bearer token, including calls made through the direct Backend port. Ray's native unauthenticated dashboard, GCS, and client ports are bound to loopback by default.
+
 ### Fixed — 2026-07-13 — Synchronized three-surface documentation
 
 - **Canonical publication pipeline (#606 / #607)** — repository Markdown, the MkDocs `.io` site, and the native GitHub wiki now derive from one ordered manifest with strict drift, self-containment, local-link, diagram, and notebook-source checks. The public hierarchy covers 102 pages, 59 service guides, and 71 synchronized architecture diagrams.

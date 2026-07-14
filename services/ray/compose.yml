@@ -27,9 +27,12 @@ services:
           --dashboard-port 8265 \
           --block
     ports:
-      - "${HOST_BIND_IP:-}${RAY_DASHBOARD_PORT}:8265"
-      - "${HOST_BIND_IP:-}${RAY_GCS_PORT}:6379"
-      - "${HOST_BIND_IP:-}${RAY_CLIENT_PORT}:10001"
+      # Ray's native APIs can execute arbitrary jobs and provide no built-in
+      # authentication. Keep them on the trusted host boundary; remote callers
+      # must use Kong or Backend's bearer-protected /api/ray surface.
+      - "127.0.0.1:${RAY_DASHBOARD_PORT}:8265"
+      - "127.0.0.1:${RAY_GCS_PORT}:6379"
+      - "127.0.0.1:${RAY_CLIENT_PORT}:10001"
     # No /tmp/ray volume — the rayproject/ray image runs as user ``ray``
     # (UID 1000), but a named Docker volume gets initialized as
     # root:root because the image doesn't pre-create /tmp/ray. The
