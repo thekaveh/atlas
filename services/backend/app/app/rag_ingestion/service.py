@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import time
 import uuid
 from datetime import datetime, timezone
@@ -39,7 +38,7 @@ from .models import (
     IngestionError,
     IngestionRecord,
 )
-from .profiles import LoadedProfile, ProfileNotFoundError, get_profile
+from .profiles import LoadedProfile, get_profile
 from .store import IngestionStore, default_store
 
 
@@ -58,6 +57,15 @@ class IngestionCancelled(RuntimeError):
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _http_error_details(exc: Exception) -> tuple[Optional[int], Optional[str]]:
+    response = getattr(exc, "response", None)
+    if response is None:
+        return None, None
+    status = getattr(response, "status_code", None)
+    body = (getattr(response, "text", "") or "")[:500] or None
+    return status, body
 
 
 class Deps:
@@ -209,7 +217,12 @@ class RagIngestionService:
     def _mark_failed_phase(self, record: IngestionRecord, name: str, error: IngestionError) -> None:
         phase = record.phase(name)
         phase.status = STATUS_FAILED
-        phase.error = {"message": error.message, "service": error.service, "http_status": error.http_status}
+        phase.error = {
+            "message": error.message,
+            "service": error.service,
+            "http_status": error.http_status,
+            "body": error.body,
+        }
 
     async def _run_phase(self, name: str, record: IngestionRecord, profile: LoadedProfile, corpus: Dict[str, Any], state: Dict[str, Any]) -> None:
         phase = record.phase(name)
@@ -387,10 +400,11 @@ class RagIngestionService:
             try:
                 uploaded += await self.deps.lightrag.upload(docs)
             except Exception as exc:  # noqa: BLE001
+                http_status, body = _http_error_details(exc)
                 raise PhaseFatal(
                     IngestionError(
                         phase="lightrag_upload", service="lightrag", message=str(exc),
-                        http_status=getattr(getattr(exc, "response", None), "status_code", None),
+                        http_status=http_status, body=body,
                     )
                 )
         record.counts["documents_uploaded"] = uploaded

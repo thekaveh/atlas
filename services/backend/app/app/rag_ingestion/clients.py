@@ -305,7 +305,7 @@ class LightRagClient:
                 resp = await client.post(
                     f"{self._endpoint}/documents/text",
                     headers=self._headers(),
-                    json={"text": doc["text"], "description": doc.get("source", "")},
+                    json={"text": doc["text"], "file_source": doc.get("source", "")},
                 )
                 resp.raise_for_status()
                 uploaded += 1
