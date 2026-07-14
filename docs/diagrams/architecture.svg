@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 1240" preserveAspectRatio="xMidYMid meet" font-family="'JetBrains Mono', 'Fira Code', Menlo, Consolas, monospace">
   <title>Atlas — Architecture</title>
-  <desc>Topologically-ordered architecture diagram of Atlas: external clients enter via Kong, the gateway routes to Apps and Agents, which call the LLM Core (LiteLLM → Ollama + cloud + TEI Reranker) and the Media + Data layers; Ray + Spark supply distributed compute; Prometheus + Grafana provide observability.</desc>
+  <desc>Topologically-ordered architecture diagram of Atlas: external clients enter via Kong, the gateway routes to Apps and Agents, which call the LLM Core (LiteLLM to Ollama + cloud + TEI Reranker) and the Media + Data layers; Ray + Spark supply distributed compute; Prometheus + Grafana provide observability.</desc>
 
   <defs>
     <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
@@ -43,12 +43,12 @@
 
   <!-- ─────────────────  FLOW ARROWS (drawn first to render behind boxes)  ───────────────── -->
 
-  <!-- External clients → Kong -->
+  <!-- External clients to Kong -->
   <line x1="450" y1="160" x2="610" y2="208" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrow)"/>
   <line x1="700" y1="160" x2="700" y2="208" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrow)"/>
   <line x1="950" y1="160" x2="790" y2="208" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrow)"/>
 
-  <!-- Kong → Apps (rose trunk + dashed tee fan-out, 5 stems) -->
+  <!-- Kong to Apps (rose trunk + dashed tee fan-out, 5 stems) -->
   <line x1="700" y1="258" x2="700" y2="295" stroke="#fb7185" stroke-width="2" marker-end="url(#arrow-rose)"/>
   <line x1="200" y1="295" x2="1200" y2="295" stroke="#fb7185" stroke-width="1" stroke-dasharray="3,3" opacity="0.55"/>
   <line x1="200" y1="295" x2="200" y2="308" stroke="#fb7185" stroke-width="1" stroke-dasharray="3,3" opacity="0.55"/>
@@ -57,43 +57,43 @@
   <line x1="950" y1="295" x2="950" y2="308" stroke="#fb7185" stroke-width="1" stroke-dasharray="3,3" opacity="0.55"/>
   <line x1="1200" y1="295" x2="1200" y2="308" stroke="#fb7185" stroke-width="1" stroke-dasharray="3,3" opacity="0.55"/>
 
-  <!-- Kong → Agents (fan-out for Hermes, n8n, OpenClaw, LightRAG, Airflow that have Kong host-aliases) -->
+  <!-- Kong to Agents (fan-out for Hermes, n8n, OpenClaw, LightRAG, Airflow that have Kong host-aliases) -->
   <line x1="450" y1="258" x2="450" y2="295" stroke="#fb7185" stroke-width="1" stroke-dasharray="3,3" opacity="0.4"/>
   <line x1="950" y1="258" x2="950" y2="295" stroke="#fb7185" stroke-width="1" stroke-dasharray="3,3" opacity="0.4"/>
 
-  <!-- Apps → Agents (cyan, partial) -->
+  <!-- Apps to Agents (cyan, partial) -->
   <line x1="450" y1="360" x2="450" y2="428" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)" opacity="0.55"/>
   <line x1="700" y1="360" x2="700" y2="428" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)" opacity="0.55"/>
 
-  <!-- Apps → LLM (Open WebUI + Backend → LiteLLM) -->
+  <!-- Apps to LLM (Open WebUI + Backend to LiteLLM) -->
   <line x1="200" y1="360" x2="200" y2="548" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)" opacity="0.6"/>
 
-  <!-- Agents → LLM (Hermes, n8n, LightRAG, Airflow → LiteLLM) -->
+  <!-- Agents to LLM (Hermes, n8n, LightRAG, Airflow to LiteLLM) -->
   <line x1="200" y1="480" x2="200" y2="548" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-emerald)" opacity="0.65"/>
   <line x1="700" y1="480" x2="700" y2="548" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-emerald)" opacity="0.6"/>
 
-  <!-- LiteLLM → Ollama + Cloud + TEI Reranker (within LLM band) -->
+  <!-- LiteLLM to Ollama + Cloud + TEI Reranker (within LLM band) -->
   <line x1="375" y1="574" x2="405" y2="574" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
   <line x1="685" y1="574" x2="715" y2="574" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
 
-  <!-- Apps → Media (Open WebUI tools, Backend RAG) -->
+  <!-- Apps to Media (Open WebUI tools, Backend RAG) -->
   <line x1="450" y1="360" x2="450" y2="668" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)" opacity="0.5"/>
 
-  <!-- Agents → Media (Hermes media skills + n8n actions + LightRAG ingest pipeline) -->
+  <!-- Agents to Media (Hermes media skills + n8n actions + LightRAG ingest pipeline) -->
   <line x1="450" y1="480" x2="450" y2="668" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-emerald)" opacity="0.5"/>
 
-  <!-- Apps → Data (Backend writes to data tier; Zeppelin reads via JDBC/S3A) -->
+  <!-- Apps to Data (Backend writes to data tier; Zeppelin reads via JDBC/S3A) -->
   <line x1="700" y1="360" x2="700" y2="788" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)" opacity="0.45"/>
   <line x1="1200" y1="360" x2="1200" y2="788" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)" opacity="0.4"/>
 
-  <!-- Agents → Data (n8n / LightRAG / Airflow writes) -->
+  <!-- Agents to Data (n8n / LightRAG / Airflow writes) -->
   <line x1="950" y1="480" x2="950" y2="788" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-emerald)" opacity="0.45"/>
 
-  <!-- Apps → Compute (Backend → Ray; Zeppelin → Spark Connect) -->
+  <!-- Apps to Compute (Backend to Ray; Zeppelin to Spark Connect) -->
   <line x1="700" y1="360" x2="700" y2="928" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)" opacity="0.35"/>
   <line x1="1200" y1="360" x2="1020" y2="928" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)" opacity="0.35"/>
 
-  <!-- Agents → Compute (Airflow → Spark) -->
+  <!-- Agents to Compute (Airflow to Spark) -->
   <line x1="1200" y1="480" x2="1020" y2="928" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-emerald)" opacity="0.35"/>
 
   <!-- Prometheus scrape indicator: dashed slate line across the stack -->
@@ -112,7 +112,7 @@
     <rect x="600" y="116" width="200" height="44" rx="6" fill="#0f172a"/>
     <rect x="600" y="116" width="200" height="44" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
     <text x="700" y="135" fill="#e2e8f0" font-size="12" font-weight="600" text-anchor="middle">Python / IDE</text>
-    <text x="700" y="151" fill="#94a3b8" font-size="9" text-anchor="middle">OpenAI SDK ▸ LiteLLM</text>
+    <text x="700" y="151" fill="#94a3b8" font-size="9" text-anchor="middle">OpenAI SDK via LiteLLM</text>
 
     <rect x="850" y="116" width="200" height="44" rx="6" fill="#0f172a"/>
     <rect x="850" y="116" width="200" height="44" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
@@ -139,12 +139,12 @@
     <rect x="85" y="308" width="230" height="52" rx="6" fill="#0f172a"/>
     <rect x="85" y="308" width="230" height="52" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
     <text x="200" y="328" fill="#cffafe" font-size="12" font-weight="600" text-anchor="middle">Open WebUI</text>
-    <text x="200" y="346" fill="#67e8f9" font-size="9" text-anchor="middle">main chat UI ▸ LiteLLM</text>
+    <text x="200" y="346" fill="#67e8f9" font-size="9" text-anchor="middle">main chat UI via LiteLLM</text>
 
     <rect x="335" y="308" width="230" height="52" rx="6" fill="#0f172a"/>
     <rect x="335" y="308" width="230" height="52" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
     <text x="450" y="328" fill="#cffafe" font-size="12" font-weight="600" text-anchor="middle">JupyterHub</text>
-    <text x="450" y="346" fill="#67e8f9" font-size="9" text-anchor="middle">notebooks ▸ data science IDE</text>
+    <text x="450" y="346" fill="#67e8f9" font-size="9" text-anchor="middle">notebooks and data science IDE</text>
 
     <rect x="585" y="308" width="230" height="52" rx="6" fill="#0f172a"/>
     <rect x="585" y="308" width="230" height="52" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
@@ -154,12 +154,12 @@
     <rect x="835" y="308" width="230" height="52" rx="6" fill="#0f172a"/>
     <rect x="835" y="308" width="230" height="52" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
     <text x="950" y="328" fill="#cffafe" font-size="12" font-weight="600" text-anchor="middle">Local Deep Researcher</text>
-    <text x="950" y="346" fill="#67e8f9" font-size="9" text-anchor="middle">LangGraph research ▸ SearxNG</text>
+    <text x="950" y="346" fill="#67e8f9" font-size="9" text-anchor="middle">LangGraph research via SearxNG</text>
 
     <rect x="1085" y="308" width="230" height="52" rx="6" fill="#0f172a"/>
     <rect x="1085" y="308" width="230" height="52" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
     <text x="1200" y="328" fill="#cffafe" font-size="12" font-weight="600" text-anchor="middle">Zeppelin</text>
-    <text x="1200" y="346" fill="#67e8f9" font-size="9" text-anchor="middle">Spark notebook ▸ SQL + Scala</text>
+    <text x="1200" y="346" fill="#67e8f9" font-size="9" text-anchor="middle">Spark notebook: SQL + Scala</text>
   </g>
 
   <!-- ─────────────────  AGENTS & WORKFLOWS  ───────────────── -->
@@ -170,7 +170,7 @@
     <rect x="85" y="428" width="230" height="52" rx="6" fill="#0f172a"/>
     <rect x="85" y="428" width="230" height="52" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
     <text x="200" y="448" fill="#d1fae5" font-size="12" font-weight="600" text-anchor="middle">Hermes Agent</text>
-    <text x="200" y="466" fill="#6ee7b7" font-size="9" text-anchor="middle">Nous Research ▸ /v1 + dashboard</text>
+    <text x="200" y="466" fill="#6ee7b7" font-size="9" text-anchor="middle">Nous Research: /v1 + dashboard</text>
 
     <rect x="335" y="428" width="230" height="52" rx="6" fill="#0f172a"/>
     <rect x="335" y="428" width="230" height="52" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
@@ -190,7 +190,7 @@
     <rect x="1085" y="428" width="230" height="52" rx="6" fill="#0f172a"/>
     <rect x="1085" y="428" width="230" height="52" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
     <text x="1200" y="448" fill="#d1fae5" font-size="12" font-weight="600" text-anchor="middle">Airflow</text>
-    <text x="1200" y="466" fill="#6ee7b7" font-size="9" text-anchor="middle">DAG orchestrator ▸ REST API</text>
+    <text x="1200" y="466" fill="#6ee7b7" font-size="9" text-anchor="middle">DAG orchestrator: REST API</text>
   </g>
 
   <!-- ─────────────────  LLM CORE  ───────────────── -->
@@ -201,12 +201,12 @@
     <rect x="95" y="548" width="280" height="52" rx="6" fill="#0f172a"/>
     <rect x="95" y="548" width="280" height="52" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
     <text x="235" y="568" fill="#fde68a" font-size="12" font-weight="600" text-anchor="middle">LiteLLM Gateway</text>
-    <text x="235" y="586" fill="#fcd34d" font-size="9" text-anchor="middle">OpenAI-compatible router ▸ YAML model catalog</text>
+    <text x="235" y="586" fill="#fcd34d" font-size="9" text-anchor="middle">OpenAI-compatible router with YAML catalog</text>
 
     <rect x="405" y="548" width="280" height="52" rx="6" fill="#0f172a"/>
     <rect x="405" y="548" width="280" height="52" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
     <text x="545" y="568" fill="#fde68a" font-size="12" font-weight="600" text-anchor="middle">Ollama</text>
-    <text x="545" y="586" fill="#fcd34d" font-size="9" text-anchor="middle">local engine ▸ qwen3 / nomic-embed</text>
+    <text x="545" y="586" fill="#fcd34d" font-size="9" text-anchor="middle">local engine: qwen3 / nomic-embed</text>
 
     <rect x="715" y="548" width="280" height="52" rx="6" fill="#0f172a"/>
     <rect x="715" y="548" width="280" height="52" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="3,3"/>
@@ -237,7 +237,7 @@
     <rect x="585" y="668" width="230" height="52" rx="6" fill="#0f172a"/>
     <rect x="585" y="668" width="230" height="52" rx="6" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.5"/>
     <text x="700" y="688" fill="#fed7aa" font-size="12" font-weight="600" text-anchor="middle">Docling</text>
-    <text x="700" y="706" fill="#fdba74" font-size="9" text-anchor="middle">PDF/docs ▸ markdown + JSON</text>
+    <text x="700" y="706" fill="#fdba74" font-size="9" text-anchor="middle">PDF/docs to Markdown + JSON</text>
 
     <rect x="835" y="668" width="230" height="52" rx="6" fill="#0f172a"/>
     <rect x="835" y="668" width="230" height="52" rx="6" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.5"/>
@@ -247,7 +247,7 @@
     <rect x="1085" y="668" width="230" height="52" rx="6" fill="#0f172a"/>
     <rect x="1085" y="668" width="230" height="52" rx="6" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.5"/>
     <text x="1200" y="688" fill="#fed7aa" font-size="12" font-weight="600" text-anchor="middle">SearxNG</text>
-    <text x="1200" y="706" fill="#fdba74" font-size="9" text-anchor="middle">privacy metasearch ▸ web RAG</text>
+    <text x="1200" y="706" fill="#fdba74" font-size="9" text-anchor="middle">privacy metasearch for web RAG</text>
   </g>
 
   <!-- ─────────────────  DATA  ───────────────── -->
@@ -293,11 +293,11 @@
 
     <rect x="80" y="928" width="600" height="36" rx="6" fill="#0f172a"/>
     <rect x="80" y="928" width="600" height="36" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
-    <text x="380" y="952" fill="#e2e8f0" font-size="12" font-weight="600" text-anchor="middle">Ray Head + Workers (1..N)  ▸  RAY_SOURCE</text>
+    <text x="380" y="952" fill="#e2e8f0" font-size="12" font-weight="600" text-anchor="middle">Ray Head + Workers (1..N), controlled by RAY_SOURCE</text>
 
     <rect x="720" y="928" width="600" height="36" rx="6" fill="#0f172a"/>
     <rect x="720" y="928" width="600" height="36" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
-    <text x="1020" y="952" fill="#e2e8f0" font-size="12" font-weight="600" text-anchor="middle">Spark Master + Workers + History + Connect  ▸  SPARK_SOURCE</text>
+    <text x="1020" y="952" fill="#e2e8f0" font-size="12" font-weight="600" text-anchor="middle">Spark Master + Workers + History + Connect, controlled by SPARK_SOURCE</text>
   </g>
 
   <!-- ─────────────────  OBSERVABILITY  ───────────────── -->
@@ -307,11 +307,11 @@
 
     <rect x="80" y="1028" width="600" height="36" rx="6" fill="#0f172a"/>
     <rect x="80" y="1028" width="600" height="36" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
-    <text x="380" y="1052" fill="#e2e8f0" font-size="12" font-weight="600" text-anchor="middle">Prometheus  ▸  scrapes Kong · LiteLLM · n8n · Backend · Weaviate · MinIO · DB sidecars</text>
+    <text x="380" y="1052" fill="#e2e8f0" font-size="12" font-weight="600" text-anchor="middle">Prometheus scrapes Kong · LiteLLM · n8n · Backend · Weaviate · MinIO · DB sidecars</text>
 
     <rect x="720" y="1028" width="600" height="36" rx="6" fill="#0f172a"/>
     <rect x="720" y="1028" width="600" height="36" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
-    <text x="1020" y="1052" fill="#e2e8f0" font-size="12" font-weight="600" text-anchor="middle">Grafana  ▸  pre-provisioned stack dashboards</text>
+    <text x="1020" y="1052" fill="#e2e8f0" font-size="12" font-weight="600" text-anchor="middle">Grafana with pre-provisioned stack dashboards</text>
   </g>
 
   <!-- ─────────────────  LEGEND  ───────────────── -->
@@ -346,10 +346,10 @@
       <text x="50" y="11" fill="#94a3b8" font-size="9">user request</text>
 
       <line x1="180" y1="7" x2="220" y2="7" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)"/>
-      <text x="230" y="11" fill="#94a3b8" font-size="9">apps → downstream</text>
+      <text x="230" y="11" fill="#94a3b8" font-size="9">apps to downstream</text>
 
       <line x1="380" y1="7" x2="420" y2="7" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-emerald)"/>
-      <text x="430" y="11" fill="#94a3b8" font-size="9">agents → downstream</text>
+      <text x="430" y="11" fill="#94a3b8" font-size="9">agents to downstream</text>
 
       <line x1="600" y1="7" x2="640" y2="7" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
       <text x="650" y="11" fill="#94a3b8" font-size="9">LLM routing</text>

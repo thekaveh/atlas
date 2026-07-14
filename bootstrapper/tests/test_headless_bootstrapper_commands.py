@@ -4,13 +4,12 @@ import sys
 from pathlib import Path
 
 from click.testing import CliRunner
+from tests.three_surface_test_utils import surface_text
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "bootstrapper"))
 REUSING_ATLAS = REPO_ROOT / "docs" / "deployment" / "reusing-atlas.md"
-SITE_OPERATIONS = REPO_ROOT / "docs" / "site" / "operations.md"
-WIKI_OPERATIONS = REPO_ROOT / "docs" / "wiki" / "Operations.md"
 
 
 def _write_env_pair(tmp_path: Path) -> None:
@@ -158,8 +157,10 @@ def test_consumer_upgrade_docs_name_headless_backfill_and_compose_validate() -> 
     assert "./start.sh compose validate" in reusing
     assert "Exit codes" in reusing
 
-    for path in (SITE_OPERATIONS, WIKI_OPERATIONS):
-        text = path.read_text(encoding="utf-8")
+    for text in (
+        surface_text("docs/operations.md", "site"),
+        surface_text("docs/operations.md", "wiki"),
+    ):
         assert "./start.sh env backfill" in text
         assert "./start.sh compose validate" in text
         assert "headless" in text.lower()

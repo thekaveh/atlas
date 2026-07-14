@@ -17,6 +17,7 @@ from utils.comfyui_library import list_curated
 from utils.comfyui_manifest_generator import ComfyUIManifestGenerator
 from utils.comfyui_resolver import manifest_dict
 from wizard.comfyui_steps import _merged_comfyui_options
+from tests.three_surface_test_utils import surface_text
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -235,8 +236,8 @@ def test_krea2_workflow_uses_only_core_nodes_and_catalog_models() -> None:
 
 def test_krea2_is_documented_on_all_three_surfaces() -> None:
     repo = (ROOT / "services/comfyui/README.md").read_text(encoding="utf-8")
-    site = (ROOT / "docs/site/services/comfyui.md").read_text(encoding="utf-8")
-    wiki = (ROOT / "docs/wiki/Services.md").read_text(encoding="utf-8")
+    site = surface_text("services/comfyui/README.md", "site")
+    wiki = surface_text("services/comfyui/README.md", "wiki")
     for surface in (repo, site, wiki):
         assert "Krea 2 Turbo" in surface
         assert "Krea 2 RAW" in surface

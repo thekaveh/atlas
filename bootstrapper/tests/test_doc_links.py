@@ -6,6 +6,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from tests.three_surface_test_utils import ensure_generated_docs
+
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 VALIDATOR = REPO_ROOT / "scripts" / "check_doc_links.py"
 
@@ -90,7 +92,8 @@ def test_validator_resolves_relative_paths_with_parent_segments(tmp_path):
 
 def test_validator_resolves_github_wiki_extensionless_links():
     """GitHub Wiki links omit `.md`; repo validation should still find pages."""
-    result = _run(REPO_ROOT / "docs" / "wiki")
+    ensure_generated_docs()
+    result = _run(REPO_ROOT / "generated" / "wiki")
     assert result.returncode == 0, result.stdout + result.stderr
 
 
