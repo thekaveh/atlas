@@ -575,6 +575,8 @@ uv run --project bootstrapper python scripts/check-track-membership.py          
 (cd services/docling/provider/localhost && uv lock --locked)                      # job 3 docling lock
 for spec in \
   "services/airflow/build|Dockerfile|--build-arg BASE_IMAGE=apache/airflow:3.3.0" \
+  "services/asset-worker/app|Dockerfile|" \
+  "services/asset-baker/app|Dockerfile|" \
   "services/backend/app|Dockerfile|" \
   "services/iceberg-rest/build|Dockerfile|" \
   "services/jenkins/build|Dockerfile|" \

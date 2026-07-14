@@ -77,6 +77,29 @@ def test_airflow_uses_supported_core_and_unfrozen_provider_security_fixes() -> N
     assert "setuptools>=83.0.0" in requirements
 
 
+def test_airflow_build_validation_uses_runtime_core_release() -> None:
+    workflow = _text(".github/workflows/services-lint.yml")
+    contributor_docs = _text("docs/CONTRIBUTING-services.md")
+    dependabot = _text(".github/dependabot.yml")
+
+    assert "--build-arg BASE_IMAGE=apache/airflow:3.3.0" in workflow
+    assert "--build-arg BASE_IMAGE=apache/airflow:3.2.2" not in workflow
+    for context in ("services/asset-worker/app", "services/asset-baker/app"):
+        assert context in workflow
+        assert context in contributor_docs
+    for provider in (
+        "amazon",
+        "postgres",
+        "redis",
+        "common-sql",
+        "neo4j",
+        "openai",
+        "fab",
+        "weaviate",
+    ):
+        assert f'dependency-name: "apache-airflow-providers-{provider}"' not in dependabot
+
+
 def test_image_http_and_parser_security_floors() -> None:
     backend = _text("services/backend/app/app/requirements.txt")
     assert "Pillow>=12.3.0" in backend

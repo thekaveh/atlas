@@ -2500,6 +2500,10 @@ class AtlasStarter:
             services.append("open-webui-init")
         if env_vars.get("COMFYUI_INIT_SCALE", "0") != "0":
             services.append("comfyui-init")
+        if env_vars.get("REDPANDA_INIT_SCALE", "0") != "0":
+            services.append("redpanda-init")
+        if env_vars.get("ZEPPELIN_INIT_SCALE", "0") != "0":
+            services.append("zeppelin-init")
         if not services:
             return True
 

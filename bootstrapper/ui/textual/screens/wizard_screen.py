@@ -99,6 +99,15 @@ _LAUNCH_HINTS = [
     (("ctrl+q",), "detach"),
 ]
 
+_STARTUP_HINTS = [
+    (("a",), "all"),
+    (("e",), "errors"),
+    (("w",), "warns"),
+    (("i",), "info"),
+    (("s",), "sources"),
+    (("ctrl+c",), "cancel"),
+]
+
 
 
 def prune_skip_hidden_selections(steps, selections: dict) -> dict:
@@ -267,6 +276,7 @@ class WizardScreen(Screen):
         self._fetch_generation: int = 0
 
         self._phase: str = "setup"   # "setup" | "launch"
+        self._launch_detach_ready = False
 
         self._command_summary = CommandSummary()
         self._service_table = ServiceTable(services)
@@ -1108,6 +1118,13 @@ class WizardScreen(Screen):
             self.app.exit()
 
     def action_quit_wizard(self) -> None:
+        if self._phase == "launch" and not self._launch_detach_ready:
+            self.notify(
+                "Startup is still running; Ctrl+C cancels it.",
+                severity="warning",
+                timeout=6,
+            )
+            return
         # Close the tee on a setup-phase quit so the wizard-time
         # warnings flushed earlier aren't left in a still-open fh
         # past process exit. The launch-phase ``finally`` block
@@ -1151,13 +1168,13 @@ class WizardScreen(Screen):
         self._log_chips = LogFilterChips(on_change=self._on_log_filter_change)
         self._log_pane = LogPane(
             title=" Stack startup · pipeline ",
-            subtitle=" ctrl+q to detach ",
+            subtitle=" ctrl+c to cancel ",
         )
         self._log_pane.set_on_new_source(self._log_chips.add_source)
         await lower.mount(self._log_chips)
         await lower.mount(self._log_pane)
 
-        self._footer.update_hints(_LAUNCH_HINTS)
+        self._footer.update_hints(_STARTUP_HINTS)
 
         # The session log was opened in __init__ so it could capture
         # wizard-time warnings. Now that the log pane exists, surface
@@ -1757,12 +1774,14 @@ class WizardScreen(Screen):
                 return
             self._write_status("✅ All services started",
                                style="bold green", source="pipeline")
+            self._launch_detach_ready = True
 
             if self._log_pane is not None:
                 self._log_pane.set_title(
                     " Live docker logs ",
                     subtitle=" ctrl+q to detach ",
                 )
+            self._footer.update_hints(_LAUNCH_HINTS)
 
             # Kick off port verification + ComfyUI model check in the
             # background so the live log stream starts IMMEDIATELY rather

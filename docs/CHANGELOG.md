@@ -39,6 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Correct Development documentation navigation** — the generated site now publishes the Diagram Catalog as the explicit 9.4 child page instead of allowing MkDocs to mistake its canonical `README.md` source for the Development section index.
 - **RAG parser and runtime boundaries** — ingestion now calls the real keyword-only document-extraction contract, honors each declared Docling/Tika parser slot exactly, offloads synchronous corpus and Chonkie work from the API event loop, and applies finite Redis connect/read deadlines to shared RAG and media operation state.
 - **Transactional memory extraction** — LangMem extraction now releases PostgreSQL during LiteLLM calls, validates model output shape, commits facts and session completion atomically under a per-user quota lock, and records terminal failures. Recall and summarization no longer pin database connections while awaiting model responses.
+- **Truthful startup controls and verification** — the Textual launch UI now permits detachment only after Compose startup and required init jobs finish, verifies Redpanda and Zeppelin one-shot initialization, uses readable secondary text contrast, and keeps Airflow's opt-in build-validation target aligned with the runtime 3.3.0 image.
 
 ### Fixed — 2026-07-13 — Synchronized three-surface documentation
 

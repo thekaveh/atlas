@@ -117,6 +117,8 @@ def test_one_shot_init_checks_enabled_post_start_init_services(monkeypatch):
             "N8N_INIT_SCALE": "1",
             "OPEN_WEB_UI_INIT_SCALE": "1",
             "COMFYUI_INIT_SCALE": "1",
+            "REDPANDA_INIT_SCALE": "1",
+            "ZEPPELIN_INIT_SCALE": "1",
         },
     )
     calls = []
@@ -134,7 +136,13 @@ def test_one_shot_init_checks_enabled_post_start_init_services(monkeypatch):
     assert starter.verify_one_shot_init_containers() is True
     assert calls == [
         (
-            ["n8n-init", "open-webui-init", "comfyui-init"],
+            [
+                "n8n-init",
+                "open-webui-init",
+                "comfyui-init",
+                "redpanda-init",
+                "zeppelin-init",
+            ],
             {"timeout_seconds": 900.0, "poll_interval_seconds": 5.0},
         )
     ]
