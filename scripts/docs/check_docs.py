@@ -4,6 +4,7 @@ import argparse
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import unquote
 
 from .build_docs import build
 from .canonical_references import sync_canonical_references
@@ -13,6 +14,7 @@ from .manifest import Manifest, load_manifest
 
 _INTERNAL_DIRS = {"research", "strategy", "maintenance", "superpowers"}
 _PLACEHOLDER_RE = re.compile(r"\b(?:TODO|TBD|FIXME|XXX)\b")
+_SCHEME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*:")
 
 
 @dataclass(frozen=True)
@@ -49,6 +51,35 @@ def check_self_containment(repo_root: Path, generated_root: Path) -> list[Findin
                         path=path.relative_to(repo_root).as_posix(),
                         message=f"forbidden cross-surface link: {link.target}",
                         surface=surface,
+                    )
+                )
+    return findings
+
+
+def check_wiki_links(repo_root: Path, wiki_root: Path) -> list[Finding]:
+    findings: list[Finding] = []
+    resolved_root = wiki_root.resolve()
+    for path in sorted(wiki_root.rglob("*.md")):
+        for link in find_links(path.read_text(encoding="utf-8")):
+            raw_target = link.target.strip("<>")
+            target = unquote(raw_target.partition("#")[0])
+            if not target or _SCHEME_RE.match(target) or target.startswith("//"):
+                continue
+            candidate = (path.parent / target).resolve()
+            try:
+                candidate.relative_to(resolved_root)
+            except ValueError:
+                exists = False
+            else:
+                alternatives = [candidate, Path(f"{candidate}.md")]
+                exists = any(item.is_file() for item in alternatives)
+            if not exists:
+                findings.append(
+                    Finding(
+                        severity="error",
+                        path=path.relative_to(repo_root).as_posix(),
+                        message=f"missing local wiki target: {raw_target}",
+                        surface="wiki",
                     )
                 )
     return findings
@@ -111,6 +142,7 @@ def check(repo_root: Path, manifest_path: Path) -> list[Finding]:
     return [
         *canonical_drift,
         *check_self_containment(repo_root, repo_root / "generated"),
+        *check_wiki_links(repo_root, repo_root / "generated" / "wiki"),
         *check_completeness(manifest, repo_root),
         *check_placeholders(repo_root),
     ]
