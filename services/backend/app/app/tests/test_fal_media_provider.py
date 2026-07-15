@@ -808,6 +808,47 @@ def test_fal_image_submit_text2img_contract_unchanged(monkeypatch):
     }
 
 
+def test_fal_image_submit_preserves_explicit_zero_cfg(monkeypatch):
+    captured, _ = _submit_image_operation(
+        monkeypatch,
+        {
+            "prompt": "zero-value contract",
+            "cfg": 0,
+        },
+    )
+    assert captured["arguments"]["guidance_scale"] == 0.0
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("width", 63),
+        ("width", 4097),
+        ("width", 512.5),
+        ("height", 63),
+        ("height", 4097),
+        ("steps", 0),
+        ("steps", 151),
+        ("steps", 1.5),
+        ("num_images", 0),
+        ("num_images", 5),
+        ("cfg", -1),
+        ("cfg", 31),
+        ("cfg", True),
+        ("cfg", float("nan")),
+        ("cfg", float("inf")),
+    ),
+)
+def test_fal_image_submit_rejects_invalid_numeric_values(
+    monkeypatch, field, value
+):
+    with pytest.raises(ValueError, match="FAL image"):
+        _submit_image_operation(
+            monkeypatch,
+            {"prompt": "invalid numeric contract", field: value},
+        )
+
+
 def test_fal_image_submit_accepts_nested_image_size_fallback(monkeypatch):
     """#453 (secondary): a nested image_size object no longer silently
     defaults to 512x512; flat width/height keys still win when both present."""

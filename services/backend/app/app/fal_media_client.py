@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import os
 import threading
 import uuid
@@ -10,6 +11,42 @@ import media_registry
 
 
 _FAL_ENV_LOCK = threading.Lock()
+
+
+def _first_not_none(*values: Any) -> Any:
+    return next((value for value in values if value is not None), None)
+
+
+def _bounded_int(name: str, value: Any, minimum: int, maximum: int) -> int:
+    if isinstance(value, bool):
+        raise ValueError(f"FAL image {name} must be an integer")
+    try:
+        numeric = float(value)
+        converted = int(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(f"FAL image {name} must be an integer") from exc
+    if not math.isfinite(numeric) or numeric != converted:
+        raise ValueError(f"FAL image {name} must be a finite integer")
+    if not minimum <= converted <= maximum:
+        raise ValueError(
+            f"FAL image {name} must be between {minimum} and {maximum}"
+        )
+    return converted
+
+
+def _bounded_float(name: str, value: Any, minimum: float, maximum: float) -> float:
+    if isinstance(value, bool):
+        raise ValueError(f"FAL image {name} must be a number")
+    try:
+        converted = float(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(f"FAL image {name} must be a number") from exc
+    if not math.isfinite(converted) or not minimum <= converted <= maximum:
+        raise ValueError(
+            f"FAL image {name} must be a finite number between "
+            f"{minimum:g} and {maximum:g}"
+        )
+    return converted
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -218,16 +255,45 @@ class FalClient:
         nested_size = input_payload.get("image_size")
         if not isinstance(nested_size, dict):
             nested_size = {}
-        width = int(input_payload.get("width") or nested_size.get("width") or 512)
-        height = int(input_payload.get("height") or nested_size.get("height") or 512)
-        steps = int(input_payload.get("steps") or 20)
-        cfg = float(input_payload.get("cfg") or input_payload.get("guidance_scale") or 7.0)
+        width = _bounded_int(
+            "width",
+            _first_not_none(
+                input_payload.get("width"), nested_size.get("width"), 512
+            ),
+            64,
+            4096,
+        )
+        height = _bounded_int(
+            "height",
+            _first_not_none(
+                input_payload.get("height"), nested_size.get("height"), 512
+            ),
+            64,
+            4096,
+        )
+        steps = _bounded_int(
+            "steps", _first_not_none(input_payload.get("steps"), 20), 1, 150
+        )
+        cfg = _bounded_float(
+            "cfg",
+            _first_not_none(
+                input_payload.get("cfg"), input_payload.get("guidance_scale"), 7.0
+            ),
+            0,
+            30,
+        )
+        num_images = _bounded_int(
+            "num_images",
+            _first_not_none(input_payload.get("num_images"), 1),
+            1,
+            4,
+        )
         arguments: Dict[str, Any] = {
             "prompt": input_payload["prompt"],
             "image_size": {"width": width, "height": height},
             "num_inference_steps": steps,
             "guidance_scale": cfg,
-            "num_images": int(input_payload.get("num_images") or 1),
+            "num_images": num_images,
             "enable_safety_checker": self.enable_safety_checker,
             "output_format": self.output_format,
         }

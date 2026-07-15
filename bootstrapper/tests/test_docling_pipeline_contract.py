@@ -76,6 +76,21 @@ def test_chunk_defaults_honor_environment_and_reject_invalid_pairs():
             raise AssertionError(f"invalid chunk defaults were accepted: {values}")
 
 
+def test_chunk_settings_reject_overlap_that_consumes_the_chunk():
+    pipeline = _load_pipeline_module()
+
+    assert pipeline.validate_chunk_settings(512, 50) == (512, 50)
+    for size, overlap in ((0, 0), (100, -1), (100, 100), (100, 101)):
+        try:
+            pipeline.validate_chunk_settings(size, overlap)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(
+                f"invalid request chunk settings were accepted: {(size, overlap)}"
+            )
+
+
 def test_both_docling_apis_use_manifest_owned_chunk_defaults():
     for relative in (
         "services/docling/provider/shared/api_server.py",
@@ -85,6 +100,8 @@ def test_both_docling_apis_use_manifest_owned_chunk_defaults():
         assert "resolve_chunk_defaults" in source
         assert "Form(default=_CHUNK_DEFAULTS.size" in source
         assert "Form(default=_CHUNK_DEFAULTS.overlap" in source
+        assert "validate_chunk_settings(chunk_size, chunk_overlap)" in source
+        assert "status_code=422" in source
         assert "chunk_size: int = Form(default=512)" not in source
         assert "chunk_overlap: int = Form(default=50)" not in source
 

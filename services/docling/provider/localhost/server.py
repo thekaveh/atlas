@@ -30,7 +30,7 @@ from typing import Literal
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from bounded_upload import EmptyUploadError, UploadTooLargeError, spool_upload
-from shared.pipeline_config import resolve_chunk_defaults
+from shared.pipeline_config import resolve_chunk_defaults, validate_chunk_settings
 
 _CHUNK_DEFAULTS = resolve_chunk_defaults()
 
@@ -87,6 +87,10 @@ async def convert_document(
     chunk_overlap: int = Form(default=_CHUNK_DEFAULTS.overlap, ge=0)
 ):
     """Convert documents to structured format"""
+    try:
+        validate_chunk_settings(chunk_size, chunk_overlap)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     tmp_path = None
     try:
         logger.info("Processing uploaded document")

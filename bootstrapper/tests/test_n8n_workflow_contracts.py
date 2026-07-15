@@ -227,6 +227,24 @@ def test_comfyui_workflows_preserve_numeric_boundaries() -> None:
     assert rejected.returncode != 0
     assert "Width must be between" in rejected.stderr
 
+    for field, value in (
+        ("width", "abc"),
+        ("height", {}),
+        ("steps", 1.5),
+        ("cfg", "abc"),
+    ):
+        malformed_payload = {
+            "prompt": "blue archive",
+            "width": 512,
+            "height": 512,
+            "steps": 20,
+            "cfg": 7,
+        }
+        malformed_payload[field] = value
+        malformed = _run_code_node(validate, input_payload=malformed_payload)
+        assert malformed.returncode != 0, (field, malformed.stdout)
+        assert "finite number" in malformed.stderr
+
     simple = _load(
         ROOT / "services/n8n/workflows-stage/workflows/comfyui-simple.json"
     )
@@ -238,6 +256,30 @@ def test_comfyui_workflows_preserve_numeric_boundaries() -> None:
     for name in ("width", "height", "steps", "cfg"):
         assert "??" in values[name]
         assert "||" not in values[name]
+
+
+def test_research_workflows_preserve_invalid_zero_loop_count() -> None:
+    simple = _load(
+        ROOT / "services/n8n/workflows-stage/workflows/research-simple.json"
+    )
+    request = next(node for node in simple["nodes"] if node["name"] == "Start Research")
+    values = {
+        entry["name"]: entry["value"]
+        for entry in request["parameters"]["bodyParameters"]["parameters"]
+    }
+    assert values["max_loops"] == (
+        "={{ $json.body?.max_loops ?? $json.max_loops ?? 3 }}"
+    )
+
+    batch = _load(
+        ROOT / "services/n8n/workflows-stage/workflows/research-batch.json"
+    )
+    processed = _run_code_node(
+        _code_node(batch, "Process Batch Request"),
+        input_payload={"queries": [{"query": "atlas", "max_loops": 0}]},
+    )
+    assert processed.returncode == 0, processed.stderr
+    assert json.loads(processed.stdout)[0]["max_loops"] == 0
 
 
 def test_comfyui_workflows_preserve_fal_artifact_urls() -> None:
