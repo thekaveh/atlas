@@ -220,6 +220,17 @@ def build_export(
                 out.append(ExportField(f"{prefix}_KONG_ENDPOINT", kong))
 
     out.extend(_storage_fields(env, with_secrets=with_secrets))
+
+    # The managed Apple-Silicon/MPS ComfyUI source runs as a host process that
+    # writes generated images to a host filesystem path (the native process's
+    # output dir = ``$COMFYUI_MPS_STATE_DIR/ComfyUI/output``). Surface it so
+    # consumers reading images off disk don't hardcode the internal layout (#612).
+    # Other ComfyUI sources write into a container volume / unknown host path,
+    # so the field is emitted only for managed-localhost-mps.
+    if env.get("COMFYUI_SOURCE", "").strip() == "managed-localhost-mps":
+        state_dir = env.get("COMFYUI_MPS_STATE_DIR", "").strip() or "~/.atlas/comfyui-mps"
+        out.append(ExportField("ATLAS_COMFYUI_OUTPUT_DIR", f"{state_dir}/ComfyUI/output"))
+
     return out
 
 
