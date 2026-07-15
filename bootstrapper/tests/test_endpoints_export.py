@@ -293,3 +293,33 @@ def test_cli_export_json_to_output_file(tmp_path: Path, monkeypatch: pytest.Monk
     assert result.exit_code == 0, result.output
     obj = json.loads(out.read_text(encoding="utf-8"))
     assert obj["ATLAS_LITELLM_CONTAINER_ENDPOINT"] == "http://litellm:4000"
+
+
+# ── #612: surface the managed-localhost-mps output dir ──────────────────────
+def test_comfyui_output_dir_emitted_for_managed_localhost_mps() -> None:
+    """Under the managed-MPS source, the host output dir is a known filesystem
+    path consumers read images from — surface it (don't make them hardcode it)."""
+    env = _base_env()
+    env["COMFYUI_SOURCE"] = "managed-localhost-mps"
+    d = _as_dict(build_export(env))
+    assert d["ATLAS_COMFYUI_OUTPUT_DIR"] == "~/.atlas/comfyui-mps/ComfyUI/output"
+
+
+def test_comfyui_output_dir_respects_state_dir_override() -> None:
+    env = _base_env()
+    env["COMFYUI_SOURCE"] = "managed-localhost-mps"
+    env["COMFYUI_MPS_STATE_DIR"] = "/opt/atlas/comfyui-mps"
+    d = _as_dict(build_export(env))
+    assert d["ATLAS_COMFYUI_OUTPUT_DIR"] == "/opt/atlas/comfyui-mps/ComfyUI/output"
+
+
+def test_comfyui_output_dir_absent_for_container_and_localhost_sources() -> None:
+    """Container outputs land in a Docker volume; localhost output dir is the
+    user's unknown ComfyUI install — neither is a known host path to surface."""
+    for source in ("container", "container-cpu", "localhost", "disabled"):
+        env = _base_env()
+        env["COMFYUI_SOURCE"] = source
+        d = _as_dict(build_export(env))
+        assert "ATLAS_COMFYUI_OUTPUT_DIR" not in d, (
+            f"output dir should not be surfaced for COMFYUI_SOURCE={source}"
+        )
