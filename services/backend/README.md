@@ -46,6 +46,7 @@ BACKEND_INTERNAL_API_TOKEN=       # auto-generated; full operator scope
 BACKEND_N8N_API_TOKEN=            # auto-generated; n8n workflow scope
 BACKEND_NOTEBOOK_API_TOKEN=       # auto-generated; stateless notebook routes only
 BACKEND_OPEN_WEBUI_API_TOKEN=     # auto-generated; memory/legacy ComfyUI scope
+COMFYUI_MAX_IMAGE_BYTES=20971520  # bounded ComfyUI image proxy response
 SUPABASE_JWT_SECRET=              # verifies authenticated Supabase user JWTs
 ```
 
@@ -228,7 +229,7 @@ Research sessions use Supabase as their durable state boundary. Session creation
 
 **Graphiti experiment status:** `GET /memory/graphiti/status` returns the disabled-by-default experiment configuration and namespace pattern without importing `graphiti-core` or writing to Neo4j. Treat it as a readiness/contract endpoint for future backend-only Graphiti work, not as an active memory writer.
 
-**Hosted media gateway:** `POST /media/generate` is the provider-neutral submission surface for hosted creative generation. It dispatches by `provider`, `modality`, and `model`; today the registry includes FAL image generation and returns an operation id without blocking on long-running provider work. `GET /media/operations/{operation_id}` polls provider status and normalizes completed artifacts; `POST /media/operations/{operation_id}/cancel` stops an in-flight operation and releases its budget reservation (#518). The older `POST /comfyui/generate` route remains a compatibility surface for simple image calls and still routes to FAL when `FAL_SOURCE=enabled`; ComfyUI workflow/history/queue/image-file routes remain ComfyUI-specific.
+**Hosted media gateway:** `POST /media/generate` is the provider-neutral submission surface for hosted creative generation. It dispatches by `provider`, `modality`, and `model`; today the registry includes FAL image generation and returns an operation id without blocking on long-running provider work. `GET /media/operations/{operation_id}` polls provider status and normalizes completed artifacts; `POST /media/operations/{operation_id}/cancel` stops an in-flight operation and releases its budget reservation (#518). The older `POST /comfyui/generate` route remains a compatibility surface for simple image calls and still routes to FAL when `FAL_SOURCE=enabled`; ComfyUI workflow/history/queue/image-file routes remain ComfyUI-specific. Image proxy downloads stream into a `COMFYUI_MAX_IMAGE_BYTES` bounded buffer, while the Open WebUI tool returns the artifact filename instead of embedding arbitrary base64 bytes in model context.
 
 **RAG chunking gateway:** `POST /api/chunk` centralizes Chonkie text splitting in the Backend. n8n workflows, notebooks, and future ingestion routes should call this endpoint so chunking defaults, offsets, overlap behavior, and semantic model selection stay consistent across Atlas. JupyterHub also installs Chonkie for exploratory notebook work, but the Backend endpoint is the canonical runtime API.
 

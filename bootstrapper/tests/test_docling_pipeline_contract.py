@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 import importlib.util
 from pathlib import Path
 
@@ -88,3 +89,23 @@ def test_provider_health_uses_converter_status():
     ).read_text(encoding="utf-8")
     assert 'models_loaded=["DocumentConverter"] if ready else []' in api_source
     assert 'models_loaded=["DocLayNet", "TableFormer"]' not in api_source
+
+
+def test_converter_construction_is_single_flight_across_threads(monkeypatch):
+    pipeline = _load_pipeline_module()
+    settings = pipeline.resolve_pipeline_settings()
+    calls = 0
+
+    def construct(_settings):
+        nonlocal calls
+        calls += 1
+        return object()
+
+    monkeypatch.setattr(pipeline, "_construct_converter", construct)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first, second = list(
+            executor.map(pipeline.build_converter, [settings, settings])
+        )
+
+    assert first is second
+    assert calls == 1

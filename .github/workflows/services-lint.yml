@@ -94,7 +94,7 @@ jobs:
           # drift from the application or pytest plugin contracts.
           VIRTUAL_ENV="$BACKEND_TEST_VENV" uv pip install \
             -r requirements.txt -r requirements-dev.txt
-          "$BACKEND_TEST_VENV/bin/python" -m pytest tests/ -q
+          "$BACKEND_TEST_VENV/bin/python" -m pytest tests/ -q -W error
 
       - name: Asset processor API tests
         run: |

@@ -110,4 +110,4 @@ def test_every_open_webui_backend_request_sends_internal_bearer() -> None:
             assert "headers" in {kw.arg for kw in node.keywords}, (
                 f"{path.name}:{node.lineno} lacks backend auth headers"
             )
-    assert found == 11
+    assert found == 10

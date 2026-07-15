@@ -1863,7 +1863,7 @@ async def generate_image(request: ComfyUIGenerateRequest):
             if not result.get("success"):
                 return ComfyUIResponse(
                     success=False,
-                    error=result.get("error", "Unknown error")
+                    error="ComfyUI generation failed"
                 )
             
             prompt_id = result["prompt_id"]

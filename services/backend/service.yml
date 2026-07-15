@@ -24,6 +24,9 @@ env:
   - name: MAX_UPLOAD_BYTES
     default: 104857600
     description: "Maximum accepted /storage/upload body size in bytes before the backend returns 413."
+  - name: COMFYUI_MAX_IMAGE_BYTES
+    default: 20971520
+    description: "Maximum generated-image response bytes accepted from ComfyUI before the Backend aborts the download."
   - name: RAG_INGESTION_MAX_FILE_BYTES
     default: 104857600
     description: "Maximum bytes loaded from any single mounted or MinIO RAG corpus file. Oversize files fail ingestion before unbounded allocation."

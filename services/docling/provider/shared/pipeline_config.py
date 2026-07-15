@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from functools import lru_cache
+import threading
 from typing import NamedTuple
 
 
@@ -57,8 +57,17 @@ def resolve_pipeline_settings(
     )
 
 
-@lru_cache(maxsize=32)
 def build_converter(settings: PipelineSettings):
+    with _converter_lock:
+        cached = _converters.get(settings)
+        if cached is not None:
+            return cached
+        converter = _construct_converter(settings)
+        _converters[settings] = converter
+        return converter
+
+
+def _construct_converter(settings: PipelineSettings):
     from docling.datamodel.base_models import InputFormat
     from docling.datamodel.pipeline_options import (
         AcceleratorDevice,
@@ -83,6 +92,10 @@ def build_converter(settings: PipelineSettings):
             InputFormat.PDF: PdfFormatOption(pipeline_options=options),
         }
     )
+
+
+_converter_lock = threading.Lock()
+_converters: dict[PipelineSettings, object] = {}
 
 
 _readiness_tasks: dict[PipelineSettings, asyncio.Task] = {}

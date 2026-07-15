@@ -91,7 +91,7 @@ class Tools:
 
             health_data = health_resp.json()
             if health_data.get("status") != "healthy":
-                return f"❌ ComfyUI service is unhealthy: {health_data.get('error', 'Unknown error')}"
+                return "❌ ComfyUI service is unavailable. Please try again later."
 
             # Prepare generation request
             generation_data = {
@@ -122,7 +122,7 @@ class Tools:
             result = resp.json()
 
             if not result.get("success"):
-                return f"❌ Generation failed: {result.get('error', 'Unknown error')}"
+                return "❌ Generation failed. Please try again later."
 
             # Extract generation info
             prompt_id = result.get("prompt_id")
@@ -158,33 +158,9 @@ class Tools:
                             if isinstance(first_image, dict):
                                 filename = first_image.get("filename")
                                 if filename:
-                                    # Try to get the image data via backend
-                                    try:
-                                        img_resp = requests.get(
-                                            f"{self.valves.backend_url}/comfyui/image/{filename}",
-                                            headers=self._backend_headers(),
-                                            timeout=30,
-                                        )
-                                        if img_resp.status_code == 200:
-                                            import base64
-
-                                            img_b64 = base64.b64encode(
-                                                img_resp.content
-                                            ).decode("utf-8")
-                                            content_type = img_resp.headers.get(
-                                                "content-type", "image/png"
-                                            )
-                                            output.append(
-                                                f"\n![Generated Image](data:{content_type};base64,{img_b64})"
-                                            )
-                                        else:
-                                            output.append(
-                                                f"\n**Image available:** {filename} (access via ComfyUI interface)"
-                                            )
-                                    except Exception:
-                                        output.append(
-                                            f"\n**Image generated:** {filename} (preview unavailable)"
-                                        )
+                                    output.append(
+                                        f"\n**Image available:** {filename} (access via ComfyUI interface)"
+                                    )
                                 break
             else:
                 output.append(
@@ -299,8 +275,6 @@ class Tools:
                 output.append("✅ **Health Check:** Healthy")
             else:
                 output.append(f"⚠️ **Health Check:** {status}")
-                if "error" in health_data:
-                    output.append(f"- Error: {health_data['error']}")
 
             # Check queue status
             try:
@@ -331,7 +305,6 @@ class Tools:
                 output.append("\n⚠️ **Queue Status:** Unavailable")
 
             output.append(f"\n🔧 **Configuration:**")
-            output.append(f"- Backend URL: {self.valves.backend_url}")
             output.append(f"- Timeout: {self.valves.timeout}s")
             output.append(
                 f"- Default Size: {self.valves.default_width}×{self.valves.default_height}"

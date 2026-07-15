@@ -69,7 +69,7 @@ function request(method, path, opts) {
       { method, hostname: u.hostname, port: u.port, path: u.pathname + u.search, headers },
       (res) => {
         response = res;
-        let data = '';
+        const chunks = [];
         let received = 0;
         const declared = Number.parseInt(res.headers['content-length'] || '', 10);
         if (Number.isFinite(declared) && declared > MAX_RESPONSE_BYTES) {
@@ -84,9 +84,12 @@ function request(method, path, opts) {
             finish({ status: 0, body: '' });
             return;
           }
-          data += c;
+          chunks.push(c);
         });
-        res.on('end', () => finish({ status: res.statusCode || 0, body: data }));
+        res.on('end', () => finish({
+          status: res.statusCode || 0,
+          body: Buffer.concat(chunks, received).toString('utf8'),
+        }));
         res.on('error', () => finish({ status: 0, body: '' }));
       }
     );

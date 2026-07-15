@@ -15,6 +15,9 @@ class ComfyUIClient:
     def __init__(self, base_url: Optional[str] = None):
         self.base_url = base_url or os.getenv("COMFYUI_BASE_URL", "http://comfyui:18188")
         self.base_url = self.base_url.rstrip('/')
+        self.max_image_bytes = int(os.getenv("COMFYUI_MAX_IMAGE_BYTES", "20971520"))
+        if self.max_image_bytes <= 0:
+            raise ValueError("COMFYUI_MAX_IMAGE_BYTES must be positive")
         # connect=5 fails fast on a down ComfyUI (single budget=60 would
         # wait the full minute before reporting unhealthy); read=60 keeps
         # the long budget for image-generation HTTP rounds that legitimately
@@ -39,11 +42,11 @@ class ComfyUIClient:
                 "response_time": response.elapsed.total_seconds(),
                 "system_stats": response.json()
             }
-        except Exception as e:
-            logger.error(f"ComfyUI health check failed: {str(e)}")
+        except Exception as exc:
+            logger.error("ComfyUI health check failed (error_type=%s)", type(exc).__name__)
             return {
                 "status": "unhealthy",
-                "error": str(e)
+                "error": "ComfyUI is unavailable"
             }
     
     async def get_models(self) -> Dict[str, List[str]]:
@@ -81,8 +84,8 @@ class ComfyUIClient:
             
             return models
             
-        except Exception as e:
-            logger.error(f"Failed to get models from ComfyUI: {str(e)}")
+        except Exception as exc:
+            logger.error("Failed to get ComfyUI models (error_type=%s)", type(exc).__name__)
             return {}
     
     async def queue_prompt(self, workflow: Dict[str, Any]) -> Dict[str, Any]:
@@ -110,11 +113,11 @@ class ComfyUIClient:
                 "number": result.get("number")
             }
             
-        except Exception as e:
-            logger.error(f"Failed to queue prompt: {str(e)}")
+        except Exception as exc:
+            logger.error("Failed to queue prompt (error_type=%s)", type(exc).__name__)
             return {
                 "success": False,
-                "error": str(e)
+                "error": "ComfyUI prompt submission failed"
             }
     
     async def get_history(self, prompt_id: Optional[str] = None) -> Dict[str, Any]:
@@ -128,8 +131,8 @@ class ComfyUIClient:
             response.raise_for_status()
             return response.json()
             
-        except Exception as e:
-            logger.error(f"Failed to get history: {str(e)}")
+        except Exception as exc:
+            logger.error("Failed to get history (error_type=%s)", type(exc).__name__)
             return {}
     
     async def get_queue_status(self) -> Dict[str, Any]:
@@ -139,8 +142,8 @@ class ComfyUIClient:
             response.raise_for_status()
             return response.json()
             
-        except Exception as e:
-            logger.error(f"Failed to get queue status: {str(e)}")
+        except Exception as exc:
+            logger.error("Failed to get queue status (error_type=%s)", type(exc).__name__)
             return {}
     
     async def cancel_prompt(self, prompt_id: str) -> bool:
@@ -168,8 +171,8 @@ class ComfyUIClient:
                 response.raise_for_status()
             return True
             
-        except Exception as e:
-            logger.error(f"Failed to cancel prompt {prompt_id}: {str(e)}")
+        except Exception as exc:
+            logger.error("Failed to cancel prompt (error_type=%s)", type(exc).__name__)
             return False
     
     async def generate_simple_image(
@@ -303,7 +306,7 @@ class ComfyUIClient:
                 if "status" in prompt_history and prompt_history["status"].get("status_str") == "error":
                     return {
                         "success": False,
-                        "error": prompt_history["status"].get("messages", []),
+                        "error": "ComfyUI generation failed",
                         "prompt_id": prompt_id
                     }
             
@@ -320,10 +323,20 @@ class ComfyUIClient:
             if subfolder:
                 params["subfolder"] = subfolder
             
-            response = await self.client.get(f"{self.base_url}/view", params=params)
-            response.raise_for_status()
-            return response.content
+            chunks = bytearray()
+            async with self.client.stream(
+                "GET", f"{self.base_url}/view", params=params
+            ) as response:
+                response.raise_for_status()
+                declared = response.headers.get("content-length")
+                if declared and int(declared) > self.max_image_bytes:
+                    raise ValueError("ComfyUI image exceeds configured byte limit")
+                async for chunk in response.aiter_bytes():
+                    if len(chunks) + len(chunk) > self.max_image_bytes:
+                        raise ValueError("ComfyUI image exceeds configured byte limit")
+                    chunks.extend(chunk)
+            return bytes(chunks)
             
-        except Exception as e:
-            logger.error(f"Failed to get image data: {str(e)}")
+        except Exception as exc:
+            logger.error("Failed to get image data (error_type=%s)", type(exc).__name__)
             raise

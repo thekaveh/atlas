@@ -85,6 +85,21 @@ class _OversizedBodyHandler(BaseHTTPRequestHandler):
         pass
 
 
+class _Utf8SplitHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Transfer-Encoding", "chunked")
+        self.end_headers()
+        for chunk in (b'{"name":"caf\xc3', b'\xa9"}'):
+            self.wfile.write(f"{len(chunk):x}\r\n".encode() + chunk + b"\r\n")
+            self.wfile.flush()
+            time.sleep(0.03)
+        self.wfile.write(b"0\r\n\r\n")
+
+    def log_message(self, *_args):
+        pass
+
+
 def test_http_request_timeout_terminates_stalled_peer():
     node = shutil.which("node")
     if not node:
@@ -248,3 +263,32 @@ def test_http_response_body_limit_covers_fixed_and_chunked_responses(chunked):
 
     assert result.returncode == 0
     assert result.stdout == "0:0"
+
+
+def test_http_response_decodes_split_utf8_once():
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is unavailable")
+    with ThreadingHTTPServer(("127.0.0.1", 0), _Utf8SplitHandler) as server:
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        env = {
+            **os.environ,
+            "N8N_SEED_BASE_URL": f"http://127.0.0.1:{server.server_address[1]}",
+        }
+        result = subprocess.run(
+            [
+                node,
+                "-e",
+                f"require({str(SEEDER)!r}).request('GET', '/utf8').then(r => "
+                "process.stdout.write(r.body))",
+            ],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+        server.shutdown()
+
+    assert result.returncode == 0
+    assert result.stdout == '{"name":"café"}'

@@ -15,6 +15,12 @@ def test_registered_tools_do_not_return_raw_error_details():
         "error_data.get('detail'",
         'error_data.get("detail"',
         "Raw response:",
+        "result.get('error'",
+        'result.get("error"',
+        "health_data['error']",
+        'health_data["error"]',
+        "Backend URL:",
+        "base64.b64encode",
     )
     findings = []
     for path in sorted(TOOLS.glob("*.py")):
