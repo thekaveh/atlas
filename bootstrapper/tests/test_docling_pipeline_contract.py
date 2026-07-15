@@ -18,6 +18,14 @@ def _load_pipeline_module():
     return module
 
 
+def _load_module(path: Path, name: str):
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
 def test_pipeline_settings_honor_request_and_environment_contracts():
     pipeline = _load_pipeline_module()
 
@@ -80,7 +88,13 @@ def test_chunk_settings_reject_overlap_that_consumes_the_chunk():
     pipeline = _load_pipeline_module()
 
     assert pipeline.validate_chunk_settings(512, 50) == (512, 50)
-    for size, overlap in ((0, 0), (100, -1), (100, 100), (100, 101)):
+    for size, overlap in (
+        (0, 0),
+        (100, -1),
+        (100, 51),
+        (100, 100),
+        (100, 101),
+    ):
         try:
             pipeline.validate_chunk_settings(size, overlap)
         except ValueError:
@@ -89,6 +103,24 @@ def test_chunk_settings_reject_overlap_that_consumes_the_chunk():
             raise AssertionError(
                 f"invalid request chunk settings were accepted: {(size, overlap)}"
             )
+
+
+def test_both_chunkers_bound_overlap_and_total_chunk_count():
+    for relative, name in (
+        ("services/docling/provider/shared/utils.py", "docling_shared_utils"),
+        ("services/docling/provider/localhost/utils.py", "docling_local_utils"),
+    ):
+        utils = _load_module(ROOT / relative, name)
+        chunks = utils.chunk_text("x" * 10_000, 512, 511)
+        assert len(chunks) == 20
+
+        utils.MAX_CHUNKS = 5
+        try:
+            utils.chunk_text("abcdef", 1, 0)
+        except utils.ChunkLimitError:
+            pass
+        else:
+            raise AssertionError(f"{relative} accepted more than MAX_CHUNKS")
 
 
 def test_both_docling_apis_use_manifest_owned_chunk_defaults():
@@ -102,6 +134,8 @@ def test_both_docling_apis_use_manifest_owned_chunk_defaults():
         assert "Form(default=_CHUNK_DEFAULTS.overlap" in source
         assert "validate_chunk_settings(chunk_size, chunk_overlap)" in source
         assert "status_code=422" in source
+        assert "except ChunkLimitError" in source
+        assert "status_code=413" in source
         assert "chunk_size: int = Form(default=512)" not in source
         assert "chunk_overlap: int = Form(default=50)" not in source
 

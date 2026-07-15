@@ -11,10 +11,31 @@ import media_registry
 
 
 _FAL_ENV_LOCK = threading.Lock()
+_DEFAULT_IMAGE_MODEL = "fal-ai/flux/dev"
+_DEFAULT_IMAGE_TO_IMAGE_MODEL = "fal-ai/flux/dev/image-to-image"
 
 
 def _first_not_none(*values: Any) -> Any:
     return next((value for value in values if value is not None), None)
+
+
+def validate_image_prompt(value: Any) -> str:
+    if not isinstance(value, str) or not value.strip() or len(value) > 4000:
+        raise ValueError(
+            "FAL image prompt must be a non-empty string of at most 4000 characters"
+        )
+    return value
+
+
+def _image_init_value(input_payload: Dict[str, Any]) -> Optional[str]:
+    for key in ("image_url", "image", "init_image"):
+        value = input_payload.get(key)
+        if value is None:
+            continue
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"FAL image {key} must be a non-empty string")
+        return value.strip()
+    return None
 
 
 def _bounded_int(name: str, value: Any, minimum: int, maximum: int) -> int:
@@ -113,22 +134,19 @@ class FalClient:
         if not self.api_key:
             raise ValueError("FAL_API_KEY is required when FAL_SOURCE=enabled")
 
-        arguments: Dict[str, Any] = {
-            "prompt": prompt,
-            "image_size": {"width": width, "height": height},
-            "num_inference_steps": steps,
-            "guidance_scale": cfg,
-            "num_images": 1,
-            "enable_safety_checker": self.enable_safety_checker,
-            "output_format": self.output_format,
-        }
-        if seed is not None:
-            arguments["seed"] = seed
-        if negative_prompt:
-            # flux-family endpoints accept negative_prompt; only send it when
-            # the caller provided one, so models without the field still work
-            # (and the empty case matches the exact-arguments test contract).
-            arguments["negative_prompt"] = negative_prompt
+        arguments = self._image_arguments(
+            {
+                "prompt": prompt,
+                "negative_prompt": negative_prompt,
+                "width": width,
+                "height": height,
+                "steps": steps,
+                "cfg": cfg,
+                "seed": seed,
+            },
+            selected_model=self.model,
+            init_image=None,
+        )
 
         result = await self._call_blocking_with_timeout(
             self._subscribe, arguments
@@ -186,7 +204,14 @@ class FalClient:
         if modality == "image_to_3d":
             arguments = self._image_to_3d_arguments(input)
         else:
-            arguments = self._image_arguments(input)
+            init_image = _image_init_value(input)
+            if init_image is not None and selected_model == _DEFAULT_IMAGE_MODEL:
+                selected_model = _DEFAULT_IMAGE_TO_IMAGE_MODEL
+            arguments = self._image_arguments(
+                input,
+                selected_model=selected_model,
+                init_image=init_image,
+            )
         submitted = await self._call_blocking_with_timeout(
             self._submit, selected_model, arguments
         )
@@ -248,7 +273,13 @@ class FalClient:
             payload["raw"] = result_payload
         return payload
 
-    def _image_arguments(self, input_payload: Dict[str, Any]) -> Dict[str, Any]:
+    def _image_arguments(
+        self,
+        input_payload: Dict[str, Any],
+        *,
+        selected_model: str,
+        init_image: Optional[str],
+    ) -> Dict[str, Any]:
         # Size: flat width/height keys win; a nested `image_size` object is
         # accepted as a fallback (#453 — previously it was silently ignored
         # and the request defaulted to 512×512).
@@ -271,16 +302,25 @@ class FalClient:
             64,
             4096,
         )
+        if selected_model == _DEFAULT_IMAGE_TO_IMAGE_MODEL:
+            min_steps, max_steps, min_cfg, max_cfg = 10, 50, 1, 20
+        elif selected_model == _DEFAULT_IMAGE_MODEL:
+            min_steps, max_steps, min_cfg, max_cfg = 1, 50, 1, 20
+        else:
+            min_steps, max_steps, min_cfg, max_cfg = 1, 150, 0, 30
         steps = _bounded_int(
-            "steps", _first_not_none(input_payload.get("steps"), 20), 1, 150
+            "steps",
+            _first_not_none(input_payload.get("steps"), 20),
+            min_steps,
+            max_steps,
         )
         cfg = _bounded_float(
             "cfg",
             _first_not_none(
                 input_payload.get("cfg"), input_payload.get("guidance_scale"), 7.0
             ),
-            0,
-            30,
+            min_cfg,
+            max_cfg,
         )
         num_images = _bounded_int(
             "num_images",
@@ -289,7 +329,7 @@ class FalClient:
             4,
         )
         arguments: Dict[str, Any] = {
-            "prompt": input_payload["prompt"],
+            "prompt": validate_image_prompt(input_payload.get("prompt")),
             "image_size": {"width": width, "height": height},
             "num_inference_steps": steps,
             "guidance_scale": cfg,
@@ -301,21 +341,14 @@ class FalClient:
             arguments["seed"] = input_payload["seed"]
         if input_payload.get("negative_prompt"):
             arguments["negative_prompt"] = input_payload["negative_prompt"]
-        # img2img pass-through (#453): forward an init image (accepted under
-        # image_url / image / init_image) to FAL's img2img key — the same
-        # `image_url` convention _image_to_3d_arguments uses — plus the
-        # optional `strength` denoise knob. Previously these were silently
-        # dropped, degrading every img2img request to text2img.
-        init_image = None
-        for key in ("image_url", "image", "init_image"):
-            value = input_payload.get(key)
-            if isinstance(value, str) and value.strip():
-                init_image = value.strip()
-                break
         if init_image is not None:
             arguments["image_url"] = init_image
             if input_payload.get("strength") is not None:
-                arguments["strength"] = float(input_payload["strength"])
+                arguments["strength"] = _bounded_float(
+                    "strength", input_payload["strength"], 0.01, 1
+                )
+        elif input_payload.get("strength") is not None:
+            raise ValueError("FAL image strength requires an init image")
         return arguments
 
     def _image_to_3d_arguments(self, input_payload: Dict[str, Any]) -> Dict[str, Any]:

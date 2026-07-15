@@ -726,7 +726,7 @@ def test_fal_client_image_to_3d_extracts_preview_and_textures(monkeypatch):
 
 
 # ── #453: img2img pass-through + nested image_size fallback ─────────────────
-def _submit_image_operation(monkeypatch, input_payload):
+def _submit_image_operation(monkeypatch, input_payload, *, model="fal-ai/flux/dev"):
     """Drive submit_media_operation(modality='image') with a stubbed fal_client
     and return the exact arguments dict handed to fal_client.submit."""
     captured = {}
@@ -746,7 +746,7 @@ def _submit_image_operation(monkeypatch, input_payload):
 
     client = FalClient(
         api_key="fal-key",
-        model="fal-ai/flux/dev",
+        model=model,
         output_format="jpeg",
         enable_safety_checker=True,
     )
@@ -770,10 +770,12 @@ def test_fal_image_submit_forwards_img2img_init_image_and_strength(monkeypatch):
         },
     )
     args = captured["arguments"]
+    assert captured["model"] == "fal-ai/flux/dev/image-to-image"
     assert args["image_url"] == "data:image/webp;base64,AAAA"
     assert args["strength"] == 0.4
     assert args["image_size"] == {"width": 1024, "height": 1024}
     assert submitted["status"] == "submitted"
+    assert submitted["model"] == "fal-ai/flux/dev/image-to-image"
 
 
 def test_fal_image_submit_accepts_image_and_init_image_aliases(monkeypatch):
@@ -815,8 +817,33 @@ def test_fal_image_submit_preserves_explicit_zero_cfg(monkeypatch):
             "prompt": "zero-value contract",
             "cfg": 0,
         },
+        model="fal-ai/custom-zero-guidance",
     )
     assert captured["arguments"]["guidance_scale"] == 0.0
+
+
+@pytest.mark.parametrize(
+    ("payload", "message"),
+    (
+        ({"steps": 51}, "steps"),
+        ({"cfg": 0}, "cfg"),
+        ({"image_url": "https://cdn.example/in.png", "steps": 9}, "steps"),
+        ({"image_url": "https://cdn.example/in.png", "strength": 0}, "strength"),
+        ({"image_url": "https://cdn.example/in.png", "strength": 1.1}, "strength"),
+        ({"image_url": "https://cdn.example/in.png", "strength": float("nan")}, "strength"),
+    ),
+)
+def test_default_fal_endpoints_reject_provider_invalid_controls(
+    monkeypatch, payload, message
+):
+    with pytest.raises(ValueError, match=message):
+        _submit_image_operation(monkeypatch, {"prompt": "bounded", **payload})
+
+
+@pytest.mark.parametrize("prompt", (None, "", "   ", {}, "x" * 4001))
+def test_fal_image_submit_rejects_invalid_prompt(monkeypatch, prompt):
+    with pytest.raises(ValueError, match="FAL image prompt"):
+        _submit_image_operation(monkeypatch, {"prompt": prompt})
 
 
 @pytest.mark.parametrize(

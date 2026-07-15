@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 from n8n_client import N8nClient
 from research_service import ResearchService
 from comfyui_client import ComfyUIClient
-from fal_media_client import FalClient
+from fal_media_client import FalClient, validate_image_prompt
 import media_registry
 from media_input import (
     ImageHostingError,
@@ -1433,11 +1433,17 @@ async def submit_media_generation(
         )
 
     # Cheap input validation first (clear 400s before any accounting work).
-    if modality == "image" and "prompt" not in request.input:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Media input must include prompt for modality=image",
-        )
+    if modality == "image":
+        try:
+            validate_image_prompt(request.input.get("prompt"))
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "Media image prompt must be a non-empty string of at most "
+                    "4000 characters"
+                ),
+            ) from exc
     if modality == "image_to_3d" and not request.input.get("image"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -1537,6 +1543,7 @@ async def submit_media_generation(
         )
 
     operation_id = str(payload["operation_id"])
+    submitted_model = str(payload.get("model") or model)
     # Re-key the reservation to the provider's operation id so poll-time
     # reconciliation can find it. The provider call already succeeded, so a
     # ledger bookkeeping hiccup here must not 500 the request or permanently
@@ -1557,7 +1564,7 @@ async def submit_media_generation(
         "operation_id": operation_id,
         "provider": provider,
         "modality": modality,
-        "model": model,
+        "model": submitted_model,
         "created_at_epoch": time.time(),
         "timeout_seconds": _media_timeout_seconds(request.timeout_seconds),
         "last_payload": payload,
@@ -1572,7 +1579,7 @@ async def submit_media_generation(
     except Exception as exc:
         provider_cancelled = await _cancel_unpersisted_media_operation(
             api_key=api_key,
-            model=model,
+            model=submitted_model,
             operation_id=operation_id,
             modality=modality,
         )

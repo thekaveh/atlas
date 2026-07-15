@@ -31,6 +31,7 @@ from typing import Literal
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from bounded_upload import EmptyUploadError, UploadTooLargeError, spool_upload
 from shared.pipeline_config import resolve_chunk_defaults, validate_chunk_settings
+from utils import ChunkLimitError
 
 _CHUNK_DEFAULTS = resolve_chunk_defaults()
 
@@ -116,6 +117,8 @@ async def convert_document(
         raise HTTPException(status_code=413, detail=str(e)) from e
     except EmptyUploadError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+    except ChunkLimitError as e:
+        raise HTTPException(status_code=413, detail=str(e)) from e
     except HTTPException:
         raise
     except Exception as exc:

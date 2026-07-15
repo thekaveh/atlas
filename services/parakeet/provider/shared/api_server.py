@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import os
 import logging
-from typing import Optional
+from typing import Literal, Optional
 
 from bounded_upload import EmptyUploadError, UploadTooLargeError, spool_upload
 

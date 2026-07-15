@@ -99,7 +99,7 @@ curl -X POST http://localhost:63051/v1/document/convert \
 | `DOCLING_CHUNK_SIZE` | Default chunk size for RAG | `512` |
 | `DOCLING_CHUNK_OVERLAP` | Default chunk overlap | `50` |
 
-Container and localhost providers stream uploads to bounded temporary files. Files larger than `DOCLING_MAX_FILE_SIZE` return `413`, empty uploads return `400`, and conversion failures return a non-success response so Backend fallback and ingestion logic cannot index an error message as document content.
+Container and localhost providers stream uploads to bounded temporary files. Files larger than `DOCLING_MAX_FILE_SIZE` return `413`, empty uploads return `400`, and conversion failures return a non-success response so Backend fallback and ingestion logic cannot index an error message as document content. Chunk overlap must be non-negative and no greater than half the chunk size. A conversion may return at most 10,000 chunks; requests that would exceed that response ceiling return `413`.
 
 ### 4.4. Localhost-Specific
 
@@ -134,7 +134,7 @@ curl -X POST http://localhost:63051/v1/document/convert \
 - `table_mode`: Table extraction quality (`accurate`, `fast`)
 - `enable_chunking`: Enable RAG chunking (boolean)
 - `chunk_size`: Size of each chunk in characters
-- `chunk_overlap`: Overlap between chunks in characters
+- `chunk_overlap`: Overlap between chunks in characters; no more than half of `chunk_size`
 
 **Response:**
 

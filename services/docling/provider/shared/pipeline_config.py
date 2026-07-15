@@ -30,9 +30,10 @@ class ChunkDefaults(NamedTuple):
 def validate_chunk_settings(size: int, overlap: int) -> ChunkDefaults:
     if size <= 0:
         raise ValueError("Docling chunk size must be positive")
-    if overlap < 0 or overlap >= size:
+    if overlap < 0 or overlap * 2 > size:
         raise ValueError(
-            "Docling chunk overlap must be non-negative and smaller than chunk size"
+            "Docling chunk overlap must be non-negative and no more than half "
+            "the chunk size"
         )
     return ChunkDefaults(size=size, overlap=overlap)
 

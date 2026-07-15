@@ -4,6 +4,7 @@
     {
       "parameters": {
         "httpMethod": "POST",
+        "authentication": "headerAuth",
         "path": "research-trigger",
         "responseMode": "responseNode",
         "options": {}
@@ -16,6 +17,12 @@
         240,
         300
       ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "atlas-webhook-header-auth",
+          "name": "Atlas Webhook Header Auth"
+        }
+      },
       "webhookId": "research-trigger"
     },
     {

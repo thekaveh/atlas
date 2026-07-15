@@ -214,6 +214,23 @@ def test_comfyui_workflows_preserve_numeric_boundaries() -> None:
     assert accepted.returncode == 0, accepted.stderr
     assert json.loads(accepted.stdout)["generationRequest"]["cfg"] == 0
 
+    wrapped = _run_code_node(
+        validate,
+        input_payload={
+            "body": {
+                "prompt": "wrapped blue archive",
+                "width": 768,
+                "height": 512,
+                "steps": 20,
+                "cfg": 0,
+            }
+        },
+    )
+    assert wrapped.returncode == 0, wrapped.stderr
+    assert json.loads(wrapped.stdout)["generationRequest"]["prompt"] == (
+        "wrapped blue archive"
+    )
+
     rejected = _run_code_node(
         validate,
         input_payload={
@@ -256,9 +273,11 @@ def test_comfyui_workflows_preserve_numeric_boundaries() -> None:
     for name in ("width", "height", "steps", "cfg"):
         assert "??" in values[name]
         assert "||" not in values[name]
+        assert "$json.body?." in values[name]
+    assert "$json.body?.prompt" in values["prompt"]
 
 
-def test_research_workflows_preserve_invalid_zero_loop_count() -> None:
+def test_research_workflows_do_not_default_invalid_zero_loop_count() -> None:
     simple = _load(
         ROOT / "services/n8n/workflows-stage/workflows/research-simple.json"
     )
@@ -278,8 +297,61 @@ def test_research_workflows_preserve_invalid_zero_loop_count() -> None:
         _code_node(batch, "Process Batch Request"),
         input_payload={"queries": [{"query": "atlas", "max_loops": 0}]},
     )
-    assert processed.returncode == 0, processed.stderr
-    assert json.loads(processed.stdout)[0]["max_loops"] == 0
+    assert processed.returncode != 0
+
+
+def test_research_batch_rejects_unbounded_or_invalid_requests() -> None:
+    workflow = _load(
+        ROOT / "services/n8n/workflows-stage/workflows/research-batch.json"
+    )
+    process = _code_node(workflow, "Process Batch Request")
+
+    accepted = _run_code_node(
+        process,
+        input_payload={
+            "body": {
+                "queries": [{"query": "atlas", "max_loops": 1}],
+                "config": {"search_api": "searxng"},
+            }
+        },
+    )
+    assert accepted.returncode == 0, accepted.stderr
+
+    invalid_payloads = (
+        {"queries": ["atlas"] * 26},
+        {"queries": ["   "]},
+        {"queries": [{"query": "atlas", "max_loops": 0}]},
+        {"queries": [{"query": "atlas", "search_api": "commercial"}]},
+    )
+    for payload in invalid_payloads:
+        rejected = _run_code_node(process, input_payload={"body": payload})
+        assert rejected.returncode != 0, payload
+
+
+def test_privileged_example_webhooks_require_header_auth() -> None:
+    filenames = (
+        "research-simple.json",
+        "research-batch.json",
+        "comfyui-image-generation.json",
+        "comfyui-simple.json",
+    )
+    expected = {
+        "httpHeaderAuth": {
+            "id": "atlas-webhook-header-auth",
+            "name": "Atlas Webhook Header Auth",
+        }
+    }
+    for filename in filenames:
+        workflow = _load(
+            ROOT / "services/n8n/workflows-stage/workflows" / filename
+        )
+        webhook = next(
+            node
+            for node in workflow["nodes"]
+            if node["type"] == "n8n-nodes-base.webhook"
+        )
+        assert webhook["parameters"]["authentication"] == "headerAuth"
+        assert webhook["credentials"] == expected
 
 
 def test_comfyui_workflows_preserve_fal_artifact_urls() -> None:
@@ -335,11 +407,12 @@ def test_comfyui_workflows_preserve_fal_artifact_urls() -> None:
     formatted = _run_code_node(
         _code_node(simple, "Format Response"),
         input_payload=fal_result,
-        references={"Simple ComfyUI Webhook": {"prompt": "blue archive"}},
+        references={"Simple ComfyUI Webhook": {"body": {"prompt": "blue archive"}}},
     )
     assert formatted.returncode == 0, formatted.stderr
     simple_result = json.loads(formatted.stdout)
     assert simple_result["image_count"] == 1
+    assert simple_result["prompt"] == "blue archive"
     assert simple_result["generated_images"][0]["url"] == (
         "https://cdn.example/fal.png"
     )

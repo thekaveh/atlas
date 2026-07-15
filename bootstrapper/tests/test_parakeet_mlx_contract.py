@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import importlib.util
 from pathlib import Path
 from types import SimpleNamespace
@@ -70,6 +71,17 @@ def test_response_format_contract_is_provider_consistent():
         assert expected in source
     stt_guide = (ROOT / "services/stt-provider/README.md").read_text()
     assert "optional: json, text, verbose_json" in stt_guide
+
+
+def test_shared_api_declares_runtime_annotation_imports():
+    tree = ast.parse(SHARED_API.read_text(encoding="utf-8"))
+    typing_names = {
+        alias.name
+        for node in tree.body
+        if isinstance(node, ast.ImportFrom) and node.module == "typing"
+        for alias in node.names
+    }
+    assert {"Literal", "Optional"} <= typing_names
 
 
 def test_cold_health_starts_loading_without_waiting_for_it():

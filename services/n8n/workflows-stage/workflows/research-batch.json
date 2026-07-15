@@ -4,6 +4,7 @@
     {
       "parameters": {
         "httpMethod": "POST",
+        "authentication": "headerAuth",
         "path": "batch-research",
         "responseMode": "responseNode",
         "options": {}
@@ -16,11 +17,17 @@
         240,
         300
       ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "atlas-webhook-header-auth",
+          "name": "Atlas Webhook Header Auth"
+        }
+      },
       "webhookId": "batch-research"
     },
     {
       "parameters": {
-        "jsCode": "// Process batch research request and carry batch state on every item.\nconst webhook = $input.first().json;\nconst request = webhook.body || webhook;\nconst queries = request.queries || [];\nconst config = request.config || {};\n\nif (!Array.isArray(queries) || queries.length === 0) {\n  throw new Error('queries array is required and must not be empty');\n}\n\nconst batchId = Date.now().toString();\nconst startedAt = new Date().toISOString();\nreturn queries.map((entry, index) => {\n  const query = typeof entry === 'string' ? { query: entry } : entry;\n  return {\n    batchId,\n    totalQueries: queries.length,\n    startedAt,\n    index,\n    query: query.query,\n    max_loops: query.max_loops ?? config.max_loops ?? 3,\n    search_api: query.search_api || config.search_api || 'searxng',\n    user_id: query.user_id || config.user_id || null\n  };\n});"
+        "jsCode": "// Process batch research request and carry batch state on every item.\nconst webhook = $input.first().json;\nconst request = webhook.body || webhook;\nconst queries = request.queries ?? [];\nconst config = request.config ?? {};\n\nif (!Array.isArray(queries) || queries.length === 0) {\n  throw new Error('queries array is required and must not be empty');\n}\nif (queries.length > 25) {\n  throw new Error('queries array must contain at most 25 entries');\n}\nif (!config || typeof config !== 'object' || Array.isArray(config)) {\n  throw new Error('config must be an object');\n}\n\nconst allowedSearchApis = new Set(['duckduckgo', 'searxng']);\nconst batchId = Date.now().toString();\nconst startedAt = new Date().toISOString();\nreturn queries.map((entry, index) => {\n  const query = typeof entry === 'string' ? { query: entry } : entry;\n  if (!query || typeof query !== 'object' || Array.isArray(query)) {\n    throw new Error(`query ${index} must be a string or object`);\n  }\n  if (typeof query.query !== 'string' || !query.query.trim() || query.query.length > 4000) {\n    throw new Error(`query ${index} text must contain 1 to 4000 characters`);\n  }\n  const maxLoops = query.max_loops ?? config.max_loops ?? 3;\n  if (!Number.isInteger(maxLoops) || maxLoops < 1 || maxLoops > 10) {\n    throw new Error(`query ${index} max_loops must be an integer from 1 to 10`);\n  }\n  const searchApi = query.search_api ?? config.search_api ?? 'searxng';\n  if (!allowedSearchApis.has(searchApi)) {\n    throw new Error(`query ${index} search_api must be duckduckgo or searxng`);\n  }\n  return {\n    batchId,\n    totalQueries: queries.length,\n    startedAt,\n    index,\n    query: query.query,\n    max_loops: maxLoops,\n    search_api: searchApi,\n    user_id: query.user_id ?? config.user_id ?? null\n  };\n});"
       },
       "id": "b3c4d5e6-f7g8-h9i0-j1k2-l3m4n5o6p7q8",
       "name": "Process Batch Request",

@@ -201,6 +201,34 @@ def test_media_generate_rejects_unsupported_modality_before_provider_call(monkey
     assert "Unsupported media route" in response.json()["detail"]
 
 
+@pytest.mark.parametrize(
+    "input_payload",
+    ({}, {"prompt": ""}, {"prompt": "   "}, {"prompt": {}}, {"prompt": "x" * 4001}),
+)
+def test_media_generate_rejects_invalid_prompt_before_provider_call(
+    monkeypatch, input_payload
+):
+    main = _fresh_main(monkeypatch)
+
+    class ExplodingFalClient:
+        def __init__(self, *args, **kwargs):
+            raise AssertionError("invalid prompts must not initialize FalClient")
+
+    monkeypatch.setattr(main, "FalClient", ExplodingFalClient, raising=False)
+
+    from fastapi.testclient import TestClient
+
+    response = TestClient(main.app).post(
+        "/media/generate",
+        json={"modality": "image", "provider": "fal", "input": input_payload},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == (
+        "Media image prompt must be a non-empty string of at most 4000 characters"
+    )
+
+
 def test_media_generate_requires_enabled_fal_source_and_key(monkeypatch):
     main = _fresh_main(monkeypatch, fal_source="disabled", fal_api_key="")
 
