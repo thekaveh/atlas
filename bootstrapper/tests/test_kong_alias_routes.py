@@ -602,6 +602,10 @@ def test_lightrag_route_omitted_when_disabled():
 
 @pytest.mark.parametrize("env_var,svc_source_var,svc_source_value,expected_port", [
     ("COMFYUI_LOCALHOST_PORT",      "COMFYUI_SOURCE",            "localhost",              "9999"),
+    # #610: the managed Apple-Silicon/MPS host is a host process on
+    # COMFYUI_MPS_LOCALHOST_PORT (default 8188) — the Kong route must target
+    # host.docker.internal:<port>, NOT the dead comfyui:18188 container.
+    ("COMFYUI_MPS_LOCALHOST_PORT",  "COMFYUI_SOURCE",            "managed-localhost-mps",  "9999"),
     ("DOCLING_LOCALHOST_PORT",      "DOC_PROCESSOR_SOURCE",      "docling-localhost",      "9999"),
     # Hermes Kong route fronts the DASHBOARD (browser UI), not the API.
     # HERMES_LOCALHOST_PORT drives the API (consumed by runtime_sc's
