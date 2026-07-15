@@ -13,9 +13,11 @@ from bounded_upload import EmptyUploadError, UploadTooLargeError, spool_upload
 
 # Import backend-specific processor
 try:
-    from processor import process_document, processor_ready
-except ImportError as e:
-    logging.error(f"Failed to import processor module: {e}")
+    from processor import process_document, processor_status
+except ImportError as exc:
+    logging.error(
+        "Failed to import processor module (error_type=%s)", type(exc).__name__
+    )
     raise
 
 # Import models
@@ -49,14 +51,15 @@ async def root():
 
 @app.get("/health", response_model=HealthResponse)
 async def health_check(response: Response):
-    ready = processor_ready()
+    readiness = await processor_status()
+    ready = readiness == "healthy"
     if not ready:
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     return HealthResponse(
-        status="healthy" if ready else "unavailable",
+        status=readiness,
         backend=os.getenv("DOCLING_DEVICE", "cpu"),
         device=os.getenv("DOCLING_DEVICE", "cpu"),
-        models_loaded=["DocLayNet", "TableFormer"] if ready else []
+        models_loaded=["DocumentConverter"] if ready else []
     )
 
 @app.post("/v1/document/convert", response_model=ConversionResponse)

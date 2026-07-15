@@ -10,11 +10,11 @@ import time
 from models import ConversionResponse, DocumentMetadata, DocumentChunk, ChunkMetadata
 from utils import get_file_size, detect_format, chunk_text
 try:
-    from shared.pipeline_config import build_converter, resolve_pipeline_settings
+    from shared.pipeline_config import build_converter, converter_status, resolve_pipeline_settings
 except ModuleNotFoundError:
     shared_dir = Path(__file__).resolve().parents[1] / "shared"
     sys.path.insert(0, str(shared_dir))
-    from pipeline_config import build_converter, resolve_pipeline_settings
+    from pipeline_config import build_converter, converter_status, resolve_pipeline_settings
 
 # Import Docling
 try:
@@ -29,8 +29,20 @@ _conversion_semaphore = asyncio.Semaphore(
 )
 
 
-def processor_ready() -> bool:
-    return DocumentConverter is not None
+async def processor_status() -> str:
+    if DocumentConverter is None:
+        return "unavailable"
+    try:
+        settings = resolve_pipeline_settings(
+            use_ocr=os.getenv("DOCLING_USE_OCR", "auto"),
+            table_mode=os.getenv("DOCLING_TABLE_MODE", "accurate"),
+            device=os.getenv("DOCLING_DEVICE", "cpu"),
+            enable_formulas=os.getenv("DOCLING_ENABLE_FORMULAS", "true"),
+            enable_code_blocks=os.getenv("DOCLING_ENABLE_CODE_BLOCKS", "true"),
+        )
+    except (AttributeError, TypeError, ValueError):
+        return "unavailable"
+    return await converter_status(settings)
 
 
 SUPPORTED_OUTPUT_FORMATS = {"markdown", "html", "json", "doctags"}

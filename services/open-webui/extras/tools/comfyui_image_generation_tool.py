@@ -115,8 +115,7 @@ class Tools:
 
             if resp.status_code != 200:
                 try:
-                    error_data = resp.json()
-                    return f"❌ Image generation failed: {error_data.get('detail', 'Unknown error')}"
+                    return f"❌ Image generation failed with HTTP {resp.status_code}."
                 except Exception:
                     return f"❌ Image generation failed: HTTP {resp.status_code}"
 
@@ -182,9 +181,9 @@ class Tools:
                                             output.append(
                                                 f"\n**Image available:** {filename} (access via ComfyUI interface)"
                                             )
-                                    except Exception as e:
+                                    except Exception:
                                         output.append(
-                                            f"\n**Image generated:** {filename} (preview unavailable: {str(e)})"
+                                            f"\n**Image generated:** {filename} (preview unavailable)"
                                         )
                                 break
             else:
@@ -198,8 +197,8 @@ class Tools:
             return "❌ Cannot connect to backend service. Please check if the backend is running."
         except requests.exceptions.Timeout:
             return "❌ Image generation timed out. This can happen with complex prompts or high resolution images."
-        except Exception as e:
-            return f"❌ Unexpected error during image generation: {str(e)}"
+        except Exception:
+            return "❌ Image generation failed unexpectedly. Please try again later."
 
     def get_available_models(self) -> str:
         """
@@ -265,8 +264,8 @@ class Tools:
 
         except requests.exceptions.ConnectionError:
             return "❌ Cannot connect to backend service. Please check if the backend is running."
-        except Exception as e:
-            return f"❌ Error retrieving models: {str(e)}"
+        except Exception:
+            return "❌ Model retrieval failed. Please try again later."
 
     def check_comfyui_status(self) -> str:
         """
@@ -328,8 +327,8 @@ class Tools:
                         f"\n⚠️ **Queue Status:** HTTP {queue_resp.status_code}"
                     )
 
-            except Exception as e:
-                output.append(f"\n⚠️ **Queue Status:** Error - {str(e)}")
+            except Exception:
+                output.append("\n⚠️ **Queue Status:** Unavailable")
 
             output.append(f"\n🔧 **Configuration:**")
             output.append(f"- Backend URL: {self.valves.backend_url}")
@@ -342,5 +341,5 @@ class Tools:
 
         except requests.exceptions.ConnectionError:
             return "❌ Cannot connect to backend service. Please check if the backend is running."
-        except Exception as e:
-            return f"❌ Error checking ComfyUI status: {str(e)}"
+        except Exception:
+            return "❌ ComfyUI status is unavailable. Please try again later."

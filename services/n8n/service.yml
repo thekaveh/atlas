@@ -56,6 +56,9 @@ env:
   - name: N8N_SEED_COMMAND_TIMEOUT_MS
     default: 120000
     description: "Deadline in milliseconds for each consumer workflow n8n CLI operation; must be positive."
+  - name: N8N_SEED_MAX_RESPONSE_BYTES
+    default: 1048576
+    description: "Maximum bytes accepted from one consumer workflow seeder HTTP response; must be positive."
   # TZ is intentionally NOT declared here. main's .env.example doesn't expose
   # it; n8n's compose has `GENERIC_TIMEZONE: ${TZ:-UTC}` which falls back to
   # UTC when TZ is unset. Declaring TZ on the manifest would force a value

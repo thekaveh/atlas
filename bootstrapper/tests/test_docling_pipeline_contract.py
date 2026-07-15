@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import importlib.util
 from pathlib import Path
 
@@ -58,3 +59,32 @@ def test_gpu_torch_requirements_match_base_image_patch():
     assert "pytorch/pytorch:2.12.1-" in dockerfile
     assert "torch==2.12.1" in requirements
     assert "torchvision==0.27.1" in requirements
+
+
+def test_converter_readiness_is_nonblocking_and_truthful(monkeypatch):
+    pipeline = _load_pipeline_module()
+    settings = pipeline.resolve_pipeline_settings()
+
+    async def run():
+        monkeypatch.setattr(pipeline, "build_converter", lambda _settings: object())
+        assert await pipeline.converter_status(settings) == "starting"
+        await asyncio.sleep(0.01)
+        assert await pipeline.converter_status(settings) == "healthy"
+
+    asyncio.run(run())
+
+
+def test_provider_health_uses_converter_status():
+    for relative in (
+        "services/docling/provider/gpu/processor.py",
+        "services/docling/provider/localhost/processor.py",
+    ):
+        source = (ROOT / relative).read_text(encoding="utf-8")
+        assert "async def processor_status" in source
+        assert "await converter_status(settings)" in source
+        assert 'return "unavailable"' in source
+    api_source = (
+        ROOT / "services/docling/provider/shared/api_server.py"
+    ).read_text(encoding="utf-8")
+    assert 'models_loaded=["DocumentConverter"] if ready else []' in api_source
+    assert 'models_loaded=["DocLayNet", "TableFormer"]' not in api_source

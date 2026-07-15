@@ -32,7 +32,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from bounded_upload import EmptyUploadError, UploadTooLargeError, spool_upload
 
 # Import processor
-from processor import process_document, processor_ready
+from processor import process_document, processor_status
 
 app = FastAPI(title="Docling Document Processor", version="1.0.0")
 
@@ -57,11 +57,12 @@ async def root():
 
 @app.get("/health")
 async def health_check(response: Response):
-    ready = processor_ready()
+    readiness = await processor_status()
+    ready = readiness == "healthy"
     if not ready:
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     return {
-        "status": "healthy" if ready else "unavailable",
+        "status": readiness,
         "backend": os.getenv("DOCLING_DEVICE", "cpu"),
         "device": os.getenv("DOCLING_DEVICE", "cpu")
     }

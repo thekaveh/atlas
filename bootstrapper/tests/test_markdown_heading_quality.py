@@ -26,7 +26,7 @@ def test_renumber_markdown_preserves_fences_and_builds_hierarchy():
 
 ## 1. Overview
 ### 1.1. Existing 9.7. Detail
-#### 1.1.1. Legacy repeated prefix
+#### 1.1.1. 9.7 Legacy repeated prefix
 ```markdown
 ## Example heading
 ```
@@ -57,4 +57,12 @@ def test_skipped_heading_levels_are_rejected(source):
     assert any(
         "skips required parent" in message
         for _line, message in heading_number_findings(source)
+    )
+
+
+def test_semantic_numeric_titles_are_preserved():
+    source = "## 2026. Roadmap\n## 3.14 API compatibility\n"
+
+    assert renumber_markdown(source) == (
+        "## 1. 2026. Roadmap\n## 2. 3.14 API compatibility\n"
     )

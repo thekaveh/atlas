@@ -1612,6 +1612,7 @@ def render_n8n_seed_overlay(workflows: Iterable[N8nWorkflow]) -> str:
         "      N8N_SEED_PLAN: /consumer-workflows/plan.json",
         "      N8N_SEED_HTTP_TIMEOUT_MS: ${N8N_SEED_HTTP_TIMEOUT_MS:-10000}",
         "      N8N_SEED_COMMAND_TIMEOUT_MS: ${N8N_SEED_COMMAND_TIMEOUT_MS:-120000}",
+        "      N8N_SEED_MAX_RESPONSE_BYTES: ${N8N_SEED_MAX_RESPONSE_BYTES:-1048576}",
         '    entrypoint: ["/bin/sh", "/scripts/seed-workflows.sh"]',
         "    volumes:",
         "      - ./services/n8n/init/scripts:/scripts:ro",

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from functools import lru_cache
 from typing import NamedTuple
 
@@ -82,3 +83,23 @@ def build_converter(settings: PipelineSettings):
             InputFormat.PDF: PdfFormatOption(pipeline_options=options),
         }
     )
+
+
+_readiness_tasks: dict[PipelineSettings, asyncio.Task] = {}
+
+
+async def converter_status(settings: PipelineSettings) -> str:
+    """Start converter initialization once and report without blocking health."""
+    task = _readiness_tasks.get(settings)
+    if task is None:
+        task = asyncio.create_task(asyncio.to_thread(build_converter, settings))
+        _readiness_tasks[settings] = task
+    if not task.done():
+        return "starting"
+    try:
+        await task
+    except Exception:
+        if _readiness_tasks.get(settings) is task:
+            _readiness_tasks.pop(settings, None)
+        return "unavailable"
+    return "healthy"

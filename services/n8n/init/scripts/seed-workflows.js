@@ -37,6 +37,7 @@ function positiveMilliseconds(name, fallback) {
 
 const HTTP_TIMEOUT_MS = positiveMilliseconds('N8N_SEED_HTTP_TIMEOUT_MS', 10000);
 const COMMAND_TIMEOUT_MS = positiveMilliseconds('N8N_SEED_COMMAND_TIMEOUT_MS', 120000);
+const MAX_RESPONSE_BYTES = positiveMilliseconds('N8N_SEED_MAX_RESPONSE_BYTES', 1048576);
 
 const log = (m) => console.log('n8n-seed: ' + m);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -69,7 +70,22 @@ function request(method, path, opts) {
       (res) => {
         response = res;
         let data = '';
-        res.on('data', (c) => (data += c));
+        let received = 0;
+        const declared = Number.parseInt(res.headers['content-length'] || '', 10);
+        if (Number.isFinite(declared) && declared > MAX_RESPONSE_BYTES) {
+          res.destroy(new Error('n8n seed HTTP response exceeded byte limit'));
+          finish({ status: 0, body: '' });
+          return;
+        }
+        res.on('data', (c) => {
+          received += c.length;
+          if (received > MAX_RESPONSE_BYTES) {
+            res.destroy(new Error('n8n seed HTTP response exceeded byte limit'));
+            finish({ status: 0, body: '' });
+            return;
+          }
+          data += c;
+        });
         res.on('end', () => finish({ status: res.statusCode || 0, body: data }));
         res.on('error', () => finish({ status: 0, body: '' }));
       }

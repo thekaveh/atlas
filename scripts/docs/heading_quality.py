@@ -8,9 +8,7 @@ import subprocess
 
 
 _HEADING_RE = re.compile(r"^(#{2,6})[ \t]+(.+?)\s*$")
-_NUMBER_PREFIX_RE = re.compile(
-    r"^(?:\d+\.(?:\d+\.)*|\d+(?:\.\d+)+)[ \t]+"
-)
+_NUMBER_PREFIX_RE = re.compile(r"^(\d+(?:\.\d+)*)\.[ \t]+")
 _DECORATIVE_SYMBOLS = (
     "✅",
     "❌",
@@ -81,10 +79,19 @@ def _renumbered_heading(
     number = ".".join(str(counters[item]) for item in range(2, level + 1))
     clean_title = title
     while True:
-        normalized = _NUMBER_PREFIX_RE.sub("", clean_title, count=1)
-        if normalized == clean_title:
+        prefix = _NUMBER_PREFIX_RE.match(clean_title)
+        if prefix is None:
             break
-        clean_title = normalized
+        parts = [int(part) for part in prefix.group(1).split(".")]
+        parent_path = [counters[item] for item in range(2, level)]
+        recognized = (
+            prefix.group(1) == number
+            or parts == parent_path
+            or (level == 2 and len(parts) == 1 and parts[0] < 100)
+        )
+        if not recognized:
+            break
+        clean_title = clean_title[prefix.end() :]
     return f"{'#' * level} {number}. {clean_title}"
 
 

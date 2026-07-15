@@ -110,7 +110,7 @@ Content-Type: multipart/form-data
 file=<binary audio>
 model=whisper-1
 language=en               (optional)
-response_format=json      (optional: json, text, srt, verbose_json, vtt)
+response_format=json      (optional: json, text, verbose_json)
 ```
 
 For Parakeet and whisper.cpp the `model` field is largely ignored — each
@@ -120,7 +120,7 @@ model isn't installed locally (see the preload note above). `whisper-1` is the
 most compatible value — Speaches aliases it to `Systran/faster-whisper-large-v3`
 (which must be preloaded), and the OpenAI client library defaults to it.
 
-Both Atlas-managed Parakeet providers stream request bodies to bounded temporary files and offload model inference from the API event loop. Temporary files are removed after success, rejection, or inference failure.
+Both Atlas-managed Parakeet providers accept exactly `json`, `text`, or `verbose_json`, stream request bodies to bounded temporary files, and offload model inference from the API event loop. Temporary files are removed after success, rejection, or inference failure. Subtitle formats such as `srt` and `vtt` are engine-specific and are not part of the Atlas Parakeet contract.
 
 ## 6. Open WebUI integration
 

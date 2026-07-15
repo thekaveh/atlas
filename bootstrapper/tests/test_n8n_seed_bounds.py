@@ -60,6 +60,31 @@ class _ReconcileHandler(BaseHTTPRequestHandler):
         pass
 
 
+class _OversizedBodyHandler(BaseHTTPRequestHandler):
+    chunked = False
+
+    def do_GET(self):
+        body = b"x" * 256
+        self.send_response(200)
+        if self.chunked:
+            self.send_header("Transfer-Encoding", "chunked")
+            self.end_headers()
+            try:
+                for offset in range(0, len(body), 32):
+                    chunk = body[offset : offset + 32]
+                    self.wfile.write(f"{len(chunk):x}\r\n".encode() + chunk + b"\r\n")
+                self.wfile.write(b"0\r\n\r\n")
+            except OSError:
+                pass
+        else:
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    def log_message(self, *_args):
+        pass
+
+
 def test_http_request_timeout_terminates_stalled_peer():
     node = shutil.which("node")
     if not node:
@@ -190,3 +215,36 @@ def test_orphan_reconcile_reports_delete_result(delete_status, expected, message
     assert result.stdout == expected
     assert message in result.stderr
     assert ("reconciled: removed" in result.stderr) is (delete_status == 204)
+
+
+@pytest.mark.parametrize("chunked", [False, True])
+def test_http_response_body_limit_covers_fixed_and_chunked_responses(chunked):
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is unavailable")
+    _OversizedBodyHandler.chunked = chunked
+    with ThreadingHTTPServer(("127.0.0.1", 0), _OversizedBodyHandler) as server:
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        env = {
+            **os.environ,
+            "N8N_SEED_BASE_URL": f"http://127.0.0.1:{server.server_address[1]}",
+            "N8N_SEED_MAX_RESPONSE_BYTES": "64",
+        }
+        result = subprocess.run(
+            [
+                node,
+                "-e",
+                f"require({str(SEEDER)!r}).request('GET', '/large').then(r => "
+                "process.stdout.write(r.status + ':' + r.body.length))",
+            ],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+        server.shutdown()
+
+    assert result.returncode == 0
+    assert result.stdout == "0:0"

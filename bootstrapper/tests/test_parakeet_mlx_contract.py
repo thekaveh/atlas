@@ -63,6 +63,15 @@ def test_advanced_timestamp_defaults_are_provider_consistent():
         assert "return_timestamps: bool = Form(default=False)" in source
 
 
+def test_response_format_contract_is_provider_consistent():
+    expected = 'Literal["json", "verbose_json", "text"]'
+    for path in (MLX_API, SHARED_API):
+        source = path.read_text(encoding="utf-8")
+        assert expected in source
+    stt_guide = (ROOT / "services/stt-provider/README.md").read_text()
+    assert "optional: json, text, verbose_json" in stt_guide
+
+
 def test_cold_health_starts_loading_without_waiting_for_it():
     source = MLX_API.read_text(encoding="utf-8")
 

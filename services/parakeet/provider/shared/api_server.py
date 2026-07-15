@@ -69,7 +69,7 @@ async def transcribe(
     model: str = Form(default="parakeet-tdt-0.6b-v3"),
     language: Optional[str] = Form(default=None),
     prompt: Optional[str] = Form(default=None),
-    response_format: str = Form(default="json"),
+    response_format: Literal["json", "verbose_json", "text"] = Form(default="json"),
     temperature: float = Form(default=0.0)
 ):
     """
@@ -115,8 +115,6 @@ async def transcribe(
             return result
         elif response_format == "text":
             return result["text"]
-        else:
-            return {"text": result["text"]}
 
     except UploadTooLargeError as e:
         raise HTTPException(status_code=413, detail=str(e)) from e

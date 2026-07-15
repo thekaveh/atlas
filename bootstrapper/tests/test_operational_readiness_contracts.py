@@ -36,7 +36,7 @@ def test_provider_health_endpoints_check_runtime_dependencies() -> None:
     assert "shutil.which(binary)" in _text(
         "services/asset-baker/app/asset_baker/api.py"
     )
-    assert "processor_ready()" in _text(
+    assert "await processor_status()" in _text(
         "services/docling/provider/shared/api_server.py"
     )
     assert "model_is_loaded()" in _text(
