@@ -7,6 +7,8 @@ from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[2]
 MODULE_PATH = ROOT / "services/parakeet/provider/mlx/alignment.py"
+MLX_API = ROOT / "services/parakeet/provider/mlx/api_server.py"
+SHARED_API = ROOT / "services/parakeet/provider/shared/api_server.py"
 
 
 def _load_alignment_module():
@@ -53,3 +55,26 @@ def test_timestamp_flag_requires_timestamp_data():
         "segments": [],
         "words": [],
     }
+
+
+def test_advanced_timestamp_defaults_are_provider_consistent():
+    for path in (MLX_API, SHARED_API):
+        source = path.read_text(encoding="utf-8")
+        assert "return_timestamps: bool = Form(default=False)" in source
+
+
+def test_cold_health_starts_loading_without_waiting_for_it():
+    source = MLX_API.read_text(encoding="utf-8")
+
+    assert "task = _model_loader.start()" in source
+    assert '"status": "starting"' in source
+    assert "status_code=503" in source
+
+
+def test_mlx_server_supports_package_and_direct_import_modes():
+    source = MLX_API.read_text(encoding="utf-8")
+
+    assert "from .alignment import" in source
+    assert "from alignment import" in source
+    assert "from .model_loader import" in source
+    assert "from model_loader import" in source

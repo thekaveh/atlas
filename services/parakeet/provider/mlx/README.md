@@ -92,7 +92,7 @@ Advanced endpoint with timestamps
 
 **Parameters:**
 - `file` (required): Audio file
-- `return_timestamps`: Include segment timestamps
+- `return_timestamps`: Include segment timestamps (default: `false`, consistent across providers)
 - `word_timestamps`: Include word-level timestamps
 
 The provider serializes `AlignedResult.sentences` as segments and each

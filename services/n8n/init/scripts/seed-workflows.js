@@ -127,6 +127,25 @@ function effectiveActive(wf) {
   }
 }
 
+async function removeOrphan(workflowId) {
+  const encoded = encodeURIComponent(workflowId);
+  const deactivate = await request('POST', `/api/v1/workflows/${encoded}/deactivate`, {
+    headers: authHeaders(),
+  });
+  if (!ok(deactivate.status)) {
+    log(`WARN - orphan '${workflowId}' deactivation returned HTTP ${deactivate.status || 'none'}`);
+  }
+  const deleted = await request('DELETE', `/api/v1/workflows/${encoded}`, {
+    headers: authHeaders(),
+  });
+  if (!ok(deleted.status)) {
+    log(`WARN - orphan '${workflowId}' deletion returned HTTP ${deleted.status || 'none'}; workflow remains unreconciled`);
+    return false;
+  }
+  log(`✓ reconciled: removed orphaned workflow '${workflowId}'`);
+  return true;
+}
+
 async function main() {
   if (!fs.existsSync(PLAN)) {
     log('no plan at ' + PLAN + ' — nothing to seed');
@@ -214,13 +233,7 @@ async function main() {
     if (listOk) {
       for (const w of all) {
         if (typeof w.id === 'string' && w.id.startsWith(namespace) && !declared.has(w.id)) {
-          await request('POST', `/api/v1/workflows/${encodeURIComponent(w.id)}/deactivate`, {
-            headers: authHeaders(),
-          });
-          const d = await request('DELETE', `/api/v1/workflows/${encodeURIComponent(w.id)}`, {
-            headers: authHeaders(),
-          });
-          log(`✓ reconciled: removed orphaned workflow '${w.id}' (HTTP ${d.status || 'none'})`);
+          await removeOrphan(w.id);
         }
       }
     }
@@ -244,7 +257,7 @@ async function main() {
   log(`seed summary: imported=${imported} failed=${failed}`);
 }
 
-module.exports = { request, runCommand, waitHealthy };
+module.exports = { removeOrphan, request, runCommand, waitHealthy };
 
 if (require.main === module) {
   main()

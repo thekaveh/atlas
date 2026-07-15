@@ -134,7 +134,7 @@ async def transcribe(
 @app.post("/v1/audio/transcriptions/advanced")
 async def transcribe_advanced(
     file: UploadFile = File(...),
-    return_timestamps: bool = Form(default=True),
+    return_timestamps: bool = Form(default=False),
     word_timestamps: bool = Form(default=False)
 ):
     """

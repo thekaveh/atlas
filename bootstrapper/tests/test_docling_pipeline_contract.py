@@ -49,3 +49,12 @@ def test_pipeline_settings_reject_unsupported_values():
             assert field in str(exc)
         else:
             raise AssertionError(f"unsupported {field} value was accepted")
+
+
+def test_gpu_torch_requirements_match_base_image_patch():
+    dockerfile = (ROOT / "services/docling/provider/gpu/Dockerfile").read_text()
+    requirements = (ROOT / "services/docling/provider/gpu/requirements.txt").read_text()
+
+    assert "pytorch/pytorch:2.12.1-" in dockerfile
+    assert "torch==2.12.1" in requirements
+    assert "torchvision==0.27.1" in requirements

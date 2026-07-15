@@ -42,6 +42,10 @@ tool code may delegate the authenticated Open WebUI user id, while the Backend
 accepts this caller token only on memory and legacy ComfyUI routes. The init
 container installs an idempotent trigger/backfill that maps valid Open WebUI
 UUIDs into `public.users`, preserving memory foreign-key ownership.
+Automatic post-conversation extraction uses two daemon workers and a bounded
+four-job waiting queue. Saturated work is skipped with a bounded diagnostic,
+and Backend non-success responses are treated as extraction failures; chat
+responses never wait for the extraction timeout.
 
 ### 4.1. Atlas Safe Prompt Middleware
 

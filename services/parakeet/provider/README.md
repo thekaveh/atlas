@@ -80,6 +80,12 @@ cd services/parakeet/provider && python -m uvicorn mlx.api_server:app --host 0.0
 ./start.sh --stt-provider-source parakeet-localhost
 ```
 
+The MLX health endpoint starts one shared background model load and returns
+`503` with `status=starting` while that work is in progress. Concurrent health
+and transcription requests share the same load; model initialization never
+runs on the API event loop. Both Parakeet providers default advanced segment
+timestamps to disabled unless `return_timestamps=true` is supplied.
+
 whisper.cpp on macOS (Metal + Core ML):
 
 ```bash

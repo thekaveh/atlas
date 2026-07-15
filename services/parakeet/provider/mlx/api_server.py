@@ -15,13 +15,20 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from bounded_upload import EmptyUploadError, UploadTooLargeError, spool_upload
-from alignment import advanced_payload, alignment_payload, result_text
+if __package__:
+    from .alignment import advanced_payload, alignment_payload, result_text
+    from .model_loader import AsyncSingleFlightModel
+else:  # Direct execution from the mlx provider directory.
+    from alignment import advanced_payload, alignment_payload, result_text
+    from model_loader import AsyncSingleFlightModel
 
 # Import parakeet-mlx library
 try:
     from parakeet_mlx import from_pretrained
-except ImportError as e:
-    logging.error(f"Failed to import parakeet_mlx: {e}")
+except ImportError as exc:
+    logging.error(
+        "Failed to import parakeet_mlx (error_type=%s)", type(exc).__name__
+    )
     logging.error("Please install: pip install parakeet-mlx")
     raise
 
@@ -43,22 +50,18 @@ app.add_middleware(
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Global model (lazy loaded)
-_model = None
+def _load_model():
+    model_name = os.getenv("PARAKEET_MODEL", "mlx-community/parakeet-tdt-0.6b-v3")
+    logger.info("Loading Parakeet model")
+    model = from_pretrained(model_name)
+    logger.info("Model loaded successfully")
+    return model
+
+
+_model_loader = AsyncSingleFlightModel(_load_model)
 _transcription_semaphore = asyncio.Semaphore(
     max(1, int(os.getenv("PARAKEET_CONCURRENCY", "1")))
 )
-
-def get_model():
-    """Load model once and reuse"""
-    global _model
-    if _model is None:
-        model_name = os.getenv("PARAKEET_MODEL", "mlx-community/parakeet-tdt-0.6b-v3")
-        logger.info("Loading Parakeet model")
-        _model = from_pretrained(model_name)
-        logger.info("Model loaded successfully")
-    return _model
-
 
 @app.get("/")
 async def root():
@@ -77,8 +80,19 @@ async def root():
 async def health():
     """Health check endpoint"""
     try:
-        # Check if model can be loaded
-        model = get_model()
+        if not _model_loader.loaded:
+            task = _model_loader.start()
+            if not task.done():
+                return JSONResponse(
+                    status_code=503,
+                    content={
+                        "status": "starting",
+                        "backend": "mlx",
+                        "device": "mps",
+                        "model_loaded": False,
+                    },
+                )
+        model = await _model_loader.get()
         return {
             "status": "healthy",
             "backend": "mlx",
@@ -119,7 +133,7 @@ async def transcribe_audio(
 
         try:
             async with _transcription_semaphore:
-                model_instance = await asyncio.to_thread(get_model)
+                model_instance = await _model_loader.get()
                 logger.info("Transcribing uploaded file")
                 result = await asyncio.to_thread(
                     model_instance.transcribe, str(tmp_path)
@@ -159,7 +173,7 @@ async def transcribe_audio(
 @app.post("/v1/audio/transcriptions/advanced")
 async def transcribe_advanced(
     file: UploadFile = File(...),
-    return_timestamps: bool = Form(False),
+    return_timestamps: bool = Form(default=False),
     word_timestamps: bool = Form(False)
 ):
     """
@@ -178,7 +192,7 @@ async def transcribe_advanced(
 
         try:
             async with _transcription_semaphore:
-                model_instance = await asyncio.to_thread(get_model)
+                model_instance = await _model_loader.get()
                 logger.info("Running advanced transcription")
                 result = await asyncio.to_thread(
                     model_instance.transcribe, str(tmp_path)
