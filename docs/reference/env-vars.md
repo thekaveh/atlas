@@ -63,6 +63,7 @@
 | BACKEND_SCALE | backend |  | Always 1 (BACKEND_SOURCE is single-valued). |
 | MAX_UPLOAD_BYTES | backend | 104857600 | Maximum accepted /storage/upload body size in bytes before the backend returns 413. |
 | COMFYUI_MAX_IMAGE_BYTES | backend | 20971520 | Maximum generated-image response bytes accepted from ComfyUI before the Backend aborts the download. |
+| COMFYUI_COMPLETION_TIMEOUT_SECONDS | backend | 300 | End-to-end deadline in seconds for synchronous ComfyUI generation and workflow requests. The Backend poller and bundled Open WebUI tool share this default. |
 | RAG_INGESTION_MAX_FILE_BYTES | backend | 104857600 | Maximum bytes loaded from any single mounted or MinIO RAG corpus file. Oversize files fail ingestion before unbounded allocation. |
 | RAG_INGESTION_MAX_CORPUS_BYTES | backend | 1073741824 | Maximum aggregate bytes loaded by one RAG corpus discovery pass across mounted or MinIO files. |
 | RAG_INGESTION_MAX_FILES | backend | 10000 | Maximum number of files accepted in one mounted or MinIO RAG corpus discovery pass. |

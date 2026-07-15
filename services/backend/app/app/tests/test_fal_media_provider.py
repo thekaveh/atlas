@@ -122,6 +122,7 @@ def test_fal_enabled_without_key_returns_clear_503(monkeypatch):
 
 def test_fal_disabled_preserves_comfyui_generation_without_key(monkeypatch):
     main = _fresh_main(monkeypatch, fal_source="disabled", fal_api_key="")
+    calls = {}
 
     class FakeComfyUIClient:
         async def __aenter__(self):
@@ -138,7 +139,8 @@ def test_fal_disabled_preserves_comfyui_generation_without_key(monkeypatch):
                 "parameters": kwargs,
             }
 
-        async def wait_for_completion(self, prompt_id):
+        async def wait_for_completion(self, prompt_id, timeout):
+            calls["completion"] = {"prompt_id": prompt_id, "timeout": timeout}
             return {
                 "success": True,
                 "outputs": {"7": {"images": [{"filename": "comfy.png"}]}},
@@ -150,7 +152,11 @@ def test_fal_disabled_preserves_comfyui_generation_without_key(monkeypatch):
 
     response = TestClient(main.app).post(
         "/comfyui/generate",
-        json={"prompt": "local render", "wait_for_completion": True},
+        json={
+            "prompt": "local render",
+            "wait_for_completion": True,
+            "timeout_seconds": 42,
+        },
     )
 
     assert response.status_code == 200
@@ -158,6 +164,7 @@ def test_fal_disabled_preserves_comfyui_generation_without_key(monkeypatch):
     assert body["success"] is True
     assert body["prompt_id"] == "comfy-1"
     assert body["client_id"] == "comfy-client"
+    assert calls["completion"] == {"prompt_id": "comfy-1", "timeout": 42}
 
 
 def test_fal_client_constructs_subscribe_request(monkeypatch):

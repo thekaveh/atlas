@@ -446,8 +446,10 @@ services:
       CELERY_TASK_TIME_LIMIT_SECONDS: '900'
       CELERY_WORKER_PREFETCH_MULTIPLIER: '1'
       COMFYUI_BASE_URL: http://comfyui:18188
+      COMFYUI_COMPLETION_TIMEOUT_SECONDS: '300'
       COMFYUI_ENABLED: 'true'
       COMFYUI_MANIFEST_PATH: /comfyui-manifest/selected-models.yaml
+      COMFYUI_MAX_IMAGE_BYTES: '20971520'
       DATABASE_URL: postgresql://supabase_admin:password@supabase-db:5432/postgres
       DOCLING_ENDPOINT: ''
       FAL_API_KEY: ''
@@ -3017,6 +3019,7 @@ services:
       AUDIO_TTS_VOICE: ''
       BACKEND_OPEN_WEBUI_API_TOKEN: ''
       COMFYUI_BASE_URL: http://comfyui:18188
+      COMFYUI_COMPLETION_TIMEOUT_SECONDS: '300'
       DATABASE_URL: postgresql://supabase_admin:password@supabase-db:5432/postgres
       ENABLE_IMAGE_GENERATION: 'true'
       ENABLE_OLLAMA_API: 'false'

@@ -14,7 +14,7 @@ Image: `searxng/searxng:2026.6.28-357662d86`. Container port: `8080`. Source var
 
 | Path | URL | Notes |
 |---|---|---|
-| Direct | `http://localhost:${SEARXNG_PORT}` (default `63055`) | Web UI + `/search` API. |
+| Direct | `http://localhost:${SEARXNG_PORT}` (default `63056`) | Web UI + `/search` API. |
 | Kong | `http://search.localhost:${KONG_HTTP_PORT}` | Browser-friendly; needs `./start.sh --setup-hosts`. |
 | Internal | `http://searxng:8080/search` | What sibling containers call (LDR, n8n, Hermes, Open WebUI). |
 | JSON API | `GET /search?q=…&format=json` | Enabled in `settings.yml`; used by every machine consumer. |

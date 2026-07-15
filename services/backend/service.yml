@@ -27,6 +27,9 @@ env:
   - name: COMFYUI_MAX_IMAGE_BYTES
     default: 20971520
     description: "Maximum generated-image response bytes accepted from ComfyUI before the Backend aborts the download."
+  - name: COMFYUI_COMPLETION_TIMEOUT_SECONDS
+    default: 300
+    description: "End-to-end deadline in seconds for synchronous ComfyUI generation and workflow requests. The Backend poller and bundled Open WebUI tool share this default."
   - name: RAG_INGESTION_MAX_FILE_BYTES
     default: 104857600
     description: "Maximum bytes loaded from any single mounted or MinIO RAG corpus file. Oversize files fail ingestion before unbounded allocation."

@@ -21,7 +21,12 @@ class Tools:
             default="http://backend:8000", description="Backend API URL"
         )
         timeout: int = Field(
-            default=120, description="Max wait time in seconds for image generation"
+            default_factory=lambda: int(
+                os.getenv("COMFYUI_COMPLETION_TIMEOUT_SECONDS", "300")
+            ),
+            ge=1,
+            le=3600,
+            description="End-to-end generation deadline in seconds",
         )
         enable_tool: bool = Field(
             default=True, description="Enable this image generation tool"
@@ -63,7 +68,7 @@ class Tools:
         :param steps: Number of denoising steps (default: 20)
         :param cfg: CFG scale for guidance strength (default: 7.0)
         :param checkpoint: Model checkpoint to use (default: v1-5-pruned-emaonly.safetensors)
-        :return: Image generation result with base64 encoded image or error message
+        :return: Image generation result with an artifact filename or error message
         """
 
         if not self.valves.enable_tool:
@@ -103,6 +108,7 @@ class Tools:
                 "cfg": cfg,
                 "checkpoint": checkpoint,
                 "wait_for_completion": True,
+                "timeout_seconds": self.valves.timeout,
             }
 
             # Send generation request
@@ -110,7 +116,7 @@ class Tools:
                 f"{self.valves.backend_url}/comfyui/generate",
                 headers=self._backend_headers(),
                 json=generation_data,
-                timeout=self.valves.timeout,
+                timeout=self.valves.timeout + 5,
             )
 
             if resp.status_code != 200:

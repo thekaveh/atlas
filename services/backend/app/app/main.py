@@ -1065,6 +1065,15 @@ async def research_health_check():
 
 
 # ComfyUI API Models
+_COMFYUI_COMPLETION_TIMEOUT_SECONDS = int(
+    os.getenv("COMFYUI_COMPLETION_TIMEOUT_SECONDS", "300")
+)
+if not 1 <= _COMFYUI_COMPLETION_TIMEOUT_SECONDS <= 3600:
+    raise ValueError(
+        "COMFYUI_COMPLETION_TIMEOUT_SECONDS must be between 1 and 3600"
+    )
+
+
 class ComfyUIGenerateRequest(BaseModel):
     """Request model for ComfyUI image generation"""
     prompt: str = Field(min_length=1, max_length=4000)
@@ -1076,12 +1085,18 @@ class ComfyUIGenerateRequest(BaseModel):
     seed: Optional[int] = None
     checkpoint: Optional[str] = Field(default="v1-5-pruned-emaonly.safetensors", max_length=255)
     wait_for_completion: bool = True
+    timeout_seconds: int = Field(
+        default=_COMFYUI_COMPLETION_TIMEOUT_SECONDS, ge=1, le=3600
+    )
 
 
 class ComfyUIWorkflowRequest(BaseModel):
     """Request model for custom ComfyUI workflow"""
     workflow: Dict[str, Any] = Field(min_length=1, max_length=500)
     wait_for_completion: bool = True
+    timeout_seconds: int = Field(
+        default=_COMFYUI_COMPLETION_TIMEOUT_SECONDS, ge=1, le=3600
+    )
 
 
 class ComfyUIResponse(BaseModel):
@@ -1870,7 +1885,9 @@ async def generate_image(request: ComfyUIGenerateRequest):
             
             # If wait_for_completion is True, wait for the image to be generated
             if request.wait_for_completion:
-                completion_result = await client.wait_for_completion(prompt_id)
+                completion_result = await client.wait_for_completion(
+                    prompt_id, timeout=request.timeout_seconds
+                )
                 
                 if completion_result.get("success"):
                     return ComfyUIResponse(
@@ -1927,7 +1944,9 @@ async def execute_comfyui_workflow(request: ComfyUIWorkflowRequest):
             
             # If wait_for_completion is True, wait for the workflow to complete
             if request.wait_for_completion:
-                completion_result = await client.wait_for_completion(prompt_id)
+                completion_result = await client.wait_for_completion(
+                    prompt_id, timeout=request.timeout_seconds
+                )
                 
                 if completion_result.get("success"):
                     return ComfyUIResponse(

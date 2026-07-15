@@ -11,6 +11,11 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
+class ComfyUIHistoryUnavailableError(RuntimeError):
+    """Raised when ComfyUI history cannot be read."""
+
+
 class ComfyUIClient:
     def __init__(self, base_url: Optional[str] = None):
         self.base_url = base_url or os.getenv("COMFYUI_BASE_URL", "http://comfyui:18188")
@@ -133,7 +138,9 @@ class ComfyUIClient:
             
         except Exception as exc:
             logger.error("Failed to get history (error_type=%s)", type(exc).__name__)
-            return {}
+            raise ComfyUIHistoryUnavailableError(
+                "ComfyUI history is unavailable"
+            ) from exc
     
     async def get_queue_status(self) -> Dict[str, Any]:
         """Get current queue status"""
@@ -275,20 +282,35 @@ class ComfyUIClient:
         else:
             return result
     
-    async def wait_for_completion(self, prompt_id: str, timeout: int = 300) -> Dict[str, Any]:
+    async def wait_for_completion(self, prompt_id: str, timeout: float) -> Dict[str, Any]:
         """Wait for a prompt to complete execution"""
-        start_time = time.monotonic()
+        if timeout <= 0:
+            raise ValueError("timeout must be positive")
+        deadline = time.monotonic() + timeout
         
         while True:
-            # Check if timeout exceeded
-            if time.monotonic() - start_time > timeout:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
                 return {
                     "success": False,
                     "error": "Timeout waiting for completion"
                 }
             
-            # Get history for this prompt
-            history = await self.get_history(prompt_id)
+            try:
+                history = await asyncio.wait_for(
+                    self.get_history(prompt_id), timeout=remaining
+                )
+            except asyncio.TimeoutError:
+                return {
+                    "success": False,
+                    "error": "Timeout waiting for completion"
+                }
+            except ComfyUIHistoryUnavailableError:
+                return {
+                    "success": False,
+                    "error": "ComfyUI history is unavailable",
+                    "prompt_id": prompt_id,
+                }
             
             if prompt_id in history:
                 prompt_history = history[prompt_id]
@@ -310,8 +332,7 @@ class ComfyUIClient:
                         "prompt_id": prompt_id
                     }
             
-            # Wait before checking again
-            await asyncio.sleep(1)
+            await asyncio.sleep(min(1, max(0, deadline - time.monotonic())))
     
     async def get_image_data(self, filename: str, subfolder: str = "", folder_type: str = "output") -> bytes:
         """Get image data from ComfyUI"""

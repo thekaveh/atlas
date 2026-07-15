@@ -37,6 +37,7 @@ services:
       # the admin account is created by open-webui-init via the
       # /api/v1/auths/signup API using OPEN_WEB_UI_ADMIN_*.)
       COMFYUI_BASE_URL: ${COMFYUI_ENDPOINT:-http://comfyui:18188}
+      COMFYUI_COMPLETION_TIMEOUT_SECONDS: ${COMFYUI_COMPLETION_TIMEOUT_SECONDS:-300}
       ENABLE_IMAGE_GENERATION: true
       IMAGE_GENERATION_ENGINE: comfyui
       # TTS integration (openai-compatible via openedai-speech)

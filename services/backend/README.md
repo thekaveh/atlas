@@ -47,6 +47,7 @@ BACKEND_N8N_API_TOKEN=            # auto-generated; n8n workflow scope
 BACKEND_NOTEBOOK_API_TOKEN=       # auto-generated; stateless notebook routes only
 BACKEND_OPEN_WEBUI_API_TOKEN=     # auto-generated; memory/legacy ComfyUI scope
 COMFYUI_MAX_IMAGE_BYTES=20971520  # bounded ComfyUI image proxy response
+COMFYUI_COMPLETION_TIMEOUT_SECONDS=300  # synchronous generation deadline
 SUPABASE_JWT_SECRET=              # verifies authenticated Supabase user JWTs
 ```
 

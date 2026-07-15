@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from services.topology import get_topology
+
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -32,3 +34,31 @@ def test_active_port_docs_do_not_use_retired_allocator_defaults() -> None:
         text = (ROOT / relative).read_text(encoding="utf-8")
         for retired in retired_literals:
             assert retired not in text, f"{relative} still advertises retired port literal {retired!r}"
+
+
+def test_active_service_port_claims_match_topology() -> None:
+    ports = get_topology(ROOT / "services").port_defaults
+    comfyui = ports["COMFYUI_PORT"]
+    searxng = ports["SEARXNG_PORT"]
+    claims = {
+        "README.md": (
+            f"# SearxNG (Search):      http://localhost:{searxng}",
+            f"# ComfyUI:               http://localhost:{comfyui}",
+            f"| **ComfyUI** | http://localhost:{comfyui} |",
+            f"| **SearxNG** | http://localhost:{searxng} |",
+        ),
+        "services/comfyui/README.md": (
+            f"`http://localhost:${{COMFYUI_PORT}}` (default `{comfyui}`)",
+        ),
+        "services/searxng/README.md": (
+            f"`http://localhost:${{SEARXNG_PORT}}` (default `{searxng}`)",
+        ),
+        "docs/quick-start/troubleshooting.md": (
+            f"curl http://localhost:{comfyui}  # Direct port access (COMFYUI_PORT)",
+        ),
+    }
+
+    for relative, expected_claims in claims.items():
+        text = (ROOT / relative).read_text(encoding="utf-8")
+        for claim in expected_claims:
+            assert claim in text, f"{relative} does not advertise topology claim {claim!r}"

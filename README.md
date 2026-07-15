@@ -30,8 +30,8 @@ git clone https://github.com/thekaveh/atlas && cd atlas
 # Open WebUI (Chat):     http://localhost:63096
 # n8n (Workflows):       http://localhost:63075
 # Supabase Studio:       http://localhost:63019
-# SearxNG (Search):      http://localhost:63055
-# ComfyUI:               http://localhost:63053
+# SearxNG (Search):      http://localhost:63056
+# ComfyUI:               http://localhost:63054
 # JupyterHub (IDE):      http://localhost:63094
 # MinIO Console:         http://localhost:63021
 #
@@ -334,8 +334,8 @@ _Engine-only manifests (speaches, chatterbox) are not listed — they're selecte
 | **Open WebUI** | http://localhost:63096 | http://chat.localhost:63000 | AI chat interface | Create account |
 | **n8n** | http://localhost:63075 | http://n8n.localhost:63000 | Workflow automation | Owner setup on first visit |
 | **Supabase Studio** | http://localhost:63019 | http://supabase-studio.localhost:63000 | Database management | Kong route: `kong_admin` / `DASHBOARD_PASSWORD` from `.env` (direct port is ungated) |
-| **ComfyUI** | http://localhost:63053 | http://comfyui.localhost:63000 | Image generation | None |
-| **SearxNG** | http://localhost:63055 | http://search.localhost:63000 | Privacy search | None |
+| **ComfyUI** | http://localhost:63054 | http://comfyui.localhost:63000 | Image generation | None |
+| **SearxNG** | http://localhost:63056 | http://search.localhost:63000 | Privacy search | None |
 | **JupyterHub** | http://localhost:63094 | http://jupyter.localhost:63000 | Data science IDE — ships Python + Scala 2.13 + Scala 3 kernels; configured for VS Code remote-Jupyter (see [services/jupyterhub/README.md](services/jupyterhub/README.md) §10). | Token (optional; auto-generated if `JUPYTERHUB_TOKEN` is empty — grep from `docker logs ${PROJECT_NAME}-jupyterhub`) |
 | **Neo4j Browser** | http://localhost:63024 | http://graph.localhost:63000 | Graph database | `neo4j` / `GRAPH_DB_PASSWORD` from `.env` |
 | **Backend API** | http://localhost:63093 | http://api.localhost:63000 | REST API | None by default (local/dev surface; add gateway auth before exposing beyond a trusted host) |
