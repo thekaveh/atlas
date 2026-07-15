@@ -62,6 +62,7 @@ from ray_routes import router as ray_router
 from celery_app import celery_is_enabled, get_celery_job_status
 from celery_tasks import memory_consolidate_task, rag_ingestion_task
 from rag_ingestion import (
+    ingestion_execution_lease_seconds,
     ProfileNotFoundError,
     RagIngestionQueuedResponse,
     RagIngestionRecordResponse,
@@ -224,6 +225,7 @@ app = FastAPI(
 validate_media_input_config()
 validate_fal_config()
 validate_rerank_adapter_config()
+ingestion_execution_lease_seconds()
 app.add_middleware(
     MediaRequestLimitMiddleware,
     max_bytes=media_request_max_bytes_from_env(),
@@ -605,10 +607,11 @@ async def extract_document(file: UploadFile = File(...)):
             detail=str(e),
         )
     except DocumentExtractionError as e:
+        logger.exception("Document extraction failed")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=str(e),
-        )
+            detail="Document extraction failed",
+        ) from e
 
 
 @app.post(
@@ -1307,6 +1310,14 @@ def _normalize_media_route(provider: str, modality: str, model: Optional[str]) -
                     + ", ".join(media_registry.known_ids())
                 ),
             )
+        if not entry.endpoint_verified:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"The image_to_3d model '{requested}' is not verified against "
+                    "a live FAL endpoint and cannot be submitted"
+                ),
+            )
         # Resolve aliases to the canonical endpoint id.
         return normalized_provider, normalized_modality, entry.model_id
     raise HTTPException(
@@ -1593,26 +1604,24 @@ async def submit_media_generation(
     try:
         await _persist_media_operation(operation)
     except Exception as exc:
-        provider_cancelled = await _cancel_unpersisted_media_operation(
+        provider_cancellation_requested = await _cancel_unpersisted_media_operation(
             api_key=api_key,
             model=submitted_model,
             operation_id=operation_id,
             modality=modality,
         )
-        manual_reconciliation_required = (
-            not provider_cancelled or budget_cleanup_failed
-        )
-        if provider_cancelled and budget_tracked:
-            try:
-                await MEDIA_BUDGET_ENGINE.release(operation_id)
-            except Exception:
-                manual_reconciliation_required = True
+        # FAL confirms only that cancellation was requested, not that paid work
+        # stopped. Without durable operation state Atlas cannot poll that request
+        # to a terminal outcome, so retain spend for manual reconciliation.
+        manual_reconciliation_required = True
         logger.error(
             "Provider accepted media operation %s but state persistence failed; "
-            "provider_cancelled=%s manual_reconciliation_required=%s: %s",
+            "provider_cancellation_requested=%s "
+            "manual_reconciliation_required=%s budget_cleanup_failed=%s: %s",
             operation_id,
-            provider_cancelled,
+            provider_cancellation_requested,
             manual_reconciliation_required,
+            budget_cleanup_failed,
             exc,
         )
         raise HTTPException(
@@ -1623,7 +1632,7 @@ async def submit_media_generation(
                     "persist its state"
                 ),
                 "provider_operation_id": operation_id,
-                "provider_cancelled": provider_cancelled,
+                "provider_cancellation_requested": provider_cancellation_requested,
                 "manual_reconciliation_required": manual_reconciliation_required,
             },
         ) from exc
@@ -1671,7 +1680,7 @@ async def get_media_operation(
         payload = dict(operation["last_payload"])
         payload["status"] = "timeout"
         persisted, _ = await MEDIA_OPERATION_STORE.transition_payload(
-            operation_id, payload
+            operation_id, payload, expected_status=current_status
         )
         if persisted is None:
             raise HTTPException(
@@ -1724,7 +1733,7 @@ async def get_media_operation(
         payload["provenance"] = provider_provenance
 
     persisted, _ = await MEDIA_OPERATION_STORE.transition_payload(
-        operation_id, payload
+        operation_id, payload, expected_status=current_status
     )
     if persisted is None:
         raise HTTPException(
@@ -1768,42 +1777,47 @@ async def cancel_media_operation(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Media operation {operation_id} not found",
         )
-    last_payload = dict(operation.get("last_payload") or {})
-    current_status = str(last_payload.get("status", ""))
-    if current_status in TERMINAL_MEDIA_STATUSES:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                f"Media operation {operation_id} is already terminal "
-                f"({current_status})"
-            ),
-        )
-    if current_status == "cancellation_requested":
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Media operation {operation_id} cancellation is already requested",
-        )
+    persisted = None
+    for _ in range(3):
+        last_payload = dict(operation.get("last_payload") or {})
+        current_status = str(last_payload.get("status", ""))
+        if current_status in TERMINAL_MEDIA_STATUSES:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"Media operation {operation_id} is already terminal "
+                    f"({current_status})"
+                ),
+            )
+        if current_status == "cancellation_requested":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"Media operation {operation_id} cancellation is already requested"
+                ),
+            )
 
-    payload = dict(last_payload)
-    payload["status"] = "cancellation_requested"
-    provenance = dict(payload.get("provenance") or {})
-    provenance["provider_cancellation_requested"] = False
-    payload["provenance"] = provenance
-    persisted, changed = await MEDIA_OPERATION_STORE.transition_payload(
-        operation_id, payload
-    )
-    if persisted is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Media operation {operation_id} not found",
+        payload = dict(last_payload)
+        payload["status"] = "cancellation_requested"
+        provenance = dict(payload.get("provenance") or {})
+        provenance["provider_cancellation_requested"] = False
+        payload["provenance"] = provenance
+        persisted, changed = await MEDIA_OPERATION_STORE.transition_payload(
+            operation_id, payload, expected_status=current_status
         )
-    if not changed:
-        final_status = str(persisted["last_payload"].get("status", ""))
+        if persisted is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Media operation {operation_id} not found",
+            )
+        if changed:
+            break
+        operation = persisted
+    else:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
-                f"Media operation {operation_id} is already terminal "
-                f"({final_status})"
+                f"Media operation {operation_id} changed concurrently; retry cancellation"
             ),
         )
 
@@ -1831,7 +1845,7 @@ async def cancel_media_operation(
     provenance["provider_cancellation_requested"] = provider_cancellation_requested
     payload["provenance"] = provenance
     enriched, _ = await MEDIA_OPERATION_STORE.transition_payload(
-        operation_id, payload
+        operation_id, payload, expected_status="cancellation_requested"
     )
     final_operation = enriched or persisted
     return _media_response(dict(final_operation["last_payload"]))

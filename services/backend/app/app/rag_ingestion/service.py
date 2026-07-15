@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import os
 import time
 import uuid
 from datetime import datetime, timezone
@@ -57,6 +58,30 @@ class PhaseFatal(RuntimeError):
 
 class IngestionCancelled(RuntimeError):
     pass
+
+
+class IngestionExecutionBusy(RuntimeError):
+    """Raised when another worker owns the execution lease."""
+
+
+class IngestionExecutionLeaseLost(RuntimeError):
+    """Raised when a worker can no longer persist under its execution lease."""
+
+
+def _validate_execution_lease_seconds(value: Any) -> int:
+    name = "RAG_INGESTION_EXECUTION_LEASE_SECONDS"
+    if isinstance(value, bool) or not isinstance(value, int) or not 10 <= value <= 300:
+        raise ValueError(f"{name} must be an integer from 10 through 300")
+    return value
+
+
+def ingestion_execution_lease_seconds() -> int:
+    name = "RAG_INGESTION_EXECUTION_LEASE_SECONDS"
+    try:
+        value = int(os.getenv(name, "30"))
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be an integer from 10 through 300") from exc
+    return _validate_execution_lease_seconds(value)
 
 
 TRANSIENT_EXCEPTIONS = (
@@ -187,12 +212,43 @@ class RagIngestionService:
         if latest is not None and latest.cancel_requested:
             record.cancel_requested = True
 
-    async def _persist(self, record: IngestionRecord) -> None:
+    async def _persist(self, record: IngestionRecord, owner: str) -> None:
         record.updated_at = _now_iso()
-        await asyncio.to_thread(self.store.save, record)
+        saved = await asyncio.to_thread(self.store.save_claimed, record, owner)
+        if not saved:
+            raise IngestionExecutionLeaseLost(
+                f"Execution lease lost for RAG ingestion {record.id}"
+            )
+
+    async def _heartbeat_execution(
+        self,
+        ingestion_id: str,
+        owner: str,
+        lease_seconds: int,
+        stop: asyncio.Event,
+    ) -> None:
+        interval = max(1.0, lease_seconds / 3)
+        while True:
+            try:
+                await asyncio.wait_for(stop.wait(), timeout=interval)
+                return
+            except asyncio.TimeoutError:
+                renewed = await asyncio.to_thread(
+                    self.store.renew_execution,
+                    ingestion_id,
+                    owner,
+                    lease_seconds,
+                )
+                if not renewed:
+                    return
 
     async def run(
-        self, ingestion_id: str, *, retry_transient: bool = False
+        self,
+        ingestion_id: str,
+        *,
+        retry_transient: bool = False,
+        execution_owner: Optional[str] = None,
+        execution_lease_seconds: Optional[int] = None,
     ) -> IngestionRecord:
         record = await asyncio.to_thread(self.store.get, ingestion_id)
         if record is None:
@@ -201,12 +257,39 @@ class RagIngestionService:
             return record
         profile = self._resolve_profile(record.profile)
         corpus = dict(profile.corpus)
+        owner = execution_owner or f"local-{uuid.uuid4()}"
+        lease_seconds = (
+            ingestion_execution_lease_seconds()
+            if execution_lease_seconds is None
+            else _validate_execution_lease_seconds(execution_lease_seconds)
+        )
+        claimed = await asyncio.to_thread(
+            self.store.claim_execution, ingestion_id, owner, lease_seconds
+        )
+        if not claimed:
+            latest = await asyncio.to_thread(self.store.get, ingestion_id)
+            if latest is not None and latest.is_terminal:
+                return latest
+            raise IngestionExecutionBusy(
+                f"RAG ingestion {ingestion_id} is already running"
+            )
+        heartbeat_stop = asyncio.Event()
+        heartbeat = asyncio.create_task(
+            self._heartbeat_execution(
+                ingestion_id, owner, lease_seconds, heartbeat_stop
+            )
+        )
 
-        record.status = STATUS_RUNNING
-        await self._persist(record)
-
-        state: Dict[str, Any] = {"files": [], "docs": [], "chunks": [], "vectors": []}
         try:
+            record.status = STATUS_RUNNING
+            await self._persist(record, owner)
+
+            state: Dict[str, Any] = {
+                "files": [],
+                "docs": [],
+                "chunks": [],
+                "vectors": [],
+            }
             for name in (
                 "discover", "parse", "chunk", "embed",
                 "vector_write", "lightrag_upload", "drain", "finalize",
@@ -214,20 +297,22 @@ class RagIngestionService:
                 await self._refresh_cancel(record)
                 if record.cancel_requested:
                     record.status = STATUS_CANCELLED
-                    await self._persist(record)
+                    await self._persist(record, owner)
                     return record
                 await self._run_phase(name, record, profile, corpus, state)
-                await self._persist(record)
+                await self._persist(record, owner)
         except IngestionCancelled:
             record.status = STATUS_CANCELLED
-            await self._persist(record)
+            await self._persist(record, owner)
             return record
         except PhaseFatal as fatal:
             record.add_error(fatal.error)
             self._mark_failed_phase(record, fatal.error.phase, fatal.error)
             record.status = STATUS_FAILED
-            await self._persist(record)
+            await self._persist(record, owner)
             return record
+        except IngestionExecutionLeaseLost:
+            raise
         except TRANSIENT_EXCEPTIONS as exc:
             if retry_transient:
                 running = next(
@@ -245,21 +330,31 @@ class RagIngestionService:
                 running.error = None
                 running.note = "waiting for Celery retry"
                 record.status = STATUS_PENDING
-                await self._persist(record)
+                await self._persist(record, owner)
                 raise
-            await self._record_unexpected_failure(record, exc)
+            await self._record_unexpected_failure(record, exc, owner)
             return record
         except Exception as exc:  # noqa: BLE001 - any unexpected phase error is a
             # recorded, actionable job failure — never a crashed worker.
-            await self._record_unexpected_failure(record, exc)
+            await self._record_unexpected_failure(record, exc, owner)
             return record
-
-        record.status = STATUS_FAILED if record.errors and self._has_fatal_phase(record) else STATUS_COMPLETED
-        await self._persist(record)
-        return record
+        else:
+            record.status = (
+                STATUS_FAILED
+                if record.errors and self._has_fatal_phase(record)
+                else STATUS_COMPLETED
+            )
+            await self._persist(record, owner)
+            return record
+        finally:
+            heartbeat_stop.set()
+            await heartbeat
+            await asyncio.to_thread(
+                self.store.release_execution, ingestion_id, owner
+            )
 
     async def _record_unexpected_failure(
-        self, record: IngestionRecord, exc: Exception
+        self, record: IngestionRecord, exc: Exception, owner: str
     ) -> None:
         running = next(
             (p.name for p in record.phases if p.status == STATUS_RUNNING), "finalize"
@@ -268,7 +363,7 @@ class RagIngestionService:
         record.add_error(error)
         self._mark_failed_phase(record, running, error)
         record.status = STATUS_FAILED
-        await self._persist(record)
+        await self._persist(record, owner)
 
     def _has_fatal_phase(self, record: IngestionRecord) -> bool:
         return any(p.status == STATUS_FAILED for p in record.phases)

@@ -54,6 +54,30 @@ def test_first_terminal_media_transition_wins_and_remains_stable() -> None:
     asyncio.run(scenario())
 
 
+def test_expected_status_rejects_stale_nonterminal_poll() -> None:
+    async def scenario():
+        store = InMemoryMediaOperationStore()
+        await store.create(_operation())
+        cancelling = {
+            **_operation()["last_payload"],
+            "status": "cancellation_requested",
+        }
+        _, changed = await store.transition_payload(
+            "media-op-1", cancelling, expected_status="queued"
+        )
+        assert changed is True
+
+        stale_poll = {**_operation()["last_payload"], "status": "running"}
+        persisted, changed = await store.transition_payload(
+            "media-op-1", stale_poll, expected_status="queued"
+        )
+
+        assert changed is False
+        assert persisted["last_payload"]["status"] == "cancellation_requested"
+
+    asyncio.run(scenario())
+
+
 def test_reconciliation_marker_is_shared_store_state() -> None:
     async def scenario():
         store = InMemoryMediaOperationStore()
@@ -83,14 +107,19 @@ def test_terminal_payload_can_only_be_enriched_without_changing_status() -> None
 
         enriched_payload = {
             **terminal["last_payload"],
-            "provenance": {"provider_cancelled": True},
+            "provenance": {"provider_cancellation_requested": True},
         }
         enriched, patched = await store.replace_terminal_payload(
             "media-op-1", "cancelled", enriched_payload
         )
         assert patched is True
         assert enriched["last_payload"]["status"] == "cancelled"
-        assert enriched["last_payload"]["provenance"]["provider_cancelled"] is True
+        assert (
+            enriched["last_payload"]["provenance"][
+                "provider_cancellation_requested"
+            ]
+            is True
+        )
 
         _, patched_wrong_status = await store.replace_terminal_payload(
             "media-op-1",

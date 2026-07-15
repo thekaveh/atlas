@@ -271,3 +271,49 @@ def test_job_status_redacts_failure_tracebacks(monkeypatch):
     assert status["status"] == "failure"
     assert status["error"] == "database password leaked"
     assert status["traceback"] is None
+
+
+@pytest.mark.parametrize(
+    "name,value",
+    (
+        ("CELERY_WORKER_CONCURRENCY", "bad"),
+        ("CELERY_WORKER_PREFETCH_MULTIPLIER", "0"),
+        ("CELERY_TASK_SOFT_TIME_LIMIT_SECONDS", "-1"),
+        ("CELERY_TASK_TIME_LIMIT_SECONDS", "0"),
+        ("CELERY_BROKER_VISIBILITY_TIMEOUT_SECONDS", "-1"),
+    ),
+)
+def test_celery_worker_limits_reject_malformed_or_nonpositive_values(
+    monkeypatch, name, value
+):
+    import celery_app
+
+    monkeypatch.setenv(name, value)
+    with pytest.raises(ValueError, match=name):
+        celery_app._load_worker_limits()
+
+
+@pytest.mark.parametrize(
+    "soft,hard,visibility",
+    ((900, 900, 3600), (901, 900, 3600), (840, 900, 900), (840, 900, 899)),
+)
+def test_celery_worker_limits_enforce_deadline_order(
+    monkeypatch, soft, hard, visibility
+):
+    import celery_app
+
+    monkeypatch.setenv("CELERY_TASK_SOFT_TIME_LIMIT_SECONDS", str(soft))
+    monkeypatch.setenv("CELERY_TASK_TIME_LIMIT_SECONDS", str(hard))
+    monkeypatch.setenv(
+        "CELERY_BROKER_VISIBILITY_TIMEOUT_SECONDS", str(visibility)
+    )
+    with pytest.raises(ValueError):
+        celery_app._load_worker_limits()
+
+
+def test_rag_lease_contention_retries_are_unbounded_but_transients_are_bounded():
+    import celery_tasks
+
+    assert celery_tasks.rag_ingestion_task.max_retries is None
+    assert celery_tasks.rag_ingestion_task.retry_kwargs == {"max_retries": 3}
+    assert celery_tasks.memory_consolidate_task.max_retries == 3

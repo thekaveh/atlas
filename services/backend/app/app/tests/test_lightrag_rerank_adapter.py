@@ -257,6 +257,18 @@ def test_malformed_tei_item_types_raise_upstream_error(item):
         adapter._parse_tei_items([item], 1)
 
 
+@pytest.mark.parametrize(
+    "items,doc_count",
+    (
+        ([{"index": 0, "score": 0.9}, {"index": 0, "score": 0.8}], 2),
+        ([{"index": 0, "score": 0.9}, {"index": 1, "score": 0.8}], 1),
+    ),
+)
+def test_tei_items_reject_duplicate_or_excessive_results(items, doc_count):
+    with pytest.raises(RerankAdapterUpstreamError):
+        adapter._parse_tei_items(items, doc_count)
+
+
 def test_item_missing_score_raises_upstream_error(monkeypatch):
     monkeypatch.setenv("TEI_RERANKER_ENDPOINT", "http://tei-reranker:80")
     _install_client(monkeypatch, resp=_FakeResponse(200, [{"index": 0}]))

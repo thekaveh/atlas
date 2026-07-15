@@ -27,6 +27,7 @@ from rag_ingestion.clients import (
 )
 from rag_ingestion.profiles import ProfileNotFoundError, load_profiles
 from rag_ingestion.service import Deps, RagIngestionService
+from rag_ingestion.models import IngestionRecord
 from rag_ingestion.store import InMemoryIngestionStore, RedisIngestionStore
 
 
@@ -433,6 +434,109 @@ def test_cancellation_survives_a_stale_worker_save(tmp_path, monkeypatch):
     persisted = store.get(record.id)
     assert persisted is not None
     assert persisted.cancel_requested is True
+
+
+def test_execution_claim_fences_non_owner_saves_and_allows_recovery():
+    store = InMemoryIngestionStore()
+    record = IngestionRecord(
+        id="ingestion-1",
+        consumer="acme",
+        profile="default",
+        revision="1",
+        idempotency_key="key-1",
+    )
+    store.create_if_absent(record)
+
+    assert store.claim_execution(record.id, "worker-a", 60) is True
+    assert store.claim_execution(record.id, "worker-b", 60) is False
+    claimed = store.get(record.id)
+    claimed.status = "running"
+    assert store.save_claimed(claimed, "worker-b") is False
+    assert store.save_claimed(claimed, "worker-a") is True
+    assert store.release_execution(record.id, "worker-a") is True
+    assert store.claim_execution(record.id, "worker-b", 60) is True
+
+
+def test_run_rejects_concurrent_execution_before_side_effects(tmp_path, monkeypatch):
+    from rag_ingestion.service import IngestionExecutionBusy
+
+    _corpus(tmp_path, monkeypatch, {"a.txt": "content"})
+    profile_path = _profiles_file(tmp_path)
+    store = InMemoryIngestionStore()
+    embedder = FakeEmbedder()
+    service = RagIngestionService(
+        store=store,
+        deps=Deps(
+            embedder=embedder,
+            weaviate=FakeWeaviate(),
+            lightrag=FakeLightrag(),
+            poll_interval=0.01,
+        ),
+        profiles_path=profile_path,
+    )
+    record, _ = service.submit("showcase-default")
+    assert store.claim_execution(record.id, "worker-a", 60) is True
+
+    with pytest.raises(IngestionExecutionBusy):
+        asyncio.run(
+            service.run(
+                record.id,
+                retry_transient=True,
+                execution_owner="worker-b",
+                execution_lease_seconds=60,
+            )
+        )
+
+    assert embedder.available() is True
+    assert store.get(record.id).status == "pending"
+
+
+@pytest.mark.parametrize("lease_seconds", (True, 9, 301, 30.0, "30"))
+def test_run_rejects_invalid_execution_lease_before_claim(
+    tmp_path, monkeypatch, lease_seconds
+):
+    _corpus(tmp_path, monkeypatch, {"a.txt": "content"})
+    profile_path = _profiles_file(tmp_path)
+    store = InMemoryIngestionStore()
+    service = RagIngestionService(
+        store=store,
+        deps=Deps(
+            embedder=FakeEmbedder(),
+            weaviate=FakeWeaviate(),
+            lightrag=FakeLightrag(),
+        ),
+        profiles_path=profile_path,
+    )
+    record, _ = service.submit("showcase-default")
+
+    with pytest.raises(ValueError, match="RAG_INGESTION_EXECUTION_LEASE_SECONDS"):
+        asyncio.run(
+            service.run(record.id, execution_lease_seconds=lease_seconds)
+        )
+
+    assert store.claim_execution(record.id, "worker-a", 60) is True
+
+
+def test_missing_profile_does_not_strand_execution_claim(tmp_path):
+    store = InMemoryIngestionStore()
+    record = IngestionRecord(
+        id="missing-profile-ingestion",
+        consumer="acme",
+        profile="missing",
+        revision="1",
+        idempotency_key="missing-profile-key",
+    )
+    store.create_if_absent(record)
+    service = RagIngestionService(
+        store=store,
+        deps=Deps(),
+        profiles_path=str(tmp_path / "missing-profiles.json"),
+    )
+
+    with pytest.raises(ProfileNotFoundError):
+        asyncio.run(service.run(record.id))
+
+    assert store.claim_execution(record.id, "worker-a", 60) is True
 
 
 def test_vector_target_fail_when_weaviate_disabled(tmp_path, monkeypatch):

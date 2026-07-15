@@ -53,20 +53,13 @@ def _image_init_value(input_payload: Dict[str, Any]) -> Optional[str]:
 
 
 def _bounded_int(name: str, value: Any, minimum: int, maximum: int) -> int:
-    if isinstance(value, bool):
+    if isinstance(value, bool) or not isinstance(value, int):
         raise ValueError(f"FAL image {name} must be an integer")
-    try:
-        numeric = float(value)
-        converted = int(value)
-    except (TypeError, ValueError, OverflowError) as exc:
-        raise ValueError(f"FAL image {name} must be an integer") from exc
-    if not math.isfinite(numeric) or numeric != converted:
-        raise ValueError(f"FAL image {name} must be a finite integer")
-    if not minimum <= converted <= maximum:
+    if not minimum <= value <= maximum:
         raise ValueError(
             f"FAL image {name} must be between {minimum} and {maximum}"
         )
-    return converted
+    return value
 
 
 def _bounded_float(name: str, value: Any, minimum: float, maximum: float) -> float:
@@ -291,7 +284,14 @@ class FalClient:
             raise ValueError(f"Unsupported FAL media modality: {modality}")
         selected_model = (model or self.model).strip()
         if modality == "image_to_3d":
-            return selected_model, self._image_to_3d_arguments(input)
+            entry = media_registry.lookup(selected_model)
+            if entry is None:
+                raise ValueError(f"Unknown FAL image_to_3d endpoint: {selected_model}")
+            if not entry.endpoint_verified:
+                raise ValueError(
+                    f"FAL image_to_3d endpoint {entry.model_id} is not verified"
+                )
+            return entry.model_id, self._image_to_3d_arguments(input, entry.family)
         init_image = _image_init_value(input)
         if init_image is not None and selected_model == _DEFAULT_IMAGE_MODEL:
             selected_model = _DEFAULT_IMAGE_TO_IMAGE_MODEL
@@ -467,33 +467,37 @@ class FalClient:
             raise ValueError("FAL image strength requires an init image")
         return arguments
 
-    def _image_to_3d_arguments(self, input_payload: Dict[str, Any]) -> Dict[str, Any]:
+    def _image_to_3d_arguments(
+        self, input_payload: Dict[str, Any], family: str
+    ) -> Dict[str, Any]:
         image = input_payload.get("image")
         if not isinstance(image, str) or not image.strip():
             raise ValueError(
                 "image_to_3d input requires a non-empty 'image' (URL or data URI)"
             )
-        # fal's 3D API takes the input image under `image_url`; the gateway has
-        # already hosted/conditioned it, so this is a URL or an accepted data URI.
-        arguments: Dict[str, Any] = {"image_url": image.strip()}
+        unsupported = sorted(set(input_payload) - {"image", "seed"})
+        if unsupported:
+            raise ValueError(
+                "FAL image_to_3d input contains unsupported fields: "
+                + ", ".join(unsupported)
+            )
+
+        image_fields: Dict[str, str] = {
+            "trellis": "image_url",
+            "hunyuan3d": "input_image_url",
+            "tripo": "image_url",
+            "rodin": "input_image_urls",
+        }
+        image_field = image_fields.get(family)
+        if image_field is None:
+            raise ValueError(f"Unsupported FAL image_to_3d family: {family}")
+        image_value: Any = [image.strip()] if family == "rodin" else image.strip()
+        arguments: Dict[str, Any] = {image_field: image_value}
         if input_payload.get("seed") is not None:
-            arguments["seed"] = input_payload["seed"]
-        # Optional, provider-tolerant passthroughs (each endpoint ignores keys
-        # it does not recognize).
-        for flag in (
-            "texture",
-            "pbr",
-            "texture_size",
-            "face_limit",
-            "guidance_scale",
-            "num_inference_steps",
-            "quad",
-        ):
-            if input_payload.get(flag) is not None:
-                arguments[flag] = input_payload[flag]
-        extra = input_payload.get("extra")
-        if isinstance(extra, dict):
-            arguments.update(extra)
+            seed_max = 65535 if family == "rodin" else 2_147_483_647
+            arguments["seed"] = _bounded_int(
+                "seed", input_payload["seed"], 0, seed_max
+            )
         return arguments
 
     def _submit(self, model: str, arguments: Dict[str, Any]) -> Any:
@@ -513,10 +517,8 @@ class FalClient:
 
         Returns True when the provider accepted the cancel, False when the
         cancel could not be delivered (SDK without ``cancel``, network error,
-        already-settled request, …). Callers treat False as a safe no-op: the
-        gateway still marks the operation terminal ``cancelled`` server-side
-        and releases the budget reservation — the provider call is purely to
-        stop paid work early where FAL's queue supports it.
+        already-settled request, …). Acceptance is not a terminal outcome;
+        callers retain accounting state until a later poll confirms completion.
         """
         if modality not in self.SUPPORTED_MODALITIES:
             raise ValueError(f"Unsupported FAL media modality: {modality}")

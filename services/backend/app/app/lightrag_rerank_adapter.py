@@ -145,7 +145,12 @@ def _parse_tei_items(payload: object, doc_count: int) -> List[dict]:
         raise RerankAdapterUpstreamError(
             "TEI /rerank returned an unexpected body (expected a JSON array)"
         )
+    if len(payload) > doc_count:
+        raise RerankAdapterUpstreamError(
+            "TEI /rerank returned more results than submitted documents"
+        )
     items: List[dict] = []
+    seen_indexes: set[int] = set()
     for entry in payload:
         if not isinstance(entry, dict) or "index" not in entry or "score" not in entry:
             raise RerankAdapterUpstreamError(
@@ -170,6 +175,11 @@ def _parse_tei_items(payload: object, doc_count: int) -> List[dict]:
             raise RerankAdapterUpstreamError(
                 f"TEI /rerank returned out-of-range index {index} for {doc_count} documents"
             )
+        if index in seen_indexes:
+            raise RerankAdapterUpstreamError(
+                f"TEI /rerank returned duplicate index {index}"
+            )
+        seen_indexes.add(index)
         items.append({"index": index, "score": score})
     return items
 

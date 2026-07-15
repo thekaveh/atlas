@@ -10,7 +10,7 @@ Set `CELERY_SOURCE=container` from the setup wizard or CLI to run one backend Ce
 
 ## 1. Overview
 
-The first async job is memory consolidation. `POST /memory/consolidate?async_job=true` returns a Celery job id immediately instead of holding the FastAPI request open while the LangMem consolidation loop performs database reads and LLM calls. Use `GET /jobs/{job_id}` to inspect pending, running, success, retry, failure, or revoked state.
+The worker currently runs memory consolidation and RAG ingestion. `POST /memory/consolidate?async_job=true` returns a Celery job id immediately instead of holding the FastAPI request open while the LangMem consolidation loop performs database reads and LLM calls. RAG ingestion submissions dispatch the phase engine when this tier is enabled. Use `GET /jobs/{job_id}` to inspect pending, running, success, retry, failure, or revoked state.
 
 The old synchronous `POST /memory/consolidate` path remains available for compatibility. Research start is deferred because it already has a separate database-backed session lifecycle, and moving it first would mix two lifecycle models in one change.
 
@@ -32,7 +32,10 @@ CELERY_WORKER_PREFETCH_MULTIPLIER=1
 CELERY_TASK_SOFT_TIME_LIMIT_SECONDS=840
 CELERY_TASK_TIME_LIMIT_SECONDS=900
 CELERY_BROKER_VISIBILITY_TIMEOUT_SECONDS=3600
+RAG_INGESTION_EXECUTION_LEASE_SECONDS=30
 ```
+
+All Celery numeric controls must be positive integers. The soft limit must be less than the hard limit, and the Redis visibility timeout must be greater than the hard limit; malformed or contradictory values fail worker and Backend startup rather than falling back to defaults. The RAG execution lease must be an integer from 10 through 300 seconds.
 
 The bootstrapper computes these when enabled:
 
@@ -52,7 +55,8 @@ FastAPI backend
   └─ enqueue task -> Redis db 4 -> celery-worker
                                      ├─ Supabase/Postgres memory tables
                                      ├─ LiteLLM for consolidation prompts
-                                     └─ Weaviate for memory vector updates
+                                     ├─ Weaviate for memory vector updates
+                                     └─ Redis db 0 owner-fenced RAG state/leases
 
 Flower -> Redis db 4 -> worker/task inspection
 Kong   -> flower.localhost -> Flower
@@ -64,7 +68,7 @@ Kong   -> flower.localhost -> Flower
 
 The worker uses JSON task/result serialization and Redis as both broker and result backend. Memory consolidation tasks run with a soft time limit before the hard time limit so failures are captured instead of leaving a request open indefinitely. The job endpoint surfaces Celery failure state and error text from Redis; raw tracebacks stay in worker logs and Flower for operators rather than the public backend API.
 
-Redis visibility timeout is intentionally longer than the hard task time limit. If a worker is killed before acknowledging a task, Redis can redeliver it after the visibility timeout; tasks should therefore remain idempotent or tolerate a retry. Memory consolidation deactivates/updates memory rows through existing service logic, so future tasks that mutate external systems must be reviewed before being added to the queue.
+Redis visibility timeout is intentionally longer than the hard task time limit. If a worker is killed before acknowledging a task, Redis can redeliver it after the visibility timeout; tasks should therefore remain idempotent or tolerate a retry. RAG ingestion acquires and renews an owner-fenced execution lease before phase side effects, and each state save verifies the owner. A duplicate delivery that finds an active lease waits for its expiry and retries; a worker that loses ownership cannot overwrite replacement state. Transient upstream failures retain the separate three-attempt exponential-backoff policy. Memory consolidation deactivates/updates memory rows through existing service logic, so future tasks that mutate external systems must be reviewed before being added to the queue.
 
 ## 6. Dependencies & Integrations
 

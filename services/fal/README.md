@@ -13,7 +13,7 @@ Atlas does not run a FAL container. The backend reads `FAL_SOURCE`, `FAL_API_KEY
 | Atlas SOURCE | `FAL_SOURCE=disabled` | Default. No FAL calls are made and no API key is required. |
 | FAL provider | `FAL_SOURCE=enabled` | Enables FAL-backed hosted media generation through the backend. |
 | Media gateway (image) | `POST /media/generate` with `{"modality":"image"}` | Submits FAL image operations and returns an operation id. Text→image uses `fal-ai/flux/dev` and accepts flat `width`/`height` or an object-valued `image_size`; `seed` is an integer. An init image (`image_url` / `image` / `init_image`, URL or data URI) selects `fal-ai/flux/dev/image-to-image`, which accepts optional `strength` from 0.01 through 1 but no output-size override. Neither default endpoint accepts `negative_prompt`. Custom endpoints require an exact provider-native `input.provider_arguments` object. |
-| Media gateway (image→3D) | `POST /media/generate` with `{"modality":"image_to_3d"}` | Submits a hosted image→3D operation (Hunyuan3D / TRELLIS / Tripo / Rodin / Pixal3D) and returns an operation id. |
+| Media gateway (image→3D) | `POST /media/generate` with `{"modality":"image_to_3d"}` | Submits a hosted image→3D operation through a verified Hunyuan3D, TRELLIS, Tripo, or Rodin endpoint and returns an operation id. |
 | Operation polling | `GET /media/operations/{operation_id}` | Polls provider status and returns normalized artifacts (the GLB is the primary `artifact_url`), cost, license, and provenance. |
 | Operation cancel | `POST /media/operations/{operation_id}/cancel` | Records `cancellation_requested` and asks FAL to cancel (`provenance.provider_cancellation_requested`). Budget remains reserved until polling confirms a terminal provider outcome. Idempotent — `404` unknown, `409` terminal or already requested. |
 | Spend read | `GET /media/spend?consumer=<c>` | Scoped spend read (committed/reserved totals + rows for one consumer). Empty unless `MEDIA_BUDGET_ENABLED=true`. |
@@ -51,7 +51,7 @@ Atlas models FAL as a virtual media service:
 - Service category: `media`.
 - Source values: `disabled` and `enabled`.
 - Runtime ownership: no compose service, no container, no volume, and no Kong route.
-- Backend integration: `POST /media/generate` validates the complete selected-model schema before state, budget, storage, or provider work and then submits hosted image operations to FAL. `GET /media/operations/{operation_id}` polls provider status. `POST /media/operations/{operation_id}/cancel` records a nonterminal cancellation request and retains spend until polling confirms the provider's terminal outcome (#518). `POST /comfyui/generate` chooses FAL first when `FAL_SOURCE=enabled` for the default `fal-ai/flux/dev` compatibility contract; custom endpoint schemas use `POST /media/generate` with explicit `input.provider_arguments` instead.
+- Backend integration: `POST /media/generate` validates the complete selected-model schema before state, budget, storage, or provider work and then submits hosted image operations to FAL. `GET /media/operations/{operation_id}` polls provider status. `POST /media/operations/{operation_id}/cancel` records a nonterminal cancellation request and retains spend until polling confirms the provider's terminal outcome (#518). Polling and cancellation use compare-and-set transitions so stale provider observations cannot overwrite a concurrent cancellation request. `POST /comfyui/generate` chooses FAL first when `FAL_SOURCE=enabled` for the default `fal-ai/flux/dev` compatibility contract; custom endpoint schemas use `POST /media/generate` with explicit `input.provider_arguments` instead.
 - ComfyUI-specific routes: workflow execution, queue inspection, history lookup, cancellation, and image file proxying remain ComfyUI-specific.
 - Secret handling: `FAL_API_KEY` is server-side only. The backend maps it to `FAL_KEY` for the fal.ai Python client and never exposes it to browser clients.
 - Operation state: submitted metadata and terminal transitions are shared in Redis with a bounded TTL, so polling and cancellation survive Backend restarts and remain consistent across replicas. Owner scope is recorded at submission and enforced on reads and cancellation. The optional Postgres spend ledger and budget engine are described in §4.2.
@@ -60,7 +60,8 @@ Atlas models FAL as a virtual media service:
 
 `{"modality":"image_to_3d","provider":"fal","model":<id>,"input":{"image":<url-or-data-uri>}}` submits a hosted image→3D job. The backend owns the provider quirks centrally so consumers do not re-discover them:
 
-- **Curated registry.** `model` resolves against a curated registry (canonical vendor endpoint ids only — `"Prism"` maps to the canonical Tripo id). Aliases and case are tolerated; an unknown id returns HTTP 400 listing the supported ids. Omitting `model` uses `FAL_IMAGE_TO_3D_MODEL`.
+- **Curated registry.** `model` resolves against a curated registry of verified canonical vendor endpoint ids (`"Prism"` maps to the canonical Tripo id). Aliases and case are tolerated; an unknown or unverified id returns HTTP 400 listing the supported ids. Omitting `model` uses `FAL_IMAGE_TO_3D_MODEL`.
+- **Exact request schemas.** `input` accepts only a non-empty `image` URL/data URI and optional JSON-integer `seed`. TRELLIS and Tripo receive `image_url`; Hunyuan3D receives `input_image_url`; Rodin receives a one-element `input_image_urls` list. Rodin seeds are 0–65,535 and the other verified endpoints accept 0–2,147,483,647. Generic `extra` fields are rejected so callers cannot replace Atlas-owned image fields or guess a shared provider schema.
 - **Normalized output.** On success the GLB is the primary `artifact_url` regardless of which response key the provider used (`model_glb` / `model_mesh` / `model` / `mesh` / `pbr_model` / `base_model`). `artifacts[]` carries the GLB plus any preview/texture entries, each tagged with a `role` and `source_key`. `license` and estimated `cost_usd` come from the registry entry (`provenance.cost_basis = "estimated"`), and unrecognized provider fields are preserved under `provenance.provider_fields`.
 - **Input hosting.** Providers that reject data-URI inputs (Tripo) trigger an upload to Atlas storage (`BACKEND_MEDIA_INPUT_BUCKET`, `media-inputs/` prefix); the returned URL is substituted before submission. Remote `http(s)` inputs pass through untouched. Set `BACKEND_MEDIA_INPUT_PUBLIC_BASE_URL` when the provider's cloud must reach the hosted object through a public ingress.
 - **Transparent-input conditioning.** Transparent inline inputs are composited onto a neutral studio background with ~35% padding before submission (fal Hunyuan3D v2 raises `IndexError` on tight transparent crops). Conditioning applies to `data:` inputs; remote URLs are not fetched.
@@ -70,9 +71,10 @@ Atlas models FAL as a virtual media service:
 |---|---|---|---|---|
 | `fal-ai/trellis` | TRELLIS | MIT | yes | data URI ok |
 | `fal-ai/hunyuan3d/v2` | Hunyuan3D | tencent-hunyuan-community | yes via fal (self-host Tencent-gated, EU/UK/KR excluded) | data URI ok |
-| `fal-ai/tripo3d/tripo/v2.5/image-to-3d` | Tripo | tripo-commercial-gated | gated to Pro/Enterprise | **requires hosted URL** |
+| `tripo3d/tripo/v2.5/image-to-3d` | Tripo | tripo-commercial-gated | gated to Pro/Enterprise | **requires hosted URL** |
 | `fal-ai/hyper3d/rodin` | Rodin (Hyper3D) | hyper3d-provider-terms | conditional | data URI ok |
-| `fal-ai/pixal3d/image-to-3d` | Pixal3D | pixal3d-provider-terms | conditional | data URI ok (endpoint id unverified) |
+
+Pixal3D remains in the internal research registry as an unverified candidate and is not advertised or routable until its current endpoint id and request contract are validated.
 
 ### 4.2. Spend ledger & budgets
 
@@ -83,6 +85,7 @@ Hosted media generation has no LiteLLM-style spend accounting of its own, so the
 - **Per-provider kill-switch.** `MEDIA_DISABLED_PROVIDERS` (CSV, e.g. `fal`) returns `403` for a disabled provider without downing the gateway or other providers.
 - **Unknown cost is never $0.** A budgeted submission for a model with no known cost is rejected (`402`) unless `MEDIA_BUDGET_ALLOW_UNKNOWN_COST=true`, in which case it is recorded with a `NULL` (not zero) cost.
 - **Scoped reads.** `GET /media/spend?consumer=<c>[&project=<p>]` returns that consumer's totals + rows only; provider keys and other consumers' records are never exposed.
+- **Cancellation acceptance is not settlement.** A normal cancel request and the post-submission persistence compensation path both retain the reservation until a provider poll proves a terminal outcome. When the submitted operation cannot be persisted, the `503` recovery payload reports whether FAL accepted the cancellation request and always requires manual reconciliation; acceptance alone never releases spend.
 
 Attribution comes from the authenticated Backend principal plus optional request `consumer`/`project` fields or `X-Atlas-Consumer`/`X-Atlas-Project` headers (default `default`). Operation polling and cancellation are owner-scoped; spend reads require the same Backend application-auth boundary. `MEDIA_BUDGET_*` and `MEDIA_DISABLED_PROVIDERS` are declared on the backend service.
 

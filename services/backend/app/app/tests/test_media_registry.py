@@ -41,12 +41,12 @@ def test_prism_alias_maps_to_canonical_tripo_id():
     # canonical vendor id only.
     entry = media_registry.lookup("prism")
     assert entry is not None
-    assert entry.model_id == "fal-ai/tripo3d/tripo/v2.5/image-to-3d"
+    assert entry.model_id == "tripo3d/tripo/v2.5/image-to-3d"
     assert entry.family == "tripo"
 
 
 def test_tripo_requires_hosted_url_and_rejects_data_uri():
-    tripo = media_registry.lookup("fal-ai/tripo3d/tripo/v2.5/image-to-3d")
+    tripo = media_registry.lookup("tripo3d/tripo/v2.5/image-to-3d")
     assert tripo is not None
     assert tripo.needs_hosted_url is True
     assert tripo.accepts_data_uri is False
@@ -78,5 +78,5 @@ def test_default_model_id_honors_env(monkeypatch):
 def test_known_ids_are_canonical():
     ids = media_registry.known_ids()
     assert "fal-ai/trellis" in ids
-    assert "fal-ai/tripo3d/tripo/v2.5/image-to-3d" in ids
-    assert len(ids) == len(media_registry.all_models())
+    assert "tripo3d/tripo/v2.5/image-to-3d" in ids
+    assert all(media_registry.lookup(model_id).endpoint_verified for model_id in ids)

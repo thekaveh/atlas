@@ -43,19 +43,19 @@ env:
     description: "Default Celery queue consumed by the Atlas backend worker."
   - name: CELERY_WORKER_CONCURRENCY
     default: 2
-    description: "Worker process concurrency for backend async jobs."
+    description: "Positive worker process concurrency for backend async jobs. Invalid values fail Backend and worker startup."
   - name: CELERY_WORKER_PREFETCH_MULTIPLIER
     default: 1
-    description: "Conservative prefetch to reduce head-of-line blocking for long tasks."
+    description: "Positive prefetch multiplier. The default reduces head-of-line blocking for long tasks; invalid values fail startup."
   - name: CELERY_TASK_TIME_LIMIT_SECONDS
     default: 900
-    description: "Hard per-task limit. Worker kills tasks that run beyond this budget."
+    description: "Positive hard per-task limit. Must exceed the soft limit and remain below the broker visibility timeout."
   - name: CELERY_TASK_SOFT_TIME_LIMIT_SECONDS
     default: 840
-    description: "Soft per-task limit. Tasks can catch this before the hard kill."
+    description: "Positive soft per-task limit. Must be strictly less than the hard limit."
   - name: CELERY_BROKER_VISIBILITY_TIMEOUT_SECONDS
     default: 3600
-    description: "Redis broker visibility timeout. Keep longer than task hard limit."
+    description: "Positive Redis broker visibility timeout. Must be strictly greater than the task hard limit."
 
 depends_on:
   required:

@@ -45,7 +45,11 @@ class InMemoryMediaOperationStore:
             return deepcopy(operation) if operation is not None else None
 
     async def transition_payload(
-        self, operation_id: str, payload: dict[str, Any]
+        self,
+        operation_id: str,
+        payload: dict[str, Any],
+        *,
+        expected_status: Optional[str] = None,
     ) -> tuple[Optional[dict[str, Any]], bool]:
         async with self._lock:
             operation = self._records.get(operation_id)
@@ -55,6 +59,8 @@ class InMemoryMediaOperationStore:
                 (operation.get("last_payload") or {}).get("status", "")
             )
             if current_status in TERMINAL_MEDIA_STATUSES:
+                return deepcopy(operation), False
+            if expected_status is not None and current_status != expected_status:
                 return deepcopy(operation), False
             operation["last_payload"] = deepcopy(payload)
             return deepcopy(operation), True
@@ -102,6 +108,9 @@ local operation = cjson.decode(blob)
 local current = tostring(operation.last_payload.status or '')
 if current == 'succeeded' or current == 'failed'
    or current == 'cancelled' or current == 'timeout' then
+    return {0, blob}
+end
+if ARGV[3] ~= '' and current ~= ARGV[3] then
     return {0, blob}
 end
 operation.last_payload = cjson.decode(ARGV[1])
@@ -166,7 +175,11 @@ return 1
         return json.loads(blob) if blob else None
 
     async def transition_payload(
-        self, operation_id: str, payload: dict[str, Any]
+        self,
+        operation_id: str,
+        payload: dict[str, Any],
+        *,
+        expected_status: Optional[str] = None,
     ) -> tuple[Optional[dict[str, Any]], bool]:
         changed, blob = await self._redis.eval(
             self._TRANSITION_SCRIPT,
@@ -174,6 +187,7 @@ return 1
             _KEY_PREFIX + operation_id,
             json.dumps(payload),
             self._ttl,
+            expected_status or "",
         )
         return (json.loads(blob) if blob else None), bool(changed)
 

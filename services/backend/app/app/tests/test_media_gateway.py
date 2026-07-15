@@ -485,6 +485,24 @@ def test_media_generate_image_to_3d_unknown_model_rejected(monkeypatch):
     assert "Unknown image_to_3d model" in response.json()["detail"]
 
 
+def test_media_generate_image_to_3d_unverified_model_rejected(monkeypatch):
+    main = _fresh_main(monkeypatch)
+    from fastapi.testclient import TestClient
+
+    response = TestClient(main.app).post(
+        "/media/generate",
+        json={
+            "modality": "image_to_3d",
+            "provider": "fal",
+            "model": "pixal3d",
+            "input": {"image": "https://cdn.example/sprite.png"},
+        },
+    )
+
+    assert response.status_code == 400
+    assert "not verified" in response.json()["detail"]
+
+
 def test_media_generate_image_to_3d_hosts_datauri_for_tripo(monkeypatch):
     main = _fresh_main(monkeypatch)
     _CapturingFalClient.captured = {}
@@ -519,7 +537,7 @@ def test_media_generate_image_to_3d_hosts_datauri_for_tripo(monkeypatch):
     )
     assert (
         _CapturingFalClient.captured["submit"]["model"]
-        == "fal-ai/tripo3d/tripo/v2.5/image-to-3d"
+        == "tripo3d/tripo/v2.5/image-to-3d"
     )
 
 
@@ -741,6 +759,49 @@ def test_media_cancel_requests_provider_cancellation_without_releasing_budget(mo
     assert spy.calls == []
     persisted = asyncio.run(main.MEDIA_OPERATION_STORE.get(op_id))
     assert persisted["reconciled"] is False
+
+
+def test_media_cancel_retries_cas_after_concurrent_nonterminal_poll(monkeypatch):
+    main = _fresh_main(monkeypatch)
+    op_id = _seed_inflight_operation(main)
+    base_store = main.MEDIA_OPERATION_STORE
+
+    class RacingStore:
+        def __init__(self):
+            self.expected_statuses = []
+            self.raced = False
+
+        async def get(self, operation_id):
+            return await base_store.get(operation_id)
+
+        async def transition_payload(
+            self, operation_id, payload, *, expected_status=None
+        ):
+            self.expected_statuses.append(expected_status)
+            if not self.raced:
+                self.raced = True
+                current = await base_store.get(operation_id)
+                polled = dict(current["last_payload"])
+                polled["status"] = "queued"
+                await base_store.transition_payload(operation_id, polled)
+            return await base_store.transition_payload(
+                operation_id, payload, expected_status=expected_status
+            )
+
+    racing_store = RacingStore()
+    monkeypatch.setattr(main, "MEDIA_OPERATION_STORE", racing_store)
+    _CancelFalClient.result = True
+    _CancelFalClient.constructions = 0
+    monkeypatch.setattr(main, "FalClient", _CancelFalClient, raising=False)
+
+    from fastapi.testclient import TestClient
+
+    response = TestClient(main.app).post(f"/media/operations/{op_id}/cancel")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "cancellation_requested"
+    assert racing_store.expected_statuses[:2] == ["in_progress", "queued"]
+    assert _CancelFalClient.constructions == 1
 
 
 def test_media_cancel_is_idempotent_409_when_already_terminal(monkeypatch):

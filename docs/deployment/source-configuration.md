@@ -283,7 +283,7 @@ FAL_MODEL=fal-ai/flux/dev
 - **Pros**: No local GPU or ComfyUI container required for compatible prompt-to-image requests.
 - **Cons**: Requires internet access, provider quota, and per-generation provider cost.
 - **Requirements**: `FAL_API_KEY` when `FAL_SOURCE=enabled`; no key required when `FAL_SOURCE=disabled`.
-- **Behavior**: `POST /comfyui/generate` uses FAL when enabled for compatibility with existing Open WebUI and n8n callers. ComfyUI-specific workflow, queue, history, cancellation, and image-file routes remain ComfyUI-specific.
+- **Behavior**: `POST /comfyui/generate` uses FAL when enabled for compatibility with existing Open WebUI and n8n callers. `POST /media/generate` is the durable provider-neutral operation route and supports verified FAL image and image-to-3D endpoints with owner-scoped Redis state, conservative cancellation accounting, and normalized artifacts/provenance. Image-to-3D currently supports TRELLIS, Hunyuan3D, Tripo, and Rodin; unverified registry candidates are rejected. ComfyUI-specific workflow, queue, history, cancellation, and image-file routes remain ComfyUI-specific.
 
 ### 4.3. WEAVIATE_SOURCE
 

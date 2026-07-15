@@ -245,7 +245,7 @@ def test_state_store_preflight_blocks_provider_and_budget_reservation(monkeypatc
     assert spend["records"] == []
 
 
-def test_state_persistence_failure_retries_then_cancels_provider(monkeypatch):
+def test_state_persistence_failure_retains_spend_after_cancel_request(monkeypatch):
     main = _fresh_main(monkeypatch, budget_enabled=True, default_cap=10.0)
     _CapturingFalClient.captured = {}
     _CapturingFalClient.cancel_result = True
@@ -268,15 +268,15 @@ def test_state_persistence_failure_retries_then_cancels_provider(monkeypatch):
     assert response.json()["detail"] == {
         "message": "Provider accepted the operation but Atlas could not persist its state",
         "provider_operation_id": "fal-3d-9",
-        "provider_cancelled": True,
-        "manual_reconciliation_required": False,
+        "provider_cancellation_requested": True,
+        "manual_reconciliation_required": True,
     }
     assert _CapturingFalClient.captured["cancel"] == {
         "operation_id": "fal-3d-9",
         "modality": "image_to_3d",
     }
     spend = client.get("/media/spend", params={"consumer": "acme"}).json()
-    assert spend["reserved_usd"] == 0.0
+    assert spend["reserved_usd"] == 0.05
 
 
 def test_state_persistence_retry_recovers_without_provider_cancel(monkeypatch):
@@ -324,7 +324,7 @@ def test_uncancelled_unpersisted_operation_retains_budget_reservation(monkeypatc
     assert response.status_code == 503
     detail = response.json()["detail"]
     assert detail["provider_operation_id"] == "fal-3d-9"
-    assert detail["provider_cancelled"] is False
+    assert detail["provider_cancellation_requested"] is False
     assert detail["manual_reconciliation_required"] is True
     spend = client.get("/media/spend", params={"consumer": "acme"}).json()
     assert spend["reserved_usd"] == 0.05

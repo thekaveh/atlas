@@ -111,7 +111,7 @@ _MODELS: Tuple[ImageTo3DModel, ...] = (
         ),
     ),
     ImageTo3DModel(
-        model_id="fal-ai/tripo3d/tripo/v2.5/image-to-3d",
+        model_id="tripo3d/tripo/v2.5/image-to-3d",
         label="Tripo v2.5 (image-to-3D)",
         family="tripo",
         license="tripo-commercial-gated",
@@ -124,7 +124,14 @@ _MODELS: Tuple[ImageTo3DModel, ...] = (
         estimated_cost_usd=0.20,
         needs_hosted_url=True,  # Tripo rejects data-URI inputs — must host a URL
         accepts_data_uri=False,
-        aliases=("tripo", "tripo3d", "tripo-v2.5", "prism", "fal-ai/tripo3d"),
+        aliases=(
+            "tripo",
+            "tripo3d",
+            "tripo-v2.5",
+            "prism",
+            "fal-ai/tripo3d",
+            "fal-ai/tripo3d/tripo/v2.5/image-to-3d",
+        ),
     ),
     ImageTo3DModel(
         model_id="fal-ai/hyper3d/rodin",
@@ -186,9 +193,9 @@ def lookup(model_id: Optional[str]) -> Optional[ImageTo3DModel]:
 
 
 def known_ids() -> Tuple[str, ...]:
-    """Return the canonical endpoint ids, for error messages."""
+    """Return production-verified canonical endpoint ids."""
 
-    return tuple(m.model_id for m in _MODELS)
+    return tuple(m.model_id for m in _MODELS if m.endpoint_verified)
 
 
 def default_model_id() -> str:

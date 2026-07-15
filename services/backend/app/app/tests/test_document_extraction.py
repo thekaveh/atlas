@@ -124,6 +124,33 @@ def test_docling_success_does_not_call_tika() -> None:
     ]
 
 
+@pytest.mark.parametrize(
+    "payload",
+    (
+        {},
+        {"content": "text", "format": "markdown"},
+        {"content": 1, "format": "markdown", "metadata": {}},
+        {"content": "text", "format": "", "metadata": {}},
+        {"content": "text", "format": "markdown", "metadata": [], "chunks": []},
+        {"content": "text", "format": "markdown", "metadata": {}, "chunks": {}},
+    ),
+)
+def test_docling_malformed_success_body_is_rejected(payload) -> None:
+    extractor = DocumentExtractor(
+        DocumentExtractorConfig(docling_endpoint="http://docling-gpu:8000"),
+        http_client=FakeAsyncClient([FakeResponse(200, json_data=payload)]),
+    )
+
+    with pytest.raises(DocumentExtractionError, match="invalid response"):
+        _run(
+            extractor.extract(
+                content=b"document",
+                filename="paper.pdf",
+                content_type="application/pdf",
+            )
+        )
+
+
 def test_docling_unsupported_falls_back_to_tika_with_provenance() -> None:
     client = FakeAsyncClient(
         [
@@ -344,5 +371,25 @@ def test_extract_route_maps_document_extraction_error_to_502(
 
     assert response.status_code == 502
     assert response.json() == {
-        "detail": "Docling extraction request failed: refused"
+        "detail": "Document extraction failed"
     }
+
+
+def test_upstream_failure_body_is_not_exposed() -> None:
+    extractor = DocumentExtractor(
+        DocumentExtractorConfig(docling_endpoint="http://docling-gpu:8000"),
+        http_client=FakeAsyncClient(
+            [FakeResponse(500, text="postgresql://admin:secret@db/internal")]
+        ),
+    )
+
+    with pytest.raises(DocumentExtractionError) as captured:
+        _run(
+            extractor.extract(
+                content=b"document",
+                filename="paper.pdf",
+                content_type="application/pdf",
+            )
+        )
+
+    assert "secret" not in str(captured.value)

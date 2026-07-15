@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+import time
 from typing import Dict, List, Optional
 
 from .models import IngestionRecord
@@ -23,6 +24,7 @@ _TTL_SECONDS = int(os.getenv("RAG_INGESTION_TTL_SECONDS", str(7 * 24 * 3600)))
 _KEY_PREFIX = "atlas:rag:ingestions:"
 _IDX_PREFIX = "atlas:rag:idempotency:"
 _INDEX_SET = "atlas:rag:ingestion-ids"
+_LEASE_PREFIX = "atlas:rag:execution:"
 
 
 class IngestionStore:
@@ -56,11 +58,28 @@ class IngestionStore:
     ) -> Optional[IngestionRecord]:
         raise NotImplementedError
 
+    def claim_execution(
+        self, ingestion_id: str, owner: str, lease_seconds: int
+    ) -> bool:
+        raise NotImplementedError
+
+    def renew_execution(
+        self, ingestion_id: str, owner: str, lease_seconds: int
+    ) -> bool:
+        raise NotImplementedError
+
+    def save_claimed(self, record: IngestionRecord, owner: str) -> bool:
+        raise NotImplementedError
+
+    def release_execution(self, ingestion_id: str, owner: str) -> bool:
+        raise NotImplementedError
+
 
 class InMemoryIngestionStore(IngestionStore):
     def __init__(self) -> None:
         self._records: Dict[str, str] = {}
         self._index: Dict[str, str] = {}
+        self._leases: Dict[str, tuple[str, float]] = {}
         self._lock = threading.Lock()
 
     def _save_locked(self, record: IngestionRecord) -> None:
@@ -139,6 +158,62 @@ class InMemoryIngestionStore(IngestionStore):
                 record.errors.append(dict(error))
                 self._save_locked(record)
             return record
+
+    def claim_execution(
+        self, ingestion_id: str, owner: str, lease_seconds: int
+    ) -> bool:
+        with self._lock:
+            blob = self._records.get(ingestion_id)
+            if blob is None:
+                return False
+            record = IngestionRecord.from_dict(json.loads(blob))
+            if record.is_terminal:
+                return False
+            now = time.monotonic()
+            current = self._leases.get(ingestion_id)
+            if current is not None and current[1] > now:
+                return False
+            self._leases[ingestion_id] = (owner, now + lease_seconds)
+            return True
+
+    def renew_execution(
+        self, ingestion_id: str, owner: str, lease_seconds: int
+    ) -> bool:
+        with self._lock:
+            current = self._leases.get(ingestion_id)
+            now = time.monotonic()
+            if current is None or current[0] != owner or current[1] <= now:
+                return False
+            self._leases[ingestion_id] = (owner, now + lease_seconds)
+            return True
+
+    def save_claimed(self, record: IngestionRecord, owner: str) -> bool:
+        with self._lock:
+            current_lease = self._leases.get(record.id)
+            now = time.monotonic()
+            if (
+                current_lease is None
+                or current_lease[0] != owner
+                or current_lease[1] <= now
+            ):
+                return False
+            current_blob = self._records.get(record.id)
+            if current_blob:
+                current = IngestionRecord.from_dict(json.loads(current_blob))
+                if current.is_terminal:
+                    return False
+                if current.cancel_requested:
+                    record.cancel_requested = True
+            self._save_locked(record)
+            return True
+
+    def release_execution(self, ingestion_id: str, owner: str) -> bool:
+        with self._lock:
+            current = self._leases.get(ingestion_id)
+            if current is None or current[0] != owner:
+                return False
+            del self._leases[ingestion_id]
+            return True
 
 
 class RedisIngestionStore(IngestionStore):
@@ -227,6 +302,56 @@ end
 return blob
 """
 
+    _CLAIM_EXECUTION_SCRIPT = """
+local blob = redis.call('GET', KEYS[1])
+if not blob then return 0 end
+local record = cjson.decode(blob)
+if record.status == 'completed' or record.status == 'failed'
+   or record.status == 'cancelled' then
+    return 0
+end
+if redis.call('GET', KEYS[2]) then return 0 end
+redis.call('SET', KEYS[2], ARGV[1], 'EX', ARGV[2])
+return 1
+"""
+
+    _RENEW_EXECUTION_SCRIPT = """
+if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
+redis.call('EXPIRE', KEYS[1], ARGV[2])
+return 1
+"""
+
+    _SAVE_CLAIMED_SCRIPT = """
+if redis.call('GET', KEYS[4]) ~= ARGV[3] then return 0 end
+local incoming = cjson.decode(ARGV[1])
+local current_blob = redis.call('GET', KEYS[1])
+if not current_blob then return 0 end
+local current = cjson.decode(current_blob)
+if current.status == 'completed' or current.status == 'failed'
+   or current.status == 'cancelled' then
+    return 0
+end
+if current.cancel_requested == true then
+    incoming.cancel_requested = true
+end
+local blob = cjson.encode(incoming)
+redis.call('SET', KEYS[1], blob, 'EX', ARGV[2])
+redis.call('SADD', KEYS[3], incoming.id)
+if incoming.status == 'pending' or incoming.status == 'running'
+   or incoming.status == 'completed' then
+    redis.call('SET', KEYS[2], incoming.id, 'EX', ARGV[2])
+elseif redis.call('GET', KEYS[2]) == incoming.id then
+    redis.call('DEL', KEYS[2])
+end
+return 1
+"""
+
+    _RELEASE_EXECUTION_SCRIPT = """
+if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
+redis.call('DEL', KEYS[1])
+return 1
+"""
+
     def save(self, record: IngestionRecord) -> None:
         blob = json.dumps(record.to_dict())
         self._redis.eval(
@@ -305,6 +430,58 @@ return blob
             _TTL_SECONDS,
         )
         return IngestionRecord.from_dict(json.loads(result)) if result else None
+
+    def claim_execution(
+        self, ingestion_id: str, owner: str, lease_seconds: int
+    ) -> bool:
+        return bool(
+            self._redis.eval(
+                self._CLAIM_EXECUTION_SCRIPT,
+                2,
+                _KEY_PREFIX + ingestion_id,
+                _LEASE_PREFIX + ingestion_id,
+                owner,
+                lease_seconds,
+            )
+        )
+
+    def renew_execution(
+        self, ingestion_id: str, owner: str, lease_seconds: int
+    ) -> bool:
+        return bool(
+            self._redis.eval(
+                self._RENEW_EXECUTION_SCRIPT,
+                1,
+                _LEASE_PREFIX + ingestion_id,
+                owner,
+                lease_seconds,
+            )
+        )
+
+    def save_claimed(self, record: IngestionRecord, owner: str) -> bool:
+        return bool(
+            self._redis.eval(
+                self._SAVE_CLAIMED_SCRIPT,
+                4,
+                _KEY_PREFIX + record.id,
+                _IDX_PREFIX + record.idempotency_key,
+                _INDEX_SET,
+                _LEASE_PREFIX + record.id,
+                json.dumps(record.to_dict()),
+                _TTL_SECONDS,
+                owner,
+            )
+        )
+
+    def release_execution(self, ingestion_id: str, owner: str) -> bool:
+        return bool(
+            self._redis.eval(
+                self._RELEASE_EXECUTION_SCRIPT,
+                1,
+                _LEASE_PREFIX + ingestion_id,
+                owner,
+            )
+        )
 
 
 def default_store() -> IngestionStore:

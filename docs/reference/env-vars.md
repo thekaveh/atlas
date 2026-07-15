@@ -67,6 +67,7 @@
 | RAG_INGESTION_MAX_FILE_BYTES | backend | 104857600 | Maximum bytes loaded from any single mounted or MinIO RAG corpus file. Oversize files fail ingestion before unbounded allocation. |
 | RAG_INGESTION_MAX_CORPUS_BYTES | backend | 1073741824 | Maximum aggregate bytes loaded by one RAG corpus discovery pass across mounted or MinIO files. |
 | RAG_INGESTION_MAX_FILES | backend | 10000 | Maximum number of files accepted in one mounted or MinIO RAG corpus discovery pass. |
+| RAG_INGESTION_EXECUTION_LEASE_SECONDS | backend | 30 | Renewable execution-ownership lease for RAG ingestion workers. Must be an integer from 10 through 300; duplicate deliveries retry until the active owner completes or its lease expires. |
 | RESEARCH_SESSION_LEASE_SECONDS | backend | 300 | Maximum age in seconds for pending research work or a running session heartbeat before the Backend atomically marks the abandoned session failed. |
 | BACKEND_STORAGE_ALLOWED_BUCKETS | backend | default | Comma-separated Supabase Storage bucket allowlist accepted by /storage/upload. |
 | BACKEND_MEDIA_INPUT_BUCKET | backend | default | Atlas storage bucket the media gateway hosts image_to_3d inputs in when a provider (e.g. Tripo) rejects data-URI inputs. Objects are written under the media-inputs/ prefix. |
@@ -134,11 +135,11 @@ seconds a future auto-consolidation scheduler would use.
 | CELERY_BROKER_URL | celery |  | Redis broker URL; Atlas uses Redis database 4 for Celery. |
 | CELERY_RESULT_BACKEND | celery |  | Redis result backend URL; Atlas uses Redis database 4 for Celery task state. |
 | CELERY_QUEUE | celery | atlas | Default Celery queue consumed by the Atlas backend worker. |
-| CELERY_WORKER_CONCURRENCY | celery | 2 | Worker process concurrency for backend async jobs. |
-| CELERY_WORKER_PREFETCH_MULTIPLIER | celery | 1 | Conservative prefetch to reduce head-of-line blocking for long tasks. |
-| CELERY_TASK_TIME_LIMIT_SECONDS | celery | 900 | Hard per-task limit. Worker kills tasks that run beyond this budget. |
-| CELERY_TASK_SOFT_TIME_LIMIT_SECONDS | celery | 840 | Soft per-task limit. Tasks can catch this before the hard kill. |
-| CELERY_BROKER_VISIBILITY_TIMEOUT_SECONDS | celery | 3600 | Redis broker visibility timeout. Keep longer than task hard limit. |
+| CELERY_WORKER_CONCURRENCY | celery | 2 | Positive worker process concurrency for backend async jobs. Invalid values fail Backend and worker startup. |
+| CELERY_WORKER_PREFETCH_MULTIPLIER | celery | 1 | Positive prefetch multiplier. The default reduces head-of-line blocking for long tasks; invalid values fail startup. |
+| CELERY_TASK_TIME_LIMIT_SECONDS | celery | 900 | Positive hard per-task limit. Must exceed the soft limit and remain below the broker visibility timeout. |
+| CELERY_TASK_SOFT_TIME_LIMIT_SECONDS | celery | 840 | Positive soft per-task limit. Must be strictly less than the hard limit. |
+| CELERY_BROKER_VISIBILITY_TIMEOUT_SECONDS | celery | 3600 | Positive Redis broker visibility timeout. Must be strictly greater than the task hard limit. |
 | CHATTERBOX_PORT | chatterbox |  | Host port for the Chatterbox container (in-container listen port is 4123). |
 | CHATTERBOX_LOCALHOST_PORT | chatterbox | 63044 | Host port for the chatterbox-localhost source variant. URL is derived at compose-render time as http://host.docker.internal:63044. |
 | CHATTERBOX_SCALE | chatterbox |  | Computed by bootstrapper/services/service_config.py::_generate_tts_provider_config — set to 1 when TTS_PROVIDER_SOURCE=chatterbox-container-gpu. |
@@ -216,7 +217,7 @@ point at http://kong-api-gateway:8000.
 | FAL_SOURCE | fal | disabled | Enables fal.ai as the backend provider for simple media generation routes. |
 | FAL_API_KEY | fal |  | fal.ai API key. Required only when FAL_SOURCE=enabled. The backend also exposes it to fal-client as FAL_KEY. |
 | FAL_MODEL | fal | fal-ai/flux/dev | Default fal.ai model endpoint used by the media gateway for text-to-image generation. |
-| FAL_IMAGE_TO_3D_MODEL | fal | fal-ai/trellis | Default fal.ai endpoint id for the media gateway's image_to_3d modality. Must resolve to a curated registry entry (Hunyuan3D / TRELLIS / Tripo / Rodin / Pixal3D); TRELLIS is the MIT-licensed default. |
+| FAL_IMAGE_TO_3D_MODEL | fal | fal-ai/trellis | Default fal.ai endpoint id for the media gateway's image_to_3d modality. Must resolve to a verified registry entry (Hunyuan3D / TRELLIS / Tripo / Rodin); TRELLIS is the MIT-licensed default. |
 | FAL_MODEL_LICENSE | fal | fal/provider-terms | License or terms marker returned in normalized media operation responses when provider-specific model licensing is not more specific. |
 | FAL_TIMEOUT_SECONDS | fal | 120 | Finite Backend timeout budget for FAL media submit/poll operations and the compatibility route. Must be greater than zero and at most 3600 seconds. |
 | FAL_OUTPUT_FORMAT | fal | jpeg | Requested output format for compatible fal.ai image models: jpeg or png. |

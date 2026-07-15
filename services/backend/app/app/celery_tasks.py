@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any, Optional
+from uuid import uuid4
 
 import httpx
 
@@ -35,16 +36,29 @@ def memory_consolidate_task(user_id: Optional[str] = None) -> dict[str, Any]:
 
 
 @celery_app.task(
+    bind=True,
     name="rag_ingestion",
     autoretry_for=TRANSIENT_EXCEPTIONS,
     retry_backoff=True,
     retry_jitter=True,
     retry_kwargs={"max_retries": 3},
+    max_retries=None,
 )
-def rag_ingestion_task(ingestion_id: str) -> dict[str, Any]:
+def rag_ingestion_task(self, ingestion_id: str) -> dict[str, Any]:
     """Run a submitted RAG ingestion job to completion (#413). The record was
     already created + persisted by the submit endpoint; this drives the phases and
     updates the shared store so the status endpoint stays observable."""
-    from rag_ingestion import run_rag_ingestion
+    from rag_ingestion import (
+        IngestionExecutionBusy,
+        ingestion_execution_lease_seconds,
+        run_rag_ingestion,
+    )
 
-    return run_rag_ingestion(ingestion_id)
+    owner = f"{self.request.id or 'celery'}:{uuid4()}"
+    try:
+        return run_rag_ingestion(ingestion_id, execution_owner=owner)
+    except IngestionExecutionBusy as exc:
+        raise self.retry(
+            exc=exc,
+            countdown=ingestion_execution_lease_seconds(),
+        )

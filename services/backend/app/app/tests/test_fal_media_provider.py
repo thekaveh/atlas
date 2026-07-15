@@ -539,6 +539,69 @@ def test_fal_client_submits_and_polls_image_to_3d_glb(monkeypatch):
     assert "model_mesh" not in provider_fields
 
 
+@pytest.mark.parametrize(
+    "model,expected_key,expected_value",
+    (
+        ("fal-ai/trellis", "image_url", "https://cdn.example/input.png"),
+        ("fal-ai/hunyuan3d/v2", "input_image_url", "https://cdn.example/input.png"),
+        (
+            "tripo3d/tripo/v2.5/image-to-3d",
+            "image_url",
+            "https://cdn.example/input.png",
+        ),
+        (
+            "fal-ai/hyper3d/rodin",
+            "input_image_urls",
+            ["https://cdn.example/input.png"],
+        ),
+    ),
+)
+def test_image_to_3d_uses_model_specific_image_field(
+    monkeypatch, model, expected_key, expected_value
+):
+    captured = _stub_fal_queue(monkeypatch, result_payload={})
+    from fal_media_client import FalClient
+
+    asyncio.run(
+        FalClient(api_key="fal-key", model=model).submit_media_operation(
+            modality="image_to_3d",
+            input={"image": "https://cdn.example/input.png", "seed": 7},
+        )
+    )
+
+    arguments = captured["submit"]["arguments"]
+    assert arguments[expected_key] == expected_value
+    assert set(arguments) == {expected_key, "seed"}
+
+
+@pytest.mark.parametrize("seed", (True, 1.5, "7", float("nan")))
+def test_image_to_3d_rejects_non_integer_seed(seed):
+    from fal_media_client import FalClient
+
+    with pytest.raises(ValueError, match="seed"):
+        asyncio.run(
+            FalClient(api_key="fal-key", model="fal-ai/trellis").submit_media_operation(
+                modality="image_to_3d",
+                input={"image": "https://cdn.example/input.png", "seed": seed},
+            )
+        )
+
+
+def test_image_to_3d_rejects_unowned_extra_payload():
+    from fal_media_client import FalClient
+
+    with pytest.raises(ValueError, match="unsupported fields"):
+        asyncio.run(
+            FalClient(api_key="fal-key", model="fal-ai/trellis").submit_media_operation(
+                modality="image_to_3d",
+                input={
+                    "image": "https://cdn.example/input.png",
+                    "extra": {"image_url": "https://attacker.example/override.png"},
+                },
+            )
+        )
+
+
 def test_fal_client_image_to_3d_response_key_variants(monkeypatch):
     from fal_media_client import FalClient
 
@@ -721,7 +784,7 @@ def test_fal_client_image_to_3d_tripo_license_and_cost(monkeypatch):
     from fal_media_client import FalClient
 
     client = FalClient(
-        api_key="fal-key", model="fal-ai/tripo3d/tripo/v2.5/image-to-3d"
+        api_key="fal-key", model="tripo3d/tripo/v2.5/image-to-3d"
     )
     polled = asyncio.run(
         client.get_media_operation(operation_id="fal-3d-1", modality="image_to_3d")
