@@ -3882,7 +3882,8 @@ def _print_doctor_text(results: list[dict]) -> None:
                    'a file outside the repo (e.g. /etc/atlas/my-models.yaml).')
 @click.option('--comfyui-source',
               type=click.Choice(['container-cpu', 'container-gpu', 'localhost',
-                                'disabled'], case_sensitive=False),
+                                'managed-localhost-mps', 'disabled'],
+                                case_sensitive=False),
               help='Override COMFYUI_SOURCE')
 @click.option('--asset-worker-source',
               type=click.Choice(['container', 'disabled'], case_sensitive=False),
