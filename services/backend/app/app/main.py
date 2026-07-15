@@ -25,7 +25,7 @@ from fal_media_client import (
     FalClient,
     fal_timeout_seconds_from_env,
     validate_fal_config,
-    validate_image_prompt,
+    validate_image_request_shape,
 )
 import media_registry
 from media_input import (
@@ -1438,14 +1438,14 @@ async def submit_media_generation(
     # Cheap input validation first (clear 400s before any accounting work).
     if modality == "image":
         try:
-            validate_image_prompt(request.input.get("prompt"))
+            validate_image_request_shape(request.input)
         except ValueError as exc:
+            detail = str(exc)
+            if detail.startswith("FAL image prompt"):
+                detail = detail.replace("FAL image prompt", "Media image prompt", 1)
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=(
-                    "Media image prompt must be a non-empty string of at most "
-                    "4000 characters"
-                ),
+                detail=detail,
             ) from exc
     if modality == "image_to_3d" and not request.input.get("image"):
         raise HTTPException(
@@ -1843,6 +1843,18 @@ async def generate_image(request: ComfyUIGenerateRequest):
     deadline = time.monotonic() + request.timeout_seconds
     if _fal_source_enabled():
         api_key = _require_fal_api_key()
+        compatibility_model = (
+            os.getenv("FAL_MODEL") or "fal-ai/flux/dev"
+        ).strip()
+        if compatibility_model != "fal-ai/flux/dev":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "FAL /comfyui/generate compatibility supports only "
+                    "fal-ai/flux/dev; use /media/generate with "
+                    "input.provider_arguments for custom endpoints"
+                ),
+            )
         if not request.wait_for_completion:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -1892,6 +1904,11 @@ async def generate_image(request: ComfyUIGenerateRequest):
                 success=False,
                 error="Image generation timed out",
             )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(exc),
+            ) from exc
         except Exception as exc:
             raise _unexpected_error("Generate image with FAL", exc)
 

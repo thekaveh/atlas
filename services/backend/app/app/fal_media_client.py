@@ -29,6 +29,18 @@ def validate_image_prompt(value: Any) -> str:
     return value
 
 
+def validate_image_request_shape(input_payload: Dict[str, Any]) -> str:
+    """Validate schema fields shared by the route and provider boundary."""
+    prompt = validate_image_prompt(input_payload.get("prompt"))
+    image_size = input_payload.get("image_size")
+    if image_size is not None and not isinstance(image_size, dict):
+        raise ValueError("FAL image image_size must be an object")
+    seed = input_payload.get("seed")
+    if seed is not None and (isinstance(seed, bool) or not isinstance(seed, int)):
+        raise ValueError("FAL image seed must be an integer")
+    return prompt
+
+
 def _image_init_value(input_payload: Dict[str, Any]) -> Optional[str]:
     for key in ("image_url", "image", "init_image"):
         value = input_payload.get(key)
@@ -319,7 +331,7 @@ class FalClient:
         selected_model: str,
         init_image: Optional[str],
     ) -> Dict[str, Any]:
-        prompt = validate_image_prompt(input_payload.get("prompt"))
+        prompt = validate_image_request_shape(input_payload)
         if selected_model not in {
             _DEFAULT_IMAGE_MODEL,
             _DEFAULT_IMAGE_TO_IMAGE_MODEL,

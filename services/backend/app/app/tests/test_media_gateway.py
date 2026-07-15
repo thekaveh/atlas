@@ -98,6 +98,46 @@ def test_media_generate_submits_fal_image_operation_without_exposing_key(monkeyp
     assert calls["submit"]["input"]["prompt"] == "orbital blue glass library"
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("image_size", "square"),
+        ("image_size", [512, 512]),
+        ("seed", True),
+        ("seed", 42.0),
+        ("seed", "42"),
+    ),
+)
+def test_media_generate_rejects_malformed_image_schema_before_side_effects(
+    monkeypatch, field, value
+):
+    main = _fresh_main(monkeypatch)
+
+    async def unexpected_store_check():
+        raise AssertionError("validation must precede operation-store access")
+
+    class UnexpectedFalClient:
+        def __init__(self, *_args, **_kwargs):
+            raise AssertionError("validation must precede provider initialization")
+
+    monkeypatch.setattr(main, "_require_media_operation_store", unexpected_store_check)
+    monkeypatch.setattr(main, "FalClient", UnexpectedFalClient)
+
+    from fastapi.testclient import TestClient
+
+    response = TestClient(main.app).post(
+        "/media/generate",
+        json={
+            "modality": "image",
+            "provider": "fal",
+            "input": {"prompt": "strict route validation", field: value},
+        },
+    )
+
+    assert response.status_code == 400
+    assert field in response.json()["detail"]
+
+
 def test_media_operation_poll_normalizes_fal_result(monkeypatch):
     main = _fresh_main(monkeypatch)
 

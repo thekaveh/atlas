@@ -79,7 +79,7 @@ def test_fal_enabled_routes_simple_generation_to_fal_client(monkeypatch):
         "/comfyui/generate",
         json={
             "prompt": "orbital blue glass library",
-            "negative_prompt": "low detail",
+            "negative_prompt": "",
             "width": 768,
             "height": 512,
             "steps": 28,
@@ -98,7 +98,7 @@ def test_fal_enabled_routes_simple_generation_to_fal_client(monkeypatch):
     assert body["data"]["provider"] == "fal"
     assert body["data"]["outputs"]["images"][0]["url"] == "https://cdn.example/fal.jpg"
     assert calls["generate"]["prompt"] == "orbital blue glass library"
-    assert calls["generate"]["negative_prompt"] == "low detail"
+    assert calls["generate"]["negative_prompt"] == ""
     assert calls["generate"]["width"] == 768
     assert calls["generate"]["height"] == 512
     assert calls["generate"]["steps"] == 28
@@ -142,6 +142,40 @@ def test_fal_queue_only_compatibility_request_is_rejected(monkeypatch):
     assert response.json()["detail"] == (
         "FAL does not support queue-only compatibility requests"
     )
+
+
+def test_fal_compatibility_validation_error_is_a_client_error(monkeypatch):
+    main = _fresh_main(monkeypatch, fal_source="enabled", fal_api_key="fal-key")
+
+    from fastapi.testclient import TestClient
+
+    response = TestClient(main.app).post(
+        "/comfyui/generate",
+        json={"prompt": "mapped request", "negative_prompt": "low detail"},
+    )
+
+    assert response.status_code == 400
+    assert "negative_prompt" in response.json()["detail"]
+
+
+def test_fal_compatibility_rejects_custom_model_before_client(monkeypatch):
+    main = _fresh_main(monkeypatch, fal_source="enabled", fal_api_key="fal-key")
+    monkeypatch.setenv("FAL_MODEL", "fal-ai/custom-endpoint")
+
+    class UnexpectedFalClient:
+        def __init__(self, *_args, **_kwargs):
+            raise AssertionError("custom compatibility model must fail before client init")
+
+    monkeypatch.setattr(main, "FalClient", UnexpectedFalClient)
+
+    from fastapi.testclient import TestClient
+
+    response = TestClient(main.app).post(
+        "/comfyui/generate", json={"prompt": "custom model"}
+    )
+
+    assert response.status_code == 400
+    assert "fal-ai/flux/dev" in response.json()["detail"]
 
 
 def test_fal_disabled_preserves_comfyui_generation_without_key(monkeypatch):
@@ -916,6 +950,25 @@ def test_fal_image_submit_rejects_invalid_numeric_values(
         _submit_image_operation(
             monkeypatch,
             {"prompt": "invalid numeric contract", field: value},
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("image_size", "square"),
+        ("image_size", [512, 512]),
+        ("seed", True),
+        ("seed", 42.0),
+        ("seed", "42"),
+        ("seed", float("nan")),
+    ),
+)
+def test_fal_image_submit_rejects_malformed_schema_fields(monkeypatch, field, value):
+    with pytest.raises(ValueError, match=field):
+        _submit_image_operation(
+            monkeypatch,
+            {"prompt": "strict schema", field: value},
         )
 
 
