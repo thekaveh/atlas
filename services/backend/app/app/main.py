@@ -1074,6 +1074,13 @@ if not 1 <= _COMFYUI_COMPLETION_TIMEOUT_SECONDS <= 3600:
     )
 
 
+def _remaining_comfyui_timeout(deadline: float) -> float:
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise asyncio.TimeoutError
+    return remaining
+
+
 class ComfyUIGenerateRequest(BaseModel):
     """Request model for ComfyUI image generation"""
     prompt: str = Field(min_length=1, max_length=4000)
@@ -1823,19 +1830,31 @@ async def get_media_spend(
 )
 async def generate_image(request: ComfyUIGenerateRequest):
     """Generate an image using the configured media provider."""
+    deadline = time.monotonic() + request.timeout_seconds
     if _fal_source_enabled():
         api_key = _require_fal_api_key()
+        if not request.wait_for_completion:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="FAL does not support queue-only compatibility requests",
+            )
         try:
-            async with FalClient(api_key=api_key) as client:
-                result = await client.generate_simple_image(
-                    prompt=request.prompt,
-                    negative_prompt=request.negative_prompt,
-                    width=request.width,
-                    height=request.height,
-                    steps=request.steps,
-                    cfg=request.cfg,
-                    seed=request.seed,
-                    checkpoint=request.checkpoint,
+            async with FalClient(
+                api_key=api_key,
+                timeout_seconds=_remaining_comfyui_timeout(deadline),
+            ) as client:
+                result = await asyncio.wait_for(
+                    client.generate_simple_image(
+                        prompt=request.prompt,
+                        negative_prompt=request.negative_prompt,
+                        width=request.width,
+                        height=request.height,
+                        steps=request.steps,
+                        cfg=request.cfg,
+                        seed=request.seed,
+                        checkpoint=request.checkpoint,
+                    ),
+                    timeout=_remaining_comfyui_timeout(deadline),
                 )
 
             if not result.get("success"):
@@ -1858,21 +1877,29 @@ async def generate_image(request: ComfyUIGenerateRequest):
             )
         except HTTPException:
             raise
+        except asyncio.TimeoutError:
+            return ComfyUIResponse(
+                success=False,
+                error="Image generation timed out",
+            )
         except Exception as exc:
             raise _unexpected_error("Generate image with FAL", exc)
 
     try:
         async with ComfyUIClient() as client:
             # Generate the image
-            result = await client.generate_simple_image(
-                prompt=request.prompt,
-                negative_prompt=request.negative_prompt,
-                width=request.width,
-                height=request.height,
-                steps=request.steps,
-                cfg=request.cfg,
-                seed=request.seed,
-                checkpoint=request.checkpoint
+            result = await asyncio.wait_for(
+                client.generate_simple_image(
+                    prompt=request.prompt,
+                    negative_prompt=request.negative_prompt,
+                    width=request.width,
+                    height=request.height,
+                    steps=request.steps,
+                    cfg=request.cfg,
+                    seed=request.seed,
+                    checkpoint=request.checkpoint
+                ),
+                timeout=_remaining_comfyui_timeout(deadline),
             )
             
             if not result.get("success"):
@@ -1886,7 +1913,7 @@ async def generate_image(request: ComfyUIGenerateRequest):
             # If wait_for_completion is True, wait for the image to be generated
             if request.wait_for_completion:
                 completion_result = await client.wait_for_completion(
-                    prompt_id, timeout=request.timeout_seconds
+                    prompt_id, timeout=_remaining_comfyui_timeout(deadline)
                 )
                 
                 if completion_result.get("success"):
@@ -1918,6 +1945,11 @@ async def generate_image(request: ComfyUIGenerateRequest):
                 
     except HTTPException:
         raise
+    except asyncio.TimeoutError:
+        return ComfyUIResponse(
+            success=False,
+            error="Image generation timed out",
+        )
     except Exception as exc:
         raise _unexpected_error("Generate image", exc)
 
@@ -1929,10 +1961,14 @@ async def generate_image(request: ComfyUIGenerateRequest):
 )
 async def execute_comfyui_workflow(request: ComfyUIWorkflowRequest):
     """Execute a custom ComfyUI workflow"""
+    deadline = time.monotonic() + request.timeout_seconds
     try:
         async with ComfyUIClient() as client:
             # Queue the workflow
-            result = await client.queue_prompt(request.workflow)
+            result = await asyncio.wait_for(
+                client.queue_prompt(request.workflow),
+                timeout=_remaining_comfyui_timeout(deadline),
+            )
             
             if not result.get("success"):
                 return ComfyUIResponse(
@@ -1945,7 +1981,7 @@ async def execute_comfyui_workflow(request: ComfyUIWorkflowRequest):
             # If wait_for_completion is True, wait for the workflow to complete
             if request.wait_for_completion:
                 completion_result = await client.wait_for_completion(
-                    prompt_id, timeout=request.timeout_seconds
+                    prompt_id, timeout=_remaining_comfyui_timeout(deadline)
                 )
                 
                 if completion_result.get("success"):
@@ -1971,6 +2007,11 @@ async def execute_comfyui_workflow(request: ComfyUIWorkflowRequest):
                     message="Workflow queued"
                 )
                 
+    except asyncio.TimeoutError:
+        return ComfyUIResponse(
+            success=False,
+            error="Workflow execution timed out",
+        )
     except Exception as exc:
         raise _unexpected_error("Execute ComfyUI workflow", exc)
 

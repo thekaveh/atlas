@@ -78,10 +78,10 @@ class Tools:
             return "❌ Please provide a prompt for image generation."
 
         # Use provided values or defaults
-        width = width or self.valves.default_width
-        height = height or self.valves.default_height
-        steps = steps or self.valves.default_steps
-        cfg = cfg or self.valves.default_cfg
+        width = self.valves.default_width if width is None else width
+        height = self.valves.default_height if height is None else height
+        steps = self.valves.default_steps if steps is None else steps
+        cfg = self.valves.default_cfg if cfg is None else cfg
 
         try:
             # First check if ComfyUI service is healthy

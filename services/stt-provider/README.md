@@ -39,7 +39,7 @@ The default already runs:
 
 ```bash
 ./start.sh
-curl -X POST http://localhost:63059/v1/audio/transcriptions \
+curl -X POST http://localhost:63060/v1/audio/transcriptions \
   -F file=@sample.wav -F model=whisper-1
 # expect: {"text":"..."}
 ```
@@ -77,7 +77,7 @@ for the whisper.cpp walkthrough and Linux build instructions, or
 | Variable | Default | Notes |
 |---|---|---|
 | `STT_PROVIDER_SOURCE` | `speaches-container-cpu` | Engine selector. |
-| `STT_PROVIDER_PORT` | `63054` | Wizard display port; bootstrapper rewrites to match the active container. |
+| `STT_PROVIDER_PORT` | `63055` | Parakeet container port and wizard display slot; Speaches uses `SPEACHES_PORT`. |
 | `STT_ENDPOINT` | (auto) | Internal URL containers reach STT on. |
 | `STT_PROVIDER_SCALE` | (auto) | 1 when any container variant is active. |
 | `SPEACHES_STT_MODEL` | `Systran/faster-distil-whisper-large-v3` | HuggingFace repo of the model to preload. **Compatibility note:** Open WebUI hardcodes `AUDIO_STT_MODEL: whisper-1`, and Speaches aliases `whisper-1` → `Systran/faster-whisper-large-v3` (the non-distil build), so preload **that** id, not the distil one, to satisfy a `whisper-1` request. |

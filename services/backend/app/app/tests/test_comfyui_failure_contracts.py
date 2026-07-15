@@ -98,7 +98,7 @@ def test_open_webui_tool_propagates_deadline_and_returns_artifact(monkeypatch):
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    captured = {}
+    captured = []
 
     class Response:
         status_code = 200
@@ -116,7 +116,7 @@ def test_open_webui_tool_propagates_deadline_and_returns_artifact(monkeypatch):
     )
 
     def post(*_args, **kwargs):
-        captured.update(kwargs)
+        captured.append(kwargs)
         return Response(
             {
                 "success": True,
@@ -134,10 +134,13 @@ def test_open_webui_tool_propagates_deadline_and_returns_artifact(monkeypatch):
     tool = module.Tools()
     tool.valves.timeout = 321
 
-    result = tool.generate_image("blue orbital archive")
+    result = tool.generate_image("blue orbital archive", cfg=0.0)
+    tool.generate_image("blue orbital archive", cfg=30.0)
 
-    assert captured["json"]["timeout_seconds"] == 321
-    assert captured["timeout"] == 326
+    assert captured[0]["json"]["timeout_seconds"] == 321
+    assert captured[0]["timeout"] == 326
+    assert captured[0]["json"]["cfg"] == 0.0
+    assert captured[1]["json"]["cfg"] == 30.0
     assert "atlas-output.png" in result
     assert "base64" not in result.lower()
 

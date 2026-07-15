@@ -227,6 +227,20 @@ def test_localhost_port_default_literals_agree_across_seams():
                 f".env.example {env_values[var]}"
             )
 
+    # Seam 4: imperative endpoint assembly in service_config.py.
+    service_config_src = SERVICE_CONFIG.read_text(encoding="utf-8")
+    config_pairs = re.findall(
+        r"current_env\.get\(['\"]([A-Z_]*LOCALHOST[A-Z_]*PORT)['\"],\s*['\"](\d+)['\"]\)",
+        service_config_src,
+    )
+    assert config_pairs, "service_config.py localhost fallbacks not found — refactor?"
+    for var, default in config_pairs:
+        if var in env_values and env_values[var] != default:
+            mismatches.append(
+                f"service_config.py: {var} fallback {default} != "
+                f".env.example {env_values[var]}"
+            )
+
     assert not mismatches, "\n".join(mismatches)
 
 

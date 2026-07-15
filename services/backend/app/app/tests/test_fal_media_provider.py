@@ -86,6 +86,7 @@ def test_fal_enabled_routes_simple_generation_to_fal_client(monkeypatch):
             "cfg": 3.5,
             "seed": 42,
             "wait_for_completion": True,
+            "timeout_seconds": 42,
         },
     )
 
@@ -103,6 +104,7 @@ def test_fal_enabled_routes_simple_generation_to_fal_client(monkeypatch):
     assert calls["generate"]["steps"] == 28
     assert calls["generate"]["cfg"] == 3.5
     assert calls["generate"]["seed"] == 42
+    assert 0 < calls["init"]["timeout_seconds"] <= 42
 
 
 def test_fal_enabled_without_key_returns_clear_503(monkeypatch):
@@ -118,6 +120,28 @@ def test_fal_enabled_without_key_returns_clear_503(monkeypatch):
 
     assert response.status_code == 503
     assert "FAL_API_KEY" in response.json()["detail"]
+
+
+def test_fal_queue_only_compatibility_request_is_rejected(monkeypatch):
+    main = _fresh_main(monkeypatch, fal_source="enabled", fal_api_key="fal-key")
+
+    class UnexpectedFalClient:
+        def __init__(self, *_args, **_kwargs):
+            raise AssertionError("queue-only rejection must happen before FAL execution")
+
+    monkeypatch.setattr(main, "FalClient", UnexpectedFalClient)
+
+    from fastapi.testclient import TestClient
+
+    response = TestClient(main.app).post(
+        "/comfyui/generate",
+        json={"prompt": "queued render", "wait_for_completion": False},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == (
+        "FAL does not support queue-only compatibility requests"
+    )
 
 
 def test_fal_disabled_preserves_comfyui_generation_without_key(monkeypatch):
@@ -164,7 +188,56 @@ def test_fal_disabled_preserves_comfyui_generation_without_key(monkeypatch):
     assert body["success"] is True
     assert body["prompt_id"] == "comfy-1"
     assert body["client_id"] == "comfy-client"
-    assert calls["completion"] == {"prompt_id": "comfy-1", "timeout": 42}
+    assert calls["completion"]["prompt_id"] == "comfy-1"
+    assert 0 < calls["completion"]["timeout"] < 42
+
+
+def test_comfyui_submission_consumes_the_same_request_deadline(monkeypatch):
+    main = _fresh_main(monkeypatch, fal_source="disabled", fal_api_key="")
+
+    class SlowComfyUIClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def generate_simple_image(self, **_kwargs):
+            await asyncio.sleep(2)
+            return {"success": True, "prompt_id": "too-late"}
+
+        async def wait_for_completion(self, *_args, **_kwargs):
+            raise AssertionError("polling must not begin after submission times out")
+
+    monkeypatch.setattr(main, "ComfyUIClient", SlowComfyUIClient)
+
+    from fastapi.testclient import TestClient
+
+    started = time.monotonic()
+    response = TestClient(main.app).post(
+        "/comfyui/generate",
+        json={"prompt": "slow submission", "timeout_seconds": 1},
+    )
+    elapsed = time.monotonic() - started
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "success": False,
+        "prompt_id": None,
+        "client_id": None,
+        "message": None,
+        "data": None,
+        "error": "Image generation timed out",
+    }
+    assert elapsed < 1.5
+
+
+def test_fal_client_accepts_request_scoped_timeout():
+    from fal_media_client import FalClient
+
+    client = FalClient(api_key="fal-key", timeout_seconds=0.25)
+
+    assert client.timeout_seconds == 0.25
 
 
 def test_fal_client_constructs_subscribe_request(monkeypatch):

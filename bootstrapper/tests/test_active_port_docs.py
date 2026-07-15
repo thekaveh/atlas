@@ -39,13 +39,22 @@ def test_active_port_docs_do_not_use_retired_allocator_defaults() -> None:
 def test_active_service_port_claims_match_topology() -> None:
     ports = get_topology(ROOT / "services").port_defaults
     comfyui = ports["COMFYUI_PORT"]
+    stt = ports["STT_PROVIDER_PORT"]
     searxng = ports["SEARXNG_PORT"]
+    tika = ports["TIKA_PORT"]
+    tts = ports["TTS_PROVIDER_PORT"]
+    chatterbox = ports["CHATTERBOX_PORT"]
+    speaches = ports["SPEACHES_PORT"]
     claims = {
         "README.md": (
             f"# SearxNG (Search):      http://localhost:{searxng}",
             f"# ComfyUI:               http://localhost:{comfyui}",
             f"| **ComfyUI** | http://localhost:{comfyui} |",
             f"| **SearxNG** | http://localhost:{searxng} |",
+            f"Default Speaches: http://localhost:{speaches}",
+            f"Parakeet STT on `:{stt}` or Chatterbox TTS on `:{chatterbox}`",
+            f"`TTS_PROVIDER_PORT={tts}` is a display slot",
+            f"| **Apache Tika** | http://localhost:{tika} |",
         ),
         "services/comfyui/README.md": (
             f"`http://localhost:${{COMFYUI_PORT}}` (default `{comfyui}`)",
@@ -53,8 +62,29 @@ def test_active_service_port_claims_match_topology() -> None:
         "services/searxng/README.md": (
             f"`http://localhost:${{SEARXNG_PORT}}` (default `{searxng}`)",
         ),
+        "services/stt-provider/README.md": (
+            f"http://localhost:{speaches}/v1/audio/transcriptions",
+            f"| `STT_PROVIDER_PORT` | `{stt}` |",
+        ),
+        "services/tts-provider/README.md": (
+            f"http://localhost:{speaches}/v1/models/",
+            f"http://localhost:{speaches}/v1/audio/speech",
+            f"| `TTS_PROVIDER_PORT` | `{tts}` |",
+            f"| `SPEACHES_PORT` | `{speaches}` |",
+            f"| `CHATTERBOX_PORT` | `{chatterbox}` |",
+        ),
+        "services/tts-provider/provider/README.md": (
+            f"http://localhost:{speaches}/v1/models/",
+            f"http://localhost:{speaches}/v1/audio/speech",
+        ),
+        "services/tts-provider/provider/localhost/README.md": (
+            f"container CHATTERBOX_PORT, which is {chatterbox}",
+        ),
         "docs/quick-start/troubleshooting.md": (
             f"curl http://localhost:{comfyui}  # Direct port access (COMFYUI_PORT)",
+        ),
+        "services/parakeet/compose.yml": (
+            f"STT_PROVIDER_PORT default ({stt})",
         ),
     }
 

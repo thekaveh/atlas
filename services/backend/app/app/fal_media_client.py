@@ -32,14 +32,22 @@ class FalClient:
         model: Optional[str] = None,
         output_format: Optional[str] = None,
         enable_safety_checker: Optional[bool] = None,
+        timeout_seconds: Optional[float] = None,
     ) -> None:
         self.api_key = (api_key or os.getenv("FAL_API_KEY") or os.getenv("FAL_KEY") or "").strip()
         self.model = (model or os.getenv("FAL_MODEL") or "fal-ai/flux/dev").strip()
         self.output_format = (output_format or os.getenv("FAL_OUTPUT_FORMAT") or "jpeg").strip()
-        try:
-            self.timeout_seconds = int(os.getenv("FAL_TIMEOUT_SECONDS", "120") or "120")
-        except ValueError:
-            self.timeout_seconds = 120
+        if timeout_seconds is None:
+            try:
+                self.timeout_seconds = float(
+                    os.getenv("FAL_TIMEOUT_SECONDS", "120") or "120"
+                )
+            except ValueError:
+                self.timeout_seconds = 120.0
+        else:
+            self.timeout_seconds = float(timeout_seconds)
+        if self.timeout_seconds <= 0:
+            raise ValueError("FAL timeout must be positive")
         self.enable_safety_checker = (
             _env_bool("FAL_ENABLE_SAFETY_CHECKER", True)
             if enable_safety_checker is None
