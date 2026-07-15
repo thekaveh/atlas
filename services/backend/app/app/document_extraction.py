@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
+import math
 import os
 
 import httpx
@@ -43,6 +44,21 @@ UNSUPPORTED_MARKERS = (
     "unsupported_media_type",
     "unsupported media type",
 )
+MAX_TIMEOUT_SECONDS = 3600.0
+
+
+def _timeout_from_env() -> float:
+    raw = os.getenv("TIKA_TIMEOUT_SECONDS", "30")
+    try:
+        value = float(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("TIKA_TIMEOUT_SECONDS must be a finite number") from exc
+    if not math.isfinite(value) or value <= 0 or value > MAX_TIMEOUT_SECONDS:
+        raise ValueError(
+            "TIKA_TIMEOUT_SECONDS must be finite, greater than 0, and at most "
+            "3600 seconds"
+        )
+    return value
 
 
 class DocumentExtractionError(RuntimeError):
@@ -70,7 +86,7 @@ class DocumentExtractorConfig:
             docling_endpoint=os.getenv("DOCLING_ENDPOINT", ""),
             tika_endpoint=os.getenv("TIKA_ENDPOINT", ""),
             max_file_size=int(os.getenv("TIKA_MAX_FILE_SIZE", str(50 * 1024 * 1024))),
-            timeout_seconds=float(os.getenv("TIKA_TIMEOUT_SECONDS", "30")),
+            timeout_seconds=_timeout_from_env(),
         )
 
 

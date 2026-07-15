@@ -184,7 +184,7 @@ env:
     description: "Auto-generated bearer token guarding the /lightrag/rerank adapter route. Handed to LightRAG as RERANK_BINDING_API_KEY so the two share one secret. Send as `Authorization: Bearer <value>`."
   - name: LIGHTRAG_RERANK_ADAPTER_TIMEOUT_SECONDS
     default: 30
-    description: "Per-request timeout (seconds) the /lightrag/rerank adapter allows when calling the TEI reranker before returning 504."
+    description: "Finite per-request timeout in seconds for /lightrag/rerank calls to TEI. Must be greater than 0 and no greater than 3600; invalid values fail Backend startup."
 
 depends_on:
   # Mirrors services/backend/compose.yml. LiteLLM is gated on service_healthy

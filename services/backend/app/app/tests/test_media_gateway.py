@@ -72,7 +72,6 @@ def test_media_generate_submits_fal_image_operation_without_exposing_key(monkeyp
             "model": "fal-ai/flux/dev",
             "input": {
                 "prompt": "orbital blue glass library",
-                "negative_prompt": "low detail",
                 "width": 768,
                 "height": 512,
                 "steps": 28,
@@ -683,6 +682,7 @@ class _CancelFalClient:
     """FalClient stub whose provider cancel outcome is configurable."""
 
     result = True
+    poll_status = "cancelled"
     constructions = 0
 
     def __init__(self, *args, **kwargs):
@@ -699,6 +699,21 @@ class _CancelFalClient:
             raise type(self).result
         return type(self).result
 
+    async def get_media_operation(self, *, operation_id, modality):
+        return {
+            "operation_id": operation_id,
+            "status": type(self).poll_status,
+            "provider": "fal",
+            "model": "fal-ai/flux/dev",
+            "modality": modality,
+            "artifact_url": None,
+            "artifacts": [],
+            "cost_usd": None,
+            "license": "fal/provider-terms",
+            "provenance": {"provider_request_id": operation_id},
+            "raw": {},
+        }
+
 
 def test_media_cancel_unknown_operation_returns_404(monkeypatch):
     main = _fresh_main(monkeypatch)
@@ -708,9 +723,7 @@ def test_media_cancel_unknown_operation_returns_404(monkeypatch):
     assert response.status_code == 404
 
 
-def test_media_cancel_marks_terminal_releases_budget_and_propagates(monkeypatch):
-    """#518 core: cancel → terminal `cancelled`, ledger reconciled with
-    status=cancelled (reservation release, #342), provider cancel delivered."""
+def test_media_cancel_requests_provider_cancellation_without_releasing_budget(monkeypatch):
     main = _fresh_main(monkeypatch)
     op_id = _seed_inflight_operation(main)
     spy = _ReconcileSpy()
@@ -723,14 +736,11 @@ def test_media_cancel_marks_terminal_releases_budget_and_propagates(monkeypatch)
     response = TestClient(main.app).post(f"/media/operations/{op_id}/cancel")
     assert response.status_code == 200
     body = response.json()
-    assert body["status"] == "cancelled"
-    assert body["provenance"]["provider_cancelled"] is True
-    # Ledger settled exactly once with the spend-releasing status.
-    assert len(spy.calls) == 1
-    assert spy.calls[0]["status"] == "cancelled"
-    assert spy.calls[0]["operation_id"] == op_id
+    assert body["status"] == "cancellation_requested"
+    assert body["provenance"]["provider_cancellation_requested"] is True
+    assert spy.calls == []
     persisted = asyncio.run(main.MEDIA_OPERATION_STORE.get(op_id))
-    assert persisted["reconciled"] is True
+    assert persisted["reconciled"] is False
 
 
 def test_media_cancel_is_idempotent_409_when_already_terminal(monkeypatch):
@@ -747,16 +757,16 @@ def test_media_cancel_is_idempotent_409_when_already_terminal(monkeypatch):
     assert client.post(f"/media/operations/{op_id}/cancel").status_code == 200
     second = client.post(f"/media/operations/{op_id}/cancel")
     assert second.status_code == 409
-    # Reconcile ran once, not twice.
-    assert len(spy.calls) == 1
+    assert spy.calls == []
 
 
-def test_media_poll_after_cancel_is_stable_and_skips_provider(monkeypatch):
-    """AC: GET reports status=cancelled after cancel — and never re-polls the
-    provider (the payload must not flip back to the provider's status)."""
+def test_media_poll_after_cancel_confirms_terminal_and_releases_budget(monkeypatch):
     main = _fresh_main(monkeypatch)
-    op_id = _seed_inflight_operation(main, budget_tracked=False)
+    op_id = _seed_inflight_operation(main)
+    spy = _ReconcileSpy()
+    monkeypatch.setattr(main, "MEDIA_BUDGET_ENGINE", spy, raising=False)
     _CancelFalClient.result = True
+    _CancelFalClient.poll_status = "cancelled"
     _CancelFalClient.constructions = 0
     monkeypatch.setattr(main, "FalClient", _CancelFalClient, raising=False)
 
@@ -764,18 +774,37 @@ def test_media_poll_after_cancel_is_stable_and_skips_provider(monkeypatch):
 
     client = TestClient(main.app)
     assert client.post(f"/media/operations/{op_id}/cancel").status_code == 200
-    constructions_after_cancel = _CancelFalClient.constructions
-
     poll = client.get(f"/media/operations/{op_id}")
     assert poll.status_code == 200
     assert poll.json()["status"] == "cancelled"
-    # No new FalClient was constructed for the poll — terminal is stable.
-    assert _CancelFalClient.constructions == constructions_after_cancel
+    assert len(spy.calls) == 1
+    assert spy.calls[0]["status"] == "cancelled"
 
 
-def test_media_cancel_degrades_when_provider_cancel_fails(monkeypatch):
-    """Best-effort contract: an undeliverable provider cancel still cancels
-    server-side and releases the budget."""
+def test_media_poll_after_cancel_preserves_request_until_provider_is_terminal(
+    monkeypatch,
+):
+    main = _fresh_main(monkeypatch)
+    op_id = _seed_inflight_operation(main)
+    spy = _ReconcileSpy()
+    monkeypatch.setattr(main, "MEDIA_BUDGET_ENGINE", spy, raising=False)
+    _CancelFalClient.result = True
+    _CancelFalClient.poll_status = "running"
+    monkeypatch.setattr(main, "FalClient", _CancelFalClient, raising=False)
+
+    from fastapi.testclient import TestClient
+
+    client = TestClient(main.app)
+    assert client.post(f"/media/operations/{op_id}/cancel").status_code == 200
+    poll = client.get(f"/media/operations/{op_id}")
+
+    assert poll.status_code == 200
+    assert poll.json()["status"] == "cancellation_requested"
+    assert poll.json()["provenance"]["provider_cancellation_requested"] is True
+    assert spy.calls == []
+
+
+def test_media_cancel_failure_retains_nonterminal_state_and_budget(monkeypatch):
     main = _fresh_main(monkeypatch)
     op_id = _seed_inflight_operation(main)
     spy = _ReconcileSpy()
@@ -788,14 +817,12 @@ def test_media_cancel_degrades_when_provider_cancel_fails(monkeypatch):
     response = TestClient(main.app).post(f"/media/operations/{op_id}/cancel")
     assert response.status_code == 200
     body = response.json()
-    assert body["status"] == "cancelled"
-    assert body["provenance"]["provider_cancelled"] is False
-    assert len(spy.calls) == 1
+    assert body["status"] == "cancellation_requested"
+    assert body["provenance"]["provider_cancellation_requested"] is False
+    assert spy.calls == []
 
 
-def test_media_cancel_works_server_side_when_fal_disabled(monkeypatch):
-    """Even with the provider unavailable (FAL_SOURCE=disabled) the op is
-    cancelled server-side and stops counting against spend."""
+def test_media_cancel_while_fal_disabled_retains_state_and_budget(monkeypatch):
     main = _fresh_main(monkeypatch, fal_source="disabled", fal_api_key="")
     op_id = _seed_inflight_operation(main)
     spy = _ReconcileSpy()
@@ -806,6 +833,6 @@ def test_media_cancel_works_server_side_when_fal_disabled(monkeypatch):
     response = TestClient(main.app).post(f"/media/operations/{op_id}/cancel")
     assert response.status_code == 200
     body = response.json()
-    assert body["status"] == "cancelled"
-    assert body["provenance"]["provider_cancelled"] is False
-    assert len(spy.calls) == 1
+    assert body["status"] == "cancellation_requested"
+    assert body["provenance"]["provider_cancellation_requested"] is False
+    assert spy.calls == []

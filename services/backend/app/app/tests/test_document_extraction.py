@@ -65,6 +65,15 @@ def _run(coro):
     return asyncio.run(coro)
 
 
+@pytest.mark.parametrize("value", ("bad", "nan", "inf", "0", "-1", "3601"))
+def test_document_extractor_rejects_malformed_or_unbounded_timeout(
+    monkeypatch, value
+) -> None:
+    monkeypatch.setenv("TIKA_TIMEOUT_SECONDS", value)
+    with pytest.raises(ValueError, match="TIKA_TIMEOUT_SECONDS"):
+        DocumentExtractorConfig.from_env()
+
+
 def test_docling_success_does_not_call_tika() -> None:
     client = FakeAsyncClient(
         [

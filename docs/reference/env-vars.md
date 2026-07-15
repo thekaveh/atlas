@@ -117,7 +117,7 @@ seconds a future auto-consolidation scheduler would use.
 | RAY_JOB_API_TOKEN | backend |  | Auto-generated bearer token required by every /api/ray/* route. Send as Authorization: Bearer <value>. |
 | LIGHTRAG_RERANK_ADAPTER_ENABLED | backend | false | Opt-in for the backend LightRAG rerank adapter route (POST /lightrag/rerank, #415). When true AND TEI_RERANKER_SOURCE is enabled, the bootstrapper wires LightRAG's rerank binding to the adapter and consumer query profiles may set enable_rerank=true. Default false keeps direct LightRAG->TEI rerank disabled (payload shapes are incompatible). |
 | LIGHTRAG_RERANK_ADAPTER_TOKEN | backend |  | Auto-generated bearer token guarding the /lightrag/rerank adapter route. Handed to LightRAG as RERANK_BINDING_API_KEY so the two share one secret. Send as `Authorization: Bearer <value>`. |
-| LIGHTRAG_RERANK_ADAPTER_TIMEOUT_SECONDS | backend | 30 | Per-request timeout (seconds) the /lightrag/rerank adapter allows when calling the TEI reranker before returning 504. |
+| LIGHTRAG_RERANK_ADAPTER_TIMEOUT_SECONDS | backend | 30 | Finite per-request timeout in seconds for /lightrag/rerank calls to TEI. Must be greater than 0 and no greater than 3600; invalid values fail Backend startup. |
 | BACKUP_SOURCE | backup | disabled | Deployment mode: container (enable the runner) or disabled (default). |
 | BACKUP_BUCKET | backup | atlas-backups | Target bucket for backups. |
 | BACKUP_S3_ALIAS_URL | backup | http://minio:9000 | S3 endpoint. Default = on-box MinIO; set to an external S3 URL for offsite. |
@@ -751,7 +751,7 @@ time.
 | TIKA_LOCALHOST_PORT | tika | 9998 | Host port for the tika-localhost source variant. |
 | TIKA_JAVA_TOOL_OPTIONS | tika | -Xmx768m | JVM memory cap for the Tika server container. |
 | TIKA_MAX_FILE_SIZE | tika | 52428800 | Backend maximum bytes accepted for Docling/Tika extraction. |
-| TIKA_TIMEOUT_SECONDS | tika | 30 | Backend timeout for Tika fallback extraction calls. |
+| TIKA_TIMEOUT_SECONDS | tika | 30 | Finite Backend timeout in seconds for Tika fallback extraction calls. Must be greater than 0 and no greater than 3600; invalid values fail Backend startup. |
 | TIKA_SCALE | tika |  | - |
 | TIKA_ENDPOINT | tika |  | - |
 | TRINO_SOURCE | trino | disabled | - |

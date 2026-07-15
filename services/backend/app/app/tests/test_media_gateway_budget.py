@@ -117,6 +117,24 @@ def test_budget_disabled_preserves_gateway(monkeypatch):
     assert spend.json()["records"] == []
 
 
+def test_model_invalid_image_request_precedes_budget_denial(monkeypatch):
+    main = _fresh_main(monkeypatch, budget_enabled=True, default_cap="10")
+    from fastapi.testclient import TestClient
+
+    response = TestClient(main.app).post(
+        "/media/generate",
+        json={
+            "modality": "image",
+            "provider": "fal",
+            "input": {"prompt": "invalid mapped request", "negative_prompt": "blur"},
+            "consumer": "acme",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "negative_prompt" in response.json()["detail"]
+
+
 def test_allowed_spend_records_ledger(monkeypatch):
     main = _fresh_main(monkeypatch, budget_enabled=True, default_cap=10.0)
     _CapturingFalClient.captured = {}

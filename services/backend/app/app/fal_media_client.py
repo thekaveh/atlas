@@ -251,18 +251,9 @@ class FalClient:
         if not self.api_key:
             raise ValueError("FAL_API_KEY is required when FAL_SOURCE=enabled")
 
-        selected_model = (model or self.model).strip()
-        if modality == "image_to_3d":
-            arguments = self._image_to_3d_arguments(input)
-        else:
-            init_image = _image_init_value(input)
-            if init_image is not None and selected_model == _DEFAULT_IMAGE_MODEL:
-                selected_model = _DEFAULT_IMAGE_TO_IMAGE_MODEL
-            arguments = self._image_arguments(
-                input,
-                selected_model=selected_model,
-                init_image=init_image,
-            )
+        selected_model, arguments = self._prepare_media_operation(
+            modality=modality, input=input, model=model
+        )
         submitted = await self._call_blocking_with_timeout(
             self._submit, selected_model, arguments
         )
@@ -275,6 +266,41 @@ class FalClient:
             modality=modality,
             raw=self._object_to_dict(submitted),
         )
+
+    def preflight_media_operation(
+        self,
+        *,
+        modality: str,
+        input: Dict[str, Any],
+        model: Optional[str] = None,
+    ) -> str:
+        """Validate a request without provider, storage, or accounting work."""
+        selected_model, _ = self._prepare_media_operation(
+            modality=modality, input=input, model=model
+        )
+        return selected_model
+
+    def _prepare_media_operation(
+        self,
+        *,
+        modality: str,
+        input: Dict[str, Any],
+        model: Optional[str],
+    ) -> Tuple[str, Dict[str, Any]]:
+        if modality not in self.SUPPORTED_MODALITIES:
+            raise ValueError(f"Unsupported FAL media modality: {modality}")
+        selected_model = (model or self.model).strip()
+        if modality == "image_to_3d":
+            return selected_model, self._image_to_3d_arguments(input)
+        init_image = _image_init_value(input)
+        if init_image is not None and selected_model == _DEFAULT_IMAGE_MODEL:
+            selected_model = _DEFAULT_IMAGE_TO_IMAGE_MODEL
+        arguments = self._image_arguments(
+            input,
+            selected_model=selected_model,
+            init_image=init_image,
+        )
+        return selected_model, arguments
 
     async def get_media_operation(self, *, operation_id: str, modality: str) -> Dict[str, Any]:
         if modality not in self.SUPPORTED_MODALITIES:
@@ -763,3 +789,14 @@ class FalClient:
         if isinstance(data, dict):
             return dict(data)
         return {"value": str(payload)}
+
+
+def preflight_media_operation(
+    *, modality: str, input: Dict[str, Any], model: Optional[str] = None
+) -> str:
+    """Validate and normalize media input without invoking provider work."""
+    return FalClient(api_key="preflight", model=model).preflight_media_operation(
+        modality=modality,
+        input=input,
+        model=model,
+    )

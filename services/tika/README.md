@@ -20,7 +20,7 @@ Kong creates the `tika.localhost` route when `TIKA_SOURCE=container` or `TIKA_SO
 - `TIKA_LOCALHOST_PORT=9998` points Kong and in-container consumers at a host-running Tika server.
 - `TIKA_ENDPOINT` is auto-managed for backend and n8n consumers.
 - `TIKA_MAX_FILE_SIZE=52428800` limits backend extraction payloads to 50 MiB by default.
-- `TIKA_TIMEOUT_SECONDS=30` bounds backend fallback calls.
+- `TIKA_TIMEOUT_SECONDS=30` bounds backend fallback calls; it must be finite, greater than 0, and no greater than 3,600 seconds or Backend startup fails.
 - `TIKA_JAVA_TOOL_OPTIONS=-Xmx768m` caps the container JVM heap.
 
 ## 4. Docling-First Fallback Policy

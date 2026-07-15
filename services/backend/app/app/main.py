@@ -24,6 +24,7 @@ from comfyui_client import ComfyUIClient
 from fal_media_client import (
     FalClient,
     fal_timeout_seconds_from_env,
+    preflight_media_operation,
     validate_fal_config,
     validate_image_request_shape,
 )
@@ -95,6 +96,7 @@ from lightrag_rerank_adapter import (
     RerankAdapterTimeoutError,
     RerankAdapterUpstreamError,
     rerank_via_tei,
+    validate_rerank_adapter_config,
 )
 from backend_identity import (
     BackendPrincipal,
@@ -221,6 +223,7 @@ app = FastAPI(
 
 validate_media_input_config()
 validate_fal_config()
+validate_rerank_adapter_config()
 app.add_middleware(
     MediaRequestLimitMiddleware,
     max_bytes=media_request_max_bytes_from_env(),
@@ -1453,6 +1456,22 @@ async def submit_media_generation(
             detail="Media input must include image for modality=image_to_3d",
         )
 
+    # Complete provider-schema validation before shared state, budget, storage,
+    # or paid provider work. The preflight is pure and also resolves the default
+    # FLUX image-to-image endpoint when an init image is present.
+    try:
+        model = preflight_media_operation(
+            modality=modality,
+            input=request.input,
+            model=model,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    api_key = _require_fal_api_key()
+
     # Prove the shared operation store is reachable before reserving budget,
     # hosting input, or submitting paid provider work. Persistence is checked
     # again after submission and compensated if that later write still fails.
@@ -1488,11 +1507,6 @@ async def submit_media_generation(
         prepared_input = request.input
     else:  # image_to_3d
         # Fail fast on a missing key before any (side-effecting) storage write.
-        try:
-            _require_fal_api_key()
-        except HTTPException:
-            await MEDIA_BUDGET_ENGINE.release(reservation_id)
-            raise
         entry = media_registry.lookup(model)
         try:
             # prepare_image_input performs (optional) Pillow compositing and a
@@ -1521,7 +1535,6 @@ async def submit_media_generation(
         prepared_input["image"] = prepared.image
 
     try:
-        api_key = _require_fal_api_key()
         async with FalClient(api_key=api_key, model=model) as client:
             payload = await client.submit_media_operation(
                 modality=modality,
@@ -1646,11 +1659,15 @@ async def get_media_operation(
     # Terminal payloads are stable: never re-poll the provider (a cancelled op
     # must not flip back to the provider's in-flight status, #518).
     last_payload = dict(operation.get("last_payload") or {})
-    if str(last_payload.get("status", "")) in TERMINAL_MEDIA_STATUSES:
+    current_status = str(last_payload.get("status", ""))
+    if current_status in TERMINAL_MEDIA_STATUSES:
         await _maybe_reconcile_ledger(operation_id, operation)
         return _media_response(last_payload)
     elapsed = time.time() - float(operation["created_at_epoch"])
-    if elapsed > int(operation["timeout_seconds"]):
+    if (
+        current_status != "cancellation_requested"
+        and elapsed > int(operation["timeout_seconds"])
+    ):
         payload = dict(operation["last_payload"])
         payload["status"] = "timeout"
         persisted, _ = await MEDIA_OPERATION_STORE.transition_payload(
@@ -1697,6 +1714,15 @@ async def get_media_operation(
             status_code=status.HTTP_502_BAD_GATEWAY,
         )
 
+    if (
+        current_status == "cancellation_requested"
+        and str(payload.get("status", "")) not in TERMINAL_MEDIA_STATUSES
+    ):
+        provider_provenance = dict(payload.get("provenance") or {})
+        provider_provenance.update(dict(last_payload.get("provenance") or {}))
+        payload["status"] = "cancellation_requested"
+        payload["provenance"] = provider_provenance
+
     persisted, _ = await MEDIA_OPERATION_STORE.transition_payload(
         operation_id, payload
     )
@@ -1719,13 +1745,11 @@ async def cancel_media_operation(
 ):
     """Cancel an in-flight media operation (#518).
 
-    Transitions the operation to terminal ``cancelled`` and releases its
-    budget reservation via the existing reconcile path (failed/cancelled/
-    timeout release the spend — #342). Where the provider supports it, the
-    provider-side operation is cancelled too (best-effort: an undeliverable
-    provider cancel still cancels server-side, so billing/reconciling against
-    the op stops either way). Idempotency: ``404`` for an unknown operation,
-    ``409`` for an already-terminal one (succeeded/failed/cancelled/timeout).
+    Records nonterminal ``cancellation_requested`` and retains the budget
+    reservation until provider polling confirms a terminal outcome. This is
+    required because FAL may accept cancellation while in-progress work still
+    completes. Idempotency: ``404`` for an unknown operation and ``409`` for an
+    already-terminal operation or an existing cancellation request.
     """
     operation = await MEDIA_OPERATION_STORE.get(operation_id)
     if not operation:
@@ -1754,11 +1778,16 @@ async def cancel_media_operation(
                 f"({current_status})"
             ),
         )
+    if current_status == "cancellation_requested":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Media operation {operation_id} cancellation is already requested",
+        )
 
     payload = dict(last_payload)
-    payload["status"] = "cancelled"
+    payload["status"] = "cancellation_requested"
     provenance = dict(payload.get("provenance") or {})
-    provenance["provider_cancelled"] = False
+    provenance["provider_cancellation_requested"] = False
     payload["provenance"] = provenance
     persisted, changed = await MEDIA_OPERATION_STORE.transition_payload(
         operation_id, payload
@@ -1778,9 +1807,9 @@ async def cancel_media_operation(
             ),
         )
 
-    # Persist cancellation before this best-effort provider call so a slow
-    # provider cannot race a successful poll and overwrite terminal state.
-    provider_cancelled = False
+    # Persist intent before this best-effort provider call so concurrent callers
+    # cannot submit duplicate cancellation requests.
+    provider_cancellation_requested = False
     if (
         operation.get("provider") == "fal"
         and _fal_source_enabled()
@@ -1790,22 +1819,21 @@ async def cancel_media_operation(
             async with FalClient(
                 api_key=_fal_api_key(), model=operation["model"]
             ) as client:
-                provider_cancelled = await client.cancel_media_operation(
+                provider_cancellation_requested = await client.cancel_media_operation(
                     operation_id=operation_id,
                     modality=operation["modality"],
                 )
         except Exception:  # noqa: BLE001 — best-effort by contract
-            provider_cancelled = False
+            provider_cancellation_requested = False
 
     payload = dict(persisted["last_payload"])
     provenance = dict(payload.get("provenance") or {})
-    provenance["provider_cancelled"] = provider_cancelled
+    provenance["provider_cancellation_requested"] = provider_cancellation_requested
     payload["provenance"] = provenance
-    enriched, _ = await MEDIA_OPERATION_STORE.replace_terminal_payload(
-        operation_id, "cancelled", payload
+    enriched, _ = await MEDIA_OPERATION_STORE.transition_payload(
+        operation_id, payload
     )
     final_operation = enriched or persisted
-    await _maybe_reconcile_ledger(operation_id, final_operation)
     return _media_response(dict(final_operation["last_payload"]))
 
 
