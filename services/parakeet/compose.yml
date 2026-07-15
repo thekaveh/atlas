@@ -23,7 +23,6 @@ services:
     environment:
       PARAKEET_MODEL: ${PARAKEET_MODEL:-nvidia/parakeet-tdt-0.6b-v3}
       PARAKEET_DEVICE: ${PARAKEET_GPU_DEVICE:-cuda}
-      PARAKEET_COMPUTE_TYPE: ${PARAKEET_GPU_COMPUTE_TYPE:-float16}
       PARAKEET_MAX_UPLOAD_BYTES: ${PARAKEET_MAX_UPLOAD_BYTES:-104857600}
       PARAKEET_CONCURRENCY: ${PARAKEET_CONCURRENCY:-1}
       # Do not advertise HTTP readiness until the configured NeMo model has

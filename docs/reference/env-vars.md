@@ -218,7 +218,7 @@ point at http://kong-api-gateway:8000.
 | FAL_MODEL | fal | fal-ai/flux/dev | Default fal.ai model endpoint used by the media gateway for text-to-image generation. |
 | FAL_IMAGE_TO_3D_MODEL | fal | fal-ai/trellis | Default fal.ai endpoint id for the media gateway's image_to_3d modality. Must resolve to a curated registry entry (Hunyuan3D / TRELLIS / Tripo / Rodin / Pixal3D); TRELLIS is the MIT-licensed default. |
 | FAL_MODEL_LICENSE | fal | fal/provider-terms | License or terms marker returned in normalized media operation responses when provider-specific model licensing is not more specific. |
-| FAL_TIMEOUT_SECONDS | fal | 120 | Backend timeout budget for FAL media submit/poll operations and the compatibility route. |
+| FAL_TIMEOUT_SECONDS | fal | 120 | Finite Backend timeout budget for FAL media submit/poll operations and the compatibility route. Must be greater than zero and at most 3600 seconds. |
 | FAL_OUTPUT_FORMAT | fal | jpeg | Requested output format for compatible fal.ai image models: jpeg or png. |
 | FAL_ENABLE_SAFETY_CHECKER | fal | True | Whether to request the provider-side safety checker for compatible fal.ai image models. |
 | PROJECT_NAME | globals | atlas | Docker Compose project name — the container/volume/network prefix (<name>-…) and `docker compose -p` namespace. start.sh AND stop.sh read it from here, so stop tears down exactly what start launched. Override with `./start.sh --project <name>` (also -p; persists back here) or by editing this value. Set a unique name when running Atlas as a submodule so you don't collide with a base Atlas stack. |
@@ -607,7 +607,6 @@ Do not edit by hand — the bootstrapper owns this value.
 | STT_PROVIDER_SCALE | parakeet |  | Aggregate STT scale across all engines. Reserved for future use. |
 | PARAKEET_MODEL | parakeet | nvidia/parakeet-tdt-0.6b-v3 | - |
 | PARAKEET_GPU_DEVICE | parakeet | cuda | - |
-| PARAKEET_GPU_COMPUTE_TYPE | parakeet | float16 | - |
 | PARAKEET_MAX_UPLOAD_BYTES | parakeet | 104857600 | Maximum accepted audio upload size in bytes for Parakeet GPU and localhost APIs. Uploads are streamed to temporary storage and rejected with 413 when exceeded. |
 | PARAKEET_CONCURRENCY | parakeet | 1 | Maximum concurrent Parakeet inference calls per provider process. Default 1 prevents model thread-safety and GPU memory contention. |
 | PARAKEET_LOCALHOST_PORT | parakeet | 63042 | Host port for the parakeet-localhost source variant. URL is derived at compose-render time as http://host.docker.internal:63042. |

@@ -64,8 +64,6 @@ env:
     default: "nvidia/parakeet-tdt-0.6b-v3"
   - name: PARAKEET_GPU_DEVICE
     default: cuda
-  - name: PARAKEET_GPU_COMPUTE_TYPE
-    default: float16
   - name: PARAKEET_MAX_UPLOAD_BYTES
     default: 104857600
     description: "Maximum accepted audio upload size in bytes for Parakeet GPU and localhost APIs. Uploads are streamed to temporary storage and rejected with 413 when exceeded."
@@ -144,7 +142,6 @@ runtime_sc:
       environment:
         STT_ENDPOINT: http://parakeet-gpu:8000
         PARAKEET_DEVICE: ${PARAKEET_GPU_DEVICE:-cuda}
-        PARAKEET_COMPUTE_TYPE: ${PARAKEET_GPU_COMPUTE_TYPE:-float16}
         PARAKEET_MODEL: ${PARAKEET_MODEL:-nvidia/parakeet-tdt-0.6b-v3}
         NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-all}
         HF_TOKEN: ${HUGGING_FACE_HUB_TOKEN}

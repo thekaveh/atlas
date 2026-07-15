@@ -21,7 +21,12 @@ from datetime import datetime, timezone
 from n8n_client import N8nClient
 from research_service import ResearchService
 from comfyui_client import ComfyUIClient
-from fal_media_client import FalClient, validate_image_prompt
+from fal_media_client import (
+    FalClient,
+    fal_timeout_seconds_from_env,
+    validate_fal_config,
+    validate_image_prompt,
+)
 import media_registry
 from media_input import (
     ImageHostingError,
@@ -215,6 +220,7 @@ app = FastAPI(
 )
 
 validate_media_input_config()
+validate_fal_config()
 app.add_middleware(
     MediaRequestLimitMiddleware,
     max_bytes=media_request_max_bytes_from_env(),
@@ -1275,13 +1281,10 @@ async def _maybe_reconcile_ledger(
     await MEDIA_OPERATION_STORE.mark_reconciled(operation_id)
 
 
-def _media_timeout_seconds(request_timeout: Optional[int] = None) -> int:
+def _media_timeout_seconds(request_timeout: Optional[int] = None) -> float:
     if request_timeout is not None:
-        return request_timeout
-    try:
-        return int(os.getenv("FAL_TIMEOUT_SECONDS", "120") or "120")
-    except ValueError:
-        return 120
+        return float(request_timeout)
+    return fal_timeout_seconds_from_env()
 
 
 def _normalize_media_route(provider: str, modality: str, model: Optional[str]) -> tuple[str, str, str]:

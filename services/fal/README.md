@@ -12,7 +12,7 @@ Atlas does not run a FAL container. The backend reads `FAL_SOURCE`, `FAL_API_KEY
 |---|---|---|
 | Atlas SOURCE | `FAL_SOURCE=disabled` | Default. No FAL calls are made and no API key is required. |
 | FAL provider | `FAL_SOURCE=enabled` | Enables FAL-backed hosted media generation through the backend. |
-| Media gateway (image) | `POST /media/generate` with `{"modality":"image"}` | Submits FAL image operations and returns an operation id. Text→image uses `fal-ai/flux/dev`; an init image (`image_url` / `image` / `init_image`, URL or data URI) selects `fal-ai/flux/dev/image-to-image` and accepts optional `strength` from 0.01 through 1. Size accepts flat `width`/`height` (which win) or a nested `image_size` object. |
+| Media gateway (image) | `POST /media/generate` with `{"modality":"image"}` | Submits FAL image operations and returns an operation id. Text→image uses `fal-ai/flux/dev` and accepts flat `width`/`height` or nested `image_size`. An init image (`image_url` / `image` / `init_image`, URL or data URI) selects `fal-ai/flux/dev/image-to-image`, which accepts optional `strength` from 0.01 through 1 but no output-size override. Custom endpoints require an exact provider-native `input.provider_arguments` object. |
 | Media gateway (image→3D) | `POST /media/generate` with `{"modality":"image_to_3d"}` | Submits a hosted image→3D operation (Hunyuan3D / TRELLIS / Tripo / Rodin / Pixal3D) and returns an operation id. |
 | Operation polling | `GET /media/operations/{operation_id}` | Polls provider status and returns normalized artifacts (the GLB is the primary `artifact_url`), cost, license, and provenance. |
 | Operation cancel | `POST /media/operations/{operation_id}/cancel` | Cancels an in-flight operation (#518): terminal `cancelled`, budget reservation released, provider-side cancel propagated best-effort (`provenance.provider_cancelled`). Idempotent — `404` unknown, `409` already-terminal. |
@@ -39,7 +39,7 @@ Enable from the CLI with:
 | `FAL_MODEL_LICENSE` | `fal/provider-terms` | License or terms marker returned in normalized media operation responses when provider-specific model licensing is not more specific. For `image_to_3d`, the per-model registry license overrides this. |
 | `BACKEND_MEDIA_INPUT_BUCKET` | `default` | Atlas storage bucket the gateway hosts `image_to_3d` inputs in (under the `media-inputs/` prefix) when a provider rejects data-URI inputs. Declared on the backend service. |
 | `BACKEND_MEDIA_INPUT_PUBLIC_BASE_URL` | empty | Optional public base URL for hosted inputs (`<base>/<bucket>/<key>`) so the provider's cloud can fetch them through a reachable ingress; empty falls back to the storage client's public URL. Declared on the backend service. |
-| `FAL_TIMEOUT_SECONDS` | `120` | Backend timeout budget for FAL media submit/poll operations and the compatibility route. |
+| `FAL_TIMEOUT_SECONDS` | `120` | Finite Backend timeout budget for FAL media submit/poll operations and the compatibility route; must be greater than zero and at most 3,600 seconds. |
 | `FAL_OUTPUT_FORMAT` | `jpeg` | Requested image format for compatible models. |
 | `FAL_ENABLE_SAFETY_CHECKER` | `true` | Requests the provider-side safety checker for compatible models. |
 
@@ -51,10 +51,10 @@ Atlas models FAL as a virtual media service:
 - Service category: `media`.
 - Source values: `disabled` and `enabled`.
 - Runtime ownership: no compose service, no container, no volume, and no Kong route.
-- Backend integration: `POST /media/generate` submits hosted image operations to FAL, `GET /media/operations/{operation_id}` polls provider status, and `POST /media/operations/{operation_id}/cancel` cancels an in-flight operation (terminal `cancelled` + budget release + best-effort provider cancel, #518). `POST /comfyui/generate` still chooses FAL first when `FAL_SOURCE=enabled`, keeping existing Open WebUI and n8n callers compatible.
+- Backend integration: `POST /media/generate` submits hosted image operations to FAL, `GET /media/operations/{operation_id}` polls provider status, and `POST /media/operations/{operation_id}/cancel` cancels an in-flight operation (terminal `cancelled` + budget release + best-effort provider cancel, #518). `POST /comfyui/generate` chooses FAL first when `FAL_SOURCE=enabled` for the default `fal-ai/flux/dev` compatibility contract; custom endpoint schemas use `POST /media/generate` with explicit `input.provider_arguments` instead.
 - ComfyUI-specific routes: workflow execution, queue inspection, history lookup, cancellation, and image file proxying remain ComfyUI-specific.
 - Secret handling: `FAL_API_KEY` is server-side only. The backend maps it to `FAL_KEY` for the fal.ai Python client and never exposes it to browser clients.
-- Operation state: the first media-gateway pass stores submitted operation metadata in the backend process. Restart-durable operation storage, media spend limits, and cost ledgers remain follow-up work.
+- Operation state: submitted metadata and terminal transitions are shared in Redis with a bounded TTL, so polling and cancellation survive Backend restarts and remain consistent across replicas. Owner scope is recorded at submission and enforced on reads and cancellation. The optional Postgres spend ledger and budget engine are described in §4.2.
 
 ### 4.1. Image→3D modality
 
@@ -84,7 +84,7 @@ Hosted media generation has no LiteLLM-style spend accounting of its own, so the
 - **Unknown cost is never $0.** A budgeted submission for a model with no known cost is rejected (`402`) unless `MEDIA_BUDGET_ALLOW_UNKNOWN_COST=true`, in which case it is recorded with a `NULL` (not zero) cost.
 - **Scoped reads.** `GET /media/spend?consumer=<c>[&project=<p>]` returns that consumer's totals + rows only; provider keys and other consumers' records are never exposed.
 
-Attribution comes from the request `consumer`/`project` fields or the `X-Atlas-Consumer`/`X-Atlas-Project` headers (default `default`) — a pragmatic key, not authentication; gateway-level identity remains #345 follow-up work. `MEDIA_BUDGET_*` and `MEDIA_DISABLED_PROVIDERS` are declared on the backend service.
+Attribution comes from the authenticated Backend principal plus optional request `consumer`/`project` fields or `X-Atlas-Consumer`/`X-Atlas-Project` headers (default `default`). Operation polling and cancellation are owner-scoped; spend reads require the same Backend application-auth boundary. `MEDIA_BUDGET_*` and `MEDIA_DISABLED_PROVIDERS` are declared on the backend service.
 
 ### 4.3. LiteLLM text→image route (#515)
 
@@ -115,7 +115,6 @@ _No upstream calls._
 
 ### 5.4. Future — Missing pair integrations
 
-- Restart-durable operation storage for hosted media operations if Atlas needs provider polling to survive backend container restarts.
 - Optional FAL model catalog prompts if Atlas adopts a curated cloud-media model list.
 
 ### 5.5. Future — Candidate new services

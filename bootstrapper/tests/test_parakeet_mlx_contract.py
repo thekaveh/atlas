@@ -10,6 +10,8 @@ ROOT = Path(__file__).resolve().parents[2]
 MODULE_PATH = ROOT / "services/parakeet/provider/mlx/alignment.py"
 MLX_API = ROOT / "services/parakeet/provider/mlx/api_server.py"
 SHARED_API = ROOT / "services/parakeet/provider/shared/api_server.py"
+PARAKEET_MANIFEST = ROOT / "services/parakeet/service.yml"
+PARAKEET_COMPOSE = ROOT / "services/parakeet/compose.yml"
 
 
 def _load_alignment_module():
@@ -82,6 +84,16 @@ def test_shared_api_declares_runtime_annotation_imports():
         for alias in node.names
     }
     assert {"Literal", "Optional"} <= typing_names
+
+
+def test_parakeet_does_not_advertise_unsupported_gpu_quantization():
+    manifest = PARAKEET_MANIFEST.read_text(encoding="utf-8")
+    compose = PARAKEET_COMPOSE.read_text(encoding="utf-8")
+    guide = (ROOT / "services/stt-provider/README.md").read_text(encoding="utf-8")
+
+    assert "PARAKEET_GPU_COMPUTE_TYPE" not in manifest
+    assert "PARAKEET_COMPUTE_TYPE" not in compose
+    assert "PARAKEET_GPU_COMPUTE_TYPE" not in guide
 
 
 def test_cold_health_starts_loading_without_waiting_for_it():

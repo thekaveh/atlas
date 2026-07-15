@@ -13,6 +13,8 @@ import media_registry
 _FAL_ENV_LOCK = threading.Lock()
 _DEFAULT_IMAGE_MODEL = "fal-ai/flux/dev"
 _DEFAULT_IMAGE_TO_IMAGE_MODEL = "fal-ai/flux/dev/image-to-image"
+_FAL_OUTPUT_FORMATS = {"jpeg", "png"}
+_FAL_TIMEOUT_MAX_SECONDS = 3600.0
 
 
 def _first_not_none(*values: Any) -> Any:
@@ -74,7 +76,43 @@ def _env_bool(name: str, default: bool) -> bool:
     raw = (os.getenv(name) or "").strip().lower()
     if not raw:
         return default
-    return raw in {"1", "true", "yes", "on", "enabled"}
+    if raw in {"1", "true", "yes", "on", "enabled"}:
+        return True
+    if raw in {"0", "false", "no", "off", "disabled"}:
+        return False
+    raise ValueError(f"{name} must be a boolean")
+
+
+def _timeout_seconds(value: Any) -> float:
+    try:
+        converted = float(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("FAL timeout must be finite") from exc
+    if not math.isfinite(converted):
+        raise ValueError("FAL timeout must be finite")
+    if converted <= 0:
+        raise ValueError("FAL timeout must be greater than 0")
+    if converted > _FAL_TIMEOUT_MAX_SECONDS:
+        raise ValueError("FAL timeout must be at most 3600 seconds")
+    return converted
+
+
+def fal_timeout_seconds_from_env() -> float:
+    return _timeout_seconds(os.getenv("FAL_TIMEOUT_SECONDS", "120") or "120")
+
+
+def _output_format(value: Any) -> str:
+    converted = str(value).strip().lower()
+    if converted not in _FAL_OUTPUT_FORMATS:
+        raise ValueError("FAL output format must be jpeg or png")
+    return converted
+
+
+def validate_fal_config() -> None:
+    """Fail startup before a malformed provider setting reaches paid work."""
+    fal_timeout_seconds_from_env()
+    _output_format(os.getenv("FAL_OUTPUT_FORMAT", "jpeg") or "jpeg")
+    _env_bool("FAL_ENABLE_SAFETY_CHECKER", True)
 
 
 class FalClient:
@@ -94,23 +132,24 @@ class FalClient:
     ) -> None:
         self.api_key = (api_key or os.getenv("FAL_API_KEY") or os.getenv("FAL_KEY") or "").strip()
         self.model = (model or os.getenv("FAL_MODEL") or "fal-ai/flux/dev").strip()
-        self.output_format = (output_format or os.getenv("FAL_OUTPUT_FORMAT") or "jpeg").strip()
-        if timeout_seconds is None:
-            try:
-                self.timeout_seconds = float(
-                    os.getenv("FAL_TIMEOUT_SECONDS", "120") or "120"
-                )
-            except ValueError:
-                self.timeout_seconds = 120.0
-        else:
-            self.timeout_seconds = float(timeout_seconds)
-        if self.timeout_seconds <= 0:
-            raise ValueError("FAL timeout must be positive")
-        self.enable_safety_checker = (
-            _env_bool("FAL_ENABLE_SAFETY_CHECKER", True)
-            if enable_safety_checker is None
-            else enable_safety_checker
+        self.output_format = _output_format(
+            output_format
+            if output_format is not None
+            else os.getenv("FAL_OUTPUT_FORMAT", "jpeg") or "jpeg"
         )
+        self.timeout_seconds = (
+            fal_timeout_seconds_from_env()
+            if timeout_seconds is None
+            else _timeout_seconds(timeout_seconds)
+        )
+        if enable_safety_checker is None:
+            self.enable_safety_checker = _env_bool(
+                "FAL_ENABLE_SAFETY_CHECKER", True
+            )
+        elif isinstance(enable_safety_checker, bool):
+            self.enable_safety_checker = enable_safety_checker
+        else:
+            raise ValueError("FAL enable_safety_checker must be a boolean")
         self.license = (os.getenv("FAL_MODEL_LICENSE") or "fal/provider-terms").strip()
 
     async def __aenter__(self) -> "FalClient":
@@ -280,34 +319,53 @@ class FalClient:
         selected_model: str,
         init_image: Optional[str],
     ) -> Dict[str, Any]:
-        # Size: flat width/height keys win; a nested `image_size` object is
-        # accepted as a fallback (#453 — previously it was silently ignored
-        # and the request defaulted to 512×512).
-        nested_size = input_payload.get("image_size")
-        if not isinstance(nested_size, dict):
-            nested_size = {}
-        width = _bounded_int(
-            "width",
-            _first_not_none(
-                input_payload.get("width"), nested_size.get("width"), 512
-            ),
-            64,
-            4096,
-        )
-        height = _bounded_int(
-            "height",
-            _first_not_none(
-                input_payload.get("height"), nested_size.get("height"), 512
-            ),
-            64,
-            4096,
-        )
-        if selected_model == _DEFAULT_IMAGE_TO_IMAGE_MODEL:
+        prompt = validate_image_prompt(input_payload.get("prompt"))
+        if selected_model not in {
+            _DEFAULT_IMAGE_MODEL,
+            _DEFAULT_IMAGE_TO_IMAGE_MODEL,
+        }:
+            provider_arguments = input_payload.get("provider_arguments")
+            if not isinstance(provider_arguments, dict) or not provider_arguments:
+                raise ValueError(
+                    "Custom FAL image endpoints require non-empty "
+                    "input.provider_arguments matching the provider schema"
+                )
+            if provider_arguments.get("prompt") != prompt:
+                raise ValueError(
+                    "Custom FAL provider_arguments must contain a matching prompt"
+                )
+            return dict(provider_arguments)
+
+        if input_payload.get("provider_arguments") is not None:
+            raise ValueError(
+                "FAL provider_arguments are only accepted for custom image endpoints"
+            )
+        if input_payload.get("negative_prompt"):
+            raise ValueError(
+                f"FAL image negative_prompt is not supported by {selected_model}"
+            )
+
+        is_image_to_image = selected_model == _DEFAULT_IMAGE_TO_IMAGE_MODEL
+        if is_image_to_image and init_image is None:
+            raise ValueError(
+                f"FAL image endpoint {selected_model} requires an init image"
+            )
+        if is_image_to_image:
+            unsupported = next(
+                (
+                    key
+                    for key in ("width", "height", "image_size")
+                    if input_payload.get(key) is not None
+                ),
+                None,
+            )
+            if unsupported is not None:
+                raise ValueError(
+                    f"FAL image {unsupported} is not supported by {selected_model}"
+                )
             min_steps, max_steps, min_cfg, max_cfg = 10, 50, 1, 20
-        elif selected_model == _DEFAULT_IMAGE_MODEL:
-            min_steps, max_steps, min_cfg, max_cfg = 1, 50, 1, 20
         else:
-            min_steps, max_steps, min_cfg, max_cfg = 1, 150, 0, 30
+            min_steps, max_steps, min_cfg, max_cfg = 1, 50, 1, 20
         steps = _bounded_int(
             "steps",
             _first_not_none(input_payload.get("steps"), 20),
@@ -329,18 +387,38 @@ class FalClient:
             4,
         )
         arguments: Dict[str, Any] = {
-            "prompt": validate_image_prompt(input_payload.get("prompt")),
-            "image_size": {"width": width, "height": height},
+            "prompt": prompt,
             "num_inference_steps": steps,
             "guidance_scale": cfg,
             "num_images": num_images,
             "enable_safety_checker": self.enable_safety_checker,
             "output_format": self.output_format,
         }
+        if not is_image_to_image:
+            # Only the default text endpoint defines image_size. Flat keys win;
+            # the nested object is retained as a compatibility fallback.
+            nested_size = input_payload.get("image_size")
+            if not isinstance(nested_size, dict):
+                nested_size = {}
+            width = _bounded_int(
+                "width",
+                _first_not_none(
+                    input_payload.get("width"), nested_size.get("width"), 512
+                ),
+                64,
+                4096,
+            )
+            height = _bounded_int(
+                "height",
+                _first_not_none(
+                    input_payload.get("height"), nested_size.get("height"), 512
+                ),
+                64,
+                4096,
+            )
+            arguments["image_size"] = {"width": width, "height": height}
         if input_payload.get("seed") is not None:
             arguments["seed"] = input_payload["seed"]
-        if input_payload.get("negative_prompt"):
-            arguments["negative_prompt"] = input_payload["negative_prompt"]
         if init_image is not None:
             arguments["image_url"] = init_image
             if input_payload.get("strength") is not None:

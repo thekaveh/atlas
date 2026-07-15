@@ -215,8 +215,8 @@ docker exec <project>-open-web-ui env | grep AUDIO_STT
 If empty, `STT_PROVIDER_SOURCE` is `disabled`.
 
 **Parakeet GPU container OOMs** — needs ~2 GB VRAM minimum. Try the
-`int8` compute type (`PARAKEET_GPU_COMPUTE_TYPE=int8`) or switch to
-`speaches-container-gpu` (smaller footprint).
+`speaches-container-gpu` source (smaller footprint). NeMo's Parakeet loader
+does not expose the Faster-Whisper-style `int8` compute-type control.
 
 **whisper.cpp not detected as localhost** — make sure it's serving the
 `/v1/audio/transcriptions` path (use `--inference-path`).

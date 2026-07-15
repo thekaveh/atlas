@@ -240,6 +240,29 @@ def test_fal_client_accepts_request_scoped_timeout():
     assert client.timeout_seconds == 0.25
 
 
+@pytest.mark.parametrize(
+    ("name", "value", "message"),
+    (
+        ("FAL_ENABLE_SAFETY_CHECKER", "treu", "boolean"),
+        ("FAL_TIMEOUT_SECONDS", "not-a-number", "finite"),
+        ("FAL_TIMEOUT_SECONDS", "nan", "finite"),
+        ("FAL_TIMEOUT_SECONDS", "inf", "finite"),
+        ("FAL_TIMEOUT_SECONDS", "0", "greater than 0"),
+        ("FAL_TIMEOUT_SECONDS", "3601", "at most 3600"),
+        ("FAL_OUTPUT_FORMAT", "webp", "jpeg or png"),
+    ),
+)
+def test_fal_client_rejects_malformed_provider_configuration(
+    monkeypatch, name, value, message
+):
+    monkeypatch.setenv(name, value)
+
+    from fal_media_client import FalClient
+
+    with pytest.raises(ValueError, match=message):
+        FalClient(api_key="fal-key")
+
+
 def test_fal_client_constructs_subscribe_request(monkeypatch):
     spec = importlib.util.find_spec("fal_media_client")
     assert spec is not None, "backend must provide fal_media_client.FalClient"
@@ -306,46 +329,18 @@ def test_fal_client_constructs_subscribe_request(monkeypatch):
     assert result["outputs"]["images"][0]["url"] == "https://cdn.example/image.jpeg"
 
 
-def test_fal_client_sends_negative_prompt_when_provided(monkeypatch):
-    """The non-empty negative_prompt must reach fal_client.subscribe's
-    arguments (not be silently dropped — the f5693f06 fix). The empty case is
-    locked by test_fal_client_constructs_subscribe_request's exact-dict
-    assertion (negative_prompt='' -> key absent); this locks the positive path
-    so a future revert of the `if negative_prompt:` block can't re-drop it.
-    """
-    spec = importlib.util.find_spec("fal_media_client")
-    assert spec is not None, "backend must provide fal_media_client.FalClient"
-
-    captured: dict = {}
-
-    def fake_subscribe(model, *, arguments):
-        captured["model"] = model
-        captured["arguments"] = arguments
-        return {"request_id": "req-neg", "images": []}
-
-    monkeypatch.setitem(
-        sys.modules, "fal_client", types.SimpleNamespace(subscribe=fake_subscribe)
-    )
-
+def test_fal_client_rejects_unsupported_negative_prompt(monkeypatch):
     from fal_media_client import FalClient
 
-    asyncio.run(
-        FalClient(
-            api_key="fal-key",
-            model="fal-ai/flux/dev",
-            output_format="jpeg",
-            enable_safety_checker=True,
-        ).generate_simple_image(
-            prompt="orbital blue glass library",
-            negative_prompt="low detail",
-            width=768,
-            height=512,
+    with pytest.raises(ValueError, match="negative_prompt.*not supported"):
+        asyncio.run(
+            FalClient(api_key="fal-key").generate_simple_image(
+                prompt="orbital blue glass library",
+                negative_prompt="low detail",
+                width=768,
+                height=512,
+            )
         )
-    )
-
-    assert captured["model"] == "fal-ai/flux/dev"
-    assert captured["arguments"]["prompt"] == "orbital blue glass library"
-    assert captured["arguments"]["negative_prompt"] == "low detail"
 
 
 # --- image_to_3d modality (#340) --------------------------------------------
@@ -765,15 +760,20 @@ def test_fal_image_submit_forwards_img2img_init_image_and_strength(monkeypatch):
             "prompt": "expand this sprite",
             "image_url": "data:image/webp;base64,AAAA",
             "strength": 0.4,
-            "width": 1024,
-            "height": 1024,
         },
     )
     args = captured["arguments"]
     assert captured["model"] == "fal-ai/flux/dev/image-to-image"
-    assert args["image_url"] == "data:image/webp;base64,AAAA"
-    assert args["strength"] == 0.4
-    assert args["image_size"] == {"width": 1024, "height": 1024}
+    assert args == {
+        "prompt": "expand this sprite",
+        "num_inference_steps": 20,
+        "guidance_scale": 7.0,
+        "num_images": 1,
+        "enable_safety_checker": True,
+        "output_format": "jpeg",
+        "image_url": "data:image/webp;base64,AAAA",
+        "strength": 0.4,
+    }
     assert submitted["status"] == "submitted"
     assert submitted["model"] == "fal-ai/flux/dev/image-to-image"
 
@@ -815,11 +815,54 @@ def test_fal_image_submit_preserves_explicit_zero_cfg(monkeypatch):
         monkeypatch,
         {
             "prompt": "zero-value contract",
-            "cfg": 0,
+            "provider_arguments": {
+                "prompt": "zero-value contract",
+                "guidance_scale": 0,
+            },
         },
         model="fal-ai/custom-zero-guidance",
     )
-    assert captured["arguments"]["guidance_scale"] == 0.0
+    assert captured["arguments"] == {
+        "prompt": "zero-value contract",
+        "guidance_scale": 0,
+    }
+
+
+def test_custom_fal_image_endpoint_requires_provider_native_arguments(monkeypatch):
+    with pytest.raises(ValueError, match="provider_arguments"):
+        _submit_image_operation(
+            monkeypatch,
+            {"prompt": "custom endpoint"},
+            model="fal-ai/custom-endpoint",
+        )
+
+
+def test_custom_fal_image_endpoint_requires_matching_prompt(monkeypatch):
+    with pytest.raises(ValueError, match="matching prompt"):
+        _submit_image_operation(
+            monkeypatch,
+            {
+                "prompt": "top-level prompt",
+                "provider_arguments": {"prompt": "different prompt"},
+            },
+            model="fal-ai/custom-endpoint",
+        )
+
+
+@pytest.mark.parametrize("field", ("width", "height", "image_size", "negative_prompt"))
+def test_default_fal_img2img_rejects_unsupported_controls(monkeypatch, field):
+    value = {"width": 512, "height": 512} if field == "image_size" else 512
+    if field == "negative_prompt":
+        value = "low detail"
+    with pytest.raises(ValueError, match=field):
+        _submit_image_operation(
+            monkeypatch,
+            {
+                "prompt": "image variation",
+                "image_url": "https://cdn.example/in.png",
+                field: value,
+            },
+        )
 
 
 @pytest.mark.parametrize(

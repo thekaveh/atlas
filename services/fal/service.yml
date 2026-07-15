@@ -34,7 +34,7 @@ env:
     description: "License or terms marker returned in normalized media operation responses when provider-specific model licensing is not more specific."
   - name: FAL_TIMEOUT_SECONDS
     default: 120
-    description: "Backend timeout budget for FAL media submit/poll operations and the compatibility route."
+    description: "Finite Backend timeout budget for FAL media submit/poll operations and the compatibility route. Must be greater than zero and at most 3600 seconds."
   - name: FAL_OUTPUT_FORMAT
     default: jpeg
     description: "Requested output format for compatible fal.ai image models: jpeg or png."
