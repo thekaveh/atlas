@@ -4,13 +4,13 @@ Documentation index for Atlas.
 
 ## 1. Documentation structure
 
-### 1.1 Quick Start guides
+### 1.1. Quick Start guides
 - [Atlas documentation home](index.md) — overview and entry point for the complete documentation set
 - [Interactive Setup Wizard](quick-start/interactive-setup-wizard.md) — step-by-step guided configuration
 - [Troubleshooting](quick-start/troubleshooting.md) — common issues and solutions across the full stack
 - [Startup Troubleshooting](TROUBLESHOOTING.md) — quick fixes for first-launch errors (sudo recovery, Airflow ResolutionImpossible, n8n restart-loops); linked from `start.sh`'s own error output
 
-### 1.2 Service documentation
+### 1.2. Service documentation
 - [Backend API](../services/backend/README.md) — always-on adaptive FastAPI service
 - [Open WebUI](../services/open-webui/README.md) — main chat UI
 - [LiteLLM Gateway](../services/litellm/README.md) — always-on OpenAI-compatible front door for every LLM provider
@@ -43,7 +43,7 @@ Documentation index for Atlas.
 - [Cloudflared Tunnel](../services/cloudflared/README.md) — Cloudflare Tunnel for zero-config public TLS ingress fronting Kong (opt-in via `CLOUDFLARED_SOURCE`)
 - [Backup / Restore](../services/backup/README.md) — on-demand Postgres dump + volume tarballs to S3/MinIO with a restore path (opt-in via `BACKUP_SOURCE`)
 
-### 1.3 Deployment guides
+### 1.3. Deployment guides
 - [SOURCE Configuration](deployment/source-configuration.md) — SOURCE-based deployment, including GPU variants
 - [Ports and Routes](deployment/ports-and-routes.md) — canonical port offsets, direct URLs, and Kong routes
 - [Reusing Atlas as Infrastructure](deployment/reusing-atlas.md) — overview + decision guide: use Atlas as the backing infra for another project (which method, is it ready, how to wire + customize)
@@ -51,26 +51,26 @@ Documentation index for Atlas.
 - [Releasing & version tags](deployment/releasing.md) — semver tag convention for pinning a vendored Atlas
 - [Expected Startup Warnings](deployment/expected-startup-warnings.md) — known-benign log lines on `./start.sh`
 
-### 1.4 Contributors
+### 1.4. Contributors
 - [Adding a service runbook](CONTRIBUTING-services.md) — six-decision walkthrough + the regen + lint chain
 - [Security policy](../SECURITY.md) — threat tiers, supported versions, responsible-disclosure address
 - [External dependency contract ledger](maintenance/external-contract-ledger.md) — durable record of consumed external API/CLI/config contract checks from maintenance passes
 
-### 1.5 Architecture diagrams
+### 1.5. Architecture diagrams
 - [Diagrams README](diagrams/README.md) — top-level diagram update workflow + the per-service auto-generation chain
 - [Split architecture catalog](architecture/README.md) — MkDocs-linked high-level architecture perspectives generated for the publishable docs site
 - The top-level diagram itself lives at [diagrams/architecture.svg](diagrams/architecture.svg) (embedded in the project README) and [diagrams/architecture.html](diagrams/architecture.html) (standalone view)
 
-### 1.6 Cross-service research (Phase B corpus)
+### 1.6. Cross-service research (Phase B corpus)
 - [Research corpus guide](research/README.md) — layout, authoring rules, and the schema the validator enforces
 - [Integration matrix](research/integration-matrix.md) — auto-generated index linking every service to its candidate integrations
 - [Per-service rows](research/rows/) — missing-pair integrations, candidate new services, per-service feature gaps
 - [Candidate one-pagers](research/candidates/) — design notes per candidate service
 
-### 1.7 Feature-track plans and specs
+### 1.7. Feature-track plans and specs
 - [superpowers/plans](superpowers/plans/) + [superpowers/specs](superpowers/specs/) — point-in-time implementation plans and specs for the larger 2026-05/06 feature tracks (consult when archaeology on a past track is needed; CHANGELOG entries link the relevant ones)
 
-### 1.8 Numbering-policy notes
+### 1.8. Numbering-policy notes
 - Generated research files keep schema-fixed headings such as `## Headline`; see [research/README.md](research/README.md) for the explicit exemption.
 - Provider implementation notes under `services/*/provider/` are operational backend-specific runbooks. They may keep compact unnumbered headings when numbering would make command-oriented maintenance notes harder to scan.
 - Conventional history/planning artifacts such as [CHANGELOG](CHANGELOG.md), [ROADMAP](ROADMAP.md), and `docs/plans/` may keep their established release-note or planning heading style when renumbering would obscure chronology.

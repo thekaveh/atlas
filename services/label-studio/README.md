@@ -37,7 +37,7 @@ When enabled, `label-studio-init` creates the dedicated Postgres database and ro
 
 Label Studio's S3/import/export storage connections remain project-specific in upstream Label Studio. Atlas provisions the bucket and credentials, but each project still chooses source/target storage in the Label Studio UI or API.
 
-### 4.1 Notebook Export Loop
+### 4.1. Notebook Export Loop
 
 JupyterHub receives `LABEL_STUDIO_URL` and `LABEL_STUDIO_API_URL` when the service is enabled and includes `label-studio-sdk`. A notebook can export annotations and then log artifacts to MLflow or upsert reviewed rows into Weaviate:
 
@@ -54,36 +54,36 @@ MLflow and Weaviate export examples are intentionally notebook-owned in this fir
 
 ## 5. Dependencies & Integrations
 
-### 5.1 Current — Upstream (this service calls)
+### 5.1. Current — Upstream (this service calls)
 
 | Service | Category |
 |---|---|
 | minio | data |
 | supabase | data |
 
-### 5.2 Current — Downstream (services that call this)
+### 5.2. Current — Downstream (services that call this)
 
 | Service | Category |
 |---|---|
 | jupyterhub | apps |
 
-### 5.3 Architecture diagram
+### 5.3. Architecture diagram
 
 ![label-studio architecture](./architecture.svg)
 
 [Open the interactive HTML diagram](./architecture.html) for a full-screen view.
 
-### 5.4 Future — Missing pair integrations
+### 5.4. Future — Missing pair integrations
 
 - **backend ↔ label-studio** — *Why:* active-learning loops could enqueue model predictions and review tasks from backend workflows. *Mechanism:* backend REST client using `LABEL_STUDIO_API_URL` and `LABEL_STUDIO_USER_TOKEN`, with explicit project IDs and provenance fields. *Effort:* medium. *Confidence:* medium.
 - **label-studio ↔ weaviate** — *Why:* reviewed annotations should become curated vector metadata for retrieval/evaluation. *Mechanism:* notebook or backend export job reads Label Studio JSON and upserts namespaced Weaviate objects. *Effort:* small. *Confidence:* high.
 - **label-studio ↔ mlflow** — *Why:* reviewed datasets and evaluator labels should be attached to MLflow runs. *Mechanism:* notebook export logs JSON artifacts/metrics to `MLFLOW_TRACKING_URI`. *Effort:* small. *Confidence:* high.
 
-### 5.5 Future — Candidate new services
+### 5.5. Future — Candidate new services
 
 SSO/permissions work should land before Label Studio is treated as a broad multi-user review platform. Label Studio CE has its own auth model; Atlas does not integrate it with Supabase Auth in this slice.
 
-### 5.6 Future — Unused features in this service
+### 5.6. Future — Unused features in this service
 
 Enterprise review workflows, role-based permissions, and organization-wide SSO are intentionally out of scope for the first Atlas integration.
 

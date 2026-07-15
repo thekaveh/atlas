@@ -22,7 +22,7 @@ def render_section(graph: DepGraph, position: int = 5) -> str:
     lines.append(f"## {position}. Dependencies & Integrations")
     lines.append("")
     # Current — Upstream
-    lines.append(f"### {position}.1 Current — Upstream (this service calls)")
+    lines.append(f"### {position}.1. Current — Upstream (this service calls)")
     lines.append("")
     if graph.upstream:
         lines.append("| Service | Category |")
@@ -35,7 +35,7 @@ def render_section(graph: DepGraph, position: int = 5) -> str:
     lines.append("")
 
     # Current — Downstream
-    lines.append(f"### {position}.2 Current — Downstream (services that call this)")
+    lines.append(f"### {position}.2. Current — Downstream (services that call this)")
     lines.append("")
     if graph.downstream:
         lines.append("| Service | Category |")
@@ -48,7 +48,7 @@ def render_section(graph: DepGraph, position: int = 5) -> str:
     lines.append("")
 
     # Diagram embed
-    lines.append(f"### {position}.3 Architecture diagram")
+    lines.append(f"### {position}.3. Architecture diagram")
     lines.append("")
     lines.append(f"![{graph.focus} architecture](./architecture.svg)")
     lines.append("")
@@ -57,9 +57,9 @@ def render_section(graph: DepGraph, position: int = 5) -> str:
 
     # Future-* placeholders
     for heading in (
-        f"### {position}.4 Future — Missing pair integrations",
-        f"### {position}.5 Future — Candidate new services",
-        f"### {position}.6 Future — Unused features in this service",
+        f"### {position}.4. Future — Missing pair integrations",
+        f"### {position}.5. Future — Candidate new services",
+        f"### {position}.6. Future — Unused features in this service",
     ):
         lines.append(heading)
         lines.append("")

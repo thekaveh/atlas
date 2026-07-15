@@ -1,5 +1,5 @@
 # Generated from the manifest-pinned upstream uv.lock plus the exact
-# langgraph-cli[inmem], setuptools, and wheel versions documented in the service README.
+# langgraph-cli[inmem], security floors, setuptools, and wheel versions documented in the service README.
 # upstream-ref: 38f769f84380f2065de76021ac7c5215f88aa39e
 # upstream-lock-sha256: 26fc35ac377836de6628e5f7b180944c4d4bd50a5e9f0200bd6e663f20e35c1a
 # langgraph-cli-version: 0.4.31
@@ -141,6 +141,7 @@ anyio==4.10.0 \
     --hash=sha256:60e474ac86736bbfd6f210f7a61218939c318f43f9972497381f1c5e930ed3d1
     # via
     #   httpx
+    #   langsmith
     #   openai
     #   sse-starlette
     #   starlette
@@ -379,12 +380,13 @@ charset-normalizer==3.4.2 \
     --hash=sha256:fcbe676a55d7445b22c10967bceaaf0ee69407fbe0ece4d032b6eb8d4565982a \
     --hash=sha256:fdb20a30fe1175ecabed17cbf7812f7b804b8a315a25f24678bcdf120a90077f
     # via requests
-click==8.2.1 \
-    --hash=sha256:27c491cc05d968d271d5a1db13e3b5a184636d9d930f148c50b038f0d0646202 \
-    --hash=sha256:61a3265b914e850b85317d0b3109c7f8cd35a670f963866005d6ef1d5175a12b
+click==8.4.2 \
+    --hash=sha256:9a6cea6e60b17ebe0a44c5cc636d94f09bd66142c1cd7d8b4cd731c4917a15f6 \
+    --hash=sha256:e6f9f66136c816745b9d65817da91d61d957fb16e02e4dcd0552553c5a197b76
     # via
     #   duckduckgo-search
     #   langgraph-cli
+    #   ollama-deep-researcher
     #   uvicorn
 cloudpickle==3.1.2 ; python_full_version >= '3.11' \
     --hash=sha256:7fda9eb655c9c230dab534f1983763de5835249750e85fbcef43aaa30a9a2414 \
@@ -455,7 +457,9 @@ dataclasses-json==0.6.7 \
 distro==1.9.0 \
     --hash=sha256:2fa77c6fd8940f116ee1d6b94a2f90b13b5ea8d019b98bc8bafdcabcdd9bdbed \
     --hash=sha256:7bffd925d65168f85027d8da9af6bddab658135b840670a223589bc0c8ef02b2
-    # via openai
+    # via
+    #   langsmith
+    #   openai
 duckduckgo-search==8.1.1 \
     --hash=sha256:9da91c9eb26a17e016ea1da26235d40404b46b0565ea86d75a9f78cc9441f935 \
     --hash=sha256:f48adbb06626ee05918f7e0cef3a45639e9939805c4fc179e68c48a12f1b5062
@@ -558,7 +562,7 @@ frozenlist==1.7.0 \
     # via
     #   aiohttp
     #   aiosignal
-googleapis-common-protos==1.75.0 \
+googleapis-common-protos==1.75.0 ; python_full_version >= '3.11' \
     --hash=sha256:53a062ff3c32552fbd62c11fe23768b78e4ddf0494d5e5fd97d3f4689c75fbbd \
     --hash=sha256:961ed60399c457ceb0ee8f285a84c870aabc9c6a832b9d37bb281b5bebde43ed
     # via opentelemetry-exporter-otlp-proto-http
@@ -789,7 +793,7 @@ idna==3.15 \
     #   httpx
     #   requests
     #   yarl
-importlib-metadata==8.7.1 \
+importlib-metadata==8.7.1 ; python_full_version >= '3.11' \
     --hash=sha256:49fef1ae6440c182052f407c8d34a68f72efc36db9ca90dc0113398f2fdde8bb \
     --hash=sha256:5a1f80bf1daa489495071efbb095d75a634cf28a8bc299581244063b53176151
     # via opentelemetry-api
@@ -898,17 +902,19 @@ jsonschema-rs==0.44.1 ; python_full_version >= '3.11' \
     --hash=sha256:ec883313f3782f1c0ffc58ceda55136e26967198523b9cd111af782e273659a3 \
     --hash=sha256:f971acf2910e64f0960080db6b6c73df483318d9db992273885f596cc3a9a5d9
     # via langgraph-api
-langchain-classic==1.0.3 \
-    --hash=sha256:168ef1dfbfb18cae5a9ff0accecc9413a5b5aa3464b53fa841561a3384b6324a \
-    --hash=sha256:26df1ec9806b1fbff19d9085a747ea7d8d82d7e3fb1d25132859979de627ef79
-    # via langchain-community
+langchain-classic==1.0.8 \
+    --hash=sha256:1a11ea7fbe630c4f2af2f3873d27718ceac9488cf32d0821030be7cf039a6213 \
+    --hash=sha256:ada0cc341a8a5b80fb24d73bdfaaeb849056ee2d8a41cc468355163fd3667484
+    # via
+    #   langchain-community
+    #   ollama-deep-researcher
 langchain-community==0.4.1 \
     --hash=sha256:2135abb2c7748a35c84613108f7ebf30f8505b18c3c18305ffaecfc7651f6c6a \
     --hash=sha256:f3b211832728ee89f169ddce8579b80a085222ddb4f4ed445a46e977d17b1e85
     # via ollama-deep-researcher
-langchain-core==1.3.3 \
-    --hash=sha256:18aae8506f37da7f74398492279a7d6efcee4f8e23c4c41c7af080eeb7ef7bd1 \
-    --hash=sha256:fa510a5db8efdc0c6ff41c0939fb5c00a0183c11f6b84233e892e3227ff69182
+langchain-core==1.4.9 \
+    --hash=sha256:28e3909e2a10cc81504952d795ac0a9e014c0018121ef89d48dd396fa09ec624 \
+    --hash=sha256:f8078901145bed0466755277500a5a22822a7b628808c4c0a28d4fc88895fcf2
     # via
     #   langchain-classic
     #   langchain-community
@@ -927,11 +933,7 @@ langchain-openai==1.1.14 \
     --hash=sha256:71b4262932fabe506ce79c175dbc956cc48f24d81e20b27662df493147750643 \
     --hash=sha256:cb525d2011f9813fc15a7dcfd4bca5b87badcbcb2c113a7fbe45d1b8a1bbb69c
     # via ollama-deep-researcher
-langchain-protocol==0.0.16 ; python_full_version < '3.11' \
-    --hash=sha256:3658c142c5d0fb3a023a4be442ce4c15c6d626aab6135eb79a76dc64ad19c3c3 \
-    --hash=sha256:806c7cdd951b1c4f692fa40fce60821ff0f221d4360e27673ddf2c2b99c2b7ff
-    # via langchain-core
-langchain-protocol==0.0.18 ; python_full_version >= '3.11' \
+langchain-protocol==0.0.18 \
     --hash=sha256:70b53a86fbf9cedc863555effe44da192ab02d556ddbf2cf95b8873adcf41b5a \
     --hash=sha256:ec3e11782f1ed0c9db38e5a9ed01b0e7a0d3fba406faa8aef6594b73c56a63e6
     # via
@@ -981,14 +983,15 @@ langgraph-sdk==0.3.15 \
     #   langgraph
     #   langgraph-api
     #   langgraph-cli
-langsmith==0.7.31 \
-    --hash=sha256:0291d49203f6e80dda011af1afda61eb0595a4d697adb684590a8805e1d61fb6 \
-    --hash=sha256:331ee4f7c26bb5be4022b9859b7d7b122cbf8c9d01d9f530114c1914b0349ffb
+langsmith==0.10.4 \
+    --hash=sha256:73025846a1a4246e06b8bb513726aa88473b678163dbdf9c290273e431b07526 \
+    --hash=sha256:c13c750a044347b3b5eeb54572f1d85ed891d6055fc1c05397d1a3c0aa25a0ab
     # via
     #   langchain-classic
     #   langchain-community
     #   langchain-core
     #   langgraph-api
+    #   ollama-deep-researcher
 lxml==6.1.0 \
     --hash=sha256:00750d63ef0031a05331b9223463b1c7c02b9004cef2346a5b2877f0f9494dd2 \
     --hash=sha256:022981127642fe19866d2907d76241bb07ed21749601f727d5d5dd1ce5d1b773 \
@@ -1353,7 +1356,7 @@ openai==2.32.0 \
     # via
     #   langchain-openai
     #   ollama-deep-researcher
-opentelemetry-api==1.37.0 \
+opentelemetry-api==1.37.0 ; python_full_version >= '3.11' \
     --hash=sha256:540735b120355bd5112738ea53621f8d5edb35ebcd6fe21ada3ab1c61d1cd9a7 \
     --hash=sha256:accf2024d3e89faec14302213bc39550ec0f4095d1cf5ca688e1bfb1c8612f47
     # via
@@ -1363,11 +1366,11 @@ opentelemetry-api==1.37.0 \
     #   opentelemetry-exporter-prometheus
     #   opentelemetry-sdk
     #   opentelemetry-semantic-conventions
-opentelemetry-exporter-otlp-proto-common==1.37.0 \
+opentelemetry-exporter-otlp-proto-common==1.37.0 ; python_full_version >= '3.11' \
     --hash=sha256:53038428449c559b0c564b8d718df3314da387109c4d36bd1b94c9a641b0292e \
     --hash=sha256:c87a1bdd9f41fdc408d9cc9367bb53f8d2602829659f2b90be9f9d79d0bfe62c
     # via opentelemetry-exporter-otlp-proto-http
-opentelemetry-exporter-otlp-proto-http==1.37.0 \
+opentelemetry-exporter-otlp-proto-http==1.37.0 ; python_full_version >= '3.11' \
     --hash=sha256:54c42b39945a6cc9d9a2a33decb876eabb9547e0dcb49df090122773447f1aef \
     --hash=sha256:e52e8600f1720d6de298419a802108a8f5afa63c96809ff83becb03f874e44ac
     # via
@@ -1377,13 +1380,13 @@ opentelemetry-exporter-prometheus==0.58b0 ; python_full_version >= '3.11' \
     --hash=sha256:02005033a7a108ab9f3000ff3aa49e2d03a8893b5bf3431322ffa246affbf951 \
     --hash=sha256:70f2627b4bb82bac65a1fcf95f6e0dcce9e823dd47379ced854753a7e14dfc93
     # via langgraph-api
-opentelemetry-proto==1.37.0 \
+opentelemetry-proto==1.37.0 ; python_full_version >= '3.11' \
     --hash=sha256:30f5c494faf66f77faeaefa35ed4443c5edb3b0aa46dad073ed7210e1a789538 \
     --hash=sha256:8ed8c066ae8828bbf0c39229979bdf583a126981142378a9cbe9d6fd5701c6e2
     # via
     #   opentelemetry-exporter-otlp-proto-common
     #   opentelemetry-exporter-otlp-proto-http
-opentelemetry-sdk==1.37.0 \
+opentelemetry-sdk==1.37.0 ; python_full_version >= '3.11' \
     --hash=sha256:8f3c3c22063e52475c5dbced7209495c2c16723d016d39287dfc215d1771257c \
     --hash=sha256:cc8e089c10953ded765b5ab5669b198bbe0af1b3f89f1007d19acd32dc46dda5
     # via
@@ -1391,7 +1394,7 @@ opentelemetry-sdk==1.37.0 \
     #   langsmith
     #   opentelemetry-exporter-otlp-proto-http
     #   opentelemetry-exporter-prometheus
-opentelemetry-semantic-conventions==0.58b0 \
+opentelemetry-semantic-conventions==0.58b0 ; python_full_version >= '3.11' \
     --hash=sha256:5564905ab1458b96684db1340232729fce3b5375a06e140e8904c78e4f815b28 \
     --hash=sha256:6bd46f51264279c433755767bb44ad00f1c9e2367e1b42af563372c5a6fa0c25
     # via opentelemetry-sdk
@@ -1640,7 +1643,7 @@ propcache==0.3.2 \
     # via
     #   aiohttp
     #   yarl
-protobuf==6.33.6 \
+protobuf==6.33.6 ; python_full_version >= '3.11' \
     --hash=sha256:0cd27b587afca21b7cfa59a74dcbd48a50f0a6400cfb59391340ad729d91d326 \
     --hash=sha256:77179e006c476e69bf8e8ce866640091ec42e1beb80b213c3900006ecfba6901 \
     --hash=sha256:7d29d9b65f8afef196f8334e80d6bc1d5d4adedb449971fefd3723824e6e77d3 \
@@ -1916,11 +1919,14 @@ sniffio==1.3.1 \
     --hash=sha256:f4324edc670a0f49750a81b895f35c3adb843cca46f0530f79fc1babb23789dc
     # via
     #   anyio
+    #   langsmith
     #   openai
-soupsieve==2.7 \
-    --hash=sha256:6e60cc5c1ffaf1cebcc12e8188320b72071e922c2e897f737cadce79ad5d30c4 \
-    --hash=sha256:ad282f9b6926286d2ead4750552c8a6142bc4c783fd66b0293547c8fe6ae126a
-    # via beautifulsoup4
+soupsieve==2.8.4 \
+    --hash=sha256:e121fd02e975c695e4e9e8774a5ee35d74714b59307868dcc5319ad2d9e3328e \
+    --hash=sha256:e7e6b0769c8f51ed59acab6e994b00621096cfb1c640a7509295987388fbaf65
+    # via
+    #   beautifulsoup4
+    #   ollama-deep-researcher
 sqlalchemy==2.0.42 \
     --hash=sha256:09637a0872689d3eb71c41e249c6f422e3e18bbd05b4cd258193cfc7a9a50da2 \
     --hash=sha256:0b718011a9d66c0d2f78e1997755cd965f3414563b31867475e9bc6efdc2281d \
@@ -2072,6 +2078,7 @@ typing-extensions==4.14.1 \
     #   grpcio
     #   langchain-core
     #   langchain-protocol
+    #   langsmith
     #   multidict
     #   openai
     #   opentelemetry-api
@@ -2277,7 +2284,7 @@ watchfiles==1.2.0 ; python_full_version >= '3.11' \
     --hash=sha256:faea288b6f0ab1902ef08f4ca6de005dccf856c4e0c4f21b8c5fce02d90a1b08 \
     --hash=sha256:fff610d7bb2256a317bb1e96f0d7862c7aa8076733ee5df0fd41bbe76a24a4f4
     # via langgraph-api
-websockets==16.1 ; python_full_version >= '3.11' \
+websockets==16.1 \
     --hash=sha256:00d50c0a27098fcb7ab47b3d99a1b1159b534dbcd959fbf05113ebc37e5f927b \
     --hash=sha256:0352f5b38b40e857b6428d468fa21dbb4dd4a567d933c26d9831b4efe1b92f43 \
     --hash=sha256:0704df094b2d5fa7f6f410925a594c2a5c9a09167731a76292e5410934208209 \
@@ -2387,7 +2394,9 @@ websockets==16.1 ; python_full_version >= '3.11' \
     --hash=sha256:fd847ab82133015afe65d778e7966ab42dba16bd7ad2e5b8a7918db6539f3f94 \
     --hash=sha256:fef2debfe7f7ebdda12176f26166f95b7af17af05ba06150fcf889032e0213e9 \
     --hash=sha256:ff9b000064b88787ba9f7a3cb2af2b68a658ca5aad76458a46469e7124b678a0
-    # via langgraph-api
+    # via
+    #   langgraph-api
+    #   langsmith
 wheel==0.47.0 \
     --hash=sha256:212281cab4dff978f6cedd499cd893e1f620791ca6ff7107cf270781e587eced \
     --hash=sha256:cc72bd1009ba0cf63922e28f94d9d83b920aa2bb28f798a31d0691b02fa3c9b3
@@ -2551,7 +2560,7 @@ yarl==1.20.1 \
     --hash=sha256:f6342d643bf9a1de97e512e45e4b9560a043347e779a173250824f8b254bd5ce \
     --hash=sha256:fe41919b9d899661c5c28a8b4b0acf704510b88f27f0934ac7a7bebdd8938d5e
     # via aiohttp
-zipp==4.1.0 \
+zipp==4.1.0 ; python_full_version >= '3.11' \
     --hash=sha256:25ad4e16390cd314347dd8f1de67a2ac538ae658ed4ab9db16029c07c188e97f \
     --hash=sha256:4cb57381f544315db7688e976e922a2b18cdb513d21cc194eb42232ba2a3e602
     # via importlib-metadata

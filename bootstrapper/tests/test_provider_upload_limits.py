@@ -104,6 +104,7 @@ def test_docling_converter_failure_is_not_returned_as_successful_markdown(
             raise RuntimeError("malformed document")
 
     processor.DocumentConverter = BrokenConverter
+    monkeypatch.setattr(processor, "build_converter", lambda _settings: BrokenConverter())
     source = tmp_path / "broken.pdf"
     source.write_bytes(b"%PDF-broken")
 

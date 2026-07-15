@@ -28,11 +28,11 @@ WEAVIATE_URL=http://weaviate:8080
 
 Use `./start.sh` for the guided wizard, or pass a targeted flag for scripted changes when the CLI exposes one.
 
-### 3.1 Vectorization through LiteLLM
+### 3.1. Vectorization through LiteLLM
 
 Weaviate's text vectorization talks to the always-on **LiteLLM gateway** via the `text2vec-openai` module. LiteLLM's OpenAI-compatible endpoint (`LITELLM_BASE_URL`) is wired into Weaviate as the OpenAI host, and `OPENAI_APIKEY` inside the Weaviate container is set to `LITELLM_MASTER_KEY`. This means whatever embedding model LiteLLM has registered (Ollama-backed `nomic-embed-text` by default, or a cloud provider's embedding model) is what Weaviate will use — no separate `text2vec-ollama` wiring required. The default vectorizer is now `text2vec-openai`. See [LiteLLM Gateway](../litellm/README.md) for how to register additional embedding models.
 
-### 3.2 Multi2Vec CLIP module
+### 3.2. Multi2Vec CLIP module
 
 The default stack keeps the multimodal CLIP vectorizer enabled:
 
@@ -61,14 +61,14 @@ Optional consumers should use `WEAVIATE_URL` and perform feature-level readiness
 
 ## 5. Dependencies & Integrations
 
-### 5.1 Current — Upstream (this service calls)
+### 5.1. Current — Upstream (this service calls)
 
 | Service | Category |
 |---|---|
 | multi2vec-clip | data |
 | litellm | llm |
 
-### 5.2 Current — Downstream (services that call this)
+### 5.2. Current — Downstream (services that call this)
 
 | Service | Category |
 |---|---|
@@ -81,13 +81,13 @@ Optional consumers should use `WEAVIATE_URL` and perform feature-level readiness
 | jupyterhub | apps |
 | verba | apps |
 
-### 5.3 Architecture diagram
+### 5.3. Architecture diagram
 
 ![weaviate architecture](./architecture.svg)
 
 [Open the interactive HTML diagram](./architecture.html) for a full-screen view.
 
-### 5.4 Future — Missing pair integrations
+### 5.4. Future — Missing pair integrations
 
 - **weaviate ↔ minio** — *Why:* Weaviate has no backup strategy today; `weaviate-data` is a single local volume. The `backup-s3` module turns MinIO into a durable backup target without new infra. *Mechanism:* enable `backup-s3` in `WEAVIATE_ENABLE_MODULES`; set `BACKUP_S3_BUCKET=weaviate-backups`, `BACKUP_S3_ENDPOINT=minio:9000`, `BACKUP_S3_USE_SSL=false`, `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`; trigger via `POST /v1/backups/s3`. *Effort:* small. *Confidence:* high.
 - **weaviate ↔ doc-processor** — *Why:* closes the RAG loop. Docling already extracts structured text + tables from PDFs; today nothing routes that output into Weaviate, so n8n/backend re-implement chunking ad hoc. *Mechanism:* n8n flow or backend route reads docling JSON, chunks, then `POST /v1/batch/objects` into a `Document` collection vectorized via `text2vec-openai`. *Effort:* medium. *Confidence:* high.
@@ -95,11 +95,11 @@ Optional consumers should use `WEAVIATE_URL` and perform feature-level readiness
 - **weaviate ↔ hermes** — *Why:* Hermes has no long-term memory or retrieval tool. A Weaviate-backed memory skill lets Hermes recall past sessions, store tool outputs, and do semantic lookup over user docs. *Mechanism:* Hermes custom skill posts/queries via the Weaviate Python client to `http://weaviate:8080` with hybrid search; collection seeded by `weaviate-init`. *Effort:* medium. *Confidence:* medium.
 - **weaviate ↔ comfyui** — *Why:* ComfyUI generates images but they're write-only artifacts on disk. CLIP-vectorizing them into Weaviate enables similarity search over the user's own generation history ("more like this"). *Mechanism:* ComfyUI custom node or n8n post-execution hook → `POST /v1/objects` to a `Generation` collection vectorized by `multi2vec-clip` (already enabled). *Effort:* medium. *Confidence:* medium.
 
-### 5.5 Future — Candidate new services
+### 5.5. Future — Candidate new services
 
 - **Verba** ([details](../../docs/research/candidates/verba.md)) — *Headline:* Weaviate's official RAG chat UI, drop-in over the existing cluster. *Wires into:* litellm, doc-processor, kong.
 
-### 5.6 Future — Unused features in this service
+### 5.6. Future — Unused features in this service
 
 - **`backup-s3` module** — *Why pursue:* zero current backup story; MinIO is already in-stack. *Effort:* small.
 - **Named vectors (`vectorConfig` array)** — *Why pursue:* lets one collection carry both a text2vec-openai vector and a multi2vec-clip vector for hybrid text+image search instead of two collections. *Effort:* medium.

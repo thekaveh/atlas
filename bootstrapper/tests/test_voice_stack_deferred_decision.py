@@ -23,19 +23,19 @@ def _text(name: str) -> str:
 def test_voice_stack_candidates_have_july_deferred_decisions() -> None:
     for name, expected in {
         "voicebox": [
-            "## Deferred decision (2026-07-04)",
+            "Deferred decision (2026-07-04)",
             "OpenAI-compatible endpoint",
             "desktop app",
             "MCP server",
         ],
         "omnivoice": [
-            "## Deferred decision (2026-07-04)",
+            "Deferred decision (2026-07-04)",
             "immature HTTP wrapper",
             "TTS_PROVIDER_SOURCE",
             "Speaches",
         ],
         "unmute": [
-            "## Deferred decision (2026-07-04)",
+            "Deferred decision (2026-07-04)",
             "realtime speech workflow",
             "OpenAI Realtime",
             "WebSocket",

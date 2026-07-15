@@ -39,6 +39,13 @@ def test_list_tracks_lists_every_track():
         assert key in r.stdout, f"--list-tracks must mention {key}; stdout={r.stdout!r}"
 
 
+def test_list_tracks_distinguishes_prompted_from_always_running_services():
+    r = _run("--list-tracks")
+
+    assert "prompted in every track" in r.stdout.lower()
+    assert "always-on tier (asked" not in r.stdout.lower()
+
+
 def test_track_unknown_exits_two():
     r = _run("--track", "nonexistent-track")
     assert r.returncode == 2

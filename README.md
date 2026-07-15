@@ -16,7 +16,7 @@ A self-hosted, source-configurable, multi-disciplinary engineering platform — 
 
 ## 1. Quick Start
 
-### 1.1 First-time setup
+### 1.1. First-time setup
 
 ```bash
 # 1. Clone the repository
@@ -50,7 +50,7 @@ git clone https://github.com/thekaveh/atlas && cd atlas
 
 The default configuration runs a CPU starter stack: chat UI, workflow automation, vector database, and privacy search. Additional services such as Ray, Airflow, Spark, Zeppelin, LightRAG, and observability are opt-in through tracks, CLI flags, or the wizard.
 
-### 1.2 Common option combinations
+### 1.2. Common option combinations
 
 ```bash
 # Local AI services (faster, less memory)
@@ -90,7 +90,7 @@ The default configuration runs a CPU starter stack: chat UI, workflow automation
 ./start.sh --prometheus-source container --grafana-source container --prometheus-retention-days 30
 ```
 
-### 1.3 Troubleshooting tips
+### 1.3. Troubleshooting tips
 
 - **Don't prefix with `sudo`.** The launcher and stopper run as your user; `--setup-hosts` and `--clean-hosts` request elevation internally for only the hosts-file mutation. Running the whole script under sudo creates root-owned files that block future non-sudo runs. See [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) for recovery.
 - **Port conflicts?** → `./start.sh --base-port 64000`
@@ -99,7 +99,7 @@ The default configuration runs a CPU starter stack: chat UI, workflow automation
 - **Want fresh start?** → `./stop.sh --cold && ./start.sh --cold`
 - **Other startup errors?** → See [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)
 
-### 1.4 Interactive setup wizard
+### 1.4. Interactive setup wizard
 
 Running `./start.sh` with no arguments launches an interactive setup wizard that walks through configuring every service step by step:
 
@@ -116,7 +116,7 @@ The wizard covers all configurable services, base port selection, cold start opt
 
 > For users who prefer CLI flags, all options remain available. See [Command Line Interface](#51-command-line-interface) or the [Interactive Setup Wizard Guide](docs/quick-start/interactive-setup-wizard.md).
 
-### 1.5 Quickstart by track
+### 1.5. Quickstart by track
 
 For RAG-focused work:
 
@@ -136,7 +136,7 @@ Omit `--track` entirely to get the full interactive wizard (with the
 track picker as step 1). Pass `--track all` to skip the picker and
 prompt for every configurable service.
 
-### 1.6 Table of contents
+### 1.6. Table of contents
 
 - [Quick Start](#1-quick-start)
 - [Overview](#2-overview)
@@ -150,7 +150,7 @@ prompt for every configurable service.
 
 ## 2. Overview
 
-### 2.1 What is Atlas?
+### 2.1. What is Atlas?
 
 Atlas is a self-hosted engineering platform — designed for the breadth of modern generative AI, ML, and data work. It bundles 30+ integrated services (LLM gateway + inference, vector + graph DBs, workflow + DAG automation, distributed compute, object storage, notebooks, observability) wired together via a Kong gateway and an adaptive FastAPI backend. Each service is independently switchable between `container`, `localhost`, or `disabled` (the LLM provider adds a cloud-API path via LiteLLM); the **tracks system** picks sensible defaults for the work you're doing:
 
@@ -172,7 +172,7 @@ Key technical traits:
 - **Always-on core**: Supabase ecosystem, Redis, LiteLLM gateway (fronts Ollama + cloud LLM providers), FastAPI backend, Kong Gateway
 - **Opt-in**: Ray, OpenClaw, Airflow, Spark, Zeppelin, LightRAG, TEI Reranker, the observability bundle (Prometheus + Grafana), the Cloudflare Tunnel public edge (`cloudflared`), and the on-demand backup runner (`backup`) ship disabled; everything is switchable per service via SOURCE flags or the interactive wizard
 
-### 2.2 Key features
+### 2.2. Key features
 
 - **API gateway (Kong)**: centralized API management with dynamic routing
 - **Real-time data sync**: live database notifications via Supabase Realtime
@@ -181,7 +181,7 @@ Key technical traits:
 - **Environment-based config**: configuration through environment variables
 - **Cross-platform Python core**: the bootstrapper is OS-aware; Linux and macOS run natively, Windows runs under WSL2 / Git Bash
 
-### 2.3 Architecture overview
+### 2.3. Architecture overview
 
 The canonical architecture diagram is embedded at the top of this README; its source lives at [`docs/diagrams/architecture.svg`](docs/diagrams/architecture.svg). See [`docs/diagrams/README.md`](docs/diagrams/README.md) for update instructions.
 
@@ -189,7 +189,7 @@ The diagram summarizes the full Atlas topology around Kong, Open WebUI, the alwa
 
 ## 3. Getting Started
 
-### 3.1 Getting started summary
+### 3.1. Getting started summary
 
 - **New to the stack?** → Use containers with `./start.sh` for the easiest experience
 - **Have local Ollama?** → Use `./start.sh --llm-provider-source ollama-localhost` for better performance (LiteLLM still fronts the upstream)
@@ -199,7 +199,7 @@ The diagram summarizes the full Atlas topology around Kong, Open WebUI, the alwa
 
 The SOURCE-based configuration system controls how each service is deployed.
 
-### 3.2 Prerequisites
+### 3.2. Prerequisites
 
 - **Docker & Docker Compose** — container orchestration
 - **Python 3.10+** — for start/stop scripts
@@ -211,16 +211,16 @@ The SOURCE-based configuration system controls how each service is deployed.
 pip install uv
 ```
 
-### 3.3 Installation
+### 3.3. Installation
 
-#### 3.3.1 Quick install (recommended)
+#### 3.3.1. Quick install (recommended)
 ```bash
 git clone https://github.com/thekaveh/atlas.git
 cd atlas
 ./start.sh
 ```
 
-#### 3.3.2 Custom configuration
+#### 3.3.2. Custom configuration
 ```bash
 # Edit configuration before starting
 cp .env.example .env
@@ -228,7 +228,7 @@ cp .env.example .env
 ./start.sh
 ```
 
-### 3.4 SOURCE system
+### 3.4. SOURCE system
 
 The stack uses **SOURCE variables** to control how services are deployed.
 
@@ -257,8 +257,6 @@ The stack uses **SOURCE variables** to control how services are deployed.
 - **Grafana** (`GRAFANA_SOURCE=container|disabled`) — dashboards + unified alerting UI on top of Prometheus. Pre-provisions the Prometheus datasource and 7 starter dashboards (stack overview, LiteLLM, Kong, Postgres+Redis, Containers+Host, n8n, app-tier). Admin login is auto-generated on first bootstrap (`GRAFANA_ADMIN_USERNAME` / `GRAFANA_ADMIN_PASSWORD` in `.env`).
 
 <!-- TOPOLOGY:BEGIN -->
-_Auto-generated by `bootstrapper/tools/generate_readme_topology.py`._
-
 _Engine-only manifests (speaches, chatterbox) are not listed — they're selected as source variants of their parent (STT Provider / TTS Provider) rather than as standalone services._
 
 | Category | Service | Default port | Alias |
@@ -328,7 +326,7 @@ _Engine-only manifests (speaches, chatterbox) are not listed — they're selecte
 
 ## 4. Core Services
 
-### 4.1 Service overview
+### 4.1. Service overview
 
 | Service | Direct URL | Kong URL | Purpose | Auth required |
 |---------|------------|----------|---------|---------------|
@@ -359,14 +357,14 @@ _Engine-only manifests (speaches, chatterbox) are not listed — they're selecte
 | **LightRAG** | `http://lightrag.localhost:${KONG_HTTP_PORT}` (WebUI), `http://localhost:${LIGHTRAG_API_PORT}/webui` | http://lightrag.localhost:63000 | Graph-augmented RAG server. KG + vector + multimodal ingestion. Disabled by default. | None |
 | **TEI Reranker** | `http://localhost:${TEI_RERANKER_PORT}/rerank` (API only) | http://rerank.localhost:63000 | Cross-encoder reranker (default `mixedbread-ai/mxbai-rerank-base-v1`) for RAG quality lift. Disabled by default. | None |
 
-### 4.2 Database layer
+### 4.2. Database layer
 - **PostgreSQL (Supabase)** — primary database with auth, storage, realtime
 - **Neo4j** — graph database for relationships and graph queries
 - **Weaviate** — vector database for embeddings and semantic search
 - **MinIO** — S3-compatible artifact-tier object storage (ComfyUI outputs, Backend blobs, n8n files, JupyterHub datasets, Doc Processor output). Complements Supabase Storage rather than replacing it.
 - **Redis** — cache and message queue
 
-### 4.3 AI services
+### 4.3. AI services
 - **LiteLLM Gateway** — always-on OpenAI-compatible front door for every LLM provider in the stack (one URL, one key)
 - **Ollama** — local LLM inference engine behind LiteLLM (supports CPU/GPU/localhost/none)
 - **ComfyUI** — image generation with workflows
@@ -383,7 +381,7 @@ _Engine-only manifests (speaches, chatterbox) are not listed — they're selecte
 
 ## 5. Usage Guide
 
-### 5.1 Command line interface
+### 5.1. Command line interface
 
 ```bash
 # Interactive wizard (recommended for first-time setup)
@@ -444,7 +442,7 @@ _Engine-only manifests (speaches, chatterbox) are not listed — they're selecte
 
 `*_USER_MODELS` env vars persist across runs, so you only need to pass the model flags once unless you want to change the active set. Cloud-provider key/source flags also imply `--cloud-X-source enabled` when paired with `--X-api-key`.
 
-#### 5.1.1 Stop script options
+#### 5.1.1. Stop script options
 
 ```bash
 # Basic stop commands
@@ -458,7 +456,7 @@ _Engine-only manifests (speaches, chatterbox) are not listed — they're selecte
 # Docker projects. Atlas database and application data is permanently deleted.
 ```
 
-### 5.2 Service access patterns
+### 5.2. Service access patterns
 
 **Direct access:**
 - Most services accessible directly via `http://localhost:PORT`
@@ -471,15 +469,15 @@ _Engine-only manifests (speaches, chatterbox) are not listed — they're selecte
 
 ## 6. Advanced Configuration
 
-### 6.1 Custom deployments
+### 6.1. Custom deployments
 
 See [docs/deployment/source-configuration.md](docs/deployment/source-configuration.md) for detailed SOURCE configuration guides.
 
-### 6.2 GPU setup
+### 6.2. GPU setup
 
 For NVIDIA GPU acceleration, set the relevant SOURCE variables to a `*-container-gpu` variant (e.g., `LLM_PROVIDER_SOURCE=ollama-container-gpu`, `COMFYUI_SOURCE=container-gpu`, `STT_PROVIDER_SOURCE=speaches-container-gpu` or `parakeet-container-gpu`, `TTS_PROVIDER_SOURCE=speaches-container-gpu` or `chatterbox-container-gpu`). See [docs/deployment/source-configuration.md](docs/deployment/source-configuration.md) for the full list of GPU variants per service.
 
-### 6.3 Using as infrastructure foundation
+### 6.3. Using as infrastructure foundation
 
 Atlas is designed to back other projects (e.g. a RAG-showcase app) as shared infrastructure. The two ready-today paths are **standalone + shared network** (your project is a separate repo that joins `${PROJECT_NAME}-network`) and **Git submodule** (vendor Atlas into your repo). For the full decision guide — which method, what's ready, how to wire and customize it — see **[Reusing Atlas as Infrastructure](docs/deployment/reusing-atlas.md)**.
 
@@ -521,7 +519,7 @@ See [docs/deployment/submodule-usage.md](docs/deployment/submodule-usage.md) for
 
 ## 7. Development
 
-### 7.1 Project structure
+### 7.1. Project structure
 ```
 atlas/
 ├── bootstrapper/              # Python startup, SOURCE parsing, port/Kong generation, wizard
@@ -530,7 +528,7 @@ atlas/
 │   ├── tests/                 # 1,300+ tests (loader, validator, byte-equiv, source-permutation, hooks)
 │   ├── tools/                 # validate_fragments CLI lint
 │   └── start.py / stop.py     # Entry points
-├── services/                  # 53 service.yml manifests + 3 doc-only folders (representative subset shown below; see services/ for the full list)
+├── services/                  # 56 service.yml manifests + 3 doc-only folders (representative subset shown below; see services/ for the full list)
 │   ├── globals/               # Project-wide vars (PROJECT_NAME, BASE_PORT, BRAND_*, tier ordering)
 │   ├── supabase/              # supabase-db, db-init, meta, storage, auth, api, realtime, studio
 │   │   ├── service.yml        # Manifest: env vars, source variants, deps, runtime_sc slice
@@ -586,13 +584,13 @@ atlas/
 
 Top-level is intentionally minimal: `bootstrapper/`, `docs/`, `scripts/`, `services/`. Every service lives entirely under its `services/<name>/` folder — init scripts, source code, build context, config files — so opening a service folder shows everything that defines it.
 
-### 7.2 Adding services
+### 7.2. Adding services
 
 New services are declared by creating `services/<name>/{service.yml, compose.yml}` and adding the fragment to the `include:` list in `docker-compose.yml`. The manifest's `runtime_sc:` block declares per-source scale/environment/deploy/extra_hosts; `bootstrapper/services/sc_synthesizer.py` concatenates these slices into the dict that the bootstrapper consumes at startup. See [docs/CONTRIBUTING-services.md](docs/CONTRIBUTING-services.md) for the full walkthrough.
 
 ## 8. Troubleshooting
 
-### 8.1 Common issues
+### 8.1. Common issues
 
 **Port conflicts:**
 ```bash
@@ -613,7 +611,7 @@ docker logs ${PROJECT_NAME}-litellm -f   # Check LLM gateway logs
 docker logs ${PROJECT_NAME}-ollama -f    # Check Ollama upstream logs (if enabled)
 ```
 
-### 8.2 Detailed troubleshooting
+### 8.2. Detailed troubleshooting
 
 For longer-form troubleshooting guides, see [docs/quick-start/troubleshooting.md](docs/quick-start/troubleshooting.md).
 
@@ -622,26 +620,26 @@ For longer-form troubleshooting guides, see [docs/quick-start/troubleshooting.md
 The [documentation index](docs/README.md) is the top-level navigation hub.
 Key entry points by audience:
 
-### 9.1 First-time users
+### 9.1. First-time users
 - [Interactive setup wizard](docs/quick-start/interactive-setup-wizard.md) — step-by-step guided configuration on first `./start.sh`
 - [Quick Start guides](docs/quick-start/) — installation and first-run
 - [Troubleshooting](docs/quick-start/troubleshooting.md) — common issues and known-benign warnings
 - [Expected startup warnings](docs/deployment/expected-startup-warnings.md) — log lines that look scary but aren't
 
-### 9.2 Operators
+### 9.2. Operators
 - [SOURCE configuration](docs/deployment/source-configuration.md) — every service's container / localhost / disabled modes (and GPU variants for the LLM/embedding engines)
 - [Ports and routes](docs/deployment/ports-and-routes.md) — canonical port offsets, direct URLs, and Kong routes
 - [Reusing Atlas as infrastructure](docs/deployment/reusing-atlas.md) — overview + decision guide for backing another project with Atlas
 - [Using as a submodule](docs/deployment/submodule-usage.md) — deep-dive for the Git-submodule reuse method
 - [Service documentation](services/) — per-service READMEs (each owns its manifest, compose fragment, and architecture diagram)
 
-### 9.3 Contributors
+### 9.3. Contributors
 - [CONTRIBUTING-services.md](docs/CONTRIBUTING-services.md) — adding a new service to the stack (manifest schema, compose fragment, docs regen)
 - [SECURITY.md](SECURITY.md) — threat model, supported versions, responsible-disclosure address
 - [Cross-service integration matrix](docs/research/integration-matrix.md) — Phase B research index linking every service to its candidate integrations
 - [Research rows](docs/research/rows/) and [candidates](docs/research/candidates/) — per-service / per-candidate integration design notes
 
-### 9.4 Release history
+### 9.4. Release history
 - [ROADMAP.md](docs/ROADMAP.md) — future development plans and tier-status of every service
 - [CHANGELOG.md](docs/CHANGELOG.md) — release history and the `[Unreleased]` known-follow-ups block
 - [Releasing & version tags](docs/deployment/releasing.md) — semver tag convention for pinning a vendored Atlas

@@ -56,7 +56,7 @@ The default `ASSET_BAKER_SOURCE=disabled` keeps the ~2 GB Blender worker out of 
 
 ## 4. API Contract
 
-### 4.1 Uploaded GLB
+### 4.1. Uploaded GLB
 
 `POST /assets/bake` accepts `multipart/form-data`:
 
@@ -74,7 +74,7 @@ curl -H "Authorization: Bearer ${ASSET_BAKER_API_TOKEN}" \
 | `canonical_size` | no | Canonical max-dimension normalization scale. Defaults to `ASSET_BAKER_CANONICAL_SIZE`. |
 | `mode` | no | `bake` (full HP→LP + texture bake, default) or `skip` (foliage bypass — normalize + export, no remesh/bake). |
 
-### 4.2 MinIO Referenced GLB
+### 4.2. MinIO Referenced GLB
 
 `POST /assets/bake/ref` accepts JSON:
 
@@ -90,7 +90,7 @@ Populate the default `raw-assets` bucket with the generated
 `MINIO_ASSET_INGEST_ACCESS_KEY` and `MINIO_ASSET_INGEST_SECRET_KEY`; that
 identity can write inputs without receiving MinIO root or processor-output access.
 
-### 4.3 Response
+### 4.3. Response
 
 Both endpoints return a content-addressed artifact envelope — the baked LP GLB plus its BaseColor/Normal textures:
 
@@ -144,34 +144,34 @@ Outputs are SHA-256 content-addressed and written to MinIO (`bake/<sha256>.{glb,
 
 ## 6. Dependencies & Integrations
 
-### 6.1 Current — Upstream (this service calls)
+### 6.1. Current — Upstream (this service calls)
 
 | Service | Category |
 |---|---|
 | minio | data |
 
-### 6.2 Current — Downstream (services that call this)
+### 6.2. Current — Downstream (services that call this)
 
 | Service | Category |
 |---|---|
 | prometheus | infra |
 
-### 6.3 Architecture diagram
+### 6.3. Architecture diagram
 
 ![asset-baker architecture](./architecture.svg)
 
 [Open the interactive HTML diagram](./architecture.html) for a full-screen view.
 
-### 6.4 Future — Missing pair integrations
+### 6.4. Future — Missing pair integrations
 
 - Backend media operations should call Asset Baker after hosted image-to-3D providers return raw GLB, before Asset Worker's optimize pass, forming the `generate → image→3D → bake → optimize` chain.
 - Once a durable media-operation/Celery contract exists (#339), the bake step should ride the shared `queued|running|succeeded|failed|cancelled|timeout` operation idiom instead of the current synchronous bounded API.
 
-### 6.5 Future — Candidate new services
+### 6.5. Future — Candidate new services
 
 - A `creative-3d` wizard track should split from `gen-ai-creative` once the 3D fleet (gateway, image→3D, bake, segment, terrain) reaches ~5+ services.
 
-### 6.6 Future — Unused features in this service
+### 6.6. Future — Unused features in this service
 
 - GPU baking (`container-gpu`, Cycles OPTIX/CUDA) is a fleet-scale optimization, deferred until separate performance evidence exists. The `bake.py` `--gpu` path exists but is not exposed as a source variant.
 - Managed host `localhost` (a `/Applications/Blender.app` on the developer machine, mirroring the ComfyUI managed-MPS pattern) is deferred until separate lifecycle evidence exists.

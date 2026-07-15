@@ -29,7 +29,7 @@ Plain `python3 scripts/check-kong-routes.py` works too if `PyYAML` is on your sy
 
 ## 3. Service Routing
 
-### 3.1 Always-Available Routes (Supabase)
+### 3.1. Always-Available Routes (Supabase)
 - `/` on bare `localhost` → Atlas service directory and health dashboard
 - `/auth/v1/` → Supabase Auth service
 - `/rest/v1/` → Supabase API (PostgREST)
@@ -39,7 +39,7 @@ Plain `python3 scripts/check-kong-routes.py` works too if `PyYAML` is on your sy
 - `/pg/` → Supabase Meta service
 - `supabase-studio.localhost` → Supabase Studio dashboard
 
-### 3.2 Dynamic Routes (Based on SOURCE)
+### 3.2. Dynamic Routes (Based on SOURCE)
 - `comfyui.localhost` → ComfyUI service (if enabled)
 - `n8n.localhost` → n8n service (if enabled)
 - `search.localhost` → SearxNG service (if enabled)
@@ -73,7 +73,7 @@ Each `*-localhost` source still gets a Kong route — Kong proxies through `host
 
 ## 4. SOURCE-Based Configuration
 
-### 4.1 ComfyUI Routes
+### 4.1. ComfyUI Routes
 ```python
 # Generated based on COMFYUI_SOURCE
 if source == 'localhost':
@@ -84,7 +84,7 @@ elif source in ['container-cpu', 'container-gpu']:
 # No route created if source == 'disabled'
 ```
 
-### 4.2 Localhost Service Health Checks
+### 4.2. Localhost Service Health Checks
 When routing to localhost services, Kong generator performs health checks:
 
 ```python
@@ -153,7 +153,7 @@ Kong supports WebSocket connections for real-time services:
 
 ## 10. Debugging Kong Configuration
 
-### 10.1 View Generated Configuration
+### 10.1. View Generated Configuration
 ```bash
 # Check what configuration was generated
 cat volumes/api/kong-dynamic.yml
@@ -166,7 +166,7 @@ docker logs ${PROJECT_NAME}-kong-api-gateway -f
 curl -H 'Host: search.localhost' http://localhost:63000/healthz
 ```
 
-### 10.2 Verify Routes
+### 10.2. Verify Routes
 ```bash
 # List all configured routes
 docker exec ${PROJECT_NAME}-kong-api-gateway kong config -c /home/kong/kong.yml dump
@@ -218,7 +218,7 @@ For more information on Kong's role in the overall architecture, see the system 
 
 ## 13. Dependencies & Integrations
 
-### 13.1 Current — Upstream (this service calls)
+### 13.1. Current — Upstream (this service calls)
 
 | Service | Category |
 |---|---|
@@ -249,30 +249,30 @@ For more information on Kong's role in the overall architecture, see the system 
 | open-webui | apps |
 | verba | apps |
 
-### 13.2 Current — Downstream (services that call this)
+### 13.2. Current — Downstream (services that call this)
 
 | Service | Category |
 |---|---|
 | cloudflared | infra |
 | prometheus ↔ | infra |
 
-### 13.3 Architecture diagram
+### 13.3. Architecture diagram
 
 ![kong architecture](./architecture.svg)
 
 [Open the interactive HTML diagram](./architecture.html) for a full-screen view.
 
-### 13.4 Future — Missing pair integrations
+### 13.4. Future — Missing pair integrations
 
 - **kong ↔ multi2vec-clip** — *Why:* exposing CLIP's raw `/vectors` endpoint via Kong lets backend, n8n, and jupyterhub compute embeddings directly instead of round-tripping a Weaviate query, unlocking re-ranking and offline batch jobs. *Mechanism:* alias `clip.localhost` → `http://multi2vec-clip:8080/vectors`, gated by `MULTI2VEC_CLIP_SOURCE != disabled`, CORS plugin only. *Effort:* small. *Confidence:* low.
 
-### 13.5 Future — Candidate new services
+### 13.5. Future — Candidate new services
 
 - **Prometheus** ([details](../../docs/research/candidates/prometheus.md)) — *Headline:* time-series database that turns Kong's bundled `prometheus` plugin plus per-service exporters into a single observability spine. *Wires into:* kong, redis, supabase, n8n, ollama, litellm, backend.
 - **Keycloak** ([details](../../docs/research/candidates/keycloak.md)) — *Headline:* self-hosted OIDC/OAuth2 provider replacing the stack's ad-hoc per-service basic-auth with a single SSO layer fronted by Kong. *Wires into:* kong, jupyterhub, open-webui, n8n, minio, neo4j, openclaw, backend.
 - **Grafana Loki** ([details](../../docs/research/candidates/grafana-loki.md)) — *Headline:* log-aggregation backend that pairs with Kong's `http-log` plugin to give the stack a single queryable log store across every routed service. *Wires into:* kong, backend, litellm, n8n, hermes, comfyui, supabase.
 
-### 13.6 Future — Unused features in this service
+### 13.6. Future — Unused features in this service
 
 - **`prometheus` plugin** — *Why pursue:* Kong 3.9 OSS bundles it; enabling it per-route gives free p50/p95/error-rate per upstream with zero code changes. *Effort:* small.
 - **`opentelemetry` plugin** — *Why pursue:* emit OTLP spans for every gateway hop so requests through Kong → LiteLLM → Ollama can be stitched into a single trace. *Effort:* small.
@@ -286,7 +286,7 @@ For more information on Kong's role in the overall architecture, see the system 
 
 ## 14. Troubleshooting
 
-### 14.1 Common Issues
+### 14.1. Common Issues
 
 **Route not found (404)**
 - Check if service SOURCE is enabled
@@ -303,7 +303,7 @@ For more information on Kong's role in the overall architecture, see the system 
 - Verify Supabase keys are properly generated
 - Ensure proper headers are sent
 
-### 14.2 Debug Commands
+### 14.2. Debug Commands
 ```bash
 # Check Kong gateway status
 docker compose ps | grep kong

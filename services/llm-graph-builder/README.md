@@ -89,7 +89,7 @@ This rollback leaves existing graph data untouched by design.
 
 ## 10. Dependencies & Integrations
 
-### 10.1 Current — Upstream (this service calls)
+### 10.1. Current — Upstream (this service calls)
 
 | Service | Category |
 |---|---|
@@ -98,25 +98,25 @@ This rollback leaves existing graph data untouched by design.
 | litellm | llm |
 | docling | media |
 
-### 10.2 Current — Downstream (services that call this)
+### 10.2. Current — Downstream (services that call this)
 
 _No downstream consumers._
 
-### 10.3 Architecture diagram
+### 10.3. Architecture diagram
 
 ![llm-graph-builder architecture](./architecture.svg)
 
 [Open the interactive HTML diagram](./architecture.html) for a full-screen view.
 
-### 10.4 Future — Missing pair integrations
+### 10.4. Future — Missing pair integrations
 
 - Add endpoint-compatible MinIO S3 source configuration once upstream supports or Atlas patches boto endpoint overrides cleanly.
 - Add a Docling handoff workflow for already-extracted text and metadata.
 
-### 10.5 Future — Candidate new services
+### 10.5. Future — Candidate new services
 
 _No high-confidence opportunities identified._
 
-### 10.6 Future — Unused features in this service
+### 10.6. Future — Unused features in this service
 
 - Upstream token usage tracking can be revisited after Atlas has a shared token telemetry store.

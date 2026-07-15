@@ -68,7 +68,7 @@ Every row is 2 cells tall, enriched with metadata scraped from each model card o
 
 **Ollama Cloud-exclusive models excluded** — the listing page tags some entries (`glm-5`, `minimax-m2`, `kimi-k2`, `deepseek-v4-pro`, …) as cloud-only. Those cannot be `ollama pull`-ed, so the wizard drops them from the multiselect and logs the count to the session log. Hybrid models that publish both cloud and pullable local variants (`gemma3`, `gpt-oss`, `qwen3-coder`, `deepseek-v3.1`, …) stay in the list with their local variants intact.
 
-**Variant picker (in-place tree)** — multi-variant Ollama rows show a `▶` indicator on the left. Press `Space` on a parent to expand its tree in place; variants appear as indented leaves with `└─` connectors directly below. Press `Space` again to collapse. Press `Space` on a leaf to toggle that specific tag (`qwen3:8b`, etc.). Single-variant rows toggle directly. Selections persist to `OLLAMA_USER_MODELS` as `qwen3:8b,qwen3:14b`. Per-row mutex: bare (`qwen3`) and tagged (`qwen3:8b`) entries never coexist — toggling a leaf auto-clears any bare entry. No popup, no focus handover.
+**Variant picker (in-place tree)** — multi-variant Ollama rows show an expansion indicator on the left. Press `Space` on a parent to expand its tree in place; variants appear as indented leaves with connector lines directly below. Press `Space` again to collapse. Press `Space` on a leaf to toggle that specific tag (`qwen3:8b`, etc.). Single-variant rows toggle directly. Selections persist to `OLLAMA_USER_MODELS` as `qwen3:8b,qwen3:14b`. Per-row mutex: bare (`qwen3`) and tagged (`qwen3:8b`) entries never coexist — toggling a leaf auto-clears any bare entry. No popup, no focus handover.
 
 **On expand, the wizard fetches `ollama.com/library/{model}`** (the detail page) and caches the result for the session. The detail page exposes per-variant disk size (`5.2GB`), context window (`40K` / `128K` / `256K`), and input modalities — letting us derive per-variant capability badges (`[vision]` from `Image` in inputs, `[audio]` from `Audio`). Leaves of the same parent can therefore carry different tags (e.g., `gemma3:4b` has `[vision]`, `gemma3:270m` doesn't). On fetch failure, the wizard falls back to the listing-page param-count tags (`8b`, `70b`, …) with a Q4-quantization size approximation.
 
@@ -96,24 +96,24 @@ For `ollama-container-*` sources, `ollama-pull` reads the active set from `OLLAM
 
 ## 6. Dependencies & Integrations
 
-### 6.1 Current — Upstream (this service calls)
+### 6.1. Current — Upstream (this service calls)
 
 _No upstream calls._
 
-### 6.2 Current — Downstream (services that call this)
+### 6.2. Current — Downstream (services that call this)
 
 | Service | Category |
 |---|---|
 | kong | infra |
 | litellm | llm |
 
-### 6.3 Architecture diagram
+### 6.3. Architecture diagram
 
 ![ollama architecture](./architecture.svg)
 
 [Open the interactive HTML diagram](./architecture.html) for a full-screen view.
 
-### 6.4 Future — Missing pair integrations
+### 6.4. Future — Missing pair integrations
 
 Note: backend, open-webui, n8n, jupyterhub, local-deep-researcher, hermes, weaviate all reach Ollama indirectly through LiteLLM today. These pairs cover gaps where the LiteLLM proxy hides Ollama-native surface (model management, runtime introspection, private GGUF import).
 
@@ -122,12 +122,12 @@ Note: backend, open-webui, n8n, jupyterhub, local-deep-researcher, hermes, weavi
 - **ollama ↔ minio** — *Why:* `ollama-pull` only fetches from the public registry. Private GGUFs (licensed, fine-tuned, air-gapped) cannot enter the stack today; MinIO is provisioned for artifacts. *Mechanism:* new `ollama-import` init step reading `OLLAMA_MINIO_BUCKET` keys, streaming each GGUF to `/root/.ollama/blobs`, then `POST /api/create` with a generated `FROM ./blob` Modelfile. *Effort:* medium. *Confidence:* medium.
 - **ollama ↔ n8n** — *Why:* n8n workflows already call LiteLLM but can't drive `/api/pull` — meaning "nightly, ensure `qwen3:8b` is pulled" or "on webhook, hot-swap a model" cannot be authored. *Mechanism:* ship an n8n credential pointing at `http://ollama:11434`; n8n's HTTP Request node handles streaming `pull` progress lines. *Effort:* small. *Confidence:* medium.
 
-### 6.5 Future — Candidate new services
+### 6.5. Future — Candidate new services
 
 - **Langfuse** ([details](../../docs/research/candidates/langfuse.md)) — *Headline:* self-hosted LLM trace, eval, and prompt-management store. *Wires into:* litellm (native callback), hermes, backend, n8n, local-deep-researcher, open-webui.
 - **OpenLIT** ([details](../../docs/research/candidates/openlit.md)) — *Headline:* OpenTelemetry-native observability for LLM + vector calls with first-class Ollama instrumentation. *Wires into:* backend, hermes, jupyterhub, weaviate, litellm.
 
-### 6.6 Future — Unused features in this service
+### 6.6. Future — Unused features in this service
 
 - **Quantized KV cache (`OLLAMA_KV_CACHE_TYPE=q8_0` / `q4_0`)** — *Why pursue:* ~2× context length at the same VRAM budget, currently unset (defaults to f16). *Effort:* small.
 - **`OLLAMA_FLASH_ATTENTION=1`** — *Why pursue:* free throughput on supported GPUs; currently unset. *Effort:* small.

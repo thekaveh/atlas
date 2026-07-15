@@ -240,7 +240,7 @@ When `LIGHTRAG_SOURCE != disabled`, the backend receives `LIGHTRAG_ENDPOINT` and
 
 <a id="51-lightrag--tei-rerank-adapter-post-lightragrerank-415"></a>
 
-### 5.1 LightRAG → TEI rerank adapter (`POST /lightrag/rerank`, #415)
+### 5.1. LightRAG → TEI rerank adapter (`POST /lightrag/rerank`, #415)
 
 LightRAG can rerank its retrieved chunks with a cross-encoder for a quality lift, but its built-in Jina/Cohere rerank clients POST `{"query", "documents"}` and read back `{"results": [{"index", "relevance_score"}]}`, while Atlas's [TEI reranker](../tei-reranker/README.md) `/rerank` speaks a *different* wire shape — `{"query", "texts"}` in, a sorted top-level array of `{"index", "score"}` out. The two are not wire-compatible, which is why Atlas historically kept `RERANK_BINDING=null` and [#414](../../docs/deployment/reusing-atlas.md#635-declaring-lightrag-query-profiles-with-lightrag_query_profiles) rejected `enable_rerank: true` query profiles.
 
@@ -266,7 +266,7 @@ curl -X POST http://localhost:${BACKEND_PORT}/lightrag/rerank \
 
 ## 6. Dependencies & Integrations
 
-### 6.1 Current — Upstream (this service calls)
+### 6.1. Current — Upstream (this service calls)
 
 | Service | Category |
 |---|---|
@@ -286,7 +286,7 @@ curl -X POST http://localhost:${BACKEND_PORT}/lightrag/rerank \
 | n8n ↔ | agents |
 | local-deep-researcher | apps |
 
-### 6.2 Current — Downstream (services that call this)
+### 6.2. Current — Downstream (services that call this)
 
 | Service | Category |
 |---|---|
@@ -296,26 +296,26 @@ curl -X POST http://localhost:${BACKEND_PORT}/lightrag/rerank \
 | jupyterhub | apps |
 | open-webui | apps |
 
-### 6.3 Architecture diagram
+### 6.3. Architecture diagram
 
 ![backend architecture](./architecture.svg)
 
 [Open the interactive HTML diagram](./architecture.html) for a full-screen view.
 
-### 6.4 Future — Missing pair integrations
+### 6.4. Future — Missing pair integrations
 
 - **backend ↔ minio** — *Why:* `minio-init` provisions a dedicated `backend` bucket plus scoped `MINIO_BACKEND_ACCESS_KEY`/`SECRET_KEY`, but the backend container receives none of those env vars and ships no S3 client. Artifact-tier storage (research outputs, ComfyUI image cache, large user uploads) currently spills into Supabase Storage, sized for app data not blobs. *Mechanism:* pass `MINIO_ENDPOINT=http://minio:9000`, `MINIO_BUCKET_BACKEND`, and the access/secret keys into `services/backend/compose.yml`; add `boto3` to `requirements.txt`; expose `POST /storage/artifact` + `GET /storage/artifact/{key}`. *Effort:* small. *Confidence:* high.
 - **backend ↔ hermes** — *Why:* `HERMES_ENDPOINT` + `HERMES_API_KEY` are passed in but no client consumes them. Talking to Hermes only through LiteLLM's `hermes-agent` model loses Hermes-native surfaces (skill/tool registration, session state at `/opt/data`, dashboard introspection). *Mechanism:* add `hermes_client.py` next to `n8n_client.py`; call `${HERMES_ENDPOINT}/v1/sessions` and `/skills` with `Authorization: Bearer ${HERMES_API_KEY}`; expose `POST /agents/hermes/run` + `GET /agents/hermes/sessions/{id}`. *Effort:* small. *Confidence:* medium.
 - **backend ↔ jupyterhub** — *Why:* notebook users can't reach backend's research/memory/ComfyUI APIs except through Kong + tokens, and backend has no view of JupyterHub state. A thin bridge enables programmatic notebook launches for batch evaluations. *Mechanism:* backend calls JupyterHub REST at `http://jupyterhub:8000/hub/api` with `Authorization: token ${JUPYTERHUB_TOKEN}`; expose `POST /notebooks/users/{name}/server` proxy; share `MINIO_BUCKET_JUPYTER` for artifact handoff. *Effort:* medium. *Confidence:* medium.
 - **backend ↔ neo4j (knowledge-graph endpoints)** — *Why:* `neo4j`, `langchain-neo4j`, `NEO4J_URI`/`USER`/`PASSWORD` are all installed and injected, but no graph endpoints exist. LangMem facts and research sources are natural graph citizens. *Mechanism:* add `graph_service.py`; on memory-extract, mirror canonical entities into Neo4j via `bolt://neo4j-graph-db:7687`; expose `GET /memory/user/{id}/graph` and `GET /research/{session_id}/entities`. *Effort:* medium. *Confidence:* high.
 
-### 6.5 Future — Candidate new services
+### 6.5. Future — Candidate new services
 
 - **Langfuse** ([details](../../docs/research/candidates/langfuse.md)) — *Headline:* self-hostable LLM observability with traces, evals, prompt versioning. *Wires into:* hermes, n8n, local-deep-researcher, litellm, open-webui.
 - **Celery + Flower** ([details](../../docs/research/candidates/celery-flower.md)) — *Headline:* Redis-backed async worker tier so long-running research/memory-consolidate/ComfyUI calls stop blocking the FastAPI request loop. *Wires into:* redis, supabase, comfyui, local-deep-researcher.
 - **MLflow** ([details](../../docs/research/candidates/mlflow.md)) — *Headline:* experiment tracking + model registry for LangMem extraction/embedding models, ComfyUI checkpoints, Hermes skill evaluations. *Wires into:* jupyterhub, comfyui, hermes, minio.
 
-### 6.6 Future — Unused features in this service
+### 6.6. Future — Unused features in this service
 
 - **LangMem auto-consolidate scheduler** — *Why pursue:* `LANGMEM_AUTO_CONSOLIDATE` + `LANGMEM_CONSOLIDATION_INTERVAL` are declared, `apscheduler` is in `requirements.txt`, but no scheduler runs in `main.py`. Wiring it lights up nightly fact-consolidation. *Effort:* small.
 - **STT/TTS proxy endpoints** — *Why pursue:* `STT_ENDPOINT` and `TTS_ENDPOINT` reach the container but the FastAPI surface exposes neither; clients must hit the engines directly, bypassing auth/quota. *Effort:* small.

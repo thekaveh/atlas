@@ -52,7 +52,7 @@ Display order in the picker matches the table order (`gen-ai-rag` first; `all` l
 
 ## 4. Data model
 
-### 4.1 Track registry — `bootstrapper/tracks.yml`
+### 4.1. Track registry — `bootstrapper/tracks.yml`
 
 ```yaml
 # Per-track configurable-service membership.
@@ -99,7 +99,7 @@ tracks:
     services: "*"
 ```
 
-### 4.2 JSON Schema — `bootstrapper/schemas/tracks.schema.json`
+### 4.2. JSON Schema — `bootstrapper/schemas/tracks.schema.json`
 
 Validated at load time, parallel to `service.schema.json`. Enforces:
 
@@ -107,7 +107,7 @@ Validated at load time, parallel to `service.schema.json`. Enforces:
 - Each entry has `key` (slug, kebab-case), `display_name` (string), `description` (string), `services` (either `"*"` or a non-empty array of slugs).
 - `key` is unique across the array.
 
-### 4.3 Runtime types — `bootstrapper/tracks.py`
+### 4.3. Runtime types — `bootstrapper/tracks.py`
 
 ```python
 @dataclass(frozen=True)
@@ -139,7 +139,7 @@ def format_track_list(registry: TrackRegistry) -> str:
 
 ## 5. Wizard UX
 
-### 5.1 New step 1 — the track picker
+### 5.1. New step 1 — the track picker
 
 Inserted at index 0 in `_build_steps_and_rows`. "Base port" becomes step 2; service prompts follow.
 
@@ -181,7 +181,7 @@ Inserted at index 0 in `_build_steps_and_rows`. "Base port" becomes step 2; serv
 
 Picker uses standard `PromptStep` + `PromptOption`; each option's `hint` carries the service-list parenthetical and `description` carries the one-liner. Default highlight: first option (`gen-ai-rag`).
 
-### 5.2 Flow rules
+### 5.2. Flow rules
 
 1. Picker is the new step 1; Base port is step 2.
 2. Every existing service-source `PromptStep` gets `skip_if_prev=_make_track_skip(service_key, ...)`. The predicate reads the picker selection and returns `True` (skip) when the service is not in the chosen track AND not in the always-on set AND not in the explicit-override set.
@@ -193,7 +193,7 @@ Picker uses standard `PromptStep` + `PromptOption`; each option's `hint` carries
 
 ## 6. CLI surface
 
-### 6.1 New options in `bootstrapper/start.py`
+### 6.1. New options in `bootstrapper/start.py`
 
 ```python
 @click.option(
@@ -209,7 +209,7 @@ Picker uses standard `PromptStep` + `PromptOption`; each option's `hint` carries
 )
 ```
 
-### 6.2 Behavior
+### 6.2. Behavior
 
 - `./start.sh --track gen-ai-rag` — wizard opens at step 2 (Base port). Track is set internally and applied to every step's skip predicate as if the user had picked it.
 - `./start.sh --list-tracks` — prints the registry in a Rich-formatted table and exits 0. Runs BEFORE the Supabase key generator and any other side-effect.
@@ -218,7 +218,7 @@ Picker uses standard `PromptStep` + `PromptOption`; each option's `hint` carries
 - `./start.sh` (no `--track`, TUI capable) — wizard opens at the picker (step 1).
 - `./start.sh --no-tui` (no `--track`, no TTY) — stdin prompt asks for the track on one line, displays the available keys, defaults to `gen-ai-rag` (first entry in `tracks.yml`) if input is empty. Matches the TUI picker's default highlight for symmetry.
 
-### 6.3 Interaction with `--*-source` flags
+### 6.3. Interaction with `--*-source` flags
 
 CLI flags win; track issues an advisory stderr warning. Implemented at the top of `start.py` after Click parses, before the wizard launches:
 
@@ -231,13 +231,13 @@ CLI flags win; track issues an advisory stderr warning. Implemented at the top o
 3. The actual override happens through the existing `source_args` plumbing — flags always win, the warning is purely advisory.
 4. The same set of "explicitly overridden services" is threaded into the wizard step builder so the corresponding service prompts FLIP BACK ON (track-skip respects the override). User can finish configuring those services interactively.
 
-### 6.4 Persistence
+### 6.4. Persistence
 
 `TRACK` is NOT written to `.env`. One-shot per invocation. Service `*_SOURCE` values force-written by the track ARE persisted as today.
 
 ## 7. Implementation surface
 
-### 7.1 New files (3)
+### 7.1. New files (3)
 
 | Path                                       | Purpose                                                                        |
 | ------------------------------------------ | ------------------------------------------------------------------------------ |
@@ -245,7 +245,7 @@ CLI flags win; track issues an advisory stderr warning. Implemented at the top o
 | `bootstrapper/tracks.py`                   | `Track`, `TrackRegistry`, `load_tracks`, `compute_always_on`, `is_in_track`, `format_track_list`. Pure data + lookup. |
 | `bootstrapper/schemas/tracks.schema.json`  | JSON Schema (Section 4.2).                                                     |
 
-### 7.2 Modified files (~6)
+### 7.2. Modified files (~6)
 
 | Path                                                       | Change                                                                                                   |
 | ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
@@ -256,7 +256,7 @@ CLI flags win; track issues an advisory stderr warning. Implemented at the top o
 | `bootstrapper/ui/state_builder.py`                         | Accept optional `in_track` predicate AND an `overridden` set; dim category color + add `disabled (off-track)` annotation ONLY for out-of-track configurable rows that are NOT in the override set. Out-of-track services force-enabled by an explicit `--*-source` flag render with their normal color and no annotation (they're effectively in-track for this run). |
 | `bootstrapper/wizard/service_discovery.py`                 | No change. Track filtering happens at step-build time, not discovery time.                               |
 
-### 7.3 Helper signatures (load-bearing)
+### 7.3. Helper signatures (load-bearing)
 
 ```python
 # tracks.py
@@ -301,7 +301,7 @@ def _make_track_skip(
 | extend `tests/test_cli_seam_parity.py`     | New flag must be present at all 4 known CLI seams (Click decl, source_mapping, collector dict, wizard_screen lambda). Existing pattern from `project_cli_source_flag_three_seams.md`. |
 | extend `tests/test_selections_to_args.py`  | `_selections_to_args` synthesizes `*_SOURCE=disabled` for every configurable service that is `not in track AND not overridden`. |
 
-### 9.1 Audit scripts
+### 9.1. Audit scripts
 
 `scripts/check-track-membership.py` — sweeps `tracks.yml` and ensures:
 - Every service listed exists in the synthesized configurable-service set.

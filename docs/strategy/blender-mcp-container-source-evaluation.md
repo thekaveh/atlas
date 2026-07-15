@@ -48,14 +48,14 @@ Consequences the spike must respect:
 
 The spike is a throwaway harness in a scratch branch/dir — **never merged, never added to the compose include list, never given a manifest source**. Its only output is measurements + logs + this document's go/no-go verdict, filled in by whoever runs it.
 
-### 4.1 Pinned revisions (exact, recorded)
+### 4.1. Pinned revisions (exact, recorded)
 
 - Blender: an exact tagged release (e.g. `blender-4.2.x-linux-x64`) — record the full version string and build hash.
 - `ahujasid/blender-mcp` add-on: an exact commit SHA (not `main`), plus the exact `blender-mcp` FastMCP package version.
 - Base image + Xvfb/EGL/mesa package versions, recorded from the built image.
 - Platform: **Linux amd64** (the production target; Docker Desktop on macOS cannot pass Metal into a Linux container, which is the whole reason the host `localhost` source exists).
 
-### 4.2 Spike test matrix
+### 4.2. Spike test matrix
 
 Each row is pass/fail with evidence (log excerpt, saved image, or metric):
 
@@ -73,7 +73,7 @@ Each row is pass/fail with evidence (log excerpt, saved image, or metric):
 | 10 | **autosave / restart recovery** — kill and restart the container; the last saved scene reloads | scene state present after restart |
 | 11 | **graceful shutdown** — SIGTERM stops Blender + the socket cleanly without orphaning the display server | clean exit, no zombie Xvfb |
 
-### 4.3 Metrics to record (Linux amd64)
+### 4.3. Metrics to record (Linux amd64)
 
 Container image size; idle and under-load CPU/memory (RSS); **cold start** to socket-ready; **viewport screenshot latency + visual correctness** (does the PNG actually show the scene, or a blank/garbage frame under GPU-less capture?); **CPU render latency** for a fixed reference scene; add-on log completeness on errors; and failure-recovery time after a forced restart. Screenshot correctness and CPU render latency are the two highest-risk measurements — the agent's eyes are the entire point, and GPU-less viewport capture is the most likely failure mode.
 

@@ -63,11 +63,11 @@ Inherited from the default (no longer forked here): the full engine list with co
 
 ## 5. Dependencies & Integrations
 
-### 5.1 Current — Upstream (this service calls)
+### 5.1. Current — Upstream (this service calls)
 
 _No upstream calls._
 
-### 5.2 Current — Downstream (services that call this)
+### 5.2. Current — Downstream (services that call this)
 
 | Service | Category |
 |---|---|
@@ -78,25 +78,25 @@ _No upstream calls._
 | jupyterhub | apps |
 | local-deep-researcher | apps |
 
-### 5.3 Architecture diagram
+### 5.3. Architecture diagram
 
 ![searxng architecture](./architecture.svg)
 
 [Open the interactive HTML diagram](./architecture.html) for a full-screen view.
 
-### 5.4 Future — Missing pair integrations
+### 5.4. Future — Missing pair integrations
 
 - **searxng ↔ open-webui** — *Why:* Open WebUI ships a first-class "Web Search" toggle naming SearXNG as a supported provider, but no env vars are set in `services/open-webui/service.yml` — chat sessions have no live-web grounding without the side-loaded `research_tool.py` extra. *Mechanism:* add `searxng` to `runtime_adaptive.open-web-ui.adapts_to`; set `ENABLE_RAG_WEB_SEARCH=true`, `RAG_WEB_SEARCH_ENGINE=searxng`, `SEARXNG_QUERY_URL=http://searxng:8080/search?q=<query>` when `SEARXNG_SOURCE != disabled`. *Effort:* small. *Confidence:* high.
 - **searxng ↔ n8n** — *Why:* the repo ships `services/n8n/init/config/searxng-research-workflow.json` that calls `http://searxng:8080/search`, but n8n's manifest does not declare searxng in `runtime_deps.optional`. If the user disables SearXNG, the workflow imports fine and silently 404s on first run. *Mechanism:* add `searxng` to `services/n8n/service.yml` `runtime_deps.n8n.optional`; emit an info_message; optionally add the `n8n-nodes-langchain.toolSearXng` sub-node. *Effort:* small. *Confidence:* high.
 - **searxng ↔ weaviate** — *Why:* SearXNG results are ephemeral — every query re-hits external engines. Caching top-N hits in a Weaviate class lets backend / Hermes do hybrid retrieval over "what we've already searched" without re-burning engine quota or tripping CAPTCHAs. *Mechanism:* small fetcher calls `GET http://searxng:8080/search?format=json`, then POSTs each hit to `http://weaviate:8080/v1/objects` in a `WebSearchResult` class. *Effort:* medium. *Confidence:* medium.
 - **searxng ↔ comfyui** — *Why:* SearXNG's image category returns direct image URLs. ComfyUI workflows wanting a reference image for img2img currently require users to paste URLs by hand; an n8n bridge closes that loop. *Mechanism:* n8n HTTP Request → `searxng:8080/search?q=<q>&categories=images&format=json` → pipe top URL into ComfyUI's `LoadImage` node via `/prompt`. *Effort:* medium. *Confidence:* medium.
 
-### 5.5 Future — Candidate new services
+### 5.5. Future — Candidate new services
 
 - **Perplexica** ([details](../../docs/research/candidates/perplexica.md)) — *Headline:* self-hosted Perplexity-style AI answering engine that consumes SearXNG + an OpenAI-compatible LLM (LiteLLM). *Wires into:* searxng, litellm, ollama, kong.
 - **Browserless** ([details](../../docs/research/candidates/browserless.md)) — *Headline:* headless-Chrome service that renders the JS-heavy URLs SearXNG returns so doc-processor/weaviate get the actual page text. *Wires into:* n8n, doc-processor, backend.
 
-### 5.6 Future — Unused features in this service
+### 5.6. Future — Unused features in this service
 
 - **`open_metrics` Prometheus endpoint** — *Why pursue:* `settings.yml` leaves `open_metrics: ''`, so `/metrics` is disabled. Engine-latency and error-rate stats are a near-free win for any future Prometheus sidecar. *Effort:* small.
 - **`image_proxy: true`** — *Why pursue:* currently off; turning it on (or wiring `SEARXNG_IMAGE_PROXY`) lets ComfyUI / Open WebUI fetch image results without third-party-host 403s, at the cost of RAM. *Effort:* small.

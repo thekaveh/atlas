@@ -36,7 +36,7 @@ This page is the **overview and decision guide**. It answers: *can I reuse Atlas
 
 Atlas runs as its own stack. Your RAG project is a separate Compose project that attaches to Atlas's network and addresses services by container DNS name. Nothing in your app repo needs to know Atlas's internals beyond the service hostnames.
 
-### 3.1 Step 1 — Run Atlas with a known `PROJECT_NAME`
+### 3.1. Step 1 — Run Atlas with a known `PROJECT_NAME`
 
 ```bash
 # In your Atlas checkout
@@ -46,7 +46,7 @@ Atlas runs as its own stack. Your RAG project is a separate Compose project that
 
 `PROJECT_NAME` (default `atlas`) determines the shared network name: **`${PROJECT_NAME}-network`** (e.g. `atlas-network`). Set it in Atlas's `.env` if you want a non-default name.
 
-### 3.2 Step 2 — Join Atlas's network from your project
+### 3.2. Step 2 — Join Atlas's network from your project
 
 In your RAG project's `docker-compose.yml`, declare Atlas's network as **external** and attach your service to it:
 
@@ -77,7 +77,7 @@ Start Atlas first, then your project:
 docker compose up -d                    # your RAG app joins atlas-network
 ```
 
-### 3.3 Service addresses (inside the shared network)
+### 3.3. Service addresses (inside the shared network)
 
 Within `${PROJECT_NAME}-network`, reach each service by its **compose service name** on its **container port** (these are stable and independent of `BASE_PORT`, which only affects host-published ports):
 
@@ -96,7 +96,7 @@ Within `${PROJECT_NAME}-network`, reach each service by its **compose service na
 
 The authoritative, always-current port list (host-published ports + Kong hostnames) is [ports-and-routes.md](ports-and-routes.md) and the generated `.env.example`.
 
-### 3.4 Going through Kong instead (single entry point)
+### 3.4. Going through Kong instead (single entry point)
 
 If you'd rather not depend on individual service hostnames, route through Kong — Atlas's gateway — at `kong-api-gateway:8000`. Supabase REST is path-routed (`/rest/v1/...`); browser-facing services are host-routed (`<service>.localhost`). The Kong patterns, including the auth headers, are documented in [submodule-usage.md §6.2](submodule-usage.md#62-pattern-2-kong-gateway-as-single-entry-point).
 
@@ -168,7 +168,7 @@ ATLAS_ENV_USER_FILE="$PWD/atlas.env.user" ./infra/start.sh
 
 Absolute paths are safest in CI and wrapper scripts. Relative `ATLAS_ENV_USER_FILE` values are resolved against the directory that invoked `start.sh`; direct Python invocations resolve them against the Python process working directory. If the file is missing or unreadable, Atlas prints a warning and continues without applying that overlay. If no overlay provides `PROJECT_NAME`, cold start preserves the previous valid value so a later `./stop.sh` still targets the same stack namespace.
 
-### 6.1 Registering a parent project with `atlas.consumer.yml`
+### 6.1. Registering a parent project with `atlas.consumer.yml`
 
 For new parent repositories, commit one `atlas.consumer.yml` beside the
 parent-owned overlay, env overlay, plugin directory, and model sidecars. Pass it
@@ -225,7 +225,7 @@ by repeating `--consumer` or by setting `ATLAS_CONSUMER_MANIFEST` with
 union; scalar conflicts such as different `PROJECT_NAME` values fail during
 validation instead of silently last-wins.
 
-### 6.1.1 Back-compatible `services/_user/` overlay slot
+#### 6.1.1. Back-compatible `services/_user/` overlay slot
 
 To add your own service *into* the Atlas stack (so it starts/stops with `./start.sh` / `./stop.sh` and shares the stack's network), drop a Compose fragment at `services/_user/<name>/compose.yml`. On launch the bootstrapper discovers every `services/_user/*/compose.yml` and merges it into the `docker compose` invocation (`-f docker-compose.yml -f services/_user/<name>/compose.yml …`), so your service comes up alongside the core stack. The `services/_user/` slot is gitignored upstream, so your additions never appear in an Atlas PR.
 
@@ -254,7 +254,7 @@ networks:
 
 **Scope note:** overlay services *launch*, but they are intentionally **not** wired into Atlas's wizard, topology port-allocator, or generated `.env.example` — you manage their image/ports/env directly in the fragment (use `${HOST_BIND_IP:-}` on published ports to inherit the `--profile prod` localhost-binding behavior). If you'd rather keep your service in its *own* repo entirely, use Method A instead (it joins the same network from outside).
 
-### 6.1.2 Adding parent-owned MinIO buckets
+#### 6.1.2. Adding parent-owned MinIO buckets
 
 **Preferred (declarative): the `storage:` block.** Register object stores in
 your `atlas.consumer.yml` and Atlas provisions everything — no compose override,
@@ -324,7 +324,7 @@ service account with the same inline scoped policy used by built-in consumers.
 Multiple entries may be separated by spaces; comma-separated extra bucket vars
 after the fourth field grant one consumer access to a small named bucket set.
 
-### 6.1.3 Scripted bring-up for automation
+#### 6.1.3. Scripted bring-up for automation
 
 For CI, cron, or parent-repo wrapper scripts, use the non-interactive detached
 path instead of backgrounding `start.sh` and killing it after a hand-written
@@ -353,7 +353,7 @@ status:
 ./start.sh --no-tui --detach --json
 ```
 
-### 6.1.4 Headless submodule upgrade validation
+#### 6.1.4. Headless submodule upgrade validation
 
 When a parent repository pins Atlas as an `infra/` submodule, upgrade the pin
 with a headless validation pass before starting the stack. This catches newly
@@ -393,7 +393,7 @@ Exit codes:
 - `compose validate` exits `0` when Compose accepts the assembled stack, and
   otherwise exits with Compose's failing status code.
 
-### 6.1.5 Consumer doctor for CI preflight
+#### 6.1.5. Consumer doctor for CI preflight
 
 Use the consumer doctor as the parent repository's Atlas-generic preflight
 before product-specific tests:
@@ -416,7 +416,7 @@ unavailable; Docker-free checks still run. Text output is intended for local
 debugging, while `--format json` is intended for consumer CI. The command exits
 non-zero when any check reports `fail`.
 
-### 6.2 Adding Supabase SQL via the user migration slot
+### 6.2. Adding Supabase SQL via the user migration slot
 
 To layer project-owned database objects onto Atlas's managed Supabase instance,
 place SQL files under `services/supabase/db/_user/`. The `supabase-db-init`
@@ -435,7 +435,7 @@ starting against a half-prepared database.
 See `services/supabase/db/_user/README.md` and
 `services/supabase/README.md` for the service-level contract.
 
-### 6.3 Adding backend API routes via the plugin seam
+### 6.3. Adding backend API routes via the plugin seam
 
 The FastAPI backend exposes a **generic plugin seam** so you can mount your own API routes *into* it without forking `services/backend/`. On startup the backend calls `load_plugins(app)`, which scans `$BACKEND_PLUGINS_DIR` (default `/app/plugins`). An optional shared `$BACKEND_PLUGINS_DIR/requirements.txt` is installed first; then, for each immediate subdirectory that is an importable Python package exposing a module-level `router` (a FastAPI `APIRouter`), that plugin package's own optional `requirements.txt` is installed before the package is imported and included into the running app. A plugin whose requirements fail to install is logged with the requirements path and pip output, then skipped before import; a shared requirements failure skips plugin loading for that startup. Requirements install into a **writable plugin site** (`pip --target $BACKEND_PLUGINS_SITE_DIR`, default `/tmp/atlas-plugins-site`) that the seam pre-creates and prepends to `sys.path` before any plugin import — the image runs as `appuser` with root-owned site-packages and no `$HOME`, so untargeted installs would fail with `EACCES` (#559); no consumer-side tmpfs/`PYTHONUSERBASE` workaround is needed. The seam is a **no-op when the directory doesn't exist** (so base Atlas is unaffected), and a plugin that fails to import is logged and skipped — one bad plugin never crashes the backend.
 
@@ -474,7 +474,7 @@ def health():
 
 Your routes are then served by the same backend — reachable at `backend:8000` in-network, or via Kong at `api.localhost/...`. This is the recommended way to add backend endpoints (e.g. a `/rag` surface) for a downstream showcase without maintaining a fork. See [`services/backend/README.md` §4](https://github.com/thekaveh/atlas/blob/main/services/backend/README.md) for the backend-side description.
 
-#### 6.3.1 Declaring a typed plugin contract with `plugin.yml`
+#### 6.3.1. Declaring a typed plugin contract with `plugin.yml`
 
 A plugin package MAY ship an optional **`plugin.yml`** next to its `__init__.py`. Absent → the plugin loads exactly as above (fully backward compatible). Present → it declares a **versioned, typed, validated contract** so operators can *see* what is mounted and what env it needs, a missing/typo'd var surfaces as a startup **diagnostic** instead of a runtime 500, and per-plugin Kong auth has a place to live:
 
@@ -524,7 +524,7 @@ env:
 
 The `plugin_manifest_version` is a hard-pinned contract version — a manifest built for a version this backend does not understand is skipped rather than mis-read. The canonical schema is [`bootstrapper/schemas/plugin.schema.json`](https://github.com/thekaveh/atlas/blob/main/bootstrapper/schemas/plugin.schema.json).
 
-#### 6.3.2 Exposing plugin models to LiteLLM with `litellm_models`
+#### 6.3.2. Exposing plugin models to LiteLLM with `litellm_models`
 
 A backend plugin (§6.3) that serves an OpenAI-compatible route can surface that route as a **first-class model in LiteLLM** — so Open WebUI, n8n, the backend, and any other LiteLLM consumer discover it through `/v1/models` with **no registration script**. Declare a versioned `litellm_models` block in `atlas.consumer.yml`:
 
@@ -559,7 +559,7 @@ Because LiteLLM's config is regenerated from YAML + env on every start, Atlas **
 
 This is exactly how a RAG-showcase-style consumer retires a bespoke `register_models.py`: declare the approaches and flavor aliases in the manifest and let Atlas own the LiteLLM wiring.
 
-#### 6.3.3 Seeding n8n workflows with `n8n_workflows`
+#### 6.3.3. Seeding n8n workflows with `n8n_workflows`
 
 A consumer that ships n8n workflows (e.g. an adaptive-RAG webhook flow) can have Atlas **import, activate, and readiness-check** them instead of hand-writing an import/restart/poll script. Declare a versioned `n8n_workflows` block in `atlas.consumer.yml`:
 
@@ -593,7 +593,7 @@ On `./start.sh`, the bootstrapper normalizes each workflow JSON to an **Atlas-na
 
 Downstream payoff: `rag-showcase` deletes its `import:workflow` + activate + restart + `/healthz`-poll sequence from `scripts/start-all.sh` and declares the workflow in the manifest.
 
-#### 6.3.4 Declaring RAG ingestion profiles with `rag_ingestion_profiles`
+#### 6.3.4. Declaring RAG ingestion profiles with `rag_ingestion_profiles`
 
 A consumer that ships a RAG corpus (documents to parse, chunk, embed, and load into a vector store + LightRAG) can declare a versioned `rag_ingestion_profiles` block and have **Atlas own the repeatable ingestion lifecycle** — discover → parse → chunk → embed → vector-store write → LightRAG upload → drain → finalize — instead of hand-writing the orchestration and readiness logic around the same Atlas services.
 
@@ -641,7 +641,7 @@ Live ingestion against running Docling/Tika/Weaviate/LightRAG is an **optional**
 
 Downstream payoff: `rag-showcase` keeps owning its datasets, comparison reports, and approach-specific plugins, while Atlas owns the repeatable ingestion lifecycle across documents, vector stores, and LightRAG.
 
-#### 6.3.5 Declaring LightRAG query profiles with `lightrag_query_profiles`
+#### 6.3.5. Declaring LightRAG query profiles with `lightrag_query_profiles`
 
 A consumer that runs **side-by-side graph-RAG evaluations** (or wants named UI flavors) can declare a versioned `lightrag_query_profiles` block. Each profile is a **named LightRAG query flavor** — a bundle of the per-query knobs a caller selects by name — so Open WebUI users pick "graph-rag local k=30" versus "graph-rag hybrid k=10" without the downstream app hard-coding mode/top-k/token-budget choices.
 
@@ -680,7 +680,7 @@ On `./start.sh`, the bootstrapper validates + normalizes each profile, hashes it
 
 Downstream payoff: `rag-showcase` moves its graph-RAG flavor definitions out of bespoke code/config into a reusable Atlas profile contract — comparable, documentable, and visible to Open WebUI users.
 
-### 6.4 Consuming auto-managed endpoint variables
+### 6.4. Consuming auto-managed endpoint variables
 
 Atlas's bootstrapper computes a set of **auto-managed endpoint variables** in `.env` that resolve to the correct internal URL for whichever `*_SOURCE` mode is active. Downstream consumers (whether Method A standalone or Method B submodule) should bridge these into their own service variables rather than hard-coding a URL.
 
@@ -705,7 +705,7 @@ services:
 
 This ensures your consumer works transparently across all `*_SOURCE` values (container, localhost, etc.) without per-source branching. The same pattern applies to `OLLAMA_ENDPOINT`, `MINIO_ENDPOINT`, and any future auto-managed endpoint Atlas adds.
 
-### 6.5 Exporting the endpoint contract (`endpoints export`)
+### 6.5. Exporting the endpoint contract (`endpoints export`)
 
 For non-Python consumers (web/desktop shells, devservers) and submodule parents
 that would otherwise hand-grep `.env`, Atlas emits a **stable, machine-readable

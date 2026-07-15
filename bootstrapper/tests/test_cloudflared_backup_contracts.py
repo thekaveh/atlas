@@ -50,6 +50,17 @@ def test_cloudflared_container_source_requires_token(env_with_overrides) -> None
     assert configured.validate_all_sources() is True
 
 
+def test_cloudflared_public_edge_docs_require_host_routing_and_access() -> None:
+    guide = (REPO / "services/cloudflared/README.md").read_text(encoding="utf-8")
+    security = (REPO / "SECURITY.md").read_text(encoding="utf-8")
+
+    assert "httpHostHeader" in guide
+    assert "api.localhost" in guide
+    assert "Cloudflare Access is required" in guide
+    assert "optional Cloudflare Tunnel" in security
+    assert "Cloudflare Access policy" in security
+
+
 def test_backup_compose_passes_source_to_runner() -> None:
     compose = yaml.safe_load(
         (REPO / "services/backup/compose.yml").read_text(encoding="utf-8")

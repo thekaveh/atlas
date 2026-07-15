@@ -7,6 +7,7 @@ from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Response, st
 from fastapi.middleware.cors import CORSMiddleware
 import os
 import logging
+from typing import Literal
 
 from bounded_upload import EmptyUploadError, UploadTooLargeError, spool_upload
 
@@ -61,9 +62,15 @@ async def health_check(response: Response):
 @app.post("/v1/document/convert", response_model=ConversionResponse)
 async def convert_document(
     file: UploadFile = File(...),
-    output_format: str = Form(default="markdown"),
-    use_ocr: str = Form(default="auto"),
-    table_mode: str = Form(default="accurate"),
+    output_format: Literal["markdown", "html", "json", "doctags"] = Form(
+        default=os.getenv("DOCLING_OUTPUT_FORMAT", "markdown")
+    ),
+    use_ocr: Literal["auto", "always", "never"] = Form(
+        default=os.getenv("DOCLING_USE_OCR", "auto")
+    ),
+    table_mode: Literal["accurate", "fast"] = Form(
+        default=os.getenv("DOCLING_TABLE_MODE", "accurate")
+    ),
     enable_chunking: bool = Form(default=False),
     chunk_size: int = Form(default=512),
     chunk_overlap: int = Form(default=50)
@@ -71,7 +78,7 @@ async def convert_document(
     """Convert documents to structured format"""
     tmp_path = None
     try:
-        logger.info(f"Processing: {file.filename}")
+        logger.info("Processing uploaded document")
         max_bytes = int(os.getenv("DOCLING_MAX_FILE_SIZE", "52428800"))
         suffix = os.path.splitext(file.filename or "document.pdf")[1] or ".pdf"
         tmp_path = await spool_upload(
@@ -96,9 +103,12 @@ async def convert_document(
         raise HTTPException(status_code=400, detail=str(e)) from e
     except HTTPException:
         raise
-    except Exception as e:
-        logger.error(f"Error: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as exc:
+        logger.error(
+            "Document conversion failed (error_type=%s)",
+            type(exc).__name__,
+        )
+        raise HTTPException(status_code=500, detail="Document conversion failed") from exc
     finally:
         if tmp_path is not None:
             tmp_path.unlink(missing_ok=True)

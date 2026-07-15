@@ -204,7 +204,10 @@ Extract the facts as JSON:"""
                 raise ValueError("fact extraction response must be a JSON array of objects")
             extracted_facts = parsed
         except Exception as exc:
-            logger.error("Fact extraction LLM call failed: %s", exc)
+            logger.error(
+                "Fact extraction LLM call failed (error_type=%s)",
+                type(exc).__name__,
+            )
             await self._mark_extraction_failed(session_uuid, exc)
             return {
                 "session_id": session_id,
@@ -329,7 +332,9 @@ Extract the facts as JSON:"""
                         await conn.close()
             except Exception as exc:
                 logger.warning(
-                    "Failed to store embedding for fact %s: %s", fact["id"], exc
+                    "Failed to store embedding for fact %s (error_type=%s)",
+                    fact["id"],
+                    type(exc).__name__,
                 )
 
         return {
@@ -350,16 +355,17 @@ Extract the facts as JSON:"""
                         processing_completed_at = now()
                     WHERE id = $2 AND status = 'running'
                     """,
-                    str(exc),
+                    "Memory extraction failed",
                     session_uuid,
                 )
             finally:
                 await conn.close()
         except Exception as persist_error:
             logger.error(
-                "Memory extraction failure could not be persisted (session_id=%s): %s",
+                "Memory extraction failure could not be persisted "
+                "(session_id=%s, error_type=%s)",
                 session_uuid,
-                persist_error,
+                type(persist_error).__name__,
             )
 
     async def recall(
@@ -433,8 +439,11 @@ Extract the facts as JSON:"""
                     ),
                     timeout=30.0,
                 )
-            except Exception as e:
-                logger.warning(f"Failed to generate context summary: {e}")
+            except Exception as exc:
+                logger.warning(
+                    "Failed to generate context summary (error_type=%s)",
+                    type(exc).__name__,
+                )
 
         return {"memories": memories, "context_summary": context_summary}
 
@@ -543,13 +552,19 @@ Extract the facts as JSON:"""
                 ConnectionError,
                 httpx.TimeoutException,
                 httpx.NetworkError,
-            ) as e:
+            ) as exc:
                 if retry_transient:
                     raise
-                logger.warning(f"Consolidation LLM call failed for user {uid}: {e}")
+                logger.warning(
+                    "Consolidation LLM call failed (error_type=%s)",
+                    type(exc).__name__,
+                )
                 continue
-            except Exception as e:
-                logger.warning(f"Consolidation LLM call failed for user {uid}: {e}")
+            except Exception as exc:
+                logger.warning(
+                    "Consolidation LLM call failed (error_type=%s)",
+                    type(exc).__name__,
+                )
                 continue
 
             # Apply consolidation actions under a fresh connection.
@@ -713,8 +728,11 @@ Extract the facts as JSON:"""
                 ),
                 timeout=30.0,
             ) or "Unable to generate summary."
-        except Exception as e:
-            logger.warning(f"Summary generation failed: {e}")
+        except Exception as exc:
+            logger.warning(
+                "Summary generation failed (error_type=%s)",
+                type(exc).__name__,
+            )
             summary = f"User has {total} stored memories across various topics."
 
         return {
@@ -852,8 +870,11 @@ Extract the facts as JSON:"""
                             new_weaviate_id,
                             memory_uuid,
                         )
-                except Exception as e:
-                    logger.warning(f"Failed to update embedding: {e}")
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to update embedding (error_type=%s)",
+                        type(exc).__name__,
+                    )
 
             return {
                 "id": str(updated["id"]),
@@ -903,8 +924,11 @@ Extract the facts as JSON:"""
                     await self.store.delete_embedding(
                         memory_id, row["weaviate_id"]
                     )
-                except Exception as e:
-                    logger.warning(f"Failed to delete embedding: {e}")
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to delete embedding (error_type=%s)",
+                        type(exc).__name__,
+                    )
 
             return True
 
@@ -938,11 +962,15 @@ Extract the facts as JSON:"""
                 "facts_count": count,
                 "enabled": True,
             }
-        except Exception as e:
+        except Exception as exc:
+            logger.warning(
+                "Memory health check failed (error_type=%s)",
+                type(exc).__name__,
+            )
             return {
                 "status": "unhealthy",
                 "vector_backend": "unknown",
                 "facts_count": 0,
                 "enabled": True,
-                "error": str(e),
+                "error": "Memory service is unavailable",
             }

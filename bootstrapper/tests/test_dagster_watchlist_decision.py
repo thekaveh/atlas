@@ -14,7 +14,7 @@ def _candidate_text() -> str:
 def test_dagster_remains_watchlist_until_airflow_boundary_exists() -> None:
     text = _candidate_text()
 
-    assert "## Watchlist decision (2026-07-04)" in text
+    assert "Watchlist decision (2026-07-04)" in text
     assert "must not add `services/dagster/service.yml` yet" in text
     assert "Airflow remains Atlas' default scheduler" in text
     assert "concrete asset-lineage workflow" in text

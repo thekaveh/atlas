@@ -16,11 +16,11 @@
 
 ---
 
-## Phase 1 — TEI Reranker (leaf service, no deps)
+## 1. Phase 1 — TEI Reranker (leaf service, no deps)
 
 Ship TEI Reranker first since it has no dependencies and LightRAG will optionally consume it.
 
-### Task 1: TEI Reranker `service.yml`
+### 1.1. Task 1: TEI Reranker `service.yml`
 
 **Files:**
 - Create: `services/tei-reranker/service.yml`
@@ -170,7 +170,7 @@ git commit -m "feat(tei-reranker): add service.yml manifest"
 
 ---
 
-### Task 2: TEI Reranker `compose.yml`
+### 1.2. Task 2: TEI Reranker `compose.yml`
 
 **Files:**
 - Create: `services/tei-reranker/compose.yml`
@@ -235,7 +235,7 @@ git commit -m "feat(tei-reranker): add compose.yml fragment"
 
 ---
 
-### Task 3: `_generate_tei_reranker_config()` handler + tests
+### 1.3. Task 3: `_generate_tei_reranker_config()` handler + tests
 
 **Files:**
 - Create: `bootstrapper/tests/test_tei_reranker_config.py`
@@ -366,7 +366,7 @@ git commit -m "feat(tei-reranker): add service_config handler + tests"
 
 ---
 
-### Task 4: CLI source flag (4 seams) for TEI Reranker
+### 1.4. Task 4: CLI source flag (4 seams) for TEI Reranker
 
 **Files:**
 - Modify: `bootstrapper/start.py` (3 edits — Click decorator, main() signature, source_args dict, port-clear list)
@@ -444,7 +444,7 @@ git commit -m "feat(tei-reranker): wire --tei-reranker-source CLI flag (4 seams)
 
 ---
 
-### Task 5: Endpoint/localhost-validator/hosts entries for TEI Reranker
+### 1.5. Task 5: Endpoint/localhost-validator/hosts entries for TEI Reranker
 
 **Files:**
 - Modify: `bootstrapper/utils/endpoint_vars.py`
@@ -496,7 +496,7 @@ git commit -m "feat(tei-reranker): wire endpoint/localhost/hosts entries"
 
 ---
 
-### Task 6: Kong route for TEI Reranker
+### 1.6. Task 6: Kong route for TEI Reranker
 
 **Files:**
 - Modify: `bootstrapper/utils/kong_config_generator.py`
@@ -593,7 +593,7 @@ git commit -m "feat(tei-reranker): add Kong rerank.localhost route + audit"
 
 ---
 
-### Task 7: Add TEI Reranker to compose include + regen `.env.example`
+### 1.7. Task 7: Add TEI Reranker to compose include + regen `.env.example`
 
 **Files:**
 - Modify: `docker-compose.yml`
@@ -636,7 +636,7 @@ git commit -m "feat(tei-reranker): include fragment in top-level compose + regen
 
 ---
 
-### Task 8: TEI Reranker README
+### 1.8. Task 8: TEI Reranker README
 
 **Files:**
 - Create: `services/tei-reranker/README.md`
@@ -737,9 +737,9 @@ git commit -m "docs(tei-reranker): add service README"
 
 ---
 
-## Phase 2 — LightRAG manifest + storage
+## 2. Phase 2 — LightRAG manifest + storage
 
-### Task 9: LightRAG `service.yml`
+### 2.1. Task 9: LightRAG `service.yml`
 
 **Files:**
 - Create: `services/lightrag/service.yml`
@@ -969,7 +969,7 @@ git commit -m "feat(lightrag): add service.yml manifest"
 
 ---
 
-### Task 10: LightRAG `compose.yml`
+### 2.2. Task 10: LightRAG `compose.yml`
 
 **Files:**
 - Create: `services/lightrag/compose.yml`
@@ -1081,7 +1081,7 @@ git commit -m "feat(lightrag): add compose.yml fragment"
 
 ---
 
-### Task 11: LightRAG init scripts
+### 2.3. Task 11: LightRAG init scripts
 
 **Files:**
 - Create: `services/lightrag/init/scripts/init-lightrag.sh`
@@ -1312,7 +1312,7 @@ git commit -m "feat(lightrag): add init scripts (alpine + apk pattern)"
 
 ---
 
-### Task 12: `_generate_lightrag_config()` handler + tests
+### 2.4. Task 12: `_generate_lightrag_config()` handler + tests
 
 **Files:**
 - Create: `bootstrapper/tests/test_lightrag_config.py`
@@ -1434,7 +1434,7 @@ git commit -m "feat(lightrag): add service_config handler + tests"
 
 ---
 
-### Task 13: CLI source flag (4 seams) for LightRAG
+### 2.5. Task 13: CLI source flag (4 seams) for LightRAG
 
 **Files:**
 - Modify: `bootstrapper/start.py`
@@ -1507,7 +1507,7 @@ git commit -m "feat(lightrag): wire --lightrag-source CLI flag (4 seams)"
 
 ---
 
-### Task 14: Endpoint/validator/hosts entries + Kong route for LightRAG
+### 2.6. Task 14: Endpoint/validator/hosts entries + Kong route for LightRAG
 
 **Files:**
 - Modify: `bootstrapper/utils/endpoint_vars.py`
@@ -1632,7 +1632,7 @@ git commit -m "feat(lightrag): add Kong lightrag.localhost route + endpoint/host
 
 ---
 
-### Task 15: LightRAG API key generator
+### 2.7. Task 15: LightRAG API key generator
 
 **Files:**
 - Modify: `bootstrapper/utils/key_generator.py`
@@ -1698,7 +1698,7 @@ git commit -m "feat(lightrag): add API key generator"
 
 ---
 
-### Task 16: Add LightRAG to compose include + regen `.env.example`
+### 2.8. Task 16: Add LightRAG to compose include + regen `.env.example`
 
 **Files:**
 - Modify: `docker-compose.yml`
@@ -1741,7 +1741,7 @@ git commit -m "feat(lightrag): include fragment in top-level compose + regen .en
 
 ---
 
-### Task 17: LightRAG README
+### 2.9. Task 17: LightRAG README
 
 **Files:**
 - Create: `services/lightrag/README.md`
@@ -1881,7 +1881,7 @@ git commit -m "docs(lightrag): add service README + regen diagrams"
 
 ---
 
-### Task 18: End-to-end env generation across all source values
+### 2.10. Task 18: End-to-end env generation across all source values
 
 **Files:**
 - Modify: `bootstrapper/tests/test_source_permutations.py` (extend) OR
@@ -1997,9 +1997,9 @@ git commit -m "test(lightrag,tei-reranker): add source-permutation matrix tests"
 
 ---
 
-## Phase 3 — Cross-service adaptive wiring
+## 3. Phase 3 — Cross-service adaptive wiring
 
-### Task 19: Add `lightrag` to hermes/n8n/backend `runtime_adaptive.adapts_to`
+### 3.1. Task 19: Add `lightrag` to hermes/n8n/backend `runtime_adaptive.adapts_to`
 
 **Files:**
 - Modify: `services/hermes/service.yml`
@@ -2165,9 +2165,9 @@ git commit -m "feat(lightrag): wire hermes/n8n/backend runtime_adaptive consumer
 
 ---
 
-## Phase 4 — LiteLLM model registration
+## 4. Phase 4 — LiteLLM model registration
 
-### Task 20: `lightrag_model_entry()` in LiteLLM init
+### 4.1. Task 20: `lightrag_model_entry()` in LiteLLM init
 
 **Files:**
 - Modify: `services/litellm/init/scripts/init.py`
@@ -2288,9 +2288,9 @@ git commit -m "feat(lightrag): register as 'lightrag' model in LiteLLM model_lis
 
 ---
 
-## Phase 5 — Audits + tests
+## 5. Phase 5 — Audits + tests
 
-### Task 21: Update `check-compose-source-deps.py`
+### 5.1. Task 21: Update `check-compose-source-deps.py`
 
 **Files:**
 - Modify: `scripts/check-compose-source-deps.py`
@@ -2336,7 +2336,7 @@ git commit -m "chore(audit): add LightRAG source-deps audit pairs"
 
 ---
 
-### Task 22: Extend `test_localhost_port_consumer_symmetry.py`
+### 5.2. Task 22: Extend `test_localhost_port_consumer_symmetry.py`
 
 **Files:**
 - Modify: `bootstrapper/tests/test_localhost_port_consumer_symmetry.py`
@@ -2369,7 +2369,7 @@ git commit -m "test: extend localhost-port-consumer-symmetry for LightRAG + TEI 
 
 ---
 
-### Task 23: Document the no-model-picker decision
+### 5.3. Task 23: Document the no-model-picker decision
 
 **Files:**
 - Modify: `bootstrapper/tests/test_user_model_selections_seam_parity.py`
@@ -2395,7 +2395,7 @@ git commit -m "test: document no-picker exclusion for LightRAG + TEI Reranker"
 
 ---
 
-### Task 24: Refresh `test_fragment_equivalence` baseline (CI-artifact dance)
+### 5.4. Task 24: Refresh `test_fragment_equivalence` baseline (CI-artifact dance)
 
 This is the two-cycle dance from memory `project_baseline_regen_via_ci_artifact`. **Skip this task if running locally on Docker Compose v2.x matching CI**; only required when local Docker version diverges.
 
@@ -2443,9 +2443,9 @@ git commit -m "test: refresh fragment-equivalence baseline for LightRAG + TEI Re
 
 ---
 
-## Phase 6 — Documentation surface
+## 6. Phase 6 — Documentation surface
 
-### Task 25: Update top-level docs
+### 6.1. Task 25: Update top-level docs
 
 **Files:**
 - Modify: `docs/README.md`
@@ -2550,7 +2550,7 @@ git commit -m "docs: index LightRAG + TEI Reranker; ports/routes/wizard tables"
 
 ---
 
-### Task 26: Update root README.md (5 places)
+### 6.2. Task 26: Update root README.md (5 places)
 
 **Files:**
 - Modify: `README.md`
@@ -2599,7 +2599,7 @@ git commit -m "docs(readme): add LightRAG + TEI Reranker to root README (5 place
 
 ---
 
-### Task 27: Cross-reference READMEs
+### 6.3. Task 27: Cross-reference READMEs
 
 **Files:**
 - Modify: `services/kong/README.md`
@@ -2707,9 +2707,9 @@ git commit -m "docs: cross-reference LightRAG/TEI Reranker in consumer READMEs"
 
 ---
 
-## Phase 7 — Verification matrix + live smoke
+## 7. Phase 7 — Verification matrix + live smoke
 
-### Task 28: Run the full verification matrix
+### 7.1. Task 28: Run the full verification matrix
 
 **Files:** (verification only — no edits)
 
@@ -2803,7 +2803,7 @@ git commit -m "chore: address verification-matrix findings"
 
 ---
 
-### Task 29: Live smoke test (manual)
+### 7.2. Task 29: Live smoke test (manual)
 
 **Files:** (manual verification only — no edits)
 
@@ -2887,7 +2887,7 @@ If anything fails:
 
 ---
 
-## Plan summary
+## 8. Plan summary
 
 29 tasks across 7 phases. Roughly:
 

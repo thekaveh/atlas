@@ -97,7 +97,6 @@ def test_one_shot_init_skipped_when_scale_zero(monkeypatch):
             "COMFYUI_INIT_SCALE": "0",
         },
     )
-
     def fail_if_called(_services, **_kwargs):
         raise AssertionError("disabled init container should not be inspected")
 
@@ -121,6 +120,11 @@ def test_one_shot_init_checks_enabled_post_start_init_services(monkeypatch):
             "ZEPPELIN_INIT_SCALE": "1",
         },
     )
+    monkeypatch.setattr(
+        starter.config_parser,
+        "load_consumer_config",
+        lambda: type("ConsumerConfig", (), {"n8n_workflows": [object()]})(),
+    )
     calls = []
 
     def fake_failed_one_shot_services(services, **kwargs):
@@ -142,6 +146,7 @@ def test_one_shot_init_checks_enabled_post_start_init_services(monkeypatch):
                 "comfyui-init",
                 "redpanda-init",
                 "zeppelin-init",
+                "n8n-seed",
             ],
             {"timeout_seconds": 900.0, "poll_interval_seconds": 5.0},
         )

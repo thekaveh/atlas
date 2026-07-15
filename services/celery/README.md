@@ -68,7 +68,7 @@ Redis visibility timeout is intentionally longer than the hard task time limit. 
 
 ## 6. Dependencies & Integrations
 
-### 6.1 Current — Upstream (this service calls)
+### 6.1. Current — Upstream (this service calls)
 
 | Service | Category |
 |---|---|
@@ -78,27 +78,27 @@ Redis visibility timeout is intentionally longer than the hard task time limit. 
 | weaviate | data |
 | litellm | llm |
 
-### 6.2 Current — Downstream (services that call this)
+### 6.2. Current — Downstream (services that call this)
 
 | Service | Category |
 |---|---|
 | backend | apps |
 
-### 6.3 Architecture diagram
+### 6.3. Architecture diagram
 
 ![celery architecture](./architecture.svg)
 
 [Open the interactive HTML diagram](./architecture.html) for a full-screen view.
 
-### 6.4 Future — Missing pair integrations
+### 6.4. Future — Missing pair integrations
 
 - **celery ↔ research start** — Move the Local Deep Researcher start/wait loop into a task once the existing research session model can persist the Celery job id without confusing remote and local session ids.
 - **celery ↔ ComfyUI generation** — Add async image-generation tasks for callers that currently use `wait_for_completion=true`.
 
-### 6.5 Future — Candidate new services
+### 6.5. Future — Candidate new services
 
 - **Celery Beat** — Add only when Atlas has scheduled jobs that cannot be expressed more clearly in Airflow or n8n.
 
-### 6.6 Future — Unused features in this service
+### 6.6. Future — Unused features in this service
 
 - Flower's task mutation APIs are exposed only behind auth and should not become a public automation surface.

@@ -26,7 +26,7 @@ the S3 client's SigV4 signature still validates). `s3.minio.localhost` is
 declared via `extra_kong_aliases` in `services/minio/service.yml`, so
 `--setup-hosts` wires it into `/etc/hosts`.
 
-### 2.1 Connecting an external S3-compatible client (CLI, SDK, TUI)
+### 2.1. Connecting an external S3-compatible client (CLI, SDK, TUI)
 
 Any S3-compatible tool — `aws` CLI, boto3, `mc`, `s3cmd`, rclone, or a
 custom client — connects with these settings. Two endpoints work; pick one:
@@ -185,7 +185,7 @@ mc alias set local http://localhost:${MINIO_PORT} "$MINIO_BACKEND_ACCESS_KEY" "$
 mc cp ./somefile local/backend/somefile
 ```
 
-### 6.1 Declarative consumer storage contract (`storage:`)
+### 6.1. Declarative consumer storage contract (`storage:`)
 
 A downstream consumer (see [reusing-atlas.md](../../docs/deployment/reusing-atlas.md))
 declares object stores in its `atlas.consumer.yml` instead of hand-writing a
@@ -228,7 +228,7 @@ underlying `MINIO_EXTRA_CONSUMERS` overlay path (§6 above and
 [reusing-atlas.md §6.1.2](../../docs/deployment/reusing-atlas.md#612-adding-parent-owned-minio-buckets))
 remains supported for existing `_user` integrations.
 
-### 6.2 Browser-safe presigned URLs (sign against the public host)
+### 6.2. Browser-safe presigned URLs (sign against the public host)
 
 Presigned-URL signatures cover the request **host**, so signing against the
 internal endpoint (`minio:9000`) and then rewriting the URL to the public host
@@ -271,11 +271,11 @@ MinIO data lives in the `${PROJECT_NAME}-minio-data` named Docker volume mounted
 
 ## 10. Dependencies & Integrations
 
-### 10.1 Current — Upstream (this service calls)
+### 10.1. Current — Upstream (this service calls)
 
 _No upstream calls._
 
-### 10.2 Current — Downstream (services that call this)
+### 10.2. Current — Downstream (services that call this)
 
 | Service | Category |
 |---|---|
@@ -297,13 +297,13 @@ _No upstream calls._
 | mlflow | apps |
 | zeppelin | apps |
 
-### 10.3 Architecture diagram
+### 10.3. Architecture diagram
 
 ![minio architecture](./architecture.svg)
 
 [Open the interactive HTML diagram](./architecture.html) for a full-screen view.
 
-### 10.4 Future — Missing pair integrations
+### 10.4. Future — Missing pair integrations
 
 - **minio ↔ backend** — *Why:* `minio-init` provisions a `backend` bucket plus scoped keys, but FastAPI never consumes them — large blobs, model checkpoints, embedding caches have nowhere durable to land. *Mechanism:* boto3 client at `http://minio:9000` with `MINIO_BACKEND_ACCESS_KEY`/`SECRET_KEY`, path-style addressing. *Effort:* small. *Confidence:* high.
 - **minio ↔ n8n** — *Why:* the `n8n` bucket and keys are pre-provisioned, and n8n ships a first-party S3 node with custom-endpoint support; workflows could persist files without hitting Supabase Storage's 50 MB ceiling. *Mechanism:* n8n S3 credential at `http://minio:9000`; optional `N8N_EXTERNAL_BINARY_DATA_MODE=s3`. *Effort:* small. *Confidence:* high.
@@ -312,12 +312,12 @@ _No upstream calls._
 - **minio ↔ comfyui** — *Why:* ComfyUI outputs sit in an ephemeral volume; a `comfyui` bucket exists. Persisting renders lets backend/n8n/open-webui share artifacts across `./stop.sh --cold`. *Mechanism:* post-generation hook (custom node or sidecar) uploads `output/` to `s3://comfyui/` via `MINIO_COMFYUI_*`. *Effort:* medium. *Confidence:* medium.
 - **minio ↔ doc-processor** — *Why:* docling parses have no persistent landing zone; the `docling` bucket is unused, blocking downstream RAG flows from finding outputs at stable URIs. *Mechanism:* doc-processor writes payloads to `s3://docling/<source-hash>/` via `MINIO_DOCLING_*` keys. *Effort:* small. *Confidence:* high.
 
-### 10.5 Future — Candidate new services
+### 10.5. Future — Candidate new services
 
 - **Langfuse** ([details](../../docs/research/candidates/langfuse.md)) — *Headline:* LLM observability platform that uses S3 (MinIO) for long-term trace/blob storage. *Wires into:* litellm, hermes, backend, open-webui, local-deep-researcher.
 - **Apache Iceberg + DuckDB** ([details](../../docs/research/candidates/iceberg-duckdb.md)) — *Headline:* open table format on top of MinIO that gives the stack a queryable analytics tier. *Wires into:* jupyterhub, backend, n8n.
 
-### 10.6 Future — Unused features in this service
+### 10.6. Future — Unused features in this service
 
 - **Bucket notifications (webhook/Redis/NATS targets)** — *Why pursue:* MinIO can POST object-created events to a webhook or Redis stream; would let backend/n8n/Weaviate react to uploads instead of polling. *Effort:* medium.
 - **Object lifecycle rules (expiration + versioning)** — *Why pursue:* `comfyui` and `jupyter` buckets will grow unbounded; per-bucket ILM rules (expire after N days, keep N versions) are a one-shot `mc ilm` config in `init-minio.sh`. *Effort:* small.

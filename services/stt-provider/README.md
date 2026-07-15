@@ -80,7 +80,7 @@ for the whisper.cpp walkthrough and Linux build instructions, or
 | `STT_PROVIDER_PORT` | `63054` | Wizard display port; bootstrapper rewrites to match the active container. |
 | `STT_ENDPOINT` | (auto) | Internal URL containers reach STT on. |
 | `STT_PROVIDER_SCALE` | (auto) | 1 when any container variant is active. |
-| `SPEACHES_STT_MODEL` | `Systran/faster-distil-whisper-large-v3` | HuggingFace repo of the model to preload. ⚠ Not wired into Open WebUI (it hardcodes `AUDIO_STT_MODEL: whisper-1`), and Speaches aliases `whisper-1` → `Systran/faster-whisper-large-v3` (the non-distil build) — so preload **that** id, not the distil one, to satisfy a `whisper-1` request. |
+| `SPEACHES_STT_MODEL` | `Systran/faster-distil-whisper-large-v3` | HuggingFace repo of the model to preload. **Compatibility note:** Open WebUI hardcodes `AUDIO_STT_MODEL: whisper-1`, and Speaches aliases `whisper-1` → `Systran/faster-whisper-large-v3` (the non-distil build), so preload **that** id, not the distil one, to satisfy a `whisper-1` request. |
 | `PARAKEET_MODEL` | `nvidia/parakeet-tdt-0.6b-v3` | Or `…-v2` for English-only (slightly faster). |
 | `PARAKEET_GPU_IMAGE` | `nvcr.io/nvidia/pytorch:26.06-py3` | Base for the Parakeet GPU Dockerfile. |
 | `PARAKEET_MAX_UPLOAD_BYTES` | `104857600` | Maximum audio upload size for Parakeet GPU and localhost APIs; larger requests return `413`. |
@@ -89,7 +89,7 @@ for the whisper.cpp walkthrough and Linux build instructions, or
 | `WHISPER_CPP_LOCALHOST_PORT` | `63042` | Host port where a host-side whisper.cpp server listens (same freed slot as parakeet — the two modes are mutually exclusive). URL is derived as `http://host.docker.internal:63042`. |
 | `HUGGING_FACE_HUB_TOKEN` | (empty) | For gated models. |
 
-> ⚠ **Speaches ships with no preloaded models and does not auto-download them.**
+> **Important:** Speaches ships with no preloaded models and does not auto-download them.
 > Verified against `speaches @ v0.9.0-rc.3`: `/v1/audio/transcriptions` does a
 > cache-only model lookup and returns HTTP 404 ("Model is not installed locally")
 > when the model is absent. The compose default is `PRELOAD_MODELS: '[]'`, so
@@ -156,11 +156,11 @@ inference.
 
 ## 9. Dependencies & Integrations
 
-### 9.1 Current — Upstream (this service calls)
+### 9.1. Current — Upstream (this service calls)
 
 _No upstream calls._
 
-### 9.2 Current — Downstream (services that call this)
+### 9.2. Current — Downstream (services that call this)
 
 | Service | Category |
 |---|---|
@@ -169,13 +169,13 @@ _No upstream calls._
 | n8n | agents |
 | open-webui | apps |
 
-### 9.3 Architecture diagram
+### 9.3. Architecture diagram
 
 ![stt-provider architecture](./architecture.svg)
 
 [Open the interactive HTML diagram](./architecture.html) for a full-screen view.
 
-### 9.4 Future — Missing pair integrations
+### 9.4. Future — Missing pair integrations
 
 - **stt-provider ↔ minio** — *Why:* transcripts vanish with the HTTP response — nothing persists source audio or transcript JSON. Pushing both to MinIO gives every service a stable URL and enables re-transcription on engine swap. *Mechanism:* new `stt-transcripts` bucket provisioned by `minio-init`; post-transcribe hook puts `s3://stt-transcripts/<sha256>.wav` plus sidecar `.json` via S3 SigV4 over `http://minio:9000`. *Effort:* small. *Confidence:* high.
 - **stt-provider ↔ weaviate** — *Why:* indexing durable transcripts turns long-form audio (meetings, podcasts, voice notes) into a semantically searchable corpus alongside the docling pipeline. *Mechanism:* `Transcript` class with `text`, `start_ms`, `end_ms`, `source_audio_uri`, vectorized by the active `text2vec-openai` module via `http://weaviate:8080/v1/objects`. *Effort:* medium. *Confidence:* medium.
@@ -184,11 +184,11 @@ _No upstream calls._
 - **stt-provider ↔ openclaw** — *Why:* Telegram/WhatsApp/Discord deliver voice notes as audio; OpenClaw routes text through Hermes today with no audio path. *Mechanism:* OpenClaw middleware POSTing incoming audio to `${STT_ENDPOINT}/v1/audio/transcriptions` (multipart), then forwarding the text result to its existing LLM-routing path. *Effort:* small. *Confidence:* medium.
 - **stt-provider ↔ supabase** — *Why:* transcript metadata (user, session, source URI, model, language, duration) belongs in a relational store; gives open-webui / backend a "my transcripts" view keyed by Supabase JWT `sub`. *Mechanism:* `transcripts` table via PostgREST at `http://supabase-api:3000`, RLS on `auth.uid()`; post-transcribe hook writes rows pointing at MinIO URIs. *Effort:* medium. *Confidence:* medium.
 
-### 9.5 Future — Candidate new services
+### 9.5. Future — Candidate new services
 
 - **WhisperX** ([details](../../docs/research/candidates/whisperx.md)) — *Headline:* fourth STT engine adding speaker diarization and word-aligned timestamps behind the existing OpenAI shape. *Wires into:* backend, n8n, open-webui, hermes, openclaw, minio, weaviate.
 
-### 9.6 Future — Unused features in this service
+### 9.6. Future — Unused features in this service
 
 - **Streaming / Realtime SSE+WebSocket** — *Why pursue:* Speaches ships SSE-streamed transcription and a WebSocket realtime API; we only expose the batch `/v1/audio/transcriptions`. Enables live captions in open-webui and live agent voice loops in Hermes. *Effort:* medium.
 - **Translation endpoint** — *Why pursue:* Speaches/Faster-Whisper support speech translation; we never expose `/v1/audio/translations`. Cheap multilingual UX gain. *Effort:* small.
@@ -200,7 +200,7 @@ _No upstream calls._
 ## 10. Troubleshooting
 
 **`speaches` STT requests return 404 "Model is not installed locally"** — Speaches
-ships with no preloaded models and does not auto-download them (see the ⚠ preload
+ships with no preloaded models and does not auto-download them (see the preload
 note in §4). Download the `whisper-1` alias target once:
 `curl -X POST http://localhost:${STT_PROVIDER_PORT}/v1/models/Systran/faster-whisper-large-v3`,
 or set `PRELOAD_MODELS` in `services/speaches/compose.yml`. The healthcheck

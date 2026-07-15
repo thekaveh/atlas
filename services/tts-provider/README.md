@@ -36,7 +36,7 @@ ratio. Pick Chatterbox when you specifically need voice cloning.
 ## 3. Quick start
 
 `./start.sh` launches Speaches, but it ships with **no preloaded models and does
-not auto-download them** (see the ⚠ note in §4) — so a TTS request 404s until you
+not auto-download them** (see the important note in §4) — so a TTS request 404s until you
 preload the Kokoro model:
 
 ```bash
@@ -93,14 +93,14 @@ for the full Chatterbox-on-host walkthrough.
 | `TTS_PROVIDER_SCALE` | (auto) | 1 when any container variant is active, else 0. |
 | `SPEACHES_IMAGE` | `ghcr.io/speaches-ai/speaches:0.9.0-rc.3-cpu` | Override to pin a different release. |
 | `SPEACHES_GPU_IMAGE` | `ghcr.io/speaches-ai/speaches:0.9.0-rc.3-cuda` | CUDA build pin. |
-| `SPEACHES_TTS_MODEL` | `hexgrad/Kokoro-82M` | Model id Open WebUI sends to Speaches' `/v1/audio/speech`. ⚠ The shipped default is the PyTorch Kokoro repo, which Speaches' Kokoro executor rejects (it requires the ONNX build `speaches-ai/Kokoro-82M-v1.0-ONNX`, or the alias `tts-1`). See the preload note below. |
+| `SPEACHES_TTS_MODEL` | `hexgrad/Kokoro-82M` | Model id Open WebUI sends to Speaches' `/v1/audio/speech`. **Compatibility note:** the shipped default is the PyTorch Kokoro repo, which Speaches' Kokoro executor rejects (it requires the ONNX build `speaches-ai/Kokoro-82M-v1.0-ONNX`, or the alias `tts-1`). See the preload note below. |
 | `SPEACHES_PORT` | `63059` | Speaches container external port. |
 | `SPEACHES_SCALE` | (auto) | 1 when speaches is active. |
 | `CHATTERBOX_IMAGE` | `travisvn/chatterbox-tts-api:gpu` | GPU build tag. No version-locked GPU tag yet — pin to a digest for production. |
 | `CHATTERBOX_PORT` | `63058` | Chatterbox container external port. |
 | `CHATTERBOX_LOCALHOST_PORT` | `63044` | Port the stack reaches your host's chatterbox-tts-api on. URL is derived as `http://host.docker.internal:${CHATTERBOX_LOCALHOST_PORT}` at compose-render time. |
 
-> ⚠ **Speaches ships with no preloaded models and does not auto-download them.**
+> **Important:** Speaches ships with no preloaded models and does not auto-download them.
 > Verified against `speaches @ v0.9.0-rc.3`: `/v1/audio/*` handlers do a
 > cache-only model lookup and return HTTP 404 ("Model is not installed locally")
 > when the model is absent — there is no `SPEACHES_PRELOAD_MODELS` Atlas var, and
@@ -204,11 +204,11 @@ unified replacement is `TTS_ENDPOINT`.
 
 ## 9. Dependencies & Integrations
 
-### 9.1 Current — Upstream (this service calls)
+### 9.1. Current — Upstream (this service calls)
 
 _No upstream calls._
 
-### 9.2 Current — Downstream (services that call this)
+### 9.2. Current — Downstream (services that call this)
 
 | Service | Category |
 |---|---|
@@ -217,13 +217,13 @@ _No upstream calls._
 | n8n | agents |
 | open-webui | apps |
 
-### 9.3 Architecture diagram
+### 9.3. Architecture diagram
 
 ![tts-provider architecture](./architecture.svg)
 
 [Open the interactive HTML diagram](./architecture.html) for a full-screen view.
 
-### 9.4 Future — Missing pair integrations
+### 9.4. Future — Missing pair integrations
 
 - **tts-provider ↔ minio** — *Why:* Chatterbox's `/voices` library lives on ephemeral container FS today, so a rebuild wipes user-registered voices; MinIO already hosts artifact buckets. *Mechanism:* fuse/rclone-mount a `tts-voices` bucket at `/app/voices`, or a sidecar that mirrors chatterbox `GET/POST /voices` to `s3://tts-voices/`. *Effort:* medium. *Confidence:* high.
 - **tts-provider ↔ redis** — *Why:* repeated UI/notification phrases (welcome lines, n8n alerts, hermes acks) burn CPU on Kokoro/Piper and hit Chatterbox's >2s cold weights load. *Mechanism:* small FastAPI shim in front of `TTS_ENDPOINT` keyed on `(model, voice, text-hash, knobs)` against `redis://redis:6379` before forwarding to `/v1/audio/speech`. *Effort:* medium. *Confidence:* medium.
@@ -231,12 +231,12 @@ _No upstream calls._
 - **tts-provider ↔ supabase** — *Why:* voice metadata (owner, language, source clip, registered-by user) belongs in a relational table, not chatterbox's in-memory `/voices` registry — lets Open WebUI users see their own voices and admins audit usage. *Mechanism:* backend writes a `tts_voices` row in Supabase on every chatterbox `POST /voices`; a startup reconciler re-POSTs registered voices from MinIO+Supabase back into chatterbox. *Effort:* medium. *Confidence:* medium.
 - **tts-provider ↔ openclaw** — *Why:* voice-message replies to Telegram/Discord/etc. dramatically lift presence over text-only bots, and pair naturally with stt-provider on the inbound side. *Mechanism:* openclaw calls `${TTS_ENDPOINT}/v1/audio/speech` per outgoing message and uploads the returned WAV via its platform adapters (ffmpeg transcode hop for Opus/OGG). *Effort:* small. *Confidence:* medium.
 
-### 9.5 Future — Candidate new services
+### 9.5. Future — Candidate new services
 
 - **Unmute (Kyutai)** ([details](../../docs/research/candidates/unmute.md)) — *Headline:* WebSocket OpenAI-Realtime-compatible voice loop that wraps any text LLM behind streaming STT + TTS. *Wires into:* open-webui, backend, hermes, litellm, parakeet, chatterbox, speaches.
 - **OmniVoice (k2-fsa)** ([details](../../docs/research/candidates/omnivoice.md)) — *Headline:* 0.6 B diffusion-LM TTS (Apache-2.0) with **600+ language coverage** — the only meaningfully novel capability over the current Speaches/Chatterbox lineup. *Status:* assessed 2026-06-03, **skipped pending upstream readiness** (SaaS has no public API; OSS is CLI/Python with no FastAPI wrapper or Docker image). Re-evaluate Q4 2026 or when a community wrapper / Speaches adapter lands.
 
-### 9.6 Future — Unused features in this service
+### 9.6. Future — Unused features in this service
 
 - **Speaches Realtime API / speech-to-speech** — *Why pursue:* upstream advertises a Realtime API and async speech-to-speech, but the stack only consumes `/v1/audio/speech` and `/v1/audio/transcriptions`; wiring it would enable low-latency voice agents in Open WebUI + hermes. *Effort:* large.
 - **Chatterbox streaming endpoints (`/v1/audio/speech/stream`, SSE)** — *Why pursue:* cuts perceived latency to ~1–2s versus waiting for the full WAV, and Open WebUI's audio player supports streamed chunks. *Effort:* small.

@@ -12,7 +12,7 @@ which doesn't exist inside this container. The atlas stack runs
 ComfyUI as a sibling service on the Docker network — reachable at the
 URL below.
 
-## Overrides
+## 1. Overrides
 
 | Setting | Value |
 |---------|-------|
@@ -23,7 +23,7 @@ URL below.
 Skills that shell out to `python3 scripts/run_workflow.py` should pass
 `--host ${COMFYUI_INTERNAL_URL}` instead of relying on the default.
 
-## Verification
+## 2. Verification
 
 ```bash
 curl -fsS ${COMFYUI_INTERNAL_URL}/system_stats

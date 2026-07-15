@@ -24,6 +24,12 @@ RUNTIME_UV_LOCK = LOCK_INPUTS / "runtime.uv.lock"
 RUNTIME_REQUIREMENTS = SERVICE / "build/config/runtime-requirements.lock"
 UPSTREAM_URL = "https://github.com/langchain-ai/local-deep-researcher.git"
 BUILD_DEPENDENCIES = ("setuptools==83.0.0", "wheel==0.47.0")
+SECURITY_DEPENDENCIES = (
+    "click>=8.3.3",
+    "langchain-classic>=1.0.7",
+    "langsmith>=0.8.18",
+    "soupsieve>=2.8.4",
+)
 
 
 def _run(*args: str, cwd: Path | None = None, quiet: bool = False) -> None:
@@ -55,6 +61,7 @@ def _validate_combined_project(pyproject: Path, cli_version: str) -> None:
     required = {
         f"langgraph-cli[inmem]=={cli_version}",
         *BUILD_DEPENDENCIES,
+        *SECURITY_DEPENDENCIES,
     }
     missing = required - dependencies
     if missing:
@@ -83,7 +90,7 @@ def _stable_export(project_dir: Path, ref: str, lock_sha: str, cli: str) -> str:
         lines.pop(0)
     header = (
         "# Generated from the manifest-pinned upstream uv.lock plus the exact\n"
-        "# langgraph-cli[inmem], setuptools, and wheel versions documented in the service README.\n"
+        "# langgraph-cli[inmem], security floors, setuptools, and wheel versions documented in the service README.\n"
         f"# upstream-ref: {ref}\n"
         f"# upstream-lock-sha256: {lock_sha}\n"
         f"# langgraph-cli-version: {cli}\n"
@@ -117,6 +124,7 @@ def refresh() -> None:
             "--no-sync",
             f"langgraph-cli[inmem]=={cli}",
             *BUILD_DEPENDENCIES,
+            *SECURITY_DEPENDENCIES,
         )
         _validate_combined_project(source / "pyproject.toml", cli)
         LOCK_INPUTS.mkdir(parents=True, exist_ok=True)

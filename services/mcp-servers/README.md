@@ -43,7 +43,7 @@ MetaMCP, Docker MCP Gateway, and `mcpo` remain later or conditional tools. MetaM
 
 ## 5. Dependencies & Integrations
 
-### 5.1 Current — Upstream (this service calls)
+### 5.1. Current — Upstream (this service calls)
 
 | Service | Category |
 |---|---|
@@ -51,25 +51,25 @@ MetaMCP, Docker MCP Gateway, and `mcpo` remain later or conditional tools. MetaM
 | supabase | data |
 | searxng | media |
 
-### 5.2 Current — Downstream (services that call this)
+### 5.2. Current — Downstream (services that call this)
 
 _No downstream consumers._
 
-### 5.3 Architecture diagram
+### 5.3. Architecture diagram
 
 ![mcp-servers architecture](./architecture.svg)
 
 [Open the interactive HTML diagram](./architecture.html) for a full-screen view.
 
-### 5.4 Future — Missing pair integrations
+### 5.4. Future — Missing pair integrations
 
 _No high-confidence opportunities identified._
 
-### 5.5 Future — Candidate new services
+### 5.5. Future — Candidate new services
 
 _No high-confidence opportunities identified._
 
-### 5.6 Future — Unused features in this service
+### 5.6. Future — Unused features in this service
 
 _No high-confidence opportunities identified._
 

@@ -1,4 +1,4 @@
-# `services/`
+# 9.7. Service Directory Layout
 
 Per-service manifest folders. Each subfolder is one **service family** — a
 logical grouping of co-lifecycled containers. Examples: `supabase/` owns all

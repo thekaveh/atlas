@@ -1,5 +1,5 @@
 # Parakeet MLX - Official package for Apple Silicon STT
-parakeet-mlx>=0.2.0
+parakeet-mlx==0.5.2
 
 # API Server dependencies
 fastapi>=0.104.0

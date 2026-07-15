@@ -11,12 +11,12 @@ upstream: https://github.com/browserless/browserless
 
 # Browserless
 
-## Headline
+## 1. Headline
 Containerized browser-automation service for Puppeteer, Playwright, REST, and
 WebSocket sessions; useful when Atlas needs persistent browser sessions rather
 than Crawl4AI's one-shot extraction API.
 
-## Problem it solves
+## 2. Problem it solves
 Browserless becomes interesting when a RAG, agent, or workflow needs true
 browser infrastructure: authenticated sessions, multi-step forms, portal
 scraping, screenshots, PDF rendering, persistent profiles, live debugging, or
@@ -25,7 +25,7 @@ concurrency controls, token authentication, V2 browser-specific connection
 paths, and separate open-source, enterprise Docker, cloud, and private
 deployment models.
 
-## Deferred decision (2026-07-04)
+## 3. Deferred decision (2026-07-04)
 Atlas should stay Crawl4AI-first and must not add `services/browserless/service.yml` yet.
 Crawl4AI is already implemented as the first-line JS-capable extraction service
 for Local Deep Researcher and n8n. Browserless is lower-level browser automation
@@ -38,7 +38,7 @@ Puppeteer/Playwright sessions, screenshots/PDF rendering, or authenticated
 multi-step browsing. The resource and auth model must be designed before any
 route is exposed.
 
-## Stack wiring sketch
+## 4. Stack wiring sketch
 No current Atlas wiring should be added while Browserless is deferred. If
 adopted later, the expected topology would be:
 
@@ -55,7 +55,7 @@ adopted later, the expected topology would be:
 - doc-processor, Weaviate, and MinIO consume rendered artifacts through existing
   ingestion and provenance paths rather than direct Browserless writes.
 
-## Effort
+## 5. Effort
 Medium. The open-source image is operationally simpler than a crawler stack with
 its own database, but Atlas still needs a manifest, topology slot, generated
 token, resource limits, WebSocket-aware route policy, consumer opt-ins, docs,
@@ -63,7 +63,7 @@ and tests. A production posture may also need volume handling for user-data
 profiles, enterprise `KEY` handling, health/pressure checks, and explicit
 queue/concurrency defaults.
 
-## Risks & open questions
+## 6. Risks & open questions
 - SSPL-1.0 or commercial license acceptance is required before adoption.
 - Chromium memory and sandboxing costs are higher than the current Crawl4AI
   first slice; defaults for `CONCURRENT`, `QUEUED`, `TIMEOUT`, CPU pressure,
@@ -76,7 +76,7 @@ queue/concurrency defaults.
 - Persistent user-data/profile volumes can leak cookies and session state if
   they are shared, retained too long, or exposed to multiple consumers.
 
-## Revisit criteria
+## 7. Revisit criteria
 Reconsider Browserless only when all of these are true:
 
 - Crawl4AI cannot cover a critical JavaScript-rendered or sessionful workflow.
@@ -86,7 +86,7 @@ Reconsider Browserless only when all of these are true:
 - Atlas has a token, route, CORS, WebSocket, and optional profile-volume design
   before exposure.
 
-## Future service contract if adopted
+## 8. Future service contract if adopted
 - **Tracks:** `gen-ai-rag` and `all`. Consider a future agent/browser-automation
   track only if Atlas creates one.
 - **Category:** `media`, matching Crawl4AI and Firecrawl. If Atlas later
@@ -115,7 +115,7 @@ Reconsider Browserless only when all of these are true:
   sessions, high memory pressure, profile volume collisions, permissive CORS,
   `ALLOW_GET`, `ALLOW_FILE_PROTOCOL`, and generated-doc drift.
 
-## Tests required if adopted later
+## 9. Tests required if adopted later
 - Manifest schema and topology tests for source values, category, aliases,
   generated env vars, and track membership.
 - Compose/source permutation coverage for disabled/container and any future
@@ -126,13 +126,13 @@ Reconsider Browserless only when all of these are true:
   fallback path.
 - Docs drift, research schema, link checks, and generated README/diagram checks.
 
-## Why now (and why not sooner)
+## 10. Why now (and why not sooner)
 Not now. Browserless should follow demonstrated Crawl4AI gaps, explicit license
 acceptance, and a clear browser-automation workflow. It is useful infrastructure,
 but Atlas does not yet have the named workflow or auth/resource posture needed
 to justify adding it to the service graph.
 
-## Upstream evidence
+## 11. Upstream evidence
 - https://github.com/browserless/browserless
 - https://github.com/browserless/browserless/blob/main/LICENSE
 - https://docs.browserless.io/enterprise/open-source
@@ -141,7 +141,7 @@ to justify adding it to the service graph.
 - https://docs.browserless.io/enterprise/migrate-from-v1
 - https://docs.browserless.io/open-api
 
-## Cross-references
+## 12. Cross-references
 - `../rows/searxng.md` - search -> render -> extract pipeline.
 - `../candidates/crawl4ai.md` - current first-line extraction service.
 - `../candidates/firecrawl.md` - deferred higher-level crawler alternative.

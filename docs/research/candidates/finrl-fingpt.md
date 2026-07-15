@@ -11,13 +11,13 @@ upstream: https://github.com/AI4Finance-Foundation/FinRL
 
 # FinRL And FinGPT
 
-## Headline
+## 1. Headline
 Deferred-to-notebooks financial AI libraries for reinforcement-learning research and finance-language modeling; useful in Atlas only as guarded JupyterHub assets, not production trading intelligence.
 
-## Problem it solves
+## 2. Problem it solves
 FinRL gives researchers a financial reinforcement-learning framework for market environments, agents, and trading research workflows. FinGPT gives researchers and builders finance-oriented language-model tooling for sentiment, forecasting, benchmark, and task adaptation experiments. Both are valuable in the trading track, but their outputs can be mistaken for investment advice or automated trading decisions if Atlas presents them as services.
 
-## Deferred-to-notebooks decision (2026-07-04)
+## 3. Deferred-to-notebooks decision (2026-07-04)
 Atlas should keep FinRL and FinGPT deferred to notebooks, must not add `services/finrl/service.yml`, and must not add `services/fingpt/service.yml`.
 
 They are research notebook assets, not production trading intelligence. A future Atlas slice may add curated notebooks, pinned Python extras, or optional JupyterHub image profiles, but it must not present either project as push-button trading AI, a signal service, a live execution engine, or investment advice. The existing trading track remains read-only financial research and paper portfolios in notebooks; no live trading.
@@ -29,7 +29,7 @@ Current upstream evidence supports this boundary:
 - FinGPT is an open-source financial LLM framework and model family for finance-language tasks such as sentiment, forecasting, and benchmark/fine-tuning experiments.
 - FinRL-Trading/FinRL-X points toward AI-native quantitative-trading infrastructure, which makes Atlas' notebook-only boundary more important until service-level trading guardrails exist.
 
-## Stack wiring sketch
+## 4. Stack wiring sketch
 No standalone Atlas service wiring should be added while FinRL and FinGPT remain deferred. If a later notebook slice is approved, the expected topology is:
 
 - JupyterHub -> FinRL/FinGPT packages for curated notebooks, local experiments, benchmark notebooks, and paper-only examples.
@@ -41,10 +41,10 @@ No standalone Atlas service wiring should be added while FinRL and FinGPT remain
 - TimescaleDB -> notebooks only after the watchlisted trading-data slice defines isolated schemas, retention, and read-only/paper credentials.
 - No current data_flow.calls should point from backend, n8n, Hermes, Open WebUI, or any execution surface to FinRL/FinGPT outputs as trading commands.
 
-## Effort
+## 5. Effort
 Medium. Adding notebook examples is manageable, but doing it safely requires pinned dependencies, curated datasets, deterministic examples, disclaimers, model-size/resource limits, eval criteria, and paper-trading guardrails before these libraries appear in a user-facing track.
 
-## Risks & open questions
+## 6. Risks & open questions
 - User-harm risk: generated forecasts or RL policies can be misread as investment advice or production trading signals.
 - Data quality: financial RL and forecasting examples are highly sensitive to survivorship bias, look-ahead bias, split hygiene, corporate actions, fees, slippage, and venue differences.
 - Reproducibility: notebooks need pinned datasets, seeds, package versions, and artifact storage before results are useful.
@@ -52,7 +52,7 @@ Medium. Adding notebook examples is manageable, but doing it safely requires pin
 - Execution boundary: FinRL outputs must not feed CCXT private methods, Hummingbot/Freqtrade/NautilusTrader live services, n8n workflows, or backend order APIs by default.
 - Compliance posture: Atlas needs clear disclaimers and auditability before financial AI outputs become anything more than research.
 
-## Future notebook contract if adopted
+## 7. Future notebook contract if adopted
 - **Tracks:** `trading`, `ml-eng`, and `all`. Keep the `trading` track copy as read-only financial research and paper portfolios until a later paper-service ticket is approved.
 - **Category:** `apps`, because the approved surface is JupyterHub notebooks and image/package content, not a new runtime service. Do not add a new category for FinRL/FinGPT.
 - **Sources:** no standalone SOURCE values. Do not add `FINRL_SOURCE` or `FINGPT_SOURCE`; use `JUPYTERHUB_SOURCE=container` plus a later explicit notebook/package flag only if Atlas establishes a JupyterHub image-profile convention. Any optional profile must be disabled by default.
@@ -68,7 +68,7 @@ Medium. Adding notebook examples is manageable, but doing it safely requires pin
 - **Tests required:** focused decision tests, financial-helper guard tests, notebook registration checks, dependency pin checks if packages are added, no-service-manifest checks, research schema, docs drift, link checks, track membership, custom `BASE_PORT` indirect checks through existing services, and full bootstrapper pytest.
 - **Edge cases:** missing optional GPU, model download failures, stale cached datasets, time-zone/calendar mismatches, look-ahead bias, empty symbols, insufficient history, API rate limits, disabled MinIO/MLflow/Langfuse, stale `.env` live keys, disabled trading track, notebook output copied into n8n, generated-doc drift, and misleading "AI trader" wording.
 
-## Revisit criteria
+## 8. Revisit criteria
 Reconsider a FinRL/FinGPT notebook slice only when all of these are true:
 
 - Atlas has curated datasets, eval criteria, and paper-trading guardrails.
@@ -77,10 +77,10 @@ Reconsider a FinRL/FinGPT notebook slice only when all of these are true:
 - Docs and notebooks include clear not financial advice disclaimers.
 - No issue or PR presents FinRL or FinGPT as push-button trading AI or production trading intelligence.
 
-## Why now (and why not sooner)
+## 9. Why now (and why not sooner)
 This decision belongs next to the live-trading rejection because FinRL and FinGPT can accidentally become the "AI" justification for unsafe trading automation. Capturing the notebook-only boundary now keeps the trading track useful for research while avoiding a production trading claim Atlas cannot safely support.
 
-## Upstream evidence
+## 10. Upstream evidence
 - https://github.com/AI4Finance-Foundation/FinRL
 - https://finrl.readthedocs.io/en/latest/index.html
 - https://github.com/AI4Finance-Foundation/FinRL-Trading
@@ -89,7 +89,7 @@ This decision belongs next to the live-trading rejection because FinRL and FinGP
 - https://fingpt.io/
 - https://ai4finance.org/research/fingpt-open-source-finllm.html
 
-## Cross-references
+## 11. Cross-references
 - `../../strategy/atlas-vnext-strategy-report.md#82-trading--financial-ai-track`
 - `../../strategy/atlas-vnext-strategy-report.md#94-reject-or-defer-for-now`
 - `../candidates/live-trading-services.md`

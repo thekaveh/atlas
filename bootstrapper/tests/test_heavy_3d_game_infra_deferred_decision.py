@@ -22,7 +22,7 @@ def _candidate_text() -> str:
 def test_heavy_3d_game_infra_remains_deferred() -> None:
     text = _candidate_text()
 
-    assert "## Deferred decision (2026-07-04)" in text
+    assert "Deferred decision (2026-07-04)" in text
     assert "must not add `services/hunyuan3d/service.yml`" in text
     assert "must not add `services/trellis/service.yml`" in text
     assert "must not add `services/nerfstudio/service.yml`" in text

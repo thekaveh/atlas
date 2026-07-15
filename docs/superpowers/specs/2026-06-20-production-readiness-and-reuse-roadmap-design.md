@@ -7,7 +7,7 @@
 
 ---
 
-## Part 0 — Executive summary & anchor
+## 1. Part 0 — Executive summary & anchor
 
 Atlas today is an excellent **single-host, self-hosted developer stack**. It is *production-adjacent* but not production-ready for internet exposure, and it is already **more reuse-ready than it looks** (a 666-line submodule guide and a `services/_user/` overlay slot exist). This document assesses the current state, evaluates **where to deploy it**, compares **reuse strategies**, tells the honest **cross-OS** story, and lays out a **phased roadmap** anchored to a concrete goal.
 
@@ -22,7 +22,7 @@ Atlas today is an excellent **single-host, self-hosted developer stack**. It is 
 
 ---
 
-## Part 1 — Readiness assessment (current state)
+## 2. Part 1 — Readiness assessment (current state)
 
 Rating scale: **Solid** (production-acceptable) · **Partial** (works, gaps remain) · **Missing**. "Go-live severity" is relative to the Part 0 anchor (single internet-facing host).
 
@@ -45,11 +45,11 @@ Rating scale: **Solid** (production-acceptable) · **Partial** (works, gaps rema
 
 ---
 
-## Part 2 — Hosting / deployment-target fit
+## 3. Part 2 — Hosting / deployment-target fit
 
 *All prices are mid-2026 snapshots from the cited sources and drift frequently — re-verify on the provider's own pricing page before committing. EUR→USD ≈ ×1.08.*
 
-### 2.1 What this stack demands of a host
+### 3.1. What this stack demands of a host
 
 - **One Linux host, root + Docker**, single-host Docker Compose (`docker-compose.yml` is an `include:` shell).
 - **RAM is the binding constraint.** ~30 containers including JVM-heavy (Spark, Airflow, Zeppelin) + graph/vector DBs (Neo4j, Weaviate) → **32 GB is the comfortable target; 16 GB is a cramped floor** that will swap once everything is up.
@@ -57,7 +57,7 @@ Rating scale: **Solid** (production-acceptable) · **Partial** (works, gaps rema
 - **Optional GPU tier** (Ollama, ComfyUI, GPU TTS/STT) — separable from the main host.
 - **The offload lever:** `*_SOURCE=external` lets stateful/heavy pieces move off-box — **MinIO→S3**, **Ollama→cloud LLM API**, and (partially) Postgres→managed. This reshapes provider fit.
 
-### 2.2 Provider scorecard (best in-budget option per provider)
+### 3.2. Provider scorecard (best in-budget option per provider)
 
 | Provider | Best fit ≤ $100/mo | RAM | vCPU | ~$/mo | Managed offload | Reliability | Verdict |
 |----------|--------------------|-----|------|-------|-----------------|-------------|---------|
@@ -72,7 +72,7 @@ Rating scale: **Solid** (production-acceptable) · **Partial** (works, gaps rema
 
 Sources: Hetzner June-2026 price change (Northflank, byteiota, wz-it); DigitalOcean/Vultr/Linode/Contabo/Hostinger/OVH official pricing pages + HostAdvice/Better Stack reviews; AWS us-east-1 on-demand. Contabo uptime: Contabo status page / StatusGator snapshot.
 
-### 2.3 GPU options (budget reality)
+### 3.3. GPU options (budget reality)
 
 **$50–100/mo cannot run an always-on cloud GPU** (AWS g4dn ≈ $384/mo, g5 ≈ $734/mo; a single H100 ≈ $1.7k+/mo). GPU within budget = **burst** or **own hardware**:
 
@@ -84,14 +84,14 @@ Sources: Hetzner June-2026 price change (Northflank, byteiota, wz-it); DigitalOc
 | **Cloud LLM API** | per-token | single-digit–low-tens | n/a | `LLM_PROVIDER_SOURCE=api` via LiteLLM | No GPU at all; simplest; the budget-correct default for many cases |
 | Lambda / Paperspace | A100 floor ~$2/hr / $39/mo gate | — | — | — | **Not suitable** for light bursts |
 
-### 2.4 Recommendations
+### 3.4. Recommendations
 
 - **No-GPU path (simplest, fully in budget):** **Hetzner CX53 (~$26/mo)** running the full stack on CPU, LLMs via **cloud API** (`LLM_PROVIDER_SOURCE=api` → OpenAI/Anthropic/OpenRouter through LiteLLM), objects optionally on **S3-compatible storage**. If you want flat pricing + bundled daily backups and can accept 24 GB, **OVH VPS-4 (~$23/mo)** is the reliability-adjusted pick.
 - **GPU/hybrid path:** Same VPS for the 30 containers; point Ollama/ComfyUI at **RunPod on-demand** (or a **home GPU over Tailscale**) via `*_SOURCE=external`. Budget impact: ~$15–20/mo added for light use.
 - **Avoid as primary:** Contabo (reliability) except for staging; AWS/hyperscalers (cost/complexity) except to consume **S3** and **cloud LLM APIs** à la carte.
 - **TLS / public edge:** see Part 5 (Cloudflare Tunnel → Kong primary; Caddy → Kong fallback).
 
-### 2.5 Reference architecture (recommended single-host go-live)
+### 3.5. Reference architecture (recommended single-host go-live)
 
 ```
                 Internet
@@ -123,16 +123,16 @@ Sources: Hetzner June-2026 price change (Northflank, byteiota, wz-it); DigitalOc
 
 ---
 
-## Part 3 — Reuse / embedding strategy
+## 4. Part 3 — Reuse / embedding strategy
 
-### 3.1 What exists today (verified)
+### 4.1. What exists today (verified)
 
 - **Submodule guide:** `docs/deployment/submodule-usage.md` (666 lines) — network sharing, Kong as single entry, service extension, CI/CD, troubleshooting.
 - **`services/_user/` overlay slot:** gitignored upstream, tracked downstream (CONTRIBUTING §21); the manifest loader skips `_`-prefixed dirs so a consumer's services don't leak into upstream PRs.
 - **Parameterization without forking:** `PROJECT_NAME` (resource prefix), `BRAND_*` (rebrand), `BASE_PORT` (entire port layout), per-service `*_SOURCE`.
 - **Minimal root-dir coupling:** bootstrapper uses `Path(__file__).resolve().parent.parent`, not hardcoded paths.
 
-### 3.2 Strategy comparison (for "Atlas as my multi-project infra")
+### 4.2. Strategy comparison (for "Atlas as my multi-project infra")
 
 | Strategy | Fit today | Pros | Cons |
 |----------|-----------|------|------|
@@ -143,7 +143,7 @@ Sources: Hetzner June-2026 price change (Northflank, byteiota, wz-it); DigitalOc
 
 **Recommendation:** one **always-on Atlas instance** (submodule pinned to a tag, or its own deploy repo) + each project repo consumes it via the **shared `${PROJECT_NAME}-network`** and, where a project needs a co-located service, the **`services/_user/` overlay**. This is the lowest-friction model and is already 90% documented.
 
-### 3.3 Documentation verdict
+### 4.3. Documentation verdict
 
 **Mostly sufficient, three gaps:**
 1. **`_user/` → `docker compose` include gap** — the overlay loads into the bootstrapper's manifest model, but the hand-maintained `include:` list in `docker-compose.yml` means user services don't actually start without a wrapper or an auto-include/glob. **This is the one real engineering fix for reuse** (Phase 1).
@@ -152,7 +152,7 @@ Sources: Hetzner June-2026 price change (Northflank, byteiota, wz-it); DigitalOc
 
 ---
 
-## Part 4 — Cross-OS honesty (short)
+## 5. Part 4 — Cross-OS honesty (short)
 
 - **Production host = Linux** → native-Windows server support is irrelevant to the go-live. macOS (Intel/ARM) and Linux (Docker/Podman) dev hosts are fully supported.
 - **Native Windows dev = WSL or Git Bash only** (`start.sh` is POSIX `sh` with `id -u`; no `.ps1`). The Python core is OS-aware, so a future `start.ps1` is feasible but **not worth building now**.
@@ -160,11 +160,11 @@ Sources: Hetzner June-2026 price change (Northflank, byteiota, wz-it); DigitalOc
 
 ---
 
-## Part 5 — Phased roadmap
+## 6. Part 5 — Phased roadmap
 
 Each item: **Severity** (Blocker/High/Med/Low for go-live) · **Effort** (S < 0.5d, M 0.5–2d, L > 2d) · dependencies.
 
-### Phase 0 — Go-live blockers (the ≤ 3-week critical path)
+### 6.1. Phase 0 — Go-live blockers (the ≤ 3-week critical path)
 
 | ID | Item | Sev | Eff | Notes / dependencies |
 |----|------|-----|-----|----------------------|
@@ -178,7 +178,7 @@ Each item: **Severity** (Blocker/High/Med/Low for go-live) · **Effort** (S < 0.
 | P0-8 | **GPU/LLM decision wired** | High | S | Pick: cloud LLM API (`LLM_PROVIDER_SOURCE=api`), RunPod burst, or home GPU via Tailscale (`*_SOURCE=external`); configure + smoke-test. |
 | P0-9 | **README cross-OS fix** | Low | S | Correct the overstated claim (opportunistic). |
 
-### Phase 1 — Reuse mechanics (right after go-live)
+### 6.2. Phase 1 — Reuse mechanics (right after go-live)
 
 | ID | Item | Sev | Eff | Notes |
 |----|------|-----|-----|-------|
@@ -186,7 +186,7 @@ Each item: **Severity** (Blocker/High/Med/Low for go-live) · **Effort** (S < 0.
 | P1-2 | **"Consume Atlas from a sibling repo" doc** | — | S | Shared-network pattern, DNS names, env wiring, start-order. |
 | P1-3 | **Release tagging for pinning** | — | S | Semver tags so submodule consumers pin/upgrade deliberately. |
 
-### Phase 2+ — Deferred (documented, sequenced)
+### 6.3. Phase 2+ — Deferred (documented, sequenced)
 
 | ID | Item | Notes |
 |----|------|-------|
@@ -200,17 +200,17 @@ Each item: **Severity** (Blocker/High/Med/Low for go-live) · **Effort** (S < 0.
 
 ---
 
-## Part 6 — Appendices
+## 7. Part 6 — Appendices
 
-### 6.1 Consolidated gap register
+### 7.1. Consolidated gap register
 
 See Part 1 table (assessment) + Part 5 (actions). Blockers: TLS (P0-2), network exposure (P0-3), secrets (P0-4). High: auth audit (P0-5), backups (P0-6), prod override (P0-7).
 
-### 6.2 Provider comparison
+### 7.2. Provider comparison
 
 See Part 2.2 (CPU hosts), 2.3 (GPU). Primary recommendation: **Hetzner CX53** (value) or **OVH VPS-4** (reliability-adjusted), + **Cloudflare Tunnel** for TLS, + **cloud LLM API** or **RunPod burst** for inference.
 
-### 6.3 References (research, mid-2026; verify before committing)
+### 7.3. References (research, mid-2026; verify before committing)
 
 - Hetzner June-2026 pricing: northflank.com, byteiota.com, wz-it.com; official hetzner.com/cloud.
 - DigitalOcean/Vultr/Linode/Contabo/Hostinger/OVH/IONOS: official pricing pages + HostAdvice / Better Stack reviews; Contabo uptime via status page / StatusGator; Contabo Nuremberg RCA (Sept 2024).
@@ -218,7 +218,7 @@ See Part 2.2 (CPU hosts), 2.3 (GPU). Primary recommendation: **Hetzner CX53** (v
 - AWS: us-east-1 on-demand (EC2 t3, EBS gp3, S3, RDS, ElastiCache, g4dn/g5); Cloudflare Tunnel docs + 100 MB proxy upload limit; Caddy/Traefik/Kong ACME docs.
 - Codebase evidence: `services/kong/`, `services/*/compose.yml`, `bootstrapper/utils/key_generator.py`, `bootstrapper/utils/system.py`, `docs/deployment/submodule-usage.md`, `docs/CONTRIBUTING-services.md` §21, `docs/ROADMAP.md`.
 
-### 6.4 Open questions for the author
+### 7.4. Open questions for the author
 
 1. **GPU stance for go-live:** cloud LLM API only (simplest), RunPod burst, or home GPU via Tailscale?
 2. **TLS preference:** Cloudflare Tunnel (zero inbound ports, 100 MB upload cap) vs Caddy (open 80/443, no upload cap)?

@@ -221,7 +221,7 @@ Use this structure for deferred/rejected decision issues:
 
 ## 6. Epic Issues
 
-### 6.1 Epic: Atlas Root Dashboard
+### 6.1. Epic: Atlas Root Dashboard
 
 - **Labels:** `vnext`, `type:epic`, `track:platform`, `risk:low`, `effort:medium`, `epic:dashboard`, `wave:build-now`
 - **Project:** Roadmap Status `Build Now`, Wave `Build Now`, Track `platform`, Priority `P0`
@@ -234,7 +234,7 @@ Acceptance criteria:
 - [ ] Epic body defines the minimum dashboard as service directory, health status, track context, common actions, warnings, and docs links.
 - [ ] Epic body explicitly says v1 is not a Grafana replacement, setup wizard, SOURCE editor, or persistent control plane.
 
-### 6.2 Epic: MCP Package
+### 6.2. Epic: MCP Package
 
 - **Labels:** `vnext`, `type:epic`, `track:mcp`, `risk:medium`, `effort:medium`, `epic:mcp`, `wave:build-now`
 - **Project:** Roadmap Status `Build Now`, Wave `Build Now`, Track `mcp`, Priority `P0`
@@ -247,7 +247,7 @@ Acceptance criteria:
 - [ ] Epic body rejects one-MCP-server-per-service, Docker MCP Gateway as the default, and forcing every server through `mcpo`.
 - [ ] Epic body identifies Postgres, Neo4j, SearXNG, and Docling MCP as first relevant targets.
 
-### 6.3 Epic: Observability
+### 6.3. Epic: Observability
 
 - **Labels:** `vnext`, `type:epic`, `track:observability`, `risk:medium`, `effort:medium`, `epic:observability`, `wave:build-now`
 - **Project:** Roadmap Status `Build Now`, Wave `Build Now`, Track `observability`, Priority `P1`
@@ -260,7 +260,7 @@ Acceptance criteria:
 - [ ] Decision issue exists for OpenLIT deferral.
 - [ ] Epic explains the distinction between current Prometheus/Grafana infrastructure metrics and missing LLM traces/logs/cost attribution.
 
-### 6.4 Epic: Ingestion
+### 6.4. Epic: Ingestion
 
 - **Labels:** `vnext`, `type:epic`, `track:rag`, `risk:medium`, `effort:medium`, `epic:ingestion`, `wave:build-now`
 - **Project:** Roadmap Status `Build Now`, Wave `Build Now`, Track `rag`, Priority `P1`
@@ -273,7 +273,7 @@ Acceptance criteria:
 - [ ] Watchlist/deferred issues exist for Browserless, Firecrawl, WhisperX, Verba, Neo4j LLM Knowledge Graph Builder, and Graphiti.
 - [ ] Epic defines ingestion guardrails: disabled by default where risky, size/time/content-type limits, and provenance retention.
 
-### 6.5 Epic: Async Jobs
+### 6.5. Epic: Async Jobs
 
 - **Labels:** `vnext`, `type:epic`, `track:async-jobs`, `risk:medium`, `effort:small`, `epic:async-jobs`, `wave:build-now`
 - **Project:** Roadmap Status `Build Now`, Wave `Build Now`, Track `async-jobs`, Priority `P1`
@@ -286,7 +286,7 @@ Acceptance criteria:
 - [ ] Epic explains that Atlas should establish one backend async-job pattern before adding alternate server-side execution surfaces.
 - [ ] Epic identifies Redis and backend code sharing as required prerequisites.
 
-### 6.6 Epic: Data Engineering Lakehouse Enablement
+### 6.6. Epic: Data Engineering Lakehouse Enablement
 
 - **Labels:** `vnext`, `type:epic`, `track:data-eng`, `track:data-ml`, `risk:medium`, `effort:large`, `epic:lakehouse`, `wave:build-now`, `source:data-eng-lab`
 - **Project:** Roadmap Status `Build Now`, Wave `Build Now`, Track `data-eng`, Priority `P0`
@@ -304,7 +304,7 @@ Acceptance criteria:
 
 ## 7. Build Now Implementation Issues
 
-### 7.1 Build Now: Atlas Root Dashboard
+### 7.1. Build Now: Atlas Root Dashboard
 
 - **Labels:** `vnext`, `enhancement`, `type:implementation`, `wave:build-now`, `track:platform`, `risk:low`, `effort:medium`, `epic:dashboard`
 - **Source:** [Kong root recommendation](../../strategy/atlas-vnext-strategy-report.md#6-kong-root-dashboard-recommendation), [Build Now](../../strategy/atlas-vnext-strategy-report.md#91-build-now)
@@ -320,7 +320,7 @@ Acceptance criteria:
 - [ ] Dashboard warns about missing hosts setup, unreachable localhost-mode services, disabled dependencies, and degraded upstreams.
 - [ ] Docs and tests cover route behavior and dashboard generation.
 
-### 7.2 Build Now: Curated MCP Package
+### 7.2. Build Now: Curated MCP Package
 
 - **Labels:** `vnext`, `enhancement`, `type:implementation`, `wave:build-now`, `track:mcp`, `risk:medium`, `effort:medium`, `epic:mcp`
 - **Source:** [MCP architecture](../../strategy/atlas-vnext-strategy-report.md#53-recommended-architecture), [Build Now](../../strategy/atlas-vnext-strategy-report.md#91-build-now)
@@ -335,7 +335,7 @@ Acceptance criteria:
 - [ ] MetaMCP, Docker MCP Gateway, and `mcpo` are documented as later/conditional tools, not default architecture.
 - [ ] Docs include security, consent, namespace, and credential guardrails.
 
-### 7.3 Build Now: Langfuse Gateway Tracing
+### 7.3. Build Now: Langfuse Gateway Tracing
 
 - **Labels:** `vnext`, `enhancement`, `type:implementation`, `wave:build-now`, `track:observability`, `risk:medium`, `effort:medium`, `epic:observability`
 - **Source:** [vNext Top 20](../../strategy/atlas-vnext-strategy-report.md#7-vnext-top-20), [Build Now](../../strategy/atlas-vnext-strategy-report.md#91-build-now)
@@ -349,7 +349,7 @@ Acceptance criteria:
 - [ ] Direct ComfyUI/Hermes/backend custom spans are explicitly out of scope for the first slice.
 - [ ] Docs explain how Langfuse complements, rather than replaces, Prometheus and Grafana.
 
-### 7.4 Build Now: Crawl4AI Extraction Path
+### 7.4. Build Now: Crawl4AI Extraction Path
 
 - **Labels:** `vnext`, `enhancement`, `type:implementation`, `wave:build-now`, `track:rag`, `risk:medium`, `effort:small`, `epic:ingestion`
 - **Source:** [RAG and content-ingestion track](../../strategy/atlas-vnext-strategy-report.md#83-rag-and-content-ingestion-track), [Build Now](../../strategy/atlas-vnext-strategy-report.md#91-build-now)
@@ -363,7 +363,7 @@ Acceptance criteria:
 - [ ] Resource limits, timeout limits, and content-type guardrails are documented.
 - [ ] Firecrawl and Browserless remain deferred until Crawl4AI gaps are proven.
 
-### 7.5 Build Now: Celery + Flower Worker Tier
+### 7.5. Build Now: Celery + Flower Worker Tier
 
 - **Labels:** `vnext`, `enhancement`, `type:implementation`, `wave:build-now`, `track:async-jobs`, `risk:medium`, `effort:small`, `epic:async-jobs`
 - **Source:** [vNext Top 20](../../strategy/atlas-vnext-strategy-report.md#7-vnext-top-20), [Build Now](../../strategy/atlas-vnext-strategy-report.md#91-build-now)
@@ -377,7 +377,7 @@ Acceptance criteria:
 - [ ] Retry, timeout, and failure-state behavior are documented.
 - [ ] Tests cover the selected task dispatch and status path.
 
-### 7.6 Build Now: Supavisor Transaction Pooler
+### 7.6. Build Now: Supavisor Transaction Pooler
 
 - **Labels:** `vnext`, `enhancement`, `type:implementation`, `wave:build-now`, `track:infra`, `risk:medium`, `effort:medium`
 - **Source:** [vNext Top 20](../../strategy/atlas-vnext-strategy-report.md#7-vnext-top-20), [Build Now](../../strategy/atlas-vnext-strategy-report.md#91-build-now)
@@ -391,7 +391,7 @@ Acceptance criteria:
 - [ ] Rollback path is documented so operators can return to direct connections.
 - [ ] Integration tests or compose validation cover the pooled configuration.
 
-### 7.7 Build Now: Apache Tika Fallback Extractor
+### 7.7. Build Now: Apache Tika Fallback Extractor
 
 - **Labels:** `vnext`, `enhancement`, `type:implementation`, `wave:build-now`, `track:rag`, `risk:medium`, `effort:small`, `epic:ingestion`
 - **Source:** [vNext Top 20](../../strategy/atlas-vnext-strategy-report.md#7-vnext-top-20), [RAG and content-ingestion track](../../strategy/atlas-vnext-strategy-report.md#83-rag-and-content-ingestion-track), [Build Now](../../strategy/atlas-vnext-strategy-report.md#91-build-now)
@@ -405,7 +405,7 @@ Acceptance criteria:
 - [ ] Extracted text preserves document provenance for RAG audit.
 - [ ] Tests cover fallback selection without regressing the Docling-first path.
 
-### 7.8 Build Now: Iceberg REST Catalog And Lakehouse Buckets
+### 7.8. Build Now: Iceberg REST Catalog And Lakehouse Buckets
 
 - **Labels:** `vnext`, `enhancement`, `type:implementation`, `wave:build-now`, `track:data-eng`, `track:data-ml`, `risk:medium`, `effort:medium`, `epic:lakehouse`, `source:data-eng-lab`
 - **Source:** [Data / ML platform track](../../strategy/atlas-vnext-strategy-report.md#84-data--ml-platform-track), local handoff `/Users/kaveh/repos/data-eng-lab/docs/atlas-enablement.md` A1
@@ -434,7 +434,7 @@ Acceptance criteria:
 - [ ] Catalog metadata and tables survive a stack restart when JDBC-backed.
 - [ ] The service is included in the `data-eng` track only after topology, wizard, and source-skip behavior are defined.
 
-### 7.9 Build Now: Iceberg Spark Runtime And Default Catalog Config
+### 7.9. Build Now: Iceberg Spark Runtime And Default Catalog Config
 
 - **Labels:** `vnext`, `enhancement`, `type:implementation`, `wave:build-now`, `track:data-eng`, `track:data-ml`, `risk:medium`, `effort:medium`, `epic:lakehouse`, `source:data-eng-lab`
 - **Source:** [Data / ML platform track](../../strategy/atlas-vnext-strategy-report.md#84-data--ml-platform-track), local handoff `/Users/kaveh/repos/data-eng-lab/docs/atlas-enablement.md` A2
@@ -465,7 +465,7 @@ Acceptance criteria:
 
 ## 8. Build Next Backlog Issues
 
-### 8.1 Build Next: SSO Pilot With Authentik First
+### 8.1. Build Next: SSO Pilot With Authentik First
 
 - **Labels:** `vnext`, `type:evaluation`, `wave:build-next`, `track:identity-security`, `risk:high`, `effort:large`
 - **Source:** [vNext Top 20](../../strategy/atlas-vnext-strategy-report.md#7-vnext-top-20), [Build Next](../../strategy/atlas-vnext-strategy-report.md#92-build-next)
@@ -477,7 +477,7 @@ Acceptance criteria:
 - [ ] Open WebUI, JupyterHub, n8n, MinIO, Neo4j, Kong, and Supabase Auth implications are documented.
 - [ ] The issue blocks full-stack auth migration until a route-level pilot passes.
 
-### 8.2 Build Next: Secrets Manager With Infisical First
+### 8.2. Build Next: Secrets Manager With Infisical First
 
 - **Labels:** `vnext`, `type:evaluation`, `wave:build-next`, `track:identity-security`, `risk:high`, `effort:medium`
 - **Source:** [vNext Top 20](../../strategy/atlas-vnext-strategy-report.md#7-vnext-top-20), [Build Next](../../strategy/atlas-vnext-strategy-report.md#92-build-next)
@@ -490,7 +490,7 @@ Acceptance criteria:
 - [ ] Existing `.env` flows are not disrupted in the first slice.
 - [ ] Bootstrapper env injection and service startup implications are documented.
 
-### 8.3 Build Next: OpenTelemetry Collector + Tempo + Loki
+### 8.3. Build Next: OpenTelemetry Collector + Tempo + Loki
 
 - **Labels:** `vnext`, `type:implementation`, `wave:build-next`, `track:observability`, `risk:medium`, `effort:medium`, `epic:observability`
 - **Source:** [Build Next](../../strategy/atlas-vnext-strategy-report.md#92-build-next)
@@ -503,7 +503,7 @@ Acceptance criteria:
 - [ ] Kong request IDs and trace correlation strategy are documented.
 - [ ] Grafana integration is documented.
 
-### 8.4 Build Next: MLflow Tracking And Artifact Store
+### 8.4. Build Next: MLflow Tracking And Artifact Store
 
 - **Labels:** `vnext`, `type:implementation`, `wave:build-next`, `track:data-ml`, `risk:medium`, `effort:medium`
 - **Source:** [Data / ML platform track](../../strategy/atlas-vnext-strategy-report.md#84-data--ml-platform-track), [Build Next](../../strategy/atlas-vnext-strategy-report.md#92-build-next)
@@ -515,7 +515,7 @@ Acceptance criteria:
 - [ ] A sample notebook logs an experiment and artifact.
 - [ ] Model promotion automations are explicitly out of scope for the first slice.
 
-### 8.5 Build Next: Open WebUI Pipelines
+### 8.5. Build Next: Open WebUI Pipelines
 
 - **Labels:** `vnext`, `type:evaluation`, `wave:build-next`, `track:platform`, `risk:medium`, `effort:medium`
 - **Source:** [Build Next](../../strategy/atlas-vnext-strategy-report.md#92-build-next)
@@ -527,7 +527,7 @@ Acceptance criteria:
 - [ ] Langfuse integration is considered before adding a separate observability surface.
 - [ ] OpenLIT remains deferred as a standalone UI.
 
-### 8.6 Build Next: Neo4j LLM Knowledge Graph Builder
+### 8.6. Build Next: Neo4j LLM Knowledge Graph Builder
 
 - **Labels:** `vnext`, `type:implementation`, `wave:build-next`, `track:rag`, `risk:medium`, `effort:medium`, `epic:ingestion`
 - **Source:** [vNext Top 20](../../strategy/atlas-vnext-strategy-report.md#7-vnext-top-20), [Build Next](../../strategy/atlas-vnext-strategy-report.md#92-build-next)
@@ -539,7 +539,7 @@ Acceptance criteria:
 - [ ] A sample document-to-graph workflow is documented.
 - [ ] Namespaces/labels prevent collisions with other Neo4j data.
 
-### 8.7 Build Next: Verba RAG UI
+### 8.7. Build Next: Verba RAG UI
 
 - **Labels:** `vnext`, `type:implementation`, `wave:build-next`, `track:rag`, `risk:medium`, `effort:medium`, `epic:ingestion`
 - **Source:** [vNext Top 20](../../strategy/atlas-vnext-strategy-report.md#7-vnext-top-20), [Build Next](../../strategy/atlas-vnext-strategy-report.md#92-build-next)
@@ -551,7 +551,7 @@ Acceptance criteria:
 - [ ] LiteLLM and optional Docling wiring are documented.
 - [ ] A sample ingest/query path is documented.
 
-### 8.8 Build Next: Label Studio Review Loop
+### 8.8. Build Next: Label Studio Review Loop
 
 - **Labels:** `vnext`, `type:implementation`, `wave:build-next`, `track:data-ml`, `risk:medium`, `effort:medium`
 - **Source:** [vNext Top 20](../../strategy/atlas-vnext-strategy-report.md#7-vnext-top-20), [Data / ML platform track](../../strategy/atlas-vnext-strategy-report.md#84-data--ml-platform-track), [Build Next](../../strategy/atlas-vnext-strategy-report.md#92-build-next)
@@ -563,7 +563,7 @@ Acceptance criteria:
 - [ ] A notebook shows export to Weaviate or MLflow.
 - [ ] SSO/permissions dependency is documented before broad multi-user usage.
 
-### 8.9 Build Next: Zeppelin Spark And Iceberg Interpreter Auto-Seeding
+### 8.9. Build Next: Zeppelin Spark And Iceberg Interpreter Auto-Seeding
 
 - **Labels:** `vnext`, `type:implementation`, `wave:build-next`, `track:data-eng`, `risk:medium`, `effort:medium`, `epic:lakehouse`, `source:data-eng-lab`
 - **Source:** local handoff `/Users/kaveh/repos/data-eng-lab/docs/atlas-enablement.md` A3
@@ -590,7 +590,7 @@ Acceptance criteria:
 - [ ] Existing starter notebooks continue to work.
 - [ ] Docs explain the zero-touch path and the fallback/manual recovery path.
 
-### 8.10 Build Next: JupyterHub Lakehouse Python Libraries
+### 8.10. Build Next: JupyterHub Lakehouse Python Libraries
 
 - **Labels:** `vnext`, `type:implementation`, `wave:build-next`, `track:data-eng`, `track:data-ml`, `risk:medium`, `effort:small`, `epic:lakehouse`, `source:data-eng-lab`
 - **Source:** local handoff `/Users/kaveh/repos/data-eng-lab/docs/atlas-enablement.md` A4
@@ -617,7 +617,7 @@ Acceptance criteria:
 - [ ] `pyiceberg.catalog.load_catalog("rest", **{"uri": ICEBERG_REST_URI})` can list namespaces when A1 is enabled.
 - [ ] Docs include a minimal PyIceberg/DuckDB example and validation command.
 
-### 8.11 Build Next: Airflow S3A SparkSubmitOperator Path
+### 8.11. Build Next: Airflow S3A SparkSubmitOperator Path
 
 - **Labels:** `vnext`, `type:implementation`, `wave:build-next`, `track:data-eng`, `risk:medium`, `effort:medium`, `epic:lakehouse`, `source:data-eng-lab`
 - **Source:** local handoff `/Users/kaveh/repos/data-eng-lab/docs/atlas-enablement.md` A6
@@ -644,7 +644,7 @@ Acceptance criteria:
 - [ ] Run appears in Spark History.
 - [ ] Airflow seeded connections or env are updated idempotently without breaking existing Spark/MinIO DAGs.
 
-### 8.12 Build Next: Data-Eng Track And Wizard Lakehouse Coverage
+### 8.12. Build Next: Data-Eng Track And Wizard Lakehouse Coverage
 
 - **Labels:** `vnext`, `type:implementation`, `wave:build-next`, `track:data-eng`, `risk:medium`, `effort:small`, `epic:lakehouse`, `source:data-eng-lab`
 - **Source:** local handoff `/Users/kaveh/repos/data-eng-lab/docs/atlas-enablement.md` A8
@@ -660,7 +660,7 @@ Acceptance criteria:
 
 ## 9. Build Later Backlog Issues
 
-### 9.1 Build Later: Graphiti Temporal Graph Memory
+### 9.1. Build Later: Graphiti Temporal Graph Memory
 
 - **Labels:** `vnext`, `type:evaluation`, `wave:build-later`, `track:rag`, `risk:medium`, `effort:small`
 - **Source:** [vNext Top 20](../../strategy/atlas-vnext-strategy-report.md#7-vnext-top-20), [Build Later](../../strategy/atlas-vnext-strategy-report.md#93-build-later)
@@ -671,7 +671,7 @@ Acceptance criteria:
 - [ ] Define strict `group_id` namespacing.
 - [ ] Document how it augments LangMem rather than replacing it.
 
-### 9.2 Build Later: SigLIP 2 Vectorizer Upgrade Path
+### 9.2. Build Later: SigLIP 2 Vectorizer Upgrade Path
 
 - **Labels:** `vnext`, `type:evaluation`, `wave:build-later`, `track:rag`, `risk:medium`, `effort:small`
 - **Source:** [vNext Top 20](../../strategy/atlas-vnext-strategy-report.md#7-vnext-top-20), [Build Later](../../strategy/atlas-vnext-strategy-report.md#93-build-later)
@@ -682,7 +682,7 @@ Acceptance criteria:
 - [ ] Document collection dimension and revectorization implications.
 - [ ] Do not silently change existing vector dimensions.
 
-### 9.3 Build Later: Jenkins Maven Spark App Builder
+### 9.3. Build Later: Jenkins Maven Spark App Builder
 
 - **Labels:** `vnext`, `type:implementation`, `wave:build-later`, `track:data-eng`, `risk:medium`, `effort:medium`, `epic:lakehouse`, `source:data-eng-lab`
 - **Source:** local handoff `/Users/kaveh/repos/data-eng-lab/docs/atlas-enablement.md` A5
@@ -710,7 +710,7 @@ Acceptance criteria:
 - [ ] A pipeline can run `mvn -q package` and upload `target/*.jar` to `s3a://jars/<app>/<version>/app.jar` or the equivalent MinIO alias path.
 - [ ] Atlas does not bake `data-eng-lab` job definitions into the Jenkins service.
 
-### 9.4 Build Later: OpenBB + CCXT Financial Research Kit
+### 9.4. Build Later: OpenBB + CCXT Financial Research Kit
 
 - **Labels:** `vnext`, `type:implementation`, `wave:build-later`, `track:trading`, `risk:high`, `effort:medium`
 - **Source:** [Trading / Financial-AI track](../../strategy/atlas-vnext-strategy-report.md#82-trading--financial-ai-track), [Build Later](../../strategy/atlas-vnext-strategy-report.md#93-build-later)
@@ -722,7 +722,7 @@ Acceptance criteria:
 - [ ] Explicitly block live exchange keys in the first slice.
 - [ ] Document dependency on secrets management before exchange-key workflows.
 
-### 9.5 Build Later: Blender MCP + glTF-Transform Asset Bridge
+### 9.5. Build Later: Blender MCP + glTF-Transform Asset Bridge
 
 - **Labels:** `vnext`, `type:evaluation`, `wave:build-later`, `track:creative-3d`, `risk:high`, `effort:medium`, `track:mcp`
 - **Source:** [3D / game-generation track](../../strategy/atlas-vnext-strategy-report.md#81-3d--game-generation-track), [Build Later](../../strategy/atlas-vnext-strategy-report.md#93-build-later)
@@ -738,7 +738,7 @@ Acceptance criteria:
 
 Create these as watchlist issues, not active build tasks.
 
-### 10.1 Watchlist: imgproxy Asset Thumbnailing
+### 10.1. Watchlist: imgproxy Asset Thumbnailing
 
 - **Labels:** `vnext`, `type:watchlist`, `wave:watchlist`, `track:creative-3d`, `risk:medium`, `effort:small`
 - **Source:** [Watchlist](../../strategy/atlas-vnext-strategy-report.md#104-watchlist--already-shipped)
@@ -749,7 +749,7 @@ Acceptance criteria:
 - [ ] Define whether Atlas needs image thumbnailing, transformations, or media proxying.
 - [ ] Confirm route/auth model before exposing image transformations.
 
-### 10.2 Watchlist: NocoDB Human-In-The-Loop Queues
+### 10.2. Watchlist: NocoDB Human-In-The-Loop Queues
 
 - **Labels:** `vnext`, `type:watchlist`, `wave:watchlist`, `track:platform`, `risk:medium`, `effort:medium`
 - **Source:** [Watchlist](../../strategy/atlas-vnext-strategy-report.md#104-watchlist--already-shipped)
@@ -760,7 +760,7 @@ Acceptance criteria:
 - [ ] Identify a concrete human-review queue before adding the service.
 - [ ] Avoid introducing a second admin database UI without a product workflow.
 
-### 10.3 Watchlist: NeoDash Graph Dashboards
+### 10.3. Watchlist: NeoDash Graph Dashboards
 
 - **Labels:** `vnext`, `type:watchlist`, `wave:watchlist`, `track:rag`, `risk:medium`, `effort:small`
 - **Source:** [Watchlist](../../strategy/atlas-vnext-strategy-report.md#104-watchlist--already-shipped)
@@ -771,7 +771,7 @@ Acceptance criteria:
 - [ ] Define whether NeoDash complements or duplicates the Atlas root dashboard.
 - [ ] Ensure graph dashboard data is namespaced.
 
-### 10.4 Watchlist: WhisperX Audio/Meeting Ingestion
+### 10.4. Watchlist: WhisperX Audio/Meeting Ingestion
 
 - **Labels:** `vnext`, `type:watchlist`, `wave:watchlist`, `track:rag`, `track:voice`, `risk:medium`, `effort:medium`
 - **Source:** [RAG track later wave](../../strategy/atlas-vnext-strategy-report.md#83-rag-and-content-ingestion-track), [Watchlist](../../strategy/atlas-vnext-strategy-report.md#104-watchlist--already-shipped)
@@ -782,7 +782,7 @@ Acceptance criteria:
 - [ ] Document diarization, pyannote token/model terms, and resource implications.
 - [ ] Define provenance model for audio-derived text.
 
-### 10.5 Watchlist: Dagster Asset Orchestration
+### 10.5. Watchlist: Dagster Asset Orchestration
 
 - **Labels:** `vnext`, `type:watchlist`, `wave:watchlist`, `track:data-ml`, `risk:medium`, `effort:medium`
 - **Source:** [Data / ML platform track](../../strategy/atlas-vnext-strategy-report.md#84-data--ml-platform-track), [Watchlist](../../strategy/atlas-vnext-strategy-report.md#104-watchlist--already-shipped)
@@ -793,7 +793,7 @@ Acceptance criteria:
 - [ ] Do not add a second scheduler with unclear ownership.
 - [ ] Identify a concrete asset-lineage workflow first.
 
-### 10.6 Watchlist: Trino Over Iceberg REST Catalog
+### 10.6. Watchlist: Trino Over Iceberg REST Catalog
 
 - **Labels:** `vnext`, `type:watchlist`, `wave:watchlist`, `track:data-eng`, `track:data-ml`, `risk:medium`, `effort:medium`, `epic:lakehouse`, `source:data-eng-lab`
 - **Source:** [Data / ML platform track](../../strategy/atlas-vnext-strategy-report.md#84-data--ml-platform-track), [Watchlist](../../strategy/atlas-vnext-strategy-report.md#104-watchlist--already-shipped), local handoff `/Users/kaveh/repos/data-eng-lab/docs/atlas-enablement.md` A7
@@ -819,7 +819,7 @@ Acceptance criteria:
 - [ ] Confirm A1-A6 lakehouse foundations are working before implementation.
 - [ ] Define auth, catalog, MinIO, and Kong exposure boundaries before adding.
 
-### 10.7 Watchlist: Superset BI
+### 10.7. Watchlist: Superset BI
 
 - **Labels:** `vnext`, `type:watchlist`, `wave:watchlist`, `track:data-ml`, `risk:medium`, `effort:medium`
 - **Source:** [Data / ML platform track](../../strategy/atlas-vnext-strategy-report.md#84-data--ml-platform-track), [Watchlist](../../strategy/atlas-vnext-strategy-report.md#104-watchlist--already-shipped)
@@ -830,7 +830,7 @@ Acceptance criteria:
 - [ ] SSO must be credible before adding broad BI surfaces.
 - [ ] Document whether Superset complements or competes with Grafana/dashboard surfaces.
 
-### 10.8 Watchlist: TimescaleDB Trading Data
+### 10.8. Watchlist: TimescaleDB Trading Data
 
 - **Labels:** `vnext`, `type:watchlist`, `wave:watchlist`, `track:trading`, `risk:high`, `effort:medium`
 - **Source:** [Trading / Financial-AI track](../../strategy/atlas-vnext-strategy-report.md#82-trading--financial-ai-track), [Watchlist](../../strategy/atlas-vnext-strategy-report.md#104-watchlist--already-shipped)
@@ -841,7 +841,7 @@ Acceptance criteria:
 - [ ] Define tick/order-book/time-series retention policies.
 - [ ] Prefer isolated schemas and read-only/paper guardrails first.
 
-### 10.9 Watchlist: OpenBao Secrets Alternative
+### 10.9. Watchlist: OpenBao Secrets Alternative
 
 - **Labels:** `vnext`, `type:watchlist`, `wave:watchlist`, `track:identity-security`, `risk:high`, `effort:medium`
 - **Source:** [Watchlist](../../strategy/atlas-vnext-strategy-report.md#104-watchlist--already-shipped)
@@ -852,7 +852,7 @@ Acceptance criteria:
 - [ ] Do not adopt before Atlas has a concrete secrets lifecycle and operator story.
 - [ ] Document storage, unseal, backup, and bootstrap implications.
 
-### 10.10 Watchlist: Lakekeeper Iceberg Catalog
+### 10.10. Watchlist: Lakekeeper Iceberg Catalog
 
 - **Labels:** `vnext`, `type:watchlist`, `wave:watchlist`, `track:data-ml`, `risk:medium`, `effort:medium`
 - **Source:** [Watchlist](../../strategy/atlas-vnext-strategy-report.md#104-watchlist--already-shipped)
@@ -865,7 +865,7 @@ Acceptance criteria:
 
 ## 11. Deferred And Rejected-For-Now Decision Issues
 
-### 11.1 Deferred: Firecrawl
+### 11.1. Deferred: Firecrawl
 
 - **Labels:** `vnext`, `type:decision`, `wave:deferred`, `track:rag`, `risk:medium`, `effort:medium`
 - **Source:** [Reject or defer](../../strategy/atlas-vnext-strategy-report.md#94-reject-or-defer-for-now), [Rejected/deferred candidates](../../strategy/atlas-vnext-strategy-report.md#103-rejected--deferred-candidates)
@@ -876,7 +876,7 @@ Revisit criteria:
 - [ ] License and worker/Playwright footprint are acceptable for Atlas.
 - [ ] Atlas needs Firecrawl-specific functionality that cannot be achieved through Crawl4AI plus existing services.
 
-### 11.2 Deferred: Browserless
+### 11.2. Deferred: Browserless
 
 - **Labels:** `vnext`, `type:decision`, `wave:deferred`, `track:rag`, `risk:medium`, `effort:medium`
 - **Source:** [Reject or defer](../../strategy/atlas-vnext-strategy-report.md#94-reject-or-defer-for-now)
@@ -887,7 +887,7 @@ Revisit criteria:
 - [ ] Atlas accepts SSPL and Chromium memory cost for a named workflow.
 - [ ] Resource limits and auth model are designed before exposure.
 
-### 11.3 Deferred: Supabase Edge Functions
+### 11.3. Deferred: Supabase Edge Functions
 
 - **Labels:** `vnext`, `type:decision`, `wave:deferred`, `track:async-jobs`, `risk:medium`, `effort:medium`, `epic:async-jobs`
 - **Source:** [Reject or defer](../../strategy/atlas-vnext-strategy-report.md#94-reject-or-defer-for-now)
@@ -898,7 +898,7 @@ Revisit criteria:
 - [ ] Atlas has an edge-specific use case.
 - [ ] Deno function surface does not duplicate the established async-job pattern.
 
-### 11.4 Deferred: OpenLIT
+### 11.4. Deferred: OpenLIT
 
 - **Labels:** `vnext`, `type:decision`, `wave:deferred`, `track:observability`, `risk:medium`, `effort:medium`, `epic:observability`
 - **Source:** [Reject or defer](../../strategy/atlas-vnext-strategy-report.md#94-reject-or-defer-for-now)
@@ -909,7 +909,7 @@ Revisit criteria:
 - [ ] Atlas needs OpenLIT-specific functionality without adding UI overlap.
 - [ ] Integration cost is lower than extending the planned observability stack.
 
-### 11.5 Rejected For Now: Live Trading Services
+### 11.5. Rejected For Now: Live Trading Services
 
 - **Labels:** `vnext`, `type:decision`, `wave:rejected-for-now`, `track:trading`, `risk:high`, `effort:large`
 - **Source:** [Trading / Financial-AI track](../../strategy/atlas-vnext-strategy-report.md#82-trading--financial-ai-track), [Reject or defer](../../strategy/atlas-vnext-strategy-report.md#94-reject-or-defer-for-now)
@@ -920,7 +920,7 @@ Revisit criteria:
 - [ ] Hummingbot, Freqtrade, and NautilusTrader are considered only as sandbox/paper services first.
 - [ ] The project has clear disclaimers and no default live-trading behavior.
 
-### 11.6 Deferred To Notebooks: FinRL And FinGPT
+### 11.6. Deferred To Notebooks: FinRL And FinGPT
 
 - **Labels:** `vnext`, `type:decision`, `wave:deferred`, `track:trading`, `risk:high`, `effort:medium`
 - **Source:** [Trading / Financial-AI track](../../strategy/atlas-vnext-strategy-report.md#82-trading--financial-ai-track), [Reject or defer](../../strategy/atlas-vnext-strategy-report.md#94-reject-or-defer-for-now)
@@ -931,7 +931,7 @@ Revisit criteria:
 - [ ] These remain research notebook assets rather than production trading intelligence by default.
 - [ ] No issue or PR presents them as push-button trading AI.
 
-### 11.7 Deferred: Heavy 3D/Game Infrastructure
+### 11.7. Deferred: Heavy 3D/Game Infrastructure
 
 - **Labels:** `vnext`, `type:decision`, `wave:deferred`, `track:creative-3d`, `risk:high`, `effort:large`
 - **Source:** [3D / game-generation track](../../strategy/atlas-vnext-strategy-report.md#81-3d--game-generation-track), [Reject or defer](../../strategy/atlas-vnext-strategy-report.md#94-reject-or-defer-for-now)
@@ -942,7 +942,7 @@ Revisit criteria:
 - [ ] Hunyuan3D, TRELLIS/TRELLIS.2, Nerfstudio, Unreal MCP, and LiveKit each have a concrete workflow and resource budget.
 - [ ] Blender/Unreal-style editor automation is never exposed through Kong by default.
 
-### 11.8 Deferred: Voicebox, OmniVoice, And Unmute
+### 11.8. Deferred: Voicebox, OmniVoice, And Unmute
 
 - **Labels:** `vnext`, `type:decision`, `wave:deferred`, `track:voice`, `risk:medium`, `effort:medium`
 - **Source:** [Reject or defer](../../strategy/atlas-vnext-strategy-report.md#94-reject-or-defer-for-now)
@@ -953,7 +953,7 @@ Revisit criteria:
 - [ ] Integration path does not require Atlas to own an immature HTTP wrapper.
 - [ ] Provider exposes the endpoint compatibility Atlas needs.
 
-### 11.9 Deferred: Honcho
+### 11.9. Deferred: Honcho
 
 - **Labels:** `vnext`, `type:decision`, `wave:deferred`, `track:rag`, `risk:medium`, `effort:medium`
 - **Source:** [Reject or defer](../../strategy/atlas-vnext-strategy-report.md#94-reject-or-defer-for-now)
@@ -964,7 +964,7 @@ Revisit criteria:
 - [ ] AGPL posture and extra memory service weight are acceptable.
 - [ ] Atlas has a clear memory ownership model.
 
-### 11.10 Deferred: Redis Stack And RedisInsight
+### 11.10. Deferred: Redis Stack And RedisInsight
 
 - **Labels:** `vnext`, `type:decision`, `wave:deferred`, `track:infra`, `risk:medium`, `effort:medium`
 - **Source:** [Reject or defer](../../strategy/atlas-vnext-strategy-report.md#94-reject-or-defer-for-now)
@@ -975,7 +975,7 @@ Revisit criteria:
 - [ ] It does not duplicate current Redis usage without product value.
 - [ ] License and operational implications are documented.
 
-### 11.11 Deferred: Perplexica And Vane
+### 11.11. Deferred: Perplexica And Vane
 
 - **Labels:** `vnext`, `type:decision`, `wave:deferred`, `track:rag`, `risk:medium`, `effort:medium`
 - **Source:** [Reject or defer](../../strategy/atlas-vnext-strategy-report.md#94-reject-or-defer-for-now)
@@ -986,7 +986,7 @@ Revisit criteria:
 - [ ] The candidate does not duplicate Open WebUI plus Local Deep Researcher.
 - [ ] Route, auth, and data provenance are defined.
 
-### 11.12 Deferred: Redpanda
+### 11.12. Deferred: Redpanda
 
 - **Labels:** `vnext`, `type:decision`, `wave:deferred`, `track:data-ml`, `risk:medium`, `effort:large`
 - **Source:** [Data / ML platform track](../../strategy/atlas-vnext-strategy-report.md#84-data--ml-platform-track), [Reject or defer](../../strategy/atlas-vnext-strategy-report.md#94-reject-or-defer-for-now)
@@ -997,7 +997,7 @@ Revisit criteria:
 - [ ] Kafka-compatible infrastructure is justified in a Docker Compose-first stack.
 - [ ] Atlas has a retention, auth, and operator story for event streams.
 
-### 11.13 Already Shipped: Prometheus Baseline
+### 11.13. Already Shipped: Prometheus Baseline
 
 - **Labels:** `vnext`, `type:decision`, `wave:already-shipped`, `track:observability`, `risk:low`, `effort:small`
 - **Source:** [Watchlist / already shipped](../../strategy/atlas-vnext-strategy-report.md#104-watchlist--already-shipped)

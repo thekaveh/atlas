@@ -47,7 +47,7 @@ The default `ASSET_WORKER_SOURCE=disabled` keeps the worker out of normal starts
 
 ## 4. API Contract
 
-### 4.1 Uploaded GLB
+### 4.1. Uploaded GLB
 
 `POST /gltf/postprocess` accepts `multipart/form-data`:
 
@@ -70,7 +70,7 @@ curl -H "Authorization: Bearer ${ASSET_WORKER_API_TOKEN}" \
 | `ktx2` | no | Uses KTX2 texture compression; otherwise WebP is used. |
 | `collider_decimation` | no | collider decimation ratio used when `simplify_ratio` is absent. |
 
-### 4.2 MinIO Referenced GLB
+### 4.2. MinIO Referenced GLB
 
 `POST /gltf/postprocess/ref` accepts JSON:
 
@@ -86,7 +86,7 @@ Populate the default `raw-assets` bucket with the generated
 `MINIO_ASSET_INGEST_ACCESS_KEY` and `MINIO_ASSET_INGEST_SECRET_KEY`; that
 identity can write inputs without receiving MinIO root or processor-output access.
 
-### 4.3 Response
+### 4.3. Response
 
 Both endpoints return a normalized artifact envelope:
 
@@ -121,7 +121,7 @@ Both endpoints return a normalized artifact envelope:
 
 When `ASSET_WORKER_MINIO_ENABLED=false`, the worker stores the optimized GLB under `ASSET_WORKER_ARTIFACT_DIR/gltf/<sha256>.glb` and returns `download_url=/gltf/artifacts/<sha256>.glb`. The normalization places the base-at-y=0 before scaling.
 
-### 4.4 Scope boundary — mechanical conditioning only
+### 4.4. Scope boundary — mechanical conditioning only
 
 This service performs **mechanical glTF conditioning**: scale-to-target, center-XZ, ground-at-`y=0`, and mesh/texture optimization. **Orientation policy is the consumer's** — glTF is +Y-up by spec, so by default (`up_axis=keep`) incoming orientation is trusted and never second-guessed; reorientation (`auto` or an explicit axis) is strictly opt-in per request (#524). Product-specific asset rules (which assets to reorient, semantic up-ness, placement conventions) belong in the consuming pipeline, not here.
 
@@ -137,34 +137,34 @@ The service is intentionally separate from the media gateway. Provider-specific 
 
 ## 6. Dependencies & Integrations
 
-### 6.1 Current — Upstream (this service calls)
+### 6.1. Current — Upstream (this service calls)
 
 | Service | Category |
 |---|---|
 | minio | data |
 
-### 6.2 Current — Downstream (services that call this)
+### 6.2. Current — Downstream (services that call this)
 
 | Service | Category |
 |---|---|
 | prometheus | infra |
 
-### 6.3 Architecture diagram
+### 6.3. Architecture diagram
 
 ![asset-worker architecture](./architecture.svg)
 
 [Open the interactive HTML diagram](./architecture.html) for a full-screen view.
 
-### 6.4 Future — Missing pair integrations
+### 6.4. Future — Missing pair integrations
 
 - Backend media operations should call Asset Worker after hosted image-to-3D providers return raw GLB outputs.
 - Blender and DayDreams flows should use the API for the same upright/normalize/optimize contract instead of carrying local duplicate scripts.
 
-### 6.5 Future — Candidate new services
+### 6.5. Future — Candidate new services
 
 _No high-confidence opportunities identified._
 
-### 6.6 Future — Unused features in this service
+### 6.6. Future — Unused features in this service
 
 - Meshopt and Draco are mutually exclusive mesh-compression modes in a single glTF-Transform optimize pass. Requests may include both for policy compatibility; the worker prefers Draco for mesh compression and records both requested toggles in response metadata.
 

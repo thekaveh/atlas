@@ -12,7 +12,6 @@ def test_active_port_docs_do_not_use_retired_allocator_defaults() -> None:
         "services/comfyui/README.md": ["default `63041`"],
         "services/hermes/README.md": ["localhost:63030"],
         "services/jupyterhub/README.md": ["63081", "64156"],
-        "services/jupyterhub/build/README.md": ["63081"],
         "services/neo4j/README.md": ["default: 63020", "default: 63021"],
         "services/ollama/README.md": ["localhost:63030", "LITELLM_PORT=63030"],
         "services/openclaw/README.md": ["localhost:63030"],

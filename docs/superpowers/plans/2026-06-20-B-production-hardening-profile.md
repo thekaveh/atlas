@@ -8,7 +8,7 @@
 
 **Tech Stack:** Click CLI in `bootstrapper/start.py`; env writing via the existing source-override/env path; Compose interpolation; pytest + the fragment byte-equivalence baseline.
 
-## Global Constraints
+## 1. Global Constraints
 
 - `main` is protected — PR with 3 green checks; no direct push.
 - Commits: terse third-person, no emoji, no Claude trailer.
@@ -19,7 +19,7 @@
 
 ---
 
-### Task 1: `HOST_BIND_IP` global var + prefix all published ports
+### 1.1. Task 1: `HOST_BIND_IP` global var + prefix all published ports
 
 **Files:**
 - Modify: `services/globals/service.yml` (declare `HOST_BIND_IP`)
@@ -114,7 +114,7 @@ git commit -m "Add HOST_BIND_IP prefix to all published ports (localhost binding
 
 ---
 
-### Task 2: `--profile prod` CLI flag + env wiring
+### 1.2. Task 2: `--profile prod` CLI flag + env wiring
 
 **Files:**
 - Modify: `bootstrapper/start.py` (Click option + handling)
@@ -183,7 +183,7 @@ git commit -m "Add --profile prod flag (localhost ports, observability on, log r
 
 ---
 
-### Task 3: Declarative source-option profile metadata
+### 1.3. Task 3: Declarative source-option profile metadata
 
 **Files:**
 - Modify: `bootstrapper/schemas/service.schema.json` (add `profiles` to `sources.options[]`)
@@ -269,7 +269,7 @@ git commit -m "Add declarative profiles metadata to source options (dev-only mar
 
 ---
 
-### Task 4: Deployment-profile wizard step + prod source filtering
+### 1.4. Task 4: Deployment-profile wizard step + prod source filtering
 
 **Files:**
 - Modify: `bootstrapper/ui/textual/integration.py` (profile picker step + filter localhost options + thread `profile`)
@@ -379,7 +379,7 @@ git commit -m "Add deployment-profile wizard step + prod localhost-source filter
 
 ---
 
-### Task 5: Resource limits on heavy services
+### 1.5. Task 5: Resource limits on heavy services
 
 **Files:**
 - Modify: heavy `services/*/compose.yml` + their `service.yml` (declare `*_MEMORY_LIMIT`/`*_CPU_LIMIT` with prod-safe defaults)
@@ -427,7 +427,7 @@ git commit -m "Add resource limits to heavy services"
 
 ---
 
-### Task 6: Log rotation
+### 1.6. Task 6: Log rotation
 
 **Files:**
 - Modify: each `services/*/compose.yml` (add a `logging:` block) OR document a daemon-level default
@@ -471,7 +471,7 @@ git commit -m "Add json-file log rotation to long-running services"
 
 ---
 
-### Task 7: Document the profile
+### 1.7. Task 7: Document the profile
 
 **Files:**
 - Modify: `README.md` (add `--profile prod` to the options list), `docs/CHANGELOG.md`
@@ -493,7 +493,7 @@ git commit -m "docs: document --profile prod hardening"
 
 ---
 
-## Self-Review
+## 2. Self-Review
 
 - **Spec coverage:** Implements P0-3 (lock network exposure via `HOST_BIND_IP`) and P0-7 (resource limits + log rotation + observability-on `compose.prod` semantics via the prod profile). Adds the reviewer-requested **declarative `profiles:` metadata on source options** (Task 3), the **wizard profile step** (Task 4), and **profile-driven source filtering** in both the wizard and the CLI validator.
 - **Placeholders:** none — exact env names, fragment edits, module/function names, and commands given. Per-service limit numbers are left to the implementer to size, with explicit guidance (32 GB host) — that is a sizing decision, not a placeholder.

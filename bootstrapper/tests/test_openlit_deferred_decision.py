@@ -15,7 +15,7 @@ def _candidate_text() -> str:
 def test_openlit_remains_deferred_behind_langfuse_and_otel_stack() -> None:
     text = _candidate_text()
 
-    assert "## Deferred decision (2026-07-04)" in text
+    assert "Deferred decision (2026-07-04)" in text
     assert "must not add `services/openlit/service.yml` yet" in text
     assert "Langfuse plus OTel/Tempo/Loki" in text
     assert "second observability UI" in text

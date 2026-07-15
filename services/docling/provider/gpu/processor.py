@@ -5,10 +5,17 @@ Handles document processing using Docling library with GPU acceleration
 
 import asyncio
 import os
+from pathlib import Path
+import sys
 import time
-from typing import Optional
 from models import ConversionResponse, DocumentMetadata, DocumentChunk, ChunkMetadata
 from utils import get_file_size, detect_format, chunk_text
+try:
+    from pipeline_config import build_converter, resolve_pipeline_settings
+except ModuleNotFoundError:
+    shared_dir = Path(__file__).resolve().parents[1] / "shared"
+    sys.path.insert(0, str(shared_dir))
+    from pipeline_config import build_converter, resolve_pipeline_settings
 
 # Import Docling
 try:
@@ -27,8 +34,18 @@ def processor_ready() -> bool:
     return DocumentConverter is not None
 
 
-def _convert_document(file_path: str):
-    return DocumentConverter().convert(file_path)
+SUPPORTED_OUTPUT_FORMATS = {"markdown", "html", "json", "doctags"}
+
+
+def _convert_document(file_path: str, use_ocr: str, table_mode: str):
+    settings = resolve_pipeline_settings(
+        use_ocr=use_ocr,
+        table_mode=table_mode,
+        device=os.getenv("DOCLING_DEVICE", "auto"),
+        enable_formulas=os.getenv("DOCLING_ENABLE_FORMULAS", "true"),
+        enable_code_blocks=os.getenv("DOCLING_ENABLE_CODE_BLOCKS", "true"),
+    )
+    return build_converter(settings).convert(file_path)
 
 
 async def process_document(
@@ -64,10 +81,16 @@ async def process_document(
     # Process document with Docling
     if DocumentConverter is None:
         raise ImportError("Docling library not installed. Install with: pip install docling")
+    if output_format not in SUPPORTED_OUTPUT_FORMATS:
+        raise ValueError(
+            f"output_format must be one of: {', '.join(sorted(SUPPORTED_OUTPUT_FORMATS))}"
+        )
 
     try:
         async with _conversion_semaphore:
-            result = await asyncio.to_thread(_convert_document, file_path)
+            result = await asyncio.to_thread(
+                _convert_document, file_path, use_ocr, table_mode
+            )
         doc = result.document
 
         # Export to requested format
@@ -80,10 +103,6 @@ async def process_document(
             content = json.dumps(doc.export_to_dict(), indent=2)
         elif output_format == "doctags":
             content = doc.export_to_document_tokens()
-        else:
-            # Default to markdown
-            content = doc.export_to_markdown()
-
         # Extract metadata
         pages = len(doc.pages) if hasattr(doc, 'pages') and doc.pages else 1
 

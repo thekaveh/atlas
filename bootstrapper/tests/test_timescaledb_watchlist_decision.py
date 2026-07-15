@@ -14,7 +14,7 @@ def _candidate_text() -> str:
 def test_timescaledb_remains_watchlist_until_trading_data_slice_exists() -> None:
     text = _candidate_text()
 
-    assert "## Watchlist decision (2026-07-04)" in text
+    assert "Watchlist decision (2026-07-04)" in text
     assert "must not add `services/timescaledb/service.yml` yet" in text
     assert "later trading-data slice" in text
     assert "not standalone Atlas platform infrastructure" in text

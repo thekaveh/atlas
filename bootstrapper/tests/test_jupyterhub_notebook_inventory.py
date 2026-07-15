@@ -45,9 +45,6 @@ def _markdown_mentions(path: Path) -> set[str]:
 def test_jupyterhub_notebook_inventory_matches_docs_and_starter_notebook():
     notebooks = {p.name for p in NOTEBOOK_DIR.glob("*.ipynb")}
     readme_mentions = _markdown_mentions(ROOT / "services" / "jupyterhub" / "README.md")
-    build_readme_mentions = _markdown_mentions(
-        ROOT / "services" / "jupyterhub" / "build" / "README.md"
-    )
     startup_mentions = _markdown_mentions(STARTUP_FILE)
 
     starter = json.loads((NOTEBOOK_DIR / "00_environment_check.ipynb").read_text())
@@ -60,7 +57,6 @@ def test_jupyterhub_notebook_inventory_matches_docs_and_starter_notebook():
     starter_mentions.add("00_environment_check.ipynb")
 
     assert readme_mentions == notebooks
-    assert build_readme_mentions == notebooks
     assert starter_mentions == notebooks
     assert startup_mentions == notebooks
 

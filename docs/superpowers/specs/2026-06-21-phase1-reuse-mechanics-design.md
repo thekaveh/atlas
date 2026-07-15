@@ -28,7 +28,7 @@ A `_user/` overlay service is therefore a **self-contained Compose fragment**: i
 
 ## 3. P1-1 — Design
 
-### 3.1 Mechanism
+### 3.1. Mechanism
 
 `bootstrapper/core/docker_manager.py` builds the `docker compose` command in two places:
 - `execute_compose_command()` (linear flow)
@@ -55,13 +55,13 @@ def _compose_file_args(self) -> list[str]:
 
 Both command builders insert `self._compose_file_args()` immediately after the `--env-file` flag and before the caller's `args`.
 
-### 3.2 Why this shape
+### 3.2. Why this shape
 
 - **No overlay present (upstream, CI, default users) → zero behavior change.** `_compose_file_args()` returns `[]`, so the command is byte-identical to today and `docker compose ... config` (the byte-equivalence test) is untouched. This is the key safety property.
 - **Overlay present → explicit `-f docker-compose.yml -f services/_user/<svc>/compose.yml …`.** Once any `-f` is passed, Compose stops auto-discovering the default file, so we must list the base explicitly. Multiple `-f` files merge in order (overlays last).
 - **Deterministic** (sorted glob) and **gitignore-safe** (the dir is gitignored; absent in upstream).
 
-### 3.3 Tests
+### 3.3. Tests
 
 `bootstrapper/tests/test_user_overlay_compose.py`:
 - With no `services/_user/`, `_compose_file_args()` returns `[]` (default behavior preserved).

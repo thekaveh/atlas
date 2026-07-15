@@ -20,7 +20,7 @@ This guide explains how to use Atlas as a git submodule in your project, allowin
 
 ## 2. Quick Start
 
-### 2.1 Add atlas as a Submodule
+### 2.1. Add atlas as a Submodule
 
 In your project root, add atlas as a submodule in an `infra/` directory:
 
@@ -33,7 +33,7 @@ git submodule init
 git submodule update
 ```
 
-### 2.2 Configure the Environment
+### 2.2. Configure the Environment
 
 ```bash
 cd infra
@@ -52,7 +52,7 @@ vim .env
 PROJECT_NAME=myproject  # Change from 'atlas' to your project name
 ```
 
-### 2.3 Start the Infrastructure
+### 2.3. Start the Infrastructure
 
 ```bash
 # From the infra directory
@@ -62,7 +62,7 @@ PROJECT_NAME=myproject  # Change from 'atlas' to your project name
 (cd infra && ./start.sh)
 ```
 
-### 2.4 Access Services
+### 2.4. Access Services
 
 Services are accessible on ports starting from 63000 (base port):
 - **Supabase DB**: http://localhost:63012 (base + 12)
@@ -86,7 +86,7 @@ Using atlas as a git submodule provides these capabilities:
 
 ## 4. Project Structure
 
-### 4.1 Recommended Directory Layout
+### 4.1. Recommended Directory Layout
 
 ```
 myproject/
@@ -117,7 +117,7 @@ myproject/
 └── README.md
 ```
 
-### 4.2 Parent-repo consumer reference layout
+### 4.2. Parent-repo consumer reference layout
 
 Real Atlas consumers have converged on a parent-owned layout where the parent
 repository owns application code, overlay fragments, branding, wrapper scripts,
@@ -256,7 +256,7 @@ Validation checklist before committing a parent consumer update:
 - The wrapper documents the chosen `--track` and every explicit source override
   that intentionally differs from that track.
 
-### 4.3 Parent .gitignore Configuration
+### 4.3. Parent .gitignore Configuration
 
 Add these entries to your parent project's `.gitignore`:
 
@@ -291,7 +291,7 @@ Use `infra/services/supabase/db/_user/` for downstream-owned Supabase SQL that s
 
 ## 5. Configuration
 
-### 5.1 PROJECT_NAME: The Key to Isolation
+### 5.1. PROJECT_NAME: The Key to Isolation
 
 The `PROJECT_NAME` environment variable is critical for submodule usage. It prefixes all Docker resources to prevent conflicts:
 
@@ -334,7 +334,7 @@ The name is lower-cased and must match Docker Compose's project-name rules
 wizard also has a **Project name** step (defaults to the current value) that
 writes it to `.env`.
 
-### 5.2 Custom Environment File Location (Advanced)
+### 5.2. Custom Environment File Location (Advanced)
 
 If you prefer to manage your infrastructure configuration from the parent project, you can use the `ATLAS_ENV_FILE` environment variable (the legacy name `GENAI_ENV_FILE` is still honored as a deprecated alias with a one-shot stderr warning):
 
@@ -356,7 +356,7 @@ This is useful for:
 - CI/CD pipelines with secret injection
 - Running multiple instances with different configurations
 
-### 5.3 Port Configuration
+### 5.3. Port Configuration
 
 By default, services start at port 63000. If these ports conflict with your application:
 
@@ -370,7 +370,7 @@ BASE_PORT=64000
 
 ## 6. Integration Patterns
 
-### 6.1 Pattern 1: Docker Network Integration
+### 6.1. Pattern 1: Docker Network Integration
 
 Connect your application services to the Atlas network.
 
@@ -411,7 +411,7 @@ cd infra && ./start.sh && cd ..
 docker compose up -d
 ```
 
-### 6.2 Pattern 2: Kong Gateway as Single Entry Point
+### 6.2. Pattern 2: Kong Gateway as Single Entry Point
 
 Use Kong (port 63000) to access all infrastructure services from your application:
 
@@ -441,7 +441,7 @@ const n8nUrl = "http://n8n.localhost:63000";
 const jupyterUrl = "http://jupyter.localhost:63000";
 ```
 
-### 6.3 Pattern 3: Direct Port Access
+### 6.3. Pattern 3: Direct Port Access
 
 Access services directly via their exposed ports:
 
@@ -455,7 +455,7 @@ SUPABASE_URL = os.getenv("SUPABASE_URL", "http://localhost:63017")  # SUPABASE_A
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:63025")
 ```
 
-### 6.4 Pattern 4: Service Extension
+### 6.4. Pattern 4: Service Extension
 
 > For a service that should **co-launch inside the Atlas stack** (start/stop with `./start.sh` / `./stop.sh`, share the network automatically), prefer the manifest-declared external overlay for new integrations or the back-compatible `services/_user/` slot for existing ones. See [reusing-atlas.md §6.1.1](reusing-atlas.md#611-back-compatible-services_user-overlay-slot). The parent-compose pattern below is the alternative when you want your service managed by your *own* Compose project rather than Atlas's.
 
@@ -477,7 +477,7 @@ services:
       - ./data:/data
 ```
 
-### 6.5 Complete Integration Example
+### 6.5. Complete Integration Example
 
 **scripts/start-all.sh:**
 
@@ -517,9 +517,9 @@ echo "All services stopped!"
 
 When using atlas as a submodule, you can contribute improvements back to the project using the standard git workflow.
 
-### 7.1 Contribution Workflow
+### 7.1. Contribution Workflow
 
-#### 7.1.1 Create a Fork
+#### 7.1.1. Create a Fork
 
 ```bash
 # Fork the Atlas repository to your account on GitHub
@@ -529,14 +529,14 @@ cd infra
 git remote add fork <your-fork-url>
 ```
 
-#### 7.1.2 Create a Feature Branch
+#### 7.1.2. Create a Feature Branch
 
 ```bash
 cd infra
 git checkout -b feature/my-improvement
 ```
 
-#### 7.1.3 Make Your Changes
+#### 7.1.3. Make Your Changes
 
 ```bash
 # Edit files in the infra/ directory
@@ -550,19 +550,19 @@ git add .
 git commit -m "Add feature: improved startup validation"
 ```
 
-#### 7.1.4 Push to Your Fork
+#### 7.1.4. Push to Your Fork
 
 ```bash
 git push fork feature/my-improvement
 ```
 
-#### 7.1.5 Create Pull Request
+#### 7.1.5. Create Pull Request
 
 - Go to GitHub and create a PR from your fork's branch
 - Target the original atlas repository's `main` branch
 - Describe your changes and their benefits
 
-#### 7.1.6 Update Submodule After Merge
+#### 7.1.6. Update Submodule After Merge
 
 Once your PR is merged:
 
@@ -577,7 +577,7 @@ git add infra
 git commit -m "Update atlas submodule to latest version"
 ```
 
-### 7.2 Local Customizations vs. Contributions
+### 7.2. Local Customizations vs. Contributions
 
 **Keep as local changes (don't contribute):**
 - `.env` configuration
@@ -591,7 +591,7 @@ git commit -m "Update atlas submodule to latest version"
 - Documentation enhancements
 - Error handling improvements
 
-### 7.3 Maintaining Local Customizations
+### 7.3. Maintaining Local Customizations
 
 If you need to maintain local customizations while staying up-to-date:
 
@@ -616,7 +616,7 @@ git rebase origin/main
 
 ## 8. Troubleshooting
 
-### 8.1 Issue: Port Conflicts
+### 8.1. Issue: Port Conflicts
 
 **Symptom**: Services fail to start due to port already in use.
 
@@ -633,7 +633,7 @@ lsof -i :63000
 # Stop the conflicting service
 ```
 
-### 8.2 Issue: Docker Network Already Exists
+### 8.2. Issue: Docker Network Already Exists
 
 **Symptom**: Error creating network `${PROJECT_NAME}-network`.
 
@@ -643,7 +643,7 @@ lsof -i :63000
 PROJECT_NAME=myproject-dev  # Make it unique
 ```
 
-### 8.3 Issue: Submodule Not Updating
+### 8.3. Issue: Submodule Not Updating
 
 **Symptom**: Changes from upstream don't appear in your submodule.
 
@@ -658,7 +658,7 @@ git add infra
 git commit -m "Update submodule"
 ```
 
-### 8.4 Issue: Can't Access Services from Application
+### 8.4. Issue: Can't Access Services from Application
 
 **Symptom**: Application can't connect to infrastructure services.
 
@@ -679,7 +679,7 @@ DATABASE_URL=postgresql://user:pass@myproject-supabase-db:5432/db
 DATABASE_URL=postgresql://user:pass@localhost:63012/db
 ```
 
-### 8.5 Issue: .env Changes Not Taking Effect
+### 8.5. Issue: .env Changes Not Taking Effect
 
 **Symptom**: Updated `.env` values don't apply to running services.
 
@@ -689,7 +689,7 @@ DATABASE_URL=postgresql://user:pass@localhost:63012/db
 ./infra/start.sh --cold
 ```
 
-### 8.6 Issue: Permission Denied for Volumes
+### 8.6. Issue: Permission Denied for Volumes
 
 **Symptom**: Permission errors when services try to write to volumes.
 
@@ -699,7 +699,7 @@ DATABASE_URL=postgresql://user:pass@localhost:63012/db
 sudo chown -R $USER:$USER ./infra/volumes/
 ```
 
-### 8.7 Issue: Submodule Shows Modifications
+### 8.7. Issue: Submodule Shows Modifications
 
 **Symptom**: `git status` shows infra/ as modified even though you didn't change it.
 
@@ -737,7 +737,7 @@ locally modified.)
 
 ## 9. Advanced Topics
 
-### 9.1 Running Multiple Infrastructure Stacks
+### 9.1. Running Multiple Infrastructure Stacks
 
 You can run multiple instances of atlas for different projects:
 
@@ -761,7 +761,7 @@ Each will have isolated:
 - Container names
 - Exposed ports
 
-### 9.2 CI/CD Integration
+### 9.2. CI/CD Integration
 
 **GitHub Actions example:**
 
@@ -797,7 +797,7 @@ jobs:
         run: cd infra && ./stop.sh
 ```
 
-### 9.3 Using with Docker Compose Profiles
+### 9.3. Using with Docker Compose Profiles
 
 Optimize which services start based on your needs:
 

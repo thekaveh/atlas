@@ -1,9 +1,11 @@
 """Local Deep Researcher runtime inputs must be manifest-owned and pinned."""
 
 from pathlib import Path
+import re
 import subprocess
 import sys
 
+from packaging.version import Version
 import yaml
 
 
@@ -11,6 +13,12 @@ REPO = Path(__file__).resolve().parents[2]
 EXPECTED_REF = "38f769f84380f2065de76021ac7c5215f88aa39e"
 EXPECTED_CLI = "0.4.31"
 EXPECTED_LOCK_SHA256 = "26fc35ac377836de6628e5f7b180944c4d4bd50a5e9f0200bd6e663f20e35c1a"
+SECURITY_FLOORS = {
+    "click": "8.3.3",
+    "langchain-classic": "1.0.7",
+    "langsmith": "0.8.18",
+    "soupsieve": "2.8.4",
+}
 RUNTIME_LIB = (
     REPO
     / "services/local-deep-researcher/build/scripts/runtime-lib.sh"
@@ -73,6 +81,22 @@ def test_runtime_requirements_lock_pins_cli_and_build_tooling():
 
     assert blocks
     assert all("--hash=sha256:" in "\n".join(block) for block in blocks)
+
+
+def test_runtime_requirements_clear_known_fixable_advisories():
+    lock = (
+        REPO
+        / "services/local-deep-researcher/build/config/runtime-requirements.lock"
+    ).read_text(encoding="utf-8")
+    generator = (REPO / "scripts/refresh-local-deep-researcher-lock.py").read_text(
+        encoding="utf-8"
+    )
+
+    for package, version in SECURITY_FLOORS.items():
+        match = re.search(rf"^{re.escape(package)}==([^ ]+) \\$", lock, re.MULTILINE)
+        assert match, package
+        assert Version(match.group(1)) >= Version(version)
+        assert f'"{package}>={version}"' in generator
 
 
 def test_runtime_helper_reuses_a_healthy_virtual_environment(tmp_path):

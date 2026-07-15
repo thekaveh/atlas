@@ -53,31 +53,31 @@ Jenkins calls MinIO to publish built artifacts. Airflow, Spark, notebooks, and d
 
 ## 6. Dependencies & Integrations
 
-### 6.1 Current — Upstream (this service calls)
+### 6.1. Current — Upstream (this service calls)
 
 | Service | Category |
 |---|---|
 | minio | data |
 
-### 6.2 Current — Downstream (services that call this)
+### 6.2. Current — Downstream (services that call this)
 
 _No downstream consumers._
 
-### 6.3 Architecture diagram
+### 6.3. Architecture diagram
 
 ![jenkins architecture](./architecture.svg)
 
 [Open the interactive HTML diagram](./architecture.html) for a full-screen view.
 
-### 6.4 Future — Missing pair integrations
+### 6.4. Future — Missing pair integrations
 
 _No high-confidence opportunities identified._
 
-### 6.5 Future — Candidate new services
+### 6.5. Future — Candidate new services
 
 _No high-confidence opportunities identified._
 
-### 6.6 Future — Unused features in this service
+### 6.6. Future — Unused features in this service
 
 _No high-confidence opportunities identified._
 

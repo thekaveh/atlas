@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -28,6 +29,34 @@ def test_validates_clean_candidate_fixture():
     """The committed example_candidate.md passes validation."""
     r = _run(str(FIXTURE_DIR / "example_candidate.md"))
     assert r.returncode == 0, r.stdout + r.stderr
+
+
+def test_validates_hierarchically_numbered_candidate(tmp_path):
+    source = (FIXTURE_DIR / "example_candidate.md").read_text()
+    counter = 0
+
+    def number_heading(match):
+        nonlocal counter
+        counter += 1
+        return f"## {counter}. {match.group(1)}"
+
+    numbered = re.sub(r"^## (.+)$", number_heading, source, flags=re.MULTILINE)
+    candidate = tmp_path / "numbered_candidate.md"
+    candidate.write_text(numbered)
+
+    result = _run(str(candidate))
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_rejects_required_heading_with_extra_suffix(tmp_path):
+    source = (FIXTURE_DIR / "example_candidate.md").read_text()
+    candidate = tmp_path / "malformed_candidate.md"
+    candidate.write_text(source.replace("## Headline", "## Headline extra words"))
+
+    result = _run(str(candidate))
+
+    assert result.returncode == 1
+    assert "missing required section: ## Headline" in result.stdout
 
 
 def test_rejects_row_missing_frontmatter(tmp_path):

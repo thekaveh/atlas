@@ -103,7 +103,7 @@ return it in webhook payloads, execution output, or browser-side code.
 2. After n8n is healthy, the seeder (`seed-workflows.sh`, a thin wrapper that `exec`s node on `seed-workflows.js` — **node, not `wget`**, because the n8n image is Alpine/BusyBox whose `wget` has no `--method` and there is no `curl`) runs `n8n import:workflow` for each file — **idempotent, keyed by the namespaced `atlas-consumer-<id>`**, so re-running startup updates the workflow in place, never creates a duplicate active workflow, and — because Atlas owns the `atlas-consumer-*` id namespace — can never overwrite another consumer's or a user's workflow.
 3. When `N8N_API_KEY` is set, the seed activates workflows through the public API (checking the HTTP status and warning on a non-2xx) so their production webhooks register on the running instance without a restart, and **reconciles removed workflows** — any `atlas-consumer-*` workflow no longer declared by a manifest is deactivated + deleted so a since-removed entry doesn't orphan a live webhook. Without a key the workflow is imported + active-persisted (its webhook registers on the next n8n restart) and reconcile is skipped (logged). Declared webhooks are then probed for readiness (opt-in; `POST` probes require an explicit `probe: true` because they can trigger side effects).
 
-All artifacts regenerate every start, so removing a manifest — or a single workflow — drops exactly its own generated files on the next start. The seeder is **best-effort**: a per-workflow import/activation failure is logged and isolated and never fails the seed container (it always exits 0), so one bad consumer workflow can't abort `docker compose up --wait`. Coverage: `bootstrapper/tests/test_consumer_n8n_workflows.py`, `test_consumer_doctor.py`, and `test_init_scripts_compile.py` (`node --check` on the seeder). The live import/activation/reconcile/webhook-probe against a running n8n is an OPTIONAL live test (not exercised by the unit suite).
+All artifacts regenerate every start, so removing a manifest — or a single workflow — drops exactly its own generated files on the next start. Seeder HTTP operations have a manifest-owned 10-second absolute deadline (`N8N_SEED_HTTP_TIMEOUT_MS`), and spawned n8n CLI operations have a manifest-owned 120-second deadline (`N8N_SEED_COMMAND_TIMEOUT_MS`); both values must be positive. The detached startup verifier includes `n8n-seed`, so a crash or nonzero container exit cannot be omitted from the final launch result. The seeder remains **best-effort** per workflow: an import or activation failure is logged and isolated and does not make the seed container fail, so one bad consumer workflow cannot abort `docker compose up --wait`. Coverage: `bootstrapper/tests/test_consumer_n8n_workflows.py`, `test_consumer_doctor.py`, `test_n8n_seed_bounds.py`, and `test_init_scripts_compile.py` (`node --check` on the seeder). The live import/activation/reconcile/webhook-probe against a running n8n is an optional live test (not exercised by the unit suite).
 
 ## 5. Calling LightRAG from n8n
 
@@ -117,7 +117,7 @@ When `LIGHTRAG_SOURCE != disabled`, the env vars `LIGHTRAG_ENDPOINT` and `LIGHTR
 
 ## 6. Dependencies & Integrations
 
-### 6.1 Current — Upstream (this service calls)
+### 6.1. Current — Upstream (this service calls)
 
 | Service | Category |
 |---|---|
@@ -136,7 +136,7 @@ When `LIGHTRAG_SOURCE != disabled`, the env vars `LIGHTRAG_ENDPOINT` and `LIGHTR
 | lightrag | agents |
 | backend ↔ | apps |
 
-### 6.2 Current — Downstream (services that call this)
+### 6.2. Current — Downstream (services that call this)
 
 | Service | Category |
 |---|---|
@@ -145,13 +145,13 @@ When `LIGHTRAG_SOURCE != disabled`, the env vars `LIGHTRAG_ENDPOINT` and `LIGHTR
 | backend ↔ | apps |
 | jupyterhub | apps |
 
-### 6.3 Architecture diagram
+### 6.3. Architecture diagram
 
 ![n8n architecture](./architecture.svg)
 
 [Open the interactive HTML diagram](./architecture.html) for a full-screen view.
 
-### 6.4 Future — Missing pair integrations
+### 6.4. Future — Missing pair integrations
 
 - **n8n ↔ comfyui** — *Why:* `n8n-nodes-comfyui` is installed by `n8n-init`, but no `COMFYUI_ENDPOINT` env is injected into n8n's compose, so users hand-enter `http://comfyui:18188` in every workflow credential. *Mechanism:* inject `COMFYUI_ENDPOINT=${COMFYUI_ENDPOINT}` (matches the STT/TTS/DOCLING pattern); add `comfyui` to `runtime_deps.optional`. *Effort:* small. *Confidence:* high.
 - **n8n ↔ minio** — *Why:* MinIO already provisions an `n8n` bucket plus `MINIO_N8N_*` creds, but neither credentials nor the S3 endpoint are passed to n8n, so the dedicated bucket sits unused. *Mechanism:* env-inject `S3_ENDPOINT=http://minio:9000`, `S3_BUCKET=${MINIO_BUCKET_N8N}`, `S3_ACCESS_KEY`/`S3_SECRET_KEY`; add `minio` to `runtime_deps.optional`. Path-style addressing required. *Effort:* small. *Confidence:* high.
@@ -159,13 +159,13 @@ When `LIGHTRAG_SOURCE != disabled`, the env vars `LIGHTRAG_ENDPOINT` and `LIGHTR
 - **n8n ↔ searxng** — *Why:* n8n advertises a `SearXNG Tool` sub-node for AI-agent workflows but the endpoint is not injected. *Mechanism:* inject `SEARXNG_ENDPOINT=http://searxng:8080`; add `searxng` to `runtime_deps.optional`. *Effort:* small. *Confidence:* high.
 - **n8n ↔ openclaw** — *Why:* OpenClaw is the messaging-platform gateway. Wiring it to n8n turns every n8n webhook into a chat-triggered automation. *Mechanism:* OpenClaw → n8n via webhook at `http://n8n:5678/webhook/<path>`; n8n → OpenClaw via HTTP Request node; shared bearer secret in both manifests. *Effort:* medium. *Confidence:* medium.
 
-### 6.5 Future — Candidate new services
+### 6.5. Future — Candidate new services
 
 - **Langfuse** ([details](../../docs/research/candidates/langfuse.md)) — *Headline:* self-hostable LLM/diffusion trace + eval store; n8n's HTTP node can log per-step trace events. *Wires into:* litellm, hermes, comfyui.
 - **Browserless** ([details](../../docs/research/candidates/browserless.md)) — *Headline:* headless-Chrome backend so n8n can scrape JS-rendered pages, render PDFs, screenshot. *Wires into:* searxng, doc-processor, backend.
 - **NocoDB** ([details](../../docs/research/candidates/nocodb.md)) — *Headline:* spreadsheet UI over the existing Supabase Postgres, with a first-party n8n node for row CRUD. *Wires into:* supabase, backend.
 
-### 6.6 Future — Unused features in this service
+### 6.6. Future — Unused features in this service
 
 - **MCP Server Trigger node** — *Why pursue:* the pinned n8n runtime already ships first-party MCP client, tool, registry, and trigger nodes, but bundled workflows do not yet expose an Atlas workflow as an MCP tool for Hermes/LiteLLM clients. *Effort:* small.
 - **Native Weaviate Vector Store cluster node** — *Why pursue:* upstream ships a native Weaviate vector-store node; workflows currently talk to Weaviate via raw HTTP. Switching unlocks embeddings + retrievers without custom code. *Effort:* small.

@@ -14,7 +14,7 @@ def _candidate_text() -> str:
 def test_superset_remains_watchlist_until_data_and_sso_are_ready() -> None:
     text = _candidate_text()
 
-    assert "## Watchlist decision (2026-07-04)" in text
+    assert "Watchlist decision (2026-07-04)" in text
     assert "must not add `services/superset/service.yml` yet" in text
     assert "meaningful Trino/Iceberg or Postgres analytics datasets" in text
     assert "SSO" in text

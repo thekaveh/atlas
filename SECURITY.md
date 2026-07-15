@@ -5,12 +5,20 @@
 Atlas is a self-hosted, single-tenant engineering platform intended
 to run on a developer's local machine or a private homelab network —
 applicable across generative AI, ML, and data engineering workloads.
-It has no public web surface, no shared deployment, and no multi-user
-access model.
+Its default configuration has no public web surface or shared deployment.
+The optional Cloudflare Tunnel service deliberately creates a public edge;
+every exposed hostname must use a least-privilege Cloudflare Access policy,
+an explicit Kong origin Host override, and the destination route's own
+authentication and authorization controls.
 
 This posture shapes how we triage Dependabot and CVE alerts:
 vulnerabilities are scored by **(severity × tier × reachability)**, not
 raw CVSS alone.
+
+Reachability triage must include enabled SOURCE values and edge configuration.
+A route that is private in the default stack is internet-reachable when an
+operator maps it through Cloudflare Tunnel, even though the application
+container itself still publishes no public listener.
 
 ## 2. Operational Tiers
 
@@ -54,15 +62,28 @@ on their host.
   **platform/path unreachable** in runtime images. It affects sdist creation
   on macOS normalization filesystems; Atlas services run Linux images and do
   not build source distributions from request data.
+- Local Deep Researcher runtime graph: **remediated and audit-clean**. The
+  generated hash-pinned lock now enforces patched floors for Click,
+  langchain-classic, LangSmith, and Soup Sieve; the refresh command and
+  byte-equivalence tests prevent those floors from silently regressing.
 
-## 4. Reporting a Vulnerability
+## 4. Public Edge Requirements
+
+Enabling `CLOUDFLARED_SOURCE=container` changes the default trust boundary.
+Before publishing a hostname, configure its Cloudflare Access application,
+restrict the allowed identities, and set the Origin HTTP Host Header to the
+exact Atlas Kong alias documented for the service. Keep the route's Kong and
+application authentication enabled. Review logs and rotate the tunnel token
+if it is exposed.
+
+## 5. Reporting a Vulnerability
 
 This is a personal-project repository. Please open a private security
 advisory via the GitHub repository's **Security** tab → **Report a
 vulnerability**. Do not file public issues for security-sensitive
 findings.
 
-## 5. Remediation Reports
+## 6. Remediation Reports
 
 Historical Dependabot remediation reports were retired from the working
 tree in commit `ebdc9d4` (the `docs/security/` folder used to host them).

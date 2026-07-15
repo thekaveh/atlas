@@ -97,7 +97,7 @@ def test_manifest_drives_numbered_mkdocs_nav_and_real_pages() -> None:
     assert "repo_url" not in config
     assert "repo_name" not in config
     assert "edit_uri" not in config
-    assert len(nav) == len(manifest.pages) == 102
+    assert len(nav) == len(manifest.pages) == 110
     assert nav["1. Overview"] == "index.md"
     assert nav["5.1. Service Catalog"] == "services/index.md"
     assert nav["10.1. Reference Index"] == "reference/index.md"
@@ -113,6 +113,7 @@ def test_service_catalog_and_manifest_cover_every_service_family() -> None:
         Path(page.source).parts[1]: page
         for page in manifest.pages
         if page.source.startswith("services/")
+        and len(Path(page.source).parts) == 3
     }
     index = (DOCS_SITE / "services" / "index.md").read_text(encoding="utf-8")
 

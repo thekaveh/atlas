@@ -6,7 +6,7 @@ Uses the official parakeet-mlx package as the transcription backend
 from fastapi import FastAPI, File, UploadFile, HTTPException, Form
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from typing import Optional
+from typing import Literal, Optional
 import asyncio
 import os
 import logging
@@ -15,6 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from bounded_upload import EmptyUploadError, UploadTooLargeError, spool_upload
+from alignment import advanced_payload, alignment_payload, result_text
 
 # Import parakeet-mlx library
 try:
@@ -53,7 +54,7 @@ def get_model():
     global _model
     if _model is None:
         model_name = os.getenv("PARAKEET_MODEL", "mlx-community/parakeet-tdt-0.6b-v3")
-        logger.info(f"Loading Parakeet model: {model_name}")
+        logger.info("Loading Parakeet model")
         _model = from_pretrained(model_name)
         logger.info("Model loaded successfully")
     return _model
@@ -85,9 +86,9 @@ async def health():
             "model": os.getenv("PARAKEET_MODEL", "mlx-community/parakeet-tdt-0.6b-v3"),
             "model_loaded": model is not None
         }
-    except Exception as e:
-        logger.error(f"Health check failed: {e}")
-        raise HTTPException(status_code=503, detail=f"Service unhealthy: {str(e)}")
+    except Exception as exc:
+        logger.error("Health check failed (error_type=%s)", type(exc).__name__)
+        raise HTTPException(status_code=503, detail="Service unhealthy") from exc
 
 
 @app.post("/v1/audio/transcriptions")
@@ -96,7 +97,7 @@ async def transcribe_audio(
     model: Optional[str] = Form(None),
     language: Optional[str] = Form(None),
     prompt: Optional[str] = Form(None),
-    response_format: Optional[str] = Form("json"),
+    response_format: Literal["json", "verbose_json", "text"] = Form("json"),
     temperature: Optional[float] = Form(0.0)
 ):
     """
@@ -119,20 +120,13 @@ async def transcribe_audio(
         try:
             async with _transcription_semaphore:
                 model_instance = await asyncio.to_thread(get_model)
-                logger.info(f"Transcribing file: {file.filename}")
+                logger.info("Transcribing uploaded file")
                 result = await asyncio.to_thread(
                     model_instance.transcribe, str(tmp_path)
                 )
 
             # Extract text from result
-            if hasattr(result, 'text'):
-                transcribed_text = result.text
-            elif isinstance(result, dict) and 'text' in result:
-                transcribed_text = result['text']
-            elif isinstance(result, str):
-                transcribed_text = result
-            else:
-                transcribed_text = str(result)
+            transcribed_text = result_text(result)
 
             logger.info(f"Transcription complete: {len(transcribed_text)} characters")
 
@@ -140,13 +134,10 @@ async def transcribe_audio(
             if response_format == "text":
                 return transcribed_text
             elif response_format == "verbose_json":
-                return {
-                    "text": transcribed_text,
-                    "task": "transcribe",
-                    "language": language or "unknown",
-                    "duration": getattr(result, 'duration', None),
-                    "segments": getattr(result, 'segments', [])
-                }
+                payload = alignment_payload(result)
+                payload.update({"task": "transcribe", "language": language or "unknown"})
+                payload.pop("words")
+                return payload
             else:  # json (default)
                 return {"text": transcribed_text}
 
@@ -160,9 +151,9 @@ async def transcribe_audio(
         raise HTTPException(status_code=400, detail=str(e)) from e
     except HTTPException:
         raise
-    except Exception as e:
-        logger.error(f"Transcription error: {e}")
-        raise HTTPException(status_code=500, detail=f"Transcription failed: {str(e)}")
+    except Exception as exc:
+        logger.error("Transcription failed (error_type=%s)", type(exc).__name__)
+        raise HTTPException(status_code=500, detail="Transcription failed") from exc
 
 
 @app.post("/v1/audio/transcriptions/advanced")
@@ -188,25 +179,12 @@ async def transcribe_advanced(
         try:
             async with _transcription_semaphore:
                 model_instance = await asyncio.to_thread(get_model)
-                logger.info(f"Advanced transcription: {file.filename}")
+                logger.info("Running advanced transcription")
                 result = await asyncio.to_thread(
                     model_instance.transcribe, str(tmp_path)
                 )
 
-            # Build response
-            response = {
-                "text": result.text if hasattr(result, 'text') else str(result),
-                "has_timestamps": return_timestamps or word_timestamps
-            }
-
-            # Add timestamps if available and requested
-            if return_timestamps and hasattr(result, 'segments'):
-                response["segments"] = result.segments
-
-            if word_timestamps and hasattr(result, 'words'):
-                response["words"] = result.words
-
-            return response
+            return advanced_payload(result, return_timestamps, word_timestamps)
 
         finally:
             tmp_path.unlink(missing_ok=True)
@@ -217,9 +195,12 @@ async def transcribe_advanced(
         raise HTTPException(status_code=400, detail=str(e)) from e
     except HTTPException:
         raise
-    except Exception as e:
-        logger.error(f"Advanced transcription error: {e}")
-        raise HTTPException(status_code=500, detail=f"Transcription failed: {str(e)}")
+    except Exception as exc:
+        logger.error(
+            "Advanced transcription failed (error_type=%s)",
+            type(exc).__name__,
+        )
+        raise HTTPException(status_code=500, detail="Transcription failed") from exc
 
 
 if __name__ == "__main__":

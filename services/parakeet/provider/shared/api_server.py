@@ -93,13 +93,13 @@ async def transcribe(
     """
     tmp_path = None
     try:
-        logger.info(f"Received transcription request: file={file.filename}, language={language}, format={response_format}")
+        logger.info("Received transcription request")
 
         max_bytes = int(os.getenv("PARAKEET_MAX_UPLOAD_BYTES", "104857600"))
         suffix = os.path.splitext(file.filename or "audio.wav")[1] or ".wav"
         tmp_path = await spool_upload(file, max_bytes=max_bytes, suffix=suffix)
 
-        logger.info(f"Saved temporary file: {tmp_path}")
+        logger.info("Saved temporary audio file")
 
         # Transcribe using backend-specific function
         result = await transcribe_audio(
@@ -124,9 +124,9 @@ async def transcribe(
         raise HTTPException(status_code=400, detail=str(e)) from e
     except HTTPException:
         raise
-    except Exception as e:
-        logger.error(f"Transcription error: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as exc:
+        logger.error("Transcription failed (error_type=%s)", type(exc).__name__)
+        raise HTTPException(status_code=500, detail="Transcription failed") from exc
     finally:
         if tmp_path is not None:
             tmp_path.unlink(missing_ok=True)
@@ -154,7 +154,7 @@ async def transcribe_advanced(
     """
     tmp_path = None
     try:
-        logger.info(f"Received advanced transcription request: file={file.filename}, timestamps={return_timestamps}, word_timestamps={word_timestamps}")
+        logger.info("Received advanced transcription request")
 
         max_bytes = int(os.getenv("PARAKEET_MAX_UPLOAD_BYTES", "104857600"))
         suffix = os.path.splitext(file.filename or "audio.wav")[1] or ".wav"
@@ -174,9 +174,12 @@ async def transcribe_advanced(
         raise HTTPException(status_code=400, detail=str(e)) from e
     except HTTPException:
         raise
-    except Exception as e:
-        logger.error(f"Advanced transcription error: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as exc:
+        logger.error(
+            "Advanced transcription failed (error_type=%s)",
+            type(exc).__name__,
+        )
+        raise HTTPException(status_code=500, detail="Transcription failed") from exc
     finally:
         if tmp_path is not None:
             tmp_path.unlink(missing_ok=True)

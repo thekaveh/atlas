@@ -56,7 +56,7 @@ Atlas models FAL as a virtual media service:
 - Secret handling: `FAL_API_KEY` is server-side only. The backend maps it to `FAL_KEY` for the fal.ai Python client and never exposes it to browser clients.
 - Operation state: the first media-gateway pass stores submitted operation metadata in the backend process. Restart-durable operation storage, media spend limits, and cost ledgers remain follow-up work.
 
-### 4.1 Image→3D modality
+### 4.1. Image→3D modality
 
 `{"modality":"image_to_3d","provider":"fal","model":<id>,"input":{"image":<url-or-data-uri>}}` submits a hosted image→3D job. The backend owns the provider quirks centrally so consumers do not re-discover them:
 
@@ -74,7 +74,7 @@ Atlas models FAL as a virtual media service:
 | `fal-ai/hyper3d/rodin` | Rodin (Hyper3D) | hyper3d-provider-terms | conditional | data URI ok |
 | `fal-ai/pixal3d/image-to-3d` | Pixal3D | pixal3d-provider-terms | conditional | data URI ok (endpoint id unverified) |
 
-### 4.2 Spend ledger & budgets
+### 4.2. Spend ledger & budgets
 
 Hosted media generation has no LiteLLM-style spend accounting of its own, so the media gateway carries its own cost ledger + budget engine — **disabled by default** (`MEDIA_BUDGET_ENABLED=false`), backend-owned, no new service SOURCE. When enabled:
 
@@ -86,7 +86,7 @@ Hosted media generation has no LiteLLM-style spend accounting of its own, so the
 
 Attribution comes from the request `consumer`/`project` fields or the `X-Atlas-Consumer`/`X-Atlas-Project` headers (default `default`) — a pragmatic key, not authentication; gateway-level identity remains #345 follow-up work. `MEDIA_BUDGET_*` and `MEDIA_DISABLED_PROVIDERS` are declared on the backend service.
 
-### 4.3 LiteLLM text→image route (#515)
+### 4.3. LiteLLM text→image route (#515)
 
 When `FAL_SOURCE=enabled` with `FAL_API_KEY` set, `litellm-init` also registers a **`fal-image`** model on the LiteLLM gateway via LiteLLM's native `fal_ai` image provider (`model: fal_ai/${FAL_MODEL}`, gated + disabled-tolerant like the `hermes`/`vllm-metal` rows). This lets OpenAI-shaped clients (Open WebUI image generation, n8n, notebooks) reach fal **text→image** through the single `http://litellm:4000/v1/images/generations` surface with LiteLLM's unified auth, spend logging, and retries — no bespoke backend call needed.
 
@@ -96,32 +96,32 @@ When `FAL_SOURCE=enabled` with `FAL_API_KEY` set, `litellm-init` also registers 
 
 ## 5. Dependencies & Integrations
 
-### 5.1 Current — Upstream (this service calls)
+### 5.1. Current — Upstream (this service calls)
 
 _No upstream calls._
 
-### 5.2 Current — Downstream (services that call this)
+### 5.2. Current — Downstream (services that call this)
 
 | Service | Category |
 |---|---|
 | litellm | llm |
 | backend | apps |
 
-### 5.3 Architecture diagram
+### 5.3. Architecture diagram
 
 ![fal architecture](./architecture.svg)
 
 [Open the interactive HTML diagram](./architecture.html) for a full-screen view.
 
-### 5.4 Future — Missing pair integrations
+### 5.4. Future — Missing pair integrations
 
 - Restart-durable operation storage for hosted media operations if Atlas needs provider polling to survive backend container restarts.
 - Optional FAL model catalog prompts if Atlas adopts a curated cloud-media model list.
 
-### 5.5 Future — Candidate new services
+### 5.5. Future — Candidate new services
 
 - Additional cloud media providers such as Replicate, RunPod Serverless, or provider-specific video generation APIs behind the same backend provider seam.
 
-### 5.6 Future — Unused features in this service
+### 5.6. Future — Unused features in this service
 
 - FAL queue webhooks are not wired in this first media-gateway pass. The backend uses submit/poll operations instead.

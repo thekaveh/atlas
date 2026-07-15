@@ -11,13 +11,13 @@ upstream: https://hummingbot.org/docs/
 
 # Live Trading Services
 
-## Headline
+## 1. Headline
 Rejected-for-now trading execution services for Hummingbot, Freqtrade, and NautilusTrader; Atlas should stay research and paper-first until safety, secrets, audit, and operator-risk controls exist.
 
-## Problem it solves
+## 2. Problem it solves
 Live trading engines can run strategy backtests, paper or sandbox simulations, and real exchange execution. Hummingbot and Freqtrade are useful crypto-bot ecosystems, while NautilusTrader is a serious multi-asset backtesting, sandbox, and live-trading engine. They become relevant only after Atlas proves a safe financial research path and has explicit controls for real-money workflows.
 
-## Rejected-for-now decision (2026-07-04)
+## 3. Rejected-for-now decision (2026-07-04)
 Atlas should keep live trading services rejected for now and must not add `services/hummingbot/service.yml`, must not add `services/freqtrade/service.yml`, and must not add `services/nautilustrader/service.yml` in this decision ticket.
 
 The approved trading posture is read-only financial research and paper portfolios in JupyterHub. There must be no live exchange trading, no default broker or exchange execution path, and no UI language that implies investment advice, guaranteed performance, or "push-button trading AI." Financial docs and notebooks must keep the existing not financial advice posture.
@@ -30,7 +30,7 @@ Current upstream docs make the boundary clear:
 
 That shared backtest-to-live path is exactly why Atlas should not add these as selectable services until the platform can prevent accidental promotion from research to real-money execution.
 
-## Stack wiring sketch
+## 4. Stack wiring sketch
 No current Atlas wiring should be added while live trading services remain rejected. If a later ticket reopens this decision, the first topology should be paper or sandbox only:
 
 - JupyterHub -> Hummingbot/Freqtrade/NautilusTrader for controlled strategy notebooks, paper portfolio handoff, and backtest notebooks only.
@@ -43,10 +43,10 @@ No current Atlas wiring should be added while live trading services remain rejec
 - n8n -> trading services only through a promotion workflow that is disabled by default and guarded by explicit operator approval.
 - Infisical or OpenBao -> trading services for scoped paper/sandbox secrets before any exchange credential is accepted.
 
-## Effort
+## 5. Effort
 Large. The container mechanics are not the hard part; the hard part is service admission, secrets isolation, auditability, route scoping, safe defaults, paper/live separation, exchange-specific credential semantics, and proving that Atlas cannot accidentally execute real orders.
 
-## Risks & open questions
+## 6. Risks & open questions
 - Financial harm: live order execution can lose real money, so Atlas must treat this as a high-risk domain rather than a normal app integration.
 - Secrets: private exchange keys must not live in `.env`, notebooks, n8n nodes, browser storage, or logs. Read-only keys and paper/sandbox keys must be distinguishable from live trade-enabled keys.
 - Operator controls: promotion from notebook/backtest/paper to live must require explicit human approval, clear capital limits, venue limits, kill switches, and audit records.
@@ -56,7 +56,7 @@ Large. The container mechanics are not the hard part; the hard part is service a
 - Licensing and fit: Hummingbot is Apache-2.0, Freqtrade is GPL-3.0, and NautilusTrader is LGPL-3.0; Atlas must evaluate distribution and modification implications before bundling images.
 - Scope: NautilusTrader's own project posture keeps distributed orchestration, UI dashboards, and built-in AI/ML tooling out of scope, so Atlas would own more control-plane behavior than the engine provides.
 
-## Future service contract if reopened
+## 7. Future service contract if reopened
 - **Tracks:** `trading` and `all`. Do not add live trading services to `data-eng`, `gen-ai-eng`, or `ml-eng` by default. The current `trading` track remains read-only financial research and paper portfolios until this decision is explicitly reopened.
 - **Category:** `agents` for bot/strategy runners such as Hummingbot and Freqtrade. NautilusTrader may be `apps` if Atlas ships it as a notebook/backtest service surface rather than a bot daemon. Do not introduce a new category unless Atlas later adds a broader `trading` service class.
 - **Sources:** `HUMMINGBOT_SOURCE=disabled|container|localhost`, `FREQTRADE_SOURCE=disabled|container|localhost`, and `NAUTILUSTRADER_SOURCE=disabled|container|localhost`; all disabled by default. Container modes must start in paper mode or sandbox mode. Localhost modes must require explicit operator-managed endpoint URLs and must not import live credentials automatically.
@@ -72,7 +72,7 @@ Large. The container mechanics are not the hard part; the hard part is service a
 - **Tests required:** manifest validation, source validation, env-example assembly, track membership, disabled-default behavior, no-live route audit, Kong alias gating, custom `BASE_PORT`, compose/source permutations, docs drift, research schema, financial-helper private-method blocks, stale `.env` migration, localhost-mode endpoint validation, missing-secrets failures, init idempotency, and service-specific smoke tests that prove paper mode cannot submit live orders.
 - **Edge cases:** disabled JupyterHub, disabled MLflow, missing MinIO, missing secrets manager, stale live exchange keys in `.env`, paper-to-live config drift, exchange sandbox outages, wrong venue/account, clock skew, duplicate bot instances, queue backlogs, strategy code injection, leaked logs, disk growth, disabled track behavior, prod-profile restrictions, and generated-doc drift.
 
-## Revisit criteria
+## 8. Revisit criteria
 Reconsider Hummingbot, Freqtrade, or NautilusTrader only after all of these are true:
 
 - The OpenBB/CCXT financial research kit has enough usage to justify a paper/backtest service.
@@ -81,10 +81,10 @@ Reconsider Hummingbot, Freqtrade, or NautilusTrader only after all of these are 
 - Atlas has clear disclaimers and product copy that avoid investment advice or autonomous-money-management claims.
 - A future issue defines exactly one paper-first service slice, not three engines at once.
 
-## Why now (and why not sooner)
+## 9. Why now (and why not sooner)
 This ticket should capture the rejection boundary now because the trading track already exists and the financial research kit is already notebook-ready. Keeping the decision explicit prevents a future worker from reading "trading track" as permission to add a live execution engine.
 
-## Upstream evidence
+## 10. Upstream evidence
 - https://hummingbot.org/docs/
 - https://hummingbot.org/client/global-configs/paper-trade/
 - https://hummingbot.org/hummingbot-api/
@@ -97,7 +97,7 @@ This ticket should capture the rejection boundary now because the trading track 
 - https://nautilustrader.io/docs/latest/concepts/live/
 - https://github.com/nautechsystems/nautilus_trader
 
-## Cross-references
+## 11. Cross-references
 - `../../strategy/atlas-vnext-strategy-report.md#82-trading--financial-ai-track`
 - `../../strategy/atlas-vnext-strategy-report.md#94-reject-or-defer-for-now`
 - `../candidates/timescaledb.md`

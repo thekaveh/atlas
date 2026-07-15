@@ -1610,6 +1610,8 @@ def render_n8n_seed_overlay(workflows: Iterable[N8nWorkflow]) -> str:
         "      # In-network base URL the seed uses for /healthz + webhook probes.",
         "      N8N_SEED_BASE_URL: http://n8n:5678",
         "      N8N_SEED_PLAN: /consumer-workflows/plan.json",
+        "      N8N_SEED_HTTP_TIMEOUT_MS: ${N8N_SEED_HTTP_TIMEOUT_MS:-10000}",
+        "      N8N_SEED_COMMAND_TIMEOUT_MS: ${N8N_SEED_COMMAND_TIMEOUT_MS:-120000}",
         '    entrypoint: ["/bin/sh", "/scripts/seed-workflows.sh"]',
         "    volumes:",
         "      - ./services/n8n/init/scripts:/scripts:ro",

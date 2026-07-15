@@ -1,8 +1,9 @@
 """App-level behavior in main.py: research/start user_id validation and the
 lifespan shutdown that closes the long-lived n8n client.
 
-Backend has no auth dependency (Kong gates external access at the edge),
-so these tests don't override any auth dependency.
+Identity-bearing and operator routes have a Backend bearer-auth dependency.
+The shared test fixture selects the explicit rollback mode unless a security
+test enables the required policy.
 """
 
 from __future__ import annotations

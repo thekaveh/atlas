@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import re
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import unquote
@@ -36,7 +37,7 @@ def check_self_containment(repo_root: Path, generated_root: Path) -> list[Findin
         )
     services_root = repo_root / "services"
     if services_root.is_dir():
-        repo_inputs.extend(sorted(services_root.glob("*/README.md")))
+        repo_inputs.extend(_tracked_service_readmes(repo_root))
     inputs = [("repo", path) for path in repo_inputs]
     for surface in ("site", "wiki"):
         inputs.extend((surface, path) for path in sorted((generated_root / surface).rglob("*.md")))
@@ -90,6 +91,25 @@ def _is_internal_doc(path: Path, docs_root: Path) -> bool:
     return bool(relative.parts and relative.parts[0] in _INTERNAL_DIRS)
 
 
+def _tracked_service_readmes(repo_root: Path) -> list[Path]:
+    result = subprocess.run(
+        ["git", "ls-files", "--", "services/**"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        services_root = repo_root / "services"
+        return sorted(services_root.rglob("README.md")) if services_root.is_dir() else []
+    relative_paths = result.stdout.splitlines()
+    return [
+        repo_root / relative
+        for relative in relative_paths
+        if Path(relative).name == "README.md" and (repo_root / relative).is_file()
+    ]
+
+
 def check_completeness(manifest: Manifest, repo_root: Path) -> list[Finding]:
     docs_root = repo_root / "docs"
     declared = {page.source for page in manifest.pages}
@@ -101,7 +121,7 @@ def check_completeness(manifest: Manifest, repo_root: Path) -> list[Finding]:
         findings.append(Finding("error", relative, "public Markdown is not declared in docs/manifest.yaml"))
     services_root = repo_root / "services"
     if services_root.is_dir():
-        for path in sorted(services_root.glob("*/README.md")):
+        for path in _tracked_service_readmes(repo_root):
             relative = path.relative_to(repo_root).as_posix()
             if relative not in declared:
                 findings.append(

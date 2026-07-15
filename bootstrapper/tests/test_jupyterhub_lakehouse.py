@@ -79,8 +79,7 @@ def test_jupyterhub_manifest_declares_lakehouse_topology() -> None:
 
 def test_jupyterhub_docs_cover_lakehouse_clients_and_validation() -> None:
     readme = (JUPYTERHUB_DIR / "README.md").read_text(encoding="utf-8")
-    build_readme = (JUPYTERHUB_DIR / "build" / "README.md").read_text(encoding="utf-8")
-    combined = f"{readme}\n{build_readme}"
+    combined = readme
 
     for expected in [
         "boto3",
@@ -97,7 +96,7 @@ def test_jupyterhub_docs_cover_lakehouse_clients_and_validation() -> None:
     ]:
         assert expected in combined
 
-    future_pairs = readme.split("### 15.4 Future", 1)[1].split("### 15.5", 1)[0]
+    future_pairs = readme.split("### 15.4. Future", 1)[1].split("### 15.5.", 1)[0]
     assert "jupyterhub ↔ minio" not in future_pairs
 
 

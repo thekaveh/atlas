@@ -1,4 +1,6 @@
-# User Supabase Migrations
+# 5.3.7. User Supabase Migrations
+
+## 1. Purpose
 
 This directory is the downstream-owned Supabase SQL slot for local projects,
 submodule consumers, and forks that need to layer database objects on top of

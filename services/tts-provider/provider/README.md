@@ -1,10 +1,10 @@
-# TTS Provider Service
+# 5.3.5. TTS Provider Overview
 
 Pluggable text-to-speech layer. All backends expose an OpenAI-compatible
 `/v1/audio/speech` endpoint so Open WebUI, n8n, and the backend API can use
 them interchangeably.
 
-## Available backends
+## 1. Available backends
 
 | `TTS_PROVIDER_SOURCE` | Engine | License | Runs on |
 |---|---|---|---|
@@ -15,7 +15,7 @@ them interchangeably.
 | `disabled` | none | — | — |
 
 The default for fresh installs is **`speaches-container-cpu`** — works on
-every platform with no localhost setup. ⚠ Speaches ships with no preloaded
+every platform with no localhost setup. **Important:** Speaches ships with no preloaded
 models and does NOT auto-download them (verified against speaches v0.9.0-rc.3:
 `/v1/audio/*` does a cache-only lookup and 404s on a missing model), so you must
 preload Kokoro before the first synthesis (see the quick start below).
@@ -26,7 +26,7 @@ Silicon where MPS gives ~10× speedup over the Docker CPU path, install
 Chatterbox natively and use `chatterbox-localhost` — see
 [localhost/README.md](localhost/README.md).
 
-## Quick start
+## 2. Quick start
 
 Speaches (default — already enabled in `.env.example`):
 
@@ -65,7 +65,7 @@ Disable:
 ./start.sh --tts-provider-source disabled
 ```
 
-## How Open WebUI is wired
+## 3. How Open WebUI is wired
 
 The bootstrapper sets these env vars on the open-web-ui container based on
 the chosen source:
@@ -78,11 +78,11 @@ the chosen source:
 You can override the model / voice in the Open WebUI admin panel after
 startup — Audio settings.
 
-## Full configuration reference
+## 4. Full configuration reference
 
 See [services/tts-provider/README.md](../../../services/tts-provider/README.md).
 
-## References
+## 5. References
 
 - [Speaches](https://github.com/speaches-ai/speaches) — bundled Kokoro + Piper + Faster-Whisper
 - [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M)

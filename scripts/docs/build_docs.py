@@ -119,7 +119,7 @@ def render_wiki(manifest: Manifest, repo_root: Path, destination: Path) -> None:
     )
     (destination / "_Sidebar.md").write_text(sidebar.rstrip() + "\n", encoding="utf-8")
     (destination / "_Footer.md").write_text(
-        "Atlas documentation generated from the canonical public manifest.\n",
+        "Atlas documentation.\n",
         encoding="utf-8",
     )
 

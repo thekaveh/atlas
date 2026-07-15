@@ -82,7 +82,7 @@ A commented LangChain block at the bottom of the file shows the recommended patt
 
 Use it as a template. Drop your own DAGs into `services/airflow/dags/` — they're bind-mounted into the container.
 
-### 5.1 Lakehouse SparkSubmit smoke
+### 5.1. Lakehouse SparkSubmit smoke
 
 `services/airflow/dags/lakehouse_spark_submit_smoke.py` is a manual DAG (`schedule=None`) for the data-engineering track. It prepares a tiny landing object, uploads the image-built validation JAR to `s3a://jars/atlas/lakehouse-smoke/latest/atlas-lakehouse-smoke.jar`, and runs `SparkSubmitOperator` with `deploy_mode="cluster"` against `spark://spark-master:7077`.
 
@@ -142,7 +142,7 @@ This pattern — agent runtime → orchestrated workflow — pairs Hermes's reac
 
 ## 7. Dependencies & Integrations
 
-### 7.1 Current — Upstream (this service calls)
+### 7.1. Current — Upstream (this service calls)
 
 | Service | Category |
 |---|---|
@@ -156,28 +156,28 @@ This pattern — agent runtime → orchestrated workflow — pairs Hermes's reac
 | weaviate | data |
 | litellm | llm |
 
-### 7.2 Current — Downstream (services that call this)
+### 7.2. Current — Downstream (services that call this)
 
 | Service | Category |
 |---|---|
 | kong | infra |
 | hermes | agents |
 
-### 7.3 Architecture diagram
+### 7.3. Architecture diagram
 
 ![airflow architecture](./architecture.svg)
 
 [Open the interactive HTML diagram](./architecture.html) for a full-screen view.
 
-### 7.4 Future — Missing pair integrations
+### 7.4. Future — Missing pair integrations
 
 _No high-confidence opportunities identified._
 
-### 7.5 Future — Candidate new services
+### 7.5. Future — Candidate new services
 
 _No high-confidence opportunities identified._
 
-### 7.6 Future — Unused features in this service
+### 7.6. Future — Unused features in this service
 
 _No high-confidence opportunities identified._
 

@@ -14,11 +14,11 @@ Image: `cloudflare/cloudflared:2026.6.1` (pin a dated tag; bump deliberately).
 
 | Path | URL | Notes |
 |---|---|---|
-| Public | configured in Cloudflare dashboard | Any hostname you map in Zero Trust → Networks → Tunnels |
+| Public | configured in Cloudflare dashboard | One protected public hostname per Atlas Kong host route. |
 | Internal metrics | `cloudflared:2000/metrics` | Prometheus-compatible; not scraped by default |
 | Host port | — | None. Egress-only. |
 
-All public hostnames and routing rules are defined in the Cloudflare Zero Trust dashboard, not in this repository. Point your tunnel's public hostname(s) at `http://kong-api-gateway:8000` to reach the Atlas gateway.
+All public hostnames and routing rules are defined in the Cloudflare Zero Trust dashboard, not in this repository. Kong selects Atlas routes by their internal Host values (`api.localhost`, `chat.localhost`, `n8n.localhost`, and the other aliases in the [Ports and Routes](../../docs/deployment/ports-and-routes.md) reference). A public hostname therefore needs an Origin HTTP Host Header override (`httpHostHeader` in an ingress rule) set to the exact Kong alias for the service it exposes. Forwarding an arbitrary public Host header to Kong without this override returns a Kong 404.
 
 ## 3. Configuration
 
@@ -36,8 +36,9 @@ The setup wizard exposes the same `container` / `disabled` choice. For automatio
 1. Create a named tunnel in the Cloudflare Zero Trust dashboard (Zero Trust > Networks > Tunnels > Add a tunnel).
 2. Copy the tunnel token.
 3. Set `CLOUDFLARED_SOURCE=container` and `CLOUDFLARE_TUNNEL_TOKEN=<your-token>` in `.env`.
-4. In the dashboard, add a public hostname pointing at `http://kong-api-gateway:8000` (service type HTTP, URL `kong-api-gateway:8000`).
-5. Restart the stack: `./start.sh`.
+4. In the dashboard, add a public hostname pointing at `http://kong-api-gateway:8000` (service type HTTP, URL `kong-api-gateway:8000`). Set its Origin HTTP Host Header to the matching Kong alias; for example, a public Backend hostname uses `api.localhost`, while an Open WebUI hostname uses `chat.localhost`.
+5. Create a Cloudflare Access application and least-privilege policy for that hostname before making it available to users. Repeat the hostname, origin Host override, and Access policy for each additional Atlas service you expose.
+6. Restart the stack: `./start.sh`.
 
 If `CLOUDFLARE_TUNNEL_TOKEN` is empty when `CLOUDFLARED_SOURCE=container`, Atlas rejects the configuration before Compose starts. This prevents the tunnel from entering an authentication-failure restart loop.
 
@@ -49,34 +50,34 @@ If `CLOUDFLARE_TUNNEL_TOKEN` is empty when `CLOUDFLARED_SOURCE=container`, Atlas
 
 **Scale toggle.** `CLOUDFLARED_SCALE` is written by the bootstrapper to `1` (SOURCE=container) or `0` (disabled). The compose fragment uses `deploy.replicas: ${CLOUDFLARED_SCALE:-0}`, so the container is simply not started when disabled.
 
-**Security posture.** The tunnel does not bypass Kong authentication. Every request that arrives at Cloudflare's edge is forwarded to Kong, which applies its own route rules, auth plugins, and rate limiting. Cloudflare Access policies are an additional optional layer configurable in the Zero Trust dashboard.
+**Security posture.** Cloudflare Access is required for every public Atlas hostname. Use identity-aware, least-privilege policies and do not treat possession of an unguessable hostname as access control. The tunnel does not replace Kong controls: after Access admits a request, Kong still applies the matched route's authentication, authorization, and rate limiting. Public exposure must therefore retain both layers, with an explicit `httpHostHeader` selecting the intended Kong route.
 
 ## 5. Dependencies & Integrations
 
-### 5.1 Current — Upstream (this service calls)
+### 5.1. Current — Upstream (this service calls)
 
 | Service | Category |
 |---|---|
 | kong | infra |
 
-### 5.2 Current — Downstream (services that call this)
+### 5.2. Current — Downstream (services that call this)
 
 _No downstream consumers._
 
-### 5.3 Architecture diagram
+### 5.3. Architecture diagram
 
 ![cloudflared architecture](./architecture.svg)
 
 [Open the interactive HTML diagram](./architecture.html) for a full-screen view.
 
-### 5.4 Future — Missing pair integrations
+### 5.4. Future — Missing pair integrations
 
 _No high-confidence opportunities identified._
 
-### 5.5 Future — Candidate new services
+### 5.5. Future — Candidate new services
 
 _No high-confidence opportunities identified._
 
-### 5.6 Future — Unused features in this service
+### 5.6. Future — Unused features in this service
 
 _No high-confidence opportunities identified._

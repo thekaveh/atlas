@@ -11,7 +11,7 @@ The stack orchestrates repository-defined containerized and virtual service fami
 
 ## 2. Development roadmap
 
-### 2.1 Completed
+### 2.1. Completed
 
 **JupyterHub data science IDE**
 - Interactive Jupyter Lab environment
@@ -91,7 +91,7 @@ The stack orchestrates repository-defined containerized and virtual service fami
 
 ---
 
-### 2.2 TUI & developer experience
+### 2.2. TUI & developer experience
 
 **Upgrade Textual for native log selection + copy**
 - The live-logs pane (`bootstrapper/ui/textual/widgets/log_pane.py`, a `RichLog` subclass) currently can't be click-drag-selected: Textual 0.89's mouse capture pre-empts the terminal's own selection, and in-app text selection (`ALLOW_SELECT` / `Screen.get_selection` / copy bindings) only landed in **Textual 1.0**. Bumping the pinned `textual>=0.85` (currently resolving to 0.89.1) to the latest 1.x/3.x line brings click-drag selection + copy to the logs pane — and every other widget — out of the box, so no bespoke copy affordance is needed.
@@ -100,7 +100,7 @@ The stack orchestrates repository-defined containerized and virtual service fami
 
 ---
 
-### 2.3 Tier 1: high-priority candidates
+### 2.3. Tier 1: high-priority candidates
 
 **Enhanced vector search (Weaviate optimization)**
 - Multi-model embedding support
@@ -116,18 +116,18 @@ The stack orchestrates repository-defined containerized and virtual service fami
 
 _Delivered — see "Completed" section below for the LiteLLM gateway entry._
 
-**Per-service configuration modularization** — ✅ delivered (Phases A–E, May 2026; fragment/container counts below are as of that milestone)
+**Per-service configuration modularization** — delivered (Phases A–E, May 2026; fragment/container counts below are as of that milestone)
 - Compose: 1,425-line monolithic `docker-compose.yml` → 55-line thin `include:`-shell that pulls in `services/<name>/compose.yml` fragments (one per service family — supabase, redis, minio, neo4j, litellm, ollama, weaviate, comfyui, n8n, open-webui, backend, searxng, jupyterhub, parakeet, speaches, chatterbox, docling, openclaw, hermes, local-deep-researcher, kong, plus virtual cloud-providers, tts-provider, and globals manifests).
 - Manifests: `services/<name>/service.yml` is the single source of truth for env vars (with auto_managed/secret flags), source variants, image refs, and dependencies. JSON-schema-validated. Bootstrapper runtime data lives under per-manifest `runtime_sc:`/`runtime_adaptive:`/`runtime_deps:` blocks; `bootstrapper/services/sc_synthesizer.py` reassembles the dict that `ConfigParser.load_yaml_config()` returns.
 - Safety nets: `bootstrapper/services/manifest_validator.py` (cross-manifest checks), `tools/validate_fragments.py` CLI lint with `--check-env-example`, and `tests/test_fragment_equivalence.py` (golden `rendered_config_baseline.yml` diff — byte-equivalence proven across the 36-container stack).
 - Locality: every service's source code, init scripts, build context, and config files live under `services/<name>/<subdir>/`. Repo top-level is just `bootstrapper/`, `docs/`, `services/`, plus standard files.
 
 **Monitoring stack (Prometheus + Grafana)** — *Shipped 2026-05-31 (observability bundle); JupyterHub + Hermes scrape jobs subsequently removed as unreachable.*
-- ✅ Prometheus scraper + TSDB with bundled node-exporter (host metrics) and cAdvisor (container metrics), bundled as `services/prometheus/`.
-- ✅ Grafana with 7 pre-provisioned dashboards (stack overview, LiteLLM, Kong, Postgres+Redis, Containers+Host, n8n, app-tier) — `services/grafana/`.
-- ✅ 15 scrape targets — Kong, LiteLLM, Weaviate, n8n + n8n-worker, MinIO, Backend, Asset Worker, Asset Baker, Prometheus + Grafana self, node-exporter, cAdvisor, plus postgres-exporter and redis-exporter sidecars. (JupyterHub + Hermes scrape jobs were removed as unreachable post-ship — JupyterHub ships single-user, no `/metrics`; the upstream Hermes image has no exporter. See `services/prometheus/README.md` §4 and the CHANGELOG entry.)
-- ✅ Unified Grafana alerting enabled (no separate Alertmanager); contact points / rules to be added by users.
-- ✅ Loki (logs) + Tempo (traces) + OpenTelemetry collector — the full observability triangle, shipped as `services/{loki,tempo,otel-collector}/` with Tempo + Loki datasources provisioned in Grafana (`services/grafana/config/provisioning/datasources/tempo-loki.yml`).
+- Prometheus scraper + TSDB with bundled node-exporter (host metrics) and cAdvisor (container metrics), bundled as `services/prometheus/`.
+- Grafana with 7 pre-provisioned dashboards (stack overview, LiteLLM, Kong, Postgres+Redis, Containers+Host, n8n, app-tier) — `services/grafana/`.
+- 15 scrape targets — Kong, LiteLLM, Weaviate, n8n + n8n-worker, MinIO, Backend, Asset Worker, Asset Baker, Prometheus + Grafana self, node-exporter, cAdvisor, plus postgres-exporter and redis-exporter sidecars. (JupyterHub + Hermes scrape jobs were removed as unreachable post-ship — JupyterHub ships single-user, no `/metrics`; the upstream Hermes image has no exporter. See `services/prometheus/README.md` §4 and the CHANGELOG entry.)
+- Unified Grafana alerting enabled (no separate Alertmanager); contact points / rules to be added by users.
+- Loki (logs) + Tempo (traces) + OpenTelemetry collector — the full observability triangle, shipped as `services/{loki,tempo,otel-collector}/` with Tempo + Loki datasources provisioned in Grafana (`services/grafana/config/provisioning/datasources/tempo-loki.yml`).
 
 **Enhanced security features**
 - Service-to-service authentication
@@ -152,7 +152,7 @@ Layer 1 — MCP servers : N small adapter containers wrapping individual
 
 Two architecturally distinct adoption paths are supported. Both are real OSS in 2026. Either can ship.
 
-#### Option A (recommended default): MetaMCP + curated server sidecars
+#### 2.3.1. Option A (recommended default): MetaMCP + curated server sidecars
 
 - **MetaMCP** (metatool-ai, MIT, v2.4.22 Dec 2025, 2.3k+ stars) — single aggregator container, **native OpenAPI surface** (no separate translator needed), namespace-based RBAC for per-consumer tool scopes (Open WebUI can see one set, Hermes another), Postgres-backed metadata co-located on the existing Supabase Postgres.
 - **MCP server sidecars** — small (50–100 MB) adapter containers connecting to existing stack services via their native protocols (Postgres wire, Bolt, REST/gRPC). Existing service images are **unchanged**.
@@ -170,7 +170,7 @@ Two architecturally distinct adoption paths are supported. Both are real OSS in 
 - `n8n-mcp` (community) → workflow triggering and inspection
 - Custom Backend MCP server (~150–200 LOC Python wrapping app-specific routes including LangMem)
 
-#### Option B (documented alternative): Docker MCP Gateway + Catalog + mcpo
+#### 2.3.2. Option B (documented alternative): Docker MCP Gateway + Catalog + mcpo
 
 - **Docker MCP Gateway** (`docker/mcp-gateway`, MIT, v0.42.1 May 2026) — single binary / container. Pulls MCP server images from the **Docker MCP Catalog** (hub.docker.com/mcp, 300+ vendor-signed images) **on demand**, spawning them as sibling containers via the mounted host docker socket.
 - **`mcpo`** (Open WebUI org, MIT) — small protocol translator. Required in front of the Gateway because the Gateway speaks MCP only (no native OpenAPI). Open WebUI consumers can hit MCP directly; FastAPI Backend / n8n / OpenClaw typically go through `mcpo`.
@@ -182,7 +182,7 @@ Two architecturally distinct adoption paths are supported. Both are real OSS in 
 - Vendor-signed image provenance is a hard organisational requirement.
 - *For most self-hosted AI-stack deployments wrapping their own internal services, Option A wins on every other axis.*
 
-#### Coverage matrix — which stack services need MCP, and which don't
+#### 2.3.3. Coverage matrix — which stack services need MCP, and which don't
 
 MCP is for **LLM-callable tools**, not arbitrary service-to-service integration. These categories help avoid wasted wrapper work:
 
@@ -222,7 +222,7 @@ Consumed by (services that would call the MCP gateway):
 - **OpenClaw** — messaging-platform agents reuse the same tool catalog
 - **Local Deep Researcher** — research workflows tap MCP-exposed sources
 
-**Langfuse — LLM observability and evaluation** — ✅ Shipped
+**Langfuse — LLM observability and evaluation** — Shipped
 - Open-source LLM tracing, prompt management, dataset, and evaluation platform (MIT)
 - LiteLLM ships a **native Langfuse callback** — zero-glue integration of every gateway-routed call (consumers automatically gain traces)
 - Closes the LLM-specific observability gap that Prometheus + Grafana (infra metrics) does not address: prompt versioning, prompt-level cost/latency attribution, eval scoring, conversation replay
@@ -280,11 +280,11 @@ Consumed by (services that would call OpenBao):
 
 ---
 
-### 2.4 Tier 2: planned candidates
+### 2.4. Tier 2: planned candidates
 
-> Entries marked ✅ shipped (e.g. Hermes) have landed in the stack; their write-ups stay here for the original evaluation context.
+> Entries marked shipped (e.g. Hermes) have landed in the stack; their write-ups stay here for the original evaluation context.
 
-#### Cross-cutting infrastructure
+#### 2.4.1. Cross-cutting infrastructure
 
 These services are pipeline-agnostic — useful to every strategic track (3D / game-generation, financial / trading-AI, RAG specializations, data-engineering) rather than belonging to any one. **Ray** was promoted out of this sub-section to Tier 1 (2026-05-22) and shipped 2026-05-24 — see the Completed section above; only E2B remains here today.
 
@@ -309,7 +309,7 @@ Consumed by (services that would call E2B):
 - **Windmill** — promotion-gate flows and any "run untrusted code" workflow step
 - **n8n** — custom-code workflow nodes
 
-#### Specialized capabilities
+#### 2.4.2. Specialized capabilities
 
 **LangFlow (AI workflow & agent builder)**
 - Low-code visual builder for AI agents and RAG pipelines
@@ -380,7 +380,7 @@ Consumed by (services that would call Karakeep):
 - **Weaviate** — semantic search over captured content
 - **n8n** — capture-trigger workflows (e.g. "RSS item → Karakeep")
 
-**Crawl4AI — LLM-friendly web crawler** — ✅ Shipped
+**Crawl4AI — LLM-friendly web crawler** — Shipped
 - Apache-2.0 Playwright-based crawler purpose-built for LLM ingestion: clean Markdown output, structured extraction strategies, sitemap traversal, JavaScript-rendered page support
 - Apache-2.0 license is intentional — Firecrawl-self-hosted (AGPL-3.0) is incompatible with this stack's permissive boilerplate posture
 - Fills the web-ingestion gap for both RAG (article corpora) and trading-AI (filings / news / sentiment scrape) use-cases
@@ -415,7 +415,7 @@ Consumed by (services that would call GROBID):
 - **n8n** — batch document-processing workflows
 - **JupyterHub** — research-notebook citation workflows
 
-**Apache Tika — broad-format text and metadata extraction** — ✅ Shipped
+**Apache Tika — broad-format text and metadata extraction** — Shipped
 - Apache-2.0 content analysis toolkit supporting 1000+ formats (Office docs, email, archives, audio / video metadata, source code, structured data)
 - Pre-Docling fallback for the long tail of formats Docling does not target (mailbox archives, legacy Office, multimedia metadata)
 - Standalone server mode exposes a REST endpoint suitable for direct consumption by n8n / backend
@@ -568,7 +568,7 @@ Consumed by (services that would use CCXT):
 - Advanced data processing workflows
 - Custom node development
 
-**Hermes Agent (programmable AI agent for chat & messaging)** ✓ **shipped**
+**Hermes Agent (programmable AI agent for chat & messaging)** — **shipped**
 
 Lives in [services/hermes/README.md](https://github.com/thekaveh/atlas/blob/main/services/hermes/README.md). Shipped as the
 `hermes` service (`nousresearch/hermes-agent:latest` — upstream publishes
@@ -608,15 +608,15 @@ named volume). Supabase is not in Hermes's dependency set.
 
 ---
 
-### 2.5 Tier 3: future candidates
+### 2.5. Tier 3: future candidates
 
-> Entries marked ✅ shipped (e.g. Airflow, Spark) have landed in the stack; their write-ups stay here for the original evaluation context.
+> Entries marked shipped (e.g. Airflow, Spark) have landed in the stack; their write-ups stay here for the original evaluation context.
 
 Tier 3 is organized into four named sub-sections so the use-case tracks are scannable at a glance: **General-purpose** (horizontal candidates), **3D / game-generation track**, **Financial / trading-AI track**, and **Real-time / collaboration**.
 
-#### General-purpose
+#### 2.5.1. General-purpose
 
-**Apache Airflow integration** — ✅ **Shipped 2026-06-04** (PR #35; currently Apache Airflow 3.3.0, LocalExecutor)
+**Apache Airflow integration** — **Shipped 2026-06-04** (PR #35; currently Apache Airflow 3.3.0, LocalExecutor)
 - Workflow orchestration
 - Data pipeline management
 - Scheduled AI processing jobs
@@ -792,7 +792,7 @@ Consumed by (services that would call Paperless-ngx):
 - Cross-platform compatibility
 - Open source ecosystem integration
 
-#### 3D / game-generation track
+#### 2.5.2. 3D / game-generation track
 
 This track composes a full pipeline: **ComfyUI** (concept image, exists) → **Hunyuan3D-2 / TRELLIS** (image-to-3D mesh) → **Blender headless** (scene assembly and render) → **Godot headless** (game runtime). **NerfStudio** runs in parallel for real-scene capture. **LightRAG** indexes the asset graph; **AudioCraft / MusicGen** provides procedural audio.
 
@@ -950,7 +950,7 @@ Depends on: none at runtime.
 
 Consumed by: **ComfyUI** (sketch-conditioned image generation via ControlNet), **Backend (FastAPI)** (sketch export → image-gen pipeline).
 
-#### Financial / trading-AI track
+#### 2.5.3. Financial / trading-AI track
 
 This track composes a full pipeline: **OpenBB Platform** provides multi-provider financial data; **TimescaleDB** (Postgres extension on the existing Supabase Postgres) stores tick / OHLC history; **Redpanda** carries real-time exchange feeds; **NautilusTrader** runs backtests, paper-trade, and live execution; **Hermes** and **Backend** generate or tune strategies via **LiteLLM**; **Langfuse** observes LLM-driven decisions; **Infisical** holds exchange credentials.
 
@@ -1009,7 +1009,7 @@ Consumed by (services that would call TimescaleDB):
 - **JupyterHub** — research notebooks
 - **Langfuse** — optional storage backend for trace event aggregates
 
-**Redpanda — Kafka-compatible streaming broker** — ✅ Shipped (services/redpanda/)
+**Redpanda — Kafka-compatible streaming broker** — Shipped (services/redpanda/)
 - Single-binary Kafka-compatible streaming platform (BSL-1.1 / RCL); no ZooKeeper / KRaft hassle, dramatically lighter ops footprint than Apache Kafka
 - Carries real-time market-data fan-out for the trading-AI track (one exchange WebSocket → multiple strategy consumers without re-subscribing)
 - Also a general-purpose event-streaming layer for n8n event-driven workflows, observability event pipelines, and inter-service eventing as the stack scales
@@ -1050,11 +1050,11 @@ Consumed by (services that would use FinRL / FinGPT):
 - **Audit-sealer worker** (Phase 2) — small Python worker that batches order events from Redpanda, computes a Merkle root, signs it via **OpenBao**, and writes a WORM-locked archive to MinIO Object Lock. The anchor record lives in Supabase Postgres for queryability.
 - These pieces are intentionally in-house: the OSS landscape for these specific roles is thin in 2026, and small targeted FastAPI services are cheaper to maintain than evaluating unmaintained third-party alternatives.
 
-#### Data engineering track
+#### 2.5.4. Data engineering track
 
 This track composes a lakehouse + ingestion + BI + (optional) MLOps platform alongside the AI services, with the JVM / Scala lane explicitly available but **opt-in** (the rest of the stack stays Python-native via Spark Connect). Three notable divergences from the obvious 2024 picks: **Apache Zeppelin** shipped 2026-06-04 (PR #35) as a Spark-first notebook UI alongside the **Almond Scala kernel** on JupyterHub — they coexist with different audiences (Zeppelin for Spark-first SQL/Scala notebook authoring; Almond/JupyterHub for general-purpose Scala kernels in the Python notebook environment); **Dagster** is the primary asset-centric orchestrator with **Apache Airflow** (also shipped 2026-06-04 in PR #35) as a permitted alternative (via `ORCHESTRATOR_SOURCE`); and **Spark Connect** makes Scala client-side optional. Unusually strong reuse: the lake is MinIO (existing), every catalog stores metadata in Postgres (existing), Feast's online store is Redis (existing), OpenMetadata's search is OpenSearch (Tier 3 roadmap), Debezium's sink is Redpanda (shipped), and parallel work is the now-shipped **Ray** cluster (see the Completed section above).
 
-**Apache Spark (standalone + Spark Connect) — distributed compute** — ✅ **Shipped 2026-06-04** (PR #35; Spark 4.1.2)
+**Apache Spark (standalone + Spark Connect) — distributed compute** — **Shipped 2026-06-04** (PR #35; Spark 4.1.2)
 - Apache-2.0; Spark 4.x. 5-container family on `apache/spark:4.1.2`: four long-running roles (master, worker, history, `spark-connect` gRPC sidecar) plus a one-shot minio/mc-based `spark-init` that creates the `spark-history` bucket. Spark Connect (GA since Spark 3.4, recommended in 4.x) is a gRPC server that exposes Spark to Python / Scala / Go / Rust clients transparently — the cluster runs JVM, clients do not.
 - Phase 1 anchor of the data-engineering track. **The Spark Connect server is the architectural unlock**: it lets the FastAPI backend, JupyterHub Python kernels, Dagster / Airflow workers, and Hermes-orchestrated jobs use Spark without a JVM in their containers.
 - **Follow-up — Spark × Prometheus + Grafana observability**: spec §5.1 marked this CRITICAL-opt-in (JMX exporter sidecar + scrape job + a starter `spark.json` Grafana dashboard) but the wiring did not ship in PR #35. cAdvisor's container-level metrics cover the gap in existing dashboards until the JMX integration lands.
@@ -1083,7 +1083,7 @@ Depends on: **Supabase (PostgreSQL)** — catalog metadata storage.
 
 Consumed by: **Apache Spark**, **Trino**, **DuckDB** (via Iceberg connector), **Dagster** (Iceberg-as-asset definitions), **Backend (FastAPI)** (catalog-aware data APIs).
 
-**Trino — federated SQL engine** — ✅ Shipped (services/trino/)
+**Trino — federated SQL engine** — Shipped (services/trino/)
 - Apache-2.0; JVM. The canonical 2026 lakehouse-SQL engine; first-class connectors for Iceberg, Postgres, Mongo, Kafka, Redpanda, OpenSearch, and many more. Heavy (JVM tuning) but well-understood.
 - **StarRocks** (Apache-2.0, C++) is a documented future accelerator if Trino dashboard latency becomes a real pain point — different shape (analytical DB with federation bolted on rather than pure federation engine), so not a like-for-like swap.
 
@@ -1140,7 +1140,7 @@ Depends on: **Supabase (PostgreSQL)** (catalog metadata), **OpenSearch** (Tier 3
 
 Consumed by: **Backend (FastAPI)** (catalog-aware data APIs), **Hermes / MCP gateway** (catalog-as-tool for agents), **Dagster** (asset materialization → lineage events), **Trino / Spark / dbt-core** (push lineage events on every run).
 
-**MLflow — experiment + model tracking** — ✅ Shipped
+**MLflow — experiment + model tracking** — Shipped
 - Apache-2.0; still dominant in 2026 for OSS experiment tracking. Postgres-backed registry + MinIO artifact store — both reuse existing services.
 - **ClearML** (Apache-2.0) is documented as a defensible richer alternative when MLflow's tracking-only feature surface becomes insufficient (datasets + pipelines + agent).
 - **W&B Local** requires a commercial license and is skipped on license grounds.
@@ -1185,7 +1185,7 @@ Consumed by: **JupyterHub** (feature-engineering notebooks), **Backend (FastAPI)
 - Mirrors the existing `STT_PROVIDER_SOURCE` and `TTS_PROVIDER_SOURCE` patterns. Allowed values: `dagster-container`, `airflow-container`, `dagster-localhost`, `airflow-localhost`, `disabled`. The bootstrapper enforces exactly one orchestrator is active when `ORCHESTRATOR_SOURCE != disabled`.
 - The existing **Apache Airflow integration** entry (under `#### General-purpose`) is the alternative endpoint of this source variant.
 
-#### Real-time / collaboration
+#### 2.5.5. Real-time / collaboration
 
 **Real-time audio / video (LiveKit)**
 - WebRTC server (Apache-2.0) bridging the existing STT and TTS layers into a real-time voice-agent pipeline rather than batch round-trips
@@ -1206,76 +1206,76 @@ Consumed by (services that would call LiveKit):
 
 ## 3. Technology comparisons & decisions
 
-### 3.1 Search engine analysis
+### 3.1. Search engine analysis
 - **MeiliSearch vs OpenSearch**: lightweight application search vs full search/analytics/RAG platform
 - **OpenSearch vs Elasticsearch**: Apache 2.0 fork vs AGPL/SSPL original; similar capabilities, OpenSearch avoids vendor lock-in
 - **SearxNG vs OpenSearch/MeiliSearch**: external web metasearch vs internal content search (complementary, not competing)
 
-### 3.2 RAG frameworks
+### 3.2. RAG frameworks
 - **LightRAG vs OpenRAG**: graph-enhanced retrieval (new capability) vs pre-packaged platform (duplicates existing services)
 - **LightRAG vs GraphRAG (Microsoft)**: flexible storage backends + academic benchmarks vs enterprise pipeline focus
 - **Docling vs RAG-Anything**: structured document parsing (tables, layout) vs multimodal knowledge entity extraction (complementary)
 - **RAGFlow**: alternative worth tracking for deep document understanding and citation grounding (77.6k stars)
 
-### 3.3 Authentication solutions
+### 3.3. Authentication solutions
 - **Keycloak vs Supabase Auth**: enterprise features vs simplicity
 - **Self-hosted vs cloud**: control vs convenience
 
-### 3.4 Vector database options
+### 3.4. Vector database options
 - **pgvector vs Weaviate vs Qdrant**: SQL integration vs specialized features vs performance
 - **Single vs multi-vendor**: simplicity vs flexibility
 
-### 3.5 AI workflow & agent builders
+### 3.5. AI workflow & agent builders
 - **n8n vs LangFlow**: general automation with AI add-ons vs AI-native pipeline builder
 - **Complementary use**: n8n for system orchestration, LangFlow for deep AI pipelines
 
-### 3.6 Container orchestration
+### 3.6. Container orchestration
 - **Docker Compose vs Kubernetes**: development vs production scaling
 - **Local vs cloud**: resource efficiency vs unlimited scaling
 
-### 3.7 LLM observability
+### 3.7. LLM observability
 - **Langfuse vs Helicone vs Phoenix (Arize)**: Langfuse is the actively-developed choice with a native LiteLLM callback; Helicone entered maintenance mode in early 2026; Phoenix is stronger for offline eval than in-production tracing
 - **LLM observability vs infra metrics**: Langfuse covers prompts / traces / evals / cost attribution; Prometheus + Grafana covers container and host metrics. Both belong in the stack — they don't substitute.
 
-### 3.8 Agent memory
+### 3.8. Agent memory
 - **LangMem (existing, in-backend) vs Mem0 (external, light) vs Letta / MemGPT (external, stateful)**: LangMem is Open WebUI-centric and embedded; Mem0 is the multi-agent external default; Letta is the upgrade for agents that need to reason over their own memory hierarchy
 - **Complementary, not competing**: a deployment can hold all three for different consumers (backend uses LangMem; Hermes / OpenClaw use Mem0; long-running Hermes personas optionally use Letta)
 
-### 3.9 Image-generation UIs
+### 3.9. Image-generation UIs
 - **ComfyUI (existing) vs InvokeAI vs A1111 / Automatic1111**: ComfyUI for graph and batch generation; InvokeAI for canvas and inpainting; A1111 is stagnant and not recommended in 2026
 - **Forge** is a reasonable A1111-compatible fork if user preference demands the A1111 UX, but InvokeAI is the better complement to ComfyUI for a generative-AI stack
 
-### 3.10 MCP gateway
+### 3.10. MCP gateway
 - **`mcpo` vs MetaMCP vs IBM ContextForge**: `mcpo` is the lowest-friction MCP→OpenAPI wrapper (from the Open WebUI org); MetaMCP adds namespace and RBAC aggregation; IBM ContextForge has the broadest transport support
 - **Recommended path**: start with `mcpo` (Open WebUI v0.6.31+ already speaks MCP); add MetaMCP when more than 2–3 MCP servers warrant aggregated, namespaced routing
 
-### 3.11 Personal-knowledge surfaces
+### 3.11. Personal-knowledge surfaces
 - **SilverBullet vs Karakeep vs Paperless-ngx**: SilverBullet for authored markdown notes (files on disk); Karakeep for captured / AI-tagged web content; Paperless-ngx for OCR'd document archive. All three feed the same downstream RAG indexes — pick by capture mode, not as alternatives.
 - **Skip for the AI-stack lens**: Logseq, Trilium, AppFlowy, AFFiNE — client-centric or database-backed designs that don't expose files to RAG ingestion as cleanly
 
-### 3.12 Code-first vs low-code workflows
+### 3.12. Code-first vs low-code workflows
 - **n8n (existing) vs Windmill**: n8n for low-code system orchestration; Windmill for code-native ML / data pipelines (training, evals, scheduled backtests). They complement rather than substitute.
 - **Activepieces (MIT) and Trigger.dev** are alternatives to Windmill when AGPL is a deployment concern
 
-### 3.13 Secrets management
+### 3.13. Secrets management
 - **`.env` (current) vs Infisical vs HashiCorp Vault vs Vaultwarden**: `.env` is the current baseline; Infisical adds rotation, audit, and per-environment scoping with reasonable operational cost; Vault is overkill for this stack's scale; Vaultwarden is a password vault (wrong layer entirely)
 
-### 3.14 Embedding inference
+### 3.14. Embedding inference
 - **LiteLLM-routed (current) vs TEI (dedicated)**: LiteLLM is fine for chat completions and ad-hoc embedding calls; TEI is the right layer once embedding throughput becomes dominant (bulk RAG indexing, reranking pipelines). Register TEI as a LiteLLM upstream so consumer code does not change.
 - **Reranking** is unique to TEI within the stack — neither Weaviate's bundled multi2vec-clip nor LiteLLM provide a `/rerank` endpoint today
 
-### 3.15 Image-to-3D models
+### 3.15. Image-to-3D models
 - **Hunyuan3D-2 (Tencent) vs TRELLIS (Microsoft) vs InstantMesh**: Hunyuan3D-2 leans textured-mesh; TRELLIS produces mesh, Gaussian splatting, and radiance fields from a single image; InstantMesh is faster but lower fidelity. Pick TRELLIS for breadth, Hunyuan3D-2 for textured-mesh quality.
 - **NerfStudio is orthogonal**: reconstruction from real captures rather than generation from concept, and runs in parallel rather than competing
 
-### 3.16 Trading engines
+### 3.16. Trading engines
 - **NautilusTrader vs Freqtrade vs OctoBot**: NautilusTrader is Python / Rust, multi-asset (crypto, FX, equities, futures), with paper and live execution; Freqtrade is crypto-only with a larger community and simpler scope; OctoBot is similar in scope to Freqtrade
 - **For this stack**: NautilusTrader is the default candidate because the multi-asset surface matches the broader AI-app framing; Freqtrade is a fine fit when crypto-only is the explicit goal
 
-### 3.17 Time-series storage
+### 3.17. Time-series storage
 - **TimescaleDB extension (on existing Postgres) vs standalone QuestDB / InfluxDB**: TimescaleDB is the zero-new-container option (extension on Supabase Postgres) and the recommended default; QuestDB / InfluxDB are worth considering only if write throughput exceeds Postgres + TimescaleDB headroom
 
-### 3.18 Considered and rejected
+### 3.18. Considered and rejected
 
 The following candidates were evaluated and explicitly *not* recommended at this time. Recording them prevents the same suggestions from cycling back into roadmap discussions.
 
@@ -1312,7 +1312,7 @@ The following candidates were evaluated and explicitly *not* recommended at this
 
 **From the data-engineering stack-fit research (2026-05-21 — see git log for the design doc, retired with `docs/superpowers/` 2026-05-22):**
 
-- **Apache Zeppelin** — ✅ **Shipped 2026-06-04** (PR #35) as the Spark-first notebook UI. The original rejection rationale (cadence slow + Almond on JupyterHub covers Scala) was overridden by user request for a dedicated Spark-first notebook interface. Both surfaces coexist: Zeppelin for Spark-first paragraph-style authoring with a pre-configured Spark interpreter (JDBC requires one-time UI setup — see service README); JupyterHub + Almond for general-purpose Scala kernels alongside Python.
+- **Apache Zeppelin** — **Shipped 2026-06-04** (PR #35) as the Spark-first notebook UI. The original rejection rationale (cadence slow + Almond on JupyterHub covers Scala) was overridden by user request for a dedicated Spark-first notebook interface. Both surfaces coexist: Zeppelin for Spark-first paragraph-style authoring with a pre-configured Spark interpreter (JDBC requires one-time UI setup — see service README); JupyterHub + Almond for general-purpose Scala kernels alongside Python.
 - **Polynote (Netflix)** — abandoned; last release 2022.
 - **Airbyte** — Docker Compose support deprecated in 2025; production now requires Kubernetes + Postgres + Redis + Temporal; ELv2 license is incompatible with the stack's permissive-boilerplate posture. **dlt** (Apache-2.0 Python library) is the recommended Python-first replacement; **Meltano** (MIT) is the documented Singer-based fallback.
 - **DataHub** as the data catalog — GMS + MAE/MCE Kafka consumers + Elasticsearch + Neo4j is too heavy for compose; **OpenMetadata** (Postgres + OpenSearch + server + UI) has the right footprint.
@@ -1337,7 +1337,7 @@ The following candidates were evaluated and explicitly *not* recommended at this
 
 ## 4. Implementation strategy
 
-### 4.1 Development principles
+### 4.1. Development principles
 
 1. **Backward compatibility**: new features should not break existing deployments
 2. **Opt-in features**: capabilities are added as optional integrations
@@ -1345,13 +1345,13 @@ The following candidates were evaluated and explicitly *not* recommended at this
 4. **Testing coverage**: automated testing for new capabilities
 5. **Community driven**: feature priorities reflect user feedback
 
-### 4.2 Release schedule
+### 4.2. Release schedule
 
 - **Monthly releases**: bug fixes and minor enhancements
 - **Quarterly releases**: feature additions
 - **Annual releases**: architecture improvements and breaking changes
 
-### 4.3 Feature development process
+### 4.3. Feature development process
 
 1. **Community feedback**: gather requirements from users
 2. **Design documents**: technical specifications
@@ -1362,14 +1362,14 @@ The following candidates were evaluated and explicitly *not* recommended at this
 
 ## 5. Community & ecosystem
 
-### 5.1 Open source contributions
+### 5.1. Open source contributions
 
 - **Plugin system**: allow community-developed service integrations
 - **Template library**: community-contributed templates and workflows
 - **Documentation improvements**: community-driven documentation enhancements
 - **Testing & validation**: community testing on various platforms
 
-### 5.2 Integration partnerships
+### 5.2. Integration partnerships
 
 - **AI model providers**: partnerships with model hosting services
 - **Cloud providers**: deployment guides and templates

@@ -1,9 +1,8 @@
 """Shared pytest fixtures for the Backend app's tests.
 
-The Backend has historically had no test files (P1 audit finding earlier
-in this branch). This is the bootstrap for that — Ray's job-submission
-surface is the first real test suite. Follow the patterns established
-here for future Backend test work.
+These fixtures support the Backend's route, service, security, and integration
+contract tests. Follow the established identity and import patterns when
+extending the suite.
 
 Production identity-bearing and operator routes require backend bearer
 authentication. Tests default that boundary to the explicit rollback mode;

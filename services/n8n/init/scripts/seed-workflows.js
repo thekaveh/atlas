@@ -30,17 +30,35 @@ const PLAN = process.env.N8N_SEED_PLAN || '/consumer-workflows/plan.json';
 const BASE = (process.env.N8N_SEED_BASE_URL || 'http://n8n:5678').replace(/\/+$/, '');
 const KEY = process.env.N8N_API_KEY || '';
 
+function positiveMilliseconds(name, fallback) {
+  const value = Number.parseInt(process.env[name] || '', 10);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+const HTTP_TIMEOUT_MS = positiveMilliseconds('N8N_SEED_HTTP_TIMEOUT_MS', 10000);
+const COMMAND_TIMEOUT_MS = positiveMilliseconds('N8N_SEED_COMMAND_TIMEOUT_MS', 120000);
+
 const log = (m) => console.log('n8n-seed: ' + m);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function request(method, path, opts) {
   opts = opts || {};
   return new Promise((resolve) => {
+    let settled = false;
+    let deadlineTimer;
+    let response;
+    const finish = (result) => {
+      if (!settled) {
+        settled = true;
+        if (deadlineTimer) clearTimeout(deadlineTimer);
+        resolve(result);
+      }
+    };
     let u;
     try {
       u = new URL(BASE + path);
     } catch (e) {
-      resolve({ status: 0, body: '' });
+      finish({ status: 0, body: '' });
       return;
     }
     const lib = u.protocol === 'https:' ? require('https') : require('http');
@@ -49,12 +67,24 @@ function request(method, path, opts) {
     const req = lib.request(
       { method, hostname: u.hostname, port: u.port, path: u.pathname + u.search, headers },
       (res) => {
+        response = res;
         let data = '';
         res.on('data', (c) => (data += c));
-        res.on('end', () => resolve({ status: res.statusCode || 0, body: data }));
+        res.on('end', () => finish({ status: res.statusCode || 0, body: data }));
+        res.on('error', () => finish({ status: 0, body: '' }));
       }
     );
-    req.on('error', () => resolve({ status: 0, body: '' }));
+    const timeoutMs = opts.timeoutMs || HTTP_TIMEOUT_MS;
+    const timeoutError = () => new Error('n8n seed HTTP request timed out');
+    deadlineTimer = setTimeout(() => {
+      if (response) response.destroy(timeoutError());
+      req.destroy(timeoutError());
+      finish({ status: 0, body: '' });
+    }, timeoutMs);
+    req.setTimeout(timeoutMs, () => {
+      req.destroy(new Error('n8n seed HTTP request timed out'));
+    });
+    req.on('error', () => finish({ status: 0, body: '' }));
     if (opts.body) req.write(opts.body);
     req.end();
   });
@@ -64,13 +94,26 @@ const ok = (s) => s >= 200 && s < 300;
 const authHeaders = () => ({ 'X-N8N-API-KEY': KEY, 'accept': 'application/json' });
 
 async function waitHealthy(timeoutMs) {
-  const start = Date.now();
+  const deadline = Date.now() + timeoutMs;
   for (;;) {
-    const r = await request('GET', '/healthz');
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) return false;
+    const r = await request('GET', '/healthz', {
+      timeoutMs: Math.min(HTTP_TIMEOUT_MS, remaining),
+    });
     if (ok(r.status)) return true;
-    if (Date.now() - start >= timeoutMs) return false;
-    await sleep(5000);
+    const pause = Math.min(5000, deadline - Date.now());
+    if (pause <= 0) return false;
+    await sleep(pause);
   }
+}
+
+function runCommand(command, args, timeoutMs) {
+  return spawnSync(command, args, {
+    stdio: ['ignore', 'ignore', 'pipe'],
+    timeout: timeoutMs || COMMAND_TIMEOUT_MS,
+    killSignal: 'SIGKILL',
+  });
 }
 
 function effectiveActive(wf) {
@@ -115,9 +158,7 @@ async function main() {
       continue;
     }
     // Idempotent upsert keyed by the namespaced seed_id baked into the file.
-    const res = spawnSync('n8n', ['import:workflow', '--input=' + wf.file], {
-      stdio: ['ignore', 'ignore', 'pipe'],
-    });
+    const res = runCommand('n8n', ['import:workflow', '--input=' + wf.file]);
     if (res.status === 0) {
       log(`✓ imported '${wf.id}' (owner=${wf.consumer})`);
       imported++;
@@ -203,10 +244,14 @@ async function main() {
   log(`seed summary: imported=${imported} failed=${failed}`);
 }
 
-main()
-  .then(() => process.exit(0))
-  .catch((e) => {
-    log('ERROR - ' + (e && e.message ? e.message : e));
-    // Best-effort: never abort the stack launch on a seeding error.
-    process.exit(0);
-  });
+module.exports = { request, runCommand, waitHealthy };
+
+if (require.main === module) {
+  main()
+    .then(() => process.exit(0))
+    .catch((e) => {
+      log('ERROR - ' + (e && e.message ? e.message : e));
+      // Best-effort: never abort the stack launch on a seeding error.
+      process.exit(0);
+    });
+}

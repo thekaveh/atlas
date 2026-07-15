@@ -15,7 +15,7 @@ def _candidate_text() -> str:
 def test_firecrawl_remains_deferred_behind_crawl4ai() -> None:
     text = _candidate_text()
 
-    assert "## Deferred decision (2026-07-04)" in text
+    assert "Deferred decision (2026-07-04)" in text
     assert "must not add `services/firecrawl/service.yml` yet" in text
     assert "Crawl4AI-first" in text
     assert "AGPL-3.0" in text

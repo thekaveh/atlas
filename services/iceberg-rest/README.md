@@ -24,14 +24,14 @@ Atlas builds a small local image from `ICEBERG_REST_IMAGE` because the upstream 
 
 ## 5. Dependencies & Integrations
 
-### 5.1 Current — Upstream (this service calls)
+### 5.1. Current — Upstream (this service calls)
 
 | Service | Category |
 |---|---|
 | minio | data |
 | supabase | data |
 
-### 5.2 Current — Downstream (services that call this)
+### 5.2. Current — Downstream (services that call this)
 
 | Service | Category |
 |---|---|
@@ -41,21 +41,21 @@ Atlas builds a small local image from `ICEBERG_REST_IMAGE` because the upstream 
 | jupyterhub | apps |
 | zeppelin | apps |
 
-### 5.3 Architecture diagram
+### 5.3. Architecture diagram
 
 ![iceberg-rest architecture](./architecture.svg)
 
 [Open the interactive HTML diagram](./architecture.html) for a full-screen view.
 
-### 5.4 Future — Missing pair integrations
+### 5.4. Future — Missing pair integrations
 
 _No high-confidence opportunities identified._
 
-### 5.5 Future — Candidate new services
+### 5.5. Future — Candidate new services
 
 _No high-confidence opportunities identified._
 
-### 5.6 Future — Unused features in this service
+### 5.6. Future — Unused features in this service
 
 _No high-confidence opportunities identified._
 

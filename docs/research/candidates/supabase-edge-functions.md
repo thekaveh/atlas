@@ -11,12 +11,12 @@ upstream: https://supabase.com/docs/guides/functions
 
 # Supabase Edge Functions (Deno runtime)
 
-## Headline
+## 1. Headline
 Self-hostable Deno function runtime for short TypeScript, JavaScript, and WASM
 handlers, useful only after Atlas has an edge-specific need that backend, n8n,
 Celery/Flower, and Airflow do not already cover.
 
-## Problem it solves
+## 2. Problem it solves
 Supabase Edge Functions are attractive when an app needs Supabase-compatible
 `/functions/v1/*` URLs, database-webhook or `pg_net` proximity, short-lived
 Deno/TypeScript handlers, or request handling that should stay near Supabase
@@ -25,7 +25,7 @@ edge-runtime as a Deno-based web server that can self-host Edge Functions or act
 as a programmable HTTP proxy, but they also mark self-hosted functions as beta
 with expected breaking changes.
 
-## Deferred decision (2026-07-04)
+## 3. Deferred decision (2026-07-04)
 Atlas should keep Supabase Edge Functions deferred and must not add `services/supabase-edge-functions/service.yml` yet.
 Atlas already has backend, n8n, Celery/Flower, and Airflow for server-side
 execution: FastAPI request/route logic, workflow automation, retryable async
@@ -38,7 +38,7 @@ new runtime until it has upgrade guidance, auth/secret boundaries, and clear
 rules for when to choose Edge Functions instead of backend, n8n, Celery, or
 Airflow.
 
-## Stack wiring sketch
+## 4. Stack wiring sketch
 No current Atlas wiring should be added while Supabase Edge Functions are
 deferred. If adopted later, the expected topology would be:
 
@@ -54,13 +54,13 @@ deferred. If adopted later, the expected topology would be:
 - backend/n8n/Celery/Airflow remain the preferred execution surfaces unless the
   function's edge/Supabase URL-shape requirement is explicit.
 
-## Effort
+## 5. Effort
 Medium. The container is conceptually simple, but the Atlas work is mostly
 policy and integration: manifest/source wiring, function-code mounting or
 packaging, Kong path-route behavior, JWT verification defaults, import-map and
 per-function env handling, secrets, docs, examples, and worker-choice guidance.
 
-## Risks & open questions
+## 6. Risks & open questions
 - Self-hosted Edge Functions are currently documented as beta with breaking
   change risk, so Atlas needs an upgrade and pinning posture before adoption.
 - JWT verification and `SUPABASE_JWT_SECRET` drift can break all functions or
@@ -72,7 +72,7 @@ per-function env handling, secrets, docs, examples, and worker-choice guidance.
 - The largest product risk is execution-surface ambiguity: users should know
   when to use backend, n8n, Celery, Airflow, or Edge Functions.
 
-## Revisit criteria
+## 7. Revisit criteria
 Reconsider Supabase Edge Functions only when all of these are true:
 
 - Backend, n8n, Celery/Flower, and Airflow do not cover a concrete server-side
@@ -84,7 +84,7 @@ Reconsider Supabase Edge Functions only when all of these are true:
 - Atlas has documented guidance that prevents the Deno function surface from
   duplicating the established async-job pattern.
 
-## Future service contract if adopted
+## 8. Future service contract if adopted
 - **Tracks:** `async-jobs` and `all`; add `gen-ai-eng` or `gen-ai-rag` only if a
   concrete app/RAG webhook workflow needs it.
 - **Category:** choose deliberately between `agents` and `apps`. It is an
@@ -111,7 +111,7 @@ Reconsider Supabase Edge Functions only when all of these are true:
   file/import-map failures, custom `BASE_PORT`, disabled Supabase subservices,
   timeout/CPU/memory limits, `pg_net` retry semantics, and generated-doc drift.
 
-## Tests required if adopted later
+## 9. Tests required if adopted later
 - Manifest schema and topology tests for source values, category, aliases,
   generated env vars, and track membership.
 - Compose/source permutation coverage for disabled/container and any future
@@ -122,12 +122,12 @@ Reconsider Supabase Edge Functions only when all of these are true:
   Functions boundaries explicit.
 - Docs drift, research schema, link checks, and generated README/diagram checks.
 
-## Why now (and why not sooner)
+## 10. Why now (and why not sooner)
 Not now. Edge Functions should wait until Atlas has an edge-specific workflow
 that the existing execution surfaces do not cover and until the self-hosting
 beta posture is acceptable for the project.
 
-## Upstream evidence
+## 11. Upstream evidence
 - https://supabase.com/docs/guides/functions
 - https://supabase.com/docs/reference/self-hosting-functions/introduction
 - https://github.com/supabase/edge-runtime

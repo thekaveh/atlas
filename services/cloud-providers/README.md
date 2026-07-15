@@ -54,30 +54,30 @@ Use `./start.sh` to configure this service through the wizard or pass the matchi
 
 ## 11. Dependencies & Integrations
 
-### 11.1 Current — Upstream (this service calls)
+### 11.1. Current — Upstream (this service calls)
 
 _No upstream calls._
 
-### 11.2 Current — Downstream (services that call this)
+### 11.2. Current — Downstream (services that call this)
 
 | Service | Category |
 |---|---|
 | litellm | llm |
 
-### 11.3 Architecture diagram
+### 11.3. Architecture diagram
 
 ![cloud-providers architecture](./architecture.svg)
 
 [Open the interactive HTML diagram](./architecture.html) for a full-screen view.
 
-### 11.4 Future — Missing pair integrations
+### 11.4. Future — Missing pair integrations
 
 _No high-confidence opportunities identified._
 
-### 11.5 Future — Candidate new services
+### 11.5. Future — Candidate new services
 
 _No high-confidence opportunities identified._
 
-### 11.6 Future — Unused features in this service
+### 11.6. Future — Unused features in this service
 
 _No high-confidence opportunities identified._

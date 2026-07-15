@@ -8,7 +8,7 @@
 
 **Tech Stack:** Docker Compose, Atlas manifests/topology, Python 3.12, stable `mcp>=1,<2`, psycopg, Neo4j Python driver, requests, pytest.
 
-## Global Constraints
+## 1. Global Constraints
 
 - `MCP_SERVERS_SOURCE=disabled` by default.
 - Do not add a generic one-MCP-server-per-service pattern.
@@ -21,7 +21,7 @@
 
 ---
 
-### Task 1: Admission Contract And Wiring
+### 1.1. Task 1: Admission Contract And Wiring
 
 **Files:**
 - Create: `bootstrapper/tests/test_mcp_servers_service.py`
@@ -64,7 +64,7 @@ Run: `cd bootstrapper && uv run pytest tests/test_mcp_servers_service.py tests/t
 
 Expected: all selected tests pass.
 
-### Task 2: MCP Runtime
+### 1.2. Task 2: MCP Runtime
 
 **Files:**
 - Create: `services/mcp-servers/build/Dockerfile`
@@ -102,7 +102,7 @@ Run: `cd services/mcp-servers/runtime && uv run --with pytest --with mcp --with 
 
 Expected: all runtime tests pass.
 
-### Task 3: Docs And Generated Artifacts
+### 1.3. Task 3: Docs And Generated Artifacts
 
 **Files:**
 - Create: `services/mcp-servers/README.md`
@@ -149,7 +149,7 @@ Run: `PYTHONPATH=bootstrapper python -m bootstrapper.docs.regen --all --check`
 
 Expected: no drift.
 
-### Task 4: Full Verification And PR
+### 1.4. Task 4: Full Verification And PR
 
 **Files:**
 - All changed files.

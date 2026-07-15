@@ -99,11 +99,11 @@ class DockerManager:
         except RuntimeError:
             return False
 
-    # Minimum Compose version for the per-service modular layout. v2.20+ is
+    # Minimum Compose version for the per-service modular layout. v2.20.3+ is
     # the floor (top-level `include:` directive + cross-include depends_on
     # merging). v2.26+ is documented as recommended because earlier 2.2x
     # releases had several `include:` + `profiles:` interaction bugs.
-    MIN_COMPOSE_VERSION = (2, 20, 0)
+    MIN_COMPOSE_VERSION = (2, 20, 3)
     RECOMMENDED_COMPOSE_VERSION = (2, 26, 0)
 
     def check_compose_version(self) -> tuple[bool, str]:

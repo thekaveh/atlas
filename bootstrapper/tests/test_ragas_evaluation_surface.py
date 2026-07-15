@@ -49,7 +49,6 @@ def test_ragas_notebook_and_docs_register_backend_runtime_contract() -> None:
         [
             _read("services/backend/README.md"),
             _read("services/jupyterhub/README.md"),
-            _read("services/jupyterhub/build/README.md"),
             surface_text("docs/core-concepts.md", "site"),
             surface_text("docs/core-concepts.md", "wiki"),
         ]

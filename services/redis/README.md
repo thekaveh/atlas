@@ -58,11 +58,11 @@ When `LIGHTRAG_SOURCE != disabled` AND `REDIS_SOURCE != disabled`, LightRAG uses
 
 ## 6. Dependencies & Integrations
 
-### 6.1 Current — Upstream (this service calls)
+### 6.1. Current — Upstream (this service calls)
 
 _No upstream calls._
 
-### 6.2 Current — Downstream (services that call this)
+### 6.2. Current — Downstream (services that call this)
 
 | Service | Category |
 |---|---|
@@ -76,13 +76,13 @@ _No upstream calls._
 | backend | apps |
 | open-webui | apps |
 
-### 6.3 Architecture diagram
+### 6.3. Architecture diagram
 
 ![redis architecture](./architecture.svg)
 
 [Open the interactive HTML diagram](./architecture.html) for a full-screen view.
 
-### 6.4 Future — Missing pair integrations
+### 6.4. Future — Missing pair integrations
 
 - **redis ↔ comfyui** — *Why:* ComfyUI's compose declares `depends_on: redis` (startup ordering only) but the container receives no `REDIS_URL`. A real link would let n8n/backend enqueue generation jobs to a Redis list/stream and read `progress`/`executed` events back via a sidecar publisher, replacing the per-caller websocket pattern. *Mechanism:* ComfyUI custom node + `redis-py` writing `XADD comfyui:events` on progress; producers `BLPOP comfyui:jobs` from a tiny worker that calls `/prompt`. *Effort:* medium. *Confidence:* medium.
 - **redis ↔ local-deep-researcher** — *Why:* LDR's compose has no `REDIS_URL` today (db `/3` is currently JupyterHub's and `/4` is Celery's; an LDR checkpointer would take a fresh index, e.g. `/5`). LangGraph's Redis checkpointer would let long-running research runs survive container restarts and let backend stream node-by-node progress. *Mechanism:* `redis://:${REDIS_PASSWORD}@redis:6379/5` consumed by `langgraph.checkpoint.redis.RedisSaver`; `PUBSUB` channel `ldr:run:<id>` for progress. *Effort:* small. *Confidence:* high.
@@ -90,12 +90,12 @@ _No upstream calls._
 - **redis ↔ doc-processor** — *Why:* document parsing is expensive and idempotent on file SHA. A Redis cache keyed on `sha256(file)` lets repeat ingests (common during n8n flow iteration) short-circuit; a Redis stream broadcasts `doc:parsed` events to backend + weaviate ingest. *Mechanism:* cache: `SETEX doc:parsed:<sha> 86400 <json>`; event bus: `XADD doc:events`. *Effort:* small. *Confidence:* medium.
 - **redis ↔ weaviate** — *Why:* embedding generation dominates ingest latency; a content-hash → vector cache cuts repeat-ingest cost dramatically and de-duplicates concurrent embeddings across n8n/backend. *Mechanism:* `GET emb:<model>:<sha>` before calling Weaviate's vectorizer; `SETEX` on miss. Lives behind a tiny helper in backend. *Effort:* medium. *Confidence:* medium.
 
-### 6.5 Future — Candidate new services
+### 6.5. Future — Candidate new services
 
 - **RedisInsight** ([details](../../docs/research/candidates/redisinsight.md)) — *Headline:* official Redis GUI for browsing keys, profiling commands, and inspecting streams across all stack consumers. *Wires into:* backend, n8n, kong, litellm, open-webui, jupyterhub.
 - **Redis Stack (`redis-stack-server`)** ([details](../../docs/research/candidates/redis-stack.md)) — *Headline:* drop-in Redis image bundling RediSearch, RedisJSON, RedisBloom, and RedisTimeSeries — unlocks vector + JSON queries without a second datastore. *Wires into:* backend, weaviate (overlap), n8n, hermes.
 
-### 6.6 Future — Unused features in this service
+### 6.6. Future — Unused features in this service
 
 - **Redis Streams (`XADD`/`XREAD`/consumer groups)** — *Why pursue:* replace ad-hoc HTTP fan-out between backend, n8n, ComfyUI, and doc-processor with a single durable event bus already present in the image. *Effort:* medium.
 - **Pub/Sub channels** — *Why pursue:* live progress streaming for ComfyUI and LDR to the Open WebUI chat surface without polling. *Effort:* small.

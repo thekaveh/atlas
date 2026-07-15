@@ -2564,6 +2564,20 @@ class AtlasStarter:
             services.append("redpanda-init")
         if env_vars.get("ZEPPELIN_INIT_SCALE", "0") != "0":
             services.append("zeppelin-init")
+        try:
+            consumer_config = self.config_parser.load_consumer_config()
+        except Exception as exc:
+            message = (
+                "Could not inspect consumer one-shot services "
+                f"(error_type={type(exc).__name__})"
+            )
+            if on_line is None:
+                self.banner.show_status_message(message, "error")
+            else:
+                on_line(message, "error")
+            return False
+        if consumer_config.n8n_workflows:
+            services.append("n8n-seed")
         if not services:
             return True
 

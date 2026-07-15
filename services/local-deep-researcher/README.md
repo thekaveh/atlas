@@ -45,7 +45,7 @@ LITELLM_API_KEY=${LITELLM_MASTER_KEY}
 
 `LOCAL_DEEP_RESEARCHER_REF` must remain a full commit SHA. Its upstream `uv.lock` is verified against `LOCAL_DEEP_RESEARCHER_UPSTREAM_LOCK_SHA256`, while Atlas' committed `build/config/runtime-requirements.lock` combines that graph with the exact serving CLI and build-tool versions. The lock records all three manifest pins as provenance metadata, and startup rejects mismatches before replacing the prior source tree, synchronizing a private virtual environment with mandatory hashes, and installing the checked-out project without dependency resolution.
 
-To upgrade, update the three manifest pins, then run `uv run --project bootstrapper python scripts/refresh-local-deep-researcher-lock.py`. The refresh command checks out the exact revision, verifies its upstream lock digest, adds the exact CLI and build-tool pins without installing them, and commits both combined resolver inputs under `services/local-deep-researcher/locks/` plus the exported runtime lock. Run the same command with `--check` for the network-free byte-equivalence gate, then validate the LDR patches and backend contract in the same change.
+To upgrade, update the three manifest pins, then run `uv run --project bootstrapper python scripts/refresh-local-deep-researcher-lock.py`. The refresh command checks out the exact revision, verifies its upstream lock digest, adds the exact CLI, build-tool, and security-floor pins without installing them, and commits both combined resolver inputs under `services/local-deep-researcher/locks/` plus the exported runtime lock. The current security floors keep Click, langchain-classic, LangSmith, and Soup Sieve on patched releases; the exported graph passes `pip-audit`. Run the same command with `--check` for the network-free byte-equivalence gate, then validate the LDR patches and backend contract in the same change.
 
 **Optional adaptive** (`runtime_deps.local-deep-researcher.optional`): `neo4j-graph-db`, `n8n`, `weaviate`, the media providers. Wiring exists in the manifest but nothing in the LDR code consumes them today — these are forward-looking hooks.
 
@@ -73,7 +73,7 @@ To upgrade, update the three manifest pins, then run `uv run --project bootstrap
 
 ## 5. Dependencies & Integrations
 
-### 5.1 Current — Upstream (this service calls)
+### 5.1. Current — Upstream (this service calls)
 
 | Service | Category |
 |---|---|
@@ -81,7 +81,7 @@ To upgrade, update the three manifest pins, then run `uv run --project bootstrap
 | crawl4ai | media |
 | searxng | media |
 
-### 5.2 Current — Downstream (services that call this)
+### 5.2. Current — Downstream (services that call this)
 
 | Service | Category |
 |---|---|
@@ -89,27 +89,27 @@ To upgrade, update the three manifest pins, then run `uv run --project bootstrap
 | backend | apps |
 | open-webui | apps |
 
-### 5.3 Architecture diagram
+### 5.3. Architecture diagram
 
 ![local-deep-researcher architecture](./architecture.svg)
 
 [Open the interactive HTML diagram](./architecture.html) for a full-screen view.
 
-### 5.4 Future — Missing pair integrations
+### 5.4. Future — Missing pair integrations
 
 - **local-deep-researcher ↔ redis** — *Why:* LDR runs `langgraph dev` with the in-memory checkpointer, so thread state is lost on restart; no Redis checkpointer is wired today. *Mechanism:* swap checkpointer to `langgraph.checkpoint.redis.RedisSaver` pointed at a fresh index (`redis://:${REDIS_PASSWORD}@redis:6379/4` — `/3` is JupyterHub's); add `REDIS_URL` to LDR env. *Effort:* small. *Confidence:* medium.
 - **local-deep-researcher ↔ neo4j** — *Why:* each research run yields `sources_gathered` + a `running_summary`. Writing these as `(Topic)-[CITES]->(Source)` triples lets later runs detect overlap and reuse evidence. *Mechanism:* post-`finalize_summary` callback writes Cypher `MERGE` via `bolt://neo4j-graph-db:7687`. *Effort:* medium. *Confidence:* medium.
 - **local-deep-researcher ↔ minio** — *Why:* the final markdown report lives only in `/app/data` inside the container; no other service can consume it. *Mechanism:* on `finalize_summary`, S3 `PutObject` to `${MINIO_ENDPOINT}` bucket `research-reports` keyed by `session_id`. *Effort:* small. *Confidence:* medium.
 - **local-deep-researcher ↔ hermes** — *Why:* Hermes has no path to invoke multi-step web research today. Exposing LDR as a Hermes tool turns "deep research" into a single tool call. *Mechanism:* Hermes custom tool POSTs to `http://local-deep-researcher:2024/threads/{id}/runs/stream` and returns the final summary; configured in `services/hermes/init/templates/config.yaml.tmpl`. *Effort:* medium. *Confidence:* medium.
 
-### 5.5 Future — Candidate new services
+### 5.5. Future — Candidate new services
 
 - **open_deep_research (langchain-ai)** — *Headline:* multi-agent deep-research engine (supervisor + parallel sub-researchers) evaluated as a disabled-by-default **opt-in second research engine complementing LDR** (LDR stays the fast/local/key-free tier). GO-conditional per [`docs/strategy/langchain-stack-evaluation.md`](../../docs/strategy/langchain-stack-evaluation.md) (#532) — gated on a key-free LiteLLM+SearXNG boot at acceptable cost; its `messages`/`final_report` schema needs a per-engine branch in the backend research client.
 - **Langfuse** ([details](../../docs/research/candidates/langfuse.md)) — *Headline:* self-hosted LLM observability with a first-class LangChain/LangGraph callback. *Wires into:* litellm, hermes, n8n, comfyui.
 - **Firecrawl** ([details](../../docs/research/candidates/firecrawl.md)) — *Headline:* self-hosted JS-rendering scraper that returns clean markdown, replacing LDR's `FETCH_FULL_PAGE` DuckDuckGo path with structured extraction. *Wires into:* n8n, backend, hermes.
 - **Crawl4AI** ([details](../../docs/research/candidates/crawl4ai.md)) — *Headline:* LLM-native crawler with built-in chunking and markdown extraction, deployable as a sidecar to LDR. *Wires into:* n8n, weaviate, backend.
 
-### 5.6 Future — Unused features in this service
+### 5.6. Future — Unused features in this service
 
 - **Persistent LangGraph checkpointer** — *Why pursue:* dev-server inmem checkpointer drops thread history on restart, so resumable research is impossible. *Effort:* small.
 - **Tavily / Perplexity search backends** — *Why pursue:* upstream supports both via `SEARCH_API=tavily|perplexity` + API keys; manifest only exposes searxng/duckduckgo. *Effort:* small.

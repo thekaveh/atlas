@@ -52,7 +52,7 @@ custom interpreter patch or a new service backend such as Livy.
 
 ## 3. Rejected Options
 
-### 3.1 Strict Spark Connect for Zeppelin `%spark`
+### 3.1. Strict Spark Connect for Zeppelin `%spark`
 
 Rejected for #211. The observed Zeppelin launch path combines Spark Connect
 configuration with Spark submit master handling, and Spark 4 rejects that mix.
@@ -60,7 +60,7 @@ Continuing on this path would require a custom Zeppelin interpreter/launcher
 patch or a newer upstream-supported Zeppelin path that does not pass a master
 when `spark.remote` is set.
 
-### 3.2 Add Livy Now
+### 3.2. Add Livy Now
 
 Deferred. Livy is a legitimate Zeppelin Spark backend, and Zeppelin documents a
 Livy interpreter with `zeppelin.livy.url` plus `livy.spark.*` settings:
@@ -71,7 +71,7 @@ track membership, category, image, source values, ports, Kong posture,
 dependencies, health checks, init behavior, docs, and smoke tests. If Atlas
 wants Livy, create a separate implementation issue before coding it.
 
-### 3.3 Defer Zeppelin Spark
+### 3.3. Defer Zeppelin Spark
 
 Rejected. Standalone Spark mode fits Zeppelin's documented model and unblocks a
 fresh `%spark` notebook path without adding a new Atlas service.

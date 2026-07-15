@@ -29,12 +29,12 @@ def test_section_contains_canonical_headings():
     text = render_section(g)
     for heading in (
         "## 5. Dependencies & Integrations",
-        "### 5.1 Current — Upstream",
-        "### 5.2 Current — Downstream",
-        "### 5.3 Architecture diagram",
-        "### 5.4 Future — Missing pair integrations",
-        "### 5.5 Future — Candidate new services",
-        "### 5.6 Future — Unused features in this service",
+        "### 5.1. Current — Upstream",
+        "### 5.2. Current — Downstream",
+        "### 5.3. Architecture diagram",
+        "### 5.4. Future — Missing pair integrations",
+        "### 5.5. Future — Candidate new services",
+        "### 5.6. Future — Unused features in this service",
     ):
         assert heading in text
 

@@ -65,7 +65,7 @@ Two coupling problems were identified during investigation:
 
 ## 4. Background — current architecture
 
-### 4.1 The LLM model flow (definition → seed → read → pull)
+### 4.1. The LLM model flow (definition → seed → read → pull)
 
 ```
 SOURCE OF TRUTH                          SEED STEP                    CONSUMERS (read)
@@ -92,7 +92,7 @@ Key files:
 - Wizard discovery: `bootstrapper/utils/ollama_discovery.py`, `ollama_library.py`,
   `bootstrapper/ui/textual/widgets/prompt_panel.py` (live `/api/tags`, already-pulled checkmarks).
 
-### 4.2 Capability-metadata usage (what's actually consumed)
+### 4.2. Capability-metadata usage (what's actually consumed)
 
 Traced field-by-field across consumers (reads, not writes):
 - `content` — read by backend + local-deep-researcher (filter `>0`, rank `ORDER BY DESC`).
@@ -105,7 +105,7 @@ Traced field-by-field across consumers (reads, not writes):
 Conclusion: the numeric scores did two jobs — **classify** (`>0`) and **rank** (`ORDER BY`). Dedicated
 YAML role-sections + list order do both, more legibly, and drop the unused fields.
 
-### 4.3 Why `public.llms` can leave
+### 4.3. Why `public.llms` can leave
 
 It is a derived build-time artifact, not a database of record. Removing it requires repointing
 five consumers; four already have env-var fallbacks that become the primary (only) path, and the
@@ -116,7 +116,7 @@ convention over an ordered list, computed once in the bootstrapper.
 
 ## 5. Part A — Per-service seed partition (behavior-preserving, guarded)
 
-### 5.1 Layout
+### 5.1. Layout
 
 Keep everything in `services/supabase/db/scripts/`, same alphabetical execution model, reorganized
 into two tiers.
@@ -135,7 +135,7 @@ intra-file order (table → grants → triggers → seed → migrations):
 | `13-backend-memory.sql` | backend | today's `10-langmem-tables.sql` + `10a-langmem-migrations.sql` |
 | `14-users.sql` | auth / backend | `users` table (from `05`) + its grants |
 
-### 5.2 Guards (required uniformly)
+### 5.2. Guards (required uniformly)
 
 Every object in a Tier-2 slice must be idempotent and defensive:
 - `CREATE TABLE IF NOT EXISTS`, `ALTER TABLE … ADD COLUMN IF NOT EXISTS`.
@@ -144,13 +144,13 @@ Every object in a Tier-2 slice must be idempotent and defensive:
 - Every seed `INSERT … ON CONFLICT DO …`.
 - A required header banner per slice: `-- OWNER: <service> — only this service's objects belong here`.
 
-### 5.3 Ordering invariant
+### 5.3. Ordering invariant
 
 Alphabetical execution must yield the same net DDL as today: Tier-1 (`0x`) before Tier-2 (`1x+`);
 within a slice, dependencies precede dependents. Vertical slices make this self-evident (each file
 is internally ordered), and the `0x`-before-`1x` numbering guarantees infra-before-app.
 
-### 5.4 Sequencing note
+### 5.4. Sequencing note
 
 Part A partitions **all** current tables (including `llms` and `comfyui_*`) for immediate clean
 ownership and standalone value. Part B then deletes the `10-litellm.sql` slice; Part C reworks
@@ -161,7 +161,7 @@ plan time.
 
 ## 6. Part B — `public.llms` → per-service YAML SoT
 
-### 6.1 The SoT files
+### 6.1. The SoT files
 
 `services/ollama/models.yaml` (lives next to the `pull/` init that consumes it):
 
@@ -198,7 +198,7 @@ Notes:
   (unused or live-derivable). Size / already-pulled is fetched at wizard time from `ollama_library.py` /
   `ollama_discovery.py` / live `/api/tags`.
 
-### 6.2 Assembly & resolution (bootstrapper, at `./start.sh`)
+### 6.2. Assembly & resolution (bootstrapper, at `./start.sh`)
 
 - `bootstrapper/utils/llm_catalog.py` becomes a **thin loader** that reads both YAMLs and yields the
   dataclasses the rest of the bootstrapper already expects (inverts the SoT: the `.py` reads the YAML).
@@ -214,7 +214,7 @@ Notes:
   "Active" = the deployment's `.env` selection, else entries marked `default: true`. This is the floor
   used by non-interactive paths (CLI flags, `--no-tui`, CI).
 
-### 6.3 Wizard
+### 6.3. Wizard
 
 - Model picker options are sourced from the SoT (not `llm_catalog.py`). The Ollama picker keeps live
   `/api/tags` discovery with already-pulled checkmarks.
@@ -229,7 +229,7 @@ Notes:
 - **Validation gate:** if a RAG/embedding consumer (Weaviate, LightRAG, …) is enabled but no embedding
   model is active, the step warns (or requires a pick) instead of failing silently at boot.
 
-### 6.4 Consumer changes (mostly deletions)
+### 6.4. Consumer changes (mostly deletions)
 
 | Consumer | Change |
 |---|---|
@@ -239,7 +239,7 @@ Notes:
 | `local-deep-researcher` (`init-config.py`) | Use `LITELLM_DEFAULT_MODEL`/`LOCAL_LLM`; delete DB query. |
 | `backend` (`memory_service.py`) | Use `LITELLM_DEFAULT_MODEL`; delete DB query and the asyncpg connection used for model selection. (Backend keeps the DB for memory/research tables.) |
 
-### 6.5 Removals & decommission
+### 6.5. Removals & decommission
 
 - Remove the `llm-catalog-init` service and `services/litellm/catalog-init/scripts/sync-catalog.py`.
 - Remove the startup `/api/tags` re-import (the redundant "pass #2") and the host-Ollama drift-reconcile.
@@ -278,7 +278,7 @@ of model provisioning.
 
 ## 9. Test plan
 
-### 9.1 Part A — seed partition
+### 9.1. Part A — seed partition
 
 **Execution tests (real Postgres, dockerized fixture — proves they run, in order):**
 - **Order + clean-run:** run the full `services/supabase/db/scripts/*.sql` set in alphabetical order;
@@ -295,7 +295,7 @@ of model provisioning.
 - **Completeness lint:** the set of objects (tables, columns, constraints, triggers, grants, seed rows)
   across the new files equals the old set — nothing silently dropped or added.
 
-### 9.2 Part B — YAML SoT + assembler
+### 9.2. Part B — YAML SoT + assembler
 
 - **Schema validation:** both `models.yaml` files validated against a new JSON schema (sections ∈
   {content, embeddings, vision}; entries require `name`, optional `default`) via the existing jsonschema tooling.
@@ -320,7 +320,7 @@ of model provisioning.
   validators confirm no dangling refs to `llm-catalog-init`; grep-style test asserts zero remaining
   `public.llms` references in consumer code.
 
-### 9.3 Existing tests to REWRITE (not leave failing)
+### 9.3. Existing tests to REWRITE (not leave failing)
 
 These cover behavior being removed and must be retargeted to the new YAML+env flow:
 - `bootstrapper/tests/test_catalog_init_auto_import.py`
@@ -329,7 +329,7 @@ These cover behavior being removed and must be retargeted to the new YAML+env fl
 - `bootstrapper/tests/test_degraded_multiselect_keeps_saved_models.py`
 - `bootstrapper/tests/test_wizard_ollama_options.py` (review for DB assumptions)
 
-### 9.4 Mapping to the CI gate (`services-lint`)
+### 9.4. Mapping to the CI gate (`services-lint`)
 
 - **Manifest lint + unit tests** ← loader, schema, resolver, wizard, consumer, static lints.
 - **Compose merge + byte-equivalence + source-permutation matrix** ← assembler byte-equivalence,

@@ -85,21 +85,21 @@ Weaviate calls this endpoint internally on every `POST /v1/objects` against a co
 
 ## 5. Dependencies & Integrations
 
-### 5.1 Current — Upstream (this service calls)
+### 5.1. Current — Upstream (this service calls)
 
 _No upstream calls._
 
-### 5.2 Current — Downstream (services that call this)
+### 5.2. Current — Downstream (services that call this)
 
 _No downstream consumers._
 
-### 5.3 Architecture diagram
+### 5.3. Architecture diagram
 
 ![multi2vec-clip architecture](./architecture.svg)
 
 [Open the interactive HTML diagram](./architecture.html) for a full-screen view.
 
-### 5.4 Future — Missing pair integrations
+### 5.4. Future — Missing pair integrations
 
 - **multi2vec-clip ↔ backend** — *Why:* backend has no direct path to multimodal embeddings; today it can only reach CLIP indirectly by writing through Weaviate. Direct `/vectorize` calls unlock zero-shot image tagging, image-vs-text similarity scoring, and ad-hoc embedding without round-tripping through a collection. *Mechanism:* `POST http://multi2vec-clip:8080/vectorize` with `{texts, images}`. *Effort:* small. *Confidence:* high.
 - **multi2vec-clip ↔ minio** — *Why:* MinIO hosts artifact buckets (comfyui, backend, n8n, jupyter, docling) but none of those image artifacts are indexed for semantic retrieval. A small ingest worker streams new objects through CLIP into Weaviate. *Mechanism:* MinIO bucket-notification webhook → fetch object → base64 → `POST /vectorize` → upsert into a `MediaAssets` Weaviate collection. *Effort:* medium. *Confidence:* medium.
@@ -108,11 +108,11 @@ _No downstream consumers._
 - **multi2vec-clip ↔ n8n** — *Why:* n8n workflows handling inbound email/Slack attachments or webhook-uploaded images can vectorize on-the-fly for routing, classification, or RAG. *Mechanism:* n8n HTTP Request node → `POST http://multi2vec-clip:8080/vectorize` → branch on cosine-similarity to label-vectors. *Effort:* small. *Confidence:* high.
 - **multi2vec-clip ↔ doc-processor** — *Why:* docling extracts figures/diagrams from PDFs but discards the visual signal. CLIP-embedding extracted figures alongside text chunks enables true multimodal RAG over document corpora. *Mechanism:* docling post-extraction step → for each figure, base64 → `POST /vectorize` → store with parent-chunk metadata. *Effort:* medium. *Confidence:* medium.
 
-### 5.5 Future — Candidate new services
+### 5.5. Future — Candidate new services
 
 - **SigLIP 2 vectorizer image** ([details](../../docs/research/candidates/siglip2-vectorizer.md)) — *Headline:* opt-in upgrade of the multi2vec-clip container to a Google SigLIP 2 `so400m` image for stronger multilingual + higher-resolution multimodal retrieval after collection revectorization. *Wires into:* weaviate, backend, jupyterhub.
 
-### 5.6 Future — Unused features in this service
+### 5.6. Future — Unused features in this service
 
 - **GPU mode (`MULTI2VEC_CLIP_SOURCE=container-gpu`)** — *Why pursue:* manifest declares the variant but no documentation or smoke-test covers it; GPU users default to CPU. *Effort:* small.
 - **Model variant selection beyond ViT-B-32** — *Why pursue:* upstream ships SigLIP 2, multilingual XLM-R+ViT, LAION ViT-B-16; we hard-pin `sentence-transformers-clip-ViT-B-32`. Exposing `MULTI2VEC_CLIP_IMAGE` choices in the wizard unlocks multilingual + higher-recall regimes. *Effort:* small.

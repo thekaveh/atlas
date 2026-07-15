@@ -27,18 +27,18 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 _ROW_SECTIONS = (
-    "## 1. Missing-pair integrations",
-    "## 2. Candidate new services",
-    "## 3. Per-service feature gaps",
+    "Missing-pair integrations",
+    "Candidate new services",
+    "Per-service feature gaps",
 )
 
 _CAND_SECTIONS = (
-    "## Headline",
-    "## Problem it solves",
-    "## Stack wiring sketch",
-    "## Effort",
-    "## Risks & open questions",
-    "## Upstream evidence",
+    "Headline",
+    "Problem it solves",
+    "Stack wiring sketch",
+    "Effort",
+    "Risks & open questions",
+    "Upstream evidence",
 )
 
 _ROW_FRONTMATTER_KEYS = {"service", "category", "generated", "generator", "sources_consulted"}
@@ -66,6 +66,14 @@ def _parse_frontmatter(text: str) -> tuple[dict, str] | None:
     return fm, m.group(2)
 
 
+def _section_match(body: str, title: str) -> re.Match[str] | None:
+    return re.search(
+        rf"^##\s+(?:\d+(?:\.\d+)*\.\s+)?{re.escape(title)}\s*$",
+        body,
+        re.MULTILINE,
+    )
+
+
 def _validate_row(path: Path, text: str) -> list[str]:
     errors: list[str] = []
     parsed = _parse_frontmatter(text)
@@ -87,21 +95,24 @@ def _validate_row(path: Path, text: str) -> list[str]:
 
     last_idx = -1
     for sec in _ROW_SECTIONS:
-        idx = body.find(sec)
-        if idx == -1:
-            errors.append(f"{path}: missing required section: {sec}")
-        elif idx <= last_idx:
-            errors.append(f"{path}: section out of order: {sec}")
-        else:
-            last_idx = idx
+        match = _section_match(body, sec)
+        if match is None:
+            errors.append(f"{path}: missing required section: ## {sec}")
+            continue
+        idx = match.start()
+        if idx <= last_idx:
+            errors.append(f"{path}: section out of order: ## {sec}")
+        last_idx = idx
 
     word_count = len(body.split())
     if word_count > _WORD_CAP:
         errors.append(f"{path}: body exceeds {_WORD_CAP}-word cap ({word_count} words)")
 
-    sec2_start = body.find("## 2. Candidate new services")
-    sec3_start = body.find("## 3. Per-service feature gaps")
-    if sec2_start != -1 and sec3_start != -1 and sec3_start > sec2_start:
+    sec2 = _section_match(body, "Candidate new services")
+    sec3 = _section_match(body, "Per-service feature gaps")
+    sec2_start = sec2.start() if sec2 else -1
+    sec3_start = sec3.start() if sec3 else -1
+    if sec2_start != -1 and sec3_start > sec2_start:
         sec2_body = body[sec2_start:sec3_start]
         cand_refs = re.findall(r"\.\./candidates/[\w-]+\.md", sec2_body)
         if len(cand_refs) > _CANDIDATE_CAP:
@@ -135,15 +146,17 @@ def _validate_candidate(path: Path, text: str) -> list[str]:
 
     last_idx = -1
     for sec in _CAND_SECTIONS:
-        idx = body.find(sec)
-        if idx == -1:
-            errors.append(f"{path}: missing required section: {sec}")
-        elif idx <= last_idx:
-            errors.append(f"{path}: section out of order: {sec}")
-        else:
-            last_idx = idx
+        match = _section_match(body, sec)
+        if match is None:
+            errors.append(f"{path}: missing required section: ## {sec}")
+            continue
+        idx = match.start()
+        if idx <= last_idx:
+            errors.append(f"{path}: section out of order: ## {sec}")
+        last_idx = idx
 
-    ue_start = body.find("## Upstream evidence")
+    upstream_evidence = _section_match(body, "Upstream evidence")
+    ue_start = upstream_evidence.start() if upstream_evidence else -1
     if ue_start != -1:
         # Skip past the heading line itself, then search for the next heading.
         header_end = body.find("\n", ue_start)

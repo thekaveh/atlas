@@ -18,7 +18,7 @@ blue holding a gold grid-globe over a deep-navy starfield). The image already
 aligns with the project palette: the blue figure echoes the blue
 `ATLAS-PLATFORM` title gradient, and the gold globe is the warm accent.
 
-### Goals
+### 1.1. Goals
 
 - One reusable rendering pipeline that turns the source image into colored
   terminal art, used by both the app and the GitHub assets.
@@ -27,7 +27,7 @@ aligns with the project palette: the blue figure echoes the blue
 - A complete, accessible GitHub README hero (image + markdown About covering the
   full service roster).
 
-### Non-goals
+### 1.2. Non-goals
 
 - No change to the existing `ATLAS-PLATFORM` block-letter lockup itself
   (`block_logo.py` / `banner.py`); the wordmark is reused as-is. The parity test
@@ -72,7 +72,7 @@ Both variants derive from the identical chafa render of the w84 crop.
 
 ## 4. Rendering pipeline (shared)
 
-### 4.1 Components
+### 4.1. Components
 
 - `assets/atlas-source.png` — committed master source image.
 - A maintainer-run **generator** (proposed: `bootstrapper/assets/generate_logo.py`)
@@ -91,14 +91,14 @@ in CI, and runtime image processing is fragile. Pre-rendering to committed data
 follows the repo's established "generated artifact in-repo" convention. The
 generator is run by maintainers when the source or parameters change.
 
-### 4.2 Width breakpoints
+### 4.2. Width breakpoints
 
 Pre-render at approximately **80 / 100 / 120 / 160** columns. At render time pick
 the largest breakpoint that fits the available width; below 80, fall back to the
 existing compact title only (no hero) to avoid clipping. Exact breakpoints
 finalized during implementation against real terminal sizes.
 
-### 4.3 Textual rendering
+### 4.3. Textual rendering
 
 A dedicated widget (proposed: `AtlasHero`, sibling to `BlockLogo` in
 `bootstrapper/ui/textual/widgets/`) builds one Rich `Text` per grid row, each
@@ -107,7 +107,7 @@ already paints gradient rows. Height equals the chosen breakpoint's row count.
 
 ## 5. In-app splash + transition
 
-### 5.1 Layout and lifecycle
+### 5.1. Layout and lifecycle
 
 - The wizard's fixed chrome — the `ATLAS-PLATFORM` title header and the footer
   bar — remain visible throughout.
@@ -117,7 +117,7 @@ already paints gradient rows. Height equals the chosen breakpoint's row count.
 - It holds for **~3 seconds**, then runs the transition (§5.2) into the live
   wizard content.
 
-### 5.2 Transition — pixel dissolve
+### 5.2. Transition — pixel dissolve
 
 - The hero overlays the wizard content. A deterministic per-cell dissolve order
   is precomputed; over the animation the overlay progressively replaces hero
@@ -127,13 +127,13 @@ already paints gradient rows. Height equals the chosen breakpoint's row count.
   hands focus to the wizard.
 - **Frequency:** plays on every launch.
 
-### 5.3 Accessibility and environment fallbacks
+### 5.3. Accessibility and environment fallbacks
 
 - Reduced-motion preference, non-TTY, CI, or `--no-tui`: **no animation**.
 - `--no-splash` CLI flag disables the splash entirely (straight to wizard).
 - These compose with the existing `is_tui_capable()` gate in `ui/term_caps.py`.
 
-### 5.4 `--no-tui` linear path
+### 5.4. `--no-tui` linear path
 
 Print the pre-rendered hero (nearest width breakpoint; compact title only below
 80 cols) once to stdout, then proceed with the existing linear flow. No hold, no
@@ -141,7 +141,7 @@ animation. Mirrors the existing FULL/COMPACT width threshold behavior.
 
 ## 6. GitHub identity
 
-### 6.1 Assets (committed under `assets/`)
+### 6.1. Assets (committed under `assets/`)
 
 A productionized compose script (proposed: `bootstrapper/assets/generate_banner.py`)
 emits:
@@ -154,7 +154,7 @@ emits:
   letterboxed on the dark background).
 - `assets/avatar.png` — square, tight crop of the hero for the repo/org avatar.
 
-### 6.2 README hero section
+### 6.2. README hero section
 
 Markdown, placed at the top of `README.md`:
 
@@ -174,7 +174,7 @@ messages. The `hermes` service that ships in the stack IS listed normally as a
 service wherever applicable — this constraint concerns inspiration credit only,
 not the shipped service.
 
-### 6.3 Comprehensive capability table
+### 6.3. Comprehensive capability table
 
 Covers the full roster (infra / data / llm / media / agents / apps), including
 items previously omitted (LightRAG, multi2vec-CLIP, ComfyUI, TTS/STT):

@@ -68,7 +68,7 @@ Ollama is **deliberately not scraped** — LiteLLM is its gateway and emits per-
 
 ## 5. Dependencies & Integrations
 
-### 5.1 Current — Upstream (this service calls)
+### 5.1. Current — Upstream (this service calls)
 
 | Service | Category |
 |---|---|
@@ -84,31 +84,31 @@ Ollama is **deliberately not scraped** — LiteLLM is its gateway and emits per-
 | n8n | agents |
 | backend | apps |
 
-### 5.2 Current — Downstream (services that call this)
+### 5.2. Current — Downstream (services that call this)
 
 | Service | Category |
 |---|---|
 | grafana ↔ | infra |
 | kong ↔ | infra |
 
-### 5.3 Architecture diagram
+### 5.3. Architecture diagram
 
 ![prometheus architecture](./architecture.svg)
 
 [Open the interactive HTML diagram](./architecture.html) for a full-screen view.
 
-### 5.4 Future — Missing pair integrations
+### 5.4. Future — Missing pair integrations
 
 _No high-confidence opportunities identified._
 
-### 5.5 Future — Candidate new services
+### 5.5. Future — Candidate new services
 
 - **Alertmanager** — pair with Prometheus's alerting rules for paging/routing. Today the bundle uses Grafana's unified alerting; a separate Alertmanager would matter only if clustered HA alerting becomes a requirement.
 - **Loki** — log aggregation companion. Same operational pattern as Prometheus (scrape-then-store-then-query).
 - **Tempo** — distributed tracing companion. Closes the metrics + logs + traces triangle for full observability.
 - **OpenTelemetry collector** — neutral collection plane for metrics + logs + traces, replacing per-service exporters where applicable.
 
-### 5.6 Future — Unused features in this service
+### 5.6. Future — Unused features in this service
 
 - **Remote write to long-term storage** — `remote_write` to Mimir / Thanos / VictoriaMetrics for retention beyond local TSDB. Useful when the 7-day default isn't enough but local disk pressure is.
 - **Recording rules** — pre-aggregated time series for expensive Grafana queries; `config/rules/stack-recording.yml` is an empty placeholder ready to be populated.

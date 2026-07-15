@@ -19,7 +19,7 @@ def _candidate_text() -> str:
 def test_finrl_fingpt_remain_deferred_to_notebooks() -> None:
     text = _candidate_text()
 
-    assert "## Deferred-to-notebooks decision (2026-07-04)" in text
+    assert "Deferred-to-notebooks decision (2026-07-04)" in text
     assert "must not add `services/finrl/service.yml`" in text
     assert "must not add `services/fingpt/service.yml`" in text
     assert "research notebook assets" in text

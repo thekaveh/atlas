@@ -59,7 +59,7 @@ Hermes is wired into the stack in two directions:
 The loop is intentional. Hermes is the agent runtime above raw chat; LiteLLM
 is the single front door for LLM traffic.
 
-### 3.1 Optional integration points (wired by `hermes-init`)
+### 3.1. Optional integration points (wired by `hermes-init`)
 
 `services/hermes/init/scripts/init-hermes.sh` renders `/opt/data/config.yaml` from
 environment. When the underlying service is enabled, Hermes gets:
@@ -110,7 +110,7 @@ dashboard. Reference: [upstream Web-Dashboard docs](https://hermes-agent.nousres
 Use `./start.sh` for the guided wizard, or pass `--hermes-source <option>`
 for scripted changes.
 
-### 4.1 Containerize vs. localhost
+### 4.1. Containerize vs. localhost
 
 | Scenario | Recommended SOURCE |
 |---|---|
@@ -231,7 +231,7 @@ example DAG.
 
 ## 10. Dependencies & Integrations
 
-### 10.1 Current — Upstream (this service calls)
+### 10.1. Current — Upstream (this service calls)
 
 | Service | Category |
 |---|---|
@@ -243,7 +243,7 @@ example DAG.
 | airflow | agents |
 | lightrag | agents |
 
-### 10.2 Current — Downstream (services that call this)
+### 10.2. Current — Downstream (services that call this)
 
 | Service | Category |
 |---|---|
@@ -252,13 +252,13 @@ example DAG.
 | n8n | agents |
 | jupyterhub | apps |
 
-### 10.3 Architecture diagram
+### 10.3. Architecture diagram
 
 ![hermes architecture](./architecture.svg)
 
 [Open the interactive HTML diagram](./architecture.html) for a full-screen view.
 
-### 10.4 Future — Missing pair integrations
+### 10.4. Future — Missing pair integrations
 
 - **hermes ↔ neo4j** — *Why:* Adds durable cross-session episodic memory (entities, relations) queryable from other services, replacing flat-file state under `/opt/data`. *Mechanism:* Custom skill over `bolt://neo4j-graph-db:7687` exposed as a `memory.graph` tool. *Effort:* medium. *Confidence:* medium.
 - **hermes ↔ weaviate** — *Why:* Semantic recall across sessions and ingested docs, reusing the in-stack `multi2vec-clip` vectorizer. *Mechanism:* Skill calling `http://weaviate:8080/v1/objects` against a `HermesMemory` class. *Effort:* medium. *Confidence:* medium.
@@ -267,12 +267,12 @@ example DAG.
 - **hermes ↔ doc-processor** — *Why:* Lets Hermes answer questions about uploaded PDFs by routing them through the in-stack Docling parser before context or vector ingest. *Mechanism:* Skill POSTing multipart to `http://docling-gpu:8000/v1/document/convert`. *Effort:* small. *Confidence:* high.
 - **hermes ↔ supabase** — *Why:* A JWT-scoped shared session store lets one Hermes session follow a user across Open WebUI, JupyterHub, and OpenClaw instead of being pinned to single-tenant `/opt/data`. *Mechanism:* Skill writing to `hermes_sessions` via PostgREST at `http://supabase-api:3000`, keyed by Supabase JWT `sub`. *Effort:* medium. *Confidence:* medium.
 
-### 10.5 Future — Candidate new services
+### 10.5. Future — Candidate new services
 
 - **Langfuse** ([details](../../docs/research/candidates/langfuse.md)) — *Headline:* Self-hostable observability and prompt-trace store for LLM and diffusion workflows, capturing structured traces, evaluations, and cost telemetry. *Wires into:* litellm, hermes, n8n, comfyui, supabase, minio.
 - **MCP Gateway** ([details](../../docs/research/candidates/mcp-gateway.md)) — *Headline:* A consolidated MCP server exposing neo4j, weaviate, minio, n8n, and supabase as MCP tools any MCP-native client can mount. *Wires into:* hermes, open-webui, jupyterhub, neo4j, weaviate, minio, n8n.
 
-### 10.6 Future — Unused features in this service
+### 10.6. Future — Unused features in this service
 
 - **MCP server mode** — *Why pursue:* Unlocks tool-use over Neo4j/Weaviate/MinIO/n8n via a uniform protocol instead of bespoke skills, leveraging Hermes's existing MCP-client support. *Effort:* medium.
 - **Messaging-platform allowlists** — *Why pursue:* Wiring `GATEWAY_ALLOW_ALL_USERS`, `TELEGRAM_ALLOWED_USERS`, and `DISCORD_ALLOWED_USERS` is required before OpenClaw can safely bridge Hermes to Telegram/Discord/WhatsApp without an open relay. *Effort:* small.

@@ -30,7 +30,7 @@ def load_model():
         model_name = os.getenv("PARAKEET_MODEL", "nvidia/parakeet-tdt-0.6b-v3")
         device = os.getenv("PARAKEET_DEVICE", "cuda")
 
-        logger.info(f"Loading Parakeet model: {model_name} on device: {device}")
+        logger.info("Loading Parakeet model")
 
         try:
             # Load model using NeMo
@@ -49,8 +49,8 @@ def load_model():
 
             logger.info("Model loaded successfully")
 
-        except Exception as e:
-            logger.error(f"Failed to load model: {e}")
+        except Exception as exc:
+            logger.error("Failed to load model (error_type=%s)", type(exc).__name__)
             raise
 
     return _model
@@ -78,7 +78,7 @@ async def transcribe_audio(
     try:
         async with _transcription_semaphore:
             model = await asyncio.to_thread(load_model)
-            logger.info(f"Transcribing audio file: {audio_path}")
+            logger.info("Transcribing audio file")
             transcription = await asyncio.to_thread(
                 model.transcribe,
                 [audio_path],
@@ -116,14 +116,17 @@ async def transcribe_audio(
                     result["has_timestamps"] = True
                 else:
                     result["has_timestamps"] = False
-            except Exception as e:
-                logger.warning(f"Could not extract timestamps: {e}")
+            except Exception as exc:
+                logger.warning(
+                    "Could not extract timestamps (error_type=%s)",
+                    type(exc).__name__,
+                )
                 result["has_timestamps"] = False
 
         return result
 
-    except Exception as e:
-        logger.error(f"Transcription failed: {e}", exc_info=True)
+    except Exception as exc:
+        logger.error("Transcription failed (error_type=%s)", type(exc).__name__)
         raise
 
 # Pre-load model on module import (optional, for faster first request)
