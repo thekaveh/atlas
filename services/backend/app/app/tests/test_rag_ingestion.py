@@ -26,7 +26,11 @@ from rag_ingestion.clients import (
     ParserAdapter,
 )
 from rag_ingestion.profiles import ProfileNotFoundError, load_profiles
-from rag_ingestion.service import Deps, RagIngestionService
+from rag_ingestion.service import (
+    Deps,
+    IngestionExecutionLeaseLost,
+    RagIngestionService,
+)
 from rag_ingestion.models import IngestionRecord
 from rag_ingestion.store import InMemoryIngestionStore, RedisIngestionStore
 
@@ -537,6 +541,57 @@ def test_missing_profile_does_not_strand_execution_claim(tmp_path):
         asyncio.run(service.run(record.id))
 
     assert store.claim_execution(record.id, "worker-a", 60) is True
+
+
+def test_run_cancels_active_phase_when_execution_lease_is_lost(
+    tmp_path, monkeypatch
+):
+    _corpus(tmp_path, monkeypatch, {"a.txt": "content"})
+    profile_path = _profiles_file(tmp_path)
+    store = InMemoryIngestionStore()
+
+    class LeaseLosingService(RagIngestionService):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self.phase_started = asyncio.Event()
+            self.phase_cancelled = False
+
+        async def _heartbeat_execution(
+            self,
+            ingestion_id,
+            owner,
+            lease_seconds,
+            stop,
+            lease_lost=None,
+        ):
+            await self.phase_started.wait()
+            if lease_lost is not None:
+                lease_lost.set()
+
+        async def _run_phase(self, *args, **kwargs):
+            self.phase_started.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                self.phase_cancelled = True
+                raise
+
+    service = LeaseLosingService(
+        store=store,
+        deps=Deps(),
+        profiles_path=profile_path,
+    )
+    record, _ = service.submit("showcase-default")
+
+    with pytest.raises(IngestionExecutionLeaseLost):
+        asyncio.run(
+            asyncio.wait_for(
+                service.run(record.id, execution_lease_seconds=10),
+                timeout=1,
+            )
+        )
+
+    assert service.phase_cancelled is True
 
 
 def test_vector_target_fail_when_weaviate_disabled(tmp_path, monkeypatch):

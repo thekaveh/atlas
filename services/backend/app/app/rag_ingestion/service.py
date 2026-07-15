@@ -14,6 +14,7 @@ the Celery task and tests drive it via ``asyncio.run`` so no event loop or
 from __future__ import annotations
 
 import asyncio
+from contextlib import suppress
 import hashlib
 import json
 import os
@@ -226,6 +227,7 @@ class RagIngestionService:
         owner: str,
         lease_seconds: int,
         stop: asyncio.Event,
+        lease_lost: asyncio.Event,
     ) -> None:
         interval = max(1.0, lease_seconds / 3)
         while True:
@@ -233,14 +235,55 @@ class RagIngestionService:
                 await asyncio.wait_for(stop.wait(), timeout=interval)
                 return
             except asyncio.TimeoutError:
-                renewed = await asyncio.to_thread(
-                    self.store.renew_execution,
-                    ingestion_id,
-                    owner,
-                    lease_seconds,
-                )
-                if not renewed:
+                try:
+                    renewed = await asyncio.to_thread(
+                        self.store.renew_execution,
+                        ingestion_id,
+                        owner,
+                        lease_seconds,
+                    )
+                except Exception:
+                    lease_lost.set()
                     return
+                if not renewed:
+                    lease_lost.set()
+                    return
+
+    async def _run_phase_with_lease(
+        self,
+        name: str,
+        record: IngestionRecord,
+        profile: LoadedProfile,
+        corpus: Dict[str, Any],
+        state: Dict[str, Any],
+        lease_lost: asyncio.Event,
+    ) -> None:
+        if lease_lost.is_set():
+            raise IngestionExecutionLeaseLost(
+                f"Execution lease lost for RAG ingestion {record.id}"
+            )
+
+        phase_task = asyncio.create_task(
+            self._run_phase(name, record, profile, corpus, state)
+        )
+        lease_task = asyncio.create_task(lease_lost.wait())
+        try:
+            await asyncio.wait(
+                (phase_task, lease_task),
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if lease_lost.is_set():
+                phase_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await phase_task
+                raise IngestionExecutionLeaseLost(
+                    f"Execution lease lost for RAG ingestion {record.id}"
+                )
+            await phase_task
+        finally:
+            lease_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await lease_task
 
     async def run(
         self,
@@ -274,9 +317,14 @@ class RagIngestionService:
                 f"RAG ingestion {ingestion_id} is already running"
             )
         heartbeat_stop = asyncio.Event()
+        lease_lost = asyncio.Event()
         heartbeat = asyncio.create_task(
             self._heartbeat_execution(
-                ingestion_id, owner, lease_seconds, heartbeat_stop
+                ingestion_id,
+                owner,
+                lease_seconds,
+                heartbeat_stop,
+                lease_lost,
             )
         )
 
@@ -299,7 +347,9 @@ class RagIngestionService:
                     record.status = STATUS_CANCELLED
                     await self._persist(record, owner)
                     return record
-                await self._run_phase(name, record, profile, corpus, state)
+                await self._run_phase_with_lease(
+                    name, record, profile, corpus, state, lease_lost
+                )
                 await self._persist(record, owner)
         except IngestionCancelled:
             record.status = STATUS_CANCELLED
