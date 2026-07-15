@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 from n8n_client import N8nClient
 from research_service import ResearchService
 from comfyui_client import ComfyUIClient
+from comfyui_media_client import ComfyUIMediaClient
 from fal_media_client import (
     FalClient,
     fal_timeout_seconds_from_env,
@@ -138,6 +139,21 @@ def _unexpected_error(operation: str, exc: Exception, *, status_code: int = 500)
 
 def _fal_source_enabled() -> bool:
     return (os.getenv("FAL_SOURCE", "disabled") or "disabled").strip().lower() == "enabled"
+
+
+def _comfyui_media_enabled() -> bool:
+    """Gate for ``provider=comfyui`` media generation (#519).
+
+    Source-aware, mirroring ``_fal_source_enabled``: ``COMFYUI_SOURCE`` is
+    plumbed into the backend container by the compose fragment
+    (``${COMFYUI_SOURCE:-disabled}``), so the gateway offers the provider
+    only when ComfyUI is actually configured (any non-disabled source). An
+    unreachable host still surfaces as a 502 at submit time (the honest
+    failure mode for a down local service); this gate is the clean 503 for
+    "ComfyUI not configured".
+    """
+    source = (os.getenv("COMFYUI_SOURCE", "disabled") or "disabled").strip().lower()
+    return source not in {"disabled", "none", ""}
 
 
 def _fal_api_key() -> str:
@@ -1245,7 +1261,12 @@ def _estimate_media_cost(
 
     image_to_3d prices come from the curated registry; the text-to-image path
     has no per-model price today, so its cost is unknown (None) — never $0.
+    Local ComfyUI generation (#519) is genuinely free (0.0) and still
+    recorded for provenance: the budget engine only rejects *unknown* cost
+    (None), so a zero estimate reserves nothing and commits nothing.
     """
+    if provider == "comfyui":
+        return 0.0, media_ledger._utcnow(), None
     if modality == "image_to_3d":
         entry = media_registry.lookup(model)
         if entry is not None:
@@ -1320,11 +1341,24 @@ def _normalize_media_route(provider: str, modality: str, model: Optional[str]) -
             )
         # Resolve aliases to the canonical endpoint id.
         return normalized_provider, normalized_modality, entry.model_id
+    if normalized_provider == "comfyui" and normalized_modality == "image":
+        # ComfyUI needs an explicit model (checkpoint filename or catalog
+        # name like krea2-turbo-bf16); there is no sensible global default
+        # across SD1.5/SDXL/Krea-2 families.
+        selected_model = (model or "").strip()
+        if not selected_model:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="provider=comfyui with modality=image requires a model "
+                "(checkpoint filename or catalog name, e.g. krea2-turbo-bf16)",
+            )
+        return normalized_provider, normalized_modality, selected_model
     raise HTTPException(
         status_code=status.HTTP_400_BAD_REQUEST,
         detail=(
             "Unsupported media route: Atlas currently supports "
-            "provider=fal with modality=image or modality=image_to_3d"
+            "provider=fal with modality=image or modality=image_to_3d, "
+            "and provider=comfyui with modality=image"
         ),
     )
 
@@ -1368,6 +1402,69 @@ def _media_response(payload: Dict[str, Any]) -> MediaOperationResponse:
         provenance=dict(payload.get("provenance") or {}),
         raw=payload.get("raw"),
     )
+
+
+async def _submit_media_provider(
+    *, provider: str, modality: str, model: str, prepared_input: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Dispatch a media submit to the right provider client (#519 generalizes
+    the former FAL-only call). Each client returns the normalized envelope;
+    ValueError → 400, other Exception → 502 (handled by the caller)."""
+    if provider == "fal":
+        api_key = _require_fal_api_key()
+        async with FalClient(api_key=api_key, model=model) as client:
+            return await client.submit_media_operation(
+                modality=modality, input=prepared_input, model=model
+            )
+    if provider == "comfyui":
+        async with ComfyUIMediaClient(model=model) as client:
+            return await client.submit_media_operation(
+                modality=modality, input_payload=prepared_input, model=model
+            )
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail=f"Unsupported media provider for submission: {provider}",
+    )
+
+
+async def _poll_media_provider(
+    *, provider: str, operation_id: str, modality: str, model: str
+) -> Dict[str, Any]:
+    """Dispatch a media poll to the right provider client."""
+    if provider == "fal":
+        api_key = _require_fal_api_key()
+        async with FalClient(api_key=api_key, model=model) as client:
+            return await client.get_media_operation(
+                operation_id=operation_id, modality=modality
+            )
+    if provider == "comfyui":
+        async with ComfyUIMediaClient(model=model) as client:
+            return await client.get_media_operation(
+                operation_id=operation_id, modality=modality
+            )
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail=f"Unsupported media provider for polling: {provider}",
+    )
+
+
+async def _cancel_media_provider(
+    *, provider: str, operation_id: str, modality: str, model: str
+) -> bool:
+    """Best-effort provider-side cancel (#518 parity across providers)."""
+    if provider == "fal":
+        if not (_fal_source_enabled() and _fal_api_key()):
+            return False
+        async with FalClient(api_key=_fal_api_key(), model=model) as client:
+            return await client.cancel_media_operation(
+                operation_id=operation_id, modality=modality
+            )
+    if provider == "comfyui":
+        async with ComfyUIMediaClient(model=model) as client:
+            return await client.cancel_media_operation(
+                operation_id=operation_id, modality=modality
+            )
+    return False
 
 
 # ComfyUI API Endpoints
@@ -1448,6 +1545,11 @@ async def submit_media_generation(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="FAL_SOURCE=enabled is required for provider=fal media generation",
         )
+    if provider == "comfyui" and not _comfyui_media_enabled():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="COMFYUI_SOURCE (a non-disabled source) is required for provider=comfyui media generation",
+        )
 
     # Cheap input validation first (clear 400s before any accounting work).
     if modality == "image":
@@ -1455,8 +1557,11 @@ async def submit_media_generation(
             validate_image_request_shape(request.input)
         except ValueError as exc:
             detail = str(exc)
-            if detail.startswith("FAL image prompt"):
-                detail = detail.replace("FAL image prompt", "Media image prompt", 1)
+            # validate_image_request_shape is shared across providers, so strip
+            # the FAL-specific prefix for any provider (e.g. comfyui) — the
+            # shape rules (prompt / image_size object / int seed) are generic.
+            if detail.startswith("FAL image"):
+                detail = "Media image" + detail[len("FAL image"):]
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=detail,
@@ -1468,20 +1573,25 @@ async def submit_media_generation(
         )
 
     # Complete provider-schema validation before shared state, budget, storage,
-    # or paid provider work. The preflight is pure and also resolves the default
-    # FLUX image-to-image endpoint when an init image is present.
-    try:
-        model = preflight_media_operation(
-            modality=modality,
-            input=request.input,
-            model=model,
-        )
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(exc),
-        ) from exc
-    api_key = _require_fal_api_key()
+    # or paid provider work. The FAL preflight is pure and also resolves the
+    # default FLUX image-to-image endpoint when an init image is present; it and
+    # the FAL API key requirement apply only to provider=fal (#519: comfyui has
+    # its own model resolution and needs no key).
+    if provider == "fal":
+        try:
+            model = preflight_media_operation(
+                modality=modality,
+                input=request.input,
+                model=model,
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(exc),
+            ) from exc
+        api_key = _require_fal_api_key()
+    else:
+        api_key = None
 
     # Prove the shared operation store is reachable before reserving budget,
     # hosting input, or submitting paid provider work. Persistence is checked
@@ -1546,12 +1656,12 @@ async def submit_media_generation(
         prepared_input["image"] = prepared.image
 
     try:
-        async with FalClient(api_key=api_key, model=model) as client:
-            payload = await client.submit_media_operation(
-                modality=modality,
-                input=prepared_input,
-                model=model,
-            )
+        payload = await _submit_media_provider(
+            provider=provider,
+            modality=modality,
+            model=model,
+            prepared_input=prepared_input,
+        )
     except HTTPException:
         await MEDIA_BUDGET_ENGINE.release(reservation_id)
         raise
@@ -1564,7 +1674,7 @@ async def submit_media_generation(
     except Exception as exc:
         await MEDIA_BUDGET_ENGINE.release(reservation_id)
         raise _unexpected_error(
-            "Submit media generation with FAL",
+            f"Submit media generation with {provider}",
             exc,
             status_code=status.HTTP_502_BAD_GATEWAY,
         )
@@ -1604,12 +1714,17 @@ async def submit_media_generation(
     try:
         await _persist_media_operation(operation)
     except Exception as exc:
-        provider_cancellation_requested = await _cancel_unpersisted_media_operation(
-            api_key=api_key,
-            model=submitted_model,
-            operation_id=operation_id,
-            modality=modality,
-        )
+        if provider == "fal":
+            provider_cancellation_requested = await _cancel_unpersisted_media_operation(
+                api_key=api_key,
+                model=submitted_model,
+                operation_id=operation_id,
+                modality=modality,
+            )
+        else:
+            # Local providers (comfyui) are free (cost_usd=0); an unpersisted
+            # operation has no paid work to reconcile, so no provider cancel.
+            provider_cancellation_requested = False
         # FAL confirms only that cancellation was requested, not that paid work
         # stopped. Without durable operation state Atlas cannot poll that request
         # to a terminal outcome, so retain spend for manual reconciliation.
@@ -1691,24 +1806,24 @@ async def get_media_operation(
         return _media_response(dict(persisted["last_payload"]))
 
     provider = operation["provider"]
-    if provider != "fal":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Unsupported media provider for polling: {provider}",
-        )
-    if not _fal_source_enabled():
+    if provider == "fal" and not _fal_source_enabled():
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="FAL_SOURCE=enabled is required to poll FAL media operations",
         )
+    if provider not in ("fal", "comfyui"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported media provider for polling: {provider}",
+        )
 
-    api_key = _require_fal_api_key()
     try:
-        async with FalClient(api_key=api_key, model=operation["model"]) as client:
-            payload = await client.get_media_operation(
-                operation_id=operation_id,
-                modality=operation["modality"],
-            )
+        payload = await _poll_media_provider(
+            provider=provider,
+            operation_id=operation_id,
+            modality=operation["modality"],
+            model=operation["model"],
+        )
     except HTTPException:
         raise
     except ValueError as e:
@@ -1718,7 +1833,7 @@ async def get_media_operation(
         )
     except Exception as exc:
         raise _unexpected_error(
-            "Poll media operation with FAL",
+            f"Poll media operation with {provider}",
             exc,
             status_code=status.HTTP_502_BAD_GATEWAY,
         )
@@ -1822,21 +1937,18 @@ async def cancel_media_operation(
         )
 
     # Persist intent before this best-effort provider call so concurrent callers
-    # cannot submit duplicate cancellation requests.
+    # cannot submit duplicate cancellation requests. Dispatched per provider so a
+    # comfyui job is interrupted/dequeued too (#519 parity with #518's FAL cancel).
     provider_cancellation_requested = False
-    if (
-        operation.get("provider") == "fal"
-        and _fal_source_enabled()
-        and _fal_api_key()
-    ):
+    provider = operation.get("provider")
+    if provider in ("fal", "comfyui"):
         try:
-            async with FalClient(
-                api_key=_fal_api_key(), model=operation["model"]
-            ) as client:
-                provider_cancellation_requested = await client.cancel_media_operation(
-                    operation_id=operation_id,
-                    modality=operation["modality"],
-                )
+            provider_cancellation_requested = await _cancel_media_provider(
+                provider=provider,
+                operation_id=operation_id,
+                modality=operation["modality"],
+                model=operation["model"],
+            )
         except Exception:  # noqa: BLE001 — best-effort by contract
             provider_cancellation_requested = False
 

@@ -60,6 +60,38 @@ def test_track_help_lists_trading_profile():
     assert "trading" in r.stdout
 
 
+def test_comfyui_source_accepts_managed_localhost_mps():
+    """#590: --comfyui-source managed-localhost-mps must be accepted — the
+    Choice list previously omitted this supported source, so the only way to
+    select the managed MPS host was to hand-edit .env."""
+    r = _run("--comfyui-source", "managed-localhost-mps", "--list-tracks")
+    assert r.returncode == 0, (
+        f"managed-localhost-mps must be a valid --comfyui-source value; "
+        f"stderr={r.stderr!r}"
+    )
+    assert "is not one of" not in r.stderr
+
+
+def test_comfyui_source_choice_covers_every_manifest_source():
+    """#590 drift guard: the --comfyui-source click Choice must include every
+    source the ComfyUI manifest honors, so a supported source can never again
+    be silently un-selectable from the CLI."""
+    import start
+
+    from services.manifests import load_manifests
+
+    comfyui = next(m for m in load_manifests(REPO_ROOT / "services") if m.name == "comfyui")
+    manifest_sources = {opt.id for opt in comfyui.sources.options}
+
+    param = next(p for p in start.main.params if p.name == "comfyui_source")
+    cli_choices = set(param.type.choices)
+
+    missing = manifest_sources - cli_choices
+    assert not missing, (
+        f"--comfyui-source Choice is missing manifest sources: {sorted(missing)}"
+    )
+
+
 def test_off_track_flag_emits_warning():
     """--track gen-ai-rag --comfyui-source container-gpu must emit
     a stderr warning since comfyui is excluded from gen-ai-rag.

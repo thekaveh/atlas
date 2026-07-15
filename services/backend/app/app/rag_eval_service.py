@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import OrderedDict
 from typing import Any, Callable, Dict, List, Literal, Optional
 import os
 
@@ -15,6 +16,19 @@ MetricName = Literal[
 
 _REFERENCE_METRICS = {"context_precision", "context_recall"}
 
+# Central per-metric evidence requirements: (needs_retrieved_contexts,
+# needs_reference). A metric is evaluable for a record only when the record
+# carries the evidence the metric needs; otherwise it is reported as
+# not_evaluable (a None score) rather than failing the request (#597).
+# answer_relevancy needs only question + answer; the context metrics need
+# retrieved contexts (and context_precision/recall also need ground_truth).
+_METRIC_REQUIREMENTS: Dict[MetricName, tuple[bool, bool]] = {
+    "answer_relevancy": (False, False),
+    "faithfulness": (True, False),
+    "context_precision": (True, True),
+    "context_recall": (True, True),
+}
+
 
 class RagEvaluationDependencyError(RuntimeError):
     pass
@@ -27,7 +41,10 @@ class RagEvaluationError(RuntimeError):
 class RagEvaluationRecord(BaseModel):
     question: str = Field(min_length=1, max_length=8000)
     answer: str = Field(min_length=1, max_length=16000)
-    contexts: List[str] = Field(min_length=1, max_length=50)
+    # contexts may be empty: answer_relevancy needs only question+answer, so a
+    # contextless record (e.g. a graph-RAG answer with no exposed text chunks)
+    # is still valid — context-requiring metrics are reported not_evaluable (#597).
+    contexts: List[str] = Field(min_length=0, max_length=50)
     ground_truth: Optional[str] = Field(default=None, max_length=16000)
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
@@ -120,25 +137,46 @@ def _runner_records(records: list[RagEvaluationRecord]) -> list[dict[str, Any]]:
     ]
 
 
-def _validate_metric_requirements(
-    records: list[RagEvaluationRecord], metrics: list[MetricName]
-) -> None:
-    if _REFERENCE_METRICS.intersection(metrics):
-        missing = [index for index, record in enumerate(records) if not record.ground_truth]
-        if missing:
-            raise ValueError(
-                "ground_truth is required for context_precision/context_recall metrics "
-                f"(missing record indexes: {missing})"
-            )
+def _eligible_metrics(
+    record: RagEvaluationRecord, metrics: list[MetricName]
+) -> list[MetricName]:
+    """Metrics a record can actually evaluate given its evidence.
+
+    A metric whose evidence requirement the record doesn't meet is dropped
+    (reported as ``not_evaluable`` / a ``None`` score by the caller) rather
+    than failing the request — so a contextless graph-RAG answer can still be
+    scored on ``answer_relevancy`` while ``faithfulness`` is not_evaluable.
+    """
+    has_context = bool(record.contexts)
+    has_reference = bool(record.ground_truth)
+    eligible: list[MetricName] = []
+    for metric in metrics:
+        needs_context, needs_reference = _METRIC_REQUIREMENTS[metric]
+        if needs_context and not has_context:
+            continue
+        if needs_reference and not has_reference:
+            continue
+        eligible.append(metric)
+    return eligible
 
 
-def _metric_objects(metric_names: list[str]):
+def _metric_objects(metric_names: list[str], *, llm, embeddings):
+    """Construct the requested Ragas metric instances for the pinned
+    ``ragas==0.4.3`` runtime.
+
+    The ``ragas.metrics.collections`` metrics are the *modern* metrics: they
+    require an ``InstructorLLM`` (built via :func:`ragas.llms.llm_factory`),
+    not the legacy ``LangchainLLMWrapper``, and they take the llm/embeddings
+    at construction (a no-arg ``Metric()`` raises ``TypeError``). The class
+    exported for answer-relevancy is ``AnswerRelevancy`` (``ResponseRelevancy``
+    does not exist in 0.4.3 — it was the surface symptom of #596).
+    """
     try:
         from ragas.metrics.collections import (
+            AnswerRelevancy,
             ContextPrecision,
             ContextRecall,
             Faithfulness,
-            ResponseRelevancy,
         )
     except ModuleNotFoundError as exc:
         raise RagEvaluationDependencyError(
@@ -146,23 +184,34 @@ def _metric_objects(metric_names: list[str]):
             "and langchain-community>=0.3.0,<0.4"
         ) from exc
 
-    registry = {
-        "faithfulness": Faithfulness,
-        "answer_relevancy": ResponseRelevancy,
-        "context_precision": ContextPrecision,
-        "context_recall": ContextRecall,
-    }
-    return [registry[name]() for name in metric_names]
+    if "answer_relevancy" in metric_names and embeddings is None:
+        raise ValueError(
+            "answer_relevancy requires an embeddings model — set "
+            "RAGAS_EMBEDDINGS_MODEL or LITELLM_EMBEDDING_MODEL"
+        )
+
+    def build(name: str):
+        if name == "answer_relevancy":
+            return AnswerRelevancy(llm=llm, embeddings=embeddings)
+        if name == "faithfulness":
+            return Faithfulness(llm=llm)
+        if name == "context_precision":
+            return ContextPrecision(llm=llm)
+        if name == "context_recall":
+            return ContextRecall(llm=llm)
+        raise ValueError(f"Unknown Ragas metric: {name}")
+
+    return [build(name) for name in metric_names]
 
 
 def _run_ragas_evaluation(
     records: list[dict[str, Any]], metrics: list[str], config: dict[str, Any]
 ) -> list[dict[str, Any]]:
     try:
-        from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+        from openai import OpenAI
         from ragas import EvaluationDataset, SingleTurnSample, evaluate
-        from ragas.embeddings import LangchainEmbeddingsWrapper
-        from ragas.llms import LangchainLLMWrapper
+        from ragas.embeddings import OpenAIEmbeddings
+        from ragas.llms import llm_factory
     except ModuleNotFoundError as exc:
         raise RagEvaluationDependencyError(
             "Ragas evaluation dependencies are not installed or are incompatible"
@@ -179,28 +228,26 @@ def _run_ragas_evaluation(
     ]
     dataset = EvaluationDataset(samples=samples)
 
-    llm = LangchainLLMWrapper(
-        ChatOpenAI(
-            model=config["evaluator_model"],
-            api_key=config["llm_api_key"],
-            base_url=config["llm_base_url"],
-            temperature=0,
-        )
+    # ragas 0.4.3's collections metrics require the modern InstructorLLM
+    # abstraction. Build one from an OpenAI-compatible client pointed at the
+    # LiteLLM gateway (the same base_url/key the legacy LangchainLLMWrapper
+    # used); llm_factory wraps it into the InstructorLLM the metrics expect.
+    openai_client = OpenAI(
+        api_key=config["llm_api_key"],
+        base_url=config["llm_base_url"],
     )
+    llm = llm_factory(config["evaluator_model"], client=openai_client)
     embeddings = None
     if config.get("embeddings_model"):
-        embeddings = LangchainEmbeddingsWrapper(
-            OpenAIEmbeddings(
-                model=config["embeddings_model"],
-                api_key=config["llm_api_key"],
-                base_url=config["llm_base_url"],
-            )
+        embeddings = OpenAIEmbeddings(
+            client=openai_client,
+            model=config["embeddings_model"],
         )
 
     try:
         result = evaluate(
             dataset,
-            metrics=_metric_objects(metrics),
+            metrics=_metric_objects(metrics, llm=llm, embeddings=embeddings),
             llm=llm,
             embeddings=embeddings,
             show_progress=False,
@@ -216,10 +263,18 @@ def _run_ragas_evaluation(
     return list(result)
 
 
-def _result_scores(row: dict[str, Any], metrics: list[MetricName]) -> dict[str, Optional[float]]:
+def _result_scores(
+    row: dict[str, Any], metrics: list[MetricName], eligible: list[MetricName]
+) -> dict[str, Optional[float]]:
+    """Pull each requested metric's score from a runner row. Metrics that were
+    not eligible for the record (not run) are ``None`` — ``not_evaluable``."""
     source = row.get("scores", row)
+    eligible_set = set(eligible)
     scores: dict[str, Optional[float]] = {}
     for metric in metrics:
+        if metric not in eligible_set:
+            scores[metric] = None  # not_evaluable — record lacked the evidence
+            continue
         value = source.get(metric)
         scores[metric] = None if value is None else float(value)
     return scores
@@ -231,18 +286,42 @@ def evaluate_rag_records(
     runner: Runner = _run_ragas_evaluation,
 ) -> RagEvaluationResponse:
     metrics = _unique_metrics(request.metrics)
-    _validate_metric_requirements(request.records, metrics)
     config = _evaluation_config(request)
-    records = _runner_records(request.records)
-    raw_rows = runner(records, list(metrics), config)
+
+    # Group records by their eligible-metric set so each group runs the runner
+    # once with only the metrics its records can evaluate. A metric a record
+    # can't support is reported as not_evaluable (None), not a request failure.
+    groups: "OrderedDict[tuple[MetricName, ...], list[int]]" = OrderedDict()
+    for index, record in enumerate(request.records):
+        eligible = tuple(_eligible_metrics(record, metrics))
+        groups.setdefault(eligible, []).append(index)
+
+    raw_by_index: dict[int, dict[str, Any]] = {}
+    eligible_by_index: dict[int, list[MetricName]] = {}
+    for eligible_tuple, indices in groups.items():
+        eligible = list(eligible_tuple)
+        for i in indices:
+            eligible_by_index[i] = eligible
+        if not eligible:
+            # No requested metric is evaluable for these records (e.g. only
+            # context metrics requested but the record has no contexts).
+            for i in indices:
+                raw_by_index[i] = {}
+            continue
+        group_records = [request.records[i] for i in indices]
+        group_rows = runner(_runner_records(group_records), eligible, config)
+        for i, row in zip(indices, group_rows):
+            raw_by_index[i] = row
 
     results = [
         RagEvaluationResult(
             record_index=index,
-            scores=_result_scores(row, metrics),
-            metadata=dict(row.get("metadata", {}) or {}),
+            scores=_result_scores(
+                raw_by_index.get(index, {}), metrics, eligible_by_index[index]
+            ),
+            metadata=dict(raw_by_index.get(index, {}).get("metadata", {}) or {}),
         )
-        for index, row in enumerate(raw_rows)
+        for index in range(len(request.records))
     ]
     return RagEvaluationResponse(
         metrics=metrics,

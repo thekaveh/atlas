@@ -747,6 +747,13 @@ Plus `ATLAS_KONG_GATEWAY` and every per-consumer `ATLAS_STORE_*` field from the
 track `BASE_PORT`, and the internal vs public MinIO endpoints are distinct — sign
 presigned URLs against `ATLAS_MINIO_PUBLIC_ENDPOINT`.
 
+A few source-specific fields are emitted only when meaningful: under
+`COMFYUI_SOURCE=managed-localhost-mps` the export includes
+`ATLAS_COMFYUI_OUTPUT_DIR` (the native host process's image-output directory,
+`$COMFYUI_MPS_STATE_DIR/ComfyUI/output`), so consumers reading generated images
+off disk don't hardcode the internal layout. It is omitted for the container and
+localhost sources (outputs land in a Docker volume / the user's own ComfyUI install).
+
 **Secrets.** By default the output contains **no secret values** — infra secrets
 (e.g. the Redis password inside `REDIS_URL`) are emitted as `${VAR}` references.
 `--with-secrets` resolves **only consumer-scoped credentials** (the storage

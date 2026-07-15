@@ -94,14 +94,17 @@ def _validate_row(path: Path, text: str) -> list[str]:
         errors.append(f"{path}: frontmatter `sources_consulted` must be a non-empty list")
 
     last_idx = -1
-    for sec in _ROW_SECTIONS:
+    # Row sections are canonically numbered (## 1. …, ## 2. …, ## 3. …), so the
+    # missing/out-of-order diagnostics report the section number — matching the
+    # schema's on-disk form and letting callers find the right heading.
+    for number, sec in enumerate(_ROW_SECTIONS, start=1):
         match = _section_match(body, sec)
         if match is None:
-            errors.append(f"{path}: missing required section: ## {sec}")
+            errors.append(f"{path}: missing required section: ## {number}. {sec}")
             continue
         idx = match.start()
         if idx <= last_idx:
-            errors.append(f"{path}: section out of order: ## {sec}")
+            errors.append(f"{path}: section out of order: ## {number}. {sec}")
         last_idx = idx
 
     word_count = len(body.split())

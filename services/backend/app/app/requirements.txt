@@ -56,6 +56,10 @@ langchain-core>=0.1.22
 # Ragas moves that import to the newer provider package.
 langchain-community>=0.3.0,<0.4
 langchain-openai>=0.0.8
+# Direct import: rag_eval_service builds the OpenAI-compatible client passed to
+# ragas' llm_factory (the InstructorLLM abstraction ragas 0.4.3 metrics require).
+# Always present transitively via langchain-openai; declared explicitly here.
+openai>=1.0
 langgraph>=0.0.15
 transformers>=4.39.3
 

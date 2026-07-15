@@ -746,13 +746,21 @@ class KongConfigGenerator:
         }
         
         # Dynamic URL based on SOURCE
-        if source == 'localhost':
-            # Honor COMFYUI_LOCALHOST_PORT so users with a non-default
-            # localhost port (.env override) get a Kong route that
-            # actually points at their service.
-            localhost_url = self._localhost_url('COMFYUI_LOCALHOST_PORT', '8000')
+        if source in ('localhost', 'managed-localhost-mps'):
+            # Both are host processes reached via host.docker.internal. The
+            # plain localhost source listens on COMFYUI_LOCALHOST_PORT (a
+            # user-run ComfyUI); the Atlas-managed Apple-Silicon/MPS host
+            # (#335) listens on COMFYUI_MPS_LOCALHOST_PORT. The previous code
+            # had no branch for managed-localhost-mps, so it fell through to
+            # the dead container URL (http://comfyui:18188) — the Kong route
+            # to ComfyUI was unreachable under that source (#610).
+            if source == 'managed-localhost-mps':
+                port_var, default_port = 'COMFYUI_MPS_LOCALHOST_PORT', '8188'
+            else:
+                port_var, default_port = 'COMFYUI_LOCALHOST_PORT', '8000'
+            localhost_url = self._localhost_url(port_var, default_port)
             parsed = urlparse(localhost_url)
-            probe_port = parsed.port or 8000
+            probe_port = parsed.port or int(default_port)
             self.check_localhost_service('localhost', probe_port, 'ComfyUI')
             service['url'] = localhost_url
         elif source in ['container-cpu', 'container-gpu']:
@@ -760,7 +768,7 @@ class KongConfigGenerator:
         else:
             # Default to container
             service['url'] = 'http://comfyui:18188/'
-        
+
         return service
     
     def generate_n8n_service(self) -> Optional[Dict[str, Any]]:
