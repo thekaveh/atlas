@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import threading
-from typing import NamedTuple
+from typing import Mapping, NamedTuple
 
 
 _OCR_MODES = {"auto", "always", "never"}
@@ -19,6 +20,27 @@ class PipelineSettings(NamedTuple):
     device: str
     do_formula_enrichment: bool
     do_code_enrichment: bool
+
+
+class ChunkDefaults(NamedTuple):
+    size: int
+    overlap: int
+
+
+def resolve_chunk_defaults(env: Mapping[str, str] | None = None) -> ChunkDefaults:
+    values = os.environ if env is None else env
+    try:
+        size = int(values.get("DOCLING_CHUNK_SIZE", "512"))
+        overlap = int(values.get("DOCLING_CHUNK_OVERLAP", "50"))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Docling chunk defaults must be integers") from exc
+    if size <= 0:
+        raise ValueError("DOCLING_CHUNK_SIZE must be positive")
+    if overlap < 0 or overlap >= size:
+        raise ValueError(
+            "DOCLING_CHUNK_OVERLAP must be non-negative and smaller than chunk size"
+        )
+    return ChunkDefaults(size=size, overlap=overlap)
 
 
 def _boolean(value: str | bool) -> bool:

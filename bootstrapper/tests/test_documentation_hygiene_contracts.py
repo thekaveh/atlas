@@ -53,4 +53,3 @@ def test_populated_research_catalogs_have_no_placeholder_files() -> None:
     ):
         assert any(path.suffix == ".md" for path in directory.iterdir())
         assert not (directory / ".gitkeep").exists()
-

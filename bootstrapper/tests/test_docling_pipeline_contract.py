@@ -53,6 +53,42 @@ def test_pipeline_settings_reject_unsupported_values():
             raise AssertionError(f"unsupported {field} value was accepted")
 
 
+def test_chunk_defaults_honor_environment_and_reject_invalid_pairs():
+    pipeline = _load_pipeline_module()
+
+    assert pipeline.resolve_chunk_defaults(
+        {
+            "DOCLING_CHUNK_SIZE": "900",
+            "DOCLING_CHUNK_OVERLAP": "120",
+        }
+    ) == (900, 120)
+
+    for values in (
+        {"DOCLING_CHUNK_SIZE": "0", "DOCLING_CHUNK_OVERLAP": "0"},
+        {"DOCLING_CHUNK_SIZE": "100", "DOCLING_CHUNK_OVERLAP": "100"},
+        {"DOCLING_CHUNK_SIZE": "invalid", "DOCLING_CHUNK_OVERLAP": "10"},
+    ):
+        try:
+            pipeline.resolve_chunk_defaults(values)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"invalid chunk defaults were accepted: {values}")
+
+
+def test_both_docling_apis_use_manifest_owned_chunk_defaults():
+    for relative in (
+        "services/docling/provider/shared/api_server.py",
+        "services/docling/provider/localhost/server.py",
+    ):
+        source = (ROOT / relative).read_text(encoding="utf-8")
+        assert "resolve_chunk_defaults" in source
+        assert "Form(default=_CHUNK_DEFAULTS.size" in source
+        assert "Form(default=_CHUNK_DEFAULTS.overlap" in source
+        assert "chunk_size: int = Form(default=512)" not in source
+        assert "chunk_overlap: int = Form(default=50)" not in source
+
+
 def test_gpu_torch_requirements_match_base_image_patch():
     dockerfile = (ROOT / "services/docling/provider/gpu/Dockerfile").read_text()
     requirements = (ROOT / "services/docling/provider/gpu/requirements.txt").read_text()

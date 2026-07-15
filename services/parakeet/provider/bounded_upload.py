@@ -53,4 +53,3 @@ async def spool_upload(
     except BaseException:
         path.unlink(missing_ok=True)
         raise
-

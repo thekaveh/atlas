@@ -132,8 +132,10 @@ class Tools:
 
             # Extract generation info
             prompt_id = result.get("prompt_id")
-            outputs = result.get("data", {}).get("outputs", {})
-            parameters = result.get("data", {}).get("parameters", {})
+            data = result.get("data", {})
+            provider = data.get("provider", "comfyui")
+            outputs = data.get("outputs", {})
+            parameters = data.get("parameters", {})
 
             # Format success response
             output = []
@@ -149,14 +151,27 @@ class Tools:
             output.append(f"- CFG Scale: {cfg}")
             output.append(f"- Prompt ID: {prompt_id}")
 
-            # If outputs contain images, try to get the first one
-            if outputs:
+            if provider == "fal" and isinstance(outputs.get("images"), list):
+                images = outputs["images"]
                 output.append(
-                    f"\n**Generated Images:** {len(outputs)} image(s) created"
+                    f"\n**Generated Images:** {len(images)} image(s) created"
+                )
+                if images and isinstance(images[0], dict):
+                    artifact_url = images[0].get("url", "")
+                    if artifact_url.startswith(("https://", "http://")):
+                        output.append(f"\n**Image available:** {artifact_url}")
+            elif outputs:
+                image_count = sum(
+                    len(node_output.get("images", []))
+                    for node_output in outputs.values()
+                    if isinstance(node_output, dict)
+                    and isinstance(node_output.get("images"), list)
+                )
+                output.append(
+                    f"\n**Generated Images:** {image_count} image(s) created"
                 )
 
-                # Try to get the first image
-                for node_id, node_output in outputs.items():
+                for node_output in outputs.values():
                     if isinstance(node_output, dict) and "images" in node_output:
                         images = node_output["images"]
                         if images and len(images) > 0:

@@ -22,6 +22,38 @@ def _load(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _code_node(workflow: dict, name: str) -> str:
+    node = next(node for node in workflow["nodes"] if node["name"] == name)
+    return node["parameters"]["jsCode"]
+
+
+def _run_code_node(
+    code: str,
+    *,
+    input_payload: dict,
+    references: dict[str, dict] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    harness = f"""
+const inputPayload = {json.dumps(input_payload)};
+const references = {json.dumps(references or {})};
+const $input = {{ first: () => ({{ json: inputPayload }}) }};
+const $ = (name) => ({{ item: {{ json: references[name] }} }});
+const $execution = {{ id: 'execution-1' }};
+const $workflow = {{ name: 'contract-test' }};
+const output = (() => {{
+{code}
+}})();
+process.stdout.write(JSON.stringify(output));
+"""
+    return subprocess.run(
+        ["node"],
+        input=harness,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+
 def _reachable_nodes(workflow: dict) -> set[str]:
     connections = workflow.get("connections", {})
     roots = {
@@ -162,3 +194,110 @@ def test_code_node_javascript_parses() -> None:
             assert result.returncode == 0, (
                 f"{path.name}:{node['name']} has invalid JavaScript:\n{result.stderr}"
             )
+
+
+def test_comfyui_workflows_preserve_numeric_boundaries() -> None:
+    advanced = _load(
+        ROOT / "services/n8n/workflows-stage/workflows/comfyui-image-generation.json"
+    )
+    validate = _code_node(advanced, "Validate Request")
+    accepted = _run_code_node(
+        validate,
+        input_payload={
+            "prompt": "blue archive",
+            "width": 512,
+            "height": 512,
+            "steps": 20,
+            "cfg": 0,
+        },
+    )
+    assert accepted.returncode == 0, accepted.stderr
+    assert json.loads(accepted.stdout)["generationRequest"]["cfg"] == 0
+
+    rejected = _run_code_node(
+        validate,
+        input_payload={
+            "prompt": "blue archive",
+            "width": 0,
+            "height": 512,
+            "steps": 20,
+            "cfg": 7,
+        },
+    )
+    assert rejected.returncode != 0
+    assert "Width must be between" in rejected.stderr
+
+    simple = _load(
+        ROOT / "services/n8n/workflows-stage/workflows/comfyui-simple.json"
+    )
+    request = next(node for node in simple["nodes"] if node["name"] == "Generate Simple Image")
+    values = {
+        entry["name"]: entry["value"]
+        for entry in request["parameters"]["bodyParameters"]["parameters"]
+    }
+    for name in ("width", "height", "steps", "cfg"):
+        assert "??" in values[name]
+        assert "||" not in values[name]
+
+
+def test_comfyui_workflows_preserve_fal_artifact_urls() -> None:
+    fal_result = {
+        "success": True,
+        "prompt_id": "fal-1",
+        "client_id": "fal",
+        "data": {
+            "provider": "fal",
+            "outputs": {
+                "images": [
+                    {
+                        "url": "https://cdn.example/fal.png",
+                        "content_type": "image/png",
+                        "width": 1024,
+                        "height": 1024,
+                    }
+                ]
+            },
+        },
+    }
+    advanced = _load(
+        ROOT / "services/n8n/workflows-stage/workflows/comfyui-image-generation.json"
+    )
+    processed = _run_code_node(
+        _code_node(advanced, "Process Success"),
+        input_payload=fal_result,
+        references={
+            "Validate Request": {
+                "generationRequest": {
+                    "prompt": "blue archive",
+                    "negative_prompt": "",
+                    "width": 1024,
+                    "height": 1024,
+                    "steps": 20,
+                    "cfg": 0,
+                    "checkpoint": "model.safetensors",
+                },
+                "timestamp": "2026-07-14T00:00:00.000Z",
+            }
+        },
+    )
+    assert processed.returncode == 0, processed.stderr
+    advanced_result = json.loads(processed.stdout)
+    assert advanced_result["image_count"] == 1
+    assert advanced_result["generated_images"][0]["url"] == (
+        "https://cdn.example/fal.png"
+    )
+
+    simple = _load(
+        ROOT / "services/n8n/workflows-stage/workflows/comfyui-simple.json"
+    )
+    formatted = _run_code_node(
+        _code_node(simple, "Format Response"),
+        input_payload=fal_result,
+        references={"Simple ComfyUI Webhook": {"prompt": "blue archive"}},
+    )
+    assert formatted.returncode == 0, formatted.stderr
+    simple_result = json.loads(formatted.stdout)
+    assert simple_result["image_count"] == 1
+    assert simple_result["generated_images"][0]["url"] == (
+        "https://cdn.example/fal.png"
+    )

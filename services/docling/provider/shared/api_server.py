@@ -10,6 +10,9 @@ import logging
 from typing import Literal
 
 from bounded_upload import EmptyUploadError, UploadTooLargeError, spool_upload
+from pipeline_config import resolve_chunk_defaults
+
+_CHUNK_DEFAULTS = resolve_chunk_defaults()
 
 # Import backend-specific processor
 try:
@@ -75,8 +78,8 @@ async def convert_document(
         default=os.getenv("DOCLING_TABLE_MODE", "accurate")
     ),
     enable_chunking: bool = Form(default=False),
-    chunk_size: int = Form(default=512),
-    chunk_overlap: int = Form(default=50)
+    chunk_size: int = Form(default=_CHUNK_DEFAULTS.size, gt=0),
+    chunk_overlap: int = Form(default=_CHUNK_DEFAULTS.overlap, ge=0)
 ):
     """Convert documents to structured format"""
     tmp_path = None

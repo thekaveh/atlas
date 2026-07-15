@@ -145,6 +145,56 @@ def test_open_webui_tool_propagates_deadline_and_returns_artifact(monkeypatch):
     assert "base64" not in result.lower()
 
 
+def test_open_webui_tool_returns_fal_artifact_url(monkeypatch):
+    tool_path = (
+        Path(__file__).resolve().parents[4]
+        / "open-webui/extras/tools/comfyui_image_generation_tool.py"
+    )
+    spec = importlib.util.spec_from_file_location("comfyui_fal_tool_test", tool_path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    class Response:
+        status_code = 200
+
+        def __init__(self, payload):
+            self._payload = payload
+
+        def json(self):
+            return self._payload
+
+    monkeypatch.setattr(
+        module.requests,
+        "get",
+        lambda *_args, **_kwargs: Response({"status": "healthy"}),
+    )
+    monkeypatch.setattr(
+        module.requests,
+        "post",
+        lambda *_args, **_kwargs: Response(
+            {
+                "success": True,
+                "prompt_id": "fal-1",
+                "data": {
+                    "provider": "fal",
+                    "outputs": {
+                        "images": [
+                            {"url": "https://cdn.example/fal-output.png"}
+                        ]
+                    },
+                    "parameters": {},
+                },
+            }
+        ),
+    )
+
+    result = module.Tools().generate_image("blue orbital archive")
+
+    assert "1 image(s) created" in result
+    assert "https://cdn.example/fal-output.png" in result
+
+
 def test_comfyui_tool_does_not_embed_image_data_or_backend_url():
     from pathlib import Path
 
