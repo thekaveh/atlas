@@ -10,7 +10,7 @@
 | backend | supabase, redis, litellm | weaviate, kong, celery, supavisor | supabase, weaviate, litellm, comfyui, fal, n8n, ray, local-deep-researcher, celery, supavisor, tika, lightrag, minio, redis, otel-collector |
 | backup | supabase, minio | - | supabase, minio |
 | blender-mcp | - | - | - |
-| celery | redis, backend, supabase, litellm | weaviate, supavisor | redis, supabase, litellm, weaviate, supavisor |
+| celery | redis, backend, supabase, litellm | weaviate, supavisor, docling, tika, lightrag, minio | redis, supabase, litellm, weaviate, supavisor, docling, tika, lightrag, minio |
 | chatterbox | tts-provider | - | - |
 | cloud-providers | litellm | - | - |
 | cloudflared | kong | - | kong |

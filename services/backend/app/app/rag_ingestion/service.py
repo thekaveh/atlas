@@ -17,6 +17,7 @@ import asyncio
 from contextlib import suppress
 import hashlib
 import json
+import logging
 import os
 import time
 import uuid
@@ -46,6 +47,9 @@ from .models import (
 )
 from .profiles import LoadedProfile, get_profile
 from .store import IngestionStore, default_store
+
+
+logger = logging.getLogger(__name__)
 
 
 class PhaseFatal(RuntimeError):
@@ -243,9 +247,17 @@ class RagIngestionService:
                         lease_seconds,
                     )
                 except Exception:
+                    logger.exception(
+                        "RAG execution lease renewal failed for ingestion %s",
+                        ingestion_id,
+                    )
                     lease_lost.set()
                     return
                 if not renewed:
+                    logger.warning(
+                        "RAG execution lease ownership lost for ingestion %s",
+                        ingestion_id,
+                    )
                     lease_lost.set()
                     return
 

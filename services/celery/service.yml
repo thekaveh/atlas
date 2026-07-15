@@ -66,6 +66,10 @@ depends_on:
   optional:
     - weaviate
     - supavisor
+    - docling
+    - tika
+    - lightrag
+    - minio
 
 rows:
   - display_name: "Celery Worker"
@@ -114,3 +118,7 @@ data_flow:
     - litellm
     - weaviate
     - supavisor
+    - docling
+    - tika
+    - lightrag
+    - minio

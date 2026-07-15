@@ -136,6 +136,7 @@ curl -sX POST http://localhost:${LITELLM_PORT}/v1/chat/completions \
 |---|---|
 | kong | infra |
 | litellm ↔ | llm |
+| celery | agents |
 | hermes | agents |
 | n8n | agents |
 | backend | apps |

@@ -261,6 +261,8 @@ def test_lightrag_client_uses_current_file_source_contract(monkeypatch):
     requests = []
 
     class FakeResponse:
+        status_code = 200
+
         def raise_for_status(self):
             return None
 
@@ -286,11 +288,79 @@ def test_lightrag_client_uses_current_file_source_contract(monkeypatch):
     )
 
     assert uploaded == 1
-    assert requests[0][1]["json"] == {
-        "text": "graph text",
-        "file_source": "graph_native/a.txt",
-    }
+    payload = requests[0][1]["json"]
+    assert payload["text"] == "graph text"
+    assert payload["file_source"].startswith("atlas-")
+    assert payload["file_source"].endswith(".txt")
+    assert "/" not in payload["file_source"]
     assert "description" not in requests[0][1]["json"]
+
+
+def test_lightrag_file_sources_are_stable_and_path_unique(monkeypatch):
+    payloads = []
+
+    class FakeResponse:
+        status_code = 200
+
+        def raise_for_status(self):
+            return None
+
+    class FakeAsyncClient:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def post(self, _url, **kwargs):
+            payloads.append(kwargs["json"])
+            return FakeResponse()
+
+    monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)
+    client = LightRagClient(endpoint="http://lightrag:9621", api_key="secret")
+    documents = [
+        {"text": "one", "source": "dir1/a.txt"},
+        {"text": "two", "source": "dir2/a.txt"},
+    ]
+
+    asyncio.run(client.upload(documents))
+    first_sources = [payload["file_source"] for payload in payloads]
+    payloads.clear()
+    asyncio.run(client.upload(documents))
+
+    assert first_sources[0] != first_sources[1]
+    assert [payload["file_source"] for payload in payloads] == first_sources
+
+
+def test_lightrag_duplicate_file_source_is_idempotent(monkeypatch):
+    class ConflictResponse:
+        status_code = 409
+
+        def raise_for_status(self):
+            raise AssertionError("duplicate 409 must be accepted")
+
+    class FakeAsyncClient:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def post(self, _url, **_kwargs):
+            return ConflictResponse()
+
+    monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)
+    client = LightRagClient(endpoint="http://lightrag:9621", api_key="secret")
+
+    assert asyncio.run(
+        client.upload([{"text": "same", "source": "a.txt"}])
+    ) == 1
 
 
 def test_lightrag_failure_records_bounded_upstream_body(tmp_path, monkeypatch):
@@ -784,6 +854,47 @@ def test_worker_transient_error_is_persisted_for_retry_and_reraised(
     assert completed.phase("embed").note is None
 
 
+def test_worker_final_transient_attempt_records_terminal_failure(
+    tmp_path, monkeypatch
+):
+    _corpus(tmp_path, monkeypatch, {"a.txt": "content body"})
+    pf = _profiles_file(
+        tmp_path,
+        vector=[
+            {
+                "backend": "weaviate",
+                "collection_prefix": "P",
+                "on_unavailable": "fail",
+            }
+        ],
+    )
+
+    class TransientEmbedder:
+        def available(self):
+            return True
+
+        async def embed(self, _texts):
+            raise ConnectionError("temporary LiteLLM outage")
+
+    store = InMemoryIngestionStore()
+    svc = RagIngestionService(
+        store=store,
+        deps=Deps(
+            embedder=TransientEmbedder(),
+            weaviate=FakeWeaviate(),
+            lightrag=FakeLightrag(available=False),
+        ),
+        profiles_path=pf,
+    )
+    record, _ = svc.submit("showcase-default")
+
+    final = asyncio.run(svc.run(record.id, retry_transient=False))
+
+    assert final.status == "failed"
+    assert final.is_dedup_candidate is False
+    assert final.phase("embed").status == "failed"
+
+
 def test_corpus_path_safety_rejects_escape(tmp_path, monkeypatch):
     root = tmp_path / "root"
     root.mkdir()
@@ -867,6 +978,39 @@ def test_minio_corpus_rejects_oversize_metadata_before_download(monkeypatch):
             {"source": "minio", "bucket": "corpus", "prefix": "docs/"}
         )
     assert get_calls == []
+
+
+def test_minio_corpus_uses_compiled_scoped_credentials(monkeypatch):
+    import minio
+
+    captured = {}
+
+    class FakeClient:
+        def list_objects(self, *_args, **_kwargs):
+            return []
+
+    def fake_client(*args, **kwargs):
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        return FakeClient()
+
+    monkeypatch.setattr(minio, "Minio", fake_client)
+    monkeypatch.setenv("MINIO_ENDPOINT", "http://minio:9000")
+    monkeypatch.setenv("MINIO_RAG_CORPUS_ACCESS_KEY", "scoped-access")
+    monkeypatch.setenv("MINIO_RAG_CORPUS_SECRET_KEY", "scoped-secret")
+
+    MinioCorpusReader().discover(
+        {
+            "source": "minio",
+            "bucket": "rag-corpus",
+            "prefix": "docs/",
+            "access_key_var": "MINIO_RAG_CORPUS_ACCESS_KEY",
+            "secret_key_var": "MINIO_RAG_CORPUS_SECRET_KEY",
+        }
+    )
+
+    assert captured["kwargs"]["access_key"] == "scoped-access"
+    assert captured["kwargs"]["secret_key"] == "scoped-secret"
 
 
 def test_minio_corpus_bounds_stream_when_size_metadata_is_missing(monkeypatch):

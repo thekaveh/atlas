@@ -289,6 +289,7 @@ _No upstream calls._
 | asset-baker | media |
 | asset-worker | media |
 | airflow | agents |
+| celery | agents |
 | backend | apps |
 | jenkins | apps |
 | jupyterhub | apps |
@@ -305,7 +306,7 @@ _No upstream calls._
 
 ### 10.4. Future — Missing pair integrations
 
-- **minio ↔ backend** — *Why:* `minio-init` provisions a `backend` bucket plus scoped keys, but FastAPI never consumes them — large blobs, model checkpoints, embedding caches have nowhere durable to land. *Mechanism:* boto3 client at `http://minio:9000` with `MINIO_BACKEND_ACCESS_KEY`/`SECRET_KEY`, path-style addressing. *Effort:* small. *Confidence:* high.
+- **minio ↔ backend (general artifact API)** — *Why:* Backend RAG ingestion now reads consumer-declared corpora with each store's scoped MinIO account, but the built-in `backend` bucket is not yet a general destination for large blobs, model checkpoints, or embedding caches. *Mechanism:* add an artifact client at `http://minio:9000` using `MINIO_BACKEND_ACCESS_KEY`/`SECRET_KEY`, with upload/download routes and path-style addressing. *Effort:* small. *Confidence:* high.
 - **minio ↔ n8n** — *Why:* the `n8n` bucket and keys are pre-provisioned, and n8n ships a first-party S3 node with custom-endpoint support; workflows could persist files without hitting Supabase Storage's 50 MB ceiling. *Mechanism:* n8n S3 credential at `http://minio:9000`; optional `N8N_EXTERNAL_BINARY_DATA_MODE=s3`. *Effort:* small. *Confidence:* high.
 - **minio ↔ weaviate** — *Why:* Weaviate explicitly supports MinIO as `backup-s3` (upstream docs). Stack has no Weaviate backup story today. *Mechanism:* enable `backup-s3` in `WEAVIATE_ENABLE_MODULES`, set `BACKUP_S3_BUCKET=weaviate-backups`, `BACKUP_S3_ENDPOINT=minio:9000`, `BACKUP_S3_USE_SSL=false`; add `weaviate-backups` entry in `init-minio.sh`. *Effort:* small. *Confidence:* high.
 - **minio ↔ jupyterhub** — *Why:* notebooks need a durable, sharable dataset tier outside the per-user volume; the `jupyter` bucket and keys exist. *Mechanism:* inject `MINIO_JUPYTER_*` + `AWS_S3_ENDPOINT=http://minio:9000` into singleuser env; expose via `s3fs`/`boto3`. *Effort:* small. *Confidence:* high.

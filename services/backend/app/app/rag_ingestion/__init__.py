@@ -44,7 +44,10 @@ __all__ = [
 
 
 def run_rag_ingestion(
-    ingestion_id: str, *, execution_owner: Optional[str] = None
+    ingestion_id: str,
+    *,
+    execution_owner: Optional[str] = None,
+    retry_transient: bool = True,
 ) -> Dict[str, Any]:
     """Synchronous entrypoint for the Celery worker: run an already-submitted
     ingestion to completion and return its final record dict."""
@@ -52,7 +55,7 @@ def run_rag_ingestion(
     record = asyncio.run(
         service.run(
             ingestion_id,
-            retry_transient=True,
+            retry_transient=retry_transient,
             execution_owner=execution_owner,
         )
     )

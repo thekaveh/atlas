@@ -45,13 +45,24 @@ def test_celery_manifest_admission_contract() -> None:
         "supabase",
         "litellm",
     ]
-    assert manifest["depends_on"].get("optional", []) == ["weaviate", "supavisor"]
+    assert manifest["depends_on"].get("optional", []) == [
+        "weaviate",
+        "supavisor",
+        "docling",
+        "tika",
+        "lightrag",
+        "minio",
+    ]
     assert manifest["data_flow"]["calls"] == [
         "redis",
         "supabase",
         "litellm",
         "weaviate",
         "supavisor",
+        "docling",
+        "tika",
+        "lightrag",
+        "minio",
     ]
 
     env_vars = {entry["name"]: entry for entry in manifest["env"]}
@@ -167,6 +178,18 @@ def test_celery_compose_contract() -> None:
     assert worker["depends_on"]["supabase-db-init"]["condition"] == "service_completed_successfully"
     assert worker["environment"]["CELERY_BROKER_URL"] == "${CELERY_BROKER_URL:-}"
     assert worker["environment"]["CELERY_RESULT_BACKEND"] == "${CELERY_RESULT_BACKEND:-}"
+    assert worker["environment"]["REDIS_URL"] == "${REDIS_URL}"
+    for name in (
+        "RAG_INGESTION_MAX_FILE_BYTES",
+        "RAG_INGESTION_MAX_CORPUS_BYTES",
+        "RAG_INGESTION_MAX_FILES",
+        "DOCLING_ENDPOINT",
+        "TIKA_ENDPOINT",
+        "LIGHTRAG_ENDPOINT",
+        "LIGHTRAG_API_KEY",
+        "MINIO_ENDPOINT",
+    ):
+        assert name in worker["environment"]
     assert worker["environment"]["DATABASE_URL"] == (
         "${SUPAVISOR_DATABASE_URL:-postgresql://${SUPABASE_DB_USER}:${SUPABASE_DB_PASSWORD}@supabase-db:5432/${SUPABASE_DB_NAME}}"
     )

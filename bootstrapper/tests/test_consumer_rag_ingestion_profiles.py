@@ -4,8 +4,9 @@ A consumer declares a versioned ``rag_ingestion_profiles`` block describing a
 repeatable ingestion lifecycle. Atlas validates + normalizes each profile
 (unique names, corpus path safety, parser/chunker/target schema, no colliding
 Weaviate collections), hashes it into a stable ``revision`` (the idempotency
-input), and compiles a single JSON profiles file the backend reads plus a compose
-overlay bind-mounting it into the backend. Artifacts regenerate every start.
+input), and compiles a single JSON profiles file shared by the Backend API and
+Celery worker plus a compose overlay mounting it into both. Artifacts regenerate
+every start.
 """
 from __future__ import annotations
 
@@ -88,8 +89,10 @@ def test_profiles_file_and_overlay_generated(tmp_path: Path) -> None:
     assert config.rag_ingestion_overlay is not None
     overlay = config.rag_ingestion_overlay.content
     assert "backend:" in overlay
+    assert "celery-worker:" in overlay
     assert "RAG_INGESTION_PROFILES_FILE: /atlas-consumer-config/rag-ingestion-profiles.json" in overlay
-    assert "./volumes/backend/rag-ingestion-profiles.json:/atlas-consumer-config/rag-ingestion-profiles.json:ro" in overlay
+    mount = "./volumes/backend/rag-ingestion-profiles.json:/atlas-consumer-config/rag-ingestion-profiles.json:ro"
+    assert overlay.count(mount) == 2
 
 
 def test_plain_text_auto_appended_as_fallback(tmp_path: Path) -> None:
@@ -155,6 +158,9 @@ def test_minio_corpus_source(tmp_path: Path) -> None:
     manifest = _write_consumer(
         tmp_path, "c",
         """
+        storage:
+          buckets:
+            - {name: corpus, bucket: corpora}
         rag_ingestion_profiles:
           version: 1
           profiles:
@@ -167,6 +173,37 @@ def test_minio_corpus_source(tmp_path: Path) -> None:
     config = load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
     corpus = config.rag_ingestion_profiles[0].corpus
     assert corpus.source == "minio" and corpus.bucket == "corpora" and corpus.prefix == "showcase/"
+    assert corpus.access_key_var == "MINIO_C_CORPUS_ACCESS_KEY"
+    assert corpus.secret_key_var == "MINIO_C_CORPUS_SECRET_KEY"
+    compiled = json.loads(config.rag_ingestion_file.content)["profiles"][0]["corpus"]
+    assert compiled["access_key_var"] == "MINIO_C_CORPUS_ACCESS_KEY"
+    assert compiled["secret_key_var"] == "MINIO_C_CORPUS_SECRET_KEY"
+    assert config.rag_ingestion_overlay.content.count(
+        "MINIO_C_CORPUS_ACCESS_KEY: ${MINIO_C_CORPUS_ACCESS_KEY:-}"
+    ) == 2
+
+
+def test_minio_corpus_requires_same_consumer_storage_bucket(tmp_path: Path) -> None:
+    _write_root(tmp_path)
+    manifest = _write_consumer(
+        tmp_path,
+        "c",
+        """
+        rag_ingestion_profiles:
+          version: 1
+          profiles:
+            - name: p
+              corpus: {source: minio, bucket: undeclared, prefix: docs/}
+              vector_targets:
+                - {backend: weaviate, collection_prefix: P, on_unavailable: skip}
+        """,
+    )
+
+    with pytest.raises(
+        ConsumerManifestError,
+        match="MinIO bucket 'undeclared' must be declared under storage.buckets",
+    ):
+        load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
 
 
 # ── collisions / ownership ──────────────────────────────────────────

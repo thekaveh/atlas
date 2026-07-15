@@ -616,7 +616,7 @@ rag_ingestion_profiles:
         - { backend: lightrag, mode: upload_documents, wait_for_extraction: true, timeout_seconds: 3600, on_unavailable: skip }
 ```
 
-On `./start.sh`, the bootstrapper validates + normalizes each profile, hashes it into a stable **`revision`**, writes the gitignored `volumes/backend/rag-ingestion-profiles.json`, and generates a compose overlay that bind-mounts that file into the backend at the reserved internal contract path `/atlas-consumer-config/rag-ingestion-profiles.json` and sets `RAG_INGESTION_PROFILES_FILE` to it. (The reserved `/atlas-consumer-config/` directory sits *outside* the backend's `/app` source bind — Docker Desktop/VirtioFS rejects nested single-file mountpoints inside a bound directory, #533.) The backend exposes an async job API to submit ingestions headlessly:
+On `./start.sh`, the bootstrapper validates + normalizes each profile, hashes it into a stable **`revision`**, writes the gitignored `volumes/backend/rag-ingestion-profiles.json`, and generates a compose overlay that bind-mounts that file into both Backend and Celery at the reserved internal contract path `/atlas-consumer-config/rag-ingestion-profiles.json`. Both services receive the same `RAG_INGESTION_PROFILES_FILE`, Redis state URL, upstream endpoints, and resource limits. For a MinIO corpus, the bucket must also be declared under the same consumer's `storage.buckets`; Atlas compiles that store's access/secret **variable names** into the profile and injects only those scoped credential references into both services. (The reserved `/atlas-consumer-config/` directory sits *outside* the `/app` source bind — Docker Desktop/VirtioFS rejects nested single-file mountpoints inside a bound directory, #533.) The backend exposes an async job API to submit ingestions headlessly:
 
 ```bash
 # Submit (async when the Celery tier is enabled, else runs in-request); returns an ingestion id.
@@ -626,16 +626,28 @@ curl -XPOST "$BACKEND_URL/api/rag/ingestions" -H 'content-type: application/json
 curl "$BACKEND_URL/api/rag/ingestions/<ingestion_id>"
 ```
 
+Mounted corpora remain operator-owned. Mount the same read-only host directory at `RAG_INGESTION_CORPUS_ROOT` in both execution services so enabling Celery does not change the visible corpus:
+
+```yaml
+services:
+  backend:
+    volumes:
+      - ./corpus:/app/corpus:ro
+  celery-worker:
+    volumes:
+      - ./corpus:/app/corpus:ro
+```
+
 **What the contract enforces / provides:**
 
-- **No arbitrary host paths.** A `mount` corpus is a relative path resolved **under the backend corpus root** (`RAG_INGESTION_CORPUS_ROOT`, default `/app/corpus`); an absolute path, a `~`, or a `..` segment is rejected at load and again at runtime. The only other input mode is a MinIO bucket/prefix.
+- **No arbitrary host paths or credentials.** A `mount` corpus is a relative path resolved under the shared execution root (`RAG_INGESTION_CORPUS_ROOT`, default `/app/corpus`); an absolute path, a `~`, or a `..` segment is rejected at load and again at runtime. A MinIO bucket/prefix must match a store declared by the same consumer, and the generated runtime profile carries scoped env-var references rather than secret values or root credentials.
 - **Bounded corpus discovery.** Mounted files and MinIO objects are read in bounded chunks. Atlas rejects a file over `RAG_INGESTION_MAX_FILE_BYTES` (default 100 MiB), a discovery pass over `RAG_INGESTION_MAX_CORPUS_BYTES` (default 1 GiB aggregate), or a corpus over `RAG_INGESTION_MAX_FILES` (default 10,000) before retaining unbounded content in Backend memory. Tune these manifest-owned limits for a trusted larger corpus instead of disabling the boundary.
 - **Exact parser ordering.** Each `parser_order` entry invokes that parser specifically: `docling` does not silently consume the `tika` slot, and `tika` bypasses Docling. Unsupported or unavailable parsers advance to the next declared entry. Discovery and Chonkie execution are offloaded from the API event loop when the Celery tier is disabled.
 - **Observable phases.** The job records `discover → parse → chunk → embed → vector_write → lightrag_upload → drain → finalize`, each with status, counts, timing, and a note; a `GET` returns the full machine-readable record.
 - **Actionable, redacted failures.** A per-file parse failure records the file, phase, upstream service, and safe status/message and is **isolated** so other files still ingest. Raw Docling/Tika bodies and transport details stay in Backend logs and never enter the public job record. A capability failure or a drain timeout fails the job with a clear message.
 - **Capability-gated targets.** Each `vector_target`/`graph_target` declares `on_unavailable: fail | skip`. When the backend's SOURCE is disabled (its endpoint env var is empty), Atlas either fails the job or records a visible **skip** — never silently degrades. `./start.sh doctor` warns up front when an `on_unavailable: fail` target's backend is unset.
 - **Idempotent, leased, namespaced, no duplicate writes.** The ingestion key is **consumer + profile + revision + corpus fingerprint**: mounted files are content-hashed and MinIO objects use stable object-version metadata, so changing content at the same path creates a fresh job while an identical re-submit returns the existing one. The store claims that key atomically across concurrent submitters. Each execution then acquires an owner-fenced Redis lease before phase side effects and renews it while running; duplicate Celery deliveries retry after the lease window, and stale owners cannot save. Configure the 10–300 second window with `RAG_INGESTION_EXECUTION_LEASE_SECONDS` (default 30). A broker dispatch failure records a failed job and releases its key for retry; cancellation and terminal status remain monotonic when API and worker updates race. Weaviate classes are namespaced `{collection_prefix}_{profile}` (collisions rejected at load), and objects use a deterministic id so a re-run upserts rather than duplicates. A profile edit also flips the `revision`, forcing a fresh ingestion.
-- **Fenced execution and independent retries.** Losing a renewable execution lease cancels the stale worker's active async phase before it exits. Lease-contention retries are unbounded and do not consume the separate three-retry exponential-backoff budget for transient upstream failures.
+- **Fenced execution and independent retries.** Losing a renewable execution lease cancels the stale worker's active async phase and reschedules the job after the lease window. Lease-contention retries are unbounded and do not consume the separate three-retry exponential-backoff budget for transient upstream failures; exhausting that budget records a terminal failed ingestion so a corrected resubmission can create fresh work. LightRAG uploads derive a stable source name from document path and content, making retries idempotent and preventing equal basenames in different directories from colliding.
 - **Drain with a timeout.** When a LightRAG target sets `wait_for_extraction: true`, Atlas polls the extraction pipeline until idle or `timeout_seconds`, then finalizes (or fails on timeout).
 
 Live ingestion against running Docling/Tika/Weaviate/LightRAG is an **optional** live test; the unit suite validates the contract, the phase state machine, capability semantics, idempotency, and path safety with fake upstreams.

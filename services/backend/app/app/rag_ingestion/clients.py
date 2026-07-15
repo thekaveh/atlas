@@ -241,15 +241,26 @@ class MinioCorpusReader:
     def available(self) -> bool:
         return bool(self._endpoint.strip())
 
+    @staticmethod
+    def _credentials(corpus: Dict[str, Any]) -> tuple[str, str]:
+        access_var = str(
+            corpus.get("access_key_var") or "MINIO_BACKEND_ACCESS_KEY"
+        )
+        secret_var = str(
+            corpus.get("secret_key_var") or "MINIO_BACKEND_SECRET_KEY"
+        )
+        return os.getenv(access_var, ""), os.getenv(secret_var, "")
+
     def discover(self, corpus: Dict[str, Any], override_path: Optional[str] = None) -> List[CorpusFile]:
         from minio import Minio  # lazy — keeps main.py import closure minio-free
         from urllib.parse import urlparse
 
         parsed = urlparse(self._endpoint if "://" in self._endpoint else f"http://{self._endpoint}")
+        access_key, secret_key = self._credentials(corpus)
         client = Minio(
             parsed.netloc,
-            access_key=os.getenv("MINIO_ROOT_USER", os.getenv("MINIO_ACCESS_KEY", "")),
-            secret_key=os.getenv("MINIO_ROOT_PASSWORD", os.getenv("MINIO_SECRET_KEY", "")),
+            access_key=access_key,
+            secret_key=secret_key,
             secure=parsed.scheme == "https",
         )
         bucket = str(corpus.get("bucket"))
@@ -292,10 +303,11 @@ class MinioCorpusReader:
         from urllib.parse import urlparse
 
         parsed = urlparse(self._endpoint if "://" in self._endpoint else f"http://{self._endpoint}")
+        access_key, secret_key = self._credentials(corpus)
         client = Minio(
             parsed.netloc,
-            access_key=os.getenv("MINIO_ROOT_USER", os.getenv("MINIO_ACCESS_KEY", "")),
-            secret_key=os.getenv("MINIO_ROOT_PASSWORD", os.getenv("MINIO_SECRET_KEY", "")),
+            access_key=access_key,
+            secret_key=secret_key,
             secure=parsed.scheme == "https",
         )
         bucket = str(corpus.get("bucket"))
@@ -542,11 +554,30 @@ class LightRagClient:
                 resp = await client.post(
                     f"{self._endpoint}/documents/text",
                     headers=self._headers(),
-                    json={"text": doc["text"], "file_source": doc.get("source", "")},
+                    json={
+                        "text": doc["text"],
+                        "file_source": self._file_source(doc),
+                    },
                 )
+                if resp.status_code == 409:
+                    uploaded += 1
+                    continue
                 resp.raise_for_status()
                 uploaded += 1
         return uploaded
+
+    @staticmethod
+    def _file_source(document: Dict[str, str]) -> str:
+        identity = json.dumps(
+            {
+                "source": document.get("source", ""),
+                "text": document["text"],
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()
+        return f"atlas-{digest}.txt"
 
     async def pipeline_busy(self) -> bool:
         import httpx

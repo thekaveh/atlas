@@ -356,17 +356,53 @@ def test_rag_transient_retry_budget_stops_after_three_retries(monkeypatch):
     import celery_tasks
     import rag_ingestion
 
-    def fail_ingestion(*_args, **_kwargs):
-        raise ConnectionError("temporary upstream outage")
+    captured = {}
 
-    monkeypatch.setattr(rag_ingestion, "run_rag_ingestion", fail_ingestion)
+    def terminal_ingestion(ingestion_id, **kwargs):
+        captured.update(kwargs)
+        return {"id": ingestion_id, "status": "failed"}
+
+    monkeypatch.setattr(rag_ingestion, "run_rag_ingestion", terminal_ingestion)
     monkeypatch.setattr(
         celery_tasks.rag_ingestion_task,
         "retry",
         lambda **_kwargs: pytest.fail("retry budget must be exhausted"),
     )
 
-    with pytest.raises(ConnectionError, match="temporary upstream outage"):
+    result = celery_tasks.rag_ingestion_task.run(
+        "ingestion-1", transient_attempt=3
+    )
+
+    assert result["status"] == "failed"
+    assert captured["retry_transient"] is False
+
+
+def test_rag_execution_lease_loss_is_rescheduled(monkeypatch):
+    import celery_tasks
+    import rag_ingestion
+
+    class RetryScheduled(RuntimeError):
+        pass
+
+    captured = {}
+
+    def lose_lease(*_args, **_kwargs):
+        raise rag_ingestion.IngestionExecutionLeaseLost("lease lost")
+
+    def capture_retry(**kwargs):
+        captured.update(kwargs)
+        raise RetryScheduled()
+
+    monkeypatch.setattr(rag_ingestion, "run_rag_ingestion", lose_lease)
+    monkeypatch.setattr(celery_tasks.rag_ingestion_task, "retry", capture_retry)
+
+    with pytest.raises(RetryScheduled):
         celery_tasks.rag_ingestion_task.run(
-            "ingestion-1", transient_attempt=3
+            "ingestion-1", transient_attempt=2
         )
+
+    assert captured["kwargs"] == {
+        "ingestion_id": "ingestion-1",
+        "transient_attempt": 2,
+    }
+    assert captured["args"] == ()

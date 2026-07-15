@@ -39,6 +39,9 @@ env:
   - name: RAG_INGESTION_MAX_FILES
     default: 10000
     description: "Maximum number of files accepted in one mounted or MinIO RAG corpus discovery pass."
+  - name: RAG_INGESTION_CORPUS_ROOT
+    default: /app/corpus
+    description: "Container path under which operator-provided read-only RAG corpus mounts are resolved. Mount the same path into Backend and Celery worker when asynchronous ingestion is enabled."
   - name: RAG_INGESTION_EXECUTION_LEASE_SECONDS
     default: 30
     description: "Renewable execution-ownership lease for RAG ingestion workers. Must be an integer from 10 through 300; duplicate deliveries retry until the active owner completes or its lease expires."

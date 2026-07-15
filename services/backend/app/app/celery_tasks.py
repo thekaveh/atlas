@@ -49,17 +49,32 @@ def rag_ingestion_task(
     updates the shared store so the status endpoint stays observable."""
     from rag_ingestion import (
         IngestionExecutionBusy,
+        IngestionExecutionLeaseLost,
         ingestion_execution_lease_seconds,
         run_rag_ingestion,
     )
 
     owner = f"{self.request.id or 'celery'}:{uuid4()}"
     try:
-        return run_rag_ingestion(ingestion_id, execution_owner=owner)
+        return run_rag_ingestion(
+            ingestion_id,
+            execution_owner=owner,
+            retry_transient=transient_attempt < 3,
+        )
     except IngestionExecutionBusy as exc:
         raise self.retry(
             exc=exc,
             countdown=ingestion_execution_lease_seconds(),
+        )
+    except IngestionExecutionLeaseLost as exc:
+        raise self.retry(
+            exc=exc,
+            countdown=ingestion_execution_lease_seconds(),
+            args=(),
+            kwargs={
+                "ingestion_id": ingestion_id,
+                "transient_attempt": transient_attempt,
+            },
         )
     except TRANSIENT_EXCEPTIONS as exc:
         if transient_attempt >= 3:

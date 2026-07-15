@@ -49,6 +49,7 @@ _No upstream calls._
 
 | Service | Category |
 |---|---|
+| celery | agents |
 | n8n | agents |
 | backend | apps |
 

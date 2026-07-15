@@ -67,6 +67,7 @@
 | RAG_INGESTION_MAX_FILE_BYTES | backend | 104857600 | Maximum bytes loaded from any single mounted or MinIO RAG corpus file. Oversize files fail ingestion before unbounded allocation. |
 | RAG_INGESTION_MAX_CORPUS_BYTES | backend | 1073741824 | Maximum aggregate bytes loaded by one RAG corpus discovery pass across mounted or MinIO files. |
 | RAG_INGESTION_MAX_FILES | backend | 10000 | Maximum number of files accepted in one mounted or MinIO RAG corpus discovery pass. |
+| RAG_INGESTION_CORPUS_ROOT | backend | /app/corpus | Container path under which operator-provided read-only RAG corpus mounts are resolved. Mount the same path into Backend and Celery worker when asynchronous ingestion is enabled. |
 | RAG_INGESTION_EXECUTION_LEASE_SECONDS | backend | 30 | Renewable execution-ownership lease for RAG ingestion workers. Must be an integer from 10 through 300; duplicate deliveries retry until the active owner completes or its lease expires. |
 | RESEARCH_SESSION_LEASE_SECONDS | backend | 300 | Maximum age in seconds for pending research work or a running session heartbeat before the Backend atomically marks the abandoned session failed. |
 | BACKEND_STORAGE_ALLOWED_BUCKETS | backend | default | Comma-separated Supabase Storage bucket allowlist accepted by /storage/upload. |
