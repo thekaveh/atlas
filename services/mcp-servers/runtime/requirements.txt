@@ -1,4 +1,8 @@
-mcp>=1.8,<2
+# Standalone FastMCP 3 (pinned exactly — FastMCP permits breaking changes in
+# minor releases). fastmcp==3.4.4 transitively pins fastmcp-slim[client,server]
+# ==3.4.4; mcp is pinned explicitly so image rebuilds are reproducible.
+fastmcp==3.4.4
+mcp==1.28.1
 neo4j==5.28.2
 psycopg[binary]==3.2.9
 requests==2.34.2

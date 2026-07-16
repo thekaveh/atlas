@@ -5,9 +5,19 @@ import re
 from typing import Any
 
 try:
-    from mcp.server.fastmcp import FastMCP
+    from fastmcp import FastMCP
 except ImportError:  # pragma: no cover - lets guard tests run without runtime deps.
     FastMCP = None  # type: ignore[assignment]
+
+
+# Streamable HTTP path and the Host allowlist for FastMCP 3's host/origin
+# protection. Direct loopback forms (127.0.0.1 / localhost / ::1) are always
+# permitted by FastMCP; Atlas additionally reaches this runtime by the Compose
+# service hostname (`mcp-servers`, in-network DNS) and the Kong route hostname
+# (`mcp.localhost`). Any other Host/Origin is rejected (421/403). Ports are
+# stripped before matching, so no port suffixes are needed here.
+_HTTP_PATH = "/mcp"
+_ALLOWED_HOSTS = ("mcp-servers", "mcp.localhost")
 
 
 _SQL_FORBIDDEN = re.compile(
@@ -167,15 +177,10 @@ def searxng_web_search(query: str, limit: int | None = None) -> dict[str, Any]:
 
 def build_server():
     if FastMCP is None:
-        raise RuntimeError("mcp package is not installed.")
-    mcp = FastMCP(
-        "Atlas Curated MCP Servers",
-        host="0.0.0.0",
-        port=8000,
-        streamable_http_path="/mcp",
-        stateless_http=True,
-        json_response=True,
-    )
+        raise RuntimeError("fastmcp package is not installed.")
+    # FastMCP 3: transport settings (host/port/path/stateless/json) belong to
+    # run()/http_app(), not the constructor.
+    mcp = FastMCP("Atlas Curated MCP Servers")
     mcp.tool(description="Run a bounded, read-only SQL query against Atlas Postgres.")(postgres_query)
     mcp.tool(description="Inspect the Atlas Neo4j graph schema.")(neo4j_schema)
     mcp.tool(description="Run a bounded, read-only Cypher query against Atlas Neo4j.")(neo4j_read_cypher)
@@ -183,5 +188,21 @@ def build_server():
     return mcp
 
 
+def run_server(mcp=None) -> None:
+    """Serve over Streamable HTTP with the same `/mcp`, stateless, JSON-response
+    behavior as before, now via FastMCP 3's `run()` transport API plus explicit
+    Host/Origin protection (Kong Basic Auth + ACL remain the external boundary)."""
+    (mcp or build_server()).run(
+        transport="http",
+        host="0.0.0.0",
+        port=8000,
+        path=_HTTP_PATH,
+        stateless_http=True,
+        json_response=True,
+        host_origin_protection=True,
+        allowed_hosts=list(_ALLOWED_HOSTS),
+    )
+
+
 if __name__ == "__main__":
-    build_server().run(transport="streamable-http")
+    run_server()
