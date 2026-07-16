@@ -730,9 +730,9 @@ endpoint contract**:
 ```
 
 The field **names are a compatibility contract** — a rename is a breaking change.
-For every consumer-relevant service (Backend/Kong, LiteLLM, ComfyUI, Ollama,
-MinIO, Weaviate, Neo4j, n8n, Redis, Supabase) it emits the active SOURCE mode and
-each applicable URL as a **distinct named field**:
+For every consumer-relevant service (Backend/Kong, LiteLLM, ComfyUI, Asset Worker,
+Ollama, MinIO, Weaviate, Neo4j, n8n, Redis, Supabase) it emits the active SOURCE
+mode and each applicable URL as a **distinct named field**:
 
 | Field | Meaning |
 |---|---|
@@ -746,6 +746,15 @@ Plus `ATLAS_KONG_GATEWAY` and every per-consumer `ATLAS_STORE_*` field from the
 [storage contract](#612-adding-parent-owned-minio-buckets) (#404). Host/Kong URLs
 track `BASE_PORT`, and the internal vs public MinIO endpoints are distinct — sign
 presigned URLs against `ATLAS_MINIO_PUBLIC_ENDPOINT`.
+
+`ATLAS_<SVC>_HOST_ENDPOINT` is **source-aware** (#643): for host-process sources
+the exporter renders the port the host process actually serves on, not the
+compose *published* port (which is dead — no container listens — or unset there).
+So `COMFYUI_SOURCE=managed-localhost-mps` → `http://localhost:8188`
+(`COMFYUI_MPS_LOCALHOST_PORT`), `COMFYUI_SOURCE=localhost` → `http://localhost:8000`
+(`COMFYUI_LOCALHOST_PORT`), and `LLM_PROVIDER_SOURCE=ollama-localhost` →
+`http://localhost:11434` (`OLLAMA_LOCALHOST_PORT`, a field that was previously
+omitted entirely). Container sources keep rendering their published port.
 
 A few source-specific fields are emitted only when meaningful: under
 `COMFYUI_SOURCE=managed-localhost-mps` the export includes
