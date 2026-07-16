@@ -8,7 +8,7 @@
 
 **Tech Stack:** Markdown, Atlas docs/research corpus, web research with primary sources, Git.
 
-## Global Constraints
+## 1. Global Constraints
 
 - Do not implement new services.
 - Do not edit service manifests or compose files.
@@ -19,7 +19,7 @@
 - The final report path is `docs/strategy/atlas-vnext-strategy-report.md`.
 - After generating the report, display a summary to the user.
 
-## Acceptance Criteria
+## 2. Acceptance Criteria
 
 - The report states Atlas' strategic position clearly.
 - The report contains a candid strengths and weaknesses assessment.
@@ -33,7 +33,7 @@
 
 ---
 
-## File Structure
+## 3. File Structure
 
 - Create: `docs/strategy/atlas-vnext-strategy-report.md`
   - Owns the final analysis, competitor comparison, MCP recommendation, dashboard recommendation, ranked top 20, and implementation waves.
@@ -44,7 +44,7 @@
 
 ---
 
-### Task 1: Create Report Skeleton And Internal Evidence Inventory
+### 3.1. Task 1: Create Report Skeleton And Internal Evidence Inventory
 
 **Files:**
 - Create: `docs/strategy/atlas-vnext-strategy-report.md`
@@ -129,7 +129,7 @@ Expected: commit succeeds, or this step is skipped if Task 1 and Task 2 are comp
 
 ---
 
-### Task 2: Write Current-State Assessment From Repo Evidence
+### 3.2. Task 2: Write Current-State Assessment From Repo Evidence
 
 **Files:**
 - Modify: `docs/strategy/atlas-vnext-strategy-report.md`
@@ -221,7 +221,7 @@ Expected: all approved current-state themes appear in the report.
 
 ---
 
-### Task 3: Research Competitors And Market Position
+### 3.3. Task 3: Research Competitors And Market Position
 
 **Files:**
 - Modify: `docs/strategy/atlas-vnext-strategy-report.md`
@@ -299,7 +299,7 @@ Expected: competitor claims have source links.
 
 ---
 
-### Task 4: Write MCP And Kong Dashboard Recommendations
+### 3.4. Task 4: Write MCP And Kong Dashboard Recommendations
 
 **Files:**
 - Modify: `docs/strategy/atlas-vnext-strategy-report.md`
@@ -374,7 +374,7 @@ Expected: MCP and dashboard recommendations are easy to find.
 
 ---
 
-### Task 5: Rank vNext Top 20 And Track Expansions
+### 3.5. Task 5: Rank vNext Top 20 And Track Expansions
 
 **Files:**
 - Modify: `docs/strategy/atlas-vnext-strategy-report.md`
@@ -461,7 +461,7 @@ Expected: the report gives decision-ready sequencing.
 
 ---
 
-### Task 6: Validate, Self-Review, And Commit Report
+### 3.6. Task 6: Validate, Self-Review, And Commit Report
 
 **Files:**
 - Modify: `docs/strategy/atlas-vnext-strategy-report.md`

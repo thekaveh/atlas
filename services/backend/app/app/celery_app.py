@@ -10,11 +10,43 @@ def _redis_url() -> str:
     return os.getenv("CELERY_BROKER_URL") or os.getenv("REDIS_URL", "")
 
 
-def _int_env(name: str, default: int) -> int:
+def _positive_int_env(name: str, default: int) -> int:
     try:
-        return int(os.getenv(name, str(default)))
-    except (TypeError, ValueError):
-        return default
+        value = int(os.getenv(name, str(default)))
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be a positive integer") from exc
+    if value <= 0:
+        raise ValueError(f"{name} must be a positive integer")
+    return value
+
+
+def _load_worker_limits() -> dict[str, int]:
+    limits = {
+        "worker_concurrency": _positive_int_env("CELERY_WORKER_CONCURRENCY", 2),
+        "worker_prefetch_multiplier": _positive_int_env(
+            "CELERY_WORKER_PREFETCH_MULTIPLIER", 1
+        ),
+        "task_soft_time_limit": _positive_int_env(
+            "CELERY_TASK_SOFT_TIME_LIMIT_SECONDS", 840
+        ),
+        "task_time_limit": _positive_int_env(
+            "CELERY_TASK_TIME_LIMIT_SECONDS", 900
+        ),
+        "visibility_timeout": _positive_int_env(
+            "CELERY_BROKER_VISIBILITY_TIMEOUT_SECONDS", 3600
+        ),
+    }
+    if limits["task_soft_time_limit"] >= limits["task_time_limit"]:
+        raise ValueError(
+            "CELERY_TASK_SOFT_TIME_LIMIT_SECONDS must be less than "
+            "CELERY_TASK_TIME_LIMIT_SECONDS"
+        )
+    if limits["visibility_timeout"] <= limits["task_time_limit"]:
+        raise ValueError(
+            "CELERY_BROKER_VISIBILITY_TIMEOUT_SECONDS must be greater than "
+            "CELERY_TASK_TIME_LIMIT_SECONDS"
+        )
+    return limits
 
 
 celery_app = Celery(
@@ -24,7 +56,8 @@ celery_app = Celery(
     include=["celery_tasks"],
 )
 
-_visibility_timeout = _int_env("CELERY_BROKER_VISIBILITY_TIMEOUT_SECONDS", 3600)
+_worker_limits = _load_worker_limits()
+_visibility_timeout = _worker_limits["visibility_timeout"]
 celery_app.conf.update(
     task_default_queue=os.getenv("CELERY_QUEUE", "atlas"),
     task_serializer="json",
@@ -34,9 +67,10 @@ celery_app.conf.update(
     task_track_started=True,
     task_acks_late=True,
     task_reject_on_worker_lost=True,
-    worker_prefetch_multiplier=_int_env("CELERY_WORKER_PREFETCH_MULTIPLIER", 1),
-    task_soft_time_limit=_int_env("CELERY_TASK_SOFT_TIME_LIMIT_SECONDS", 840),
-    task_time_limit=_int_env("CELERY_TASK_TIME_LIMIT_SECONDS", 900),
+    worker_concurrency=_worker_limits["worker_concurrency"],
+    worker_prefetch_multiplier=_worker_limits["worker_prefetch_multiplier"],
+    task_soft_time_limit=_worker_limits["task_soft_time_limit"],
+    task_time_limit=_worker_limits["task_time_limit"],
     broker_transport_options={"visibility_timeout": _visibility_timeout},
     result_backend_transport_options={
         "visibility_timeout": _visibility_timeout,

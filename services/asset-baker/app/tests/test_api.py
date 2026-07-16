@@ -2,7 +2,41 @@ from __future__ import annotations
 
 import hashlib
 
+import pytest
 from fastapi.testclient import TestClient
+
+
+_TOKEN = "test-asset-baker-token"
+
+
+def _client(api) -> TestClient:
+    return TestClient(
+        api.create_app(api_token=_TOKEN),
+        headers={"Authorization": f"Bearer {_TOKEN}"},
+    )
+
+
+def test_health_requires_blender_binary(monkeypatch) -> None:
+    from asset_baker import api
+
+    monkeypatch.setattr(api.shutil, "which", lambda _binary: None)
+    response = TestClient(api.create_app()).get("/health")
+    assert response.status_code == 503
+    assert response.json() == {"status": "unavailable", "blender": False}
+
+    monkeypatch.setattr(api.shutil, "which", lambda _binary: "/opt/blender/blender")
+    response = TestClient(api.create_app()).get("/health")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok", "blender": True}
+
+
+def test_metrics_are_available_without_asset_token() -> None:
+    from asset_baker import api
+
+    response = TestClient(api.create_app(api_token=_TOKEN)).get("/metrics")
+
+    assert response.status_code == 200
+    assert "http_requests_total" in response.text
 
 
 def _fake_artifacts(out_dir, *, with_textures=True, color_mean=0.42, mode="bake"):
@@ -33,7 +67,7 @@ def test_bake_upload_stores_content_addressed_local_artifacts(monkeypatch, tmp_p
     monkeypatch.setenv("ASSET_BAKER_ARTIFACT_DIR", str(tmp_path))
     monkeypatch.setenv("ASSET_BAKER_MINIO_ENABLED", "false")
 
-    client = TestClient(api.create_app())
+    client = _client(api)
     response = client.post(
         "/assets/bake",
         files={"file": ("cottage.glb", b"raw-glb", "model/gltf-binary")},
@@ -91,7 +125,7 @@ def test_bake_ref_round_trips_through_content_addressed_bucket(monkeypatch, tmp_
     monkeypatch.setattr(api, "ArtifactStorage", FakeStorage)
     monkeypatch.setattr(api, "run_bake", fake_run)
 
-    client = TestClient(api.create_app())
+    client = _client(api)
     response = client.post(
         "/assets/bake/ref",
         json={"input": {"bucket": "raw-assets", "key": "incoming/mesh.glb"},
@@ -119,7 +153,7 @@ def test_foliage_skip_mode_emits_no_textures(monkeypatch, tmp_path):
     monkeypatch.setenv("ASSET_BAKER_ARTIFACT_DIR", str(tmp_path))
     monkeypatch.setenv("ASSET_BAKER_MINIO_ENABLED", "false")
 
-    client = TestClient(api.create_app())
+    client = _client(api)
     response = client.post(
         "/assets/bake",
         files={"file": ("fern.glb", b"raw-glb", "model/gltf-binary")},
@@ -143,7 +177,7 @@ def test_black_bake_returns_422(monkeypatch, tmp_path):
     monkeypatch.setenv("ASSET_BAKER_MINIO_ENABLED", "false")
     monkeypatch.setenv("ASSET_BAKER_ARTIFACT_DIR", str(tmp_path))
 
-    client = TestClient(api.create_app())
+    client = _client(api)
     response = client.post(
         "/assets/bake",
         files={"file": ("metal.glb", b"raw-glb", "model/gltf-binary")},
@@ -163,7 +197,7 @@ def test_timeout_returns_504(monkeypatch, tmp_path):
     monkeypatch.setenv("ASSET_BAKER_MINIO_ENABLED", "false")
     monkeypatch.setenv("ASSET_BAKER_ARTIFACT_DIR", str(tmp_path))
 
-    client = TestClient(api.create_app())
+    client = _client(api)
     response = client.post("/assets/bake", files={"file": ("big.glb", b"raw", "model/gltf-binary")})
     assert response.status_code == 504
 
@@ -171,7 +205,7 @@ def test_timeout_returns_504(monkeypatch, tmp_path):
 def test_bake_requires_glb_input(tmp_path):
     from asset_baker import api
 
-    client = TestClient(api.create_app())
+    client = _client(api)
     response = client.post("/assets/bake", files={"file": ("scene.txt", b"nope", "text/plain")})
     assert response.status_code == 400
     assert "GLB" in response.json()["detail"]
@@ -181,7 +215,7 @@ def test_bake_rejects_empty_input(tmp_path, monkeypatch):
     from asset_baker import api
 
     monkeypatch.setattr(api, "run_bake", lambda *a, **k: None)
-    client = TestClient(api.create_app())
+    client = _client(api)
     response = client.post("/assets/bake", files={"file": ("empty.glb", b"", "model/gltf-binary")})
     assert response.status_code == 400
     assert "empty" in response.json()["detail"].lower()
@@ -192,12 +226,48 @@ def test_bake_rejects_oversize_input(monkeypatch, tmp_path):
 
     monkeypatch.setattr(api, "run_bake", lambda *a, **k: None)
     monkeypatch.setenv("ASSET_BAKER_MAX_UPLOAD_MB", "0.00001")  # ~10 bytes
-    client = TestClient(api.create_app())
+    client = _client(api)
     response = client.post(
         "/assets/bake",
         files={"file": ("huge.glb", b"x" * 1024, "model/gltf-binary")},
     )
     assert response.status_code == 413
+
+
+def test_mutating_routes_require_bearer_token() -> None:
+    from asset_baker import api
+
+    client = TestClient(api.create_app(api_token=_TOKEN))
+    response = client.post(
+        "/assets/bake/ref",
+        json={"input": {"bucket": "raw-assets", "key": "mesh.glb"}, "params": {}},
+    )
+    assert response.status_code == 401
+
+
+def test_authentication_precedes_body_parsing_and_docs_are_disabled() -> None:
+    from asset_baker import api
+
+    client = TestClient(api.create_app(api_token=_TOKEN))
+    malformed = client.post(
+        "/assets/bake",
+        content=b"not-a-multipart-body",
+        headers={"Content-Type": "multipart/form-data; boundary=missing"},
+    )
+    assert malformed.status_code == 401
+    for path in ("/docs", "/redoc", "/openapi.json"):
+        assert client.get(path, headers={"Authorization": f"Bearer {_TOKEN}"}).status_code == 404
+
+
+def test_reference_route_rejects_bucket_outside_allowlist(monkeypatch) -> None:
+    from asset_baker import api
+
+    monkeypatch.setenv("ASSET_BAKER_ALLOWED_INPUT_BUCKETS", "raw-assets")
+    response = _client(api).post(
+        "/assets/bake/ref",
+        json={"input": {"bucket": "private", "key": "mesh.glb"}, "params": {}},
+    )
+    assert response.status_code == 403
 
 
 def test_content_length_guard_rejects_oversize_before_buffering(monkeypatch):
@@ -219,6 +289,33 @@ def test_content_length_guard_rejects_oversize_before_buffering(monkeypatch):
     api._enforce_content_length(small)  # must not raise
 
 
+def test_minio_reference_rejects_oversize_object_before_read(monkeypatch) -> None:
+    from asset_baker.storage import ArtifactStorage, ArtifactTooLargeError
+
+    class Body:
+        closed = False
+
+        def read(self, size):
+            raise AssertionError("oversize body must not be read")
+
+        def close(self):
+            self.closed = True
+
+    body = Body()
+
+    class Client:
+        def get_object(self, **kwargs):
+            return {"Body": body, "ContentLength": 1024}
+
+    storage = ArtifactStorage()
+    monkeypatch.setenv("ASSET_BAKER_MAX_UPLOAD_MB", "0.00001")
+    monkeypatch.setattr(storage, "_client", lambda: Client())
+
+    with pytest.raises(ArtifactTooLargeError):
+        storage.fetch("raw-assets", "large.glb")
+    assert body.closed is True
+
+
 def test_worker_busy_returns_429(monkeypatch, tmp_path):
     from asset_baker import api
 
@@ -232,8 +329,8 @@ def test_worker_busy_returns_429(monkeypatch, tmp_path):
     monkeypatch.setattr(api, "run_bake", lambda *a, **k: None)
     monkeypatch.setenv("ASSET_BAKER_ARTIFACT_DIR", str(tmp_path))
 
-    app = api.create_app()
+    app = api.create_app(api_token=_TOKEN)
     app.state.bake_semaphore = BusySemaphore()  # simulate a saturated worker
-    client = TestClient(app)
+    client = TestClient(app, headers={"Authorization": f"Bearer {_TOKEN}"})
     response = client.post("/assets/bake", files={"file": ("m.glb", b"raw", "model/gltf-binary")})
     assert response.status_code == 429

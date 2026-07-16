@@ -19,7 +19,13 @@ from .models import (
     RagIngestionRequest,
 )
 from .profiles import ProfileNotFoundError, get_profile, load_profiles
-from .service import Deps, RagIngestionService
+from .service import (
+    Deps,
+    IngestionExecutionBusy,
+    IngestionExecutionLeaseLost,
+    RagIngestionService,
+    ingestion_execution_lease_seconds,
+)
 
 __all__ = [
     "RagIngestionService",
@@ -31,12 +37,26 @@ __all__ = [
     "get_profile",
     "load_profiles",
     "run_rag_ingestion",
+    "IngestionExecutionBusy",
+    "IngestionExecutionLeaseLost",
+    "ingestion_execution_lease_seconds",
 ]
 
 
-def run_rag_ingestion(ingestion_id: str) -> Dict[str, Any]:
+def run_rag_ingestion(
+    ingestion_id: str,
+    *,
+    execution_owner: Optional[str] = None,
+    retry_transient: bool = True,
+) -> Dict[str, Any]:
     """Synchronous entrypoint for the Celery worker: run an already-submitted
     ingestion to completion and return its final record dict."""
     service = RagIngestionService()
-    record = asyncio.run(service.run(ingestion_id))
+    record = asyncio.run(
+        service.run(
+            ingestion_id,
+            retry_transient=retry_transient,
+            execution_owner=execution_owner,
+        )
+    )
     return record.to_dict()

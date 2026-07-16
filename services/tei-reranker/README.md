@@ -1,4 +1,4 @@
-# TEI Reranker
+# 5.2.51. TEI Reranker
 
 > **Image:** `ghcr.io/huggingface/text-embeddings-inference:cpu-1.9` (CPU) / `:1.9` (GPU)
 > **Container port:** 80  · **Default host port:** allocated by `topology.py` slot allocator (LLM band 63040–63049)
@@ -52,7 +52,7 @@ curl -s http://localhost:${TEI_RERANKER_PORT}/rerank \
 # → [{"index": 0, "score": ...}, ...]
 ```
 
-### 4.1 Stack-standard rerank via LiteLLM (#516)
+### 4.1. Stack-standard rerank via LiteLLM (#516)
 
 When `TEI_RERANKER_SOURCE != disabled` with a resolved endpoint, `litellm-init` also registers a **`tei-rerank`** model on the LiteLLM gateway, so any consumer gets a standard **Cohere-shaped `POST /v1/rerank`** fronting TEI — with LiteLLM's unified auth, cost logging, and retries — instead of bespoke per-consumer TEI wiring:
 
@@ -69,34 +69,32 @@ curl -s http://localhost:${LITELLM_PORT}/v1/rerank \
 
 ## 5. Dependencies & Integrations
 
-> Auto-generated section — the **Current** subsections are derived from `services/tei-reranker/service.yml`'s `data_flow.calls` field (and inverse passes). Re-run `python -m bootstrapper.docs.regen tei-reranker` after manifest changes.
-
-### 5.1 Current — Upstream (this service calls)
+### 5.1. Current — Upstream (this service calls)
 
 _No upstream calls._
 
-### 5.2 Current — Downstream (services that call this)
+### 5.2. Current — Downstream (services that call this)
 
 | Service | Category |
 |---|---|
 | kong | infra |
 | litellm | llm |
 
-### 5.3 Architecture diagram
+### 5.3. Architecture diagram
 
 ![tei-reranker architecture](./architecture.svg)
 
 [Open the interactive HTML diagram](./architecture.html) for a full-screen view.
 
-### 5.4 Future — Missing pair integrations
+### 5.4. Future — Missing pair integrations
 
 _No high-confidence opportunities identified._
 
-### 5.5 Future — Candidate new services
+### 5.5. Future — Candidate new services
 
 _No high-confidence opportunities identified._
 
-### 5.6 Future — Unused features in this service
+### 5.6. Future — Unused features in this service
 
 _No high-confidence opportunities identified._
 

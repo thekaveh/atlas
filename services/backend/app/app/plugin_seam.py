@@ -19,6 +19,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+from fastapi import Depends
+
+from backend_identity import require_backend_principal, require_plugin_gateway_key
 from plugin_manifest import (
     PluginManifest,
     PluginManifestError,
@@ -215,6 +218,28 @@ def _register_manifest(
     return None
 
 
+def _router_path_error(router, manifest: PluginManifest | None) -> str | None:
+    """Reject routes that escape a manifest or shadow built-ins."""
+    paths = [str(getattr(route, "path", "")) for route in getattr(router, "routes", [])]
+    if manifest is not None:
+        prefix = manifest.route_prefix.rstrip("/")
+        escaped = [path for path in paths if path != prefix and not path.startswith(f"{prefix}/")]
+        if escaped:
+            return (
+                f"router paths escape declared route_prefix {manifest.route_prefix!r}: "
+                f"{', '.join(sorted(escaped))}"
+            )
+        return None
+
+    for path in paths:
+        if path in {"", "/"}:
+            return "manifest-less router cannot shadow the built-in root route"
+        head = path.strip("/").split("/", 1)[0]
+        if head in RESERVED_ROUTE_PREFIXES:
+            return f"manifest-less router path {path!r} shadows built-in prefix {head!r}"
+    return None
+
+
 def _load_plugins_from_dir(
     app,
     plugins_dir: Path,
@@ -271,7 +296,23 @@ def _load_plugins_from_dir(
             module = importlib.import_module(entry.name)
             router = getattr(module, "router", None)
             if router is not None:
-                app.include_router(router)
+                path_error = _router_path_error(router, manifest)
+                if path_error is not None:
+                    _log.error("plugin seam: %s; skipping plugin %r", path_error, entry.name)
+                    name = manifest.name if manifest else entry.name
+                    PLUGIN_INVENTORY.append(
+                        _inventory_entry(
+                            name, "skipped", manifest=manifest, error=path_error
+                        )
+                    )
+                    continue
+                auth_mode = manifest.auth if manifest is not None else "inherit"
+                dependencies = []
+                if auth_mode == "inherit":
+                    dependencies = [Depends(require_backend_principal)]
+                elif auth_mode == "key-auth":
+                    dependencies = [Depends(require_plugin_gateway_key)]
+                app.include_router(router, dependencies=dependencies)
                 _log.info("plugin seam: loaded plugin %r", entry.name)
             name = manifest.name if manifest else entry.name
             PLUGIN_INVENTORY.append(_inventory_entry(name, "loaded", manifest=manifest))

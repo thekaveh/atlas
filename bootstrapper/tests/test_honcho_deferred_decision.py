@@ -13,7 +13,7 @@ def test_honcho_candidate_records_july_deferred_decision() -> None:
     text = HONCHO_CANDIDATE.read_text(encoding="utf-8")
 
     expected = [
-        "## Deferred decision (2026-07-04)",
+        "Deferred decision (2026-07-04)",
         "LangMem",
         "Graphiti",
         "AGPL-3.0",

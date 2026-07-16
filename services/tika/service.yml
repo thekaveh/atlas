@@ -40,7 +40,7 @@ env:
     description: "Backend maximum bytes accepted for Docling/Tika extraction."
   - name: TIKA_TIMEOUT_SECONDS
     default: 30
-    description: "Backend timeout for Tika fallback extraction calls."
+    description: "Finite Backend timeout in seconds for Tika fallback extraction calls. Must be greater than 0 and no greater than 3600; invalid values fail Backend startup."
   - name: TIKA_SCALE
     auto_managed: true
   - name: TIKA_ENDPOINT

@@ -52,7 +52,6 @@ REDIS_URL=${REDIS_URL:-}
 # Supabase
 SUPABASE_URL=${SUPABASE_URL:-http://kong-api-gateway:8000}
 SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY:-}
-SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY:-}
 
 # Additional Services
 N8N_BASE_URL=${N8N_BASE_URL:-http://n8n:5678}
@@ -75,12 +74,12 @@ if [ ! -f /home/jovyan/work/README.md ]; then
     cat > /home/jovyan/work/README.md << 'EOF'
 # Welcome to JupyterHub - Atlas
 
-This Jupyter environment is pre-configured to work with all services in Atlas.
+This Jupyter environment is pre-configured for Atlas's core notebook integrations.
 
 ## Sample Notebooks
 
 Check the `examples/` directory for sample notebooks demonstrating:
-- `00_environment_check.ipynb` - Verify all service connections
+- `00_environment_check.ipynb` - Inspect configured integrations and run bounded core-service probes
 - `01_litellm_basics.ipynb` - LLM access via the LiteLLM gateway
 - `02_langchain_rag.ipynb` - RAG pipeline with Weaviate
 - `03_neo4j_graphs.ipynb` - Knowledge graphs with Neo4j
@@ -93,10 +92,12 @@ Check the `examples/` directory for sample notebooks demonstrating:
 - `10_spark_scala.ipynb` - Spark with the Scala kernel
 - `11_financial_research_kit.ipynb` - Read-only financial research and paper portfolios
 - `12_iceberg_advanced_sql.ipynb` - Advanced Iceberg SQL smoke through Spark Connect
+- `13_chonkie_chunking.ipynb` - Compare Chonkie strategies and the Backend chunking API
+- `14_ragas_evaluation.ipynb` - Evaluate RAG answers locally and through the Backend API
 
 ## Available Services
 
-All service URLs are available as environment variables:
+The following integration URLs are available as environment variables:
 - `LITELLM_BASE_URL` / `LITELLM_API_KEY` - Unified LLM gateway
 - `OPENAI_API_BASE` / `OPENAI_API_KEY` - Same gateway, OpenAI-style names (works with the `openai` Python SDK and LangChain)
 - `WEAVIATE_URL` - Vector database

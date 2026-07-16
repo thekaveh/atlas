@@ -1,6 +1,12 @@
 from __future__ import annotations
 
 
+def test_compose_minimum_matches_include_contract():
+    from core.docker_manager import DockerManager
+
+    assert DockerManager.MIN_COMPOSE_VERSION == (2, 20, 3)
+
+
 def test_ensure_dependencies_fails_below_minimum_compose(monkeypatch, tmp_path):
     import start as start_module
 

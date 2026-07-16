@@ -11,10 +11,10 @@ upstream: https://github.com/m-bain/whisperx
 
 # WhisperX
 
-## Headline
+## 1. Headline
 A drop-in fourth STT engine that adds speaker diarization and wav2vec2 word-aligned timestamps — capabilities no engine in the stack ships today.
 
-## Watchlist decision (2026-07-04)
+## 2. Watchlist decision (2026-07-04)
 
 Keep WhisperX on the watchlist for now: Atlas **must not add `services/whisperx/service.yml` yet** because the stack does not have a named meeting/audio ingestion workflow that needs diarization, word-level timestamps, and long-form transcript provenance. Existing Atlas STT providers already expose OpenAI-shaped `/v1/audio/transcriptions`; WhisperX is not needed for generic transcription.
 
@@ -38,29 +38,29 @@ Future service shape, if a later audio-ingestion ticket promotes this:
 - Tests required for a future service PR: manifest validation, source validation, env assembly, topology/category, track membership, Kong route/auth, disabled default, token/env validation, missing-token behavior, provenance schema fixtures, artifact path conventions, compose source-permutation coverage, custom `BASE_PORT`, docs drift, and an opt-in smoke over a short audio fixture if legally safe.
 - Edge cases: no Hugging Face token, token accepted but model access not granted, CPU-only host, insufficient VRAM, very long files, multi-channel audio, speaker-label instability across reruns, duplicate transcript chunks, PII retention, stale `.env`, disabled MinIO/Supabase/Weaviate, and generated-doc drift.
 
-## Problem it solves
+## 3. Problem it solves
 Speaches (Faster-Whisper) and Parakeet both transcribe but neither attributes utterances to speakers, and Whisper's native timestamps are utterance-level only. Meeting summaries, podcast pipelines, and conversational analytics need "who said what when" with provenance. WhisperX wraps Faster-Whisper + wav2vec2 alignment + pyannote diarization behind one CLI/Python surface, but Atlas should only package it once that meeting/audio workflow exists.
 
-## Stack wiring sketch
+## 4. Stack wiring sketch
 - backend → whisperx via `POST http://whisperx:8000/v1/audio/transcriptions` (OpenAI-shape wrapper around `whisperx.transcribe`)
 - whisperx → minio via `s3://transcripts/<session-id>.json` for diarized transcript artifacts
 - n8n → whisperx via the same HTTP endpoint for meeting-recording workflows
 - weaviate ← whisperx-emitted utterance chunks (speaker-keyed) for semantic search across long-form audio
 - hermes → whisperx as a skill, surfacing speaker-attributed transcripts as agent context
 
-## Effort
+## 5. Effort
 medium-to-large — no official Atlas-ready service image is available, so Atlas would need a thin API wrapper, model-cache strategy, GPU source handling, artifact/provenance plumbing, and a token-aware diarization path.
 
-## Risks & open questions
+## 6. Risks & open questions
 - pyannote diarization model is HF-gated — requires `HUGGING_FACE_HUB_TOKEN` with explicit ToS acceptance.
 - WhisperX is CPU-viable but realistically GPU-only for long files; would need a `container-gpu` variant only.
 - BSD-2 + MIT (pyannote) license stack is permissive but the diarization model weights have their own non-commercial caveats — needs a docs callout.
 - Maintenance velocity: WhisperX historically lags upstream Whisper releases; we'd pin a known-good revision.
 
-## Why now (and why not sooner)
+## 7. Why now (and why not sooner)
 Not now. Revisit when meeting/audio ingestion becomes a named RAG or voice workflow with an owner, sample audio, retention policy, and downstream transcript consumer.
 
-## Upstream evidence
+## 8. Upstream evidence
 - https://github.com/m-bain/whisperx
 - https://github.com/pyannote/pyannote-audio
 - https://huggingface.co/pyannote/speaker-diarization-community-1

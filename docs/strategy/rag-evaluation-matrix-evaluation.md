@@ -17,7 +17,7 @@ The **evidence and ranking contract is the product**. The first slice must be co
 
 ## 2. Current Upstream Findings
 
-### 2.1 What already exists on `main`
+### 2.1. What already exists on `main`
 
 The foundation the matrix layer builds on has landed:
 
@@ -26,7 +26,7 @@ The foundation the matrix layer builds on has landed:
 - **#413 consumer RAG ingestion profiles.** A consumer declares versioned `rag_ingestion_profiles`; each profile carries a content-hash **`revision`** and produces a durable ingestion job. That `revision` + profile/job id is the reproducibility anchor that ties an evaluation row to the exact corpus state it was scored against.
 - **#414 LightRAG query profiles** (adjacent, landed) let a consumer expose named graph-RAG query flavors as approach aliases — a natural source of `graph-rag local k=30` vs `graph-rag hybrid k=10` matrix approaches.
 
-### 2.2 Ragas metric semantics (official sources)
+### 2.2. Ragas metric semantics (official sources)
 
 Ragas metrics are **LLM-assisted evaluators**, not closed-form math. Faithfulness and the relevancy/context metrics prompt an evaluator LLM (and, for some, embeddings) and are therefore sensitive to the evaluator model, its version, and the prompt. Reviewed official documentation:
 

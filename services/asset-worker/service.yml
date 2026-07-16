@@ -32,9 +32,25 @@ env:
   - name: ASSET_WORKER_ENDPOINT
     auto_managed: true
     description: "In-network URL for the asset-worker API."
+  - name: ASSET_WORKER_API_TOKEN
+    default: ""
+    secret: true
+    description: "Auto-generated bearer token required by all Asset Worker data and processing routes; /health remains unauthenticated."
+  - name: ASSET_WORKER_ALLOWED_INPUT_BUCKETS
+    default: ""
+    description: "Optional comma- or space-separated reference-route bucket allowlist; blank follows MINIO_BUCKET_ASSET_INPUTS."
   - name: ASSET_WORKER_GLTF_TRANSFORM_VERSION
     default: "4.4.1"
     description: "Pinned @gltf-transform/cli version installed in the asset-worker image."
+  - name: ASSET_WORKER_MAX_UPLOAD_MB
+    default: "200"
+    description: "Maximum GLB upload or MinIO reference size in MiB. Input is streamed and rejected before transformation when this limit is exceeded."
+  - name: ASSET_WORKER_TIMEOUT_SECONDS
+    default: "300"
+    description: "Per-command timeout for gltf-transform inspect, validate, and optimize subprocesses."
+  - name: ASSET_WORKER_CONCURRENCY
+    default: "1"
+    description: "Maximum concurrent glTF mutation requests; saturated workers reject new work with HTTP 429 before request-body parsing or object-store fetch."
   - name: ASSET_WORKER_ARTIFACT_DIR
     default: "/data/artifacts"
     description: "Local artifact cache used when MinIO upload is disabled or for direct downloads."
@@ -50,11 +66,11 @@ env:
   - name: ASSET_WORKER_MINIO_ACCESS_KEY
     default: ""
     secret: true
-    description: "Optional MinIO access key override. Empty uses MINIO_ROOT_USER in compose."
+    description: "Optional MinIO access key override. Empty uses the generated asset-worker scoped MinIO account."
   - name: ASSET_WORKER_MINIO_SECRET_KEY
     default: ""
     secret: true
-    description: "Optional MinIO secret key override. Empty uses MINIO_ROOT_PASSWORD in compose."
+    description: "Optional MinIO secret key override. Empty uses the generated asset-worker scoped MinIO account."
 
 depends_on:
   required:

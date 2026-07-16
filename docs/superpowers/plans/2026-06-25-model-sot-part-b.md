@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.10+, PyYAML, jsonschema, pytest (`uv run pytest`), Textual (wizard), Docker Postgres (Part A golden regen).
 
-## Global Constraints
+## 1. Global Constraints
 
 - **YAML shape (user-approved):** section-based — top-level role sections `content:` / `embeddings:` / `vision:` (cloud file adds a provider layer first). Each entry: `name` (required), optional `default: true`, optional `description`, optional `badges: [..]`. NO numeric capability scores, NO `context_window`, NO `size_gb` in the YAML. A model may appear in multiple sections (multi-role); the loader merges by `name`.
 - **`llm_catalog.py` public contract is preserved exactly:** `CatalogEntry` dataclass (same field names), `CLOUD_CATALOG`, `OLLAMA_DEFAULT_CATALOG`, `cloud_entries(provider)`, `ollama_entries()`, `default_active_names(provider)`, `all_catalog_entries()`. Importers (`wizard/llm_steps.py`, `service_config.py`, container-side dynamic import) must not need changes for the loader swap.
@@ -20,7 +20,7 @@
 
 ---
 
-## Task sequence (each its own implement→review→fix loop)
+## 2. Task sequence (each its own implement→review→fix loop)
 
 - **B1** — YAML catalogs + JSON schema + `llm_catalog.py` loader (wizard-preserving). ← detailed below
 - **B2** — shared `model_resolver` (active set + best content/embeddings/vision) + emit `LITELLM_DEFAULT_MODEL`/`_EMBEDDING_MODEL`/`_VISION_MODEL` at assembly into `.env.example`.
@@ -36,7 +36,7 @@
 
 ---
 
-## Task B1: YAML catalogs + loader (wizard-preserving)
+## 3. Task B1: YAML catalogs + loader (wizard-preserving)
 
 **Files:**
 - Create: `services/ollama/models.yaml`
@@ -190,7 +190,7 @@ git commit -m "feat(litellm): YAML model catalogs + llm_catalog.py loader (Part 
 
 ---
 
-## Self-Review (B1)
+## 4. Self-Review (B1)
 - Snapshot captured from the CURRENT catalog BEFORE the rewrite → faithful equivalence target.
 - Loader keeps the exact public contract → no importer changes.
 - Wizard-facing data (names/descriptions/badges/default) preserved; only the (about-to-be-removed) numeric scores change.

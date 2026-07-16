@@ -133,6 +133,14 @@ def test_reserved_overlap_shorter_prefix_reported(tmp_path):
     assert any("shadows built-in" in e for e in result.errors)
 
 
+def test_framework_and_lightrag_prefixes_are_reserved():
+    from core.plugin_manifest import RESERVED_ROUTE_PREFIXES
+
+    assert {"docs", "lightrag", "metrics", "openapi.json", "ready", "redoc"}.issubset(
+        RESERVED_ROUTE_PREFIXES
+    )
+
+
 def test_prefixes_overlap_semantics():
     assert prefixes_overlap("/a", "/ab")
     assert prefixes_overlap("/heal", "/health")

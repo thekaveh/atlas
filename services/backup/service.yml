@@ -37,6 +37,9 @@ env:
   - name: BACKUP_S3_ALIAS_URL
     default: "http://minio:9000"
     description: "S3 endpoint. Default = on-box MinIO; set to an external S3 URL for offsite."
+  - name: BACKUP_COMMAND_TIMEOUT_SECONDS
+    default: 900
+    description: "Positive per-command deadline in seconds for package install, database, archive, and S3 operations."
   - name: BACKUP_SCALE
     auto_managed: true
     description: "0 (never long-running); the runner is invoked on demand via docker compose run."

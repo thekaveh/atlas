@@ -359,7 +359,7 @@ def format_track_list(registry: TrackRegistry) -> str:
     table = Table(title="Available tracks", show_lines=False)
     table.add_column("Key", style="bold cyan")
     table.add_column("Name")
-    table.add_column("Services (in addition to always-on tier)")
+    table.add_column("Track-specific services")
 
     for t in registry.tracks:
         if t.services is None:
@@ -369,7 +369,8 @@ def format_track_list(registry: TrackRegistry) -> str:
         table.add_row(t.key, t.display_name, svc_cell)
     console.print(table)
     console.print(
-        "[dim]Always-on tier (asked in every track): LLM Engine · "
-        "Prometheus · Grafana · OpenAI/Anthropic/OpenRouter cloud keys.[/dim]"
+        "[dim]Prompted in every track: LLM Engine · Prometheus · Grafana · "
+        "OpenAI/Anthropic/OpenRouter cloud keys. Prometheus and Grafana remain "
+        "disabled unless enabled.[/dim]"
     )
     return buf.getvalue()

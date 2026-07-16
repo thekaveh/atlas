@@ -10,6 +10,10 @@ DECISION = REPO_ROOT / "docs" / "strategy" / "zeppelin-spark-backend-decision.md
 README = REPO_ROOT / "services" / "zeppelin" / "README.md"
 COMPOSE = REPO_ROOT / "services" / "zeppelin" / "compose.yml"
 MANIFEST = REPO_ROOT / "services" / "zeppelin" / "service.yml"
+KONG_README = REPO_ROOT / "services" / "kong" / "README.md"
+PORTS_AND_ROUTES = REPO_ROOT / "docs" / "deployment" / "ports-and-routes.md"
+SOURCE_CONFIGURATION = REPO_ROOT / "docs" / "deployment" / "source-configuration.md"
+ROOT_README = REPO_ROOT / "README.md"
 
 
 def _compact(text: str) -> str:
@@ -38,10 +42,10 @@ def test_zeppelin_backend_decision_covers_service_admission_contract() -> None:
         "Category: existing `zeppelin` service remains `apps`",
         "keep `ZEPPELIN_SOURCE=container|disabled`",
         "no new host ports",
-        "unchanged `zeppelin.localhost`",
+        "Kong alias: none",
         "`iceberg-rest` in `depends_on.optional` and `data_flow.calls`",
         "`zeppelin-init` one-shot container",
-        "use existing MinIO root/S3A values and scoped Iceberg MinIO credentials",
+        "use scoped Spark/S3A and Iceberg MinIO credentials",
         "Do not present `spark.remote=sc://spark-connect:15002` as the happy path for Zeppelin",
     ]
 
@@ -58,13 +62,36 @@ def test_zeppelin_manifest_currently_stays_existing_service_shape() -> None:
         "container",
         "disabled",
     ]
-    assert manifest["depends_on"]["required"] == ["spark"]
+    assert manifest["depends_on"]["required"] == ["spark", "minio"]
     assert "iceberg-rest" in manifest["depends_on"]["optional"]
-    assert manifest["rows"][0]["alias"] == "zeppelin.localhost"
+    assert "alias" not in manifest["rows"][0]
     assert manifest["runtime_sc"]["zeppelin"]["container"]["environment"][
         "SPARK_MASTER"
     ] == "spark://spark-master:7077"
     assert manifest["runtime_sc"]["zeppelin-init"]["container"]["scale"] == 1
+
+
+def test_zeppelin_is_loopback_only_and_has_no_root_minio_credentials() -> None:
+    compose = COMPOSE.read_text(encoding="utf-8")
+    manifest = MANIFEST.read_text(encoding="utf-8")
+
+    assert '"127.0.0.1:${ZEPPELIN_PORT}:8080"' in compose
+    assert "zeppelin.localhost" not in compose
+    assert "MINIO_ROOT_USER" not in compose
+    assert "MINIO_ROOT_PASSWORD" not in compose
+    assert "MINIO_SPARK_ACCESS_KEY" in compose
+    assert "MINIO_SPARK_SECRET_KEY" in compose
+    assert "MINIO_ROOT_USER" not in manifest
+    assert "MINIO_ROOT_PASSWORD" not in manifest
+    assert "Kong routes traffic TO Zeppelin" not in manifest
+
+
+def test_current_operator_docs_do_not_advertise_a_zeppelin_kong_route() -> None:
+    for path in (KONG_README, PORTS_AND_ROUTES, SOURCE_CONFIGURATION, ROOT_README):
+        assert "zeppelin.localhost" not in path.read_text(encoding="utf-8")
+
+    source_docs = SOURCE_CONFIGURATION.read_text(encoding="utf-8")
+    assert "loopback-only direct UI" in source_docs
 
 
 def test_zeppelin_readme_no_longer_claims_connect_is_happy_path() -> None:

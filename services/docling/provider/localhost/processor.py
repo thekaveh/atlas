@@ -1,13 +1,20 @@
 """
-Docling GPU Processor
-Handles document processing using Docling library with GPU acceleration
+Docling localhost processor.
 """
 
+import asyncio
 import os
+from pathlib import Path
+import sys
 import time
-from typing import Optional
 from models import ConversionResponse, DocumentMetadata, DocumentChunk, ChunkMetadata
 from utils import get_file_size, detect_format, chunk_text
+try:
+    from shared.pipeline_config import build_converter, converter_status, resolve_pipeline_settings
+except ModuleNotFoundError:
+    shared_dir = Path(__file__).resolve().parents[1] / "shared"
+    sys.path.insert(0, str(shared_dir))
+    from pipeline_config import build_converter, converter_status, resolve_pipeline_settings
 
 # Import Docling
 try:
@@ -15,6 +22,41 @@ try:
 except ImportError:
     # Fallback for development
     DocumentConverter = None
+
+
+_conversion_semaphore = asyncio.Semaphore(
+    max(1, int(os.getenv("DOCLING_CONCURRENCY", "1")))
+)
+
+
+async def processor_status() -> str:
+    if DocumentConverter is None:
+        return "unavailable"
+    try:
+        settings = resolve_pipeline_settings(
+            use_ocr=os.getenv("DOCLING_USE_OCR", "auto"),
+            table_mode=os.getenv("DOCLING_TABLE_MODE", "accurate"),
+            device=os.getenv("DOCLING_DEVICE", "cpu"),
+            enable_formulas=os.getenv("DOCLING_ENABLE_FORMULAS", "true"),
+            enable_code_blocks=os.getenv("DOCLING_ENABLE_CODE_BLOCKS", "true"),
+        )
+    except (AttributeError, TypeError, ValueError):
+        return "unavailable"
+    return await converter_status(settings)
+
+
+SUPPORTED_OUTPUT_FORMATS = {"markdown", "html", "json", "doctags"}
+
+
+def _convert_document(file_path: str, use_ocr: str, table_mode: str):
+    settings = resolve_pipeline_settings(
+        use_ocr=use_ocr,
+        table_mode=table_mode,
+        device=os.getenv("DOCLING_DEVICE", "cpu"),
+        enable_formulas=os.getenv("DOCLING_ENABLE_FORMULAS", "true"),
+        enable_code_blocks=os.getenv("DOCLING_ENABLE_CODE_BLOCKS", "true"),
+    )
+    return build_converter(settings).convert(file_path)
 
 
 async def process_document(
@@ -50,13 +92,16 @@ async def process_document(
     # Process document with Docling
     if DocumentConverter is None:
         raise ImportError("Docling library not installed. Install with: pip install docling")
+    if output_format not in SUPPORTED_OUTPUT_FORMATS:
+        raise ValueError(
+            f"output_format must be one of: {', '.join(sorted(SUPPORTED_OUTPUT_FORMATS))}"
+        )
 
     try:
-        # Initialize converter with configuration
-        converter = DocumentConverter()
-
-        # Convert document
-        result = converter.convert(file_path)
+        async with _conversion_semaphore:
+            result = await asyncio.to_thread(
+                _convert_document, file_path, use_ocr, table_mode
+            )
         doc = result.document
 
         # Export to requested format
@@ -69,10 +114,6 @@ async def process_document(
             content = json.dumps(doc.export_to_dict(), indent=2)
         elif output_format == "doctags":
             content = doc.export_to_document_tokens()
-        else:
-            # Default to markdown
-            content = doc.export_to_markdown()
-
         # Extract metadata
         pages = len(doc.pages) if hasattr(doc, 'pages') and doc.pages else 1
 
@@ -89,17 +130,7 @@ async def process_document(
             formulas = len(doc.equations)
 
     except Exception as e:
-        # Fallback to basic text extraction if Docling processing fails
-        import traceback
-        error_msg = f"Docling processing failed: {str(e)}\n{traceback.format_exc()}"
-        print(f"Warning: {error_msg}")
-
-        # Return minimal response
-        content = f"# Document Processing Error\n\nUnable to process document with Docling.\n\nError: {str(e)}\n\nFile: {file_path}\nFormat: {source_format}\nSize: {file_size} bytes"
-        pages = 1
-        tables = 0
-        images = 0
-        formulas = 0
+        raise RuntimeError(f"Docling processing failed: {e}") from e
 
     processing_time = time.time() - start_time
 

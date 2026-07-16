@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from services.topology import get_topology
+
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -12,7 +14,6 @@ def test_active_port_docs_do_not_use_retired_allocator_defaults() -> None:
         "services/comfyui/README.md": ["default `63041`"],
         "services/hermes/README.md": ["localhost:63030"],
         "services/jupyterhub/README.md": ["63081", "64156"],
-        "services/jupyterhub/build/README.md": ["63081"],
         "services/neo4j/README.md": ["default: 63020", "default: 63021"],
         "services/ollama/README.md": ["localhost:63030", "LITELLM_PORT=63030"],
         "services/openclaw/README.md": ["localhost:63030"],
@@ -33,3 +34,61 @@ def test_active_port_docs_do_not_use_retired_allocator_defaults() -> None:
         text = (ROOT / relative).read_text(encoding="utf-8")
         for retired in retired_literals:
             assert retired not in text, f"{relative} still advertises retired port literal {retired!r}"
+
+
+def test_active_service_port_claims_match_topology() -> None:
+    ports = get_topology(ROOT / "services").port_defaults
+    comfyui = ports["COMFYUI_PORT"]
+    stt = ports["STT_PROVIDER_PORT"]
+    searxng = ports["SEARXNG_PORT"]
+    tika = ports["TIKA_PORT"]
+    tts = ports["TTS_PROVIDER_PORT"]
+    chatterbox = ports["CHATTERBOX_PORT"]
+    speaches = ports["SPEACHES_PORT"]
+    claims = {
+        "README.md": (
+            f"# SearxNG (Search):      http://localhost:{searxng}",
+            f"# ComfyUI:               http://localhost:{comfyui}",
+            f"| **ComfyUI** | http://localhost:{comfyui} |",
+            f"| **SearxNG** | http://localhost:{searxng} |",
+            f"Default Speaches: http://localhost:{speaches}",
+            f"Parakeet STT on `:{stt}` or Chatterbox TTS on `:{chatterbox}`",
+            f"`TTS_PROVIDER_PORT={tts}` is a display slot",
+            f"| **Apache Tika** | http://localhost:{tika} |",
+        ),
+        "services/comfyui/README.md": (
+            f"`http://localhost:${{COMFYUI_PORT}}` (default `{comfyui}`)",
+        ),
+        "services/searxng/README.md": (
+            f"`http://localhost:${{SEARXNG_PORT}}` (default `{searxng}`)",
+        ),
+        "services/stt-provider/README.md": (
+            f"http://localhost:{speaches}/v1/audio/transcriptions",
+            f"| `STT_PROVIDER_PORT` | `{stt}` |",
+        ),
+        "services/tts-provider/README.md": (
+            f"http://localhost:{speaches}/v1/models/",
+            f"http://localhost:{speaches}/v1/audio/speech",
+            f"| `TTS_PROVIDER_PORT` | `{tts}` |",
+            f"| `SPEACHES_PORT` | `{speaches}` |",
+            f"| `CHATTERBOX_PORT` | `{chatterbox}` |",
+        ),
+        "services/tts-provider/provider/README.md": (
+            f"http://localhost:{speaches}/v1/models/",
+            f"http://localhost:{speaches}/v1/audio/speech",
+        ),
+        "services/tts-provider/provider/localhost/README.md": (
+            f"container CHATTERBOX_PORT, which is {chatterbox}",
+        ),
+        "docs/quick-start/troubleshooting.md": (
+            f"curl http://localhost:{comfyui}  # Direct port access (COMFYUI_PORT)",
+        ),
+        "services/parakeet/compose.yml": (
+            f"STT_PROVIDER_PORT default ({stt})",
+        ),
+    }
+
+    for relative, expected_claims in claims.items():
+        text = (ROOT / relative).read_text(encoding="utf-8")
+        for claim in expected_claims:
+            assert claim in text, f"{relative} does not advertise topology claim {claim!r}"

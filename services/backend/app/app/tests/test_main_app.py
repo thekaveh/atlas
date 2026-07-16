@@ -1,8 +1,9 @@
 """App-level behavior in main.py: research/start user_id validation and the
 lifespan shutdown that closes the long-lived n8n client.
 
-Backend has no auth dependency (Kong gates external access at the edge),
-so these tests don't override any auth dependency.
+Identity-bearing and operator routes have a Backend bearer-auth dependency.
+The shared test fixture selects the explicit rollback mode unless a security
+test enables the required policy.
 """
 
 from __future__ import annotations
@@ -261,7 +262,7 @@ def test_research_cancel_reports_best_effort_local_cancellation(monkeypatch):
     from fastapi.testclient import TestClient
     import main
 
-    async def fake_cancel(session_id):
+    async def fake_cancel(session_id, owner_user_id=None):
         return True
 
     monkeypatch.setattr(main.research_service, "cancel_research", fake_cancel)
@@ -280,7 +281,7 @@ def test_research_logs_returns_404_when_session_is_absent(monkeypatch):
     from fastapi.testclient import TestClient
     import main
 
-    async def fake_logs(session_id):
+    async def fake_logs(session_id, owner_user_id=None):
         return None
 
     monkeypatch.setattr(main.research_service, "get_research_logs", fake_logs)
@@ -298,14 +299,24 @@ def test_lifespan_closes_n8n_client(monkeypatch):
     from fastapi.testclient import TestClient
     import main
 
-    closed = {"v": False}
+    closed = {"n8n": False, "research": False, "research_started": False}
 
     async def fake_aclose():
-        closed["v"] = True
+        closed["n8n"] = True
+
+    async def fake_research_start():
+        closed["research_started"] = True
+
+    async def fake_research_close():
+        closed["research"] = True
 
     monkeypatch.setattr(main.n8n_client, "aclose", fake_aclose)
+    monkeypatch.setattr(
+        main.research_service, "start_maintenance", fake_research_start
+    )
+    monkeypatch.setattr(main.research_service, "aclose", fake_research_close)
     # Entering and exiting the context manager runs lifespan startup +
     # shutdown.
     with TestClient(main.app):
         pass
-    assert closed["v"] is True
+    assert closed == {"n8n": True, "research": True, "research_started": True}

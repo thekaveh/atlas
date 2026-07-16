@@ -1,4 +1,4 @@
-# Blender MCP
+# 5.2.6. Blender MCP
 
 ## 1. Overview
 
@@ -49,33 +49,31 @@ Atlas models Blender MCP as a virtual media service:
 
 ## 5. Dependencies & Integrations
 
-> Auto-generated section — the **Current** subsections are derived from `services/blender-mcp/service.yml`'s `data_flow.calls` field (and inverse passes). Re-run `python -m bootstrapper.docs.regen blender-mcp` after manifest changes.
-
-### 5.1 Current — Upstream (this service calls)
+### 5.1. Current — Upstream (this service calls)
 
 _No upstream calls._
 
-### 5.2 Current — Downstream (services that call this)
+### 5.2. Current — Downstream (services that call this)
 
 _No downstream consumers._
 
-### 5.3 Architecture diagram
+### 5.3. Architecture diagram
 
 ![blender-mcp architecture](./architecture.svg)
 
 [Open the interactive HTML diagram](./architecture.html) for a full-screen view.
 
-### 5.4 Future — Missing pair integrations
+### 5.4. Future — Missing pair integrations
 
 - Optional MCP-client registration for Open WebUI or Hermes once Atlas has a policy for host-side code-execution tools.
 - Optional asset export path from ComfyUI-generated concepts to Blender scene construction, with explicit human approval before code execution.
 
-### 5.5 Future — Candidate new services
+### 5.5. Future — Candidate new services
 
 - A drivable, in-network **`container` source** (headed-but-virtual Blender via Xvfb/EGL) for the agentic composition stage — under evaluation, gated behind a validation spike and go/no-go thresholds. See [`docs/strategy/blender-mcp-container-source-evaluation.md`](../../docs/strategy/blender-mcp-container-source-evaluation.md) (#410). Until that spike passes, this service stays `localhost | disabled`.
 - Asset validation queue that runs glTF-Transform checks on generated GLB files before publication.
 
-### 5.6 Future — Unused features in this service
+### 5.6. Future — Unused features in this service
 
 - Remote Blender MCP access is intentionally out of scope for this profile.
 - Asset-provider credentials are not projected into Atlas services yet.

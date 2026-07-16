@@ -73,6 +73,36 @@ def test_completeness_reports_unmanifested_service_readmes(tmp_path: Path) -> No
     assert [finding.path for finding in findings] == ["services/example/README.md"]
 
 
+def test_completeness_reports_nested_service_readmes(tmp_path: Path) -> None:
+    manifest = _manifest(tmp_path)
+    nested = tmp_path / "services" / "example" / "provider" / "README.md"
+    nested.parent.mkdir(parents=True)
+    nested.write_text("# Provider\n", encoding="utf-8")
+
+    findings = check_completeness(manifest, tmp_path)
+
+    assert [finding.path for finding in findings] == [
+        "services/example/provider/README.md"
+    ]
+
+
+def test_self_containment_checks_nested_service_readmes(tmp_path: Path) -> None:
+    generated = tmp_path / "generated"
+    (generated / "site").mkdir(parents=True)
+    (generated / "wiki").mkdir()
+    nested = tmp_path / "services" / "example" / "provider" / "README.md"
+    nested.parent.mkdir(parents=True)
+    nested.write_text(
+        "[Site](https://thekaveh.github.io/atlas/)", encoding="utf-8"
+    )
+
+    findings = check_self_containment(tmp_path, generated)
+
+    assert [(finding.path, finding.surface) for finding in findings] == [
+        ("services/example/provider/README.md", "repo")
+    ]
+
+
 def test_placeholders_ignore_internal_plans(tmp_path: Path) -> None:
     (tmp_path / "docs" / "superpowers").mkdir(parents=True)
     (tmp_path / "docs" / "public.md").write_text("TODO publish", encoding="utf-8")

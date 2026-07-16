@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.10+, MkDocs 1.6, Material for MkDocs, PyYAML, pytest, GitHub Actions, GitHub Pages, GitHub Wiki, existing Atlas manifest/topology/docs modules.
 
-## Global Constraints
+## 1. Global Constraints
 
 - Use a separate branch/worktree; do not push directly to `main`.
 - Preserve service-local READMEs as source-owned documentation under `services/<name>/README.md`.
@@ -24,7 +24,7 @@
 
 ---
 
-## File Structure
+## 2. File Structure
 
 - Create `bootstrapper/docs/sitegen/__init__.py`: package marker and public exports.
 - Create `bootstrapper/docs/sitegen/model.py`: `DocsModel`, `ServicePage`, `TrackPage`, route/access helpers, and data loading from manifests, topology, tracks, READMEs, assets, and diagrams.
@@ -48,7 +48,7 @@
 
 ---
 
-### Task 1: Add Material Dependency And Failing Theme/Config Tests
+### 2.1. Task 1: Add Material Dependency And Failing Theme/Config Tests
 
 **Files:**
 - Modify: `bootstrapper/pyproject.toml`
@@ -180,7 +180,7 @@ git commit -m "test: require Material docs site and expanded wiki"
 
 ---
 
-### Task 2: Introduce Shared Docs Model
+### 2.2. Task 2: Introduce Shared Docs Model
 
 **Files:**
 - Create: `bootstrapper/docs/sitegen/__init__.py`
@@ -447,7 +447,7 @@ git commit -m "feat: add shared docs site model"
 
 ---
 
-### Task 3: Generate Material MkDocs Config And Atlas Theme
+### 2.3. Task 3: Generate Material MkDocs Config And Atlas Theme
 
 **Files:**
 - Create: `bootstrapper/docs/sitegen/rendering.py`
@@ -769,7 +769,7 @@ git commit -m "feat: generate Material docs theme"
 
 ---
 
-### Task 4: Generate Full Site Information Architecture
+### 2.4. Task 4: Generate Full Site Information Architecture
 
 **Files:**
 - Create: `bootstrapper/docs/sitegen/pages.py`
@@ -1040,7 +1040,7 @@ git commit -m "feat: generate full docs site information architecture"
 
 ---
 
-### Task 5: Generate Rich Service Catalog And Service Profiles
+### 2.5. Task 5: Generate Rich Service Catalog And Service Profiles
 
 **Files:**
 - Create: `bootstrapper/docs/sitegen/services.py`
@@ -1260,7 +1260,7 @@ git commit -m "feat: generate rich docs service profiles"
 
 ---
 
-### Task 6: Generate References And Expanded Wiki From The Shared Model
+### 2.6. Task 6: Generate References And Expanded Wiki From The Shared Model
 
 **Files:**
 - Create: `bootstrapper/docs/sitegen/wiki.py`
@@ -1439,7 +1439,7 @@ git commit -m "feat: expand generated docs wiki and references"
 
 ---
 
-### Task 7: Architecture Catalog And Diagram Sync Checks
+### 2.7. Task 7: Architecture Catalog And Diagram Sync Checks
 
 **Files:**
 - Modify: `bootstrapper/docs/sitegen/pages.py`
@@ -1522,7 +1522,7 @@ git commit -m "feat: sync architecture docs catalog"
 
 ---
 
-### Task 8: CI, Contributor Guidance, About URL Command, And Full Verification
+### 2.8. Task 8: CI, Contributor Guidance, About URL Command, And Full Verification
 
 **Files:**
 - Modify: `.github/workflows/docs-pages.yml`
@@ -1638,7 +1638,7 @@ git commit -m "docs: document generated docs publication workflow"
 
 ---
 
-## Final Integration Checklist
+## 3. Final Integration Checklist
 
 - [ ] Run `git status --short` and confirm only intentional files are changed.
 - [ ] Run `uv run --project bootstrapper pytest bootstrapper/tests/test_docs_site_platform.py bootstrapper/tests/test_docs_sitegen_model.py -q`.
@@ -1655,7 +1655,7 @@ git commit -m "docs: document generated docs publication workflow"
 - [ ] After merge, run `gh repo edit thekaveh/atlas --homepage https://thekaveh.github.io/atlas/` if permissions allow.
 - [ ] Clean up local and remote feature branches after merge.
 
-## Self-Review Notes
+## 4. Self-Review Notes
 
 - Spec coverage: The plan covers Material theme, IA, service profiles, wiki expansion, architecture catalog, sync checks, Pages workflow, repo About command, and contributor guidance.
 - Placeholder scan: The plan does not use unresolved placeholder markers or deferred implementation language.

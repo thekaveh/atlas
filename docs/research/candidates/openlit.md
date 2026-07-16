@@ -11,12 +11,12 @@ upstream: https://github.com/openlit/openlit
 
 # OpenLIT
 
-## Headline
+## 1. Headline
 OpenTelemetry-native GenAI observability platform with SDK instrumentation,
 ClickHouse-backed storage, an OpenTelemetry Collector, LLM/vector/GPU telemetry,
 prompt/evaluation features, and an AI-engineering UI.
 
-## Problem it solves
+## 2. Problem it solves
 OpenLIT is useful when Atlas needs GenAI telemetry beyond generic traces:
 one-line SDK instrumentation, model/vector/GPU visibility, prompt/evaluation
 features, and OpenTelemetry-native dashboards. Current upstream self-hosting
@@ -24,7 +24,7 @@ docs describe a complete stack of OpenLIT platform, ClickHouse, and
 OpenTelemetry Collector via Helm or Docker Compose, which makes it powerful but
 also overlapping with Atlas' Langfuse plus OTel/Tempo/Loki direction.
 
-## Deferred decision (2026-07-04)
+## 3. Deferred decision (2026-07-04)
 Atlas should keep OpenLIT deferred and must not add `services/openlit/service.yml` yet.
 Langfuse plus OTel/Tempo/Loki is the preferred first observability path:
 Langfuse owns LLM traces, prompts, evals, and LiteLLM gateway telemetry, while
@@ -36,7 +36,7 @@ a second collector shape, and likely another ClickHouse-backed analytics surface
 before Atlas has proven a gap. Revisit only for named OpenLIT-specific
 functionality.
 
-## Stack wiring sketch
+## 4. Stack wiring sketch
 No current Atlas wiring should be added while OpenLIT is deferred. If adopted
 later, the expected topology would be:
 
@@ -53,14 +53,14 @@ later, the expected topology would be:
 - Grafana may link to OpenLIT or its data source, but Grafana remains the Atlas
   observability entrypoint for infrastructure metrics/logs/traces.
 
-## Effort
+## 5. Effort
 Medium. The upstream deployment is documented, but a conservative Atlas slice
 would still need a manifest, optional ClickHouse ownership decision, collector
 ownership decision, Kong route/auth handling, generated credentials, SDK
 enablement switches, consumer tests, and docs explaining how OpenLIT differs
 from Langfuse and the OTel/Tempo/Loki bundle.
 
-## Risks & open questions
+## 6. Risks & open questions
 - UI overlap with Langfuse and Grafana can confuse users unless ownership is
   explicit.
 - ClickHouse ownership may duplicate Langfuse's analytics dependency and needs a
@@ -72,7 +72,7 @@ from Langfuse and the OTel/Tempo/Loki bundle.
 - GPU metrics depend on runtime and host support; do not promise them by
   default.
 
-## Revisit criteria
+## 7. Revisit criteria
 Reconsider OpenLIT only when all of these are true:
 
 - Langfuse plus OTel/Tempo/Loki fails to cover a named observability need.
@@ -83,7 +83,7 @@ Reconsider OpenLIT only when all of these are true:
 - The ClickHouse, collector, UI, retention, and auth ownership boundaries are
   explicit.
 
-## Future service contract if adopted
+## 8. Future service contract if adopted
 - **Tracks:** `observability`, `gen-ai-eng`, `gen-ai-rag`, `ml-eng`, and `all`;
   avoid `data-eng` unless a concrete ML/data observability workflow needs it.
 - **Category:** choose deliberately between `infra` and `agents`. It is an
@@ -108,7 +108,7 @@ Reconsider OpenLIT only when all of these are true:
   notebook opt-in leaks, high-cardinality traces, GPU metric unavailability,
   route exposure without auth, and generated-doc drift.
 
-## Tests required if adopted later
+## 9. Tests required if adopted later
 - Manifest schema and topology tests for source values, category, aliases,
   generated env vars, and track membership.
 - Compose/source permutation coverage for disabled/container and any future
@@ -119,11 +119,11 @@ Reconsider OpenLIT only when all of these are true:
   JupyterHub, and Weaviate disabled/container/localhost paths.
 - Docs drift, research schema, link checks, and generated README/diagram checks.
 
-## Why now (and why not sooner)
+## 10. Why now (and why not sooner)
 Not now. OpenLIT should wait until Atlas can name an observability gap that
 Langfuse plus OTel/Tempo/Loki cannot cover cleanly.
 
-## Upstream evidence
+## 11. Upstream evidence
 - https://github.com/openlit/openlit
 - https://docs.openlit.io/latest/overview
 - https://docs.openlit.io/latest/openlit/installation

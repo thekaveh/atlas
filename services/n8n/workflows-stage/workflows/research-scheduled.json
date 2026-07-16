@@ -23,7 +23,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Define recurring research queries\nconst scheduledQueries = [\n  {\n    query: \"Latest AI and machine learning breakthroughs\",\n    priority: \"high\",\n    max_loops: 5\n  },\n  {\n    query: \"Technology industry trends and market analysis\",\n    priority: \"medium\",\n    max_loops: 3\n  },\n  {\n    query: \"Cybersecurity threats and vulnerabilities\",\n    priority: \"high\",\n    max_loops: 4\n  },\n  {\n    query: \"Open source software updates and releases\",\n    priority: \"low\",\n    max_loops: 2\n  }\n];\n\nconst batchId = `scheduled_${Date.now()}`;\nconst timestamp = new Date().toISOString();\n\n$execution.customData = {\n  batchId: batchId,\n  scheduleType: 'weekly',\n  startedAt: timestamp\n};\n\nreturn scheduledQueries.map((item, index) => ({\n  ...item,\n  batchId: batchId,\n  index: index,\n  scheduledAt: timestamp,\n  search_api: 'searxng'\n}));"
+        "jsCode": "// Define recurring research queries and carry schedule metadata per item.\nconst scheduledQueries = [\n  {\n    query: \"Latest AI and machine learning breakthroughs\",\n    priority: \"high\",\n    max_loops: 5\n  },\n  {\n    query: \"Technology industry trends and market analysis\",\n    priority: \"medium\",\n    max_loops: 3\n  },\n  {\n    query: \"Cybersecurity threats and vulnerabilities\",\n    priority: \"high\",\n    max_loops: 4\n  },\n  {\n    query: \"Open source software updates and releases\",\n    priority: \"low\",\n    max_loops: 2\n  }\n];\n\nconst batchId = `scheduled_${Date.now()}`;\nconst startedAt = new Date().toISOString();\nreturn scheduledQueries.map((item, index) => ({\n  ...item,\n  batchId,\n  scheduleType: 'weekly',\n  startedAt,\n  index,\n  scheduledAt: startedAt,\n  search_api: 'searxng'\n}));"
       },
       "id": "b3c4d5e6-f7g8-h9i0-j1k2-l3m4n5o6p7q8",
       "name": "Define Research Topics",
@@ -36,7 +36,12 @@
     },
     {
       "parameters": {
+        "method": "POST",
         "url": "http://backend:8000/research/start",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{"name": "Authorization", "value": "={{ 'Bearer ' + $env.BACKEND_N8N_API_TOKEN }}"}]
+        },
         "sendBody": true,
         "bodyParameters": {
           "parameters": [
@@ -73,7 +78,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Store session information for later retrieval\nconst sessions = [];\n\nfor (const item of $input.all()) {\n  const inputData = item.json;\n  const response = item.json;\n  \n  sessions.push({\n    batchId: $execution.customData.batchId,\n    sessionId: response.session_id,\n    query: inputData.query,\n    priority: inputData.priority,\n    startedAt: new Date().toISOString()\n  });\n}\n\n$execution.customData.sessions = sessions;\n\nreturn [{\n  batchId: $execution.customData.batchId,\n  totalSessions: sessions.length,\n  message: `Started ${sessions.length} scheduled research tasks`\n}];"
+        "jsCode": "// Restore each scheduled request after HTTP Request replaced item JSON.\nconst requests = $('Define Research Topics').all();\nreturn $input.all().map((item, index) => ({\n  ...(requests[index]?.json || {}),\n  sessionId: item.json.session_id,\n  status: item.json.status || 'running'\n}));"
       },
       "id": "d7e8f9g0-h1i2-j3k4-l5m6-n7o8p9q0r1s2",
       "name": "Track Sessions",
@@ -100,7 +105,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Generate status check requests\nconst sessions = $execution.customData.sessions || [];\n\nreturn sessions.map(session => ({\n  sessionId: session.sessionId,\n  query: session.query,\n  priority: session.priority\n}));"
+        "jsCode": "// Recreate status requests from the durable tracked session items.\nreturn $('Track Sessions').all().map(item => ({ ...item.json }));"
       },
       "id": "f1g2h3i4-j5k6-l7m8-n9o0-p1q2r3s4t5u6",
       "name": "Prepare Status Checks",
@@ -113,7 +118,125 @@
     },
     {
       "parameters": {
+        "url": "=http://backend:8000/research/{{ $json.sessionId }}/status",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{"name": "Authorization", "value": "={{ 'Bearer ' + $env.BACKEND_N8N_API_TOKEN }}"}]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "scheduled-status-request",
+      "name": "Check All Statuses",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1560,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Join status responses to their scheduled requests by session id.\nconst sessions = $('Track Sessions').all().map(item => item.json);\nconst sessionStatuses = $input.all().map(item => {\n  const response = item.json;\n  const original = sessions.find(session => session.sessionId === response.session_id) || {};\n  return {\n    ...original,\n    sessionId: response.session_id || original.sessionId,\n    status: response.status,\n    errorMessage: response.error_message || null\n  };\n});\nconst completedCount = sessionStatuses.filter(item => item.status === 'completed').length;\nconst failedCount = sessionStatuses.filter(item => ['failed', 'cancelled'].includes(item.status)).length;\nreturn [{\n  allCompleted: completedCount + failedCount === sessionStatuses.length,\n  completedCount,\n  failedCount,\n  sessionStatuses\n}];"
+      },
+      "id": "scheduled-status-analysis",
+      "name": "Analyze Scheduled Status",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1780,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "scheduled-complete",
+              "leftValue": "={{ $json.allCompleted }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "scheduled-completion-guard",
+      "name": "All Completed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2000,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Fetch results for successful sessions and retain a sentinel for an\n// all-failed run so report generation still executes.\nconst completed = $input.first().json.sessionStatuses\n  .filter(session => session.status === 'completed')\n  .map(session => ({ ...session, skipResultFetch: false }));\nreturn completed.length ? completed : [{ skipResultFetch: true }];"
+      },
+      "id": "scheduled-result-requests",
+      "name": "Prepare Result Requests",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2220,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "scheduled-result-fetch-required",
+              "leftValue": "={{ $json.skipResultFetch }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "false"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "scheduled-result-fetch-guard",
+      "name": "Has Successful Results?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2440,
+        200
+      ]
+    },
+    {
+      "parameters": {
         "url": "=http://backend:8000/research/{{ $json.sessionId }}/result",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{"name": "Authorization", "value": "={{ 'Bearer ' + $env.BACKEND_N8N_API_TOKEN }}"}]
+        },
         "options": {
           "response": {
             "response": {
@@ -132,37 +255,56 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
       "position": [
-        1560,
-        300
+        2660,
+        200
       ]
     },
     {
       "parameters": {
-        "jsCode": "// Process and format results for storage/notification\nconst results = $input.all();\nconst batchId = $execution.customData.batchId;\nconst startedAt = $execution.customData.startedAt;\n\nconst processedResults = results.map(item => {\n  const result = item.json;\n  return {\n    sessionId: result.session_id,\n    title: result.title,\n    summary: result.summary,\n    wordCount: result.content ? result.content.length : 0,\n    sourceCount: result.sources ? result.sources.length : 0,\n    completedAt: result.created_at\n  };\n});\n\nconst report = {\n  batchId: batchId,\n  reportType: 'scheduled_research',\n  generatedAt: new Date().toISOString(),\n  executionSummary: {\n    totalQueries: results.length,\n    completedSuccessfully: processedResults.length,\n    averageWordCount: processedResults.reduce((acc, r) => acc + r.wordCount, 0) / processedResults.length,\n    totalSources: processedResults.reduce((acc, r) => acc + r.sourceCount, 0)\n  },\n  results: processedResults,\n  metadata: {\n    scheduleType: $execution.customData.scheduleType,\n    startedAt: startedAt,\n    processingTime: Date.now() - new Date(startedAt).getTime()\n  }\n};\n\nreturn [report];"
+        "jsCode": "// Process terminal results for storage, including partial/all-failed runs.\nconst analysis = $('Analyze Scheduled Status').last().json;\nconst tracked = analysis.sessionStatuses;\nconst first = tracked[0] || {};\nconst results = $input.all()\n  .map(item => item.json)\n  .filter(item => !item.skipResultFetch);\nconst processedResults = results.map(result => {\n  const original = tracked.find(session => session.sessionId === result.session_id) || {};\n  return {\n    sessionId: result.session_id,\n    query: original.query,\n    priority: original.priority,\n    title: result.title,\n    summary: result.summary,\n    wordCount: result.content ? result.content.length : 0,\n    sourceCount: result.sources ? result.sources.length : 0,\n    completedAt: result.created_at\n  };\n});\nconst totalWords = processedResults.reduce((sum, item) => sum + item.wordCount, 0);\n\nreturn [{\n  batchId: first.batchId,\n  reportType: 'scheduled_research',\n  generatedAt: new Date().toISOString(),\n  executionSummary: {\n    totalQueries: tracked.length,\n    completedSuccessfully: analysis.completedCount,\n    failed: analysis.failedCount,\n    averageWordCount: processedResults.length ? totalWords / processedResults.length : 0,\n    totalSources: processedResults.reduce((sum, item) => sum + item.sourceCount, 0)\n  },\n  results: processedResults,\n  failures: tracked.filter(item => item.status !== 'completed'),\n  metadata: {\n    scheduleType: first.scheduleType,\n    startedAt: first.startedAt,\n    processingTime: first.startedAt ? Date.now() - new Date(first.startedAt).getTime() : null\n  }\n}];"
       },
       "id": "h5i6j7k8-l9m0-n1o2-p3q4-r5s6t7u8v9w0",
       "name": "Generate Report",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1780,
-        300
+        2880,
+        200
       ]
     },
     {
       "parameters": {
-        "url": "http://backend:8000/storage/upload",
+        "amount": 30,
+        "unit": "seconds"
+      },
+      "id": "scheduled-wait-retry",
+      "name": "Wait and Retry Scheduled",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [
+        2220,
+        450
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:8000/storage/upload?bucket=research-reports",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{"name": "Authorization", "value": "={{ 'Bearer ' + $env.BACKEND_N8N_API_TOKEN }}"}]
+        },
         "sendBody": true,
+        "contentType": "multipart-form-data",
         "bodyParameters": {
           "parameters": [
             {
-              "name": "bucket",
-              "value": "research-reports"
+              "parameterType": "formBinaryData",
+              "name": "file",
+              "inputDataFieldName": "report"
             }
           ]
         },
-        "sendBinaryData": true,
-        "binaryPropertyName": "report",
         "options": {
           "response": {
             "response": {
@@ -176,8 +318,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
       "position": [
-        2000,
-        300
+        3320,
+        200
       ]
     },
     {
@@ -189,8 +331,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1780,
-        450
+        3100,
+        200
       ]
     }
   ],
@@ -254,7 +396,76 @@
       "main": [
         [
           {
+            "node": "Check All Statuses",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check All Statuses": {
+      "main": [
+        [
+          {
+            "node": "Analyze Scheduled Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze Scheduled Status": {
+      "main": [
+        [
+          {
+            "node": "All Completed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "All Completed?": {
+      "main": [
+        [
+          {
+            "node": "Prepare Result Requests",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait and Retry Scheduled",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Result Requests": {
+      "main": [
+        [
+          {
+            "node": "Has Successful Results?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Successful Results?": {
+      "main": [
+        [
+          {
             "node": "Get Research Results",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Generate Report",
             "type": "main",
             "index": 0
           }
@@ -293,6 +504,17 @@
           }
         ]
       ]
+    },
+    "Wait and Retry Scheduled": {
+      "main": [
+        [
+          {
+            "node": "Prepare Status Checks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "active": false,
@@ -303,6 +525,5 @@
   "meta": {
     "templateCredsSetupCompleted": true
   },
-  "id": "research-scheduled",
-  "tags": ["research", "scheduled", "automation", "reports"]
+  "id": "research-scheduled"
 }

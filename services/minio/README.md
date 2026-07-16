@@ -1,4 +1,4 @@
-# MinIO
+# 5.2.31. MinIO
 
 ## 1. Overview
 
@@ -26,7 +26,7 @@ the S3 client's SigV4 signature still validates). `s3.minio.localhost` is
 declared via `extra_kong_aliases` in `services/minio/service.yml`, so
 `--setup-hosts` wires it into `/etc/hosts`.
 
-### 2.1 Connecting an external S3-compatible client (CLI, SDK, TUI)
+### 2.1. Connecting an external S3-compatible client (CLI, SDK, TUI)
 
 Any S3-compatible tool — `aws` CLI, boto3, `mc`, `s3cmd`, rclone, or a
 custom client — connects with these settings. Two endpoints work; pick one:
@@ -92,7 +92,7 @@ Root credentials are NEVER surfaced to consumers — see Service accounts below.
 
 ## 4. Bucket layout
 
-Twelve buckets are pre-provisioned by `minio-init` across nine built-in consumers. Bucket names are the bare service identifier unless overridden:
+Fifteen buckets are pre-provisioned by `minio-init` across twelve built-in consumers. Bucket names are the bare service identifier unless overridden:
 
 | Bucket | Intended consumer |
 |---|---|
@@ -105,15 +105,23 @@ Twelve buckets are pre-provisioned by `minio-init` across nine built-in consumer
 | `mlflow` | MLflow experiment and model artifacts |
 | `label-studio` | Label Studio import/export and annotation assets |
 | `lakehouse`, `jars`, `checkpoints`, `landing` | Iceberg lakehouse storage, Spark artifacts, checkpoints, and landing data |
+| `raw-assets` | Shared input objects written by the scoped asset-ingest identity and accepted by Asset Worker and Asset Baker reference routes |
+| `asset-worker` | Asset Worker optimized GLB outputs |
+| `asset-baker` | Asset Baker baked GLB and texture outputs |
 
-Bucket names are overridable via `MINIO_BUCKET_<NAME>` env vars; hand-edits stick.
+Bucket names are overridable via `MINIO_BUCKET_<NAME>` env vars. The two
+pre-existing processor output settings remain canonical as
+`ASSET_WORKER_MINIO_BUCKET` and `ASSET_BAKER_MINIO_BUCKET`; provisioning and
+runtime writes consume those same values, so renamed buckets remain aligned.
 
 Parent-owned consumers can add their own bucket and scoped service account without
 forking Atlas by passing `MINIO_EXTRA_CONSUMERS` into `minio-init`. The value is a
-space-separated list of entries using the same grammar as the built-in consumers:
+space-separated list of entries using the same grammar as the built-in consumers.
+The fifth field adds writable buckets; the optional sixth field adds read-only
+buckets:
 
 ```text
-CONSUMER:BUCKET_VAR:ACCESS_VAR:SECRET_VAR[:EXTRA_BUCKET_VAR,...]
+CONSUMER:BUCKET_VAR:ACCESS_VAR:SECRET_VAR[:RW_BUCKET_VAR,...[:RO_BUCKET_VAR,...]]
 ```
 
 For example, a DayDreams-style parent overlay can define:
@@ -134,7 +142,7 @@ the generic `MINIO_EXTRA_CONSUMERS` hook.
 
 ## 5. Service accounts
 
-Each consumer has its own MinIO service account with an inline IAM policy scoped to one bucket (or a small named set for the iceberg account, which has four). Extra consumers declared via `MINIO_EXTRA_CONSUMERS` receive the same idempotent bucket, named policy, and inline service-account provisioning:
+Each consumer has its own MinIO service account with an inline IAM policy scoped to one bucket or a small named set. The Iceberg account has four writable buckets. The generated `MINIO_ASSET_INGEST_*` identity can populate `raw-assets` without root access. Each asset processor can read and list that shared input bucket, but can write or delete objects only in its own output bucket. Extra consumers declared via `MINIO_EXTRA_CONSUMERS` receive the same idempotent bucket, named policy, and inline service-account provisioning:
 
 ```json
 {
@@ -177,7 +185,7 @@ mc alias set local http://localhost:${MINIO_PORT} "$MINIO_BACKEND_ACCESS_KEY" "$
 mc cp ./somefile local/backend/somefile
 ```
 
-### 6.1 Declarative consumer storage contract (`storage:`)
+### 6.1. Declarative consumer storage contract (`storage:`)
 
 A downstream consumer (see [reusing-atlas.md](../../docs/deployment/reusing-atlas.md))
 declares object stores in its `atlas.consumer.yml` instead of hand-writing a
@@ -220,7 +228,7 @@ underlying `MINIO_EXTRA_CONSUMERS` overlay path (§6 above and
 [reusing-atlas.md §6.1.2](../../docs/deployment/reusing-atlas.md#612-adding-parent-owned-minio-buckets))
 remains supported for existing `_user` integrations.
 
-### 6.2 Browser-safe presigned URLs (sign against the public host)
+### 6.2. Browser-safe presigned URLs (sign against the public host)
 
 Presigned-URL signatures cover the request **host**, so signing against the
 internal endpoint (`minio:9000`) and then rewriting the URL to the public host
@@ -263,13 +271,11 @@ MinIO data lives in the `${PROJECT_NAME}-minio-data` named Docker volume mounted
 
 ## 10. Dependencies & Integrations
 
-> Auto-generated section — the **Current** subsections are derived from `services/minio/service.yml`'s `data_flow.calls` field (and inverse passes). Re-run `python -m bootstrapper.docs.regen minio` after manifest changes.
-
-### 10.1 Current — Upstream (this service calls)
+### 10.1. Current — Upstream (this service calls)
 
 _No upstream calls._
 
-### 10.2 Current — Downstream (services that call this)
+### 10.2. Current — Downstream (services that call this)
 
 | Service | Category |
 |---|---|
@@ -283,6 +289,7 @@ _No upstream calls._
 | asset-baker | media |
 | asset-worker | media |
 | airflow | agents |
+| celery | agents |
 | backend | apps |
 | jenkins | apps |
 | jupyterhub | apps |
@@ -291,27 +298,27 @@ _No upstream calls._
 | mlflow | apps |
 | zeppelin | apps |
 
-### 10.3 Architecture diagram
+### 10.3. Architecture diagram
 
 ![minio architecture](./architecture.svg)
 
 [Open the interactive HTML diagram](./architecture.html) for a full-screen view.
 
-### 10.4 Future — Missing pair integrations
+### 10.4. Future — Missing pair integrations
 
-- **minio ↔ backend** — *Why:* `minio-init` provisions a `backend` bucket plus scoped keys, but FastAPI never consumes them — large blobs, model checkpoints, embedding caches have nowhere durable to land. *Mechanism:* boto3 client at `http://minio:9000` with `MINIO_BACKEND_ACCESS_KEY`/`SECRET_KEY`, path-style addressing. *Effort:* small. *Confidence:* high.
+- **minio ↔ backend (general artifact API)** — *Why:* Backend RAG ingestion now reads consumer-declared corpora with each store's scoped MinIO account, but the built-in `backend` bucket is not yet a general destination for large blobs, model checkpoints, or embedding caches. *Mechanism:* add an artifact client at `http://minio:9000` using `MINIO_BACKEND_ACCESS_KEY`/`SECRET_KEY`, with upload/download routes and path-style addressing. *Effort:* small. *Confidence:* high.
 - **minio ↔ n8n** — *Why:* the `n8n` bucket and keys are pre-provisioned, and n8n ships a first-party S3 node with custom-endpoint support; workflows could persist files without hitting Supabase Storage's 50 MB ceiling. *Mechanism:* n8n S3 credential at `http://minio:9000`; optional `N8N_EXTERNAL_BINARY_DATA_MODE=s3`. *Effort:* small. *Confidence:* high.
 - **minio ↔ weaviate** — *Why:* Weaviate explicitly supports MinIO as `backup-s3` (upstream docs). Stack has no Weaviate backup story today. *Mechanism:* enable `backup-s3` in `WEAVIATE_ENABLE_MODULES`, set `BACKUP_S3_BUCKET=weaviate-backups`, `BACKUP_S3_ENDPOINT=minio:9000`, `BACKUP_S3_USE_SSL=false`; add `weaviate-backups` entry in `init-minio.sh`. *Effort:* small. *Confidence:* high.
 - **minio ↔ jupyterhub** — *Why:* notebooks need a durable, sharable dataset tier outside the per-user volume; the `jupyter` bucket and keys exist. *Mechanism:* inject `MINIO_JUPYTER_*` + `AWS_S3_ENDPOINT=http://minio:9000` into singleuser env; expose via `s3fs`/`boto3`. *Effort:* small. *Confidence:* high.
 - **minio ↔ comfyui** — *Why:* ComfyUI outputs sit in an ephemeral volume; a `comfyui` bucket exists. Persisting renders lets backend/n8n/open-webui share artifacts across `./stop.sh --cold`. *Mechanism:* post-generation hook (custom node or sidecar) uploads `output/` to `s3://comfyui/` via `MINIO_COMFYUI_*`. *Effort:* medium. *Confidence:* medium.
 - **minio ↔ doc-processor** — *Why:* docling parses have no persistent landing zone; the `docling` bucket is unused, blocking downstream RAG flows from finding outputs at stable URIs. *Mechanism:* doc-processor writes payloads to `s3://docling/<source-hash>/` via `MINIO_DOCLING_*` keys. *Effort:* small. *Confidence:* high.
 
-### 10.5 Future — Candidate new services
+### 10.5. Future — Candidate new services
 
 - **Langfuse** ([details](../../docs/research/candidates/langfuse.md)) — *Headline:* LLM observability platform that uses S3 (MinIO) for long-term trace/blob storage. *Wires into:* litellm, hermes, backend, open-webui, local-deep-researcher.
 - **Apache Iceberg + DuckDB** ([details](../../docs/research/candidates/iceberg-duckdb.md)) — *Headline:* open table format on top of MinIO that gives the stack a queryable analytics tier. *Wires into:* jupyterhub, backend, n8n.
 
-### 10.6 Future — Unused features in this service
+### 10.6. Future — Unused features in this service
 
 - **Bucket notifications (webhook/Redis/NATS targets)** — *Why pursue:* MinIO can POST object-created events to a webhook or Redis stream; would let backend/n8n/Weaviate react to uploads instead of polling. *Effort:* medium.
 - **Object lifecycle rules (expiration + versioning)** — *Why pursue:* `comfyui` and `jupyter` buckets will grow unbounded; per-bucket ILM rules (expire after N days, keep N versions) are a one-shot `mc ilm` config in `init-minio.sh`. *Effort:* small.

@@ -1,4 +1,4 @@
-# Speaches (unified TTS + STT engine)
+# 5.2.47. Speaches (unified TTS + STT engine)
 
 Speaches is a dual-role engine — one container exposes both
 `/v1/audio/transcriptions` (STT, Faster-Whisper) and `/v1/audio/speech`
@@ -32,13 +32,11 @@ pointer, not a duplicate of the aggregator docs.
 
 ## 2. Dependencies & Integrations
 
-> Auto-generated section — the **Current** subsections are derived from `services/speaches/service.yml`'s `data_flow.calls` field (and inverse passes). Re-run `python -m bootstrapper.docs.regen speaches` after manifest changes.
-
-### 2.1 Current — Upstream (this service calls)
+### 2.1. Current — Upstream (this service calls)
 
 _No upstream calls._
 
-### 2.2 Current — Downstream (services that call this)
+### 2.2. Current — Downstream (services that call this)
 
 | Service | Category |
 |---|---|
@@ -47,20 +45,20 @@ _No upstream calls._
 | n8n | agents |
 | open-webui | apps |
 
-### 2.3 Architecture diagram
+### 2.3. Architecture diagram
 
 ![speaches architecture](./architecture.svg)
 
 [Open the interactive HTML diagram](./architecture.html) for a full-screen view.
 
-### 2.4 Future — Missing pair integrations
+### 2.4. Future — Missing pair integrations
 
 _No high-confidence opportunities identified._
 
-### 2.5 Future — Candidate new services
+### 2.5. Future — Candidate new services
 
 _No high-confidence opportunities identified._
 
-### 2.6 Future — Unused features in this service
+### 2.6. Future — Unused features in this service
 
 _No high-confidence opportunities identified._

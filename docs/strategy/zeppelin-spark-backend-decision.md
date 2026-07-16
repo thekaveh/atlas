@@ -52,7 +52,7 @@ custom interpreter patch or a new service backend such as Livy.
 
 ## 3. Rejected Options
 
-### 3.1 Strict Spark Connect for Zeppelin `%spark`
+### 3.1. Strict Spark Connect for Zeppelin `%spark`
 
 Rejected for #211. The observed Zeppelin launch path combines Spark Connect
 configuration with Spark submit master handling, and Spark 4 rejects that mix.
@@ -60,7 +60,7 @@ Continuing on this path would require a custom Zeppelin interpreter/launcher
 patch or a newer upstream-supported Zeppelin path that does not pass a master
 when `spark.remote` is set.
 
-### 3.2 Add Livy Now
+### 3.2. Add Livy Now
 
 Deferred. Livy is a legitimate Zeppelin Spark backend, and Zeppelin documents a
 Livy interpreter with `zeppelin.livy.url` plus `livy.spark.*` settings:
@@ -71,7 +71,7 @@ track membership, category, image, source values, ports, Kong posture,
 dependencies, health checks, init behavior, docs, and smoke tests. If Atlas
 wants Livy, create a separate implementation issue before coding it.
 
-### 3.3 Defer Zeppelin Spark
+### 3.3. Defer Zeppelin Spark
 
 Rejected. Standalone Spark mode fits Zeppelin's documented model and unblocks a
 fresh `%spark` notebook path without adding a new Atlas service.
@@ -89,10 +89,10 @@ Service admission contract:
   is needed.
 - Default posture: keep Zeppelin disabled by default unless an existing track
   or explicit CLI/source choice enables it.
-- Ports: no new host ports; keep the existing `ZEPPELIN_PORT` assignment.
-- Kong alias: unchanged `zeppelin.localhost`.
-- Dependencies: keep Spark required; add or document optional/runtime edges to
-  MinIO, Supabase, and Iceberg REST when the lakehouse catalog is seeded.
+- Ports: no new host ports; keep `ZEPPELIN_PORT` bound to host loopback.
+- Kong alias: none while Zeppelin ships without authentication.
+- Dependencies: keep Spark and MinIO required; document optional/runtime edges
+  to Supabase and Iceberg REST when the lakehouse catalog is seeded.
 - Topology/data flow: `services/zeppelin/service.yml` should include
   `iceberg-rest` in `depends_on.optional` and `data_flow.calls` when the seeded
   catalog becomes part of the runtime contract.
@@ -101,8 +101,8 @@ Service admission contract:
   when `ZEPPELIN_SOURCE=disabled`, and should update/restart interpreter
   settings idempotently through Zeppelin's REST API or an equivalent mounted
   config.
-- Secrets: use existing MinIO root/S3A values and scoped Iceberg MinIO
-  credentials; do not introduce new secrets for this path.
+- Secrets: use scoped Spark/S3A and Iceberg MinIO credentials; do not expose
+  MinIO root credentials to the notebook process.
 - Wizard text: describe Zeppelin as a Spark-first notebook with zero-touch
   standalone Spark and lakehouse catalog setup when enabled. Do not present
   `spark.remote=sc://spark-connect:15002` as the happy path for Zeppelin.

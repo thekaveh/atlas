@@ -13,12 +13,18 @@ the Celery task and tests drive it via ``asyncio.run`` so no event loop or
 """
 from __future__ import annotations
 
+import asyncio
+from contextlib import suppress
 import hashlib
 import json
+import logging
+import os
 import time
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+
+import httpx
 
 from .clients import (
     CorpusFile,
@@ -34,12 +40,16 @@ from .models import (
     STATUS_CANCELLED,
     STATUS_COMPLETED,
     STATUS_FAILED,
+    STATUS_PENDING,
     STATUS_RUNNING,
     IngestionError,
     IngestionRecord,
 )
 from .profiles import LoadedProfile, get_profile
 from .store import IngestionStore, default_store
+
+
+logger = logging.getLogger(__name__)
 
 
 class PhaseFatal(RuntimeError):
@@ -53,6 +63,38 @@ class PhaseFatal(RuntimeError):
 
 class IngestionCancelled(RuntimeError):
     pass
+
+
+class IngestionExecutionBusy(RuntimeError):
+    """Raised when another worker owns the execution lease."""
+
+
+class IngestionExecutionLeaseLost(RuntimeError):
+    """Raised when a worker can no longer persist under its execution lease."""
+
+
+def _validate_execution_lease_seconds(value: Any) -> int:
+    name = "RAG_INGESTION_EXECUTION_LEASE_SECONDS"
+    if isinstance(value, bool) or not isinstance(value, int) or not 10 <= value <= 300:
+        raise ValueError(f"{name} must be an integer from 10 through 300")
+    return value
+
+
+def ingestion_execution_lease_seconds() -> int:
+    name = "RAG_INGESTION_EXECUTION_LEASE_SECONDS"
+    try:
+        value = int(os.getenv(name, "30"))
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be an integer from 10 through 300") from exc
+    return _validate_execution_lease_seconds(value)
+
+
+TRANSIENT_EXCEPTIONS = (
+    TimeoutError,
+    ConnectionError,
+    httpx.TimeoutException,
+    httpx.NetworkError,
+)
 
 
 def _now_iso() -> str:
@@ -99,13 +141,16 @@ class RagIngestionService:
         return get_profile(name, self._profiles_path)
 
     @staticmethod
-    def _idempotency_key(profile: LoadedProfile, corpus: Dict[str, Any]) -> str:
+    def _idempotency_key(
+        profile: LoadedProfile, corpus: Dict[str, Any], corpus_fingerprint: str
+    ) -> str:
         payload = "|".join(
             [
                 profile.consumer,
                 profile.name,
                 profile.revision,
                 json.dumps(corpus, sort_keys=True, separators=(",", ":")),
+                corpus_fingerprint,
             ]
         )
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
@@ -121,11 +166,10 @@ class RagIngestionService:
             if corpus.get("source") != "mount":
                 raise ValueError("corpus_path override is only valid for source=mount profiles")
             corpus = {**corpus, "path": corpus_path}
-        key = self._idempotency_key(profile, corpus)
-
-        existing = self.store.find_by_idempotency_key(key)
-        if existing is not None and existing.is_dedup_candidate:
-            return existing, False  # idempotent: identical corpus+profile → no re-run
+        corpus_fingerprint = self.deps.corpus.fingerprint(
+            corpus, corpus.get("path")
+        )
+        key = self._idempotency_key(profile, corpus, corpus_fingerprint)
 
         record = IngestionRecord(
             id=str(uuid.uuid4()),
@@ -133,6 +177,7 @@ class RagIngestionService:
             profile=profile.name,
             revision=profile.revision,
             idempotency_key=key,
+            content_digest=corpus_fingerprint[:16],
             created_at=_now_iso(),
             updated_at=_now_iso(),
         )
@@ -147,69 +192,240 @@ class RagIngestionService:
             "vectors_written": 0,
             "documents_uploaded": 0,
         }
-        self.store.save(record)
-        return record, True
+        return self.store.create_if_absent(record)
+
+    def mark_dispatch_failed(
+        self, ingestion_id: str, message: str
+    ) -> Optional[IngestionRecord]:
+        error = IngestionError(phase="dispatch", message=message)
+        return self.store.fail_pending_dispatch(
+            ingestion_id,
+            {
+                "phase": error.phase,
+                "message": error.message,
+                "file": error.file,
+                "service": error.service,
+                "http_status": error.http_status,
+                "body": error.body,
+            },
+            _now_iso(),
+        )
 
     # ── run (orchestrate) ────────────────────────────────────────────
-    def _refresh_cancel(self, record: IngestionRecord) -> None:
-        latest = self.store.get(record.id)
+    async def _refresh_cancel(self, record: IngestionRecord) -> None:
+        latest = await asyncio.to_thread(self.store.get, record.id)
         if latest is not None and latest.cancel_requested:
             record.cancel_requested = True
 
-    def _persist(self, record: IngestionRecord) -> None:
+    async def _persist(self, record: IngestionRecord, owner: str) -> None:
         record.updated_at = _now_iso()
-        self.store.save(record)
+        saved = await asyncio.to_thread(self.store.save_claimed, record, owner)
+        if not saved:
+            raise IngestionExecutionLeaseLost(
+                f"Execution lease lost for RAG ingestion {record.id}"
+            )
 
-    async def run(self, ingestion_id: str) -> IngestionRecord:
-        record = self.store.get(ingestion_id)
+    async def _heartbeat_execution(
+        self,
+        ingestion_id: str,
+        owner: str,
+        lease_seconds: int,
+        stop: asyncio.Event,
+        lease_lost: asyncio.Event,
+    ) -> None:
+        interval = max(1.0, lease_seconds / 3)
+        while True:
+            try:
+                await asyncio.wait_for(stop.wait(), timeout=interval)
+                return
+            except asyncio.TimeoutError:
+                try:
+                    renewed = await asyncio.to_thread(
+                        self.store.renew_execution,
+                        ingestion_id,
+                        owner,
+                        lease_seconds,
+                    )
+                except Exception:
+                    logger.exception(
+                        "RAG execution lease renewal failed for ingestion %s",
+                        ingestion_id,
+                    )
+                    lease_lost.set()
+                    return
+                if not renewed:
+                    logger.warning(
+                        "RAG execution lease ownership lost for ingestion %s",
+                        ingestion_id,
+                    )
+                    lease_lost.set()
+                    return
+
+    async def _run_phase_with_lease(
+        self,
+        name: str,
+        record: IngestionRecord,
+        profile: LoadedProfile,
+        corpus: Dict[str, Any],
+        state: Dict[str, Any],
+        lease_lost: asyncio.Event,
+    ) -> None:
+        if lease_lost.is_set():
+            raise IngestionExecutionLeaseLost(
+                f"Execution lease lost for RAG ingestion {record.id}"
+            )
+
+        phase_task = asyncio.create_task(
+            self._run_phase(name, record, profile, corpus, state)
+        )
+        lease_task = asyncio.create_task(lease_lost.wait())
+        try:
+            await asyncio.wait(
+                (phase_task, lease_task),
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if lease_lost.is_set():
+                phase_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await phase_task
+                raise IngestionExecutionLeaseLost(
+                    f"Execution lease lost for RAG ingestion {record.id}"
+                )
+            await phase_task
+        finally:
+            lease_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await lease_task
+
+    async def run(
+        self,
+        ingestion_id: str,
+        *,
+        retry_transient: bool = False,
+        execution_owner: Optional[str] = None,
+        execution_lease_seconds: Optional[int] = None,
+    ) -> IngestionRecord:
+        record = await asyncio.to_thread(self.store.get, ingestion_id)
         if record is None:
             raise KeyError(ingestion_id)
         if record.is_terminal:
             return record
         profile = self._resolve_profile(record.profile)
         corpus = dict(profile.corpus)
+        owner = execution_owner or f"local-{uuid.uuid4()}"
+        lease_seconds = (
+            ingestion_execution_lease_seconds()
+            if execution_lease_seconds is None
+            else _validate_execution_lease_seconds(execution_lease_seconds)
+        )
+        claimed = await asyncio.to_thread(
+            self.store.claim_execution, ingestion_id, owner, lease_seconds
+        )
+        if not claimed:
+            latest = await asyncio.to_thread(self.store.get, ingestion_id)
+            if latest is not None and latest.is_terminal:
+                return latest
+            raise IngestionExecutionBusy(
+                f"RAG ingestion {ingestion_id} is already running"
+            )
+        heartbeat_stop = asyncio.Event()
+        lease_lost = asyncio.Event()
+        heartbeat = asyncio.create_task(
+            self._heartbeat_execution(
+                ingestion_id,
+                owner,
+                lease_seconds,
+                heartbeat_stop,
+                lease_lost,
+            )
+        )
 
-        record.status = STATUS_RUNNING
-        self._persist(record)
-
-        state: Dict[str, Any] = {"files": [], "docs": [], "chunks": [], "vectors": []}
         try:
+            record.status = STATUS_RUNNING
+            await self._persist(record, owner)
+
+            state: Dict[str, Any] = {
+                "files": [],
+                "docs": [],
+                "chunks": [],
+                "vectors": [],
+            }
             for name in (
                 "discover", "parse", "chunk", "embed",
                 "vector_write", "lightrag_upload", "drain", "finalize",
             ):
-                self._refresh_cancel(record)
+                await self._refresh_cancel(record)
                 if record.cancel_requested:
                     record.status = STATUS_CANCELLED
-                    self._persist(record)
+                    await self._persist(record, owner)
                     return record
-                await self._run_phase(name, record, profile, corpus, state)
-                self._persist(record)
+                await self._run_phase_with_lease(
+                    name, record, profile, corpus, state, lease_lost
+                )
+                await self._persist(record, owner)
         except IngestionCancelled:
             record.status = STATUS_CANCELLED
-            self._persist(record)
+            await self._persist(record, owner)
             return record
         except PhaseFatal as fatal:
             record.add_error(fatal.error)
             self._mark_failed_phase(record, fatal.error.phase, fatal.error)
             record.status = STATUS_FAILED
-            self._persist(record)
+            await self._persist(record, owner)
+            return record
+        except IngestionExecutionLeaseLost:
+            raise
+        except TRANSIENT_EXCEPTIONS as exc:
+            if retry_transient:
+                running = next(
+                    (
+                        phase
+                        for phase in record.phases
+                        if phase.status == STATUS_RUNNING
+                    ),
+                    record.phase("finalize"),
+                )
+                running.status = STATUS_PENDING
+                running.started_at = None
+                running.ended_at = None
+                running.duration_ms = None
+                running.error = None
+                running.note = "waiting for Celery retry"
+                record.status = STATUS_PENDING
+                await self._persist(record, owner)
+                raise
+            await self._record_unexpected_failure(record, exc, owner)
             return record
         except Exception as exc:  # noqa: BLE001 - any unexpected phase error is a
             # recorded, actionable job failure — never a crashed worker.
-            running = next(
-                (p.name for p in record.phases if p.status == STATUS_RUNNING), "finalize"
-            )
-            error = IngestionError(phase=running, message=f"unexpected error: {exc}")
-            record.add_error(error)
-            self._mark_failed_phase(record, running, error)
-            record.status = STATUS_FAILED
-            self._persist(record)
+            await self._record_unexpected_failure(record, exc, owner)
             return record
+        else:
+            record.status = (
+                STATUS_FAILED
+                if record.errors and self._has_fatal_phase(record)
+                else STATUS_COMPLETED
+            )
+            await self._persist(record, owner)
+            return record
+        finally:
+            heartbeat_stop.set()
+            await heartbeat
+            await asyncio.to_thread(
+                self.store.release_execution, ingestion_id, owner
+            )
 
-        record.status = STATUS_FAILED if record.errors and self._has_fatal_phase(record) else STATUS_COMPLETED
-        self._persist(record)
-        return record
+    async def _record_unexpected_failure(
+        self, record: IngestionRecord, exc: Exception, owner: str
+    ) -> None:
+        running = next(
+            (p.name for p in record.phases if p.status == STATUS_RUNNING), "finalize"
+        )
+        error = IngestionError(phase=running, message=f"unexpected error: {exc}")
+        record.add_error(error)
+        self._mark_failed_phase(record, running, error)
+        record.status = STATUS_FAILED
+        await self._persist(record, owner)
 
     def _has_fatal_phase(self, record: IngestionRecord) -> bool:
         return any(p.status == STATUS_FAILED for p in record.phases)
@@ -228,6 +444,10 @@ class RagIngestionService:
         phase = record.phase(name)
         phase.status = STATUS_RUNNING
         phase.started_at = _now_iso()
+        phase.ended_at = None
+        phase.duration_ms = None
+        phase.note = None
+        phase.error = None
         start = time.monotonic()
         try:
             handler = getattr(self, f"_phase_{name}")
@@ -240,14 +460,18 @@ class RagIngestionService:
 
     # ── phases ───────────────────────────────────────────────────────
     async def _phase_discover(self, record, profile, corpus, state):
-        files: List[CorpusFile] = self.deps.corpus.discover(corpus, corpus.get("path"))
+        files: List[CorpusFile] = await asyncio.to_thread(
+            self.deps.corpus.discover, corpus, corpus.get("path")
+        )
         state["files"] = files
         record.counts["files_discovered"] = len(files)
         record.phase("discover").counts = {"files": len(files)}
-        # Content hash of the discovered manifest (provenance).
-        manifest = sorted((f.name, len(f.content)) for f in files)
+        # Content hash of the discovered bytes (provenance).
+        manifest = sorted(
+            (f.name, hashlib.sha256(f.content).hexdigest()) for f in files
+        )
         record.content_digest = hashlib.sha256(
-            json.dumps(manifest).encode("utf-8")
+            json.dumps(manifest, separators=(",", ":")).encode("utf-8")
         ).hexdigest()[:16]
 
     async def _phase_parse(self, record, profile, corpus, state):
@@ -283,8 +507,14 @@ class RagIngestionService:
         for doc in state["docs"]:
             if not doc.text.strip():
                 continue
-            resp = chunk_text(
-                ChunkRequest(text=doc.text, strategy=strategy, chunk_size=chunk_size, overlap=overlap)
+            resp = await asyncio.to_thread(
+                chunk_text,
+                ChunkRequest(
+                    text=doc.text,
+                    strategy=strategy,
+                    chunk_size=chunk_size,
+                    overlap=overlap,
+                ),
             )
             for tc in resp.chunks:
                 chunks.append({"source": doc.name, "index": tc.index, "content": tc.content})
@@ -372,6 +602,8 @@ class RagIngestionService:
                 total += await self.deps.weaviate.write_objects(class_name, objects)
             except PhaseFatal:
                 raise
+            except TRANSIENT_EXCEPTIONS:
+                raise
             except Exception as exc:  # noqa: BLE001 - upstream write failure is fatal
                 raise PhaseFatal(
                     IngestionError(
@@ -399,6 +631,8 @@ class RagIngestionService:
             docs = [{"text": d.text, "source": d.name} for d in state["docs"] if d.text.strip()]
             try:
                 uploaded += await self.deps.lightrag.upload(docs)
+            except TRANSIENT_EXCEPTIONS:
+                raise
             except Exception as exc:  # noqa: BLE001
                 http_status, body = _http_error_details(exc)
                 raise PhaseFatal(
@@ -431,7 +665,7 @@ class RagIngestionService:
                             message=f"extraction did not drain within {timeout}s",
                         )
                     )
-                self._refresh_cancel(record)
+                await self._refresh_cancel(record)
                 if record.cancel_requested:
                     raise IngestionCancelled()
                 await asyncio.sleep(self.deps.poll_interval)

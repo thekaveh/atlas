@@ -398,6 +398,38 @@ sections:
       source: services/zeppelin/README.md
       diagrams:
       - service-zeppelin
+  - id: provider-guides
+    number: '5.3'
+    title: Provider And Extension Guides
+    children:
+    - id: provider-docling-localhost
+      number: 5.3.1
+      title: Docling Localhost Provider
+      source: services/docling/provider/localhost/README.md
+    - id: provider-parakeet-overview
+      number: 5.3.2
+      title: Parakeet Provider Overview
+      source: services/parakeet/provider/README.md
+    - id: provider-parakeet-mlx
+      number: 5.3.3
+      title: Parakeet MLX Provider
+      source: services/parakeet/provider/mlx/README.md
+    - id: provider-parakeet-whisper-cpp
+      number: 5.3.4
+      title: Parakeet whisper.cpp Provider
+      source: services/parakeet/provider/whisper-cpp/README.md
+    - id: provider-tts-overview
+      number: 5.3.5
+      title: TTS Provider Overview
+      source: services/tts-provider/provider/README.md
+    - id: provider-tts-localhost
+      number: 5.3.6
+      title: TTS Localhost Provider
+      source: services/tts-provider/provider/localhost/README.md
+    - id: extension-supabase-user-migrations
+      number: 5.3.7
+      title: User Supabase Migrations
+      source: services/supabase/db/_user/README.md
 - id: architecture
   number: '6'
   title: Architecture
@@ -554,6 +586,10 @@ sections:
     number: '9.6'
     title: Roadmap
     source: docs/ROADMAP.md
+  - id: service-directory-layout
+    number: '9.7'
+    title: Service Directory Layout
+    source: services/README.md
 - id: reference
   number: '10'
   title: Reference

@@ -1,10 +1,10 @@
-# Apache Airflow (DAG orchestrator)
+# 5.2.1. Apache Airflow (DAG orchestrator)
 
 Airflow runs as a 4-container family in the stack's `agents` band: `airflow-webserver` (Web UI + REST API; runs `airflow api-server`), `airflow-scheduler` (LocalExecutor task runner), `airflow-dag-processor` (parses DAG files into the metadata DB — required as a standalone service in Airflow 3.x; the scheduler no longer parses in-process), and `airflow-init` (one-shot bootstrap: DB migrate + admin user + Connection seeding).
 
 ## 1. Overview
 
-Image: `apache/airflow:3.2.2` (Apache 2.0), wrapped by a local `services/airflow/build/Dockerfile` that adds the 9-provider bundle needed for the cross-stack integrations (apache-spark, amazon, postgres, redis, common-sql, weaviate, neo4j, openai, fab) plus `pyspark[connect]==4.1.2` (the `[connect]` extra pulls grpcio + companions; the Spark Connect smoke step in the sample DAG needs it). The image also installs Java 17, exposes PySpark's `spark-submit` on `PATH`, bakes the matching S3A/Iceberg jars into PySpark's jars directory, and builds `/opt/airflow/atlas-jars/atlas-lakehouse-smoke.jar` from source for the manual SparkSubmit lakehouse smoke. LocalExecutor is the only supported executor in v1 — tasks run in the scheduler's process pool. Metadata DB lives in a new `airflow` database on Supabase Postgres, created by `airflow-init` on first start.
+Image: `apache/airflow:3.3.0` (Apache 2.0), wrapped by a local `services/airflow/build/Dockerfile` that adds the 9-provider bundle needed for the cross-stack integrations (apache-spark, amazon, postgres, redis, common-sql, weaviate, neo4j, openai, fab) plus `pyspark[connect]==4.1.2` (the `[connect]` extra pulls grpcio + companions; the Spark Connect smoke step in the sample DAG needs it). The image also installs Java 17, exposes PySpark's `spark-submit` on `PATH`, bakes the matching S3A/Iceberg jars into PySpark's jars directory, and builds `/opt/airflow/atlas-jars/atlas-lakehouse-smoke.jar` from source for the manual SparkSubmit lakehouse smoke. LocalExecutor is the only supported executor in v1 — tasks run in the scheduler's process pool. Metadata DB lives in a new `airflow` database on Supabase Postgres, created by `airflow-init` on first start.
 
 ## 2. Access
 
@@ -20,7 +20,7 @@ Image: `apache/airflow:3.2.2` (Apache 2.0), wrapped by a local `services/airflow
 
 ```bash
 AIRFLOW_SOURCE=disabled              # container | disabled
-AIRFLOW_IMAGE=apache/airflow:3.2.2
+AIRFLOW_IMAGE=apache/airflow:3.3.0
 AIRFLOW_PORT=                        # auto-assigned (agents band)
 AIRFLOW_DB_USER=airflow              # role on Supabase Postgres
 AIRFLOW_DB_PASSWORD=                 # auto-generated
@@ -82,7 +82,7 @@ A commented LangChain block at the bottom of the file shows the recommended patt
 
 Use it as a template. Drop your own DAGs into `services/airflow/dags/` — they're bind-mounted into the container.
 
-### 5.1 Lakehouse SparkSubmit smoke
+### 5.1. Lakehouse SparkSubmit smoke
 
 `services/airflow/dags/lakehouse_spark_submit_smoke.py` is a manual DAG (`schedule=None`) for the data-engineering track. It prepares a tiny landing object, uploads the image-built validation JAR to `s3a://jars/atlas/lakehouse-smoke/latest/atlas-lakehouse-smoke.jar`, and runs `SparkSubmitOperator` with `deploy_mode="cluster"` against `spark://spark-master:7077`.
 
@@ -142,9 +142,7 @@ This pattern — agent runtime → orchestrated workflow — pairs Hermes's reac
 
 ## 7. Dependencies & Integrations
 
-> Auto-generated section — the **Current** subsections are derived from `services/airflow/service.yml`'s `data_flow.calls` field (and inverse passes). Re-run `python -m bootstrapper.docs.regen airflow` after manifest changes.
-
-### 7.1 Current — Upstream (this service calls)
+### 7.1. Current — Upstream (this service calls)
 
 | Service | Category |
 |---|---|
@@ -158,28 +156,28 @@ This pattern — agent runtime → orchestrated workflow — pairs Hermes's reac
 | weaviate | data |
 | litellm | llm |
 
-### 7.2 Current — Downstream (services that call this)
+### 7.2. Current — Downstream (services that call this)
 
 | Service | Category |
 |---|---|
 | kong | infra |
 | hermes | agents |
 
-### 7.3 Architecture diagram
+### 7.3. Architecture diagram
 
 ![airflow architecture](./architecture.svg)
 
 [Open the interactive HTML diagram](./architecture.html) for a full-screen view.
 
-### 7.4 Future — Missing pair integrations
+### 7.4. Future — Missing pair integrations
 
 _No high-confidence opportunities identified._
 
-### 7.5 Future — Candidate new services
+### 7.5. Future — Candidate new services
 
 _No high-confidence opportunities identified._
 
-### 7.6 Future — Unused features in this service
+### 7.6. Future — Unused features in this service
 
 _No high-confidence opportunities identified._
 

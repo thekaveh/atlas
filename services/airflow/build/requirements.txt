@@ -26,7 +26,7 @@ apache-airflow-providers-openai>=1.7.4
 # we use in AIRFLOW__FAB__AUTH_BACKENDS (renamed from [api] in 3.x). Also
 # required to make `airflow users create` actually work — FAB provides
 # both the auth backend AND the users-management CLI. Floor pinned to
-# 3.6.0 (Airflow 3.2.2 constraint file) — 2.x had breaking internal API
+# 3.6.0 (Airflow 3.x provider line) — 2.x had breaking internal API
 # changes vs the 3.x line and could silently regress under a constrained
 # resolver run.
 apache-airflow-providers-fab>=3.6.4,<4
@@ -37,3 +37,7 @@ psycopg2-binary>=2.9.12
 # bare `pyspark` wheel doesn't include them and the Connect client errors
 # with ModuleNotFoundError: No module named 'grpc' at first call.
 pyspark[connect]==4.1.2
+# Airflow base images may carry an older packaging tool. Keep source-build
+# file exclusion semantics on the patched release even though Atlas does not
+# build sdists at runtime.
+setuptools>=83.0.0

@@ -65,6 +65,15 @@ def _run(coro):
     return asyncio.run(coro)
 
 
+@pytest.mark.parametrize("value", ("bad", "nan", "inf", "0", "-1", "3601"))
+def test_document_extractor_rejects_malformed_or_unbounded_timeout(
+    monkeypatch, value
+) -> None:
+    monkeypatch.setenv("TIKA_TIMEOUT_SECONDS", value)
+    with pytest.raises(ValueError, match="TIKA_TIMEOUT_SECONDS"):
+        DocumentExtractorConfig.from_env()
+
+
 def test_docling_success_does_not_call_tika() -> None:
     client = FakeAsyncClient(
         [
@@ -113,6 +122,33 @@ def test_docling_success_does_not_call_tika() -> None:
     assert [call[0] for call in client.calls] == [
         "http://docling-gpu:8000/v1/document/convert"
     ]
+
+
+@pytest.mark.parametrize(
+    "payload",
+    (
+        {},
+        {"content": "text", "format": "markdown"},
+        {"content": 1, "format": "markdown", "metadata": {}},
+        {"content": "text", "format": "", "metadata": {}},
+        {"content": "text", "format": "markdown", "metadata": [], "chunks": []},
+        {"content": "text", "format": "markdown", "metadata": {}, "chunks": {}},
+    ),
+)
+def test_docling_malformed_success_body_is_rejected(payload) -> None:
+    extractor = DocumentExtractor(
+        DocumentExtractorConfig(docling_endpoint="http://docling-gpu:8000"),
+        http_client=FakeAsyncClient([FakeResponse(200, json_data=payload)]),
+    )
+
+    with pytest.raises(DocumentExtractionError, match="invalid response"):
+        _run(
+            extractor.extract(
+                content=b"document",
+                filename="paper.pdf",
+                content_type="application/pdf",
+            )
+        )
 
 
 def test_docling_unsupported_falls_back_to_tika_with_provenance() -> None:
@@ -177,6 +213,57 @@ def test_long_tail_extension_routes_to_tika_without_docling() -> None:
     assert result.fallback_reason == "long-tail-format"
     assert result.degraded is True
     assert [call[0] for call in client.calls] == ["http://tika:9998/tika/text"]
+
+
+def test_explicit_tika_selection_bypasses_docling() -> None:
+    client = FakeAsyncClient([FakeResponse(200, text="Forced Tika text")])
+    extractor = DocumentExtractor(
+        DocumentExtractorConfig(
+            docling_endpoint="http://docling-gpu:8000",
+            tika_endpoint="http://tika:9998",
+        ),
+        http_client=client,
+    )
+
+    result = _run(
+        extractor.extract(
+            content=b"plain bytes",
+            filename="notes.txt",
+            content_type="text/plain",
+            extractor="tika",
+        )
+    )
+
+    assert result.extractor == "tika"
+    assert result.content == "Forced Tika text"
+    assert [call[0] for call in client.calls] == ["http://tika:9998/tika/text"]
+
+
+def test_explicit_docling_selection_does_not_hide_unsupported_response() -> None:
+    client = FakeAsyncClient(
+        [FakeResponse(415, json_data={"detail": "unsupported format"})]
+    )
+    extractor = DocumentExtractor(
+        DocumentExtractorConfig(
+            docling_endpoint="http://docling-gpu:8000",
+            tika_endpoint="http://tika:9998",
+        ),
+        http_client=client,
+    )
+
+    with pytest.raises(DocumentExtractionError, match="Docling.*415"):
+        _run(
+            extractor.extract(
+                content=b"opaque",
+                filename="notes.unknown",
+                content_type="application/octet-stream",
+                extractor="docling",
+            )
+        )
+
+    assert [call[0] for call in client.calls] == [
+        "http://docling-gpu:8000/v1/document/convert"
+    ]
 
 
 def test_disabled_tika_after_docling_unsupported_is_clear_error() -> None:
@@ -284,5 +371,25 @@ def test_extract_route_maps_document_extraction_error_to_502(
 
     assert response.status_code == 502
     assert response.json() == {
-        "detail": "Docling extraction request failed: refused"
+        "detail": "Document extraction failed"
     }
+
+
+def test_upstream_failure_body_is_not_exposed() -> None:
+    extractor = DocumentExtractor(
+        DocumentExtractorConfig(docling_endpoint="http://docling-gpu:8000"),
+        http_client=FakeAsyncClient(
+            [FakeResponse(500, text="postgresql://admin:secret@db/internal")]
+        ),
+    )
+
+    with pytest.raises(DocumentExtractionError) as captured:
+        _run(
+            extractor.extract(
+                content=b"document",
+                filename="paper.pdf",
+                content_type="application/pdf",
+            )
+        )
+
+    assert "secret" not in str(captured.value)

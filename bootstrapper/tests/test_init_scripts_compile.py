@@ -1,5 +1,5 @@
 """Every Python init/runtime script under any `services/<svc>/.../scripts/`
-directory must parse cleanly via `py_compile`; every shell script under
+directory must parse cleanly via Python's in-memory compiler; every shell script under
 the same tree must parse cleanly via `bash -n`.
 
 Service scripts the bootstrapper package never imports live in several
@@ -29,7 +29,7 @@ the script crashed at module-import time on every open-webui-init
 boot until 2026-06-08 when the audit caught it. This test is the
 permanent guard.
 
-Tests intentionally use `py_compile.compile` (not `importlib`) so they
+Tests intentionally use Python's built-in `compile` (not `importlib`) so they
 do NOT execute module-top-level code (init scripts read DATABASE_URL,
 WEBUI_SECRET_KEY, etc. at import time and would crash in a clean
 bootstrapper venv). Bash scripts use `bash -n` for the same reason
@@ -38,7 +38,6 @@ bootstrapper venv). Bash scripts use `bash -n` for the same reason
 from __future__ import annotations
 
 import ast
-import py_compile
 import shutil
 import subprocess
 from pathlib import Path
@@ -56,15 +55,45 @@ def _discover_init_scripts() -> list[Path]:
     # litellm's was removed in Part B6, comfyui's sync-catalog.py in Part C5.
     # Enumerating specific subdirs missed entries, so glob the whole tree
     # instead of playing subdir whack-a-mole.
-    return sorted(REPO_ROOT.glob("services/*/**/scripts/*.py"))
+    return _tracked_service_scripts(".py")
 
 
 def _discover_shell_init_scripts() -> list[Path]:
-    return sorted(REPO_ROOT.glob("services/*/**/scripts/*.sh"))
+    return _tracked_service_scripts(".sh")
 
 
 def _discover_node_init_scripts() -> list[Path]:
-    return sorted(REPO_ROOT.glob("services/*/**/scripts/*.js"))
+    return _tracked_service_scripts(".js")
+
+
+def _tracked_service_scripts(suffix: str) -> list[Path]:
+    tracked = subprocess.check_output(
+        ["git", "ls-files", "services"], cwd=REPO_ROOT, text=True
+    ).splitlines()
+    return sorted(
+        REPO_ROOT / relative
+        for relative in tracked
+        if "/scripts/" in relative and relative.endswith(suffix)
+    )
+
+
+def test_discovery_only_returns_tracked_service_scripts() -> None:
+    tracked = {
+        (REPO_ROOT / line).resolve()
+        for line in subprocess.check_output(
+            ["git", "ls-files", "services"], cwd=REPO_ROOT, text=True
+        ).splitlines()
+    }
+    discovered = {
+        path.resolve()
+        for path in (
+            _discover_init_scripts()
+            + _discover_shell_init_scripts()
+            + _discover_node_init_scripts()
+        )
+    }
+
+    assert discovered <= tracked
 
 
 @pytest.mark.parametrize(
@@ -73,15 +102,15 @@ def _discover_node_init_scripts() -> list[Path]:
     ids=lambda p: str(p.relative_to(REPO_ROOT)),
 )
 def test_init_script_compiles(script_path: Path) -> None:
-    """The script must pass `py_compile` — catches syntax-class bugs
+    """The script must compile in memory — catches syntax-class bugs
     (duplicate kwargs, missing parens, mistyped indent) without
     executing any module-top-level code.
     """
     try:
-        py_compile.compile(str(script_path), doraise=True)
-    except py_compile.PyCompileError as e:
+        compile(script_path.read_bytes(), str(script_path), "exec")
+    except SyntaxError as exc:
         pytest.fail(
-            f"{script_path.relative_to(REPO_ROOT)} does not parse:\n{e.msg}"
+            f"{script_path.relative_to(REPO_ROOT)} does not parse:\n{exc}"
         )
 
 

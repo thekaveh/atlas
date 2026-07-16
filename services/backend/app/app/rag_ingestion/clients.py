@@ -11,14 +11,20 @@ orchestrator turns that into fail/skip semantics per the profile target.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 
 class CorpusPathError(ValueError):
     """A mount corpus path that escapes the read-only corpus root."""
+
+
+class CorpusSizeError(ValueError):
+    """A corpus file or aggregate exceeds the configured memory boundary."""
 
 
 @dataclass
@@ -34,11 +40,107 @@ def _corpus_root() -> Path:
     return Path(os.getenv("RAG_INGESTION_CORPUS_ROOT", "/app/corpus")).resolve()
 
 
+def _size_limit(name: str, default: int) -> int:
+    raw = os.getenv(name, str(default))
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise CorpusSizeError(f"{name} must be a positive integer, got {raw!r}") from exc
+    if value <= 0:
+        raise CorpusSizeError(f"{name} must be a positive integer, got {raw!r}")
+    return value
+
+
+def _corpus_limits() -> tuple[int, int, int]:
+    return (
+        _size_limit("RAG_INGESTION_MAX_FILE_BYTES", 100 * 1024 * 1024),
+        _size_limit("RAG_INGESTION_MAX_CORPUS_BYTES", 1024 * 1024 * 1024),
+        _size_limit("RAG_INGESTION_MAX_FILES", 10_000),
+    )
+
+
+def _check_file_count(count: int, max_files: int) -> None:
+    if count > max_files:
+        raise CorpusSizeError(f"corpus contains more than {max_files} files")
+
+
+def _check_declared_size(
+    name: str,
+    size: int | None,
+    *,
+    total: int,
+    max_file_bytes: int,
+    max_corpus_bytes: int,
+) -> None:
+    if size is None:
+        return
+    if size > max_file_bytes:
+        raise CorpusSizeError(
+            f"corpus file {name!r} exceeds configured limit of {max_file_bytes} bytes"
+        )
+    if total + size > max_corpus_bytes:
+        raise CorpusSizeError(
+            f"corpus exceeds configured limit of {max_corpus_bytes} bytes "
+            f"while reading {name!r}"
+        )
+
+
+def _consume_bounded(
+    stream: Any,
+    name: str,
+    *,
+    total: int,
+    max_file_bytes: int,
+    max_corpus_bytes: int,
+    on_chunk: Callable[[bytes], None],
+) -> int:
+    consumed = 0
+    while True:
+        chunk = stream.read(min(1024 * 1024, max_file_bytes - consumed + 1))
+        if not chunk:
+            break
+        consumed += len(chunk)
+        if consumed > max_file_bytes:
+            raise CorpusSizeError(
+                f"corpus file {name!r} exceeds configured limit of "
+                f"{max_file_bytes} bytes"
+            )
+        if total + consumed > max_corpus_bytes:
+            raise CorpusSizeError(
+                f"corpus exceeds configured limit of {max_corpus_bytes} bytes "
+                f"while reading {name!r}"
+            )
+        on_chunk(chunk)
+    return consumed
+
+
+def _read_bounded(
+    stream: Any,
+    name: str,
+    *,
+    total: int,
+    max_file_bytes: int,
+    max_corpus_bytes: int,
+) -> bytes:
+    content = bytearray()
+    _consume_bounded(
+        stream,
+        name,
+        total=total,
+        max_file_bytes=max_file_bytes,
+        max_corpus_bytes=max_corpus_bytes,
+        on_chunk=content.extend,
+    )
+    return bytes(content)
+
+
 class MountCorpusReader:
     """Reads a consumer-mounted read-only directory. The resolved path MUST stay
     within the corpus root — the security boundary against arbitrary host paths."""
 
-    def discover(self, corpus: Dict[str, Any], override_path: Optional[str] = None) -> List[CorpusFile]:
+    def _validated_paths(
+        self, corpus: Dict[str, Any], override_path: Optional[str] = None
+    ) -> tuple[Path, List[Path]]:
         rel = override_path or str(corpus.get("path") or "")
         if rel.startswith("/") or rel.startswith("~") or ".." in Path(rel).parts:
             raise CorpusPathError(
@@ -50,8 +152,7 @@ class MountCorpusReader:
         if root != target and root not in target.parents:
             raise CorpusPathError(f"corpus path {rel!r} escapes the corpus root {root}")
         if not target.exists():
-            return []
-        files: List[CorpusFile] = []
+            return root, []
         paths = [target] if target.is_file() else sorted(
             p for p in target.rglob("*") if p.is_file()
         )
@@ -67,8 +168,68 @@ class MountCorpusReader:
                     f"corpus file {path.relative_to(root)!s} resolves outside the corpus "
                     f"root {root} (symlink escape) — refusing to ingest"
                 )
-            files.append(CorpusFile(name=str(path.relative_to(root)), content=path.read_bytes()))
+        return root, paths
+
+    def discover(self, corpus: Dict[str, Any], override_path: Optional[str] = None) -> List[CorpusFile]:
+        root, paths = self._validated_paths(corpus, override_path)
+        max_file_bytes, max_corpus_bytes, max_files = _corpus_limits()
+        _check_file_count(len(paths), max_files)
+        total = 0
+        files: List[CorpusFile] = []
+        for path in paths:
+            name = str(path.relative_to(root))
+            _check_declared_size(
+                name,
+                path.stat().st_size,
+                total=total,
+                max_file_bytes=max_file_bytes,
+                max_corpus_bytes=max_corpus_bytes,
+            )
+            with path.open("rb") as stream:
+                content = _read_bounded(
+                    stream,
+                    name,
+                    total=total,
+                    max_file_bytes=max_file_bytes,
+                    max_corpus_bytes=max_corpus_bytes,
+                )
+            total += len(content)
+            files.append(CorpusFile(name=name, content=content))
         return files
+
+    def fingerprint(
+        self, corpus: Dict[str, Any], override_path: Optional[str] = None
+    ) -> str:
+        root, paths = self._validated_paths(corpus, override_path)
+        max_file_bytes, max_corpus_bytes, max_files = _corpus_limits()
+        _check_file_count(len(paths), max_files)
+        total = 0
+        manifest = []
+        for path in paths:
+            name = str(path.relative_to(root))
+            size = path.stat().st_size
+            _check_declared_size(
+                name,
+                size,
+                total=total,
+                max_file_bytes=max_file_bytes,
+                max_corpus_bytes=max_corpus_bytes,
+            )
+            digest = hashlib.sha256()
+            with path.open("rb") as stream:
+                consumed = _consume_bounded(
+                    stream,
+                    name,
+                    total=total,
+                    max_file_bytes=max_file_bytes,
+                    max_corpus_bytes=max_corpus_bytes,
+                    on_chunk=digest.update,
+                )
+            total += consumed
+            manifest.append((name, digest.hexdigest()))
+        return hashlib.sha256(
+            json.dumps(manifest, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
 
 
 class MinioCorpusReader:
@@ -80,28 +241,106 @@ class MinioCorpusReader:
     def available(self) -> bool:
         return bool(self._endpoint.strip())
 
+    @staticmethod
+    def _credentials(corpus: Dict[str, Any]) -> tuple[str, str]:
+        access_var = str(
+            corpus.get("access_key_var") or "MINIO_BACKEND_ACCESS_KEY"
+        )
+        secret_var = str(
+            corpus.get("secret_key_var") or "MINIO_BACKEND_SECRET_KEY"
+        )
+        return os.getenv(access_var, ""), os.getenv(secret_var, "")
+
     def discover(self, corpus: Dict[str, Any], override_path: Optional[str] = None) -> List[CorpusFile]:
         from minio import Minio  # lazy — keeps main.py import closure minio-free
         from urllib.parse import urlparse
 
         parsed = urlparse(self._endpoint if "://" in self._endpoint else f"http://{self._endpoint}")
+        access_key, secret_key = self._credentials(corpus)
         client = Minio(
             parsed.netloc,
-            access_key=os.getenv("MINIO_ROOT_USER", os.getenv("MINIO_ACCESS_KEY", "")),
-            secret_key=os.getenv("MINIO_ROOT_PASSWORD", os.getenv("MINIO_SECRET_KEY", "")),
+            access_key=access_key,
+            secret_key=secret_key,
             secure=parsed.scheme == "https",
         )
         bucket = str(corpus.get("bucket"))
         prefix = str(corpus.get("prefix"))
+        max_file_bytes, max_corpus_bytes, max_files = _corpus_limits()
+        total = 0
         files: List[CorpusFile] = []
-        for obj in client.list_objects(bucket, prefix=prefix, recursive=True):
+        for count, obj in enumerate(
+            client.list_objects(bucket, prefix=prefix, recursive=True), start=1
+        ):
+            _check_file_count(count, max_files)
+            size = getattr(obj, "size", None)
+            _check_declared_size(
+                obj.object_name,
+                size if isinstance(size, int) else None,
+                total=total,
+                max_file_bytes=max_file_bytes,
+                max_corpus_bytes=max_corpus_bytes,
+            )
             resp = client.get_object(bucket, obj.object_name)
             try:
-                files.append(CorpusFile(name=obj.object_name, content=resp.read()))
+                content = _read_bounded(
+                    resp,
+                    obj.object_name,
+                    total=total,
+                    max_file_bytes=max_file_bytes,
+                    max_corpus_bytes=max_corpus_bytes,
+                )
             finally:
                 resp.close()
                 resp.release_conn()
+            total += len(content)
+            files.append(CorpusFile(name=obj.object_name, content=content))
         return files
+
+    def fingerprint(
+        self, corpus: Dict[str, Any], override_path: Optional[str] = None
+    ) -> str:
+        from minio import Minio
+        from urllib.parse import urlparse
+
+        parsed = urlparse(self._endpoint if "://" in self._endpoint else f"http://{self._endpoint}")
+        access_key, secret_key = self._credentials(corpus)
+        client = Minio(
+            parsed.netloc,
+            access_key=access_key,
+            secret_key=secret_key,
+            secure=parsed.scheme == "https",
+        )
+        bucket = str(corpus.get("bucket"))
+        prefix = str(corpus.get("prefix"))
+        max_file_bytes, max_corpus_bytes, max_files = _corpus_limits()
+        total = 0
+        manifest = []
+        for count, obj in enumerate(
+            client.list_objects(bucket, prefix=prefix, recursive=True), start=1
+        ):
+            _check_file_count(count, max_files)
+            size = getattr(obj, "size", None)
+            declared_size = size if isinstance(size, int) else None
+            _check_declared_size(
+                obj.object_name,
+                declared_size,
+                total=total,
+                max_file_bytes=max_file_bytes,
+                max_corpus_bytes=max_corpus_bytes,
+            )
+            total += declared_size or 0
+            manifest.append(
+                (
+                    obj.object_name,
+                    getattr(obj, "etag", None),
+                    size,
+                    str(getattr(obj, "last_modified", "")),
+                )
+            )
+        manifest.sort()
+        return hashlib.sha256(
+            json.dumps(manifest, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
 
 
 class CorpusReader:
@@ -116,6 +355,13 @@ class CorpusReader:
         if source == "minio":
             return self._minio.discover(corpus, override_path)
         return self._mount.discover(corpus, override_path)
+
+    def fingerprint(
+        self, corpus: Dict[str, Any], override_path: Optional[str] = None
+    ) -> str:
+        if corpus.get("source") == "minio":
+            return self._minio.fingerprint(corpus, override_path)
+        return self._mount.fingerprint(corpus, override_path)
 
 
 # ─── parsing ─────────────────────────────────────────────────────────
@@ -163,7 +409,10 @@ class ParserAdapter:
                 if parser in ("docling", "tika"):
                     extractor = self._get_extractor()
                     result = await extractor.extract(
-                        file.content, filename=file.name, content_type=file.content_type
+                        content=file.content,
+                        filename=file.name,
+                        content_type=file.content_type,
+                        extractor=parser,
                     )
                     text = getattr(result, "content", None)
                     if text is None and isinstance(result, dict):
@@ -305,11 +554,30 @@ class LightRagClient:
                 resp = await client.post(
                     f"{self._endpoint}/documents/text",
                     headers=self._headers(),
-                    json={"text": doc["text"], "file_source": doc.get("source", "")},
+                    json={
+                        "text": doc["text"],
+                        "file_source": self._file_source(doc),
+                    },
                 )
+                if resp.status_code == 409:
+                    uploaded += 1
+                    continue
                 resp.raise_for_status()
                 uploaded += 1
         return uploaded
+
+    @staticmethod
+    def _file_source(document: Dict[str, str]) -> str:
+        identity = json.dumps(
+            {
+                "source": document.get("source", ""),
+                "text": document["text"],
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()
+        return f"atlas-{digest}.txt"
 
     async def pipeline_busy(self) -> bool:
         import httpx

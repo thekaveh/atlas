@@ -3,6 +3,7 @@ NVIDIA NeMo-based transcription implementation for Parakeet-TDT
 Optimized for NVIDIA GPUs with CUDA acceleration
 """
 
+import asyncio
 import os
 import logging
 import nemo.collections.asr as nemo_asr
@@ -12,6 +13,14 @@ logger = logging.getLogger(__name__)
 
 # Global model (loaded once on startup)
 _model = None
+_transcription_semaphore = asyncio.Semaphore(
+    max(1, int(os.getenv("PARAKEET_CONCURRENCY", "1")))
+)
+
+
+def model_is_loaded() -> bool:
+    return _model is not None
+
 
 def load_model():
     """Load Parakeet model using NVIDIA NeMo (lazy loading)"""
@@ -21,7 +30,7 @@ def load_model():
         model_name = os.getenv("PARAKEET_MODEL", "nvidia/parakeet-tdt-0.6b-v3")
         device = os.getenv("PARAKEET_DEVICE", "cuda")
 
-        logger.info(f"Loading Parakeet model: {model_name} on device: {device}")
+        logger.info("Loading Parakeet model")
 
         try:
             # Load model using NeMo
@@ -40,8 +49,8 @@ def load_model():
 
             logger.info("Model loaded successfully")
 
-        except Exception as e:
-            logger.error(f"Failed to load model: {e}")
+        except Exception as exc:
+            logger.error("Failed to load model (error_type=%s)", type(exc).__name__)
             raise
 
     return _model
@@ -67,19 +76,14 @@ async def transcribe_audio(
         dict: Transcription result with text and optional timestamps
     """
     try:
-        # Load model (lazy loading)
-        model = load_model()
-
-        # Transcribe using NeMo
-        logger.info(f"Transcribing audio file: {audio_path}")
-
-        # NeMo transcription. timestamps=True so the hypothesis carries
-        # word/segment timing when requested (NeMo only populates
-        # .timestamp — note: not "timestep" — when asked at
-        # transcribe() time).
-        transcription = model.transcribe(
-            [audio_path], timestamps=bool(return_timestamps),
-        )
+        async with _transcription_semaphore:
+            model = await asyncio.to_thread(load_model)
+            logger.info("Transcribing audio file")
+            transcription = await asyncio.to_thread(
+                model.transcribe,
+                [audio_path],
+                timestamps=bool(return_timestamps),
+            )
 
         # Extract text result. For RNNT/TDT models NeMo returns
         # List[Hypothesis] EVEN without return_hypotheses — indexing
@@ -112,14 +116,17 @@ async def transcribe_audio(
                     result["has_timestamps"] = True
                 else:
                     result["has_timestamps"] = False
-            except Exception as e:
-                logger.warning(f"Could not extract timestamps: {e}")
+            except Exception as exc:
+                logger.warning(
+                    "Could not extract timestamps (error_type=%s)",
+                    type(exc).__name__,
+                )
                 result["has_timestamps"] = False
 
         return result
 
-    except Exception as e:
-        logger.error(f"Transcription failed: {e}", exc_info=True)
+    except Exception as exc:
+        logger.error("Transcription failed (error_type=%s)", type(exc).__name__)
         raise
 
 # Pre-load model on module import (optional, for faster first request)

@@ -97,7 +97,7 @@ def test_manifest_drives_numbered_mkdocs_nav_and_real_pages() -> None:
     assert "repo_url" not in config
     assert "repo_name" not in config
     assert "edit_uri" not in config
-    assert len(nav) == len(manifest.pages) == 102
+    assert len(nav) == len(manifest.pages) == 110
     assert nav["1. Overview"] == "index.md"
     assert nav["5.1. Service Catalog"] == "services/index.md"
     assert nav["10.1. Reference Index"] == "reference/index.md"
@@ -113,6 +113,7 @@ def test_service_catalog_and_manifest_cover_every_service_family() -> None:
         Path(page.source).parts[1]: page
         for page in manifest.pages
         if page.source.startswith("services/")
+        and len(Path(page.source).parts) == 3
     }
     index = (DOCS_SITE / "services" / "index.md").read_text(encoding="utf-8")
 
@@ -182,6 +183,36 @@ def test_diagram_masters_and_surface_assets_are_complete() -> None:
         assert f"img/service-{name}.png" in wiki
 
 
+def test_architecture_pages_explain_the_views_without_publication_instructions() -> None:
+    for page in DIAGRAMS_DIR.glob("*.md"):
+        if page.name in {"README.md", "index.md"}:
+            continue
+        text = page.read_text(encoding="utf-8")
+        assert "## 2. How To Read This View" in text, page
+        assert "## 3. Source Files" in text, page
+        assert "## 4. Maintenance" not in text, page
+        assert "architecture-diagram design system" not in text, page
+        assert "dark slate background" not in text, page
+        interactive = page.with_suffix(".html").read_text(encoding="utf-8")
+        assert "How to read this view" in interactive, page
+        assert "architecture-diagram design system" not in interactive, page
+        assert "Update trigger" not in interactive, page
+
+    source_model = (DIAGRAMS_DIR / "source-configuration-model.html").read_text(
+        encoding="utf-8"
+    )
+    assert 'data-source="SOURCE Var" data-target="container"' in source_model
+    assert 'data-source="SOURCE Var" data-target="localhost"' in source_model
+    assert 'data-source="container" data-target="localhost"' not in source_model
+
+    network = (DIAGRAMS_DIR / "network-routing-topology.html").read_text(
+        encoding="utf-8"
+    )
+    assert 'data-source="Browser" data-target="*.localhost"' in network
+    assert 'data-source="Browser" data-target="Direct Ports"' in network
+    assert 'data-source="Kong" data-target="Direct Ports"' not in network
+
+
 def test_wiki_contains_the_complete_manifest_page_set_and_navigation() -> None:
     manifest = _manifest()
     expected = {page.wiki_path.as_posix() for page in manifest.pages} | {"_Sidebar.md", "_Footer.md"}
@@ -192,7 +223,9 @@ def test_wiki_contains_the_complete_manifest_page_set_and_navigation() -> None:
     assert "[5.2.11. comfyui](5.2.11-comfyui)" in sidebar
     for page in manifest.pages:
         text = (WIKI_DIR / page.wiki_path).read_text(encoding="utf-8")
-        assert text.startswith(f"# {page.number}. {page.title}")
+        canonical = (ROOT / page.source).read_text(encoding="utf-8")
+        assert text.splitlines()[0] == canonical.splitlines()[0]
+        assert text.startswith(f"# {page.number}. ")
         assert not any(is_forbidden(link.target, "wiki") for link in find_links(text))
 
 
@@ -274,8 +307,15 @@ def test_services_lint_gates_main_and_develop_and_runs_three_surface_check() -> 
     assert workflow[True]["pull_request"]["branches"] == ["main", "develop"]
     assert "make docs-check" in text
     assert "Install Cairo" in text
-    assert workflow["jobs"]["notebook-reproducibility"]["name"] == "Notebook source reproducibility"
+    assert workflow["jobs"]["notebook-reproducibility"]["name"] == "Notebook source hygiene"
     assert "python -m scripts.notebook_reproducibility" in text
+
+
+def test_source_configuration_shell_examples_do_not_comment_after_continuations() -> None:
+    source = (ROOT / "docs" / "deployment" / "source-configuration.md").read_text(
+        encoding="utf-8"
+    )
+    assert "\\  #" not in source
 
 
 def test_services_lint_build_validation_covers_all_local_build_contexts() -> None:
@@ -317,7 +357,9 @@ def test_docs_do_not_reference_retired_required_check_counts() -> None:
 def test_generated_pages_have_manifest_numbered_h1_and_local_numbered_sections() -> None:
     for page in _manifest().pages:
         text = (DOCS_SITE / page.site_path).read_text(encoding="utf-8")
-        assert text.startswith(f"# {page.number}. {page.title}")
+        canonical = (ROOT / page.source).read_text(encoding="utf-8")
+        assert text.splitlines()[0] == canonical.splitlines()[0]
+        assert text.startswith(f"# {page.number}. ")
         headings = [line for line in text.splitlines() if line.startswith("## ")]
         assert headings, page.source
         if page.source != "docs/CHANGELOG.md":

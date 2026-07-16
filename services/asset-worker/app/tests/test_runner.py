@@ -11,9 +11,10 @@ def test_gltf_transform_runner_includes_normalization_and_optimization_flags(
 
     commands = []
 
-    def fake_run(command, *, check):
+    def fake_run(command, *, check, timeout):
         commands.append(command)
         assert check is True
+        assert timeout == 300.0
         if command[1] == "optimize":
             tmp_path.joinpath("out.glb").write_bytes(b"optimized")
         return subprocess.CompletedProcess(command, 0)
@@ -50,3 +51,27 @@ def test_gltf_transform_runner_includes_normalization_and_optimization_flags(
     assert "--texture-compress" in optimize
     assert "ktx2" in optimize
     assert output_path.exists()
+
+
+def test_gltf_transform_runner_applies_timeout_to_every_subprocess(
+    monkeypatch, tmp_path
+) -> None:
+    from asset_worker.models import PostprocessParams
+    from asset_worker.runner import run_gltf_transform
+
+    timeouts = []
+
+    def fake_run(command, *, check, timeout):
+        timeouts.append(timeout)
+        if command[1] == "optimize":
+            tmp_path.joinpath("out.glb").write_bytes(b"optimized")
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setenv("ASSET_WORKER_TIMEOUT_SECONDS", "17")
+    input_path = tmp_path / "in.glb"
+    input_path.write_bytes(b"raw")
+
+    run_gltf_transform(input_path, tmp_path / "out.glb", PostprocessParams())
+
+    assert timeouts == [17.0, 17.0, 17.0]

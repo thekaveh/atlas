@@ -1,4 +1,4 @@
-# Troubleshooting Guide
+# 2.3. Troubleshooting Guide
 
 This guide covers common issues and their solutions when using Atlas.
 
@@ -17,7 +17,7 @@ The simplest reset is `cp .env.example .env` followed by `./start.sh --cold` —
 When `./start.sh` runs the Textual TUI, every line is tee'd to a timestamped file — both wizard-time diagnostic events (cloud `/v1/models` fetch failures, Ollama upstream discovery warnings, etc.) and the entire launch phase (build, port verification, `docker compose up`, per-service `logs --tail` on failure):
 
 ```
-/tmp/atlas-launch-<YYYYMMDDTHHMMSS>.log
+/tmp/atlas-launch-<YYYYMMDDTHHMMSS>-<unique>.log
 ```
 
 The most recent log is always:
@@ -30,7 +30,7 @@ Inspect it after a failed launch — it captures everything the log pane showed,
 
 ## 3. Quick Fixes
 
-### 3.1 Port Conflicts
+### 3.1. Port Conflicts
 ```bash
 # Error: "bind: address already in use"
 ./start.sh --base-port 64000  # Use different port range
@@ -42,7 +42,7 @@ lsof -i :63096
 kill -9 $(lsof -t -i:63096)
 ```
 
-### 3.2 Memory Issues
+### 3.2. Memory Issues
 ```bash
 # Error: Containers crashing with exit code 137 (OOM kill)
 # Solution: Increase Docker memory allocation
@@ -53,7 +53,7 @@ colima stop
 colima start --memory 12 --cpu 6
 ```
 
-### 3.3 Access Issues
+### 3.3. Access Issues
 ```bash
 # Can't access *.localhost URLs?
 ./start.sh --setup-hosts  # Configure hosts file
@@ -65,7 +65,7 @@ colima start --memory 12 --cpu 6
 ./stop.sh --cold && ./start.sh --cold
 ```
 
-### 3.4 Platform Issues
+### 3.4. Platform Issues
 ```bash
 # Windows/WSL issues?
 python3 bootstrapper/start.py --help  # Use Python directly
@@ -76,7 +76,7 @@ chmod +x start.sh stop.sh
 
 ## 4. Service-Specific Issues
 
-### 4.1 LLM Issues (LiteLLM gateway + Ollama upstream)
+### 4.1. LLM Issues (LiteLLM gateway + Ollama upstream)
 
 **LiteLLM not responding / consumers can't reach LLMs:**
 ```bash
@@ -113,7 +113,7 @@ Reminder: Ollama no longer has a host port mapping. Reach it via LiteLLM (`http:
 ollama pull qwen3:1.7b  # Smaller model
 ```
 
-### 4.2 ComfyUI Issues
+### 4.2. ComfyUI Issues
 
 **Models downloading slowly or missing:**
 ```bash
@@ -137,10 +137,10 @@ docker logs ${PROJECT_NAME}-comfyui -f
 ./start.sh --setup-hosts
 
 # Access via direct URL
-curl http://localhost:63053  # Direct port access (COMFYUI_PORT)
+curl http://localhost:63054  # Direct port access (COMFYUI_PORT)
 ```
 
-### 4.3 n8n Issues
+### 4.3. n8n Issues
 
 **n8n not accessible:**
 ```bash
@@ -163,7 +163,7 @@ docker logs ${PROJECT_NAME}-n8n-worker -f
 docker logs ${PROJECT_NAME}-redis -f
 ```
 
-### 4.4 Database Issues
+### 4.4. Database Issues
 
 **Supabase services not starting:**
 ```bash
@@ -194,7 +194,7 @@ docker exec ${PROJECT_NAME}-backend python -c "import psycopg2; print('DB OK')"
 ```
 See `services/supabase/README.md` §2.1 for the full explanation.
 
-### 4.5 Kong Gateway Issues
+### 4.5. Kong Gateway Issues
 
 **404 errors for services:**
 ```bash
@@ -221,7 +221,7 @@ docker compose ps | grep -E "(comfyui|n8n)"
 
 ## 5. Resource Issues
 
-### 5.1 Docker Resource Monitoring
+### 5.1. Docker Resource Monitoring
 
 ```bash
 # Check overall resource usage
@@ -235,7 +235,7 @@ docker system prune -f
 docker volume prune -f  # BE CAREFUL - removes unused volumes
 ```
 
-### 5.2 Memory Optimization
+### 5.2. Memory Optimization
 
 ```bash
 # Disable memory-heavy services
@@ -247,7 +247,7 @@ docker volume prune -f  # BE CAREFUL - removes unused volumes
 
 ## 6. Network Issues
 
-### 6.1 DNS Resolution
+### 6.1. DNS Resolution
 
 ```bash
 # Check hosts file entries
@@ -257,7 +257,7 @@ cat /etc/hosts | grep localhost
 echo "127.0.0.1 n8n.localhost comfyui.localhost search.localhost api.localhost chat.localhost" | sudo tee -a /etc/hosts
 ```
 
-### 6.2 Firewall Issues
+### 6.2. Firewall Issues
 
 ```bash
 # Check if ports are accessible
@@ -270,7 +270,7 @@ sudo ufw status  # Ubuntu/Debian
 
 ## 7. Startup Issues
 
-### 7.1 Service Dependencies
+### 7.1. Service Dependencies
 
 ```bash
 # Some services depend on others - check startup order
@@ -281,7 +281,7 @@ docker logs ${PROJECT_NAME}-redis -f      # Many services need Redis
 docker logs ${PROJECT_NAME}-supabase-db -f # Backend needs database
 ```
 
-### 7.2 Environment Issues
+### 7.2. Environment Issues
 
 ```bash
 # Check if .env file exists and is valid
@@ -295,7 +295,7 @@ cp .env.example .env
 
 ## 8. Debug Commands
 
-### 8.1 System Status Check
+### 8.1. System Status Check
 
 ```bash
 # Overall system health
@@ -309,7 +309,7 @@ docker logs ${PROJECT_NAME}-ollama --tail=100 -f
 docker logs ${PROJECT_NAME}-backend --tail=100 -f
 ```
 
-### 8.2 Configuration Verification
+### 8.2. Configuration Verification
 
 ```bash
 # Inspect the SOURCE values currently written to .env
@@ -327,7 +327,7 @@ env | grep ^KONG_
 env | grep -E "(OLLAMA|COMFYUI|N8N|WEAVIATE|CLOUD|MINIO)_SOURCE"
 ```
 
-### 8.3 Network Testing
+### 8.3. Network Testing
 
 ```bash
 # Test internal service connectivity (LLM goes through LiteLLM, not Ollama directly)
@@ -342,7 +342,7 @@ curl -H "Host: n8n.localhost" http://localhost:63000/
 
 ## 9. Getting Help
 
-### 9.1 Log Collection
+### 9.1. Log Collection
 
 When reporting issues, include:
 
@@ -362,7 +362,7 @@ docker compose logs --tail=100 > stack_logs.txt
 cp .env config_backup.env  # Remove sensitive data before sharing
 ```
 
-### 9.2 Common Support Information
+### 9.2. Common Support Information
 
 1. **Platform**: macOS/Linux/Windows + version
 2. **Docker memory allocation**: Settings → Resources in Docker Desktop
@@ -370,7 +370,7 @@ cp .env config_backup.env  # Remove sensitive data before sharing
 4. **Error messages**: Exact error text and which service
 5. **Steps to reproduce**: What you did before the error occurred
 
-### 9.3 Community Resources
+### 9.3. Community Resources
 
 - [GitHub Issues](https://github.com/thekaveh/atlas/issues) - Bug reports and feature requests
 - [GitHub Discussions](https://github.com/thekaveh/atlas/discussions) - Questions and community support
@@ -378,7 +378,7 @@ cp .env config_backup.env  # Remove sensitive data before sharing
 
 ## 10. Recovery Procedures
 
-### 10.1 Complete Reset
+### 10.1. Complete Reset
 
 ```bash
 # Nuclear option - removes all data
@@ -390,7 +390,7 @@ docker volume prune -f   # BE CAREFUL - removes ALL unused volumes
 ./start.sh --cold --base-port 64000
 ```
 
-### 10.2 Partial Reset
+### 10.2. Partial Reset
 
 ```bash
 # Reset just environment
@@ -404,7 +404,7 @@ docker volume rm ${PROJECT_NAME}-supabase-db-data  # Database only
 docker volume rm ${PROJECT_NAME}-n8n-data          # n8n workflows only
 ```
 
-### 10.3 Backup Before Reset
+### 10.3. Backup Before Reset
 
 ```bash
 # Backup important data before reset

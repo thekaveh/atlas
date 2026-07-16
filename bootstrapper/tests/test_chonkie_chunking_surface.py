@@ -20,7 +20,7 @@ def test_chonkie_dependency_is_limited_to_backend_and_jupyterhub_surfaces() -> N
 
     assert "chonkie>=1.7.0,<2" in backend_requirements
     assert "chonkie>=1.7.0,<2" in jupyter_requirements
-    assert "'chonkie>=1.7.0,<2'" in workflow
+    assert "-r requirements.txt -r requirements-dev.txt" in workflow
 
     for unexpected_path in (
         "services/docling/app/requirements.txt",
@@ -45,7 +45,6 @@ def test_chonkie_notebook_and_docs_register_backend_runtime_contract() -> None:
         [
             _read("services/backend/README.md"),
             _read("services/jupyterhub/README.md"),
-            _read("services/jupyterhub/build/README.md"),
             surface_text("docs/core-concepts.md", "site"),
             surface_text("docs/core-concepts.md", "wiki"),
         ]

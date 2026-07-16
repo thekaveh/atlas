@@ -1,4 +1,4 @@
-# Chatterbox TTS — localhost mode
+# 5.3.6. TTS Localhost Provider
 
 Run [Resemble AI Chatterbox](https://github.com/resemble-ai/chatterbox) natively
 on your host machine and have the stack reach it via `host.docker.internal`.
@@ -7,7 +7,7 @@ This is the recommended TTS path when you want **zero-shot voice cloning**
 (5-second reference audio) without using a GPU container — Chatterbox runs on
 macOS MPS (Apple Silicon) and Linux CPU/MPS/CUDA.
 
-## Why localhost instead of container
+## 1. Why localhost instead of container
 
 - **macOS users**: Chatterbox uses MPS for acceleration; that doesn't work
   through Docker Desktop. Running natively is ~10× faster.
@@ -21,7 +21,7 @@ If you just want a TTS service that works out of the box on any platform with
 no setup, use `TTS_PROVIDER_SOURCE=speaches-container-cpu` instead — Speaches
 gives you Kokoro voices without any localhost setup, just zero voice cloning.
 
-## Install
+## 2. Install
 
 Chatterbox-tts-api is NOT published to PyPI — install by cloning the repo.
 Python 3.10+ required.
@@ -42,7 +42,7 @@ The transitive `chatterbox-tts` dependency (Resemble AI's model library) is
 installed from a git source — first install can take a few minutes. Models
 download from HuggingFace on first /v1/audio/speech request (~2 GB total).
 
-## Run the server
+## 3. Run the server
 
 The repo's `main.py` is the entry point. Default port is `4123`; override
 with the `PORT` env var.
@@ -50,7 +50,7 @@ with the `PORT` env var.
 ```bash
 # Bind on the port the atlas containers reach you on (63044
 # matches the CHATTERBOX_LOCALHOST_PORT default — independent of the
-# container CHATTERBOX_PORT, which is 63058).
+# container CHATTERBOX_PORT, which is 63059).
 PORT=63044 uv run main.py
 # or, after `source .venv/bin/activate`:
 PORT=63044 python main.py
@@ -75,7 +75,7 @@ is derived inline as `http://host.docker.internal:${CHATTERBOX_LOCALHOST_PORT:-6
 CHATTERBOX_LOCALHOST_PORT=9000
 ```
 
-## Verify
+## 4. Verify
 
 ```bash
 curl http://localhost:63044/health         # expect {"status":"healthy"}
@@ -87,7 +87,7 @@ curl -X POST http://localhost:63044/v1/audio/speech \
 file /tmp/test.wav   # expect: RIFF (little-endian) data, WAVE audio
 ```
 
-## Voice cloning
+## 5. Voice cloning
 
 Chatterbox supports two voice-cloning paths — neither uses a
 `reference_audio` JSON field (that was XTTS's convention).
@@ -123,7 +123,7 @@ upstream for the full voice-CRUD surface.
 
 Chatterbox is licensed MIT, so the resulting audio is yours to use commercially.
 
-## Performance reference
+## 6. Performance reference
 
 | Hardware | Approx. realtime factor (lower is faster) |
 |---|---|
@@ -131,7 +131,7 @@ Chatterbox is licensed MIT, so the resulting audio is yours to use commercially.
 | M2 Pro, CPU only | 4–6× |
 | NVIDIA RTX 4090 | 0.1× |
 
-## Troubleshooting
+## 7. Troubleshooting
 
 **MPS not detected on macOS** — `chatterbox-tts` will print `Using CPU`.
 Reinstall PyTorch with MPS support: `pip install --upgrade --force-reinstall torch torchaudio`.
@@ -147,13 +147,13 @@ CHATTERBOX_LOCALHOST_PORT=9000
 **First request times out** — the model downloads on first call (~2 GB).
 Pre-warm by running the curl test above with `--max-time 600`.
 
-## References
+## 8. References
 
 - [Chatterbox upstream](https://github.com/resemble-ai/chatterbox)
 - [chatterbox-tts-api server](https://github.com/travisvn/chatterbox-tts-api)
 - [Chatterbox model card](https://huggingface.co/ResembleAI/chatterbox)
 
-## Historical note
+## 9. Historical note
 
 This directory previously hosted a server.py wrapper for openedai-speech /
 XTTS v2. That stack was retired in this release because the upstream image

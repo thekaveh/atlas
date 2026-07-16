@@ -213,6 +213,13 @@ def test_tei_connection_error_raises_dependency_error(monkeypatch):
         rerank_via_tei(RerankAdapterRequest(query="q", documents=["a"]))
 
 
+@pytest.mark.parametrize("value", ("bad", "nan", "inf", "0", "-1", "3601"))
+def test_rerank_timeout_rejects_malformed_or_unbounded_values(monkeypatch, value):
+    monkeypatch.setenv("LIGHTRAG_RERANK_ADAPTER_TIMEOUT_SECONDS", value)
+    with pytest.raises(ValueError, match="timeout"):
+        adapter._timeout_seconds()
+
+
 def test_non_json_body_raises_upstream_error(monkeypatch):
     monkeypatch.setenv("TEI_RERANKER_ENDPOINT", "http://tei-reranker:80")
     _install_client(monkeypatch, resp=_FakeResponse(200, json_error=True))
@@ -232,6 +239,34 @@ def test_out_of_range_index_raises_upstream_error(monkeypatch):
     _install_client(monkeypatch, resp=_FakeResponse(200, [{"index": 5, "score": 0.9}]))
     with pytest.raises(RerankAdapterUpstreamError):
         rerank_via_tei(RerankAdapterRequest(query="q", documents=["a"]))
+
+
+@pytest.mark.parametrize(
+    "item",
+    (
+        {"index": True, "score": 0.5},
+        {"index": 0.0, "score": 0.5},
+        {"index": 0, "score": True},
+        {"index": 0, "score": "0.5"},
+        {"index": 0, "score": float("nan")},
+        {"index": 0, "score": float("inf")},
+    ),
+)
+def test_malformed_tei_item_types_raise_upstream_error(item):
+    with pytest.raises(RerankAdapterUpstreamError):
+        adapter._parse_tei_items([item], 1)
+
+
+@pytest.mark.parametrize(
+    "items,doc_count",
+    (
+        ([{"index": 0, "score": 0.9}, {"index": 0, "score": 0.8}], 2),
+        ([{"index": 0, "score": 0.9}, {"index": 1, "score": 0.8}], 1),
+    ),
+)
+def test_tei_items_reject_duplicate_or_excessive_results(items, doc_count):
+    with pytest.raises(RerankAdapterUpstreamError):
+        adapter._parse_tei_items(items, doc_count)
 
 
 def test_item_missing_score_raises_upstream_error(monkeypatch):

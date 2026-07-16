@@ -1,7 +1,7 @@
 # services/ray/compose.yml — Ray distributed-compute cluster (head + workers)
 services:
   ray-head:
-    image: ${RAY_IMAGE:-rayproject/ray:2.55.1}
+    image: ${RAY_IMAGE:-rayproject/ray:2.56.0}
     container_name: ${PROJECT_NAME}-ray-head
     hostname: ray-head
     restart: unless-stopped
@@ -27,9 +27,12 @@ services:
           --dashboard-port 8265 \
           --block
     ports:
-      - "${HOST_BIND_IP:-}${RAY_DASHBOARD_PORT}:8265"
-      - "${HOST_BIND_IP:-}${RAY_GCS_PORT}:6379"
-      - "${HOST_BIND_IP:-}${RAY_CLIENT_PORT}:10001"
+      # Ray's native APIs can execute arbitrary jobs and provide no built-in
+      # authentication. Keep them on the trusted host boundary; remote callers
+      # must use Kong or Backend's bearer-protected /api/ray surface.
+      - "127.0.0.1:${RAY_DASHBOARD_PORT}:8265"
+      - "127.0.0.1:${RAY_GCS_PORT}:6379"
+      - "127.0.0.1:${RAY_CLIENT_PORT}:10001"
     # No /tmp/ray volume — the rayproject/ray image runs as user ``ray``
     # (UID 1000), but a named Docker volume gets initialized as
     # root:root because the image doesn't pre-create /tmp/ray. The
@@ -39,7 +42,7 @@ services:
     # ``ray start``), so letting it live in the container's writable
     # layer is correct — matches the upstream Ray Docker examples.
     healthcheck:
-      # rayproject/ray:2.55.1 ships wget but not curl — use wget so the
+      # rayproject/ray:2.56.0 ships wget but not curl — use wget so the
       # probe actually succeeds. A curl-based probe silently fails
       # ("command not found"), keeps ray-head unhealthy forever, and
       # blocks every dependent (ray-worker, backend, …) from starting.
@@ -57,7 +60,7 @@ services:
       - backend-network
 
   ray-worker:
-    image: ${RAY_IMAGE:-rayproject/ray:2.55.1}
+    image: ${RAY_IMAGE:-rayproject/ray:2.56.0}
     restart: unless-stopped
     deploy:
       replicas: ${RAY_WORKER_SCALE:-0}

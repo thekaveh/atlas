@@ -11,10 +11,10 @@ upstream: https://github.com/openbao/openbao
 
 # OpenBao
 
-## Headline
+## 1. Headline
 Vault-lineage secrets, dynamic credentials, and encryption-management system for a future Atlas secrets lifecycle that needs more than Infisical.
 
-## Watchlist decision (2026-07-04)
+## 2. Watchlist decision (2026-07-04)
 
 Keep OpenBao on the watchlist for now: Atlas **must not add `services/openbao/service.yml` yet** because the repo already has an Infisical-first secrets-management decision and no concrete secrets lifecycle and operator story that requires Vault-lineage compatibility. OpenBao is powerful, but its storage, unseal, backup, and bootstrap model is heavier than Atlas should adopt speculatively.
 
@@ -38,25 +38,25 @@ Future service shape, if a later secrets ticket promotes this:
 - Tests required for a future service PR: manifest validation, source validation, env assembly, topology/category, disabled default, Kong route/auth, custom `BASE_PORT`, init idempotency without secret leakage, storage/unseal docs, backup docs, policy fixtures, no default consumers, compose source-permutation coverage, and docs drift.
 - Edge cases: lost unseal keys, lost root token, sealed server restart, corrupt storage volume, stale `.env`, cold start, backup restore mismatch, audit log growth, running alongside Infisical, and generated-doc drift.
 
-## Problem it solves
+## 3. Problem it solves
 OpenBao is the right direction when Atlas needs Vault-compatible workflows: dynamic secrets, transit encryption, PKI, database credential leasing, or stronger seal/unseal ceremonies. Those are real needs for future trading, MCP, multi-user, or PKI-heavy deployments, but not for the current local-first stack where `.env` remains the bootstrap authority and Infisical is the first optional secrets-manager slice.
 
-## Stack wiring sketch
+## 4. Stack wiring sketch
 - browser/operator -> kong -> openbao only when `openbao.localhost` is explicitly enabled and protected.
 - services -> openbao only through narrow policies and explicit auth methods, never broad root/admin tokens.
 - openbao -> integrated storage for first evaluation, or openbao -> external storage only after an operator decision.
 - backup -> openbao for storage snapshots and audit-log retention once a backup path is approved.
 
-## Effort
+## 5. Effort
 medium-to-large — the container is easy; the hard parts are initialization, unseal or auto-unseal, root-token custody, policy seeding, audit devices, backup/restore, and safe downstream consumption.
 
-## Risks & open questions
+## 6. Risks & open questions
 - Bootstrap loop: Atlas must not require OpenBao to fetch the secrets needed to start OpenBao.
 - Operator burden: sealed restarts, unseal key custody, recovery, and backup drills are mandatory responsibilities.
 - Overlap: running OpenBao and Infisical without a crisp division would confuse operators and consumers.
 - Exposure: a secrets manager route is high-value infrastructure and should not be exposed as another casual `*.localhost` UI.
 
-## Upstream evidence
+## 7. Upstream evidence
 - https://openbao.org/docs/install/
 - https://openbao.org/docs/concepts/seal/
 - https://openbao.org/docs/concepts/storage/

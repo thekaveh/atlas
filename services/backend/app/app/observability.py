@@ -18,15 +18,17 @@ def _traces_endpoint(base: str) -> str:
 def configure_otel(app: Any) -> bool:
     """Configure optional OpenTelemetry tracing for the FastAPI app.
 
-    Returns True when tracing was enabled. Missing optional packages degrade
-    to False so non-container test environments can still import the backend.
+    Returns True when tracing was enabled. An explicitly enabled but invalid
+    tracing configuration fails startup instead of silently losing spans.
     """
     if not _truthy(os.getenv("ATLAS_OTEL_ENABLED")):
         return False
 
     endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "").strip()
     if not endpoint:
-        return False
+        raise RuntimeError(
+            "ATLAS_OTEL_ENABLED=true requires OTEL_EXPORTER_OTLP_ENDPOINT"
+        )
 
     if getattr(app.state, "otel_configured", False):
         return True
@@ -38,8 +40,10 @@ def configure_otel(app: Any) -> bool:
         from opentelemetry.sdk.resources import Resource
         from opentelemetry.sdk.trace import TracerProvider
         from opentelemetry.sdk.trace.export import BatchSpanProcessor
-    except Exception:
-        return False
+    except Exception as exc:
+        raise RuntimeError(
+            "ATLAS_OTEL_ENABLED=true but OpenTelemetry dependencies are unavailable"
+        ) from exc
 
     resource = Resource.create(
         {
@@ -54,7 +58,9 @@ def configure_otel(app: Any) -> bool:
     trace.set_tracer_provider(provider)
     FastAPIInstrumentor.instrument_app(
         app,
-        excluded_urls=os.getenv("OTEL_PYTHON_FASTAPI_EXCLUDED_URLS", "/metrics,/health"),
+        excluded_urls=os.getenv(
+            "OTEL_PYTHON_FASTAPI_EXCLUDED_URLS", "/metrics,/health,/ready"
+        ),
     )
     app.state.otel_configured = True
     return True

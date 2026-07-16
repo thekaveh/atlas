@@ -13,9 +13,9 @@
 if [ "$(id -u)" -eq 0 ]; then
     echo "stop.sh: refusing to run as root." >&2
     echo "" >&2
-    echo "  Stopping the stack only needs your user; --cold's docker prune" >&2
-    echo "  and --clean-hosts each request elevation internally for the" >&2
-    echo "  single privileged step that actually needs it." >&2
+    echo "  Stopping the stack and removing project volumes need only your user." >&2
+    echo "  --clean-hosts requests elevation internally for the one hosts-file" >&2
+    echo "  mutation that actually needs it." >&2
     echo "" >&2
     echo "  Standard stop:     ./stop.sh" >&2
     echo "  Stop + wipe data:  ./stop.sh --cold" >&2

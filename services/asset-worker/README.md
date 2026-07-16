@@ -1,4 +1,4 @@
-# Asset Worker
+# 5.2.3. Asset Worker
 
 ## 1. Overview
 
@@ -13,7 +13,10 @@ This service exists so image-to-3D providers, Blender/DayDreams flows, and futur
 | Direct API | `http://localhost:${ASSET_WORKER_PORT}` | Host-side FastAPI service when `ASSET_WORKER_SOURCE=container`. |
 | Kong alias | `http://asset-worker.localhost:${KONG_HTTP_PORT}` | Requires `./start.sh --setup-hosts`; generated only when the service is enabled. |
 | Internal API | `http://asset-worker:8095` | Used by sibling containers through `ASSET_WORKER_ENDPOINT`. |
-| Health | `GET /health` | Returns `{"status": "ok"}`. |
+| Health | `GET /health` | Returns `200` only when the configured glTF-Transform executable is available; otherwise returns `503`. |
+| Metrics | `GET /metrics` | Prometheus request counters and duration histograms; intentionally unauthenticated for in-network scraping. |
+
+Every route except `GET /health` and `GET /metrics` requires `Authorization: Bearer ${ASSET_WORKER_API_TOKEN}`. Atlas generates the token on first startup; requests fail closed with `503` if authentication is not configured.
 
 ## 3. Configuration
 
@@ -22,12 +25,17 @@ This service exists so image-to-3D providers, Blender/DayDreams flows, and futur
 | `ASSET_WORKER_SOURCE` | `disabled` | Enables the containerized worker when set to `container`. |
 | `ASSET_WORKER_IMAGE` | `python:3.12.9-slim` | Base image for the local build. |
 | `ASSET_WORKER_GLTF_TRANSFORM_VERSION` | `4.4.1` | Pinned `@gltf-transform/cli` version installed in the image. |
+| `ASSET_WORKER_MAX_UPLOAD_MB` | `200` | Maximum uploaded or MinIO-referenced GLB size. Inputs are streamed and rejected with `413` before transformation when exceeded. |
+| `ASSET_WORKER_TIMEOUT_SECONDS` | `300` | Per-command timeout for `inspect`, `validate`, and `optimize`. A timeout returns `504`. |
+| `ASSET_WORKER_CONCURRENCY` | `1` | Maximum concurrent mutation requests. A saturated worker rejects new work with `429` before acquiring its input. |
 | `ASSET_WORKER_PORT` | computed | Host port assigned by Atlas' topology allocator. |
+| `ASSET_WORKER_API_TOKEN` | generated | Bearer token required by upload, reference-processing, and artifact-download routes. |
+| `ASSET_WORKER_ALLOWED_INPUT_BUCKETS` | _(blank)_ | Optional comma- or space-separated MinIO bucket allowlist. Blank follows `MINIO_BUCKET_ASSET_INPUTS`. |
 | `ASSET_WORKER_ARTIFACT_DIR` | `/data/artifacts` | Local cache path for optimized GLBs and direct downloads. |
 | `ASSET_WORKER_MINIO_ENABLED` | `true` | Writes optimized GLBs to MinIO when enabled. |
 | `ASSET_WORKER_MINIO_BUCKET` | `asset-worker` | Output bucket for content-addressed artifacts. |
 | `ASSET_WORKER_MINIO_ENDPOINT` | auto-managed | Internal MinIO S3 API endpoint. |
-| `ASSET_WORKER_MINIO_ACCESS_KEY` / `ASSET_WORKER_MINIO_SECRET_KEY` | empty | Optional credential override; compose falls back to MinIO root credentials. |
+| `ASSET_WORKER_MINIO_ACCESS_KEY` / `ASSET_WORKER_MINIO_SECRET_KEY` | empty | Optional credential override; compose otherwise uses the generated `MINIO_ASSET_WORKER_*` scoped account. |
 
 Enable from the CLI with:
 
@@ -39,9 +47,15 @@ The default `ASSET_WORKER_SOURCE=disabled` keeps the worker out of normal starts
 
 ## 4. API Contract
 
-### 4.1 Uploaded GLB
+### 4.1. Uploaded GLB
 
 `POST /gltf/postprocess` accepts `multipart/form-data`:
+
+```bash
+curl -H "Authorization: Bearer ${ASSET_WORKER_API_TOKEN}" \
+  -F file=@mesh.glb \
+  "http://localhost:${ASSET_WORKER_PORT}/gltf/postprocess"
+```
 
 | Field | Required | Notes |
 |---|---:|---|
@@ -56,7 +70,7 @@ The default `ASSET_WORKER_SOURCE=disabled` keeps the worker out of normal starts
 | `ktx2` | no | Uses KTX2 texture compression; otherwise WebP is used. |
 | `collider_decimation` | no | collider decimation ratio used when `simplify_ratio` is absent. |
 
-### 4.2 MinIO Referenced GLB
+### 4.2. MinIO Referenced GLB
 
 `POST /gltf/postprocess/ref` accepts JSON:
 
@@ -67,7 +81,12 @@ The default `ASSET_WORKER_SOURCE=disabled` keeps the worker out of normal starts
 }
 ```
 
-### 4.3 Response
+The request bucket must be listed in `ASSET_WORKER_ALLOWED_INPUT_BUCKETS`; other buckets return `403` before MinIO is contacted.
+Populate the default `raw-assets` bucket with the generated
+`MINIO_ASSET_INGEST_ACCESS_KEY` and `MINIO_ASSET_INGEST_SECRET_KEY`; that
+identity can write inputs without receiving MinIO root or processor-output access.
+
+### 4.3. Response
 
 Both endpoints return a normalized artifact envelope:
 
@@ -102,13 +121,13 @@ Both endpoints return a normalized artifact envelope:
 
 When `ASSET_WORKER_MINIO_ENABLED=false`, the worker stores the optimized GLB under `ASSET_WORKER_ARTIFACT_DIR/gltf/<sha256>.glb` and returns `download_url=/gltf/artifacts/<sha256>.glb`. The normalization places the base-at-y=0 before scaling.
 
-### 4.4 Scope boundary — mechanical conditioning only
+### 4.4. Scope boundary — mechanical conditioning only
 
 This service performs **mechanical glTF conditioning**: scale-to-target, center-XZ, ground-at-`y=0`, and mesh/texture optimization. **Orientation policy is the consumer's** — glTF is +Y-up by spec, so by default (`up_axis=keep`) incoming orientation is trusted and never second-guessed; reorientation (`auto` or an explicit axis) is strictly opt-in per request (#524). Product-specific asset rules (which assets to reorient, semantic up-ness, placement conventions) belong in the consuming pipeline, not here.
 
 ## 5. Architecture & Wiring
 
-The worker performs three operations in order:
+The worker performs three operations in order. Uploaded bodies are copied to bounded temporary files in chunks, and the blocking transformation pipeline runs in a worker thread so health and concurrent API requests remain responsive. A process-wide semaphore admits mutation requests before request-body parsing or object-store fetch; requests beyond `ASSET_WORKER_CONCURRENCY` receive `429` without consuming transformation, upload-spooling, or MinIO-fetch capacity.
 
 1. Normalize geometry by reading float32 GLB `POSITION` accessors, choosing the largest min-AABB extent as the upright axis, remapping that axis to Y, placing the base at `y=0`, centering X/Z around the origin, and scaling to the requested target height or width.
 2. Run `gltf-transform inspect`, `gltf-transform validate`, and `gltf-transform optimize` with the requested simplification and compression settings.
@@ -118,34 +137,34 @@ The service is intentionally separate from the media gateway. Provider-specific 
 
 ## 6. Dependencies & Integrations
 
-> Auto-generated section — the **Current** subsections are derived from `services/asset-worker/service.yml`'s `data_flow.calls` field (and inverse passes). Re-run `python -m bootstrapper.docs.regen asset-worker` after manifest changes.
-
-### 6.1 Current — Upstream (this service calls)
+### 6.1. Current — Upstream (this service calls)
 
 | Service | Category |
 |---|---|
 | minio | data |
 
-### 6.2 Current — Downstream (services that call this)
+### 6.2. Current — Downstream (services that call this)
 
-_No downstream consumers._
+| Service | Category |
+|---|---|
+| prometheus | infra |
 
-### 6.3 Architecture diagram
+### 6.3. Architecture diagram
 
 ![asset-worker architecture](./architecture.svg)
 
 [Open the interactive HTML diagram](./architecture.html) for a full-screen view.
 
-### 6.4 Future — Missing pair integrations
+### 6.4. Future — Missing pair integrations
 
 - Backend media operations should call Asset Worker after hosted image-to-3D providers return raw GLB outputs.
 - Blender and DayDreams flows should use the API for the same upright/normalize/optimize contract instead of carrying local duplicate scripts.
 
-### 6.5 Future — Candidate new services
+### 6.5. Future — Candidate new services
 
 _No high-confidence opportunities identified._
 
-### 6.6 Future — Unused features in this service
+### 6.6. Future — Unused features in this service
 
 - Meshopt and Draco are mutually exclusive mesh-compression modes in a single glTF-Transform optimize pass. Requests may include both for policy compatibility; the worker prefers Draco for mesh compression and records both requested toggles in response metadata.
 
@@ -153,5 +172,7 @@ _No high-confidence opportunities identified._
 
 - `400 Input must be a GLB file`: use a `.glb` filename and binary GLB payload.
 - `gltf-transform validate` failure: inspect the raw provider output; invalid GLB input is rejected before storage.
-- MinIO upload failure: confirm `MINIO_SOURCE=container`, `ASSET_WORKER_MINIO_BUCKET`, and the MinIO credentials exposed to the worker.
+- `401 Invalid Asset Worker bearer token`: pass `Authorization: Bearer ${ASSET_WORKER_API_TOKEN}`.
+- `403 Input bucket is not allowed`: add the intended bucket to `ASSET_WORKER_ALLOWED_INPUT_BUCKETS`; do not broaden the list to unrelated or private buckets.
+- MinIO upload failure: confirm `MINIO_SOURCE=container`, `ASSET_WORKER_MINIO_BUCKET`, and the generated `MINIO_ASSET_WORKER_*` credentials.
 - Kong alias missing: confirm `ASSET_WORKER_SOURCE=container`, run `./start.sh --setup-hosts`, and regenerate routes through the normal startup flow.

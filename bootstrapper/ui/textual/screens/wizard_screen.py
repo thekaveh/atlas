@@ -24,6 +24,8 @@ import contextlib
 import os
 import signal
 import sys
+import tempfile
+from pathlib import Path
 from typing import Callable
 
 from rich.text import Text
@@ -69,6 +71,16 @@ _FAMILY_FLAG_STEM = {
 }
 
 
+async def _await_uncancellable(task: asyncio.Task):
+    """Wait for a thread-backed task despite repeated cancellation requests."""
+    while not task.done():
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            continue
+    return task.result()
+
+
 _SETUP_HINTS = [
     (("↑", "↓"), "navigate"),
     (("space",), "toggle"),
@@ -95,6 +107,15 @@ _LAUNCH_HINTS = [
     (("i",), "info"),
     (("s",), "sources"),
     (("ctrl+q",), "detach"),
+]
+
+_STARTUP_HINTS = [
+    (("a",), "all"),
+    (("e",), "errors"),
+    (("w",), "warns"),
+    (("i",), "info"),
+    (("s",), "sources"),
+    (("ctrl+c",), "cancel"),
 ]
 
 
@@ -202,6 +223,7 @@ class WizardScreen(Screen):
         prefilled_selections: dict | None = None,
         track_display_name: str | None = None,
         no_splash: bool = False,
+        on_launch_result: Callable[[int], None] | None = None,
     ) -> None:
         super().__init__()
         self._no_splash = no_splash
@@ -209,6 +231,7 @@ class WizardScreen(Screen):
         self._services = services
         self._brand = brand or BrandInfo()
         self._starter = starter
+        self._on_launch_result = on_launch_result
         self._stack_options_resolver = stack_options_resolver
         # Called when the user confirms a new base port; should return
         # an updated list of ServiceRows with recomputed ports.
@@ -263,6 +286,7 @@ class WizardScreen(Screen):
         self._fetch_generation: int = 0
 
         self._phase: str = "setup"   # "setup" | "launch"
+        self._launch_detach_ready = False
 
         self._command_summary = CommandSummary()
         self._service_table = ServiceTable(services)
@@ -396,6 +420,7 @@ class WizardScreen(Screen):
         """
         if event.state is not WorkerState.ERROR:
             return
+        self._mark_launch_failed()
         err = event.worker.error
         with contextlib.suppress(Exception):
             if self._log_pane is not None:
@@ -413,6 +438,11 @@ class WizardScreen(Screen):
                     severity="error",
                     timeout=10,
                 )
+
+    def _mark_launch_failed(self) -> None:
+        """Record a nonzero CLI result while leaving the error visible in the TUI."""
+        if self._on_launch_result is not None:
+            self._on_launch_result(1)
 
     # ─── setup phase ─────────────────────────────────────────────────
 
@@ -1098,6 +1128,13 @@ class WizardScreen(Screen):
             self.app.exit()
 
     def action_quit_wizard(self) -> None:
+        if self._phase == "launch" and not self._launch_detach_ready:
+            self.notify(
+                "Startup is still running; Ctrl+C cancels it.",
+                severity="warning",
+                timeout=6,
+            )
+            return
         # Close the tee on a setup-phase quit so the wizard-time
         # warnings flushed earlier aren't left in a still-open fh
         # past process exit. The launch-phase ``finally`` block
@@ -1141,13 +1178,13 @@ class WizardScreen(Screen):
         self._log_chips = LogFilterChips(on_change=self._on_log_filter_change)
         self._log_pane = LogPane(
             title=" Stack startup · pipeline ",
-            subtitle=" ctrl+q to detach ",
+            subtitle=" ctrl+c to cancel ",
         )
         self._log_pane.set_on_new_source(self._log_chips.add_source)
         await lower.mount(self._log_chips)
         await lower.mount(self._log_pane)
 
-        self._footer.update_hints(_LAUNCH_HINTS)
+        self._footer.update_hints(_STARTUP_HINTS)
 
         # The session log was opened in __init__ so it could capture
         # wizard-time warnings. Now that the log pane exists, surface
@@ -1170,7 +1207,7 @@ class WizardScreen(Screen):
     # ─── launch-log tee ──────────────────────────────────────────────
 
     def _open_launch_log_tee(self, *, announce_in_pane: bool = True) -> None:
-        """Open ``/tmp/atlas-launch-<ts>.log`` for the duration
+        """Open ``/tmp/atlas-launch-<ts>-<unique>.log`` for the duration
         of the wizard. _write_status / _safe_log mirror their output
         into this file so a user who quits the wizard still has a
         record of what happened (cloud /v1/models fetch failures during
@@ -1181,20 +1218,36 @@ class WizardScreen(Screen):
         launch transition does the announce later when the pane is up.
         """
         import datetime
-        from pathlib import Path
         ts = datetime.datetime.now().strftime("%Y%m%dT%H%M%S")
-        path = Path(f"/tmp/atlas-launch-{ts}.log")
+        fh = None
+        path = None
         try:
+            fh = tempfile.NamedTemporaryFile(
+                mode="w",
+                buffering=1,
+                encoding="utf-8",
+                prefix=f"atlas-launch-{ts}-",
+                suffix=".log",
+                dir=tempfile.gettempdir(),
+                delete=False,
+            )
+            path = Path(fh.name)
             self._launch_log_path = path
-            self._launch_log_fh = open(path, "w", buffering=1, encoding="utf-8")  # line-buffered
-            self._launch_log_fh.write(f"# atlas session log — started {ts}\n")
-            self._launch_log_fh.flush()
+            self._launch_log_fh = fh
+            fh.write(f"# atlas session log — started {ts}\n")
+            fh.flush()
             if announce_in_pane and self._log_pane is not None:
                 self._log_pane.write_log(
                     f"📝 session log: {path}",
                     level="info", source="pipeline",
                 )
         except OSError as exc:  # noqa: BLE001
+            if fh is not None:
+                with contextlib.suppress(OSError):
+                    fh.close()
+            if path is not None:
+                with contextlib.suppress(OSError):
+                    path.unlink()
             self._launch_log_fh = None
             self._launch_log_path = None
             if self._log_pane is not None:
@@ -1661,6 +1714,8 @@ class WizardScreen(Screen):
 
         self._write_status("⚙ Running setup pipeline", style="bold cyan",
                            source="pipeline")
+        managed_hosts_pending = False
+        managed_host_start_task: asyncio.Task | None = None
         try:
             for i, (label, fn) in enumerate(steps, start=1):
                 self._write_status(f"  · {label}…", style="dim",
@@ -1670,15 +1725,31 @@ class WizardScreen(Screen):
                 except Exception as exc:  # noqa: BLE001
                     self._write_status(f"  ✗ {label} crashed: {exc}",
                                        style="bold red", source="pipeline")
+                    self._mark_launch_failed()
                     return
                 if not ok:
                     self._write_status(f"  ✗ {label} failed",
                                        style="bold red", source="pipeline")
+                    self._mark_launch_failed()
                     return
                 self._write_status(f"  ✓ {label}", style="bold green",
                                    source="pipeline")
 
             self._write_status("", style="", source="pipeline")
+
+            self._write_status("  · Start managed host services…", style="dim",
+                               source="pipeline")
+            managed_hosts_pending = True
+            managed_host_start_task = asyncio.create_task(
+                asyncio.to_thread(starter.start_managed_host_processes)
+            )
+            if not await asyncio.shield(managed_host_start_task):
+                self._write_status("  ✗ Start managed host services failed",
+                                   style="bold red", source="pipeline")
+                self._mark_launch_failed()
+                return
+            self._write_status("  ✓ Start managed host services", style="bold green",
+                               source="pipeline")
 
             # Enabled-service target set from the rendered projection (#504):
             # Compose plans builds for the WHOLE graph when `up` has no
@@ -1690,15 +1761,13 @@ class WizardScreen(Screen):
             )
 
             if cold:
-                self._write_status("🧹 Cold-start cleanup",
-                                   style="bold cyan", source="pipeline")
-                await self._cold_cleanup()
                 self._write_status("📦 Building images (cold start)…",
                                    style="bold cyan", source="pipeline")
                 rc = await self._run_compose(["build", "--no-cache", *(targets or [])])
                 if rc != 0:
                     self._write_status("❌ Build failed", style="bold red",
                                        source="pipeline")
+                    self._mark_launch_failed()
                     return
 
             self._write_status("🚀 Starting containers…",
@@ -1713,6 +1782,7 @@ class WizardScreen(Screen):
                     "for full output",
                     style="bold yellow", source="pipeline",
                 )
+                self._mark_launch_failed()
                 return
             ok = await asyncio.to_thread(
                 starter.verify_one_shot_init_containers,
@@ -1726,15 +1796,20 @@ class WizardScreen(Screen):
                     style="bold red",
                     source="pipeline",
                 )
+                self._mark_launch_failed()
                 return
+            starter.commit_managed_host_processes()
+            managed_hosts_pending = False
             self._write_status("✅ All services started",
                                style="bold green", source="pipeline")
+            self._launch_detach_ready = True
 
             if self._log_pane is not None:
                 self._log_pane.set_title(
                     " Live docker logs ",
                     subtitle=" ctrl+q to detach ",
                 )
+            self._footer.update_hints(_LAUNCH_HINTS)
 
             # Kick off port verification + ComfyUI model check in the
             # background so the live log stream starts IMMEDIATELY rather
@@ -1772,7 +1847,26 @@ class WizardScreen(Screen):
             )
             for tb_line in traceback.format_exc().splitlines():
                 self._safe_log(tb_line, source="pipeline", level="error")
+            self._mark_launch_failed()
         finally:
+            # asyncio.to_thread cannot cancel its worker. If the Textual worker
+            # is cancelled during native startup, wait for that thread to
+            # settle before touching the ownership ledger and rolling back.
+            if managed_host_start_task is not None:
+                with contextlib.suppress(Exception):
+                    await _await_uncancellable(managed_host_start_task)
+            if managed_hosts_pending:
+                rollback_task = asyncio.create_task(
+                    asyncio.to_thread(starter.rollback_managed_host_processes)
+                )
+                rollback_ok = await _await_uncancellable(rollback_task)
+                if not rollback_ok:
+                    self._write_status(
+                        "❌ Managed host rollback incomplete; run ./stop.sh and "
+                        "inspect the managed-host logs.",
+                        style="bold red",
+                        source="pipeline",
+                    )
             starter.banner = original_banner
             try:
                 starter.docker_manager.set_command_echo_callback(print)
@@ -1788,26 +1882,6 @@ class WizardScreen(Screen):
                 pass
             sys.stdout, sys.stderr = old_stdout, old_stderr
             self._close_launch_log_tee()
-
-    async def _cold_cleanup(self) -> None:
-        project_name = self._starter.config_parser.get_project_name()
-        self._write_status("  • Stopping and removing containers…",
-                           style="dim", source="pipeline")
-        await self._run_compose(["down", "--remove-orphans"])
-        self._write_status("  • Removing volumes…", style="dim", source="pipeline")
-        await self._run_compose(["down", "-v"])
-        self._write_status("  • Removing project network…",
-                           style="dim", source="pipeline")
-        await self._run_command(
-            ["docker", "network", "rm", f"{project_name}-network"],
-            ignore_errors=True,
-        )
-        self._write_status("  • Aggressive Docker system prune…",
-                           style="dim", source="pipeline")
-        await self._run_command(["docker", "system", "prune", "-f", "--volumes"])
-        self._write_status("  • General Docker system prune…",
-                           style="dim", source="pipeline")
-        await self._run_command(["docker", "system", "prune", "-f"])
 
     async def _run_command(
         self, cmd: list[str], *, ignore_errors: bool = False,

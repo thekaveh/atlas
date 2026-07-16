@@ -23,13 +23,17 @@ services:
     environment:
       PARAKEET_MODEL: ${PARAKEET_MODEL:-nvidia/parakeet-tdt-0.6b-v3}
       PARAKEET_DEVICE: ${PARAKEET_GPU_DEVICE:-cuda}
-      PARAKEET_COMPUTE_TYPE: ${PARAKEET_GPU_COMPUTE_TYPE:-float16}
+      PARAKEET_MAX_UPLOAD_BYTES: ${PARAKEET_MAX_UPLOAD_BYTES:-104857600}
+      PARAKEET_CONCURRENCY: ${PARAKEET_CONCURRENCY:-1}
+      # Do not advertise HTTP readiness until the configured NeMo model has
+      # downloaded, initialized, and moved to the requested device.
+      PRELOAD_MODEL: "true"
       NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-all}
       HF_TOKEN: ${HUGGING_FACE_HUB_TOKEN}
     volumes:
       - stt-provider-gpu-cache:/root/.cache/huggingface
     ports:
-      # Default must match topology's STT_PROVIDER_PORT default (63054) and
+      # Default must match topology's STT_PROVIDER_PORT default (63055) and
       # the value in .env.example. Stale 10300 fallback would only have bit
       # users who hand-removed STT_PROVIDER_PORT from .env.
       - "${HOST_BIND_IP:-}${STT_PROVIDER_PORT:-63055}:8000"

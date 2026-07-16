@@ -91,7 +91,7 @@ Recorded here so future readers can see the path, not just the destination:
                      /cluster
 ```
 
-### 5.1 New service families
+### 5.1. New service families
 
 | Family | Containers | Category | Manifest action |
 |---|---|---|---|
@@ -100,7 +100,7 @@ Recorded here so future readers can see the path, not just the destination:
 | `services/supabase/` | adds `postgres-exporter` | data | Edit existing |
 | `services/redis/` | adds `redis-exporter` | data | Edit existing |
 
-### 5.2 Port allocation (`infra` block, size 10, base 63000)
+### 5.2. Port allocation (`infra` block, size 10, base 63000)
 
 | Offset | Port | Service | Manifest |
 |---:|---:|---|---|
@@ -138,7 +138,7 @@ The `data` block (size 20, currently 12/20 used) absorbs the two new sidecar exp
 
 This section lands **before** the observability work in the implementation plan so the new manifests are introduced into a stack with consistent source semantics.
 
-### 6.A.1 Manifest edits
+### 6.1. 6.A.1 Manifest edits
 
 **`services/comfyui/service.yml`** — delete:
 - `sources.options[].id: external` block (and its `requires: [COMFYUI_EXTERNAL_URL]`)
@@ -157,7 +157,7 @@ This section lands **before** the observability work in the implementation plan 
 
 **`bootstrapper/services/service_config.py::_generate_ray_config`** — remove the `ray-external` branch; the source set collapses to `{ray-container-cpu, ray-container-gpu, disabled}`.
 
-### 6.A.2 Test updates
+### 6.2. 6.A.2 Test updates
 
 | File | Action |
 |---|---|
@@ -171,7 +171,7 @@ This section lands **before** the observability work in the implementation plan 
 | `tests/conftest.py` | Audit fixtures for external-source defaults. |
 | `tests/fixtures/rendered_config_baseline.yml` | Regenerate; the baseline rendering loses external-slice content. |
 
-### 6.A.3 Doc updates
+### 6.3. 6.A.3 Doc updates
 
 - `docs/deployment/source-configuration.md` — remove `external` rows from the SOURCE matrix; remove `### *_EXTERNAL_URL` / `### RAY_EXTERNAL_ADDRESS` subsections.
 - `docs/quick-start/interactive-setup-wizard.md` — remove external-option mentions.
@@ -180,18 +180,18 @@ This section lands **before** the observability work in the implementation plan 
 - `docs/CHANGELOG.md` — under `[Unreleased]`, add a `### Removed (breaking)` block (text in Section 11 below).
 - `docs/ROADMAP.md` — note "authenticated-remote endpoints" as a future item.
 
-### 6.A.4 Plumbing
+### 6.4. 6.A.4 Plumbing
 
 - `bootstrapper/start.py` — the `--<svc>-source` Click options stay; their value-validation against manifest source lists will reject `*-external` automatically. Help text mentioning `external` is removed.
 - `bootstrapper/utils/localhost_validator.py::SERVICE_CHECKS` — remove any external-URL validators (impl phase verifies; likely none today since the validator handles localhost specifically).
 
-### 6.A.5 User migration
+### 6.5. 6.A.5 User migration
 
 Users with `RAY_SOURCE=ray-external`, `COMFYUI_SOURCE=external`, or `OLLAMA_SOURCE=ollama-external` in their `.env` will see a clear error on next bootstrap. `start.py` adds a one-shot detection: if it sees any of these literal values, it prints a pointer to the CHANGELOG entry and exits 2 with a non-confusing message.
 
 ## 7. Section B — `services/prometheus/` manifest
 
-### 7.B.1 `service.yml`
+### 7.1. 7.B.1 `service.yml`
 
 ```yaml
 name: prometheus
@@ -301,7 +301,7 @@ data_flow:
     - redis
 ```
 
-### 7.B.2 `compose.yml`
+### 7.2. 7.B.2 `compose.yml`
 
 ```yaml
 services:
@@ -377,7 +377,7 @@ volumes:
     driver: local
 ```
 
-### 7.B.3 Subdirectory layout
+### 7.3. 7.B.3 Subdirectory layout
 
 ```
 services/prometheus/
@@ -391,7 +391,7 @@ services/prometheus/
 └── architecture.svg / .html           # auto-regen via bootstrapper.docs.regen prometheus
 ```
 
-### 7.B.4 Cross-manifest scale hook
+### 7.4. 7.B.4 Cross-manifest scale hook
 
 `bootstrapper/services/service_config.py`:
 
@@ -415,7 +415,7 @@ Wired into `generate_service_environment()` alongside `_generate_ray_config`.
 
 ## 8. Section C — `services/grafana/` manifest
 
-### 8.C.1 `service.yml`
+### 8.1. 8.C.1 `service.yml`
 
 ```yaml
 name: grafana
@@ -498,7 +498,7 @@ data_flow:
     - prometheus
 ```
 
-### 8.C.2 `compose.yml`
+### 8.2. 8.C.2 `compose.yml`
 
 ```yaml
 services:
@@ -539,7 +539,7 @@ volumes:
     driver: local
 ```
 
-### 8.C.3 Subdirectory layout
+### 8.3. 8.C.3 Subdirectory layout
 
 ```
 services/grafana/
@@ -564,7 +564,7 @@ services/grafana/
 └── architecture.svg / .html
 ```
 
-### 8.C.4 Datasource provisioning
+### 8.4. 8.C.4 Datasource provisioning
 
 `services/grafana/config/provisioning/datasources/prometheus.yml`:
 
@@ -583,7 +583,7 @@ datasources:
 
 When `PROMETHEUS_SOURCE=disabled` and `GRAFANA_SOURCE=container`, the `PROMETHEUS_ENDPOINT` interpolates to empty and Grafana shows "datasource unreachable" — intentional UX signal that the user should enable Prom.
 
-### 8.C.5 Dashboard provisioning
+### 8.5. 8.C.5 Dashboard provisioning
 
 `services/grafana/config/provisioning/dashboards/dashboards.yml`:
 
@@ -603,7 +603,7 @@ providers:
 
 The 7 dashboard JSONs are checked into `services/grafana/config/provisioning/dashboards/`. Sourced from upstream Grafana dashboards.com IDs where one exists (LiteLLM dashboard, node-exporter-full, redis-exporter, postgres-exporter), and tailored for the stack's metric labels.
 
-### 8.C.6 Admin password generation
+### 8.6. 8.C.6 Admin password generation
 
 `bootstrapper/utils/key_generator.py`:
 
@@ -621,7 +621,7 @@ Wired into `generate_missing_keys()`.
 
 ## 9. Section D — Sidecar exporter edits
 
-### 9.D.1 `services/supabase/` (add `postgres-exporter`)
+### 9.1. 9.D.1 `services/supabase/` (add `postgres-exporter`)
 
 **`service.yml`** — append to `containers:`:
 
@@ -694,7 +694,7 @@ Append to `runtime_sc`:
       start_period: 30s
 ```
 
-### 9.D.2 `services/redis/` (add `redis-exporter`)
+### 9.2. 9.D.2 `services/redis/` (add `redis-exporter`)
 
 **`service.yml`** — append to `containers:`:
 
@@ -740,7 +740,7 @@ Append to `runtime_sc`:
 
 **`compose.yml`** — append new service (analogous to postgres-exporter above; uses image `${REDIS_EXPORTER_IMAGE}`, env `REDIS_ADDR` + `REDIS_PASSWORD`, healthcheck on `:9121/metrics`, `depends_on.redis: service_healthy`).
 
-### 9.D.3 Sidecar scale matrix
+### 9.3. 9.D.3 Sidecar scale matrix
 
 | PROMETHEUS_SOURCE | postgres-exporter scale | redis-exporter scale |
 |---|:---:|:---:|
@@ -753,7 +753,7 @@ When PROMETHEUS_SOURCE=disabled the sidecars sit at scale=0 — no container sta
 
 Concrete edits per service.
 
-### 10.E.1 Kong (`services/kong/`)
+### 10.1. 10.E.1 Kong (`services/kong/`)
 
 Add Prometheus plugin to `services/kong/config/kong.yml`:
 
@@ -778,7 +778,7 @@ expose:
 
 **Scrape:** `http://kong:8100/metrics`
 
-### 10.E.2 LiteLLM (`services/litellm/`)
+### 10.2. 10.E.2 LiteLLM (`services/litellm/`)
 
 Edit `services/litellm/config/config.yaml`:
 
@@ -805,7 +805,7 @@ tmpfs:
 
 **Scrape:** `http://litellm:4000/metrics`
 
-### 10.E.3 Weaviate (`services/weaviate/`)
+### 10.3. 10.E.3 Weaviate (`services/weaviate/`)
 
 Add to `runtime_sc.weaviate.container.environment`:
 
@@ -823,7 +823,7 @@ expose:
 
 **Scrape:** `http://weaviate:2112/metrics`
 
-### 10.E.4 n8n (`services/n8n/`)
+### 10.4. 10.E.4 n8n (`services/n8n/`)
 
 Add to `runtime_sc.n8n.container.environment`:
 
@@ -836,13 +836,13 @@ N8N_METRICS_INCLUDE_WORKFLOW_ID_LABEL: "true"
 
 **Scrape:** `http://n8n:5678/metrics`
 
-### 10.E.5 JupyterHub (`services/jupyterhub/`)
+### 10.5. 10.E.5 JupyterHub (`services/jupyterhub/`)
 
 Built-in `/hub/metrics`. No env-var or compose changes. **Verify in implementation phase** that the path is `/hub/metrics` on the version we run (high-confidence per upstream docs, but `/metrics` is also valid on some versions — `curl http://jupyterhub:8000/hub/metrics` against the running container is the definitive check).
 
 **Scrape:** `http://jupyterhub:8000/hub/metrics`
 
-### 10.E.6 MinIO (`services/minio/`)
+### 10.6. 10.E.6 MinIO (`services/minio/`)
 
 Add to `runtime_sc.minio.container.environment`:
 
@@ -854,7 +854,7 @@ MINIO_PROMETHEUS_AUTH_TYPE: "public"
 
 **Scrape:** `http://minio:9000/minio/v2/metrics/cluster`
 
-### 10.E.7 Backend (`services/backend/`)
+### 10.7. 10.E.7 Backend (`services/backend/`)
 
 Add to `services/backend/app/pyproject.toml`:
 
@@ -874,13 +874,13 @@ Instrumentator().instrument(app).expose(app, endpoint="/metrics")
 
 **Scrape:** `http://backend:8000/metrics`
 
-### 10.E.8 Hermes Agent (`services/hermes/`)
+### 10.8. 10.E.8 Hermes Agent (`services/hermes/`)
 
 Same instrumentator shim as Backend. **Implementation phase opens with a quick spike** against Hermes's actual source layout to confirm it's a FastAPI app with a single ASGI entrypoint we can decorate; if Hermes turns out to be a different shape (CLI wrapper around a non-FastAPI library), Hermes /metrics gets deferred to a follow-on.
 
 **Scrape (assumed):** `http://hermes:8000/metrics`
 
-### 10.E.9 Static scrape config
+### 10.9. 10.E.9 Static scrape config
 
 `services/prometheus/config/prometheus.yml`:
 
@@ -940,7 +940,7 @@ scrape_configs:
 
 ## 11. Section F — Bootstrapper plumbing + wizard + audit
 
-### 11.F.1 `bootstrapper/utils/source_override_manager.py`
+### 11.1. 11.F.1 `bootstrapper/utils/source_override_manager.py`
 
 ```python
 self.source_mapping = {
@@ -952,7 +952,7 @@ self.source_mapping = {
 
 Add both keys to `test_wizard_app_discovery.py::test_source_mapping_includes_app_service_flags` assertion list.
 
-### 11.F.2 `bootstrapper/start.py`
+### 11.2. 11.F.2 `bootstrapper/start.py`
 
 ```python
 @click.option('--prometheus-source', type=click.Choice(['container', 'disabled']),
@@ -968,7 +968,7 @@ Add both keys to `test_wizard_app_discovery.py::test_source_mapping_includes_app
 - Add `PROMETHEUS_PORT`, `NODE_EXPORTER_PORT`, `CADVISOR_PORT`, `GRAFANA_PORT`, `POSTGRES_EXPORTER_PORT`, `REDIS_EXPORTER_PORT` to the port-clear list (so `--base-port X` relocates them).
 - Pre-bootstrap detection: if `.env` contains `RAY_SOURCE=ray-external` / `COMFYUI_SOURCE=external` / `OLLAMA_SOURCE=ollama-external`, print a CHANGELOG pointer and exit 2.
 
-### 11.F.3 Retention prompt mechanism
+### 11.3. 11.F.3 Retention prompt mechanism
 
 Per Ray's `RAY_WORKER_COUNT` pattern in `bootstrapper/ui/textual/integration.py`:
 
@@ -988,11 +988,11 @@ elif key == "prometheus":
 
 The `secondary_number` row schema is already extended in `service.yml::rows[0]` (Section 7.B.1). If `min`/`max`/`visible_when_source` are new fields, the schema in `bootstrapper/schemas/service.schema.json` needs the additive extensions plus a pinning-test update.
 
-### 11.F.4 `bootstrapper/utils/key_generator.py`
+### 11.4. 11.F.4 `bootstrapper/utils/key_generator.py`
 
 Add `generate_grafana_admin_password()` and `generate_and_update_grafana_admin_password()` per Section 8.C.6. Wire into `generate_missing_keys()`.
 
-### 11.F.5 `bootstrapper/utils/kong_config_generator.py`
+### 11.5. 11.F.5 `bootstrapper/utils/kong_config_generator.py`
 
 ```python
 def generate_prometheus_service(env):
@@ -1020,18 +1020,18 @@ def generate_grafana_service(env):
 
 Both registered in `get_all_services()`. `preserve_host: True` is mandatory for Grafana (SPA emits redirect URLs containing internal Docker hostname otherwise).
 
-### 11.F.6 `bootstrapper/utils/hosts_manager.py`
+### 11.6. 11.F.6 `bootstrapper/utils/hosts_manager.py`
 
 ```python
 GENAI_HOSTS.append("prometheus.localhost")
 GENAI_HOSTS.append("grafana.localhost")
 ```
 
-### 11.F.7 `bootstrapper/services/service_config.py`
+### 11.7. 11.F.7 `bootstrapper/services/service_config.py`
 
 `generate_service_environment()` calls `_generate_prometheus_config(env.get('PROMETHEUS_SOURCE', 'disabled'), shared_env)` — the cross-manifest scale hook from Section 7.B.4.
 
-### 11.F.8 `bootstrapper/ui/textual/integration.py`
+### 11.8. 11.F.8 `bootstrapper/ui/textual/integration.py`
 
 ```python
 _TAG_BY_KEY = {
@@ -1045,7 +1045,7 @@ _TAG_BY_KEY = {
 }
 ```
 
-### 11.F.9 `bootstrapper/wizard/service_discovery.py`
+### 11.9. 11.F.9 `bootstrapper/wizard/service_discovery.py`
 
 ```python
 DISPLAY_NAME_OVERRIDES['prometheus'] = 'Prometheus'
@@ -1060,7 +1060,7 @@ SERVICE_DESCRIPTIONS['grafana'] = (
 )
 ```
 
-### 11.F.10 `bootstrapper/ui/state_builder.py`
+### 11.10. 11.F.10 `bootstrapper/ui/state_builder.py`
 
 Add to `_SERVICES`:
 
@@ -1071,7 +1071,7 @@ Add to `_SERVICES`:
 
 Add `_HOST_ALIAS` entries for both.
 
-### 11.F.11 Audit scripts
+### 11.11. 11.F.11 Audit scripts
 
 **`scripts/check-compose-source-deps.py::REQUIRED_DEPENDS_ON`** — add:
 
@@ -1082,7 +1082,7 @@ Add `_HOST_ALIAS` entries for both.
 
 **`scripts/check-kong-routes.py::EXPECTED_HOST_ROUTES`** — no entries needed; both new services default to `disabled` (per `docs/CONTRIBUTING-services.md` line 525).
 
-### 11.F.12 `.github/dependabot.yml`
+### 11.12. 11.F.12 `.github/dependabot.yml`
 
 Per memory `feedback_dependabot_scan_coverage`, audit the `directories:` list to ensure Backend / Hermes pyproject.toml paths are tracked. Add any missing paths.
 
@@ -1090,7 +1090,7 @@ Per memory `feedback_dependabot_scan_coverage`, audit the `directories:` list to
 
 Sequencing — each phase is a green CI gate. No phase may merge with a red CI.
 
-### Phase 1 — Precursor: strip `external` source variants
+### 12.1. Phase 1 — Precursor: strip `external` source variants
 
 - Manifest edits to comfyui, ollama, ray (Section 6.A.1).
 - `_generate_ray_config` simplification (Section 6.A.1).
@@ -1102,7 +1102,7 @@ Sequencing — each phase is a green CI gate. No phase may merge with a red CI.
 
 Ships as a single PR. Breaking change CHANGELOG entry is the user-facing artifact.
 
-### Phase 2 — Prometheus family
+### 12.2. Phase 2 — Prometheus family
 
 - New `services/prometheus/` folder with manifest, compose, config/prometheus.yml, config/rules/, README, regen-time architecture diagram.
 - Static scrape config covering all 14 targets (Section 10.E.9).
@@ -1113,21 +1113,21 @@ Ships as a single PR. Breaking change CHANGELOG entry is the user-facing artifac
 
 CI must pass with `PROMETHEUS_SOURCE=disabled` (default) — full byte-equivalence baseline.
 
-### Phase 3 — Grafana
+### 12.3. Phase 3 — Grafana
 
 - New `services/grafana/` folder with manifest, compose, config/grafana.ini, datasource + dashboard provisioning, 7 dashboard JSONs, README, architecture diagram.
 - Admin password key generation wired (already in Phase 2's plumbing).
 - Kong route generator for grafana.localhost.
 - Regen.
 
-### Phase 4 — Sidecar exporters
+### 12.4. Phase 4 — Sidecar exporters
 
 - Edits to `services/supabase/` (postgres-exporter container + env + runtime_sc).
 - Edits to `services/redis/` (redis-exporter container + env + runtime_sc).
 - Regen `.env.example` + baseline rendering.
 - Audit scripts (REQUIRED_DEPENDS_ON entries activate).
 
-### Phase 5 — Cross-stack `/metrics` enablement
+### 12.5. Phase 5 — Cross-stack `/metrics` enablement
 
 Five sub-PRs, parallelizable:
 
@@ -1139,7 +1139,7 @@ Five sub-PRs, parallelizable:
 
 Each sub-PR is independently mergeable; missing scrape targets just show DOWN in Prom.
 
-### Phase 6 — Verification, documentation, CHANGELOG
+### 12.6. Phase 6 — Verification, documentation, CHANGELOG
 
 - Run the full verification matrix (Section 14).
 - Update `docs/README.md` services index.
@@ -1155,11 +1155,11 @@ Each sub-PR is independently mergeable; missing scrape targets just show DOWN in
 
 Under `[Unreleased]`:
 
-### Removed (breaking)
+### 13.1. Removed (breaking)
 
 Source variants `external` (ComfyUI), `ollama-external` (Ollama), and `ray-external` (Ray) and their associated env vars `COMFYUI_EXTERNAL_URL`, `LLM_PROVIDER_EXTERNAL_URL`, `RAY_EXTERNAL_ADDRESS` are removed pending a stack-wide authenticated-remote design. Users with these source values set in `.env` must switch to `container` (or `disabled`) before bootstrapping. The bootstrapper now detects these legacy values and exits with a pointer to this entry. Future spec will reintroduce authenticated remote endpoints across the stack.
 
-### Added (observability bundle)
+### 13.2. Added (observability bundle)
 
 - New services `prometheus` (with bundled `node-exporter` and `cAdvisor`) and `grafana` under the `infra` category. Both default to `disabled`; opt in with `--prometheus-source container --grafana-source container` or via the wizard.
 - `PROMETHEUS_RETENTION_DAYS` (default `7`) — user-configurable at wizard time.

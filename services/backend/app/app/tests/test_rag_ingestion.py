@@ -10,15 +10,29 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
 from pathlib import Path
+from types import SimpleNamespace
 
 import httpx
 import pytest
 
-from rag_ingestion.clients import CorpusPathError, LightRagClient, MountCorpusReader
+from rag_ingestion.clients import (
+    CorpusFile,
+    CorpusPathError,
+    LightRagClient,
+    MinioCorpusReader,
+    MountCorpusReader,
+    ParserAdapter,
+)
 from rag_ingestion.profiles import ProfileNotFoundError, load_profiles
-from rag_ingestion.service import Deps, RagIngestionService
-from rag_ingestion.store import InMemoryIngestionStore
+from rag_ingestion.service import (
+    Deps,
+    IngestionExecutionLeaseLost,
+    RagIngestionService,
+)
+from rag_ingestion.models import IngestionRecord
+from rag_ingestion.store import InMemoryIngestionStore, RedisIngestionStore
 
 
 # ── fakes ────────────────────────────────────────────────────────────
@@ -76,8 +90,26 @@ class FailingLightrag(FakeLightrag):
 
 class RaisingExtractor:
     """Stands in for a reachable-but-failing Docling/Tika endpoint."""
-    async def extract(self, content, filename=None, content_type=None):
+    async def extract(
+        self, *, content, filename=None, content_type=None, extractor=None
+    ):
         raise RuntimeError("docling exploded")
+
+
+class KeywordOnlyExtractor:
+    def __init__(self):
+        self.calls = []
+
+    async def extract(self, *, content, filename, content_type, extractor=None):
+        self.calls.append(
+            {
+                "content": content,
+                "filename": filename,
+                "content_type": content_type,
+                "extractor": extractor,
+            }
+        )
+        return SimpleNamespace(content=f"parsed by {extractor}", extractor=extractor)
 
 
 # ── helpers ──────────────────────────────────────────────────────────
@@ -143,10 +175,94 @@ def test_end_to_end_completes(tmp_path, monkeypatch):
     assert [p.status for p in final.phases if p.name == "drain"] == ["completed"]
 
 
+def test_parser_adapter_uses_keyword_contract_and_exact_parser_selection():
+    extractor = KeywordOnlyExtractor()
+    parsed = asyncio.run(
+        ParserAdapter(extractor).parse(
+            CorpusFile("notes.txt", b"hello", "text/plain"),
+            ["tika", "plain_text"],
+        )
+    )
+
+    assert parsed.text == "parsed by tika"
+    assert parsed.parser == "tika"
+    assert extractor.calls == [
+        {
+            "content": b"hello",
+            "filename": "notes.txt",
+            "content_type": "text/plain",
+            "extractor": "tika",
+        }
+    ]
+
+
+def test_redis_ingestion_store_configures_bounded_socket_deadlines(monkeypatch):
+    import redis
+
+    captured = {}
+    sentinel = object()
+
+    def fake_from_url(url, **kwargs):
+        captured.update({"url": url, **kwargs})
+        return sentinel
+
+    monkeypatch.setattr(redis.Redis, "from_url", fake_from_url)
+
+    store = RedisIngestionStore("redis://redis:6379/0")
+
+    assert store._redis is sentinel
+    assert captured["socket_connect_timeout"] == 3
+    assert captured["socket_timeout"] == 3
+
+
+def test_sync_discovery_and_chunking_run_off_the_event_loop(tmp_path, monkeypatch):
+    _corpus(tmp_path, monkeypatch, {"a.txt": "the quick brown fox"})
+    pf = _profiles_file(tmp_path)
+    main_thread = threading.get_ident()
+    threads = {}
+
+    from rag_ingestion.clients import CorpusReader
+    import chunking_service
+
+    corpus = CorpusReader()
+    original_discover = corpus.discover
+    original_chunk = chunking_service.chunk_text
+
+    def checked_discover(*args, **kwargs):
+        threads["discover"] = threading.get_ident()
+        return original_discover(*args, **kwargs)
+
+    def checked_chunk(*args, **kwargs):
+        threads["chunk"] = threading.get_ident()
+        return original_chunk(*args, **kwargs)
+
+    monkeypatch.setattr(corpus, "discover", checked_discover)
+    monkeypatch.setattr(chunking_service, "chunk_text", checked_chunk)
+    svc = _service(
+        tmp_path,
+        Deps(
+            corpus=corpus,
+            embedder=FakeEmbedder(),
+            weaviate=FakeWeaviate(),
+            lightrag=FakeLightrag(),
+            poll_interval=0.01,
+        ),
+        pf,
+    )
+
+    _, _, final = _run(svc)
+
+    assert final.status == "completed"
+    assert threads["discover"] != main_thread
+    assert threads["chunk"] != main_thread
+
+
 def test_lightrag_client_uses_current_file_source_contract(monkeypatch):
     requests = []
 
     class FakeResponse:
+        status_code = 200
+
         def raise_for_status(self):
             return None
 
@@ -172,11 +288,79 @@ def test_lightrag_client_uses_current_file_source_contract(monkeypatch):
     )
 
     assert uploaded == 1
-    assert requests[0][1]["json"] == {
-        "text": "graph text",
-        "file_source": "graph_native/a.txt",
-    }
+    payload = requests[0][1]["json"]
+    assert payload["text"] == "graph text"
+    assert payload["file_source"].startswith("atlas-")
+    assert payload["file_source"].endswith(".txt")
+    assert "/" not in payload["file_source"]
     assert "description" not in requests[0][1]["json"]
+
+
+def test_lightrag_file_sources_are_stable_and_path_unique(monkeypatch):
+    payloads = []
+
+    class FakeResponse:
+        status_code = 200
+
+        def raise_for_status(self):
+            return None
+
+    class FakeAsyncClient:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def post(self, _url, **kwargs):
+            payloads.append(kwargs["json"])
+            return FakeResponse()
+
+    monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)
+    client = LightRagClient(endpoint="http://lightrag:9621", api_key="secret")
+    documents = [
+        {"text": "one", "source": "dir1/a.txt"},
+        {"text": "two", "source": "dir2/a.txt"},
+    ]
+
+    asyncio.run(client.upload(documents))
+    first_sources = [payload["file_source"] for payload in payloads]
+    payloads.clear()
+    asyncio.run(client.upload(documents))
+
+    assert first_sources[0] != first_sources[1]
+    assert [payload["file_source"] for payload in payloads] == first_sources
+
+
+def test_lightrag_duplicate_file_source_is_idempotent(monkeypatch):
+    class ConflictResponse:
+        status_code = 409
+
+        def raise_for_status(self):
+            raise AssertionError("duplicate 409 must be accepted")
+
+    class FakeAsyncClient:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def post(self, _url, **_kwargs):
+            return ConflictResponse()
+
+    monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)
+    client = LightRagClient(endpoint="http://lightrag:9621", api_key="secret")
+
+    assert asyncio.run(
+        client.upload([{"text": "same", "source": "a.txt"}])
+    ) == 1
 
 
 def test_lightrag_failure_records_bounded_upstream_body(tmp_path, monkeypatch):
@@ -220,6 +404,32 @@ def test_idempotent_resubmit_dedups(tmp_path, monkeypatch):
     assert second.id == first.id
 
 
+def test_content_change_at_same_corpus_path_creates_fresh_ingestion(
+    tmp_path, monkeypatch
+):
+    root = _corpus(tmp_path, monkeypatch, {"a.txt": "first body"})
+    pf = _profiles_file(tmp_path)
+    svc = _service(
+        tmp_path,
+        Deps(
+            embedder=FakeEmbedder(),
+            weaviate=FakeWeaviate(),
+            lightrag=FakeLightrag(),
+            poll_interval=0.01,
+        ),
+        pf,
+    )
+    first, created_first = svc.submit("showcase-default")
+    asyncio.run(svc.run(first.id))
+
+    (root / "docs" / "a.txt").write_text("other body", encoding="utf-8")
+    second, created_second = svc.submit("showcase-default")
+
+    assert created_first is True
+    assert created_second is True
+    assert second.id != first.id
+
+
 def test_parser_fallback_to_plain_text(tmp_path, monkeypatch):
     _corpus(tmp_path, monkeypatch, {"a.txt": "fallback body text here"})
     pf = _profiles_file(tmp_path, parser_order=["docling", "plain_text"])
@@ -232,6 +442,226 @@ def test_parser_fallback_to_plain_text(tmp_path, monkeypatch):
     _, _, final = _run(svc)
     assert final.status == "completed"
     assert final.counts["documents_parsed"] == 1  # docling failed, plain_text succeeded
+
+
+def test_concurrent_submit_atomically_claims_one_idempotency_record(
+    tmp_path, monkeypatch
+):
+    _corpus(tmp_path, monkeypatch, {"a.txt": "content"})
+    pf = _profiles_file(tmp_path)
+    barrier = threading.Barrier(2)
+
+    class RacingStore(InMemoryIngestionStore):
+        def find_by_idempotency_key(self, key):
+            barrier.wait(timeout=5)
+            return super().find_by_idempotency_key(key)
+
+    svc = RagIngestionService(
+        store=RacingStore(),
+        deps=Deps(
+            embedder=FakeEmbedder(),
+            weaviate=FakeWeaviate(),
+            lightrag=FakeLightrag(),
+            poll_interval=0.01,
+        ),
+        profiles_path=pf,
+    )
+    results = []
+
+    def submit():
+        results.append(svc.submit("showcase-default"))
+
+    threads = [threading.Thread(target=submit) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=5)
+
+    assert all(not thread.is_alive() for thread in threads)
+    assert len(results) == 2
+    assert len({record.id for record, _ in results}) == 1
+    assert sorted(created for _, created in results) == [False, True]
+
+
+def test_cancellation_survives_a_stale_worker_save(tmp_path, monkeypatch):
+    _corpus(tmp_path, monkeypatch, {"a.txt": "content"})
+    pf = _profiles_file(tmp_path)
+    store = InMemoryIngestionStore()
+    svc = RagIngestionService(
+        store=store,
+        deps=Deps(
+            embedder=FakeEmbedder(),
+            weaviate=FakeWeaviate(),
+            lightrag=FakeLightrag(),
+            poll_interval=0.01,
+        ),
+        profiles_path=pf,
+    )
+    record, _ = svc.submit("showcase-default")
+    stale_worker_copy = store.get(record.id)
+
+    assert stale_worker_copy is not None
+    assert store.request_cancel(record.id) is True
+    stale_worker_copy.status = "running"
+    store.save(stale_worker_copy)
+
+    persisted = store.get(record.id)
+    assert persisted is not None
+    assert persisted.cancel_requested is True
+
+
+def test_execution_claim_fences_non_owner_saves_and_allows_recovery():
+    store = InMemoryIngestionStore()
+    record = IngestionRecord(
+        id="ingestion-1",
+        consumer="acme",
+        profile="default",
+        revision="1",
+        idempotency_key="key-1",
+    )
+    store.create_if_absent(record)
+
+    assert store.claim_execution(record.id, "worker-a", 60) is True
+    assert store.claim_execution(record.id, "worker-b", 60) is False
+    claimed = store.get(record.id)
+    claimed.status = "running"
+    assert store.save_claimed(claimed, "worker-b") is False
+    assert store.save_claimed(claimed, "worker-a") is True
+    assert store.release_execution(record.id, "worker-a") is True
+    assert store.claim_execution(record.id, "worker-b", 60) is True
+
+
+def test_run_rejects_concurrent_execution_before_side_effects(tmp_path, monkeypatch):
+    from rag_ingestion.service import IngestionExecutionBusy
+
+    _corpus(tmp_path, monkeypatch, {"a.txt": "content"})
+    profile_path = _profiles_file(tmp_path)
+    store = InMemoryIngestionStore()
+    embedder = FakeEmbedder()
+    service = RagIngestionService(
+        store=store,
+        deps=Deps(
+            embedder=embedder,
+            weaviate=FakeWeaviate(),
+            lightrag=FakeLightrag(),
+            poll_interval=0.01,
+        ),
+        profiles_path=profile_path,
+    )
+    record, _ = service.submit("showcase-default")
+    assert store.claim_execution(record.id, "worker-a", 60) is True
+
+    with pytest.raises(IngestionExecutionBusy):
+        asyncio.run(
+            service.run(
+                record.id,
+                retry_transient=True,
+                execution_owner="worker-b",
+                execution_lease_seconds=60,
+            )
+        )
+
+    assert embedder.available() is True
+    assert store.get(record.id).status == "pending"
+
+
+@pytest.mark.parametrize("lease_seconds", (True, 9, 301, 30.0, "30"))
+def test_run_rejects_invalid_execution_lease_before_claim(
+    tmp_path, monkeypatch, lease_seconds
+):
+    _corpus(tmp_path, monkeypatch, {"a.txt": "content"})
+    profile_path = _profiles_file(tmp_path)
+    store = InMemoryIngestionStore()
+    service = RagIngestionService(
+        store=store,
+        deps=Deps(
+            embedder=FakeEmbedder(),
+            weaviate=FakeWeaviate(),
+            lightrag=FakeLightrag(),
+        ),
+        profiles_path=profile_path,
+    )
+    record, _ = service.submit("showcase-default")
+
+    with pytest.raises(ValueError, match="RAG_INGESTION_EXECUTION_LEASE_SECONDS"):
+        asyncio.run(
+            service.run(record.id, execution_lease_seconds=lease_seconds)
+        )
+
+    assert store.claim_execution(record.id, "worker-a", 60) is True
+
+
+def test_missing_profile_does_not_strand_execution_claim(tmp_path):
+    store = InMemoryIngestionStore()
+    record = IngestionRecord(
+        id="missing-profile-ingestion",
+        consumer="acme",
+        profile="missing",
+        revision="1",
+        idempotency_key="missing-profile-key",
+    )
+    store.create_if_absent(record)
+    service = RagIngestionService(
+        store=store,
+        deps=Deps(),
+        profiles_path=str(tmp_path / "missing-profiles.json"),
+    )
+
+    with pytest.raises(ProfileNotFoundError):
+        asyncio.run(service.run(record.id))
+
+    assert store.claim_execution(record.id, "worker-a", 60) is True
+
+
+def test_run_cancels_active_phase_when_execution_lease_is_lost(
+    tmp_path, monkeypatch
+):
+    _corpus(tmp_path, monkeypatch, {"a.txt": "content"})
+    profile_path = _profiles_file(tmp_path)
+    store = InMemoryIngestionStore()
+
+    class LeaseLosingService(RagIngestionService):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self.phase_started = asyncio.Event()
+            self.phase_cancelled = False
+
+        async def _heartbeat_execution(
+            self,
+            ingestion_id,
+            owner,
+            lease_seconds,
+            stop,
+            lease_lost=None,
+        ):
+            await self.phase_started.wait()
+            if lease_lost is not None:
+                lease_lost.set()
+
+        async def _run_phase(self, *args, **kwargs):
+            self.phase_started.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                self.phase_cancelled = True
+                raise
+
+    service = LeaseLosingService(
+        store=store,
+        deps=Deps(),
+        profiles_path=profile_path,
+    )
+    record, _ = service.submit("showcase-default")
+
+    with pytest.raises(IngestionExecutionLeaseLost):
+        asyncio.run(
+            asyncio.wait_for(
+                service.run(record.id, execution_lease_seconds=10),
+                timeout=1,
+            )
+        )
+
+    assert service.phase_cancelled is True
 
 
 def test_vector_target_fail_when_weaviate_disabled(tmp_path, monkeypatch):
@@ -372,6 +802,99 @@ def test_unexpected_phase_error_marks_failed_not_crash(tmp_path, monkeypatch):
     assert any("kaboom" in e["message"] for e in final.errors)
 
 
+def test_worker_transient_error_is_persisted_for_retry_and_reraised(
+    tmp_path, monkeypatch
+):
+    _corpus(tmp_path, monkeypatch, {"a.txt": "content body"})
+    pf = _profiles_file(
+        tmp_path,
+        vector=[
+            {
+                "backend": "weaviate",
+                "collection_prefix": "P",
+                "on_unavailable": "fail",
+            }
+        ],
+    )
+
+    class TransientEmbedder:
+        def available(self):
+            return True
+
+        async def embed(self, texts):
+            raise ConnectionError("temporary LiteLLM outage")
+
+    store = InMemoryIngestionStore()
+    svc = RagIngestionService(
+        store=store,
+        deps=Deps(
+            embedder=TransientEmbedder(),
+            weaviate=FakeWeaviate(),
+            lightrag=FakeLightrag(available=False),
+            poll_interval=0.01,
+        ),
+        profiles_path=pf,
+    )
+    record, _ = svc.submit("showcase-default")
+
+    with pytest.raises(ConnectionError, match="temporary LiteLLM outage"):
+        asyncio.run(svc.run(record.id, retry_transient=True))
+
+    persisted = store.get(record.id)
+    assert persisted is not None
+    assert persisted.status == "pending"
+    assert persisted.phase("embed").status == "pending"
+    assert persisted.phase("embed").note == "waiting for Celery retry"
+    assert persisted.errors == []
+
+    svc.deps.embedder = FakeEmbedder()
+    completed = asyncio.run(svc.run(record.id, retry_transient=True))
+    assert completed.status == "completed"
+    assert completed.phase("embed").status == "completed"
+    assert completed.phase("embed").note is None
+
+
+def test_worker_final_transient_attempt_records_terminal_failure(
+    tmp_path, monkeypatch
+):
+    _corpus(tmp_path, monkeypatch, {"a.txt": "content body"})
+    pf = _profiles_file(
+        tmp_path,
+        vector=[
+            {
+                "backend": "weaviate",
+                "collection_prefix": "P",
+                "on_unavailable": "fail",
+            }
+        ],
+    )
+
+    class TransientEmbedder:
+        def available(self):
+            return True
+
+        async def embed(self, _texts):
+            raise ConnectionError("temporary LiteLLM outage")
+
+    store = InMemoryIngestionStore()
+    svc = RagIngestionService(
+        store=store,
+        deps=Deps(
+            embedder=TransientEmbedder(),
+            weaviate=FakeWeaviate(),
+            lightrag=FakeLightrag(available=False),
+        ),
+        profiles_path=pf,
+    )
+    record, _ = svc.submit("showcase-default")
+
+    final = asyncio.run(svc.run(record.id, retry_transient=False))
+
+    assert final.status == "failed"
+    assert final.is_dedup_candidate is False
+    assert final.phase("embed").status == "failed"
+
+
 def test_corpus_path_safety_rejects_escape(tmp_path, monkeypatch):
     root = tmp_path / "root"
     root.mkdir()
@@ -400,6 +923,132 @@ def test_corpus_symlink_escape_rejected(tmp_path, monkeypatch):
     reader = MountCorpusReader()
     with pytest.raises(CorpusPathError):
         reader.discover({"source": "mount", "path": "docs"})
+
+
+def test_mount_corpus_rejects_file_over_configured_limit(tmp_path, monkeypatch):
+    _corpus(tmp_path, monkeypatch, {"large.txt": "12345"})
+    monkeypatch.setenv("RAG_INGESTION_MAX_FILE_BYTES", "4")
+    monkeypatch.setenv("RAG_INGESTION_MAX_CORPUS_BYTES", "100")
+
+    with pytest.raises(ValueError, match="large.txt.*4 bytes"):
+        MountCorpusReader().discover({"source": "mount", "path": "docs"})
+
+
+def test_mount_corpus_rejects_aggregate_over_configured_limit(tmp_path, monkeypatch):
+    _corpus(tmp_path, monkeypatch, {"a.txt": "1234", "b.txt": "5678"})
+    monkeypatch.setenv("RAG_INGESTION_MAX_FILE_BYTES", "10")
+    monkeypatch.setenv("RAG_INGESTION_MAX_CORPUS_BYTES", "7")
+
+    with pytest.raises(ValueError, match="corpus.*7 bytes"):
+        MountCorpusReader().discover({"source": "mount", "path": "docs"})
+
+
+def test_mount_corpus_rejects_file_count_over_configured_limit(tmp_path, monkeypatch):
+    _corpus(tmp_path, monkeypatch, {"a.txt": "", "b.txt": "", "c.txt": ""})
+    monkeypatch.setenv("RAG_INGESTION_MAX_FILES", "2")
+
+    with pytest.raises(ValueError, match="more than 2 files"):
+        MountCorpusReader().discover({"source": "mount", "path": "docs"})
+
+
+def test_minio_corpus_rejects_oversize_metadata_before_download(monkeypatch):
+    import minio
+
+    get_calls = []
+
+    class Object:
+        object_name = "large.bin"
+        size = 5
+
+    class FakeClient:
+        def list_objects(self, *args, **kwargs):
+            return [Object()]
+
+        def get_object(self, *args, **kwargs):
+            get_calls.append(args)
+            raise AssertionError("oversize object must not be downloaded")
+
+    monkeypatch.setattr(minio, "Minio", lambda *args, **kwargs: FakeClient())
+    monkeypatch.setenv("MINIO_ENDPOINT", "http://minio:9000")
+    monkeypatch.setenv("RAG_INGESTION_MAX_FILE_BYTES", "4")
+    monkeypatch.setenv("RAG_INGESTION_MAX_CORPUS_BYTES", "100")
+
+    with pytest.raises(ValueError, match="large.bin.*4 bytes"):
+        MinioCorpusReader().discover(
+            {"source": "minio", "bucket": "corpus", "prefix": "docs/"}
+        )
+    assert get_calls == []
+
+
+def test_minio_corpus_uses_compiled_scoped_credentials(monkeypatch):
+    import minio
+
+    captured = {}
+
+    class FakeClient:
+        def list_objects(self, *_args, **_kwargs):
+            return []
+
+    def fake_client(*args, **kwargs):
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        return FakeClient()
+
+    monkeypatch.setattr(minio, "Minio", fake_client)
+    monkeypatch.setenv("MINIO_ENDPOINT", "http://minio:9000")
+    monkeypatch.setenv("MINIO_RAG_CORPUS_ACCESS_KEY", "scoped-access")
+    monkeypatch.setenv("MINIO_RAG_CORPUS_SECRET_KEY", "scoped-secret")
+
+    MinioCorpusReader().discover(
+        {
+            "source": "minio",
+            "bucket": "rag-corpus",
+            "prefix": "docs/",
+            "access_key_var": "MINIO_RAG_CORPUS_ACCESS_KEY",
+            "secret_key_var": "MINIO_RAG_CORPUS_SECRET_KEY",
+        }
+    )
+
+    assert captured["kwargs"]["access_key"] == "scoped-access"
+    assert captured["kwargs"]["secret_key"] == "scoped-secret"
+
+
+def test_minio_corpus_bounds_stream_when_size_metadata_is_missing(monkeypatch):
+    import io
+    import minio
+
+    response = io.BytesIO(b"12345")
+    response.close = lambda: None
+    response.release_conn = lambda: None
+
+    class Object:
+        object_name = "unknown-size.bin"
+        size = None
+
+    class FakeClient:
+        def list_objects(self, *args, **kwargs):
+            return [Object()]
+
+        def get_object(self, *args, **kwargs):
+            return response
+
+    monkeypatch.setattr(minio, "Minio", lambda *args, **kwargs: FakeClient())
+    monkeypatch.setenv("MINIO_ENDPOINT", "http://minio:9000")
+    monkeypatch.setenv("RAG_INGESTION_MAX_FILE_BYTES", "4")
+    monkeypatch.setenv("RAG_INGESTION_MAX_CORPUS_BYTES", "100")
+
+    with pytest.raises(ValueError, match="unknown-size.bin.*4 bytes"):
+        MinioCorpusReader().discover(
+            {"source": "minio", "bucket": "corpus", "prefix": "docs/"}
+        )
+
+
+def test_corpus_fingerprint_enforces_the_same_resource_limits(tmp_path, monkeypatch):
+    _corpus(tmp_path, monkeypatch, {"large.txt": "12345"})
+    monkeypatch.setenv("RAG_INGESTION_MAX_FILE_BYTES", "4")
+
+    with pytest.raises(ValueError, match="large.txt.*4 bytes"):
+        MountCorpusReader().fingerprint({"source": "mount", "path": "docs"})
 
 
 def test_embedder_disabled_is_attributed_to_embedder_not_weaviate(tmp_path, monkeypatch):

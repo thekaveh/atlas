@@ -77,6 +77,14 @@ scrape_configs:
     static_configs:
       - targets: ['backend:8000']
 
+  - job_name: asset-worker
+    static_configs:
+      - targets: ['asset-worker:8095']
+
+  - job_name: asset-baker
+    static_configs:
+      - targets: ['asset-baker:8096']
+
   - job_name: postgres-exporter
     static_configs:
       - targets: ['postgres-exporter:9187']

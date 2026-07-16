@@ -14,7 +14,7 @@ def _candidate_text() -> str:
 def test_lakekeeper_remains_watchlist_until_catalog_pressure_exists() -> None:
     text = _candidate_text()
 
-    assert "## Watchlist decision (2026-07-04)" in text
+    assert "Watchlist decision (2026-07-04)" in text
     assert "must not add `services/lakekeeper/service.yml` yet" in text
     assert "data-eng-lab" in text
     assert "current Apache Iceberg REST fixture" in text

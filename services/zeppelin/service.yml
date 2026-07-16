@@ -44,9 +44,9 @@ env:
 depends_on:
   required:
     - spark
+    - minio
   optional:
     - supabase
-    - minio
     - iceberg-rest
     - redpanda
     - trino
@@ -60,8 +60,7 @@ rows:
     source_var: ZEPPELIN_SOURCE
     port_var: ZEPPELIN_PORT
     scale_var: ZEPPELIN_SCALE
-    alias: zeppelin.localhost
-    description: "Spark-first notebook UI. Requires Spark."
+    description: "Loopback-only Spark-first notebook UI. Requires Spark and MinIO."
 
 exports: []
 
@@ -79,8 +78,9 @@ runtime_sc:
         SPARK_KAFKA_BOOTSTRAP_SERVERS: ${SPARK_KAFKA_BOOTSTRAP_SERVERS:-}
         MINIO_ENDPOINT: http://minio:9000
         MINIO_REGION: ${MINIO_REGION:-us-east-1}
-        MINIO_ROOT_USER: ${MINIO_ROOT_USER}
-        MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+        MINIO_BUCKET_SPARK_HISTORY: ${MINIO_BUCKET_SPARK_HISTORY:-spark-history}
+        MINIO_SPARK_ACCESS_KEY: ${MINIO_SPARK_ACCESS_KEY}
+        MINIO_SPARK_SECRET_KEY: ${MINIO_SPARK_SECRET_KEY}
         MINIO_BUCKET_ICEBERG_LAKEHOUSE: ${MINIO_BUCKET_ICEBERG_LAKEHOUSE:-lakehouse}
         MINIO_ICEBERG_ACCESS_KEY: ${MINIO_ICEBERG_ACCESS_KEY}
         MINIO_ICEBERG_SECRET_KEY: ${MINIO_ICEBERG_SECRET_KEY}
@@ -96,8 +96,8 @@ runtime_sc:
           --conf spark.driver.bindAddress=0.0.0.0
           --conf spark.driver.host=zeppelin
           --conf spark.hadoop.fs.s3a.endpoint=http://minio:9000
-          --conf spark.hadoop.fs.s3a.access.key=${MINIO_ROOT_USER}
-          --conf spark.hadoop.fs.s3a.secret.key=${MINIO_ROOT_PASSWORD}
+          --conf spark.hadoop.fs.s3a.access.key=${MINIO_SPARK_ACCESS_KEY}
+          --conf spark.hadoop.fs.s3a.secret.key=${MINIO_SPARK_SECRET_KEY}
           --conf spark.hadoop.fs.s3a.path.style.access=true
           --conf spark.hadoop.fs.s3a.endpoint.region=${MINIO_REGION:-us-east-1}
           --conf spark.hadoop.fs.s3a.connection.ssl.enabled=false
@@ -113,7 +113,7 @@ runtime_sc:
           --conf spark.sql.catalog.lakehouse.s3.secret-access-key=${MINIO_ICEBERG_SECRET_KEY}
           --conf spark.sql.catalog.lakehouse.client.region=${MINIO_REGION:-us-east-1}
           --conf spark.eventLog.enabled=true
-          --conf spark.eventLog.dir=s3a://spark-history/
+          --conf spark.eventLog.dir=s3a://${MINIO_BUCKET_SPARK_HISTORY:-spark-history}/
         ZEPPELIN_JDBC_POSTGRES_URL: "jdbc:postgresql://supabase-db:5432/${SUPABASE_DB_NAME}"
         ZEPPELIN_JDBC_POSTGRES_USER: "${SUPABASE_DB_USER}"
         ZEPPELIN_JDBC_POSTGRES_PASSWORD: "${SUPABASE_DB_PASSWORD}"
@@ -134,8 +134,9 @@ runtime_sc:
         SPARK_MASTER: "spark://spark-master:7077"
         MINIO_ENDPOINT: http://minio:9000
         MINIO_REGION: ${MINIO_REGION:-us-east-1}
-        MINIO_ROOT_USER: ${MINIO_ROOT_USER}
-        MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+        MINIO_BUCKET_SPARK_HISTORY: ${MINIO_BUCKET_SPARK_HISTORY:-spark-history}
+        MINIO_SPARK_ACCESS_KEY: ${MINIO_SPARK_ACCESS_KEY}
+        MINIO_SPARK_SECRET_KEY: ${MINIO_SPARK_SECRET_KEY}
         MINIO_BUCKET_ICEBERG_LAKEHOUSE: ${MINIO_BUCKET_ICEBERG_LAKEHOUSE:-lakehouse}
         MINIO_ICEBERG_ACCESS_KEY: ${MINIO_ICEBERG_ACCESS_KEY}
         MINIO_ICEBERG_SECRET_KEY: ${MINIO_ICEBERG_SECRET_KEY}
@@ -157,7 +158,7 @@ runtime_sc:
 
 data_flow:
   # Convention: focus.data_flow.calls = what FOCUS calls (upstream).
-  # Kong routes traffic TO Zeppelin; not an outbound from Zeppelin's perspective.
+  # Kong is intentionally absent: Zeppelin is exposed only on a loopback host port.
   # NOTE: litellm is intentionally absent here even though the README
   # describes wiring it from inside Python cells — Zeppelin doesn't auto-
   # inject LITELLM_* env vars at compose-render time, so the call is

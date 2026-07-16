@@ -6,6 +6,10 @@ from pathlib import Path
 from .models import GLB_CONTENT_TYPE
 
 
+class ArtifactTooLargeError(ValueError):
+    pass
+
+
 def _truthy(value: str | None) -> bool:
     return (value or "").strip().lower() in {"1", "true", "yes", "on"}
 
@@ -24,8 +28,20 @@ class ArtifactStorage:
         client = self._client()
         response = client.get_object(Bucket=bucket, Key=key)
         body = response["Body"]
+        max_mb = float(os.getenv("ASSET_BAKER_MAX_UPLOAD_MB", "200"))
+        max_bytes = max(1, int(max_mb * 1024 * 1024))
         try:
-            return body.read()
+            content_length = response.get("ContentLength")
+            if content_length is not None and int(content_length) > max_bytes:
+                raise ArtifactTooLargeError(
+                    f"GLB exceeds {max_bytes} byte limit"
+                )
+            data = body.read(max_bytes + 1)
+            if len(data) > max_bytes:
+                raise ArtifactTooLargeError(
+                    f"GLB exceeds {max_bytes} byte limit"
+                )
+            return data
         finally:
             close = getattr(body, "close", None)
             if close:

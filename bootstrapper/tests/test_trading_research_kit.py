@@ -96,10 +96,7 @@ def test_financial_research_notebook_is_registered_and_guarded() -> None:
     ]:
         assert expected in text
 
-    for doc in (
-        ROOT / "services" / "jupyterhub" / "README.md",
-        ROOT / "services" / "jupyterhub" / "build" / "README.md",
-    ):
+    for doc in (ROOT / "services" / "jupyterhub" / "README.md",):
         assert "`11_financial_research_kit.ipynb`" in doc.read_text(encoding="utf-8")
 
 

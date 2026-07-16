@@ -1,9 +1,7 @@
-# Architecture Diagrams
+# 9.4. Architecture Diagrams
 
-The top-level architecture diagram is **hand-authored** via the
-[`architecture-diagram` skill](https://github.com/anthropics/claude-code/tree/main/skills/architecture-diagram)
-(cyan / emerald / violet / amber / rose / orange palette, JetBrains Mono,
-layered topological flow, slate-950 background, grid pattern).
+The top-level architecture diagram presents the platform's major tiers and
+runtime call direction. Its source artifacts are:
 
 - `architecture.svg` — inline SVG embedded in the project root `README.md` and viewable standalone.
 - `architecture.html` — standalone HTML wrapper that frames the same SVG with a header, summary cards, and footer (open directly in a browser).
@@ -15,8 +13,7 @@ documentation. When the topology changes meaningfully (a new service tier
 landed, a category was split, a major flow direction changed), update
 both files by hand:
 
-1. Edit `architecture.svg` directly, OR re-emit it via the skill (see the
-   skill prompt at `~/.claude/skills/architecture-diagram/SKILL.md`).
+1. Update the diagram through the repository's `architecture-diagram` skill.
 2. Keep `architecture.html`'s embedded `<object data="architecture.svg">`
    pointed at the SVG — the HTML is just a frame.
 3. The category palette + fills are mirrored from `bootstrapper/services/topology.py::{CATEGORY_COLORS,CATEGORY_FILLS}`. Use those constants when editing so the top-level diagram matches every per-service diagram.
@@ -41,13 +38,3 @@ diagram — same palette, same JetBrains Mono, same slate-950 background —
 implemented in `bootstrapper/docs/diagram_renderer.py`. Edit that file to
 change the rendered shape; manifest field changes regenerate the
 content.
-
-## 3. History
-
-The previous top-level diagram was rendered via Graphviz from a
-`docs/diagrams/architecture.dot` source produced by
-`bootstrapper/tools/generate_architecture_diagram.py`. Both the `.dot`
-file and the generator were retired alongside this skill-driven rewrite;
-the Graphviz dependency is no longer required. The Mermaid-based
-workflow that preceded Graphviz is also gone — historical audit notes
-may still mention either; those are not current maintainer instructions.

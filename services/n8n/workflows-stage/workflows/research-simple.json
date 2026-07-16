@@ -4,6 +4,7 @@
     {
       "parameters": {
         "httpMethod": "POST",
+        "authentication": "headerAuth",
         "path": "research-trigger",
         "responseMode": "responseNode",
         "options": {}
@@ -16,29 +17,40 @@
         240,
         300
       ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "atlas-webhook-header-auth",
+          "name": "Atlas Webhook Header Auth"
+        }
+      },
       "webhookId": "research-trigger"
     },
     {
       "parameters": {
+        "method": "POST",
         "url": "=http://backend:8000/research/start",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{"name": "Authorization", "value": "={{ 'Bearer ' + $env.BACKEND_N8N_API_TOKEN }}"}]
+        },
         "sendBody": true,
         "bodyParameters": {
           "parameters": [
             {
               "name": "query",
-              "value": "={{ $json.query }}"
+              "value": "={{ $json.body?.query || $json.query }}"
             },
             {
               "name": "max_loops",
-              "value": "={{ $json.max_loops || 3 }}"
+              "value": "={{ $json.body?.max_loops ?? $json.max_loops ?? 3 }}"
             },
             {
               "name": "search_api",
-              "value": "={{ $json.search_api || 'searxng' }}"
+              "value": "={{ $json.body?.search_api || $json.search_api || 'searxng' }}"
             },
             {
               "name": "user_id",
-              "value": "={{ $json.user_id }}"
+              "value": "={{ $json.body?.user_id || $json.user_id }}"
             }
           ]
         },
@@ -61,7 +73,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Extract session ID from research start response\nconst sessionId = $input.first().json.session_id;\nconst query = $input.first().json.data?.query || 'Unknown query';\n\n// Set workflow context\n$execution.customData = {\n  sessionId: sessionId,\n  query: query,\n  startedAt: new Date().toISOString()\n};\n\nreturn {\n  sessionId: sessionId,\n  query: query,\n  message: 'Research started successfully',\n  status: 'running'\n};"
+        "jsCode": "// Preserve request context after the HTTP node replaces item JSON with its response.\nconst response = $input.first().json;\nconst webhook = $('Research Webhook').first().json;\nconst request = webhook.body || webhook;\n\nreturn {\n  sessionId: response.session_id,\n  query: request.query,\n  startedAt: new Date().toISOString(),\n  message: response.message,\n  status: response.status\n};"
       },
       "id": "e1f2g3h4-i5j6-k7l8-m9n0-o1p2q3r4s5t6",
       "name": "Process Start Response",
@@ -88,7 +100,11 @@
     },
     {
       "parameters": {
-        "url": "=http://backend:8000/research/{{ $execution.customData.sessionId }}/status",
+        "url": "={{ 'http://backend:8000/research/' + $('Process Start Response').first().json.sessionId + '/status' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{"name": "Authorization", "value": "={{ 'Bearer ' + $env.BACKEND_N8N_API_TOKEN }}"}]
+        },
         "options": {
           "response": {
             "response": {
@@ -140,7 +156,11 @@
     },
     {
       "parameters": {
-        "url": "=http://backend:8000/research/{{ $execution.customData.sessionId }}/result",
+        "url": "={{ 'http://backend:8000/research/' + $('Process Start Response').first().json.sessionId + '/result' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{"name": "Authorization", "value": "={{ 'Bearer ' + $env.BACKEND_N8N_API_TOKEN }}"}]
+        },
         "options": {
           "response": {
             "response": {
@@ -160,6 +180,47 @@
     },
     {
       "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "failed-status-condition",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "failed",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "cancelled-status-condition",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "cancelled",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "id": "failed-or-cancelled-status",
+      "name": "Is Failed or Cancelled?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1560,
+        400
+      ]
+    },
+    {
+      "parameters": {
         "amount": 10,
         "unit": "seconds"
       },
@@ -168,8 +229,8 @@
       "type": "n8n-nodes-base.wait",
       "typeVersion": 1,
       "position": [
-        1560,
-        400
+        1780,
+        480
       ]
     },
     {
@@ -188,7 +249,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Format error response\nconst sessionId = $execution.customData?.sessionId || 'unknown';\nconst query = $execution.customData?.query || 'unknown';\n\nreturn {\n  error: true,\n  sessionId: sessionId,\n  query: query,\n  message: 'Research timed out or failed',\n  status: 'failed',\n  timestamp: new Date().toISOString()\n};"
+        "jsCode": "// Format a terminal research failure without execution-global state.\nconst started = $('Process Start Response').first().json;\nconst status = $input.first().json;\n\nreturn {\n  error: true,\n  sessionId: started.sessionId,\n  query: started.query,\n  message: status.error_message || 'Research failed or was cancelled',\n  status: status.status,\n  timestamp: new Date().toISOString()\n};"
       },
       "id": "m5n6o7p8-q9r0-s1t2-u3v4-w5x6y7z8a9b0",
       "name": "Format Error",
@@ -267,6 +328,24 @@
         ],
         [
           {
+            "node": "Is Failed or Cancelled?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Failed or Cancelled?": {
+      "main": [
+        [
+          {
+            "node": "Format Error",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
             "node": "Wait and Retry",
             "type": "main",
             "index": 0
@@ -295,6 +374,17 @@
           }
         ]
       ]
+    },
+    "Format Error": {
+      "main": [
+        [
+          {
+            "node": "Return Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "active": false,
@@ -305,6 +395,5 @@
   "meta": {
     "templateCredsSetupCompleted": true
   },
-  "id": "research-simple",
-  "tags": ["research", "automation", "webhook"]
+  "id": "research-simple"
 }

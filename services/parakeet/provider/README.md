@@ -1,10 +1,10 @@
-# STT Provider Service
+# 5.3.2. Parakeet Provider Overview
 
 Pluggable speech-to-text layer. All backends expose an OpenAI-compatible
 `/v1/audio/transcriptions` endpoint so Open WebUI, n8n, and the backend API
 can use them interchangeably.
 
-## Available backends
+## 1. Available backends
 
 | `STT_PROVIDER_SOURCE` | Engine | License | Runs on |
 |---|---|---|---|
@@ -25,7 +25,7 @@ is the fastest option (Metal + Core ML / ANE), followed by
 **`parakeet-localhost`** with parakeet-mlx. The Parakeet path remains the
 SOTA-quality choice for English/European languages.
 
-## Directory layout
+## 2. Directory layout
 
 ```
 services/parakeet/provider/
@@ -49,7 +49,7 @@ off-the-shelf container — see
 [services/speaches/compose.yml](../../speaches/compose.yml) for the
 runtime config.
 
-## Quick start
+## 3. Quick start
 
 Speaches (default — already enabled in `.env.example`):
 
@@ -65,6 +65,10 @@ Parakeet on NVIDIA GPU:
 ./start.sh --stt-provider-source parakeet-container-gpu
 ```
 
+The GPU container preloads the configured Parakeet model before starting the
+API. Its health endpoint returns `503` until the model is loaded, so dependent
+services cannot begin against an API process that is not yet inference-ready.
+
 Parakeet on macOS MLX:
 
 ```bash
@@ -75,6 +79,12 @@ cd services/parakeet/provider && python -m uvicorn mlx.api_server:app --host 0.0
 # Terminal 2
 ./start.sh --stt-provider-source parakeet-localhost
 ```
+
+The MLX health endpoint starts one shared background model load and returns
+`503` with `status=starting` while that work is in progress. Concurrent health
+and transcription requests share the same load; model initialization never
+runs on the API event loop. Both Parakeet providers default advanced segment
+timestamps to disabled unless `return_timestamps=true` is supplied.
 
 whisper.cpp on macOS (Metal + Core ML):
 
@@ -99,7 +109,7 @@ Disable STT entirely:
 ./start.sh --stt-provider-source disabled
 ```
 
-## Performance reference
+## 4. Performance reference
 
 | Backend + hardware | Realtime factor (lower is faster) |
 |---|---|
@@ -109,7 +119,7 @@ Disable STT entirely:
 | Parakeet-MLX (v3) on M2 Ultra | ~0.003× (300× realtime) |
 | Parakeet CUDA (v3) on A100 | ~0.0003× (3380× realtime) |
 
-## How Open WebUI is wired
+## 5. How Open WebUI is wired
 
 The bootstrapper sets these env vars on the open-web-ui container based on
 the chosen source:
@@ -120,11 +130,11 @@ the chosen source:
 
 You can change the model name in the Open WebUI admin panel — Audio settings.
 
-## Full configuration reference
+## 6. Full configuration reference
 
 See [services/stt-provider/README.md](../../../services/stt-provider/README.md).
 
-## References
+## 7. References
 
 - [Speaches](https://github.com/speaches-ai/speaches)
 - [Faster-Whisper](https://github.com/SYSTRAN/faster-whisper)

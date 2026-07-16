@@ -629,7 +629,7 @@ class ServiceConfig:
         if source_value == 'disabled':
             env_vars['DOCLING_ENDPOINT'] = ''
         else:
-            endpoint = config.get('environment', {}).get('DOCLING_ENDPOINT', 'http://host.docker.internal:63059')
+            endpoint = config.get('environment', {}).get('DOCLING_ENDPOINT', 'http://host.docker.internal:18159')
             # For localhost mode, dynamically replace the port with the user-
             # overridable DOCLING_LOCALHOST_PORT (NOT DOC_PROCESSOR_PORT —
             # that's the container's host-bound port). The wizard writes the
@@ -638,7 +638,7 @@ class ServiceConfig:
             # class — see feedback_localhost_url_override_symmetry.md).
             if source_value == 'docling-localhost':
                 current_env = self.config_parser.parse_env_file()
-                doc_port = current_env.get('DOCLING_LOCALHOST_PORT', '63059')
+                doc_port = current_env.get('DOCLING_LOCALHOST_PORT', '18159')
                 endpoint = f'http://{self.localhost_host}:{doc_port}'
             else:
                 # For container mode, just apply localhost_host replacement
@@ -825,8 +825,8 @@ class ServiceConfig:
             Dict of resolved env-var assignments. The caller merges this into
             the .env-example output.
         """
-        cpu_image = shared_env.get("RAY_IMAGE", "rayproject/ray:2.55.1") or "rayproject/ray:2.55.1"
-        gpu_image = shared_env.get("RAY_GPU_IMAGE", "rayproject/ray:2.55.1-gpu") or "rayproject/ray:2.55.1-gpu"
+        cpu_image = shared_env.get("RAY_IMAGE", "rayproject/ray:2.56.0") or "rayproject/ray:2.56.0"
+        gpu_image = shared_env.get("RAY_GPU_IMAGE", "rayproject/ray:2.56.0-gpu") or "rayproject/ray:2.56.0-gpu"
 
         # Read RAY_WORKER_COUNT from disk (where the wizard/CLI persists the
         # user's --ray-worker-count) with a safe fallback to the manifest

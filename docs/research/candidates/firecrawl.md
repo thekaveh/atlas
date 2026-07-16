@@ -11,12 +11,12 @@ upstream: https://github.com/firecrawl/firecrawl
 
 # Firecrawl
 
-## Headline
+## 1. Headline
 Self-hostable web-context API for search, scrape, crawl, map, batch scrape,
 browser interaction, agent workflows, and MCP access that can return LLM-ready
 markdown, structured JSON, screenshots, and parsed document output.
 
-## Problem it solves
+## 2. Problem it solves
 Firecrawl is attractive when Atlas needs a higher-level extraction product than
 a single crawler endpoint. Current upstream docs describe v2 search, scrape,
 interact, agent, parse, and hosted MCP flows, while the self-host guide keeps
@@ -24,7 +24,7 @@ the service oriented around a local API plus worker/browser infrastructure.
 That could matter for RAG workflows that need batch crawling, scripted browser
 actions, or MCP-facing web extraction instead of only one-shot markdown fetches.
 
-## Deferred decision (2026-07-04)
+## 3. Deferred decision (2026-07-04)
 Atlas should stay Crawl4AI-first and must not add `services/firecrawl/service.yml` yet.
 Crawl4AI is already implemented as the first-line RAG extraction service: it is
 disabled by default, token-protected, Apache-2.0, routed at `crawl4ai.localhost`,
@@ -41,7 +41,7 @@ authentication, PostgreSQL credentials, queue/admin secrets, proxy credentials,
 CPU/RAM thresholds, and limits around advanced Fire-engine functionality in
 self-hosted deployments.
 
-## Stack wiring sketch
+## 4. Stack wiring sketch
 No current Atlas wiring should be added while Firecrawl is deferred. If adopted
 later, the expected topology would be:
 
@@ -55,14 +55,14 @@ later, the expected topology would be:
 - Firecrawl output -> Weaviate and MinIO through existing ingestion/provenance
   paths rather than direct writes from the crawler service.
 
-## Effort
+## 5. Effort
 Medium to large. A credible Atlas integration would not be a single container:
 it would need an API service, worker/queue posture, Playwright/browser runtime,
 Redis isolation, optional PostgreSQL/Supabase-auth decisions, generated secrets,
 Kong route handling, consumer opt-ins, and resource limits. That effort is not
 worth spending until Firecrawl-specific functionality is required.
 
-## Risks & open questions
+## 6. Risks & open questions
 - AGPL-3.0 is a stronger copyleft posture than Atlas' preferred permissive
   service candidates; adoption needs an explicit owner decision.
 - The browser/worker footprint is heavier than Crawl4AI and raises memory,
@@ -76,7 +76,7 @@ worth spending until Firecrawl-specific functionality is required.
   and advanced Fire-engine behavior must be verified again before any adoption
   ticket.
 
-## Revisit criteria
+## 7. Revisit criteria
 Reconsider Firecrawl only when all of these are true:
 
 - Crawl4AI leaves an important extraction gap with a reproducible Atlas workflow
@@ -90,7 +90,7 @@ Reconsider Firecrawl only when all of these are true:
 - The heavier browser, queue, Redis, optional PostgreSQL/Supabase-auth, proxy,
   token, webhook, and resource-limit story has an operator-ready design.
 
-## Future service contract if adopted
+## 8. Future service contract if adopted
 - **Tracks:** `gen-ai-rag` and `all`. Do not add a new track unless Atlas later
   creates a dedicated content-ingestion track.
 - **Category:** `media`, matching Crawl4AI and Browserless. If Atlas later
@@ -122,7 +122,7 @@ Reconsider Firecrawl only when all of these are true:
   track-disabled behavior, high-memory browser failures, proxy failures,
   webhook/public URL exposure, rate limits, and generated-doc drift.
 
-## Tests required if adopted later
+## 9. Tests required if adopted later
 - Manifest schema and topology tests for source values, category, aliases,
   generated env vars, and track membership.
 - Compose/source permutation coverage for disabled/container and any future
@@ -132,7 +132,7 @@ Reconsider Firecrawl only when all of these are true:
   Hermes/MCP registration.
 - Docs drift, research schema, link checks, and generated README/diagram checks.
 
-## Upstream evidence
+## 10. Upstream evidence
 - https://github.com/firecrawl/firecrawl
 - https://github.com/firecrawl/firecrawl/blob/main/SELF_HOST.md
 - https://github.com/firecrawl/firecrawl/blob/main/docker-compose.yaml

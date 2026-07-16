@@ -29,7 +29,7 @@ def test_airflow_fragment_renders():
 
 
 def test_airflow_init_uses_bash_passthrough():
-    """apache/airflow:3.2.2's ENTRYPOINT is entrypoint_prod.sh, which
+    """apache/airflow:3.3.0's ENTRYPOINT is entrypoint_prod.sh, which
     treats the first arg as an `airflow` subcommand and exec's
     `airflow "$@"`. Without the `bash` prefix, our
     `["/scripts/init-airflow.sh"]` becomes `exec airflow
@@ -60,7 +60,7 @@ def test_airflow_webserver_healthcheck_uses_api_v2_monitor_path():
     Observed live the morning after PR #35 merged: the user reported
     "I can't find the new Airflow service" because the TUI's "unhealthy"
     badge masked an actually-working Airflow at port 64060. Verified
-    against Airflow 3.2.2:
+    against Airflow 3.3.0:
       $ curl localhost:8080/api/v2/monitor/health
       → 200 {"metadatabase":{"status":"healthy"},
              "scheduler":{"status":"healthy",...},

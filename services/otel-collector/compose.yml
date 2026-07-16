@@ -15,6 +15,16 @@ services:
         required: false
     volumes:
       - ./config/config.yaml:/etc/otelcol/config.yaml:ro
+    # The upstream image is distroless, so it has no curl/wget shell client.
+    # Docker already observes main-process liveness; validate the exact mounted
+    # config on every probe so a broken receiver/exporter graph cannot be
+    # reported healthy merely because the binary remains alive.
+    healthcheck:
+      test: ["CMD", "/otelcol-contrib", "validate", "--config=/etc/otelcol/config.yaml"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
     logging:
       driver: json-file
       options:

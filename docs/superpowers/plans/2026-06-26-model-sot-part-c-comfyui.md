@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python, PyYAML, jsonschema, pytest, Docker Postgres (golden), shell (download_models.sh), FastAPI (backend).
 
-## Global Constraints
+## 1. Global Constraints
 - **Keep `comfyui_workflows` + `comfyui_generations`** (runtime state) — only the MODEL catalog moves. `12-comfyui.sql` keeps those two tables; only `comfyui_models` (+ its indexes + the extend block) leaves it.
 - **Retain download metadata** in the YAML/manifest: `name, type/category, filename, url/download_url, sha256, target_dir, size_gb, family, requires_custom_node, cpu_supported, min_vram_gb, popularity, source, notes`. `comfyui-init` uses name/category→target_dir/filename/url/sha256; the rest feed the wizard + the backend GET.
 - **Only the GET /comfyui/db/models is consumed** (Open WebUI tool `comfyui_image_generation_tool.py`, n8n `comfyui-image-generation.json`) — preserve its response shape. POST/PUT/DELETE have ZERO callers — remove them.
@@ -16,7 +16,7 @@
 - Byte-equivalence (`.env.example`), docs-drift, and the Part A seed golden gates stay green (the golden regen in C6 is comfyui_models-only).
 - Branch `model-sot-decoupling`, PR #150. NO worktrees; verify branch after each task.
 
-## Task sequence
+## 2. Task sequence
 - **C1** — `services/comfyui/models.yaml` (curated catalog) + `comfyui_library.py` reads it (wizard-preserving). ← detailed below
 - **C2** — `comfyui_resolver`: resolve active comfyui entries (YAML + COMFYUI_USER_MODELS + sidecar) → write the generated manifest `volumes/comfyui/selected-models.yaml`; wire the wizard to write the selected entries (with metadata) to it.
 - **C3** — repoint `comfyui-init` (download_models.sh) to read the manifest instead of `SELECT ... public.comfyui_models`.
@@ -30,7 +30,7 @@
 
 ---
 
-## Task C1: `services/comfyui/models.yaml` (curated catalog) + loader
+## 3. Task C1: `services/comfyui/models.yaml` (curated catalog) + loader
 
 **Files:**
 - Create: `services/comfyui/models.yaml`
@@ -68,8 +68,8 @@ git add services/comfyui/models.yaml bootstrapper/schemas/comfyui-models.schema.
 git commit -m "feat(comfyui): curated catalog YAML + comfyui_library loader (Part C1)"
 ```
 
-## Documentation requirement
+## 4. Documentation requirement
 `services/comfyui/models.yaml` header + the `comfyui_library.py` module docstring must accurately describe the YAML-as-curated-SoT + the still-live scrape. Per-task: keep docstrings accurate; the full comfyui README sweep is C8.
 
-## Branch hygiene
+## 5. Branch hygiene
 Commit on `model-sot-decoupling` in the main checkout. No worktrees. `git worktree list` after each commit.

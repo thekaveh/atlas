@@ -151,11 +151,10 @@ class MemoryService:
 
         session_uuid = uuid4()
         session_id = str(session_uuid)
+        user_uuid = _to_uuid(user_id)
         conv_uuid = _to_uuid(conversation_id)
         conn = await connect_postgres(self.database_url)
-
         try:
-            # Create extraction session
             await conn.execute(
                 """
                 INSERT INTO public.memory_sessions
@@ -163,17 +162,18 @@ class MemoryService:
                 VALUES ($1, $2, $3, 'running', now())
                 """,
                 session_uuid,
-                user_id,
+                user_uuid,
                 conv_uuid,
             )
+        finally:
+            await conn.close()
 
-            # Format conversation for LLM
-            conversation_text = "\n".join(
-                f"{msg.get('role', 'user')}: {msg.get('content', '')}"
-                for msg in messages
-            )
+        conversation_text = "\n".join(
+            f"{msg.get('role', 'user')}: {msg.get('content', '')}"
+            for msg in messages
+        )
 
-            # Use the LiteLLM gateway to extract facts
+        try:
             model = await self._get_extraction_model()
             extraction_prompt = f"""Analyze the following conversation and extract key facts about the user.
 For each fact, provide:
@@ -187,154 +187,186 @@ Conversation:
 {conversation_text}
 
 Extract the facts as JSON:"""
-
-            extracted_facts = []
-            try:
-                response_text = await self._litellm_complete(
-                    model=model,
-                    prompt=extraction_prompt,
-                    json_mode=True,
-                    timeout=60.0,
-                ) or "[]"
-
-                # Parse the LLM response
-                parsed = json.loads(response_text)
-                if isinstance(parsed, dict) and "facts" in parsed:
-                    parsed = parsed["facts"]
-                if isinstance(parsed, dict) and "content" in parsed:
-                    # Single fact returned as object instead of array
-                    parsed = [parsed]
-                if isinstance(parsed, list):
-                    extracted_facts = parsed
-            except Exception as e:
-                logger.error(f"Fact extraction LLM call failed: {e}")
-                await conn.execute(
-                    """
-                    UPDATE public.memory_sessions
-                    SET status = 'failed', error_message = $1,
-                        processing_completed_at = now()
-                    WHERE id = $2
-                    """,
-                    str(e),
-                    session_uuid,
-                )
-                return {
-                    "session_id": session_id,
-                    "status": "failed",
-                    "facts_extracted": 0,
-                    "facts": [],
-                }
-
-            # Check fact limit
-            current_count = await conn.fetchval(
-                """
-                SELECT COUNT(*) FROM public.memory_facts
-                WHERE user_id = $1 AND is_active = true
-                """,
-                user_id,
+            response_text = await self._litellm_complete(
+                model=model,
+                prompt=extraction_prompt,
+                json_mode=True,
+                timeout=60.0,
+            ) or "[]"
+            parsed = json.loads(response_text)
+            if isinstance(parsed, dict) and "facts" in parsed:
+                parsed = parsed["facts"]
+            if isinstance(parsed, dict) and "content" in parsed:
+                parsed = [parsed]
+            if not isinstance(parsed, list) or not all(
+                isinstance(item, dict) for item in parsed
+            ):
+                raise ValueError("fact extraction response must be a JSON array of objects")
+            extracted_facts = parsed
+        except Exception as exc:
+            logger.error(
+                "Fact extraction LLM call failed (error_type=%s)",
+                type(exc).__name__,
             )
+            await self._mark_extraction_failed(session_uuid, exc)
+            return {
+                "session_id": session_id,
+                "status": "failed",
+                "facts_extracted": 0,
+                "facts": [],
+            }
 
-            # Store extracted facts
-            stored_facts = []
-            for fact_data in extracted_facts:
-                if current_count + len(stored_facts) >= self.max_facts:
-                    logger.warning(
-                        f"User {user_id} reached max facts limit ({self.max_facts})"
+        stored_facts: List[Dict[str, Any]] = []
+        embedding_inputs: List[tuple[Any, Dict[str, Any]]] = []
+        try:
+            conn = await connect_postgres(self.database_url)
+            try:
+                async with conn.transaction():
+                    await conn.execute(
+                        "SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))",
+                        user_uuid,
                     )
-                    break
+                    current_count = await conn.fetchval(
+                        """
+                        SELECT COUNT(*) FROM public.memory_facts
+                        WHERE user_id = $1 AND is_active = true
+                        """,
+                        user_uuid,
+                    )
+                    for fact_data in extracted_facts:
+                        if current_count + len(stored_facts) >= self.max_facts:
+                            logger.warning(
+                                "User %s reached max facts limit (%s)",
+                                user_uuid,
+                                self.max_facts,
+                            )
+                            break
+                        content = str(fact_data.get("content", "")).strip()
+                        if not content:
+                            continue
+                        fact_type = fact_data.get("fact_type", "observation")
+                        if fact_type not in (
+                            "observation",
+                            "preference",
+                            "instruction",
+                            "relationship",
+                            "event",
+                        ):
+                            fact_type = "observation"
+                        confidence = max(
+                            0.0, min(1.0, float(fact_data.get("confidence", 0.8)))
+                        )
+                        fact_uuid = uuid4()
+                        fact_id = str(fact_uuid)
+                        inserted = await conn.fetchrow(
+                            """
+                            INSERT INTO public.memory_facts
+                                (id, user_id, namespace, content, fact_type, confidence,
+                                 source_conversation_id, metadata, created_at, updated_at)
+                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), now())
+                            RETURNING created_at, updated_at
+                            """,
+                            fact_uuid,
+                            user_uuid,
+                            namespace,
+                            content,
+                            fact_type,
+                            confidence,
+                            conv_uuid,
+                            json.dumps({"source": "auto_extraction"}),
+                        )
+                        public_fact = {
+                            "id": fact_id,
+                            "content": content,
+                            "fact_type": fact_type,
+                            "confidence": confidence,
+                            "namespace": namespace,
+                            "is_active": True,
+                            "created_at": inserted["created_at"].isoformat(),
+                            "updated_at": inserted["updated_at"].isoformat(),
+                            "metadata": {"source": "auto_extraction"},
+                        }
+                        stored_facts.append(public_fact)
+                        embedding_inputs.append((fact_uuid, public_fact))
+                    await conn.execute(
+                        """
+                        UPDATE public.memory_sessions
+                        SET status = 'completed', facts_extracted = $1,
+                            processing_completed_at = now()
+                        WHERE id = $2
+                        """,
+                        len(stored_facts),
+                        session_uuid,
+                    )
+            finally:
+                await conn.close()
+        except Exception as exc:
+            await self._mark_extraction_failed(session_uuid, exc)
+            return {
+                "session_id": session_id,
+                "status": "failed",
+                "facts_extracted": 0,
+                "facts": [],
+            }
 
-                content = fact_data.get("content", "")
-                if not content:
-                    continue
-
-                fact_type = fact_data.get("fact_type", "observation")
-                if fact_type not in (
-                    "observation", "preference", "instruction",
-                    "relationship", "event",
-                ):
-                    fact_type = "observation"
-
-                confidence = float(fact_data.get("confidence", 0.8))
-                confidence = max(0.0, min(1.0, confidence))
-
-                fact_uuid = uuid4()
-                fact_id = str(fact_uuid)
-
-                # Insert into PostgreSQL and get DB-generated timestamps
-                inserted = await conn.fetchrow(
-                    """
-                    INSERT INTO public.memory_facts
-                        (id, user_id, namespace, content, fact_type, confidence,
-                         source_conversation_id, metadata, created_at, updated_at)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), now())
-                    RETURNING created_at, updated_at
-                    """,
-                    fact_uuid,
-                    user_id,
-                    namespace,
-                    content,
-                    fact_type,
-                    confidence,
-                    conv_uuid,
-                    json.dumps({"source": "auto_extraction"}),
+        for fact_uuid, fact in embedding_inputs:
+            try:
+                weaviate_id = await self.store.store_embedding(
+                    fact_id=fact["id"],
+                    content=fact["content"],
+                    user_id=user_id,
+                    namespace=namespace,
+                    fact_type=fact["fact_type"],
+                    confidence=fact["confidence"],
+                    metadata={},
                 )
-
-                # Store embedding in vector store
-                weaviate_id = None
-                try:
-                    weaviate_id = await self.store.store_embedding(
-                        fact_id=fact_id,
-                        content=content,
-                        user_id=user_id,
-                        namespace=namespace,
-                        fact_type=fact_type,
-                        confidence=confidence,
-                        metadata={},
-                    )
-                    if weaviate_id:
+                if weaviate_id:
+                    conn = await connect_postgres(self.database_url)
+                    try:
                         await conn.execute(
                             "UPDATE public.memory_facts SET weaviate_id = $1 WHERE id = $2",
                             weaviate_id,
                             fact_uuid,
                         )
-                except Exception as e:
-                    logger.warning(f"Failed to store embedding for fact {fact_id}: {e}")
-
-                stored_facts.append(
-                    {
-                        "id": fact_id,
-                        "content": content,
-                        "fact_type": fact_type,
-                        "confidence": confidence,
-                        "namespace": namespace,
-                        "is_active": True,
-                        "created_at": inserted["created_at"].isoformat(),
-                        "updated_at": inserted["updated_at"].isoformat(),
-                        "metadata": {"source": "auto_extraction"},
-                    }
+                    finally:
+                        await conn.close()
+            except Exception as exc:
+                logger.warning(
+                    "Failed to store embedding for fact %s (error_type=%s)",
+                    fact["id"],
+                    type(exc).__name__,
                 )
 
-            # Update session
-            await conn.execute(
-                """
-                UPDATE public.memory_sessions
-                SET status = 'completed', facts_extracted = $1,
-                    processing_completed_at = now()
-                WHERE id = $2
-                """,
-                len(stored_facts),
+        return {
+            "session_id": session_id,
+            "status": "completed",
+            "facts_extracted": len(stored_facts),
+            "facts": stored_facts,
+        }
+
+    async def _mark_extraction_failed(self, session_uuid: Any, exc: Exception) -> None:
+        try:
+            conn = await connect_postgres(self.database_url)
+            try:
+                await conn.execute(
+                    """
+                    UPDATE public.memory_sessions
+                    SET status = 'failed', error_message = $1,
+                        processing_completed_at = now()
+                    WHERE id = $2 AND status = 'running'
+                    """,
+                    "Memory extraction failed",
+                    session_uuid,
+                )
+            finally:
+                await conn.close()
+        except Exception as persist_error:
+            logger.error(
+                "Memory extraction failure could not be persisted "
+                "(session_id=%s, error_type=%s)",
                 session_uuid,
+                type(persist_error).__name__,
             )
-
-            return {
-                "session_id": session_id,
-                "status": "completed",
-                "facts_extracted": len(stored_facts),
-                "facts": stored_facts,
-            }
-
-        finally:
-            await conn.close()
 
     async def recall(
         self,
@@ -386,38 +418,47 @@ Extract the facts as JSON:"""
                             "metadata": json.loads(row["metadata"]) if isinstance(row["metadata"], str) else (row["metadata"] or {}),
                         }
                     )
-
-            # Generate context summary if we have memories
-            context_summary = None
-            if memories:
-                try:
-                    facts_text = "\n".join(
-                        f"- {m['content']} ({m['fact_type']}, confidence: {m['confidence']})"
-                        for m in memories
-                    )
-                    model = await self._get_extraction_model()
-                    context_summary = await self._litellm_complete(
-                        model=model,
-                        prompt=(
-                            f"Given these remembered facts about the user:\n{facts_text}\n\n"
-                            f"And their current query: \"{query}\"\n\n"
-                            "Write a brief, natural summary of the relevant memories "
-                            "(2-3 sentences max). Be concise and factual."
-                        ),
-                        timeout=30.0,
-                    )
-                except Exception as e:
-                    logger.warning(f"Failed to generate context summary: {e}")
-
-            return {"memories": memories, "context_summary": context_summary}
-
         finally:
             await conn.close()
 
+        context_summary = None
+        if memories:
+            try:
+                facts_text = "\n".join(
+                    f"- {m['content']} ({m['fact_type']}, confidence: {m['confidence']})"
+                    for m in memories
+                )
+                model = await self._get_extraction_model()
+                context_summary = await self._litellm_complete(
+                    model=model,
+                    prompt=(
+                        f"Given these remembered facts about the user:\n{facts_text}\n\n"
+                        f"And their current query: \"{query}\"\n\n"
+                        "Write a brief, natural summary of the relevant memories "
+                        "(2-3 sentences max). Be concise and factual."
+                    ),
+                    timeout=30.0,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Failed to generate context summary (error_type=%s)",
+                    type(exc).__name__,
+                )
+
+        return {"memories": memories, "context_summary": context_summary}
+
     async def consolidate(
-        self, user_id: Optional[str] = None
+        self,
+        user_id: Optional[str] = None,
+        *,
+        retry_transient: bool = False,
     ) -> Dict[str, Any]:
-        """Consolidate/deduplicate user memories."""
+        """Consolidate/deduplicate user memories.
+
+        Worker callers opt into re-raising transient upstream failures so
+        Celery can retry them. The synchronous API keeps the historical
+        best-effort behavior and continues with the next user.
+        """
         self._check_enabled()
         await self._ensure_initialized()
 
@@ -431,7 +472,7 @@ Extract the facts as JSON:"""
 
         # Resolve user list under a brief connection.
         if user_id:
-            user_ids = [user_id]
+            user_ids = [_to_uuid(user_id)]
         else:
             conn = await connect_postgres(self.database_url)
             try:
@@ -506,8 +547,24 @@ Extract the facts as JSON:"""
                     actions = actions["actions"]
                 if not isinstance(actions, list):
                     actions = []
-            except Exception as e:
-                logger.warning(f"Consolidation LLM call failed for user {uid}: {e}")
+            except (
+                TimeoutError,
+                ConnectionError,
+                httpx.TimeoutException,
+                httpx.NetworkError,
+            ) as exc:
+                if retry_transient:
+                    raise
+                logger.warning(
+                    "Consolidation LLM call failed (error_type=%s)",
+                    type(exc).__name__,
+                )
+                continue
+            except Exception as exc:
+                logger.warning(
+                    "Consolidation LLM call failed (error_type=%s)",
+                    type(exc).__name__,
+                )
                 continue
 
             # Apply consolidation actions under a fresh connection.
@@ -621,6 +678,7 @@ Extract the facts as JSON:"""
         """Generate a natural-language user memory profile."""
         self._check_enabled()
         await self._ensure_initialized()
+        user_uuid = _to_uuid(user_id)
 
         conn = await connect_postgres(self.database_url)
         try:
@@ -632,7 +690,7 @@ Extract the facts as JSON:"""
                 ORDER BY confidence DESC, updated_at DESC
                 LIMIT 50
                 """,
-                user_id,
+                user_uuid,
                 namespace,
             )
 
@@ -641,7 +699,7 @@ Extract the facts as JSON:"""
                 SELECT COUNT(*) FROM public.memory_facts
                 WHERE user_id = $1 AND namespace = $2 AND is_active = true
                 """,
-                user_id,
+                user_uuid,
                 namespace,
             )
 
@@ -651,36 +709,37 @@ Extract the facts as JSON:"""
                     "summary": "No memories stored for this user yet.",
                     "total_facts": 0,
                 }
-
-            facts_text = "\n".join(
-                f"- [{row['fact_type']}] {row['content']} (confidence: {row['confidence']})"
-                for row in facts
-            )
-
-            try:
-                model = await self._get_extraction_model()
-                summary = await self._litellm_complete(
-                    model=model,
-                    prompt=(
-                        "Based on these remembered facts about a user, "
-                        "write a concise profile summary (3-5 sentences):\n\n"
-                        f"{facts_text}\n\n"
-                        "Write a natural, helpful summary:"
-                    ),
-                    timeout=30.0,
-                ) or "Unable to generate summary."
-            except Exception as e:
-                logger.warning(f"Summary generation failed: {e}")
-                summary = f"User has {total} stored memories across various topics."
-
-            return {
-                "user_id": user_id,
-                "summary": summary,
-                "total_facts": total,
-            }
-
         finally:
             await conn.close()
+
+        facts_text = "\n".join(
+            f"- [{row['fact_type']}] {row['content']} (confidence: {row['confidence']})"
+            for row in facts
+        )
+        try:
+            model = await self._get_extraction_model()
+            summary = await self._litellm_complete(
+                model=model,
+                prompt=(
+                    "Based on these remembered facts about a user, "
+                    "write a concise profile summary (3-5 sentences):\n\n"
+                    f"{facts_text}\n\n"
+                    "Write a natural, helpful summary:"
+                ),
+                timeout=30.0,
+            ) or "Unable to generate summary."
+        except Exception as exc:
+            logger.warning(
+                "Summary generation failed (error_type=%s)",
+                type(exc).__name__,
+            )
+            summary = f"User has {total} stored memories across various topics."
+
+        return {
+            "user_id": user_id,
+            "summary": summary,
+            "total_facts": total,
+        }
 
     async def list_memories(
         self,
@@ -691,6 +750,7 @@ Extract the facts as JSON:"""
     ) -> Dict[str, Any]:
         """List all memories for a user."""
         self._check_enabled()
+        user_uuid = _to_uuid(user_id)
 
         conn = await connect_postgres(self.database_url)
         try:
@@ -703,7 +763,7 @@ Extract the facts as JSON:"""
                 ORDER BY updated_at DESC
                 LIMIT $3 OFFSET $4
                 """,
-                user_id,
+                user_uuid,
                 namespace,
                 limit,
                 offset,
@@ -714,7 +774,7 @@ Extract the facts as JSON:"""
                 SELECT COUNT(*) FROM public.memory_facts
                 WHERE user_id = $1 AND namespace = $2 AND is_active = true
                 """,
-                user_id,
+                user_uuid,
                 namespace,
             )
 
@@ -810,8 +870,11 @@ Extract the facts as JSON:"""
                             new_weaviate_id,
                             memory_uuid,
                         )
-                except Exception as e:
-                    logger.warning(f"Failed to update embedding: {e}")
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to update embedding (error_type=%s)",
+                        type(exc).__name__,
+                    )
 
             return {
                 "id": str(updated["id"]),
@@ -861,8 +924,11 @@ Extract the facts as JSON:"""
                     await self.store.delete_embedding(
                         memory_id, row["weaviate_id"]
                     )
-                except Exception as e:
-                    logger.warning(f"Failed to delete embedding: {e}")
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to delete embedding (error_type=%s)",
+                        type(exc).__name__,
+                    )
 
             return True
 
@@ -896,11 +962,15 @@ Extract the facts as JSON:"""
                 "facts_count": count,
                 "enabled": True,
             }
-        except Exception as e:
+        except Exception as exc:
+            logger.warning(
+                "Memory health check failed (error_type=%s)",
+                type(exc).__name__,
+            )
             return {
                 "status": "unhealthy",
                 "vector_backend": "unknown",
                 "facts_count": 0,
                 "enabled": True,
-                "error": str(e),
+                "error": "Memory service is unavailable",
             }

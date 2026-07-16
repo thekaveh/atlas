@@ -1,4 +1,4 @@
-ARG BASE_IMAGE=apache/airflow:3.2.2
+ARG BASE_IMAGE=apache/airflow:3.3.0
 FROM ${BASE_IMAGE}
 
 USER root
@@ -17,14 +17,6 @@ ENV PATH="${JAVA_HOME}/bin:${SPARK_HOME}/bin:${PATH}"
 
 USER airflow
 
-# Pin to the matching Airflow constraints file. Without --constraint
-# pip can silently upgrade transitive deps (sqlalchemy, alembic, flask,
-# etc.) past versions Airflow tested against — same shipping-class bug
-# Pass 12-13 hit when unbounded floors let `>=2.0.0` / `>=4.1.0` resolve
-# to nonexistent versions. The constraint file is the upstream fence.
-ARG AIRFLOW_VERSION=3.2.2
-ARG PYTHON_MAJOR_MINOR=3.12
-
 # Providers needed for the cross-stack integrations declared in the spec
 # §5.3. apache-spark for SparkSubmitOperator; amazon for S3Hook (works
 # with MinIO via endpoint override); openai for LiteLLM integration;
@@ -34,8 +26,11 @@ ARG PYTHON_MAJOR_MINOR=3.12
 # langchain-openai; no apache-airflow-providers-langchain package
 # exists on PyPI.)
 COPY requirements.txt /tmp/airflow-providers.txt
-RUN pip install --no-cache-dir -r /tmp/airflow-providers.txt \
-    --constraint "https://raw.githubusercontent.com/apache/airflow/constraints-${AIRFLOW_VERSION}/constraints-${PYTHON_MAJOR_MINOR}.txt"
+# The official base already installs Airflow core from its matching constraints.
+# Upstream explicitly limits those constraints to the core install; reapplying
+# them here blocks PySpark 4.1.2's pandas floor and freezes provider transitives
+# below later security fixes.
+RUN pip install --no-cache-dir -r /tmp/airflow-providers.txt
 
 # SparkSubmitOperator shells out to spark-submit. The PySpark wheel provides
 # the script and Spark distribution, but the Airflow image needs a stable

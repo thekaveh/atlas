@@ -9,6 +9,7 @@ version: 1.0.0
 license: MIT
 """
 
+import os
 import requests
 from pydantic import BaseModel, Field
 
@@ -26,6 +27,11 @@ class Tools:
 
     def __init__(self):
         self.valves = self.Valves()
+
+    @staticmethod
+    def _backend_headers() -> dict[str, str]:
+        token = (os.getenv("BACKEND_OPEN_WEBUI_API_TOKEN") or "").strip()
+        return {"Authorization": f"Bearer {token}"} if token else {}
 
     def remember(self, conversation: str, __user__: dict | None = None) -> str:
         """
@@ -51,6 +57,7 @@ class Tools:
 
             response = requests.post(
                 f"{self.valves.backend_url}/memory/extract",
+                headers=self._backend_headers(),
                 json={
                     "user_id": user_id,
                     "messages": messages,
@@ -80,8 +87,8 @@ class Tools:
                 "Could not connect to the memory service. "
                 "Please check if the Backend is running."
             )
-        except Exception as e:
-            return f"Error extracting memories: {str(e)}"
+        except Exception:
+            return "Memory extraction failed. Please try again later."
 
     def recall(self, query: str, __user__: dict | None = None) -> str:
         """
@@ -105,6 +112,7 @@ class Tools:
         try:
             response = requests.post(
                 f"{self.valves.backend_url}/memory/recall",
+                headers=self._backend_headers(),
                 json={
                     "user_id": user_id,
                     "query": query,
@@ -141,8 +149,8 @@ class Tools:
                 "Could not connect to the memory service. "
                 "Please check if the Backend is running."
             )
-        except Exception as e:
-            return f"Error recalling memories: {str(e)}"
+        except Exception:
+            return "Memory recall failed. Please try again later."
 
     def forget(self, memory_id: str, __user__: dict | None = None) -> str:
         """
@@ -166,6 +174,7 @@ class Tools:
         try:
             response = requests.delete(
                 f"{self.valves.backend_url}/memory/{memory_id}",
+                headers=self._backend_headers(),
                 params={"user_id": user_id},
                 timeout=self.valves.timeout,
             )
@@ -176,14 +185,14 @@ class Tools:
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 404:
                 return f"Memory {memory_id} not found."
-            return f"Error deleting memory: {str(e)}"
+            return f"Memory deletion failed with HTTP {e.response.status_code}."
         except requests.exceptions.ConnectionError:
             return (
                 "Could not connect to the memory service. "
                 "Please check if the Backend is running."
             )
-        except Exception as e:
-            return f"Error deleting memory: {str(e)}"
+        except Exception:
+            return "Memory deletion failed. Please try again later."
 
     def list_memories(self, __user__: dict | None = None) -> str:
         """
@@ -203,6 +212,7 @@ class Tools:
         try:
             response = requests.get(
                 f"{self.valves.backend_url}/memory/user/{user_id}",
+                headers=self._backend_headers(),
                 params={"namespace": "default", "limit": 50},
                 timeout=self.valves.timeout,
             )
@@ -231,5 +241,5 @@ class Tools:
                 "Could not connect to the memory service. "
                 "Please check if the Backend is running."
             )
-        except Exception as e:
-            return f"Error listing memories: {str(e)}"
+        except Exception:
+            return "Memory listing failed. Please try again later."

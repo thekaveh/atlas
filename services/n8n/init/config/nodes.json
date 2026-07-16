@@ -1,19 +1,14 @@
 {
   "nodes": [
     {
-      "name": "n8n-nodes-comfyui",
+      "name": "n8n-nodes-comfyui@0.0.9",
       "description": "ComfyUI integration for image generation workflows",
       "url": "https://www.npmjs.com/package/n8n-nodes-comfyui"
     },
     {
-      "name": "@ksc1234/n8n-nodes-comfyui-image-to-image",
+      "name": "@ksc1234/n8n-nodes-comfyui-image-to-image@1.0.2",
       "description": "Image transformation workflows with ComfyUI",
       "url": "https://www.npmjs.com/package/@ksc1234/n8n-nodes-comfyui-image-to-image"
-    },
-    {
-      "name": "n8n-nodes-mcp",
-      "description": "Model Context Protocol integration for AI models",
-      "url": "https://www.npmjs.com/package/n8n-nodes-mcp"
     }
   ]
 }

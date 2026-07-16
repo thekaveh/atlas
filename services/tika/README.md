@@ -1,4 +1,4 @@
-# Apache Tika
+# 5.2.53. Apache Tika
 
 ## 1. Overview
 Apache Tika is Atlas' disabled-by-default fallback extractor for long-tail document formats that Docling does not target well. It is a degraded plain-text path, not a replacement for Docling's structure-aware PDF, Office, image, table, OCR, and chunking pipeline.
@@ -20,7 +20,7 @@ Kong creates the `tika.localhost` route when `TIKA_SOURCE=container` or `TIKA_SO
 - `TIKA_LOCALHOST_PORT=9998` points Kong and in-container consumers at a host-running Tika server.
 - `TIKA_ENDPOINT` is auto-managed for backend and n8n consumers.
 - `TIKA_MAX_FILE_SIZE=52428800` limits backend extraction payloads to 50 MiB by default.
-- `TIKA_TIMEOUT_SECONDS=30` bounds backend fallback calls.
+- `TIKA_TIMEOUT_SECONDS=30` bounds backend fallback calls; it must be finite, greater than 0, and no greater than 3,600 seconds or Backend startup fails.
 - `TIKA_JAVA_TOOL_OPTIONS=-Xmx768m` caps the container JVM heap.
 
 ## 4. Docling-First Fallback Policy
@@ -41,34 +41,33 @@ The initial long-tail list includes EML, MSG, RTF, ODT, ODS, ODP, ZIP, TAR, GZIP
 
 ## 6. Dependencies & Integrations
 
-> Auto-generated section — the **Current** subsections are derived from `services/tika/service.yml`'s `data_flow.calls` field (and inverse passes). Re-run `python -m bootstrapper.docs.regen tika` after manifest changes.
-
-### 6.1 Current — Upstream (this service calls)
+### 6.1. Current — Upstream (this service calls)
 
 _No upstream calls._
 
-### 6.2 Current — Downstream (services that call this)
+### 6.2. Current — Downstream (services that call this)
 
 | Service | Category |
 |---|---|
+| celery | agents |
 | n8n | agents |
 | backend | apps |
 
-### 6.3 Architecture diagram
+### 6.3. Architecture diagram
 
 ![tika architecture](./architecture.svg)
 
 [Open the interactive HTML diagram](./architecture.html) for a full-screen view.
 
-### 6.4 Future — Missing pair integrations
+### 6.4. Future — Missing pair integrations
 
 _No high-confidence opportunities identified._
 
-### 6.5 Future — Candidate new services
+### 6.5. Future — Candidate new services
 
 _No high-confidence opportunities identified._
 
-### 6.6 Future — Unused features in this service
+### 6.6. Future — Unused features in this service
 
 _No high-confidence opportunities identified._
 

@@ -86,7 +86,6 @@ data_flow:
     - ollama
     - airflow
     - spark
-    - zeppelin
     - lightrag
     - tei-reranker
     - verba

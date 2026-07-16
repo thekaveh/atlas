@@ -41,7 +41,7 @@ def validate_audio_file(file_path: str) -> bool:
         bool: True if valid, False otherwise
     """
     if not os.path.exists(file_path):
-        logger.error(f"Audio file not found: {file_path}")
+        logger.error("Audio file not found")
         return False
 
     # Check file extension
@@ -49,7 +49,7 @@ def validate_audio_file(file_path: str) -> bool:
     _, ext = os.path.splitext(file_path)
 
     if ext.lower() not in supported_formats:
-        logger.warning(f"Unsupported audio format: {ext}")
+        logger.warning("Unsupported audio format")
         # Don't fail, let the transcription library handle it
         return True
 

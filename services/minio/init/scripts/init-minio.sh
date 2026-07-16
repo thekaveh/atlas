@@ -22,18 +22,22 @@ done
 echo "minio-init: alias 'local' configured"
 
 # Each consumer: primary bucket name var, access-key var, secret-key var,
-# optional comma-separated extra bucket vars.
-# Format: CONSUMER:BUCKET_VAR:ACCESS_VAR:SECRET_VAR[:EXTRA_BUCKET_VAR,...]
+# optional comma-separated writable and read-only bucket vars.
+# Format: CONSUMER:BUCKET_VAR:ACCESS_VAR:SECRET_VAR[:RW_BUCKET_VAR,...[:RO_BUCKET_VAR,...]]
 consumer_entries='
 comfyui:MINIO_BUCKET_COMFYUI:MINIO_COMFYUI_ACCESS_KEY:MINIO_COMFYUI_SECRET_KEY
 backend:MINIO_BUCKET_BACKEND:MINIO_BACKEND_ACCESS_KEY:MINIO_BACKEND_SECRET_KEY
 n8n:MINIO_BUCKET_N8N:MINIO_N8N_ACCESS_KEY:MINIO_N8N_SECRET_KEY
 jupyter:MINIO_BUCKET_JUPYTER:MINIO_JUPYTER_ACCESS_KEY:MINIO_JUPYTER_SECRET_KEY
+spark:MINIO_BUCKET_SPARK_HISTORY:MINIO_SPARK_ACCESS_KEY:MINIO_SPARK_SECRET_KEY:MINIO_BUCKET_ICEBERG_LAKEHOUSE,MINIO_BUCKET_ICEBERG_JARS,MINIO_BUCKET_ICEBERG_CHECKPOINTS,MINIO_BUCKET_ICEBERG_LANDING
 docling:MINIO_BUCKET_DOCLING:MINIO_DOCLING_ACCESS_KEY:MINIO_DOCLING_SECRET_KEY
 langfuse:MINIO_BUCKET_LANGFUSE:MINIO_LANGFUSE_ACCESS_KEY:MINIO_LANGFUSE_SECRET_KEY
 mlflow:MINIO_BUCKET_MLFLOW:MINIO_MLFLOW_ACCESS_KEY:MINIO_MLFLOW_SECRET_KEY
 label-studio:MINIO_BUCKET_LABEL_STUDIO:MINIO_LABEL_STUDIO_ACCESS_KEY:MINIO_LABEL_STUDIO_SECRET_KEY
 iceberg:MINIO_BUCKET_ICEBERG_LAKEHOUSE:MINIO_ICEBERG_ACCESS_KEY:MINIO_ICEBERG_SECRET_KEY:MINIO_BUCKET_ICEBERG_JARS,MINIO_BUCKET_ICEBERG_CHECKPOINTS,MINIO_BUCKET_ICEBERG_LANDING
+asset-ingest:MINIO_BUCKET_ASSET_INPUTS:MINIO_ASSET_INGEST_ACCESS_KEY:MINIO_ASSET_INGEST_SECRET_KEY
+asset-worker:ASSET_WORKER_MINIO_BUCKET:MINIO_ASSET_WORKER_ACCESS_KEY:MINIO_ASSET_WORKER_SECRET_KEY::MINIO_BUCKET_ASSET_INPUTS
+asset-baker:ASSET_BAKER_MINIO_BUCKET:MINIO_ASSET_BAKER_ACCESS_KEY:MINIO_ASSET_BAKER_SECRET_KEY::MINIO_BUCKET_ASSET_INPUTS
 '
 
 if [ -n "${MINIO_EXTRA_CONSUMERS:-}" ]; then
@@ -50,10 +54,11 @@ printf '%s\n' "$consumer_entries" | while IFS= read -r entry; do
     bucket_var=$(echo "$entry" | cut -d: -f2)
     access_var=$(echo "$entry" | cut -d: -f3)
     secret_var=$(echo "$entry" | cut -d: -f4)
-    extra_bucket_vars=$(echo "$entry" | cut -d: -f5-)
+    extra_bucket_vars=$(echo "$entry" | cut -d: -f5)
+    read_only_bucket_vars=$(echo "$entry" | cut -d: -f6-)
 
     if [ -z "$consumer" ] || [ -z "$bucket_var" ] || [ -z "$access_var" ] || [ -z "$secret_var" ]; then
-        echo "minio-init: ERROR — invalid consumer entry '$entry'; expected CONSUMER:BUCKET_VAR:ACCESS_VAR:SECRET_VAR[:EXTRA_BUCKET_VAR,...]" >&2
+        echo "minio-init: ERROR — invalid consumer entry '$entry'; expected CONSUMER:BUCKET_VAR:ACCESS_VAR:SECRET_VAR[:RW_BUCKET_VAR,...[:RO_BUCKET_VAR,...]]" >&2
         exit 1
     fi
 
@@ -67,8 +72,8 @@ printf '%s\n' "$consumer_entries" | while IFS= read -r entry; do
         exit 1
     fi
 
-    buckets="$bucket"
-    if [ "$extra_bucket_vars" != "$entry" ] && [ -n "$extra_bucket_vars" ]; then
+    writable_buckets="$bucket"
+    if [ -n "$extra_bucket_vars" ]; then
         old_ifs=$IFS
         IFS=,
         for extra_bucket_var in $extra_bucket_vars; do
@@ -78,11 +83,30 @@ printf '%s\n' "$consumer_entries" | while IFS= read -r entry; do
                 echo "minio-init: ERROR — missing env for consumer '$consumer' ($extra_bucket_var)" >&2
                 exit 1
             fi
-            buckets="$buckets $extra_bucket"
+            writable_buckets="$writable_buckets $extra_bucket"
             IFS=,
         done
         IFS=$old_ifs
     fi
+
+    read_only_buckets=""
+    if [ -n "$read_only_bucket_vars" ]; then
+        old_ifs=$IFS
+        IFS=,
+        for read_only_bucket_var in $read_only_bucket_vars; do
+            IFS=$old_ifs
+            eval "read_only_bucket=\${$read_only_bucket_var:-}"
+            if [ -z "$read_only_bucket" ]; then
+                echo "minio-init: ERROR — missing env for consumer '$consumer' ($read_only_bucket_var)" >&2
+                exit 1
+            fi
+            read_only_buckets="$read_only_buckets $read_only_bucket"
+            IFS=,
+        done
+        IFS=$old_ifs
+    fi
+
+    buckets="$writable_buckets$read_only_buckets"
 
     # 1. Create bucket(s) (idempotent)
     for provision_bucket in $buckets; do
@@ -94,7 +118,7 @@ printf '%s\n' "$consumer_entries" | while IFS= read -r entry; do
     policy_file="/tmp/${consumer}-policy.json"
     object_resources=""
     bucket_resources=""
-    for policy_bucket in $buckets; do
+    for policy_bucket in $writable_buckets; do
         if [ -n "$object_resources" ]; then
             object_resources="$object_resources,"
             bucket_resources="$bucket_resources,"
@@ -102,6 +126,30 @@ printf '%s\n' "$consumer_entries" | while IFS= read -r entry; do
         object_resources="${object_resources}\"arn:aws:s3:::${policy_bucket}/*\""
         bucket_resources="${bucket_resources}\"arn:aws:s3:::${policy_bucket}\""
     done
+    read_only_object_resources=""
+    read_only_bucket_resources=""
+    for policy_bucket in $read_only_buckets; do
+        if [ -n "$read_only_object_resources" ]; then
+            read_only_object_resources="$read_only_object_resources,"
+            read_only_bucket_resources="$read_only_bucket_resources,"
+        fi
+        read_only_object_resources="${read_only_object_resources}\"arn:aws:s3:::${policy_bucket}/*\""
+        read_only_bucket_resources="${read_only_bucket_resources}\"arn:aws:s3:::${policy_bucket}\""
+    done
+    read_only_statements=""
+    if [ -n "$read_only_object_resources" ]; then
+        read_only_statements=',
+    {
+      "Effect": "Allow",
+      "Action": ["s3:GetObject"],
+      "Resource": ['"$read_only_object_resources"']
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["s3:ListBucket"],
+      "Resource": ['"$read_only_bucket_resources"']
+    }'
+    fi
     cat > "$policy_file" <<EOF
 {
   "Version": "2012-10-17",
@@ -115,7 +163,7 @@ printf '%s\n' "$consumer_entries" | while IFS= read -r entry; do
       "Effect": "Allow",
       "Action": ["s3:ListBucket"],
       "Resource": [${bucket_resources}]
-    }
+    }${read_only_statements}
   ]
 }
 EOF

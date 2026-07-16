@@ -15,7 +15,7 @@ def _candidate_text() -> str:
 def test_supabase_edge_functions_remain_deferred_behind_existing_execution_surfaces() -> None:
     text = _candidate_text()
 
-    assert "## Deferred decision (2026-07-04)" in text
+    assert "Deferred decision (2026-07-04)" in text
     assert "must not add `services/supabase-edge-functions/service.yml` yet" in text
     assert "backend, n8n, Celery/Flower, and Airflow" in text
     assert "self-hosting beta" in text

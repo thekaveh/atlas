@@ -11,10 +11,10 @@ upstream: https://github.com/dagster-io/dagster
 
 # Dagster
 
-## Headline
+## 1. Headline
 Asset-aware orchestration platform that could model Atlas lakehouse tables, ML artifacts, and downstream dashboards as first-class assets once Atlas has a real asset-lineage workflow and an Airflow coexistence plan.
 
-## Watchlist decision (2026-07-04)
+## 2. Watchlist decision (2026-07-04)
 
 Keep Dagster on the watchlist for now: Atlas **must not add `services/dagster/service.yml` yet** because Airflow remains Atlas' default scheduler for code-defined DAGs, SparkSubmit lakehouse jobs, seeded service connections, and the data-eng-lab validation contract. Dagster should not become a second scheduler with unclear table ownership.
 
@@ -41,10 +41,10 @@ Future service shape, if a later asset-orchestration ticket promotes this:
 - Tests required for a future service PR: manifest validation, source validation, env assembly, topology/category, track membership, Kong route/auth, compose source-permutation coverage, init idempotency, docs drift, Airflow coexistence rules, disabled-dependency behavior, and at least one smoke for the chosen asset graph.
 - Edge cases: disabled Airflow, disabled MinIO/Iceberg/Trino/Spark, duplicate schedule ownership, stale `.env`, custom `BASE_PORT`, code-location reloads, user-code image drift, prod profile route/auth restrictions, and generated-doc drift.
 
-## Problem it solves
+## 3. Problem it solves
 Atlas already has Airflow for scheduled DAGs, but Airflow does not make data assets the center of the product. Dagster would become valuable once Atlas wants a visible asset graph for lakehouse tables, model artifacts, dataset review outputs, and BI dashboards. It should enter only when that asset graph exists and the user can see how Dagster complements or replaces specific Airflow responsibilities.
 
-## Stack wiring sketch
+## 4. Stack wiring sketch
 - dagster -> supabase for instance/run/event storage.
 - dagster -> airflow when observing existing DAGs or using Airlift migration paths.
 - dagster -> minio for asset inputs/outputs and lakehouse object storage.
@@ -54,17 +54,17 @@ Atlas already has Airflow for scheduled DAGs, but Airflow does not make data ass
 - dagster -> label-studio for reviewed dataset assets if Label Studio is enabled.
 - optional root-dashboard -> dagster as a launch link only.
 
-## Effort
+## 5. Effort
 medium-to-large — the webserver and daemon are straightforward, but a useful Atlas integration needs a Postgres-backed instance, code-location packaging, run-launcher/executor choices, auth, Airflow boundary docs, and at least one real asset graph.
 
-## Risks & open questions
+## 6. Risks & open questions
 - Scheduler duplication: Airflow already owns Atlas DAG scheduling and SparkSubmit lakehouse execution.
 - Code-location packaging: Dagster deployments normally separate framework containers from user-code containers; Atlas must not hide that complexity in an opaque image.
 - Migration posture: Airlift can observe or migrate Airflow work, but Atlas needs an explicit policy before mixing schedulers.
 - Operational weight: webserver, daemon, code location, instance storage, and possible run workers add more moving parts than a docs-only asset graph.
 - Value proof: without a concrete asset-lineage workflow, Dagster would be an empty UI next to an already-working Airflow stack.
 
-## Upstream evidence
+## 7. Upstream evidence
 - https://github.com/dagster-io/dagster
 - https://docs.dagster.io/deployment/oss/deployment-options/docker
 - https://docs.dagster.io/deployment/oss/oss-instance-configuration

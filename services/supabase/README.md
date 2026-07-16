@@ -1,4 +1,4 @@
-# Supabase Ecosystem
+# 5.2.49. Supabase Ecosystem
 
 Supabase provides the core database infrastructure for Atlas, including PostgreSQL database, authentication, storage, realtime subscriptions, and a management dashboard.
 
@@ -17,7 +17,7 @@ The Supabase ecosystem consists of multiple integrated services:
 
 The database initialization follows a staged process managed by Docker Compose dependencies:
 
-### 2.1 Base Database Initialization (`supabase-db` service)
+### 2.1. Base Database Initialization (`supabase-db` service)
 
 - Uses the standard `supabase/postgres` image
 - On first start with an empty data volume, runs internal initialization scripts from `/docker-entrypoint-initdb.d/`
@@ -32,7 +32,7 @@ The database initialization follows a staged process managed by Docker Compose d
 
 **Password is baked at initdb (`password authentication failed for user "supabase_admin"`).** The `supabase_admin` role's password is set **once**, when the `supabase-db-data` volume is first created, and is never re-synced afterward. `SUPABASE_DB_PASSWORD` ships as the placeholder `password` and is auto-rotated to a random value on the first `./start.sh`. If the data volume later persists across a `.env` password change (e.g. `.env` regenerated from `.env.example` against a retained volume — `./stop.sh` without `--cold` keeps volumes), clients authenticate with the new value while the role still holds the old one → `password authentication failed`. The bootstrapper now **skips** rotation and warns when it detects an existing `<project>_supabase-db-data` volume, so it won't silently rotate `.env` out of sync. To recover a drifted stack, either set `SUPABASE_DB_PASSWORD` back to the volume's original value, or run `./stop.sh --cold` (removes volumes) then `./start.sh` to reinitialize the role and `.env` together.
 
-### 2.2 Custom Post-Initialization (`supabase-db-init` service)
+### 2.2. Custom Post-Initialization (`supabase-db-init` service)
 
 - A dedicated, short-lived service using `postgres:15.18-alpine` image
 - Depends on `supabase-db` and waits until it's ready using `pg_isready`
@@ -58,7 +58,7 @@ The seeding layout follows a two-tier convention: core scaffolding lives in the 
 
 All Atlas-owned SQL scripts use `IF NOT EXISTS` logic to allow safe re-runs.
 
-### 2.3 Downstream user migrations
+### 2.3. Downstream user migrations
 
 Downstream projects can add local Supabase SQL without editing Atlas-owned
 files by placing scripts in `./services/supabase/db/_user/`. The
@@ -83,7 +83,7 @@ conflict-safe seed statements. If any user SQL file fails, `psql` exits with
 `ON_ERROR_STOP=1`, `supabase-db-init` fails, and downstream services gated on
 `supabase-db-init` do not start against a partially initialized database.
 
-### 2.4 Service Dependencies
+### 2.4. Service Dependencies
 
 Most other services have `depends_on: { supabase-db-init: { condition: service_completed_successfully } }` to ensure they only start after both base and custom initialization are complete.
 
@@ -91,7 +91,7 @@ Most other services have `depends_on: { supabase-db-init: { condition: service_c
 
 The stack uses Supabase Auth (GoTrue) for user authentication and management with JWT tokens.
 
-### 3.1 Key Components
+### 3.1. Key Components
 
 **supabase-auth (GoTrue)**:
 - Issues JWTs upon successful login/sign-up
@@ -112,13 +112,13 @@ The stack uses Supabase Auth (GoTrue) for user authentication and management wit
 - Routes authenticated requests to backend services
 - Relies on upstream services for JWT validation
 
-### 3.2 JWT Keys (.env file)
+### 3.2. JWT Keys (.env file)
 
 - `SUPABASE_JWT_SECRET`: Secret key for signing/verifying JWTs (consistent across all services)
 - `SUPABASE_ANON_KEY`: Pre-generated JWT for `anon` role (public access)
 - `SUPABASE_SERVICE_KEY`: Pre-generated JWT for `service_role` (admin privileges)
 
-### 3.3 Setup and Usage
+### 3.3. Setup and Usage
 
 1. **Generate Keys**: start.py automatically generates secure JWT keys during first run or cold start
 2. **Client Authentication**: Implement login flow using `/auth/v1/token?grant_type=password`
@@ -126,21 +126,37 @@ The stack uses Supabase Auth (GoTrue) for user authentication and management wit
 4. **Service Role Access**: Use `SUPABASE_SERVICE_KEY` for admin operations (handle securely)
 5. **User Management**: Use Supabase Studio interface at `http://localhost:${SUPABASE_STUDIO_PORT}`
 
+Supabase Auth identities are synchronized into `public.users` by the
+idempotent `public.handle_auth_user_sync()` trigger in `10-users.sql`. The same
+script backfills existing `auth.users` rows. This keeps the authenticated JWT
+subject usable as the owner foreign key for Backend research and memory data;
+profile names come from `raw_user_meta_data.name`, then `full_name`, then the
+email local part, with a stable fallback. Existing matching rows are updated,
+while unrelated legacy `public.users` rows remain intact.
+Deleting an Auth account deletes its synchronized owner row and cascades the
+associated research and memory records through their existing foreign keys.
+
+Row-level security permits authenticated users to read or update only the row
+whose id matches `auth.uid()` and permits the service role to manage all rows;
+anonymous callers have no policy. The synchronization function is trigger-only:
+execute privilege is revoked from public API roles despite its required
+`SECURITY DEFINER` ownership.
+
 ## 4. Individual Services
 
-### 4.1 PostgreSQL Database
+### 4.1. PostgreSQL Database
 
 **Access**: Direct connection via standard PostgreSQL client
 **Port**: `${SUPABASE_DB_PORT}` (default: 63012)
 **Extensions**: pgvector, PostGIS, uuid-ossp, pgcrypto
 
-### 4.2 Auth Service (GoTrue)
+### 4.2. Auth Service (GoTrue)
 
 **Access**: `http://localhost:${SUPABASE_AUTH_PORT}` (default: 63016)
 **Purpose**: User registration, login, password recovery, email confirmation
 **Features**: JWT authentication, user management, password policies
 
-### 4.3 Storage Service
+### 4.3. Storage Service
 
 **Access**: `http://localhost:${SUPABASE_STORAGE_PORT}` (default: 63015)
 **Features**:
@@ -149,7 +165,7 @@ The stack uses Supabase Auth (GoTrue) for user authentication and management wit
 - Integration with authentication system
 - Support for various file types
 
-### 4.4 API Service (PostgREST)
+### 4.4. API Service (PostgREST)
 
 **Access**: `http://localhost:${SUPABASE_API_PORT}` (default: 63017)
 **Purpose**: Auto-generated REST API for database operations
@@ -159,7 +175,7 @@ The stack uses Supabase Auth (GoTrue) for user authentication and management wit
 - Real-time subscriptions support
 - GraphQL endpoint available
 
-### 4.5 Realtime Service
+### 4.5. Realtime Service
 
 **Access**: WebSocket at `http://localhost:${SUPABASE_REALTIME_PORT}` (default: 63018)
 **Purpose**: Live database change notifications
@@ -169,7 +185,7 @@ The stack uses Supabase Auth (GoTrue) for user authentication and management wit
 - Subscription management
 - Integration with frontend applications
 
-### 4.6 Studio Dashboard
+### 4.6. Studio Dashboard
 
 **Access**: `http://localhost:${SUPABASE_STUDIO_PORT}` (default: 63019)
 **Purpose**: Web-based database management interface
@@ -181,7 +197,7 @@ The stack uses Supabase Auth (GoTrue) for user authentication and management wit
 - Storage file browser
 - Real-time monitoring
 
-### 4.7 `postgres-exporter` (observability sidecar)
+### 4.7. `postgres-exporter` (observability sidecar)
 
 **Image**: `prometheuscommunity/postgres-exporter:v0.19.1`
 **Access**: `http://localhost:${POSTGRES_EXPORTER_PORT}/metrics` (in-container `9187`)
@@ -217,7 +233,7 @@ DASHBOARD_USERNAME=kong_admin
 DASHBOARD_PASSWORD=<auto-generated into .env>
 ```
 
-### 5.1 Security note — pg-meta host port
+### 5.1. Security note — pg-meta host port
 
 `supabase-meta` (pg-meta) is published on the host at `SUPABASE_META_PORT`
 (default `63014`). pg-meta is an **auth-less HTTP API that executes SQL as
@@ -236,7 +252,7 @@ Docker network and does not need the host publish).
 
 ## 7. Common Operations
 
-### 7.1 Connect to Database
+### 7.1. Connect to Database
 ```bash
 # Using psql
 psql -h localhost -p ${SUPABASE_DB_PORT} -U supabase_admin -d postgres
@@ -245,7 +261,7 @@ psql -h localhost -p ${SUPABASE_DB_PORT} -U supabase_admin -d postgres
 docker exec -it ${PROJECT_NAME}-supabase-db psql -U supabase_admin -d postgres
 ```
 
-### 7.2 Check Service Health
+### 7.2. Check Service Health
 ```bash
 # Database
 docker exec ${PROJECT_NAME}-supabase-db pg_isready
@@ -255,7 +271,7 @@ curl http://localhost:${SUPABASE_API_PORT}/health
 curl http://localhost:${SUPABASE_AUTH_PORT}/health
 ```
 
-### 7.3 View Logs
+### 7.3. View Logs
 ```bash
 docker logs ${PROJECT_NAME}-supabase-db -f
 docker logs ${PROJECT_NAME}-supabase-auth -f
@@ -269,13 +285,11 @@ When `LIGHTRAG_SOURCE != disabled` AND `SUPABASE_DB_SOURCE != disabled`, `lightr
 
 ## 9. Dependencies & Integrations
 
-> Auto-generated section — the **Current** subsections are derived from `services/supabase/service.yml`'s `data_flow.calls` field (and inverse passes). Re-run `python -m bootstrapper.docs.regen supabase` after manifest changes.
-
-### 9.1 Current — Upstream (this service calls)
+### 9.1. Current — Upstream (this service calls)
 
 _No upstream calls._
 
-### 9.2 Current — Downstream (services that call this)
+### 9.2. Current — Downstream (services that call this)
 
 | Service | Category |
 |---|---|
@@ -299,13 +313,13 @@ _No upstream calls._
 | open-webui | apps |
 | zeppelin | apps |
 
-### 9.3 Architecture diagram
+### 9.3. Architecture diagram
 
 ![supabase architecture](./architecture.svg)
 
 [Open the interactive HTML diagram](./architecture.html) for a full-screen view.
 
-### 9.4 Future — Missing pair integrations
+### 9.4. Future — Missing pair integrations
 
 - **supabase ↔ hermes** — *Why:* Hermes persists agent state to a `hermes-data` volume only (the manifest header says "no Postgres/Redis dependency"). Backing sessions, skills, and tool-call history with Postgres gives durable cross-restart memory, multi-replica safety, and stack-wide queryability. *Mechanism:* `postgresql://supabase_admin@supabase-db:5432/postgres` with a dedicated `hermes` schema; `hermes-init` creates tables with `IF NOT EXISTS`. *Effort:* medium. *Confidence:* medium.
 - **supabase ↔ doc-processor** — *Why:* docling extracts structured chunks that today flow only into Weaviate as vectors. Persisting raw chunk text + source metadata in Postgres gives RLS-scoped tenant isolation, exact-match search, and a source-of-truth row Weaviate can be rebuilt from. *Mechanism:* docling writes via PostgREST at `http://supabase-api:3000/rest/v1/doc_chunks` using `SUPABASE_SERVICE_KEY`; embeddings still go to Weaviate. *Effort:* medium. *Confidence:* medium.
@@ -313,13 +327,13 @@ _No upstream calls._
 - **supabase ↔ tts-provider** — *Why:* generated audio is ephemeral. Storing TTS output in `supabase-storage` keyed by `(user_id, text_hash, voice)` gives a free cache (skip re-synth on identical inputs) and a per-user history pane. *Mechanism:* `PUT http://supabase-storage:5000/object/tts/<user>/<hash>.wav` with `SUPABASE_SERVICE_KEY`; metadata row via PostgREST. *Effort:* small. *Confidence:* high.
 - **supabase ↔ stt-provider** — *Why:* parakeet/speaches transcripts vanish after the response. Writing them to a `transcripts` table with the caller's JWT `sub` enables history search, RAG-over-meetings, and per-user RLS isolation. *Mechanism:* stt-provider POSTs to PostgREST `/rest/v1/transcripts` with the forwarded `Authorization: Bearer <jwt>` header so RLS picks up the user. *Effort:* small. *Confidence:* medium.
 
-### 9.5 Future — Candidate new services
+### 9.5. Future — Candidate new services
 
 - **Supabase Edge Functions (Deno)** ([details](../../docs/research/candidates/supabase-edge-functions.md)) — *Headline:* self-hosted Deno serverless layer that lets Postgres triggers and Kong routes invoke short TypeScript handlers without standing up n8n. *Wires into:* litellm, n8n, supabase-storage, kong.
 - **Supavisor** ([details](../../docs/research/candidates/supavisor.md)) — *Headline:* Supabase's own Postgres connection pooler — protects `supabase-db` from the 10+ stack services that each open their own pool. *Wires into:* backend, n8n, litellm, jupyterhub, local-deep-researcher.
 - **imgproxy** ([details](../../docs/research/candidates/imgproxy.md)) — *Headline:* on-the-fly image transform/resize sidecar that Supabase Storage's `IMGPROXY_URL` is purpose-built to talk to. *Wires into:* supabase-storage, minio, comfyui, open-webui, backend.
 
-### 9.6 Future — Unused features in this service
+### 9.6. Future — Unused features in this service
 
 - **`pg_cron` + `pg_net` extensions** — *Why pursue:* enables scheduled jobs and outbound HTTP from inside Postgres (database webhooks to Hermes/n8n/Edge Functions); `01-extensions.sql` currently enables only `vector`/`postgis`/`pgcrypto`. *Effort:* small.
 - **Database Webhooks** — *Why pursue:* lets row-level changes trigger LiteLLM calls or n8n flows without a polling worker; depends on `pg_net`. *Effort:* small.

@@ -1,4 +1,4 @@
-# Celery + Flower (async jobs)
+# 5.2.7. Celery + Flower (async jobs)
 
 Redis-backed backend worker tier for Atlas long-running jobs. It starts disabled by default:
 
@@ -10,7 +10,7 @@ Set `CELERY_SOURCE=container` from the setup wizard or CLI to run one backend Ce
 
 ## 1. Overview
 
-The first async job is memory consolidation. `POST /memory/consolidate?async_job=true` returns a Celery job id immediately instead of holding the FastAPI request open while the LangMem consolidation loop performs database reads and LLM calls. Use `GET /jobs/{job_id}` to inspect pending, running, success, retry, failure, or revoked state.
+The worker currently runs memory consolidation and RAG ingestion. `POST /memory/consolidate?async_job=true` returns a Celery job id immediately instead of holding the FastAPI request open while the LangMem consolidation loop performs database reads and LLM calls. RAG ingestion submissions dispatch the phase engine when this tier is enabled. Use `GET /jobs/{job_id}` to inspect pending, running, success, retry, failure, or revoked state.
 
 The old synchronous `POST /memory/consolidate` path remains available for compatibility. Research start is deferred because it already has a separate database-backed session lifecycle, and moving it first would mix two lifecycle models in one change.
 
@@ -32,7 +32,10 @@ CELERY_WORKER_PREFETCH_MULTIPLIER=1
 CELERY_TASK_SOFT_TIME_LIMIT_SECONDS=840
 CELERY_TASK_TIME_LIMIT_SECONDS=900
 CELERY_BROKER_VISIBILITY_TIMEOUT_SECONDS=3600
+RAG_INGESTION_EXECUTION_LEASE_SECONDS=30
 ```
+
+All Celery numeric controls must be positive integers. The soft limit must be less than the hard limit, and the Redis visibility timeout must be greater than the hard limit; malformed or contradictory values fail worker and Backend startup rather than falling back to defaults. The RAG execution lease must be an integer from 10 through 300 seconds.
 
 The bootstrapper computes these when enabled:
 
@@ -52,7 +55,8 @@ FastAPI backend
   └─ enqueue task -> Redis db 4 -> celery-worker
                                      ├─ Supabase/Postgres memory tables
                                      ├─ LiteLLM for consolidation prompts
-                                     └─ Weaviate for memory vector updates
+                                     ├─ Weaviate for memory vector updates
+                                     └─ Redis db 0 owner-fenced RAG state/leases
 
 Flower -> Redis db 4 -> worker/task inspection
 Kong   -> flower.localhost -> Flower
@@ -64,43 +68,45 @@ Kong   -> flower.localhost -> Flower
 
 The worker uses JSON task/result serialization and Redis as both broker and result backend. Memory consolidation tasks run with a soft time limit before the hard time limit so failures are captured instead of leaving a request open indefinitely. The job endpoint surfaces Celery failure state and error text from Redis; raw tracebacks stay in worker logs and Flower for operators rather than the public backend API.
 
-Redis visibility timeout is intentionally longer than the hard task time limit. If a worker is killed before acknowledging a task, Redis can redeliver it after the visibility timeout; tasks should therefore remain idempotent or tolerate a retry. Memory consolidation deactivates/updates memory rows through existing service logic, so future tasks that mutate external systems must be reviewed before being added to the queue.
+Redis visibility timeout is intentionally longer than the hard task time limit. If a worker is killed before acknowledging a task, Redis can redeliver it after the visibility timeout; tasks should therefore remain idempotent or tolerate a retry. RAG ingestion uses the Backend's Redis state database and receives the same compiled profiles, upstream endpoints, corpus limits, and scoped MinIO credential references. It acquires and renews an owner-fenced execution lease before phase side effects, and each state save verifies the owner. A duplicate delivery that finds an active lease waits for its expiry and retries; a worker that loses ownership cancels its active async phase, logs the renewal failure, and reschedules without overwriting replacement state. Transient upstream failures retain a separate three-retry exponential-backoff budget whose counter is independent of lease contention; exhaustion records a terminal ingestion failure. LightRAG replays are idempotent through deterministic document identities and duplicate-source handling. Memory consolidation deactivates/updates memory rows through existing service logic, so future tasks that mutate external systems must be reviewed before being added to the queue.
 
 ## 6. Dependencies & Integrations
 
-> Auto-generated section — the **Current** subsections are derived from `services/celery/service.yml`'s `data_flow.calls` field (and inverse passes). Re-run `python -m bootstrapper.docs.regen celery` after manifest changes.
-
-### 6.1 Current — Upstream (this service calls)
+### 6.1. Current — Upstream (this service calls)
 
 | Service | Category |
 |---|---|
+| minio | data |
 | redis | data |
 | supabase | data |
 | supavisor | data |
 | weaviate | data |
 | litellm | llm |
+| docling | media |
+| tika | media |
+| lightrag | agents |
 
-### 6.2 Current — Downstream (services that call this)
+### 6.2. Current — Downstream (services that call this)
 
 | Service | Category |
 |---|---|
 | backend | apps |
 
-### 6.3 Architecture diagram
+### 6.3. Architecture diagram
 
 ![celery architecture](./architecture.svg)
 
 [Open the interactive HTML diagram](./architecture.html) for a full-screen view.
 
-### 6.4 Future — Missing pair integrations
+### 6.4. Future — Missing pair integrations
 
 - **celery ↔ research start** — Move the Local Deep Researcher start/wait loop into a task once the existing research session model can persist the Celery job id without confusing remote and local session ids.
 - **celery ↔ ComfyUI generation** — Add async image-generation tasks for callers that currently use `wait_for_completion=true`.
 
-### 6.5 Future — Candidate new services
+### 6.5. Future — Candidate new services
 
 - **Celery Beat** — Add only when Atlas has scheduled jobs that cannot be expressed more clearly in Airflow or n8n.
 
-### 6.6 Future — Unused features in this service
+### 6.6. Future — Unused features in this service
 
 - Flower's task mutation APIs are exposed only behind auth and should not become a public automation surface.

@@ -10,7 +10,9 @@ import re
 import sys
 import os
 import json
+import shlex
 import subprocess
+import tempfile
 from datetime import date
 from pathlib import Path
 import click
@@ -40,6 +42,30 @@ def _format_today() -> str:
     without freezing the system clock globally.
     """
     return date.today().isoformat()
+
+
+def _write_private_text(path: Path, text: str) -> None:
+    """Atomically replace *path* with an owner-readable text file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.",
+        dir=path.parent,
+        text=True,
+    )
+    temporary_path = Path(temporary_name)
+    try:
+        os.chmod(temporary_path, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            fd = -1
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_path, path)
+        os.chmod(path, 0o600)
+    finally:
+        if fd >= 0:
+            os.close(fd)
+        temporary_path.unlink(missing_ok=True)
 
 
 def _run_privileged_hosts_setup() -> bool:
@@ -74,7 +100,15 @@ def _run_privileged_hosts_setup() -> bool:
     )
     print("  • --setup-hosts needs to edit your hosts file; requesting sudo for that write only.")
     result = subprocess.run(
-        ["sudo", sys.executable, "-c", helper],
+        [
+            "sudo",
+            "env",
+            f"PYTHONPATH={env['PYTHONPATH']}",
+            "PYTHONDONTWRITEBYTECODE=1",
+            sys.executable,
+            "-c",
+            helper,
+        ],
         cwd=repo_root,
         env=env,
         check=False,
@@ -202,6 +236,9 @@ class AtlasStarter:
         self.source_override_manager = SourceOverrideManager(self.config_parser)
         self.active_track = None
         self.active_track_overrides = frozenset()
+        # Managers recorded here were started by this AtlasStarter invocation.
+        # Pre-existing native hosts are deliberately never rollback-owned.
+        self._managed_hosts_started_this_run: list[tuple[str, object]] = []
 
 
     def show_banner(self):
@@ -660,6 +697,39 @@ class AtlasStarter:
             return False
         return True
 
+    def prepare_environment(
+        self,
+        cold_start: bool,
+        base_port: Optional[int] = None,
+        project_name: Optional[str] = None,
+    ) -> bool:
+        """Clean a cold project before replacing its credential-bearing env file."""
+        if cold_start:
+            # A fresh clone has no env file for Compose interpolation, and no
+            # existing credentials to preserve. Materialize it first. Existing
+            # installs must clean first so a failed `down --volumes` leaves the
+            # credential file matching any surviving volumes.
+            if not self.config_parser.env_file_exists():
+                if not self.setup_env_file(
+                    cold_start=True,
+                    base_port=base_port,
+                    project_name=project_name,
+                ):
+                    return False
+                return self.perform_cold_start_cleanup(project_name=project_name)
+            # Backfill is additive and preserves every existing credential. It
+            # gives upgraded Compose fragments all required interpolation keys
+            # without replacing the env file before volume deletion succeeds.
+            if not self.backfill_missing_env_vars():
+                return False
+            if not self.perform_cold_start_cleanup(project_name=project_name):
+                return False
+        return self.setup_env_file(
+            cold_start=cold_start,
+            base_port=base_port,
+            project_name=project_name,
+        )
+
     def setup_env_file(self, cold_start: bool, base_port: Optional[int] = None,
                        project_name: Optional[str] = None) -> bool:
         """
@@ -720,9 +790,12 @@ class AtlasStarter:
                 # Ensure parent directory exists (important for custom paths)
                 env_file_path.parent.mkdir(parents=True, exist_ok=True)
 
-                # Copy .env.example to target path (default or custom)
-                import shutil
-                shutil.copy2(env_example_path, env_file_path)
+                # Materialize atomically with owner-only permissions. A direct
+                # copy can leave a partial or briefly world-readable secret file.
+                _write_private_text(
+                    env_file_path,
+                    env_example_path.read_text(encoding="utf-8"),
+                )
                 self.banner.show_status_message(f"  • Copied {env_example_path}", "info")
                 self.banner.show_status_message(f"  •     to {env_file_path}", "info")
 
@@ -749,6 +822,7 @@ class AtlasStarter:
                 self.banner.show_status_message(f"Failed to create .env file: {e}", "error")
                 return False
 
+        os.chmod(env_file_path, 0o600)
         overlay_overrides = self._apply_env_user_overlay()
         if not self._persist_project_name(project_name):  # .env already exists and not cold start
             return False
@@ -1530,18 +1604,7 @@ class AtlasStarter:
         # when no consumer declares lightrag_query_profiles.
         if not self._finalize_consumer_lightrag_query_profiles():
             return False
-        # Finalize the Atlas-managed Apple-Silicon/Metal ComfyUI host (#335):
-        # when COMFYUI_SOURCE=managed-localhost-mps, preflight + install +
-        # launch the native host process containers reach via host.docker.internal.
-        # A no-op for every other source (and never selected in CI's .env.example).
-        if not self._finalize_managed_comfyui_mps():
-            return False
-        # Finalize the Atlas-managed vLLM Metal host (#379): when
-        # VLLM_METAL_SOURCE=managed-localhost, preflight + install + launch the
-        # native host vLLM process that litellm-init registers as an
-        # OpenAI-compatible upstream. A no-op for every other source (and never
-        # selected in CI's .env.example, whose default is `disabled`).
-        return self._finalize_managed_vllm_metal()
+        return True
 
     def _finalize_consumer_storage(self) -> bool:
         """Provision manifest-declared object stores (#404): generate scoped
@@ -1834,6 +1897,58 @@ class AtlasStarter:
         )
         return True
 
+    def start_managed_host_processes(self) -> bool:
+        """Start selected native hosts immediately before Compose startup.
+
+        Configuration generation remains side-effect free, and a later managed
+        host failure rolls back only processes created by this invocation.
+        """
+        try:
+            if not self._finalize_managed_comfyui_mps():
+                self.rollback_managed_host_processes()
+                return False
+            if not self._finalize_managed_vllm_metal():
+                self.rollback_managed_host_processes()
+                return False
+        except BaseException:
+            self.rollback_managed_host_processes()
+            raise
+        return True
+
+    def rollback_managed_host_processes(self) -> bool:
+        """Stop native hosts started by this invocation, in reverse order."""
+        remaining: list[tuple[str, object]] = []
+        all_stopped = True
+        for label, manager in reversed(self._managed_hosts_started_this_run):
+            try:
+                stopped = manager.stop()
+                still_running = manager.status().running
+            except Exception as exc:  # noqa: BLE001 - preserve other cleanup
+                self.banner.show_status_message(
+                    f"Could not roll back managed {label} host: {exc}", "warning"
+                )
+                remaining.append((label, manager))
+                all_stopped = False
+                continue
+            if stopped or not still_running:
+                self.banner.show_status_message(
+                    f"Rolled back managed {label} host started by this launch.",
+                    "info",
+                )
+            else:
+                self.banner.show_status_message(
+                    f"Managed {label} host is still running after rollback.",
+                    "warning",
+                )
+                remaining.append((label, manager))
+                all_stopped = False
+        self._managed_hosts_started_this_run = list(reversed(remaining))
+        return all_stopped
+
+    def commit_managed_host_processes(self) -> None:
+        """Release rollback ownership after the stack has converged."""
+        self._managed_hosts_started_this_run.clear()
+
     def _finalize_managed_comfyui_mps(self) -> bool:
         """Bring up the Atlas-managed Apple-Silicon/Metal ComfyUI host (#335).
 
@@ -1864,12 +1979,18 @@ class AtlasStarter:
             "info",
         )
         try:
-            status = manager.ensure_running()
+            status, created = manager.ensure_running_with_ownership()
         except ComfyUiMpsError as exc:
+            if exc.surviving_process:
+                self._managed_hosts_started_this_run.append(
+                    ("ComfyUI (MPS)", manager)
+                )
             self.banner.show_status_message(
                 f"Managed ComfyUI (MPS) host could not start: {exc}", "error"
             )
             return False
+        if created:
+            self._managed_hosts_started_this_run.append(("ComfyUI (MPS)", manager))
 
         health = manager.wait_healthy(timeout=60.0)
         if health.get("reachable"):
@@ -1919,12 +2040,18 @@ class AtlasStarter:
             "info",
         )
         try:
-            status = manager.ensure_running()
+            status, created = manager.ensure_running_with_ownership()
         except VllmMetalError as exc:
+            if exc.surviving_process:
+                self._managed_hosts_started_this_run.append(
+                    ("vLLM (Metal)", manager)
+                )
             self.banner.show_status_message(
                 f"Managed vLLM (Metal) host could not start: {exc}", "error"
             )
             return False
+        if created:
+            self._managed_hosts_started_this_run.append(("vLLM (Metal)", manager))
 
         health = manager.wait_healthy(timeout=120.0)
         if health.get("reachable"):
@@ -2023,15 +2150,12 @@ class AtlasStarter:
         root-owned with 755 mode, blocking subsequent re-writes.
 
         Strategy: if the directory exists and is not writable, attempt
-        a 777 chmod. If chmod also fails (very rare — usually root-owned
-        with strict mode), wipe and recreate. Both branches log what
-        they did so the user can see why their permissions changed.
+        a 777 chmod. If chmod also fails (usually because another user owns
+        it), preserve the directory and report the ownership repair command.
 
-        Never raises — falls back to letting the original write fail
-        with its native error if neither chmod nor recreate works.
+        Never raises — falls back to letting the original write fail with its
+        native error when ownership prevents the permission repair.
         """
-        import shutil
-
         if not path.exists():
             path.mkdir(parents=True, exist_ok=True)
             return
@@ -2052,21 +2176,15 @@ class AtlasStarter:
         except OSError:
             pass
 
-        # chmod failed — last-ditch: wipe and recreate as the current user.
-        try:
-            shutil.rmtree(path)
-            path.mkdir(parents=True, exist_ok=True)
-            self.banner.show_status_message(
-                f"  • Recreated {path} (prior run left it unwritable)",
-                "info",
-            )
-        except OSError as exc:
-            self.banner.show_status_message(
-                f"  • Could not fix permissions on {path}: {exc} — "
-                f"if a container write fails, run `sudo rm -rf {path}` "
-                f"and re-run ./start.sh",
-                "warning",
-            )
+        # Never delete a bind-mounted directory to recover permissions: it may
+        # contain user models, generated configuration, or application state.
+        self.banner.show_status_message(
+            f"  • Could not make {path} writable; existing contents were preserved. "
+            f"Repair ownership with `sudo chown -R $(id -u):$(id -g) "
+            f"{shlex.quote(str(path))}` "
+            f"and re-run ./start.sh",
+            "warning",
+        )
 
     def _derive_plugin_route_auth(self) -> list:
         """Derive per-prefix Kong auth overrides from plugin.yml manifests (#402).
@@ -2173,15 +2291,11 @@ class AtlasStarter:
         success = self.docker_manager.perform_cold_start_cleanup()
         
         if not success:
-            self.banner.show_status_message("Some issues occurred during cleanup", "warning")
+            self.banner.show_status_message("Cold cleanup failed; secrets were not rotated", "error")
         else:
             self.banner.show_status_message("Cold cleanup completed successfully", "success")
-            
-        # Add small delay as per original script
-        import time
-        time.sleep(2)
-            
-        return True  # Continue even if cleanup had issues
+
+        return success
         
     def generate_encryption_keys(self, cold_start: bool = False) -> bool:
         """
@@ -2293,6 +2407,7 @@ class AtlasStarter:
 
             if build_result != 0:
                 self.banner.show_status_message("Failed to build some services", "error")
+                self.rollback_managed_host_processes()
                 return False
 
             print("    - Starting containers...")
@@ -2319,9 +2434,12 @@ class AtlasStarter:
             # exits, unhealthy/non-running services) still fail, with names.
             if not (wait and self._up_wait_race_converged()):
                 self.banner.show_status_message("Failed to start some services", "error")
+                self.rollback_managed_host_processes()
                 return False
         if not self.verify_one_shot_init_containers():
+            self.rollback_managed_host_processes()
             return False
+        self.commit_managed_host_processes()
         self.banner.show_status_message("All services started successfully", "success")
         return True
 
@@ -2442,6 +2560,24 @@ class AtlasStarter:
             services.append("open-webui-init")
         if env_vars.get("COMFYUI_INIT_SCALE", "0") != "0":
             services.append("comfyui-init")
+        if env_vars.get("REDPANDA_INIT_SCALE", "0") != "0":
+            services.append("redpanda-init")
+        if env_vars.get("ZEPPELIN_INIT_SCALE", "0") != "0":
+            services.append("zeppelin-init")
+        try:
+            consumer_config = self.config_parser.load_consumer_config()
+        except Exception as exc:
+            message = (
+                "Could not inspect consumer one-shot services "
+                f"(error_type={type(exc).__name__})"
+            )
+            if on_line is None:
+                self.banner.show_status_message(message, "error")
+            else:
+                on_line(message, "error")
+            return False
+        if consumer_config.n8n_workflows:
+            services.append("n8n-seed")
         if not services:
             return True
 
@@ -3824,7 +3960,7 @@ def _print_doctor_text(results: list[dict]) -> None:
 @click.option('--skip-hosts', is_flag=True, help='Skip hosts file checks and setup')
 @click.option('--track', type=str, default=None,
               help='Pre-select a wizard profile (track) — gen-ai-rag, '
-                   'gen-ai-eng, gen-ai-creative, ml-eng, data-eng, all. '
+                   'gen-ai-eng, gen-ai-creative, ml-eng, data-eng, trading, all. '
                    'Skips the wizard track-picker. In-track services are '
                    'prompted as usual; out-of-track services are disabled. '
                    'Use --list-tracks to see members.')
@@ -3882,8 +4018,7 @@ def _print_doctor_text(results: list[dict]) -> None:
                    'a file outside the repo (e.g. /etc/atlas/my-models.yaml).')
 @click.option('--comfyui-source',
               type=click.Choice(['container-cpu', 'container-gpu', 'localhost',
-                                'managed-localhost-mps', 'disabled'],
-                                case_sensitive=False),
+                                'managed-localhost-mps', 'disabled'], case_sensitive=False),
               help='Override COMFYUI_SOURCE')
 @click.option('--asset-worker-source',
               type=click.Choice(['container', 'disabled'], case_sensitive=False),
@@ -4044,6 +4179,12 @@ def _print_doctor_text(results: list[dict]) -> None:
 @click.option('--redpanda-source',
               type=click.Choice(['container', 'disabled'], case_sensitive=False),
               help='Override REDPANDA_SOURCE — Kafka API streaming broker + console.')
+@click.option('--backup-source',
+              type=click.Choice(['container', 'disabled'], case_sensitive=False),
+              help='Override BACKUP_SOURCE — authorize the on-demand backup/restore runner.')
+@click.option('--cloudflared-source',
+              type=click.Choice(['container', 'disabled'], case_sensitive=False),
+              help='Override CLOUDFLARED_SOURCE — outbound Cloudflare Tunnel public edge.')
 @click.option('--no-tui', is_flag=True,
               help='Disable the TUI (wizard + Textual log app). Falls back to the legacy '
                    'linear flow with passthrough docker output. Useful for log capture, '
@@ -4097,6 +4238,8 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
          iceberg_rest_source,
          trino_source,
          redpanda_source,
+         backup_source,
+         cloudflared_source,
          no_tui, detach, json_output, no_splash, no_port_migrate, profile):
     """Start Atlas — the self-hosted engineering platform."""
 
@@ -4197,6 +4340,8 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
                     'iceberg_rest_source': iceberg_rest_source,
                     'trino_source': trino_source,
                     'redpanda_source': redpanda_source,
+                    'backup_source': backup_source,
+                    'cloudflared_source': cloudflared_source,
                 }
                 for cli_key, value in _flag_values.items():
                     if value is None or value == "disabled":
@@ -4431,6 +4576,8 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
             'iceberg_rest_source': iceberg_rest_source,
             'trino_source': trino_source,
             'redpanda_source': redpanda_source,
+            'backup_source': backup_source,
+            'cloudflared_source': cloudflared_source,
         }
         # Ray non-SOURCE settings (worker count) get plumbed via
         # update_env_file the same way the cloud-API keys do. Clamp 0-64 to
@@ -4442,6 +4589,10 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
             user_model_selections['RAY_WORKER_COUNT'] = str(ray_worker_count)
         # Prometheus retention days — same pattern.
         if prometheus_retention_days is not None:
+            if not 1 <= prometheus_retention_days <= 365:
+                raise click.UsageError(
+                    "--prometheus-retention-days must be in 1-365"
+                )
             user_model_selections['PROMETHEUS_RETENTION_DAYS'] = str(prometheus_retention_days)
         # Spark worker count — same pattern as Ray's worker count. Clamp 1-8
         # to match the wizard's SecondaryNumberInput contract.
@@ -4566,7 +4717,7 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
 
         if wizard_requested:
             # Setup .env first so wizard can read current defaults.
-            if not starter.setup_env_file(cold_start=cold, base_port=base_port, project_name=project_name):
+            if not starter.prepare_environment(cold_start=cold, base_port=base_port, project_name=project_name):
                 sys.exit(1)
             # Backfill any keys added to .env.example since the user's
             # .env was last written — run BEFORE the wizard reads it,
@@ -4676,7 +4827,7 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
             if _is_tui_capable(no_tui_flag=no_tui):
                 # Make sure .env exists so the launch screen can build
                 # the Stack overview.
-                if not starter.setup_env_file(cold_start=cold, base_port=base_port, project_name=project_name):
+                if not starter.prepare_environment(cold_start=cold, base_port=base_port, project_name=project_name):
                     sys.exit(1)
                 # Backfill new .env.example keys before the launch
                 # screen renders the Stack overview from .env.
@@ -4742,7 +4893,7 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
         starter.profile = profile
         starter.show_banner()
 
-        if not starter.setup_env_file(cold_start=cold, base_port=base_port, project_name=project_name):
+        if not starter.prepare_environment(cold_start=cold, base_port=base_port, project_name=project_name):
             sys.exit(1)
 
         # Pull in any keys added to .env.example since the user's .env
@@ -4786,13 +4937,6 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
         # run_launch_flow); this branch covers the --no-tui linear path.
         starter.run_port_migration(no_port_migrate)
 
-        # Step 1.7: Cold start cleanup if requested (before port check).
-        # TUI-capable runs exit before reaching this point; the Textual
-        # wizard handles cold cleanup inline. This branch only fires for
-        # the --no-tui / non-TTY linear flow.
-        if cold:
-            starter.perform_cold_start_cleanup()
-        
         # Step 2: Validate SOURCE configurations.
         # Profile-source compatibility check runs first so --profile prod
         # with a dev-only source (e.g. ollama-localhost) fails fast with a
@@ -4893,6 +5037,8 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
         if not starter.show_pre_launch_summary(track=track, assume_yes=detach or json_output):
             starter.banner.console.print("\n  [color(245)]Launch cancelled.[/color(245)]")
             sys.exit(0)
+        if not starter.start_managed_host_processes():
+            sys.exit(1)
         if not starter.start_docker_services(cold_start=cold, wait=detach or json_output):
             sys.exit(1)
         starter.show_container_status_and_verify_ports()
@@ -4910,9 +5056,11 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
         # error" with exit 1 via the catch-all below.
         raise
     except KeyboardInterrupt:
+        starter.rollback_managed_host_processes()
         print("\n❌ Startup interrupted by user")
         sys.exit(1)
     except Exception as e:
+        starter.rollback_managed_host_processes()
         # Anything reaching here is an unexpected bug (click.ClickException
         # and KeyboardInterrupt are handled above). Emit the full traceback
         # to stderr so the failure is triageable; the prior handler's bare
@@ -5063,8 +5211,7 @@ def endpoints_export_command(
 
     if output_path:
         out = Path(output_path).expanduser()
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(text, encoding="utf-8")
+        _write_private_text(out, text)
         click.echo(f"Wrote {len(fields)} endpoint field(s) to {out}")
     else:
         click.echo(text, nl=False)

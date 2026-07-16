@@ -119,7 +119,8 @@ def test_bidirectional_annotation():
     from docs.diagram_renderer import render_svg
     g = build_doc_graph("hermes", SERVICES_DIR)
     svg = render_svg(g)
-    assert "↔" in svg or "bidirectional" in svg.lower()
+    assert "two-way" in svg.lower()
+    assert "↔" not in svg
 
 
 def test_summary_cards_in_html():

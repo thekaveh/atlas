@@ -85,6 +85,20 @@ def test_all_expected_tables_present():
     assert not missing, f"app tables missing from slices: {sorted(missing)}"
 
 
+def test_auth_users_are_synchronized_to_public_users():
+    users_slice = _read("10-users.sql")
+    assert "INSERT INTO public.users" in users_slice
+    assert "FROM auth.users" in users_slice
+    assert "CREATE OR REPLACE FUNCTION public.handle_auth_user_sync" in users_slice
+    assert "CREATE TRIGGER on_auth_user_sync" in users_slice
+    assert "IF TG_OP = 'DELETE'" in users_slice
+    assert "AFTER INSERT OR DELETE OR UPDATE" in users_slice
+    assert "REVOKE ALL ON FUNCTION public.handle_auth_user_sync()" in users_slice
+    assert "ALTER TABLE public.users ENABLE ROW LEVEL SECURITY" in users_slice
+    assert "auth.uid() = id" in users_slice
+    assert "auth.role() = 'service_role'" in users_slice
+
+
 def test_old_mixed_files_are_gone():
     for stale in ("05-public-tables.sql", "05a-public-tables-migrations.sql",
                   "08-seed-data.sql", "09-research-tables.sql",

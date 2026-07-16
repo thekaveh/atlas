@@ -4,6 +4,7 @@ FROM ${BASE_IMAGE}
 # Pinned headless Blender (>= 4.3). Blender bundles its own Python + numpy, which
 # the bake script (bake.py) runs under; the FastAPI layer uses the image's Python.
 ARG BLENDER_VERSION=4.3.2
+ARG BLENDER_SHA256=4da1c956673c0485e63054e563ee69198cc8f80d8157dd7592dffc8a6a5592e6
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -22,6 +23,7 @@ RUN set -eux; \
     series="$(echo "${BLENDER_VERSION}" | cut -d. -f1,2)"; \
     url="https://download.blender.org/release/Blender${series}/blender-${BLENDER_VERSION}-linux-x64.tar.xz"; \
     curl -fsSL "$url" -o /tmp/blender.tar.xz; \
+    echo "${BLENDER_SHA256}  /tmp/blender.tar.xz" | sha256sum -c -; \
     mkdir -p /opt/blender; \
     tar -xJf /tmp/blender.tar.xz -C /opt/blender --strip-components=1; \
     rm /tmp/blender.tar.xz; \

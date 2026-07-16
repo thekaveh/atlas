@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
+
+import httpx
 
 from research_client import ResearchClient, ResearchRequest, ResearchStatus
 
@@ -217,7 +220,7 @@ def test_research_client_marks_empty_langgraph_stream_failed(monkeypatch):
     assert asyncio.run(client.list_active_sessions()) == []
 
 
-def test_research_client_marks_langgraph_error_event_failed(monkeypatch):
+def test_research_client_marks_langgraph_error_event_failed(monkeypatch, caplog):
     import research_client
 
     class ErrorStreamClient(FakeAsyncClient):
@@ -226,7 +229,7 @@ def test_research_client_marks_langgraph_error_event_failed(monkeypatch):
             return FakeStreamResponse(
                 [
                     "event: error",
-                    f"data: {json.dumps({'error': 'search failed'})}",
+                    f"data: {json.dumps({'error': 'search failed secret-token'})}",
                 ]
             )
 
@@ -239,11 +242,128 @@ def test_research_client_marks_langgraph_error_event_failed(monkeypatch):
         )
         return await client.wait_for_completion(start.session_id)
 
-    done = asyncio.run(scenario())
+    with caplog.at_level(logging.WARNING):
+        done = asyncio.run(scenario())
 
     assert done.status == ResearchStatus.FAILED
-    assert "search failed" in done.message
+    assert done.message == "Research service request failed"
+    assert "secret-token" not in done.message
+    assert "secret-token" not in caplog.text
     assert asyncio.run(client.list_active_sessions()) == []
+
+
+def test_research_client_redacts_error_nested_in_values(monkeypatch, caplog):
+    import research_client
+
+    class NestedErrorStreamClient(FakeAsyncClient):
+        def stream(self, method, url, **kwargs):
+            self.calls.append((method, url, kwargs))
+            return FakeStreamResponse(
+                [
+                    "event: values",
+                    f"data: {json.dumps({'data': {'values': {'error': 'secret-token'}}})}",
+                ]
+            )
+
+    monkeypatch.setattr(
+        research_client.httpx, "AsyncClient", NestedErrorStreamClient
+    )
+    client = ResearchClient(base_url="http://local-deep-researcher:2024")
+
+    async def scenario():
+        start = await client.start_research(ResearchRequest(query="atlas"))
+        done = await client.wait_for_completion(start.session_id)
+        result = await client.get_research_result(start.session_id)
+        return done, result
+
+    with caplog.at_level(logging.WARNING):
+        done, result = asyncio.run(scenario())
+
+    assert done.status == ResearchStatus.FAILED
+    assert done.message == "Research service request failed"
+    assert result is None
+    assert "secret-token" not in done.model_dump_json()
+    assert "secret-token" not in caplog.text
+
+
+def test_research_client_does_not_log_rejected_response_bodies(monkeypatch, caplog):
+    import research_client
+
+    class RejectedClient(FakeAsyncClient):
+        async def post(self, url, **kwargs):
+            request = httpx.Request("POST", url)
+            return httpx.Response(503, text="provider secret-token", request=request)
+
+        async def get(self, url, **kwargs):
+            request = httpx.Request("GET", url)
+            return httpx.Response(502, text="status secret-token", request=request)
+
+    monkeypatch.setattr(research_client.httpx, "AsyncClient", RejectedClient)
+    client = ResearchClient(base_url="http://local-deep-researcher:2024")
+
+    async def scenario():
+        started = await client.start_research(ResearchRequest(query="atlas"))
+        status = await client.get_research_status("thread-123")
+        return started, status
+
+    with caplog.at_level(logging.WARNING):
+        started, status = asyncio.run(scenario())
+
+    assert started.status == ResearchStatus.FAILED
+    assert status.status == ResearchStatus.FAILED
+    assert "secret-token" not in caplog.text
+    assert "status=503" in caplog.text
+    assert "status=502" in caplog.text
+
+
+def test_research_client_redacts_client_lifecycle_failures(monkeypatch, caplog):
+    import research_client
+
+    class BrokenClient:
+        def __init__(self, *args, **kwargs):
+            raise RuntimeError("provider secret-token")
+
+    monkeypatch.setattr(research_client.httpx, "AsyncClient", BrokenClient)
+    client = ResearchClient(base_url="http://local-deep-researcher:2024")
+
+    async def scenario():
+        health = await client.health_check()
+        started = await client.start_research(ResearchRequest(query="atlas"))
+        status = await client.get_research_status("thread-123")
+        return health, started, status
+
+    with caplog.at_level(logging.WARNING):
+        health, started, status = asyncio.run(scenario())
+
+    assert health["error"] == "Research service is unavailable"
+    assert started.message == "Research service is unavailable"
+    assert status.message == "Research service is unavailable"
+    assert "secret-token" not in caplog.text
+
+
+def test_research_client_redacts_http_200_failed_state(monkeypatch):
+    import research_client
+
+    class FailedStateClient(FakeAsyncClient):
+        async def get(self, url, **kwargs):
+            return FakeResponse(
+                200,
+                {
+                    "status": "failed",
+                    "message": "upstream secret-token",
+                    "error": {"detail": "raw secret-token"},
+                },
+            )
+
+    monkeypatch.setattr(research_client.httpx, "AsyncClient", FailedStateClient)
+    client = ResearchClient(base_url="http://local-deep-researcher:2024")
+
+    status = asyncio.run(client.get_research_status("thread-123"))
+
+    assert status.status == ResearchStatus.FAILED
+    assert status.message == "Research service request failed"
+    assert status.data is None
+    assert "secret-token" not in status.model_dump_json()
 
 
 def test_research_client_honors_total_stream_timeout(monkeypatch):

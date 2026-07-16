@@ -1,4 +1,4 @@
-# Neo4j LLM Graph Builder
+# 5.2.27. Neo4j LLM Graph Builder
 
 ## 1. Overview
 Neo4j LLM Graph Builder is a disabled-by-default Atlas `apps` service for turning documents and web sources into a Neo4j knowledge graph, then chatting over the resulting graph. It is the first GraphRAG-oriented builder UI in the `gen-ai-rag` track and complements LightRAG by providing an operator-facing document-to-graph workflow against Atlas' existing Neo4j and LiteLLM services.
@@ -21,6 +21,9 @@ Kong creates both Graph Builder routes only when `LLM_GRAPH_BUILDER_SOURCE=conta
 - `LLM_GRAPH_BUILDER_LLM_MODEL` selects the underlying LiteLLM model alias. Empty means Atlas uses `LITELLM_DEFAULT_MODEL`.
 - `LLM_GRAPH_BUILDER_NEO4J_DATABASE=neo4j` controls the database name passed to the upstream backend. Use a dedicated database on Neo4j editions that support multiple databases.
 - `LLM_GRAPH_BUILDER_REACT_APP_SOURCES=local,wiki,web` keeps the first Atlas slice local and web oriented. S3 can be added later once endpoint configuration is proven against MinIO.
+- `LLM_GRAPH_BUILDER_DIFFBOT_API_KEY` optionally enables upstream Diffbot-backed features; the default Atlas LiteLLM model path leaves it blank.
+- `LLM_GRAPH_BUILDER_GCP_LOG_METRICS_ENABLED=false` and `LLM_GRAPH_BUILDER_GCS_FILE_CACHE=false` keep Google Cloud integrations off by default. Enabling either requires `LLM_GRAPH_BUILDER_GCP_PROJECT_ID` and an absolute host path in `LLM_GRAPH_BUILDER_GCP_CREDENTIALS_FILE`; GCS caching additionally requires both `LLM_GRAPH_BUILDER_GCS_UPLOAD_BUCKET` and `LLM_GRAPH_BUILDER_GCS_FAILED_BUCKET`.
+- Existing `DIFFBOT_API_KEY` and `GOOGLE_CLOUD_PROJECT` values remain fallback inputs for compatibility. Prefer the namespaced variables in new configurations.
 - `LLM_GRAPH_BUILDER_REF` pins the upstream source build.
 
 ## 4. Setup Wizard
@@ -42,6 +45,8 @@ LiteLLM is exposed to Graph Builder as an OpenAI-compatible model named `atlas_l
 Graph extraction works best with a model that handles structured extraction reliably. Tiny local models may boot but produce poor or invalid graphs; use `LLM_GRAPH_BUILDER_LLM_MODEL` to pick a capable LiteLLM alias for serious extraction.
 
 MinIO and Docling are integration points rather than hard dependencies in this first slice. MinIO needs endpoint-compatible S3 wiring before Atlas can claim turn-key S3 source ingestion, and Docling remains a companion extractor rather than a direct Graph Builder backend dependency.
+
+Optional Google Cloud features use the exact pinned-upstream contract. Atlas maps the namespaced settings to `GCP_LOG_METRICS_ENABLED`, `GCS_FILE_CACHE`, `PROJECT_ID`, `BUCKET_UPLOAD_FILE`, and `BUCKET_FAILED_FILE`. The configured ADC JSON is mounted read-only at `/run/secrets/atlas-llm-graph-builder-gcp.json`; when both features are off, the credential setting must be blank and a tracked empty placeholder occupies that path. Startup validation rejects ambiguous booleans, configured-but-disabled credentials, and unreadable or structurally incomplete ADC documents before Compose runs.
 
 ## 6. Sample Document-To-Graph Workflow
 1. Start Atlas with Neo4j, LiteLLM, and Graph Builder enabled, for example:
@@ -84,9 +89,7 @@ This rollback leaves existing graph data untouched by design.
 
 ## 10. Dependencies & Integrations
 
-> Auto-generated section — the **Current** subsections are derived from `services/llm-graph-builder/service.yml`'s `data_flow.calls` field (and inverse passes). Re-run `python -m bootstrapper.docs.regen llm-graph-builder` after manifest changes.
-
-### 10.1 Current — Upstream (this service calls)
+### 10.1. Current — Upstream (this service calls)
 
 | Service | Category |
 |---|---|
@@ -95,25 +98,25 @@ This rollback leaves existing graph data untouched by design.
 | litellm | llm |
 | docling | media |
 
-### 10.2 Current — Downstream (services that call this)
+### 10.2. Current — Downstream (services that call this)
 
 _No downstream consumers._
 
-### 10.3 Architecture diagram
+### 10.3. Architecture diagram
 
 ![llm-graph-builder architecture](./architecture.svg)
 
 [Open the interactive HTML diagram](./architecture.html) for a full-screen view.
 
-### 10.4 Future — Missing pair integrations
+### 10.4. Future — Missing pair integrations
 
 - Add endpoint-compatible MinIO S3 source configuration once upstream supports or Atlas patches boto endpoint overrides cleanly.
 - Add a Docling handoff workflow for already-extracted text and metadata.
 
-### 10.5 Future — Candidate new services
+### 10.5. Future — Candidate new services
 
 _No high-confidence opportunities identified._
 
-### 10.6 Future — Unused features in this service
+### 10.6. Future — Unused features in this service
 
 - Upstream token usage tracking can be revisited after Atlas has a shared token telemetry store.

@@ -109,6 +109,7 @@ runtime_sc:
         OPENAI_API_BASE_URLS: http://litellm:4000/v1
         OPENAI_API_KEYS: ${LITELLM_MASTER_KEY}
         COMFYUI_BASE_URL: ${COMFYUI_ENDPOINT:-http://comfyui:18188}
+        COMFYUI_COMPLETION_TIMEOUT_SECONDS: ${COMFYUI_COMPLETION_TIMEOUT_SECONDS:-300}
         # STT_ENDPOINT / TTS_ENDPOINT / DOCLING_ENDPOINT are owned by the
         # provider manifests (stt_provider, tts_provider, doc_processor) —
         # service_config.py reads them from THOSE runtime_sc dicts, not

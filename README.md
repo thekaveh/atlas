@@ -12,11 +12,11 @@ A self-hosted, source-configurable, multi-disciplinary engineering platform — 
 
 [![Atlas — topologically-ordered architecture diagram](./docs/diagrams/architecture.svg)](./docs/diagrams/architecture.svg)
 
-*Topologically-ordered architecture: external clients enter via Kong, the gateway routes to Apps and Agents, which call the LLM Core (LiteLLM → Ollama + cloud) and the Media + Data tiers. Hand-authored via the [`architecture-diagram` skill](https://github.com/anthropics/claude-code/tree/main/skills/architecture-diagram); the per-service diagrams under `services/<name>/architecture.svg` share the same design system but are auto-regenerated from each manifest's `data_flow.calls`.*
+*Topologically ordered architecture: external clients enter through Kong, which routes to Apps and Agents; those services call the LLM Core (LiteLLM to Ollama and cloud providers) and the Media and Data tiers. Per-service diagrams under `services/<name>/architecture.svg` derive their relationships from each manifest's `data_flow.calls`.*
 
 ## 1. Quick Start
 
-### 1.1 First-time setup
+### 1.1. First-time setup
 
 ```bash
 # 1. Clone the repository
@@ -30,8 +30,8 @@ git clone https://github.com/thekaveh/atlas && cd atlas
 # Open WebUI (Chat):     http://localhost:63096
 # n8n (Workflows):       http://localhost:63075
 # Supabase Studio:       http://localhost:63019
-# SearxNG (Search):      http://localhost:63055
-# ComfyUI:               http://localhost:63053
+# SearxNG (Search):      http://localhost:63056
+# ComfyUI:               http://localhost:63054
 # JupyterHub (IDE):      http://localhost:63094
 # MinIO Console:         http://localhost:63021
 #
@@ -50,7 +50,7 @@ git clone https://github.com/thekaveh/atlas && cd atlas
 
 The default configuration runs a CPU starter stack: chat UI, workflow automation, vector database, and privacy search. Additional services such as Ray, Airflow, Spark, Zeppelin, LightRAG, and observability are opt-in through tracks, CLI flags, or the wizard.
 
-### 1.2 Common option combinations
+### 1.2. Common option combinations
 
 ```bash
 # Local AI services (faster, less memory)
@@ -90,16 +90,16 @@ The default configuration runs a CPU starter stack: chat UI, workflow automation
 ./start.sh --prometheus-source container --grafana-source container --prometheus-retention-days 30
 ```
 
-### 1.3 Troubleshooting tips
+### 1.3. Troubleshooting tips
 
-- **Don't prefix with `sudo`.** The wizard runs as your user; only `--setup-hosts` needs root, and it handles that internally. Running the whole script under sudo creates root-owned files that block future non-sudo runs. See [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) for recovery.
+- **Don't prefix with `sudo`.** The launcher and stopper run as your user; `--setup-hosts` and `--clean-hosts` request elevation internally for only the hosts-file mutation. Running the whole script under sudo creates root-owned files that block future non-sudo runs. See [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) for recovery.
 - **Port conflicts?** → `./start.sh --base-port 64000`
 - **Out of memory?** → Increase Docker memory to 10GB+
 - **Can't access *.localhost?** → Run `./start.sh --setup-hosts`
 - **Want fresh start?** → `./stop.sh --cold && ./start.sh --cold`
 - **Other startup errors?** → See [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)
 
-### 1.4 Interactive setup wizard
+### 1.4. Interactive setup wizard
 
 Running `./start.sh` with no arguments launches an interactive setup wizard that walks through configuring every service step by step:
 
@@ -116,7 +116,7 @@ The wizard covers all configurable services, base port selection, cold start opt
 
 > For users who prefer CLI flags, all options remain available. See [Command Line Interface](#51-command-line-interface) or the [Interactive Setup Wizard Guide](docs/quick-start/interactive-setup-wizard.md).
 
-### 1.5 Quickstart by track
+### 1.5. Quickstart by track
 
 For RAG-focused work:
 
@@ -136,7 +136,7 @@ Omit `--track` entirely to get the full interactive wizard (with the
 track picker as step 1). Pass `--track all` to skip the picker and
 prompt for every configurable service.
 
-### 1.6 Table of contents
+### 1.6. Table of contents
 
 - [Quick Start](#1-quick-start)
 - [Overview](#2-overview)
@@ -150,7 +150,7 @@ prompt for every configurable service.
 
 ## 2. Overview
 
-### 2.1 What is Atlas?
+### 2.1. What is Atlas?
 
 Atlas is a self-hosted engineering platform — designed for the breadth of modern generative AI, ML, and data work. It bundles 30+ integrated services (LLM gateway + inference, vector + graph DBs, workflow + DAG automation, distributed compute, object storage, notebooks, observability) wired together via a Kong gateway and an adaptive FastAPI backend. Each service is independently switchable between `container`, `localhost`, or `disabled` (the LLM provider adds a cloud-API path via LiteLLM); the **tracks system** picks sensible defaults for the work you're doing:
 
@@ -172,7 +172,7 @@ Key technical traits:
 - **Always-on core**: Supabase ecosystem, Redis, LiteLLM gateway (fronts Ollama + cloud LLM providers), FastAPI backend, Kong Gateway
 - **Opt-in**: Ray, OpenClaw, Airflow, Spark, Zeppelin, LightRAG, TEI Reranker, the observability bundle (Prometheus + Grafana), the Cloudflare Tunnel public edge (`cloudflared`), and the on-demand backup runner (`backup`) ship disabled; everything is switchable per service via SOURCE flags or the interactive wizard
 
-### 2.2 Key features
+### 2.2. Key features
 
 - **API gateway (Kong)**: centralized API management with dynamic routing
 - **Real-time data sync**: live database notifications via Supabase Realtime
@@ -181,15 +181,15 @@ Key technical traits:
 - **Environment-based config**: configuration through environment variables
 - **Cross-platform Python core**: the bootstrapper is OS-aware; Linux and macOS run natively, Windows runs under WSL2 / Git Bash
 
-### 2.3 Architecture overview
+### 2.3. Architecture overview
 
-The canonical architecture diagram is embedded at the top of this README; the source lives at [`docs/diagrams/architecture.svg`](docs/diagrams/architecture.svg) — hand-authored via the [`architecture-diagram` skill](https://github.com/anthropics/claude-code/tree/main/skills/architecture-diagram) (cyan / emerald / violet / amber / rose / orange palette, JetBrains Mono, layered topological flow). See [`docs/diagrams/README.md`](docs/diagrams/README.md) for update instructions.
+The canonical architecture diagram is embedded at the top of this README; its source lives at [`docs/diagrams/architecture.svg`](docs/diagrams/architecture.svg). See [`docs/diagrams/README.md`](docs/diagrams/README.md) for update instructions.
 
 The diagram summarizes the full Atlas topology around Kong, Open WebUI, the always-on Backend API, the always-on LiteLLM gateway (fronting Ollama and any enabled cloud LLM providers), Supabase/PostgreSQL, Redis, Neo4j, Weaviate, n8n, ComfyUI, JupyterHub, SearxNG, Ray, and optional Hermes Agent / OpenClaw / STT/TTS/document-processing / LightRAG + TEI Reranker / Airflow + Spark + Zeppelin / Prometheus + Grafana services. Per-service diagrams (auto-regenerated from each manifest's `data_flow.calls`) live next to each service folder at `services/<name>/architecture.{svg,html}`.
 
 ## 3. Getting Started
 
-### 3.1 Getting started summary
+### 3.1. Getting started summary
 
 - **New to the stack?** → Use containers with `./start.sh` for the easiest experience
 - **Have local Ollama?** → Use `./start.sh --llm-provider-source ollama-localhost` for better performance (LiteLLM still fronts the upstream)
@@ -199,7 +199,7 @@ The diagram summarizes the full Atlas topology around Kong, Open WebUI, the alwa
 
 The SOURCE-based configuration system controls how each service is deployed.
 
-### 3.2 Prerequisites
+### 3.2. Prerequisites
 
 - **Docker & Docker Compose** — container orchestration
 - **Python 3.10+** — for start/stop scripts
@@ -211,16 +211,16 @@ The SOURCE-based configuration system controls how each service is deployed.
 pip install uv
 ```
 
-### 3.3 Installation
+### 3.3. Installation
 
-#### 3.3.1 Quick install (recommended)
+#### 3.3.1. Quick install (recommended)
 ```bash
 git clone https://github.com/thekaveh/atlas.git
 cd atlas
 ./start.sh
 ```
 
-#### 3.3.2 Custom configuration
+#### 3.3.2. Custom configuration
 ```bash
 # Edit configuration before starting
 cp .env.example .env
@@ -228,7 +228,7 @@ cp .env.example .env
 ./start.sh
 ```
 
-### 3.4 SOURCE system
+### 3.4. SOURCE system
 
 The stack uses **SOURCE variables** to control how services are deployed.
 
@@ -253,12 +253,10 @@ The stack uses **SOURCE variables** to control how services are deployed.
 - **JupyterHub** (`JUPYTERHUB_SOURCE=container|disabled`) — data science IDE
 
 **Observability bundle (opt-in, disabled by default):**
-- **Prometheus** (`PROMETHEUS_SOURCE=container|disabled`) — metrics scraper + TSDB bundled with `node-exporter` and `cAdvisor`. When enabled, 13 scrape jobs cover Kong, LiteLLM, Weaviate, n8n (web + worker), MinIO, Backend, Postgres (via `postgres-exporter` sidecar in the Supabase family), and Redis (via `redis-exporter` sidecar in the Redis family), plus four self / infrastructure targets (prometheus, grafana, node-exporter, cAdvisor). JupyterHub and Hermes are deferred — see `services/prometheus/README.md` §4. Retention is user-configurable via `--prometheus-retention-days` (default 7).
+- **Prometheus** (`PROMETHEUS_SOURCE=container|disabled`) — metrics scraper + TSDB bundled with `node-exporter` and `cAdvisor`. When enabled, 15 scrape jobs cover Kong, LiteLLM, Weaviate, n8n (web + worker), MinIO, Backend, Asset Worker, Asset Baker, Postgres (via `postgres-exporter` sidecar in the Supabase family), and Redis (via `redis-exporter` sidecar in the Redis family), plus four self / infrastructure targets (Prometheus, Grafana, node-exporter, cAdvisor). JupyterHub and Hermes are deferred — see `services/prometheus/README.md` §4. Retention is user-configurable via `--prometheus-retention-days` (default 7).
 - **Grafana** (`GRAFANA_SOURCE=container|disabled`) — dashboards + unified alerting UI on top of Prometheus. Pre-provisions the Prometheus datasource and 7 starter dashboards (stack overview, LiteLLM, Kong, Postgres+Redis, Containers+Host, n8n, app-tier). Admin login is auto-generated on first bootstrap (`GRAFANA_ADMIN_USERNAME` / `GRAFANA_ADMIN_PASSWORD` in `.env`).
 
 <!-- TOPOLOGY:BEGIN -->
-_Auto-generated by `bootstrapper/tools/generate_readme_topology.py`._
-
 _Engine-only manifests (speaches, chatterbox) are not listed — they're selected as source variants of their parent (STT Provider / TTS Provider) rather than as standalone services._
 
 | Category | Service | Default port | Alias |
@@ -323,12 +321,12 @@ _Engine-only manifests (speaches, chatterbox) are not listed — they're selecte
 | Apps & UIs | Open WebUI | 63096 | chat.localhost |
 | Apps & UIs | Local Deep Researcher | 63097 | research.localhost |
 | Apps & UIs | Verba | 63098 | verba.localhost |
-| Apps & UIs | Apache Zeppelin | 63099 | zeppelin.localhost |
+| Apps & UIs | Apache Zeppelin | 63099 | — |
 <!-- TOPOLOGY:END -->
 
 ## 4. Core Services
 
-### 4.1 Service overview
+### 4.1. Service overview
 
 | Service | Direct URL | Kong URL | Purpose | Auth required |
 |---------|------------|----------|---------|---------------|
@@ -336,15 +334,15 @@ _Engine-only manifests (speaches, chatterbox) are not listed — they're selecte
 | **Open WebUI** | http://localhost:63096 | http://chat.localhost:63000 | AI chat interface | Create account |
 | **n8n** | http://localhost:63075 | http://n8n.localhost:63000 | Workflow automation | Owner setup on first visit |
 | **Supabase Studio** | http://localhost:63019 | http://supabase-studio.localhost:63000 | Database management | Kong route: `kong_admin` / `DASHBOARD_PASSWORD` from `.env` (direct port is ungated) |
-| **ComfyUI** | http://localhost:63053 | http://comfyui.localhost:63000 | Image generation | None |
-| **SearxNG** | http://localhost:63055 | http://search.localhost:63000 | Privacy search | None |
+| **ComfyUI** | http://localhost:63054 | http://comfyui.localhost:63000 | Image generation | None |
+| **SearxNG** | http://localhost:63056 | http://search.localhost:63000 | Privacy search | None |
 | **JupyterHub** | http://localhost:63094 | http://jupyter.localhost:63000 | Data science IDE — ships Python + Scala 2.13 + Scala 3 kernels; configured for VS Code remote-Jupyter (see [services/jupyterhub/README.md](services/jupyterhub/README.md) §10). | Token (optional; auto-generated if `JUPYTERHUB_TOKEN` is empty — grep from `docker logs ${PROJECT_NAME}-jupyterhub`) |
 | **Neo4j Browser** | http://localhost:63024 | http://graph.localhost:63000 | Graph database | `neo4j` / `GRAPH_DB_PASSWORD` from `.env` |
 | **Backend API** | http://localhost:63093 | http://api.localhost:63000 | REST API | None by default (local/dev surface; add gateway auth before exposing beyond a trusted host) |
 | **LiteLLM Gateway** | http://localhost:63040 | http://litellm.localhost:63000 | OpenAI-compatible LLM front door (Ollama + cloud). The same alias 302-redirects `/` → `/ui/` (admin dashboard). | API: `LITELLM_MASTER_KEY` (Bearer). Dashboard: `admin` / `${LITELLM_MASTER_KEY}` |
-| **Audio (TTS + STT)** | TTS: http://localhost:63057, STT: http://localhost:63054 | http://tts.localhost:63000, http://stt.localhost:63000 | Default install: Speaches serves both `/v1/audio/speech` (Kokoro/Piper) and `/v1/audio/transcriptions` (Faster-Whisper). Engine-specific overrides — Chatterbox on `:63058`, Speaches on `:63059`, host-side variants resolved via `*_LOCALHOST_PORT`. See [services/tts-provider/README.md](services/tts-provider/README.md) and [services/stt-provider/README.md](services/stt-provider/README.md). | None |
+| **Audio (TTS + STT)** | Default Speaches: http://localhost:63060 | http://tts.localhost:63000, http://stt.localhost:63000 | Speaches serves both `/v1/audio/speech` (Kokoro/Piper) and `/v1/audio/transcriptions` (Faster-Whisper). Alternative container engines use Parakeet STT on `:63055` or Chatterbox TTS on `:63059`; `TTS_PROVIDER_PORT=63058` is a display slot, not a bound engine port. Host variants resolve through `*_LOCALHOST_PORT`. See [services/tts-provider/README.md](services/tts-provider/README.md) and [services/stt-provider/README.md](services/stt-provider/README.md). | None |
 | **Docling Processor** | http://localhost:63051 | http://docling.localhost:63000 | Document processing | None |
-| **Apache Tika** | http://localhost:63056 | http://tika.localhost:63000 | Long-tail fallback text extraction for formats Docling should not own | Kong route: `kong_admin` / `DASHBOARD_PASSWORD` from `.env` (direct port is ungated) |
+| **Apache Tika** | http://localhost:63057 | http://tika.localhost:63000 | Long-tail fallback text extraction for formats Docling should not own | Kong route: `kong_admin` / `DASHBOARD_PASSWORD` from `.env` (direct port is ungated) |
 | **OpenClaw Agent** | http://localhost:63076 | http://openclaw.localhost:63000 | AI agent (messaging) | Token (optional) |
 | **Hermes Agent** | http://localhost:63072 (API), http://localhost:63073 (dashboard) | http://hermes.localhost:63000 | Programmable AI agent runtime (Nous Research) | `HERMES_API_KEY` (Bearer) |
 | **MinIO Console** | http://localhost:63021 | http://minio.localhost:63000 | S3-compatible object storage admin UI (gated on `MINIO_SOURCE != disabled`). S3 API at `:63020` is NOT aliased — S3 clients use the direct port. | `minioadmin` / `MINIO_ROOT_PASSWORD` |
@@ -352,21 +350,21 @@ _Engine-only manifests (speaches, chatterbox) are not listed — they're selecte
 | **Apache Spark** | http://localhost:63027 | http://spark.localhost:63000 | Standalone Spark cluster for batch / SQL / DataFrame work. Spark Connect on `:15002`. Disabled by default; opt-in via `--spark-source container --spark-workers N`. | None |
 | **Trino** | http://localhost:63029 | http://trino.localhost:63000 | SQL query engine over the Iceberg REST + MinIO lakehouse catalog. Disabled by default; opt-in via `--trino-source container --iceberg-rest-source container --minio-source container`. | Kong route: `kong_admin` / `DASHBOARD_PASSWORD` from `.env` (direct port is ungated) |
 | **Redpanda Console** | http://localhost:63011 | http://redpanda.localhost:63000 | Kafka-compatible streaming broker console. Kafka clients use `redpanda:9092` in-network or `localhost:63010` from the host. Disabled by default; opt-in via `--redpanda-source container`. | Kong route: `kong_admin` / `DASHBOARD_PASSWORD` from `.env` (direct port is ungated) |
-| **Apache Zeppelin** | http://localhost:63099 | http://zeppelin.localhost:63000 | Spark-first notebook UI. Spark interpreter pre-configured for the in-stack standalone Spark master plus MinIO S3A and Iceberg REST; JDBC interpreter ships with credentials in env vars but needs a one-time UI-driven `postgres` profile setup. Requires Spark (gated). Disabled by default. | None |
+| **Apache Zeppelin** | http://127.0.0.1:63099 | — | Spark-first notebook UI. Spark interpreter pre-configured for the in-stack standalone Spark master plus MinIO S3A and Iceberg REST; JDBC interpreter ships with credentials in env vars but needs a one-time UI-driven `postgres` profile setup. Requires Spark (gated). Disabled by default. | None |
 | **Apache Airflow** | http://localhost:63070 | http://airflow.localhost:63000 | Code-defined DAG orchestrator. LocalExecutor + AI/ML SDK with LiteLLM-wired LLM operators. Disabled by default. | `admin` / auto-generated `AIRFLOW_ADMIN_PASSWORD` |
-| **Prometheus** | http://localhost:63006 | http://prometheus.localhost:63000 | Metrics scraper + TSDB. Disabled by default; opt-in via `--prometheus-source container`. Bundled with `node-exporter` and `cAdvisor`. 13 scrape jobs cover the application + infra tiers — see [services/prometheus/README.md](services/prometheus/README.md). | None |
+| **Prometheus** | http://localhost:63006 | http://prometheus.localhost:63000 | Metrics scraper + TSDB. Disabled by default; opt-in via `--prometheus-source container`. Bundled with `node-exporter` and `cAdvisor`. 15 scrape jobs cover the application + infra tiers — see [services/prometheus/README.md](services/prometheus/README.md). | None |
 | **Grafana** | http://localhost:63009 | http://grafana.localhost:63000 | Observability dashboards + unified alerting on top of Prometheus. Disabled by default; opt-in via `--grafana-source container`. 7 starter dashboards ship pre-provisioned. | `admin` / auto-generated `GRAFANA_ADMIN_PASSWORD` (first-run) |
 | **LightRAG** | `http://lightrag.localhost:${KONG_HTTP_PORT}` (WebUI), `http://localhost:${LIGHTRAG_API_PORT}/webui` | http://lightrag.localhost:63000 | Graph-augmented RAG server. KG + vector + multimodal ingestion. Disabled by default. | None |
 | **TEI Reranker** | `http://localhost:${TEI_RERANKER_PORT}/rerank` (API only) | http://rerank.localhost:63000 | Cross-encoder reranker (default `mixedbread-ai/mxbai-rerank-base-v1`) for RAG quality lift. Disabled by default. | None |
 
-### 4.2 Database layer
+### 4.2. Database layer
 - **PostgreSQL (Supabase)** — primary database with auth, storage, realtime
 - **Neo4j** — graph database for relationships and graph queries
 - **Weaviate** — vector database for embeddings and semantic search
 - **MinIO** — S3-compatible artifact-tier object storage (ComfyUI outputs, Backend blobs, n8n files, JupyterHub datasets, Doc Processor output). Complements Supabase Storage rather than replacing it.
 - **Redis** — cache and message queue
 
-### 4.3 AI services
+### 4.3. AI services
 - **LiteLLM Gateway** — always-on OpenAI-compatible front door for every LLM provider in the stack (one URL, one key)
 - **Ollama** — local LLM inference engine behind LiteLLM (supports CPU/GPU/localhost/none)
 - **ComfyUI** — image generation with workflows
@@ -383,7 +381,7 @@ _Engine-only manifests (speaches, chatterbox) are not listed — they're selecte
 
 ## 5. Usage Guide
 
-### 5.1 Command line interface
+### 5.1. Command line interface
 
 ```bash
 # Interactive wizard (recommended for first-time setup)
@@ -393,7 +391,7 @@ _Engine-only manifests (speaches, chatterbox) are not listed — they're selecte
 ./start.sh --llm-provider-source ollama-localhost  # Any configuration flag skips the wizard
 ./start.sh --help            # Show all options
 ./stop.sh                    # Stop services, keep data
-./stop.sh --cold             # Stop and remove all data (also runs a global docker system prune)
+./stop.sh --cold             # Stop this Atlas project and remove its data volumes
 
 # Port and network
 ./start.sh --base-port 64000  # Custom port range
@@ -444,22 +442,21 @@ _Engine-only manifests (speaches, chatterbox) are not listed — they're selecte
 
 `*_USER_MODELS` env vars persist across runs, so you only need to pass the model flags once unless you want to change the active set. Cloud-provider key/source flags also imply `--cloud-X-source enabled` when paired with `--X-api-key`.
 
-#### 5.1.1 Stop script options
+#### 5.1.1. Stop script options
 
 ```bash
 # Basic stop commands
 ./stop.sh                    # Stop services, keep data
-./stop.sh --cold             # Stop and remove all data (destructive; includes a global `docker system prune -f --volumes` that ALSO touches unused images/volumes belonging to OTHER docker projects on this host)
+./stop.sh --cold             # Stop and remove this Atlas project's containers, orphans, and data volumes
 ./stop.sh --clean-hosts      # Remove *.localhost entries from hosts file
 ./stop.sh --help             # Show all options
 
-# The --cold option removes all Docker volumes (data loss). The `docker
-# system prune -f --volumes` step is host-wide — any unrelated Docker
-# project's dangling volumes / images on the same machine are pruned too.
-# Use with caution — all database data will be permanently deleted.
+# The --cold option removes this Atlas Compose project's named volumes.
+# It does not prune images, networks, containers, or volumes owned by other
+# Docker projects. Atlas database and application data is permanently deleted.
 ```
 
-### 5.2 Service access patterns
+### 5.2. Service access patterns
 
 **Direct access:**
 - Most services accessible directly via `http://localhost:PORT`
@@ -472,15 +469,15 @@ _Engine-only manifests (speaches, chatterbox) are not listed — they're selecte
 
 ## 6. Advanced Configuration
 
-### 6.1 Custom deployments
+### 6.1. Custom deployments
 
 See [docs/deployment/source-configuration.md](docs/deployment/source-configuration.md) for detailed SOURCE configuration guides.
 
-### 6.2 GPU setup
+### 6.2. GPU setup
 
 For NVIDIA GPU acceleration, set the relevant SOURCE variables to a `*-container-gpu` variant (e.g., `LLM_PROVIDER_SOURCE=ollama-container-gpu`, `COMFYUI_SOURCE=container-gpu`, `STT_PROVIDER_SOURCE=speaches-container-gpu` or `parakeet-container-gpu`, `TTS_PROVIDER_SOURCE=speaches-container-gpu` or `chatterbox-container-gpu`). See [docs/deployment/source-configuration.md](docs/deployment/source-configuration.md) for the full list of GPU variants per service.
 
-### 6.3 Using as infrastructure foundation
+### 6.3. Using as infrastructure foundation
 
 Atlas is designed to back other projects (e.g. a RAG-showcase app) as shared infrastructure. The two ready-today paths are **standalone + shared network** (your project is a separate repo that joins `${PROJECT_NAME}-network`) and **Git submodule** (vendor Atlas into your repo). For the full decision guide — which method, what's ready, how to wire and customize it — see **[Reusing Atlas as Infrastructure](docs/deployment/reusing-atlas.md)**.
 
@@ -522,7 +519,7 @@ See [docs/deployment/submodule-usage.md](docs/deployment/submodule-usage.md) for
 
 ## 7. Development
 
-### 7.1 Project structure
+### 7.1. Project structure
 ```
 atlas/
 ├── bootstrapper/              # Python startup, SOURCE parsing, port/Kong generation, wizard
@@ -531,7 +528,7 @@ atlas/
 │   ├── tests/                 # 1,300+ tests (loader, validator, byte-equiv, source-permutation, hooks)
 │   ├── tools/                 # validate_fragments CLI lint
 │   └── start.py / stop.py     # Entry points
-├── services/                  # 53 service.yml manifests + 3 doc-only folders (representative subset shown below; see services/ for the full list)
+├── services/                  # 56 service.yml manifests + 3 doc-only folders (representative subset shown below; see services/ for the full list)
 │   ├── globals/               # Project-wide vars (PROJECT_NAME, BASE_PORT, BRAND_*, tier ordering)
 │   ├── supabase/              # supabase-db, db-init, meta, storage, auth, api, realtime, studio
 │   │   ├── service.yml        # Manifest: env vars, source variants, deps, runtime_sc slice
@@ -587,13 +584,13 @@ atlas/
 
 Top-level is intentionally minimal: `bootstrapper/`, `docs/`, `scripts/`, `services/`. Every service lives entirely under its `services/<name>/` folder — init scripts, source code, build context, config files — so opening a service folder shows everything that defines it.
 
-### 7.2 Adding services
+### 7.2. Adding services
 
 New services are declared by creating `services/<name>/{service.yml, compose.yml}` and adding the fragment to the `include:` list in `docker-compose.yml`. The manifest's `runtime_sc:` block declares per-source scale/environment/deploy/extra_hosts; `bootstrapper/services/sc_synthesizer.py` concatenates these slices into the dict that the bootstrapper consumes at startup. See [docs/CONTRIBUTING-services.md](docs/CONTRIBUTING-services.md) for the full walkthrough.
 
 ## 8. Troubleshooting
 
-### 8.1 Common issues
+### 8.1. Common issues
 
 **Port conflicts:**
 ```bash
@@ -614,7 +611,7 @@ docker logs ${PROJECT_NAME}-litellm -f   # Check LLM gateway logs
 docker logs ${PROJECT_NAME}-ollama -f    # Check Ollama upstream logs (if enabled)
 ```
 
-### 8.2 Detailed troubleshooting
+### 8.2. Detailed troubleshooting
 
 For longer-form troubleshooting guides, see [docs/quick-start/troubleshooting.md](docs/quick-start/troubleshooting.md).
 
@@ -623,26 +620,26 @@ For longer-form troubleshooting guides, see [docs/quick-start/troubleshooting.md
 The [documentation index](docs/README.md) is the top-level navigation hub.
 Key entry points by audience:
 
-### 9.1 First-time users
+### 9.1. First-time users
 - [Interactive setup wizard](docs/quick-start/interactive-setup-wizard.md) — step-by-step guided configuration on first `./start.sh`
 - [Quick Start guides](docs/quick-start/) — installation and first-run
 - [Troubleshooting](docs/quick-start/troubleshooting.md) — common issues and known-benign warnings
 - [Expected startup warnings](docs/deployment/expected-startup-warnings.md) — log lines that look scary but aren't
 
-### 9.2 Operators
+### 9.2. Operators
 - [SOURCE configuration](docs/deployment/source-configuration.md) — every service's container / localhost / disabled modes (and GPU variants for the LLM/embedding engines)
 - [Ports and routes](docs/deployment/ports-and-routes.md) — canonical port offsets, direct URLs, and Kong routes
 - [Reusing Atlas as infrastructure](docs/deployment/reusing-atlas.md) — overview + decision guide for backing another project with Atlas
 - [Using as a submodule](docs/deployment/submodule-usage.md) — deep-dive for the Git-submodule reuse method
 - [Service documentation](services/) — per-service READMEs (each owns its manifest, compose fragment, and architecture diagram)
 
-### 9.3 Contributors
+### 9.3. Contributors
 - [CONTRIBUTING-services.md](docs/CONTRIBUTING-services.md) — adding a new service to the stack (manifest schema, compose fragment, docs regen)
 - [SECURITY.md](SECURITY.md) — threat model, supported versions, responsible-disclosure address
 - [Cross-service integration matrix](docs/research/integration-matrix.md) — Phase B research index linking every service to its candidate integrations
 - [Research rows](docs/research/rows/) and [candidates](docs/research/candidates/) — per-service / per-candidate integration design notes
 
-### 9.4 Release history
+### 9.4. Release history
 - [ROADMAP.md](docs/ROADMAP.md) — future development plans and tier-status of every service
 - [CHANGELOG.md](docs/CHANGELOG.md) — release history and the `[Unreleased]` known-follow-ups block
 - [Releasing & version tags](docs/deployment/releasing.md) — semver tag convention for pinning a vendored Atlas

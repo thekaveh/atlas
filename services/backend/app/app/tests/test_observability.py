@@ -18,14 +18,17 @@ def test_configure_otel_is_noop_when_disabled(monkeypatch):
     assert not hasattr(app.state, "otel_configured")
 
 
-def test_configure_otel_is_noop_when_endpoint_missing(monkeypatch):
+def test_configure_otel_rejects_enabled_tracing_without_endpoint(monkeypatch):
     monkeypatch.setenv("ATLAS_OTEL_ENABLED", "true")
     monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
 
     from observability import configure_otel
 
     app = FastAPI()
-    assert configure_otel(app) is False
+    import pytest
+
+    with pytest.raises(RuntimeError, match="OTEL_EXPORTER_OTLP_ENDPOINT"):
+        configure_otel(app)
 
 
 def test_configure_otel_marks_app_when_dependencies_available(monkeypatch):

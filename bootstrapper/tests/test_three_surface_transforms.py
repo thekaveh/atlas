@@ -62,6 +62,39 @@ and [Docker](https://docs.docker.com/).
     assert "[Docker](https://docs.docker.com/)" in rendered
 
 
+def test_rewrite_maps_manifest_owned_atlas_blob_links(tmp_path: Path) -> None:
+    manifest = _manifest(tmp_path)
+    markdown = (
+        "[setup](https://github.com/thekaveh/atlas/blob/feature/docs/"
+        "docs/guides/setup.md#configuration)\n"
+    )
+
+    rendered = rewrite_for_surface(
+        markdown,
+        surface="site",
+        source_path="docs/index.md",
+        output_path="index.md",
+        source_map=build_source_map(manifest, "site"),
+    )
+
+    assert rendered == "[setup](guides/setup.md#configuration)\n"
+
+
+def test_rewrite_strips_unknown_atlas_blob_links(tmp_path: Path) -> None:
+    manifest = _manifest(tmp_path)
+    markdown = "[source](https://github.com/thekaveh/atlas/blob/main/private.md)\n"
+
+    rendered = rewrite_for_surface(
+        markdown,
+        surface="wiki",
+        source_path="docs/index.md",
+        output_path="Home.md",
+        source_map=build_source_map(manifest, "wiki"),
+    )
+
+    assert rendered == "source\n"
+
+
 def test_rewrite_maps_html_anchors_to_numbered_wiki_pages() -> None:
     markdown = """<a href="quick-start/">Quick Start</a>
 <a href="services/">Service Catalog</a>

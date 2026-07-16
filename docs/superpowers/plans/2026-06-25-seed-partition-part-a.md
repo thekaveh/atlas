@@ -8,7 +8,7 @@
 
 **Tech Stack:** PostgreSQL (`supabase/postgres:17.4.1.016`), `psql`/`pg_dump`/`pg_isready` (run via `docker exec`), Python 3.10+, pytest (`uv run pytest`), the Docker CLI (already a CI dependency; no new Python packages).
 
-## Global Constraints
+## 1. Global Constraints
 
 - **Behavior-preserving:** the partitioned scripts MUST produce a `pg_dump --schema-only` (and a seed-row snapshot) byte-identical to the current scripts. This is the hard gate.
 - **Execution order preserved:** scripts run in alphabetical order; core scaffolding (`01`–`07`) runs before app slices (`10`–`14`); within a slice, table → migrations → trigger → seed.
@@ -21,7 +21,7 @@
 
 ---
 
-## File Structure
+## 2. File Structure
 
 **Create:**
 - `bootstrapper/tests/seed_harness.py` — Docker Postgres helper: boot image, apply a scripts dir in sorted order, return normalized `pg_dump` + seed-row snapshot; `__main__` regenerates golden fixtures.
@@ -44,7 +44,7 @@
 
 ---
 
-## Task 1: Dockerized characterization harness + golden snapshot
+## 3. Task 1: Dockerized characterization harness + golden snapshot
 
 Locks current behavior before any change. The harness runs the current scripts, captures a normalized schema dump + seed rows, commits them as goldens, and asserts the live run matches. Also proves the current set runs in sorted order and is idempotent.
 
@@ -257,7 +257,7 @@ git commit -m "test(supabase): characterization harness + golden for seed script
 
 ---
 
-## Task 2: Static layout lints (failing-first)
+## 4. Task 2: Static layout lints (failing-first)
 
 Encode the target per-service layout as static checks. They FAIL on the current mixed files (proving they detect the problem) and become the definition of "done" for Task 3.
 
@@ -379,7 +379,7 @@ git commit -m "test(supabase): failing layout lints for per-service seed partiti
 
 ---
 
-## Task 3: Perform the partition
+## 5. Task 3: Perform the partition
 
 Split the mixed files into per-service slices. After this task, Task 2's lints pass and Task 1's golden/order/idempotency tests stay green.
 
@@ -763,7 +763,7 @@ ordering preserved (users before research/memory; trigger fn in 07)."
 
 ---
 
-## Task 4: Docs + drift + full suite
+## 6. Task 4: Docs + drift + full suite
 
 **Files:**
 - Modify: `services/supabase/README.md` (if it enumerates the scripts)
@@ -806,7 +806,7 @@ git commit -m "docs(supabase): refresh script-list references after seed partiti
 
 ---
 
-## Self-Review
+## 7. Self-Review
 
 **Spec coverage (Part A sections):**
 - §5.1 layout (two tiers, per-service slices) → Task 3 (`10`–`14`) + Task 2 lints.

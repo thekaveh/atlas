@@ -5,6 +5,8 @@ import os
 import sys
 from uuid import uuid4
 
+import pytest
+
 
 def _stub_required_env(monkeypatch):
     for var, default in (
@@ -217,14 +219,31 @@ def test_memory_consolidate_task_calls_memory_service(monkeypatch):
     seen = {}
 
     class FakeMemoryService:
-        async def consolidate(self, *, user_id):
+        async def consolidate(self, *, user_id, retry_transient):
             seen["user_id"] = user_id
+            seen["retry_transient"] = retry_transient
             return result
 
     monkeypatch.setattr(celery_tasks, "MemoryService", FakeMemoryService)
 
     assert celery_tasks.run_memory_consolidate(None) == result
     assert seen["user_id"] is None
+    assert seen["retry_transient"] is True
+
+
+def test_memory_consolidate_worker_propagates_transient_llm_failure(monkeypatch):
+    _stub_required_env(monkeypatch)
+    import celery_tasks
+
+    class FakeMemoryService:
+        async def consolidate(self, *, user_id, retry_transient):
+            assert retry_transient is True
+            raise TimeoutError("temporary LiteLLM timeout")
+
+    monkeypatch.setattr(celery_tasks, "MemoryService", FakeMemoryService)
+
+    with pytest.raises(TimeoutError, match="temporary LiteLLM timeout"):
+        celery_tasks.run_memory_consolidate("user-1")
 
 
 def test_job_status_redacts_failure_tracebacks(monkeypatch):
@@ -252,3 +271,138 @@ def test_job_status_redacts_failure_tracebacks(monkeypatch):
     assert status["status"] == "failure"
     assert status["error"] == "database password leaked"
     assert status["traceback"] is None
+
+
+@pytest.mark.parametrize(
+    "name,value",
+    (
+        ("CELERY_WORKER_CONCURRENCY", "bad"),
+        ("CELERY_WORKER_PREFETCH_MULTIPLIER", "0"),
+        ("CELERY_TASK_SOFT_TIME_LIMIT_SECONDS", "-1"),
+        ("CELERY_TASK_TIME_LIMIT_SECONDS", "0"),
+        ("CELERY_BROKER_VISIBILITY_TIMEOUT_SECONDS", "-1"),
+    ),
+)
+def test_celery_worker_limits_reject_malformed_or_nonpositive_values(
+    monkeypatch, name, value
+):
+    import celery_app
+
+    monkeypatch.setenv(name, value)
+    with pytest.raises(ValueError, match=name):
+        celery_app._load_worker_limits()
+
+
+@pytest.mark.parametrize(
+    "soft,hard,visibility",
+    ((900, 900, 3600), (901, 900, 3600), (840, 900, 900), (840, 900, 899)),
+)
+def test_celery_worker_limits_enforce_deadline_order(
+    monkeypatch, soft, hard, visibility
+):
+    import celery_app
+
+    monkeypatch.setenv("CELERY_TASK_SOFT_TIME_LIMIT_SECONDS", str(soft))
+    monkeypatch.setenv("CELERY_TASK_TIME_LIMIT_SECONDS", str(hard))
+    monkeypatch.setenv(
+        "CELERY_BROKER_VISIBILITY_TIMEOUT_SECONDS", str(visibility)
+    )
+    with pytest.raises(ValueError):
+        celery_app._load_worker_limits()
+
+
+def test_rag_lease_contention_retries_are_unbounded_but_transients_are_bounded():
+    import celery_tasks
+
+    assert celery_tasks.rag_ingestion_task.max_retries is None
+    assert celery_tasks.memory_consolidate_task.max_retries == 3
+
+
+@pytest.mark.parametrize("transient_attempt", (0, 2))
+def test_rag_transient_retry_budget_is_independent_of_celery_retry_count(
+    monkeypatch, transient_attempt
+):
+    import celery_tasks
+    import rag_ingestion
+
+    class RetryScheduled(RuntimeError):
+        pass
+
+    captured = {}
+
+    def fail_ingestion(*_args, **_kwargs):
+        raise ConnectionError("temporary upstream outage")
+
+    def capture_retry(**kwargs):
+        captured.update(kwargs)
+        raise RetryScheduled()
+
+    monkeypatch.setattr(rag_ingestion, "run_rag_ingestion", fail_ingestion)
+    monkeypatch.setattr(celery_tasks.rag_ingestion_task, "retry", capture_retry)
+
+    with pytest.raises(RetryScheduled):
+        celery_tasks.rag_ingestion_task.run(
+            "ingestion-1", transient_attempt=transient_attempt
+        )
+
+    assert captured["kwargs"] == {
+        "ingestion_id": "ingestion-1",
+        "transient_attempt": transient_attempt + 1,
+    }
+    assert captured["args"] == ()
+
+
+def test_rag_transient_retry_budget_stops_after_three_retries(monkeypatch):
+    import celery_tasks
+    import rag_ingestion
+
+    captured = {}
+
+    def terminal_ingestion(ingestion_id, **kwargs):
+        captured.update(kwargs)
+        return {"id": ingestion_id, "status": "failed"}
+
+    monkeypatch.setattr(rag_ingestion, "run_rag_ingestion", terminal_ingestion)
+    monkeypatch.setattr(
+        celery_tasks.rag_ingestion_task,
+        "retry",
+        lambda **_kwargs: pytest.fail("retry budget must be exhausted"),
+    )
+
+    result = celery_tasks.rag_ingestion_task.run(
+        "ingestion-1", transient_attempt=3
+    )
+
+    assert result["status"] == "failed"
+    assert captured["retry_transient"] is False
+
+
+def test_rag_execution_lease_loss_is_rescheduled(monkeypatch):
+    import celery_tasks
+    import rag_ingestion
+
+    class RetryScheduled(RuntimeError):
+        pass
+
+    captured = {}
+
+    def lose_lease(*_args, **_kwargs):
+        raise rag_ingestion.IngestionExecutionLeaseLost("lease lost")
+
+    def capture_retry(**kwargs):
+        captured.update(kwargs)
+        raise RetryScheduled()
+
+    monkeypatch.setattr(rag_ingestion, "run_rag_ingestion", lose_lease)
+    monkeypatch.setattr(celery_tasks.rag_ingestion_task, "retry", capture_retry)
+
+    with pytest.raises(RetryScheduled):
+        celery_tasks.rag_ingestion_task.run(
+            "ingestion-1", transient_attempt=2
+        )
+
+    assert captured["kwargs"] == {
+        "ingestion_id": "ingestion-1",
+        "transient_attempt": 2,
+    }
+    assert captured["args"] == ()

@@ -47,6 +47,8 @@ class Page:
             return PurePosixPath("documentation-map.md")
         if self.source == "docs/architecture/README.md":
             return PurePosixPath("architecture", "diagram-authoring.md")
+        if self.source == "docs/diagrams/README.md":
+            return PurePosixPath("diagrams", "catalog.md")
         if source.parts[:1] == ("docs",):
             return PurePosixPath(*source.parts[1:])
         if len(source.parts) == 3 and source.parts[0] == "services" and source.name == "README.md":

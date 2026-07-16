@@ -54,9 +54,9 @@ bootstrapper, docs, tests, and audit scripts.
 
 ## 3. Per-service design
 
-### 3.1 Spark cluster
+### 3.1. Spark cluster
 
-#### 3.1.1 Containers
+#### 3.1.1. Containers
 
 | Container | Role | Image | Internal port(s) |
 |---|---|---|---|
@@ -69,14 +69,14 @@ ships the standalone-mode entrypoint, env-var-driven config (no
 `spark-defaults.conf` to mount), and a non-root user — matching the rest
 of the stack's pattern.
 
-#### 3.1.2 Image pin
+#### 3.1.2. Image pin
 
 `SPARK_IMAGE` defaults to `bitnami/spark:4.1.2` (latest stable as of
 2026-06-04). 4.x dropped Scala 2.12 — Spark 4 binaries are Scala
 2.13-only. Compatible with Zeppelin 0.12's Spark interpreter (which
 supports Spark 3.x + 4.x).
 
-#### 3.1.3 Ports + Kong aliases
+#### 3.1.3. Ports + Kong aliases
 
 | Env var | Default slot | Internal | Kong alias | Visibility |
 |---|---|---|---|---|
@@ -88,7 +88,7 @@ supports Spark 3.x + 4.x).
 Kong aliases use `preserve_host: True` per `reference_kong_preserve_host.md`
 — Spark Web UI emits redirect URLs that must come back through the alias.
 
-#### 3.1.4 Source variants
+#### 3.1.4. Source variants
 
 ```yaml
 sources:
@@ -112,7 +112,7 @@ No `localhost` source variant — running a Spark cluster on the host is
 exotic enough that we'd rather users explicitly hand-edit `.env` than
 surface the option in the wizard.
 
-#### 3.1.5 `depends_on`
+#### 3.1.5. `depends_on`
 
 ```yaml
 depends_on:
@@ -135,7 +135,7 @@ The `minio` dependency is genuine — `spark-history` reads
 history server has nothing to read and refuses to start; the bootstrapper
 hard-fails the source step in that case.
 
-#### 3.1.6 `runtime_sc` + compose env (dual-write — see `project_runtime_sc_vs_compose_env_dual_write.md`)
+#### 3.1.6. `runtime_sc` + compose env (dual-write — see `project_runtime_sc_vs_compose_env_dual_write.md`)
 
 The dual-write rule applies: every static enablement flag must appear
 in BOTH `service.yml::runtime_sc.<source>.environment` AND
@@ -163,7 +163,7 @@ SPARK_NO_DAEMONIZE: "true"
 SPARK_DAEMON_JAVA_OPTS: -Dspark.connect.grpc.binding.port=15002
 ```
 
-#### 3.1.7 Init container — `spark-init`
+#### 3.1.7. Init container — `spark-init`
 
 ```yaml
 spark-init:
@@ -184,15 +184,15 @@ spark-init:
 Creates the `spark-history` MinIO bucket if missing. Idempotent — re-runs
 on every `start` are no-ops.
 
-#### 3.1.8 Wizard step (mirrors Ray pattern)
+#### 3.1.8. Wizard step (mirrors Ray pattern)
 
 The source-step UI carries the `SecondaryNumberInput` widget exactly as
 Ray does today. Step ordering matters: **Spark step must come BEFORE
 Zeppelin step** so Zeppelin's enable path can branch on Spark's source.
 
-### 3.2 Zeppelin notebook
+### 3.2. Zeppelin notebook
 
-#### 3.2.1 Containers
+#### 3.2.1. Containers
 
 | Container | Role | Image | Internal port |
 |---|---|---|---|
@@ -203,13 +203,13 @@ the per-interpreter isolated K8s mode — that's overkill for this stack).
 Spark, Python, Markdown, Shell, and JDBC interpreters all live in the
 same container.
 
-#### 3.2.2 Image pin
+#### 3.2.2. Image pin
 
 `ZEPPELIN_IMAGE` defaults to `apache/zeppelin:0.12.0`. 0.12 is the latest
 stable; 0.11.2 is the previous LTS-style line. Zeppelin's release cadence
 is slow (annual) and we lock at minor.
 
-#### 3.2.3 Ports + Kong alias
+#### 3.2.3. Ports + Kong alias
 
 | Env var | Default slot | Internal | Kong alias |
 |---|---|---|---|
@@ -218,7 +218,7 @@ is slow (annual) and we lock at minor.
 Single port. Kong alias with `preserve_host: True` (Zeppelin emits
 asset URLs that must come back through the alias).
 
-#### 3.2.4 Source variants
+#### 3.2.4. Source variants
 
 ```yaml
 sources:
@@ -234,7 +234,7 @@ sources:
 No `localhost` source variant — Zeppelin's value is its Spark wiring,
 which requires the in-stack Spark cluster.
 
-#### 3.2.5 `depends_on`
+#### 3.2.5. `depends_on`
 
 ```yaml
 depends_on:
@@ -254,7 +254,7 @@ the bootstrapper hard-fails the source step with an actionable error:
 *"Zeppelin requires Spark to be enabled (`--spark-source container`).
 Set Spark first or disable Zeppelin."*
 
-#### 3.2.6 `runtime_sc` + compose env
+#### 3.2.6. `runtime_sc` + compose env
 
 Zeppelin interpreter config injected via env (Zeppelin auto-detects):
 
@@ -281,21 +281,21 @@ ZEPPELIN_JDBC_POSTGRES_USER: ${SUPABASE_DB_USER}
 ZEPPELIN_JDBC_POSTGRES_PASSWORD: ${SUPABASE_DB_PASSWORD}
 ```
 
-#### 3.2.7 Init container — `zeppelin-init`
+#### 3.2.7. Init container — `zeppelin-init`
 
 Materializes a starter notebook at `/notebook/spark_basics.zpln` and
 seeds the Spark + JDBC interpreter config files. Uses vanilla
 `alpine:latest` + inline `apk add` per `project_init_container_pattern.md`.
 
-#### 3.2.8 Sample notebook
+#### 3.2.8. Sample notebook
 
 `services/zeppelin/notebooks/spark_basics.zpln` (Zeppelin's native JSON
 format) — demonstrates: Spark DataFrame creation, MinIO read/write,
 Postgres JDBC read, a `%md` markdown cell with the navigation guide.
 
-### 3.3 Apache Airflow
+### 3.3. Apache Airflow
 
-#### 3.3.1 Containers
+#### 3.3.1. Containers
 
 | Container | Role | Image | Internal port |
 |---|---|---|---|
@@ -310,7 +310,7 @@ LocalExecutor (single-process task pool) is the chosen executor — no
 CeleryExecutor + Redis broker overhead. If users later need
 CeleryExecutor, that's a future spec.
 
-#### 3.3.2 Image pin
+#### 3.3.2. Image pin
 
 `AIRFLOW_IMAGE` defaults to `apache/airflow:3.2.2`. Airflow 3.2 ships:
 
@@ -334,7 +334,7 @@ following providers preinstalled via pip:
 - `apache-airflow-providers-openai` — wired to LiteLLM via the OpenAI-compat path
 - `apache-airflow-providers-langchain` — LangChain operators (AI/ML SDK)
 
-#### 3.3.3 Ports + Kong alias
+#### 3.3.3. Ports + Kong alias
 
 | Env var | Default slot | Internal | Kong alias |
 |---|---|---|---|
@@ -342,7 +342,7 @@ following providers preinstalled via pip:
 
 Single port. Kong alias with `preserve_host: True`.
 
-#### 3.3.4 Source variants
+#### 3.3.4. Source variants
 
 ```yaml
 sources:
@@ -355,7 +355,7 @@ sources:
       label: "Disabled"
 ```
 
-#### 3.3.5 `depends_on`
+#### 3.3.5. `depends_on`
 
 ```yaml
 depends_on:
@@ -375,7 +375,7 @@ Airflow is in `agents` (not `infra`); the `kong + ray` pin rule does not
 apply (existing `agents`-band services like n8n and hermes don't pin
 them either).
 
-#### 3.3.6 `runtime_sc` + compose env
+#### 3.3.6. `runtime_sc` + compose env
 
 Critical env vars (a much fuller list lives in the implementation plan):
 
@@ -392,7 +392,7 @@ _AIRFLOW_WWW_USER_USERNAME: admin
 _AIRFLOW_WWW_USER_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD}  # bootstrapper-generated
 ```
 
-#### 3.3.7 Init container — `airflow-init`
+#### 3.3.7. Init container — `airflow-init`
 
 Runs **once** at start; performs:
 
@@ -419,7 +419,7 @@ Runs **once** at start; performs:
 6. Seed a starter DAG at `/opt/airflow/dags/example_etl.py` that exercises
    the Spark + MinIO + LiteLLM connections.
 
-#### 3.3.8 Bootstrapper-generated secrets
+#### 3.3.8. Bootstrapper-generated secrets
 
 Three new auto-generated values per `bootstrapper/utils/key_generator.py`:
 
@@ -431,7 +431,7 @@ Plus `AIRFLOW_DB_USER` / `AIRFLOW_DB_PASSWORD` for the dedicated
 `airflow` database role on Supabase Postgres (created by the init
 container via `psql`).
 
-#### 3.3.9 Starter DAG
+#### 3.3.9. Starter DAG
 
 `services/airflow/dags/example_etl.py` — demonstrates:
 
@@ -453,7 +453,7 @@ with DAG("example_etl_with_llm", schedule="@daily", catchup=False) as dag:
 
 ## 4. Topological ordering + port allocation
 
-### 4.1 Topological insertion
+### 4.1. Topological insertion
 
 The bootstrapper's slot allocator (`bootstrapper/services/topology.py`)
 orders services by:
@@ -493,14 +493,14 @@ blocks reflect only their actual functional dependencies. The
 `test_port_pin_kong_ray.py` regression test still passes after these
 manifests land because the topology's tie-break is unaffected.
 
-### 4.2 Port-collision risk
+### 4.2. Port-collision risk
 
 Spark's internal worker-shuffle ports (35000–35499 range, dynamic) live
 entirely on the `backend-network` and never reach the host. No host port
 allocation needed; no collision risk with the existing 63000–63099
 window.
 
-### 4.3 Ordering of compose `include:` directives
+### 4.3. Ordering of compose `include:` directives
 
 `docker-compose.yml`'s top-level `include:` block gets three new entries
 appended **after** existing service includes:
@@ -523,7 +523,7 @@ Pair-by-pair coverage of every plausible integration involving the three
 new services. Marked **CRITICAL** (ship in this PR), **NICE-TO-HAVE**
 (future spec), or **SKIP** (no genuine value).
 
-### 5.1 Spark × existing services
+### 5.1. Spark × existing services
 
 | Pair | Direction | Status | Mechanism |
 |---|---|---|---|
@@ -541,7 +541,7 @@ new services. Marked **CRITICAL** (ship in this PR), **NICE-TO-HAVE**
 | Spark × n8n | n8n→Spark | **SKIP** | n8n has no native Spark node; HTTP-trigger Airflow instead. |
 | Spark × Ollama | none | **SKIP** | Go through LiteLLM. |
 
-### 5.2 Zeppelin × existing services
+### 5.2. Zeppelin × existing services
 
 | Pair | Direction | Status | Mechanism |
 |---|---|---|---|
@@ -557,7 +557,7 @@ new services. Marked **CRITICAL** (ship in this PR), **NICE-TO-HAVE**
 | Zeppelin × Airflow | none | **SKIP** | Confusing surface — DAGs live in Airflow. |
 | Zeppelin × Prometheus | Prometheus→Zeppelin | **NICE-TO-HAVE** | Zeppelin emits JMX metrics; opt-in scrape. Defer. |
 
-### 5.3 Airflow × existing services
+### 5.3. Airflow × existing services
 
 | Pair | Direction | Status | Mechanism |
 |---|---|---|---|
@@ -577,7 +577,7 @@ new services. Marked **CRITICAL** (ship in this PR), **NICE-TO-HAVE**
 | Airflow × Ollama | Airflow→Ollama via LiteLLM | **CRITICAL** (covered by Airflow×LiteLLM) | No direct integration — always through LiteLLM. |
 | Airflow × Prometheus | Prometheus→Airflow | **NICE-TO-HAVE** | Airflow 3.x emits OpenTelemetry; bridge to Prometheus via `otelcol`. Out of scope for this spec. |
 
-### 5.4 New-service × New-service pairs
+### 5.4. New-service × New-service pairs
 
 | Pair | Direction | Status | Mechanism |
 |---|---|---|---|
@@ -585,7 +585,7 @@ new services. Marked **CRITICAL** (ship in this PR), **NICE-TO-HAVE**
 | Airflow × Zeppelin | none | **SKIP** | No real use case. |
 | Spark × Zeppelin | Zeppelin→Spark | **CRITICAL** | Covered above. Zeppelin's Spark interpreter. |
 
-### 5.5 Pairs omitted from the tables above (SKIP by default)
+### 5.5. Pairs omitted from the tables above (SKIP by default)
 
 For brevity, the per-service tables above include only pairs with
 plausible integration value. The following existing services have NO
@@ -605,7 +605,7 @@ nightly batch transcription jobs via `parakeet`), the implementation
 plan can re-open the pair via a generic `HTTPHook` connection — no
 spec change needed.
 
-### 5.6 Integration matrix summary
+### 5.6. Integration matrix summary
 
 - **20 CRITICAL pairs** ship in this PR (most are config-only — `_default`
   Connection seeding + env-var population).
@@ -616,7 +616,7 @@ spec change needed.
 
 ## 6. Wizard UX additions
 
-### 6.1 New wizard steps
+### 6.1. New wizard steps
 
 Three new source-selection steps added to the wizard flow, **in this
 order** (so Zeppelin's gating logic can read Spark's selection):
@@ -632,7 +632,7 @@ order** (so Zeppelin's gating logic can read Spark's selection):
    - Options: `container` | `disabled`
    - Description: "Code-defined DAG orchestrator. Coexists with n8n; targets data-engineer audience. LLM operators wired to LiteLLM."
 
-### 6.2 New CLI flags
+### 6.2. New CLI flags
 
 ```
 --spark-source [container|disabled]
@@ -651,7 +651,7 @@ Per `project_cli_source_flag_three_seams.md`, each flag adds 4 seams:
 The `--spark-workers` flag follows Ray's `--ray-worker-count` pattern
 exactly (same widget type, same handler in `start.py`).
 
-### 6.3 Display names + descriptions
+### 6.3. Display names + descriptions
 
 In `bootstrapper/wizard/service_discovery.py`:
 
@@ -669,7 +669,7 @@ SERVICE_DESCRIPTIONS['airflow']  = 'Code-defined DAG orchestrator'
 
 ## 7. Bootstrapper plumbing
 
-### 7.1 `service_config.py` additions
+### 7.1. `service_config.py` additions
 
 Three new `_generate_*_config()` functions following the
 `_generate_<svc>_config` pattern. Critical: they must read
@@ -678,7 +678,7 @@ three has one in v1, per the per-service designs). Pass 2 fixed 3 sites
 with this asymmetric-override bug — the symmetry test
 (`test_localhost_port_consumer_symmetry.py`) will guard the new code.
 
-### 7.2 `key_generator.py` additions
+### 7.2. `key_generator.py` additions
 
 New functions for the three Airflow secrets + the Airflow DB role
 password + the Airflow admin password:
@@ -697,12 +697,12 @@ def generate_airflow_admin_password() -> str:
 Wired into `generate_missing_keys()` so a fresh `.start.sh` populates
 all three on first launch.
 
-### 7.3 `localhost_validator.py` — no entries
+### 7.3. `localhost_validator.py` — no entries
 
 None of the three new services has a `localhost` source variant in v1.
 `SERVICE_CHECKS` stays unchanged.
 
-### 7.4 `kong_config_generator.py` additions
+### 7.4. `kong_config_generator.py` additions
 
 Four new routes (all with `preserve_host: True`):
 
@@ -714,7 +714,7 @@ Four new routes (all with `preserve_host: True`):
 Each gated on its source-var (`get_env_value('SPARK_SOURCE') != 'disabled'`
 etc.).
 
-### 7.5 `hosts_manager.py` additions
+### 7.5. `hosts_manager.py` additions
 
 ```python
 GENAI_HOSTS += [
@@ -725,7 +725,7 @@ GENAI_HOSTS += [
 ]
 ```
 
-### 7.6 `dependency_manager.py` additions
+### 7.6. `dependency_manager.py` additions
 
 `scale_var_mapping`:
 - `SPARK_SOURCE` → `[SPARK_MASTER_SCALE, SPARK_WORKER_SCALE, SPARK_HISTORY_SCALE]`
@@ -734,7 +734,7 @@ GENAI_HOSTS += [
 
 `source_var_mapping`: trivial 1:1 additions.
 
-### 7.7 `port_manager.py` additions
+### 7.7. `port_manager.py` additions
 
 New `PORT_MAPPING` entries:
 
@@ -746,7 +746,7 @@ New `PORT_MAPPING` entries:
 
 ## 8. Tests
 
-### 8.1 New test files
+### 8.1. New test files
 
 1. `bootstrapper/tests/test_spark_worker_count.py` — analogue of
    `test_localhost_port_override.py` for Ray's worker count. Asserts the
@@ -760,7 +760,7 @@ New `PORT_MAPPING` entries:
    bootstrapper hard-fails source-step selection when
    `ZEPPELIN_SOURCE=container` AND `SPARK_SOURCE=disabled`.
 
-### 8.2 Extensions to existing tests
+### 8.2. Extensions to existing tests
 
 - `test_fragment_equivalence.py` — baseline regen for the new 7 service
   blocks.
@@ -777,7 +777,7 @@ New `PORT_MAPPING` entries:
 - `test_source_permutations.py` — 4 new source-permutation entries
   (1 per service plus 1 for the Spark+Zeppelin gating).
 
-### 8.3 Audit scripts
+### 8.3. Audit scripts
 
 - `scripts/check-compose-source-deps.py` — `REQUIRED_DEPENDENCIES`
   gains: `(spark, supabase)`, `(spark, minio)`, `(zeppelin, spark)`,
@@ -790,7 +790,7 @@ New `PORT_MAPPING` entries:
 
 ## 9. Documentation
 
-### 9.1 New service READMEs
+### 9.1. New service READMEs
 
 - `services/spark/README.md` — full numbered-section README following
   the `services/grafana/README.md` template. Sections: Overview, Access,
@@ -803,7 +803,7 @@ New `PORT_MAPPING` entries:
   Overview, Access, Configuration, Connections seeded (the matrix from
   §5.3 in narrative form), DAG samples, Troubleshooting.
 
-### 9.2 Cross-service updates
+### 9.2. Cross-service updates
 
 - `README.md` (top-level) — 3 new rows in §4.1 Service Overview; new
   bullet in §2.3; if §3.4 Observability mentions specific services,
@@ -823,7 +823,7 @@ New `PORT_MAPPING` entries:
   each other (Airflow's `SparkSubmitOperator` → links Spark; Zeppelin's
   Spark interpreter → links Spark; etc.).
 
-### 9.3 Auto-generated `Dependencies & Integrations` sections
+### 9.3. Auto-generated `Dependencies & Integrations` sections
 
 Each new service's `service.yml::data_flow.calls` declares its outbound
 calls. Per `project_data_flow_calls_cross_service_regen.md`, edits to

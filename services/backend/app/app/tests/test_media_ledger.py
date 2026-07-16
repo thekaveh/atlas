@@ -26,6 +26,73 @@ def _engine(**overrides) -> BudgetEngine:
     return BudgetEngine(cfg, InMemoryLedgerStore())
 
 
+_BUDGET_ENV = (
+    "MEDIA_BUDGET_ENABLED",
+    "MEDIA_BUDGET_STORE",
+    "MEDIA_BUDGET_CURRENCY",
+    "MEDIA_BUDGET_DEFAULT_USD",
+    "MEDIA_BUDGET_CONSUMER_CAPS",
+    "MEDIA_DISABLED_PROVIDERS",
+    "MEDIA_BUDGET_ALLOW_UNKNOWN_COST",
+    "MEDIA_BUDGET_RETENTION_DAYS",
+    "DATABASE_URL",
+)
+
+
+def _budget_env(monkeypatch, **overrides):
+    for name in _BUDGET_ENV:
+        monkeypatch.delenv(name, raising=False)
+    values = {
+        "MEDIA_BUDGET_ENABLED": "true",
+        "MEDIA_BUDGET_STORE": "memory",
+        **overrides,
+    }
+    for name, value in values.items():
+        monkeypatch.setenv(name, value)
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("MEDIA_BUDGET_ENABLED", "tru"),
+        ("MEDIA_BUDGET_STORE", "sqlite"),
+        ("MEDIA_BUDGET_DEFAULT_USD", "-1"),
+        ("MEDIA_BUDGET_DEFAULT_USD", "nan"),
+        ("MEDIA_BUDGET_DEFAULT_USD", "not-money"),
+        ("MEDIA_BUDGET_CONSUMER_CAPS", "[]"),
+        ("MEDIA_BUDGET_CONSUMER_CAPS", '{"acme":true}'),
+        ("MEDIA_BUDGET_CONSUMER_CAPS", '{"acme":-1}'),
+        ("MEDIA_BUDGET_CONSUMER_CAPS", '{"acme":"nan"}'),
+        ("MEDIA_BUDGET_ALLOW_UNKNOWN_COST", "sometimes"),
+        ("MEDIA_BUDGET_RETENTION_DAYS", "0"),
+        ("MEDIA_BUDGET_RETENTION_DAYS", "1.5"),
+    ],
+)
+def test_budget_config_rejects_fail_open_values(monkeypatch, name, value):
+    _budget_env(monkeypatch, **{name: value})
+    with pytest.raises(ValueError, match=name):
+        MediaBudgetConfig.from_env()
+
+
+def test_enabled_postgres_budget_requires_database_url(monkeypatch):
+    _budget_env(monkeypatch, MEDIA_BUDGET_STORE="postgres")
+    with pytest.raises(ValueError, match="DATABASE_URL"):
+        MediaBudgetConfig.from_env()
+
+
+def test_budget_config_accepts_finite_nonnegative_caps(monkeypatch):
+    _budget_env(
+        monkeypatch,
+        MEDIA_BUDGET_DEFAULT_USD="10.5",
+        MEDIA_BUDGET_CONSUMER_CAPS='{"acme":5,"acme:demo":0}',
+        MEDIA_BUDGET_RETENTION_DAYS="30",
+    )
+    config = MediaBudgetConfig.from_env()
+    assert config.default_cap_usd == 10.5
+    assert config.consumer_caps == {"acme": 5.0, "acme:demo": 0.0}
+    assert config.retention_days == 30
+
+
 async def _reserve(engine, op_id, cost, *, consumer="acme", project="default", provider="fal", model="fal-ai/trellis", modality="image_to_3d"):
     return await engine.reserve(
         operation_id=op_id,

@@ -8,7 +8,7 @@
 
 **Tech Stack:** GitHub Actions YAML, GitHub repository rulesets, `gh`, PyYAML
 
-## Global Constraints
+## 1. Global Constraints
 
 - Keep strict required-status-check mode enabled.
 - Preserve the three fast required checks.
@@ -16,7 +16,7 @@
 
 ---
 
-### Task 1: Gate and document build validation
+### 1.1. Task 1: Gate and document build validation
 
 **Files:**
 - Modify: `.github/workflows/services-lint.yml`
@@ -28,7 +28,7 @@
 - [x] Parse the workflow with PyYAML and assert the job gate value.
 - [x] Run `git diff --check` and the three locally relevant CI checks.
 
-### Task 2: Update protection and merge
+### 1.2. Task 2: Update protection and merge
 
 **Files:**
 - External: GitHub ruleset `gitflow` (`18620077`)

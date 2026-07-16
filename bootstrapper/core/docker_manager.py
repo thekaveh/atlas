@@ -99,11 +99,11 @@ class DockerManager:
         except RuntimeError:
             return False
 
-    # Minimum Compose version for the per-service modular layout. v2.20+ is
+    # Minimum Compose version for the per-service modular layout. v2.20.3+ is
     # the floor (top-level `include:` directive + cross-include depends_on
     # merging). v2.26+ is documented as recommended because earlier 2.2x
     # releases had several `include:` + `profiles:` interaction bugs.
-    MIN_COMPOSE_VERSION = (2, 20, 0)
+    MIN_COMPOSE_VERSION = (2, 20, 3)
     RECOMMENDED_COMPOSE_VERSION = (2, 26, 0)
 
     def check_compose_version(self) -> tuple[bool, str]:
@@ -508,77 +508,41 @@ class DockerManager:
         """
         return self.detect_docker_compose_command().split()
     
-    def perform_cold_start_cleanup(self) -> bool:
-        """Stop containers, remove volumes and orphans, drop the project network, and prune the Docker system (twice — once with volumes, once general).
+    def perform_cold_start_cleanup(self, project_name: str | None = None) -> bool:
+        """Stop this project and remove its containers, volumes, and orphans.
 
         All output flows through the registered command-echo callback
         (`_on_command`) so the wizard's Live region can stream it into
         the log pane without tearing the alternate screen.
 
-        Returns True if every step succeeded.
+        Docker system pruning is intentionally excluded: ``--cold`` must never
+        delete images, caches, networks, or volumes owned by other projects.
         """
-        project_name = self.project_name_override or self.config_parser.get_project_name()
-        all_successful = True
-
-        self._on_command("    - Stopping and removing containers...")
-        result = self.stream_compose(
-            ['down', '--remove-orphans'],
-            on_line=self._on_command,
-        )
-        if result != 0:
-            all_successful = False
-
-        self._on_command("    - Removing volumes (cold start)...")
-        result = self.stream_compose(
-            ['down', '-v'],
-            on_line=self._on_command,
-        )
-        if result != 0:
-            all_successful = False
-
-        self._on_command("    - Removing project network (cold start)...")
-        self._on_command(f"      Command: docker network rm {project_name}-network")
-        if not self.remove_project_networks(project_name):
-            self._on_command("      Note: Network may not exist or is already removed")
-
-        self._on_command("    - Performing aggressive Docker system prune (cold start)...")
-        result = self.prune_system(remove_volumes=True)
-        if result != 0:
-            all_successful = False
-
-        self._on_command("    - Performing general Docker system prune...")
-        result = self.prune_system(remove_volumes=False)
-        if result != 0:
-            all_successful = False
-
-        return all_successful
+        previous_project = self.project_name_override
+        if project_name is not None:
+            self.project_name_override = project_name
+        try:
+            self._on_command("    - Removing project containers, volumes, and orphans...")
+            result = self.stream_compose(
+                ['down', '--volumes', '--remove-orphans'],
+                on_line=self._on_command,
+            )
+            return result == 0
+        finally:
+            self.project_name_override = previous_project
     
     def perform_cold_stop_cleanup(self) -> bool:
-        """Stop containers, remove volumes and orphans, drop project networks, and prune the Docker system with volumes.
+        """Stop this project and remove its containers, volumes, and orphans.
 
-        Returns True if every step succeeded.
+        Host-wide Docker pruning is deliberately not part of project cleanup.
         """
         project_name = self.project_name_override or self.config_parser.get_project_name()
-        all_successful = True
-        
         print("    - Stopping containers and removing volumes...")
         result = self.execute_compose_command(
             ['down', '--volumes', '--remove-orphans'],
             project_name=project_name,
         )
-        if result != 0:
-            all_successful = False
-            
-        print("    - Removing project networks...")
-        if not self.remove_project_networks(project_name):
-            print("      Note: Network may not exist or is already removed")
-            
-        print("    - Performing Docker system cleanup...")
-        result = self.prune_system(remove_volumes=True)
-        if result != 0:
-            all_successful = False
-            
-        return all_successful
+        return result == 0
     
     def build_services(
         self,

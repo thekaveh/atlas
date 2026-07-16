@@ -14,7 +14,7 @@ def _candidate_text() -> str:
 def test_openbao_remains_watchlist_until_operator_story_exists() -> None:
     text = _candidate_text()
 
-    assert "## Watchlist decision (2026-07-04)" in text
+    assert "Watchlist decision (2026-07-04)" in text
     assert "must not add `services/openbao/service.yml` yet" in text
     assert "Infisical-first" in text
     assert "concrete secrets lifecycle and operator story" in text

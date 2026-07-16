@@ -9,6 +9,7 @@ version: 1.0.0
 license: MIT
 """
 
+import os
 import requests
 from pydantic import BaseModel, Field
 from typing import Optional, List
@@ -20,7 +21,12 @@ class Tools:
             default="http://backend:8000", description="Backend API URL"
         )
         timeout: int = Field(
-            default=120, description="Max wait time in seconds for image generation"
+            default_factory=lambda: int(
+                os.getenv("COMFYUI_COMPLETION_TIMEOUT_SECONDS", "300")
+            ),
+            ge=1,
+            le=3600,
+            description="End-to-end generation deadline in seconds",
         )
         enable_tool: bool = Field(
             default=True, description="Enable this image generation tool"
@@ -36,6 +42,11 @@ class Tools:
 
     def __init__(self):
         self.valves = self.Valves()
+
+    @staticmethod
+    def _backend_headers() -> dict[str, str]:
+        token = (os.getenv("BACKEND_OPEN_WEBUI_API_TOKEN") or "").strip()
+        return {"Authorization": f"Bearer {token}"} if token else {}
 
     def generate_image(
         self,
@@ -57,7 +68,7 @@ class Tools:
         :param steps: Number of denoising steps (default: 20)
         :param cfg: CFG scale for guidance strength (default: 7.0)
         :param checkpoint: Model checkpoint to use (default: v1-5-pruned-emaonly.safetensors)
-        :return: Image generation result with base64 encoded image or error message
+        :return: Image generation result with an artifact filename or error message
         """
 
         if not self.valves.enable_tool:
@@ -67,15 +78,17 @@ class Tools:
             return "❌ Please provide a prompt for image generation."
 
         # Use provided values or defaults
-        width = width or self.valves.default_width
-        height = height or self.valves.default_height
-        steps = steps or self.valves.default_steps
-        cfg = cfg or self.valves.default_cfg
+        width = self.valves.default_width if width is None else width
+        height = self.valves.default_height if height is None else height
+        steps = self.valves.default_steps if steps is None else steps
+        cfg = self.valves.default_cfg if cfg is None else cfg
 
         try:
             # First check if ComfyUI service is healthy
             health_resp = requests.get(
-                f"{self.valves.backend_url}/comfyui/health", timeout=10
+                f"{self.valves.backend_url}/comfyui/health",
+                headers=self._backend_headers(),
+                timeout=10,
             )
 
             if health_resp.status_code != 200:
@@ -83,7 +96,7 @@ class Tools:
 
             health_data = health_resp.json()
             if health_data.get("status") != "healthy":
-                return f"❌ ComfyUI service is unhealthy: {health_data.get('error', 'Unknown error')}"
+                return "❌ ComfyUI service is unavailable. Please try again later."
 
             # Prepare generation request
             generation_data = {
@@ -95,31 +108,34 @@ class Tools:
                 "cfg": cfg,
                 "checkpoint": checkpoint,
                 "wait_for_completion": True,
+                "timeout_seconds": self.valves.timeout,
             }
 
             # Send generation request
             resp = requests.post(
                 f"{self.valves.backend_url}/comfyui/generate",
+                headers=self._backend_headers(),
                 json=generation_data,
-                timeout=self.valves.timeout,
+                timeout=self.valves.timeout + 5,
             )
 
             if resp.status_code != 200:
                 try:
-                    error_data = resp.json()
-                    return f"❌ Image generation failed: {error_data.get('detail', 'Unknown error')}"
+                    return f"❌ Image generation failed with HTTP {resp.status_code}."
                 except Exception:
                     return f"❌ Image generation failed: HTTP {resp.status_code}"
 
             result = resp.json()
 
             if not result.get("success"):
-                return f"❌ Generation failed: {result.get('error', 'Unknown error')}"
+                return "❌ Generation failed. Please try again later."
 
             # Extract generation info
             prompt_id = result.get("prompt_id")
-            outputs = result.get("data", {}).get("outputs", {})
-            parameters = result.get("data", {}).get("parameters", {})
+            data = result.get("data", {})
+            provider = data.get("provider", "comfyui")
+            outputs = data.get("outputs", {})
+            parameters = data.get("parameters", {})
 
             # Format success response
             output = []
@@ -135,14 +151,27 @@ class Tools:
             output.append(f"- CFG Scale: {cfg}")
             output.append(f"- Prompt ID: {prompt_id}")
 
-            # If outputs contain images, try to get the first one
-            if outputs:
+            if provider == "fal" and isinstance(outputs.get("images"), list):
+                images = outputs["images"]
                 output.append(
-                    f"\n**Generated Images:** {len(outputs)} image(s) created"
+                    f"\n**Generated Images:** {len(images)} image(s) created"
+                )
+                if images and isinstance(images[0], dict):
+                    artifact_url = images[0].get("url", "")
+                    if artifact_url.startswith(("https://", "http://")):
+                        output.append(f"\n**Image available:** {artifact_url}")
+            elif outputs:
+                image_count = sum(
+                    len(node_output.get("images", []))
+                    for node_output in outputs.values()
+                    if isinstance(node_output, dict)
+                    and isinstance(node_output.get("images"), list)
+                )
+                output.append(
+                    f"\n**Generated Images:** {image_count} image(s) created"
                 )
 
-                # Try to get the first image
-                for node_id, node_output in outputs.items():
+                for node_output in outputs.values():
                     if isinstance(node_output, dict) and "images" in node_output:
                         images = node_output["images"]
                         if images and len(images) > 0:
@@ -150,32 +179,9 @@ class Tools:
                             if isinstance(first_image, dict):
                                 filename = first_image.get("filename")
                                 if filename:
-                                    # Try to get the image data via backend
-                                    try:
-                                        img_resp = requests.get(
-                                            f"{self.valves.backend_url}/comfyui/image/{filename}",
-                                            timeout=30,
-                                        )
-                                        if img_resp.status_code == 200:
-                                            import base64
-
-                                            img_b64 = base64.b64encode(
-                                                img_resp.content
-                                            ).decode("utf-8")
-                                            content_type = img_resp.headers.get(
-                                                "content-type", "image/png"
-                                            )
-                                            output.append(
-                                                f"\n![Generated Image](data:{content_type};base64,{img_b64})"
-                                            )
-                                        else:
-                                            output.append(
-                                                f"\n**Image available:** {filename} (access via ComfyUI interface)"
-                                            )
-                                    except Exception as e:
-                                        output.append(
-                                            f"\n**Image generated:** {filename} (preview unavailable: {str(e)})"
-                                        )
+                                    output.append(
+                                        f"\n**Image available:** {filename} (access via ComfyUI interface)"
+                                    )
                                 break
             else:
                 output.append(
@@ -188,8 +194,8 @@ class Tools:
             return "❌ Cannot connect to backend service. Please check if the backend is running."
         except requests.exceptions.Timeout:
             return "❌ Image generation timed out. This can happen with complex prompts or high resolution images."
-        except Exception as e:
-            return f"❌ Unexpected error during image generation: {str(e)}"
+        except Exception:
+            return "❌ Image generation failed unexpectedly. Please try again later."
 
     def get_available_models(self) -> str:
         """
@@ -204,6 +210,7 @@ class Tools:
         try:
             resp = requests.get(
                 f"{self.valves.backend_url}/comfyui/db/models?active_only=true",
+                headers=self._backend_headers(),
                 timeout=30,
             )
 
@@ -254,8 +261,8 @@ class Tools:
 
         except requests.exceptions.ConnectionError:
             return "❌ Cannot connect to backend service. Please check if the backend is running."
-        except Exception as e:
-            return f"❌ Error retrieving models: {str(e)}"
+        except Exception:
+            return "❌ Model retrieval failed. Please try again later."
 
     def check_comfyui_status(self) -> str:
         """
@@ -270,7 +277,9 @@ class Tools:
         try:
             # Check health
             health_resp = requests.get(
-                f"{self.valves.backend_url}/comfyui/health", timeout=10
+                f"{self.valves.backend_url}/comfyui/health",
+                headers=self._backend_headers(),
+                timeout=10,
             )
 
             output = ["🔍 **ComfyUI Service Status**\n"]
@@ -287,13 +296,13 @@ class Tools:
                 output.append("✅ **Health Check:** Healthy")
             else:
                 output.append(f"⚠️ **Health Check:** {status}")
-                if "error" in health_data:
-                    output.append(f"- Error: {health_data['error']}")
 
             # Check queue status
             try:
                 queue_resp = requests.get(
-                    f"{self.valves.backend_url}/comfyui/queue", timeout=10
+                    f"{self.valves.backend_url}/comfyui/queue",
+                    headers=self._backend_headers(),
+                    timeout=10,
                 )
 
                 if queue_resp.status_code == 200:
@@ -313,11 +322,10 @@ class Tools:
                         f"\n⚠️ **Queue Status:** HTTP {queue_resp.status_code}"
                     )
 
-            except Exception as e:
-                output.append(f"\n⚠️ **Queue Status:** Error - {str(e)}")
+            except Exception:
+                output.append("\n⚠️ **Queue Status:** Unavailable")
 
             output.append(f"\n🔧 **Configuration:**")
-            output.append(f"- Backend URL: {self.valves.backend_url}")
             output.append(f"- Timeout: {self.valves.timeout}s")
             output.append(
                 f"- Default Size: {self.valves.default_width}×{self.valves.default_height}"
@@ -327,5 +335,5 @@ class Tools:
 
         except requests.exceptions.ConnectionError:
             return "❌ Cannot connect to backend service. Please check if the backend is running."
-        except Exception as e:
-            return f"❌ Error checking ComfyUI status: {str(e)}"
+        except Exception:
+            return "❌ ComfyUI status is unavailable. Please try again later."

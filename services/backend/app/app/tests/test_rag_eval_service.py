@@ -184,7 +184,22 @@ def _instructor_llm():
     return llm_factory("gpt-4o-mini", client=OpenAI(api_key="dummy", base_url="http://localhost:1"))
 
 
-def test_metric_objects_construct_all_four_against_pinned_ragas():
+@pytest.fixture()
+def _suppress_ragas_warnings():
+    """ragas 0.4.3's analytics opens a uuid file without closing it (ResourceWarning
+    on GC) and transformers logs when PyTorch is absent. Both are noise for these
+    construction tests; suppress them (and force GC inside the suppression) so the
+    suite stays green under the repo's ``-W error`` CI mode."""
+    import gc
+    import warnings
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        yield
+        gc.collect()
+
+
+def test_metric_objects_construct_all_four_against_pinned_ragas(_suppress_ragas_warnings):
     from openai import OpenAI
     from ragas.embeddings import OpenAIEmbeddings
 
@@ -205,14 +220,14 @@ def test_metric_objects_construct_all_four_against_pinned_ragas():
     assert {"faithfulness", "context_precision", "context_recall"} <= names
 
 
-def test_metric_objects_rejects_answer_relevancy_without_embeddings():
+def test_metric_objects_rejects_answer_relevancy_without_embeddings(_suppress_ragas_warnings):
     from rag_eval_service import _metric_objects
 
     with pytest.raises(ValueError, match="embeddings"):
         _metric_objects(["answer_relevancy"], llm=_instructor_llm(), embeddings=None)
 
 
-def test_metric_objects_context_metrics_work_without_embeddings():
+def test_metric_objects_context_metrics_work_without_embeddings(_suppress_ragas_warnings):
     """faithfulness / context_precision / context_recall need only the llm —
     only answer_relevancy requires embeddings."""
     from rag_eval_service import _metric_objects

@@ -2,7 +2,7 @@
 
 > **Generated** by `python -m bootstrapper.docs.merge_research`. Do not edit by hand — your changes will be overwritten on the next run.
 
-## By service
+## 1. By service
 
 | Service | Category | Sources | Row file |
 |---|---|---|---|
@@ -28,22 +28,22 @@
 | tts-provider | media | 10 | [rows/tts-provider.md](./rows/tts-provider.md) |
 | weaviate | data | 11 | [rows/weaviate.md](./rows/weaviate.md) |
 
-## By category
+## 2. By category
 
-### agents
+### 2.1. agents
 
 - [hermes](./rows/hermes.md)
 - [n8n](./rows/n8n.md)
 - [openclaw](./rows/openclaw.md)
 
-### apps
+### 2.2. apps
 
 - [backend](./rows/backend.md)
 - [jupyterhub](./rows/jupyterhub.md)
 - [local-deep-researcher](./rows/local-deep-researcher.md)
 - [open-webui](./rows/open-webui.md)
 
-### data
+### 2.3. data
 
 - [minio](./rows/minio.md)
 - [multi2vec-clip](./rows/multi2vec-clip.md)
@@ -52,16 +52,16 @@
 - [supabase](./rows/supabase.md)
 - [weaviate](./rows/weaviate.md)
 
-### infra
+### 2.4. infra
 
 - [kong](./rows/kong.md)
 
-### llm
+### 2.5. llm
 
 - [litellm](./rows/litellm.md)
 - [ollama](./rows/ollama.md)
 
-### media
+### 2.6. media
 
 - [comfyui](./rows/comfyui.md)
 - [doc-processor](./rows/doc-processor.md)
@@ -69,7 +69,7 @@
 - [stt-provider](./rows/stt-provider.md)
 - [tts-provider](./rows/tts-provider.md)
 
-## Candidate new services
+## 3. Candidate new services
 
 | Candidate | Category fit | Referenced by | One-pager |
 |---|---|---|---|
