@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections import OrderedDict
 import inspect
 import os
@@ -205,7 +206,7 @@ def _metric_objects(metric_names: list[str], *, llm, embeddings):
     return [build(name) for name in metric_names]
 
 
-def _score_collection_metrics(
+async def _score_collection_metrics_async(
     records: list[dict[str, Any]], metric_objects: list[Any], *, raise_exceptions: bool
 ) -> list[dict[str, Any]]:
     """Run Ragas collection metrics through their modern batch API.
@@ -213,7 +214,7 @@ def _score_collection_metrics(
     ``ragas.metrics.collections`` objects are intentionally not instances of
     the legacy ``ragas.metrics.base.Metric`` protocol accepted by deprecated
     ``ragas.evaluate()``. Each collection metric instead exposes ``ascore`` and
-    ``batch_score``. Filter records to the concrete ``ascore`` signature so a
+    ``abatch_score``. Filter records to the concrete ``ascore`` signature so a
     metric never receives unrelated sample fields.
     """
     rows: list[dict[str, Any]] = [
@@ -231,7 +232,7 @@ def _score_collection_metrics(
             for record in records
         ]
         try:
-            results = metric.batch_score(inputs)
+            results = await metric.abatch_score(inputs)
         except Exception as exc:
             if raise_exceptions:
                 raise
@@ -253,7 +254,7 @@ def _score_collection_metrics(
     return rows
 
 
-def _run_ragas_evaluation(
+async def _run_ragas_evaluation_async(
     records: list[dict[str, Any]], metrics: list[str], config: dict[str, Any]
 ) -> list[dict[str, Any]]:
     try:
@@ -269,28 +270,33 @@ def _run_ragas_evaluation(
     # abstraction. Build one from an OpenAI-compatible client pointed at the
     # LiteLLM gateway (the same base_url/key the legacy LangchainLLMWrapper
     # used); llm_factory wraps it into the InstructorLLM the metrics expect.
-    # Collection metrics execute through async ``ascore`` even when callers use
-    # their synchronous ``batch_score`` convenience wrapper. Give Ragas an async
-    # OpenAI client so both InstructorLLM.agenerate() and embedding a* methods
-    # match that execution contract.
-    openai_client = AsyncOpenAI(
+    # Keep the client, every metric call, and client shutdown on one event loop.
+    # Calling each metric's synchronous ``batch_score`` wrapper would create a
+    # separate loop per metric while sharing this async transport.
+    async with AsyncOpenAI(
         api_key=config["llm_api_key"],
         base_url=config["llm_base_url"],
-    )
-    llm = llm_factory(config["evaluator_model"], client=openai_client)
-    embeddings = None
-    if config.get("embeddings_model"):
-        embeddings = OpenAIEmbeddings(
-            client=openai_client,
-            model=config["embeddings_model"],
-        )
+    ) as openai_client:
+        llm = llm_factory(config["evaluator_model"], client=openai_client)
+        embeddings = None
+        if config.get("embeddings_model"):
+            embeddings = OpenAIEmbeddings(
+                client=openai_client,
+                model=config["embeddings_model"],
+            )
 
-    try:
-        return _score_collection_metrics(
+        return await _score_collection_metrics_async(
             records,
             _metric_objects(metrics, llm=llm, embeddings=embeddings),
             raise_exceptions=bool(config.get("raise_exceptions")),
         )
+
+
+def _run_ragas_evaluation(
+    records: list[dict[str, Any]], metrics: list[str], config: dict[str, Any]
+) -> list[dict[str, Any]]:
+    try:
+        return asyncio.run(_run_ragas_evaluation_async(records, metrics, config))
     except RagEvaluationError:
         raise
     except Exception as exc:  # pragma: no cover - exercised only with live evaluator calls.
