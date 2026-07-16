@@ -195,10 +195,12 @@ RAGAS_EMBEDDINGS_MODEL=           # empty = LITELLM_EMBEDDING_MODEL
 `contexts`, and optional `ground_truth`. Supported metrics are `faithfulness`,
 `answer_relevancy`, `context_precision`, and `context_recall`; context precision
 and recall require `ground_truth` because Ragas needs a reference answer. The
-backend builds Ragas `SingleTurnSample` records, routes evaluator model calls
-through `LITELLM_BASE_URL` / `LITELLM_API_KEY`, and returns per-record metric
-scores plus runner metadata. Unit tests use a fake runner and never call live
-LLMs.
+backend routes evaluator model calls through `LITELLM_BASE_URL` /
+`LITELLM_API_KEY` and returns per-record metric scores plus runner metadata.
+Atlas builds modern `ragas.metrics.collections` objects and executes their batch
+scoring API directly; those objects are not compatible with the deprecated
+legacy `ragas.evaluate()` adapter. Unit tests fake only network-backed scoring
+and pin that execution boundary against the installed Ragas API.
 
 ## 4. Architecture & wiring
 
