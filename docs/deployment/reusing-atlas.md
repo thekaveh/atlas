@@ -750,9 +750,11 @@ presigned URLs against `ATLAS_MINIO_PUBLIC_ENDPOINT`.
 A few source-specific fields are emitted only when meaningful: under
 `COMFYUI_SOURCE=managed-localhost-mps` the export includes
 `ATLAS_COMFYUI_OUTPUT_DIR` (the native host process's image-output directory,
-`$COMFYUI_MPS_STATE_DIR/ComfyUI/output`), so consumers reading generated images
-off disk don't hardcode the internal layout. It is omitted for the container and
-localhost sources (outputs land in a Docker volume / the user's own ComfyUI install).
+`$COMFYUI_MPS_STATE_DIR/ComfyUI/output`, tilde-expanded to an absolute path at
+export time so consumers can open it programmatically without shell expansion),
+so consumers reading generated images off disk don't hardcode the internal
+layout. It is omitted for the container and localhost sources (outputs land in
+a Docker volume / the user's own ComfyUI install).
 
 **Secrets.** By default the output contains **no secret values** — infra secrets
 (e.g. the Redis password inside `REDIS_URL`) are emitted as `${VAR}` references.

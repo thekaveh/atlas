@@ -325,14 +325,33 @@ def test_cli_secret_export_replaces_existing_file_as_owner_only(
 # ── #612: surface the managed-localhost-mps output dir ──────────────────────
 def test_comfyui_output_dir_emitted_for_managed_localhost_mps() -> None:
     """Under the managed-MPS source, the host output dir is a known filesystem
-    path consumers read images from — surface it (don't make them hardcode it)."""
+    path consumers read images from — surface it (don't make them hardcode it).
+    The tilde default is expanded at export time (#644): consumers read the
+    artifact programmatically, so a literal `~` would be treated as a
+    directory name, and the emitted path must equal the directory the managed
+    process actually writes to (the manager expanduser()s the same value)."""
     env = _base_env()
     env["COMFYUI_SOURCE"] = "managed-localhost-mps"
     d = _as_dict(build_export(env))
-    assert d["ATLAS_COMFYUI_OUTPUT_DIR"] == "~/.atlas/comfyui-mps/ComfyUI/output"
+    expected = f"{Path('~/.atlas/comfyui-mps').expanduser()}/ComfyUI/output"
+    assert d["ATLAS_COMFYUI_OUTPUT_DIR"] == expected
+    assert "~" not in d["ATLAS_COMFYUI_OUTPUT_DIR"]
+    assert d["ATLAS_COMFYUI_OUTPUT_DIR"].startswith("/")
+
+
+def test_comfyui_output_dir_expands_explicit_tilde_override() -> None:
+    """#644: an explicitly-set COMFYUI_MPS_STATE_DIR containing `~` expands too."""
+    env = _base_env()
+    env["COMFYUI_SOURCE"] = "managed-localhost-mps"
+    env["COMFYUI_MPS_STATE_DIR"] = "~/custom/atlas-mps"
+    d = _as_dict(build_export(env))
+    expected = f"{Path('~/custom/atlas-mps').expanduser()}/ComfyUI/output"
+    assert d["ATLAS_COMFYUI_OUTPUT_DIR"] == expected
+    assert "~" not in d["ATLAS_COMFYUI_OUTPUT_DIR"]
 
 
 def test_comfyui_output_dir_respects_state_dir_override() -> None:
+    """An absolute COMFYUI_MPS_STATE_DIR passes through unchanged."""
     env = _base_env()
     env["COMFYUI_SOURCE"] = "managed-localhost-mps"
     env["COMFYUI_MPS_STATE_DIR"] = "/opt/atlas/comfyui-mps"

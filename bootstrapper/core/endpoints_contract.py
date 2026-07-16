@@ -23,6 +23,7 @@ storage access/secret keys), never infra secrets such as the Redis password.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Mapping
 
 
@@ -229,7 +230,13 @@ def build_export(
     # so the field is emitted only for managed-localhost-mps.
     if env.get("COMFYUI_SOURCE", "").strip() == "managed-localhost-mps":
         state_dir = env.get("COMFYUI_MPS_STATE_DIR", "").strip() or "~/.atlas/comfyui-mps"
-        out.append(ExportField("ATLAS_COMFYUI_OUTPUT_DIR", f"{state_dir}/ComfyUI/output"))
+        # Expand ~ at export time (#644): tilde expansion is a shell feature, so
+        # a consumer reading the artifact programmatically would treat a literal
+        # `~` as a directory name. Path.expanduser() is the same expansion the
+        # MPS manager applies when launching the process (comfyui_mps_manager
+        # `Path(state_dir).expanduser()`), so the artifact and the process agree.
+        expanded = Path(state_dir).expanduser()
+        out.append(ExportField("ATLAS_COMFYUI_OUTPUT_DIR", f"{expanded}/ComfyUI/output"))
 
     return out
 
