@@ -240,7 +240,7 @@ def test_metric_objects_context_metrics_work_without_embeddings(_suppress_ragas_
     assert len(metrics) == 3
 
 
-def test_live_runner_executes_collection_metrics_through_batch_score(
+def test_live_runner_executes_collection_metrics_in_one_async_client_lifecycle(
     monkeypatch, _suppress_ragas_warnings
 ):
     """Collection metrics are not legacy ``ragas.metrics.base.Metric`` objects.
@@ -259,9 +259,12 @@ def test_live_runner_executes_collection_metrics_through_batch_score(
         name = "faithfulness"
 
         async def ascore(self, user_input, response, retrieved_contexts):
-            raise AssertionError("batch_score should own synchronous execution")
+            raise AssertionError("abatch_score should own async execution")
 
         def batch_score(self, inputs):
+            raise AssertionError("sync batch_score must not create a separate event loop")
+
+        async def abatch_score(self, inputs):
             seen.extend(inputs)
             return [
                 MetricResult(value=0.91 - index / 10, reason=f"supported-{index}")
@@ -269,10 +272,12 @@ def test_live_runner_executes_collection_metrics_through_batch_score(
             ]
 
     clients: dict[str, str] = {}
+    client_refs = []
 
     def fake_metric_objects(names, *, llm, embeddings):
         clients["llm"] = type(llm.client).__name__
         clients["embeddings"] = type(embeddings.client).__name__
+        client_refs.append(embeddings.client)
         return [FakeFaithfulness()]
 
     monkeypatch.setattr(rag_eval_service, "_metric_objects", fake_metric_objects)
@@ -315,6 +320,7 @@ def test_live_runner_executes_collection_metrics_through_batch_score(
         },
     ]
     assert clients == {"llm": "AsyncInstructor", "embeddings": "AsyncOpenAI"}
+    assert client_refs[0].is_closed()
     assert rows == [
         {
             "scores": {"faithfulness": 0.91},
@@ -328,6 +334,8 @@ def test_live_runner_executes_collection_metrics_through_batch_score(
 
 
 def test_collection_metric_failure_is_explicit_unless_raise_exceptions() -> None:
+    import asyncio
+
     import rag_eval_service
 
     class BrokenMetric:
@@ -336,7 +344,7 @@ def test_collection_metric_failure_is_explicit_unless_raise_exceptions() -> None
         async def ascore(self, user_input, response, retrieved_contexts):
             raise AssertionError("not called directly")
 
-        def batch_score(self, inputs):
+        async def abatch_score(self, inputs):
             raise RuntimeError("evaluator unavailable")
 
     records = [
@@ -348,8 +356,10 @@ def test_collection_metric_failure_is_explicit_unless_raise_exceptions() -> None
         }
     ]
 
-    rows = rag_eval_service._score_collection_metrics(
-        records, [BrokenMetric()], raise_exceptions=False
+    rows = asyncio.run(
+        rag_eval_service._score_collection_metrics_async(
+            records, [BrokenMetric()], raise_exceptions=False
+        )
     )
     assert rows == [
         {
@@ -363,6 +373,8 @@ def test_collection_metric_failure_is_explicit_unless_raise_exceptions() -> None
     ]
 
     with pytest.raises(RuntimeError, match="evaluator unavailable"):
-        rag_eval_service._score_collection_metrics(
-            records, [BrokenMetric()], raise_exceptions=True
+        asyncio.run(
+            rag_eval_service._score_collection_metrics_async(
+                records, [BrokenMetric()], raise_exceptions=True
+            )
         )
