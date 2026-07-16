@@ -6,6 +6,8 @@ The Curated MCP Servers service exposes the first Atlas Model Context Protocol t
 
 This is not a generic one-server-per-service pattern. The package starts with tools that are useful across Open WebUI, Hermes, and future agent workflows while keeping write actions disabled by default.
 
+The runtime is built on the actively maintained standalone **FastMCP 3** framework (`fastmcp==3.4.4`), pinned exactly for reproducible image builds, and serves Streamable HTTP at `/mcp`. It replaced the legacy FastMCP 1.x implementation bundled inside the `mcp` SDK.
+
 ## 2. Access
 
 | Surface | URL | Notes |
@@ -36,6 +38,8 @@ This is not a generic one-server-per-service pattern. The package starts with to
 - Supabase Postgres through `supabase-db:5432`
 - Neo4j through `NEO4J_URI`
 - SearXNG through `http://searxng:8080`
+
+The runtime serves Streamable HTTP (stateless, JSON responses) at `/mcp` on container port `8000`, published to loopback (`127.0.0.1`) on the host. Transport settings live on FastMCP 3's `run(transport="http", …)` call, not the constructor. FastMCP 3's **Host/Origin protection** is enabled explicitly: only the direct loopback forms (`127.0.0.1` / `localhost` / `::1`), the Compose service hostname (`mcp-servers`), and the Kong route hostname (`mcp.localhost`) are accepted — any other `Host`/`Origin` is rejected (`421`/`403`). This guard is DNS-rebinding defense, not authentication: Kong Basic Auth + ACL remain the external authentication boundary (§6).
 
 Open WebUI and Hermes should consume the service directly as HTTP MCP clients where possible. LiteLLM MCP Gateway is reserved for cases where Atlas explicitly wants model-facing tool access under LiteLLM key/team/org policy.
 
@@ -82,6 +86,8 @@ _No high-confidence opportunities identified._
 - Namespace discipline: tool names are prefixed by their backend purpose to avoid collisions as more MCP servers arrive.
 - Prompt-injection risk: treat database rows and web search results as untrusted tool output.
 - Rate and size limits: use `MCP_POSTGRES_MAX_ROWS`, `MCP_SEARXNG_MAX_RESULTS`, and `MCP_TOOL_TIMEOUT_SECONDS` instead of unbounded queries.
+- Host/Origin boundary: FastMCP 3 rejects any request whose `Host`/`Origin` is not a loopback form, the `mcp-servers` Compose hostname, or `mcp.localhost`. This is transport-level DNS-rebinding defense layered under Kong Basic Auth + ACL, not a replacement for it; no second OAuth system is introduced.
+- Framework pinning / upgrade policy: `fastmcp==3.4.4` and `mcp==1.28.1` are pinned exactly because FastMCP permits breaking changes in minor releases; the image build runs `pip check` to keep the resolved graph consistent. Bump both together and re-run the framework tests (`bootstrapper/tests/test_mcp_servers_framework.py`, which exercises the real FastMCP client, the `/mcp` HTTP transport, and the Host/Origin guard) before upgrading.
 
 ## 7. Docling MCP Follow-Up
 
