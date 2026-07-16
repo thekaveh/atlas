@@ -28,6 +28,24 @@ from typing import Mapping
 
 
 @dataclass(frozen=True)
+class HostPortOverride:
+    """Per-source host-port resolution for host-process sources.
+
+    For host-process sources (``localhost``, ``managed-localhost-mps``,
+    ``ollama-localhost``) the compose *published* port is either dead (no
+    container listens on it) or unset, so ``ATLAS_<SVC>_HOST_ENDPOINT`` must
+    render from the port the host process actually serves on — not the default
+    ``host_port_var``. This is the exporter-side sibling of #610's source-aware
+    Kong route fix. ``default`` is the manifest's default host port, used when
+    the resolved ``.env`` doesn't carry ``port_var`` (host-source port vars keep
+    a fixed default and skip the topology slot allocator).
+    """
+
+    port_var: str
+    default: str | None = None
+
+
+@dataclass(frozen=True)
 class ServiceEndpoints:
     """One consumer-relevant service's endpoint sources."""
 
@@ -37,6 +55,8 @@ class ServiceEndpoints:
     container_secret: bool = False        # value embeds a secret (e.g. REDIS_URL)
     public_var: str | None = None         # browser-facing public base var
     host_port_var: str | None = None      # → http://localhost:${port}
+    # source value → host port for host-process sources (overrides host_port_var)
+    host_port_overrides: Mapping[str, HostPortOverride] = field(default_factory=dict)
     kong_alias: str | None = None         # → http://<alias>:${KONG_HTTP_PORT}
 
 
@@ -66,13 +86,32 @@ CONSUMER_SERVICES: tuple[ServiceEndpoints, ...] = (
         source_var="COMFYUI_SOURCE",
         container_var="COMFYUI_ENDPOINT",
         host_port_var="COMFYUI_PORT",
+        # Host-process sources serve on a fixed host port, not the (dead) compose
+        # published COMFYUI_PORT: managed-localhost-mps → 8188, localhost → 8000.
+        host_port_overrides={
+            "localhost": HostPortOverride("COMFYUI_LOCALHOST_PORT", "8000"),
+            "managed-localhost-mps": HostPortOverride(
+                "COMFYUI_MPS_LOCALHOST_PORT", "8188"
+            ),
+        },
         kong_alias="comfyui.localhost",
+    ),
+    ServiceEndpoints(
+        service="ASSET_WORKER",
+        source_var="ASSET_WORKER_SOURCE",
+        container_var="ASSET_WORKER_ENDPOINT",
+        host_port_var="ASSET_WORKER_PORT",
     ),
     ServiceEndpoints(
         service="OLLAMA",
         source_var="LLM_PROVIDER_SOURCE",
         container_var="OLLAMA_ENDPOINT",
         host_port_var="OLLAMA_PORT",
+        # ollama-localhost runs on the host; OLLAMA_PORT is unset under it, so the
+        # host endpoint must come from the host listen port (default 11434).
+        host_port_overrides={
+            "ollama-localhost": HostPortOverride("OLLAMA_LOCALHOST_PORT", "11434"),
+        },
         kong_alias="ollama.localhost",
     ),
     ServiceEndpoints(
@@ -152,8 +191,10 @@ class ExportField:
     secret: bool = False  # value is a ${ref}, not a resolved secret
 
 
-def _host_url(env: Mapping[str, str], port_var: str) -> str | None:
-    port = env.get(port_var, "").strip()
+def _host_url(
+    env: Mapping[str, str], port_var: str, default: str | None = None
+) -> str | None:
+    port = env.get(port_var, "").strip() or (default or "")
     if not port:
         return None
     return f"http://localhost:{port}"
@@ -211,8 +252,17 @@ def build_export(
             value = env.get(svc.public_var, "").strip()
             if value:
                 out.append(ExportField(f"{prefix}_PUBLIC_ENDPOINT", value))
-        if svc.host_port_var:
-            host = _host_url(env, svc.host_port_var)
+        # HOST_ENDPOINT is source-aware (#643): host-process sources
+        # (localhost / managed-localhost-mps / ollama-localhost) serve on a fixed
+        # host port, not the compose published port, which is dead or unset there.
+        host_port_var = svc.host_port_var
+        host_port_default: str | None = None
+        if source is not None and source in svc.host_port_overrides:
+            override = svc.host_port_overrides[source]
+            host_port_var = override.port_var
+            host_port_default = override.default
+        if host_port_var:
+            host = _host_url(env, host_port_var, host_port_default)
             if host:
                 out.append(ExportField(f"{prefix}_HOST_ENDPOINT", host))
         if svc.kong_alias:
