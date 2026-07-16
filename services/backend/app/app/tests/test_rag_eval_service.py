@@ -239,3 +239,130 @@ def test_metric_objects_context_metrics_work_without_embeddings(_suppress_ragas_
     )
     assert len(metrics) == 3
 
+
+def test_live_runner_executes_collection_metrics_through_batch_score(
+    monkeypatch, _suppress_ragas_warnings
+):
+    """Collection metrics are not legacy ``ragas.metrics.base.Metric`` objects.
+
+    The live runner must use their modern batch API instead of passing them to
+    deprecated ``ragas.evaluate()``, which rejects this type family before any
+    evaluator call.
+    """
+    from ragas.metrics.result import MetricResult
+
+    import rag_eval_service
+
+    seen: list[dict[str, object]] = []
+
+    class FakeFaithfulness:
+        name = "faithfulness"
+
+        async def ascore(self, user_input, response, retrieved_contexts):
+            raise AssertionError("batch_score should own synchronous execution")
+
+        def batch_score(self, inputs):
+            seen.extend(inputs)
+            return [
+                MetricResult(value=0.91 - index / 10, reason=f"supported-{index}")
+                for index, _ in enumerate(inputs)
+            ]
+
+    clients: dict[str, str] = {}
+
+    def fake_metric_objects(names, *, llm, embeddings):
+        clients["llm"] = type(llm.client).__name__
+        clients["embeddings"] = type(embeddings.client).__name__
+        return [FakeFaithfulness()]
+
+    monkeypatch.setattr(rag_eval_service, "_metric_objects", fake_metric_objects)
+
+    rows = rag_eval_service._run_ragas_evaluation(
+        [
+            {
+                "user_input": "What does Atlas use for routing?",
+                "response": "Atlas uses LiteLLM.",
+                "retrieved_contexts": ["Atlas routes model calls through LiteLLM."],
+                "reference": "LiteLLM",
+            },
+            {
+                "user_input": "Where are vectors stored?",
+                "response": "In Weaviate.",
+                "retrieved_contexts": ["Atlas uses Weaviate as its vector store."],
+                "reference": "Weaviate",
+            },
+        ],
+        ["faithfulness"],
+        {
+            "llm_api_key": "dummy",
+            "llm_base_url": "http://localhost:1/v1",
+            "evaluator_model": "dummy-chat",
+            "embeddings_model": "dummy-embed",
+            "raise_exceptions": False,
+        },
+    )
+
+    assert seen == [
+        {
+            "user_input": "What does Atlas use for routing?",
+            "response": "Atlas uses LiteLLM.",
+            "retrieved_contexts": ["Atlas routes model calls through LiteLLM."],
+        },
+        {
+            "user_input": "Where are vectors stored?",
+            "response": "In Weaviate.",
+            "retrieved_contexts": ["Atlas uses Weaviate as its vector store."],
+        },
+    ]
+    assert clients == {"llm": "AsyncInstructor", "embeddings": "AsyncOpenAI"}
+    assert rows == [
+        {
+            "scores": {"faithfulness": 0.91},
+            "metadata": {"metric_reasons": {"faithfulness": "supported-0"}},
+        },
+        {
+            "scores": {"faithfulness": 0.81},
+            "metadata": {"metric_reasons": {"faithfulness": "supported-1"}},
+        },
+    ]
+
+
+def test_collection_metric_failure_is_explicit_unless_raise_exceptions() -> None:
+    import rag_eval_service
+
+    class BrokenMetric:
+        name = "faithfulness"
+
+        async def ascore(self, user_input, response, retrieved_contexts):
+            raise AssertionError("not called directly")
+
+        def batch_score(self, inputs):
+            raise RuntimeError("evaluator unavailable")
+
+    records = [
+        {
+            "user_input": "Q",
+            "response": "A",
+            "retrieved_contexts": ["C"],
+            "reference": None,
+        }
+    ]
+
+    rows = rag_eval_service._score_collection_metrics(
+        records, [BrokenMetric()], raise_exceptions=False
+    )
+    assert rows == [
+        {
+            "scores": {"faithfulness": None},
+            "metadata": {
+                "metric_errors": {
+                    "faithfulness": "RuntimeError: evaluator unavailable"
+                }
+            },
+        }
+    ]
+
+    with pytest.raises(RuntimeError, match="evaluator unavailable"):
+        rag_eval_service._score_collection_metrics(
+            records, [BrokenMetric()], raise_exceptions=True
+        )
