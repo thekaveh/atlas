@@ -92,3 +92,171 @@ async def test_memory_health_returns_stable_public_error(monkeypatch):
     assert result["status"] == "unhealthy"
     assert result["error"] == "Memory service is unavailable"
     assert "SENTINEL_DATABASE_SECRET" not in repr(result)
+
+
+@pytest.mark.asyncio
+async def test_deactivate_embedding_patches_weaviate_active_flag(monkeypatch):
+    import memory_store
+
+    calls = []
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, _url, _json=None, **_kwargs):
+            return SimpleNamespace(
+                raise_for_status=lambda: None,
+                json=lambda: {"data": {"Get": {"Memory": []}}},
+            )
+
+        async def patch(self, url, json):
+            calls.append((url, json))
+            return SimpleNamespace(status_code=204, raise_for_status=lambda: None)
+
+    store = memory_store.MemoryStore(
+        "postgresql://atlas", weaviate_url="http://weaviate"
+    )
+    # Existing Weaviate IDs must be retired even while new writes have
+    # temporarily fallen back to pgvector.
+    store.backend = "pgvector"
+    store._initialized = True
+    monkeypatch.setattr(memory_store.httpx, "AsyncClient", lambda **_kwargs: Client())
+
+    await store.deactivate_embedding("fact-1", "vector-1")
+
+    assert calls == [
+        (
+            "http://weaviate/v1/objects/Memory/vector-1",
+            {"class": "Memory", "properties": {"isActive": False}},
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_store_embedding_uses_fact_uuid_as_deterministic_weaviate_id(
+    monkeypatch,
+):
+    import memory_store
+
+    payloads = []
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, url, json):
+            payloads.append((url, json))
+            return SimpleNamespace(
+                status_code=200,
+                raise_for_status=lambda: None,
+                json=lambda: {"id": json["id"]},
+            )
+
+    store = memory_store.MemoryStore(
+        "postgresql://atlas", weaviate_url="http://weaviate"
+    )
+    store.backend = "weaviate"
+    store._initialized = True
+    monkeypatch.setattr(memory_store.httpx, "AsyncClient", lambda **_kwargs: Client())
+
+    object_id = await store.store_embedding(
+        fact_id="00000000-0000-4000-8000-000000000001",
+        content="fact",
+        user_id="00000000-0000-4000-8000-000000000002",
+        namespace="default",
+        fact_type="observation",
+        confidence=0.9,
+        metadata={},
+    )
+
+    assert object_id == "00000000-0000-4000-8000-000000000001"
+    assert payloads[0][1]["id"] == object_id
+
+
+@pytest.mark.asyncio
+async def test_deactivate_embedding_finds_legacy_object_when_link_is_missing(
+    monkeypatch,
+):
+    import memory_store
+
+    patches = []
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, url, json):
+            assert url == "http://weaviate/v1/graphql"
+            assert "pgFactId" in json["query"]
+            return SimpleNamespace(
+                raise_for_status=lambda: None,
+                json=lambda: {
+                    "data": {
+                        "Get": {
+                            "Memory": [{"_additional": {"id": "legacy-vector"}}]
+                        }
+                    }
+                },
+            )
+
+        async def patch(self, url, json):
+            patches.append((url, json))
+            return SimpleNamespace(status_code=204, raise_for_status=lambda: None)
+
+    store = memory_store.MemoryStore(
+        "postgresql://atlas", weaviate_url="http://weaviate"
+    )
+    store.backend = "weaviate"
+    store._initialized = True
+    monkeypatch.setattr(memory_store.httpx, "AsyncClient", lambda **_kwargs: Client())
+
+    await store.deactivate_embedding(
+        "00000000-0000-4000-8000-000000000001", None
+    )
+
+    assert patches == [
+        (
+            "http://weaviate/v1/objects/Memory/legacy-vector",
+            {"class": "Memory", "properties": {"isActive": False}},
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_deactivate_embedding_rejects_graphql_errors(monkeypatch):
+    import memory_store
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, _url, _json=None, **_kwargs):
+            return SimpleNamespace(
+                raise_for_status=lambda: None,
+                json=lambda: {"errors": [{"message": "schema unavailable"}]},
+            )
+
+    store = memory_store.MemoryStore(
+        "postgresql://atlas", weaviate_url="http://weaviate"
+    )
+    store.backend = "weaviate"
+    store._initialized = True
+    monkeypatch.setattr(memory_store.httpx, "AsyncClient", lambda **_kwargs: Client())
+
+    with pytest.raises(RuntimeError, match="legacy-object lookup failed"):
+        await store.deactivate_embedding(
+            "00000000-0000-4000-8000-000000000001", None
+        )

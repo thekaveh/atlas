@@ -24,6 +24,7 @@ from rag_ingestion.clients import (
     MinioCorpusReader,
     MountCorpusReader,
     ParserAdapter,
+    WeaviateClient,
 )
 from rag_ingestion.profiles import ProfileNotFoundError, load_profiles
 from rag_ingestion.service import (
@@ -51,13 +52,20 @@ class FakeWeaviate:
         self._available = available
         self.written = []
         self.classes = []
+        self.object_ids = set()
+        self.reconciled = []
     def available(self):
         return self._available
     async def ensure_class(self, class_name):
         self.classes.append(class_name)
     async def write_objects(self, class_name, objects):
         self.written.extend(objects)
+        self.object_ids.update(obj["id"] for obj in objects)
         return len(objects)
+    async def reconcile_objects(self, class_name, profile_name, desired_ids):
+        self.reconciled.append((class_name, profile_name, list(desired_ids)))
+        self.object_ids.intersection_update(desired_ids)
+        return 0
 
 
 class FakeLightrag:
@@ -428,6 +436,108 @@ def test_content_change_at_same_corpus_path_creates_fresh_ingestion(
     assert created_first is True
     assert created_second is True
     assert second.id != first.id
+
+
+def test_empty_corpus_reconciles_away_prior_profile_objects(tmp_path, monkeypatch):
+    root = _corpus(tmp_path, monkeypatch, {"a.txt": "content"})
+    profile_path = _profiles_file(tmp_path)
+    weaviate = FakeWeaviate()
+    service = _service(
+        tmp_path,
+        Deps(
+            embedder=FakeEmbedder(),
+            weaviate=weaviate,
+            lightrag=FakeLightrag(available=False),
+            poll_interval=0.01,
+        ),
+        profile_path,
+    )
+    first, _ = service.submit("showcase-default")
+    assert asyncio.run(service.run(first.id)).status == "completed"
+    assert weaviate.object_ids
+
+    (root / "docs" / "a.txt").unlink()
+    second, created = service.submit("showcase-default")
+    final = asyncio.run(service.run(second.id))
+
+    assert created is True
+    assert final.status == "completed", final.errors
+    assert weaviate.object_ids == set()
+    assert weaviate.reconciled[-1] == (
+        "RagShowcase_showcase-default",
+        "showcase-default",
+        [],
+    )
+
+
+def test_run_uses_submitted_profile_snapshot_after_registry_changes(
+    tmp_path, monkeypatch
+):
+    root = _corpus(tmp_path, monkeypatch, {"a.txt": "submitted body"})
+    (root / "replacement").mkdir()
+    (root / "replacement" / "b.txt").write_text(
+        "replacement body", encoding="utf-8"
+    )
+    profile_path = _profiles_file(tmp_path)
+    weaviate = FakeWeaviate()
+    service = _service(
+        tmp_path,
+        Deps(
+            embedder=FakeEmbedder(),
+            weaviate=weaviate,
+            lightrag=FakeLightrag(available=False),
+            poll_interval=0.01,
+        ),
+        profile_path,
+    )
+    record, created = service.submit("showcase-default")
+
+    changed = json.loads(Path(profile_path).read_text(encoding="utf-8"))
+    changed["profiles"][0]["revision"] = "rev2"
+    changed["profiles"][0]["corpus"]["path"] = "replacement"
+    changed["profiles"][0]["vector_targets"][0]["collection_prefix"] = "Changed"
+    Path(profile_path).write_text(json.dumps(changed), encoding="utf-8")
+
+    final = asyncio.run(service.run(record.id))
+
+    assert created is True
+    assert final.status == "completed", final.errors
+    assert final.revision == "rev1"
+    assert final.corpus == {"source": "mount", "path": "docs"}
+    assert final.profile_snapshot["revision"] == "rev1"
+    assert final.counts["files_discovered"] == 1
+    assert weaviate.classes == ["RagShowcase_showcase-default"]
+
+
+def test_run_preserves_submitted_mount_override_after_registry_changes(
+    tmp_path, monkeypatch
+):
+    root = _corpus(tmp_path, monkeypatch, {"default.txt": "default body"})
+    (root / "override").mkdir()
+    (root / "override" / "selected.txt").write_text(
+        "selected body", encoding="utf-8"
+    )
+    profile_path = _profiles_file(tmp_path)
+    service = _service(
+        tmp_path,
+        Deps(
+            embedder=FakeEmbedder(),
+            weaviate=FakeWeaviate(),
+            lightrag=FakeLightrag(available=False),
+            poll_interval=0.01,
+        ),
+        profile_path,
+    )
+    record, _ = service.submit("showcase-default", corpus_path="override")
+    changed = json.loads(Path(profile_path).read_text(encoding="utf-8"))
+    changed["profiles"][0]["corpus"]["path"] = "docs"
+    Path(profile_path).write_text(json.dumps(changed), encoding="utf-8")
+
+    final = asyncio.run(service.run(record.id))
+
+    assert final.status == "completed", final.errors
+    assert final.corpus == {"source": "mount", "path": "override"}
+    assert final.counts["files_discovered"] == 1
 
 
 def test_parser_fallback_to_plain_text(tmp_path, monkeypatch):
@@ -1084,3 +1194,159 @@ def test_full_record_is_json_serializable(tmp_path, monkeypatch):
     # The status endpoint serializes this; ensure it round-trips.
     blob = json.dumps(final.to_dict())
     assert json.loads(blob)["status"] == "completed"
+
+
+def test_weaviate_object_422_is_only_idempotent_when_object_exists(monkeypatch):
+    request = httpx.Request("POST", "http://weaviate/v1/objects")
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, *_args, **_kwargs):
+            return httpx.Response(422, request=request, text="invalid vector")
+
+        async def head(self, url):
+            return httpx.Response(404, request=httpx.Request("HEAD", url))
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **_kwargs: Client())
+
+    with pytest.raises(httpx.HTTPStatusError, match="422"):
+        asyncio.run(
+            WeaviateClient("http://weaviate").write_objects(
+                "Rag", [{"id": "object-1", "properties": {}, "vector": [0.1]}]
+            )
+        )
+
+
+def test_weaviate_object_422_counts_existing_deterministic_object(monkeypatch):
+    request = httpx.Request("POST", "http://weaviate/v1/objects")
+
+    puts = []
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, *_args, **_kwargs):
+            return httpx.Response(422, request=request, text="already exists")
+
+        async def head(self, url):
+            return httpx.Response(204, request=httpx.Request("HEAD", url))
+
+        async def put(self, url, json):
+            puts.append((url, json))
+            return httpx.Response(200, request=httpx.Request("PUT", url))
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **_kwargs: Client())
+
+    written = asyncio.run(
+        WeaviateClient("http://weaviate").write_objects(
+            "Rag", [{"id": "object-1", "properties": {}, "vector": [0.1]}]
+        )
+    )
+
+    assert written == 1
+    assert puts[0][0] == "http://weaviate/v1/objects/Rag/object-1"
+    assert puts[0][1]["vector"] == [0.1]
+
+
+def test_weaviate_existing_object_does_not_hide_invalid_replacement(monkeypatch):
+    post_request = httpx.Request("POST", "http://weaviate/v1/objects")
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, *_args, **_kwargs):
+            return httpx.Response(422, request=post_request, text="duplicate id")
+
+        async def head(self, url):
+            return httpx.Response(204, request=httpx.Request("HEAD", url))
+
+        async def put(self, url, json):
+            return httpx.Response(
+                422, request=httpx.Request("PUT", url), text="invalid vector"
+            )
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **_kwargs: Client())
+
+    with pytest.raises(httpx.HTTPStatusError, match="422"):
+        asyncio.run(
+            WeaviateClient("http://weaviate").write_objects(
+                "Rag", [{"id": "object-1", "properties": {}, "vector": [0.1]}]
+            )
+        )
+
+
+def test_weaviate_schema_422_requires_the_class_to_exist(monkeypatch):
+    post_request = httpx.Request("POST", "http://weaviate/v1/schema")
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def get(self, url):
+            return httpx.Response(404, request=httpx.Request("GET", url))
+
+        async def post(self, *_args, **_kwargs):
+            return httpx.Response(422, request=post_request, text="invalid schema")
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **_kwargs: Client())
+
+    with pytest.raises(httpx.HTTPStatusError, match="422"):
+        asyncio.run(WeaviateClient("http://weaviate").ensure_class("Rag"))
+
+
+def test_weaviate_reconciliation_deletes_stale_profile_objects(monkeypatch):
+    deleted = []
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, url, json):
+            return httpx.Response(
+                200,
+                request=httpx.Request("POST", url),
+                json={
+                    "data": {
+                        "Get": {
+                            "Rag": [
+                                {"_additional": {"id": "keep"}},
+                                {"_additional": {"id": "stale"}},
+                            ]
+                        }
+                    }
+                },
+            )
+
+        async def delete(self, url):
+            deleted.append(url)
+            return httpx.Response(204, request=httpx.Request("DELETE", url))
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **_kwargs: Client())
+
+    count = asyncio.run(
+        WeaviateClient("http://weaviate").reconcile_objects(
+            "Rag", "showcase-default", ["keep"]
+        )
+    )
+
+    assert count == 1
+    assert deleted == ["http://weaviate/v1/objects/Rag/stale"]
