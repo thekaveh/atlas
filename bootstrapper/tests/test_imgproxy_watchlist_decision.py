@@ -13,7 +13,7 @@ def _candidate_text() -> str:
 def test_imgproxy_remains_watchlist_until_signed_asset_browser_flow_exists() -> None:
     text = _candidate_text()
 
-    assert "## Watchlist decision (2026-07-04)" in text
+    assert "Watchlist decision (2026-07-04)" in text
     assert "must not add `services/imgproxy/service.yml` yet" in text
     assert "`IMGPROXY_SOURCE=disabled|container`" in text
     assert "disabled by default" in text

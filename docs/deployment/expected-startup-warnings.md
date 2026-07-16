@@ -1,4 +1,4 @@
-# Expected Startup Warnings
+# 8.3. Expected Startup Warnings
 
 The first ~60 seconds after `./start.sh` produce a handful of warnings and one-shot ERROR lines that look alarming but are either (a) library-internal noise we can't suppress without forking, (b) intentional secure defaults, or (c) startup races that don't recur and don't affect functionality. This page enumerates the ones we've investigated and decided to live with, so future operators don't chase them.
 
@@ -8,7 +8,7 @@ If you see a warning *not* on this list, that's a real signal — start there.
 
 ## 1. Inventory
 
-### 1.1 Library-internal / image-baked deprecations (no action from us)
+### 1.1. Library-internal / image-baked deprecations (no action from us)
 
 | Service | Message | Why we live with it |
 |---|---|---|
@@ -19,14 +19,14 @@ If you see a warning *not* on this list, that's a real signal — start there.
 | `atlas-jupyterhub` | `WARNING: Use start-notebook.py instead` / `WARNING: container must be started as root to grant sudo permissions!` | Both come from the jupyter/docker-stacks base. We need root for sudo grants to the spawned user notebooks. |
 | `atlas-minio` | `WARNING: Host local has more than 0 drives of set. A host failure will result in data becoming unavailable.` | Single-host dev mode. Production multi-node MinIO would silence this. |
 
-### 1.2 Intentional secure defaults
+### 1.2. Intentional secure defaults
 
 | Service | Message | Why |
 |---|---|---|
 | `atlas-hermes` | `WARNING gateway.run: No user allowlists configured. All unauthorized users will be denied. Set GATEWAY_ALLOW_ALL_USERS=true ... or configure platform allowlists ...` | Hermes is secure-by-default — operator must explicitly opt in (per-platform allowlists or `GATEWAY_ALLOW_ALL_USERS=true`). |
 | `atlas-open-web-ui` | `WARNING: CORS_ALLOW_ORIGIN IS SET TO '*' - NOT RECOMMENDED FOR PRODUCTION DEPLOYMENTS.` | Dev default; production stacks should set an explicit origin list. |
 
-### 1.3 Unavoidable startup races
+### 1.3. Unavoidable startup races
 
 | Service | Message | Cause / mitigation |
 |---|---|---|
@@ -35,7 +35,7 @@ If you see a warning *not* on this list, that's a real signal — start there.
 | `atlas-lightrag` | `ERROR: PostgreSQL database, error:relation "lightrag_*" does not exist` × 8 at first boot, each immediately followed by `Creation success` + `Creating HNSW index ...` | LightRAG's PGVectorStorage uses a SELECT-then-CREATE pattern (probe-then-init) for its 8 backing tables. On a fresh DB the SELECT errors (no rows exist), the error is caught, CREATE TABLE runs, success line follows. Self-resolving; only fires on the very first boot against a clean Supabase volume. Same shape as the LiteLLM view-create race above. |
 | `atlas-kong-api-gateway` | `[warn] the "user" directive makes sense only if the master process runs with super-user privileges, ignored` × 2 | Kong's bundled nginx config sets a `user` directive but the container runs as a non-root user (matches Kong's own security recommendation). nginx ignores the directive; no functional impact. Kong upstream chose not to silence this. |
 
-### 1.4 macOS Docker Desktop — container expects Linux host paths
+### 1.4. macOS Docker Desktop — container expects Linux host paths
 
 The following warnings appear because containers built for Linux look for Linux-specific paths (`/etc/machine-id`, `/run/udev/data`, container-runtime sockets) that don't exist on macOS Docker Desktop's VM. All non-fatal; the affected services run normally.
 
@@ -46,19 +46,19 @@ The following warnings appear because containers built for Linux look for Linux-
 | `atlas-node-exporter` | `Failed to open directory, disabling udev device properties` (path `/run/udev/data`) | node-exporter's diskstats collector wants udev metadata. macOS doesn't have udev; the collector falls back to bare diskstats without device labels. |
 | `atlas-postgres-exporter` | `Error opening config file "postgres_exporter.yml": no such file or directory` | The exporter looks for an optional config file we don't mount. Without it, it uses sensible defaults and queries the database directly. Harmless. |
 
-### 1.5 Bind-mount permission quirks (macOS Docker Desktop)
+### 1.5. Bind-mount permission quirks (macOS Docker Desktop)
 
 | Service | Message | Why |
 |---|---|---|
 | `atlas-searxng` | `WARNING: "/etc/searxng" directory is not owned by "searxng:searxng"` + same for `settings.yml` | Bind-mount of `services/searxng/config/` into `/etc/searxng`. macOS files are owned by the host user (uid 501); inside the container they appear as `root:root` through Docker Desktop's UID translation. `chown` inside the container can't persist for host-side bind mounts. Searxng's own message says "MAY cause issues" — and in practice it doesn't (healthcheck + searches both succeed). |
 
-### 1.6 Capability gaps (documented, not silenced)
+### 1.6. Capability gaps (documented, not silenced)
 
 | Service | Message | Note |
 |---|---|---|
 | `atlas-n8n-worker` | `Failed to start Python task runner in internal mode. because Python 3 is missing from this system.` | The n8n image is Alpine + Node, no Python. We don't bundle the Python task runner. If you need Python nodes in n8n workflows, either (a) build a custom n8n image with `apk add python3 py3-pip`, or (b) deploy the runner in external mode per [n8n's docs](https://docs.n8n.io/hosting/configuration/task-runners/#setting-up-external-mode). |
 
-### 1.7 Acceptable info messages
+### 1.7. Acceptable info messages
 
 | Service | Message | Why |
 |---|---|---|
@@ -73,7 +73,7 @@ The following warnings appear because containers built for Linux look for Linux-
 | `atlas-zeppelin` | `Failed to load XML configuration, proceeding with a default` + `zeppelin.config.fs.dir is not specified, fall back to local conf directory` × 2 + `Credential/Interpreter/NotebookAuthorization file … is not existed` × 3 | Zeppelin starts fresh on each boot (no persistent `/opt/zeppelin/conf` bind-mount). It logs these WARNs, generates defaults in memory, and operates normally. All go silent immediately after startup. |
 | `atlas-spark-master` / `atlas-spark-connect` / `atlas-spark-history` / `atlas-spark-worker-{1,2}` | `WARNING: Using incubator modules: jdk.incubator.vector` + `Unable to load native-hadoop library for your platform... using builtin-java classes where applicable` | Both are JVM-level one-shot boot warnings. The incubator vector API is used by Spark's internal optimizers (harmless on JDK 17+). The native Hadoop library (`libhadoop.so`) is not bundled in the `apache/spark:4.1.2` base image; Spark falls back to Java implementations with no loss of functionality for our workloads. |
 
-### 1.8 Silenced — fixed at the source (do not re-add)
+### 1.8. Silenced — fixed at the source (do not re-add)
 
 These previously appeared in logs and have been actively silenced by config edits:
 

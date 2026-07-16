@@ -2,7 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from scripts.docs.build_docs import build
+from scripts.docs.build_docs import _validate_numbered_h1, build
+from scripts.docs.manifest import load_manifest
 
 
 def _repo(tmp_path: Path) -> Path:
@@ -17,11 +18,11 @@ def _repo(tmp_path: Path) -> Path:
         encoding="utf-8",
     )
     (tmp_path / "docs" / "index.md").write_text(
-        "# Overview\n\nA canonical sentence.\n\n[Guide](guide.md)\n",
+        "# 1. Overview\n\nA canonical sentence.\n\n[Guide](guide.md)\n",
         encoding="utf-8",
     )
     (tmp_path / "docs" / "guide.md").write_text(
-        "# Guide\n\nA canonical sentence.\n\n[Overview](index.md)\n",
+        "# 2. Guide\n\nA canonical sentence.\n\n[Overview](index.md)\n",
         encoding="utf-8",
     )
     (tmp_path / "docs" / "manifest.yaml").write_text(
@@ -64,6 +65,23 @@ def test_build_projects_same_content_to_site_and_wiki(tmp_path: Path) -> None:
     assert '"1. Overview": index.md' in mkdocs
     assert "repo_url" not in mkdocs
     assert "edit_uri" not in mkdocs
+
+
+def test_numbered_h1_validation_preserves_canonical_heading(tmp_path: Path) -> None:
+    root = _repo(tmp_path)
+    page = load_manifest(root / "docs" / "manifest.yaml", root).pages[0]
+    markdown = "# 1. Atlas Documentation\n\nCanonical content.\n"
+
+    assert _validate_numbered_h1(markdown, page) == markdown
+
+
+def test_numbered_h1_validation_rejects_manifest_drift(tmp_path: Path) -> None:
+    root = _repo(tmp_path)
+    manifest = load_manifest(root / "docs" / "manifest.yaml", root)
+    page = manifest.pages[0]
+
+    with pytest.raises(ValueError, match="canonical H1 must start with '# 1\\. '"):
+        _validate_numbered_h1("# Overview\n", page)
 
 
 def test_build_check_detects_no_difference_after_second_render(tmp_path: Path) -> None:

@@ -3,10 +3,14 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
+import logging
+import math
 import os
 
 import httpx
 
+
+logger = logging.getLogger(__name__)
 
 LONG_TAIL_EXTENSIONS = {
     ".eml",
@@ -43,6 +47,21 @@ UNSUPPORTED_MARKERS = (
     "unsupported_media_type",
     "unsupported media type",
 )
+MAX_TIMEOUT_SECONDS = 3600.0
+
+
+def _timeout_from_env() -> float:
+    raw = os.getenv("TIKA_TIMEOUT_SECONDS", "30")
+    try:
+        value = float(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("TIKA_TIMEOUT_SECONDS must be a finite number") from exc
+    if not math.isfinite(value) or value <= 0 or value > MAX_TIMEOUT_SECONDS:
+        raise ValueError(
+            "TIKA_TIMEOUT_SECONDS must be finite, greater than 0, and at most "
+            "3600 seconds"
+        )
+    return value
 
 
 class DocumentExtractionError(RuntimeError):
@@ -70,7 +89,7 @@ class DocumentExtractorConfig:
             docling_endpoint=os.getenv("DOCLING_ENDPOINT", ""),
             tika_endpoint=os.getenv("TIKA_ENDPOINT", ""),
             max_file_size=int(os.getenv("TIKA_MAX_FILE_SIZE", str(50 * 1024 * 1024))),
-            timeout_seconds=float(os.getenv("TIKA_TIMEOUT_SECONDS", "30")),
+            timeout_seconds=_timeout_from_env(),
         )
 
 
@@ -105,6 +124,7 @@ class DocumentExtractor:
         content: bytes,
         filename: str,
         content_type: str | None,
+        extractor: str | None = None,
     ) -> DocumentExtractionResult:
         if len(content) > self.config.max_file_size:
             raise DocumentTooLargeError(
@@ -112,7 +132,17 @@ class DocumentExtractor:
                 f"{self.config.max_file_size} bytes"
             )
 
-        if self._is_long_tail(filename, content_type):
+        if extractor not in {None, "docling", "tika"}:
+            raise ValueError(f"Unsupported document extractor: {extractor}")
+        if extractor == "tika":
+            return await self._extract_with_tika(
+                content=content,
+                filename=filename,
+                content_type=content_type,
+                fallback_reason="parser-order",
+            )
+
+        if extractor is None and self._is_long_tail(filename, content_type):
             return await self._extract_with_tika(
                 content=content,
                 filename=filename,
@@ -127,7 +157,7 @@ class DocumentExtractor:
         if response.status_code == 200:
             return self._docling_result(response, filename, content_type, len(content))
 
-        if self._is_docling_unsupported(response):
+        if extractor is None and self._is_docling_unsupported(response):
             return await self._extract_with_tika(
                 content=content,
                 filename=filename,
@@ -135,9 +165,13 @@ class DocumentExtractor:
                 fallback_reason="docling-unsupported",
             )
 
+        logger.warning(
+            "Docling extraction failed with HTTP %s: %s",
+            response.status_code,
+            self._safe_response_text(response),
+        )
         raise DocumentExtractionError(
-            f"Docling extraction failed with HTTP {response.status_code}: "
-            f"{self._safe_response_text(response)}"
+            f"Docling extraction failed with HTTP {response.status_code}"
         )
 
     async def _post_docling(
@@ -184,9 +218,13 @@ class DocumentExtractor:
             },
         )
         if response.status_code >= 400:
+            logger.warning(
+                "Tika extraction failed with HTTP %s: %s",
+                response.status_code,
+                self._safe_response_text(response),
+            )
             raise DocumentExtractionError(
-                f"Tika extraction failed with HTTP {response.status_code}: "
-                f"{self._safe_response_text(response)}"
+                f"Tika extraction failed with HTTP {response.status_code}"
             )
 
         source_format = self._source_format(filename, content_type)
@@ -221,8 +259,9 @@ class DocumentExtractor:
                 f"Docling extraction request timed out after {self.config.timeout_seconds} seconds"
             ) from exc
         except httpx.RequestError as exc:
+            logger.warning("Docling extraction request failed", exc_info=True)
             raise DocumentExtractionError(
-                f"Docling extraction request failed: {exc}"
+                "Docling extraction request failed"
             ) from exc
 
     async def _put(self, url: str, **kwargs: Any) -> Any:
@@ -237,9 +276,8 @@ class DocumentExtractor:
                 f"Tika extraction request timed out after {self.config.timeout_seconds} seconds"
             ) from exc
         except httpx.RequestError as exc:
-            raise DocumentExtractionError(
-                f"Tika extraction request failed: {exc}"
-            ) from exc
+            logger.warning("Tika extraction request failed", exc_info=True)
+            raise DocumentExtractionError("Tika extraction request failed") from exc
 
     def _docling_result(
         self,
@@ -248,15 +286,38 @@ class DocumentExtractor:
         content_type: str | None,
         file_size: int,
     ) -> DocumentExtractionResult:
-        payload = response.json()
-        metadata = dict(payload.get("metadata") or {})
+        try:
+            payload = response.json()
+        except Exception as exc:
+            logger.warning("Docling returned non-JSON success response", exc_info=True)
+            raise DocumentExtractionError("Docling returned an invalid response") from exc
+        if not isinstance(payload, Mapping):
+            raise DocumentExtractionError("Docling returned an invalid response")
+        content = payload.get("content")
+        output_format = payload.get("format")
+        raw_metadata = payload.get("metadata")
+        chunks = payload.get("chunks")
+        if (
+            not isinstance(content, str)
+            or not isinstance(output_format, str)
+            or not output_format.strip()
+            or not isinstance(raw_metadata, Mapping)
+            or (chunks is not None and not isinstance(chunks, list))
+            or (
+                isinstance(chunks, list)
+                and any(not isinstance(chunk, Mapping) for chunk in chunks)
+            )
+        ):
+            logger.warning("Docling returned malformed success payload")
+            raise DocumentExtractionError("Docling returned an invalid response")
+        metadata = dict(raw_metadata)
         metadata.setdefault("file_size", file_size)
         metadata.setdefault("content_type", content_type or "")
         return DocumentExtractionResult(
-            content=payload.get("content", ""),
+            content=content,
             extractor="docling",
-            format=payload.get("format", "markdown"),
-            chunks=payload.get("chunks"),
+            format=output_format,
+            chunks=[dict(chunk) for chunk in chunks] if chunks is not None else None,
             metadata=metadata,
             provenance=self._provenance(
                 filename=filename,

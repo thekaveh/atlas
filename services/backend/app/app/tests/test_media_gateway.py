@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import importlib
 import json
 import os
@@ -71,7 +72,6 @@ def test_media_generate_submits_fal_image_operation_without_exposing_key(monkeyp
             "model": "fal-ai/flux/dev",
             "input": {
                 "prompt": "orbital blue glass library",
-                "negative_prompt": "low detail",
                 "width": 768,
                 "height": 512,
                 "steps": 28,
@@ -95,6 +95,46 @@ def test_media_generate_submits_fal_image_operation_without_exposing_key(monkeyp
     assert calls["init"] == {"api_key": "fal-key", "model": "fal-ai/flux/dev"}
     assert calls["submit"]["modality"] == "image"
     assert calls["submit"]["input"]["prompt"] == "orbital blue glass library"
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("image_size", "square"),
+        ("image_size", [512, 512]),
+        ("seed", True),
+        ("seed", 42.0),
+        ("seed", "42"),
+    ),
+)
+def test_media_generate_rejects_malformed_image_schema_before_side_effects(
+    monkeypatch, field, value
+):
+    main = _fresh_main(monkeypatch)
+
+    async def unexpected_store_check():
+        raise AssertionError("validation must precede operation-store access")
+
+    class UnexpectedFalClient:
+        def __init__(self, *_args, **_kwargs):
+            raise AssertionError("validation must precede provider initialization")
+
+    monkeypatch.setattr(main, "_require_media_operation_store", unexpected_store_check)
+    monkeypatch.setattr(main, "FalClient", UnexpectedFalClient)
+
+    from fastapi.testclient import TestClient
+
+    response = TestClient(main.app).post(
+        "/media/generate",
+        json={
+            "modality": "image",
+            "provider": "fal",
+            "input": {"prompt": "strict route validation", field: value},
+        },
+    )
+
+    assert response.status_code == 400
+    assert field in response.json()["detail"]
 
 
 def test_media_operation_poll_normalizes_fal_result(monkeypatch):
@@ -198,6 +238,34 @@ def test_media_generate_rejects_unsupported_modality_before_provider_call(monkey
 
     assert response.status_code == 400
     assert "Unsupported media route" in response.json()["detail"]
+
+
+@pytest.mark.parametrize(
+    "input_payload",
+    ({}, {"prompt": ""}, {"prompt": "   "}, {"prompt": {}}, {"prompt": "x" * 4001}),
+)
+def test_media_generate_rejects_invalid_prompt_before_provider_call(
+    monkeypatch, input_payload
+):
+    main = _fresh_main(monkeypatch)
+
+    class ExplodingFalClient:
+        def __init__(self, *args, **kwargs):
+            raise AssertionError("invalid prompts must not initialize FalClient")
+
+    monkeypatch.setattr(main, "FalClient", ExplodingFalClient, raising=False)
+
+    from fastapi.testclient import TestClient
+
+    response = TestClient(main.app).post(
+        "/media/generate",
+        json={"modality": "image", "provider": "fal", "input": input_payload},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == (
+        "Media image prompt must be a non-empty string of at most 4000 characters"
+    )
 
 
 def test_media_generate_requires_enabled_fal_source_and_key(monkeypatch):
@@ -417,6 +485,24 @@ def test_media_generate_image_to_3d_unknown_model_rejected(monkeypatch):
     assert "Unknown image_to_3d model" in response.json()["detail"]
 
 
+def test_media_generate_image_to_3d_unverified_model_rejected(monkeypatch):
+    main = _fresh_main(monkeypatch)
+    from fastapi.testclient import TestClient
+
+    response = TestClient(main.app).post(
+        "/media/generate",
+        json={
+            "modality": "image_to_3d",
+            "provider": "fal",
+            "model": "pixal3d",
+            "input": {"image": "https://cdn.example/sprite.png"},
+        },
+    )
+
+    assert response.status_code == 400
+    assert "not verified" in response.json()["detail"]
+
+
 def test_media_generate_image_to_3d_hosts_datauri_for_tripo(monkeypatch):
     main = _fresh_main(monkeypatch)
     _CapturingFalClient.captured = {}
@@ -451,7 +537,7 @@ def test_media_generate_image_to_3d_hosts_datauri_for_tripo(monkeypatch):
     )
     assert (
         _CapturingFalClient.captured["submit"]["model"]
-        == "fal-ai/tripo3d/tripo/v2.5/image-to-3d"
+        == "tripo3d/tripo/v2.5/image-to-3d"
     )
 
 
@@ -559,9 +645,13 @@ def test_media_operation_times_out(monkeypatch):
     )
     assert submitted.status_code == 202
 
-    # Force the operation past its timeout budget.
-    main.MEDIA_OPERATIONS["fal-3d-9"]["created_at"] = 0.0
-    main.MEDIA_OPERATIONS["fal-3d-9"]["timeout_seconds"] = 1
+    # Advance the wall clock beyond the operation's timeout budget.
+    operation = asyncio.run(main.MEDIA_OPERATION_STORE.get("fal-3d-9"))
+    monkeypatch.setattr(
+        main.time,
+        "time",
+        lambda: operation["created_at_epoch"] + operation["timeout_seconds"] + 1,
+    )
 
     polled = client.get("/media/operations/fal-3d-9")
     assert polled.status_code == 200
@@ -570,11 +660,12 @@ def test_media_operation_times_out(monkeypatch):
 
 # ── #518: POST /media/operations/{id}/cancel ────────────────────────────────
 def _seed_inflight_operation(main, operation_id="fal-req-cxl", budget_tracked=True):
-    main.MEDIA_OPERATIONS[operation_id] = {
+    asyncio.run(main.MEDIA_OPERATION_STORE.create({
+        "operation_id": operation_id,
         "provider": "fal",
         "modality": "image",
         "model": "fal-ai/flux/dev",
-        "created_at": __import__("time").monotonic(),
+        "created_at_epoch": __import__("time").time(),
         "timeout_seconds": 120,
         "last_payload": {
             "operation_id": operation_id,
@@ -593,7 +684,7 @@ def _seed_inflight_operation(main, operation_id="fal-req-cxl", budget_tracked=Tr
         "project": None,
         "budget_tracked": budget_tracked,
         "reconciled": False,
-    }
+    }))
     return operation_id
 
 
@@ -609,6 +700,7 @@ class _CancelFalClient:
     """FalClient stub whose provider cancel outcome is configurable."""
 
     result = True
+    poll_status = "cancelled"
     constructions = 0
 
     def __init__(self, *args, **kwargs):
@@ -625,6 +717,21 @@ class _CancelFalClient:
             raise type(self).result
         return type(self).result
 
+    async def get_media_operation(self, *, operation_id, modality):
+        return {
+            "operation_id": operation_id,
+            "status": type(self).poll_status,
+            "provider": "fal",
+            "model": "fal-ai/flux/dev",
+            "modality": modality,
+            "artifact_url": None,
+            "artifacts": [],
+            "cost_usd": None,
+            "license": "fal/provider-terms",
+            "provenance": {"provider_request_id": operation_id},
+            "raw": {},
+        }
+
 
 def test_media_cancel_unknown_operation_returns_404(monkeypatch):
     main = _fresh_main(monkeypatch)
@@ -634,9 +741,7 @@ def test_media_cancel_unknown_operation_returns_404(monkeypatch):
     assert response.status_code == 404
 
 
-def test_media_cancel_marks_terminal_releases_budget_and_propagates(monkeypatch):
-    """#518 core: cancel → terminal `cancelled`, ledger reconciled with
-    status=cancelled (reservation release, #342), provider cancel delivered."""
+def test_media_cancel_requests_provider_cancellation_without_releasing_budget(monkeypatch):
     main = _fresh_main(monkeypatch)
     op_id = _seed_inflight_operation(main)
     spy = _ReconcileSpy()
@@ -649,13 +754,54 @@ def test_media_cancel_marks_terminal_releases_budget_and_propagates(monkeypatch)
     response = TestClient(main.app).post(f"/media/operations/{op_id}/cancel")
     assert response.status_code == 200
     body = response.json()
-    assert body["status"] == "cancelled"
-    assert body["provenance"]["provider_cancelled"] is True
-    # Ledger settled exactly once with the spend-releasing status.
-    assert len(spy.calls) == 1
-    assert spy.calls[0]["status"] == "cancelled"
-    assert spy.calls[0]["operation_id"] == op_id
-    assert main.MEDIA_OPERATIONS[op_id]["reconciled"] is True
+    assert body["status"] == "cancellation_requested"
+    assert body["provenance"]["provider_cancellation_requested"] is True
+    assert spy.calls == []
+    persisted = asyncio.run(main.MEDIA_OPERATION_STORE.get(op_id))
+    assert persisted["reconciled"] is False
+
+
+def test_media_cancel_retries_cas_after_concurrent_nonterminal_poll(monkeypatch):
+    main = _fresh_main(monkeypatch)
+    op_id = _seed_inflight_operation(main)
+    base_store = main.MEDIA_OPERATION_STORE
+
+    class RacingStore:
+        def __init__(self):
+            self.expected_statuses = []
+            self.raced = False
+
+        async def get(self, operation_id):
+            return await base_store.get(operation_id)
+
+        async def transition_payload(
+            self, operation_id, payload, *, expected_status=None
+        ):
+            self.expected_statuses.append(expected_status)
+            if not self.raced:
+                self.raced = True
+                current = await base_store.get(operation_id)
+                polled = dict(current["last_payload"])
+                polled["status"] = "queued"
+                await base_store.transition_payload(operation_id, polled)
+            return await base_store.transition_payload(
+                operation_id, payload, expected_status=expected_status
+            )
+
+    racing_store = RacingStore()
+    monkeypatch.setattr(main, "MEDIA_OPERATION_STORE", racing_store)
+    _CancelFalClient.result = True
+    _CancelFalClient.constructions = 0
+    monkeypatch.setattr(main, "FalClient", _CancelFalClient, raising=False)
+
+    from fastapi.testclient import TestClient
+
+    response = TestClient(main.app).post(f"/media/operations/{op_id}/cancel")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "cancellation_requested"
+    assert racing_store.expected_statuses[:2] == ["in_progress", "queued"]
+    assert _CancelFalClient.constructions == 1
 
 
 def test_media_cancel_is_idempotent_409_when_already_terminal(monkeypatch):
@@ -672,16 +818,16 @@ def test_media_cancel_is_idempotent_409_when_already_terminal(monkeypatch):
     assert client.post(f"/media/operations/{op_id}/cancel").status_code == 200
     second = client.post(f"/media/operations/{op_id}/cancel")
     assert second.status_code == 409
-    # Reconcile ran once, not twice.
-    assert len(spy.calls) == 1
+    assert spy.calls == []
 
 
-def test_media_poll_after_cancel_is_stable_and_skips_provider(monkeypatch):
-    """AC: GET reports status=cancelled after cancel — and never re-polls the
-    provider (the payload must not flip back to the provider's status)."""
+def test_media_poll_after_cancel_confirms_terminal_and_releases_budget(monkeypatch):
     main = _fresh_main(monkeypatch)
-    op_id = _seed_inflight_operation(main, budget_tracked=False)
+    op_id = _seed_inflight_operation(main)
+    spy = _ReconcileSpy()
+    monkeypatch.setattr(main, "MEDIA_BUDGET_ENGINE", spy, raising=False)
     _CancelFalClient.result = True
+    _CancelFalClient.poll_status = "cancelled"
     _CancelFalClient.constructions = 0
     monkeypatch.setattr(main, "FalClient", _CancelFalClient, raising=False)
 
@@ -689,18 +835,37 @@ def test_media_poll_after_cancel_is_stable_and_skips_provider(monkeypatch):
 
     client = TestClient(main.app)
     assert client.post(f"/media/operations/{op_id}/cancel").status_code == 200
-    constructions_after_cancel = _CancelFalClient.constructions
-
     poll = client.get(f"/media/operations/{op_id}")
     assert poll.status_code == 200
     assert poll.json()["status"] == "cancelled"
-    # No new FalClient was constructed for the poll — terminal is stable.
-    assert _CancelFalClient.constructions == constructions_after_cancel
+    assert len(spy.calls) == 1
+    assert spy.calls[0]["status"] == "cancelled"
 
 
-def test_media_cancel_degrades_when_provider_cancel_fails(monkeypatch):
-    """Best-effort contract: an undeliverable provider cancel still cancels
-    server-side and releases the budget."""
+def test_media_poll_after_cancel_preserves_request_until_provider_is_terminal(
+    monkeypatch,
+):
+    main = _fresh_main(monkeypatch)
+    op_id = _seed_inflight_operation(main)
+    spy = _ReconcileSpy()
+    monkeypatch.setattr(main, "MEDIA_BUDGET_ENGINE", spy, raising=False)
+    _CancelFalClient.result = True
+    _CancelFalClient.poll_status = "running"
+    monkeypatch.setattr(main, "FalClient", _CancelFalClient, raising=False)
+
+    from fastapi.testclient import TestClient
+
+    client = TestClient(main.app)
+    assert client.post(f"/media/operations/{op_id}/cancel").status_code == 200
+    poll = client.get(f"/media/operations/{op_id}")
+
+    assert poll.status_code == 200
+    assert poll.json()["status"] == "cancellation_requested"
+    assert poll.json()["provenance"]["provider_cancellation_requested"] is True
+    assert spy.calls == []
+
+
+def test_media_cancel_failure_retains_nonterminal_state_and_budget(monkeypatch):
     main = _fresh_main(monkeypatch)
     op_id = _seed_inflight_operation(main)
     spy = _ReconcileSpy()
@@ -713,14 +878,12 @@ def test_media_cancel_degrades_when_provider_cancel_fails(monkeypatch):
     response = TestClient(main.app).post(f"/media/operations/{op_id}/cancel")
     assert response.status_code == 200
     body = response.json()
-    assert body["status"] == "cancelled"
-    assert body["provenance"]["provider_cancelled"] is False
-    assert len(spy.calls) == 1
+    assert body["status"] == "cancellation_requested"
+    assert body["provenance"]["provider_cancellation_requested"] is False
+    assert spy.calls == []
 
 
-def test_media_cancel_works_server_side_when_fal_disabled(monkeypatch):
-    """Even with the provider unavailable (FAL_SOURCE=disabled) the op is
-    cancelled server-side and stops counting against spend."""
+def test_media_cancel_while_fal_disabled_retains_state_and_budget(monkeypatch):
     main = _fresh_main(monkeypatch, fal_source="disabled", fal_api_key="")
     op_id = _seed_inflight_operation(main)
     spy = _ReconcileSpy()
@@ -731,9 +894,9 @@ def test_media_cancel_works_server_side_when_fal_disabled(monkeypatch):
     response = TestClient(main.app).post(f"/media/operations/{op_id}/cancel")
     assert response.status_code == 200
     body = response.json()
-    assert body["status"] == "cancelled"
-    assert body["provenance"]["provider_cancelled"] is False
-    assert len(spy.calls) == 1
+    assert body["status"] == "cancellation_requested"
+    assert body["provenance"]["provider_cancellation_requested"] is False
+    assert spy.calls == []
 
 
 # ── #519: provider=comfyui route parity (submit/poll/cancel/img2img) ───────
@@ -949,9 +1112,11 @@ def test_comfyui_cancel_marks_terminal_and_propagates(monkeypatch):
     response = client.post(f"/media/operations/{op_id}/cancel")
     assert response.status_code == 200
     body = response.json()
-    assert body["status"] == "cancelled"
-    # provider cancel was delivered to ComfyUI (queue delete + interrupt).
-    assert body["provenance"]["provider_cancelled"] is True
+    # Cancel is nonterminal (cancellation_requested) and retains the spend
+    # reservation until a later poll confirms terminal — the merged gateway's
+    # hardening semantics (#518/#519): provider cancel was still delivered.
+    assert body["status"] == "cancellation_requested"
+    assert body["provenance"]["provider_cancellation_requested"] is True
     assert _FakeComfyUIMediaClient.cancel_kwargs["operation_id"] == op_id
 
 

@@ -8,7 +8,7 @@
 
 **Tech Stack:** `bootstrapper/utils/key_generator.py`; pytest; README markdown.
 
-## Global Constraints
+## 1. Global Constraints
 
 - `main` protected — PR with 3 green checks; no direct push.
 - Commits terse third-person, no emoji, no Claude trailer.
@@ -17,7 +17,7 @@
 
 ---
 
-### Task 1: Guard that every placeholder secret is rotation-covered
+### 1.1. Task 1: Guard that every placeholder secret is rotation-covered
 
 **Files:**
 - Modify: `bootstrapper/tests/test_credential_placeholder_rotation.py` (strengthen the coverage assertion)
@@ -78,7 +78,7 @@ git commit -m "Guard: every placeholder secret is rotation-covered"
 
 ---
 
-### Task 2: Startup hard-stop if a placeholder secret reaches a prod launch
+### 1.2. Task 2: Startup hard-stop if a placeholder secret reaches a prod launch
 
 **Files:**
 - Modify: `bootstrapper/utils/key_generator.py` (add a verifier) and its call site in `bootstrapper/start.py`
@@ -147,7 +147,7 @@ git commit -m "Add prod-launch gate for unrotated placeholder secrets"
 
 ---
 
-### Task 3: Correct the README cross-OS claim
+### 1.3. Task 3: Correct the README cross-OS claim
 
 **Files:**
 - Modify: `README.md:160`, `README.md:173`
@@ -184,7 +184,7 @@ git commit -m "docs: correct cross-OS claim (Windows = WSL/Git Bash)"
 
 ---
 
-### Task 4: Full suite + CHANGELOG
+### 1.4. Task 4: Full suite + CHANGELOG
 
 - [ ] **Step 1: Run the whole suite**
 
@@ -202,7 +202,7 @@ git commit -m "docs: changelog for secrets hygiene + cross-OS correction"
 
 ---
 
-## Self-Review
+## 2. Self-Review
 
 - **Spec coverage:** Implements P0-4 (secrets hygiene — coverage guard + prod-launch gate) and P0-9 (README cross-OS correction). The prod-launch gate (Task 2) depends on Plan B's `--profile prod`/`self.profile`; if Plan B isn't merged first, gate the call on `getattr(self, "profile", "default")` which safely no-ops in default mode.
 - **Placeholders:** none — exact line replacements for the README, complete test + method bodies. The one conditional ("if the coverage test fails, fix by blanking or adding a rotator") is a genuine branch with both arms specified, not a placeholder.

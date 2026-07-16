@@ -4,6 +4,7 @@
     {
       "parameters": {
         "httpMethod": "POST",
+        "authentication": "headerAuth",
         "path": "comfyui-trigger",
         "responseMode": "responseNode",
         "options": {}
@@ -16,11 +17,17 @@
         240,
         300
       ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "atlas-webhook-header-auth",
+          "name": "Atlas Webhook Header Auth"
+        }
+      },
       "webhookId": "comfyui-trigger"
     },
     {
       "parameters": {
-        "jsCode": "// Validate and prepare ComfyUI generation request\nconst input = $input.first().json;\n\n// Required parameters\nif (!input.prompt) {\n  throw new Error('Prompt is required for image generation');\n}\n\n// Set defaults for optional parameters\nconst generationRequest = {\n  prompt: input.prompt,\n  negative_prompt: input.negative_prompt || '',\n  width: input.width || 512,\n  height: input.height || 512,\n  steps: input.steps || 20,\n  cfg: input.cfg || 7.0,\n  checkpoint: input.checkpoint || 'v1-5-pruned-emaonly.safetensors',\n  wait_for_completion: input.wait_for_completion !== false // Default to true\n};\n\n// Validate dimensions\nif (generationRequest.width < 64 || generationRequest.width > 2048) {\n  throw new Error('Width must be between 64 and 2048 pixels');\n}\nif (generationRequest.height < 64 || generationRequest.height > 2048) {\n  throw new Error('Height must be between 64 and 2048 pixels');\n}\n\n// Validate steps\nif (generationRequest.steps < 1 || generationRequest.steps > 150) {\n  throw new Error('Steps must be between 1 and 150');\n}\n\n// Validate CFG\nif (generationRequest.cfg < 1 || generationRequest.cfg > 30) {\n  throw new Error('CFG scale must be between 1 and 30');\n}\n\nreturn {\n  generationRequest,\n  originalInput: input,\n  timestamp: new Date().toISOString()\n};"
+        "jsCode": "// Validate and prepare ComfyUI generation request\nconst webhook = $input.first().json;\nconst input = webhook.body || webhook;\n\n// Required parameters\nif (!input.prompt) {\n  throw new Error('Prompt is required for image generation');\n}\n\n// Set defaults for optional parameters\nconst generationRequest = {\n  prompt: input.prompt,\n  negative_prompt: input.negative_prompt ?? '',\n  width: input.width ?? 512,\n  height: input.height ?? 512,\n  steps: input.steps ?? 20,\n  cfg: input.cfg ?? 7.0,\n  checkpoint: input.checkpoint ?? 'v1-5-pruned-emaonly.safetensors',\n  wait_for_completion: input.wait_for_completion !== false // Default to true\n};\n\nconst integerFields = new Set(['width', 'height', 'steps']);\nfor (const field of ['width', 'height', 'steps', 'cfg']) {\n  const value = generationRequest[field];\n  if (typeof value !== 'number' || !Number.isFinite(value) ||\n      (integerFields.has(field) && !Number.isInteger(value))) {\n    throw new Error(`${field} must be a finite number and dimensions/steps must be integers`);\n  }\n}\n\n// Validate dimensions\nif (generationRequest.width < 64 || generationRequest.width > 2048) {\n  throw new Error('Width must be between 64 and 2048 pixels');\n}\nif (generationRequest.height < 64 || generationRequest.height > 2048) {\n  throw new Error('Height must be between 64 and 2048 pixels');\n}\n\n// Validate steps\nif (generationRequest.steps < 1 || generationRequest.steps > 150) {\n  throw new Error('Steps must be between 1 and 150');\n}\n\n// Validate CFG\nif (generationRequest.cfg < 0 || generationRequest.cfg > 30) {\n  throw new Error('CFG scale must be between 0 and 30');\n}\n\nreturn {\n  generationRequest,\n  originalInput: input,\n  timestamp: new Date().toISOString()\n};"
       },
       "id": "bd9f86d4-8e09-5c02-c62e-f6c4c9f9c9f2",
       "name": "Validate Request",
@@ -34,6 +41,10 @@
     {
       "parameters": {
         "url": "http://backend:8000/comfyui/health",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{"name": "Authorization", "value": "={{ 'Bearer ' + $env.BACKEND_N8N_API_TOKEN }}"}]
+        },
         "options": {
           "response": {
             "response": {
@@ -85,7 +96,12 @@
     },
     {
       "parameters": {
+        "method": "POST",
         "url": "http://backend:8000/comfyui/generate",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{"name": "Authorization", "value": "={{ 'Bearer ' + $env.BACKEND_N8N_API_TOKEN }}"}]
+        },
         "sendBody": true,
         "bodyParameters": {
           "parameters": [
@@ -142,7 +158,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Process successful image generation result\nconst result = $input.first().json;\nconst originalRequest = $('Validate Request').item.json;\n\nif (!result.success) {\n  throw new Error(`Image generation failed: ${result.error || 'Unknown error'}`);\n}\n\n// Extract generation info\nconst response = {\n  success: true,\n  prompt_id: result.prompt_id,\n  client_id: result.client_id,\n  message: result.message || 'Image generated successfully',\n  generation_parameters: {\n    prompt: originalRequest.generationRequest.prompt,\n    negative_prompt: originalRequest.generationRequest.negative_prompt,\n    width: originalRequest.generationRequest.width,\n    height: originalRequest.generationRequest.height,\n    steps: originalRequest.generationRequest.steps,\n    cfg: originalRequest.generationRequest.cfg,\n    checkpoint: originalRequest.generationRequest.checkpoint\n  },\n  outputs: result.data?.outputs || {},\n  workflow_info: {\n    execution_id: $execution.id,\n    workflow_name: $workflow.name,\n    completed_at: new Date().toISOString(),\n    processing_time: Math.round((Date.now() - new Date(originalRequest.timestamp).getTime()) / 1000)\n  }\n};\n\n// If outputs contain images, extract image information\nif (result.data?.outputs) {\n  const imageFiles = [];\n  for (const [nodeId, nodeOutput] of Object.entries(result.data.outputs)) {\n    if (nodeOutput.images && Array.isArray(nodeOutput.images)) {\n      for (const img of nodeOutput.images) {\n        if (img.filename) {\n          imageFiles.push({\n            filename: img.filename,\n            subfolder: img.subfolder || '',\n            folder_type: img.folder_type || 'output',\n            node_id: nodeId\n          });\n        }\n      }\n    }\n  }\n  response.generated_images = imageFiles;\n  response.image_count = imageFiles.length;\n}\n\nreturn response;"
+        "jsCode": "// Process successful image generation result\nconst result = $input.first().json;\nconst originalRequest = $('Validate Request').item.json;\n\nif (!result.success) {\n  throw new Error(`Image generation failed: ${result.error || 'Unknown error'}`);\n}\n\n// Extract generation info\nconst response = {\n  success: true,\n  prompt_id: result.prompt_id,\n  client_id: result.client_id,\n  message: result.message || 'Image generated successfully',\n  generation_parameters: {\n    prompt: originalRequest.generationRequest.prompt,\n    negative_prompt: originalRequest.generationRequest.negative_prompt,\n    width: originalRequest.generationRequest.width,\n    height: originalRequest.generationRequest.height,\n    steps: originalRequest.generationRequest.steps,\n    cfg: originalRequest.generationRequest.cfg,\n    checkpoint: originalRequest.generationRequest.checkpoint\n  },\n  outputs: result.data?.outputs || {},\n  workflow_info: {\n    execution_id: $execution.id,\n    workflow_name: $workflow.name,\n    completed_at: new Date().toISOString(),\n    processing_time: Math.round((Date.now() - new Date(originalRequest.timestamp).getTime()) / 1000)\n  }\n};\n\n// Extract provider-specific artifact references.\nif (result.data?.outputs) {\n  const imageFiles = [];\n  if (result.data.provider === 'fal' && Array.isArray(result.data.outputs.images)) {\n    for (const img of result.data.outputs.images) {\n      if (typeof img.url === 'string' && /^https?:\\/\\//.test(img.url)) {\n        imageFiles.push({\n          url: img.url,\n          content_type: img.content_type || null,\n          width: img.width || null,\n          height: img.height || null,\n          provider: 'fal'\n        });\n      }\n    }\n  } else {\n    for (const [nodeId, nodeOutput] of Object.entries(result.data.outputs)) {\n      if (nodeOutput.images && Array.isArray(nodeOutput.images)) {\n        for (const img of nodeOutput.images) {\n          if (img.filename) {\n            imageFiles.push({\n              filename: img.filename,\n              subfolder: img.subfolder || '',\n              folder_type: img.folder_type || 'output',\n              node_id: nodeId\n            });\n          }\n        }\n      }\n    }\n  }\n  response.generated_images = imageFiles;\n  response.image_count = imageFiles.length;\n}\n\nreturn response;"
       },
       "id": "fg3f20g8-2g43-9g46-g06g-j0g8g3j3g3j6",
       "name": "Process Success",
@@ -197,6 +213,10 @@
     {
       "parameters": {
         "url": "http://backend:8000/comfyui/db/models?active_only=true&essential_only=false",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{"name": "Authorization", "value": "={{ 'Bearer ' + $env.BACKEND_N8N_API_TOKEN }}"}]
+        },
         "options": {
           "response": {
             "response": {
@@ -358,19 +378,5 @@
   "meta": {
     "templateCredsSetupCompleted": true
   },
-  "id": "comfyui-image-generation",
-  "tags": [
-    {
-      "createdAt": "2024-01-15T12:00:00.000Z",
-      "updatedAt": "2024-01-15T12:00:00.000Z",
-      "id": "comfyui",
-      "name": "ComfyUI"
-    },
-    {
-      "createdAt": "2024-01-15T12:00:00.000Z",
-      "updatedAt": "2024-01-15T12:00:00.000Z",
-      "id": "image-generation",
-      "name": "Image Generation"
-    }
-  ]
+  "id": "comfyui-image-generation"
 }

@@ -1,4 +1,4 @@
-# LightRAG
+# 5.2.25. LightRAG
 
 > **Image:** `ghcr.io/hkuds/lightrag:v1.5.4`
 > **Container port:** 9621 (API + WebUI)  · **Default host port:** allocated by `topology.py` (agents band 63070–63089)
@@ -81,11 +81,11 @@ litellm-init re-seed.
 
 ## 4. Usage
 
-### 4.1 Web UI
+### 4.1. Web UI
 
 Browse `http://lightrag.localhost:${KONG_HTTP_PORT}` (after `--setup-hosts`) or `http://localhost:${LIGHTRAG_API_PORT}/webui`. Upload documents, view the KG, run queries.
 
-### 4.2 Native API
+### 4.2. Native API
 
 ```bash
 # Insert a document
@@ -102,7 +102,7 @@ curl -sX POST http://localhost:${LIGHTRAG_API_PORT}/query \
 
 Query mode prefixes: `/hybrid`, `/local`, `/global`, `/naive`, `/mix`. Default is `/hybrid`.
 
-### 4.3 Via LiteLLM (recommended for other stack services)
+### 4.3. Via LiteLLM (recommended for other stack services)
 
 LightRAG is registered with LiteLLM as the `lightrag` model when enabled. Any LiteLLM consumer (open-webui, openclaw, n8n, hermes, backend, local-deep-researcher, jupyterhub) can invoke it:
 
@@ -120,9 +120,7 @@ curl -sX POST http://localhost:${LITELLM_PORT}/v1/chat/completions \
 
 ## 5. Dependencies & Integrations
 
-> Auto-generated section — the **Current** subsections are derived from `services/lightrag/service.yml`'s `data_flow.calls` field (and inverse passes). Re-run `python -m bootstrapper.docs.regen lightrag` after manifest changes.
-
-### 5.1 Current — Upstream (this service calls)
+### 5.1. Current — Upstream (this service calls)
 
 | Service | Category |
 |---|---|
@@ -132,31 +130,32 @@ curl -sX POST http://localhost:${LITELLM_PORT}/v1/chat/completions \
 | litellm ↔ | llm |
 | docling | media |
 
-### 5.2 Current — Downstream (services that call this)
+### 5.2. Current — Downstream (services that call this)
 
 | Service | Category |
 |---|---|
 | kong | infra |
 | litellm ↔ | llm |
+| celery | agents |
 | hermes | agents |
 | n8n | agents |
 | backend | apps |
 
-### 5.3 Architecture diagram
+### 5.3. Architecture diagram
 
 ![lightrag architecture](./architecture.svg)
 
 [Open the interactive HTML diagram](./architecture.html) for a full-screen view.
 
-### 5.4 Future — Missing pair integrations
+### 5.4. Future — Missing pair integrations
 
 _No high-confidence opportunities identified._
 
-### 5.5 Future — Candidate new services
+### 5.5. Future — Candidate new services
 
 _No high-confidence opportunities identified._
 
-### 5.6 Future — Unused features in this service
+### 5.6. Future — Unused features in this service
 
 _No high-confidence opportunities identified._
 

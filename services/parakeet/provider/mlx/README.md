@@ -1,19 +1,19 @@
-# Parakeet MLX Server - OpenAI-Compatible STT API
+# 5.3.3. Parakeet MLX Provider
 
 OpenAI-compatible Speech-to-Text API server for Apple Silicon using the official `parakeet-mlx` library.
 
-## Architecture
+## 1. Architecture
 
-This server wraps the official [parakeet-mlx](https://github.com/senstella/parakeet-mlx) library with a FastAPI-based OpenAI-compatible REST API.
+This server wraps the pinned `parakeet-mlx==0.5.2` [aligned-result API](https://github.com/senstella/parakeet-mlx) with a FastAPI-based OpenAI-compatible REST API.
 
 **Why not use parakeet-mlx CLI directly?**
 - `parakeet-mlx` is a batch transcription tool (processes files, outputs results)
 - The Atlas stack needs a persistent web server with REST API endpoints
 - Our services (n8n, open-web-ui, backend, etc.) expect OpenAI-compatible `/v1/audio/transcriptions` endpoint
 
-## Quick Start
+## 2. Quick Start
 
-### 1. Install Dependencies
+### 2.1. Install Dependencies
 
 ```bash
 pip install -r requirements.txt
@@ -24,7 +24,7 @@ This installs:
 - `fastapi` - Web framework
 - `uvicorn` - ASGI server
 
-### 2. Run Server
+### 2.2. Run Server
 
 ```bash
 # From services/parakeet/provider directory
@@ -34,7 +34,7 @@ python -m uvicorn mlx.api_server:app --host 0.0.0.0 --port 63042
 **First run:** Downloads model (~1.2GB) from HuggingFace
 **Subsequent runs:** Model loaded from cache, starts instantly
 
-### 3. Test
+### 2.3. Test
 
 ```bash
 # Health check
@@ -46,16 +46,16 @@ curl -X POST http://localhost:63042/v1/audio/transcriptions \
   -F "response_format=json"
 ```
 
-## Environment Variables
+## 3. Environment Variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PARAKEET_MODEL` | `mlx-community/parakeet-tdt-0.6b-v3` | HuggingFace model ID |
 | `PARAKEET_LOCALHOST_PORT` | `63042` | Host port Atlas containers use for `parakeet-localhost`. |
 
-## API Endpoints
+## 4. API Endpoints
 
-### GET /health
+### 4.1. GET /health
 Health check endpoint
 
 **Response:**
@@ -69,7 +69,7 @@ Health check endpoint
 }
 ```
 
-### POST /v1/audio/transcriptions
+### 4.2. POST /v1/audio/transcriptions
 OpenAI-compatible transcription endpoint
 
 **Parameters:**
@@ -87,15 +87,20 @@ OpenAI-compatible transcription endpoint
 }
 ```
 
-### POST /v1/audio/transcriptions/advanced
+### 4.3. POST /v1/audio/transcriptions/advanced
 Advanced endpoint with timestamps
 
 **Parameters:**
 - `file` (required): Audio file
-- `return_timestamps`: Include segment timestamps
+- `return_timestamps`: Include segment timestamps (default: `false`, consistent across providers)
 - `word_timestamps`: Include word-level timestamps
 
-## Performance
+The provider serializes `AlignedResult.sentences` as segments and each
+sentence's nested tokens as words. `has_timestamps` is true only when the
+requested timestamp collection contains aligned data; it is not inferred from
+the request flags alone.
+
+## 5. Performance
 
 **Apple Silicon (M1/M2/M3/M4):**
 - Speed: 100-300x real-time
@@ -106,7 +111,7 @@ Advanced endpoint with timestamps
 - M2 Ultra: 3-hour podcast → 1 minute transcription
 - M1: 1-hour audio → 36 seconds transcription
 
-## Integration with Atlas
+## 6. Integration with Atlas
 
 The stack automatically uses this server when configured with:
 ```bash
@@ -120,22 +125,22 @@ Services that use STT:
 - **jupyterhub** - Notebooks with STT
 - **local-deep-researcher** - Audio research sources
 
-## Troubleshooting
+## 7. Troubleshooting
 
-### Model download fails
+### 7.1. Model download fails
 ```bash
 # Set HuggingFace token if needed
 export HUGGING_FACE_HUB_TOKEN=your_token_here
 ```
 
-### Import errors
+### 7.2. Import errors
 ```bash
 # Ensure you're in the right directory
 cd services/parakeet/provider
 python -m uvicorn mlx.api_server:app --host 0.0.0.0 --port 63042
 ```
 
-### Port already in use
+### 7.3. Port already in use
 ```bash
 # Use different port (if 63042 is in use)
 python -m uvicorn mlx.api_server:app --host 0.0.0.0 --port 63099
@@ -145,7 +150,7 @@ python -m uvicorn mlx.api_server:app --host 0.0.0.0 --port 63099
 PARAKEET_LOCALHOST_PORT=63099
 ```
 
-## References
+## 8. References
 
 - [parakeet-mlx GitHub](https://github.com/senstella/parakeet-mlx)
 - [NVIDIA Parakeet-TDT v3](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3)

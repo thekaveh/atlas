@@ -20,7 +20,9 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import os
 import re
+import warnings
 from dataclasses import dataclass
 from typing import Callable, Optional, Tuple
 
@@ -30,6 +32,8 @@ from typing import Callable, Optional, Tuple
 # neutral field before submission. ~35% padding per side, per triage.
 NEUTRAL_BACKGROUND: Tuple[int, int, int] = (240, 240, 240)
 DEFAULT_PADDING_RATIO: float = 0.35
+DEFAULT_MEDIA_INPUT_MAX_BYTES = 25 * 1024 * 1024
+DEFAULT_MEDIA_INPUT_MAX_PIXELS = 40_000_000
 
 _DATA_URI_RE = re.compile(
     r"^data:(?P<mime>[^;,]*?)(?P<b64>;base64)?,(?P<data>.*)$", re.DOTALL
@@ -76,6 +80,31 @@ def looks_like_data_uri(value: str) -> bool:
     return isinstance(value, str) and value.strip().lower().startswith("data:")
 
 
+def _positive_env_int(name: str, default: int) -> int:
+    raw = (os.getenv(name) or str(default)).strip()
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise ImageInputError(f"{name} must be a positive integer") from exc
+    if value <= 0:
+        raise ImageInputError(f"{name} must be a positive integer")
+    return value
+
+
+def _check_byte_limit(data: bytes, limit: int) -> None:
+    if len(data) > limit:
+        raise ImageInputError(
+            f"image input exceeds MEDIA_INPUT_MAX_BYTES ({limit} bytes)"
+        )
+
+
+def validate_media_input_config() -> None:
+    """Fail startup when configured byte or pixel boundaries are invalid."""
+
+    _positive_env_int("MEDIA_INPUT_MAX_BYTES", DEFAULT_MEDIA_INPUT_MAX_BYTES)
+    _positive_env_int("MEDIA_INPUT_MAX_PIXELS", DEFAULT_MEDIA_INPUT_MAX_PIXELS)
+
+
 def parse_data_uri(value: str) -> Optional[Tuple[bytes, str]]:
     """Decode a ``data:`` URI to ``(bytes, content_type)`` or ``None``.
 
@@ -88,7 +117,16 @@ def parse_data_uri(value: str) -> Optional[Tuple[bytes, str]]:
         return None
     content_type = (match.group("mime") or "").strip() or "application/octet-stream"
     raw = match.group("data")
+    max_bytes = _positive_env_int(
+        "MEDIA_INPUT_MAX_BYTES", DEFAULT_MEDIA_INPUT_MAX_BYTES
+    )
     if match.group("b64"):
+        padding = len(raw) - len(raw.rstrip("="))
+        estimated_size = (len(raw) * 3) // 4 - min(padding, 2)
+        if estimated_size > max_bytes:
+            raise ImageInputError(
+                f"image input exceeds MEDIA_INPUT_MAX_BYTES ({max_bytes} bytes)"
+            )
         try:
             data = base64.b64decode(raw, validate=True)
         except Exception as exc:  # binascii.Error and friends
@@ -96,9 +134,14 @@ def parse_data_uri(value: str) -> Optional[Tuple[bytes, str]]:
     else:
         from urllib.parse import unquote_to_bytes
 
+        if len(raw) > max_bytes * 3:
+            raise ImageInputError(
+                f"image input exceeds MEDIA_INPUT_MAX_BYTES ({max_bytes} bytes)"
+            )
         data = unquote_to_bytes(raw)
     if not data:
         raise ImageInputError("image data URI decoded to empty bytes")
+    _check_byte_limit(data, max_bytes)
     return data, content_type
 
 
@@ -121,12 +164,27 @@ def has_transparency(data: bytes) -> bool:
 
     from PIL import Image  # lazy: Pillow is a runtime-only dependency
 
-    with Image.open(BytesIO(data)) as image:
-        if image.mode in ("RGBA", "LA") or (
-            image.mode == "P" and "transparency" in image.info
-        ):
-            alpha = image.convert("RGBA").getchannel("A")
-            return alpha.getextrema()[0] < 255
+    max_pixels = _positive_env_int(
+        "MEDIA_INPUT_MAX_PIXELS", DEFAULT_MEDIA_INPUT_MAX_PIXELS
+    )
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", Image.DecompressionBombWarning)
+            with Image.open(BytesIO(data)) as image:
+                if image.width * image.height > max_pixels:
+                    raise ImageInputError(
+                        "image dimensions exceed MEDIA_INPUT_MAX_PIXELS "
+                        f"({max_pixels} pixels)"
+                    )
+                if image.mode in ("RGBA", "LA") or (
+                    image.mode == "P" and "transparency" in image.info
+                ):
+                    alpha = image.convert("RGBA").getchannel("A")
+                    return alpha.getextrema()[0] < 255
+    except (Image.DecompressionBombError, Image.DecompressionBombWarning) as exc:
+        raise ImageInputError(
+            f"image dimensions exceed MEDIA_INPUT_MAX_PIXELS ({max_pixels} pixels)"
+        ) from exc
     return False
 
 
@@ -142,13 +200,25 @@ def composite_on_neutral_background(
 
     from PIL import Image  # lazy
 
+    max_pixels = _positive_env_int(
+        "MEDIA_INPUT_MAX_PIXELS", DEFAULT_MEDIA_INPUT_MAX_PIXELS
+    )
     with Image.open(BytesIO(data)) as image:
+        if image.width * image.height > max_pixels:
+            raise ImageInputError(
+                f"image dimensions exceed MEDIA_INPUT_MAX_PIXELS ({max_pixels} pixels)"
+            )
         rgba = image.convert("RGBA")
         bbox = rgba.getchannel("A").getbbox() or (0, 0, rgba.width, rgba.height)
         cropped = rgba.crop(bbox)
         crop_w, crop_h = cropped.size
         side = max(crop_w, crop_h, 1)
         canvas_side = int(round(side * (1.0 + 2.0 * padding_ratio))) or side
+        if canvas_side * canvas_side > max_pixels:
+            raise ImageInputError(
+                "conditioned image exceeds MEDIA_INPUT_MAX_PIXELS "
+                f"({max_pixels} pixels)"
+            )
         canvas = Image.new("RGB", (canvas_side, canvas_side), background)
         offset = ((canvas_side - crop_w) // 2, (canvas_side - crop_h) // 2)
         canvas.paste(cropped, offset, mask=cropped)
@@ -211,6 +281,14 @@ def prepare_image_input(
         if transparent:
             try:
                 data = composite_on_neutral_background(data)
+                _check_byte_limit(
+                    data,
+                    _positive_env_int(
+                        "MEDIA_INPUT_MAX_BYTES", DEFAULT_MEDIA_INPUT_MAX_BYTES
+                    ),
+                )
+            except ImageInputError:
+                raise
             except Exception as exc:
                 raise ImageInputError(
                     f"could not composite transparent input: {exc}"

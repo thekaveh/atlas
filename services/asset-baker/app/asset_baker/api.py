@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
+import secrets
+import shutil
 import tempfile
 import threading
+import time
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
+from prometheus_fastapi_instrumentator import Instrumentator
 
 from .models import (
     ArtifactRef,
@@ -21,16 +26,42 @@ from .models import (
     resolve_params,
 )
 from .runner import BakeError, run_bake
-from .storage import ArtifactStorage
+from .storage import ArtifactStorage, ArtifactTooLargeError
 
 
-def create_app() -> FastAPI:
+logger = logging.getLogger(__name__)
+
+
+def create_app(*, api_token: str | None = None) -> FastAPI:
     app = FastAPI(
         title="Atlas Asset Baker",
         description="Blender headless HP→LP bake worker (voxel-remesh → decimate → "
         "Smart-UV → bake color+normal) for Atlas creative/3D pipelines.",
         version="0.1.0",
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
     )
+    expected_token = (
+        api_token if api_token is not None else os.getenv("ASSET_BAKER_API_TOKEN", "")
+    )
+
+    @app.middleware("http")
+    async def require_api_token(request: Request, call_next):
+        if request.url.path in {"/health", "/metrics"}:
+            return await call_next(request)
+        if not expected_token:
+            return JSONResponse(
+                status_code=503,
+                content={"detail": "Asset Baker authentication is not configured"},
+            )
+        scheme, _, credential = request.headers.get("authorization", "").partition(" ")
+        if scheme.lower() != "bearer" or not secrets.compare_digest(credential, expected_token):
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "Invalid Asset Baker bearer token"},
+            )
+        return await call_next(request)
 
     # Bounded worker: a single Cycles bake saturates CPU, so concurrent bakes are
     # net-negative. Reject (429) rather than queue unboundedly when saturated.
@@ -40,8 +71,13 @@ def create_app() -> FastAPI:
     app.state.bake_semaphore = threading.Semaphore(concurrency)
 
     @app.get("/health")
-    def health() -> dict[str, str]:
-        return {"status": "ok"}
+    def health() -> JSONResponse:
+        binary = os.getenv("ASSET_BAKER_BLENDER_BIN", "blender")
+        ready = shutil.which(binary) is not None
+        return JSONResponse(
+            status_code=200 if ready else 503,
+            content={"status": "ok" if ready else "unavailable", "blender": ready},
+        )
 
     # Sync `def` so Starlette offloads the whole (blocking, up-to-600s) bake to
     # the threadpool instead of freezing the event loop / liveness probes.
@@ -63,18 +99,32 @@ def create_app() -> FastAPI:
             mode=mode,  # pydantic validates the Literal
         )
         file.file.seek(0)
-        return _process_bytes(file.file.read(), params, semaphore=app.state.bake_semaphore)
+        with tempfile.TemporaryDirectory(prefix="asset-baker-upload-") as tmp:
+            input_path = Path(tmp) / "input.glb"
+            _copy_upload_to_path(file.file, input_path)
+            return _process_path(
+                input_path, params, semaphore=app.state.bake_semaphore
+            )
 
     @app.post("/assets/bake/ref", response_model=BakeResponse)
-    def bake_ref(request: RefBakeRequest) -> BakeResponse:
+    def bake_ref(
+        request: RefBakeRequest,
+    ) -> BakeResponse:
+        _require_allowed_bucket(request.input.bucket)
         storage = ArtifactStorage()
-        data = storage.fetch(request.input.bucket, request.input.key)
+        try:
+            data = storage.fetch(request.input.bucket, request.input.key)
+        except ArtifactTooLargeError as exc:
+            raise HTTPException(status_code=413, detail=str(exc)) from exc
         return _process_bytes(
             data, request.params, storage=storage, semaphore=app.state.bake_semaphore
         )
 
     @app.get("/assets/artifacts/{sha256}.{ext}")
-    def get_local_artifact(sha256: str, ext: str):
+    def get_local_artifact(
+        sha256: str,
+        ext: str,
+    ):
         if not _is_sha256(sha256) or ext not in ("glb", "png"):
             raise HTTPException(status_code=400, detail="Invalid artifact reference")
         path = ArtifactStorage().local_path(sha256, ext)
@@ -83,6 +133,10 @@ def create_app() -> FastAPI:
         media = GLB_CONTENT_TYPE if ext == "glb" else PNG_CONTENT_TYPE
         return FileResponse(path, media_type=media, filename=f"{sha256}.{ext}")
 
+    Instrumentator(
+        excluded_handlers=["/metrics", "/health"],
+        should_group_status_codes=True,
+    ).instrument(app).expose(app, endpoint="/metrics")
     return app
 
 
@@ -94,20 +148,37 @@ def _process_bytes(
     semaphore: threading.Semaphore,
 ) -> BakeResponse:
     _enforce_size(data)
+    with tempfile.TemporaryDirectory(prefix="asset-baker-") as tmp:
+        input_path = Path(tmp) / "input.glb"
+        input_path.write_bytes(data)
+        return _process_path(
+            input_path, params, storage=storage, semaphore=semaphore
+        )
+
+
+def _process_path(
+    input_path: Path,
+    params: BakeParams,
+    *,
+    semaphore: threading.Semaphore,
+    storage: ArtifactStorage | None = None,
+) -> BakeResponse:
+    _enforce_input_size(input_path.stat().st_size)
     resolved = resolve_params(params)
     storage = storage or ArtifactStorage()
 
     if not semaphore.acquire(blocking=False):
+        logger.info("asset_bake_rejected reason=busy")
         raise HTTPException(status_code=429, detail="Bake worker is busy; retry later")
+    started_at = time.monotonic()
+    logger.info("asset_bake_started")
     try:
         with tempfile.TemporaryDirectory(prefix="asset-baker-") as tmp:
-            tmpdir = Path(tmp)
-            input_path = tmpdir / "input.glb"
-            out_dir = tmpdir / "out"
-            input_path.write_bytes(data)
+            out_dir = Path(tmp) / "out"
             try:
                 artifacts = run_bake(input_path, out_dir, resolved)
             except BakeError as exc:
+                logger.warning("asset_bake_failed kind=%s", exc.kind)
                 status = 504 if exc.kind == "timeout" else 422
                 raise HTTPException(status_code=status, detail=str(exc)) from exc
             glb_bytes = artifacts.glb_path.read_bytes()
@@ -122,6 +193,10 @@ def _process_bytes(
             record = artifacts.summary
     finally:
         semaphore.release()
+    logger.info(
+        "asset_bake_completed duration_seconds=%.3f",
+        time.monotonic() - started_at,
+    )
 
     sha = hashlib.sha256(glb_bytes).hexdigest()
     glb_artifact = storage.store(
@@ -153,11 +228,47 @@ def _process_bytes(
 
 
 def _enforce_size(data: bytes) -> None:
-    if not data:
-        raise HTTPException(status_code=400, detail="GLB input is empty")
+    _enforce_input_size(len(data))
+
+
+def _require_allowed_bucket(bucket: str) -> None:
+    configured = os.getenv("ASSET_BAKER_ALLOWED_INPUT_BUCKETS", "raw-assets")
+    allowed = {value for value in configured.replace(",", " ").split() if value}
+    if bucket not in allowed:
+        raise HTTPException(status_code=403, detail="Input bucket is not allowed")
+
+
+def _max_upload_bytes() -> int:
     max_mb = float(os.getenv("ASSET_BAKER_MAX_UPLOAD_MB", "200"))
-    if len(data) > max_mb * 1024 * 1024:
-        raise HTTPException(status_code=413, detail=f"GLB exceeds {max_mb:.0f} MiB limit")
+    return max(1, int(max_mb * 1024 * 1024))
+
+
+def _enforce_input_size(size: int) -> None:
+    if size == 0:
+        raise HTTPException(status_code=400, detail="GLB input is empty")
+    max_bytes = _max_upload_bytes()
+    if size > max_bytes:
+        raise HTTPException(
+            status_code=413, detail=f"GLB exceeds {max_bytes} byte limit"
+        )
+
+
+def _copy_upload_to_path(source, path: Path) -> None:
+    max_bytes = _max_upload_bytes()
+    total = 0
+    with path.open("wb") as stream:
+        while True:
+            chunk = source.read(1024 * 1024)
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > max_bytes:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"GLB exceeds {max_bytes} byte limit",
+                )
+            stream.write(chunk)
+    _enforce_input_size(total)
 
 
 def _enforce_content_length(request: Request) -> None:

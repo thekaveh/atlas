@@ -14,6 +14,8 @@ services:
       supavisor:
         condition: service_healthy
         required: false
+      n8n-init:
+        condition: service_completed_successfully
     deploy:
       replicas: ${N8N_SCALE:-1}
     environment:
@@ -33,15 +35,11 @@ services:
       VUE_APP_URL_BASE_API: http://n8n.localhost:${KONG_HTTP_PORT}/
       GENERIC_TIMEZONE: ${TZ:-UTC}
       N8N_EDITOR_BASE_URL: http://n8n.localhost:${KONG_HTTP_PORT}
-      N8N_ALLOW_CONNECTIONS_FROM: http://n8n.localhost:${KONG_HTTP_PORT}
       WEBHOOK_URL: http://n8n.localhost:${KONG_HTTP_PORT}/
       NODE_ENV: development
       N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
-      N8N_AUTH_ENABLED: ${N8N_AUTH_ENABLED:-true}
       N8N_SECURE_COOKIE: false
       N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: true
-      N8N_COMMUNITY_PACKAGES_ENABLED: ${N8N_COMMUNITY_PACKAGES_ENABLED:-true}
-      N8N_COMMUNITY_PACKAGES_ALLOW_TOOL_USAGE: ${N8N_COMMUNITY_PACKAGES_ALLOW_TOOL_USAGE:-true}
       NODE_OPTIONS: --max_old_space_size=512
       EXECUTIONS_MODE: ${N8N_EXECUTIONS_MODE:-queue}
       QUEUE_BULL_REDIS_HOST: redis
@@ -56,6 +54,7 @@ services:
       LITELLM_BASE_URL: http://litellm:4000
       LITELLM_API_KEY: ${LITELLM_MASTER_KEY}
       LITELLM_DEFAULT_MODEL: ${LITELLM_DEFAULT_MODEL:-ollama/qwen3.6:latest}
+      BACKEND_N8N_API_TOKEN: ${BACKEND_N8N_API_TOKEN}
       # STT/TTS/DOC endpoints (available for workflows)
       STT_ENDPOINT: ${STT_ENDPOINT}
       TTS_ENDPOINT: ${TTS_ENDPOINT}
@@ -151,6 +150,7 @@ services:
       QUEUE_BULL_REDIS_PASSWORD: ${REDIS_PASSWORD}
       QUEUE_BULL_REDIS_DB: 0
       QUEUE_HEALTH_CHECK_ACTIVE: true
+      BACKEND_N8N_API_TOKEN: ${BACKEND_N8N_API_TOKEN}
       # Queue mode means execution-data writes happen HERE, not on the
       # main container — the worker-server serves /metrics when these are
       # set (scraped as the n8n-worker prometheus job).
@@ -191,24 +191,17 @@ services:
       - backend-network
 
   n8n-init:
-    image: ${N8N_INIT_IMAGE:-alpine:3.24.1}
+    image: ${N8N_INIT_IMAGE:-n8nio/n8n:2.28.2}
     container_name: ${PROJECT_NAME}-n8n-init
     restart: "no"
-    depends_on:
-      n8n:
-        condition: service_started
-      litellm:
-        condition: service_healthy
     deploy:
       replicas: ${N8N_INIT_SCALE:-1}
     environment:
-      N8N_HOST: n8n
-      N8N_PORT: 5678
-      N8N_INIT_NODES: ${N8N_INIT_NODES:-n8n-nodes-comfyui,@ksc1234/n8n-nodes-comfyui-image-to-image,n8n-nodes-mcp}
+      N8N_INIT_NODES: ${N8N_INIT_NODES:-n8n-nodes-comfyui@0.0.9,@ksc1234/n8n-nodes-comfyui-image-to-image@1.0.2}
     volumes:
-      - ./init/scripts:/scripts
-      - ./init/config:/config
-      - n8n-data:/n8n-data
+      - ./init/scripts:/scripts:ro
+      - ./init/config:/config:ro
+      - n8n-data:/home/node/.n8n
     networks:
       - backend-network
     entrypoint: ["/scripts/init-n8n.sh"]

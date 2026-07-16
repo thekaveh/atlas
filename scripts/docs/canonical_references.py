@@ -7,8 +7,9 @@ import re
 from pathlib import Path
 
 from bootstrapper.docs.sitegen.model import load_docs_model
-from bootstrapper.docs.sitegen.pages import reference_pages, static_pages
+from bootstrapper.docs.sitegen.pages import architecture_pages, reference_pages, static_pages
 from bootstrapper.docs.sitegen.services import service_pages
+from scripts.docs.manifest import load_manifest
 
 
 _SERVICE_LINK_RE = re.compile(r"\]\(([a-z0-9][a-z0-9-]*)\.md\)")
@@ -26,12 +27,30 @@ def _ports_reference(text: str) -> str:
     return text.replace("../../deployment/", "../deployment/")
 
 
+def _apply_manifest_h1_numbers(
+    rendered: dict[Path, str], repo_root: Path
+) -> dict[Path, str]:
+    manifest = load_manifest(repo_root / "docs" / "manifest.yaml", repo_root)
+    numbers = {repo_root / page.source: page.number for page in manifest.pages}
+    for path, number in numbers.items():
+        if path not in rendered or path.suffix != ".md":
+            continue
+        rendered[path] = re.sub(
+            r"(?m)^# (?:\d+(?:\.\d+)*\. )?",
+            f"# {number}. ",
+            rendered[path],
+            count=1,
+        )
+    return rendered
+
+
 def render_canonical_references(repo_root: Path) -> dict[Path, str]:
     """Render the committed pages whose content comes from manifests and tracks."""
     model = load_docs_model(repo_root)
     static = static_pages(model)
     services = service_pages(model)
     references = reference_pages(model)
+    architecture = architecture_pages(model)
     old_site = repo_root / "docs" / "site"
     rendered = {
         repo_root / "docs" / "tracks.md": _final_newline(static[old_site / "tracks.md"]),
@@ -46,7 +65,9 @@ def render_canonical_references(repo_root: Path) -> dict[Path, str]:
         target = repo_root / "docs" / "reference" / source.name
         transformed = _ports_reference(content) if source.name == "ports-routes.md" else content
         rendered[target] = _final_newline(transformed)
-    return rendered
+    for source, content in architecture.items():
+        rendered[source] = _final_newline(content)
+    return _apply_manifest_h1_numbers(rendered, repo_root)
 
 
 def sync_canonical_references(repo_root: Path, *, check: bool) -> list[Path]:

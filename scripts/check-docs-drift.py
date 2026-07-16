@@ -20,6 +20,19 @@ from pathlib import Path
 import re
 import sys
 
+try:
+    from scripts.docs.heading_quality import (
+        decorative_symbol_findings,
+        documentation_paths,
+        heading_number_findings,
+    )
+except ModuleNotFoundError:  # Direct ``python scripts/...`` invocation.
+    from docs.heading_quality import (
+        decorative_symbol_findings,
+        documentation_paths,
+        heading_number_findings,
+    )
+
 ROOT = Path(__file__).resolve().parents[1]
 EXCLUDED_PARTS = {
     '.git', 'bootstrapper', 'textual', '__pycache__', '.venv', 'venv',
@@ -148,6 +161,26 @@ def check_placeholder_urls():
     return hits
 
 
+def check_numbered_headings():
+    hits = []
+    for path in documentation_paths(ROOT):
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        for line_number, message in heading_number_findings(text):
+            hits.append(f"{path.relative_to(ROOT)}:{line_number}: {message}")
+    return hits
+
+
+def check_professional_symbols():
+    hits = []
+    for path in documentation_paths(ROOT):
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        for line_number, symbol in decorative_symbol_findings(text):
+            hits.append(
+                f"{path.relative_to(ROOT)}:{line_number}: decorative symbol {symbol}"
+            )
+    return hits
+
+
 def main():
     checks = {
         'links': check_links(),
@@ -155,6 +188,8 @@ def main():
         'source_matrix': check_source_matrix(),
         'required_files': check_required_files(),
         'placeholder_urls': check_placeholder_urls(),
+        'numbered_headings': check_numbered_headings(),
+        'professional_symbols': check_professional_symbols(),
     }
     failed = False
     for name, issues in checks.items():

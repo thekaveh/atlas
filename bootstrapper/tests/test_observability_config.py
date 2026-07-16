@@ -13,6 +13,13 @@ bundle without any explicit failure.
 
 from __future__ import annotations
 
+from pathlib import Path
+
+import yaml
+
+
+ROOT = Path(__file__).resolve().parents[2]
+
 
 def _service_config_instance():
     """Build a ServiceConfig instance with no real env file — we only
@@ -154,3 +161,50 @@ def test_prometheus_does_not_touch_grafana_scale_or_endpoint():
         assert forbidden not in out, (
             f"Prometheus hook leaked into Grafana's domain: wrote {forbidden!r}"
         )
+
+
+def test_prometheus_scrapes_both_asset_processors() -> None:
+    config = yaml.safe_load(
+        (ROOT / "services/prometheus/config/prometheus.yml").read_text(encoding="utf-8")
+    )
+    jobs = {job["job_name"]: job for job in config["scrape_configs"]}
+    manifest = yaml.safe_load(
+        (ROOT / "services/prometheus/service.yml").read_text(encoding="utf-8")
+    )
+
+    assert jobs["asset-worker"]["static_configs"][0]["targets"] == [
+        "asset-worker:8095"
+    ]
+    assert jobs["asset-baker"]["static_configs"][0]["targets"] == [
+        "asset-baker:8096"
+    ]
+    assert {"asset-worker", "asset-baker"}.issubset(
+        manifest["data_flow"]["calls"]
+    )
+
+
+def test_prometheus_docs_inventory_both_asset_processors() -> None:
+    readme = (ROOT / "services/prometheus/README.md").read_text(encoding="utf-8")
+    source_docs = (ROOT / "docs/deployment/source-configuration.md").read_text(
+        encoding="utf-8"
+    )
+    root_readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    roadmap = (ROOT / "docs/ROADMAP.md").read_text(encoding="utf-8")
+    strategy = (ROOT / "docs/strategy/atlas-vnext-strategy-report.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "15 targets ship" in readme
+    assert "| `asset-worker` | `asset-worker:8095` |" in readme
+    assert "| `asset-baker` | `asset-baker:8096` |" in readme
+    assert "15 pre-configured scrape jobs" in source_docs
+    assert "Asset Worker" in source_docs
+    assert "Asset Baker" in source_docs
+    assert "Prometheus itself" in source_docs
+    assert "Grafana" in source_docs
+    assert "15 scrape jobs" in root_readme
+    assert "13 scrape jobs" not in root_readme
+    assert "15 scrape targets" in roadmap
+    assert "13 scrape targets" not in roadmap
+    assert "15 scrape jobs" in strategy
+    assert "13 scrape jobs" not in strategy

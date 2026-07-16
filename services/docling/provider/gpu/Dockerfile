@@ -22,6 +22,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy shared components
 COPY shared/*.py /app/
+COPY bounded_upload.py /app/
 
 # Copy GPU processor
 COPY gpu/processor.py /app/

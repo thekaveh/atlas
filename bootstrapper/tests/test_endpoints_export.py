@@ -293,6 +293,33 @@ def test_cli_export_json_to_output_file(tmp_path: Path, monkeypatch: pytest.Monk
     assert result.exit_code == 0, result.output
     obj = json.loads(out.read_text(encoding="utf-8"))
     assert obj["ATLAS_LITELLM_CONTAINER_ENDPOINT"] == "http://litellm:4000"
+    assert out.stat().st_mode & 0o777 == 0o600
+
+
+def test_cli_secret_export_replaces_existing_file_as_owner_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from click.testing import CliRunner
+    import start as start_module
+
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "".join(f"{key}={value}\n" for key, value in _base_env().items()),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("ATLAS_ENV_FILE", str(env_file))
+    out = tmp_path / "consumer.env"
+    out.write_text("stale\n", encoding="utf-8")
+    out.chmod(0o644)
+
+    result = CliRunner().invoke(
+        start_module.main,
+        ["endpoints", "export", "--with-secrets", "--output", str(out)],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert out.stat().st_mode & 0o777 == 0o600
+    assert "stale" not in out.read_text(encoding="utf-8")
 
 
 # ── #612: surface the managed-localhost-mps output dir ──────────────────────

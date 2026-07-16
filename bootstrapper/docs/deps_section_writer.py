@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .deps_resolver import DepGraph, doc_folder_to_manifests
+from .deps_resolver import DepGraph
 
 
 def render_section(graph: DepGraph, position: int = 5) -> str:
@@ -21,44 +21,8 @@ def render_section(graph: DepGraph, position: int = 5) -> str:
     lines: list[str] = []
     lines.append(f"## {position}. Dependencies & Integrations")
     lines.append("")
-    if getattr(graph, "source", "") == "(aggregate)":
-        # Aggregate doc-only folders (stt-provider, doc-processor):
-        # their edges live in the MEMBER manifests, not a service.yml of
-        # their own (tts-provider is the exception — it has a virtual
-        # manifest — but the member citation is correct there too).
-        members = ", ".join(
-            f"`services/{m}/service.yml`"
-            for m in doc_folder_to_manifests(graph.focus)
-        ) or "the owning manifests"
-        lines.append(
-            "> Auto-generated section — the **Current** subsections are "
-            f"derived from the member manifests' `data_flow.calls` "
-            f"({members}). Re-run "
-            f"`python -m bootstrapper.docs.regen {graph.focus}` after "
-            "changing them."
-        )
-    elif getattr(graph, "source", "").startswith("(pointer doc"):
-        # Doc-only folders (no service.yml of their own — e.g.
-        # multi2vec-clip): citing `services/<focus>/service.yml` would
-        # point at a file the same README says doesn't exist.
-        lines.append(
-            "> Auto-generated section — this is a doc-only folder (no "
-            f"`services/{graph.focus}/service.yml`); its data-flow edges "
-            "live in the owning family's manifest (see §4). Re-run "
-            f"`python -m bootstrapper.docs.regen {graph.focus}` after "
-            "changing them there."
-        )
-    else:
-        lines.append(
-            "> Auto-generated section — the **Current** subsections are derived from "
-            f"`services/{graph.focus}/service.yml`'s `data_flow.calls` field "
-            f"(and inverse passes). Re-run "
-            f"`python -m bootstrapper.docs.regen {graph.focus}` after manifest changes."
-        )
-    lines.append("")
-
     # Current — Upstream
-    lines.append(f"### {position}.1 Current — Upstream (this service calls)")
+    lines.append(f"### {position}.1. Current — Upstream (this service calls)")
     lines.append("")
     if graph.upstream:
         lines.append("| Service | Category |")
@@ -71,7 +35,7 @@ def render_section(graph: DepGraph, position: int = 5) -> str:
     lines.append("")
 
     # Current — Downstream
-    lines.append(f"### {position}.2 Current — Downstream (services that call this)")
+    lines.append(f"### {position}.2. Current — Downstream (services that call this)")
     lines.append("")
     if graph.downstream:
         lines.append("| Service | Category |")
@@ -84,7 +48,7 @@ def render_section(graph: DepGraph, position: int = 5) -> str:
     lines.append("")
 
     # Diagram embed
-    lines.append(f"### {position}.3 Architecture diagram")
+    lines.append(f"### {position}.3. Architecture diagram")
     lines.append("")
     lines.append(f"![{graph.focus} architecture](./architecture.svg)")
     lines.append("")
@@ -93,9 +57,9 @@ def render_section(graph: DepGraph, position: int = 5) -> str:
 
     # Future-* placeholders
     for heading in (
-        f"### {position}.4 Future — Missing pair integrations",
-        f"### {position}.5 Future — Candidate new services",
-        f"### {position}.6 Future — Unused features in this service",
+        f"### {position}.4. Future — Missing pair integrations",
+        f"### {position}.5. Future — Candidate new services",
+        f"### {position}.6. Future — Unused features in this service",
     ):
         lines.append(heading)
         lines.append("")

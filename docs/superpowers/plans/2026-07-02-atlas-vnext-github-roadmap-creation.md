@@ -8,7 +8,7 @@
 
 **Tech Stack:** GitHub CLI (`gh`), GitHub Issues, GitHub Projects v2, Markdown issue bodies, existing Atlas docs.
 
-## Global Constraints
+## 1. Global Constraints
 
 - Repository: `thekaveh/atlas`.
 - Project owner: `thekaveh`.
@@ -22,7 +22,7 @@
 
 ---
 
-## File Structure
+## 2. File Structure
 
 No product code changes are required.
 
@@ -33,7 +33,7 @@ No product code changes are required.
 - No committed script is required for the first pass.
   - If a worker wants automation, create temporary files under `/tmp/atlas-vnext-issues/` and do not commit them.
 
-## Task 1: Verify GitHub CLI Access
+## 3. Task 1: Verify GitHub CLI Access
 
 **Files:**
 - Read: `docs/superpowers/specs/2026-07-02-atlas-vnext-github-issues-project-design.md`
@@ -81,7 +81,7 @@ Expected:
 - Command exits 0.
 - Existing Projects can be listed.
 
-## Task 2: Create Missing Labels
+## 4. Task 2: Create Missing Labels
 
 **Files:**
 - Read: `docs/superpowers/specs/2026-07-02-atlas-vnext-github-issues-project-design.md`
@@ -177,7 +177,7 @@ Expected:
 
 - All labels listed in the design spec section 4 are present.
 
-## Task 3: Create Or Reuse The Project
+## 5. Task 3: Create Or Reuse The Project
 
 **Files:**
 - Read: `docs/superpowers/specs/2026-07-02-atlas-vnext-github-issues-project-design.md`
@@ -255,7 +255,7 @@ Expected:
 
 - Fields include GitHub's built-in `Status` plus custom fields `Roadmap Status`, `Wave`, `Track`, `Effort`, `Risk`, `Priority`, `Type`, and `Source`.
 
-## Task 4: Create Epic Issues
+## 6. Task 4: Create Epic Issues
 
 **Files:**
 - Read: `docs/superpowers/specs/2026-07-02-atlas-vnext-github-issues-project-design.md` sections 6.1 through 6.6
@@ -307,7 +307,7 @@ Expected:
 
 - Exactly 6 open epic issues are shown.
 
-## Task 5: Create Build Now Issues
+## 7. Task 5: Create Build Now Issues
 
 **Files:**
 - Read: `docs/superpowers/specs/2026-07-02-atlas-vnext-github-issues-project-design.md` sections 7.1 through 7.9
@@ -352,7 +352,7 @@ Expected:
 
 - 15 open issues are shown: 6 epics plus 9 Build Now implementation issues.
 
-## Task 6: Create Backlog, Watchlist, And Decision Issues
+## 8. Task 6: Create Backlog, Watchlist, And Decision Issues
 
 **Files:**
 - Read: `docs/superpowers/specs/2026-07-02-atlas-vnext-github-issues-project-design.md` sections 8 through 11
@@ -405,7 +405,7 @@ Expected:
 - JSON contains 55 open issues if there were no pre-existing `vnext` issues.
 - If pre-existing `vnext` issues exist, compare titles against the expected 55 titles from the spec and report the difference.
 
-## Task 7: Populate Project Fields
+## 9. Task 7: Populate Project Fields
 
 **Files:**
 - Read: `docs/superpowers/specs/2026-07-02-atlas-vnext-github-issues-project-design.md`
@@ -470,7 +470,7 @@ Expected:
 
 - No non-Build-Now issue has Roadmap Status `Build Now`.
 
-## Task 8: Final Verification
+## 10. Task 8: Final Verification
 
 **Files:**
 - Read: `docs/superpowers/specs/2026-07-02-atlas-vnext-github-issues-project-design.md`

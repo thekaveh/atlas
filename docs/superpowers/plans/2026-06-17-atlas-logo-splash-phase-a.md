@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python ≥3.10, Textual (TUI), Rich (`Text`/`Style`), `chafa` (generator only), Pillow (generator only), pytest.
 
-## Global Constraints
+## 1. Global Constraints
 
 Every task's requirements implicitly include these (verbatim from the spec and project rules):
 
@@ -26,7 +26,7 @@ Every task's requirements implicitly include these (verbatim from the spec and p
 
 ---
 
-### Task 1: Source asset + generator + committed cell-grids
+### 1.1. Task 1: Source asset + generator + committed cell-grids
 
 **Files:**
 - Create: `assets/atlas-source.png` (copy of the master source image)
@@ -217,7 +217,7 @@ git commit -m "feat(tui): add Atlas hero generator and committed cell-grids"
 
 ---
 
-### Task 2: Hero loader + `AtlasHero` widget
+### 1.2. Task 2: Hero loader + `AtlasHero` widget
 
 **Files:**
 - Create: `bootstrapper/ui/textual/widgets/atlas_hero.py`
@@ -344,7 +344,7 @@ git commit -m "feat(tui): add Atlas hero loader and widget"
 
 ---
 
-### Task 3: Splash pure logic (dissolve order + show-decision + dissolved set)
+### 1.3. Task 3: Splash pure logic (dissolve order + show-decision + dissolved set)
 
 **Files:**
 - Create: `bootstrapper/ui/textual/widgets/atlas_splash.py` (logic only this task)
@@ -439,7 +439,7 @@ git commit -m "feat(tui): add Atlas splash dissolve/show logic"
 
 ---
 
-### Task 4: `AtlasSplash` overlay widget (hold, dissolve, skip)
+### 1.4. Task 4: `AtlasSplash` overlay widget (hold, dissolve, skip)
 
 **Files:**
 - Modify: `bootstrapper/ui/textual/widgets/atlas_splash.py` (append the widget)
@@ -637,7 +637,7 @@ git commit -m "feat(tui): add Atlas splash overlay widget"
 
 ---
 
-### Task 5: Mount the splash in `WizardScreen`
+### 1.5. Task 5: Mount the splash in `WizardScreen`
 
 **Files:**
 - Modify: `bootstrapper/ui/textual/screens/wizard_screen.py` (constructor + `on_mount`)
@@ -701,7 +701,7 @@ git commit -m "feat(tui): mount Atlas splash over the wizard content region"
 
 ---
 
-### Task 6: `--no-splash` flag plumbing
+### 1.6. Task 6: `--no-splash` flag plumbing
 
 **Files:**
 - Modify: `bootstrapper/start.py` (Click option + `main` signature + flow calls)
@@ -766,7 +766,7 @@ git commit -m "feat(cli): add --no-splash flag threaded to the wizard"
 
 ---
 
-### Task 7: Linear `--no-tui` hero print
+### 1.7. Task 7: Linear `--no-tui` hero print
 
 **Files:**
 - Modify: `bootstrapper/utils/banner.py` (`BannerDisplay`)
@@ -860,7 +860,7 @@ git commit -m "feat(cli): print Atlas hero in the linear --no-tui flow"
 
 ---
 
-### Task 8: Document the flag and the regeneration step
+### 1.8. Task 8: Document the flag and the regeneration step
 
 **Files:**
 - Modify: `README.md` (or the start-options doc that lists CLI flags) — add `--no-splash` and `ATLAS_NO_SPLASH`.
@@ -891,15 +891,15 @@ git commit -m "docs: document --no-splash and Atlas hero regeneration"
 
 ---
 
-## Self-Review
+## 2. Self-Review
 
 **Spec coverage (Phase A scope of the spec):**
-- §2 locked params → Task 1 generator constants. ✓
-- §4 rendering pipeline (generator, committed cell-grids, breakpoints, Textual rendering) → Tasks 1, 2. ✓
-- §5.1–5.3 splash layout, pixel dissolve, ~3s hold, skip, every-launch, reduced-motion/`--no-splash` → Tasks 3, 4, 5, 6. ✓
-- §5.4 `--no-tui` linear hero → Task 7. ✓
-- §7 no CI chafa gate; non-chafa loader/renderer/splash tests → Tasks 1–4, 6, 7 tests; constraint stated in Global Constraints. ✓
-- App hero has no wordmark → Tasks 2/4 render only the image grid (no wordmark anywhere). ✓
+- §2 locked params → Task 1 generator constants. [complete]
+- §4 rendering pipeline (generator, committed cell-grids, breakpoints, Textual rendering) → Tasks 1, 2. [complete]
+- §5.1–5.3 splash layout, pixel dissolve, ~3s hold, skip, every-launch, reduced-motion/`--no-splash` → Tasks 3, 4, 5, 6. [complete]
+- §5.4 `--no-tui` linear hero → Task 7. [complete]
+- §7 no CI chafa gate; non-chafa loader/renderer/splash tests → Tasks 1–4, 6, 7 tests; constraint stated in Global Constraints. [complete]
+- App hero has no wordmark → Tasks 2/4 render only the image grid (no wordmark anywhere). [complete]
 - Phase B (GitHub banner/social/avatar/README About) → intentionally out of scope; separate plan.
 
 **Placeholder scan:** No "TBD/TODO/handle edge cases" left. Two items are flagged as "confirm in Step 4 / wrap if it raises" — these are real verification instructions with a concrete fallback, not placeholders.

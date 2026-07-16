@@ -186,6 +186,46 @@ def test_cold_start_applies_env_user_overlay_and_preserves_project_name(tmp_path
     assert parsed["INLINE_COMMENT"] == "kept"
 
 
+def test_fresh_env_file_is_owner_only(tmp_path, monkeypatch):
+    import start as start_module
+
+    env = tmp_path / ".env"
+    example = tmp_path / ".env.example"
+    example.write_text("PROJECT_NAME=atlas\n", encoding="utf-8")
+    example.chmod(0o644)
+    monkeypatch.setenv("ATLAS_ENV_FILE", str(env))
+
+    starter = start_module.AtlasStarter()
+    starter.config_parser.env_file_path = env
+    starter.config_parser.env_example_path = example
+
+    assert starter.setup_env_file(cold_start=False) is True
+    assert env.stat().st_mode & 0o777 == 0o600
+
+
+def test_fresh_env_file_uses_atomic_private_writer(tmp_path, monkeypatch):
+    import start as start_module
+
+    env = tmp_path / ".env"
+    example = tmp_path / ".env.example"
+    example.write_text("PROJECT_NAME=atlas\n", encoding="utf-8")
+    monkeypatch.setenv("ATLAS_ENV_FILE", str(env))
+
+    starter = start_module.AtlasStarter()
+    starter.config_parser.env_file_path = env
+    starter.config_parser.env_example_path = example
+    writes = []
+
+    def fake_private_write(path, text):
+        writes.append((path, text))
+        path.write_text(text, encoding="utf-8")
+
+    monkeypatch.setattr(start_module, "_write_private_text", fake_private_write)
+
+    assert starter.setup_env_file(cold_start=False) is True
+    assert writes == [(env, "PROJECT_NAME=atlas\n")]
+
+
 def test_cold_start_project_flag_overrides_env_user_project_name(tmp_path, monkeypatch):
     import start as start_module
 
@@ -394,12 +434,11 @@ def test_stop_services_uses_project_override_for_compose(monkeypatch):
     assert stopper.docker_manager.project_name_override is None
 
 
-def test_cold_stop_uses_project_override_for_compose_and_networks(monkeypatch):
+def test_cold_stop_uses_project_override_without_host_wide_cleanup(monkeypatch):
     import stop as stop_module
 
     stopper = stop_module.AtlasStopper()
     calls = []
-    networks = []
 
     def fake_execute_compose_command(args, *, use_env_file=True, project_name=None):
         calls.append((args, project_name))
@@ -413,13 +452,16 @@ def test_cold_stop_uses_project_override_for_compose_and_networks(monkeypatch):
     monkeypatch.setattr(
         stopper.docker_manager,
         "remove_project_networks",
-        lambda project_name: networks.append(project_name) or True,
+        lambda project_name: pytest.fail("cold stop must not remove networks outside compose"),
     )
-    monkeypatch.setattr(stopper.docker_manager, "prune_system", lambda **kwargs: 0)
+    monkeypatch.setattr(
+        stopper.docker_manager,
+        "prune_system",
+        lambda **kwargs: pytest.fail("cold stop must not prune the Docker host"),
+    )
 
     assert stopper.stop_services(cold_stop=True, project_name="myshowcase") is True
     assert calls == [(["down", "--volumes", "--remove-orphans"], "myshowcase")]
-    assert networks == ["myshowcase"]
     assert stopper.docker_manager.project_name_override is None
 
 

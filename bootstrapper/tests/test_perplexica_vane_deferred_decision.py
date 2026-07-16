@@ -15,7 +15,7 @@ def test_vane_candidate_records_july_deferred_decision() -> None:
     text = VANE_CANDIDATE.read_text(encoding="utf-8")
 
     expected = [
-        "## Deferred decision (2026-07-04)",
+        "Deferred decision (2026-07-04)",
         "Vane v1.12.2",
         "MIT",
         "ItzCrazyKns/Vane",

@@ -8,6 +8,13 @@ from typing import Dict, Any, List
 from pathlib import Path
 
 
+MAX_CHUNKS = 10_000
+
+
+class ChunkLimitError(ValueError):
+    """Raised when one conversion would emit an unsafe number of chunks."""
+
+
 def get_file_hash(file_path: str) -> str:
     """Calculate SHA256 hash of file"""
     sha256_hash = hashlib.sha256()
@@ -67,12 +74,16 @@ def chunk_text(text: str, chunk_size: int = 512, chunk_overlap: int = 50) -> Lis
     # appending chunks until OOM.
     if chunk_size <= 0:
         chunk_size = 512  # matches the Form()/processor default
-    if chunk_overlap >= chunk_size or chunk_overlap < 0:
+    if chunk_overlap < 0 or chunk_overlap * 2 > chunk_size:
         chunk_overlap = 0
     start = 0
     chunk_index = 0
 
     while start < len(text):
+        if chunk_index >= MAX_CHUNKS:
+            raise ChunkLimitError(
+                f"Document would exceed the {MAX_CHUNKS} chunk response limit"
+            )
         end = start + chunk_size
         chunk_text = text[start:end]
 

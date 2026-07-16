@@ -22,8 +22,7 @@ def test_ragas_dependency_is_limited_to_backend_and_jupyterhub_surfaces() -> Non
     assert "ragas==0.4.3" in jupyter_requirements
     assert "langchain-community>=0.3.0,<0.4" in backend_requirements
     assert "langchain-community>=0.3.0,<0.4" in jupyter_requirements
-    assert "'ragas==0.4.3'" in workflow
-    assert "'langchain-community>=0.3.0,<0.4'" in workflow
+    assert "-r requirements.txt -r requirements-dev.txt" in workflow
 
     for unexpected_path in (
         "services/docling/app/requirements.txt",
@@ -50,7 +49,6 @@ def test_ragas_notebook_and_docs_register_backend_runtime_contract() -> None:
         [
             _read("services/backend/README.md"),
             _read("services/jupyterhub/README.md"),
-            _read("services/jupyterhub/build/README.md"),
             surface_text("docs/core-concepts.md", "site"),
             surface_text("docs/core-concepts.md", "wiki"),
         ]

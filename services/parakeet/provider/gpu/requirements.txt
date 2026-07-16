@@ -2,7 +2,7 @@
 # breaking minor releases, but we don't snapshot exact pins here because
 # the GPU image base (PARAKEET_GPU_IMAGE) already pins the Python + CUDA
 # stack; we let Dependabot propose minor bumps inside that compatible range.
-nemo_toolkit[asr]>=2.2.0,<3.0
+nemo_toolkit[asr]>=2.7.3,<3.0
 
 # Audio processing
 soundfile>=0.12.0
@@ -13,7 +13,16 @@ numpy>=1.26.0
 fastapi>=0.104.0
 uvicorn[standard]>=0.24.0
 pydantic>=2.0.0
-python-multipart>=0.0.6
+python-multipart>=0.0.31
 
 # HuggingFace Hub
 huggingface_hub>=0.20.0
+# NeMo 2.7.x requires Transformers 4.57.x. Its remaining model-loading
+# advisories are not reachable from transcription requests: Atlas loads only
+# the operator-configured PARAKEET_MODEL at process startup. Revisit when NeMo
+# supports Transformers 5.3+.
+transformers>=4.57.0,<4.58
+# NeMo's older transitive floors contain patched model-file traversal and
+# protobuf recursion issues, so keep the runtime on the secure compatible set.
+onnx>=1.22.0
+protobuf>=5.29.6,<5.30

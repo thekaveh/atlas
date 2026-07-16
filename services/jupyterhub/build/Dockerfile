@@ -53,10 +53,11 @@ WORKDIR /home/jovyan
 COPY requirements.txt /tmp/requirements.txt
 COPY atlas_finance /home/jovyan/atlas_finance
 
-# PyG family packages (torch-scatter, torch-sparse, etc.) use legacy setup.py builds
-# that require `torch` to be importable at metadata-generation time. Install torch
-# first so pip can resolve those packages' build dependencies.
-RUN pip install --no-cache-dir torch==2.4.1  # keep in sync with requirements.txt
+# PyG family packages require torch at metadata-generation time. Install the
+# matching CPU trio first so the general PyPI index cannot pull CUDA runtimes.
+RUN pip install --no-cache-dir \
+      torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0 \
+      --index-url https://download.pytorch.org/whl/cpu
 RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
 # ml-lab NLP-task assets: spaCy language model + NLTK VADER lexicon. These are

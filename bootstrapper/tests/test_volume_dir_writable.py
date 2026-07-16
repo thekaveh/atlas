@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import os
+import shlex
 
 
 def _make_starter(tmp_path: Path):
@@ -66,3 +67,25 @@ def test_unwritable_directory_gets_chmodded(tmp_path):
     assert not os.access(d, os.W_OK)
     starter._ensure_volume_dir_writable(d)
     assert os.access(d, os.W_OK), "directory should be writable after _ensure_volume_dir_writable"
+
+
+def test_chmod_failure_never_deletes_existing_contents(tmp_path, monkeypatch):
+    starter = _make_starter(tmp_path)
+    directory = tmp_path / "Atlas Work" / "volumes" / "litellm"
+    directory.mkdir(parents=True)
+    payload = directory / "config.yaml"
+    payload.write_text("must survive\n", encoding="utf-8")
+
+    monkeypatch.setattr(os, "access", lambda path, mode: False)
+    monkeypatch.setattr(Path, "chmod", lambda self, mode: (_ for _ in ()).throw(PermissionError("denied")))
+    messages = []
+    monkeypatch.setattr(
+        starter.banner,
+        "show_status_message",
+        lambda message, level: messages.append((message, level)),
+    )
+
+    starter._ensure_volume_dir_writable(directory)
+
+    assert payload.read_text(encoding="utf-8") == "must survive\n"
+    assert shlex.quote(str(directory)) in messages[0][0]

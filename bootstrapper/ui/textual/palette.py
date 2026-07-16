@@ -46,8 +46,8 @@ COLOR_BORDER_DIM   = BORDER_HAIRLINE
 # ─── Text ───────────────────────────────────────────────────────────────
 TEXT_BRIGHT = "#e0e6f2"  # extra-emphasised
 TEXT        = "#c0caf5"  # primary
-TEXT_MUTED  = "#565f89"  # secondary (timestamps, hints, "off")
-TEXT_FAINT  = "#3d4261"  # tertiary (footer, very muted)
+TEXT_MUTED  = "#8992b5"  # secondary (timestamps, hints, "off")
+TEXT_FAINT  = "#747d9d"  # tertiary (footer, very muted)
 
 COLOR_TEXT        = TEXT
 COLOR_TEXT_BRIGHT = TEXT_BRIGHT

@@ -1,4 +1,4 @@
-# Operations
+# 8.1. Operations
 
 ## 1. Runtime Commands
 
@@ -69,18 +69,38 @@ runs. See [reusing-atlas.md §6.5](https://github.com/thekaveh/atlas/blob/main/d
 A backend plugin package mounted under `BACKEND_PLUGINS_DIR` may ship an optional
 `plugin.yml` (`plugin_manifest_version: 1`) declaring a typed, validated
 contract: `name`, `route_prefix`, `health_path`/`docs_url`, `auth:
-inherit|open|key-auth`, and typed/`default`/`required`/`secret` `env`. Absent →
-the plugin loads exactly as before (backward compatible). A present-but-malformed
+inherit|open|key-auth`, and typed/`default`/`required`/`secret` `env`. Absent
+manifests inherit the Backend application identity boundary. A present-but-malformed
 manifest skips only that plugin with a structured error and leaves others
 healthy; duplicate names, overlapping prefixes, and prefixes shadowing a built-in
 backend route are rejected before mounting. Declared env is validated at startup
 and by the consumer doctor (required-missing / enum / type warnings, secrets
-masked as `***`). `GET /plugins` returns the resulting inventory. Per-plugin
-`auth` composes into route-level Kong policies so `key-auth`/`open` apply per
-prefix without weakening unrelated backend routes; base Atlas (no plugins) emits
-the historical single backend route unchanged. See
+masked as `***`). Internal-service-authenticated `GET /plugins` returns the
+resulting inventory. Per-plugin `auth` composes into Kong and application
+policies: `inherit` requires Backend identity, `key-auth` validates
+`BACKEND_KONG_API_KEY` at both layers, and only explicit `open` routes are
+public. See
 [reusing-atlas.md §6.3.1](https://github.com/thekaveh/atlas/blob/main/docs/deployment/reusing-atlas.md#631-declaring-a-typed-plugin-contract-with-pluginyml).
 
 ## 7. Health And Logs
 
 The launch phase streams Docker Compose output through the Textual UI. The same command path works without the TUI in non-interactive environments.
+
+## 8. Managed Host Lifecycle
+
+Apple-Silicon ComfyUI MPS and vLLM Metal sources run as native host processes,
+outside Docker Compose. Atlas starts selected managed hosts only after
+configuration, dependency, route, host, and localhost validation completes and
+the operator confirms launch. If image build, Compose startup, or a required
+init container fails, startup rolls back only the host processes created by
+that invocation; a host that was running beforehand remains untouched. A
+state-directory launch lock serializes concurrent launchers so exactly one can
+own a newly created process.
+
+After the stack converges, the native processes remain part of the running
+Atlas deployment. A normal `./stop.sh` discovers and stops them from their
+managed state directories even when their current SOURCE values are disabled
+or changed. Native cleanup still runs when Docker or Compose preflight fails;
+the command retains a nonzero status because container teardown could not run.
+A native process that remains live after the stop attempt also makes `stop.sh`
+exit nonzero.

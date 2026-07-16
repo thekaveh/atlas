@@ -14,7 +14,7 @@ def _candidate_text() -> str:
 def test_nocodb_remains_watchlist_until_review_workflow_and_auth_exist() -> None:
     text = _candidate_text()
 
-    assert "## Watchlist decision (2026-07-04)" in text
+    assert "Watchlist decision (2026-07-04)" in text
     assert "must not add `services/nocodb/service.yml` yet" in text
     assert "concrete human-review queue" in text
     assert "SSO and route-auth posture" in text

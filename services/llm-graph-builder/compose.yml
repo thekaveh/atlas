@@ -23,7 +23,7 @@ services:
       DEFAULT_DIFFBOT_CHAT_MODEL: ${LLM_GRAPH_BUILDER_MODEL_ID:-atlas_litellm}
       GRAPH_CLEANUP_MODEL: ${LLM_GRAPH_BUILDER_MODEL_ID:-atlas_litellm}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      DIFFBOT_API_KEY: ${DIFFBOT_API_KEY:-}
+      DIFFBOT_API_KEY: ${LLM_GRAPH_BUILDER_DIFFBOT_API_KEY:-${DIFFBOT_API_KEY:-}}
       EMBEDDING_MODEL: all-MiniLM-L6-v2
       EMBEDDING_PROVIDER: sentence-transformer
       IS_EMBEDDING: "true"
@@ -35,10 +35,18 @@ services:
       USER_AGENT: ${LLM_GRAPH_BUILDER_USER_AGENT:-Atlas-LLM-Graph-Builder}
       TRACK_USER_USAGE: ${LLM_GRAPH_BUILDER_TRACK_USER_USAGE:-false}
       AUTHENTICATION_REQUIRED: ${LLM_GRAPH_BUILDER_AUTHENTICATION_REQUIRED:-false}
-      GCP_LOG_METRICS_ENABLED: "False"
-      GCS_FILE_CACHE: "False"
-      GOOGLE_APPLICATION_CREDENTIALS: /root/.config/gcloud/application_default_credentials.json
-      GOOGLE_CLOUD_PROJECT: ${GOOGLE_CLOUD_PROJECT:-}
+      GCP_LOG_METRICS_ENABLED: ${LLM_GRAPH_BUILDER_GCP_LOG_METRICS_ENABLED:-false}
+      GCS_FILE_CACHE: ${LLM_GRAPH_BUILDER_GCS_FILE_CACHE:-false}
+      PROJECT_ID: ${LLM_GRAPH_BUILDER_GCP_PROJECT_ID:-${GOOGLE_CLOUD_PROJECT:-}}
+      GOOGLE_CLOUD_PROJECT: ${LLM_GRAPH_BUILDER_GCP_PROJECT_ID:-${GOOGLE_CLOUD_PROJECT:-}}
+      BUCKET_UPLOAD_FILE: ${LLM_GRAPH_BUILDER_GCS_UPLOAD_BUCKET:-}
+      BUCKET_FAILED_FILE: ${LLM_GRAPH_BUILDER_GCS_FAILED_BUCKET:-}
+      GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/atlas-llm-graph-builder-gcp.json
+    volumes:
+      - type: bind
+        source: ${LLM_GRAPH_BUILDER_GCP_CREDENTIALS_FILE:-./config/disabled-gcp-credentials.json}
+        target: /run/secrets/atlas-llm-graph-builder-gcp.json
+        read_only: true
     networks:
       - backend-network
     extra_hosts:

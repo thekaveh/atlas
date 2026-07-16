@@ -1,4 +1,4 @@
-# Interactive Setup Wizard
+# 2.2. Interactive Setup Wizard
 
 Atlas includes an interactive Textual TUI wizard that guides you through configuring all services step by step. It launches automatically when you run `./start.sh` with no arguments.
 
@@ -45,20 +45,20 @@ Each wizard step renders one of five prompt widgets, picked based on the questio
 | `options` | Single-select with a small fixed option set — every `*_SOURCE`, the `Cold start` toggle, the `Hosts file` choice, and the three **LLM defaults** pickers (chat / embedding / vision, see §4.6). | Up/Down arrows + Enter; the current `.env` value is pre-highlighted. |
 | `number` | Numeric prompts (`Base port`). | Single-line input restricted to digits; range-validated. |
 | `secret` | API keys (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`). | Masked password Input + a live char-count hint as you paste. When a key is already set, the hint shows the source-aware action: press Enter to keep the saved key, type a new key to replace, type `clear` + Enter to remove. No sentinel rows are rendered — the input field IS the prompt. |
-| `multiselect` | Cloud and Ollama model lists. | `[✓]` / `[ ]` rows in a scrollable viewport (capped height; the cursor follows the selection so a 230-row library scrape stays usable). Space toggles, Enter confirms. **Cloud** multiselect: default-active set (intersected with what your account actually returns) is pre-checked on first visit. **Ollama** multiselect: source-aware — container shows the library only, localhost shows a merged `[pulled]` + `[library]` view. Purely additive; the default-active baseline is baked into `services/ollama/models.yaml` with `default: true` and resolved by `model_resolver` on every `docker compose up`. |
+| `multiselect` | Cloud and Ollama model lists. | `[selected]` / `[ ]` rows in a scrollable viewport (capped height; the cursor follows the selection so a 230-row library scrape stays usable). Space toggles, Enter confirms. **Cloud** multiselect: default-active set (intersected with what your account actually returns) is pre-checked on first visit. **Ollama** multiselect: source-aware — container shows the library only, localhost shows a merged `[pulled]` + `[library]` view. Purely additive; the default-active baseline is baked into `services/ollama/models.yaml` with `default: true` and resolved by `model_resolver` on every `docker compose up`. |
 | `text` | Free-text entries — the **Project name** step (Docker Compose namespace, persisted to `PROJECT_NAME`; lower-cased + validated) and the Ollama "additional models to pull" step. | Single-line input; trimmed. The project-name step pre-fills with the current `PROJECT_NAME` and a bare Enter keeps it. |
 
 Throughout: `Up/Down` to move, `Enter` to confirm, `Space` to toggle multiselect rows, `Esc` returns to the previous step, `Ctrl+C` (or `Ctrl+Q`) quits.
 
 ## 4. LLM Cluster Steps in Detail
 
-### 4.1 LLM Engine (single-select)
+### 4.1. LLM Engine (single-select)
 
 `LLM_PROVIDER_SOURCE` choice — `ollama-container-cpu`, `ollama-container-gpu`, `ollama-localhost`, or `none` (cloud-only). LiteLLM is locked / always-on and is **not** a separate prompt — it's the mandatory front door for every LLM consumer.
 
 The wizard refuses to launch when **LLM Engine = `none`** **and** every cloud provider is `disabled` — that combination would leave LiteLLM with nothing to route to.
 
-### 4.2 Ollama  ·  models (multiselect)
+### 4.2. Ollama  ·  models (multiselect)
 
 A single unified multi-select shown for every `ollama-*` source. The option list is **source-aware**:
 
@@ -84,7 +84,7 @@ Line 2 wraps to multiple visual rows on narrow terminals when a model has many v
 
 **Ollama Cloud-exclusive entries excluded** — the live listing-page scrape flags models carrying the `cloud` chip that publish no pullable variants (`glm-5`, `minimax-m2`, `kimi-k2`, `deepseek-v4-pro`, …). Those can't be `ollama pull`-ed, so the wizard drops them from the multiselect before render and writes `[info/ollama-fetch] excluded N cloud-only Ollama Cloud model(s)` to the session log. Hybrid entries that publish both cloud and pullable local variants (`gemma3`, `gpt-oss`, `qwen3-coder`, `deepseek-v3.1`, …) stay in the list with their local variants intact.
 
-**Variant picker (in-place tree)** — multi-variant Ollama rows show a `▶` indicator on the left. Press **`Space`** on the parent to expand the tree in place; the variants appear as indented leaves with `└─` connectors directly below. Press `Space` again to collapse. Press `Space` on a leaf to toggle that specific tag. Single-variant rows (`nomic-embed-text`, custom local builds) toggle directly on `Space`. Selections persist to `OLLAMA_USER_MODELS` as `qwen3:8b,qwen3:14b` — `ollama-pull` will fetch each one. The parent's `[✓]` is the aggregate state — green when any leaf is checked. Arrows, Enter, and Esc all keep working naturally; cursor and focus stay in the prompt panel throughout (no popup).
+**Variant picker (in-place tree)** — multi-variant Ollama rows show an expansion indicator on the left. Press **`Space`** on the parent to expand the tree in place; the variants appear as indented leaves with connector lines directly below. Press `Space` again to collapse. Press `Space` on a leaf to toggle that specific tag. Single-variant rows (`nomic-embed-text`, custom local builds) toggle directly on `Space`. Selections persist to `OLLAMA_USER_MODELS` as `qwen3:8b,qwen3:14b` — `ollama-pull` will fetch each one. The parent's `[selected]` is the aggregate state — green when any leaf is checked. Arrows, Enter, and Esc all keep working naturally; cursor and focus stay in the prompt panel throughout (no popup).
 
 **Rich per-variant data via the detail page** — on the first expand of any parent, the wizard fires an async fetch of `ollama.com/library/{model}` (the model's detail page) and parses its per-variant table. Subsequent expansions of the same parent use the in-memory cache (sub-millisecond). The detail page is much richer than the listing:
 
@@ -93,7 +93,7 @@ Line 2 wraps to multiple visual rows on narrow terminals when a model has many v
 - **Context window** — `40K` / `128K` / `256K` per variant.
 - **Per-variant capability tags** — derived from the detail page's `Input` column. A variant whose Input is `Text, Image` gets a `[vision]` badge; `Audio` gets `[audio]`. This means leaves of the same parent can carry different capabilities (e.g., `gemma3:4b` has `[vision]` while `gemma3:270m` doesn't).
 
-While the fetch is in flight, the parent's expansion shows a single `⏳ Fetching variants from ollama.com/library …` splash leaf. On parse failure (network down, upstream HTML changed), the wizard falls back to the listing-page sizes (synthetic `:latest` + param-count tags). The fetch never blocks navigation — arrows, filter chips, and other steps remain responsive throughout.
+While the fetch is in flight, the parent's expansion shows a single `Fetching variants from ollama.com/library …` status leaf. On parse failure (network down, upstream HTML changed), the wizard falls back to the listing-page sizes (synthetic `:latest` + param-count tags). The fetch never blocks navigation — arrows, filter chips, and other steps remain responsive throughout.
 
 **Bare ↔ tagged invariant**: per row, `_checked_values` contains either the bare model name (`qwen3` → pulls `:latest`) OR one+ tagged forms (`qwen3:8b`), never both. The synthetic `latest` leaf at the top of every expansion lets you pick the model-maker default explicitly. Toggling a leaf auto-clears any pre-existing bare entry for that parent.
 
@@ -112,11 +112,11 @@ The default-active baseline is baked into `services/ollama/models.yaml` with `de
 - **First visit** (`OLLAMA_USER_MODELS` empty): the wizard pre-checks the default-active baseline (`default_active_names("ollama")` → `qwen3.6:latest`, `qwen3-embedding:0.6b`, `nomic-embed-text`). The user sees the baseline already ticked.
 - **Subsequent visit** (`OLLAMA_USER_MODELS` set): the saved selection is restored, intersected with the visible options. Names no longer in the merged list are dropped silently.
 
-### 4.3 Ollama  ·  additional models to pull (text)
+### 4.3. Ollama  ·  additional models to pull (text)
 
 Shown only for `ollama-container-*` sources. Free-text comma-separated list, e.g. `mistral:7b,phi4:latest`. Used when an entry isn't surfaced by the library scrape but you still want it pulled at startup. Persists as `OLLAMA_CUSTOM_MODELS`.
 
-### 4.4 Cloud key + model pairs (secret + multiselect)
+### 4.4. Cloud key + model pairs (secret + multiselect)
 
 Each enabled cloud provider gets two consecutive steps:
 
@@ -130,16 +130,16 @@ Each enabled cloud provider gets two consecutive steps:
 
 If the live fetch fails (network outage, key rejected, 5xx), the wizard falls back to the curated catalog so you can still proceed; the failure reason appears in the launch log (see [Troubleshooting](troubleshooting.md)).
 
-### 4.5 Splash + cache + back-invalidation
+### 4.5. Splash + cache + back-invalidation
 
-Live fetches run in a background worker so the wizard stays responsive (Esc still works). While the request is in flight, the multiselect renders a single `⏳ Fetching <provider> models…` row (the **fetch splash**). Once data arrives, the splash is replaced with the real options. The fetched list is cached for the lifetime of the wizard process and re-used if you navigate forward and back. Pressing **Esc** to return to a prior step **invalidates** the cache for any provider step at or after the new position AND bumps a generation counter so any in-flight worker that has since become stale silently drops its result instead of polluting the now-empty cache. Re-entry triggers a fresh fetch with the (possibly updated) key.
+Live fetches run in a background worker so the wizard stays responsive (Esc still works). While the request is in flight, the multiselect renders a single `Fetching <provider> models…` row (the **fetch status**). Once data arrives, the status is replaced with the real options. The fetched list is cached for the lifetime of the wizard process and re-used if you navigate forward and back. Pressing **Esc** to return to a prior step **invalidates** the cache for any provider step at or after the new position AND bumps a generation counter so any in-flight worker that has since become stale silently drops its result instead of polluting the now-empty cache. Re-entry triggers a fresh fetch with the (possibly updated) key.
 
-### 4.6 LLM defaults · chat / embedding / vision (single-select)
+### 4.6. LLM defaults · chat / embedding / vision (single-select)
 
 After the cloud key/model pairs, the wizard asks you to pick the **default model per role** from everything you just selected (Ollama + cloud). Three consecutive `options` steps, each pre-highlighting the current `.env` value:
 
 1. **Chat / content** → `LITELLM_DEFAULT_MODEL`. The fallback the backend and Open WebUI use when no model is named. Pre-selected to the highest-priority content-capable model in your selection.
-2. **Embedding** → `LITELLM_EMBEDDING_MODEL`. ⚠ **Dimension-sensitive.** The backend's `memory_facts` table is a pgvector `vector(768)` column. The picker **auto-matches**: it pre-selects whichever curated embedding model's declared `dim:` (in `services/*/models.yaml`) equals that required 768 — `ollama/nomic-embed-text` by default — so correctness comes from the declared dimension, not list order. Choosing a different-dimension model — e.g. the 1536-dim `qwen3-embedding:0.6b`, or OpenAI's 1536/3072-dim embedders — breaks memory writes unless you migrate that column; the bootstrapper prints a warning at write time when it detects a non-768-dim pick.
+2. **Embedding** → `LITELLM_EMBEDDING_MODEL`. **Dimension requirement:** the backend's `memory_facts` table is a pgvector `vector(768)` column. The picker **auto-matches**: it pre-selects whichever curated embedding model's declared `dim:` (in `services/*/models.yaml`) equals that required 768 — `ollama/nomic-embed-text` by default — so correctness comes from the declared dimension, not list order. Choosing a different-dimension model — e.g. the 1536-dim `qwen3-embedding:0.6b`, or OpenAI's 1536/3072-dim embedders — breaks memory writes unless you migrate that column; the bootstrapper prints a warning at write time when it detects a non-768-dim pick.
 3. **Vision** → `LITELLM_VISION_MODEL`. The first option is **— none / skip —**; vision routing is optional, and the step is skipped entirely when no vision-capable model is selected.
 
 All three persist to `.env` and are consumed by `litellm-init` (via `model_resolver`) on the next `docker compose up`. The whole trio is skipped when no LLM provider is active.
@@ -166,7 +166,7 @@ Each row carries:
 - **Status badges** — `[pulled]` (model file already on disk under
   `services/comfyui/data/<target_dir>/`, only meaningful for
   container modes), `[library]` (catalog-only — not yet downloaded).
-- **Capability hints** — `[gpu]` if `min_vram_gb > 0`, `⚠ <node>`
+- **Capability hints** — `[gpu]` if `min_vram_gb > 0`, `required node: <node>`
   if the model requires a ComfyUI custom node. For container sources,
   the bootstrapper maps those node names through
   `services/comfyui/custom-nodes.yaml` and writes a pinned
@@ -186,10 +186,11 @@ option list.
 **Variant picker (in-place tree)** — Hugging Face entries sharing a
 leading-letters family root collapse into one expandable parent row
 mirroring Ollama's `qwen3 · 8b / 14b / 32b` UX. A row like
-`▶ TRELLIS  ·  6 variants` represents all `microsoft--TRELLIS-*`
-plus `gqk--TRELLIS-*` repositories. Press **`Space`** on the parent
+`TRELLIS  ·  6 variants` represents all `microsoft--TRELLIS-*` and
+`gqk--TRELLIS-*` repositories and includes the expansion indicator in the
+interface. Press **`Space`** on the parent
 to expand the tree in place; variants appear as indented leaves
-with `└─` connectors directly below, each toggleable independently
+with connector lines directly below, each toggleable independently
 via **`Space`** on the leaf. Press **`Space`** on the parent again
 to collapse. The parent's checkbox is an aggregate — green when any
 leaf is checked. Selections persist as full repository names in
@@ -292,7 +293,7 @@ Before launching, a configuration summary inside the same anchored info-box show
 
 - Every service with its selected source, alias (when hosts are configured), and direct port.
 - Hosted endpoints (e.g., `chat.localhost:63000`) if hosts file entries are configured.
-- A separate **Cloud APIs** sub-section lists OpenAI / Anthropic / OpenRouter status (`enabled · key set ✓`, `disabled`, `enabled · key MISSING ⚠`). Cloud providers don't run as containers, so they render below the services grid rather than alongside real services.
+- A separate **Cloud APIs** sub-section lists OpenAI / Anthropic / OpenRouter status (`enabled · key set present`, `disabled`, `enabled · key missing`). Cloud providers don't run as containers, so they render below the services grid rather than alongside real services.
 - Color-coded source choices (container = green, localhost / cloud = cyan, off = slate).
 
 You confirm to launch (the **Launch the stack with this configuration?** step is the wizard's final question), or cancel to exit without changes.
@@ -304,7 +305,7 @@ After confirmation, the wizard transitions in-place from prompts to the launch p
 - The brand panel and pre-launch summary stay **pinned** at the top — they never move while logs flow.
 - Below them, a bordered **Logs** pane streams `docker compose` build / up / port-verify / `logs -f` output, line-by-line.
 - Per-service container names (e.g. `atlas-supabase-db`, `atlas-ollama-pull`) are **color-coded** based on `bootstrapper/ui/textual/palette.py::SOURCE_COLORS`. Unknown service names get a stable hue from a small md5-based palette so every service in the stack remains visually distinguishable.
-- The full launch-phase output is also tee'd to `/tmp/atlas-launch-<timestamp>.log` for post-mortem inspection. See [Troubleshooting](troubleshooting.md#2-session-log).
+- The full launch-phase output is also tee'd to an owner-only `/tmp/atlas-launch-<timestamp>-<unique>.log` for post-mortem inspection. See [Troubleshooting](troubleshooting.md#2-session-log).
 - Press `Ctrl+Q` to detach cleanly from the wizard UI. `Ctrl+C` sends SIGINT — fine after services are up (already-detached compose containers keep running) but during the launch pipeline it may interrupt a compose step mid-flight, leaving the stack in a partial state. Either way, services that have finished starting keep running; resume log streaming with `docker compose logs -f <service>`.
 
 ## 10. Navigation
@@ -365,7 +366,7 @@ BRAND_LOGO_FILE=
 
 Empty values fall back to the canonical defaults (encoded in `bootstrapper/ui/state.py::AppState`). See `.env.example` for the latest documented block.
 
-### 15.1 Block-art logo (`BRAND_LOGO_FILE`)
+### 15.1. Block-art logo (`BRAND_LOGO_FILE`)
 
 The big ASCII block-art lockup — shown in the wizard's brand panel and the `--no-tui` startup banner — defaults to the built-in **ATLAS** art (an [ANSI-Shadow](https://patorjk.com/software/taag/#p=display&f=ANSI%20Shadow) figlet lockup). Point `BRAND_LOGO_FILE` at a text file to override it; leave it empty to keep ATLAS. Both render surfaces read the same file (`bootstrapper/utils/brand_logo.py`), so the override stays in parity across the TUI and the linear banner.
 
@@ -422,7 +423,7 @@ The wizard automatically discovers all configurable services from each `services
 | MinIO Console | container, disabled |
 | Local Deep Researcher | container, disabled |
 
-### 16.1 Cloud LLM providers (not auto-discovered)
+### 16.1. Cloud LLM providers (not auto-discovered)
 
 OpenAI, Anthropic, and OpenRouter are **not** regular services — they don't run as containers (`scale: 0` in the `services/cloud-providers/service.yml` virtual manifest). Instead, the wizard injects them via `bootstrapper/wizard/llm_steps.py:build_cloud_steps` as bespoke (secret + multiselect) pairs spliced after the LLM Engine step:
 

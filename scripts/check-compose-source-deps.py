@@ -72,7 +72,8 @@ REQUIRED_DEPENDS_ON = {
     ("backend", "litellm"),
     ("n8n", "litellm"),
     ("n8n-worker", "litellm"),
-    ("n8n-init", "litellm"),
+    # n8n-init is an offline, pre-start package installer. It must not wait on
+    # LiteLLM (or n8n); the runtime services own their own LiteLLM health gates.
     ("jupyterhub", "litellm"),
     ("local-deep-researcher", "litellm"),
     ("openclaw-gateway", "litellm"),

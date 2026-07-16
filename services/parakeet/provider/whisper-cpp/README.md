@@ -1,4 +1,4 @@
-# whisper.cpp — localhost mode
+# 5.3.4. Parakeet whisper.cpp Provider
 
 Run [whisper.cpp](https://github.com/ggml-org/whisper.cpp) natively on your
 host and have the stack reach it via `host.docker.internal`. This is the
@@ -10,7 +10,7 @@ It also works fine on Linux (CPU, CUDA, or Vulkan) and is the lightest STT
 option overall — no Python deps, no model server framework, just a single
 binary.
 
-## Why localhost instead of container
+## 1. Why localhost instead of container
 
 - **Mac users**: Metal + Core ML / ANE acceleration only works on the host,
   not through Docker Desktop. The Speaches CPU container will work too, but
@@ -24,7 +24,7 @@ If you want a container-only setup with no host install, use
 `parakeet-container-gpu` (NVIDIA-only). See
 [the parakeet provider README](../README.md) for the full STT-source matrix.
 
-## Install (macOS)
+## 2. Install (macOS)
 
 ```bash
 brew install whisper-cpp
@@ -33,7 +33,7 @@ brew install whisper-cpp
 This installs the `whisper-cli` and `whisper-server` binaries with Metal +
 Core ML support pre-built.
 
-## Install (Linux)
+## 3. Install (Linux)
 
 ```bash
 git clone https://github.com/ggml-org/whisper.cpp
@@ -44,7 +44,7 @@ GGML_CUDA=1 make -j server   # NVIDIA CUDA
 GGML_VULKAN=1 make -j server # AMD / Intel via Vulkan
 ```
 
-## Download a model
+## 4. Download a model
 
 ```bash
 # 142 MB, good balance for English-only
@@ -61,7 +61,7 @@ On macOS the Homebrew install puts models at
 `~/Library/Application Support/whisper-cpp/models/` by default; check
 `whisper-cli --help` for the path on your version.
 
-## Run the server (OpenAI-compatible)
+## 5. Run the server (OpenAI-compatible)
 
 ```bash
 # Default port matches WHISPER_CPP_LOCALHOST_PORT in .env (63042).
@@ -76,7 +76,7 @@ The `/v1/audio/transcriptions` path makes the server drop-in compatible with
 the OpenAI Whisper API surface (which is what Open WebUI / Speaches /
 Parakeet also expose).
 
-## Wire the stack
+## 6. Wire the stack
 
 ```bash
 ./start.sh --stt-provider-source whisper-cpp-localhost
@@ -89,7 +89,7 @@ as `http://host.docker.internal:${WHISPER_CPP_LOCALHOST_PORT:-63042}`):
 WHISPER_CPP_LOCALHOST_PORT=63099
 ```
 
-## Verify
+## 7. Verify
 
 ```bash
 # Record or grab a sample WAV/MP3/M4A
@@ -100,7 +100,7 @@ curl -X POST http://localhost:63042/v1/audio/transcriptions \
 # expect JSON: {"text":"..."}
 ```
 
-## Performance reference (English, 10s audio)
+## 8. Performance reference (English, 10s audio)
 
 | Hardware + model | Wall time |
 |---|---|
@@ -109,7 +109,7 @@ curl -X POST http://localhost:63042/v1/audio/transcriptions \
 | Intel i7-12700, `base.en`, CPU only | ~3.0 s |
 | RTX 4090, `large-v3`, CUDA | ~0.3 s |
 
-## Troubleshooting
+## 9. Troubleshooting
 
 **`Address already in use`** — pick another port (then update `.env`).
 
@@ -120,7 +120,7 @@ to CMake.
 **Model load OOMs** — pick a smaller quant: `ggml-large-v3-q5_0.bin` is
 ~1 GB vs ~3 GB unquantized, with negligible WER difference.
 
-## References
+## 10. References
 
 - [whisper.cpp upstream](https://github.com/ggml-org/whisper.cpp)
 - [Apple Core ML / ANE setup notes](https://github.com/ggml-org/whisper.cpp#core-ml-support)

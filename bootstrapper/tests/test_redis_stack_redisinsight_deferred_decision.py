@@ -18,7 +18,7 @@ def test_redis_candidates_record_july_deferred_decisions() -> None:
     insight = REDISINSIGHT.read_text(encoding="utf-8")
 
     for phrase in [
-        "## Deferred decision (2026-07-04)",
+        "Deferred decision (2026-07-04)",
         "Redis 8",
         "tri-license",
         "RSALv2",
@@ -30,7 +30,7 @@ def test_redis_candidates_record_july_deferred_decisions() -> None:
         assert phrase in stack
 
     for phrase in [
-        "## Deferred decision (2026-07-04)",
+        "Deferred decision (2026-07-04)",
         "RedisInsight 3.6.0",
         "RI_ACCEPT_TERMS_AND_CONDITIONS",
         "RI_REDIS_HOST",

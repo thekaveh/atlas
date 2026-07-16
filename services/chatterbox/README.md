@@ -1,4 +1,4 @@
-# Chatterbox (TTS engine)
+# 5.2.8. Chatterbox (TTS engine)
 
 Chatterbox is one of the TTS engines selectable via `TTS_PROVIDER_SOURCE`. It is
 documented under the **TTS Provider** aggregator rather than as a standalone
@@ -24,13 +24,11 @@ pointer, not a duplicate of the aggregator doc.
 
 ## 2. Dependencies & Integrations
 
-> Auto-generated section — the **Current** subsections are derived from `services/chatterbox/service.yml`'s `data_flow.calls` field (and inverse passes). Re-run `python -m bootstrapper.docs.regen chatterbox` after manifest changes.
-
-### 2.1 Current — Upstream (this service calls)
+### 2.1. Current — Upstream (this service calls)
 
 _No upstream calls._
 
-### 2.2 Current — Downstream (services that call this)
+### 2.2. Current — Downstream (services that call this)
 
 | Service | Category |
 |---|---|
@@ -39,20 +37,20 @@ _No upstream calls._
 | n8n | agents |
 | open-webui | apps |
 
-### 2.3 Architecture diagram
+### 2.3. Architecture diagram
 
 ![chatterbox architecture](./architecture.svg)
 
 [Open the interactive HTML diagram](./architecture.html) for a full-screen view.
 
-### 2.4 Future — Missing pair integrations
+### 2.4. Future — Missing pair integrations
 
 _No high-confidence opportunities identified._
 
-### 2.5 Future — Candidate new services
+### 2.5. Future — Candidate new services
 
 _No high-confidence opportunities identified._
 
-### 2.6 Future — Unused features in this service
+### 2.6. Future — Unused features in this service
 
 _No high-confidence opportunities identified._

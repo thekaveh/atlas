@@ -1,4 +1,4 @@
-# Trino
+# 5.2.54. Trino
 
 Trino is an optional, disabled-by-default SQL query engine for the Data Engineering track. Atlas wires Trino to the existing Iceberg REST catalog and MinIO-backed lakehouse buckets so notebooks, Zeppelin, Airflow tasks, and local tools can query the same tables through a SQL surface.
 
@@ -110,36 +110,34 @@ Atlas does not create bronze/silver/gold namespaces at stack startup; data-eng-l
 
 ## 5. Dependencies & Integrations
 
-> Auto-generated section — the **Current** subsections are derived from `services/trino/service.yml`'s `data_flow.calls` field (and inverse passes). Re-run `python -m bootstrapper.docs.regen trino` after manifest changes.
-
-### 5.1 Current — Upstream (this service calls)
+### 5.1. Current — Upstream (this service calls)
 
 | Service | Category |
 |---|---|
 | iceberg-rest | data |
 | minio | data |
 
-### 5.2 Current — Downstream (services that call this)
+### 5.2. Current — Downstream (services that call this)
 
 | Service | Category |
 |---|---|
 | zeppelin | apps |
 
-### 5.3 Architecture diagram
+### 5.3. Architecture diagram
 
 ![trino architecture](./architecture.svg)
 
 [Open the interactive HTML diagram](./architecture.html) for a full-screen view.
 
-### 5.4 Future — Missing pair integrations
+### 5.4. Future — Missing pair integrations
 
 Add richer notebook examples that create a Spark-written Iceberg table and query it through Trino.
 
-### 5.5 Future — Candidate new services
+### 5.5. Future — Candidate new services
 
 Superset or another BI UI can sit downstream of Trino once the lakehouse query path is stable.
 
-### 5.6 Future — Unused features in this service
+### 5.6. Future — Unused features in this service
 
 Worker scaling, query resource groups, access-control files, and additional catalogs are intentionally out of scope for this first integration.
 

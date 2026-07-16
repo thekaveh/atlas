@@ -12,9 +12,9 @@
 
 ---
 
-## File Structure
+## 1. File Structure
 
-### New files (8)
+### 1.1. New files (8)
 
 | Path                                              | Responsibility                                                                                              |
 | ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
@@ -27,7 +27,7 @@
 | `bootstrapper/tests/test_tracks_selections.py`    | `_selections_to_args` synthesizes `*_SOURCE=disabled` for `configurable - in_track - overridden`.            |
 | `scripts/check-track-membership.py`               | Audit: every service in `tracks.yml` exists; every configurable service in ≥1 track other than `all`.        |
 
-### Modified files (6)
+### 1.2. Modified files (6)
 
 | Path                                                  | Change                                                                                                       |
 | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
@@ -38,14 +38,14 @@
 | `bootstrapper/ui/state.py`                            | Add `off_track: bool = False` on `ServiceEntry` (default `False` keeps existing callers source-compatible).   |
 | `CLAUDE.md` + `README.md`                             | Short "Tracks" subsection (Architecture) + "Quickstart by track" section.                                    |
 
-### Naming conventions used below
+### 1.3. Naming conventions used below
 
 - **Track key**: kebab-case slug stored in `tracks.yml`, e.g. `gen-ai-rag`.
 - **Service folder key**: kebab-case name of `services/<name>/`, e.g. `spark`, `ray`, `airflow`.
 - **Wizard svc.key**: the runtime_sc key used by `ServiceDiscovery`; sometimes equal to the folder key, sometimes the "head" of a multi-container family (`ray-head`, `spark-master`, `airflow-webserver`).
 - **`tracks.yml` uses folder keys**, not wizard svc.keys. The wizard-side predicate normalizes via a small `_FAMILY_KEY_ALIASES` map in `tracks.py` so the YAML stays user-friendly.
 
-### Commit convention
+### 1.4. Commit convention
 
 Per `memory/feedback_commits.md`: terse third-person verb, no Claude Co-Authored-By trailer. Examples:
 - `feat(tracks): add tracks.py registry + JSON schema`
@@ -54,7 +54,7 @@ Per `memory/feedback_commits.md`: terse third-person verb, no Claude Co-Authored
 
 ---
 
-## Task 1: Add the track registry YAML
+## 2. Task 1: Add the track registry YAML
 
 **Files:**
 - Create: `bootstrapper/tracks.yml`
@@ -125,7 +125,7 @@ git commit -m "feat(tracks): add tracks.yml registry"
 
 ---
 
-## Task 2: Add JSON Schema for tracks.yml
+## 3. Task 2: Add JSON Schema for tracks.yml
 
 **Files:**
 - Create: `bootstrapper/schemas/tracks.schema.json`
@@ -206,7 +206,7 @@ git commit -m "feat(tracks): add JSON schema for tracks.yml"
 
 ---
 
-## Task 3: TDD — write the tracks.py loader tests (failing)
+## 4. Task 3: TDD — write the tracks.py loader tests (failing)
 
 **Files:**
 - Create: `bootstrapper/tests/test_tracks.py`
@@ -420,7 +420,7 @@ git commit -m "test(tracks): add failing tests for tracks.py registry"
 
 ---
 
-## Task 4: Implement tracks.py to make tests pass
+## 5. Task 4: Implement tracks.py to make tests pass
 
 **Files:**
 - Create: `bootstrapper/tracks.py`
@@ -724,7 +724,7 @@ git commit -m "feat(tracks): implement tracks.py registry loader"
 
 ---
 
-## Task 5: Wire `--track` + `--list-tracks` CLI flags in start.py
+## 6. Task 5: Wire `--track` + `--list-tracks` CLI flags in start.py
 
 **Files:**
 - Modify: `bootstrapper/start.py` — Click decorators between lines 1689 and 1690 (just after `--skip-hosts`); `main()` signature near line 1841; early-exit branch near top of `main()` body.
@@ -867,7 +867,7 @@ git commit -m "feat(start): wire --track + --list-tracks CLI flags"
 
 ---
 
-## Task 6: TDD — write the `_make_track_skip` predicate tests (failing)
+## 7. Task 6: TDD — write the `_make_track_skip` predicate tests (failing)
 
 **Files:**
 - Create: `bootstrapper/tests/test_tracks_wizard_skip.py`
@@ -1061,7 +1061,7 @@ git commit -m "test(tracks): add failing matrix test for _make_track_skip"
 
 ---
 
-## Task 7: Implement `_make_track_skip` + picker step in integration.py
+## 8. Task 7: Implement `_make_track_skip` + picker step in integration.py
 
 **Files:**
 - Modify: `bootstrapper/ui/textual/integration.py` — add `PICKER_STEP_TITLE` constant near top; `_make_track_skip` factory near `_option_hint`; modify `_build_steps_and_rows` signature + body around lines 137-440.
@@ -1240,7 +1240,7 @@ git commit -m "feat(integration): add track-picker step + skip predicate"
 
 ---
 
-## Task 8: TDD — write the `_selections_to_args` synthesis tests
+## 9. Task 8: TDD — write the `_selections_to_args` synthesis tests
 
 **Files:**
 - Create: `bootstrapper/tests/test_tracks_selections.py`
@@ -1368,7 +1368,7 @@ git commit -m "test(tracks): add failing tests for selections force-disable"
 
 ---
 
-## Task 9: Implement `_selections_to_args` track-disable synthesis
+## 10. Task 9: Implement `_selections_to_args` track-disable synthesis
 
 **Files:**
 - Modify: `bootstrapper/ui/textual/integration.py` — `_selections_to_args` body (lines 443-602).
@@ -1426,7 +1426,7 @@ git commit -m "feat(integration): force-disable off-track services in selections
 
 ---
 
-## Task 10: Compute override set + emit warning loop in start.py
+## 11. Task 10: Compute override set + emit warning loop in start.py
 
 **Files:**
 - Modify: `bootstrapper/start.py` — after the `source_args` dict construction around line 1984.
@@ -1711,7 +1711,7 @@ git commit -m "feat(start): warn on off-track --*-source overrides"
 
 ---
 
-## Task 11: Thread `track` + `overridden_services` through `run_setup_flow` / `run_launch_flow`
+## 12. Task 11: Thread `track` + `overridden_services` through `run_setup_flow` / `run_launch_flow`
 
 **Files:**
 - Modify: `bootstrapper/ui/textual/integration.py` — `run_setup_flow` and `run_launch_flow` signatures; pass through to `_build_steps_and_rows`; seed initial selections.
@@ -1808,7 +1808,7 @@ git commit -m "feat(wizard): thread track + override set into builders"
 
 ---
 
-## Task 12: Pre-launch summary banner + Track: line in InfoPanel
+## 13. Task 12: Pre-launch summary banner + Track: line in InfoPanel
 
 **Files:**
 - Modify: `bootstrapper/ui/textual/widgets/info_box.py` — `InfoBoxState` dataclass gains an optional `track_label: str | None = None`.
@@ -1888,7 +1888,7 @@ git commit -m "feat(wizard): show Track: <name> in InfoPanel"
 
 ---
 
-## Task 13: Dim off-track service rows in state_builder
+## 14. Task 13: Dim off-track service rows in state_builder
 
 **Files:**
 - Modify: `bootstrapper/ui/state.py` — add `off_track: bool = False` to `ServiceEntry`.
@@ -1989,7 +1989,7 @@ git commit -m "feat(wizard): dim off-track services in the live overview"
 
 ---
 
-## Task 14: Add the audit script
+## 15. Task 14: Add the audit script
 
 **Files:**
 - Create: `scripts/check-track-membership.py`
@@ -2096,7 +2096,7 @@ git commit -m "ci(tracks): add track-membership audit + CI step"
 
 ---
 
-## Task 15: Documentation — CLAUDE.md + README.md
+## 16. Task 15: Documentation — CLAUDE.md + README.md
 
 **Files:**
 - Modify: `CLAUDE.md` — add "Tracks" subsection under "Architecture".
@@ -2161,7 +2161,7 @@ git commit -m "docs(tracks): document --track and tracks.yml registry"
 
 ---
 
-## Task 16: Full-suite verification + in-terminal smoke
+## 17. Task 16: Full-suite verification + in-terminal smoke
 
 **Files:** (no source changes)
 
@@ -2256,7 +2256,7 @@ gh pr merge --squash --delete-branch
 
 ---
 
-## Done.
+## 18. Done.
 
 Per `memory/feedback_post_ship_review.md`, expect a "full review" ask right after merge — pre-empt with a tiered self-audit of the diff (data-correctness > UX > docs > polish).
 

@@ -1,4 +1,4 @@
-# vLLM (Metal) — managed Apple-silicon LLM server
+# 5.2.57. vLLM (Metal) — managed Apple-silicon LLM server
 
 > Virtual, managed-localhost-only service (#379). There is **no container
 > image**: when `VLLM_METAL_SOURCE=managed-localhost`, the Atlas bootstrapper
@@ -55,8 +55,8 @@ All knobs live in `.env` (regenerated from `services/vllm-metal/service.yml`).
 | `VLLM_METAL_SOURCE` | `disabled` | `managed-localhost` \| `disabled`. |
 | `VLLM_METAL_MODEL` | `Qwen/Qwen2.5-7B-Instruct` | Hugging Face model id served and registered under the same LiteLLM alias. |
 | `VLLM_METAL_LOCALHOST_PORT` | `8000` | Host port the managed OpenAI server listens on. Not a `BASE_PORT` slot. |
-| `VLLM_METAL_PLUGIN_VERSION` | `0.3.0` | Pinned `vllm-metal` plugin version installed into the managed venv. |
-| `VLLM_METAL_CORE_VERSION` | _(blank)_ | Optional pinned `vllm` core version; blank lets the plugin resolve a compatible core. |
+| `VLLM_METAL_PLUGIN_VERSION` | `0.3.0.dev20260713103604` | Atlas-verified upstream release wheel installed from GitHub with SHA-256 verification. Unverified overrides fail closed. |
+| `VLLM_METAL_CORE_VERSION` | `0.24.0` | Atlas-verified vLLM core release built from its checksum-pinned source archive. It must match the supported plugin release. |
 | `VLLM_METAL_PYTHON` | `python3.12` | Interpreter used to build the managed venv (vLLM Metal requires 3.12). |
 | `VLLM_METAL_STATE_DIR` | `~/.atlas/vllm-metal` | Host dir holding the venv + pid/log/status files. |
 | `VLLM_METAL_MODELS_PATH` | _(blank)_ | Optional Hugging Face cache dir (`HF_HOME`); blank = default HF cache. |
@@ -70,7 +70,7 @@ Select it non-interactively:
 ./start.sh --vllm-metal-source managed-localhost
 ```
 
-### Security note
+### 3.1. Security note
 
 The managed server binds `127.0.0.1` and runs **without an API key** (it is not
 network-exposed). LiteLLM still needs a non-empty key for its OpenAI adapter, so
@@ -80,17 +80,22 @@ host port beyond loopback.
 ## 4. Lifecycle (managed host)
 
 A normal `./start.sh` with `VLLM_METAL_SOURCE=managed-localhost` runs
-preflight → install → start automatically before `docker compose up`, and
-`./stop.sh` tears the host process down. For explicit control (or a CI-safe,
-read-only preflight) use the `vllm-metal` CLI group:
+preflight → install → start at the launch boundary, immediately before
+`docker compose up`. If image build, Compose startup, or a required init
+container fails, Atlas stops a vLLM process created by that launch; it does not
+stop an instance that was already running. After the stack converges, the host
+process becomes part of the running stack. `./stop.sh` tears it down even if
+`VLLM_METAL_SOURCE` has since changed, because Compose cannot reach native host
+processes. For explicit control (or a CI-safe, read-only preflight) use the
+`vllm-metal` CLI group:
 
 ```bash
 python bootstrapper/start.py vllm-metal preflight   # OS/arch/py3.12/memory/quant probe (no install)
-python bootstrapper/start.py vllm-metal install      # idempotent wheel + venv install (--update to re-pin)
+python bootstrapper/start.py vllm-metal install      # checksum-verified core + plugin install
 python bootstrapper/start.py vllm-metal start         # launch the host process (one per host)
 python bootstrapper/start.py vllm-metal status        # running / pid / installed version
 python bootstrapper/start.py vllm-metal health        # probe /v1/models
-python bootstrapper/start.py vllm-metal stop          # SIGINT then SIGKILL
+python bootstrapper/start.py vllm-metal stop          # stop the complete managed process group
 python bootstrapper/start.py vllm-metal remove         # stop + delete the state dir
 ```
 
@@ -100,8 +105,11 @@ unsupported host.
 
 The lifecycle is intentionally structurally identical to the #335 ComfyUI
 managed-MPS host so the two managed sources stay consistent: state dir + venv,
-pid/log/status files, idempotent install, a PID-reuse stranger guard on stop,
-and port-in-use refusal on start.
+pid/log/status files, a PID-reuse stranger guard on stop, and port-in-use
+refusal on start. Install compares the recorded core/plugin versions and
+installed distribution metadata on every launch, rebuilding stale environments
+without requiring `--update`. Stop and status operate on the whole process group so
+worker subprocesses cannot survive their managed server.
 
 ## 5. Architecture & wiring
 
@@ -127,34 +135,32 @@ and port-in-use refusal on start.
 
 ## 6. Dependencies & Integrations
 
-> Auto-generated section — the **Current** subsections are derived from `services/vllm-metal/service.yml`'s `data_flow.calls` field (and inverse passes). Re-run `python -m bootstrapper.docs.regen vllm-metal` after manifest changes.
-
-### 6.1 Current — Upstream (this service calls)
+### 6.1. Current — Upstream (this service calls)
 
 _No upstream calls._
 
-### 6.2 Current — Downstream (services that call this)
+### 6.2. Current — Downstream (services that call this)
 
 | Service | Category |
 |---|---|
 | litellm | llm |
 
-### 6.3 Architecture diagram
+### 6.3. Architecture diagram
 
 ![vllm-metal architecture](./architecture.svg)
 
 [Open the interactive HTML diagram](./architecture.html) for a full-screen view.
 
-### 6.4 Future — Missing pair integrations
+### 6.4. Future — Missing pair integrations
 
 - **vllm-metal ↔ open-webui** — *Why:* surface a per-request model picker and the served model's token/latency stats directly in the chat UI instead of only through LiteLLM's flat `/v1/models`. *Mechanism:* a small backend passthrough that reads vLLM's `/metrics` and exposes it under the existing Open WebUI admin panel. *Effort:* medium. *Confidence:* medium.
 - **vllm-metal ↔ prometheus** — *Why:* vLLM exports rich Prometheus metrics (queue depth, KV-cache utilization, throughput) that would feed the stack's Grafana dashboards, but the host process isn't scraped today. *Mechanism:* a host-gateway scrape target for `127.0.0.1:<port>/metrics` when the source is active. *Effort:* medium. *Confidence:* medium.
 
-### 6.5 Future — Candidate new services
+### 6.5. Future — Candidate new services
 
 - **MLX-LM server** — *Headline:* Apple's first-party MLX inference server is another Apple-silicon-native OpenAI-compatible option; if `vllm-metal` upstream stalls, an MLX-LM managed source could slot into the same virtual-manifest + LiteLLM-registration pattern with no consumer changes. *Status:* not assessed; revisit if the `vllm-metal` plugin's release cadence lags vLLM core.
 
-### 6.6 Future — Unused features in this service
+### 6.6. Future — Unused features in this service
 
 - **Quantized (AWQ/GPTQ/FP8) weights** — *Why pursue:* would cut memory pressure on 16 GB Macs, but the MLX/Metal backend does not yet load these cleanly (the preflight warns). Revisit when `vllm-metal` adds MLX-quant support. *Effort:* small (flip the preflight once upstream supports it).
 - **Multi-model serving / LoRA adapters** — *Why pursue:* vLLM can host several models or hot-swappable LoRAs; Atlas pins a single `VLLM_METAL_MODEL` today. A managed multi-model mode would let one host process back several LiteLLM aliases. *Effort:* medium.

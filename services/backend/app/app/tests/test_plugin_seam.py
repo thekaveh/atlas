@@ -213,8 +213,85 @@ def test_manifest_less_plugin_still_loads_and_appears_in_inventory(tmp_path, mon
     assert entry["route_prefix"] is None
 
 
+def test_manifest_less_plugin_cannot_shadow_root(tmp_path, monkeypatch):
+    _plugin_pkg(tmp_path, "root_plugin", "/")
+    from fastapi import FastAPI
+    app = FastAPI()
+    monkeypatch.setenv("BACKEND_PLUGINS_DIR", str(tmp_path))
+    import plugin_seam
+    inventory = plugin_seam.load_plugins(app)
+
+    skipped = next(entry for entry in inventory if entry["name"] == "root_plugin")
+    assert skipped["status"] == "skipped"
+    assert "built-in root route" in skipped["error"]
+
+
+def test_plugin_routes_enforce_declared_application_auth(tmp_path, monkeypatch):
+    """Direct backend access must not bypass the plugin's Kong auth policy."""
+    _plugin_pkg(tmp_path, "legacy_auth_plugin", "/legacy-auth")
+    _plugin_pkg(
+        tmp_path,
+        "inherit_auth_plugin",
+        "/inherit-auth",
+        "plugin_manifest_version: 1\nname: inherit-auth\n"
+        "route_prefix: /inherit-auth\nauth: inherit\n",
+    )
+    _plugin_pkg(
+        tmp_path,
+        "key_auth_plugin",
+        "/key-auth",
+        "plugin_manifest_version: 1\nname: key-auth\n"
+        "route_prefix: /key-auth\nauth: key-auth\n",
+    )
+    _plugin_pkg(
+        tmp_path,
+        "open_auth_plugin",
+        "/open-auth",
+        "plugin_manifest_version: 1\nname: open-auth\n"
+        "route_prefix: /open-auth\nauth: open\n",
+    )
+
+    from fastapi import FastAPI
+    from fastapi.routing import APIRoute
+    import plugin_seam
+
+    app = FastAPI()
+    monkeypatch.setenv("BACKEND_PLUGINS_DIR", str(tmp_path))
+    plugin_seam.load_plugins(app)
+
+    dependencies = {
+        route.path: {dependency.call.__name__ for dependency in route.dependant.dependencies}
+        for route in app.routes
+        if isinstance(route, APIRoute)
+    }
+    assert dependencies["/legacy-auth"] == {"require_backend_principal"}
+    assert dependencies["/inherit-auth"] == {"require_backend_principal"}
+    assert dependencies["/key-auth"] == {"require_plugin_gateway_key"}
+    assert dependencies["/open-auth"] == set()
+
+
+def test_plugin_router_cannot_escape_declared_prefix(tmp_path, monkeypatch):
+    _plugin_pkg(
+        tmp_path,
+        "escaping_plugin",
+        "/health",
+        "plugin_manifest_version: 1\nname: escaping\n"
+        "route_prefix: /extension\nauth: open\n",
+    )
+    from fastapi import FastAPI
+    import plugin_seam
+
+    app = FastAPI()
+    monkeypatch.setenv("BACKEND_PLUGINS_DIR", str(tmp_path))
+    inventory = plugin_seam.load_plugins(app)
+
+    assert "/health" not in {route.path for route in app.routes}
+    skipped = next(entry for entry in inventory if entry["status"] == "skipped")
+    assert "escape declared route_prefix" in skipped["error"]
+
+
 def test_malformed_manifest_skips_only_that_plugin(tmp_path, monkeypatch, caplog):
-    _plugin_pkg(tmp_path, "good_plugin", "/__good__",
+    _plugin_pkg(tmp_path, "good_plugin", "/good/ping",
                 "plugin_manifest_version: 1\nname: good\nroute_prefix: /good\n")
     _plugin_pkg(tmp_path, "broken_plugin", "/__broken__", "name: [unclosed\n")
 
@@ -226,7 +303,7 @@ def test_malformed_manifest_skips_only_that_plugin(tmp_path, monkeypatch, caplog
     inventory = plugin_seam.load_plugins(app)
 
     paths = {r.path for r in app.router.routes}
-    assert "/__good__" in paths          # healthy plugin unaffected
+    assert "/good/ping" in paths          # healthy plugin unaffected
     assert "/__broken__" not in paths    # malformed skipped, NOT degraded to manifest-less
     statuses = {e["name"]: e["status"] for e in inventory}
     assert statuses.get("good") == "loaded"
@@ -236,9 +313,9 @@ def test_malformed_manifest_skips_only_that_plugin(tmp_path, monkeypatch, caplog
 
 
 def test_duplicate_plugin_name_second_is_skipped(tmp_path, monkeypatch):
-    _plugin_pkg(tmp_path, "a_plugin", "/__dup_a__",
+    _plugin_pkg(tmp_path, "a_plugin", "/alpha/ping",
                 "plugin_manifest_version: 1\nname: dup\nroute_prefix: /alpha\n")
-    _plugin_pkg(tmp_path, "b_plugin", "/__dup_b__",
+    _plugin_pkg(tmp_path, "b_plugin", "/beta/ping",
                 "plugin_manifest_version: 1\nname: dup\nroute_prefix: /beta\n")
 
     from fastapi import FastAPI
@@ -248,8 +325,8 @@ def test_duplicate_plugin_name_second_is_skipped(tmp_path, monkeypatch):
     inventory = plugin_seam.load_plugins(app)
 
     paths = {r.path for r in app.router.routes}
-    assert "/__dup_a__" in paths       # first wins
-    assert "/__dup_b__" not in paths   # duplicate name skipped
+    assert "/alpha/ping" in paths       # first wins
+    assert "/beta/ping" not in paths   # duplicate name skipped
     skipped = [e for e in inventory if e["status"] == "skipped"]
     assert any("duplicate plugin name" in e.get("error", "") for e in skipped)
 
@@ -269,9 +346,9 @@ def test_reserved_prefix_is_rejected(tmp_path, monkeypatch):
 
 
 def test_overlapping_prefix_second_is_skipped(tmp_path, monkeypatch):
-    _plugin_pkg(tmp_path, "one_plugin", "/__one__",
+    _plugin_pkg(tmp_path, "one_plugin", "/shared/ping",
                 "plugin_manifest_version: 1\nname: one\nroute_prefix: /shared\n")
-    _plugin_pkg(tmp_path, "two_plugin", "/__two__",
+    _plugin_pkg(tmp_path, "two_plugin", "/shared/sub/ping",
                 "plugin_manifest_version: 1\nname: two\nroute_prefix: /shared/sub\n")
     from fastapi import FastAPI
     app = FastAPI()
@@ -280,17 +357,17 @@ def test_overlapping_prefix_second_is_skipped(tmp_path, monkeypatch):
     inventory = plugin_seam.load_plugins(app)
 
     paths = {r.path for r in app.router.routes}
-    assert "/__one__" in paths
-    assert "/__two__" not in paths
+    assert "/shared/ping" in paths
+    assert "/shared/sub/ping" not in paths
     assert any("overlaps prefix" in e.get("error", "") for e in inventory if e["status"] == "skipped")
 
 
 def test_prefix_containment_overlap_second_skipped(tmp_path, monkeypatch):
     """`/zeta` and `/zetax` are NOT first-segment-equal but Kong's raw-prefix
     match makes `/zeta` intercept `/zetax` — the second must be skipped (M1)."""
-    _plugin_pkg(tmp_path, "zeta_a_plugin", "/__ov_a__",
+    _plugin_pkg(tmp_path, "zeta_a_plugin", "/zeta/ping",
                 "plugin_manifest_version: 1\nname: aa\nroute_prefix: /zeta\n")
-    _plugin_pkg(tmp_path, "zeta_b_plugin", "/__ov_b__",
+    _plugin_pkg(tmp_path, "zeta_b_plugin", "/zetax/ping",
                 "plugin_manifest_version: 1\nname: bb\nroute_prefix: /zetax\n")
     from fastapi import FastAPI
     app = FastAPI()
@@ -298,8 +375,8 @@ def test_prefix_containment_overlap_second_skipped(tmp_path, monkeypatch):
     import plugin_seam
     inventory = plugin_seam.load_plugins(app)
     paths = {r.path for r in app.router.routes}
-    assert "/__ov_a__" in paths
-    assert "/__ov_b__" not in paths
+    assert "/zeta/ping" in paths
+    assert "/zetax/ping" not in paths
     assert any("overlaps prefix" in e.get("error", "") for e in inventory if e["status"] == "skipped")
 
 
@@ -319,7 +396,7 @@ def test_reserved_overlap_shorter_prefix_rejected(tmp_path, monkeypatch):
 
 def test_inventory_masks_secret_env(tmp_path, monkeypatch):
     _plugin_pkg(
-        tmp_path, "sec_plugin", "/__sec__",
+        tmp_path, "sec_plugin", "/sec/ping",
         "plugin_manifest_version: 1\nname: sec\nroute_prefix: /sec\n"
         "env:\n  - name: SEC_TOKEN\n    secret: true\n",
     )

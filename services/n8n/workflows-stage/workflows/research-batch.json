@@ -4,6 +4,7 @@
     {
       "parameters": {
         "httpMethod": "POST",
+        "authentication": "headerAuth",
         "path": "batch-research",
         "responseMode": "responseNode",
         "options": {}
@@ -16,11 +17,17 @@
         240,
         300
       ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "atlas-webhook-header-auth",
+          "name": "Atlas Webhook Header Auth"
+        }
+      },
       "webhookId": "batch-research"
     },
     {
       "parameters": {
-        "jsCode": "// Process batch research request\nconst items = $input.first().json;\nconst queries = items.queries || [];\nconst config = items.config || {};\n\nif (!Array.isArray(queries) || queries.length === 0) {\n  throw new Error('queries array is required and must not be empty');\n}\n\nconst batchId = Date.now().toString();\nconst batchResults = [];\n\n// Create individual research requests\nfor (let i = 0; i < queries.length; i++) {\n  const query = queries[i];\n  batchResults.push({\n    batchId: batchId,\n    index: i,\n    query: typeof query === 'string' ? query : query.query,\n    max_loops: query.max_loops || config.max_loops || 3,\n    search_api: query.search_api || config.search_api || 'searxng',\n    user_id: config.user_id || null\n  });\n}\n\n$execution.customData = {\n  batchId: batchId,\n  totalQueries: queries.length,\n  startedAt: new Date().toISOString()\n};\n\nreturn batchResults;"
+        "jsCode": "// Process batch research request and carry batch state on every item.\nconst webhook = $input.first().json;\nconst request = webhook.body || webhook;\nconst queries = request.queries ?? [];\nconst config = request.config ?? {};\n\nif (!Array.isArray(queries) || queries.length === 0) {\n  throw new Error('queries array is required and must not be empty');\n}\nif (queries.length > 25) {\n  throw new Error('queries array must contain at most 25 entries');\n}\nif (!config || typeof config !== 'object' || Array.isArray(config)) {\n  throw new Error('config must be an object');\n}\n\nconst allowedSearchApis = new Set(['duckduckgo', 'searxng']);\nconst batchId = Date.now().toString();\nconst startedAt = new Date().toISOString();\nreturn queries.map((entry, index) => {\n  const query = typeof entry === 'string' ? { query: entry } : entry;\n  if (!query || typeof query !== 'object' || Array.isArray(query)) {\n    throw new Error(`query ${index} must be a string or object`);\n  }\n  if (typeof query.query !== 'string' || !query.query.trim() || query.query.length > 4000) {\n    throw new Error(`query ${index} text must contain 1 to 4000 characters`);\n  }\n  const maxLoops = query.max_loops ?? config.max_loops ?? 3;\n  if (!Number.isInteger(maxLoops) || maxLoops < 1 || maxLoops > 10) {\n    throw new Error(`query ${index} max_loops must be an integer from 1 to 10`);\n  }\n  const searchApi = query.search_api ?? config.search_api ?? 'searxng';\n  if (!allowedSearchApis.has(searchApi)) {\n    throw new Error(`query ${index} search_api must be duckduckgo or searxng`);\n  }\n  return {\n    batchId,\n    totalQueries: queries.length,\n    startedAt,\n    index,\n    query: query.query,\n    max_loops: maxLoops,\n    search_api: searchApi,\n    user_id: query.user_id ?? config.user_id ?? null\n  };\n});"
       },
       "id": "b3c4d5e6-f7g8-h9i0-j1k2-l3m4n5o6p7q8",
       "name": "Process Batch Request",
@@ -33,7 +40,12 @@
     },
     {
       "parameters": {
+        "method": "POST",
         "url": "http://backend:8000/research/start",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{"name": "Authorization", "value": "={{ 'Bearer ' + $env.BACKEND_N8N_API_TOKEN }}"}]
+        },
         "sendBody": true,
         "bodyParameters": {
           "parameters": [
@@ -74,7 +86,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Collect session IDs and prepare for monitoring\nconst sessionData = [];\n\nfor (const item of $input.all()) {\n  const inputData = item.json;\n  const response = item.json;\n  \n  sessionData.push({\n    batchId: $execution.customData.batchId,\n    index: inputData.index,\n    query: inputData.query,\n    sessionId: response.session_id,\n    status: 'running',\n    startedAt: new Date().toISOString()\n  });\n}\n\n// Store session data in execution context\n$execution.customData.sessions = sessionData;\n\nreturn sessionData;"
+        "jsCode": "// Restore each request item after HTTP Request replaced it with the response.\nconst requests = $('Process Batch Request').all();\nreturn $input.all().map((item, index) => {\n  const request = requests[index]?.json || {};\n  return {\n    ...request,\n    sessionId: item.json.session_id,\n    status: item.json.status || 'running'\n  };\n});"
       },
       "id": "d7e8f9g0-h1i2-j3k4-l5m6-n7o8p9q0r1s2",
       "name": "Collect Session IDs",
@@ -101,7 +113,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Create status check requests for all sessions\nconst sessions = $execution.customData.sessions || [];\n\nreturn sessions.map(session => ({\n  sessionId: session.sessionId,\n  originalQuery: session.query,\n  batchIndex: session.index\n}));"
+        "jsCode": "// Recreate status-check items from the durable upstream node output.\nreturn $('Collect Session IDs').all().map(item => ({ ...item.json }));"
       },
       "id": "f1g2h3i4-j5k6-l7m8-n9o0-p1q2r3s4t5u6",
       "name": "Prepare Status Checks",
@@ -115,6 +127,10 @@
     {
       "parameters": {
         "url": "=http://backend:8000/research/{{ $json.sessionId }}/status",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{"name": "Authorization", "value": "={{ 'Bearer ' + $env.BACKEND_N8N_API_TOKEN }}"}]
+        },
         "options": {
           "response": {
             "response": {
@@ -134,7 +150,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Check if all research sessions are completed\nconst allStatuses = $input.all();\nlet completedCount = 0;\nlet failedCount = 0;\nconst sessionStatuses = [];\n\nfor (const item of allStatuses) {\n  const status = item.json.status;\n  const sessionData = {\n    sessionId: item.json.session_id,\n    query: item.json.query,\n    status: status\n  };\n  \n  sessionStatuses.push(sessionData);\n  \n  if (status === 'completed') {\n    completedCount++;\n  } else if (status === 'failed') {\n    failedCount++;\n  }\n}\n\nconst allCompleted = (completedCount + failedCount) === allStatuses.length;\n\n$execution.customData.sessionStatuses = sessionStatuses;\n$execution.customData.completedCount = completedCount;\n$execution.customData.failedCount = failedCount;\n\nreturn [{\n  allCompleted: allCompleted,\n  completedCount: completedCount,\n  failedCount: failedCount,\n  totalCount: allStatuses.length,\n  sessionStatuses: sessionStatuses\n}];"
+        "jsCode": "// Join status responses back to their request items by session id.\nconst sessions = $('Collect Session IDs').all().map(item => item.json);\nconst sessionStatuses = $input.all().map(item => {\n  const response = item.json;\n  const original = sessions.find(session => session.sessionId === response.session_id) || {};\n  return {\n    ...original,\n    sessionId: response.session_id || original.sessionId,\n    status: response.status,\n    errorMessage: response.error_message || null\n  };\n});\nconst completedCount = sessionStatuses.filter(item => item.status === 'completed').length;\nconst failedCount = sessionStatuses.filter(item => ['failed', 'cancelled'].includes(item.status)).length;\nconst first = sessions[0] || {};\n\nreturn [{\n  batchId: first.batchId,\n  totalQueries: first.totalQueries || sessions.length,\n  startedAt: first.startedAt,\n  allCompleted: completedCount + failedCount === sessionStatuses.length,\n  completedCount,\n  failedCount,\n  sessionStatuses\n}];"
       },
       "id": "h5i6j7k8-l9m0-n1o2-p3q4-r5s6t7u8v9w0",
       "name": "Analyze Batch Status",
@@ -179,7 +195,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Get results for all completed sessions\nconst sessionStatuses = $execution.customData.sessionStatuses || [];\nconst completedSessions = sessionStatuses.filter(s => s.status === 'completed');\n\nreturn completedSessions.map(session => ({\n  sessionId: session.sessionId,\n  query: session.query\n}));"
+        "jsCode": "// Get results only for sessions that completed successfully. Keep one\n// sentinel item when every session failed so the workflow can still respond.\nconst completed = $input.first().json.sessionStatuses\n  .filter(session => session.status === 'completed')\n  .map(session => ({ ...session, skipResultFetch: false }));\nreturn completed.length ? completed : [{ skipResultFetch: true }];"
       },
       "id": "k1l2m3n4-o5p6-q7r8-s9t0-u1v2w3x4y5z6",
       "name": "Prepare Result Requests",
@@ -192,7 +208,43 @@
     },
     {
       "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "result-fetch-required",
+              "leftValue": "={{ $json.skipResultFetch }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "false"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "result-fetch-guard",
+      "name": "Has Successful Results?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2440,
+        200
+      ]
+    },
+    {
+      "parameters": {
         "url": "=http://backend:8000/research/{{ $json.sessionId }}/result",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{"name": "Authorization", "value": "={{ 'Bearer ' + $env.BACKEND_N8N_API_TOKEN }}"}]
+        },
         "options": {
           "response": {
             "response": {
@@ -206,20 +258,20 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
       "position": [
-        2440,
+        2660,
         200
       ]
     },
     {
       "parameters": {
-        "jsCode": "// Format final batch results\nconst batchId = $execution.customData.batchId;\nconst totalQueries = $execution.customData.totalQueries;\nconst completedCount = $execution.customData.completedCount;\nconst failedCount = $execution.customData.failedCount;\nconst results = $input.all();\n\nconst batchResult = {\n  batchId: batchId,\n  status: 'completed',\n  summary: {\n    totalQueries: totalQueries,\n    completedSuccessfully: completedCount,\n    failed: failedCount,\n    successRate: completedCount / totalQueries\n  },\n  startedAt: $execution.customData.startedAt,\n  completedAt: new Date().toISOString(),\n  results: results.map(item => item.json)\n};\n\nreturn [batchResult];"
+        "jsCode": "// Format final batch results from the latest status analysis.\nconst analysis = $('Analyze Batch Status').last().json;\nconst results = $input.all()\n  .map(item => item.json)\n  .filter(item => !item.skipResultFetch);\nreturn [{\n  batchId: analysis.batchId,\n  status: analysis.failedCount > 0 ? 'completed_with_errors' : 'completed',\n  summary: {\n    totalQueries: analysis.totalQueries,\n    completedSuccessfully: analysis.completedCount,\n    failed: analysis.failedCount,\n    successRate: analysis.totalQueries ? analysis.completedCount / analysis.totalQueries : 0\n  },\n  startedAt: analysis.startedAt,\n  completedAt: new Date().toISOString(),\n  results,\n  failures: analysis.sessionStatuses.filter(item => item.status !== 'completed')\n}];"
       },
       "id": "m5n6o7p8-q9r0-s1t2-u3v4-w5x6y7z8a9b0",
       "name": "Format Batch Results",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2660,
+        2880,
         200
       ]
     },
@@ -247,7 +299,7 @@
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
       "position": [
-        2880,
+        3100,
         200
       ]
     }
@@ -363,7 +415,25 @@
       "main": [
         [
           {
+            "node": "Has Successful Results?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Successful Results?": {
+      "main": [
+        [
+          {
             "node": "Get All Results",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Format Batch Results",
             "type": "main",
             "index": 0
           }
@@ -412,6 +482,5 @@
   "meta": {
     "templateCredsSetupCompleted": true
   },
-  "id": "research-batch",
-  "tags": ["research", "batch", "automation", "webhook"]
+  "id": "research-batch"
 }

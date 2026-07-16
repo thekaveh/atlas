@@ -208,7 +208,7 @@ uv run --project bootstrapper pytest bootstrapper/tests/test_manifests.py -v    
 uv run --project bootstrapper pytest bootstrapper/tests -k weaviate                 # filter by name
 ```
 
-`pytest-asyncio` is declared in `services/backend/app/app/requirements.txt`; the backend's own small suite (`services/backend/app/app/tests/`) runs only in an environment with the backend dependencies installed — it is not collected by the bootstrapper suite.
+The Backend's runtime dependencies are declared in `services/backend/app/app/requirements.txt`, while pytest and its plugins (including `pytest-asyncio`) are declared in `requirements-dev.txt`. Run that suite under Python 3.12 with both files installed; it is not collected by the bootstrapper suite.
 
 ### Audit scripts (`scripts/`)
 

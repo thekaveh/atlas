@@ -403,6 +403,34 @@ $_$;
 
 ALTER FUNCTION pgbouncer.get_auth(p_usename text) OWNER TO supabase_admin;
 
+CREATE FUNCTION public.handle_auth_user_sync() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO ''
+    AS $$
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        DELETE FROM public.users WHERE id = OLD.id;
+        RETURN OLD;
+    END IF;
+    INSERT INTO public.users (id, name, created_at)
+    VALUES (
+        NEW.id,
+        COALESCE(
+            NULLIF(BTRIM(NEW.raw_user_meta_data ->> 'name'), ''),
+            NULLIF(BTRIM(NEW.raw_user_meta_data ->> 'full_name'), ''),
+            NULLIF(SPLIT_PART(COALESCE(NEW.email, ''), '@', 1), ''),
+            'Atlas user'
+        ),
+        COALESCE(NEW.created_at, now())
+    )
+    ON CONFLICT (id) DO UPDATE
+    SET name = EXCLUDED.name;
+    RETURN NEW;
+END;
+$$;
+
+ALTER FUNCTION public.handle_auth_user_sync() OWNER TO supabase_admin;
+
 CREATE FUNCTION public.health() RETURNS text
     LANGUAGE plpgsql
     AS $$
@@ -652,6 +680,7 @@ CREATE TABLE public.research_sessions (
     started_at timestamp with time zone,
     completed_at timestamp with time zone,
     error_message text,
+    heartbeat_at timestamp with time zone,
     CONSTRAINT research_sessions_status_check CHECK (((status)::text = ANY ((ARRAY['pending'::character varying, 'running'::character varying, 'completed'::character varying, 'failed'::character varying, 'cancelled'::character varying])::text[])))
 );
 
@@ -832,6 +861,8 @@ CREATE INDEX idx_research_results_session_id ON public.research_results USING bt
 
 CREATE INDEX idx_research_sessions_created_at ON public.research_sessions USING btree (created_at);
 
+CREATE INDEX idx_research_sessions_heartbeat ON public.research_sessions USING btree (status, heartbeat_at);
+
 CREATE INDEX idx_research_sessions_status ON public.research_sessions USING btree (status);
 
 CREATE INDEX idx_research_sessions_user_id ON public.research_sessions USING btree (user_id);
@@ -847,6 +878,8 @@ CREATE INDEX name ON storage.objects USING btree (name);
 CREATE INDEX owner ON storage.buckets USING btree (owner);
 
 CREATE INDEX path_tokens_idx ON storage.objects USING gin (path_tokens);
+
+CREATE TRIGGER on_auth_user_sync AFTER INSERT OR DELETE OR UPDATE OF email, raw_user_meta_data ON auth.users FOR EACH ROW EXECUTE FUNCTION public.handle_auth_user_sync();
 
 CREATE TRIGGER update_memory_facts_updated_at BEFORE UPDATE ON public.memory_facts FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
@@ -908,6 +941,12 @@ CREATE POLICY "Service role can access all research sessions" ON public.research
 
 CREATE POLICY "Service role can access all research sources" ON public.research_sources USING ((auth.role() = 'service_role'::text));
 
+CREATE POLICY "Service role can access all user profiles" ON public.users USING ((auth.role() = 'service_role'::text)) WITH CHECK ((auth.role() = 'service_role'::text));
+
+CREATE POLICY "Users can read own profile" ON public.users FOR SELECT USING ((auth.uid() = id));
+
+CREATE POLICY "Users can update own profile" ON public.users FOR UPDATE USING ((auth.uid() = id)) WITH CHECK ((auth.uid() = id));
+
 CREATE POLICY "Users can view logs for their sessions" ON public.research_logs FOR SELECT USING ((EXISTS ( SELECT 1
    FROM public.research_sessions
   WHERE ((research_sessions.id = research_logs.session_id) AND (research_sessions.user_id = auth.uid())))));
@@ -935,6 +974,8 @@ ALTER TABLE public.research_results ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.research_sessions ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE public.research_sources ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
 
 CREATE PUBLICATION supabase_realtime WITH (publish = 'insert, update, delete, truncate');
 
@@ -2547,6 +2588,9 @@ GRANT ALL ON FUNCTION public.hamming_distance(bit, bit) TO postgres;
 GRANT ALL ON FUNCTION public.hamming_distance(bit, bit) TO anon;
 GRANT ALL ON FUNCTION public.hamming_distance(bit, bit) TO authenticated;
 GRANT ALL ON FUNCTION public.hamming_distance(bit, bit) TO service_role;
+
+REVOKE ALL ON FUNCTION public.handle_auth_user_sync() FROM PUBLIC;
+GRANT ALL ON FUNCTION public.handle_auth_user_sync() TO postgres;
 
 GRANT ALL ON FUNCTION public.health() TO postgres;
 GRANT ALL ON FUNCTION public.health() TO anon;

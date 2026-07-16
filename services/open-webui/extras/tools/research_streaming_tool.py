@@ -65,8 +65,8 @@ class Tools:
 
             return "\n".join(result_parts)
 
-        except Exception as e:
-            return f"❌ **Research failed:** {str(e)}"
+        except Exception:
+            return "❌ **Research failed unexpectedly. Please try again later.**"
 
     def _start_research_session(self, query: str) -> str:
         """Start a research session and return session ID"""
@@ -127,8 +127,8 @@ class Tools:
 
         except requests.exceptions.Timeout:
             return f"⏱️ **Research timed out** after {self.valves.timeout} seconds"
-        except Exception as e:
-            return f"❌ **Research failed:** {str(e)}"
+        except Exception:
+            return "❌ **Research failed unexpectedly. Please try again later.**"
 
     def _format_langgraph_result(self, result: dict, query: str, thread_id: str) -> str:
         """Format LangGraph research results"""

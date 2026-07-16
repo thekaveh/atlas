@@ -7,8 +7,8 @@ config contract the plugin seam validates before mounting:
 
 - ``name`` / ``route_prefix`` (unique, non-overlapping, non-reserved),
 - ``health_path`` / ``docs_url`` metadata,
-- ``auth: inherit|open|key-auth`` (per-plugin Kong policy — consumed by the
-  bootstrapper's Kong generator, surfaced here for the inventory),
+- ``auth: inherit|open|key-auth`` (enforced by both the application seam and
+  the bootstrapper's per-plugin Kong policy),
 - typed / ``default`` / ``required`` / ``secret`` ``env`` declarations,
 - ``depends_on`` dependency-endpoint hints.
 
@@ -50,9 +50,15 @@ RESERVED_ROUTE_PREFIXES: frozenset[str] = frozenset(
         "documents",
         "health",
         "jobs",
+        "lightrag",
         "media",
         "memory",
+        "metrics",
+        "docs",
+        "openapi.json",
         "plugins",
+        "ready",
+        "redoc",
         "research",
         "storage",
         "workflows",

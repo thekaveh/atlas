@@ -18,7 +18,7 @@ Everything else in live logs matched `docs/deployment/expected-startup-warnings.
 
 ## 2. Root cause + fix per issue
 
-### #1 — TEI Reranker restart loop on arm64
+### 2.1. #1 — TEI Reranker restart loop on arm64
 
 **What's happening:** `cpu-arm64-latest` (only arm64 tag HF publishes) ships the candle backend. `BAAI/bge-reranker-v2-m3` doesn't ship ONNX, so the ORT path 404s (expected) and the code falls back to candle. Candle downloads `model.safetensors`, starts the BERT model on CPU, logs "Warming up model" — then the process exits cleanly (exit code 0, no OOM kill, no panic). No `Ready` line is ever emitted. Container is restarted by Docker every ~15 s.
 
@@ -37,13 +37,13 @@ Files to change:
 - `bootstrapper/tests/fixtures/rendered_config_baseline.yml` — `RERANK_MODEL` env value drift
 - `.env.example` — `TEI_RERANKER_MODEL_ID` regen
 
-### #2 — LightRAG `relation does not exist` startup noise
+### 2.2. #2 — LightRAG `relation does not exist` startup noise
 
 **What's happening:** LightRAG's `PGVectorStorage` uses a SELECT-then-CREATE pattern (it queries the table to verify schema, and on the first ever boot the table doesn't exist, so the SELECT errors). The code catches the error and runs CREATE TABLE, which succeeds. Net effect: 8 ERROR + 8 "Creation success" pairs scrolling past on every fresh-DB boot.
 
 **Fix:** Document in `docs/deployment/expected-startup-warnings.md` under "Unavoidable startup races" — same shape as the LiteLLM view-create race entry. No code change needed; the pattern is self-resolving and only fires on first ingestion-startup.
 
-### #3 — `LIGHTRAG_EMBEDDING_MODEL` empty in live container
+### 2.3. #3 — `LIGHTRAG_EMBEDDING_MODEL` empty in live container
 
 **What's happening:** `services/lightrag/init/scripts/resolve-models.py` correctly resolves the model name from LiteLLM `/v1/models` and writes `LIGHTRAG_EMBEDDING_MODEL=<resolved>` to `/app/data/.env`. But:
 - LightRAG's WORKDIR is `/app`, not `/app/data`. Its dotenv loader looks at `/app/.env`, not `/app/data/.env`.
@@ -57,7 +57,7 @@ Files to change:
 - `services/lightrag/init/scripts/init-lightrag.sh` — `python3 /scripts/resolve-models.py > /app/data/.env` → `/app/.env`
 - `services/lightrag/compose.yml` — drop `LLM_MODEL` and `EMBEDDING_MODEL` from the env block (init script populates via .env)
 
-### #4 — Kong nginx "user directive" warns
+### 2.4. #4 — Kong nginx "user directive" warns
 
 **What's happening:** Kong's bundled nginx config sets a `user` directive while running as a non-root user, triggering 2 warnings at boot. Cosmetic; Kong's image owner has chosen not to silence this.
 

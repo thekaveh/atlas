@@ -193,6 +193,85 @@ def test_generate_missing_keys_creates_backend_kong_api_key(tmp_path):
     assert key.startswith("sk-backend-")
 
 
+def test_generate_missing_keys_creates_distinct_backend_internal_token(tmp_path):
+    _seed_env(
+        tmp_path,
+        "BACKEND_KONG_API_KEY=sk-backend-public\nBACKEND_INTERNAL_API_TOKEN=\n",
+    )
+    kg = KeyGenerator(str(tmp_path))
+
+    results = kg.generate_missing_keys(force_regenerate=False)
+
+    assert results.get("BACKEND_INTERNAL_API_TOKEN") is True
+    token = kg.get_current_env_value("BACKEND_INTERNAL_API_TOKEN")
+    assert token.startswith("sk-atlas-internal-")
+    assert token != kg.get_current_env_value("BACKEND_KONG_API_KEY")
+
+
+def test_generate_missing_keys_creates_distinct_backend_notebook_token(tmp_path):
+    _seed_env(
+        tmp_path,
+        "BACKEND_INTERNAL_API_TOKEN=sk-atlas-internal-test\n"
+        "BACKEND_NOTEBOOK_API_TOKEN=\n",
+    )
+    kg = KeyGenerator(str(tmp_path))
+
+    results = kg.generate_missing_keys(force_regenerate=False)
+
+    assert results.get("BACKEND_NOTEBOOK_API_TOKEN") is True
+    token = kg.get_current_env_value("BACKEND_NOTEBOOK_API_TOKEN")
+    assert token.startswith("sk-atlas-notebook-")
+    assert token != kg.get_current_env_value("BACKEND_INTERNAL_API_TOKEN")
+
+
+def test_generate_missing_keys_creates_scoped_first_party_tokens(tmp_path):
+    _seed_env(
+        tmp_path,
+        "BACKEND_INTERNAL_API_TOKEN=sk-atlas-internal-test\n"
+        "BACKEND_N8N_API_TOKEN=\n"
+        "BACKEND_OPEN_WEBUI_API_TOKEN=\n",
+    )
+    kg = KeyGenerator(str(tmp_path))
+
+    results = kg.generate_missing_keys(force_regenerate=False)
+
+    assert results.get("BACKEND_N8N_API_TOKEN") is True
+    assert results.get("BACKEND_OPEN_WEBUI_API_TOKEN") is True
+    n8n_token = kg.get_current_env_value("BACKEND_N8N_API_TOKEN")
+    webui_token = kg.get_current_env_value("BACKEND_OPEN_WEBUI_API_TOKEN")
+    assert n8n_token.startswith("sk-atlas-n8n-")
+    assert webui_token.startswith("sk-atlas-openwebui-")
+    assert len({n8n_token, webui_token, "sk-atlas-internal-test"}) == 3
+
+
+def test_generate_missing_keys_creates_asset_api_and_minio_tokens(tmp_path):
+    _seed_env(
+        tmp_path,
+        "ASSET_WORKER_API_TOKEN=\n"
+        "ASSET_BAKER_API_TOKEN=\n"
+        "MINIO_ASSET_WORKER_ACCESS_KEY=\n"
+        "MINIO_ASSET_WORKER_SECRET_KEY=\n"
+        "MINIO_ASSET_BAKER_ACCESS_KEY=\n"
+        "MINIO_ASSET_BAKER_SECRET_KEY=\n"
+        "MINIO_ASSET_INGEST_ACCESS_KEY=\n"
+        "MINIO_ASSET_INGEST_SECRET_KEY=\n",
+    )
+    kg = KeyGenerator(str(tmp_path))
+
+    results = kg.generate_missing_keys(force_regenerate=False)
+
+    for service in ("ASSET_WORKER", "ASSET_BAKER"):
+        api_token = kg.get_current_env_value(f"{service}_API_TOKEN")
+        access_key = kg.get_current_env_value(f"MINIO_{service}_ACCESS_KEY")
+        secret_key = kg.get_current_env_value(f"MINIO_{service}_SECRET_KEY")
+        assert results[f"{service}_API_TOKEN"] is True
+        assert api_token.startswith(f"sk-{service.lower().replace('_', '-')}-")
+        assert access_key
+        assert secret_key
+    assert kg.get_current_env_value("MINIO_ASSET_INGEST_ACCESS_KEY")
+    assert kg.get_current_env_value("MINIO_ASSET_INGEST_SECRET_KEY")
+
+
 def test_assert_no_placeholders_detects_unrotated(tmp_path):
     import sys, pathlib
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))

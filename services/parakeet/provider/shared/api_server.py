@@ -3,17 +3,18 @@ OpenAI-compatible Speech-to-Text API Server
 Supports both MLX (Mac) and NVIDIA GPU (CUDA) backends
 """
 
-from fastapi import FastAPI, File, UploadFile, HTTPException, Form
+from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Response, status
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import os
-import tempfile
 import logging
-from typing import Optional
+from typing import Literal, Optional
+
+from bounded_upload import EmptyUploadError, UploadTooLargeError, spool_upload
 
 # Import backend-specific transcriber
 try:
-    from transcribe import transcribe_audio
+    from transcribe import model_is_loaded, transcribe_audio
 except ImportError as e:
     logging.error(f"Failed to import transcribe module: {e}")
     raise
@@ -49,10 +50,14 @@ async def root():
     }
 
 @app.get("/health")
-async def health_check():
+async def health_check(response: Response):
     """Health check endpoint"""
+    ready = model_is_loaded()
+    if not ready:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     return {
-        "status": "healthy",
+        "status": "healthy" if ready else "loading",
+        "model_loaded": ready,
         "backend": os.getenv("PARAKEET_BACKEND", "cuda"),
         "device": os.getenv("PARAKEET_DEVICE", "unknown"),
         "model": os.getenv("PARAKEET_MODEL", "unknown")
@@ -64,7 +69,7 @@ async def transcribe(
     model: str = Form(default="parakeet-tdt-0.6b-v3"),
     language: Optional[str] = Form(default=None),
     prompt: Optional[str] = Form(default=None),
-    response_format: str = Form(default="json"),
+    response_format: Literal["json", "verbose_json", "text"] = Form(default="json"),
     temperature: float = Form(default=0.0)
 ):
     """
@@ -86,26 +91,22 @@ async def transcribe(
     Returns:
         Transcription result in requested format
     """
+    tmp_path = None
     try:
-        logger.info(f"Received transcription request: file={file.filename}, language={language}, format={response_format}")
+        logger.info("Received transcription request")
 
-        # Save uploaded file temporarily
-        with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(file.filename or "audio.wav")[1]) as tmp:
-            content = await file.read()
-            tmp.write(content)
-            tmp_path = tmp.name
+        max_bytes = int(os.getenv("PARAKEET_MAX_UPLOAD_BYTES", "104857600"))
+        suffix = os.path.splitext(file.filename or "audio.wav")[1] or ".wav"
+        tmp_path = await spool_upload(file, max_bytes=max_bytes, suffix=suffix)
 
-        logger.info(f"Saved temporary file: {tmp_path}")
+        logger.info("Saved temporary audio file")
 
         # Transcribe using backend-specific function
         result = await transcribe_audio(
-            audio_path=tmp_path,
+            audio_path=str(tmp_path),
             language=language,
             temperature=temperature
         )
-
-        # Clean up temporary file
-        os.unlink(tmp_path)
 
         # Format response based on response_format
         if response_format == "json":
@@ -114,23 +115,24 @@ async def transcribe(
             return result
         elif response_format == "text":
             return result["text"]
-        else:
-            return {"text": result["text"]}
 
-    except Exception as e:
-        logger.error(f"Transcription error: {str(e)}", exc_info=True)
-        # Clean up temp file if it exists
-        try:
-            if 'tmp_path' in locals():
-                os.unlink(tmp_path)
-        except Exception:
-            pass
-        raise HTTPException(status_code=500, detail=str(e))
+    except UploadTooLargeError as e:
+        raise HTTPException(status_code=413, detail=str(e)) from e
+    except EmptyUploadError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Transcription failed (error_type=%s)", type(exc).__name__)
+        raise HTTPException(status_code=500, detail="Transcription failed") from exc
+    finally:
+        if tmp_path is not None:
+            tmp_path.unlink(missing_ok=True)
 
 @app.post("/v1/audio/transcriptions/advanced")
 async def transcribe_advanced(
     file: UploadFile = File(...),
-    return_timestamps: bool = Form(default=True),
+    return_timestamps: bool = Form(default=False),
     word_timestamps: bool = Form(default=False)
 ):
     """
@@ -148,31 +150,37 @@ async def transcribe_advanced(
     Returns:
         Detailed transcription result with timestamps
     """
+    tmp_path = None
     try:
-        logger.info(f"Received advanced transcription request: file={file.filename}, timestamps={return_timestamps}, word_timestamps={word_timestamps}")
+        logger.info("Received advanced transcription request")
 
-        with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(file.filename or "audio.wav")[1]) as tmp:
-            content = await file.read()
-            tmp.write(content)
-            tmp_path = tmp.name
+        max_bytes = int(os.getenv("PARAKEET_MAX_UPLOAD_BYTES", "104857600"))
+        suffix = os.path.splitext(file.filename or "audio.wav")[1] or ".wav"
+        tmp_path = await spool_upload(file, max_bytes=max_bytes, suffix=suffix)
 
         result = await transcribe_audio(
-            audio_path=tmp_path,
+            audio_path=str(tmp_path),
             return_timestamps=return_timestamps,
             word_timestamps=word_timestamps
         )
 
-        os.unlink(tmp_path)
         return result
 
-    except Exception as e:
-        logger.error(f"Advanced transcription error: {str(e)}", exc_info=True)
-        try:
-            if 'tmp_path' in locals():
-                os.unlink(tmp_path)
-        except Exception:
-            pass
-        raise HTTPException(status_code=500, detail=str(e))
+    except UploadTooLargeError as e:
+        raise HTTPException(status_code=413, detail=str(e)) from e
+    except EmptyUploadError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(
+            "Advanced transcription failed (error_type=%s)",
+            type(exc).__name__,
+        )
+        raise HTTPException(status_code=500, detail="Transcription failed") from exc
+    finally:
+        if tmp_path is not None:
+            tmp_path.unlink(missing_ok=True)
 
 if __name__ == "__main__":
     import uvicorn

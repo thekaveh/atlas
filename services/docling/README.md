@@ -1,4 +1,4 @@
-# Docling (Document Processor engine)
+# 5.2.14. Docling (Document Processor engine)
 
 Docling is the engine behind the **Document Processor** role selectable via
 `DOC_PROCESSOR_SOURCE`. It is documented under the **Document Processor**
@@ -12,13 +12,18 @@ and integration notes.
 ## 1. Engine quick reference
 
 - **Image (GPU):** `pytorch/pytorch:2.12.1-cuda12.6-cudnn9-runtime` (used as
-  `BASE_IMAGE` in the GPU provider Dockerfile)
+  `BASE_IMAGE` in the GPU provider Dockerfile); the provider requirements keep
+  `torch==2.12.1` and its matching `torchvision==0.27.1` patch pair.
 - **License:** MIT (IBM)
 - **Activation:** `DOC_PROCESSOR_SOURCE=docling-container-gpu` (or
   `docling-localhost` for host-installed Docling)
 - **In-container port:** 8000
 - **Host port:** `${DOC_PROCESSOR_PORT}` (computed from `BASE_PORT` by the
   bootstrapper)
+- **Readiness:** `GET /health` starts configured converter construction off the
+  API event loop and returns `503 starting` until it succeeds. Invalid pipeline
+  or device configuration returns `503 unavailable`; health reports the
+  converter only and does not claim lazily loaded model artifacts.
 
 The manifest (`service.yml`) and compose fragment (`compose.yml`) in this folder
 are the bootstrapper's source of truth for those values; treat this README as a
@@ -26,35 +31,34 @@ pointer, not a duplicate of the aggregator doc.
 
 ## 2. Dependencies & Integrations
 
-> Auto-generated section — the **Current** subsections are derived from `services/docling/service.yml`'s `data_flow.calls` field (and inverse passes). Re-run `python -m bootstrapper.docs.regen docling` after manifest changes.
-
-### 2.1 Current — Upstream (this service calls)
+### 2.1. Current — Upstream (this service calls)
 
 _No upstream calls._
 
-### 2.2 Current — Downstream (services that call this)
+### 2.2. Current — Downstream (services that call this)
 
 | Service | Category |
 |---|---|
 | kong | infra |
+| celery | agents |
 | lightrag | agents |
 | n8n | agents |
 | llm-graph-builder | apps |
 
-### 2.3 Architecture diagram
+### 2.3. Architecture diagram
 
 ![docling architecture](./architecture.svg)
 
 [Open the interactive HTML diagram](./architecture.html) for a full-screen view.
 
-### 2.4 Future — Missing pair integrations
+### 2.4. Future — Missing pair integrations
 
 _No high-confidence opportunities identified._
 
-### 2.5 Future — Candidate new services
+### 2.5. Future — Candidate new services
 
 _No high-confidence opportunities identified._
 
-### 2.6 Future — Unused features in this service
+### 2.6. Future — Unused features in this service
 
 _No high-confidence opportunities identified._

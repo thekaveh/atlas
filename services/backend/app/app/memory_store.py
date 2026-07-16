@@ -85,9 +85,11 @@ class MemoryStore:
                             )
                             self._initialized = True
                             return
-                except Exception as e:
+                except Exception as exc:
                     logger.warning(
-                        f"Weaviate not available ({e}), falling back to pgvector"
+                        "Weaviate initialization failed; falling back to pgvector "
+                        "(error_type=%s)",
+                        type(exc).__name__,
                     )
 
             # Fall back to pgvector
@@ -120,15 +122,18 @@ class MemoryStore:
                             "(%s) — deleting and recreating it (it could never "
                             "store vectors).", bad,
                         )
-                        await client.delete(
+                        delete_response = await client.delete(
                             f"{self.weaviate_url}/v1/schema/{WEAVIATE_COLLECTION_NAME}"
                         )
+                        if delete_response.status_code not in (200, 204):
+                            raise RuntimeError("Weaviate collection replacement failed")
                         # fall through to the creation path below
                     else:
                         return  # Already exists and healthy
-                except Exception as exc:  # noqa: BLE001 — heal is best-effort
-                    logger.warning("Memory collection baseURL check failed: %s", exc)
-                    return  # keep existing class; don't block startup
+                except Exception:
+                    raise RuntimeError("Weaviate collection validation failed") from None
+            elif resp.status_code != 404:
+                raise RuntimeError("Weaviate collection inspection failed")
 
             # Create collection
             schema = {
@@ -234,10 +239,7 @@ class MemoryStore:
             if resp.status_code in (200, 201):
                 logger.info("Created Weaviate Memory collection")
             else:
-                logger.error(
-                    f"Failed to create Weaviate collection: "
-                    f"{resp.status_code} {resp.text}"
-                )
+                raise RuntimeError("Weaviate collection creation failed")
 
     async def _generate_embedding(self, text: str) -> List[float]:
         """Generate an embedding vector through the LiteLLM gateway.

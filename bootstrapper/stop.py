@@ -6,6 +6,8 @@ Python implementation of stop.sh with full feature parity.
 Cross-platform stop script for Atlas — the self-hosted engineering platform.
 """
 
+import os
+import subprocess
 import sys
 from pathlib import Path
 import click
@@ -17,6 +19,48 @@ from utils.banner import BannerDisplay
 from utils.hosts_manager import HostsManager
 from core.config_parser import ConfigParser
 from core.docker_manager import DockerManager
+
+
+def _run_privileged_hosts_cleanup() -> bool:
+    """Elevate only the hosts-file mutation, never the repository workflow."""
+    from utils.system import is_elevated
+
+    if is_elevated():
+        return HostsManager().cleanup_hosts_entries()
+    if os.name == "nt":
+        print("  • Please run from an Administrator shell to modify the hosts file")
+        return False
+
+    bootstrapper_dir = Path(__file__).resolve().parent
+    repo_root = bootstrapper_dir.parent
+    env = os.environ.copy()
+    existing_pythonpath = env.get("PYTHONPATH")
+    env["PYTHONPATH"] = (
+        str(bootstrapper_dir)
+        if not existing_pythonpath
+        else f"{bootstrapper_dir}{os.pathsep}{existing_pythonpath}"
+    )
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    helper = (
+        "from utils.hosts_manager import HostsManager; "
+        "raise SystemExit(0 if HostsManager().cleanup_hosts_entries() else 1)"
+    )
+    print("  • --clean-hosts needs to edit your hosts file; requesting sudo for that write only.")
+    result = subprocess.run(
+        [
+            "sudo",
+            "env",
+            f"PYTHONPATH={env['PYTHONPATH']}",
+            "PYTHONDONTWRITEBYTECODE=1",
+            sys.executable,
+            "-c",
+            helper,
+        ],
+        cwd=repo_root,
+        env=env,
+        check=False,
+    )
+    return result.returncode == 0
 
 
 class AtlasStopper:
@@ -71,7 +115,7 @@ Options:
 
 Examples:
   ./stop.sh                 # Stop all containers, preserve data
-  ./stop.sh --cold          # Stop containers, remove project volumes, AND run a global `docker system prune -f --volumes` (touches unused images/volumes of OTHER projects too)
+  ./stop.sh --cold          # Stop this project and remove its containers, orphans, and named volumes
   ./stop.sh --clean-hosts   # Stop containers and clean up hosts file
 """
         print(usage_text)
@@ -103,7 +147,7 @@ Examples:
         
         # Show stop options
         if cold_stop:
-            self.banner.show_status_message("Cold Stop: Yes (removing volumes and aggressive cleanup)", "warning")
+            self.banner.show_status_message("Cold Stop: Yes (removing project volumes)", "warning")
             
         if clean_hosts:
             self.banner.show_status_message("Clean Hosts: Yes (will remove hosts file entries)", "info")
@@ -130,11 +174,11 @@ Examples:
         self.docker_manager.project_name_override = project_name
         try:
             if cold_stop:
-                self.banner.show_status_message("Performing cold stop (removing volumes and aggressive cleanup)...", "warning")
+                self.banner.show_status_message("Performing cold stop (removing project volumes)...", "warning")
                 self.banner.console.print("⚠️ WARNING: This will permanently delete all data!", style="bold red")
                 print()
 
-                # Use the enhanced cold stop cleanup from Docker manager
+                # Use the project-scoped cold stop cleanup from Docker manager.
                 success = self.docker_manager.perform_cold_stop_cleanup()
 
                 if success:
@@ -157,79 +201,102 @@ Examples:
         finally:
             self.docker_manager.project_name_override = previous_project
                 
-    def stop_managed_comfyui_mps(self) -> None:
+    def stop_managed_comfyui_mps(self) -> bool:
         """Stop the Atlas-managed Apple-Silicon/Metal ComfyUI host process (#335).
 
         The ``managed-localhost-mps`` source runs a native ComfyUI process on the
         host (not a container), so ``docker compose down`` never touches it — Atlas
         must tear it down explicitly. A no-op when the source isn't selected or no
-        process is running. Best-effort: never blocks the rest of the stop flow.
+        process is running. The current SOURCE value is intentionally ignored:
+        a prior launch may still own a process after the selection changed.
         """
         try:
-            if not self.config_parser.env_file_exists():
-                return
-            env = self.config_parser.parse_env_file()
-            if str(env.get("COMFYUI_SOURCE", "")).strip() != "managed-localhost-mps":
-                return
+            env = (
+                self.config_parser.parse_env_file()
+                if self.config_parser.env_file_exists()
+                else {}
+            )
             from services.comfyui_mps_manager import manager_from_env
 
             manager = manager_from_env(env)
-            if manager.stop():
+            before = manager.status()
+            stopped = manager.stop()
+            after = manager.status()
+            if after.running:
+                self.banner.show_status_message(
+                    "Managed ComfyUI (MPS) host is still running after stop.",
+                    "warning",
+                )
+                return False
+            if before.running and stopped:
                 self.banner.show_status_message(
                     "Stopped the managed Apple-Silicon/Metal ComfyUI host process.",
                     "info",
                 )
+            return True
         except Exception as exc:  # noqa: BLE001 — teardown must never break stop
             self.banner.show_status_message(
                 f"Could not stop the managed ComfyUI (MPS) host: {exc}", "warning"
             )
+            return False
 
-    def stop_managed_vllm_metal(self) -> None:
+    def stop_managed_vllm_metal(self) -> bool:
         """Stop the Atlas-managed vLLM Metal host process (#379).
 
         The ``managed-localhost`` source runs a native vLLM process on the host
         (not a container), so ``docker compose down`` never touches it — Atlas
         must tear it down explicitly. A no-op when the source isn't selected or no
-        process is running. Best-effort: never blocks the rest of the stop flow.
+        process is running. The current SOURCE value is intentionally ignored:
+        a prior launch may still own a process after the selection changed.
         """
         try:
-            if not self.config_parser.env_file_exists():
-                return
-            env = self.config_parser.parse_env_file()
-            if str(env.get("VLLM_METAL_SOURCE", "")).strip() != "managed-localhost":
-                return
+            env = (
+                self.config_parser.parse_env_file()
+                if self.config_parser.env_file_exists()
+                else {}
+            )
             from services.vllm_metal_manager import manager_from_env
 
             manager = manager_from_env(env)
-            if manager.stop():
+            before = manager.status()
+            stopped = manager.stop()
+            after = manager.status()
+            if after.running:
+                self.banner.show_status_message(
+                    "Managed vLLM (Metal) host is still running after stop.",
+                    "warning",
+                )
+                return False
+            if before.running and stopped:
                 self.banner.show_status_message(
                     "Stopped the managed Apple-Silicon/Metal vLLM host process.",
                     "info",
                 )
+            return True
         except Exception as exc:  # noqa: BLE001 — teardown must never break stop
             self.banner.show_status_message(
                 f"Could not stop the managed vLLM (Metal) host: {exc}", "warning"
             )
+            return False
 
     def cleanup_hosts_entries(self) -> bool:
         """Clean up hosts file entries if requested."""
         self.banner.show_section_header("Cleaning Up Hosts File", "🧹")
 
-        return self.hosts_manager.cleanup_hosts_entries()
+        return _run_privileged_hosts_cleanup()
         
-    def show_final_status(self, cold_stop: bool, clean_hosts: bool, services_ok: bool = True, hosts_ok: bool = True):
+    def show_final_status(self, cold_stop: bool, clean_hosts: bool, services_ok: bool = True, hosts_ok: bool = True, managed_hosts_ok: bool = True):
         """Display final stop status and next steps."""
         print()
         self.banner.console.print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", style="bright_white")
 
-        if not services_ok:
+        if not services_ok or not managed_hosts_ok:
             self.banner.console.print("⚠️  Atlas stop completed with errors — see messages above", style="bold bright_yellow")
         elif cold_stop:
             self.banner.console.print("🎯 Atlas stopped with complete data cleanup", style="bold bright_green")
             self.banner.console.print("   ✅ All containers stopped and removed")
             self.banner.console.print("   ✅ All data volumes removed")
-            self.banner.console.print("   ✅ Project networks cleaned up")
-            self.banner.console.print("   ✅ Docker system pruned")
+            self.banner.console.print("   ✅ Project orphans and default network removed")
         else:
             self.banner.console.print("🎯 Atlas stopped successfully", style="bold bright_green")
             self.banner.console.print("   ✅ All containers stopped and removed")
@@ -240,8 +307,8 @@ Examples:
                 self.banner.console.print("   ✅ Hosts file entries cleaned up")
             else:
                 self.banner.console.print(
-                    "   ⚠️  Hosts file cleanup FAILED (needs sudo?) — run "
-                    "./stop.sh --clean-hosts again with privileges",
+                    "   ⚠️  Hosts file cleanup FAILED — re-run "
+                    "./stop.sh --clean-hosts from an interactive terminal that can approve sudo",
                     style="bold bright_yellow",
                 )
             
@@ -304,21 +371,24 @@ def main(project_name, cold, clean_hosts, help_usage):
         project_name = stopper.show_configuration_info(cold, clean_hosts,
                                                        project_name_override=project_name)
 
-        if not stopper.ensure_dependencies_available():
-            sys.exit(1)
-        
-        # Step 2: Stop Docker services. Keep going on failure so hosts
-        # cleanup and the final status still run, but exit non-zero at the
-        # end — scripts/CI need a truthful exit code for a failed `down`.
-        services_ok = stopper.stop_services(cold, project_name)
+        dependencies_ok = stopper.ensure_dependencies_available()
+
+        # Step 2: Stop Docker services when the Docker/Compose preflight is
+        # available. Keep going after a preflight or down failure so native
+        # hosts and optional hosts-file cleanup are not stranded, but retain a
+        # nonzero final status for the container teardown failure.
+        services_ok = (
+            stopper.stop_services(cold, project_name) if dependencies_ok else False
+        )
 
         # Step 2b: Stop the Atlas-managed Apple-Silicon/Metal ComfyUI host
         # process (#335) — a native host process compose `down` never touches.
-        stopper.stop_managed_comfyui_mps()
+        comfyui_host_ok = stopper.stop_managed_comfyui_mps()
 
         # Step 2c: Stop the Atlas-managed Apple-Silicon/Metal vLLM host
         # process (#379) — likewise a native host process compose ignores.
-        stopper.stop_managed_vllm_metal()
+        vllm_host_ok = stopper.stop_managed_vllm_metal()
+        managed_hosts_ok = comfyui_host_ok and vllm_host_ok
 
         # Step 3: Clean up hosts entries if requested
         hosts_ok = True
@@ -330,9 +400,10 @@ def main(project_name, cold, clean_hosts, help_usage):
         # Step 4: Show final status
         stopper.show_final_status(
             cold, clean_hosts, services_ok=services_ok, hosts_ok=hosts_ok,
+            managed_hosts_ok=managed_hosts_ok,
         )
 
-        if not services_ok:
+        if not services_ok or not hosts_ok or not managed_hosts_ok:
             sys.exit(1)
         
     except KeyboardInterrupt:

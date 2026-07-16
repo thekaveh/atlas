@@ -18,9 +18,9 @@
 
 ---
 
-## Phase 0 — Setup
+## 1. Phase 0 — Setup
 
-### Task 0.1: Create the implementation branch
+### 1.1. Task 0.1: Create the implementation branch
 
 **Files:**
 - Branch: `feat/airflow-spark-zeppelin`
@@ -54,7 +54,7 @@ git push -u origin feat/airflow-spark-zeppelin
 
 Expected: new branch tracking `origin/feat/airflow-spark-zeppelin`.
 
-### Task 0.2: Capture baseline test count
+### 1.2. Task 0.2: Capture baseline test count
 
 **Files:**
 - Read: `bootstrapper/tests/`
@@ -68,7 +68,7 @@ cd /Users/kaveh/repos/atlas/bootstrapper
 
 Expected: `590 passed` (current baseline as of 2026-06-04). Note this number — every Phase X validation should equal `baseline + Phase X new tests`.
 
-### Task 0.3: Sanity check that the spec is on the branch
+### 1.3. Task 0.3: Sanity check that the spec is on the branch
 
 **Files:**
 - Read: `docs/superpowers/specs/2026-06-04-airflow-spark-zeppelin-design.md`
@@ -83,9 +83,9 @@ Expected: file exists, ~5800 words. If missing, cherry-pick the spec commit from
 
 ---
 
-## Phase 1 — Spark cluster
+## 2. Phase 1 — Spark cluster
 
-### Task 1.1: Create `services/spark/service.yml`
+### 2.1. Task 1.1: Create `services/spark/service.yml`
 
 **Files:**
 - Create: `services/spark/service.yml`
@@ -276,7 +276,7 @@ supabase (JDBC), prometheus (opt-in metrics).
 "
 ```
 
-### Task 1.2: Create `services/spark/compose.yml`
+### 2.2. Task 1.2: Create `services/spark/compose.yml`
 
 **Files:**
 - Create: `services/spark/compose.yml`
@@ -456,7 +456,7 @@ service.yml runtime_sc.environment.
 "
 ```
 
-### Task 1.3: Run the parametrized fragment guards on the new fragment
+### 2.3. Task 1.3: Run the parametrized fragment guards on the new fragment
 
 **Files:**
 - Read: `bootstrapper/tests/test_fragment_bind_sources.py`
@@ -478,7 +478,7 @@ Expected: both `test_fragment_bind_sources_dont_self_double[spark]` and `test_fr
 
 Expected: 51 passed (was 49; +2 for the new spark fragment in both parametrized tests).
 
-### Task 1.4: Regenerate `.env.example` to include SPARK_* vars
+### 2.4. Task 1.4: Regenerate `.env.example` to include SPARK_* vars
 
 **Files:**
 - Modify: `.env.example` (auto-generated)
@@ -525,7 +525,7 @@ the data band (63023 / 63024). Auto-managed SPARK_*_SCALE vars
 populated by the bootstrapper at start time."
 ```
 
-### Task 1.5: Add Spark to `bootstrapper/services/service_config.py`
+### 2.5. Task 1.5: Add Spark to `bootstrapper/services/service_config.py`
 
 **Files:**
 - Modify: `bootstrapper/services/service_config.py`
@@ -658,7 +658,7 @@ behaviors.
 "
 ```
 
-### Task 1.6: Add Spark to `bootstrapper/utils/source_override_manager.py`
+### 2.6. Task 1.6: Add Spark to `bootstrapper/utils/source_override_manager.py`
 
 **Files:**
 - Modify: `bootstrapper/utils/source_override_manager.py`
@@ -682,7 +682,7 @@ git add bootstrapper/utils/source_override_manager.py
 git commit -m "feat(spark): wire SPARK_SOURCE into source_override_manager"
 ```
 
-### Task 1.7: Add Spark to `bootstrapper/utils/kong_config_generator.py`
+### 2.7. Task 1.7: Add Spark to `bootstrapper/utils/kong_config_generator.py`
 
 **Files:**
 - Modify: `bootstrapper/utils/kong_config_generator.py`
@@ -788,7 +788,7 @@ asset URLs. preserve_host=True forces Kong to forward the alias.
 "
 ```
 
-### Task 1.8: Add Spark hostnames to `bootstrapper/utils/hosts_manager.py`
+### 2.8. Task 1.8: Add Spark hostnames to `bootstrapper/utils/hosts_manager.py`
 
 **Files:**
 - Modify: `bootstrapper/utils/hosts_manager.py`
@@ -813,7 +813,7 @@ git add bootstrapper/utils/hosts_manager.py
 git commit -m "feat(spark): register spark.localhost + spark-history.localhost in GENAI_HOSTS"
 ```
 
-### Task 1.9: Add Spark to `bootstrapper/start.py` (Click CLI flags)
+### 2.9. Task 1.9: Add Spark to `bootstrapper/start.py` (Click CLI flags)
 
 **Files:**
 - Modify: `bootstrapper/start.py`
@@ -872,7 +872,7 @@ plumb into the same user_model_selections + source_args bag the wizard
 uses."
 ```
 
-### Task 1.10: Add Spark wizard widget (`bootstrapper/ui/textual/integration.py`)
+### 2.10. Task 1.10: Add Spark wizard widget (`bootstrapper/ui/textual/integration.py`)
 
 **Files:**
 - Modify: `bootstrapper/ui/textual/integration.py`
@@ -972,7 +972,7 @@ Mirrors Ray's worker-count widget exactly. Attached to the 'container'
 source option. New test verifies the wiring."
 ```
 
-### Task 1.11: Add Spark display name + description to `bootstrapper/wizard/service_discovery.py`
+### 2.11. Task 1.11: Add Spark display name + description to `bootstrapper/wizard/service_discovery.py`
 
 **Files:**
 - Modify: `bootstrapper/wizard/service_discovery.py`
@@ -991,7 +991,7 @@ git add bootstrapper/wizard/service_discovery.py
 git commit -m "feat(spark): wizard display name + description for Spark service"
 ```
 
-### Task 1.12: Regenerate the compose-baseline fixture for the new fragments
+### 2.12. Task 1.12: Regenerate the compose-baseline fixture for the new fragments
 
 **Files:**
 - Modify: `bootstrapper/tests/fixtures/rendered_config_baseline.yml`
@@ -1040,7 +1040,7 @@ git add bootstrapper/tests/fixtures/rendered_config_baseline.yml
 git commit -m "test(spark): regenerate fragment-equivalence baseline with spark blocks"
 ```
 
-### Task 1.13: Create `services/spark/README.md`
+### 2.13. Task 1.13: Create `services/spark/README.md`
 
 **Files:**
 - Create: `services/spark/README.md`
@@ -1108,7 +1108,7 @@ git add services/spark/README.md
 git commit -m "docs(spark): per-service README with access + config + integration"
 ```
 
-### Task 1.14: Run baseline test sweep at the end of Phase 1
+### 2.14. Task 1.14: Run baseline test sweep at the end of Phase 1
 
 - [ ] **Step 1: Run the full suite**
 
@@ -1129,9 +1129,9 @@ Expected: zero drift output, exit 0. If the auto-gen `## 5. Dependencies & Integ
 
 ---
 
-## Phase 2 — Zeppelin
+## 3. Phase 2 — Zeppelin
 
-### Task 2.1: Create `services/zeppelin/service.yml`
+### 3.1. Task 2.1: Create `services/zeppelin/service.yml`
 
 **Files:**
 - Create: `services/zeppelin/service.yml`
@@ -1272,7 +1272,7 @@ depends_on.required (per spec D3). Pre-configured for Spark + JDBC
 "
 ```
 
-### Task 2.2: Create `services/zeppelin/compose.yml`
+### 3.2. Task 2.2: Create `services/zeppelin/compose.yml`
 
 **Files:**
 - Create: `services/zeppelin/compose.yml`
@@ -1360,7 +1360,7 @@ git add services/zeppelin/compose.yml docker-compose.yml
 git commit -m "feat(zeppelin): add compose fragment with Spark + JDBC + MinIO env"
 ```
 
-### Task 2.3: Create `services/zeppelin/notebooks/spark_basics.zpln`
+### 3.3. Task 2.3: Create `services/zeppelin/notebooks/spark_basics.zpln`
 
 **Files:**
 - Create: `services/zeppelin/notebooks/spark_basics.zpln`
@@ -1411,7 +1411,7 @@ git add services/zeppelin/notebooks/spark_basics.zpln
 git commit -m "feat(zeppelin): starter notebook — Spark + S3A + JDBC round-trip"
 ```
 
-### Task 2.4: Add Zeppelin to `bootstrapper/services/service_config.py`
+### 3.4. Task 2.4: Add Zeppelin to `bootstrapper/services/service_config.py`
 
 **Files:**
 - Modify: `bootstrapper/services/service_config.py`
@@ -1500,7 +1500,7 @@ broken state (Spark interpreter pre-configured but nothing to connect
 to)."
 ```
 
-### Task 2.5: Kong route + hosts + CLI flag for Zeppelin
+### 3.5. Task 2.5: Kong route + hosts + CLI flag for Zeppelin
 
 **Files:**
 - Modify: `bootstrapper/utils/kong_config_generator.py`
@@ -1599,7 +1599,7 @@ Wizard display name 'Apache Zeppelin' + description noting Spark
 dependency."
 ```
 
-### Task 2.6: Regen .env.example + baseline + Zeppelin README
+### 3.6. Task 2.6: Regen .env.example + baseline + Zeppelin README
 
 **Files:**
 - Modify: `.env.example`
@@ -1644,9 +1644,9 @@ git commit -m "feat(zeppelin): regen .env.example + baseline + per-service READM
 
 ---
 
-## Phase 3 — Apache Airflow
+## 4. Phase 3 — Apache Airflow
 
-### Task 3.1: Create `services/airflow/build/Dockerfile` + `requirements.txt`
+### 4.1. Task 3.1: Create `services/airflow/build/Dockerfile` + `requirements.txt`
 
 **Files:**
 - Create: `services/airflow/build/Dockerfile`
@@ -1692,7 +1692,7 @@ neo4j, openai, langchain) so every connection seeded by airflow-init
 has its provider classes available."
 ```
 
-### Task 3.2: Create `services/airflow/service.yml`
+### 4.2. Task 3.2: Create `services/airflow/service.yml`
 
 **Files:**
 - Create: `services/airflow/service.yml`
@@ -1890,7 +1890,7 @@ via a new 'airflow' database. 8 sibling services in depends_on.optional
 for gated Connection seeding."
 ```
 
-### Task 3.3: Create `services/airflow/compose.yml`
+### 4.3. Task 3.3: Create `services/airflow/compose.yml`
 
 **Files:**
 - Create: `services/airflow/compose.yml`
@@ -2031,7 +2031,7 @@ All three use the locally-built ${PROJECT_NAME}-airflow:local image
 from build/Dockerfile."
 ```
 
-### Task 3.4: Create `services/airflow/init/scripts/init-airflow.sh`
+### 4.4. Task 3.4: Create `services/airflow/init/scripts/init-airflow.sh`
 
 **Files:**
 - Create: `services/airflow/init/scripts/init-airflow.sh`
@@ -2149,7 +2149,7 @@ service's _SOURCE env (passed via compose's environment block per the
 dual-write rule)."
 ```
 
-### Task 3.5: Create `services/airflow/dags/example_etl_with_llm.py`
+### 4.5. Task 3.5: Create `services/airflow/dags/example_etl_with_llm.py`
 
 **Files:**
 - Create: `services/airflow/dags/example_etl_with_llm.py`
@@ -2237,7 +2237,7 @@ Runs @daily. Three operators that exercise each seeded Connection
 near-empty work payloads — replace with real DAGs."
 ```
 
-### Task 3.6: Airflow bootstrapper plumbing (start.py + service_config.py + source_mapping + key_generator + kong + hosts + display name)
+### 4.6. Task 3.6: Airflow bootstrapper plumbing (start.py + service_config.py + source_mapping + key_generator + kong + hosts + display name)
 
 **Files:**
 - Modify: `bootstrapper/start.py`
@@ -2349,7 +2349,7 @@ DB role password). Kong route at airflow.localhost preserves host.
 Wizard display name 'Apache Airflow'."
 ```
 
-### Task 3.7: Regen .env.example + baseline + Airflow README
+### 4.7. Task 3.7: Regen .env.example + baseline + Airflow README
 
 **Files:**
 - Modify: `.env.example`
@@ -2380,7 +2380,7 @@ git add .env.example bootstrapper/tests/fixtures/rendered_config_baseline.yml se
 git commit -m "feat(airflow): regen .env.example + baseline + per-service README"
 ```
 
-### Task 3.8: Add airflow-init unit test
+### 4.8. Task 3.8: Add airflow-init unit test
 
 **Files:**
 - Create: `bootstrapper/tests/test_airflow_connection_seeding.py`
@@ -2434,7 +2434,7 @@ git add bootstrapper/tests/test_airflow_connection_seeding.py
 git commit -m "test(airflow): static assertions on init-airflow.sh gating"
 ```
 
-### Task 3.9: Phase 3 validation
+### 4.9. Task 3.9: Phase 3 validation
 
 ```bash
 cd /Users/kaveh/repos/atlas/bootstrapper
@@ -2451,9 +2451,9 @@ Expected: zero drift.
 
 ---
 
-## Phase 4 — Cross-cutting: audit scripts, top-level docs, CHANGELOG
+## 5. Phase 4 — Cross-cutting: audit scripts, top-level docs, CHANGELOG
 
-### Task 4.1: Add the 4 new Kong routes + 5 required deps to audit scripts
+### 5.1. Task 4.1: Add the 4 new Kong routes + 5 required deps to audit scripts
 
 **Files:**
 - Modify: `scripts/check-kong-routes.py`
@@ -2493,7 +2493,7 @@ git add scripts/check-kong-routes.py scripts/check-compose-source-deps.py
 git commit -m "audit: register new Kong routes + required deps for spark/zeppelin/airflow"
 ```
 
-### Task 4.2: Update top-level README §4.1 with the 3 new services
+### 5.2. Task 4.2: Update top-level README §4.1 with the 3 new services
 
 **Files:**
 - Modify: `README.md`
@@ -2513,7 +2513,7 @@ git add README.md
 git commit -m "docs(README): surface Spark + Zeppelin + Airflow in §4.1 Service Overview"
 ```
 
-### Task 4.3: docs/deployment + docs/quick-start updates
+### 5.3. Task 4.3: docs/deployment + docs/quick-start updates
 
 **Files:**
 - Modify: `docs/deployment/ports-and-routes.md`
@@ -2539,7 +2539,7 @@ git add docs/deployment/ports-and-routes.md docs/deployment/source-configuration
 git commit -m "docs(deployment): document new SPARK/ZEPPELIN/AIRFLOW sources + routes"
 ```
 
-### Task 4.4: services/kong/README.md + services/hermes/README.md cross-references
+### 5.4. Task 4.4: services/kong/README.md + services/hermes/README.md cross-references
 
 **Files:**
 - Modify: `services/kong/README.md`
@@ -2567,7 +2567,7 @@ git add services/kong/README.md services/hermes/README.md
 git commit -m "docs(kong+hermes): new Kong route bullets + Hermes→Airflow integration example"
 ```
 
-### Task 4.5: CHANGELOG entry
+### 5.5. Task 4.5: CHANGELOG entry
 
 **Files:**
 - Modify: `docs/CHANGELOG.md`
@@ -2583,7 +2583,7 @@ git add docs/CHANGELOG.md
 git commit -m "docs(CHANGELOG): added entry for Airflow + Spark + Zeppelin compute tier"
 ```
 
-### Task 4.6: Phase 4 validation
+### 5.6. Task 4.6: Phase 4 validation
 
 ```bash
 cd /Users/kaveh/repos/atlas/bootstrapper
@@ -2595,9 +2595,9 @@ Expected: tests pass, drift zero.
 
 ---
 
-## Phase 5 — Final validation + PR
+## 6. Phase 5 — Final validation + PR
 
-### Task 5.1: Boot the stack with all three enabled
+### 6.1. Task 5.1: Boot the stack with all three enabled
 
 **Files:** none
 
@@ -2644,7 +2644,7 @@ docker exec atlas-airflow-webserver airflow connections list
 
 Expected: `spark_default`, `minio_default`, `litellm_default`, `postgres_supabase`, `weaviate_default`, `neo4j_default`, `redis_default` all listed.
 
-### Task 5.2: Push + open PR
+### 6.2. Task 5.2: Push + open PR
 
 - [ ] **Step 1: Push**
 
@@ -2687,7 +2687,7 @@ EOF
 
 ---
 
-## Self-review checklist
+## 7. Self-review checklist
 
 - [x] Spec §2 D1-D10 decisions each tied to a task (D1 ↔ branch + single PR; D2 ↔ no bridge code anywhere; D3 ↔ Task 2.4 gating; D4 ↔ no n8n changes; D5 ↔ Task 3.4 dedicated DB; D6 ↔ Tasks 1.5 + 1.10; D7 ↔ default `disabled` in all 3 manifests; D8 ↔ Tasks 1.1 + 2.1 + 3.2 categories; D9 ↔ Task 3.1 Airflow 3.2.2; D10 ↔ Tasks 3.4 + 4.4)
 - [x] §3.1 Spark — Tasks 1.1-1.14

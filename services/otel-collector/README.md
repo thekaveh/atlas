@@ -1,4 +1,4 @@
-# OpenTelemetry Collector
+# 5.2.39. OpenTelemetry Collector
 
 ## 1. Overview
 
@@ -19,6 +19,12 @@ This is a local development service. It is not exposed through Kong, has no brow
 
 The service reads `./config/config.yaml`, mounted to `/etc/otelcol/config.yaml`. Atlas computes `OTEL_COLLECTOR_ENDPOINT`, `OTEL_COLLECTOR_OTLP_HTTP_ENDPOINT`, `OTEL_COLLECTOR_OTLP_GRPC_ENDPOINT`, and `ATLAS_OTEL_ENABLED` from SOURCE choices.
 
+The pinned upstream image is distroless. Its container health check therefore
+runs the Collector's own `validate` subcommand against the exact mounted config;
+Docker separately observes main-process liveness. Backend startup fails fast if
+tracing is explicitly enabled without an exporter endpoint or required OTel
+packages instead of silently dropping telemetry.
+
 ## 4. Architecture & Wiring
 
 Backend and LiteLLM export OTLP HTTP spans to the collector. The collector batches and forwards traces to Tempo. The collector stays stateless and uses no persistent volume.
@@ -27,41 +33,40 @@ Trace correlation uses W3C `traceparent` first. Backend spans start or continue 
 
 ## 5. Dependencies & Integrations
 
-> Auto-generated section — the **Current** subsections are derived from `services/otel-collector/service.yml`'s `data_flow.calls` field (and inverse passes). Re-run `python -m bootstrapper.docs.regen otel-collector` after manifest changes.
-
-### 5.1 Current — Upstream (this service calls)
+### 5.1. Current — Upstream (this service calls)
 
 | Service | Category |
 |---|---|
 | tempo | infra |
 
-### 5.2 Current — Downstream (services that call this)
+### 5.2. Current — Downstream (services that call this)
 
 | Service | Category |
 |---|---|
 | litellm | llm |
 | backend | apps |
 
-### 5.3 Architecture diagram
+### 5.3. Architecture diagram
 
 ![otel-collector architecture](./architecture.svg)
 
 [Open the interactive HTML diagram](./architecture.html) for a full-screen view.
 
-### 5.4 Future — Missing pair integrations
+### 5.4. Future — Missing pair integrations
 
 _No high-confidence opportunities identified._
 
-### 5.5 Future — Candidate new services
+### 5.5. Future — Candidate new services
 
 _No high-confidence opportunities identified._
 
-### 5.6 Future — Unused features in this service
+### 5.6. Future — Unused features in this service
 
 _No high-confidence opportunities identified._
 
 ## 6. Troubleshooting
 
 - If backend or LiteLLM do not emit traces, confirm `OTEL_COLLECTOR_SOURCE=container` and `TEMPO_SOURCE=container`.
+- If the collector is unhealthy, run the same mounted-config validation shown in the Compose health check and inspect the reported receiver, processor, or exporter error.
 - If Grafana shows no traces, check the Tempo datasource and the collector logs.
 - Roll back by setting `OTEL_COLLECTOR_SOURCE=disabled`; backend and LiteLLM tracing env collapses to no-op values.

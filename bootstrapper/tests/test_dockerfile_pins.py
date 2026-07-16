@@ -6,7 +6,7 @@ tracks the latest patch).
 A floating tag means rebuilds can pick up a future supply-chain-compromised
 or behaviorally-changed base image without lockstep visibility. Today the
 stack uses patch-version tags everywhere (e.g. `python:3.12.13-slim`,
-`apache/airflow:3.2.2`, `pytorch/pytorch:2.12.1-cuda12.6-cudnn9-runtime`).
+`apache/airflow:3.3.0`, `pytorch/pytorch:2.12.1-cuda12.6-cudnn9-runtime`).
 This test locks that posture in CI so a future contributor can't
 re-introduce a floating tag silently.
 
@@ -106,7 +106,7 @@ def test_dockerfile_from_is_pinned(dockerfile: Path) -> None:
                 f"{dockerfile.relative_to(REPO_ROOT)} FROM {image!r}: "
                 f"tag {tag!r} is not patch-version-pinned. Use "
                 f"major.minor.patch (e.g. python:3.12.7-slim, "
-                f"apache/airflow:3.2.2) or a digest (image@sha256:...)."
+                f"apache/airflow:3.3.0) or a digest (image@sha256:...)."
             )
 
 

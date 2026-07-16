@@ -7,17 +7,46 @@ with a clear error message rather than 500.
 from __future__ import annotations
 
 import asyncio
+import hmac
 import logging
+import os
 from typing import Any, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
 from ray_client import RayClient, RayDisabledError
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/ray", tags=["ray"])
+_ray_bearer = HTTPBearer(auto_error=False)
+
+
+async def _require_ray_job_token(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(_ray_bearer),
+) -> None:
+    """Fail closed unless the caller presents the generated Ray API token."""
+    expected = os.getenv("RAY_JOB_API_TOKEN", "").strip()
+    if not expected:
+        raise HTTPException(
+            status_code=503,
+            detail="Ray job API authentication is not configured",
+        )
+    supplied = credentials.credentials if credentials else ""
+    if not supplied or not hmac.compare_digest(supplied, expected):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid Ray job API token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
+router = APIRouter(
+    prefix="/api/ray",
+    tags=["ray"],
+    dependencies=[Depends(_require_ray_job_token)],
+)
 
 
 class SubmitJobRequest(BaseModel):

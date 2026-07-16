@@ -57,12 +57,263 @@ ARCHITECTURE_PERSPECTIVES: dict[str, tuple[str, str, list[str]]] = {
     "security-auth-secrets-boundary": (
         "Security, Auth, And Secrets Boundary",
         "Supabase, Kong, service auth notes, API keys, local secrets, cloud keys, and intentionally unauthenticated local surfaces.",
-        ["Supabase", "Kong", "API Keys", "Local Secrets", "Cloud Keys", "Unauthenticated Local"],
+        ["Clients", "Kong", "Supabase Auth", "Service APIs", "Local Secrets", "Cloud Keys", "Local-only UIs"],
     ),
     "service-admission-workflow": (
         "Service Admission Workflow",
         "Manifest, compose fragment, topology row, env assembler, docs regeneration, diagrams, tests, and CI drift gates.",
         ["service.yml", "compose.yml", "Topology", ".env.example", "Docs Regen", "Diagrams", "CI"],
+    ),
+}
+
+ARCHITECTURE_EDGES: dict[str, list[tuple[str, str, str]]] = {
+    "platform-overview": [
+        ("Clients", "Kong", "HTTP"),
+        ("Kong", "Apps", "routes"),
+        ("Kong", "Agents", "routes"),
+        ("Apps", "LLM Core", "inference"),
+        ("Agents", "LLM Core", "inference"),
+        ("Apps", "Data Stores", "state"),
+        ("Agents", "Data Stores", "context"),
+        ("LLM Core", "Cloud Providers", "passthrough"),
+    ],
+    "bootstrapper-lifecycle": [
+        ("start.sh", "Env Load", "invoke"),
+        ("Env Load", "Migrations", "normalize"),
+        ("Migrations", "Manifests", "synthesize"),
+        ("Manifests", "Tracks", "filter"),
+        ("Tracks", "Kong Routes", "generate"),
+        ("Kong Routes", "Compose", "assemble"),
+        ("Compose", "Logs", "launch"),
+    ],
+    "source-configuration-model": [
+        ("SOURCE Var", "container", "selects"),
+        ("SOURCE Var", "localhost", "selects"),
+        ("SOURCE Var", "disabled", "selects"),
+        ("SOURCE Var", "none", "LLM only"),
+        ("none", "cloud enabled", "pairs with"),
+        ("container", "adaptive apps", "configures"),
+        ("localhost", "adaptive apps", "configures"),
+        ("disabled", "adaptive apps", "removes"),
+        ("cloud enabled", "adaptive apps", "configures"),
+    ],
+    "track-selection-matrix": [
+        ("Tracks", "Wizard", "narrows"),
+        ("Wizard", "Service Families", "prompts"),
+        ("Service Families", "Enabled", "selected"),
+        ("Service Families", "Force Disabled", "out of track"),
+        ("Overrides", "Enabled", "authoritative"),
+    ],
+    "network-routing-topology": [
+        ("Browser", "*.localhost", "hostname"),
+        ("*.localhost", "Kong", "gateway"),
+        ("Browser", "Direct Ports", "direct"),
+        ("Kong", "Backend Network", "routes"),
+        ("Direct Ports", "Backend Network", "publishes"),
+        ("Backend Network", "localhost mode", "host gateway"),
+    ],
+    "data-rag-flow": [
+        ("Ingestion", "Doc Processing", "extract"),
+        ("Ingestion", "MinIO", "objects"),
+        ("Doc Processing", "Weaviate", "vectors"),
+        ("Doc Processing", "Neo4j", "graph"),
+        ("MinIO", "Backend", "artifacts"),
+        ("Weaviate", "Backend", "retrieve"),
+        ("Neo4j", "Backend", "relationships"),
+        ("Backend", "Open WebUI", "API"),
+    ],
+    "llm-provider-flow": [
+        ("Open WebUI", "LiteLLM", "chat"),
+        ("Backend", "LiteLLM", "inference"),
+        ("Tools", "LiteLLM", "inference"),
+        ("LiteLLM", "Ollama", "local"),
+        ("LiteLLM", "Cloud LLMs", "passthrough"),
+        ("LiteLLM", "Tracing", "telemetry"),
+    ],
+    "data-engineering-lakehouse-flow": [
+        ("JupyterHub", "Spark", "interactive"),
+        ("Zeppelin", "Spark", "interactive"),
+        ("Airflow", "Spark", "scheduled"),
+        ("Redpanda", "Spark", "stream"),
+        ("Spark", "Iceberg REST", "catalog"),
+        ("Trino", "Iceberg REST", "catalog"),
+        ("Spark", "MinIO", "objects"),
+        ("Trino", "MinIO", "objects"),
+    ],
+    "observability-flow": [
+        ("Services", "OTel Collector", "OTLP"),
+        ("Services", "Prometheus", "metrics"),
+        ("Services", "Langfuse", "LLM traces"),
+        ("OTel Collector", "Tempo", "traces"),
+        ("OTel Collector", "Loki", "logs"),
+        ("Prometheus", "Grafana", "query"),
+        ("Tempo", "Grafana", "query"),
+        ("Loki", "Grafana", "query"),
+    ],
+    "security-auth-secrets-boundary": [
+        ("Clients", "Kong", "gateway"),
+        ("Kong", "Supabase Auth", "identity"),
+        ("Kong", "Service APIs", "routes"),
+        ("Local Secrets", "Service APIs", "inject"),
+        ("Cloud Keys", "Service APIs", "provider auth"),
+        ("Clients", "Local-only UIs", "loopback"),
+    ],
+    "service-admission-workflow": [
+        ("service.yml", "Topology", "declares"),
+        ("service.yml", ".env.example", "generates"),
+        ("service.yml", "Docs Regen", "generates"),
+        ("compose.yml", "CI", "validates"),
+        ("Topology", "CI", "validates"),
+        (".env.example", "CI", "drift gate"),
+        ("Docs Regen", "Diagrams", "renders"),
+        ("Diagrams", "CI", "drift gate"),
+    ],
+}
+
+ARCHITECTURE_LAYOUTS: dict[str, dict[str, tuple[int, int]]] = {
+    "platform-overview": {
+        "Clients": (50, 240), "Kong": (250, 240),
+        "Apps": (470, 100), "Agents": (470, 380),
+        "LLM Core": (720, 100), "Data Stores": (720, 380),
+        "Cloud Providers": (980, 100),
+    },
+    "bootstrapper-lifecycle": {
+        node: (40 + index * 175, 230)
+        for index, node in enumerate(ARCHITECTURE_PERSPECTIVES["bootstrapper-lifecycle"][2])
+    },
+    "source-configuration-model": {
+        "SOURCE Var": (50, 240), "container": (300, 40),
+        "localhost": (300, 170), "disabled": (300, 300),
+        "none": (300, 430), "cloud enabled": (590, 430),
+        "adaptive apps": (900, 240),
+    },
+    "track-selection-matrix": {
+        "Tracks": (50, 240), "Wizard": (270, 240),
+        "Service Families": (500, 240), "Enabled": (790, 110),
+        "Force Disabled": (790, 370), "Overrides": (500, 30),
+    },
+    "network-routing-topology": {
+        "Browser": (50, 240), "*.localhost": (280, 90),
+        "Direct Ports": (280, 390), "Kong": (520, 90),
+        "Backend Network": (770, 240), "localhost mode": (1020, 390),
+    },
+    "data-rag-flow": {
+        "Ingestion": (50, 240), "Doc Processing": (280, 100),
+        "MinIO": (280, 390), "Weaviate": (550, 40),
+        "Neo4j": (550, 190), "Backend": (810, 240),
+        "Open WebUI": (1060, 240),
+    },
+    "llm-provider-flow": {
+        "Open WebUI": (50, 60), "Backend": (50, 240),
+        "Tools": (50, 420), "LiteLLM": (390, 240),
+        "Ollama": (700, 100), "Cloud LLMs": (700, 380),
+        "Tracing": (1000, 240),
+    },
+    "data-engineering-lakehouse-flow": {
+        "JupyterHub": (40, 30), "Zeppelin": (40, 160),
+        "Airflow": (40, 290), "Redpanda": (40, 420),
+        "Spark": (390, 210), "Trino": (390, 420),
+        "Iceberg REST": (720, 150), "MinIO": (720, 360),
+    },
+    "observability-flow": {
+        "Services": (50, 240), "OTel Collector": (310, 70),
+        "Prometheus": (310, 240), "Langfuse": (310, 410),
+        "Tempo": (650, 70), "Loki": (650, 200),
+        "Grafana": (980, 240),
+    },
+    "security-auth-secrets-boundary": {
+        "Clients": (50, 240), "Kong": (300, 100),
+        "Local-only UIs": (300, 390), "Supabase Auth": (610, 30),
+        "Service APIs": (610, 240), "Local Secrets": (930, 100),
+        "Cloud Keys": (930, 370),
+    },
+    "service-admission-workflow": {
+        "service.yml": (50, 100), "compose.yml": (50, 400),
+        "Topology": (340, 30), ".env.example": (340, 210),
+        "Docs Regen": (340, 390), "Diagrams": (650, 390),
+        "CI": (970, 240),
+    },
+}
+
+_NODE_KINDS = {
+    "Clients": "frontend", "Browser": "frontend", "Open WebUI": "frontend",
+    "JupyterHub": "frontend", "Zeppelin": "frontend",
+    "Apps": "backend", "Agents": "backend", "Backend": "backend",
+    "Services": "backend", "Service APIs": "backend", "adaptive apps": "backend",
+    "Doc Processing": "backend", "Ingestion": "backend",
+    "Data Stores": "data", "MinIO": "data", "Weaviate": "data",
+    "Neo4j": "data", "Iceberg REST": "data", "Supabase Auth": "data",
+    "Cloud Providers": "cloud", "Cloud LLMs": "cloud", "Cloud Keys": "cloud",
+    "cloud enabled": "cloud", "Kong": "security", "API Keys": "security",
+    "Local Secrets": "security", "disabled": "security", "none": "security",
+    "Local-only UIs": "security", "Redpanda": "bus",
+}
+
+ARCHITECTURE_INTERPRETATIONS: dict[str, str] = {
+    "platform-overview": (
+        "Clients enter through Kong or a deliberately published direct port. "
+        "Application and agent services consume the shared LLM and data layers; "
+        "LiteLLM keeps local inference and cloud-provider credentials behind one "
+        "OpenAI-compatible boundary."
+    ),
+    "bootstrapper-lifecycle": (
+        "Startup is an ordered configuration pipeline. Atlas loads and migrates "
+        "the environment, synthesizes manifests, applies track decisions, and "
+        "generates routes before Compose receives the final service graph. A "
+        "failure before launch must not be reported as a running stack."
+    ),
+    "source-configuration-model": (
+        "A service's SOURCE value selects its deployment mode, not merely an "
+        "image variant. Container modes create Compose workloads, localhost modes "
+        "redirect consumers to the host, and disabled modes remove workloads. The "
+        "LLM-specific `none` mode leaves LiteLLM available for cloud-only routing."
+    ),
+    "track-selection-matrix": (
+        "Tracks reduce the wizard to a workflow-oriented service set. Services "
+        "outside that set are force-disabled after prompting, while an explicit "
+        "CLI source override remains authoritative and is reported to the operator."
+    ),
+    "network-routing-topology": (
+        "Kong provides stable `*.localhost` entrypoints while published ports "
+        "support direct host access. Internal-only traffic remains on the Compose "
+        "backend network. Localhost modes cross the container boundary through "
+        "the configured host gateway instead of starting a duplicate workload."
+    ),
+    "data-rag-flow": (
+        "The Backend coordinates ingestion: processors extract source material, "
+        "MinIO preserves objects, Weaviate stores vector representations, and "
+        "Neo4j stores graph relationships. Open WebUI and tool callers consume "
+        "that assembled retrieval surface through Backend APIs."
+    ),
+    "llm-provider-flow": (
+        "Open WebUI, Backend routes, agents, and tools call LiteLLM rather than "
+        "binding to a provider. LiteLLM dispatches to local Ollama or enabled cloud "
+        "providers and exposes one model catalog. Tracing observes requests without "
+        "becoming part of the inference data path."
+    ),
+    "data-engineering-lakehouse-flow": (
+        "MinIO is the object data plane and Iceberg REST owns table metadata. "
+        "Spark and Trino execute against that shared lakehouse; JupyterHub, "
+        "Zeppelin, and Airflow submit interactive or scheduled work, while "
+        "Redpanda supplies streaming inputs."
+    ),
+    "observability-flow": (
+        "Metrics, traces, logs, and LLM telemetry follow separate collection paths. "
+        "Prometheus scrapes metrics, the OpenTelemetry Collector forwards traces, "
+        "Loki stores logs, and Grafana correlates those stores; Langfuse remains the "
+        "LLM-specific request and evaluation surface."
+    ),
+    "security-auth-secrets-boundary": (
+        "Supabase identities and scoped service credentials protect Backend data "
+        "planes, while Kong applies gateway policy at published aliases. Generated "
+        "local secrets and cloud keys stay in runtime configuration. Any deliberately "
+        "unauthenticated local port remains an operator-trusted development boundary."
+    ),
+    "service-admission-workflow": (
+        "A service enters Atlas through one declarative chain: its manifest owns "
+        "SOURCE values and metadata, Compose owns workloads, topology owns placement "
+        "and ports, and the env/docs generators project those records. Drift and "
+        "integration tests prevent a partial service definition from landing."
     ),
 }
 
@@ -188,7 +439,7 @@ Overlay precedence is `.env.example` baseline, generated or existing `.env`, sib
 
 ## 6. Hosted Media Gateway
 
-The backend exposes `POST /media/generate` and `GET /media/operations/{operation_id}` as the provider-neutral hosted media surface. Requests dispatch by `provider`, `modality`, and `model`; the registry supports `provider=fal` with `modality=image` and `modality=image_to_3d`, and `provider=comfyui` with `modality=image` (the managed/local ComfyUI host, #519). Provider API keys stay in the backend environment, and responses normalize status, artifacts, cost, license, and provenance for downstream consumers.
+The backend exposes `POST /media/generate`, `GET /media/operations/{operation_id}`, and `POST /media/operations/{operation_id}/cancel` as the provider-neutral hosted media surface. Requests dispatch by `provider`, `modality`, and `model`; the registry supports `provider=fal` with `modality=image` and `modality=image_to_3d` (verified TRELLIS, Hunyuan3D, Tripo, and Rodin endpoints), and `provider=comfyui` with `modality=image` (the managed/local ComfyUI host, #519). Provider API keys stay in the backend environment, responses normalize status, artifacts, cost, license, and provenance, and cancellation retains reserved spend until provider polling proves a terminal outcome.
 
 ## 7. RAG Chunking Gateway
 
@@ -405,11 +656,17 @@ uv run --project bootstrapper python scripts/check-track-membership.py
 
 
 def _architecture_diagram_html(
-    slug: str, title: str, description: str, nodes: list[str]
+    title: str,
+    description: str,
+    interpretation: str,
+    nodes: list[str],
+    edges: list[tuple[str, str, str]],
+    positions: dict[str, tuple[int, int]],
 ) -> str:
     boxes = []
     arrows = []
-    palette = [
+    labels = []
+    palette = {
         ("rgba(8, 51, 68, 0.4)", "#22d3ee", "frontend"),
         ("rgba(6, 78, 59, 0.4)", "#34d399", "backend"),
         ("rgba(76, 29, 149, 0.4)", "#a78bfa", "data"),
@@ -417,28 +674,43 @@ def _architecture_diagram_html(
         ("rgba(136, 19, 55, 0.4)", "#fb7185", "security"),
         ("rgba(251, 146, 60, 0.3)", "#fb923c", "bus"),
         ("rgba(30, 41, 59, 0.5)", "#94a3b8", "generic"),
-    ]
-    x = 70
-    for idx, node in enumerate(nodes):
-        y = 135 + (idx % 2) * 120
-        box_x = x + idx * 120
-        fill, stroke, role = palette[idx % len(palette)]
+    }
+    palette_by_kind = {role: (fill, stroke) for fill, stroke, role in palette}
+    box_width = 140
+    for node in nodes:
+        box_x, y = positions[node]
+        role = _NODE_KINDS.get(node, "generic")
+        fill, stroke = palette_by_kind[role]
         boxes.append(
-            f'<rect x="{box_x}" y="{y}" width="105" height="60" rx="6" fill="#0f172a"/>'
-            f'<rect x="{box_x}" y="{y}" width="105" height="60" rx="6" fill="{fill}" stroke="{stroke}" stroke-width="1.5"/>'
-            f'<text x="{box_x + 52}" y="{y + 25}" fill="white" font-size="11" font-weight="600" text-anchor="middle">{html.escape(node)}</text>'
-            f'<text x="{box_x + 52}" y="{y + 42}" fill="#94a3b8" font-size="9" text-anchor="middle">{role}</text>'
+            f'<rect x="{box_x}" y="{y}" width="{box_width}" height="60" rx="6" fill="#0f172a"/>'
+            f'<rect x="{box_x}" y="{y}" width="{box_width}" height="60" rx="6" fill="{fill}" stroke="{stroke}" stroke-width="1.5"/>'
+            f'<text x="{box_x + box_width / 2}" y="{y + 25}" fill="white" font-size="11" font-weight="600" text-anchor="middle">{html.escape(node)}</text>'
+            f'<text x="{box_x + box_width / 2}" y="{y + 43}" fill="#94a3b8" font-size="9" text-anchor="middle">{role}</text>'
         )
-        if idx:
-            prev_x = x + (idx - 1) * 120 + 105
-            prev_y = 164 + ((idx - 1) % 2) * 120
-            arrows.append(
-                f'<line x1="{prev_x}" y1="{prev_y}" x2="{box_x}" y2="{y + 29}" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>'
-            )
-    # viewBox width: accommodate the rightmost box (box_x = 70 + (n-1)*120,
-    # width 105) plus right padding. Capped at 1000 so ≤7-node perspectives
-    # keep their existing geometry (no diff); 8+ widen so no box clips.
-    width = max(1000, 70 + max(0, len(nodes) - 1) * 120 + 105 + 70)
+    for source, target, label in edges:
+        source_x, source_y = positions[source]
+        target_x, target_y = positions[target]
+        if source_x <= target_x:
+            x1, x2 = source_x + box_width, target_x
+        else:
+            x1, x2 = source_x, target_x + box_width
+        y1, y2 = source_y + 30, target_y + 30
+        label_x = (x1 + x2) / 2
+        label_y = (y1 + y2) / 2 - 5
+        arrows.append(
+            f'<line data-source="{html.escape(source)}" data-target="{html.escape(target)}" '
+            f'x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="#64748b" '
+            f'stroke-width="1.5" marker-end="url(#arrowhead)"/>'
+        )
+        label_width = max(40, len(label) * 5 + 12)
+        labels.append(
+            f'<rect x="{label_x - label_width / 2}" y="{label_y - 10}" '
+            f'width="{label_width}" height="14" rx="3" fill="#020617"/>'
+            f'<text x="{label_x}" y="{label_y}" fill="#cbd5e1" font-size="8" '
+            f'text-anchor="middle">{html.escape(label)}</text>'
+        )
+    width = max(1000, max(box_x for box_x, _ in positions.values()) + box_width + 60)
+    height = max(560, max(y for _, y in positions.values()) + 60 + 60)
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -448,13 +720,11 @@ def _architecture_diagram_html(
     body {{ margin: 0; background: #020617; color: #e2e8f0; font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }}
     main {{ max-width: 1120px; margin: 0 auto; padding: 32px; }}
     .frame {{ border: 1px solid #1e293b; border-radius: 14px; background: #020617; padding: 20px; }}
-    .cards {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 16px; }}
-    .card {{ border: 1px solid #1e293b; border-radius: 8px; padding: 12px; background: #0f172a; }}
-    .card h3 {{ align-items: center; color: #e2e8f0; display: flex; font-size: 13px; gap: 8px; margin: 0 0 8px; }}
-    .card h3::before, .signal {{ background: #22d3ee; border-radius: 999px; box-shadow: 0 0 18px rgba(34, 211, 238, 0.74); content: ''; display: inline-block; height: 8px; width: 8px; }}
-    .card p {{ color: #94a3b8; font-size: 12px; line-height: 1.5; margin: 0; }}
+    .interpretation {{ border-left: 3px solid #22d3ee; margin-top: 20px; padding: 2px 0 2px 16px; }}
+    .interpretation h2 {{ color: #e2e8f0; font-size: 15px; margin: 0 0 8px; }}
+    .interpretation p {{ color: #94a3b8; font-size: 13px; line-height: 1.6; margin: 0; }}
+    .signal {{ background: #22d3ee; border-radius: 999px; box-shadow: 0 0 18px rgba(34, 211, 238, 0.74); content: ''; display: inline-block; height: 8px; width: 8px; }}
     .title {{ align-items: center; display: flex; gap: 10px; }}
-    footer {{ color: #64748b; font-size: 11px; margin-top: 16px; }}
   </style>
 </head>
 <body>
@@ -462,7 +732,7 @@ def _architecture_diagram_html(
     <h1 class="title"><span class="signal"></span>{html.escape(title)}</h1>
     <p>{html.escape(description)}</p>
     <div class="frame">
-      <svg viewBox="0 0 {width} 420" role="img" aria-label="{html.escape(title)}">
+      <svg viewBox="0 0 {width} {height}" role="img" aria-label="{html.escape(title)}">
         <defs>
           <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
             <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/>
@@ -471,18 +741,17 @@ def _architecture_diagram_html(
             <polygon points="0 0, 10 3.5, 0 7" fill="#64748b"/>
           </marker>
         </defs>
-        <rect width="{width}" height="420" fill="#020617"/>
-        <rect width="{width}" height="420" fill="url(#grid)"/>
+        <rect width="{width}" height="{height}" fill="#020617"/>
+        <rect width="{width}" height="{height}" fill="url(#grid)"/>
         {''.join(arrows)}
+        {''.join(labels)}
         {''.join(boxes)}
       </svg>
     </div>
-    <div class="cards">
-      <div class="card"><h3>Source files</h3><p>Manifests, topology, tracks, and documentation sources.</p></div>
-      <div class="card"><h3>Update trigger</h3><p>Service, routing, SOURCE, track, or architecture changes.</p></div>
-      <div class="card"><h3>Diagram ID</h3><p>{html.escape(slug)}</p></div>
-    </div>
-    <footer>Generated for Atlas documentation using the architecture-diagram design system.</footer>
+    <section class="interpretation">
+      <h2>How to read this view</h2>
+      <p>{html.escape(interpretation)}</p>
+    </section>
   </main>
 </body>
 </html>"""
@@ -493,7 +762,15 @@ def architecture_pages(model: DocsModel) -> dict[Path, str]:
     pages: dict[Path, str] = {}
     rows = []
     for slug, (title, description, nodes) in ARCHITECTURE_PERSPECTIVES.items():
-        pages[arch / f"{slug}.html"] = _architecture_diagram_html(slug, title, description, nodes)
+        interpretation = ARCHITECTURE_INTERPRETATIONS[slug]
+        pages[arch / f"{slug}.html"] = _architecture_diagram_html(
+            title,
+            description,
+            interpretation,
+            nodes,
+            ARCHITECTURE_EDGES[slug],
+            ARCHITECTURE_LAYOUTS[slug],
+        )
         pages[arch / f"{slug}.md"] = f"""# {title}
 
 {description}
@@ -502,18 +779,17 @@ def architecture_pages(model: DocsModel) -> dict[Path, str]:
 
 [Open the interactive diagram](./{slug}.html).
 
-## 2. Source Files
+## 2. How To Read This View
+
+{interpretation}
+
+## 3. Source Files
 
 - `services/*/service.yml`
 - `bootstrapper/tracks.yml`
 - `services/topology.py`
 - `docs/deployment/source-configuration.md`
 
-## 3. Update Rule
-
-Update this page and `{slug}.html` when the represented architecture surface
-changes. Use the `architecture-diagram` design system: dark slate background,
-JetBrains Mono, split perspectives, readable labels, and no overloaded mega-diagram.
 """
         rows.append([f"[{title}]({slug}.md)", description])
     catalog = (

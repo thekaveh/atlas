@@ -11,10 +11,10 @@ upstream: https://github.com/neo4j-labs/neodash
 
 # NeoDash
 
-## Headline
+## 1. Headline
 Low-code dashboard builder for Neo4j — design Cypher-powered dashboards (charts, tables, graphs, maps) without writing a custom UI.
 
-## Watchlist decision (2026-07-04)
+## 2. Watchlist decision (2026-07-04)
 
 Keep NeoDash on the watchlist for now: Atlas **must not add `services/neodash/service.yml` yet** because the stack does not yet have richer graph-native application data or a starter dashboard worth presenting. The Atlas root dashboard is already the service entrypoint; NeoDash only makes sense as a data dashboard for Neo4j content, not as another landing page.
 
@@ -41,28 +41,28 @@ Future service shape, if a later graph-dashboard ticket promotes this:
 - Tests required for a future service PR: manifest validation, source validation, env assembly, topology/category, track membership, Kong route/auth, disabled Neo4j behavior, no default enablement, compose source-permutation coverage, custom `BASE_PORT`, docs drift, and dashboard query fixtures that prove namespaced/read-only Cypher.
 - Edge cases: empty Neo4j database, disabled Neo4j, disabled graph producers, unavailable read-only role, stale `.env`, custom `BASE_PORT`, route exposure with admin credentials, unsupported upstream image drift, and generated-doc drift.
 
-## Problem it solves
+## 3. Problem it solves
 Today the only way to look at graph data is the raw Neo4j Browser at `graph.localhost`, which targets developers, not analysts. NeoDash could add a shareable dashboard layer so non-Cypher users can explore data the stack writes into Neo4j, but only after Atlas has meaningful graph data and scoped dashboard queries.
 
-## Stack wiring sketch
+## 4. Stack wiring sketch
 - Browser → `kong` (route `neodash.localhost`) → neodash container
 - neodash → `neo4j` via `bolt://neo4j-graph-db:7687`
 - (optional) neodash dashboard definitions stored in `neo4j` itself, persisted across restarts
 
-## Effort
+## 5. Effort
 small-to-medium — the container is simple, but a useful Atlas integration needs read-only credentials, a concrete starter dashboard, route/auth decisions, and a clear answer to the unsupported Labs image question.
 
-## Risks & open questions
+## 6. Risks & open questions
 - Upstream maintenance: the Labs repository is no longer maintained; the Docker image may remain usable but should not be treated as a strategic default without review.
 - Auth: NeoDash can reuse Neo4j creds; Atlas should avoid broad exposure unless a read-only Neo4j role or standalone/read-only deployment is available.
 - Dashboards live per-user in browser localStorage unless explicitly saved to the DB.
 - Root-dashboard confusion: a generic `dash.localhost` alias would be ambiguous now that Atlas has its own root dashboard.
 - Namespace risk: dashboards can run arbitrary Cypher against the connected database unless queries and credentials are constrained.
 
-## Why now (and why not sooner)
+## 7. Why now (and why not sooner)
 Not now. Revisit once multiple services write useful, namespaced graph data into Neo4j and Atlas can ship a read-only starter dashboard that clearly complements the root dashboard.
 
-## Upstream evidence
+## 8. Upstream evidence
 - https://github.com/neo4j-labs/neodash
 - https://neo4j.com/labs/neodash/
 - https://neo4j.com/labs/neodash/2.4/developer-guide/configuration/

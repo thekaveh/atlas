@@ -11,10 +11,10 @@ upstream: https://github.com/lakekeeper/lakekeeper
 
 # Lakekeeper
 
-## Headline
+## 1. Headline
 Apache-licensed Iceberg REST catalog implementation that adds a real management layer around warehouses, identifiers, authn/authz, vended credentials, remote signing, and production catalog operations.
 
-## Watchlist decision (2026-07-04)
+## 2. Watchlist decision (2026-07-04)
 
 Keep Lakekeeper on the watchlist for now: Atlas **must not add `services/lakekeeper/service.yml` yet** because the current Apache Iceberg REST fixture already satisfies the local `data-eng-lab` A1-A9 contract. Atlas should first prove that MinIO-backed lakehouse usage has real write/concurrency pressure, multi-engine governance requirements, vended credentials requirements, or OIDC/authorization needs that the current catalog cannot satisfy.
 
@@ -40,10 +40,10 @@ Future service shape, if a later lakehouse governance ticket promotes this:
 - Tests required for a future service PR: manifest validation, source validation, env assembly, topology slot/category checks, track membership, compose source-permutation coverage, Kong route/auth tests, docs drift, client config tests for Spark/Trino/JupyterHub/Zeppelin/Airflow, init idempotency tests, and a live-gated smoke that creates a namespace/table and reads it through two engines.
 - Edge cases: disabled MinIO or Supabase, stale `.env`, custom `BASE_PORT`, existing `iceberg-rest` metadata, namespace case-sensitivity changes, soft-delete/table-location behavior, prod profile restrictions, missing OIDC/authz backends, vended credentials disabled, and generated-doc drift.
 
-## Problem it solves
+## 3. Problem it solves
 Atlas' current lakehouse catalog is intentionally small: an Apache Iceberg REST fixture rebuilt with the PostgreSQL JDBC driver and backed by Supabase Postgres. That is enough for local notebooks, Spark, Trino, Airflow, and `data-eng-lab` scenarios. Lakekeeper becomes interesting when Atlas needs a managed catalog surface: project/warehouse administration, safer identifier behavior across engines, remote signing or vended credentials, catalog-level authz, soft deletion, and event-driven governance hooks.
 
-## Stack wiring sketch
+## 4. Stack wiring sketch
 - lakekeeper -> supabase for Postgres catalog and secret persistence.
 - lakekeeper -> minio for the `lakehouse` warehouse and object storage.
 - spark -> lakekeeper for Spark SQL and Spark Connect Iceberg catalog operations.
@@ -55,17 +55,17 @@ Atlas' current lakehouse catalog is intentionally small: an Apache Iceberg REST 
 - optional openfga/cedar -> lakekeeper for authorization policy.
 - optional redpanda/nats <- lakekeeper for catalog events.
 
-## Effort
+## 5. Effort
 medium-to-large — a stateless Rust service is not the hard part. The hard part is safe coexistence or migration from `iceberg-rest`, warehouse bootstrap, authz/secret posture, client rewiring, and proving Spark/Trino/JupyterHub/Zeppelin/Airflow still satisfy the delivered `data-eng-lab` lakehouse contract.
 
-## Risks & open questions
+## 6. Risks & open questions
 - Migration risk: Atlas already has `iceberg-rest` metadata in Supabase and a `lakehouse` warehouse in MinIO. Replacing the catalog must not strand existing tables.
 - Authz complexity: Lakekeeper's richer authn/authz value depends on OIDC and an authorization backend; adding it before Atlas' SSO posture is settled could create a half-secured catalog.
 - Client config drift: Spark, Trino, PyIceberg, Zeppelin, and Airflow all need consistent `/catalog` URI and warehouse settings.
 - Warehouse ownership: vended credentials and soft deletion change how table locations are created and reused; tests must cover table recreate and namespace behavior.
 - Operational fit: Lakekeeper should be justified by real multi-engine or multi-user demand, not by novelty while the current fixture works.
 
-## Upstream evidence
+## 7. Upstream evidence
 - https://github.com/lakekeeper/lakekeeper
 - https://docs.lakekeeper.io/getting-started/
 - https://docs.lakekeeper.io/docs/latest/concepts/

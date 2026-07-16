@@ -38,7 +38,7 @@ Current-state evidence inventory:
   - `all`: no filtering; every configurable service remains available
 - Track-context note for later analysis: the registry already expresses broad AI, RAG, creative, ML, and data personas, but only as service-selection profiles; later tasks should assess whether those profiles feel productized enough for onboarding and roadmap positioning.
 
-### 2.1 Strengths
+### 2.1. Strengths
 
 Atlas already has a coherent platform grammar. The repo does not read like an accreted pile of one-off compose services; it reads like a system that standardized its operating model and then kept extending it. That matters because Atlas' main strategic asset is not any one service, but the repeatable way it wires heterogeneous services into one local platform.
 
@@ -54,7 +54,7 @@ Atlas already has a coherent platform grammar. The repo does not read like an ac
 
 - **Documentation and drift discipline are treated as part of the product surface.** The README is not the only source of truth; it is backed by generated topology, per-service READMEs, route docs, manifest docs, and repo-level audits. `docs/CONTRIBUTING-services.md` explicitly treats READMEs, diagrams, manifests, and compose fragments as a maintained system, while the roadmap records what has shipped versus what is still only proposed. That documentation posture is a real strength because Atlas' surface area is already large enough that undocumented behavior would quickly become unmanageable.
 
-### 2.2 Weaknesses
+### 2.2. Weaknesses
 
 - **The root Kong entrypoint is still infrastructure-first rather than product-first.** `services/kong/README.md` and `docs/deployment/ports-and-routes.md` both state that `/` and the bare `localhost` root fall through to Supabase Studio. That is a valid operator shortcut, but it is not an Atlas home experience. The first gateway surface currently points users at an admin console for one subsystem, not at a platform dashboard, workspace selector, system health page, or recommended workflow launcher. For a stack trying to become a cohesive product, the front door is still effectively a routing convenience.
 
@@ -62,7 +62,7 @@ Atlas already has a coherent platform grammar. The repo does not read like an ac
 
 - **MCP is well-theorized in the roadmap but not yet implemented as a shared runtime capability.** `docs/ROADMAP.md` contains a serious MCP architecture discussion, including aggregator options, a phased starter set, and a coverage matrix of likely targets and consumers. `services/open-webui/README.md` also calls out Open WebUI's native MCP client as future work. But that design has not crossed into the shipped stack: there is no MCP gateway manifest, no shared MCP route in the ports-and-routes table, and no current-state docs describing stack-wide MCP availability. Strategically, Atlas understands the opportunity but has not yet converted it into platform leverage.
 
-- **LLM observability, trace correlation, and evaluation loops lag behind the stack's service breadth.** Atlas has solid infrastructure observability today: the README and roadmap document a shipped Prometheus + Grafana bundle with 13 scrape jobs and 7 starter dashboards. But the same repo evidence is explicit that this is not the whole story. `docs/ROADMAP.md` positions Langfuse as the missing LLM-specific layer for traces, prompts, evals, and cost attribution, and both the roadmap and the Prometheus/Grafana READMEs mark Loki, Tempo, and OpenTelemetry as future work. In other words, Atlas can observe containers and system metrics better than it can observe cross-service LLM behavior.
+- **LLM observability, trace correlation, and evaluation loops lag behind the stack's service breadth.** Atlas has solid infrastructure observability today: the README and roadmap document a shipped Prometheus + Grafana bundle with 15 scrape jobs and 7 starter dashboards. But the same repo evidence is explicit that this is not the whole story. `docs/ROADMAP.md` positions Langfuse as the missing LLM-specific layer for traces, prompts, evals, and cost attribution, and both the roadmap and the Prometheus/Grafana READMEs mark Loki, Tempo, and OpenTelemetry as future work. In other words, Atlas can observe containers and system metrics better than it can observe cross-service LLM behavior.
 
 - **The stack's breadth still risks onboarding overload without a dashboard and stronger guided paths.** The repo inventory for this report pass includes 35 service manifests spread across six categories, while the route docs enumerate a long list of hostnames, direct ports, and auth modes. The wizard and tracks help, and that is a real mitigation, but the user still needs to understand a substantial amount of infrastructure vocabulary to orient themselves. The current docs are good; the experience is still cognitively dense.
 
@@ -72,7 +72,7 @@ Atlas already has a coherent platform grammar. The repo does not read like an ac
 
 External competitor research, checked on July 2, 2026, suggests Atlas does not have one exact peer. It sits in the overlap between local AI workbenches, self-hosted app builders, RAG frameworks, coding-agent control planes, and broader AI/data platform stacks. That breadth is an asset, but it also means Atlas loses whenever the user only wants one narrow job done with minimal setup.
 
-### 3.1 Competitor Matrix
+### 3.1. Competitor Matrix
 
 | Category | Examples | What they do better | What Atlas does better | Strategic implication |
 |---|---|---|---|---|
@@ -85,25 +85,25 @@ External competitor research, checked on July 2, 2026, suggests Atlas does not h
 | ML, data, and observability layers | [MLflow](https://mlflow.org/docs/latest/), [Langfuse](https://langfuse.com/docs), [OpenMetadata](https://docs.open-metadata.org/v1.13.x), [Dagster](https://docs.dagster.io/), [Superset](https://superset.apache.org/user-docs/intro/) | Each of these products owns a clearer category story than Atlas: MLflow for experiment/LLM lifecycle, Langfuse for tracing/evals, OpenMetadata for catalog/governance, Dagster for data orchestration, Superset for BI. | Atlas can colocate these layers with the rest of the AI stack and reduce integration friction for self-hosted teams. | This is an integration zone, not a head-to-head arena. Atlas should win by bundling and wiring category leaders coherently. |
 | Kubernetes-based AI platform stacks | [Kubeflow](https://www.kubeflow.org/docs/started/introduction/), [Open Data Hub](https://opendatahub.io/docs/getting-started-with-open-data-hub/) | They are built for larger-scale platform teams that want Kubernetes-native modularity, portability, and production operations across the AI lifecycle. | Atlas is lighter-weight, faster to stand up on a single machine or small team server, and friendlier to hybrid localhost/container development. | Atlas should position itself as the on-ramp before a Kubernetes program, not as a near-term replacement for enterprise AI platform stacks. |
 
-### 3.2 Local Workbenches And Install UX
+### 3.2. Local Workbenches And Install UX
 
 The local AI workbench market is moving toward compressed time-to-value. [Open WebUI](https://docs.openwebui.com/) already combines an offline-first self-hosted interface with Docker, Python, Kubernetes, and native desktop install paths, and its getting-started docs call out plugins, tool calling, RAG, Open Terminal, and agent connections directly in the onboarding path. [Ollama](https://docs.ollama.com/api/introduction) and [LM Studio](https://lmstudio.ai/docs/developer/core/server) do a similar thing one layer lower: they make local inference feel like a clean product with a predictable local API and compatibility endpoints instead of a system-integration project. [Jan](https://github.com/janhq/jan) packages that same local-first model story into a desktop app with custom assistants, a local OpenAI-compatible server, and MCP support, while [AnythingLLM](https://docs.useanything.com/) bundles agents, API access, browser tooling, chat modes, and vector-database controls into one opinionated application.
 
 [Pinokio](https://desktop.pinokio.co/) sharpens a different user expectation: AI apps should be discoverable and one-click installable, more like a curated launcher ecosystem than a repo you hand-configure. Atlas is much stronger once the user wants an integrated environment rather than one app, but it is still weaker than this category on first impressions, app discovery, and "it just works" local ergonomics. The strategic implication is straightforward: Atlas needs a stronger default workbench surface and curated install bundles before it tries to market its full breadth.
 
-### 3.3 Agent Builders And RAG Products
+### 3.3. Agent Builders And RAG Products
 
 The agent-builder layer is crowded by tools that are narrower than Atlas but more legible to buy or adopt. [Dify](https://docs.dify.ai/en/learn/key-concepts) presents itself as an agentic app builder with drag-and-drop workflows that can publish to API, web, or MCP server surfaces, and it spans both [Dify Cloud](https://docs.dify.ai/en/quick-start) and [self-hosted deployment](https://docs.dify.ai/en/self-host/deploy/overview). Its [integration model](https://docs.dify.ai/en/cloud/use-dify/workspace/plugins) is especially notable because it gives users an official Marketplace path, GitHub-based installs, and local package upload. [Flowise](https://docs.flowiseai.com/) pushes on the same low-code territory with a visual editor, 100+ integrations, execution logs, visual debugging, and air-gapped self-hosted options. [Langflow](https://docs.langflow.org/) is similarly strong on visual iteration, real-time testing, flow serving, custom components, and both MCP-server and MCP-client support.
 
 On the RAG side, [RAGFlow](https://github.com/infiniflow/ragflow) is explicitly optimized around retrieval and document understanding, with current repo/docs evidence for Docker deployment, orchestrable ingestion, newer document parsers, and MCP-oriented agent workflows. [LlamaIndex](https://developers.llamaindex.ai/python/framework/) and [Haystack](https://haystack.deepset.ai/) sit one level down as frameworks: they provide deeper primitives for RAG, agents, branching logic, retrieval strategies, and evaluation than Atlas should try to own itself. Atlas' advantage is that it can host all the surrounding services these frameworks need, but that is a platform advantage, not a framework advantage. Strategically, Atlas should choose a few blessed integrations and templates here instead of broad, generic parity claims.
 
-### 3.4 Coding Agents, Data Systems, And Observability
+### 3.4. Coding Agents, Data Systems, And Observability
 
 [OpenHands](https://docs.openhands.dev/overview/introduction) is a reminder that "AI platform" increasingly includes software agents, not just chat and RAG. Its local Agent Canvas starts a browser-based agent stack with one command, while OpenHands Cloud adds multi-user collaboration, permissions, reporting, budgeting, and integrations across source control and project-management systems. Atlas can host or route to a tool like this, but it is not yet a coding-agent control plane in its own right.
 
 The same pattern appears in adjacent platform layers. [MLflow](https://mlflow.org/docs/latest/) already unifies LLM tracing, prompt management, evaluation, classic experiment tracking, model packaging, registry, and deployment. [Langfuse](https://langfuse.com/docs) has a much tighter story for LLM traces, latency/cost visibility, and collaborative debugging. [OpenMetadata](https://docs.open-metadata.org/v1.13.x) is pushing hard on context, governance, quality, and MCP-aware metadata access. [Dagster](https://docs.dagster.io/) has a clearer asset-centric orchestration and lineage model than Atlas, and [Superset](https://superset.apache.org/user-docs/intro/) remains a stronger analytics/dashboard product than anything Atlas currently exposes at the root experience. Atlas should not compete feature-for-feature with these systems; it should make them easy to enable, discover, authenticate, and connect.
 
-### 3.5 Market Position Summary
+### 3.5. Market Position Summary
 
 The clearest market position for Atlas is between desktop/local workbenches and heavyweight Kubernetes-native AI platforms. [Kubeflow](https://www.kubeflow.org/docs/started/introduction/) and [Open Data Hub](https://opendatahub.io/docs/getting-started-with-open-data-hub/) are optimized for platform teams that want a modular, scalable AI foundation on Kubernetes. Atlas is not there today, and it does not need to be there to matter. Its stronger wedge is: broader than a single local AI app, easier to self-host than a full Kubernetes stack, and more configurable than a polished SaaS-first builder.
 
@@ -127,7 +127,7 @@ Atlas' strategic gaps cluster around productization, trust, and operational read
 
 Atlas should adopt a **phased hybrid** MCP strategy: start with a small curated package of high-value MCP servers, let the MCP-native consumers talk to those servers directly, add an aggregator only once Atlas has enough servers and per-consumer policy needs to justify it, and avoid one-MCP-server-per-service cargo culting.
 
-### 5.1 What Current Sources Actually Confirm
+### 5.1. What Current Sources Actually Confirm
 
 The current official MCP landscape is materially better than the repo's earlier assumptions, but it is also more uneven than "just add an MCP gateway everywhere."
 
@@ -141,7 +141,7 @@ The current official MCP landscape is materially better than the repo's earlier 
 
 The practical consequence is straightforward: Atlas should not choose between "pure sidecars" and "always-on aggregator" as a religion. It should use direct sidecars where the value is immediate, then introduce aggregation when the number of servers and policy splits make it worthwhile.
 
-### 5.2 MCP Target / Consumer Matrix
+### 5.2. MCP Target / Consumer Matrix
 
 | Atlas service | MCP role | Recommendation | Rationale |
 |---|---|---|---|
@@ -162,7 +162,7 @@ The practical consequence is straightforward: Atlas should not choose between "p
 | STT / TTS providers | Usually non-target | **Do not wrap current providers in MCP** | Atlas already reaches these services through OpenAI-compatible HTTP. MCP only becomes interesting when a provider's native value is MCP-first, such as the repo's Voicebox research. |
 | Virtual services (`cloud-providers`, `globals`, provider virtual manifests) | Neither | **Do not MCP-wrap** | These are configuration surfaces, not runtime tool surfaces. |
 
-### 5.3 Recommended Architecture
+### 5.3. Recommended Architecture
 
 The best answer is not "aggregator" or "service-by-service sidecars" in isolation. It is:
 
@@ -182,7 +182,7 @@ The best answer is not "aggregator" or "service-by-service sidecars" in isolatio
 5. **Reserve Docker MCP Gateway for a different problem**
    Docker MCP Gateway becomes attractive if Atlas later wants a large SaaS/vendor connector catalog with Docker-managed lifecycle and catalog distribution. That is a legitimate future path, but it is not the right default for Atlas' internal-service-first topology today.
 
-### 5.4 Bottom-Line Decision
+### 5.4. Bottom-Line Decision
 
 Atlas should **not** do one-MCP-server-per-service, should **not** default to Docker MCP Gateway, and should **not** force every tool through `mcpo`. Atlas should use a **phased hybrid**: a curated package of high-value MCP servers now, direct native consumption first, and MetaMCP later when namespacing, policy, and endpoint consolidation become worth the extra operational layer.
 
@@ -190,7 +190,7 @@ Atlas should **not** do one-MCP-server-per-service, should **not** default to Do
 
 Yes: the **Kong root** should become an Atlas product entrypoint. But the first version should be a lightweight **service directory** and **health dashboard**, not a replacement for Grafana, Supabase Studio, or the setup wizard.
 
-### 6.1 Why The Root Should Change
+### 6.1. Why The Root Should Change
 
 Today, Atlas' own route docs and Kong README both say that the bare `localhost` root falls through to Supabase Studio ([ports-and-routes](../deployment/ports-and-routes.md), [Kong README](https://github.com/thekaveh/atlas/blob/main/services/kong/README.md)). That is useful for operators who already know Atlas, but it is the wrong first impression for a multi-service platform. The front door currently lands on one subsystem's admin console instead of on Atlas itself.
 
@@ -202,7 +202,7 @@ Atlas' biggest onboarding weakness is not lack of services; it is lack of orient
 - Which credentials or auth modes apply?
 - What should I open first?
 
-### 6.2 Minimum Viable Dashboard
+### 6.2. Minimum Viable Dashboard
 
 The minimum viable dashboard should stay narrow and operationally boring:
 
@@ -213,7 +213,7 @@ The minimum viable dashboard should stay narrow and operationally boring:
 - **Warnings:** disabled dependencies, localhost-mode services that are unreachable, missing `--setup-hosts` state, and services whose route exists but whose upstream is degraded.
 - **Docs links:** quick links to the route table, troubleshooting, and the quick-start flow so the dashboard helps users recover rather than merely report failure.
 
-### 6.3 What The First Version Should Explicitly Not Be
+### 6.3. What The First Version Should Explicitly Not Be
 
 The first version should **not** try to become:
 
@@ -225,7 +225,7 @@ The first version should **not** try to become:
 
 Atlas already has several specialist UIs. The root page should be the map, not every destination at once.
 
-### 6.4 Product Recommendation
+### 6.4. Product Recommendation
 
 Atlas should move the root route to an Atlas-branded landing page and keep Supabase Studio on `supabase-studio.localhost`. The first implementation should be a small, generated dashboard built from the same topology, route, and auth metadata Atlas already maintains, so it stays consistent with the rest of the stack instead of becoming a second, drifting inventory.
 
@@ -262,7 +262,7 @@ Strong candidates intentionally below the top 20: `imgproxy` is small and useful
 
 ## 8. Track Expansion
 
-### 8.1 3D / Game-Generation Track
+### 8.1. 3D / Game-Generation Track
 
 Recommendation: build a **3D asset pipeline track**, not a "generate a whole game" track. Atlas already has ComfyUI, MinIO, Weaviate multimodal search, notebooks, and soon a root dashboard; the first 3D expansion should make assets inspectable, transformable, searchable, and agent-assistable.
 
@@ -286,7 +286,7 @@ Safety/defer notes:
 - Do not expose Blender or Unreal MCP routes through Kong by default.
 - Do not ship Hunyuan3D/TRELLIS as default track members until license, VRAM, model-cache size, and output-format contracts are pinned.
 
-### 8.2 Trading / Financial-AI Track
+### 8.2. Trading / Financial-AI Track
 
 Recommendation: build a **financial research and paper-trading track** first. Atlas should be candid that live trading is a regulated, high-loss-risk domain and should not be enabled by default.
 
@@ -310,7 +310,7 @@ Safety/defer notes:
 - Require secrets manager integration, audit logs, and clear "not financial advice" docs before any live-trading connector is selectable.
 - Do not let n8n workflows hold unrestricted exchange keys by default.
 
-### 8.3 RAG And Content-Ingestion Track
+### 8.3. RAG And Content-Ingestion Track
 
 Recommendation: make RAG ingestion a first-class product path. Atlas already has Docling, LightRAG, Weaviate, Neo4j, SearXNG, MinIO, and LiteLLM; the gap is robust extraction, agent access, and a visible RAG/GraphRAG workflow.
 
@@ -333,7 +333,7 @@ Safety/defer notes:
 - Put size limits, timeout limits, and content-type routing rules around every extraction path.
 - Preserve citations, source URLs, and document provenance in MinIO/Weaviate/Neo4j so RAG quality can be audited.
 
-### 8.4 Data / ML Platform Track
+### 8.4. Data / ML Platform Track
 
 Recommendation: strengthen the ML/data substrate in layers: experiment tracking, labeling, artifact analytics, then optional BI/orchestration expansions. Atlas already ships Airflow, Spark, Ray, MinIO, Supabase, JupyterHub, and Zeppelin; it does not need to add every modern data product at once.
 
@@ -359,7 +359,7 @@ Safety/defer notes:
 
 ## 9. Implementation Waves
 
-### 9.1 Build Now
+### 9.1. Build Now
 
 Build now means high strategic value, strong reuse of existing primitives, and tolerable blast radius.
 
@@ -371,7 +371,7 @@ Build now means high strategic value, strong reuse of existing primitives, and t
 6. **Supavisor:** transaction-mode pooler for backend/n8n first.
 7. **Apache Tika:** Docling fallback for unsupported formats.
 
-### 9.2 Build Next
+### 9.2. Build Next
 
 Build next means valuable but dependent on the first wave's foundations, especially dashboard, observability, secrets, and auth.
 
@@ -383,7 +383,7 @@ Build next means valuable but dependent on the first wave's foundations, especia
 6. **Neo4j LLM Knowledge Graph Builder and Verba:** reference GraphRAG/RAG UIs after MCP and ingestion basics exist.
 7. **Label Studio:** dataset review loop for ML/RAG/creative outputs.
 
-### 9.3 Build Later
+### 9.3. Build Later
 
 Build later means useful, but the prerequisites or product commitments are not mature enough yet.
 
@@ -395,7 +395,7 @@ Build later means useful, but the prerequisites or product commitments are not m
 6. **imgproxy, NocoDB, NeoDash, WhisperX:** each is useful, but each benefits from an earlier dashboard/auth/data-foundation pass.
 7. **Dagster and Superset:** wait for real lakehouse demand and a clear Airflow/BI coexistence model.
 
-### 9.4 Reject Or Defer For Now
+### 9.4. Reject Or Defer For Now
 
 - **Firecrawl:** defer in favor of Crawl4AI because AGPL plus a larger worker/Playwright footprint is not worth it for the first ingestion slice. The July 4, 2026 decision keeps Firecrawl deferred behind Crawl4AI until Atlas has a reproduced extraction gap, explicit license acceptance, and an operator-ready browser/queue/secrets/resource plan.
 - **Browserless:** defer until Crawl4AI proves insufficient for JavaScript-heavy workflows; SSPL and Chromium memory cost keep it out of the default plan. The July 4, 2026 decision keeps Browserless deferred behind Crawl4AI until Atlas has a named persistent-session/browser-automation workflow, explicit license acceptance, and a conservative token/route/resource model.
@@ -413,7 +413,7 @@ Build later means useful, but the prerequisites or product commitments are not m
 
 ## 10. Appendices
 
-### 10.1 Source Notes
+### 10.1. Source Notes
 
 Task 2 current-state evidence notes:
 
@@ -452,13 +452,13 @@ Task 5 vNext ranking notes (candidate corpus plus current outside sources checke
 - Trading/financial-AI outside sources: [OpenBB GitHub repo](https://github.com/OpenBB-finance/OpenBB), [OpenBB docs](https://docs.openbb.co/), [CCXT docs](https://docs.ccxt.com/), [Hummingbot docs](https://hummingbot.org/docs/), [Freqtrade docs](https://www.freqtrade.io/en/stable/), [NautilusTrader docs](https://nautilustrader.io/docs/latest/), [TimescaleDB GitHub repo](https://github.com/timescale/timescaledb), [Redpanda docs](https://docs.redpanda.com/home/), [FinRL repo](https://github.com/AI4Finance-Foundation/FinRL), [FinRL-Trading repo](https://github.com/AI4Finance-Foundation/FinRL-Trading), and [FinGPT repo](https://github.com/ai4finance-foundation/fingpt).
 - Current maturity adjustment: Langfuse self-hosting now documents queued ingestion through S3/Redis into ClickHouse, so the older candidate note about avoiding ClickHouse with v2 should be treated as stale for current vNext planning ([Langfuse self-hosting](https://langfuse.com/self-hosting), [Langfuse configuration](https://langfuse.com/self-hosting/configuration)).
 
-### 10.2 Scoring Rubric
+### 10.2. Scoring Rubric
 
 - The ranking in section 7 weighted strategic fit, reuse of Atlas primitives, user value, implementation effort, operational cost, security risk, license fit, maintenance burden, dependency blast radius, and upstream maturity.
 - Higher scores went to candidates that compound Atlas' existing strengths: Kong-root entrypoint cleanup, SOURCE-friendly service packaging, reuse of Supabase/Redis/MinIO/LiteLLM/Open WebUI, and clear leverage across multiple tracks.
 - Lower scores went to novelty-only expansions, services that duplicate already-shipped capability, and candidates that add large operational or security surface before Atlas has a clearer user-facing workflow to justify them.
 
-### 10.3 Rejected / Deferred Candidates
+### 10.3. Rejected / Deferred Candidates
 
 | Candidate(s) | Disposition | Why it stayed out of vNext |
 | --- | --- | --- |
@@ -474,7 +474,7 @@ Task 5 vNext ranking notes (candidate corpus plus current outside sources checke
 | Redis Stack, RedisInsight | Deferred | Atlas should wait for a concrete Redis-module or GUI workflow that beats the extra image, license, and maintenance cost. |
 | Perplexica/Vane | Deferred | It overlaps with Open WebUI plus Local Deep Researcher unless Atlas decides to build a distinct cited-answer surface. |
 
-### 10.4 Watchlist / Already Shipped
+### 10.4. Watchlist / Already Shipped
 
 | Candidate | Disposition | Note |
 | --- | --- | --- |

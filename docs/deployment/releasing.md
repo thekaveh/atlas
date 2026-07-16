@@ -1,4 +1,4 @@
-# Releasing & version tags
+# 8.5. Releasing & version tags
 
 Atlas is consumed as a repository (see [Reusing Atlas as Infrastructure](reusing-atlas.md)), so downstream projects — especially those vendoring it as a Git submodule — need stable points to pin to and upgrade from deliberately. This page defines the tag convention.
 

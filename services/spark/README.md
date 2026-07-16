@@ -1,4 +1,4 @@
-# Apache Spark (standalone cluster)
+# 5.2.46. Apache Spark (standalone cluster)
 
 Spark runs as a 5-container family in the stack's `data` band: `spark-master`, `spark-worker` (replicas via `SPARK_WORKER_COUNT`), `spark-history`, `spark-connect` (dedicated Spark Connect gRPC sidecar), and `spark-init` (an idempotent minio/mc init that creates the spark-history bucket).
 
@@ -87,7 +87,7 @@ and maintenance calls such as `rewrite_data_files`, `expire_snapshots`, and
 `remove_orphan_files`. See
 [`docs/deployment/iceberg-advanced-smoke.md`](../../docs/deployment/iceberg-advanced-smoke.md).
 
-### 4.1 Cloud burst: Amazon EMR Serverless (optional)
+### 4.1. Cloud burst: Amazon EMR Serverless (optional)
 
 Because the stack speaks the open Spark Connect protocol, a notebook or tool can
 point at a **managed** Spark Connect endpoint instead of the in-stack sidecar —
@@ -110,9 +110,7 @@ Caveats (why it's a documented helper, not a wired source):
 
 ## 5. Dependencies & Integrations
 
-> Auto-generated section — the **Current** subsections are derived from `services/spark/service.yml`'s `data_flow.calls` field (and inverse passes). Re-run `python -m bootstrapper.docs.regen spark` after manifest changes.
-
-### 5.1 Current — Upstream (this service calls)
+### 5.1. Current — Upstream (this service calls)
 
 | Service | Category |
 |---|---|
@@ -120,7 +118,7 @@ Caveats (why it's a documented helper, not a wired source):
 | minio | data |
 | redpanda | data |
 
-### 5.2 Current — Downstream (services that call this)
+### 5.2. Current — Downstream (services that call this)
 
 | Service | Category |
 |---|---|
@@ -129,21 +127,21 @@ Caveats (why it's a documented helper, not a wired source):
 | jupyterhub | apps |
 | zeppelin | apps |
 
-### 5.3 Architecture diagram
+### 5.3. Architecture diagram
 
 ![spark architecture](./architecture.svg)
 
 [Open the interactive HTML diagram](./architecture.html) for a full-screen view.
 
-### 5.4 Future — Missing pair integrations
+### 5.4. Future — Missing pair integrations
 
 _No high-confidence opportunities identified._
 
-### 5.5 Future — Candidate new services
+### 5.5. Future — Candidate new services
 
 _No high-confidence opportunities identified._
 
-### 5.6 Future — Unused features in this service
+### 5.6. Future — Unused features in this service
 
 _No high-confidence opportunities identified._
 

@@ -11,10 +11,10 @@ upstream: https://github.com/apache/superset
 
 # Apache Superset
 
-## Headline
+## 1. Headline
 Apache-licensed BI and dashboard application for analyst-facing charts over curated SQL datasets, best suited for Atlas once Trino/Iceberg or Postgres analytics schemas have useful content and SSO is credible.
 
-## Watchlist decision (2026-07-04)
+## 2. Watchlist decision (2026-07-04)
 
 Keep Superset on the watchlist for now: Atlas **must not add `services/superset/service.yml` yet** until there are meaningful Trino/Iceberg or Postgres analytics datasets and a credible SSO route/auth story. Current Atlas already has a root dashboard for service discovery and Grafana for operational telemetry; Superset should arrive only when it is clearly the analyst BI surface over curated datasets.
 
@@ -41,10 +41,10 @@ Future service shape, if a later BI ticket promotes this:
 - Tests required for a future service PR: manifest validation, source validation, env assembly, topology/category, track membership, Kong route/auth, compose source-permutation coverage, init idempotency, docs drift, datasource config generation, disabled-dependency behavior, and at least one smoke that can connect to Trino or a test Postgres schema.
 - Edge cases: disabled Trino/Iceberg, disabled Redis, stale `.env`, missing secret key, metadata DB migration retry, custom `BASE_PORT`, prod profile route/auth restrictions, SSO disabled, datasource credential rotation, SQL Lab access control, and generated-doc drift.
 
-## Problem it solves
+## 3. Problem it solves
 Atlas now has the pieces for lakehouse analytics: MinIO-backed Iceberg tables, Trino SQL, Spark, JupyterHub, Zeppelin, and data-eng-lab scenario data. What it does not yet have is a business-user BI surface for curated tables, chart building, SQL exploration, and shareable dashboards. Superset becomes valuable once Atlas has datasets worth browsing outside notebooks and once those dashboards can be protected coherently.
 
-## Stack wiring sketch
+## 4. Stack wiring sketch
 - superset -> supabase for its metadata database and encrypted connection records.
 - superset -> redis for cache, async tasks, and optional reporting workers.
 - superset -> trino for SQL over the Iceberg/MinIO lakehouse.
@@ -53,17 +53,17 @@ Atlas now has the pieces for lakehouse analytics: MinIO-backed Iceberg tables, T
 - optional root-dashboard -> superset as a launch link only.
 - no direct superset -> grafana dependency; cross-links are enough.
 
-## Effort
+## 5. Effort
 medium-to-large — one web app is straightforward, but the production shape needs a metadata DB, secret generation, init/migration, datasource driver packaging, datasource provisioning, route/auth decisions, and sample dashboard data. The first version should not ship without a useful dataset.
 
-## Risks & open questions
+## 6. Risks & open questions
 - Security: broad BI surfaces expose data exploration, SQL Lab, charts, and embedded credentials. SSO and role mapping matter before real data appears.
 - Datasource credentials: Trino currently accepts any user string in Atlas' local slice; Superset needs a scoped service credential or a clear local-only policy.
 - Overlap: Superset should not replace Grafana's operational dashboards or the root dashboard's service-discovery role.
 - Operational weight: Superset may need Redis, Celery workers, browser/reporting dependencies, and metadata migrations if reports/alerts are enabled.
 - Dataset readiness: without curated Trino/Iceberg or Postgres analytics tables, Superset would become an empty UI.
 
-## Upstream evidence
+## 7. Upstream evidence
 - https://github.com/apache/superset
 - https://superset.apache.org/admin-docs/configuration/configuring-superset/
 - https://superset.apache.org/admin-docs/security/securing_superset/

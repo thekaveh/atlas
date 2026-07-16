@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.10+, PyYAML, MkDocs Material, CairoSVG, pytest, uv, GitHub Actions, GitHub Pages, GitHub Wiki.
 
-## Global Constraints
+## 1. Global Constraints
 
 - Preserve existing service README regeneration and all generated dependency sections.
 - Do not publish `docs/research`, `docs/strategy`, `docs/maintenance`, or `docs/superpowers` unless a manifest entry explicitly opts in.
@@ -19,7 +19,7 @@
 
 ---
 
-### Task 1: Manifest And Link Contracts
+### 1.1. Task 1: Manifest And Link Contracts
 
 **Files:**
 - Create: `docs/manifest.yaml`
@@ -39,7 +39,7 @@
 - [ ] Implement the minimum dataclasses, parser, classifiers, and transforms required by the tests.
 - [ ] Run the focused tests to green.
 
-### Task 2: Shared Page Model And Deterministic Builds
+### 1.2. Task 2: Shared Page Model And Deterministic Builds
 
 **Files:**
 - Create: `scripts/docs/pages.py`
@@ -57,7 +57,7 @@
 - [ ] Implement shared page assembly, generated references, surface writers, MkDocs rendering, and checks.
 - [ ] Run focused tests to green.
 
-### Task 3: Diagram Projection
+### 1.3. Task 3: Diagram Projection
 
 **Files:**
 - Create: `scripts/docs/render_diagrams.py`
@@ -74,7 +74,7 @@
 - [ ] Generate and inspect the committed PNG inventory.
 - [ ] Run diagram tests to green.
 
-### Task 4: Repository And Workflow Migration
+### 1.4. Task 4: Repository And Workflow Migration
 
 **Files:**
 - Modify: `.gitignore`, `README.md`, `bootstrapper/pyproject.toml`, `uv.lock`
@@ -93,7 +93,7 @@
 - [ ] Migrate ignore rules, dependencies, Make targets, README wording, and workflow branch/auth contracts.
 - [ ] Remove tracked generated outputs and generate clean disposable replacements.
 
-### Task 5: Verification And Delivery
+### 1.5. Task 5: Verification And Delivery
 
 **Files:**
 - Modify only files required by failures discovered during verification.

@@ -22,6 +22,10 @@ CREATE TABLE IF NOT EXISTS public.research_sessions (
     error_message TEXT
 );
 
+-- Existing installations receive the lease column without requiring a reset.
+ALTER TABLE public.research_sessions
+    ADD COLUMN IF NOT EXISTS heartbeat_at TIMESTAMPTZ;
+
 -- Research results table - stores the final research output
 CREATE TABLE IF NOT EXISTS public.research_results (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -62,6 +66,7 @@ CREATE TABLE IF NOT EXISTS public.research_logs (
 CREATE INDEX IF NOT EXISTS idx_research_sessions_status ON public.research_sessions(status);
 CREATE INDEX IF NOT EXISTS idx_research_sessions_user_id ON public.research_sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_research_sessions_created_at ON public.research_sessions(created_at);
+CREATE INDEX IF NOT EXISTS idx_research_sessions_heartbeat ON public.research_sessions(status, heartbeat_at);
 CREATE INDEX IF NOT EXISTS idx_research_results_session_id ON public.research_results(session_id);
 CREATE INDEX IF NOT EXISTS idx_research_sources_session_id ON public.research_sources(session_id);
 CREATE INDEX IF NOT EXISTS idx_research_logs_session_id ON public.research_logs(session_id);

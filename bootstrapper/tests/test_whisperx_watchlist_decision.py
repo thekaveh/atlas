@@ -14,7 +14,7 @@ def _candidate_text() -> str:
 def test_whisperx_remains_watchlist_until_audio_workflow_exists() -> None:
     text = _candidate_text()
 
-    assert "## Watchlist decision (2026-07-04)" in text
+    assert "Watchlist decision (2026-07-04)" in text
     assert "must not add `services/whisperx/service.yml` yet" in text
     assert "named meeting/audio ingestion workflow" in text
     assert "not needed for generic transcription" in text

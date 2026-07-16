@@ -1,18 +1,123 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import os
+import threading
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
 
 import media_registry
 
 
+_FAL_ENV_LOCK = threading.Lock()
+_DEFAULT_IMAGE_MODEL = "fal-ai/flux/dev"
+_DEFAULT_IMAGE_TO_IMAGE_MODEL = "fal-ai/flux/dev/image-to-image"
+_FAL_OUTPUT_FORMATS = {"jpeg", "png"}
+_FAL_TIMEOUT_MAX_SECONDS = 3600.0
+
+
+def _first_not_none(*values: Any) -> Any:
+    return next((value for value in values if value is not None), None)
+
+
+def validate_image_prompt(value: Any) -> str:
+    if not isinstance(value, str) or not value.strip() or len(value) > 4000:
+        raise ValueError(
+            "FAL image prompt must be a non-empty string of at most 4000 characters"
+        )
+    return value
+
+
+def validate_image_request_shape(input_payload: Dict[str, Any]) -> str:
+    """Validate schema fields shared by the route and provider boundary."""
+    prompt = validate_image_prompt(input_payload.get("prompt"))
+    image_size = input_payload.get("image_size")
+    if image_size is not None and not isinstance(image_size, dict):
+        raise ValueError("FAL image image_size must be an object")
+    seed = input_payload.get("seed")
+    if seed is not None and (isinstance(seed, bool) or not isinstance(seed, int)):
+        raise ValueError("FAL image seed must be an integer")
+    return prompt
+
+
+def _image_init_value(input_payload: Dict[str, Any]) -> Optional[str]:
+    for key in ("image_url", "image", "init_image"):
+        value = input_payload.get(key)
+        if value is None:
+            continue
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"FAL image {key} must be a non-empty string")
+        return value.strip()
+    return None
+
+
+def _bounded_int(name: str, value: Any, minimum: int, maximum: int) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"FAL image {name} must be an integer")
+    if not minimum <= value <= maximum:
+        raise ValueError(
+            f"FAL image {name} must be between {minimum} and {maximum}"
+        )
+    return value
+
+
+def _bounded_float(name: str, value: Any, minimum: float, maximum: float) -> float:
+    if isinstance(value, bool):
+        raise ValueError(f"FAL image {name} must be a number")
+    try:
+        converted = float(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(f"FAL image {name} must be a number") from exc
+    if not math.isfinite(converted) or not minimum <= converted <= maximum:
+        raise ValueError(
+            f"FAL image {name} must be a finite number between "
+            f"{minimum:g} and {maximum:g}"
+        )
+    return converted
+
+
 def _env_bool(name: str, default: bool) -> bool:
     raw = (os.getenv(name) or "").strip().lower()
     if not raw:
         return default
-    return raw in {"1", "true", "yes", "on", "enabled"}
+    if raw in {"1", "true", "yes", "on", "enabled"}:
+        return True
+    if raw in {"0", "false", "no", "off", "disabled"}:
+        return False
+    raise ValueError(f"{name} must be a boolean")
+
+
+def _timeout_seconds(value: Any) -> float:
+    try:
+        converted = float(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("FAL timeout must be finite") from exc
+    if not math.isfinite(converted):
+        raise ValueError("FAL timeout must be finite")
+    if converted <= 0:
+        raise ValueError("FAL timeout must be greater than 0")
+    if converted > _FAL_TIMEOUT_MAX_SECONDS:
+        raise ValueError("FAL timeout must be at most 3600 seconds")
+    return converted
+
+
+def fal_timeout_seconds_from_env() -> float:
+    return _timeout_seconds(os.getenv("FAL_TIMEOUT_SECONDS", "120") or "120")
+
+
+def _output_format(value: Any) -> str:
+    converted = str(value).strip().lower()
+    if converted not in _FAL_OUTPUT_FORMATS:
+        raise ValueError("FAL output format must be jpeg or png")
+    return converted
+
+
+def validate_fal_config() -> None:
+    """Fail startup before a malformed provider setting reaches paid work."""
+    fal_timeout_seconds_from_env()
+    _output_format(os.getenv("FAL_OUTPUT_FORMAT", "jpeg") or "jpeg")
+    _env_bool("FAL_ENABLE_SAFETY_CHECKER", True)
 
 
 class FalClient:
@@ -28,19 +133,28 @@ class FalClient:
         model: Optional[str] = None,
         output_format: Optional[str] = None,
         enable_safety_checker: Optional[bool] = None,
+        timeout_seconds: Optional[float] = None,
     ) -> None:
         self.api_key = (api_key or os.getenv("FAL_API_KEY") or os.getenv("FAL_KEY") or "").strip()
         self.model = (model or os.getenv("FAL_MODEL") or "fal-ai/flux/dev").strip()
-        self.output_format = (output_format or os.getenv("FAL_OUTPUT_FORMAT") or "jpeg").strip()
-        try:
-            self.timeout_seconds = int(os.getenv("FAL_TIMEOUT_SECONDS", "120") or "120")
-        except ValueError:
-            self.timeout_seconds = 120
-        self.enable_safety_checker = (
-            _env_bool("FAL_ENABLE_SAFETY_CHECKER", True)
-            if enable_safety_checker is None
-            else enable_safety_checker
+        self.output_format = _output_format(
+            output_format
+            if output_format is not None
+            else os.getenv("FAL_OUTPUT_FORMAT", "jpeg") or "jpeg"
         )
+        self.timeout_seconds = (
+            fal_timeout_seconds_from_env()
+            if timeout_seconds is None
+            else _timeout_seconds(timeout_seconds)
+        )
+        if enable_safety_checker is None:
+            self.enable_safety_checker = _env_bool(
+                "FAL_ENABLE_SAFETY_CHECKER", True
+            )
+        elif isinstance(enable_safety_checker, bool):
+            self.enable_safety_checker = enable_safety_checker
+        else:
+            raise ValueError("FAL enable_safety_checker must be a boolean")
         self.license = (os.getenv("FAL_MODEL_LICENSE") or "fal/provider-terms").strip()
 
     async def __aenter__(self) -> "FalClient":
@@ -64,26 +178,22 @@ class FalClient:
         if not self.api_key:
             raise ValueError("FAL_API_KEY is required when FAL_SOURCE=enabled")
 
-        arguments: Dict[str, Any] = {
-            "prompt": prompt,
-            "image_size": {"width": width, "height": height},
-            "num_inference_steps": steps,
-            "guidance_scale": cfg,
-            "num_images": 1,
-            "enable_safety_checker": self.enable_safety_checker,
-            "output_format": self.output_format,
-        }
-        if seed is not None:
-            arguments["seed"] = seed
-        if negative_prompt:
-            # flux-family endpoints accept negative_prompt; only send it when
-            # the caller provided one, so models without the field still work
-            # (and the empty case matches the exact-arguments test contract).
-            arguments["negative_prompt"] = negative_prompt
+        arguments = self._image_arguments(
+            {
+                "prompt": prompt,
+                "negative_prompt": negative_prompt,
+                "width": width,
+                "height": height,
+                "steps": steps,
+                "cfg": cfg,
+                "seed": seed,
+            },
+            selected_model=self.model,
+            init_image=None,
+        )
 
-        result = await asyncio.wait_for(
-            asyncio.to_thread(self._subscribe, arguments),
-            timeout=self.timeout_seconds,
+        result = await self._call_blocking_with_timeout(
+            self._subscribe, arguments
         )
         request_id = (
             result.get("request_id")
@@ -118,7 +228,9 @@ class FalClient:
     def _subscribe(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
         import fal_client  # type: ignore[import-not-found]
 
-        return self._call_with_fal_key(fal_client.subscribe, self.model, arguments=arguments)
+        return self._sdk_call(
+            fal_client, "subscribe", self.model, arguments=arguments
+        )
 
     async def submit_media_operation(
         self,
@@ -132,12 +244,12 @@ class FalClient:
         if not self.api_key:
             raise ValueError("FAL_API_KEY is required when FAL_SOURCE=enabled")
 
-        selected_model = (model or self.model).strip()
-        if modality == "image_to_3d":
-            arguments = self._image_to_3d_arguments(input)
-        else:
-            arguments = self._image_arguments(input)
-        submitted = await asyncio.to_thread(self._submit, selected_model, arguments)
+        selected_model, arguments = self._prepare_media_operation(
+            modality=modality, input=input, model=model
+        )
+        submitted = await self._call_blocking_with_timeout(
+            self._submit, selected_model, arguments
+        )
         operation_id = self._extract_request_id(submitted)
 
         return self._operation_payload(
@@ -148,17 +260,63 @@ class FalClient:
             raw=self._object_to_dict(submitted),
         )
 
+    def preflight_media_operation(
+        self,
+        *,
+        modality: str,
+        input: Dict[str, Any],
+        model: Optional[str] = None,
+    ) -> str:
+        """Validate a request without provider, storage, or accounting work."""
+        selected_model, _ = self._prepare_media_operation(
+            modality=modality, input=input, model=model
+        )
+        return selected_model
+
+    def _prepare_media_operation(
+        self,
+        *,
+        modality: str,
+        input: Dict[str, Any],
+        model: Optional[str],
+    ) -> Tuple[str, Dict[str, Any]]:
+        if modality not in self.SUPPORTED_MODALITIES:
+            raise ValueError(f"Unsupported FAL media modality: {modality}")
+        selected_model = (model or self.model).strip()
+        if modality == "image_to_3d":
+            entry = media_registry.lookup(selected_model)
+            if entry is None:
+                raise ValueError(f"Unknown FAL image_to_3d endpoint: {selected_model}")
+            if not entry.endpoint_verified:
+                raise ValueError(
+                    f"FAL image_to_3d endpoint {entry.model_id} is not verified"
+                )
+            return entry.model_id, self._image_to_3d_arguments(input, entry.family)
+        init_image = _image_init_value(input)
+        if init_image is not None and selected_model == _DEFAULT_IMAGE_MODEL:
+            selected_model = _DEFAULT_IMAGE_TO_IMAGE_MODEL
+        arguments = self._image_arguments(
+            input,
+            selected_model=selected_model,
+            init_image=init_image,
+        )
+        return selected_model, arguments
+
     async def get_media_operation(self, *, operation_id: str, modality: str) -> Dict[str, Any]:
         if modality not in self.SUPPORTED_MODALITIES:
             raise ValueError(f"Unsupported FAL media modality: {modality}")
         if not self.api_key:
             raise ValueError("FAL_API_KEY is required when FAL_SOURCE=enabled")
 
-        status_payload = await asyncio.to_thread(self._status, self.model, operation_id)
+        status_payload = await self._call_blocking_with_timeout(
+            self._status, self.model, operation_id
+        )
         normalized_status = self._normalize_status(status_payload)
         result_payload: Dict[str, Any] = {}
         if normalized_status == "succeeded":
-            result_payload = await asyncio.to_thread(self._result, self.model, operation_id)
+            result_payload = await self._call_blocking_with_timeout(
+                self._result, self.model, operation_id
+            )
 
         raw = {
             "status": self._object_to_dict(status_payload),
@@ -192,102 +350,184 @@ class FalClient:
             payload["raw"] = result_payload
         return payload
 
-    def _image_arguments(self, input_payload: Dict[str, Any]) -> Dict[str, Any]:
-        # Size: flat width/height keys win; a nested `image_size` object is
-        # accepted as a fallback (#453 — previously it was silently ignored
-        # and the request defaulted to 512×512).
-        nested_size = input_payload.get("image_size")
-        if not isinstance(nested_size, dict):
-            nested_size = {}
-        width = int(input_payload.get("width") or nested_size.get("width") or 512)
-        height = int(input_payload.get("height") or nested_size.get("height") or 512)
-        steps = int(input_payload.get("steps") or 20)
-        cfg = float(input_payload.get("cfg") or input_payload.get("guidance_scale") or 7.0)
+    def _image_arguments(
+        self,
+        input_payload: Dict[str, Any],
+        *,
+        selected_model: str,
+        init_image: Optional[str],
+    ) -> Dict[str, Any]:
+        prompt = validate_image_request_shape(input_payload)
+        if selected_model not in {
+            _DEFAULT_IMAGE_MODEL,
+            _DEFAULT_IMAGE_TO_IMAGE_MODEL,
+        }:
+            provider_arguments = input_payload.get("provider_arguments")
+            if not isinstance(provider_arguments, dict) or not provider_arguments:
+                raise ValueError(
+                    "Custom FAL image endpoints require non-empty "
+                    "input.provider_arguments matching the provider schema"
+                )
+            if provider_arguments.get("prompt") != prompt:
+                raise ValueError(
+                    "Custom FAL provider_arguments must contain a matching prompt"
+                )
+            return dict(provider_arguments)
+
+        if input_payload.get("provider_arguments") is not None:
+            raise ValueError(
+                "FAL provider_arguments are only accepted for custom image endpoints"
+            )
+        if input_payload.get("negative_prompt"):
+            raise ValueError(
+                f"FAL image negative_prompt is not supported by {selected_model}"
+            )
+
+        is_image_to_image = selected_model == _DEFAULT_IMAGE_TO_IMAGE_MODEL
+        if is_image_to_image and init_image is None:
+            raise ValueError(
+                f"FAL image endpoint {selected_model} requires an init image"
+            )
+        if is_image_to_image:
+            unsupported = next(
+                (
+                    key
+                    for key in ("width", "height", "image_size")
+                    if input_payload.get(key) is not None
+                ),
+                None,
+            )
+            if unsupported is not None:
+                raise ValueError(
+                    f"FAL image {unsupported} is not supported by {selected_model}"
+                )
+            min_steps, max_steps, min_cfg, max_cfg = 10, 50, 1, 20
+        else:
+            min_steps, max_steps, min_cfg, max_cfg = 1, 50, 1, 20
+        steps = _bounded_int(
+            "steps",
+            _first_not_none(input_payload.get("steps"), 20),
+            min_steps,
+            max_steps,
+        )
+        cfg = _bounded_float(
+            "cfg",
+            _first_not_none(
+                input_payload.get("cfg"), input_payload.get("guidance_scale"), 7.0
+            ),
+            min_cfg,
+            max_cfg,
+        )
+        num_images = _bounded_int(
+            "num_images",
+            _first_not_none(input_payload.get("num_images"), 1),
+            1,
+            4,
+        )
         arguments: Dict[str, Any] = {
-            "prompt": input_payload["prompt"],
-            "image_size": {"width": width, "height": height},
+            "prompt": prompt,
             "num_inference_steps": steps,
             "guidance_scale": cfg,
-            "num_images": int(input_payload.get("num_images") or 1),
+            "num_images": num_images,
             "enable_safety_checker": self.enable_safety_checker,
             "output_format": self.output_format,
         }
+        if not is_image_to_image:
+            # Only the default text endpoint defines image_size. Flat keys win;
+            # the nested object is retained as a compatibility fallback.
+            nested_size = input_payload.get("image_size")
+            if not isinstance(nested_size, dict):
+                nested_size = {}
+            width = _bounded_int(
+                "width",
+                _first_not_none(
+                    input_payload.get("width"), nested_size.get("width"), 512
+                ),
+                64,
+                4096,
+            )
+            height = _bounded_int(
+                "height",
+                _first_not_none(
+                    input_payload.get("height"), nested_size.get("height"), 512
+                ),
+                64,
+                4096,
+            )
+            arguments["image_size"] = {"width": width, "height": height}
         if input_payload.get("seed") is not None:
             arguments["seed"] = input_payload["seed"]
-        if input_payload.get("negative_prompt"):
-            arguments["negative_prompt"] = input_payload["negative_prompt"]
-        # img2img pass-through (#453): forward an init image (accepted under
-        # image_url / image / init_image) to FAL's img2img key — the same
-        # `image_url` convention _image_to_3d_arguments uses — plus the
-        # optional `strength` denoise knob. Previously these were silently
-        # dropped, degrading every img2img request to text2img.
-        init_image = None
-        for key in ("image_url", "image", "init_image"):
-            value = input_payload.get(key)
-            if isinstance(value, str) and value.strip():
-                init_image = value.strip()
-                break
         if init_image is not None:
             arguments["image_url"] = init_image
             if input_payload.get("strength") is not None:
-                arguments["strength"] = float(input_payload["strength"])
+                arguments["strength"] = _bounded_float(
+                    "strength", input_payload["strength"], 0.01, 1
+                )
+        elif input_payload.get("strength") is not None:
+            raise ValueError("FAL image strength requires an init image")
         return arguments
 
-    def _image_to_3d_arguments(self, input_payload: Dict[str, Any]) -> Dict[str, Any]:
+    def _image_to_3d_arguments(
+        self, input_payload: Dict[str, Any], family: str
+    ) -> Dict[str, Any]:
         image = input_payload.get("image")
         if not isinstance(image, str) or not image.strip():
             raise ValueError(
                 "image_to_3d input requires a non-empty 'image' (URL or data URI)"
             )
-        # fal's 3D API takes the input image under `image_url`; the gateway has
-        # already hosted/conditioned it, so this is a URL or an accepted data URI.
-        arguments: Dict[str, Any] = {"image_url": image.strip()}
+        unsupported = sorted(set(input_payload) - {"image", "seed"})
+        if unsupported:
+            raise ValueError(
+                "FAL image_to_3d input contains unsupported fields: "
+                + ", ".join(unsupported)
+            )
+
+        image_fields: Dict[str, str] = {
+            "trellis": "image_url",
+            "hunyuan3d": "input_image_url",
+            "tripo": "image_url",
+            "rodin": "input_image_urls",
+        }
+        image_field = image_fields.get(family)
+        if image_field is None:
+            raise ValueError(f"Unsupported FAL image_to_3d family: {family}")
+        image_value: Any = [image.strip()] if family == "rodin" else image.strip()
+        arguments: Dict[str, Any] = {image_field: image_value}
         if input_payload.get("seed") is not None:
-            arguments["seed"] = input_payload["seed"]
-        # Optional, provider-tolerant passthroughs (each endpoint ignores keys
-        # it does not recognize).
-        for flag in (
-            "texture",
-            "pbr",
-            "texture_size",
-            "face_limit",
-            "guidance_scale",
-            "num_inference_steps",
-            "quad",
-        ):
-            if input_payload.get(flag) is not None:
-                arguments[flag] = input_payload[flag]
-        extra = input_payload.get("extra")
-        if isinstance(extra, dict):
-            arguments.update(extra)
+            seed_max = 65535 if family == "rodin" else 2_147_483_647
+            arguments["seed"] = _bounded_int(
+                "seed", input_payload["seed"], 0, seed_max
+            )
         return arguments
 
     def _submit(self, model: str, arguments: Dict[str, Any]) -> Any:
         import fal_client  # type: ignore[import-not-found]
 
-        return self._call_with_fal_key(fal_client.submit, model, arguments=arguments)
+        return self._sdk_call(
+            fal_client, "submit", model, arguments=arguments
+        )
 
     def _status(self, model: str, operation_id: str) -> Any:
         import fal_client  # type: ignore[import-not-found]
 
-        return self._call_with_fal_key(fal_client.status, model, operation_id)
+        return self._sdk_call(fal_client, "status", model, operation_id)
 
     async def cancel_media_operation(self, *, operation_id: str, modality: str) -> bool:
         """Best-effort provider-side cancel of an in-flight operation (#518).
 
         Returns True when the provider accepted the cancel, False when the
         cancel could not be delivered (SDK without ``cancel``, network error,
-        already-settled request, …). Callers treat False as a safe no-op: the
-        gateway still marks the operation terminal ``cancelled`` server-side
-        and releases the budget reservation — the provider call is purely to
-        stop paid work early where FAL's queue supports it.
+        already-settled request, …). Acceptance is not a terminal outcome;
+        callers retain accounting state until a later poll confirms completion.
         """
         if modality not in self.SUPPORTED_MODALITIES:
             raise ValueError(f"Unsupported FAL media modality: {modality}")
         if not self.api_key:
             raise ValueError("FAL_API_KEY is required when FAL_SOURCE=enabled")
         try:
-            await asyncio.to_thread(self._cancel, self.model, operation_id)
+            await self._call_blocking_with_timeout(
+                self._cancel, self.model, operation_id
+            )
             return True
         except Exception:  # noqa: BLE001 — best-effort by contract
             return False
@@ -300,23 +540,41 @@ class FalClient:
         cancel_fn = getattr(fal_client, "cancel", None)
         if cancel_fn is None:
             raise RuntimeError("fal_client.cancel is unavailable in this SDK version")
-        return self._call_with_fal_key(cancel_fn, model, operation_id)
+        return self._sdk_call(fal_client, "cancel", model, operation_id)
 
     def _result(self, model: str, operation_id: str) -> Dict[str, Any]:
         import fal_client  # type: ignore[import-not-found]
 
-        return self._call_with_fal_key(fal_client.result, model, operation_id)
+        return self._sdk_call(fal_client, "result", model, operation_id)
+
+    def _sdk_call(self, module, method: str, *args, **kwargs):
+        client_type = getattr(module, "SyncClient", None)
+        if client_type is not None:
+            client = client_type(
+                key=self.api_key,
+                default_timeout=float(self.timeout_seconds),
+            )
+            return getattr(client, method)(*args, **kwargs)
+        return self._call_with_fal_key(
+            getattr(module, method), *args, **kwargs
+        )
 
     def _call_with_fal_key(self, func, *args, **kwargs):
-        previous = os.environ.get("FAL_KEY")
-        os.environ["FAL_KEY"] = self.api_key
-        try:
-            return func(*args, **kwargs)
-        finally:
-            if previous is None:
-                os.environ.pop("FAL_KEY", None)
-            else:
-                os.environ["FAL_KEY"] = previous
+        with _FAL_ENV_LOCK:
+            previous = os.environ.get("FAL_KEY")
+            os.environ["FAL_KEY"] = self.api_key
+            try:
+                return func(*args, **kwargs)
+            finally:
+                if previous is None:
+                    os.environ.pop("FAL_KEY", None)
+                else:
+                    os.environ["FAL_KEY"] = previous
+
+    async def _call_blocking_with_timeout(self, func, *args):
+        return await asyncio.wait_for(
+            asyncio.to_thread(func, *args), timeout=self.timeout_seconds
+        )
 
     def _operation_payload(
         self,
@@ -533,3 +791,14 @@ class FalClient:
         if isinstance(data, dict):
             return dict(data)
         return {"value": str(payload)}
+
+
+def preflight_media_operation(
+    *, modality: str, input: Dict[str, Any], model: Optional[str] = None
+) -> str:
+    """Validate and normalize media input without invoking provider work."""
+    return FalClient(api_key="preflight", model=model).preflight_media_operation(
+        modality=modality,
+        input=input,
+        model=model,
+    )

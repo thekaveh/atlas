@@ -203,7 +203,13 @@ def test_observability_tracing_compose_contract() -> None:
     assert otel["volumes"] == ["./config/config.yaml:/etc/otelcol/config.yaml:ro"]
     assert otel["command"] == ["--config=/etc/otelcol/config.yaml"]
     assert otel["depends_on"]["tempo"]["condition"] == "service_healthy"
-    assert "healthcheck" not in otel
+    healthcheck = otel["healthcheck"]
+    assert healthcheck["test"] == [
+        "CMD",
+        "/otelcol-contrib",
+        "validate",
+        "--config=/etc/otelcol/config.yaml",
+    ]
 
     assert tempo["image"] == "${TEMPO_IMAGE:-grafana/tempo:3.0.0}"
     assert tempo["deploy"]["replicas"] == "${TEMPO_SCALE:-0}"

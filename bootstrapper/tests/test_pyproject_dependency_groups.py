@@ -4,7 +4,7 @@ the PEP 735 `[dependency-groups].dev` table — not the deprecated
 
 uv 0.5+ emits a deprecation warning on every invocation against the old
 table, and the table will be removed in a future major release. CI invokes
-`uv sync --group dev` (workflow file). This test guards the contract.
+`uv sync --group dev --locked` (workflow file). These tests guard the contract.
 """
 from __future__ import annotations
 
@@ -19,6 +19,7 @@ else:  # pragma: no cover
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PYPROJECT = REPO_ROOT / "bootstrapper" / "pyproject.toml"
+SERVICES_LINT = REPO_ROOT / ".github/workflows/services-lint.yml"
 
 
 def _load() -> dict:
@@ -55,3 +56,10 @@ def test_deprecated_tool_uv_dev_dependencies_absent() -> None:
     assert "dev-dependencies" not in tool_uv, (
         "[tool.uv].dev-dependencies is deprecated. Use [dependency-groups].dev."
     )
+
+
+def test_services_lint_syncs_committed_lock_without_mutation() -> None:
+    workflow = SERVICES_LINT.read_text(encoding="utf-8")
+
+    assert workflow.count("uv sync --group dev --locked") == 3
+    assert "run: uv sync --group dev\n" not in workflow

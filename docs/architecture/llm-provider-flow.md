@@ -1,4 +1,4 @@
-# LLM Provider Flow
+# 6.8. LLM Provider Flow
 
 Ollama, LiteLLM, cloud passthroughs, Open WebUI, backend, MCP/tool access, and trace hooks.
 
@@ -6,15 +6,13 @@ Ollama, LiteLLM, cloud passthroughs, Open WebUI, backend, MCP/tool access, and t
 
 [Open the interactive diagram](./llm-provider-flow.html).
 
-## 2. Source Files
+## 2. How To Read This View
+
+Open WebUI, Backend routes, agents, and tools call LiteLLM rather than binding to a provider. LiteLLM dispatches to local Ollama or enabled cloud providers and exposes one model catalog. Tracing observes requests without becoming part of the inference data path.
+
+## 3. Source Files
 
 - `services/*/service.yml`
 - `bootstrapper/tracks.yml`
 - `services/topology.py`
 - `docs/deployment/source-configuration.md`
-
-## 3. Update Rule
-
-Update this page and `llm-provider-flow.html` when the represented architecture surface
-changes. Use the `architecture-diagram` design system: dark slate background,
-JetBrains Mono, split perspectives, readable labels, and no overloaded mega-diagram.

@@ -39,10 +39,10 @@ updates:
     ignore:
       # torch + PyG family is coupled to the `--find-links` wheel-index URL
       # in services/jupyterhub/build/requirements.txt (currently
-      # `https://data.pyg.org/whl/torch-2.4.0+cpu.html`). Each torch
+      # `https://data.pyg.org/whl/torch-2.11.0+cpu.html`). Each torch
       # minor/major bump requires (a) a matching PyG wheel-index URL change
-      # AND (b) compatible torch-scatter / torch-sparse / torch-cluster /
-      # torch-spline-conv / torch_geometric versions from the new index.
+      # AND (b) compatible pyg_lib / torch-scatter / torch-sparse /
+      # torch-cluster / torch_geometric versions from the new index.
       # Auto-bumping torch leaves these stranded — PR #39 (2026-06-05)
       # bumped torch 2.4 -> 2.12 against a 2.4-only wheel index. Manual
       # coordination required; surface the bump from `pip list --outdated`
@@ -50,12 +50,10 @@ updates:
       - dependency-name: "torch"
       - dependency-name: "torchvision"
       - dependency-name: "torchaudio"
-      - dependency-name: "torchmetrics"
-      - dependency-name: "torchao"
       - dependency-name: "torch-scatter"
       - dependency-name: "torch-sparse"
       - dependency-name: "torch-cluster"
-      - dependency-name: "torch-spline-conv"
+      - dependency-name: "pyg_lib"
       - dependency-name: "torch_geometric"
       # apache-airflow-providers-apache-spark 6.0.0 dropped the bundled
       # pyspark dependency from the default install (now requires the
@@ -73,22 +71,6 @@ updates:
       # langchain-groq window; bump only when langchain-groq releases a
       # version that accepts groq>=1.x. See PR #87.
       - dependency-name: "groq"
-      # Six Airflow providers (relaxed in PR #87 to match upstream
-      # constraints-3.2.2). Each pin floor matches the version listed in
-      # constraints-${AIRFLOW_VERSION}/constraints-${PYTHON_MAJOR_MINOR}.txt;
-      # Dependabot bumping above that floor produces a doomed PR because
-      # `pip install --constraint <constraints-3.2.2>` can't satisfy the
-      # new requirement. Apache-spark is already covered above (PR #47);
-      # the rest are tracked here until the Airflow version bumps and the
-      # constraint floors move with it.
-      - dependency-name: "apache-airflow-providers-amazon"
-      - dependency-name: "apache-airflow-providers-postgres"
-      - dependency-name: "apache-airflow-providers-redis"
-      - dependency-name: "apache-airflow-providers-common-sql"
-      - dependency-name: "apache-airflow-providers-neo4j"
-      - dependency-name: "apache-airflow-providers-openai"
-      - dependency-name: "apache-airflow-providers-fab"
-      - dependency-name: "apache-airflow-providers-weaviate"
       # pyspark is exact-pinned to the Spark image tag (currently 4.1.2)
       # in services/airflow/build/requirements.txt. The Spark Connect
       # protocol couples client and server tightly — bumping pyspark
@@ -97,10 +79,10 @@ updates:
       # only in lockstep with services/spark/service.yml::images.default
       # (the SPARK_IMAGE pin).
       - dependency-name: "pyspark"
-      # fastapi >=0.136 pulls starlette 1.x, whose new internal
+      # fastapi >=0.137 pulls starlette 1.x, whose new internal
       # `_IncludedRouter` class trips prometheus-fastapi-instrumentator
       # (its routing iterator assumes every router has a `.path` attr).
-      # Hold the floor below 0.136 until the upstream instrumentator
+      # Hold the ceiling below 0.137 until the upstream instrumentator
       # ships a fix. See PR #88 CI failure on fastapi 0.137.0 +
       # starlette 1.3.1 + prometheus-fastapi-instrumentator 8.0.0.
       - dependency-name: "fastapi"

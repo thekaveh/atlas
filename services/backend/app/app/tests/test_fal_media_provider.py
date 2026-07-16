@@ -4,8 +4,10 @@ import asyncio
 import importlib
 import os
 import sys
+import time
 import types
 
+import pytest
 
 def _stub_required_env(monkeypatch):
     for var, default in (
@@ -77,13 +79,14 @@ def test_fal_enabled_routes_simple_generation_to_fal_client(monkeypatch):
         "/comfyui/generate",
         json={
             "prompt": "orbital blue glass library",
-            "negative_prompt": "low detail",
+            "negative_prompt": "",
             "width": 768,
             "height": 512,
             "steps": 28,
             "cfg": 3.5,
             "seed": 42,
             "wait_for_completion": True,
+            "timeout_seconds": 42,
         },
     )
 
@@ -95,12 +98,13 @@ def test_fal_enabled_routes_simple_generation_to_fal_client(monkeypatch):
     assert body["data"]["provider"] == "fal"
     assert body["data"]["outputs"]["images"][0]["url"] == "https://cdn.example/fal.jpg"
     assert calls["generate"]["prompt"] == "orbital blue glass library"
-    assert calls["generate"]["negative_prompt"] == "low detail"
+    assert calls["generate"]["negative_prompt"] == ""
     assert calls["generate"]["width"] == 768
     assert calls["generate"]["height"] == 512
     assert calls["generate"]["steps"] == 28
     assert calls["generate"]["cfg"] == 3.5
     assert calls["generate"]["seed"] == 42
+    assert 0 < calls["init"]["timeout_seconds"] <= 42
 
 
 def test_fal_enabled_without_key_returns_clear_503(monkeypatch):
@@ -118,8 +122,65 @@ def test_fal_enabled_without_key_returns_clear_503(monkeypatch):
     assert "FAL_API_KEY" in response.json()["detail"]
 
 
+def test_fal_queue_only_compatibility_request_is_rejected(monkeypatch):
+    main = _fresh_main(monkeypatch, fal_source="enabled", fal_api_key="fal-key")
+
+    class UnexpectedFalClient:
+        def __init__(self, *_args, **_kwargs):
+            raise AssertionError("queue-only rejection must happen before FAL execution")
+
+    monkeypatch.setattr(main, "FalClient", UnexpectedFalClient)
+
+    from fastapi.testclient import TestClient
+
+    response = TestClient(main.app).post(
+        "/comfyui/generate",
+        json={"prompt": "queued render", "wait_for_completion": False},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == (
+        "FAL does not support queue-only compatibility requests"
+    )
+
+
+def test_fal_compatibility_validation_error_is_a_client_error(monkeypatch):
+    main = _fresh_main(monkeypatch, fal_source="enabled", fal_api_key="fal-key")
+
+    from fastapi.testclient import TestClient
+
+    response = TestClient(main.app).post(
+        "/comfyui/generate",
+        json={"prompt": "mapped request", "negative_prompt": "low detail"},
+    )
+
+    assert response.status_code == 400
+    assert "negative_prompt" in response.json()["detail"]
+
+
+def test_fal_compatibility_rejects_custom_model_before_client(monkeypatch):
+    main = _fresh_main(monkeypatch, fal_source="enabled", fal_api_key="fal-key")
+    monkeypatch.setenv("FAL_MODEL", "fal-ai/custom-endpoint")
+
+    class UnexpectedFalClient:
+        def __init__(self, *_args, **_kwargs):
+            raise AssertionError("custom compatibility model must fail before client init")
+
+    monkeypatch.setattr(main, "FalClient", UnexpectedFalClient)
+
+    from fastapi.testclient import TestClient
+
+    response = TestClient(main.app).post(
+        "/comfyui/generate", json={"prompt": "custom model"}
+    )
+
+    assert response.status_code == 400
+    assert "fal-ai/flux/dev" in response.json()["detail"]
+
+
 def test_fal_disabled_preserves_comfyui_generation_without_key(monkeypatch):
     main = _fresh_main(monkeypatch, fal_source="disabled", fal_api_key="")
+    calls = {}
 
     class FakeComfyUIClient:
         async def __aenter__(self):
@@ -136,7 +197,8 @@ def test_fal_disabled_preserves_comfyui_generation_without_key(monkeypatch):
                 "parameters": kwargs,
             }
 
-        async def wait_for_completion(self, prompt_id):
+        async def wait_for_completion(self, prompt_id, timeout):
+            calls["completion"] = {"prompt_id": prompt_id, "timeout": timeout}
             return {
                 "success": True,
                 "outputs": {"7": {"images": [{"filename": "comfy.png"}]}},
@@ -148,7 +210,11 @@ def test_fal_disabled_preserves_comfyui_generation_without_key(monkeypatch):
 
     response = TestClient(main.app).post(
         "/comfyui/generate",
-        json={"prompt": "local render", "wait_for_completion": True},
+        json={
+            "prompt": "local render",
+            "wait_for_completion": True,
+            "timeout_seconds": 42,
+        },
     )
 
     assert response.status_code == 200
@@ -156,6 +222,79 @@ def test_fal_disabled_preserves_comfyui_generation_without_key(monkeypatch):
     assert body["success"] is True
     assert body["prompt_id"] == "comfy-1"
     assert body["client_id"] == "comfy-client"
+    assert calls["completion"]["prompt_id"] == "comfy-1"
+    assert 0 < calls["completion"]["timeout"] < 42
+
+
+def test_comfyui_submission_consumes_the_same_request_deadline(monkeypatch):
+    main = _fresh_main(monkeypatch, fal_source="disabled", fal_api_key="")
+
+    class SlowComfyUIClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def generate_simple_image(self, **_kwargs):
+            await asyncio.sleep(2)
+            return {"success": True, "prompt_id": "too-late"}
+
+        async def wait_for_completion(self, *_args, **_kwargs):
+            raise AssertionError("polling must not begin after submission times out")
+
+    monkeypatch.setattr(main, "ComfyUIClient", SlowComfyUIClient)
+
+    from fastapi.testclient import TestClient
+
+    started = time.monotonic()
+    response = TestClient(main.app).post(
+        "/comfyui/generate",
+        json={"prompt": "slow submission", "timeout_seconds": 1},
+    )
+    elapsed = time.monotonic() - started
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "success": False,
+        "prompt_id": None,
+        "client_id": None,
+        "message": None,
+        "data": None,
+        "error": "Image generation timed out",
+    }
+    assert elapsed < 1.5
+
+
+def test_fal_client_accepts_request_scoped_timeout():
+    from fal_media_client import FalClient
+
+    client = FalClient(api_key="fal-key", timeout_seconds=0.25)
+
+    assert client.timeout_seconds == 0.25
+
+
+@pytest.mark.parametrize(
+    ("name", "value", "message"),
+    (
+        ("FAL_ENABLE_SAFETY_CHECKER", "treu", "boolean"),
+        ("FAL_TIMEOUT_SECONDS", "not-a-number", "finite"),
+        ("FAL_TIMEOUT_SECONDS", "nan", "finite"),
+        ("FAL_TIMEOUT_SECONDS", "inf", "finite"),
+        ("FAL_TIMEOUT_SECONDS", "0", "greater than 0"),
+        ("FAL_TIMEOUT_SECONDS", "3601", "at most 3600"),
+        ("FAL_OUTPUT_FORMAT", "webp", "jpeg or png"),
+    ),
+)
+def test_fal_client_rejects_malformed_provider_configuration(
+    monkeypatch, name, value, message
+):
+    monkeypatch.setenv(name, value)
+
+    from fal_media_client import FalClient
+
+    with pytest.raises(ValueError, match=message):
+        FalClient(api_key="fal-key")
 
 
 def test_fal_client_constructs_subscribe_request(monkeypatch):
@@ -224,46 +363,18 @@ def test_fal_client_constructs_subscribe_request(monkeypatch):
     assert result["outputs"]["images"][0]["url"] == "https://cdn.example/image.jpeg"
 
 
-def test_fal_client_sends_negative_prompt_when_provided(monkeypatch):
-    """The non-empty negative_prompt must reach fal_client.subscribe's
-    arguments (not be silently dropped — the f5693f06 fix). The empty case is
-    locked by test_fal_client_constructs_subscribe_request's exact-dict
-    assertion (negative_prompt='' -> key absent); this locks the positive path
-    so a future revert of the `if negative_prompt:` block can't re-drop it.
-    """
-    spec = importlib.util.find_spec("fal_media_client")
-    assert spec is not None, "backend must provide fal_media_client.FalClient"
-
-    captured: dict = {}
-
-    def fake_subscribe(model, *, arguments):
-        captured["model"] = model
-        captured["arguments"] = arguments
-        return {"request_id": "req-neg", "images": []}
-
-    monkeypatch.setitem(
-        sys.modules, "fal_client", types.SimpleNamespace(subscribe=fake_subscribe)
-    )
-
+def test_fal_client_rejects_unsupported_negative_prompt(monkeypatch):
     from fal_media_client import FalClient
 
-    asyncio.run(
-        FalClient(
-            api_key="fal-key",
-            model="fal-ai/flux/dev",
-            output_format="jpeg",
-            enable_safety_checker=True,
-        ).generate_simple_image(
-            prompt="orbital blue glass library",
-            negative_prompt="low detail",
-            width=768,
-            height=512,
+    with pytest.raises(ValueError, match="negative_prompt.*not supported"):
+        asyncio.run(
+            FalClient(api_key="fal-key").generate_simple_image(
+                prompt="orbital blue glass library",
+                negative_prompt="low detail",
+                width=768,
+                height=512,
+            )
         )
-    )
-
-    assert captured["model"] == "fal-ai/flux/dev"
-    assert captured["arguments"]["prompt"] == "orbital blue glass library"
-    assert captured["arguments"]["negative_prompt"] == "low detail"
 
 
 # --- image_to_3d modality (#340) --------------------------------------------
@@ -291,6 +402,67 @@ class InProgress:  # mirrors fal_client.client.InProgress
 class Queued:  # mirrors fal_client.client.Queued
     def __init__(self, position=0):
         self.position = position
+
+
+def test_fal_queue_submit_applies_configured_timeout(monkeypatch):
+    from fal_media_client import FalClient
+
+    client = FalClient(api_key="fal-key", model="fal-ai/flux/dev")
+    client.timeout_seconds = 0.01
+
+    def slow_submit(*args):
+        time.sleep(0.1)
+        return {"request_id": "late"}
+
+    monkeypatch.setattr(client, "_submit", slow_submit)
+
+    with pytest.raises(asyncio.TimeoutError):
+        asyncio.run(
+            client.submit_media_operation(
+                modality="image", input={"prompt": "atlas"}
+            )
+        )
+
+
+def test_fal_queue_status_and_result_apply_configured_timeout(monkeypatch):
+    from fal_media_client import FalClient
+
+    client = FalClient(api_key="fal-key", model="fal-ai/flux/dev")
+    client.timeout_seconds = 0.01
+
+    def slow_status(*args):
+        time.sleep(0.1)
+        return Completed()
+
+    monkeypatch.setattr(client, "_status", slow_status)
+    with pytest.raises(asyncio.TimeoutError):
+        asyncio.run(
+            client.get_media_operation(operation_id="fal-1", modality="image")
+        )
+
+    monkeypatch.setattr(client, "_status", lambda *args: Completed())
+    monkeypatch.setattr(client, "_result", slow_status)
+    with pytest.raises(asyncio.TimeoutError):
+        asyncio.run(
+            client.get_media_operation(operation_id="fal-1", modality="image")
+        )
+
+
+def test_fal_queue_cancel_timeout_degrades_to_false(monkeypatch):
+    from fal_media_client import FalClient
+
+    client = FalClient(api_key="fal-key", model="fal-ai/flux/dev")
+    client.timeout_seconds = 0.01
+
+    def slow_cancel(*args):
+        time.sleep(0.1)
+
+    monkeypatch.setattr(client, "_cancel", slow_cancel)
+
+    cancelled = asyncio.run(
+        client.cancel_media_operation(operation_id="fal-1", modality="image")
+    )
+    assert cancelled is False
 
 
 def _stub_fal_queue(monkeypatch, *, result_payload, status_obj=None):
@@ -365,6 +537,69 @@ def test_fal_client_submits_and_polls_image_to_3d_glb(monkeypatch):
     assert provider_fields["some_vendor_field"] == {"quality": "high"}
     assert provider_fields["seed"] == 7
     assert "model_mesh" not in provider_fields
+
+
+@pytest.mark.parametrize(
+    "model,expected_key,expected_value",
+    (
+        ("fal-ai/trellis", "image_url", "https://cdn.example/input.png"),
+        ("fal-ai/hunyuan3d/v2", "input_image_url", "https://cdn.example/input.png"),
+        (
+            "tripo3d/tripo/v2.5/image-to-3d",
+            "image_url",
+            "https://cdn.example/input.png",
+        ),
+        (
+            "fal-ai/hyper3d/rodin",
+            "input_image_urls",
+            ["https://cdn.example/input.png"],
+        ),
+    ),
+)
+def test_image_to_3d_uses_model_specific_image_field(
+    monkeypatch, model, expected_key, expected_value
+):
+    captured = _stub_fal_queue(monkeypatch, result_payload={})
+    from fal_media_client import FalClient
+
+    asyncio.run(
+        FalClient(api_key="fal-key", model=model).submit_media_operation(
+            modality="image_to_3d",
+            input={"image": "https://cdn.example/input.png", "seed": 7},
+        )
+    )
+
+    arguments = captured["submit"]["arguments"]
+    assert arguments[expected_key] == expected_value
+    assert set(arguments) == {expected_key, "seed"}
+
+
+@pytest.mark.parametrize("seed", (True, 1.5, "7", float("nan")))
+def test_image_to_3d_rejects_non_integer_seed(seed):
+    from fal_media_client import FalClient
+
+    with pytest.raises(ValueError, match="seed"):
+        asyncio.run(
+            FalClient(api_key="fal-key", model="fal-ai/trellis").submit_media_operation(
+                modality="image_to_3d",
+                input={"image": "https://cdn.example/input.png", "seed": seed},
+            )
+        )
+
+
+def test_image_to_3d_rejects_unowned_extra_payload():
+    from fal_media_client import FalClient
+
+    with pytest.raises(ValueError, match="unsupported fields"):
+        asyncio.run(
+            FalClient(api_key="fal-key", model="fal-ai/trellis").submit_media_operation(
+                modality="image_to_3d",
+                input={
+                    "image": "https://cdn.example/input.png",
+                    "extra": {"image_url": "https://attacker.example/override.png"},
+                },
+            )
+        )
 
 
 def test_fal_client_image_to_3d_response_key_variants(monkeypatch):
@@ -549,7 +784,7 @@ def test_fal_client_image_to_3d_tripo_license_and_cost(monkeypatch):
     from fal_media_client import FalClient
 
     client = FalClient(
-        api_key="fal-key", model="fal-ai/tripo3d/tripo/v2.5/image-to-3d"
+        api_key="fal-key", model="tripo3d/tripo/v2.5/image-to-3d"
     )
     polled = asyncio.run(
         client.get_media_operation(operation_id="fal-3d-1", modality="image_to_3d")
@@ -583,7 +818,7 @@ def test_fal_client_image_to_3d_extracts_preview_and_textures(monkeypatch):
 
 
 # ── #453: img2img pass-through + nested image_size fallback ─────────────────
-def _submit_image_operation(monkeypatch, input_payload):
+def _submit_image_operation(monkeypatch, input_payload, *, model="fal-ai/flux/dev"):
     """Drive submit_media_operation(modality='image') with a stubbed fal_client
     and return the exact arguments dict handed to fal_client.submit."""
     captured = {}
@@ -603,7 +838,7 @@ def _submit_image_operation(monkeypatch, input_payload):
 
     client = FalClient(
         api_key="fal-key",
-        model="fal-ai/flux/dev",
+        model=model,
         output_format="jpeg",
         enable_safety_checker=True,
     )
@@ -622,15 +857,22 @@ def test_fal_image_submit_forwards_img2img_init_image_and_strength(monkeypatch):
             "prompt": "expand this sprite",
             "image_url": "data:image/webp;base64,AAAA",
             "strength": 0.4,
-            "width": 1024,
-            "height": 1024,
         },
     )
     args = captured["arguments"]
-    assert args["image_url"] == "data:image/webp;base64,AAAA"
-    assert args["strength"] == 0.4
-    assert args["image_size"] == {"width": 1024, "height": 1024}
+    assert captured["model"] == "fal-ai/flux/dev/image-to-image"
+    assert args == {
+        "prompt": "expand this sprite",
+        "num_inference_steps": 20,
+        "guidance_scale": 7.0,
+        "num_images": 1,
+        "enable_safety_checker": True,
+        "output_format": "jpeg",
+        "image_url": "data:image/webp;base64,AAAA",
+        "strength": 0.4,
+    }
     assert submitted["status"] == "submitted"
+    assert submitted["model"] == "fal-ai/flux/dev/image-to-image"
 
 
 def test_fal_image_submit_accepts_image_and_init_image_aliases(monkeypatch):
@@ -663,6 +905,134 @@ def test_fal_image_submit_text2img_contract_unchanged(monkeypatch):
         "enable_safety_checker": True,
         "output_format": "jpeg",
     }
+
+
+def test_fal_image_submit_preserves_explicit_zero_cfg(monkeypatch):
+    captured, _ = _submit_image_operation(
+        monkeypatch,
+        {
+            "prompt": "zero-value contract",
+            "provider_arguments": {
+                "prompt": "zero-value contract",
+                "guidance_scale": 0,
+            },
+        },
+        model="fal-ai/custom-zero-guidance",
+    )
+    assert captured["arguments"] == {
+        "prompt": "zero-value contract",
+        "guidance_scale": 0,
+    }
+
+
+def test_custom_fal_image_endpoint_requires_provider_native_arguments(monkeypatch):
+    with pytest.raises(ValueError, match="provider_arguments"):
+        _submit_image_operation(
+            monkeypatch,
+            {"prompt": "custom endpoint"},
+            model="fal-ai/custom-endpoint",
+        )
+
+
+def test_custom_fal_image_endpoint_requires_matching_prompt(monkeypatch):
+    with pytest.raises(ValueError, match="matching prompt"):
+        _submit_image_operation(
+            monkeypatch,
+            {
+                "prompt": "top-level prompt",
+                "provider_arguments": {"prompt": "different prompt"},
+            },
+            model="fal-ai/custom-endpoint",
+        )
+
+
+@pytest.mark.parametrize("field", ("width", "height", "image_size", "negative_prompt"))
+def test_default_fal_img2img_rejects_unsupported_controls(monkeypatch, field):
+    value = {"width": 512, "height": 512} if field == "image_size" else 512
+    if field == "negative_prompt":
+        value = "low detail"
+    with pytest.raises(ValueError, match=field):
+        _submit_image_operation(
+            monkeypatch,
+            {
+                "prompt": "image variation",
+                "image_url": "https://cdn.example/in.png",
+                field: value,
+            },
+        )
+
+
+@pytest.mark.parametrize(
+    ("payload", "message"),
+    (
+        ({"steps": 51}, "steps"),
+        ({"cfg": 0}, "cfg"),
+        ({"image_url": "https://cdn.example/in.png", "steps": 9}, "steps"),
+        ({"image_url": "https://cdn.example/in.png", "strength": 0}, "strength"),
+        ({"image_url": "https://cdn.example/in.png", "strength": 1.1}, "strength"),
+        ({"image_url": "https://cdn.example/in.png", "strength": float("nan")}, "strength"),
+    ),
+)
+def test_default_fal_endpoints_reject_provider_invalid_controls(
+    monkeypatch, payload, message
+):
+    with pytest.raises(ValueError, match=message):
+        _submit_image_operation(monkeypatch, {"prompt": "bounded", **payload})
+
+
+@pytest.mark.parametrize("prompt", (None, "", "   ", {}, "x" * 4001))
+def test_fal_image_submit_rejects_invalid_prompt(monkeypatch, prompt):
+    with pytest.raises(ValueError, match="FAL image prompt"):
+        _submit_image_operation(monkeypatch, {"prompt": prompt})
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("width", 63),
+        ("width", 4097),
+        ("width", 512.5),
+        ("height", 63),
+        ("height", 4097),
+        ("steps", 0),
+        ("steps", 151),
+        ("steps", 1.5),
+        ("num_images", 0),
+        ("num_images", 5),
+        ("cfg", -1),
+        ("cfg", 31),
+        ("cfg", True),
+        ("cfg", float("nan")),
+        ("cfg", float("inf")),
+    ),
+)
+def test_fal_image_submit_rejects_invalid_numeric_values(
+    monkeypatch, field, value
+):
+    with pytest.raises(ValueError, match="FAL image"):
+        _submit_image_operation(
+            monkeypatch,
+            {"prompt": "invalid numeric contract", field: value},
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("image_size", "square"),
+        ("image_size", [512, 512]),
+        ("seed", True),
+        ("seed", 42.0),
+        ("seed", "42"),
+        ("seed", float("nan")),
+    ),
+)
+def test_fal_image_submit_rejects_malformed_schema_fields(monkeypatch, field, value):
+    with pytest.raises(ValueError, match=field):
+        _submit_image_operation(
+            monkeypatch,
+            {"prompt": "strict schema", field: value},
+        )
 
 
 def test_fal_image_submit_accepts_nested_image_size_fallback(monkeypatch):

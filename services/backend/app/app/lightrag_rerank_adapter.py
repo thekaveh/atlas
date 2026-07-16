@@ -25,6 +25,7 @@ Contracts pinned against upstream source (2026-07-11):
 
 from __future__ import annotations
 
+import math
 import os
 from typing import List, Optional
 
@@ -41,6 +42,7 @@ MAX_QUERY_CHARS = 8000
 MAX_DOCUMENTS = 512
 MAX_DOCUMENT_CHARS = 32000
 DEFAULT_TIMEOUT_SECONDS = 30.0
+MAX_TIMEOUT_SECONDS = 3600.0
 
 
 class RerankAdapterError(RuntimeError):
@@ -117,9 +119,20 @@ def _timeout_seconds() -> float:
         return DEFAULT_TIMEOUT_SECONDS
     try:
         value = float(raw)
-    except ValueError:
-        return DEFAULT_TIMEOUT_SECONDS
-    return value if value > 0 else DEFAULT_TIMEOUT_SECONDS
+    except ValueError as exc:
+        raise ValueError(
+            "LightRAG rerank adapter timeout must be a finite number"
+        ) from exc
+    if not math.isfinite(value) or value <= 0 or value > MAX_TIMEOUT_SECONDS:
+        raise ValueError(
+            "LightRAG rerank adapter timeout must be finite, greater than 0, "
+            "and at most 3600 seconds"
+        )
+    return value
+
+
+def validate_rerank_adapter_config() -> None:
+    _timeout_seconds()
 
 
 def _parse_tei_items(payload: object, doc_count: int) -> List[dict]:
@@ -132,25 +145,41 @@ def _parse_tei_items(payload: object, doc_count: int) -> List[dict]:
         raise RerankAdapterUpstreamError(
             "TEI /rerank returned an unexpected body (expected a JSON array)"
         )
+    if len(payload) > doc_count:
+        raise RerankAdapterUpstreamError(
+            "TEI /rerank returned more results than submitted documents"
+        )
     items: List[dict] = []
+    seen_indexes: set[int] = set()
     for entry in payload:
         if not isinstance(entry, dict) or "index" not in entry or "score" not in entry:
             raise RerankAdapterUpstreamError(
                 "TEI /rerank item missing required 'index'/'score' fields"
             )
-        try:
-            index = int(entry["index"])
-            score = float(entry["score"])
-        except (TypeError, ValueError) as exc:
+        index = entry["index"]
+        score = entry["score"]
+        if (
+            isinstance(index, bool)
+            or not isinstance(index, int)
+            or isinstance(score, bool)
+            or not isinstance(score, (int, float))
+            or not math.isfinite(float(score))
+        ):
             raise RerankAdapterUpstreamError(
-                "TEI /rerank item has non-numeric 'index'/'score'"
-            ) from exc
+                "TEI /rerank item has invalid 'index'/'score' types"
+            )
+        score = float(score)
         # A returned index outside the input range means the two sides
         # disagree about the batch — refuse to map it to a wrong document.
         if index < 0 or index >= doc_count:
             raise RerankAdapterUpstreamError(
                 f"TEI /rerank returned out-of-range index {index} for {doc_count} documents"
             )
+        if index in seen_indexes:
+            raise RerankAdapterUpstreamError(
+                f"TEI /rerank returned duplicate index {index}"
+            )
+        seen_indexes.add(index)
         items.append({"index": index, "score": score})
     return items
 

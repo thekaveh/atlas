@@ -34,7 +34,7 @@ SERVICES_DIR = REPO_ROOT / "services"
 DEPS_HEADER_RE = re.compile(r"^##\s+(?:(\d+)\.\s+)?Dependencies\s*&\s*Integrations\b", re.MULTILINE)
 NEXT_TOP_HEADER_RE = re.compile(r"^##\s+", re.MULTILINE)
 FUTURE_HEADER_RE = re.compile(
-    r"^###\s+(?:\d+\.\d+\s+)?Future\s*[—-]\s*(Missing pair integrations|Candidate new services|Unused features in this service)\b",
+    r"^###\s+(?:\d+\.\d+\.?\s+)?Future\s*[—-]\s*(Missing pair integrations|Candidate new services|Unused features in this service)\b",
     re.MULTILINE,
 )
 PLACEHOLDER_LINE = "_No high-confidence opportunities identified._"
@@ -121,7 +121,7 @@ def _render_section_with_future(graph, existing_readme: str) -> str:
         if not body:
             continue
         placeholder_pattern = re.compile(
-            r"(^###\s+(?:\d+\.\d+\s+)?Future\s*[—-]\s*"
+            r"(^###\s+(?:\d+\.\d+\.?\s+)?Future\s*[—-]\s*"
             + re.escape(heading_suffix)
             + r"\b.*?$\n\n)"
             + re.escape(PLACEHOLDER_LINE),

@@ -33,14 +33,14 @@ The TEI Reranker fills the second gap: no existing service exposes a general-pur
 
 ## 4. Architecture overview
 
-### 4a. Topology placement
+### 4.1. 4a. Topology placement
 
 | Service | Folder | Category | Default | Image | Internal port | Wizard band |
 |---|---|---|---|---|---|---|
 | LightRAG | `services/lightrag/` | `agents` | disabled | `ghcr.io/hkuds/lightrag:1.5.0` | 9621 | 63060–63079 |
 | TEI Reranker | `services/tei-reranker/` | `llm` | disabled | `:cpu-1.9` or `:1.9` | 80 | 63030–63039 |
 
-### 4b. Port allocation
+### 4.2. 4b. Port allocation
 
 Slot allocator (`bootstrapper/services/topology.py`) computes host ports from `category` + `depends_on.required`. No hand-coded port literals in either manifest. `--base-port N` relocates everything.
 
@@ -50,11 +50,11 @@ Within the llm band: cloud-providers → litellm → ollama → **tei-reranker**
 
 **Localhost-port mirrors** are hand-pinned (not slot-allocated; they describe host-installed instances): `LIGHTRAG_LOCALHOST_PORT=63068`, `TEI_RERANKER_LOCALHOST_PORT=63031`.
 
-### 4c. No slot-pin needed
+### 4.3. 4c. No slot-pin needed
 
 The `[supabase, redis, kong, ray]` slot-pin pattern is only required for `infra`-tier additions (where alphabetical tie-break can displace Kong from 63000 or Ray from 63002). Agents and llm tier additions do not need it.
 
-### 4d. Dependency edges
+### 4.4. 4d. Dependency edges
 
 ```
 lightrag
@@ -71,7 +71,7 @@ tei-reranker
 
 ## 5. Service: `services/lightrag/`
 
-### 5a. `service.yml` (illustrative key blocks)
+### 5.1. 5a. `service.yml` (illustrative key blocks)
 
 ```yaml
 name: lightrag
@@ -192,7 +192,7 @@ data_flow:
     - tei-reranker
 ```
 
-### 5b. `compose.yml` (illustrative shape)
+### 5.2. 5b. `compose.yml` (illustrative shape)
 
 ```yaml
 services:
@@ -284,7 +284,7 @@ volumes:
     name: ${PROJECT_NAME}-lightrag-data
 ```
 
-### 5c. `init/scripts/init-lightrag.sh`
+### 5.3. 5c. `init/scripts/init-lightrag.sh`
 
 Alpine entrypoint following `project_init_container_pattern`: `#!/bin/sh` shebang, `apk add --no-cache bash curl jq postgresql-client cypher-shell ca-certificates`, then `exec bash -- "$0" "$@"` with sentinel. Bash body does:
 
@@ -297,7 +297,7 @@ Alpine entrypoint following `project_init_container_pattern`: `#!/bin/sh` sheban
 
 ## 6. Service: `services/tei-reranker/`
 
-### 6a. `service.yml` (illustrative key blocks)
+### 6.1. 6a. `service.yml` (illustrative key blocks)
 
 ```yaml
 name: tei-reranker
@@ -379,13 +379,13 @@ runtime_sc:
 data_flow: { calls: [] }
 ```
 
-### 6b. Compose image selection
+### 6.2. 6b. Compose image selection
 
 The compose fragment uses `image: ${TEI_RERANKER_IMAGE_RESOLVED:-...}`. `_generate_tei_reranker_config()` writes `TEI_RERANKER_IMAGE_RESOLVED` to `.env` based on the source variant (mirrors `DOCLING_GPU_IMAGE` pattern).
 
 ## 7. Adaptive integration web
 
-### 7a. LightRAG → other services (covered in §5)
+### 7.1. 7a. LightRAG → other services (covered in §5)
 
 | LightRAG env var | Source | Failure mode |
 |---|---|---|
@@ -397,7 +397,7 @@ The compose fragment uses `image: ${TEI_RERANKER_IMAGE_RESOLVED:-...}`. `_genera
 
 `lightrag-init` flips `LIGHTRAG_KV_STORAGE`/`LIGHTRAG_VECTOR_STORAGE`/`LIGHTRAG_GRAPH_STORAGE` to the in-process variant when the corresponding URI is empty.
 
-### 7b. Three services adapt to LightRAG (explicit)
+### 7.2. 7b. Three services adapt to LightRAG (explicit)
 
 **`services/hermes/service.yml`**:
 ```yaml
@@ -431,11 +431,11 @@ runtime_adaptive:
 ```
 Backend env is wired; `/rag` route implementation is out of scope for this spec.
 
-### 7c. Transitive consumers (no manifest changes)
+### 7.3. 7c. Transitive consumers (no manifest changes)
 
 OpenClaw, open-webui, local-deep-researcher, jupyterhub reach LightRAG through the LiteLLM `lightrag` model entry (§8). No per-service wiring.
 
-### 7d. Init ordering
+### 7.4. 7d. Init ordering
 
 `lightrag-init` runs after `litellm-init`, `weaviate-init`, `hermes-init`, and `tei-reranker` (when enabled). Ordering enforced by compose `depends_on.condition: service_started` for sidecars and by `_generate_*_config` call-chain order in `service_config.py::generate_service_environment()`.
 
@@ -486,7 +486,7 @@ Each gated on `_SOURCE != disabled`. `scripts/check-kong-routes.py::EXPECTED_HOS
 
 ## 11. Bootstrapper plumbing checklist
 
-### 11a. New files
+### 11.1. 11a. New files
 
 ```
 services/lightrag/{service.yml, compose.yml, README.md, architecture.html, architecture.svg}
@@ -496,11 +496,11 @@ services/tei-reranker/{service.yml, compose.yml, README.md, architecture.html, a
 
 No `build/Dockerfile` for either (both use published images). No catalog-init (no model picker).
 
-### 11b. `bootstrapper/services/service_config.py`
+### 11.2. 11b. `bootstrapper/services/service_config.py`
 
 Add `_generate_lightrag_config()` and `_generate_tei_reranker_config()` methods (signatures and bodies in §5 / §6). Call from `generate_service_environment()` **after** `_generate_doc_processor_config`, `_generate_supabase_config`, `_generate_neo4j_config`, `_generate_redis_config`, `_generate_litellm_config`, `_generate_tei_reranker_config`, then `_generate_lightrag_config`. Adaptive substitution for `LIGHTRAG_PG_URI`/`LIGHTRAG_NEO4J_URI`/etc. happens automatically via `_generate_adaptive_services_config`.
 
-### 11c. CLI source flags (four seams per service)
+### 11.3. 11c. CLI source flags (four seams per service)
 
 `bootstrapper/start.py`:
 - `@click.option('--lightrag-source', type=click.Choice(['container','localhost','disabled']))`
@@ -515,7 +515,7 @@ Add `_generate_lightrag_config()` and `_generate_tei_reranker_config()` methods 
 
 `bootstrapper/ui/textual/screens/wizard_screen.py:1317-1319` — **no edit** (no `--*-models` flags).
 
-### 11d. Endpoint vars + validators
+### 11.4. 11d. Endpoint vars + validators
 
 `bootstrapper/utils/endpoint_vars.py::LOCALHOST_ENDPOINT_VARS`:
 - `"lightrag": "LIGHTRAG_ENDPOINT"`
@@ -528,14 +528,14 @@ Add `_generate_lightrag_config()` and `_generate_tei_reranker_config()` methods 
 `bootstrapper/utils/hosts_manager.py::GENAI_HOSTS`:
 - `"lightrag.localhost"`, `"rerank.localhost"`
 
-### 11e. Key generator
+### 11.5. 11e. Key generator
 
 `bootstrapper/utils/key_generator.py`:
 - `generate_lightrag_api_key()` + `generate_and_update_lightrag_api_key()`
 - Wire into `generate_missing_keys()` gated on `LIGHTRAG_SOURCE != disabled`.
 - TEI Reranker: no key (TEI is unauthenticated by default).
 
-### 11f. Audit scripts
+### 11.6. 11f. Audit scripts
 
 `scripts/check-compose-source-deps.py::REQUIRED_DEPENDENCIES`:
 - `('lightrag', 'litellm')` — hard runtime call.
@@ -545,17 +545,17 @@ Add `_generate_lightrag_config()` and `_generate_tei_reranker_config()` methods 
 - `"lightrag.localhost": "http://lightrag:9621/"`
 - `"rerank.localhost": "http://tei-reranker:80/"`
 
-### 11g. Top-level compose include
+### 11.7. 11g. Top-level compose include
 
 `docker-compose.yml`:
 - `- services/tei-reranker/compose.yml` after `- services/ollama/compose.yml`.
 - `- services/lightrag/compose.yml` between hermes and n8n.
 
-### 11h. `.env.example`
+### 11.8. 11h. `.env.example`
 
 Regenerated by `bootstrapper/services/env_assembler.py` after both manifests are added. Section banners must use `─` (U+2500) per `project_env_backfill_unicode_bar_bug` to avoid scattering vars into the unsectioned trailer.
 
-### 11i. Documentation
+### 11.9. 11i. Documentation
 
 | File | Edit |
 |---|---|
@@ -577,14 +577,14 @@ Regenerated by `bootstrapper/services/env_assembler.py` after both manifests are
 | `services/redis/README.md` | KV db index 2 used by LightRAG |
 | `README.md` (root) | 5 places: diagram caption, localhost source list, service URL table, service descriptions, CLI example |
 
-### 11j. No changes
+### 11.10. 11j. No changes
 
 - `bootstrapper/ui/state_builder.py` — `_SERVICES`/`_HOST_ALIAS` constants retired; rows discovered from `Topology.rows`.
 - `bootstrapper/services/sc_synthesizer.py` — automatic from manifests.
 
 ## 12. Testing & verification matrix
 
-### 12a. New tests
+### 12.1. 12a. New tests
 
 ```
 bootstrapper/tests/test_lightrag_config.py
@@ -614,7 +614,7 @@ bootstrapper/tests/test_hermes_n8n_backend_adapts_to_lightrag.py
   - assert LIGHTRAG_INTERNAL_URL or LIGHTRAG_ENDPOINT in environment_adaptation
 ```
 
-### 12b. Existing test extensions
+### 12.2. 12b. Existing test extensions
 
 | Test | Extension |
 |---|---|
@@ -624,7 +624,7 @@ bootstrapper/tests/test_hermes_n8n_backend_adapts_to_lightrag.py
 | `test_localhost_port_consumer_symmetry.py` | Add `LIGHTRAG_LOCALHOST_PORT` and `TEI_RERANKER_LOCALHOST_PORT`. |
 | `test_wizard_app_discovery.py` | Assert `lightrag_source` + `tei_reranker_source` in `source_mapping`. |
 
-### 12c. Verification matrix
+### 12.3. 12c. Verification matrix
 
 1. `docker compose --env-file .env -f docker-compose.yml config 2>&1 | grep -i warning` → zero output.
 2. `python3 scripts/check-compose-source-deps.py` → PASS.
@@ -637,7 +637,7 @@ bootstrapper/tests/test_hermes_n8n_backend_adapts_to_lightrag.py
 7. Init-container smoke-test: `docker run --rm alpine:latest /scripts/init-lightrag.sh` (per `project_init_container_pattern`).
 8. `--base-port 64000` test: confirm `LIGHTRAG_API_PORT`, `TEI_RERANKER_PORT`, and all four localhost-port vars relocate.
 
-### 12d. Live smoke test
+### 12.4. 12d. Live smoke test
 
 1. `LIGHTRAG_SOURCE=container TEI_RERANKER_SOURCE=container-cpu ./start.sh`.
 2. Wait for `lightrag` health check (first run downloads weights; 5 min ceiling).
@@ -649,7 +649,7 @@ bootstrapper/tests/test_hermes_n8n_backend_adapts_to_lightrag.py
 8. Open Neo4j Browser → confirm KG nodes/edges populated.
 9. Open Supabase Studio → confirm `lightrag.vectors` table populated.
 
-### 12e. Regression-class guards
+### 12.5. 12e. Regression-class guards
 
 - Init container is `image: alpine:latest`, NO `build:` (memory `project_init_container_pattern`).
 - No `./services/lightrag/...` or `./services/tei-reranker/...` self-double paths (memory `project_compose_include_path_resolution`).

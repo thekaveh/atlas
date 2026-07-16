@@ -104,21 +104,13 @@ class Tools:
                 )
 
             if resp.status_code != 200:
-                try:
-                    error_data = resp.json()
-                    return str(
-                        f"❌ Research failed: {error_data.get('detail', 'Unknown error')}"
-                    )
-                except Exception as parse_error:
-                    return str(
-                        f"❌ Research failed: HTTP {resp.status_code}. Parse error: {str(parse_error)}"
-                    )
+                return f"❌ Research failed with HTTP {resp.status_code}."
 
             # For LangGraph API, the response is the final result
             try:
                 result_data = resp.json()
-            except Exception as e:
-                return str(f"❌ Failed to parse research response: {str(e)}")
+            except Exception:
+                return "❌ Research returned an invalid response."
 
             # ULTRA-SAFE: Force immediate plain text conversion to prevent [object Object]
             # Convert response to plain text immediately - no complex object handling
@@ -155,9 +147,8 @@ class Tools:
                 # CRITICAL: Return as basic string literal - no complex types
                 return simple_result
 
-            except Exception as e:
-                # Ultimate safety net: pure text response
-                return f"Research completed for: {query}\n\nError: {str(e)}\n\nRaw response: {str(result_data)}"
+            except Exception:
+                return "Research completed, but its result could not be formatted."
 
         except requests.exceptions.ConnectionError:
             return str(
@@ -167,5 +158,5 @@ class Tools:
             return str(
                 f"❌ Research service timed out after {self.valves.timeout}s (15 minutes). Service may be overloaded - try again later or increase timeout in settings."
             )
-        except Exception as e:
-            return str(f"❌ Unexpected error: {str(e)}")
+        except Exception:
+            return "❌ Research failed unexpectedly. Please try again later."

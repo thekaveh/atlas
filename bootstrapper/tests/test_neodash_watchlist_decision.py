@@ -14,7 +14,7 @@ def _candidate_text() -> str:
 def test_neodash_remains_watchlist_until_graph_data_and_boundary_exist() -> None:
     text = _candidate_text()
 
-    assert "## Watchlist decision (2026-07-04)" in text
+    assert "Watchlist decision (2026-07-04)" in text
     assert "must not add `services/neodash/service.yml` yet" in text
     assert "richer graph-native application data" in text
     assert "no longer maintained" in text

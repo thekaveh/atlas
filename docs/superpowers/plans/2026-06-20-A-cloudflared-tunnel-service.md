@@ -8,7 +8,7 @@
 
 **Tech Stack:** Docker Compose fragment + YAML manifest; bootstrapper manifest loader / topology / env-assembler / docs-regen; pytest.
 
-## Global Constraints
+## 1. Global Constraints
 
 - `main` is protected — land via PR with the 4 `services-lint` checks green; never push to `main`.
 - Commit messages: terse third-person verb, no emoji, no Claude `Co-Authored-By` trailer.
@@ -20,7 +20,7 @@
 
 ---
 
-### Task 1: Manifest (`services/cloudflared/service.yml`)
+### 1.1. Task 1: Manifest (`services/cloudflared/service.yml`)
 
 **Files:**
 - Create: `services/cloudflared/service.yml`
@@ -120,7 +120,7 @@ git commit -m "Add cloudflared service manifest (disabled by default)"
 
 ---
 
-### Task 2: Compose fragment (`services/cloudflared/compose.yml`)
+### 1.2. Task 2: Compose fragment (`services/cloudflared/compose.yml`)
 
 **Files:**
 - Create: `services/cloudflared/compose.yml`
@@ -189,7 +189,7 @@ git commit -m "Add cloudflared compose fragment + include"
 
 ---
 
-### Task 3: Regenerate generated artifacts (.env.example, docs, baseline)
+### 1.3. Task 3: Regenerate generated artifacts (.env.example, docs, baseline)
 
 **Files:**
 - Modify (generated): `.env.example`, `services/cloudflared/README.md`, `services/cloudflared/architecture.svg`, `services/cloudflared/architecture.html`, possibly `bootstrapper/tests/fixtures/rendered_config_baseline.yml`
@@ -230,7 +230,7 @@ git commit -m "Regenerate env/docs/baseline for cloudflared service"
 
 ---
 
-### Task 4: Audit-script + cross-manifest checks, then docs note
+### 1.4. Task 4: Audit-script + cross-manifest checks, then docs note
 
 **Files:**
 - Test: audit scripts
@@ -256,7 +256,7 @@ git commit -m "docs: note cloudflared public-edge option"
 
 ---
 
-## Self-Review
+## 2. Self-Review
 
 - **Spec coverage:** Implements spec P0-2 (TLS via Cloudflare Tunnel → Kong). The Caddy fallback is intentionally NOT built here (runbook documents it as the alternative).
 - **Placeholders:** none — every step has exact paths/commands; manifest + fragment are complete.

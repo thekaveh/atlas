@@ -3,18 +3,25 @@ OpenAI-compatible Document Processing API Server
 Supports GPU backend for Docling (used by container)
 """
 
-from fastapi import FastAPI, File, UploadFile, HTTPException, Form
+from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 import os
-import tempfile
 import logging
-from typing import Optional
+from typing import Literal
+
+from bounded_upload import EmptyUploadError, UploadTooLargeError, spool_upload
+from pipeline_config import resolve_chunk_defaults, validate_chunk_settings
+from utils import ChunkLimitError
+
+_CHUNK_DEFAULTS = resolve_chunk_defaults()
 
 # Import backend-specific processor
 try:
-    from processor import process_document
-except ImportError as e:
-    logging.error(f"Failed to import processor module: {e}")
+    from processor import process_document, processor_status
+except ImportError as exc:
+    logging.error(
+        "Failed to import processor module (error_type=%s)", type(exc).__name__
+    )
     raise
 
 # Import models
@@ -47,35 +54,50 @@ async def root():
     }
 
 @app.get("/health", response_model=HealthResponse)
-async def health_check():
+async def health_check(response: Response):
+    readiness = await processor_status()
+    ready = readiness == "healthy"
+    if not ready:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     return HealthResponse(
-        status="healthy",
+        status=readiness,
         backend=os.getenv("DOCLING_DEVICE", "cpu"),
         device=os.getenv("DOCLING_DEVICE", "cpu"),
-        models_loaded=["DocLayNet", "TableFormer"]
+        models_loaded=["DocumentConverter"] if ready else []
     )
 
 @app.post("/v1/document/convert", response_model=ConversionResponse)
 async def convert_document(
     file: UploadFile = File(...),
-    output_format: str = Form(default="markdown"),
-    use_ocr: str = Form(default="auto"),
-    table_mode: str = Form(default="accurate"),
+    output_format: Literal["markdown", "html", "json", "doctags"] = Form(
+        default=os.getenv("DOCLING_OUTPUT_FORMAT", "markdown")
+    ),
+    use_ocr: Literal["auto", "always", "never"] = Form(
+        default=os.getenv("DOCLING_USE_OCR", "auto")
+    ),
+    table_mode: Literal["accurate", "fast"] = Form(
+        default=os.getenv("DOCLING_TABLE_MODE", "accurate")
+    ),
     enable_chunking: bool = Form(default=False),
-    chunk_size: int = Form(default=512),
-    chunk_overlap: int = Form(default=50)
+    chunk_size: int = Form(default=_CHUNK_DEFAULTS.size, gt=0),
+    chunk_overlap: int = Form(default=_CHUNK_DEFAULTS.overlap, ge=0)
 ):
     """Convert documents to structured format"""
     try:
-        logger.info(f"Processing: {file.filename}")
-
-        with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(file.filename or "document.pdf")[1]) as tmp:
-            content = await file.read()
-            tmp.write(content)
-            tmp_path = tmp.name
+        validate_chunk_settings(chunk_size, chunk_overlap)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    tmp_path = None
+    try:
+        logger.info("Processing uploaded document")
+        max_bytes = int(os.getenv("DOCLING_MAX_FILE_SIZE", "52428800"))
+        suffix = os.path.splitext(file.filename or "document.pdf")[1] or ".pdf"
+        tmp_path = await spool_upload(
+            file, max_bytes=max_bytes, suffix=suffix
+        )
 
         result = await process_document(
-            file_path=tmp_path,
+            file_path=str(tmp_path),
             output_format=output_format,
             use_ocr=use_ocr,
             table_mode=table_mode,
@@ -84,17 +106,25 @@ async def convert_document(
             chunk_overlap=chunk_overlap
         )
 
-        os.unlink(tmp_path)
         return result
 
-    except Exception as e:
-        logger.error(f"Error: {str(e)}", exc_info=True)
-        if 'tmp_path' in locals():
-            try:
-                os.unlink(tmp_path)
-            except Exception:
-                pass
-        raise HTTPException(status_code=500, detail=str(e))
+    except UploadTooLargeError as e:
+        raise HTTPException(status_code=413, detail=str(e)) from e
+    except EmptyUploadError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except ChunkLimitError as e:
+        raise HTTPException(status_code=413, detail=str(e)) from e
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(
+            "Document conversion failed (error_type=%s)",
+            type(exc).__name__,
+        )
+        raise HTTPException(status_code=500, detail="Document conversion failed") from exc
+    finally:
+        if tmp_path is not None:
+            tmp_path.unlink(missing_ok=True)
 
 @app.get("/v1/models")
 async def list_models():

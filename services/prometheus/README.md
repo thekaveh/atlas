@@ -1,4 +1,4 @@
-# Prometheus (metrics scraper + TSDB)
+# 5.2.41. Prometheus (metrics scraper + TSDB)
 
 Prometheus runs as a family of three containers in the stack's `infra` band: the main `prometheus` server, `node-exporter` for host-level metrics, and `cadvisor` for per-container metrics. All three share a single lifecycle — `PROMETHEUS_SOURCE` is one toggle that scales them as a unit.
 
@@ -42,7 +42,7 @@ The bootstrapper's `_generate_prometheus_config()` hook writes all five scale va
 
 ## 4. Scrape targets
 
-13 targets ship in `config/prometheus.yml`:
+15 targets ship in `config/prometheus.yml`:
 
 | Job | Target | Notes |
 |---|---|---|
@@ -57,6 +57,8 @@ The bootstrapper's `_generate_prometheus_config()` hook writes all five scale va
 | `n8n-worker` | `n8n-worker:5678` | Queue mode runs executions worker-side — execution-data counters live here |
 | `minio` | `minio:9000/minio/v2/metrics/cluster` | Requires `MINIO_PROMETHEUS_AUTH_TYPE=public` |
 | `backend` | `backend:8000/metrics` | `prometheus-fastapi-instrumentator` middleware |
+| `asset-worker` | `asset-worker:8095` | Auth-free operational metrics; asset mutation routes remain bearer-token protected |
+| `asset-baker` | `asset-baker:8096` | Auth-free operational metrics; asset mutation routes remain bearer-token protected |
 | `postgres-exporter` | `postgres-exporter:9187` | Sidecar embedded in Supabase family; scales 1↔0 with `PROMETHEUS_SOURCE` |
 | `redis-exporter` | `redis-exporter:9121` | Sidecar embedded in Redis family; scales 1↔0 with `PROMETHEUS_SOURCE` |
 
@@ -66,9 +68,7 @@ Ollama is **deliberately not scraped** — LiteLLM is its gateway and emits per-
 
 ## 5. Dependencies & Integrations
 
-> Auto-generated section — the **Current** subsections are derived from `services/prometheus/service.yml`'s `data_flow.calls` field (and inverse passes). Re-run `python -m bootstrapper.docs.regen prometheus` after manifest changes.
-
-### 5.1 Current — Upstream (this service calls)
+### 5.1. Current — Upstream (this service calls)
 
 | Service | Category |
 |---|---|
@@ -79,34 +79,36 @@ Ollama is **deliberately not scraped** — LiteLLM is its gateway and emits per-
 | supabase | data |
 | weaviate | data |
 | litellm | llm |
+| asset-baker | media |
+| asset-worker | media |
 | n8n | agents |
 | backend | apps |
 
-### 5.2 Current — Downstream (services that call this)
+### 5.2. Current — Downstream (services that call this)
 
 | Service | Category |
 |---|---|
 | grafana ↔ | infra |
 | kong ↔ | infra |
 
-### 5.3 Architecture diagram
+### 5.3. Architecture diagram
 
 ![prometheus architecture](./architecture.svg)
 
 [Open the interactive HTML diagram](./architecture.html) for a full-screen view.
 
-### 5.4 Future — Missing pair integrations
+### 5.4. Future — Missing pair integrations
 
 _No high-confidence opportunities identified._
 
-### 5.5 Future — Candidate new services
+### 5.5. Future — Candidate new services
 
 - **Alertmanager** — pair with Prometheus's alerting rules for paging/routing. Today the bundle uses Grafana's unified alerting; a separate Alertmanager would matter only if clustered HA alerting becomes a requirement.
 - **Loki** — log aggregation companion. Same operational pattern as Prometheus (scrape-then-store-then-query).
 - **Tempo** — distributed tracing companion. Closes the metrics + logs + traces triangle for full observability.
 - **OpenTelemetry collector** — neutral collection plane for metrics + logs + traces, replacing per-service exporters where applicable.
 
-### 5.6 Future — Unused features in this service
+### 5.6. Future — Unused features in this service
 
 - **Remote write to long-term storage** — `remote_write` to Mimir / Thanos / VictoriaMetrics for retention beyond local TSDB. Useful when the 7-day default isn't enough but local disk pressure is.
 - **Recording rules** — pre-aggregated time series for expensive Grafana queries; `config/rules/stack-recording.yml` is an empty placeholder ready to be populated.

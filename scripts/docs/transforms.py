@@ -18,6 +18,7 @@ _HTML_HREF_RE = re.compile(
     re.IGNORECASE,
 )
 _SCHEME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*:")
+_ATLAS_BLOB_PREFIX = "https://github.com/thekaveh/atlas/blob/"
 
 
 def build_source_map(manifest: Manifest, surface: str) -> dict[str, str]:
@@ -46,6 +47,18 @@ def _mapped_page(canonical: str, source_map: dict[str, str]) -> str | None:
     return next((source_map[candidate] for candidate in candidates if candidate in source_map), None)
 
 
+def _atlas_blob_source(target: str, source_map: dict[str, str]) -> str | None:
+    """Resolve a repository blob URL to a manifest-owned canonical source."""
+    if not target.startswith(_ATLAS_BLOB_PREFIX):
+        return None
+    blob_path = target.removeprefix(_ATLAS_BLOB_PREFIX)
+    candidates = sorted(source_map, key=len, reverse=True)
+    return next(
+        (source for source in candidates if blob_path.endswith(f"/{source}")),
+        None,
+    )
+
+
 def rewrite_for_surface(
     markdown: str,
     *,
@@ -65,6 +78,10 @@ def rewrite_for_surface(
         target, separator, anchor = raw_target.partition("#")
         anchor_suffix = f"#{anchor}" if separator else ""
 
+        blob_source = _atlas_blob_source(target, source_map)
+        if blob_source is not None and not image:
+            rewritten = _relative_output(output_path, source_map[blob_source]) + anchor_suffix
+            return f"[{label}]({rewritten}{title})"
         if is_forbidden(raw_target, surface):
             return label
         if not target or target.startswith("#") or _SCHEME_RE.match(target) or target.startswith("//"):

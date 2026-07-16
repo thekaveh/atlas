@@ -41,11 +41,11 @@ env:
     default: "8000"
     description: "Host port the managed vLLM Metal OpenAI server listens on. Not a BASE_PORT slot — vLLM Metal has no Kong route or exposed stack port."
   - name: VLLM_METAL_PLUGIN_VERSION
-    default: "0.3.0"
-    description: "Pinned vllm-metal plugin version installed into the managed host venv."
+    default: "0.3.0.dev20260713103604"
+    description: "Atlas-verified vllm-metal GitHub release wheel installed with checksum verification; unverified overrides are rejected."
   - name: VLLM_METAL_CORE_VERSION
-    default: ""
-    description: "Optional pinned vllm core version (blank = let the vllm-metal plugin resolve a compatible core)."
+    default: "0.24.0"
+    description: "Atlas-verified compatible vllm core source release; it must match the supported plugin release."
   - name: VLLM_METAL_PYTHON
     default: "python3.12"
     description: "Python interpreter used to build the managed host venv (vllm-metal requires 3.12)."

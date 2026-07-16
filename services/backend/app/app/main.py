@@ -8,21 +8,43 @@ from typing import Optional, cast, Dict, Any, List, Union, Literal
 from contextlib import asynccontextmanager
 import os
 import asyncio
+import logging
 import httpx
 import asyncpg
 import yaml
 import re
 import time
 import secrets
+import traceback
+from datetime import datetime, timezone
 
 from n8n_client import N8nClient
 from research_service import ResearchService
 from comfyui_client import ComfyUIClient
 from comfyui_media_client import ComfyUIMediaClient
-from fal_media_client import FalClient
+from fal_media_client import (
+    FalClient,
+    fal_timeout_seconds_from_env,
+    preflight_media_operation,
+    validate_fal_config,
+    validate_image_request_shape,
+)
 import media_registry
-from media_input import prepare_image_input, ImageInputError, ImageHostingError
+from media_input import (
+    ImageHostingError,
+    ImageInputError,
+    prepare_image_input,
+    validate_media_input_config,
+)
 import media_ledger
+from media_request_limit import (
+    MediaRequestLimitMiddleware,
+    media_request_max_bytes_from_env,
+)
+from media_operation_store import (
+    TERMINAL_MEDIA_STATUSES,
+    build_media_operation_store,
+)
 from media_ledger import (
     BudgetExceeded,
     ProviderDisabled,
@@ -41,6 +63,7 @@ from ray_routes import router as ray_router
 from celery_app import celery_is_enabled, get_celery_job_status
 from celery_tasks import memory_consolidate_task, rag_ingestion_task
 from rag_ingestion import (
+    ingestion_execution_lease_seconds,
     ProfileNotFoundError,
     RagIngestionQueuedResponse,
     RagIngestionRecordResponse,
@@ -75,7 +98,43 @@ from lightrag_rerank_adapter import (
     RerankAdapterTimeoutError,
     RerankAdapterUpstreamError,
     rerank_via_tei,
+    validate_rerank_adapter_config,
 )
+from backend_identity import (
+    BackendPrincipal,
+    authorize_media_scope,
+    authorize_user_id,
+    principal_scope_key,
+    require_backend_principal,
+    require_comfy_automation_principal,
+    require_comfy_read_principal,
+    require_memory_automation_principal,
+    require_memory_principal,
+    require_n8n_operator_principal,
+    require_research_principal,
+    require_service_principal,
+    require_stateless_principal,
+    research_owner_id,
+)
+from readiness import check_backend_readiness
+
+
+logger = logging.getLogger(__name__)
+
+
+def _unexpected_error(operation: str, exc: Exception, *, status_code: int = 500) -> HTTPException:
+    """Log an unexpected failure without exposing its details to API clients."""
+    stack = " <- ".join(
+        f"{os.path.basename(frame.filename)}:{frame.lineno}:{frame.name}"
+        for frame in traceback.extract_tb(exc.__traceback__)
+    ) or "unavailable"
+    logger.error(
+        "%s failed (error_type=%s, stack=%s)",
+        operation,
+        type(exc).__name__,
+        stack,
+    )
+    return HTTPException(status_code=status_code, detail=f"{operation} failed")
 
 
 def _fal_source_enabled() -> bool:
@@ -161,12 +220,15 @@ _SAFE_STORAGE_FILENAME = re.compile(r"^[A-Za-z0-9._ -]{1,255}$")
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
-    yield
-    # Graceful shutdown: close the process-lifetime n8n client so httpx
-    # doesn't warn about an unclosed client and its keep-alive sockets
-    # close deterministically. (n8n_client is the only long-lived HTTP
-    # client; ComfyUIClient and the memory/research clients are per-call.)
-    await n8n_client.aclose()
+    await research_service.start_maintenance()
+    try:
+        yield
+    finally:
+        # Terminalize local research work before closing process-lifetime
+        # clients and shared stores.
+        await research_service.aclose()
+        await n8n_client.aclose()
+        await MEDIA_OPERATION_STORE.aclose()
 
 
 app = FastAPI(
@@ -174,6 +236,15 @@ app = FastAPI(
     description=f"Backend API for {PROJECT_NAME}",
     version="0.1.0",
     lifespan=_lifespan,
+)
+
+validate_media_input_config()
+validate_fal_config()
+validate_rerank_adapter_config()
+ingestion_execution_lease_seconds()
+app.add_middleware(
+    MediaRequestLimitMiddleware,
+    max_bytes=media_request_max_bytes_from_env(),
 )
 
 from observability import configure_otel  # noqa: E402
@@ -184,12 +255,12 @@ configure_otel(app)
 # Scraped by the observability bundle's Prometheus at backend:8000/metrics.
 # Always on; the endpoint sits unscraped when PROMETHEUS_SOURCE=disabled.
 from prometheus_fastapi_instrumentator import Instrumentator  # noqa: E402
-# excluded_handlers keeps /metrics and /health out of the request
+# excluded_handlers keeps diagnostics out of the request
 # histogram (self-referential series + healthcheck noise pollute
 # rate() queries). should_group_status_codes folds 2xx/3xx/4xx/5xx
 # into class buckets, bounding the status_code label cardinality.
 Instrumentator(
-    excluded_handlers=["/metrics", "/health"],
+    excluded_handlers=["/metrics", "/health", "/ready"],
     should_group_status_codes=True,
 ).instrument(app).expose(app, endpoint="/metrics")
 
@@ -252,7 +323,12 @@ class PluginInventoryResponse(BaseModel):
     plugins: List[Dict[str, Any]]
 
 
-@app.get("/plugins", response_model=PluginInventoryResponse, tags=["plugins"])
+@app.get(
+    "/plugins",
+    response_model=PluginInventoryResponse,
+    tags=["plugins"],
+    dependencies=[Depends(require_service_principal)],
+)
 async def list_plugins() -> PluginInventoryResponse:
     """Inventory of mounted backend plugins (#402).
 
@@ -305,7 +381,7 @@ async def _read_upload_file_limited(
         total += len(chunk)
         if total > max_bytes:
             raise HTTPException(
-                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
                 detail=f"{label} exceeds maximum size of {max_bytes} bytes",
             )
         chunks.append(chunk)
@@ -348,6 +424,18 @@ async def health_check():
     )
 
 
+@app.get("/ready")
+async def readiness_check():
+    """Readiness gate for required Backend dependencies."""
+    dependencies = await check_backend_readiness()
+    ready = all(value == "ready" for value in dependencies.values())
+    payload = {
+        "status": "ready" if ready else "unavailable",
+        "dependencies": dependencies,
+    }
+    return JSONResponse(status_code=200 if ready else 503, content=payload)
+
+
 @app.get("/")
 async def root():
     """Root endpoint that returns a welcome message"""
@@ -357,7 +445,11 @@ async def root():
     }
 
 
-@app.get("/jobs/{job_id}", response_model=JobStatusResponse)
+@app.get(
+    "/jobs/{job_id}",
+    response_model=JobStatusResponse,
+    dependencies=[Depends(require_service_principal)],
+)
 async def get_job_status(job_id: str):
     """Get Celery async-job state from the result backend."""
     if not celery_is_enabled():
@@ -368,11 +460,8 @@ async def get_job_status(job_id: str):
     try:
         payload = await asyncio.to_thread(get_celery_job_status, job_id)
         return JobStatusResponse(**payload)
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get job status: {str(e)}",
-        )
+    except Exception as exc:
+        raise _unexpected_error("Get job status", exc)
 
 
 # Initialize n8n client
@@ -407,44 +496,47 @@ class WorkflowResponse(BaseModel):
 
 
 
-@app.get("/workflows", response_model=List[WorkflowResponse])
+@app.get(
+    "/workflows",
+    response_model=List[WorkflowResponse],
+    dependencies=[Depends(require_service_principal)],
+)
 async def list_workflows():
     """List all n8n workflows"""
     try:
         workflows = await n8n_client.list_workflows()
         return workflows
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to list workflows: {str(e)}",
-        )
+    except Exception as exc:
+        raise _unexpected_error("List workflows", exc)
 
 
-@app.get("/workflows/{workflow_id}", response_model=WorkflowResponse)
+@app.get(
+    "/workflows/{workflow_id}",
+    response_model=WorkflowResponse,
+    dependencies=[Depends(require_service_principal)],
+)
 async def get_workflow(workflow_id: str):
     """Get a specific n8n workflow by ID"""
     try:
         workflow = await n8n_client.get_workflow(workflow_id)
         return workflow
-    except httpx.HTTPStatusError as e:
-        if e.response.status_code == 404:
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 404:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Workflow with ID {workflow_id} not found",
             )
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get workflow: {str(e)}",
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get workflow: {str(e)}",
-        )
+        raise _unexpected_error("Get workflow", exc)
+    except Exception as exc:
+        raise _unexpected_error("Get workflow", exc)
 
 
 
-@app.post("/storage/upload", response_model=StorageResponse)
+@app.post(
+    "/storage/upload",
+    response_model=StorageResponse,
+    dependencies=[Depends(require_n8n_operator_principal)],
+)
 async def upload_file(file: UploadFile = File(...), bucket: str = "default"):
     """Upload a file to Supabase Storage"""
     try:
@@ -493,13 +585,14 @@ async def upload_file(file: UploadFile = File(...), bucket: str = "default"):
         return StorageResponse(bucket=bucket, path=filename, url=url)
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
-        )
+    except Exception as exc:
+        raise _unexpected_error("Upload file", exc)
 
 
-@app.post("/documents/extract")
+@app.post(
+    "/documents/extract",
+    dependencies=[Depends(require_stateless_principal)],
+)
 async def extract_document(file: UploadFile = File(...)):
     """Extract text for RAG ingestion using Docling first, then Tika fallback."""
     if not file.filename:
@@ -521,7 +614,7 @@ async def extract_document(file: UploadFile = File(...)):
         return result.to_dict()
     except DocumentTooLargeError as e:
         raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
             detail=str(e),
         )
     except ExtractionUnavailableError as e:
@@ -530,13 +623,18 @@ async def extract_document(file: UploadFile = File(...)):
             detail=str(e),
         )
     except DocumentExtractionError as e:
+        logger.exception("Document extraction failed")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=str(e),
-        )
+            detail="Document extraction failed",
+        ) from e
 
 
-@app.post("/api/chunk", response_model=ChunkResponse)
+@app.post(
+    "/api/chunk",
+    response_model=ChunkResponse,
+    dependencies=[Depends(require_stateless_principal)],
+)
 async def chunk_document_text(request: ChunkRequest):
     """Chunk text for RAG ingestion using Chonkie-backed strategies."""
     try:
@@ -553,7 +651,11 @@ async def chunk_document_text(request: ChunkRequest):
         )
 
 
-@app.post("/api/rag/evaluate", response_model=RagEvaluationResponse)
+@app.post(
+    "/api/rag/evaluate",
+    response_model=RagEvaluationResponse,
+    dependencies=[Depends(require_stateless_principal)],
+)
 async def evaluate_rag_quality(request: RagEvaluationRequest):
     """Evaluate supplied RAG answers and contexts with Ragas metrics."""
     try:
@@ -654,6 +756,7 @@ def get_rag_ingestion_service() -> RagIngestionService:
     "/api/rag/ingestions",
     response_model=RagIngestionQueuedResponse,
     status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(require_service_principal)],
 )
 async def submit_rag_ingestion(request: RagIngestionRequest, async_job: bool = True):
     """Submit a RAG ingestion job for a declared profile (#413).
@@ -665,7 +768,9 @@ async def submit_rag_ingestion(request: RagIngestionRequest, async_job: bool = T
     """
     service = get_rag_ingestion_service()
     try:
-        record, created = service.submit(request.profile, corpus_path=request.corpus_path)
+        record, created = await asyncio.to_thread(
+            service.submit, request.profile, corpus_path=request.corpus_path
+        )
     except ProfileNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -687,11 +792,17 @@ async def submit_rag_ingestion(request: RagIngestionRequest, async_job: bool = T
             task = await asyncio.to_thread(
                 rag_ingestion_task.apply_async, kwargs={"ingestion_id": record.id}
             )
-        except Exception as e:  # noqa: BLE001 - broker unreachable
+        except Exception as exc:  # noqa: BLE001 - broker unreachable
+            logger.exception("Queue RAG ingestion failed")
+            await asyncio.to_thread(
+                service.mark_dispatch_failed,
+                record.id,
+                "RAG ingestion dispatch failed",
+            )
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail=f"Failed to queue RAG ingestion: {str(e)}",
-            )
+                detail="Failed to queue RAG ingestion",
+            ) from exc
         return RagIngestionQueuedResponse(
             ingestion_id=record.id,
             job_id=task.id,
@@ -709,18 +820,27 @@ async def submit_rag_ingestion(request: RagIngestionRequest, async_job: bool = T
     )
 
 
-@app.get("/api/rag/ingestions", response_model=List[RagIngestionRecordResponse])
+@app.get(
+    "/api/rag/ingestions",
+    response_model=List[RagIngestionRecordResponse],
+    dependencies=[Depends(require_service_principal)],
+)
 async def list_rag_ingestions():
     """List RAG ingestion jobs (machine-readable)."""
     service = get_rag_ingestion_service()
-    return [RagIngestionRecordResponse(**r.to_dict()) for r in service.store.list()]
+    records = await asyncio.to_thread(service.store.list)
+    return [RagIngestionRecordResponse(**r.to_dict()) for r in records]
 
 
-@app.get("/api/rag/ingestions/{ingestion_id}", response_model=RagIngestionRecordResponse)
+@app.get(
+    "/api/rag/ingestions/{ingestion_id}",
+    response_model=RagIngestionRecordResponse,
+    dependencies=[Depends(require_service_principal)],
+)
 async def get_rag_ingestion(ingestion_id: str):
     """Return the durable, machine-readable state of one ingestion job."""
     service = get_rag_ingestion_service()
-    record = service.store.get(ingestion_id)
+    record = await asyncio.to_thread(service.store.get, ingestion_id)
     if record is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -729,16 +849,26 @@ async def get_rag_ingestion(ingestion_id: str):
     return RagIngestionRecordResponse(**record.to_dict())
 
 
-@app.post("/api/rag/ingestions/{ingestion_id}/cancel", response_model=RagIngestionRecordResponse)
+@app.post(
+    "/api/rag/ingestions/{ingestion_id}/cancel",
+    response_model=RagIngestionRecordResponse,
+    dependencies=[Depends(require_service_principal)],
+)
 async def cancel_rag_ingestion(ingestion_id: str):
     """Request cooperative cancellation of a running ingestion job."""
     service = get_rag_ingestion_service()
-    if not service.store.request_cancel(ingestion_id):
+    cancelled = await asyncio.to_thread(
+        service.store.request_cancel,
+        ingestion_id,
+        datetime.now(timezone.utc).isoformat(),
+    )
+    if not cancelled:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Unknown ingestion id: {ingestion_id!r}",
         )
-    return RagIngestionRecordResponse(**service.store.get(ingestion_id).to_dict())
+    record = await asyncio.to_thread(service.store.get, ingestion_id)
+    return RagIngestionRecordResponse(**record.to_dict())
 
 
 # Research API Models
@@ -796,35 +926,39 @@ class ResearchLogResponse(BaseModel):
 
 # Research API Endpoints
 @app.post("/research/start", response_model=ResearchResponse)
-async def start_research(request: ResearchStartRequest):
+async def start_research(
+    request: ResearchStartRequest,
+    principal: BackendPrincipal = Depends(require_research_principal),
+):
     """Start a new research session"""
     # Validate user_id like every other user-id-bearing route (the other
     # research routes call _validate_uuid_param too) — without this an
     # invalid user_id reaches UUID() in research_service and surfaces as an
     # opaque 500 instead of a clean 400.
-    if request.user_id is not None:
-        _validate_uuid_param(request.user_id, "user_id")
+    user_id = authorize_user_id(principal, request.user_id)
     try:
         result = await research_service.start_research(
             query=request.query,
             max_loops=request.max_loops or 3,
             search_api=request.search_api or "searxng",
-            user_id=request.user_id
+            user_id=user_id
         )
         return ResearchResponse(**result)
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to start research: {str(e)}"
-        )
+    except Exception as exc:
+        raise _unexpected_error("Start research", exc)
 
 
 @app.get("/research/{session_id}/status", response_model=ResearchSessionResponse)
-async def get_research_status(session_id: str):
+async def get_research_status(
+    session_id: str,
+    principal: BackendPrincipal = Depends(require_research_principal),
+):
     """Get the status of a research session"""
     _validate_uuid_param(session_id, "session_id")
     try:
-        result = await research_service.get_research_status(session_id)
+        result = await research_service.get_research_status(
+            session_id, owner_user_id=research_owner_id(principal)
+        )
         if not result:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -833,19 +967,21 @@ async def get_research_status(session_id: str):
         return ResearchSessionResponse(**result)
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get research status: {str(e)}"
-        )
+    except Exception as exc:
+        raise _unexpected_error("Get research status", exc)
 
 
 @app.get("/research/{session_id}/result", response_model=ResearchResultResponse)
-async def get_research_result(session_id: str):
+async def get_research_result(
+    session_id: str,
+    principal: BackendPrincipal = Depends(require_research_principal),
+):
     """Get the result of a completed research session"""
     _validate_uuid_param(session_id, "session_id")
     try:
-        result = await research_service.get_research_result(session_id)
+        result = await research_service.get_research_result(
+            session_id, owner_user_id=research_owner_id(principal)
+        )
         if not result:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -854,19 +990,21 @@ async def get_research_result(session_id: str):
         return ResearchResultResponse(**result)
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get research result: {str(e)}"
-        )
+    except Exception as exc:
+        raise _unexpected_error("Get research result", exc)
 
 
 @app.post("/research/{session_id}/cancel", response_model=ResearchResponse)
-async def cancel_research(session_id: str):
+async def cancel_research(
+    session_id: str,
+    principal: BackendPrincipal = Depends(require_research_principal),
+):
     """Cancel a running research session"""
     _validate_uuid_param(session_id, "session_id")
     try:
-        success = await research_service.cancel_research(session_id)
+        success = await research_service.cancel_research(
+            session_id, owner_user_id=research_owner_id(principal)
+        )
         if not success:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -885,19 +1023,21 @@ async def cancel_research(session_id: str):
         )
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to cancel research: {str(e)}"
-        )
+    except Exception as exc:
+        raise _unexpected_error("Cancel research", exc)
 
 
 @app.get("/research/{session_id}/logs", response_model=List[ResearchLogResponse])
-async def get_research_logs(session_id: str):
+async def get_research_logs(
+    session_id: str,
+    principal: BackendPrincipal = Depends(require_research_principal),
+):
     """Get logs for a research session"""
     _validate_uuid_param(session_id, "session_id")
     try:
-        logs = await research_service.get_research_logs(session_id)
+        logs = await research_service.get_research_logs(
+            session_id, owner_user_id=research_owner_id(principal)
+        )
         if logs is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -906,37 +1046,34 @@ async def get_research_logs(session_id: str):
         return [ResearchLogResponse(**log) for log in logs]
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get research logs: {str(e)}"
-        )
+    except Exception as exc:
+        raise _unexpected_error("Get research logs", exc)
 
 
 @app.get("/research/sessions", response_model=List[ResearchSessionResponse])
 async def list_research_sessions(
     user_id: Optional[str] = None,
     limit: int = Query(default=50, ge=1, le=100),
-    offset: int = Query(default=0, ge=0)
+    offset: int = Query(default=0, ge=0),
+    principal: BackendPrincipal = Depends(require_research_principal),
 ):
     """List research sessions"""
-    if user_id is not None:
-        _validate_uuid_param(user_id, "user_id")
+    effective_user_id = authorize_user_id(principal, user_id)
     try:
         sessions = await research_service.list_user_sessions(
-            user_id=user_id,
+            user_id=effective_user_id,
             limit=limit,
             offset=offset,
         )
         return [ResearchSessionResponse(**session) for session in sessions]
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to list research sessions: {str(e)}"
-        )
+    except Exception as exc:
+        raise _unexpected_error("List research sessions", exc)
 
 
-@app.get("/research/health")
+@app.get(
+    "/research/health",
+    dependencies=[Depends(require_research_principal)],
+)
 async def research_health_check():
     """Health check for research service"""
     try:
@@ -946,15 +1083,32 @@ async def research_health_check():
             "status": "healthy" if health["database"] == "healthy" else "degraded",
             "details": health
         }
-    except Exception as e:
+    except Exception:
+        logger.exception("Research health check failed")
         return {
-            "service": "research", 
+            "service": "research",
             "status": "unhealthy",
-            "error": str(e)
+            "error": "Research health check failed",
         }
 
 
 # ComfyUI API Models
+_COMFYUI_COMPLETION_TIMEOUT_SECONDS = int(
+    os.getenv("COMFYUI_COMPLETION_TIMEOUT_SECONDS", "300")
+)
+if not 1 <= _COMFYUI_COMPLETION_TIMEOUT_SECONDS <= 3600:
+    raise ValueError(
+        "COMFYUI_COMPLETION_TIMEOUT_SECONDS must be between 1 and 3600"
+    )
+
+
+def _remaining_comfyui_timeout(deadline: float) -> float:
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise asyncio.TimeoutError
+    return remaining
+
+
 class ComfyUIGenerateRequest(BaseModel):
     """Request model for ComfyUI image generation"""
     prompt: str = Field(min_length=1, max_length=4000)
@@ -966,12 +1120,18 @@ class ComfyUIGenerateRequest(BaseModel):
     seed: Optional[int] = None
     checkpoint: Optional[str] = Field(default="v1-5-pruned-emaonly.safetensors", max_length=255)
     wait_for_completion: bool = True
+    timeout_seconds: int = Field(
+        default=_COMFYUI_COMPLETION_TIMEOUT_SECONDS, ge=1, le=3600
+    )
 
 
 class ComfyUIWorkflowRequest(BaseModel):
     """Request model for custom ComfyUI workflow"""
     workflow: Dict[str, Any] = Field(min_length=1, max_length=500)
     wait_for_completion: bool = True
+    timeout_seconds: int = Field(
+        default=_COMFYUI_COMPLETION_TIMEOUT_SECONDS, ge=1, le=3600
+    )
 
 
 class ComfyUIResponse(BaseModel):
@@ -1029,33 +1189,69 @@ class MediaOperationResponse(BaseModel):
     raw: Optional[Dict[str, Any]] = None
 
 
-MEDIA_OPERATIONS: Dict[str, Dict[str, Any]] = {}
+MEDIA_OPERATION_STORE = build_media_operation_store()
 
 # Media spend ledger + budget engine (#342). Disabled by default; when disabled
 # every engine method is a no-op and the gateway behaves exactly as before.
 MEDIA_BUDGET_ENGINE = media_ledger.build_engine()
 
+_MEDIA_STATE_PERSIST_DELAYS = (0.0, 0.05, 0.2)
+
+
+async def _require_media_operation_store() -> None:
+    try:
+        await MEDIA_OPERATION_STORE.ensure_available()
+    except Exception as exc:
+        logger.warning("Media operation state store preflight failed: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Media operation state store is unavailable",
+        ) from exc
+
+
+async def _persist_media_operation(operation: Dict[str, Any]) -> None:
+    last_error: Optional[Exception] = None
+    for delay in _MEDIA_STATE_PERSIST_DELAYS:
+        if delay:
+            await asyncio.sleep(delay)
+        try:
+            await MEDIA_OPERATION_STORE.create(operation)
+            return
+        except Exception as exc:
+            last_error = exc
+    assert last_error is not None
+    raise last_error
+
+
+async def _cancel_unpersisted_media_operation(
+    *, api_key: str, model: str, operation_id: str, modality: str
+) -> bool:
+    try:
+        async with FalClient(api_key=api_key, model=model) as client:
+            return await client.cancel_media_operation(
+                operation_id=operation_id,
+                modality=modality,
+            )
+    except Exception:
+        return False
+
 
 def _resolve_consumer_project(
-    request: MediaGenerateRequest, http_request: Optional[Request]
+    request: MediaGenerateRequest,
+    http_request: Optional[Request],
+    principal: BackendPrincipal,
 ) -> tuple[str, str]:
-    """Attribution key: request body wins, then X-Atlas-* headers, then default.
-
-    This is a pragmatic attribution key (not authentication); gateway-level
-    identity/authorization remains #345's future work.
-    """
+    """Resolve media attribution and bind user callers to their JWT subject."""
     headers = http_request.headers if http_request is not None else {}
-    consumer = (
+    claimed_consumer = (
         request.consumer
         or headers.get("X-Atlas-Consumer")
-        or "default"
-    ).strip() or "default"
-    project = (
+    )
+    claimed_project = (
         request.project
         or headers.get("X-Atlas-Project")
-        or "default"
-    ).strip() or "default"
-    return consumer, project
+    )
+    return authorize_media_scope(principal, claimed_consumer, claimed_project)
 
 
 def _estimate_media_cost(
@@ -1093,14 +1289,15 @@ def _media_artifact_refs(payload: Dict[str, Any]) -> tuple[str, ...]:
 
 
 async def _maybe_reconcile_ledger(
-    operation_id: str, operation: Dict[str, Any], payload: Dict[str, Any]
+    operation_id: str, operation: Dict[str, Any]
 ) -> None:
     """Reconcile the spend ledger once, when an operation reaches a terminal
     status. Succeeded commits the spend; failed/cancelled/timeout release it."""
     if not operation.get("budget_tracked") or operation.get("reconciled"):
         return
+    payload = dict(operation.get("last_payload") or {})
     op_status = str(payload.get("status", ""))
-    if op_status not in ("succeeded", "failed", "cancelled", "timeout"):
+    if op_status not in TERMINAL_MEDIA_STATUSES:
         return
     await MEDIA_BUDGET_ENGINE.reconcile(
         operation_id=operation_id,
@@ -1108,16 +1305,13 @@ async def _maybe_reconcile_ledger(
         final_cost_usd=payload.get("cost_usd"),
         artifact_refs=_media_artifact_refs(payload),
     )
-    operation["reconciled"] = True
+    await MEDIA_OPERATION_STORE.mark_reconciled(operation_id)
 
 
-def _media_timeout_seconds(request_timeout: Optional[int] = None) -> int:
+def _media_timeout_seconds(request_timeout: Optional[int] = None) -> float:
     if request_timeout is not None:
-        return request_timeout
-    try:
-        return int(os.getenv("FAL_TIMEOUT_SECONDS", "120") or "120")
-    except ValueError:
-        return 120
+        return float(request_timeout)
+    return fal_timeout_seconds_from_env()
 
 
 def _normalize_media_route(provider: str, modality: str, model: Optional[str]) -> tuple[str, str, str]:
@@ -1135,6 +1329,14 @@ def _normalize_media_route(provider: str, modality: str, model: Optional[str]) -
                 detail=(
                     f"Unknown image_to_3d model '{requested}'. Supported: "
                     + ", ".join(media_registry.known_ids())
+                ),
+            )
+        if not entry.endpoint_verified:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"The image_to_3d model '{requested}' is not verified against "
+                    "a live FAL endpoint and cannot be submitted"
                 ),
             )
         # Resolve aliases to the canonical endpoint id.
@@ -1266,7 +1468,10 @@ async def _cancel_media_provider(
 
 
 # ComfyUI API Endpoints
-@app.get("/comfyui/health")
+@app.get(
+    "/comfyui/health",
+    dependencies=[Depends(require_comfy_read_principal)],
+)
 async def comfyui_health_check():
     """Health check for the configured image generation provider."""
     if _fal_source_enabled():
@@ -1293,15 +1498,19 @@ async def comfyui_health_check():
                 "status": health.get("status", "unknown"),
                 "details": health
             }
-    except Exception as e:
+    except Exception:
+        logger.exception("ComfyUI health check failed")
         return {
             "service": "comfyui",
-            "status": "unhealthy", 
-            "error": str(e)
+            "status": "unhealthy",
+            "error": "ComfyUI health check failed",
         }
 
 
-@app.get("/comfyui/models")
+@app.get(
+    "/comfyui/models",
+    dependencies=[Depends(require_comfy_read_principal)],
+)
 async def get_comfyui_models():
     """Get available ComfyUI models"""
     try:
@@ -1311,11 +1520,8 @@ async def get_comfyui_models():
                 "success": True,
                 "models": models
             }
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get ComfyUI models: {str(e)}"
-        )
+    except Exception as exc:
+        raise _unexpected_error("Get ComfyUI models", exc)
 
 
 @app.post(
@@ -1324,7 +1530,9 @@ async def get_comfyui_models():
     status_code=status.HTTP_202_ACCEPTED,
 )
 async def submit_media_generation(
-    request: MediaGenerateRequest, http_request: Request
+    request: MediaGenerateRequest,
+    http_request: Request,
+    principal: BackendPrincipal = Depends(require_backend_principal),
 ):
     """Submit a provider-neutral hosted media generation operation."""
     provider, modality, model = _normalize_media_route(
@@ -1344,20 +1552,55 @@ async def submit_media_generation(
         )
 
     # Cheap input validation first (clear 400s before any accounting work).
-    if modality == "image" and "prompt" not in request.input:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Media input must include prompt for modality=image",
-        )
+    if modality == "image":
+        try:
+            validate_image_request_shape(request.input)
+        except ValueError as exc:
+            detail = str(exc)
+            # validate_image_request_shape is shared across providers, so strip
+            # the FAL-specific prefix for any provider (e.g. comfyui) — the
+            # shape rules (prompt / image_size object / int seed) are generic.
+            if detail.startswith("FAL image"):
+                detail = "Media image" + detail[len("FAL image"):]
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=detail,
+            ) from exc
     if modality == "image_to_3d" and not request.input.get("image"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Media input must include image for modality=image_to_3d",
         )
 
+    # Complete provider-schema validation before shared state, budget, storage,
+    # or paid provider work. The FAL preflight is pure and also resolves the
+    # default FLUX image-to-image endpoint when an init image is present; it and
+    # the FAL API key requirement apply only to provider=fal (#519: comfyui has
+    # its own model resolution and needs no key).
+    if provider == "fal":
+        try:
+            model = preflight_media_operation(
+                modality=modality,
+                input=request.input,
+                model=model,
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(exc),
+            ) from exc
+        api_key = _require_fal_api_key()
+    else:
+        api_key = None
+
+    # Prove the shared operation store is reachable before reserving budget,
+    # hosting input, or submitting paid provider work. Persistence is checked
+    # again after submission and compensated if that later write still fails.
+    await _require_media_operation_store()
+
     # Budget: reserve estimated cost BEFORE the provider call (and before any
     # side-effecting storage write). No-op when budgets are disabled.
-    consumer, project = _resolve_consumer_project(request, http_request)
+    consumer, project = _resolve_consumer_project(request, http_request, principal)
     estimated_cost, pricing_ts, model_version = _estimate_media_cost(
         provider, modality, model
     )
@@ -1385,11 +1628,6 @@ async def submit_media_generation(
         prepared_input = request.input
     else:  # image_to_3d
         # Fail fast on a missing key before any (side-effecting) storage write.
-        try:
-            _require_fal_api_key()
-        except HTTPException:
-            await MEDIA_BUDGET_ENGINE.release(reservation_id)
-            raise
         entry = media_registry.lookup(model)
         try:
             # prepare_image_input performs (optional) Pillow compositing and a
@@ -1433,53 +1671,111 @@ async def submit_media_generation(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         )
-    except Exception as e:
+    except Exception as exc:
         await MEDIA_BUDGET_ENGINE.release(reservation_id)
-        raise HTTPException(
+        raise _unexpected_error(
+            f"Submit media generation with {provider}",
+            exc,
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Failed to submit media generation with {provider}: {str(e)}",
         )
 
     operation_id = str(payload["operation_id"])
+    submitted_model = str(payload.get("model") or model)
     # Re-key the reservation to the provider's operation id so poll-time
     # reconciliation can find it. The provider call already succeeded, so a
     # ledger bookkeeping hiccup here must not 500 the request or permanently
     # orphan the reservation: on failure, free the temp-id reservation
     # best-effort and continue (this operation's spend goes untracked rather
     # than holding the consumer's budget forever).
+    budget_tracked = reservation is not None
+    budget_cleanup_failed = False
     try:
         await MEDIA_BUDGET_ENGINE.attach_operation(reservation_id, operation_id)
     except Exception:
+        budget_tracked = False
         try:
             await MEDIA_BUDGET_ENGINE.release(reservation_id)
         except Exception:
-            pass
-    MEDIA_OPERATIONS[operation_id] = {
+            budget_cleanup_failed = reservation is not None
+    operation = {
+        "operation_id": operation_id,
         "provider": provider,
         "modality": modality,
-        "model": model,
-        "created_at": time.monotonic(),
+        "model": submitted_model,
+        "created_at_epoch": time.time(),
         "timeout_seconds": _media_timeout_seconds(request.timeout_seconds),
         "last_payload": payload,
         "consumer": consumer,
         "project": project,
-        "budget_tracked": reservation is not None,
+        "owner_scope": principal_scope_key(principal),
+        "budget_tracked": budget_tracked,
         "reconciled": False,
     }
+    try:
+        await _persist_media_operation(operation)
+    except Exception as exc:
+        if provider == "fal":
+            provider_cancellation_requested = await _cancel_unpersisted_media_operation(
+                api_key=api_key,
+                model=submitted_model,
+                operation_id=operation_id,
+                modality=modality,
+            )
+        else:
+            # Local providers (comfyui) are free (cost_usd=0); an unpersisted
+            # operation has no paid work to reconcile, so no provider cancel.
+            provider_cancellation_requested = False
+        # FAL confirms only that cancellation was requested, not that paid work
+        # stopped. Without durable operation state Atlas cannot poll that request
+        # to a terminal outcome, so retain spend for manual reconciliation.
+        manual_reconciliation_required = True
+        logger.error(
+            "Provider accepted media operation %s but state persistence failed; "
+            "provider_cancellation_requested=%s "
+            "manual_reconciliation_required=%s budget_cleanup_failed=%s: %s",
+            operation_id,
+            provider_cancellation_requested,
+            manual_reconciliation_required,
+            budget_cleanup_failed,
+            exc,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "message": (
+                    "Provider accepted the operation but Atlas could not "
+                    "persist its state"
+                ),
+                "provider_operation_id": operation_id,
+                "provider_cancellation_requested": provider_cancellation_requested,
+                "manual_reconciliation_required": manual_reconciliation_required,
+            },
+        ) from exc
     return _media_response(payload)
 
 
 # Terminal media-operation statuses — once reached, polls return the stored
 # payload without re-hitting the provider (a cancelled op must stay cancelled,
 # #518), and _maybe_reconcile_ledger settles the spend exactly once.
-_TERMINAL_MEDIA_STATUSES = ("succeeded", "failed", "cancelled", "timeout")
-
-
 @app.get("/media/operations/{operation_id}", response_model=MediaOperationResponse)
-async def get_media_operation(operation_id: str):
+async def get_media_operation(
+    operation_id: str,
+    principal: BackendPrincipal = Depends(require_backend_principal),
+):
     """Poll a hosted media generation operation."""
-    operation = MEDIA_OPERATIONS.get(operation_id)
+    operation = await MEDIA_OPERATION_STORE.get(operation_id)
     if not operation:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Media operation {operation_id} not found",
+        )
+    operation_owner = operation.get("owner_scope")
+    if (
+        operation_owner is None and principal.subject != "auth-disabled"
+    ) or (
+        operation_owner is not None
+        and operation_owner != principal_scope_key(principal)
+    ):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Media operation {operation_id} not found",
@@ -1487,17 +1783,27 @@ async def get_media_operation(operation_id: str):
     # Terminal payloads are stable: never re-poll the provider (a cancelled op
     # must not flip back to the provider's in-flight status, #518).
     last_payload = dict(operation.get("last_payload") or {})
-    if str(last_payload.get("status", "")) in _TERMINAL_MEDIA_STATUSES:
+    current_status = str(last_payload.get("status", ""))
+    if current_status in TERMINAL_MEDIA_STATUSES:
+        await _maybe_reconcile_ledger(operation_id, operation)
         return _media_response(last_payload)
-    elapsed = time.monotonic() - float(operation["created_at"])
-    if elapsed > int(operation["timeout_seconds"]):
+    elapsed = time.time() - float(operation["created_at_epoch"])
+    if (
+        current_status != "cancellation_requested"
+        and elapsed > int(operation["timeout_seconds"])
+    ):
         payload = dict(operation["last_payload"])
         payload["status"] = "timeout"
-        MEDIA_OPERATIONS[operation_id]["last_payload"] = payload
-        await _maybe_reconcile_ledger(
-            operation_id, MEDIA_OPERATIONS[operation_id], payload
+        persisted, _ = await MEDIA_OPERATION_STORE.transition_payload(
+            operation_id, payload, expected_status=current_status
         )
-        return _media_response(payload)
+        if persisted is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Media operation {operation_id} not found",
+            )
+        await _maybe_reconcile_ledger(operation_id, persisted)
+        return _media_response(dict(persisted["last_payload"]))
 
     provider = operation["provider"]
     if provider == "fal" and not _fal_source_enabled():
@@ -1525,107 +1831,206 @@ async def get_media_operation(operation_id: str):
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         )
-    except Exception as e:
-        raise HTTPException(
+    except Exception as exc:
+        raise _unexpected_error(
+            f"Poll media operation with {provider}",
+            exc,
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Failed to poll media operation with {provider}: {str(e)}",
         )
 
-    MEDIA_OPERATIONS[operation_id]["last_payload"] = payload
-    await _maybe_reconcile_ledger(operation_id, MEDIA_OPERATIONS[operation_id], payload)
-    return _media_response(payload)
+    if (
+        current_status == "cancellation_requested"
+        and str(payload.get("status", "")) not in TERMINAL_MEDIA_STATUSES
+    ):
+        provider_provenance = dict(payload.get("provenance") or {})
+        provider_provenance.update(dict(last_payload.get("provenance") or {}))
+        payload["status"] = "cancellation_requested"
+        payload["provenance"] = provider_provenance
+
+    persisted, _ = await MEDIA_OPERATION_STORE.transition_payload(
+        operation_id, payload, expected_status=current_status
+    )
+    if persisted is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Media operation {operation_id} not found",
+        )
+    await _maybe_reconcile_ledger(operation_id, persisted)
+    return _media_response(dict(persisted["last_payload"]))
 
 
 @app.post(
     "/media/operations/{operation_id}/cancel",
     response_model=MediaOperationResponse,
 )
-async def cancel_media_operation(operation_id: str):
+async def cancel_media_operation(
+    operation_id: str,
+    principal: BackendPrincipal = Depends(require_backend_principal),
+):
     """Cancel an in-flight media operation (#518).
 
-    Transitions the operation to terminal ``cancelled`` and releases its
-    budget reservation via the existing reconcile path (failed/cancelled/
-    timeout release the spend — #342). Where the provider supports it, the
-    provider-side operation is cancelled too (best-effort: an undeliverable
-    provider cancel still cancels server-side, so billing/reconciling against
-    the op stops either way). Idempotency: ``404`` for an unknown operation,
-    ``409`` for an already-terminal one (succeeded/failed/cancelled/timeout).
+    Records nonterminal ``cancellation_requested`` and retains the budget
+    reservation until provider polling confirms a terminal outcome. This is
+    required because FAL may accept cancellation while in-progress work still
+    completes. Idempotency: ``404`` for an unknown operation and ``409`` for an
+    already-terminal operation or an existing cancellation request.
     """
-    operation = MEDIA_OPERATIONS.get(operation_id)
+    operation = await MEDIA_OPERATION_STORE.get(operation_id)
     if not operation:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Media operation {operation_id} not found",
         )
-    last_payload = dict(operation.get("last_payload") or {})
-    current_status = str(last_payload.get("status", ""))
-    if current_status in _TERMINAL_MEDIA_STATUSES:
+    operation_owner = operation.get("owner_scope")
+    if (
+        operation_owner is None and principal.subject != "auth-disabled"
+    ) or (
+        operation_owner is not None
+        and operation_owner != principal_scope_key(principal)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Media operation {operation_id} not found",
+        )
+    persisted = None
+    for _ in range(3):
+        last_payload = dict(operation.get("last_payload") or {})
+        current_status = str(last_payload.get("status", ""))
+        if current_status in TERMINAL_MEDIA_STATUSES:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"Media operation {operation_id} is already terminal "
+                    f"({current_status})"
+                ),
+            )
+        if current_status == "cancellation_requested":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"Media operation {operation_id} cancellation is already requested"
+                ),
+            )
+
+        payload = dict(last_payload)
+        payload["status"] = "cancellation_requested"
+        provenance = dict(payload.get("provenance") or {})
+        provenance["provider_cancellation_requested"] = False
+        payload["provenance"] = provenance
+        persisted, changed = await MEDIA_OPERATION_STORE.transition_payload(
+            operation_id, payload, expected_status=current_status
+        )
+        if persisted is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Media operation {operation_id} not found",
+            )
+        if changed:
+            break
+        operation = persisted
+    else:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
-                f"Media operation {operation_id} is already terminal "
-                f"({current_status})"
+                f"Media operation {operation_id} changed concurrently; retry cancellation"
             ),
         )
 
-    # Best-effort provider propagation — never blocks the server-side cancel.
-    # Dispatched per provider so a comfyui job is interrupted/dequeued too
-    # (#519 parity with the FAL cancel from #518).
-    provider_cancelled = False
+    # Persist intent before this best-effort provider call so concurrent callers
+    # cannot submit duplicate cancellation requests. Dispatched per provider so a
+    # comfyui job is interrupted/dequeued too (#519 parity with #518's FAL cancel).
+    provider_cancellation_requested = False
     provider = operation.get("provider")
     if provider in ("fal", "comfyui"):
         try:
-            provider_cancelled = await _cancel_media_provider(
+            provider_cancellation_requested = await _cancel_media_provider(
                 provider=provider,
                 operation_id=operation_id,
                 modality=operation["modality"],
                 model=operation["model"],
             )
         except Exception:  # noqa: BLE001 — best-effort by contract
-            provider_cancelled = False
+            provider_cancellation_requested = False
 
-    payload = dict(last_payload)
-    payload["status"] = "cancelled"
+    payload = dict(persisted["last_payload"])
     provenance = dict(payload.get("provenance") or {})
-    provenance["provider_cancelled"] = provider_cancelled
+    provenance["provider_cancellation_requested"] = provider_cancellation_requested
     payload["provenance"] = provenance
-    MEDIA_OPERATIONS[operation_id]["last_payload"] = payload
-    await _maybe_reconcile_ledger(operation_id, MEDIA_OPERATIONS[operation_id], payload)
-    return _media_response(payload)
+    enriched, _ = await MEDIA_OPERATION_STORE.transition_payload(
+        operation_id, payload, expected_status="cancellation_requested"
+    )
+    final_operation = enriched or persisted
+    return _media_response(dict(final_operation["last_payload"]))
 
 
 @app.get("/media/spend", response_model=MediaSpendResponse)
 async def get_media_spend(
-    consumer: str = Query(..., min_length=1, max_length=255),
+    consumer: Optional[str] = Query(default=None, min_length=1, max_length=255),
     project: Optional[str] = Query(default=None, max_length=255),
+    principal: BackendPrincipal = Depends(require_backend_principal),
 ):
     """Scoped spend read for a single consumer (optionally one project).
 
     Returns that consumer's ledger rows + committed/reserved totals only — never
     provider keys or another consumer's records. Requires an explicit consumer.
     """
+    consumer, resolved_project = authorize_media_scope(principal, consumer, project)
     if not MEDIA_BUDGET_ENGINE.enabled:
-        return MediaSpendResponse(enabled=False, consumer=consumer, project=project)
-    summary = await MEDIA_BUDGET_ENGINE.spend(consumer=consumer, project=project)
+        return MediaSpendResponse(
+            enabled=False,
+            consumer=consumer,
+            project=resolved_project if project is not None else None,
+        )
+    summary = await MEDIA_BUDGET_ENGINE.spend(
+        consumer=consumer, project=resolved_project if project is not None else None
+    )
     return MediaSpendResponse(enabled=True, **summary)
 
 
-@app.post("/comfyui/generate", response_model=ComfyUIResponse)
+@app.post(
+    "/comfyui/generate",
+    response_model=ComfyUIResponse,
+    dependencies=[Depends(require_comfy_automation_principal)],
+)
 async def generate_image(request: ComfyUIGenerateRequest):
     """Generate an image using the configured media provider."""
+    deadline = time.monotonic() + request.timeout_seconds
     if _fal_source_enabled():
         api_key = _require_fal_api_key()
+        compatibility_model = (
+            os.getenv("FAL_MODEL") or "fal-ai/flux/dev"
+        ).strip()
+        if compatibility_model != "fal-ai/flux/dev":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "FAL /comfyui/generate compatibility supports only "
+                    "fal-ai/flux/dev; use /media/generate with "
+                    "input.provider_arguments for custom endpoints"
+                ),
+            )
+        if not request.wait_for_completion:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="FAL does not support queue-only compatibility requests",
+            )
         try:
-            async with FalClient(api_key=api_key) as client:
-                result = await client.generate_simple_image(
-                    prompt=request.prompt,
-                    negative_prompt=request.negative_prompt,
-                    width=request.width,
-                    height=request.height,
-                    steps=request.steps,
-                    cfg=request.cfg,
-                    seed=request.seed,
-                    checkpoint=request.checkpoint,
+            async with FalClient(
+                api_key=api_key,
+                timeout_seconds=_remaining_comfyui_timeout(deadline),
+            ) as client:
+                result = await asyncio.wait_for(
+                    client.generate_simple_image(
+                        prompt=request.prompt,
+                        negative_prompt=request.negative_prompt,
+                        width=request.width,
+                        height=request.height,
+                        steps=request.steps,
+                        cfg=request.cfg,
+                        seed=request.seed,
+                        checkpoint=request.checkpoint,
+                    ),
+                    timeout=_remaining_comfyui_timeout(deadline),
                 )
 
             if not result.get("success"):
@@ -1648,37 +2053,49 @@ async def generate_image(request: ComfyUIGenerateRequest):
             )
         except HTTPException:
             raise
-        except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to generate image with FAL: {str(e)}",
+        except asyncio.TimeoutError:
+            return ComfyUIResponse(
+                success=False,
+                error="Image generation timed out",
             )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(exc),
+            ) from exc
+        except Exception as exc:
+            raise _unexpected_error("Generate image with FAL", exc)
 
     try:
         async with ComfyUIClient() as client:
             # Generate the image
-            result = await client.generate_simple_image(
-                prompt=request.prompt,
-                negative_prompt=request.negative_prompt,
-                width=request.width,
-                height=request.height,
-                steps=request.steps,
-                cfg=request.cfg,
-                seed=request.seed,
-                checkpoint=request.checkpoint
+            result = await asyncio.wait_for(
+                client.generate_simple_image(
+                    prompt=request.prompt,
+                    negative_prompt=request.negative_prompt,
+                    width=request.width,
+                    height=request.height,
+                    steps=request.steps,
+                    cfg=request.cfg,
+                    seed=request.seed,
+                    checkpoint=request.checkpoint
+                ),
+                timeout=_remaining_comfyui_timeout(deadline),
             )
             
             if not result.get("success"):
                 return ComfyUIResponse(
                     success=False,
-                    error=result.get("error", "Unknown error")
+                    error="ComfyUI generation failed"
                 )
             
             prompt_id = result["prompt_id"]
             
             # If wait_for_completion is True, wait for the image to be generated
             if request.wait_for_completion:
-                completion_result = await client.wait_for_completion(prompt_id)
+                completion_result = await client.wait_for_completion(
+                    prompt_id, timeout=_remaining_comfyui_timeout(deadline)
+                )
                 
                 if completion_result.get("success"):
                     return ComfyUIResponse(
@@ -1709,20 +2126,30 @@ async def generate_image(request: ComfyUIGenerateRequest):
                 
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to generate image: {str(e)}"
+    except asyncio.TimeoutError:
+        return ComfyUIResponse(
+            success=False,
+            error="Image generation timed out",
         )
+    except Exception as exc:
+        raise _unexpected_error("Generate image", exc)
 
 
-@app.post("/comfyui/workflow", response_model=ComfyUIResponse)
+@app.post(
+    "/comfyui/workflow",
+    response_model=ComfyUIResponse,
+    dependencies=[Depends(require_comfy_automation_principal)],
+)
 async def execute_comfyui_workflow(request: ComfyUIWorkflowRequest):
     """Execute a custom ComfyUI workflow"""
+    deadline = time.monotonic() + request.timeout_seconds
     try:
         async with ComfyUIClient() as client:
             # Queue the workflow
-            result = await client.queue_prompt(request.workflow)
+            result = await asyncio.wait_for(
+                client.queue_prompt(request.workflow),
+                timeout=_remaining_comfyui_timeout(deadline),
+            )
             
             if not result.get("success"):
                 return ComfyUIResponse(
@@ -1734,7 +2161,9 @@ async def execute_comfyui_workflow(request: ComfyUIWorkflowRequest):
             
             # If wait_for_completion is True, wait for the workflow to complete
             if request.wait_for_completion:
-                completion_result = await client.wait_for_completion(prompt_id)
+                completion_result = await client.wait_for_completion(
+                    prompt_id, timeout=_remaining_comfyui_timeout(deadline)
+                )
                 
                 if completion_result.get("success"):
                     return ComfyUIResponse(
@@ -1759,14 +2188,19 @@ async def execute_comfyui_workflow(request: ComfyUIWorkflowRequest):
                     message="Workflow queued"
                 )
                 
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to execute workflow: {str(e)}"
+    except asyncio.TimeoutError:
+        return ComfyUIResponse(
+            success=False,
+            error="Workflow execution timed out",
         )
+    except Exception as exc:
+        raise _unexpected_error("Execute ComfyUI workflow", exc)
 
 
-@app.get("/comfyui/history/{prompt_id}")
+@app.get(
+    "/comfyui/history/{prompt_id}",
+    dependencies=[Depends(require_comfy_automation_principal)],
+)
 async def get_generation_history(prompt_id: str):
     """Get ComfyUI generation history for a specific prompt"""
     try:
@@ -1776,14 +2210,14 @@ async def get_generation_history(prompt_id: str):
                 "success": True,
                 "history": history
             }
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get history: {str(e)}"
-        )
+    except Exception as exc:
+        raise _unexpected_error("Get ComfyUI history", exc)
 
 
-@app.get("/comfyui/queue")
+@app.get(
+    "/comfyui/queue",
+    dependencies=[Depends(require_comfy_automation_principal)],
+)
 async def get_queue_status():
     """Get ComfyUI queue status"""
     try:
@@ -1793,14 +2227,14 @@ async def get_queue_status():
                 "success": True,
                 "queue": queue
             }
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get queue status: {str(e)}"
-        )
+    except Exception as exc:
+        raise _unexpected_error("Get ComfyUI queue status", exc)
 
 
-@app.post("/comfyui/cancel/{prompt_id}")
+@app.post(
+    "/comfyui/cancel/{prompt_id}",
+    dependencies=[Depends(require_comfy_automation_principal)],
+)
 async def cancel_generation(prompt_id: str):
     """Cancel a ComfyUI generation"""
     try:
@@ -1810,14 +2244,14 @@ async def cancel_generation(prompt_id: str):
                 "success": success,
                 "message": "Generation cancelled" if success else "Failed to cancel generation"
             }
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to cancel generation: {str(e)}"
-        )
+    except Exception as exc:
+        raise _unexpected_error("Cancel ComfyUI generation", exc)
 
 
-@app.get("/comfyui/image/{filename}")
+@app.get(
+    "/comfyui/image/{filename}",
+    dependencies=[Depends(require_comfy_automation_principal)],
+)
 async def get_generated_image(filename: str, subfolder: str = "", folder_type: str = "output"):
     """Get a generated image from ComfyUI"""
     try:
@@ -1841,25 +2275,22 @@ async def get_generated_image(filename: str, subfolder: str = "", folder_type: s
                 media_type=content_type,
                 headers={"Content-Disposition": f'inline; filename="{safe_name}"'}
             )
-    except httpx.HTTPStatusError as e:
-        if e.response.status_code == 404:
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 404:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Image {filename} not found",
             )
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get image: {str(e)}"
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get image: {str(e)}"
-        )
+        raise _unexpected_error("Get ComfyUI image", exc)
+    except Exception as exc:
+        raise _unexpected_error("Get ComfyUI image", exc)
 
 
 # ComfyUI Model Management Endpoints
-@app.get("/comfyui/db/models")
+@app.get(
+    "/comfyui/db/models",
+    dependencies=[Depends(require_comfy_automation_principal)],
+)
 async def get_comfyui_db_models(active_only: bool = True, essential_only: bool = False):
     """Get ComfyUI models from the manifest file written by the bootstrapper at startup.
 
@@ -1901,11 +2332,8 @@ async def get_comfyui_db_models(active_only: bool = True, essential_only: bool =
 
         return {"success": True, "models": models}
 
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to read ComfyUI manifest: {str(e)}",
-        )
+    except Exception as exc:
+        raise _unexpected_error("Read ComfyUI manifest", exc)
 
 
 # =============================================================================
@@ -1913,11 +2341,15 @@ async def get_comfyui_db_models(active_only: bool = True, essential_only: bool =
 # =============================================================================
 
 @app.post("/memory/extract", response_model=MemoryExtractResponse)
-async def memory_extract(request: MemoryExtractRequest):
+async def memory_extract(
+    request: MemoryExtractRequest,
+    principal: BackendPrincipal = Depends(require_memory_principal),
+):
     """Extract and store memory facts from conversation messages."""
+    user_id = authorize_user_id(principal, request.user_id)
     try:
         result = await memory_service.extract_facts(
-            user_id=request.user_id,
+            user_id=user_id,
             messages=[message.model_dump() for message in request.messages],
             namespace=request.namespace,
             conversation_id=request.conversation_id,
@@ -1927,19 +2359,20 @@ async def memory_extract(request: MemoryExtractRequest):
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e)
         )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to extract memories: {str(e)}",
-        )
+    except Exception as exc:
+        raise _unexpected_error("Extract memories", exc)
 
 
 @app.post("/memory/recall", response_model=MemoryRecallResponse)
-async def memory_recall(request: MemoryRecallRequest):
+async def memory_recall(
+    request: MemoryRecallRequest,
+    principal: BackendPrincipal = Depends(require_memory_principal),
+):
     """Recall relevant memories for a query using semantic search."""
+    user_id = authorize_user_id(principal, request.user_id)
     try:
         result = await memory_service.recall(
-            user_id=request.user_id,
+            user_id=user_id,
             query=request.query,
             namespace=request.namespace,
             limit=request.limit,
@@ -1950,11 +2383,8 @@ async def memory_recall(request: MemoryRecallRequest):
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e)
         )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to recall memories: {str(e)}",
-        )
+    except Exception as exc:
+        raise _unexpected_error("Recall memories", exc)
 
 
 @app.post(
@@ -1962,9 +2392,12 @@ async def memory_recall(request: MemoryRecallRequest):
     response_model=Union[MemoryConsolidateResponse, AsyncJobQueuedResponse],
 )
 async def memory_consolidate(
-    request: MemoryConsolidateRequest, async_job: bool = False
+    request: MemoryConsolidateRequest,
+    async_job: bool = False,
+    principal: BackendPrincipal = Depends(require_memory_automation_principal),
 ):
     """Consolidate and deduplicate user memories."""
+    user_id = authorize_user_id(principal, request.user_id)
     if async_job:
         if not celery_is_enabled():
             raise HTTPException(
@@ -1974,13 +2407,14 @@ async def memory_consolidate(
         try:
             task = await asyncio.to_thread(
                 memory_consolidate_task.apply_async,
-                kwargs={"user_id": request.user_id}
+                kwargs={"user_id": user_id}
             )
-        except Exception as e:
+        except Exception as exc:
+            logger.exception("Queue memory consolidation failed")
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail=f"Failed to queue memory consolidation: {str(e)}",
-            )
+                detail="Failed to queue memory consolidation",
+            ) from exc
         return JSONResponse(
             status_code=status.HTTP_202_ACCEPTED,
             content=AsyncJobQueuedResponse(
@@ -1988,41 +2422,40 @@ async def memory_consolidate(
                 status="pending",
                 message="Memory consolidation queued",
                 task="memory_consolidate",
-                request={"user_id": request.user_id},
+                request={"user_id": user_id},
             ).model_dump(),
         )
 
     try:
-        result = await memory_service.consolidate(user_id=request.user_id)
+        result = await memory_service.consolidate(user_id=user_id)
         return MemoryConsolidateResponse(**result)
     except RuntimeError as e:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e)
         )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to consolidate memories: {str(e)}",
-        )
+    except Exception as exc:
+        raise _unexpected_error("Consolidate memories", exc)
 
 
 @app.post("/memory/summarize", response_model=MemorySummarizeResponse)
-async def memory_summarize(request: MemorySummarizeRequest):
+async def memory_summarize(
+    request: MemorySummarizeRequest,
+    principal: BackendPrincipal = Depends(require_memory_principal),
+):
     """Generate a natural-language summary of a user's memory profile."""
+    user_id = authorize_user_id(principal, request.user_id)
     try:
         result = await memory_service.summarize(
-            user_id=request.user_id, namespace=request.namespace
+            user_id=user_id,
+            namespace=request.namespace,
         )
         return MemorySummarizeResponse(**result)
     except RuntimeError as e:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e)
         )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to summarize memories: {str(e)}",
-        )
+    except Exception as exc:
+        raise _unexpected_error("Summarize memories", exc)
 
 
 @app.get("/memory/user/{user_id}", response_model=MemoryListResponse)
@@ -2031,9 +2464,10 @@ async def memory_list(
     namespace: str = Query(default="default", min_length=1, max_length=128),
     limit: int = Query(default=50, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
+    principal: BackendPrincipal = Depends(require_memory_principal),
 ):
     """List all active memories for a user."""
-    _validate_uuid_param(user_id, "user_id")
+    user_id = authorize_user_id(principal, user_id)
     try:
         result = await memory_service.list_memories(
             user_id=user_id,
@@ -2046,11 +2480,8 @@ async def memory_list(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e)
         )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to list memories: {str(e)}",
-        )
+    except Exception as exc:
+        raise _unexpected_error("List memories", exc)
 
 
 @app.put("/memory/{memory_id}", response_model=Dict[str, Any])
@@ -2058,10 +2489,11 @@ async def memory_update(
     memory_id: str,
     request: MemoryUpdateRequest,
     user_id: str = Query(...),
+    principal: BackendPrincipal = Depends(require_memory_principal),
 ):
     """Update a specific memory fact."""
     _validate_uuid_param(memory_id, "memory_id")
-    _validate_uuid_param(user_id, "user_id")
+    user_id = authorize_user_id(principal, user_id)
     try:
         updates = request.model_dump(exclude_none=True)
         result = await memory_service.update_memory(memory_id, user_id, updates)
@@ -2077,18 +2509,19 @@ async def memory_update(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e)
         )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to update memory: {str(e)}",
-        )
+    except Exception as exc:
+        raise _unexpected_error("Update memory", exc)
 
 
 @app.delete("/memory/{memory_id}", response_model=Dict[str, Any])
-async def memory_delete(memory_id: str, user_id: str = Query(...)):
+async def memory_delete(
+    memory_id: str,
+    user_id: str = Query(...),
+    principal: BackendPrincipal = Depends(require_memory_principal),
+):
     """Delete (deactivate) a specific memory fact."""
     _validate_uuid_param(memory_id, "memory_id")
-    _validate_uuid_param(user_id, "user_id")
+    user_id = authorize_user_id(principal, user_id)
     try:
         success = await memory_service.delete_memory(memory_id, user_id)
         if not success:
@@ -2103,21 +2536,26 @@ async def memory_delete(memory_id: str, user_id: str = Query(...)):
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e)
         )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to delete memory: {str(e)}",
-        )
+    except Exception as exc:
+        raise _unexpected_error("Delete memory", exc)
 
 
-@app.get("/memory/health", response_model=MemoryHealthResponse)
+@app.get(
+    "/memory/health",
+    response_model=MemoryHealthResponse,
+    dependencies=[Depends(require_memory_automation_principal)],
+)
 async def memory_health_check():
     """Health check for the LangMem memory service."""
     result = await memory_service.health_check()
     return MemoryHealthResponse(**result)
 
 
-@app.get("/memory/graphiti/status", response_model=Dict[str, Any])
+@app.get(
+    "/memory/graphiti/status",
+    response_model=Dict[str, Any],
+    dependencies=[Depends(require_backend_principal)],
+)
 async def graphiti_experiment_status():
     """Report the disabled-by-default backend-only Graphiti experiment plan."""
     return GraphitiExperimentConfig.from_env().status_payload()

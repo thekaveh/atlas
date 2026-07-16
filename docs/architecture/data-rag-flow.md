@@ -1,4 +1,4 @@
-# Data And RAG Flow
+# 6.7. Data And RAG Flow
 
 Ingestion, document processing, object storage, vector and graph stores, backend APIs, Open WebUI, and tool/MCP-adjacent flows.
 
@@ -6,15 +6,13 @@ Ingestion, document processing, object storage, vector and graph stores, backend
 
 [Open the interactive diagram](./data-rag-flow.html).
 
-## 2. Source Files
+## 2. How To Read This View
+
+The Backend coordinates ingestion: processors extract source material, MinIO preserves objects, Weaviate stores vector representations, and Neo4j stores graph relationships. Open WebUI and tool callers consume that assembled retrieval surface through Backend APIs.
+
+## 3. Source Files
 
 - `services/*/service.yml`
 - `bootstrapper/tracks.yml`
 - `services/topology.py`
 - `docs/deployment/source-configuration.md`
-
-## 3. Update Rule
-
-Update this page and `data-rag-flow.html` when the represented architecture surface
-changes. Use the `architecture-diagram` design system: dark slate background,
-JetBrains Mono, split perspectives, readable labels, and no overloaded mega-diagram.

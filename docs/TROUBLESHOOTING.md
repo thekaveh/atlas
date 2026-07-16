@@ -1,25 +1,27 @@
-# Troubleshooting
+# 8.2. Troubleshooting
 
-Common startup problems and their fixes. If you hit something not covered here, open an issue.
+Common startup and shutdown problems and their fixes. If you hit something not covered here, open an issue.
 
 ## 1. "Refusing to run as root"
 
 ```
 start.sh: refusing to run as root.
+# or: stop.sh: refusing to run as root.
 ```
 
-You ran `sudo ./start.sh` (or `sudo sh start.sh`). The wizard runs as your user — only `/etc/hosts` editing needs root, and `--setup-hosts` handles that internally with its own `sudo` prompt for that single write.
+You ran the complete launcher or stopper under `sudo`. Atlas runs repository workflows as your user. Only `/etc/hosts` editing needs root: `--setup-hosts` and `--clean-hosts` invoke a bytecode-free privileged helper for that single atomic write, then return to the unprivileged process.
 
 **Fix:** drop the `sudo`:
 
 ```bash
 ./start.sh              # normal use
 ./start.sh --setup-hosts # if you want host entries set up up front
+./stop.sh --clean-hosts  # stop services and remove Atlas host entries
 ```
 
-## 2. Recovering from a prior `sudo ./start.sh`
+## 2. Recovering from a prior sudo launch or stop
 
-If you ran the script under `sudo` on a version before the guard landed, root will own files the next non-sudo run can't overwrite. Symptoms:
+If you ran `start.sh` or `stop.sh` under `sudo` on a version before the guard landed, root may own files the next non-sudo run cannot overwrite. Symptoms:
 
 ```
 error: Project virtual environment directory `.../bootstrapper/.venv` cannot be used because it is not a valid Python environment (no Python executable was found)
@@ -64,6 +66,8 @@ Same root cause as above. `volumes/api/kong-dynamic.yml` is regenerated at every
 ```bash
 sudo rm -f volumes/api/kong-dynamic.yml
 ```
+
+For other unwritable directories under `volumes/`, Atlas preserves all contents and reports a shell-quoted `chown` command. Repair ownership instead of deleting the directory.
 
 ## 4. Apache Airflow build fails with `ResolutionImpossible`
 

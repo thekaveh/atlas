@@ -2,10 +2,16 @@ import httpx
 import os
 import json
 import asyncio
+import logging
 import re
 from typing import Dict, Any, List, Optional, AsyncGenerator
 from pydantic import BaseModel
 from enum import Enum
+
+
+logger = logging.getLogger(__name__)
+_UPSTREAM_UNAVAILABLE = "Research service is unavailable"
+_UPSTREAM_REQUEST_FAILED = "Research service request failed"
 
 
 class ResearchError(Exception):
@@ -72,20 +78,24 @@ class ResearchClient:
 
     async def health_check(self) -> Dict[str, Any]:
         """Check if the research service is healthy"""
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            try:
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.get(f"{self.base_url}/ok")
                 if response.status_code == 200:
                     return {"status": "healthy", "service": "local-deep-researcher"}
                 else:
                     return {"status": "unhealthy", "error": f"HTTP {response.status_code}"}
-            except Exception as e:
-                return {"status": "unhealthy", "error": str(e)}
+        except Exception as e:
+            logger.warning(
+                "research health check failed (error_type=%s)",
+                type(e).__name__,
+            )
+            return {"status": "unhealthy", "error": _UPSTREAM_UNAVAILABLE}
 
     async def start_research(self, request: ResearchRequest) -> ResearchResponse:
         """Start a new research session"""
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            try:
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.post(f"{self.base_url}/threads", json={})
                 response.raise_for_status()
                 data = response.json()
@@ -99,53 +109,77 @@ class ResearchClient:
                     message="Research thread created successfully",
                     data=data
                 )
-            except httpx.HTTPStatusError as e:
-                error_msg = f"HTTP {e.response.status_code}: {e.response.text}"
-                return ResearchResponse(
-                    session_id="",
-                    status=ResearchStatus.FAILED,
-                    message=f"Failed to start research: {error_msg}"
-                )
-            except Exception as e:
-                return ResearchResponse(
-                    session_id="",
-                    status=ResearchStatus.FAILED,
-                    message=f"Failed to start research: {str(e)}"
-                )
+        except httpx.HTTPStatusError as e:
+            logger.warning(
+                "research thread creation was rejected (status=%s)",
+                e.response.status_code,
+            )
+            return ResearchResponse(
+                session_id="",
+                status=ResearchStatus.FAILED,
+                message=_UPSTREAM_REQUEST_FAILED,
+            )
+        except Exception as e:
+            logger.warning(
+                "research thread creation failed (error_type=%s)",
+                type(e).__name__,
+            )
+            return ResearchResponse(
+                session_id="",
+                status=ResearchStatus.FAILED,
+                message=_UPSTREAM_UNAVAILABLE,
+            )
 
     async def get_research_status(self, session_id: str) -> ResearchResponse:
         """Get the status of a research session"""
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            try:
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.get(f"{self.base_url}/threads/{session_id}/state")
                 response.raise_for_status()
-                
                 data = response.json()
+                status = ResearchStatus(data.get("status", "pending"))
+                if status in {ResearchStatus.FAILED, ResearchStatus.CANCELLED}:
+                    return ResearchResponse(
+                        session_id=session_id,
+                        status=status,
+                        message=(
+                            _UPSTREAM_REQUEST_FAILED
+                            if status == ResearchStatus.FAILED
+                            else "Research session was cancelled"
+                        ),
+                    )
                 return ResearchResponse(
                     session_id=session_id,
-                    status=ResearchStatus(data.get("status", "pending")),
+                    status=status,
                     message=data.get("message", ""),
                     data=data
                 )
-            except httpx.HTTPStatusError as e:
-                if e.response.status_code == 404:
-                    return ResearchResponse(
-                        session_id=session_id,
-                        status=ResearchStatus.FAILED,
-                        message="Research session not found"
-                    )
-                error_msg = f"HTTP {e.response.status_code}: {e.response.text}"
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
                 return ResearchResponse(
                     session_id=session_id,
                     status=ResearchStatus.FAILED,
-                    message=f"Failed to get status: {error_msg}"
+                    message="Research session not found"
                 )
-            except Exception as e:
-                return ResearchResponse(
-                    session_id=session_id,
-                    status=ResearchStatus.FAILED,
-                    message=f"Failed to get status: {str(e)}"
-                )
+            logger.warning(
+                "research status request was rejected (status=%s)",
+                e.response.status_code,
+            )
+            return ResearchResponse(
+                session_id=session_id,
+                status=ResearchStatus.FAILED,
+                message=_UPSTREAM_REQUEST_FAILED,
+            )
+        except Exception as e:
+            logger.warning(
+                "research status request failed (error_type=%s)",
+                type(e).__name__,
+            )
+            return ResearchResponse(
+                session_id=session_id,
+                status=ResearchStatus.FAILED,
+                message=_UPSTREAM_UNAVAILABLE,
+            )
 
     async def get_research_result(self, session_id: str) -> Optional[ResearchResult]:
         """Get the final result of a completed research session"""
@@ -225,15 +259,15 @@ class ResearchClient:
                                 continue
                             if isinstance(event_data, dict):
                                 if current_event == "error" or "error" in event_data:
-                                    error = event_data.get("error") or event_data.get("message") or event_data
-                                    raise ResearchError(str(error))
+                                    raise ResearchError(_UPSTREAM_REQUEST_FAILED)
                                 data = event_data.get("data", event_data)
                                 if isinstance(data, dict):
                                     if current_event == "error" or "error" in data:
-                                        error = data.get("error") or data.get("message") or data
-                                        raise ResearchError(str(error))
+                                        raise ResearchError(_UPSTREAM_REQUEST_FAILED)
                                     values = data.get("values", data)
                                     if isinstance(values, dict):
+                                        if "error" in values:
+                                            raise ResearchError(_UPSTREAM_REQUEST_FAILED)
                                         final_values = values
             if not final_values:
                 return ResearchResponse(
@@ -256,10 +290,15 @@ class ResearchClient:
                 message=f"Research run timed out after {max_wait_time} seconds",
             )
         except Exception as e:
+            logger.warning(
+                "research run failed (session_id=%s, error_type=%s)",
+                session_id,
+                type(e).__name__,
+            )
             return ResearchResponse(
                 session_id=session_id,
                 status=ResearchStatus.FAILED,
-                message=f"Research run failed: {str(e)}",
+                message=_UPSTREAM_REQUEST_FAILED,
             )
         finally:
             self._pending_requests.pop(session_id, None)

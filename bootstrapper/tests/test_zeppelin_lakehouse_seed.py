@@ -137,8 +137,9 @@ def test_zeppelin_seed_properties_are_standalone_spark_not_connect() -> None:
             "SPARK_MASTER": "spark://spark-master:7077",
             "MINIO_ENDPOINT": "http://minio:9000",
             "MINIO_REGION": "us-east-1",
-            "MINIO_ROOT_USER": "root-user",
-            "MINIO_ROOT_PASSWORD": "root-password",
+            "MINIO_BUCKET_SPARK_HISTORY": "spark-history",
+            "MINIO_SPARK_ACCESS_KEY": "spark-user",
+            "MINIO_SPARK_SECRET_KEY": "spark-password",
             "MINIO_ICEBERG_ACCESS_KEY": "iceberg-user",
             "MINIO_ICEBERG_SECRET_KEY": "iceberg-password",
             "ICEBERG_REST_URI": "http://iceberg-rest:8181",
@@ -154,7 +155,8 @@ def test_zeppelin_seed_properties_are_standalone_spark_not_connect() -> None:
     assert props["spark.driver.bindAddress"] == "0.0.0.0"
     assert props["spark.driver.host"] == "zeppelin"
     assert props["spark.hadoop.fs.s3a.endpoint"] == "http://minio:9000"
-    assert props["spark.hadoop.fs.s3a.access.key"] == "root-user"
+    assert props["spark.hadoop.fs.s3a.access.key"] == "spark-user"
+    assert props["spark.hadoop.fs.s3a.secret.key"] == "spark-password"
     assert props["spark.eventLog.dir"] == "s3a://spark-history/"
     assert props["spark.sql.catalog.lakehouse.uri"] == "http://iceberg-rest:8181"
     assert props["spark.sql.catalog.lakehouse.warehouse"] == "s3a://lakehouse/"

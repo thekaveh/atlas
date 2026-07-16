@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+from io import BytesIO
 
 import pytest
 
@@ -10,6 +11,7 @@ from media_input import (
     ImageInputError,
     parse_data_uri,
     prepare_image_input,
+    validate_media_input_config,
 )
 
 # A 1x1 transparent PNG (not actually decoded — Pillow is monkeypatched in the
@@ -33,6 +35,55 @@ def test_parse_data_uri_rejects_bad_base64():
 
 def test_parse_data_uri_returns_none_for_non_data_uri():
     assert parse_data_uri("https://cdn.example/a.png") is None
+
+
+def test_oversize_base64_is_rejected_before_decode(monkeypatch):
+    monkeypatch.setenv("MEDIA_INPUT_MAX_BYTES", "3")
+    monkeypatch.setattr(
+        media_input.base64,
+        "b64decode",
+        lambda *_args, **_kwargs: pytest.fail("oversize payload must not decode"),
+    )
+    payload = base64.b64encode(b"four").decode("ascii")
+    with pytest.raises(ImageInputError, match="MEDIA_INPUT_MAX_BYTES"):
+        parse_data_uri(f"data:image/png;base64,{payload}")
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("MEDIA_INPUT_MAX_BYTES", "0"),
+        ("MEDIA_INPUT_MAX_BYTES", "many"),
+        ("MEDIA_INPUT_MAX_PIXELS", "-1"),
+        ("MEDIA_INPUT_MAX_PIXELS", "1.5"),
+    ],
+)
+def test_media_input_config_rejects_invalid_limits(monkeypatch, name, value):
+    monkeypatch.setenv(name, value)
+    with pytest.raises(ImageInputError, match=name):
+        validate_media_input_config()
+
+
+def test_image_pixel_limit_is_checked_before_conversion(monkeypatch):
+    from PIL import Image
+
+    out = BytesIO()
+    Image.new("RGBA", (11, 10), (0, 0, 0, 0)).save(out, format="PNG")
+    monkeypatch.setenv("MEDIA_INPUT_MAX_PIXELS", "100")
+
+    with pytest.raises(ImageInputError, match="MEDIA_INPUT_MAX_PIXELS"):
+        media_input.has_transparency(out.getvalue())
+
+
+def test_conditioned_canvas_must_fit_pixel_limit(monkeypatch):
+    from PIL import Image
+
+    out = BytesIO()
+    Image.new("RGBA", (10, 10), (0, 0, 0, 0)).save(out, format="PNG")
+    monkeypatch.setenv("MEDIA_INPUT_MAX_PIXELS", "100")
+
+    with pytest.raises(ImageInputError, match="conditioned image"):
+        media_input.composite_on_neutral_background(out.getvalue())
 
 
 def test_url_input_passes_through_untouched(monkeypatch):

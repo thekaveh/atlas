@@ -11,10 +11,10 @@ upstream: https://github.com/nocodb/nocodb
 
 # NocoDB
 
-## Headline
+## 1. Headline
 Open-source Airtable-style spreadsheet UI that exposes any Postgres schema as editable tables, kanbans, and forms — backed by an existing relational store rather than a new datastore.
 
-## Watchlist decision (2026-07-04)
+## 2. Watchlist decision (2026-07-04)
 
 Keep NocoDB on the watchlist for now: Atlas **must not add `services/nocodb/service.yml` yet** because the stack does not have a concrete human-review queue that needs an end-user spreadsheet UI, and the SSO and route-auth posture for multi-user operational editing is still unsettled. NocoDB is useful, but it should enter Atlas as a product workflow surface, not as another generic database console.
 
@@ -39,30 +39,30 @@ Future service shape, if a later human-review ticket promotes this:
 - Tests required for a future service PR: manifest validation, source validation, env assembly, topology/category, track membership, Kong route/auth, compose source-permutation coverage, init idempotency, disabled-dependency behavior, custom `BASE_PORT`, docs drift, first-user/bootstrap secret checks, SSO/route-auth documentation, and at least one smoke for the chosen review queue.
 - Edge cases: disabled n8n, disabled backend, disabled Redis if deployment can run without workers, disabled SSO, existing Supabase schemas with sensitive tables, stale `.env`, custom `BASE_PORT`, route exposure without auth, duplicate ownership with Label Studio, and generated-doc drift.
 
-## Problem it solves
+## 3. Problem it solves
 n8n workflows may eventually need a lightweight CRUD surface for human-in-the-loop data (review queues, prompt libraries, ComfyUI generation logs, tagged transcripts). Today the stack has Supabase Studio for admin database work, Label Studio for annotation, and n8n/backend queues for automation. NocoDB becomes valuable when Atlas can name an end-user review workflow that should be editable as rows without exposing the whole database.
 
-## Stack wiring sketch
+## 4. Stack wiring sketch
 - nocodb → supabase via `postgresql://supabase-db:5432/<db>` with a `nocodb` schema (mirrors how n8n uses an `n8n` schema).
 - nocodb → redis for cache/job-queue behavior if Atlas follows the current upstream self-hosting shape.
 - n8n → nocodb via the built-in NocoDB node (`http://nocodb:8080`) for row CRUD inside workflows.
 - backend → nocodb via REST for admin operations.
 - kong → nocodb via a `nocodb.localhost` alias.
 
-## Effort
+## 5. Effort
 medium — the container itself is straightforward, but a useful Atlas integration needs workflow-specific schema ownership, first-user/bootstrap secrets, route/auth decisions, and likely a web/API plus worker-mode deployment shape. It should not be treated as just one manifest and one Kong alias.
 
-## Risks & open questions
+## 6. Risks & open questions
 - AGPL-3.0 — fine for self-host, requires source disclosure if exposed as a SaaS.
 - NocoDB writes to its own metadata tables on startup; the `nocodb` schema needs createable on first boot.
 - Auth model is separate from Supabase Auth — users have to log in twice unless Atlas adds a route-auth or SSO bridge. Current upstream OIDC/SSO documentation is plan/licensing-sensitive for self-hosted deployments, so this cannot be assumed as an OSS default.
 - Product overlap is real: Supabase Studio is the admin DB UI, Label Studio is the annotation UI, and NocoDB must justify a separate operational queue UI.
 - Review data ownership needs a clear boundary so users do not accidentally expose internal Supabase tables through a spreadsheet surface.
 
-## Why now (and why not sooner)
+## 7. Why now (and why not sooner)
 Not now. Revisit when Atlas has a named human-review workflow and an auth story that does not turn `nocodb.localhost` into an unaudited database-editing surface.
 
-## Upstream evidence
+## 8. Upstream evidence
 - https://github.com/nocodb/nocodb
 - https://nocodb.com/docs/self-hosting/installation/quickstart
 - https://nocodb.com/docs/self-hosting/environment-variables

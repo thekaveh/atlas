@@ -28,7 +28,8 @@ tracks:
     services: [open-webui, supavisor, n8n, weaviate, neo4j, lightrag, doc-processor,
                tei-reranker, searxng, mcp-servers, langfuse,
                otel-collector, tempo, loki,
-               local-deep-researcher, crawl4ai, tika, llm-graph-builder, verba, celery]
+               local-deep-researcher, crawl4ai, tika, llm-graph-builder, verba, celery,
+               cloudflared]
 
   - key: gen-ai-eng
     display_name: Generative AI · Engineering
@@ -36,31 +37,32 @@ tracks:
     services: [open-webui, supavisor, n8n, hermes, openclaw, jupyterhub, comfyui, neo4j,
                stt-provider, tts-provider, searxng, mcp-servers, vllm-metal,
                langfuse, otel-collector, tempo, loki,
-               local-deep-researcher, tika, celery]
+               local-deep-researcher, tika, celery, cloudflared]
 
   - key: gen-ai-creative
     display_name: Generative AI · Creative
     description: Multimodal generation — image, voice, vision, doc.
     services: [open-webui, comfyui, asset-worker, asset-baker, fal, stt-provider, tts-provider,
                multi2vec-clip, doc-processor, blender-mcp, langfuse,
-               otel-collector, tempo, loki]
+               otel-collector, tempo, loki, cloudflared]
 
   - key: ml-eng
     display_name: ML Engineering
     description: Distributed training/inference + notebooks + experiment storage.
     services: [spark, ray, jupyterhub, zeppelin, open-webui, supavisor, minio, tei-reranker,
-               langfuse, otel-collector, tempo, loki, mlflow, label-studio]
+               langfuse, otel-collector, tempo, loki, mlflow, label-studio, backup,
+               cloudflared]
 
   - key: data-eng
     display_name: Data Engineering
     description: Batch + lakehouse + graph + vector with orchestration.
     services: [spark, airflow, jupyterhub, zeppelin, jenkins, supavisor, minio, iceberg-rest, trino,
-               redpanda, weaviate, neo4j]
+               redpanda, weaviate, neo4j, backup, cloudflared]
 
   - key: trading
     display_name: Trading / Financial Research
     description: Read-only financial research and paper portfolios in notebooks; no live trading.
-    services: [jupyterhub, minio, mlflow, langfuse]
+    services: [jupyterhub, minio, mlflow, langfuse, backup, cloudflared]
 
   - key: all
     display_name: All / Custom

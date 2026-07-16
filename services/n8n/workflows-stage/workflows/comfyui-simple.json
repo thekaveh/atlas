@@ -4,6 +4,7 @@
     {
       "parameters": {
         "httpMethod": "POST",
+        "authentication": "headerAuth",
         "path": "comfyui-simple",
         "responseMode": "responseNode",
         "options": {}
@@ -16,37 +17,48 @@
         240,
         300
       ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "atlas-webhook-header-auth",
+          "name": "Atlas Webhook Header Auth"
+        }
+      },
       "webhookId": "comfyui-simple"
     },
     {
       "parameters": {
+        "method": "POST",
         "url": "http://backend:8000/comfyui/generate",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{"name": "Authorization", "value": "={{ 'Bearer ' + $env.BACKEND_N8N_API_TOKEN }}"}]
+        },
         "sendBody": true,
         "bodyParameters": {
           "parameters": [
             {
               "name": "prompt",
-              "value": "={{ $json.prompt || 'a beautiful landscape' }}"
+              "value": "={{ $json.body?.prompt ?? $json.prompt ?? 'a beautiful landscape' }}"
             },
             {
               "name": "negative_prompt",
-              "value": "={{ $json.negative_prompt || '' }}"
+              "value": "={{ $json.body?.negative_prompt ?? $json.negative_prompt ?? '' }}"
             },
             {
               "name": "width",
-              "value": "={{ $json.width || 512 }}"
+              "value": "={{ $json.body?.width ?? $json.width ?? 512 }}"
             },
             {
               "name": "height",
-              "value": "={{ $json.height || 512 }}"
+              "value": "={{ $json.body?.height ?? $json.height ?? 512 }}"
             },
             {
               "name": "steps",
-              "value": "={{ $json.steps || 20 }}"
+              "value": "={{ $json.body?.steps ?? $json.steps ?? 20 }}"
             },
             {
               "name": "cfg",
-              "value": "={{ $json.cfg || 7.0 }}"
+              "value": "={{ $json.body?.cfg ?? $json.cfg ?? 7.0 }}"
             },
             {
               "name": "wait_for_completion",
@@ -73,7 +85,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Simple response formatting\nconst result = $input.first().json;\nconst originalPrompt = $('Simple ComfyUI Webhook').item.json.prompt || 'a beautiful landscape';\n\nif (!result.success) {\n  return {\n    success: false,\n    error: result.error || 'Generation failed',\n    prompt: originalPrompt\n  };\n}\n\nreturn {\n  success: true,\n  prompt: originalPrompt,\n  prompt_id: result.prompt_id,\n  message: 'Image generated successfully',\n  image_count: result.data?.outputs ? Object.keys(result.data.outputs).length : 0,\n  generation_time: new Date().toISOString()\n};"
+        "jsCode": "// Simple response formatting\nconst result = $input.first().json;\nconst webhook = $('Simple ComfyUI Webhook').item.json;\nconst originalPrompt = (webhook.body || webhook).prompt ?? 'a beautiful landscape';\n\nif (!result.success) {\n  return {\n    success: false,\n    error: result.error || 'Generation failed',\n    prompt: originalPrompt\n  };\n}\n\nconst outputs = result.data?.outputs || {};\nconst generatedImages = [];\nif (result.data?.provider === 'fal' && Array.isArray(outputs.images)) {\n  for (const img of outputs.images) {\n    if (typeof img.url === 'string' && /^https?:\\/\\//.test(img.url)) {\n      generatedImages.push({ url: img.url, provider: 'fal' });\n    }\n  }\n} else {\n  for (const [nodeId, nodeOutput] of Object.entries(outputs)) {\n    if (Array.isArray(nodeOutput.images)) {\n      for (const img of nodeOutput.images) {\n        if (img.filename) {\n          generatedImages.push({ filename: img.filename, node_id: nodeId });\n        }\n      }\n    }\n  }\n}\n\nreturn {\n  success: true,\n  prompt: originalPrompt,\n  prompt_id: result.prompt_id,\n  message: 'Image generated successfully',\n  generated_images: generatedImages,\n  image_count: generatedImages.length,\n  generation_time: new Date().toISOString()\n};"
       },
       "id": "simple-format-3",
       "name": "Format Response",
@@ -142,19 +154,5 @@
   "meta": {
     "templateCredsSetupCompleted": true
   },
-  "id": "comfyui-simple",
-  "tags": [
-    {
-      "createdAt": "2024-01-15T12:00:00.000Z",
-      "updatedAt": "2024-01-15T12:00:00.000Z",
-      "id": "comfyui",
-      "name": "ComfyUI"
-    },
-    {
-      "createdAt": "2024-01-15T12:00:00.000Z",
-      "updatedAt": "2024-01-15T12:00:00.000Z",
-      "id": "simple",
-      "name": "Simple"
-    }
-  ]
+  "id": "comfyui-simple"
 }

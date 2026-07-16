@@ -10,7 +10,7 @@
 
 **Supersession note (2026-07-01):** The plan's corrective TEI note is now implemented in current runtime docs. Atlas emits `LIGHTRAG_RERANK_BINDING=null` and leaves `LIGHTRAG_RERANK_BINDING_HOST` empty by default because direct stock LightRAG-to-TEI rerank payloads are incompatible without an adapter.
 
-## Global Constraints
+## 1. Global Constraints
 
 - Preserve existing Atlas behavior when every role-specific variable is unset.
 - Do not hard-code `mistral-small3.2:24b` as an Atlas default.
@@ -23,7 +23,7 @@
 
 ---
 
-## Validity Review
+## 2. Validity Review
 
 - Valid: Atlas currently exposes only `LIGHTRAG_LLM_MODEL` as the base chat model in `services/lightrag/service.yml`.
 - Valid: `lightrag-init` currently writes only `LLM_MODEL`, `EMBEDDING_MODEL`, and `EMBEDDING_DIM` to `/app/data/.env` via `services/lightrag/init/scripts/resolve-models.py`.
@@ -33,7 +33,7 @@
 - Nuance: Static Compose mappings like `EXTRACT_LLM_MODEL: ${LIGHTRAG_EXTRACT_LLM_MODEL:-}` render empty variables when unset. In LightRAG v1.5.4, empty strings are safe for string role settings because runtime resolution uses `or` fallback; empty integers are safe because `get_env_value(..., int)` catches `ValueError` and returns the default.
 - Scope decision: Do not forward provider-specific role options such as `EXTRACT_OLLAMA_LLM_NUM_CTX` in this PR. The spec's Atlas change list does not request them; the rag-showcase overlay can continue to set native provider-specific variables directly.
 
-## File Structure
+## 3. File Structure
 
 - Modify `services/lightrag/service.yml`: declare Atlas-owned role env vars so `.env.example`, validation, and ownership checks know about them.
 - Modify `services/lightrag/compose.yml`: map Atlas-owned variables to LightRAG native runtime env names on the `lightrag` service.
@@ -45,7 +45,7 @@
 
 ---
 
-### Task 1: Add Failing Role-Model Contract Tests
+### 3.1. Task 1: Add Failing Role-Model Contract Tests
 
 **Files:**
 - Create: `bootstrapper/tests/test_lightrag_role_models.py`
@@ -221,7 +221,7 @@ git commit -m "test: capture LightRAG role model contract"
 
 ---
 
-### Task 2: Add Atlas Role Inputs and Native Compose Mapping
+### 3.2. Task 2: Add Atlas Role Inputs and Native Compose Mapping
 
 **Files:**
 - Modify: `services/lightrag/service.yml`
@@ -354,7 +354,7 @@ git commit -m "feat: expose LightRAG role model settings"
 
 ---
 
-### Task 3: Regenerate Environment and Compose Artifacts
+### 3.3. Task 3: Regenerate Environment and Compose Artifacts
 
 **Files:**
 - Modify: `.env.example`
@@ -425,7 +425,7 @@ git commit -m "chore: refresh LightRAG role model generated artifacts"
 
 ---
 
-### Task 4: Document Role-Specific LightRAG Configuration
+### 3.4. Task 4: Document Role-Specific LightRAG Configuration
 
 **Files:**
 - Modify: `services/lightrag/README.md`
@@ -525,7 +525,7 @@ git commit -m "docs: document LightRAG role model tuning"
 
 ---
 
-### Task 5: Add an Opt-In Routing Smoke Script
+### 3.5. Task 5: Add an Opt-In Routing Smoke Script
 
 **Files:**
 - Create: `scripts/smoke-lightrag-role-models.sh`
@@ -624,7 +624,7 @@ git commit -m "test: add LightRAG role routing smoke"
 
 ---
 
-### Task 6: Final Verification
+### 3.6. Task 6: Final Verification
 
 **Files:**
 - No new files.
@@ -733,7 +733,7 @@ git commit -m "fix: align LightRAG role model verification"
 
 ---
 
-## Implementation Notes
+## 4. Implementation Notes
 
 - `LIGHTRAG_LLM_MODEL` remains the base fallback. Setting only `LIGHTRAG_EXTRACT_LLM_MODEL` is enough for same-provider role tuning because LightRAG inherits the base binding, host, API key, timeout, and concurrency.
 - Cross-provider role tuning requires setting the role binding, model, and API key. LightRAG v1.5.4 validates that and exits when required cross-provider fields are missing.
@@ -741,7 +741,7 @@ git commit -m "fix: align LightRAG role model verification"
 - Do not make the wizard prompt for these values in this PR. They are advanced `.env` knobs surfaced in `.env.example` and docs.
 - Do not regenerate `services/lightrag/architecture.svg` or `.html`; service graph dependencies do not change.
 
-## Self-Review Checklist
+## 5. Self-Review Checklist
 
 - Spec coverage: role model, binding, host, API key, max async, and timeout variables are covered for `EXTRACT`, `KEYWORD`, and `QUERY`.
 - Fallback behavior: covered by blank defaults, static compose `:-` mappings, and tests that keep base `LLM_MODEL` out of compose.

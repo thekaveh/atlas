@@ -1,6 +1,8 @@
 # Atlas - JupyterHub Python Dependencies
 # AI/ML Libraries
 chonkie>=1.7.0,<2
+# GHSA-95ww-475f-pr4f affects Ragas' multimodal URL/file helper. Atlas exposes
+# only the four text collection metrics guarded by Backend's MetricName enum.
 ragas==0.4.3
 ollama>=0.6.2
 langchain>=0.3.0
@@ -29,7 +31,7 @@ sqlalchemy>=2.0.30
 
 # HTTP and API
 httpx>=0.27.0
-requests>=2.32.0
+requests>=2.33.0
 
 # Configuration and Utils
 python-dotenv>=1.0.1
@@ -38,6 +40,7 @@ pyyaml>=6.0.1
 # Data Science (already in base image, but ensuring versions)
 pandas>=2.2.0
 numpy>=1.26.0
+Pillow>=12.3.0
 
 # Financial research kit - read-only market data and paper portfolio notebooks.
 # Keep live-trading/exchange-key workflows out of this image slice; see
@@ -55,7 +58,7 @@ aiobotocore==2.15.2
 s3fs==2024.9.0
 fsspec==2024.9.0
 pyiceberg[s3fs]==0.11.1
-pyarrow==17.0.0
+pyarrow==23.0.1
 duckdb==1.5.4
 
 # Visualization
@@ -69,21 +72,21 @@ ipywidgets>=8.1.0
 jupyter-server-proxy>=4.1.0
 
 # Deep Learning — PyTorch core
-torch==2.4.1
-torchvision==0.19.1
-torchaudio==2.4.1
+torch==2.11.0
+torchvision==0.26.0
+torchaudio==2.11.0
 
 # Deep Learning — higher-level frameworks
 torchmetrics==1.4.2
 mlflow==3.14.0
 label-studio-sdk==2.0.0
 
-# Graph Neural Networks (PyG) — wheels matched to torch 2.4 CPU build
---find-links https://data.pyg.org/whl/torch-2.4.0+cpu.html  # index uses minor version (covers torch 2.4.x)
+# Graph Neural Networks (PyG) — wheels matched to the torch 2.11 CPU build
+--find-links https://data.pyg.org/whl/torch-2.11.0+cpu.html
 torch-scatter==2.1.2
 torch-sparse==0.6.18
 torch-cluster==1.6.3
-torch-spline-conv==1.2.2
+pyg_lib==0.7.0
 torch_geometric==2.6.1
 
 # ML utilities
@@ -91,7 +94,7 @@ tqdm>=4.66.0
 kaleido>=0.2.1
 
 # Distributed compute
-ray[client]>=2.55.1,<2.56
+ray[client]>=2.56.0,<2.57
 # Lightweight Spark Connect client (~1.5 MB, no JVM/Spark distro) — notebook
 # 09_spark_connect talks to the spark-connect sidecar via sc://. Pinned to the
 # server's Spark version (apache/spark:4.1.2); a mismatch breaks the gRPC handshake.
@@ -103,7 +106,7 @@ pyspark-client==4.1.2
 # pulls language-model deps used by the ml-lab notebooks that `import nnx`.
 thekaveh-nnx[lm]==0.2.0
 python-louvain  # `community` module — community_detection-karate notebook
-nltk  # SentimentIntensityAnalyzer — sentiment_classification-vader notebook (vader_lexicon downloaded in Dockerfile)
+nltk>=3.10.0  # SentimentIntensityAnalyzer — sentiment_classification-vader notebook (vader_lexicon downloaded in Dockerfile)
 spacy  # tokenizer + lemmatizer — text_classification-agnews + sentiment_classification-vader (en_core_web_sm downloaded in Dockerfile)
 torchao>=0.17  # transitive via nnx.quantize_int8 + nnx.qat_train_step_factory — quantization-mnist notebook
 prettytable  # nnx Utils.print_table renderer — used by 14 of 29 notebooks

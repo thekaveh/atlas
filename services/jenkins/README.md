@@ -1,4 +1,4 @@
-# Jenkins (Maven Spark app builder)
+# 5.2.20. Jenkins (Maven Spark app builder)
 
 Jenkins is an optional `apps` service for building Maven-based Spark applications and publishing their JAR artifacts to the Atlas MinIO `jars` bucket.
 
@@ -53,33 +53,31 @@ Jenkins calls MinIO to publish built artifacts. Airflow, Spark, notebooks, and d
 
 ## 6. Dependencies & Integrations
 
-> Auto-generated section — the **Current** subsections are derived from `services/jenkins/service.yml`'s `data_flow.calls` field (and inverse passes). Re-run `python -m bootstrapper.docs.regen jenkins` after manifest changes.
-
-### 6.1 Current — Upstream (this service calls)
+### 6.1. Current — Upstream (this service calls)
 
 | Service | Category |
 |---|---|
 | minio | data |
 
-### 6.2 Current — Downstream (services that call this)
+### 6.2. Current — Downstream (services that call this)
 
 _No downstream consumers._
 
-### 6.3 Architecture diagram
+### 6.3. Architecture diagram
 
 ![jenkins architecture](./architecture.svg)
 
 [Open the interactive HTML diagram](./architecture.html) for a full-screen view.
 
-### 6.4 Future — Missing pair integrations
+### 6.4. Future — Missing pair integrations
 
 _No high-confidence opportunities identified._
 
-### 6.5 Future — Candidate new services
+### 6.5. Future — Candidate new services
 
 _No high-confidence opportunities identified._
 
-### 6.6 Future — Unused features in this service
+### 6.6. Future — Unused features in this service
 
 _No high-confidence opportunities identified._
 

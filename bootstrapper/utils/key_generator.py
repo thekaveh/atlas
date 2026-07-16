@@ -45,11 +45,15 @@ class KeyGenerator:
         "BACKEND",
         "N8N",
         "JUPYTER",
+        "SPARK",
         "DOCLING",
         "LANGFUSE",
         "MLFLOW",
         "LABEL_STUDIO",
         "ICEBERG",
+        "ASSET_INGEST",
+        "ASSET_WORKER",
+        "ASSET_BAKER",
     )
 
     # `.env.example` ships placeholders for credential vars whose canonical
@@ -175,6 +179,22 @@ class KeyGenerator:
     def generate_backend_kong_api_key(self) -> str:
         """Backend Kong key-auth credential for the api.localhost route."""
         return f"sk-backend-{_cli_safe_token_urlsafe(32)}"
+
+    def generate_backend_internal_api_token(self) -> str:
+        """Delegating bearer credential shared only with trusted services."""
+        return f"sk-atlas-internal-{_cli_safe_token_urlsafe(40)}"
+
+    def generate_backend_notebook_api_token(self) -> str:
+        """Bearer credential limited to stateless notebook-facing routes."""
+        return f"sk-atlas-notebook-{_cli_safe_token_urlsafe(40)}"
+
+    def generate_backend_n8n_api_token(self) -> str:
+        """Bearer credential limited to n8n's Backend integration routes."""
+        return f"sk-atlas-n8n-{_cli_safe_token_urlsafe(40)}"
+
+    def generate_backend_open_webui_api_token(self) -> str:
+        """Bearer credential limited to Open WebUI's Backend integration routes."""
+        return f"sk-atlas-openwebui-{_cli_safe_token_urlsafe(40)}"
 
     def generate_minio_root_password(self) -> str:
         """MinIO root password — 32-char URL-safe random."""
@@ -450,6 +470,27 @@ class KeyGenerator:
         new_key = self.generate_lightrag_rerank_adapter_token()
         return self.update_env_key('LIGHTRAG_RERANK_ADAPTER_TOKEN', new_key)
 
+    def generate_ray_job_api_token(self) -> str:
+        """Bearer token for Backend's command-capable Ray API routes."""
+        return f"sk-ray-job-{_cli_safe_token_urlsafe(32)}"
+
+    def generate_and_update_ray_job_api_token(self, force: bool = False) -> bool:
+        """Generate the Ray API token when absent and preserve live tokens."""
+        current_value = self.get_current_env_value("RAY_JOB_API_TOKEN")
+        if not force and current_value:
+            return True
+        return self.update_env_key("RAY_JOB_API_TOKEN", self.generate_ray_job_api_token())
+
+    def generate_asset_api_token(self, service: str) -> str:
+        """Generate a bearer token for one of the isolated asset processors."""
+        return f"sk-{service.lower().replace('_', '-')}-{_cli_safe_token_urlsafe(32)}"
+
+    def generate_and_update_asset_api_token(self, service: str) -> bool:
+        var = f"{service}_API_TOKEN"
+        if self.get_current_env_value(var):
+            return True
+        return self.update_env_key(var, self.generate_asset_api_token(service))
+
     def generate_webui_secret_key(self) -> str:
         """Open WebUI JWT/session signing key. Used by Open WebUI itself
         AND by ``services/open-webui/init/scripts/register-{tools,functions}.py``
@@ -628,6 +669,43 @@ class KeyGenerator:
         if not force and self.get_current_env_value('BACKEND_KONG_API_KEY'):
             return True
         return self.update_env_key('BACKEND_KONG_API_KEY', self.generate_backend_kong_api_key())
+
+    def generate_and_update_backend_internal_api_token(
+        self, force: bool = False
+    ) -> bool:
+        """Generate the trusted-service token only when it is absent."""
+        if not force and self.get_current_env_value('BACKEND_INTERNAL_API_TOKEN'):
+            return True
+        return self.update_env_key(
+            'BACKEND_INTERNAL_API_TOKEN', self.generate_backend_internal_api_token()
+        )
+
+    def generate_and_update_backend_notebook_api_token(
+        self, force: bool = False
+    ) -> bool:
+        """Generate the scoped notebook token only when it is absent."""
+        if not force and self.get_current_env_value('BACKEND_NOTEBOOK_API_TOKEN'):
+            return True
+        return self.update_env_key(
+            'BACKEND_NOTEBOOK_API_TOKEN', self.generate_backend_notebook_api_token()
+        )
+
+    def generate_and_update_backend_n8n_api_token(self, force: bool = False) -> bool:
+        if not force and self.get_current_env_value('BACKEND_N8N_API_TOKEN'):
+            return True
+        return self.update_env_key(
+            'BACKEND_N8N_API_TOKEN', self.generate_backend_n8n_api_token()
+        )
+
+    def generate_and_update_backend_open_webui_api_token(
+        self, force: bool = False
+    ) -> bool:
+        if not force and self.get_current_env_value('BACKEND_OPEN_WEBUI_API_TOKEN'):
+            return True
+        return self.update_env_key(
+            'BACKEND_OPEN_WEBUI_API_TOKEN',
+            self.generate_backend_open_webui_api_token(),
+        )
 
     def generate_and_update_webui_admin_password(self, force: bool = False) -> bool:
         """Rotate `OPEN_WEB_UI_ADMIN_PASSWORD` only when absent or still the
@@ -949,6 +1027,17 @@ class KeyGenerator:
         # enabling the service later does not require a manual secret edit.
         results['CRAWL4AI_API_TOKEN'] = self.generate_and_update_crawl4ai_api_token(force=False)
 
+        # Backend's Ray routes accept arbitrary job entrypoints, so they always
+        # require an application-layer bearer token even when Ray is disabled.
+        if not self.get_current_env_value("RAY_JOB_API_TOKEN"):
+            results['RAY_JOB_API_TOKEN'] = self.generate_and_update_ray_job_api_token(force=False)
+        results["ASSET_WORKER_API_TOKEN"] = self.generate_and_update_asset_api_token(
+            "ASSET_WORKER"
+        )
+        results["ASSET_BAKER_API_TOKEN"] = self.generate_and_update_asset_api_token(
+            "ASSET_BAKER"
+        )
+
         # Supavisor local pooler secrets — generated even when disabled so a
         # later SUPAVISOR_SOURCE=container flip has the required values.
         results.update(self.generate_and_update_supavisor_secrets(force=False))
@@ -1040,6 +1129,18 @@ class KeyGenerator:
         results['REDIS_PASSWORD'] = self.generate_and_update_redis_password(force=False)
         results['DASHBOARD_PASSWORD'] = self.generate_and_update_kong_dashboard_password(force=False)
         results['BACKEND_KONG_API_KEY'] = self.generate_and_update_backend_kong_api_key(force=False)
+        results['BACKEND_INTERNAL_API_TOKEN'] = (
+            self.generate_and_update_backend_internal_api_token(force=False)
+        )
+        results['BACKEND_NOTEBOOK_API_TOKEN'] = (
+            self.generate_and_update_backend_notebook_api_token(force=False)
+        )
+        results['BACKEND_N8N_API_TOKEN'] = (
+            self.generate_and_update_backend_n8n_api_token(force=False)
+        )
+        results['BACKEND_OPEN_WEBUI_API_TOKEN'] = (
+            self.generate_and_update_backend_open_webui_api_token(force=False)
+        )
         results['OPEN_WEB_UI_ADMIN_PASSWORD'] = self.generate_and_update_webui_admin_password(force=False)
 
         return results

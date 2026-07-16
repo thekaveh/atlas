@@ -29,12 +29,12 @@ def test_section_contains_canonical_headings():
     text = render_section(g)
     for heading in (
         "## 5. Dependencies & Integrations",
-        "### 5.1 Current — Upstream",
-        "### 5.2 Current — Downstream",
-        "### 5.3 Architecture diagram",
-        "### 5.4 Future — Missing pair integrations",
-        "### 5.5 Future — Candidate new services",
-        "### 5.6 Future — Unused features in this service",
+        "### 5.1. Current — Upstream",
+        "### 5.2. Current — Downstream",
+        "### 5.3. Architecture diagram",
+        "### 5.4. Future — Missing pair integrations",
+        "### 5.5. Future — Candidate new services",
+        "### 5.6. Future — Unused features in this service",
     ):
         assert heading in text
 
@@ -59,10 +59,8 @@ def test_section_emits_empty_table_placeholder():
     assert "_No downstream consumers._" in text
 
 
-def test_aggregate_doc_folder_boilerplate_cites_member_manifests():
-    """Aggregate doc-only folders (stt-provider, doc-processor) must not
-    cite a service.yml they don't have — the boilerplate points at the
-    member manifests that actually carry the edges."""
+def test_generated_section_does_not_expose_maintainer_instructions():
+    """Reader-facing service docs must not expose generator implementation details."""
     from docs.deps_resolver import build_doc_graph
     from docs.deps_section_writer import render_section
     from pathlib import Path
@@ -70,6 +68,5 @@ def test_aggregate_doc_folder_boilerplate_cites_member_manifests():
     services_root = Path(__file__).resolve().parents[2] / "services"
     graph = build_doc_graph("stt-provider", services_root)
     text = render_section(graph, position=5)
-    assert "services/stt-provider/service.yml" not in text
-    assert "services/parakeet/service.yml" in text
-    assert "services/speaches/service.yml" in text
+    assert "Auto-generated section" not in text
+    assert "bootstrapper.docs.regen" not in text

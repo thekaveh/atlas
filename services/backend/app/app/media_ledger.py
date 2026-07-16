@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import os
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
@@ -49,7 +50,13 @@ def _env_bool(name: str, default: bool) -> bool:
     raw = (os.getenv(name) or "").strip().lower()
     if not raw:
         return default
-    return raw in {"1", "true", "yes", "on", "enabled"}
+    if raw in {"1", "true", "yes", "on", "enabled"}:
+        return True
+    if raw in {"0", "false", "no", "off", "disabled"}:
+        return False
+    raise ValueError(
+        f"{name} must be one of true/false, yes/no, on/off, 1/0, or enabled/disabled"
+    )
 
 
 def _utcnow() -> datetime:
@@ -157,48 +164,88 @@ class MediaBudgetConfig:
         if raw_caps:
             try:
                 parsed = json.loads(raw_caps)
-                for key, value in (parsed or {}).items():
-                    caps[str(key)] = float(value)
-            except (ValueError, TypeError):
-                # Malformed cap config must not crash startup; treated as no
-                # per-consumer overrides (default cap still applies).
-                caps = {}
+            except (ValueError, TypeError) as exc:
+                raise ValueError(
+                    "MEDIA_BUDGET_CONSUMER_CAPS must be a JSON object of "
+                    "non-negative finite USD caps"
+                ) from exc
+            if not isinstance(parsed, dict):
+                raise ValueError(
+                    "MEDIA_BUDGET_CONSUMER_CAPS must be a JSON object of "
+                    "non-negative finite USD caps"
+                )
+            for key, value in parsed.items():
+                scope = str(key).strip()
+                if not scope:
+                    raise ValueError(
+                        "MEDIA_BUDGET_CONSUMER_CAPS keys must be non-empty scopes"
+                    )
+                caps[scope] = _nonnegative_float(
+                    "MEDIA_BUDGET_CONSUMER_CAPS", value
+                )
         disabled = {
             p.strip().lower()
             for p in (os.getenv("MEDIA_DISABLED_PROVIDERS") or "").split(",")
             if p.strip()
         }
+        enabled = _env_bool("MEDIA_BUDGET_ENABLED", False)
+        store = (os.getenv("MEDIA_BUDGET_STORE") or "postgres").strip().lower()
+        if store not in {"postgres", "memory"}:
+            raise ValueError("MEDIA_BUDGET_STORE must be 'postgres' or 'memory'")
+        database_url = (os.getenv("DATABASE_URL") or "").strip() or None
+        if enabled and store == "postgres" and not database_url:
+            raise ValueError(
+                "DATABASE_URL is required when MEDIA_BUDGET_ENABLED=true and "
+                "MEDIA_BUDGET_STORE=postgres"
+            )
         return cls(
-            enabled=_env_bool("MEDIA_BUDGET_ENABLED", False),
-            store=(os.getenv("MEDIA_BUDGET_STORE") or "postgres").strip().lower(),
+            enabled=enabled,
+            store=store,
             currency=(os.getenv("MEDIA_BUDGET_CURRENCY") or "USD").strip() or "USD",
-            default_cap_usd=_optional_float(os.getenv("MEDIA_BUDGET_DEFAULT_USD")),
+            default_cap_usd=_optional_nonnegative_float(
+                "MEDIA_BUDGET_DEFAULT_USD", os.getenv("MEDIA_BUDGET_DEFAULT_USD")
+            ),
             consumer_caps=caps,
             disabled_providers=frozenset(disabled),
             allow_unknown_cost=_env_bool("MEDIA_BUDGET_ALLOW_UNKNOWN_COST", False),
-            retention_days=_optional_int(os.getenv("MEDIA_BUDGET_RETENTION_DAYS")),
-            database_url=os.getenv("DATABASE_URL"),
+            retention_days=_optional_positive_int(
+                "MEDIA_BUDGET_RETENTION_DAYS",
+                os.getenv("MEDIA_BUDGET_RETENTION_DAYS"),
+            ),
+            database_url=database_url,
         )
 
 
-def _optional_float(raw: Optional[str]) -> Optional[float]:
+def _nonnegative_float(name: str, raw: Any) -> float:
+    if isinstance(raw, bool):
+        raise ValueError(f"{name} values must be non-negative finite numbers")
+    try:
+        value = float(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} values must be non-negative finite numbers") from exc
+    if not math.isfinite(value) or value < 0:
+        raise ValueError(f"{name} values must be non-negative finite numbers")
+    return value
+
+
+def _optional_nonnegative_float(name: str, raw: Optional[str]) -> Optional[float]:
+    raw = (raw or "").strip()
+    if not raw:
+        return None
+    return _nonnegative_float(name, raw)
+
+
+def _optional_positive_int(name: str, raw: Optional[str]) -> Optional[int]:
     raw = (raw or "").strip()
     if not raw:
         return None
     try:
-        return float(raw)
-    except ValueError:
-        return None
-
-
-def _optional_int(raw: Optional[str]) -> Optional[int]:
-    raw = (raw or "").strip()
-    if not raw:
-        return None
-    try:
-        return int(raw)
-    except ValueError:
-        return None
+        value = int(raw)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be a positive integer") from exc
+    if value <= 0:
+        raise ValueError(f"{name} must be a positive integer")
+    return value
 
 
 class InMemoryLedgerStore:
@@ -591,8 +638,10 @@ class BudgetEngine:
 def build_store(config: MediaBudgetConfig) -> Any:
     """Select the ledger store from config.
 
-    Defaults to durable Postgres when enabled with a database url; falls back to
-    the in-memory reference store otherwise (and for `MEDIA_BUDGET_STORE=memory`).
+    Enabled Postgres configuration is validated before this factory runs, so a
+    missing database URL cannot silently downgrade enforcement to process-local
+    memory. Disabled or explicitly memory-backed configurations use the
+    reference store.
     """
     if config.store == "postgres" and config.database_url:
         # Imported lazily so the in-memory / disabled paths never touch asyncpg.

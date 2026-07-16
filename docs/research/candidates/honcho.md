@@ -11,13 +11,13 @@ upstream: https://github.com/plastic-labs/honcho
 
 # Honcho
 
-## Headline
+## 1. Headline
 Self-hostable user-and-session memory service that gives AI agents a durable model of each user across applications.
 
-## Problem it solves
+## 2. Problem it solves
 The stack currently has no shared, agent-agnostic memory layer: Hermes session state lives in its own volume, OpenClaw conversations vanish when the channel session ends, and Open WebUI history is per-app. Honcho provides a single REST surface where multiple agents (OpenClaw, Hermes, backend) can read and write per-user facts, theory-of-mind summaries, and session traces — enabling continuity across channels (Slack → Telegram → web UI) and across the agents themselves. OpenClaw's docs explicitly list Honcho as a supported memory engine, so wiring is a configuration job, not a custom-adapter job.
 
-## Deferred decision (2026-07-04)
+## 3. Deferred decision (2026-07-04)
 
 Keep Honcho deferred. Current upstream has become more capable than the original note captured — FastAPI service, SDKs, MCP server, Hermes/OpenClaw/client integrations, self-hosting, Postgres/pgvector persistence, Redis cache, and a background deriver — but that strengthens the admission burden rather than making it an automatic Atlas service. Atlas already has LangMem in the backend and a lighter Graphiti backend-only experiment; Honcho should wait until those prove insufficient for a concrete cross-agent memory workflow.
 
@@ -35,25 +35,25 @@ Future contract if reopened:
 
 Revisit only when Atlas has a named workflow where backend LangMem plus backend-only Graphiti cannot satisfy cross-session or cross-agent continuity, and the operator explicitly accepts a separate memory service with AGPL-3.0 obligations.
 
-## Stack wiring sketch
+## 4. Stack wiring sketch
 - openclaw → honcho via `http://honcho:8000/v1/apps/<app>/users/<user>/sessions` (memory engine backend)
 - hermes → honcho via REST tool for cross-session recall
 - backend → honcho via REST for user-profile features
 - honcho → supabase via `postgresql://supabase-db:5432/honcho` (Postgres backing store, schema-isolated)
 
-## Effort
+## 5. Effort
 medium — adding a new container family (manifest + compose fragment + Kong alias + init for Postgres schema bootstrap) plus per-consumer client wiring; no GPU, modest memory, and the Postgres dependency reuses Supabase.
 
-## Risks & open questions
+## 6. Risks & open questions
 - License is AGPL-3.0 — fine for self-host, may complicate downstream redistribution.
 - Honcho's "theory of mind" derivations call an LLM; needs LiteLLM gateway integration to keep traffic on-stack.
 - Schema migrations on upgrades — pin a tag rather than `:latest`.
 - Multi-tenant isolation across agents (single Honcho app vs. per-agent apps) not yet decided.
 
-## Why now (and why not sooner)
+## 7. Why now (and why not sooner)
 Memory continuity was a "later" feature while the stack was still establishing core inference, RAG, and channel surfaces. With both Hermes (long-running agent runtime) and OpenClaw (multi-channel adapter) now in the stack, the lack of a shared memory layer is the single most visible UX gap — a user who talks to the same model on Telegram and Open WebUI sees two strangers. Honcho is also one of the few self-hostable, Postgres-backed memory engines OpenClaw natively recognizes.
 
-## Upstream evidence
+## 8. Upstream evidence
 - https://github.com/plastic-labs/honcho
 - https://honcho.dev/docs/v3/documentation/introduction/vibecoding
 - https://github.com/plastic-labs/honcho/blob/main/docker-compose.yml.example

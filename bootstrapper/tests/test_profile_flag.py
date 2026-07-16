@@ -19,8 +19,8 @@ def test_profile_choices():
 
 def test_profile_cli_default_is_unset_for_interactive_picker():
     """Bare ./start.sh must not preselect default and skip the profile step."""
-    opt = next(p for p in start.main.params if p.name == "profile")
-    assert opt.default is None
+    ctx = start.main.make_context("start", [], resilient_parsing=True)
+    assert ctx.params["profile"] is None
 
 
 # ---------------------------------------------------------------------------

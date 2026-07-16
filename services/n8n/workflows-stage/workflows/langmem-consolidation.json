@@ -22,6 +22,10 @@
       "parameters": {
         "method": "GET",
         "url": "http://backend:8000/memory/health",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{"name": "Authorization", "value": "={{ 'Bearer ' + $env.BACKEND_N8N_API_TOKEN }}"}]
+        },
         "options": {
           "timeout": 10000
         }
@@ -64,6 +68,10 @@
       "parameters": {
         "method": "POST",
         "url": "http://backend:8000/memory/consolidate",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{"name": "Authorization", "value": "={{ 'Bearer ' + $env.BACKEND_N8N_API_TOKEN }}"}]
+        },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "{}",
@@ -169,13 +177,5 @@
   },
   "settings": {
     "executionOrder": "v1"
-  },
-  "tags": [
-    {
-      "name": "memory"
-    },
-    {
-      "name": "langmem"
-    }
-  ]
+  }
 }

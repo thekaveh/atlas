@@ -1185,6 +1185,7 @@ def run_setup_flow(
                 prefilled_selections=(_prefilled if _prefilled else None),
                 track_display_name=_track_display_name,
                 no_splash=no_splash,
+                on_launch_result=lambda code: state_holder.__setitem__("exit_code", code),
             ))
 
         def action_interrupt(self) -> None:
@@ -1372,6 +1373,7 @@ def run_launch_flow(
                 ),
                 track_display_name=_track_display_name,
                 no_splash=no_splash,
+                on_launch_result=lambda code: state_holder.__setitem__("exit_code", code),
             ))
 
         def action_interrupt(self) -> None:

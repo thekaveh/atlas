@@ -1,4 +1,4 @@
-# Backup / restore
+# 5.2.5. Backup / restore
 
 On-demand backup runner for the Atlas stack. Captures a Postgres custom-format dump (`pg_dump -Fc`) and tarballs of key named volumes, then pushes everything to an S3-compatible bucket (on-box MinIO by default, any external S3 endpoint otherwise). Restore is equally one-shot: pull the dump from S3 and feed it to `pg_restore --clean`.
 
@@ -7,6 +7,9 @@ The container is **never long-running** (`BACKUP_SCALE=0`). It exists in compose
 ```bash
 # Run a full backup
 docker compose run --rm backup
+
+# Persist the enabled SOURCE through the Atlas CLI
+./start.sh --backup-source container --detach
 
 # Restore the latest backup
 docker compose run --rm backup /scripts/restore-postgres.sh
@@ -40,9 +43,16 @@ BACKUP_SOURCE=disabled          # set to container to enable
 BACKUP_BUCKET=atlas-backups     # target bucket
 BACKUP_S3_ALIAS_URL=http://minio:9000  # S3 endpoint; swap for external S3
 BACKUP_IMAGE=postgres:17.10-alpine        # image providing pg_dump (major >= supabase-db server)
+BACKUP_COMMAND_TIMEOUT_SECONDS=900        # positive per-command deadline
 ```
 
 Set `BACKUP_S3_ALIAS_URL` to an AWS S3 or compatible endpoint (e.g. `https://s3.us-east-1.amazonaws.com`) for offsite backups. Credentials are shared with MinIO (`MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD`); for external S3 set these to the IAM access key / secret.
+
+`BACKUP_SOURCE` is enforced by the one-shot container entrypoint. Both backup and restore commands exit before installing tools or touching data while the source is `disabled`; set it to `container` to authorize on-demand runs. `BACKUP_SCALE` remains zero in both modes because the runner is never a long-running service.
+
+The setup wizard exposes the same `container` / `disabled` choice. For automation, `./start.sh --backup-source container --detach` persists the selection before the one-shot `docker compose run` command is used.
+
+Every package-install, PostgreSQL, archive, and S3 command is terminated when `BACKUP_COMMAND_TIMEOUT_SECONDS` elapses. The value must be a positive integer; increase it for unusually large databases or volumes rather than disabling the deadline.
 
 Timed execution: the runner has no internal scheduler. Wire it to the Airflow DAG or n8n workflow that owns your backup schedule — invoke `docker compose run --rm backup` from the orchestrator.
 
@@ -64,35 +74,33 @@ Postgres data lives in `supabase-db-data` but is captured via `pg_dump` (not vol
 
 ## 5. Dependencies & Integrations
 
-> Auto-generated section — the **Current** subsections are derived from `services/backup/service.yml`'s `data_flow.calls` field (and inverse passes). Re-run `python -m bootstrapper.docs.regen backup` after manifest changes.
-
-### 5.1 Current — Upstream (this service calls)
+### 5.1. Current — Upstream (this service calls)
 
 | Service | Category |
 |---|---|
 | minio | data |
 | supabase | data |
 
-### 5.2 Current — Downstream (services that call this)
+### 5.2. Current — Downstream (services that call this)
 
 _No downstream consumers._
 
-### 5.3 Architecture diagram
+### 5.3. Architecture diagram
 
 ![backup architecture](./architecture.svg)
 
 [Open the interactive HTML diagram](./architecture.html) for a full-screen view.
 
-### 5.4 Future — Missing pair integrations
+### 5.4. Future — Missing pair integrations
 
 - **backup -> airflow** — *Why:* schedule the backup runner from an Airflow DAG (`BashOperator` calling `docker compose run --rm backup`) for cron-based automation without adding a cron daemon. *Effort:* small.
 - **backup -> n8n** — *Why:* n8n's Execute Command node can trigger backup runs and send Slack/email alerts on failure. *Effort:* small.
 
-### 5.5 Future — Candidate new services
+### 5.5. Future — Candidate new services
 
 - **Restic** — *Why:* restic provides incremental, deduplicated, encrypted backups with retention policies, replacing the full-tar approach. *Effort:* medium.
 
-### 5.6 Future — Unused features in this service
+### 5.6. Future — Unused features in this service
 
 - **Volume restore** — *Why:* `restore-postgres.sh` only restores the Postgres dump; volume tarballs are captured but there is no companion restore script. *Effort:* small.
 - **Retention / pruning** — *Why:* backups accumulate indefinitely in the bucket; a pruning pass (keep last N / older than X days) would bound storage growth. *Effort:* small.

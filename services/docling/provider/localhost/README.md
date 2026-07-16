@@ -1,10 +1,10 @@
-# Docling Document Processor - Localhost Mode
+# 5.3.1. Docling Localhost Provider
 
 Run IBM Docling document processing natively on your host machine (any platform with Python).
 
-## Quick Start
+## 1. Quick Start
 
-### 1. Install Dependencies
+### 1.1. Install Dependencies
 
 ```bash
 cd services/docling/provider/localhost
@@ -23,7 +23,7 @@ uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu
 uv pip install torch torchvision
 ```
 
-### 2. Start the Server
+### 1.2. Start the Server
 
 ```bash
 uv run server.py
@@ -34,7 +34,7 @@ The server will start on `http://0.0.0.0:18159` by default (reads `DOCLING_LOCAL
 **First run:** Downloads AI models (~500MB - DocLayNet + TableFormer). Please be patient (5-10 minutes).
 **Subsequent runs:** Instant startup.
 
-### 3. Test the API
+### 1.3. Test the API
 
 ```bash
 curl -X POST http://localhost:18159/v1/document/convert \
@@ -43,9 +43,9 @@ curl -X POST http://localhost:18159/v1/document/convert \
   -F "table_mode=accurate"
 ```
 
-## Configuration
+## 2. Configuration
 
-### Environment Variables
+### 2.1. Environment Variables
 
 Set before running server:
 
@@ -53,11 +53,20 @@ Set before running server:
 export DOCLING_LOCALHOST_PORT=18159      # Server port (default: 18159)
 export DOCLING_DEVICE=cpu                # Device: cpu, cuda, mps
 export DOCLING_OUTPUT_FORMAT=markdown    # Format: markdown, html, json, doctags
+export DOCLING_USE_OCR=auto              # OCR: auto, always, never
 export DOCLING_TABLE_MODE=accurate       # Table mode: accurate, fast
+export DOCLING_ENABLE_FORMULAS=true      # Formula enrichment: true, false
+export DOCLING_ENABLE_CODE_BLOCKS=true   # Code enrichment: true, false
 export HF_TOKEN=your_token_here          # HuggingFace token (if needed)
 ```
 
-### Custom Port
+The request's `use_ocr` and `table_mode` values override their environment
+defaults. Device, formula enrichment, and code enrichment are applied through
+Docling's pinned `PdfPipelineOptions` API. Unsupported output formats are
+rejected during request validation; they are never silently returned as
+Markdown.
+
+### 2.2. Custom Port
 
 ```bash
 export DOCLING_LOCALHOST_PORT=55021
@@ -71,21 +80,21 @@ export DOCLING_LOCALHOST_PORT=$(grep '^DOCLING_LOCALHOST_PORT' ../../../../.env 
 uv run server.py
 ```
 
-## Supported Formats
+## 3. Supported Formats
 
-### Input Formats
+### 3.1. Input Formats
 - **Documents**: PDF, DOCX, DOC, PPTX, PPT, XLSX, HTML
 - **Images**: PNG, JPG, JPEG, TIFF, TIF
 
-### Output Formats
+### 3.2. Output Formats
 - **markdown** - Clean markdown (default)
 - **html** - Semantic HTML
 - **json** - Structured JSON with metadata
 - **doctags** - IBM Docling native format
 
-## API Examples
+## 4. API Examples
 
-### Basic Conversion
+### 4.1. Basic Conversion
 
 ```bash
 curl -X POST http://localhost:18159/v1/document/convert \
@@ -93,7 +102,7 @@ curl -X POST http://localhost:18159/v1/document/convert \
   -F "output_format=markdown"
 ```
 
-### With OCR and Table Extraction
+### 4.2. With OCR and Table Extraction
 
 ```bash
 curl -X POST http://localhost:18159/v1/document/convert \
@@ -102,7 +111,7 @@ curl -X POST http://localhost:18159/v1/document/convert \
   -F "table_mode=accurate"
 ```
 
-### RAG Chunking
+### 4.3. RAG Chunking
 
 ```bash
 curl -X POST http://localhost:18159/v1/document/convert \
@@ -112,26 +121,26 @@ curl -X POST http://localhost:18159/v1/document/convert \
   -F "chunk_overlap=50"
 ```
 
-## Features
+## 5. Features
 
-### Table Extraction
+### 5.1. Table Extraction
 - **Accurate Mode**: Uses TableFormer AI model (slow, high quality)
 - **Fast Mode**: Rule-based extraction (10x faster, lower quality)
 
-### OCR Support
+### 5.2. OCR Support
 - **Auto**: Only uses OCR when needed (scanned PDFs, images)
 - **Always**: Forces OCR on all documents
 - **Never**: Disables OCR completely
 
-### Advanced Extraction
+### 5.3. Advanced Extraction
 - Mathematical formulas (LaTeX format)
 - Code blocks with syntax preservation
 - Images and figures
 - Document structure (headings, paragraphs, lists)
 
-## Integration with Atlas
+## 6. Integration with Atlas
 
-### Method 1: Localhost Mode (Recommended)
+### 6.1. Method 1: Localhost Mode (Recommended)
 
 ```bash
 # Terminal 1: Start doc processor
@@ -142,7 +151,7 @@ uv run server.py
 ./start.sh --doc-processor-source docling-localhost
 ```
 
-### Method 2: With Custom Base Port
+### 6.2. Method 2: With Custom Base Port
 
 ```bash
 # Terminal 1: Export port from .env (repo root is four levels up)
@@ -153,7 +162,7 @@ uv run server.py
 ./start.sh --base-port 55000 --doc-processor-source docling-localhost
 ```
 
-### Method 3: Permanent Configuration
+### 6.3. Method 3: Permanent Configuration
 
 Edit `.env` file:
 ```bash
@@ -165,28 +174,28 @@ Then start stack:
 ./start.sh
 ```
 
-## Performance
+## 7. Performance
 
-### CPU (Any Platform)
+### 7.1. CPU (Any Platform)
 - Simple PDFs: ~2-5 seconds/page
 - PDFs with tables: ~10-30 seconds/page
 - Memory: ~2GB RAM
 
-### GPU (NVIDIA CUDA)
+### 7.2. GPU (NVIDIA CUDA)
 - Simple PDFs: ~1-2 seconds/page
 - PDFs with tables: ~2-7 seconds/page (4.3x faster than CPU)
 - Memory: ~2GB VRAM
 
-### Apple Silicon (MPS)
+### 7.3. Apple Silicon (MPS)
 - Simple PDFs: ~1-3 seconds/page
 - PDFs with tables: ~5-15 seconds/page
 - Memory: ~2GB RAM
 
 *Performance varies based on document complexity and table count*
 
-## Troubleshooting
+## 8. Troubleshooting
 
-### Port Already in Use
+### 8.1. Port Already in Use
 
 ```bash
 # Use different port
@@ -194,7 +203,7 @@ export DOCLING_LOCALHOST_PORT=63090
 uv run server.py
 ```
 
-### GPU Not Detected (NVIDIA)
+### 8.2. GPU Not Detected (NVIDIA)
 
 ```bash
 # Install CUDA-enabled PyTorch
@@ -204,7 +213,7 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
 python -c "import torch; print(torch.cuda.is_available())"
 ```
 
-### Model Download Fails
+### 8.3. Model Download Fails
 
 ```bash
 # Set HuggingFace token if accessing gated models
@@ -215,7 +224,7 @@ uv run server.py
 df -h
 ```
 
-### Import Errors
+### 8.4. Import Errors
 
 ```bash
 # Reinstall dependencies
@@ -226,7 +235,7 @@ rm -rf .venv
 uv sync
 ```
 
-### Slow Processing
+### 8.5. Slow Processing
 
 **Problem**: Document processing takes too long
 
@@ -236,9 +245,9 @@ uv sync
 - Use GPU if available (4.3x speedup for tables)
 - Disable OCR if not needed: `use_ocr=never`
 
-## Technical Details
+## 9. Technical Details
 
-### Model Downloads
+### 9.1. Model Downloads
 
 Models are downloaded on first run and cached in:
 - **Linux/Mac**: `~/.cache/huggingface/`
@@ -248,7 +257,7 @@ Downloaded models:
 - **DocLayNet**: ~200MB (layout analysis)
 - **TableFormer**: ~300MB (table structure recognition)
 
-### Device Selection
+### 9.2. Device Selection
 
 ```python
 # Auto-detected based on availability:
@@ -259,15 +268,15 @@ Downloaded models:
 
 Override with `DOCLING_DEVICE` environment variable.
 
-### Memory Requirements
+### 9.3. Memory Requirements
 
 - **Minimum**: 2GB RAM
 - **Recommended**: 4GB RAM
 - **GPU**: 2GB VRAM (for table extraction acceleration)
 
-## Advanced Usage
+## 10. Advanced Usage
 
-### Python Integration
+### 10.1. Python Integration
 
 ```python
 import requests
@@ -290,7 +299,7 @@ print(f"Processed {result['metadata']['pages']} pages")
 print(f"Found {result['metadata']['tables']} tables")
 ```
 
-### Batch Processing
+### 10.2. Batch Processing
 
 ```bash
 # Process multiple files
@@ -302,9 +311,9 @@ for file in *.pdf; do
 done
 ```
 
-## References
+## 11. References
 
-- [IBM Docling Documentation](https://ds4sd.github.io/docling/)
+- [Docling Documentation](https://docling-project.github.io/docling/)
 - [Docling GitHub](https://github.com/DS4SD/docling)
 - [DocLayNet Dataset](https://github.com/DS4SD/DocLayNet)
 - [TableFormer Paper](https://arxiv.org/abs/2203.01017)

@@ -8,7 +8,7 @@
 
 **Tech Stack:** Docker Compose fragment + manifest; `pg_dump`/`psql` against `${PROJECT_NAME}-supabase-db`; `tar` for volume snapshots; `minio/mc` for S3 push; pytest init-script compile guards.
 
-## Global Constraints
+## 1. Global Constraints
 
 - `main` protected — PR with 3 green checks; no direct push.
 - Commits terse third-person, no emoji, no Claude trailer.
@@ -19,7 +19,7 @@
 
 ---
 
-### Task 1: Backup scripts (shell)
+### 1.1. Task 1: Backup scripts (shell)
 
 **Files:**
 - Create: `services/backup/init/scripts/backup-all.sh`
@@ -101,7 +101,7 @@ git commit -m "Add backup/restore shell scripts"
 
 ---
 
-### Task 2: Manifest + compose fragment
+### 1.2. Task 2: Manifest + compose fragment
 
 **Files:**
 - Create: `services/backup/service.yml`, `services/backup/compose.yml`
@@ -240,7 +240,7 @@ git commit -m "Add backup service (manifest + fragment + docs)"
 
 ---
 
-### Task 3: Live smoke test + runbook scheduling note
+### 1.3. Task 3: Live smoke test + runbook scheduling note
 
 **Files:**
 - Modify: `services/backup/README.md` (usage), `docs/deployment/` runbook (cron)
@@ -274,7 +274,7 @@ git commit -m "docs: backup usage, restore drill, cron + offsite"
 
 ---
 
-## Self-Review
+## 2. Self-Review
 
 - **Spec coverage:** Implements P0-6 (backups + offsite + schedule + a restore drill). Neo4j already has its own `backup.sh`; this complements it for Postgres + the other volumes (the plan snapshots `graph-db-data` raw too, which is a belt-and-suspenders volume copy).
 - **Placeholders:** none — both scripts are complete and runnable; the one genuine validation gate (does `apk add minio-client` give the real `mc`?) is an explicit Step with a fallback, not a placeholder.

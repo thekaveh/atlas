@@ -22,6 +22,7 @@ def test_generate_block_has_topology_markers():
     assert block.startswith("<!-- TOPOLOGY:BEGIN -->"), block[:80]
     # Trailing newline is appended after the END marker.
     assert block.rstrip().endswith("<!-- TOPOLOGY:END -->"), block[-80:]
+    assert "Auto-generated" not in block
 
 
 def test_generate_block_contains_all_category_labels_in_order():

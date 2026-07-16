@@ -1,30 +1,11 @@
 #!/bin/sh
-set -e
+set -eu
 
-echo "n8n-init: Starting n8n community nodes installation..."
-
-# Check required environment variables
-if [ -z "$N8N_HOST" ] || [ -z "$N8N_PORT" ]; then
-  echo "n8n-init: Error: N8N_HOST and N8N_PORT environment variables are required."
-  echo "N8N_HOST=$N8N_HOST, N8N_PORT=$N8N_PORT"
+echo "n8n-init: Starting locked community package installation..."
+if [ ! -x /scripts/install-nodes.sh ]; then
+  echo "n8n-init: ERROR - install-nodes.sh is missing or not executable."
   exit 1
 fi
 
-echo "n8n-init: Installing community nodes..."
-# Run nodes installation script
-if [ -f "/scripts/install-nodes.sh" ]; then
-  /scripts/install-nodes.sh
-else
-  echo "n8n-init: ERROR - install-nodes.sh script not found!"
-  exit 1
-fi
-
-echo "n8n-init: ✓ n8n community nodes installation completed successfully!"
-echo "n8n-init: Your n8n instance now has:"
-echo "n8n-init: - ComfyUI integration nodes"
-echo "n8n-init: - Model Context Protocol (MCP) nodes"
-echo "n8n-init:"
-echo "n8n-init: 📋 Next Steps:"
-echo "n8n-init: 1. Complete n8n user setup via the web UI"
-echo "n8n-init: 2. Manually import workflow templates from /config/"
-echo "n8n-init: 3. Set up PostgreSQL credentials for database access"
+/scripts/install-nodes.sh
+echo "n8n-init: Community package installation completed successfully."

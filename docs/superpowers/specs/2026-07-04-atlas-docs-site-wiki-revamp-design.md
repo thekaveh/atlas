@@ -15,7 +15,7 @@ This design replaces the current generated documentation layer with a polished, 
 
 ## 2. Goals
 
-### 2.1 Product Goals
+### 2.1. Product Goals
 
 - Make the public documentation site feel finished, elegant, technical, and trustworthy.
 - Make the GitHub Wiki useful enough for readers who discover Atlas through GitHub's wiki surface.
@@ -24,7 +24,7 @@ This design replaces the current generated documentation layer with a polished, 
 - Use the current Atlas hero art and wizard screenshot across the public documentation surfaces.
 - Keep all generated documentation hierarchically numbered, from generic overview sections to specific reference details.
 
-### 2.2 Engineering Goals
+### 2.2. Engineering Goals
 
 - Reuse existing doc infrastructure where it is valuable: `scripts/generate-docs-site.py`, `scripts/export-docs-wiki.py`, `scripts/check-docs-site.py`, `docs-pages.yml`, service manifests, topology, tracks, service READMEs, and generated architecture assets.
 - Replace weak generated content with richer generated pages rather than creating parallel hand-maintained copies.
@@ -43,7 +43,7 @@ This design replaces the current generated documentation layer with a polished, 
 
 ## 4. Current-State Findings
 
-### 4.1 Existing Strengths
+### 4.1. Existing Strengths
 
 - `mkdocs.yml` already publishes `docs/` to `site/` with `site_url: https://thekaveh.github.io/atlas/`.
 - `.github/workflows/docs-pages.yml` already builds the site, uploads the Pages artifact, deploys to GitHub Pages, and pushes the generated wiki.
@@ -53,7 +53,7 @@ This design replaces the current generated documentation layer with a polished, 
 - Service metadata already exists in `services/<name>/service.yml`, `bootstrapper/tracks.yml`, `services/topology.py`, and service READMEs.
 - Per-service architecture assets already exist for most services under `services/<name>/architecture.{svg,html}`.
 
-### 4.2 Current Weaknesses
+### 4.2. Current Weaknesses
 
 - The current MkDocs theme is the stock `mkdocs` theme with custom CSS. It lacks the navigation ergonomics, search polish, palette toggles, and docs-product feel expected from a serious public documentation site.
 - The current generated service pages mostly say "Source README remains the source of truth." They index services but do not explain them.
@@ -65,7 +65,7 @@ This design replaces the current generated documentation layer with a polished, 
 
 ## 5. Research Anchors
 
-### 5.1 MkDocs And Theme Direction
+### 5.1. MkDocs And Theme Direction
 
 Material for MkDocs supports multiple color palettes, including automatic light and dark behavior, explicit dark/light toggles, and custom color variables. That makes it a good fit for an Atlas-branded dark-default site with a light option. Source: [Material for MkDocs color customization](https://squidfunk.github.io/mkdocs-material/setup/changing-the-colors/).
 
@@ -73,7 +73,7 @@ MkDocs uses `mkdocs.yml` as the project configuration entrypoint and supports ge
 
 Material also supports additional CSS and theme extension without forking the theme, which is the right level of customization for Atlas' brand layer. Source: [Material for MkDocs customization](https://squidfunk.github.io/mkdocs-material/customization/).
 
-### 5.2 Publication Direction
+### 5.2. Publication Direction
 
 GitHub Pages supports custom GitHub Actions workflows as a publication source. Atlas already uses this model, so the redesign should strengthen the current workflow instead of moving to a branch-push publishing strategy. Source: [GitHub Pages custom Actions workflow](https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site).
 
@@ -81,7 +81,7 @@ The GitHub repository About URL can be updated through the repository update API
 
 ## 6. Recommended Approach
 
-### 6.1 Approach
+### 6.1. Approach
 
 Use the current generator and CI pipeline as the foundation, but rebuild the generated documentation product around a richer internal docs model:
 
@@ -92,13 +92,13 @@ Use the current generator and CI pipeline as the foundation, but rebuild the gen
 - Expand the wiki into a parallel, compact but complete reader surface.
 - Add tests that make the desired quality and sync behavior enforceable.
 
-### 6.2 Rationale
+### 6.2. Rationale
 
 This approach preserves the strongest part of the existing system: single-source generation. It also fixes the visible problem: the public docs and wiki do not yet look or read like a mature platform's documentation. A full static rewrite would look better briefly but would drift immediately. A cosmetic theme pass would be faster but would leave the content shallow. The right answer is to upgrade both the generator and the editorial structure.
 
 ## 7. Documentation Architecture
 
-### 7.1 Source Model
+### 7.1. Source Model
 
 The generator should build one `DocsModel` from canonical inputs:
 
@@ -113,7 +113,7 @@ The generator should build one `DocsModel` from canonical inputs:
 - `docs/deployment/ports-and-routes.md` and Kong route generation outputs for access patterns.
 - `docs/research/` and `docs/strategy/` for future roadmap references, without making speculative notes part of the main quick-start path.
 
-### 7.2 Generator Modules
+### 7.2. Generator Modules
 
 The current `scripts/generate-docs-site.py` should be split into focused modules under a new docs generation package. The exact names can vary during implementation, but the responsibilities should be stable:
 
@@ -131,7 +131,7 @@ The public commands may remain `scripts/generate-docs-site.py` and `scripts/expo
 
 ## 8. Information Architecture
 
-### 8.1 MkDocs Site Navigation
+### 8.1. MkDocs Site Navigation
 
 The `.io` site should use a clear numbered navigation tree:
 
@@ -148,7 +148,7 @@ The `.io` site should use a clear numbered navigation tree:
 
 Each section should move from broad explanation to specific details. The site home should lead with Atlas identity, value, visual proof, and the first practical path. It should not describe the screenshot as a screenshot or explain that a diagram is a diagram; captions should add context that helps the reader understand Atlas.
 
-### 8.2 Service Catalog
+### 8.2. Service Catalog
 
 The service catalog should be grouped by Atlas categories and tracks rather than by raw folder order:
 
@@ -176,7 +176,7 @@ Each service card or table row should include:
 - Link to service profile.
 - Link to source README.
 
-### 8.3 Service Profile Pages
+### 8.3. Service Profile Pages
 
 Each generated service profile should be substantial enough to stand alone in the `.io` site while still linking back to the source README. Required sections:
 
@@ -194,7 +194,7 @@ Each generated service profile should be substantial enough to stand alone in th
 
 The generator should fill these sections from manifests, topology, track membership, ports/routes, `data_flow.calls`, and service README metadata. When a field is unavailable, the page should say what is known from the manifest rather than using vague placeholder language.
 
-### 8.4 Architecture Section
+### 8.4. Architecture Section
 
 The architecture section should contain:
 
@@ -215,7 +215,7 @@ The main stack diagrams and any newly regenerated high-level diagrams must use t
 
 ## 9. Theme And Visual Design
 
-### 9.1 MkDocs Theme
+### 9.1. MkDocs Theme
 
 The site should migrate from `theme.name: mkdocs` to Material for MkDocs.
 
@@ -232,7 +232,7 @@ Required capabilities:
 - Responsive mobile layout.
 - Local assets only for Atlas-specific images.
 
-### 9.2 Visual Tone
+### 9.2. Visual Tone
 
 The site should feel like a serious local-first engineering platform: dense enough for repeated technical use, visually polished enough for public evaluation, and restrained enough not to read like a marketing splash page.
 
@@ -244,7 +244,7 @@ Avoid:
 - One-note dark-blue monotony without functional color distinction.
 - Placeholder pages that only point elsewhere.
 
-### 9.3 Assets
+### 9.3. Assets
 
 The following assets should be reused:
 
@@ -255,11 +255,11 @@ The following assets should be reused:
 
 ## 10. Wiki Design
 
-### 10.1 Wiki Purpose
+### 10.1. Wiki Purpose
 
 The GitHub Wiki should be a compact, GitHub-native companion to the `.io` site. It should not be the full canonical site, but it should be useful without forcing the reader to leave immediately.
 
-### 10.2 Wiki Pages
+### 10.2. Wiki Pages
 
 Generate at least:
 
@@ -278,13 +278,13 @@ Generate at least:
 
 The service wiki page should include a category-grouped service index with SOURCE variables, source values, track membership, dependency summary, and links to the `.io` service pages and source READMEs.
 
-### 10.3 Wiki Sync
+### 10.3. Wiki Sync
 
 The wiki export must remain generated from the same `DocsModel` as the MkDocs site. `scripts/export-docs-wiki.py --check` should fail when the checked-in `docs/wiki/*.md` pages drift. The live wiki push should remain in the Pages workflow after the site build succeeds.
 
 ## 11. Synchronization Contract
 
-### 11.1 Service Changes
+### 11.1. Service Changes
 
 When a worker changes a service setting or adds a service, the following docs outputs should update automatically through the generator:
 
@@ -299,7 +299,7 @@ When a worker changes a service setting or adds a service, the following docs ou
 - Wiki service summary.
 - Architecture catalog entries where applicable.
 
-### 11.2 Drift Checks
+### 11.2. Drift Checks
 
 CI should verify:
 
@@ -317,11 +317,11 @@ CI should verify:
 
 ## 12. GitHub Pages And Repository About
 
-### 12.1 Pages
+### 12.1. Pages
 
 Keep the current GitHub Actions publication model. The workflow should build the generated Material site into `site/`, upload it with `actions/upload-pages-artifact`, and deploy it with `actions/deploy-pages`.
 
-### 12.2 Repository About
+### 12.2. Repository About
 
 After the docs site is merged and deployed, update the repository homepage/About URL to:
 
@@ -337,7 +337,7 @@ If permissions are insufficient, the implementation should report the required m
 
 ## 13. Testing Strategy
 
-### 13.1 Unit And Structural Tests
+### 13.1. Unit And Structural Tests
 
 Expand `bootstrapper/tests/test_docs_site_platform.py` or split it into focused tests:
 
@@ -351,7 +351,7 @@ Expand `bootstrapper/tests/test_docs_site_platform.py` or split it into focused 
 - Generated references cover SOURCE, env vars, tracks, ports, and dependencies.
 - Theme assets use local Atlas CSS and local images.
 
-### 13.2 Build Tests
+### 13.2. Build Tests
 
 Preserve and strengthen:
 
@@ -360,7 +360,7 @@ Preserve and strengthen:
 - wiki export drift validation
 - generated docs drift checks
 
-### 13.3 Visual Review
+### 13.3. Visual Review
 
 Before merging implementation, run a local MkDocs server or static build preview and inspect:
 
@@ -376,7 +376,7 @@ The implementation should include screenshots in the PR notes when the visual ch
 
 ## 14. Implementation Phases
 
-### 14.1 Phase 1: Docs Model And Material Foundation
+### 14.1. Phase 1: Docs Model And Material Foundation
 
 - Add Material for MkDocs dependency.
 - Generate Material-compatible `mkdocs.yml`.
@@ -384,33 +384,33 @@ The implementation should include screenshots in the PR notes when the visual ch
 - Preserve Pages workflow.
 - Keep existing pages building while the new structure lands.
 
-### 14.2 Phase 2: Information Architecture And Home Pages
+### 14.2. Phase 2: Information Architecture And Home Pages
 
 - Replace shallow static pages with full Overview, Quick Start, Core Concepts, Tracks, Architecture, Configuration, Operations, Development, and Reference sections.
 - Reuse Atlas hero art and wizard screenshot.
 - Normalize tone and numbered hierarchy.
 
-### 14.3 Phase 3: Service Catalog And Service Profiles
+### 14.3. Phase 3: Service Catalog And Service Profiles
 
 - Generate category-grouped service catalog.
 - Generate substantial service profile pages for every service family.
 - Add source values, track membership, access URLs, topology, dependencies, runtime calls, and diagram links.
 - Ensure service additions automatically appear in all generated surfaces.
 
-### 14.4 Phase 4: Wiki Expansion
+### 14.4. Phase 4: Wiki Expansion
 
 - Expand wiki page set.
 - Generate full service summaries.
 - Keep wiki content compact but useful.
 - Preserve live wiki push after successful Pages build.
 
-### 14.5 Phase 5: Diagram Refresh
+### 14.5. Phase 5: Diagram Refresh
 
 - Regenerate or replace high-level architecture pages using the `architecture-diagram` design system.
 - Ensure every service profile links to existing per-service diagrams.
 - For services missing diagrams, add generated diagrams through the established per-service docs generation path.
 
-### 14.6 Phase 6: About URL And Release Hygiene
+### 14.6. Phase 6: About URL And Release Hygiene
 
 - Update repository About/homepage URL when permissions allow.
 - Add contributor guidance for the docs generator.
@@ -419,31 +419,31 @@ The implementation should include screenshots in the PR notes when the visual ch
 
 ## 15. Risks And Mitigations
 
-### 15.1 Scope Creep
+### 15.1. Scope Creep
 
 Risk: A full docs rewrite can expand indefinitely.
 
 Mitigation: Keep this effort focused on the docs system, IA, theme, generated service pages, wiki, diagrams, and CI. Do not rewrite every service README by hand unless the generated profile exposes a specific broken source doc.
 
-### 15.2 Generator Complexity
+### 15.2. Generator Complexity
 
 Risk: The generator becomes harder to maintain if all logic stays in one large script.
 
 Mitigation: Split the generator into focused modules with tests around model loading and page rendering.
 
-### 15.3 Broken Links
+### 15.3. Broken Links
 
 Risk: Reorganizing pages can break repo and site links.
 
 Mitigation: Preserve compatibility stubs where needed, run built-site link validation, and keep link checks in CI.
 
-### 15.4 Theme Dependency
+### 15.4. Theme Dependency
 
 Risk: Material for MkDocs adds a dependency beyond plain MkDocs.
 
 Mitigation: Pin it in the bootstrapper dev dependencies with a bounded version range and keep customization in local CSS rather than a fork.
 
-### 15.5 Wiki Rendering Limits
+### 15.5. Wiki Rendering Limits
 
 Risk: GitHub Wiki supports fewer theme and layout features than the `.io` site.
 

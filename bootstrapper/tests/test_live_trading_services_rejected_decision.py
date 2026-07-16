@@ -20,7 +20,7 @@ def _candidate_text() -> str:
 def test_live_trading_services_have_rejected_for_now_decision() -> None:
     text = _candidate_text()
 
-    assert "## Rejected-for-now decision (2026-07-04)" in text
+    assert "Rejected-for-now decision (2026-07-04)" in text
     assert "must not add `services/hummingbot/service.yml`" in text
     assert "must not add `services/freqtrade/service.yml`" in text
     assert "must not add `services/nautilustrader/service.yml`" in text

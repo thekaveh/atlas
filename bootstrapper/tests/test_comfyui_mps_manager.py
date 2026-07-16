@@ -8,8 +8,10 @@ file) proves the real /system_stats-reports-MPS contract; it never runs in CI.
 """
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 import platform
 import subprocess
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -183,6 +185,10 @@ def test_install_clones_and_builds_venv(tmp_path, monkeypatch):
         calls.append(cmd)
         if cmd[:1] == ["sysctl"]:
             return _FakeCompleted(0, str(64 * 1024 ** 3))
+        if cmd[:2] == ["git", "clone"]:
+            repo_dir = Path(cmd[-1])
+            repo_dir.mkdir(parents=True, exist_ok=True)
+            (repo_dir / "requirements.txt").write_text("torch\n")
         return _FakeCompleted(0)
 
     monkeypatch.setattr(mod.subprocess, "run", rec_run)
@@ -200,13 +206,17 @@ def test_install_clones_and_builds_venv(tmp_path, monkeypatch):
     assert "base_path" in mgr.model_paths_file.read_text()
 
 
-def test_install_idempotent_skips_clone_when_present(tmp_path, monkeypatch):
+def test_install_idempotent_skips_dependencies_when_fingerprint_matches(tmp_path, monkeypatch):
     _darwin_arm64(monkeypatch)
     mgr = _mgr(tmp_path)
     mgr.repo_dir.mkdir(parents=True)
     (mgr.repo_dir / "requirements.txt").write_text("torch\n")
     mgr.venv_python.parent.mkdir(parents=True)
     mgr.venv_python.write_text("#!/bin/sh\n")
+    mgr._write_status(
+        installed_ref=mgr.ref,
+        requirements_sha256=mgr._requirements_sha256(),
+    )
 
     calls = []
 
@@ -224,6 +234,30 @@ def test_install_idempotent_skips_clone_when_present(tmp_path, monkeypatch):
     assert not any("git clone" in j for j in joined)  # no re-clone
     assert not any("venv" in j and "-m" in j for j in joined)  # no venv rebuild
     assert any(f"checkout --force {mgr.ref}" in j for j in joined)  # ref still pinned
+
+
+def test_install_reconciles_changed_requirements_without_update_flag(tmp_path, monkeypatch):
+    _darwin_arm64(monkeypatch)
+    mgr = _mgr(tmp_path)
+    mgr.repo_dir.mkdir(parents=True)
+    requirements = mgr.repo_dir / "requirements.txt"
+    requirements.write_text("torch\n")
+    mgr.venv_python.parent.mkdir(parents=True)
+    mgr.venv_python.write_text("#!/bin/sh\n")
+    mgr._write_status(installed_ref=mgr.ref, requirements_sha256="stale")
+    calls = []
+
+    def rec_run(cmd, *a, **k):
+        calls.append(cmd)
+        if cmd[:1] == ["sysctl"]:
+            return _FakeCompleted(0, str(64 * 1024 ** 3))
+        if str(mgr.venv_python) in cmd and "-c" in cmd:
+            return _FakeCompleted(0, "1")
+        return _FakeCompleted(0)
+
+    monkeypatch.setattr(mod.subprocess, "run", rec_run)
+    mgr.install()
+    assert any("pip install --upgrade torch" in " ".join(c) for c in calls)
 
 
 def test_install_fetches_when_ref_missing_locally(tmp_path, monkeypatch):
@@ -319,6 +353,7 @@ def _install_stub(mgr):
     mgr.venv_python.write_text("#!/bin/sh\n")
     mgr.repo_dir.mkdir(parents=True, exist_ok=True)
     (mgr.repo_dir / "main.py").write_text("# comfyui\n")
+    (mgr.repo_dir / "requirements.txt").write_text("torch\n")
     mgr.model_paths_file.parent.mkdir(parents=True, exist_ok=True)
     mgr.model_paths_file.write_text("atlas_host:\n  base_path: /x\n")
 
@@ -335,8 +370,9 @@ def test_start_launches_and_records_pid(tmp_path, monkeypatch):
         return SimpleNamespace(pid=4242)
 
     monkeypatch.setattr(mod.subprocess, "Popen", fake_popen)
-    status = mgr.start()
+    status, created = mgr.start_with_ownership()
     assert status.running and status.pid == 4242 and status.port == 8188
+    assert created is True
     assert mgr.pid_file.read_text().strip() == "4242"
     # launched with the pinned port, loopback bind, and reused model paths
     assert "--port" in launched["args"] and "8188" in launched["args"]
@@ -383,7 +419,7 @@ def test_stop_sigints_then_kills(tmp_path, monkeypatch):
     # pid stays alive through SIGINT, so stop escalates to SIGKILL.
     alive = {"v": True}
 
-    def fake_kill(pid, sig):
+    def fake_killpg(pid, sig):
         signals.append(sig)
         if sig == mod.signal.SIGKILL:
             alive["v"] = False
@@ -391,7 +427,8 @@ def test_stop_sigints_then_kills(tmp_path, monkeypatch):
         if sig == 0 and not alive["v"]:
             raise ProcessLookupError
 
-    monkeypatch.setattr(mod.os, "kill", fake_kill)
+    monkeypatch.setattr(mgr, "_managed_process_alive", lambda pid: alive["v"])
+    monkeypatch.setattr(mod.os, "killpg", fake_killpg)
     monkeypatch.setattr(mod.os, "waitpid", lambda pid, flags: (0, 0))
     monkeypatch.setattr(ComfyUiMpsManager, "_pid_is_stranger", lambda self, pid: False)
     monkeypatch.setattr(mod.time, "sleep", lambda _s: None)
@@ -426,12 +463,35 @@ def test_stop_refuses_to_kill_a_recycled_stranger_pid(tmp_path, monkeypatch):
     assert not mgr.pid_file.exists()  # stale pidfile cleared
 
 
+def test_stop_reaps_exited_leader_during_grace_period(tmp_path, monkeypatch):
+    mgr = _mgr(tmp_path)
+    mgr.state_dir.mkdir(parents=True)
+    mgr.pid_file.write_text("556")
+    state = {"alive": True, "signals": []}
+
+    monkeypatch.setattr(mgr, "_pid_is_stranger", lambda pid: False)
+    monkeypatch.setattr(mgr, "_managed_process_alive", lambda pid: state["alive"])
+    monkeypatch.setattr(
+        mod.os, "killpg", lambda pid, sig: state["signals"].append(sig)
+    )
+
+    def reap(pid, flags):
+        state["alive"] = False
+        return pid, 0
+
+    monkeypatch.setattr(mod.os, "waitpid", reap)
+
+    assert mgr.stop() is True
+    assert state["signals"] == [mod.signal.SIGINT]
+
+
 def test_stop_reports_failure_when_process_survives_sigkill(tmp_path, monkeypatch):
     mgr = _mgr(tmp_path)
     mgr.state_dir.mkdir(parents=True)
     mgr.pid_file.write_text("888")
     monkeypatch.setattr(ComfyUiMpsManager, "_pid_is_stranger", lambda self, pid: False)
-    monkeypatch.setattr(mod.os, "kill", lambda pid, sig: None)  # always "alive"
+    monkeypatch.setattr(mgr, "_managed_process_alive", lambda pid: True)
+    monkeypatch.setattr(mod.os, "killpg", lambda pid, sig: None)
     monkeypatch.setattr(mod.os, "waitpid", lambda pid, flags: (0, 0))
     monkeypatch.setattr(mod.time, "sleep", lambda _s: None)
     clock = {"v": 0.0}
@@ -439,6 +499,60 @@ def test_stop_reports_failure_when_process_survives_sigkill(tmp_path, monkeypatc
     # Process never dies → stop must be honest and NOT clear the pidfile.
     assert mgr.stop() is False
     assert mgr.pid_file.exists()
+
+
+def test_stop_waits_for_group_after_sigkill(tmp_path, monkeypatch):
+    mgr = _mgr(tmp_path)
+    mgr.state_dir.mkdir(parents=True)
+    mgr.pid_file.write_text("889")
+    state = {"killed": False, "post_kill_probes": 0}
+
+    def alive(_pid):
+        if not state["killed"]:
+            return True
+        state["post_kill_probes"] += 1
+        return state["post_kill_probes"] < 3
+
+    def killpg(_pid, sig):
+        if sig == mod.signal.SIGKILL:
+            state["killed"] = True
+
+    clock = {"value": 0.0}
+    monkeypatch.setattr(mgr, "_managed_process_alive", alive)
+    monkeypatch.setattr(mgr, "_pid_is_stranger", lambda pid: False)
+    monkeypatch.setattr(mod.os, "killpg", killpg)
+    monkeypatch.setattr(mod.os, "waitpid", lambda pid, flags: (pid, 0))
+    monkeypatch.setattr(mod.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(
+        mod.time,
+        "monotonic",
+        lambda: clock.__setitem__("value", clock["value"] + 2.0) or clock["value"],
+    )
+
+    assert mgr.stop() is True
+    assert state["post_kill_probes"] >= 3
+
+
+def test_stop_signals_process_group_when_leader_has_exited(tmp_path, monkeypatch):
+    mgr = _mgr(tmp_path)
+    mgr.state_dir.mkdir(parents=True)
+    mgr.pid_file.write_text("777")
+    alive = {"group": True}
+    monkeypatch.setattr(mgr, "_pid_alive", lambda pid: False)
+    monkeypatch.setattr(mgr, "_process_group_alive", lambda pgid: alive["group"])
+    monkeypatch.setattr(mgr, "_pid_is_stranger", lambda pid: False)
+    signals = []
+
+    def fake_killpg(pgid, sig):
+        signals.append((pgid, sig))
+        if sig == mod.signal.SIGINT:
+            alive["group"] = False
+
+    monkeypatch.setattr(mod.os, "killpg", fake_killpg)
+    monkeypatch.setattr(mod.os, "waitpid", lambda pid, flags: (pid, 0))
+
+    assert mgr.stop() is True
+    assert signals == [(777, mod.signal.SIGINT)]
 
 
 def test_stop_returns_false_without_process(tmp_path):
@@ -508,21 +622,161 @@ def test_ensure_running_installs_then_starts(tmp_path, monkeypatch):
     order = []
     monkeypatch.setattr(ComfyUiMpsManager, "preflight",
                         lambda self, **k: mod.PreflightResult(status="ok"))
-    monkeypatch.setattr(ComfyUiMpsManager, "install",
-                        lambda self, **k: order.append("install"))
-    monkeypatch.setattr(ComfyUiMpsManager, "start",
-                        lambda self: order.append("start") or mod.ProcessStatus(True, 1, mgr.port))
+    monkeypatch.setattr(
+        ComfyUiMpsManager,
+        "_install_locked",
+        lambda self, **k: order.append("install"),
+    )
+    monkeypatch.setattr(
+        ComfyUiMpsManager,
+        "_start_locked",
+        lambda self: (
+            order.append("start") or mod.ProcessStatus(True, 1, mgr.port),
+            True,
+        ),
+    )
     mgr.ensure_running()
     assert order == ["install", "start"]
+
+
+def test_start_with_ownership_distinguishes_existing_process(tmp_path, monkeypatch):
+    mgr = _mgr(tmp_path)
+    monkeypatch.setattr(
+        mgr, "status", lambda: mod.ProcessStatus(True, 4242, mgr.port)
+    )
+
+    status, created = mgr.start_with_ownership()
+
+    assert status.pid == 4242
+    assert created is False
+
+
+def test_concurrent_starts_assign_ownership_to_one_launcher(tmp_path, monkeypatch):
+    first = _mgr(tmp_path)
+    second = _mgr(tmp_path)
+    _install_stub(first)
+    monkeypatch.setattr(
+        ComfyUiMpsManager,
+        "_pid_alive",
+        staticmethod(lambda _pid: True),
+    )
+    monkeypatch.setattr(ComfyUiMpsManager, "_port_in_use", lambda self: False)
+    launches: list[int] = []
+
+    def fake_popen(*_args, **_kwargs):
+        launches.append(4242)
+        time.sleep(0.05)
+        return SimpleNamespace(pid=4242)
+
+    monkeypatch.setattr(mod.subprocess, "Popen", fake_popen)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(
+            pool.map(
+                lambda manager: manager.start_with_ownership(), [first, second]
+            )
+        )
+
+    assert sorted(created for _status, created in results) == [False, True]
+    assert launches == [4242]
+
+
+def test_launch_metadata_failure_terminates_new_process(tmp_path, monkeypatch):
+    mgr = _mgr(tmp_path)
+    _install_stub(mgr)
+    monkeypatch.setattr(mgr, "_port_in_use", lambda: False)
+    monkeypatch.setattr(
+        mod.subprocess, "Popen", lambda *_args, **_kwargs: SimpleNamespace(pid=5150)
+    )
+    monkeypatch.setattr(
+        mgr,
+        "_write_status",
+        lambda **_kwargs: (_ for _ in ()).throw(OSError("metadata failed")),
+    )
+    terminated: list[int] = []
+    monkeypatch.setattr(
+        mgr, "_terminate_pid", lambda pid: terminated.append(pid) or True
+    )
+
+    with pytest.raises(ComfyUiMpsError, match="child was terminated"):
+        mgr.start_with_ownership()
+
+    assert terminated == [5150]
+    assert not mgr.pid_file.exists()
+
+
+def test_failed_launch_compensation_retains_untracked_pid(tmp_path, monkeypatch):
+    mgr = _mgr(tmp_path)
+    _install_stub(mgr)
+    monkeypatch.setattr(mgr, "_port_in_use", lambda: False)
+    monkeypatch.setattr(
+        mod.subprocess, "Popen", lambda *_args, **_kwargs: SimpleNamespace(pid=5150)
+    )
+    monkeypatch.setattr(
+        mgr,
+        "_write_status",
+        lambda **_kwargs: (_ for _ in ()).throw(OSError("metadata failed")),
+    )
+    monkeypatch.setattr(mgr, "_terminate_pid", lambda _pid: False)
+
+    with pytest.raises(ComfyUiMpsError, match="could not be terminated") as raised:
+        mgr.start_with_ownership()
+
+    assert raised.value.surviving_process is True
+    assert mgr._untracked_pid == 5150
+
+
+def test_launch_lock_timeout_is_bounded(tmp_path, monkeypatch):
+    if mod.fcntl is None:
+        pytest.skip("fcntl lock timeout is POSIX-only")
+    mgr = _mgr(tmp_path)
+    ticks = iter([0.0, 31.0])
+    monkeypatch.setattr(mod.time, "monotonic", lambda: next(ticks))
+    monkeypatch.setattr(mod.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(
+        mod.fcntl,
+        "flock",
+        lambda *_args: (_ for _ in ()).throw(BlockingIOError()),
+    )
+
+    with pytest.raises(ComfyUiMpsError, match="timed out waiting"):
+        mgr.start_with_ownership()
+
+
+def test_launch_guard_has_portable_no_fcntl_path(tmp_path, monkeypatch):
+    mgr = _mgr(tmp_path)
+    monkeypatch.setattr(mod, "fcntl", None)
+    monkeypatch.setattr(
+        mgr, "status", lambda: mod.ProcessStatus(True, 4242, mgr.port)
+    )
+
+    _status, created = mgr.start_with_ownership()
+
+    assert created is False
 
 
 def test_remove_stops_and_deletes_state(tmp_path, monkeypatch):
     mgr = _mgr(tmp_path)
     mgr.state_dir.mkdir(parents=True)
     (mgr.state_dir / "junk").write_text("x")
-    monkeypatch.setattr(ComfyUiMpsManager, "stop", lambda self: False)
+    monkeypatch.setattr(ComfyUiMpsManager, "_stop_locked", lambda self: False)
     mgr.remove()
     assert not mgr.state_dir.exists()
+
+
+def test_remove_preserves_state_when_process_survives(tmp_path, monkeypatch):
+    mgr = _mgr(tmp_path)
+    mgr.state_dir.mkdir(parents=True)
+    (mgr.state_dir / "junk").write_text("x")
+    monkeypatch.setattr(ComfyUiMpsManager, "_stop_locked", lambda self: False)
+    monkeypatch.setattr(
+        mgr, "status", lambda: mod.ProcessStatus(True, 5150, mgr.port)
+    )
+
+    with pytest.raises(ComfyUiMpsError, match="refusing to remove"):
+        mgr.remove()
+
+    assert (mgr.state_dir / "junk").exists()
 
 
 # ─────────────────────────── env factory ───────────────────────────

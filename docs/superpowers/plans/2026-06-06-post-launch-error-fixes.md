@@ -6,7 +6,7 @@
 
 ## 1. Issue inventory (grouped by severity)
 
-### P0 — Crash loops; block end-to-end testing
+### 1.1. P0 — Crash loops; block end-to-end testing
 
 | # | Service | Symptom | Owner |
 |---|---|---|---|
@@ -14,7 +14,7 @@
 | 2 | `tei-reranker` | ORT backend fails: `BAAI/bge-reranker-v2-m3` has no ONNX files; `Could not start backend` | LightRAG integration (our work) |
 | 3 | `backend` | `ModuleNotFoundError: No module named 'prometheus_fastapi_instrumentator'` at `main.py:67` | Pre-existing (image stale since 2026-05-15; predates the import) |
 
-### P1 — Non-fatal but user-visible (warnings on every launch)
+### 1.2. P1 — Non-fatal but user-visible (warnings on every launch)
 
 | # | Service | Symptom | Owner |
 |---|---|---|---|
@@ -22,7 +22,7 @@
 | 5 | `lightrag` | `WARNING: TOKEN_SECRET not set... Falling back to default guest-mode JWT secret` | LightRAG integration (our work) |
 | 6 | `lightrag` | `Warning: Startup directory must contain .env file for multi-instance support.` | LightRAG integration (our work; spec I2 concern) |
 
-### P2 — Pre-existing, non-blocking, unrelated to our work
+### 1.3. P2 — Pre-existing, non-blocking, unrelated to our work
 
 | # | Service | Symptom | Owner |
 |---|---|---|---|
@@ -38,7 +38,7 @@
 
 ## 2. Root cause + fix per issue
 
-### #1 LightRAG `RERANK_BINDING=openai` rejected
+### 2.1. #1 LightRAG `RERANK_BINDING=openai` rejected
 
 **Root cause:** LightRAG v1.5.0 only accepts these `RERANK_BINDING` values: `null`, `cohere`, `jina`, `aliyun`. Our compose fragment sets it to literal `openai` whenever `LIGHTRAG_RERANK_BINDING_HOST` is set:
 
@@ -69,7 +69,7 @@ LIGHTRAG_RERANK_BINDING_HOST: ${TEI_RERANKER_ENDPOINT}
 
 Update LightRAG README §4 and CHANGELOG accordingly.
 
-### #2 TEI Reranker model loading
+### 2.2. #2 TEI Reranker model loading
 
 **Root cause:** `ghcr.io/huggingface/text-embeddings-inference:cpu-1.9` is compiled with the **ORT (ONNX Runtime) backend** for x86_64. `BAAI/bge-reranker-v2-m3` has no ONNX files on HuggingFace (only `model.safetensors`). The arm64 image `cpu-arm64-1.9`/`cpu-arm64-latest` uses the **candle** backend which loads safetensors natively.
 
@@ -98,7 +98,7 @@ Implementation:
 
 **Bonus:** add a `test_tei_reranker_image_arch_selection` unit test that mocks `platform.machine()` and asserts the right image is selected.
 
-### #3 Backend missing `prometheus-fastapi-instrumentator`
+### 2.3. #3 Backend missing `prometheus-fastapi-instrumentator`
 
 **Root cause:** The dependency IS listed in `services/backend/app/app/requirements.txt:8`:
 ```
@@ -116,7 +116,7 @@ docker compose -p atlas up -d backend
 
 This is a one-shot operation, not a code change. Optionally, also add `--build` to the `start.sh` invocation for the backend stage, or add the backend to a "force-rebuild on launch" list in the bootstrapper for cases where requirements.txt has changed.
 
-### #4 lightrag-init Neo4j migration: wrong hostname
+### 2.4. #4 lightrag-init Neo4j migration: wrong hostname
 
 **Root cause:** `services/lightrag/service.yml::runtime_adaptive.lightrag.environment_adaptation` uses `bolt://neo4j:7687`, and `services/lightrag/init/scripts/init-lightrag.sh` calls `http://neo4j:7474/...`. The actual Neo4j compose service id in this stack is `neo4j-graph-db` (per `services/neo4j/compose.yml:3`). Memory `reference_kong_compose_service_id` already documents this same pattern for Kong.
 
@@ -128,7 +128,7 @@ This is a one-shot operation, not a code change. Optionally, also add `--build` 
 
 Refresh fragment-equivalence baseline.
 
-### #5 LightRAG `TOKEN_SECRET` warning
+### 2.5. #5 LightRAG `TOKEN_SECRET` warning
 
 **Root cause:** LightRAG ships a JWT auth path (login → token) gated on `TOKEN_SECRET` env. We never set it, so LightRAG falls back to a hardcoded default key — security risk in any non-trivial deployment.
 
@@ -149,7 +149,7 @@ TOKEN_SECRET: ${LIGHTRAG_TOKEN_SECRET}
 
 Update `bootstrapper/utils/key_generator.py::generate_missing_keys` (gated on `LIGHTRAG_SOURCE != disabled`).
 
-### #6 LightRAG `.env` warning — missing startup file
+### 2.6. #6 LightRAG `.env` warning — missing startup file
 
 **Root cause:** LightRAG looks for `/app/.env` (the working directory `.env`) at startup for multi-instance worker support. Our `lightrag-init` writes resolved values to `/app/data/.lightrag-resolved.env` (a different path that LightRAG doesn't auto-load).
 
@@ -163,7 +163,7 @@ Update `bootstrapper/utils/key_generator.py::generate_missing_keys` (gated on `L
 
 Verify with `docker exec atlas-lightrag env | grep LIGHTRAG_LLM_MODEL` after boot — should show the resolved model.
 
-### #7 postgres-exporter Postgres 18 schema mismatch
+### 2.7. #7 postgres-exporter Postgres 18 schema mismatch
 
 **Root cause:** Supabase shipped Postgres 18 (current `supabase-db` image). Postgres 17+ renamed `pg_stat_bgwriter.checkpoints_timed` → split into `pg_stat_checkpointer.num_timed`. Current `postgres-exporter` image (`v0.16.0`) queries the old column.
 
@@ -171,7 +171,7 @@ Verify with `docker exec atlas-lightrag env | grep LIGHTRAG_LLM_MODEL` after boo
 
 Edit `services/supabase/service.yml::images` (or wherever postgres-exporter image is pinned). Refresh fragment-equivalence baseline.
 
-### #8 postgres-exporter missing config file
+### 2.8. #8 postgres-exporter missing config file
 
 **Root cause:** The exporter container looks for `/etc/postgres_exporter.yml` (or pwd-relative `postgres_exporter.yml`) but no config volume is mounted. This is informational — the exporter works fine without it (uses defaults).
 
@@ -181,11 +181,11 @@ Edit `services/supabase/service.yml::images` (or wherever postgres-exporter imag
 
 Lowest-effort option: (Document). Not worth a code change.
 
-### #9–12 Pre-existing macOS-specific warnings (cadvisor, node-exporter, n8n-worker, weaviate)
+### 2.9. #9–12 Pre-existing macOS-specific warnings (cadvisor, node-exporter, n8n-worker, weaviate)
 
 All informational, all surface on macOS Docker Desktop because container expects Linux host paths. Document in `docs/deployment/expected-startup-warnings.md` (file exists) under a new "Container-level expected warnings on macOS" section.
 
-### #13 Ray /dev/shm size
+### 2.10. #13 Ray /dev/shm size
 
 **Root cause:** Docker Desktop on macOS provisions `/dev/shm` at 4 GB by default; Ray's object store uses it. The warning recommends 10 GB.
 
@@ -197,7 +197,7 @@ Lower priority — only matters for non-trivial Ray workloads.
 
 ## 3. Recommended execution order
 
-### Phase A — Land LightRAG fully (P0 + P1)
+### 3.1. Phase A — Land LightRAG fully (P0 + P1)
 1. **Fix #4** (Neo4j hostname) — quick, unblocks the only init-time warning.
 2. **Fix #1** (RERANK_BINDING=jina) — unblocks the lightrag main container.
 3. **Fix #2** (TEI Reranker arch-aware image) — unblocks tei-reranker, removes emulation cost.
@@ -206,18 +206,18 @@ Lower priority — only matters for non-trivial Ray workloads.
 
 Verification gate: re-launch the stack, confirm lightrag + tei-reranker + lightrag-init all reach healthy state. Run the live smoke test from spec §12d.
 
-### Phase B — Pre-existing backend bug (P0)
+### 3.2. Phase B — Pre-existing backend bug (P0)
 6. **Fix #3** (rebuild backend image). One command.
 
 Verification gate: `curl http://localhost:$BACKEND_PORT/health` returns 200.
 
-### Phase C — Hygiene + Polish (P2)
+### 3.3. Phase C — Hygiene + Polish (P2)
 7. **Fix #7** (postgres-exporter v0.18.1 bump) — removes the most-frequent error line.
 8. **Fix #8** (postgres-exporter config docs) — note in expected-startup-warnings.md.
 9. **Fix #9–12** — document in expected-startup-warnings.md as a single batch.
 10. **Fix #13** (Ray shm_size) — if Ray workloads are imminent.
 
-### Phase D — Verification (after all)
+### 3.4. Phase D — Verification (after all)
 - Full pytest suite passes.
 - `docker compose config` clean.
 - All audit scripts pass.

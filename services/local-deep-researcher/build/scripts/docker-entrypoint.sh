@@ -3,6 +3,16 @@ set -e
 
 REPO_URL="https://github.com/langchain-ai/local-deep-researcher.git"
 REPO_DIR="/app/repo"
+REPO_REF="${LOCAL_DEEP_RESEARCHER_REF:?LOCAL_DEEP_RESEARCHER_REF is required}"
+LANGGRAPH_CLI_VERSION="${LOCAL_DEEP_RESEARCHER_LANGGRAPH_CLI_VERSION:?LOCAL_DEEP_RESEARCHER_LANGGRAPH_CLI_VERSION is required}"
+UPSTREAM_LOCK_SHA256="${LOCAL_DEEP_RESEARCHER_UPSTREAM_LOCK_SHA256:?LOCAL_DEEP_RESEARCHER_UPSTREAM_LOCK_SHA256 is required}"
+RUNTIME_LOCK="/app/config/runtime-requirements.lock"
+VENV_DIR="/app/.venv"
+VENV_PYTHON="$VENV_DIR/bin/python"
+
+# This absolute path exists inside the image.
+# shellcheck disable=SC1091
+source /app/scripts/runtime-lib.sh
 
 # Guard against unbounded glob expansion of $REPO_DIR (e.g. empty or "/").
 # `rm -rf "$REPO_DIR"/.*` can match `..` on some shells and walk into the
@@ -16,25 +26,41 @@ fi
 echo "Local Deep Researcher: Starting initialization..."
 
 # -------------------------------------------------------------------
-# Fetch latest upstream code (clone on first run, pull on restart)
+# Materialize the manifest-pinned upstream commit.
 # -------------------------------------------------------------------
-echo "Local Deep Researcher: Syncing upstream repository..."
-if [ -d "$REPO_DIR/.git" ]; then
-    echo "Local Deep Researcher: Pulling latest changes..."
-    if git -C "$REPO_DIR" pull --ff-only 2>/dev/null; then
-        echo "Local Deep Researcher: Repository updated successfully"
-    else
-        echo "Local Deep Researcher: Pull failed — re-cloning..."
-        find "$REPO_DIR" -mindepth 1 -delete 2>/dev/null || true
-        git clone "$REPO_URL" "$REPO_DIR"
-    fi
-else
-    echo "Local Deep Researcher: Cloning repository..."
-    find "$REPO_DIR" -mindepth 1 -delete 2>/dev/null || true
-    git clone "$REPO_URL" "$REPO_DIR"
+if [[ ! "$REPO_REF" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "Local Deep Researcher: ERROR - LOCAL_DEEP_RESEARCHER_REF must be a full lowercase commit SHA"
+    exit 1
 fi
 
+echo "Local Deep Researcher: Materializing pinned upstream commit $REPO_REF..."
+ensure_git_repo "$REPO_DIR" "$REPO_URL"
+
+current_ref=$(git -C "$REPO_DIR" rev-parse HEAD 2>/dev/null || true)
+if [ "$current_ref" != "$REPO_REF" ]; then
+    git -C "$REPO_DIR" fetch --depth 1 origin "$REPO_REF"
+    git -C "$REPO_DIR" checkout --detach --force FETCH_HEAD
+else
+    git -C "$REPO_DIR" checkout --detach --force "$REPO_REF"
+fi
+git -C "$REPO_DIR" clean -ffd
+
+resolved_ref=$(git -C "$REPO_DIR" rev-parse HEAD)
+if [ "$resolved_ref" != "$REPO_REF" ]; then
+    echo "Local Deep Researcher: ERROR - resolved $resolved_ref, expected $REPO_REF"
+    exit 1
+fi
+echo "Local Deep Researcher: Pinned source verified"
+
+if [[ ! "$UPSTREAM_LOCK_SHA256" =~ ^[0-9a-f]{64}$ ]]; then
+    echo "Local Deep Researcher: ERROR - LOCAL_DEEP_RESEARCHER_UPSTREAM_LOCK_SHA256 must be a lowercase SHA-256 digest"
+    exit 1
+fi
+printf '%s  %s\n' "$UPSTREAM_LOCK_SHA256" "$REPO_DIR/uv.lock" | sha256sum -c -
+echo "Local Deep Researcher: Upstream dependency lock verified"
+
 # Copy upstream source into working directory (preserving our custom scripts/config)
+rm -rf -- /app/src
 cp -r "$REPO_DIR"/src /app/
 cp "$REPO_DIR"/pyproject.toml /app/
 cp "$REPO_DIR"/langgraph.json /app/
@@ -46,7 +72,25 @@ python3 /app/scripts/patch-litellm-openai-provider.py
 python3 /app/scripts/patch-crawl4ai-fetch.py
 
 echo "Local Deep Researcher: Installing dependencies..."
-uv pip install --system -e /app
+if ! grep -Fqx "# upstream-ref: $REPO_REF" "$RUNTIME_LOCK"; then
+    echo "Local Deep Researcher: ERROR - runtime lock was not generated for upstream ref $REPO_REF"
+    exit 1
+fi
+if ! grep -Fqx "# upstream-lock-sha256: $UPSTREAM_LOCK_SHA256" "$RUNTIME_LOCK"; then
+    echo "Local Deep Researcher: ERROR - runtime lock was not generated from the verified upstream lock"
+    exit 1
+fi
+if ! grep -Fqx "# langgraph-cli-version: $LANGGRAPH_CLI_VERSION" "$RUNTIME_LOCK"; then
+    echo "Local Deep Researcher: ERROR - runtime lock was not generated for langgraph-cli==$LANGGRAPH_CLI_VERSION"
+    exit 1
+fi
+if ! grep -Eq "^langgraph-cli==${LANGGRAPH_CLI_VERSION}([[:space:]]|\\\\|$)" "$RUNTIME_LOCK"; then
+    echo "Local Deep Researcher: ERROR - runtime lock does not contain langgraph-cli==$LANGGRAPH_CLI_VERSION"
+    exit 1
+fi
+ensure_python_venv "$VENV_DIR" 3.11
+uv pip sync --python "$VENV_PYTHON" --require-hashes "$RUNTIME_LOCK"
+uv pip install --python "$VENV_PYTHON" --no-deps --no-build-isolation -e /app
 
 # -------------------------------------------------------------------
 # Initialize configuration from env vars (LITELLM_DEFAULT_MODEL, etc.)
@@ -103,4 +147,4 @@ fi
 
 # Use the langgraph dev command to start the server
 echo "Local Deep Researcher: Executing langgraph dev command..."
-exec uvx --refresh --from "langgraph-cli[inmem]" --with-editable . --python 3.11 langgraph dev --host 0.0.0.0 --port 2024 --no-reload
+exec "$VENV_DIR/bin/langgraph" dev --host 0.0.0.0 --port 2024 --no-reload
