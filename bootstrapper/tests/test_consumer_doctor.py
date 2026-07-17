@@ -121,6 +121,35 @@ def test_doctor_text_reports_endpoint_resolution(tmp_path, monkeypatch) -> None:
     assert "overlay-env" in result.output
 
 
+def test_doctor_fails_on_typod_consumer_manifest_top_level_key(tmp_path, monkeypatch) -> None:
+    """#649 AC#2: the consumer `doctor` must FAIL (not pass) when a manifest
+    has a typo'd top-level key, naming the offending key."""
+    import start as start_module
+
+    _write_base_env(tmp_path)
+    manifest = tmp_path / "atlas.consumer.yml"
+    manifest.write_text(
+        # `compose_overlay` — the ticket's typo (missing trailing 's').
+        "name: showcase\ncompose_overlay:\n  - ./compose/overlay.yml\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("ATLAS_CONSUMER_MANIFEST", str(manifest))
+    _patch_starter_paths(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        start_module.DockerManager,
+        "validate_compose_config",
+        lambda self: (0, "", "", ["docker", "compose", "config", "-q"]),
+    )
+
+    result = CliRunner().invoke(start_module.main, ["doctor", "--format", "json"])
+
+    payload = json.loads(result.output)
+    checks = {entry["id"]: entry for entry in payload["checks"]}
+    assert checks["consumer-manifests"]["status"] == "fail", result.output
+    assert "compose_overlay" in checks["consumer-manifests"]["message"]
+    assert payload["ok"] is False
+
+
 def test_doctor_accepts_common_plugin_requirement_markers(tmp_path, monkeypatch) -> None:
     import start as start_module
 
