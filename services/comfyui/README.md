@@ -278,7 +278,7 @@ The same preflight also runs as a CI-safe doctor check: `./start.sh doctor` repo
 
 ### 10.3. Preflight (the narrow MPS probe)
 
-`preflight` is read-only and never launches anything. It checks: **OS** (macOS) and **arch** (arm64) — a hard `fail` elsewhere; **git** + **python3** presence; **unified-memory headroom** against `COMFYUI_MPS_MIN_MEMORY_GB` (`warn` below the floor — large BF16 bundles may OOM); **Torch/MPS availability** (`torch.backends.mps.is_available()`, only after the venv exists); and **per-model precision** — `fp8`/`fp8-scaled` weights crash on MPS and are flagged `warn` with a "use a BF16 variant" hint (BF16 is required; this is the ComfyUI-specific slice of the media preflight).
+`preflight` is read-only and never launches anything. It checks: **OS** (macOS) and **arch** (arm64) — a hard `fail` elsewhere; **git** + **python3** presence; **unified-memory headroom** against `COMFYUI_MPS_MIN_MEMORY_GB` (`warn` below the floor — large BF16 bundles may OOM); **host models dir** — a `warn` when `COMFYUI_MPS_MODELS_PATH` is set but missing or has none of the expected model subdirs (`checkpoints`, `vae`, `diffusion_models`, …), so a typo'd path surfaces at preflight instead of an empty model list at generation time (#648); **Torch/MPS availability** (`torch.backends.mps.is_available()`, only after the venv exists); and **per-model precision** — `fp8`/`fp8-scaled` weights crash on MPS and are flagged `warn` with a "use a BF16 variant" hint (BF16 is required; this is the ComfyUI-specific slice of the media preflight).
 
 ### 10.4. Cold vs warm, and health
 
@@ -293,6 +293,7 @@ On anything that is not macOS/arm64 (Linux CI, Intel Macs, Windows) the prefligh
 ### 10.6. Upgrades, rollback, logs, removal
 
 - **Upgrade / rollback** — change `COMFYUI_MPS_REF` in `.env` (a release tag or full commit SHA), then stop and start the service. Install detects the ref and requirements drift and reconciles the venv automatically; `install --update` remains available to force a rebuild. Stop targets the full process group so child workers do not survive the managed server.
+- **Reproducible Torch** — the install pins `torch`/`torchvision`/`torchaudio` to `COMFYUI_MPS_TORCH_PIN` (default `torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0`) rather than installing whatever is newest that day, so a fresh install against the same `COMFYUI_MPS_REF` is reproducible and `--update` honors the pin. Bump it alongside `COMFYUI_MPS_REF` when the upstream ComfyUI ref needs a newer Torch (#648).
 - **Logs** — `tail -f "${COMFYUI_MPS_STATE_DIR/#\~/$HOME}/comfyui-mps.log"` (default `~/.atlas/comfyui-mps/comfyui-mps.log`), the same file `status`/`start` report.
 - **Removal** — `./start.sh comfyui-mps remove` stops the process and deletes the state dir. Your host models dir (`COMFYUI_MPS_MODELS_PATH`) is **never** touched — it is reused, not owned.
 
