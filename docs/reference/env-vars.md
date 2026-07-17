@@ -87,6 +87,7 @@
 | MEDIA_OPERATION_TTL_SECONDS | backend | 604800 | Redis retention in seconds for hosted media operation state. The default keeps terminal results available for seven days across Backend replicas and restarts. |
 | BACKEND_CORS_ORIGINS | backend | * | Comma-separated browser origins accepted by the backend CORS middleware. Default preserves local-development permissiveness. |
 | BACKEND_CORS_ALLOW_ORIGIN_REGEX | backend |  | Optional regex accepted by the backend CORS middleware for wildcard subdomain policies. |
+| BACKEND_DEV_RELOAD | backend | False | Opt-in uvicorn --reload for live development (#679). Disabled by default so the production/consumer image runs a stable process: with backend_plugins bind-mounted, host-side git churn in the plugin tree would otherwise restart or crash-loop the backend. The plugin seam installs at boot, so recreate the backend to apply plugin changes. |
 | BACKEND_KONG_AUTH | backend | disabled | Default gateway authentication mode for the api.localhost backend route: disabled (default local-dev behavior) or key-auth (requires apikey header). A backend plugin's plugin.yml `auth: open/key-auth` overrides this per route prefix (#402). |
 | BACKEND_KONG_API_KEY | backend |  | Auto-generated key accepted by Kong when BACKEND_KONG_AUTH=key-auth. Send as `apikey: <value>`. |
 | BACKEND_IDENTITY_AUTH | backend | required | Application identity boundary for backend routes: required (default) accepts Supabase user JWTs or the trusted internal-service token; disabled is an explicit emergency rollback mode. |

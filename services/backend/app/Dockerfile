@@ -42,8 +42,11 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
 EXPOSE 8000
 
 # Run the application with dynamic configuration.
-# --reload hot-reloads on edits — the compose fragment bind-mounts
-# ./app/app onto /app, so host-side edits are picked up without a
-# rebuild. uvicorn[standard] in requirements.txt brings watchfiles.
+# The dev auto-reloader is OPT-IN (#679): the production/consumer image runs
+# plain uvicorn so host-side git churn in a bind-mounted plugin dir cannot
+# restart or crash-loop the backend. configure-backend.sh appends --reload only
+# when BACKEND_DEV_RELOAD=true (uvicorn[standard] brings watchfiles). Consumers
+# editing plugins live can opt in; the plugin seam installs at boot, so a
+# container recreate — not a hot reload — is the correct pickup path.
 ENTRYPOINT ["/usr/local/bin/configure-backend.sh"]
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
