@@ -157,7 +157,9 @@ def test_main_exits_nonzero_when_managed_host_remains_running(monkeypatch):
         lambda self: True,
     )
 
-    result = click.testing.CliRunner().invoke(stop_module.main, [])
+    # Managed-host teardown is opt-in since #655 — the failure only reaches the
+    # exit code when the operator explicitly requests it.
+    result = click.testing.CliRunner().invoke(stop_module.main, ["--stop-managed-hosts"])
 
     assert result.exit_code == 1
 
@@ -239,7 +241,10 @@ def test_main_exits_nonzero_when_compose_version_preflight_fails(monkeypatch):
         lambda self: native_stops.append("vllm") or True,
     )
 
-    result = click.testing.CliRunner().invoke(stop_module.main, [])
+    # With --stop-managed-hosts (opt-in since #655), a Docker preflight failure
+    # must still not strand the requested managed-host teardown — it runs after
+    # stop_services is skipped, and the preflight failure keeps the exit nonzero.
+    result = click.testing.CliRunner().invoke(stop_module.main, ["--stop-managed-hosts"])
 
     assert result.exit_code == 1
     assert native_stops == ["comfyui", "vllm"]
