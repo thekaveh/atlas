@@ -40,7 +40,7 @@ import urllib.request
 from dataclasses import dataclass, field
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
 try:  # Native Windows can import this module for a no-op disabled-source stop.
     import fcntl
