@@ -542,3 +542,91 @@ def test_bad_alias_charset_rejected(tmp_path: Path) -> None:
     _write_root(tmp_path)
     with pytest.raises(ConsumerManifestError, match="litellm_alias 'Bad Alias' must match"):
         _load(tmp_path, manifest)
+
+
+# ── #654: consumer env overlay can enable the rerank adapter gate ────────────
+_RERANK_ON = (
+    "lightrag_query_profiles:\n  version: 1\n  profiles:\n"
+    "    - {name: p, mode: hybrid, enable_rerank: true}\n"
+)
+
+
+def _consumer_with_env_file(root: Path, name: str, env_text: str, body: str) -> Path:
+    d = root / name
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "adapter.env").write_text(env_text, encoding="utf-8")
+    manifest = d / "atlas.consumer.yml"
+    manifest.write_text(
+        f"name: {name}\nenv:\n  file: ./adapter.env\n" + textwrap.dedent(body),
+        encoding="utf-8",
+    )
+    return manifest
+
+
+def test_rerank_enabled_via_consumer_env_file(tmp_path: Path) -> None:
+    """A consumer may enable the adapter in its own `env.file` and declare
+    `enable_rerank: true` in one manifest — no pre-editing Atlas `.env`. The
+    host gate defaults to False (fresh checkout), the overlay flips it (#654)."""
+    _write_root(tmp_path)
+    manifest = _consumer_with_env_file(
+        tmp_path, "c", "LIGHTRAG_RERANK_ADAPTER_ENABLED=true\n", _RERANK_ON
+    )
+    config = _load(tmp_path, manifest)  # default host gate = False
+    assert config.lightrag_query_profiles[0].enable_rerank is True
+    assert config.env_overrides["LIGHTRAG_RERANK_ADAPTER_ENABLED"] == "true"
+
+
+def test_rerank_enabled_via_consumer_env_values(tmp_path: Path) -> None:
+    _write_root(tmp_path)
+    d = tmp_path / "c"
+    d.mkdir(parents=True, exist_ok=True)
+    manifest = d / "atlas.consumer.yml"
+    manifest.write_text(
+        'name: c\nenv:\n  values:\n    LIGHTRAG_RERANK_ADAPTER_ENABLED: "true"\n'
+        + _RERANK_ON,
+        encoding="utf-8",
+    )
+    assert _load(tmp_path, manifest).lightrag_query_profiles[0].enable_rerank is True
+
+
+def test_rerank_still_fails_when_effective_flag_false(tmp_path: Path) -> None:
+    """A rerank profile still fails clearly when the effective merged flag is
+    false — the overlay explicitly disables it here."""
+    _write_root(tmp_path)
+    manifest = _consumer_with_env_file(
+        tmp_path, "c", "LIGHTRAG_RERANK_ADAPTER_ENABLED=false\n", _RERANK_ON
+    )
+    with pytest.raises(
+        ConsumerManifestError,
+        match="requires the LightRAG rerank adapter to be enabled",
+    ):
+        _load(tmp_path, manifest)
+
+
+def test_consumer_env_overrides_operator_disabled(tmp_path: Path) -> None:
+    """Precedence: a consumer manifest env value overrides the base `.env`, so
+    the overlay enables the gate even when the host flag is False."""
+    _write_root(tmp_path)
+    manifest = _consumer_with_env_file(
+        tmp_path, "c", "LIGHTRAG_RERANK_ADAPTER_ENABLED=true\n", _RERANK_ON
+    )
+    config = load_consumer_config(
+        tmp_path, explicit_paths=[str(manifest)], lightrag_rerank_adapter_enabled=False
+    )
+    assert config.lightrag_query_profiles[0].enable_rerank is True
+
+
+def test_consumer_env_false_overrides_operator_enabled(tmp_path: Path) -> None:
+    """Precedence, other direction: a consumer value of false wins over a host
+    flag of true (consumer env overrides base `.env`), so the gate closes."""
+    _write_root(tmp_path)
+    manifest = _consumer_with_env_file(
+        tmp_path, "c", "LIGHTRAG_RERANK_ADAPTER_ENABLED=false\n", _RERANK_ON
+    )
+    with pytest.raises(
+        ConsumerManifestError,
+        match="requires the LightRAG rerank adapter to be enabled",
+    ):
+        load_consumer_config(
+            tmp_path, explicit_paths=[str(manifest)], lightrag_rerank_adapter_enabled=True
+        )

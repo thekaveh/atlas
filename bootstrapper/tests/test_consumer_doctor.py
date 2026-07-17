@@ -925,3 +925,40 @@ def test_doctor_rerank_adapter_pass_when_fully_wired(tmp_path, monkeypatch) -> N
     checks = {entry["id"]: entry for entry in json.loads(result.output)["checks"]}
     assert checks["lightrag-rerank-adapter"]["status"] == "pass"
     assert "wired to TEI" in checks["lightrag-rerank-adapter"]["message"]
+
+
+def test_doctor_accepts_consumer_env_file_enabling_rerank_adapter(tmp_path, monkeypatch) -> None:
+    """#654: a consumer that enables the rerank adapter in its own env.file and
+    declares enable_rerank in a LightRAG query profile validates on a fresh
+    checkout — the base .env has no LIGHTRAG_RERANK_ADAPTER_ENABLED, and the
+    consumer overlay flips the gate before profile validation."""
+    import start as start_module
+
+    _write_base_env(tmp_path)  # base .env: no adapter flag (fresh checkout)
+    consumer = tmp_path / "consumer"
+    consumer.mkdir()
+    (consumer / "adapter.env").write_text(
+        "LIGHTRAG_RERANK_ADAPTER_ENABLED=true\n", encoding="utf-8"
+    )
+    manifest = consumer / "atlas.consumer.yml"
+    manifest.write_text(
+        "name: showcase\n"
+        "env:\n  file: ./adapter.env\n"
+        "lightrag_query_profiles:\n  version: 1\n  profiles:\n"
+        "    - {name: graph-rag-rerank, mode: hybrid, enable_rerank: true}\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("ATLAS_CONSUMER_MANIFEST", str(manifest))
+    _patch_starter_paths(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        start_module.DockerManager,
+        "validate_compose_config",
+        lambda self: (0, "", "", ["docker", "compose", "config", "-q"]),
+    )
+
+    result = CliRunner().invoke(start_module.main, ["doctor", "--format", "json"])
+
+    payload = json.loads(result.output)
+    checks = {entry["id"]: entry for entry in payload["checks"]}
+    assert checks["consumer-manifests"]["status"] == "pass", result.output
+    assert "showcase" in checks["consumer-manifests"]["details"]["consumers"]
