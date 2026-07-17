@@ -6,7 +6,7 @@ Open-source AI agent for messaging platforms with web-based administration dashb
 
 The OpenClaw service provides an AI-powered agent that connects to messaging apps:
 
-- **Messaging Integration**: WhatsApp, Telegram, Discord, Slack, iMessage, and more
+- **Messaging Integration**: WhatsApp, Telegram, Discord, Slack, iMessage
 - **File Management**: Read, create, and manage files in a dedicated workspace
 - **Calendar Management**: Schedule events and manage calendars
 - **GitHub Monitoring**: Monitor repositories, issues, and pull requests
@@ -139,9 +139,10 @@ These bypass LiteLLM and let OpenClaw call providers directly — useful when yo
 |----------|-------------|---------|
 | `OPENCLAW_LOCALHOST_PORT` | Local service port (defaults to the freed `OPENCLAW_GATEWAY_PORT` slot); set to `18789` if your local OpenClaw runs on its native/default port. URL is derived as `http://host.docker.internal:${OPENCLAW_LOCALHOST_PORT}` at compose-render time. | `63065` |
 
-## 5. LLM Configuration
+## 5. LLM Routing and Model Selection
 
-OpenClaw inherits LLM access from the always-on LiteLLM gateway:
+OpenClaw inherits LLM access from the always-on LiteLLM gateway (the variables
+themselves are documented in §4.2–§4.3):
 
 - **Default path (LiteLLM)**: OpenClaw is configured as an OpenAI-compatible client against `LITELLM_BASE_URL` with `LITELLM_API_KEY`. Whatever Ollama / OpenAI / Anthropic / OpenRouter upstreams you've enabled in the stack are routed transparently through LiteLLM. To pick a model, use the model IDs registered in `volumes/litellm/config.yaml` (e.g. `ollama/qwen3.6:latest`, `gpt-4o`, `claude-sonnet-4-6`).
 - **Anthropic override**: Set `OPENCLAW_ANTHROPIC_API_KEY` in `.env` to make OpenClaw call Anthropic directly, bypassing LiteLLM. When unset, OpenClaw uses any stack-wide Anthropic key only through LiteLLM.

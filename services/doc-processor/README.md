@@ -182,7 +182,7 @@ curl http://localhost:63051/health
 ```json
 {
   "status": "healthy",
-  "backend": "docling",
+  "backend": "cuda",
   "device": "cuda"
 }
 ```
@@ -256,6 +256,11 @@ output_format=doctags
 ```
 
 ## 8. Performance
+
+The figures below are illustrative order-of-magnitude estimates, not measured
+benchmarks. Actual throughput depends on document complexity, page count, table
+density, and the specific hardware — treat the per-GPU rows as rough guidance
+rather than reproducible results.
 
 ### 8.1. GPU Backend (NVIDIA)
 
@@ -378,7 +383,8 @@ services/docling/provider/
 │   ├── processor.py       # Docling processing logic
 │   ├── models.py          # Pydantic models (copied from shared)
 │   ├── utils.py           # Utilities (copied from shared)
-│   ├── requirements.txt
+│   ├── pyproject.toml     # Dependencies (installed with uv sync)
+│   ├── uv.lock            # Pinned dependency lock
 │   └── README.md          # Installation guide
 └── shared/                 # Common components
     ├── api_server.py      # FastAPI REST server (used by GPU)
@@ -430,7 +436,7 @@ No document processing service.
 
 ### 13.2. Optional (Can Use Doc Processor)
 
-- **open-web-ui**: Document upload and processing
+- **open-webui**: Document upload and processing
 - **n8n**: Document processing workflows
 - **backend**: Proxy document processing API endpoints
 - **jupyterhub**: Notebooks with document processing capabilities
