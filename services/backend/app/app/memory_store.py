@@ -293,6 +293,7 @@ class MemoryStore:
         """Store embedding in Weaviate."""
         obj = {
             "class": WEAVIATE_COLLECTION_NAME,
+            "id": fact_id,
             "properties": {
                 "content": content,
                 "userId": user_id,
@@ -307,8 +308,16 @@ class MemoryStore:
             resp = await client.post(
                 f"{self.weaviate_url}/v1/objects", json=obj
             )
-            resp.raise_for_status()
-            return resp.json()["id"]
+            if resp.status_code == 422:
+                replacement = await client.put(
+                    f"{self.weaviate_url}/v1/objects/"
+                    f"{WEAVIATE_COLLECTION_NAME}/{fact_id}",
+                    json=obj,
+                )
+                replacement.raise_for_status()
+            else:
+                resp.raise_for_status()
+            return fact_id
 
     async def _store_pgvector(self, fact_id: str, content: str):
         """Store embedding in pgvector column."""
@@ -460,19 +469,67 @@ class MemoryStore:
                     f"{self.weaviate_url}/v1/objects/"
                     f"{WEAVIATE_COLLECTION_NAME}/{weaviate_id}"
                 )
-                # 404 = already gone (fine). Any other non-2xx must be
-                # observable: update_embedding deletes-then-recreates, so a
-                # silently-failed delete leaves a stale vector that diverges
-                # from the PG source of truth and pollutes recall.
+                # 404 = already gone. Other failures must keep the durable
+                # reconciliation marker pending for a later retry.
                 if resp.status_code not in (200, 204, 404):
-                    logger.warning(
-                        "Failed to delete Weaviate object %s (status %s); "
-                        "stale vector may remain for fact %s",
-                        weaviate_id,
-                        resp.status_code,
-                        fact_id,
-                    )
+                    resp.raise_for_status()
         # pgvector: embedding is in the row, deleted when the row is deleted/updated
+
+    async def deactivate_embedding(
+        self, fact_id: str, weaviate_id: Optional[str] = None
+    ) -> None:
+        """Remove a deactivated fact from Weaviate recall without deleting audit data."""
+        await self.initialize()
+
+        if not self.weaviate_url:
+            if not weaviate_id:
+                return
+            raise RuntimeError(
+                f"Cannot deactivate Weaviate object for memory fact {fact_id}: "
+                "WEAVIATE_URL is unset"
+            )
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            object_ids = [weaviate_id] if weaviate_id else []
+            safe_fact_id = self._escape_graphql_string(fact_id)
+            lookup = await client.post(
+                f"{self.weaviate_url}/v1/graphql",
+                json={
+                    "query": f"""{{
+                        Get {{
+                            {WEAVIATE_COLLECTION_NAME}(
+                                where: {{path: [\"pgFactId\"], operator: Equal,
+                                        valueText: \"{safe_fact_id}\"}}
+                            ) {{ _additional {{ id }} }}
+                        }}
+                    }}"""
+                },
+            )
+            lookup.raise_for_status()
+            lookup_data = lookup.json()
+            if lookup_data.get("errors"):
+                raise RuntimeError("Weaviate legacy-object lookup failed")
+            object_ids.extend(
+                obj.get("_additional", {}).get("id")
+                for obj in (
+                    lookup_data
+                    .get("data", {})
+                    .get("Get", {})
+                    .get(WEAVIATE_COLLECTION_NAME, [])
+                )
+            )
+
+            for object_id in dict.fromkeys(value for value in object_ids if value):
+                resp = await client.patch(
+                    f"{self.weaviate_url}/v1/objects/"
+                    f"{WEAVIATE_COLLECTION_NAME}/{object_id}",
+                    json={
+                        "class": WEAVIATE_COLLECTION_NAME,
+                        "properties": {"isActive": False},
+                    },
+                )
+                # Missing objects are already absent from semantic recall.
+                if resp.status_code != 404:
+                    resp.raise_for_status()
 
     async def update_embedding(
         self,
@@ -487,13 +544,18 @@ class MemoryStore:
         """Update an embedding after fact content changes. Returns new weaviate_id."""
         await self.initialize()
 
-        if self.backend == "weaviate" and weaviate_id:
-            # Delete old, create new
-            await self.delete_embedding(fact_id, weaviate_id)
-            return await self._store_weaviate(
+        if self.backend == "weaviate":
+            new_weaviate_id = await self._store_weaviate(
                 fact_id, content, user_id, namespace, fact_type, confidence
             )
+            if weaviate_id and weaviate_id != new_weaviate_id:
+                await self.delete_embedding(fact_id, weaviate_id)
+            return new_weaviate_id
         elif self.backend == "pgvector":
             await self._store_pgvector(fact_id, content)
+            if self.weaviate_url:
+                raise ConnectionError(
+                    "Weaviate is unavailable while a memory vector needs sync"
+                )
             return None
         return None

@@ -493,8 +493,15 @@ class WeaviateClient:
                     ],
                 },
             )
-            # 422 with "already exists" is a benign race, not a failure.
-            if resp.status_code not in (200, 422):
+            if resp.status_code == 422:
+                # Creation can race another worker, but 422 also represents
+                # malformed schemas. Re-read to distinguish those outcomes.
+                confirmed = await client.get(
+                    f"{self._url}/v1/schema/{class_name}"
+                )
+                if confirmed.status_code != 200:
+                    resp.raise_for_status()
+            elif resp.status_code != 200:
                 resp.raise_for_status()
 
     async def write_objects(self, class_name: str, objects: List[Dict[str, Any]]) -> int:
@@ -515,11 +522,83 @@ class WeaviateClient:
                 if resp.status_code in (200, 201):
                     written += 1
                 elif resp.status_code == 422:
-                    # Object already exists (idempotent re-run) — count it.
-                    written += 1
+                    # Weaviate uses 422 for duplicate IDs and invalid payloads.
+                    # Existence permits a full replacement; the replacement
+                    # still validates current properties and vector data.
+                    existing = await client.head(
+                        f"{self._url}/v1/objects/{class_name}/{obj['id']}"
+                    )
+                    if existing.status_code in (200, 204):
+                        replacement = await client.put(
+                            f"{self._url}/v1/objects/{class_name}/{obj['id']}",
+                            json={
+                                "class": class_name,
+                                "properties": obj["properties"],
+                                "vector": obj["vector"],
+                            },
+                        )
+                        replacement.raise_for_status()
+                        written += 1
+                    else:
+                        resp.raise_for_status()
                 else:
                     resp.raise_for_status()
         return written
+
+    async def reconcile_objects(
+        self, class_name: str, profile_name: str, desired_ids: List[str]
+    ) -> int:
+        """Delete objects from older corpus generations for this profile."""
+        import httpx
+
+        safe_profile = (
+            profile_name.replace("\\", "\\\\").replace('"', '\\"')
+        )
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            existing_ids = set()
+            page_size = 1000
+            offset = 0
+            while True:
+                response = await client.post(
+                    f"{self._url}/v1/graphql",
+                    json={
+                        "query": f"""{{
+                            Get {{
+                                {class_name}(
+                                    where: {{path: [\"profile\"], operator: Equal,
+                                            valueText: \"{safe_profile}\"}}
+                                    limit: {page_size}
+                                    offset: {offset}
+                                ) {{ _additional {{ id }} }}
+                            }}
+                        }}"""
+                    },
+                )
+                response.raise_for_status()
+                payload = response.json()
+                if payload.get("errors"):
+                    raise RuntimeError(
+                        "Weaviate profile reconciliation lookup failed"
+                    )
+                page = (
+                    payload.get("data", {})
+                    .get("Get", {})
+                    .get(class_name, [])
+                )
+                existing_ids.update(
+                    obj.get("_additional", {}).get("id") for obj in page
+                )
+                if len(page) < page_size:
+                    break
+                offset += page_size
+            stale_ids = existing_ids - set(desired_ids) - {None}
+            for object_id in sorted(stale_ids):
+                deleted = await client.delete(
+                    f"{self._url}/v1/objects/{class_name}/{object_id}"
+                )
+                if deleted.status_code not in (200, 204, 404):
+                    deleted.raise_for_status()
+        return len(stale_ids)
 
 
 # ─── graph RAG (LightRAG) ────────────────────────────────────────────
