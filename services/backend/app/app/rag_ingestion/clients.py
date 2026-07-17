@@ -603,6 +603,29 @@ class WeaviateClient:
 
 # ─── graph RAG (LightRAG) ────────────────────────────────────────────
 
+_DEFAULT_PIPELINE_STATUS_TIMEOUT = 30.0
+
+
+def _resolve_pipeline_status_timeout(explicit: Optional[float]) -> float:
+    """Per-request `pipeline_status` timeout: explicit arg > env > default.
+
+    ``LIGHTRAG_PIPELINE_STATUS_TIMEOUT_SECONDS`` is the operator knob; a
+    missing/blank/non-positive value falls back to the 30 s default so a bad
+    override can never disable the timeout (which would hang a drain poll).
+    """
+    if explicit is not None and explicit > 0:
+        return float(explicit)
+    raw = os.getenv("LIGHTRAG_PIPELINE_STATUS_TIMEOUT_SECONDS", "").strip()
+    if raw:
+        try:
+            value = float(raw)
+        except ValueError:
+            value = 0.0
+        if value > 0:
+            return value
+    return _DEFAULT_PIPELINE_STATUS_TIMEOUT
+
+
 class LightRagClient:
     """Upload documents + drain the extraction pipeline with a timeout.
 
@@ -611,9 +634,22 @@ class LightRagClient:
     are what the unit suite exercises with a fake.
     """
 
-    def __init__(self, endpoint: Optional[str] = None, api_key: Optional[str] = None) -> None:
+    def __init__(
+        self,
+        endpoint: Optional[str] = None,
+        api_key: Optional[str] = None,
+        pipeline_status_timeout: Optional[float] = None,
+    ) -> None:
         self._endpoint = (endpoint if endpoint is not None else os.getenv("LIGHTRAG_ENDPOINT", "")).rstrip("/")
         self._api_key = api_key if api_key is not None else os.getenv("LIGHTRAG_API_KEY", "")
+        # Per-request timeout for the `pipeline_status` drain poll. Kept short
+        # and configurable: LightRAG can briefly stop servicing the endpoint
+        # during a long extraction/merge, and the drain loop retries these
+        # transient timeouts within its own deadline rather than failing a
+        # healthy ingestion (#673).
+        self._pipeline_status_timeout = _resolve_pipeline_status_timeout(
+            pipeline_status_timeout
+        )
 
     def available(self) -> bool:
         return bool(self._endpoint.strip())
@@ -661,7 +697,7 @@ class LightRagClient:
     async def pipeline_busy(self) -> bool:
         import httpx
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=self._pipeline_status_timeout) as client:
             resp = await client.get(
                 f"{self._endpoint}/documents/pipeline_status", headers=self._headers()
             )
