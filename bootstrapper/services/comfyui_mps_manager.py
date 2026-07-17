@@ -570,7 +570,7 @@ class ComfyUiMpsManager:
 
     # ── health ───────────────────────────────────────────────────────
     def health(self, *, timeout: float = 3.0) -> dict:
-        url = f"http://{self.listen}:{self.port}/system_stats"
+        url = f"http://{self._probe_host}:{self.port}/system_stats"
         try:
             with urllib.request.urlopen(url, timeout=timeout) as resp:  # noqa: S310 - loopback only
                 body = resp.read().decode("utf-8")
@@ -614,10 +614,22 @@ class ComfyUiMpsManager:
                 f"{(result.stderr or result.stdout or '').strip()[:400]}"
             )
 
+    @property
+    def _probe_host(self) -> str:
+        """Loopback-reachable address for local health / port probes.
+
+        When ComfyUI binds all interfaces (``COMFYUI_MPS_LISTEN=0.0.0.0`` — used
+        on Linux engines where ``host.docker.internal`` maps via ``host-gateway``
+        to a bridge address a loopback-bound listener can't answer), a client
+        cannot connect to the ``0.0.0.0`` wildcard, so probe ``127.0.0.1``
+        instead (#651). A concrete bind address is probed as-is.
+        """
+        return "127.0.0.1" if self.listen in ("", "0.0.0.0", "::") else self.listen
+
     def _port_in_use(self) -> bool:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             sock.settimeout(0.5)
-            return sock.connect_ex((self.listen, self.port)) == 0
+            return sock.connect_ex((self._probe_host, self.port)) == 0
 
     def _read_pid(self) -> Optional[int]:
         if not self.pid_file.exists():
@@ -708,4 +720,5 @@ def manager_from_env(env: dict[str, str]) -> ComfyUiMpsManager:
         models_path=env.get("COMFYUI_MPS_MODELS_PATH") or None,
         min_memory_gb=int(env.get("COMFYUI_MPS_MIN_MEMORY_GB", "16") or "16"),
         torch_pin=env.get("COMFYUI_MPS_TORCH_PIN") or None,
+        listen=env.get("COMFYUI_MPS_LISTEN") or "127.0.0.1",
     )
