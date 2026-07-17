@@ -330,6 +330,12 @@ class ComfyUiMpsManager:
         existing = self.status()
         if existing.running:
             return existing, False  # idempotent — one process per host
+        # Not running, but a pidfile may linger from a dead/recycled process.
+        # Clear it so we relaunch cleanly instead of leaving a stale pointer
+        # (status() already refuses to trust it, but the file must not survive a
+        # fresh launch and mislead a later probe) (#647).
+        self._clear_pid()
+        self._untracked_pid = None
         if not self.venv_python.exists():
             raise ComfyUiMpsError("ComfyUI venv is not installed — run install first")
         if self._port_in_use():
@@ -463,7 +469,16 @@ class ComfyUiMpsManager:
 
     def status(self) -> ProcessStatus:
         pid = self._read_pid() or self._untracked_pid
-        running = pid is not None and self._managed_process_alive(pid)
+        # A pidfile + kill-0 probe alone trusts a RECYCLED PID: after a reboot or
+        # crash another process can inherit the number, and kill-0 then reports a
+        # dead ComfyUI as running (so start() no-ops while nothing listens). Also
+        # require that the PID is not provably a stranger — the argv/state-dir
+        # ownership check that previously only stop() consulted (#647).
+        running = (
+            pid is not None
+            and self._managed_process_alive(pid)
+            and not self._pid_is_stranger(pid)
+        )
         ref = None
         if self.status_file.exists():
             try:
@@ -580,7 +595,9 @@ class ComfyUiMpsManager:
         except ProcessLookupError:
             return False
         except PermissionError:
-            return True
+            # We can't signal it, so it is NOT our (user-owned) managed process
+            # — a foreign, likely root-owned, process recycled the PID (#647).
+            return False
         return True
 
     @staticmethod
@@ -590,7 +607,8 @@ class ComfyUiMpsManager:
         except ProcessLookupError:
             return False
         except PermissionError:
-            return True
+            # Same as _pid_alive: a group we can't signal is not ours (#647).
+            return False
         return True
 
     def _managed_process_alive(self, pid: int) -> bool:
