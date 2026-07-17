@@ -616,6 +616,7 @@ CREATE TABLE public.memory_facts (
     metadata jsonb DEFAULT '{}'::jsonb,
     embedding public.vector(768),
     weaviate_id character varying(255),
+    vector_sync_pending boolean DEFAULT false NOT NULL,
     is_active boolean DEFAULT true,
     superseded_by uuid,
     created_at timestamp with time zone DEFAULT now(),
@@ -848,6 +849,8 @@ CREATE INDEX idx_memory_facts_type ON public.memory_facts USING btree (fact_type
 CREATE INDEX idx_memory_facts_user_active ON public.memory_facts USING btree (user_id, is_active);
 
 CREATE INDEX idx_memory_facts_user_id ON public.memory_facts USING btree (user_id);
+
+CREATE INDEX idx_memory_facts_vector_sync_pending ON public.memory_facts USING btree (vector_sync_pending) WHERE (vector_sync_pending = true);
 
 CREATE INDEX idx_memory_sessions_conversation ON public.memory_sessions USING btree (conversation_id);
 

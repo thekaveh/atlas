@@ -74,6 +74,8 @@ class IngestionRecord:
     counts: Dict[str, int] = field(default_factory=dict)
     errors: List[Dict[str, Any]] = field(default_factory=list)
     content_digest: Optional[str] = None
+    profile_snapshot: Optional[Dict[str, Any]] = None
+    corpus: Optional[Dict[str, Any]] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
     cancel_requested: bool = False
@@ -151,6 +153,8 @@ class RagIngestionRecordResponse(BaseModel):
     counts: Dict[str, int]
     errors: List[Dict[str, Any]]
     content_digest: Optional[str] = None
+    profile_snapshot: Optional[Dict[str, Any]] = None
+    corpus: Optional[Dict[str, Any]] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
     cancel_requested: bool = False
