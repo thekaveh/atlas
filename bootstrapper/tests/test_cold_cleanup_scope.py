@@ -139,3 +139,27 @@ def test_prepare_environment_passes_cli_project_to_cleanup():
 
     assert starter.prepare_environment(cold_start=True, project_name="new-project")
     assert projects == ["new-project"]
+
+
+def test_perform_cold_start_cleanup_forwards_project_to_docker_manager():
+    """Exercise the REAL AtlasStarter method (the tests above stub it out with a
+    ``**_kwargs`` lambda, so they never catch a signature mismatch). It must
+    accept the CLI project name and forward it to the docker manager. Regression
+    guard for the crash `./start.sh --cold` hit when the method took no
+    project_name yet prepare_environment passed one, and for the docker-manager
+    call dropping the override.
+    """
+    starter = object.__new__(AtlasStarter)
+    forwarded: list[str | None] = []
+    starter.docker_manager = SimpleNamespace(
+        perform_cold_start_cleanup=lambda project_name=None: (
+            forwarded.append(project_name) or True
+        )
+    )
+    starter.banner = SimpleNamespace(
+        show_section_header=lambda *_a, **_k: None,
+        show_status_message=lambda *_a, **_k: None,
+    )
+
+    assert starter.perform_cold_start_cleanup(project_name="new-project") is True
+    assert forwarded == ["new-project"]

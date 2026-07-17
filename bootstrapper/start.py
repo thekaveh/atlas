@@ -2286,14 +2286,17 @@ class AtlasStarter:
         # Default: silent check, no warnings for missing entries
         return True
             
-    def perform_cold_start_cleanup(self) -> bool:
+    def perform_cold_start_cleanup(self, project_name: Optional[str] = None) -> bool:
         """Perform cold start cleanup if requested."""
         self.banner.show_section_header("Cold Start Cleanup", "🧹")
-        
+
         self.banner.show_status_message("Performing cold start cleanup...", "info")
-        
-        # Use the enhanced cold start cleanup
-        success = self.docker_manager.perform_cold_start_cleanup()
+
+        # Use the enhanced cold start cleanup. Forward the CLI project name so a
+        # `--cold --project foo` run tears down `foo` rather than the stale
+        # project still recorded in .env (the override is not persisted until
+        # setup_env_file runs later).
+        success = self.docker_manager.perform_cold_start_cleanup(project_name=project_name)
         
         if not success:
             self.banner.show_status_message("Cold cleanup failed; secrets were not rotated", "error")
@@ -4439,6 +4442,7 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
                     'comfyui_source': comfyui_source,
                     'asset_worker_source': asset_worker_source,
                     'asset_baker_source': asset_baker_source,
+                    'fal_source': fal_source,
                     'weaviate_source': weaviate_source,
                     'minio_source': minio_source,
                     'n8n_source': n8n_source,
