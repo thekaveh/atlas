@@ -356,12 +356,23 @@ debugging (#504). A nonzero Compose `up --wait` return is re-inspected before
 failing: when every service is running/healthy and every one-shot init exited
 `0`, it is classified as the known benign one-shot race and startup continues
 to the final summary; genuine failures still fail and name the offending
-service and exit code (#508). Add `--json` when a parent script needs machine-readable
-status:
+service and exit code (#508). A service whose healthcheck is still in its start
+period (`health=starting`) at that moment is treated as **convergent-pending**,
+not failed: the still-starting rows are re-polled within a bounded grace window
+(up to ~120 s) before classifying, so a stack that is merely mid-probe no longer
+false-fails with `[ERROR] … starting` lines or a nonzero exit (#677/#681).
+Genuine failures (unhealthy, exited-nonzero, or still starting after the grace
+window) still fail loudly and name the service. Add `--json` when a parent
+script needs machine-readable status:
 
 ```bash
 ./start.sh --no-tui --detach --json
 ```
+
+The JSON payload includes a `converged_after_grace` boolean — `true` when the
+start converged only after re-polling still-`starting` rows through the grace
+window, so automation can tell a health race apart from a first-pass-healthy
+start.
 
 **Shared managed-host runtimes and teardown.** Some sources run a **native
 host-global process** rather than a container: Apple-Silicon/Metal ComfyUI
