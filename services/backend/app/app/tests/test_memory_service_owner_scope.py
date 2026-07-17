@@ -6,6 +6,8 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import UUID
 
+import pytest
+
 
 class FakeConn:
     def __init__(self):
@@ -100,6 +102,616 @@ def test_consolidate_reraises_transient_llm_failure_for_worker(monkeypatch):
         raise AssertionError("worker-mode consolidation swallowed a transient error")
 
 
+def test_consolidate_deactivates_weaviate_before_superseding_fact(monkeypatch):
+    import memory_service
+
+    events = []
+    now = datetime.now(timezone.utc)
+    facts = [
+        {
+            "id": UUID("00000000-0000-4000-8000-000000000001"),
+            "content": "older",
+            "fact_type": "observation",
+            "confidence": 0.8,
+            "namespace": "default",
+            "created_at": now,
+            "updated_at": now,
+            "metadata": {},
+            "weaviate_id": "vector-old",
+        },
+        {
+            "id": UUID("00000000-0000-4000-8000-000000000002"),
+            "content": "newer",
+            "fact_type": "observation",
+            "confidence": 0.9,
+            "namespace": "default",
+            "created_at": now,
+            "updated_at": now,
+            "metadata": {},
+            "weaviate_id": "vector-new",
+        },
+    ]
+
+    class PendingConn:
+        async def fetch(self, _query, *_params):
+            return []
+
+        async def close(self):
+            return None
+
+    class FactsConn:
+        async def fetch(self, _query, *_params):
+            return facts
+
+        async def close(self):
+            return None
+
+    class ApplyConn:
+        def __init__(self):
+            self.pending = []
+
+        async def fetchrow(self, query, *_params):
+            if "vector_sync_pending = true" in query:
+                events.append("postgres")
+                row = {
+                    **facts[0],
+                    "user_id": UUID("00000000-0000-4000-8000-000000000003"),
+                    "is_active": False,
+                }
+                self.pending.append(row)
+                return row
+
+        async def fetch(self, query, *_params):
+            if "vector_sync_pending = true" in query:
+                return list(self.pending)
+            return []
+
+        async def execute(self, query, *_params):
+            if "vector_sync_pending = false" in query:
+                events.append("clear")
+                self.pending.clear()
+            return "OK"
+
+        async def fetchval(self, _query, *_params):
+            return 1
+
+        async def close(self):
+            return None
+
+    connections = iter([PendingConn(), FactsConn(), ApplyConn()])
+    monkeypatch.setattr(
+        memory_service,
+        "connect_postgres",
+        AsyncMock(side_effect=lambda _url: next(connections)),
+    )
+    svc = _service()
+    svc.max_facts = 100
+    svc._get_extraction_model = AsyncMock(return_value="ollama/test")
+    svc._litellm_complete = AsyncMock(
+        return_value=(
+            '[{"action":"supersede","source_indices":[0,1],'
+            '"keep_index":1,"reason":"newer"}]'
+        )
+    )
+
+    async def deactivate(fact_id, weaviate_id):
+        events.append((fact_id, weaviate_id))
+
+    svc.store = SimpleNamespace(deactivate_embedding=deactivate)
+
+    result = asyncio.run(
+        svc.consolidate(user_id="00000000-0000-4000-8000-000000000003")
+    )
+
+    assert result["facts_superseded"] == 1
+    assert events == [
+        "postgres",
+        ("00000000-0000-4000-8000-000000000001", "vector-old"),
+        "clear",
+    ]
+
+
+def test_consolidate_deactivates_weaviate_before_retention_expiry(monkeypatch):
+    import memory_service
+
+    events = []
+    now = datetime.now(timezone.utc)
+    facts = [
+        {
+            "id": UUID("00000000-0000-4000-8000-000000000001"),
+            "content": "first",
+            "fact_type": "observation",
+            "confidence": 0.8,
+            "namespace": "default",
+            "created_at": now,
+            "updated_at": now,
+            "metadata": {},
+            "weaviate_id": "vector-old",
+        },
+        {
+            "id": UUID("00000000-0000-4000-8000-000000000002"),
+            "content": "second",
+            "fact_type": "observation",
+            "confidence": 0.9,
+            "namespace": "default",
+            "created_at": now,
+            "updated_at": now,
+            "metadata": {},
+            "weaviate_id": "vector-new",
+        },
+    ]
+
+    class PendingConn:
+        async def fetch(self, _query, *_params):
+            return []
+
+        async def close(self):
+            return None
+
+    class FactsConn:
+        async def fetch(self, _query, *_params):
+            return facts
+
+        async def close(self):
+            return None
+
+    class ApplyConn:
+        def __init__(self):
+            self.pending = []
+
+        async def fetchrow(self, query, *_params):
+            if "vector_sync_pending = true" in query:
+                events.append("postgres")
+                row = {
+                    **facts[0],
+                    "user_id": UUID("00000000-0000-4000-8000-000000000003"),
+                    "is_active": False,
+                }
+                self.pending.append(row)
+                return row
+
+        async def execute(self, query, *_params):
+            if "vector_sync_pending = false" in query:
+                events.append("clear")
+                self.pending.clear()
+            return "OK"
+
+        async def fetchval(self, _query, *_params):
+            return 2
+
+        async def fetch(self, _query, *_params):
+            if self.pending:
+                return list(self.pending)
+            return [{"id": facts[0]["id"], "updated_at": facts[0]["updated_at"]}]
+
+        async def close(self):
+            return None
+
+    connections = iter([PendingConn(), FactsConn(), ApplyConn()])
+    monkeypatch.setattr(
+        memory_service,
+        "connect_postgres",
+        AsyncMock(side_effect=lambda _url: next(connections)),
+    )
+    svc = _service()
+    svc.max_facts = 1
+    svc._get_extraction_model = AsyncMock(return_value="ollama/test")
+    svc._litellm_complete = AsyncMock(return_value="[]")
+
+    async def deactivate(fact_id, weaviate_id):
+        events.append((fact_id, weaviate_id))
+
+    svc.store = SimpleNamespace(deactivate_embedding=deactivate)
+
+    result = asyncio.run(
+        svc.consolidate(user_id="00000000-0000-4000-8000-000000000003")
+    )
+
+    assert result["facts_expired"] == 1
+    assert events == [
+        "postgres",
+        ("00000000-0000-4000-8000-000000000001", "vector-old"),
+        "clear",
+    ]
+
+
+def test_pending_vector_sync_is_cleared_only_after_success(monkeypatch):
+    svc = _service()
+    events = []
+
+    class Conn:
+        async def fetch(self, _query, *_params):
+            return [
+                {
+                    "id": UUID("00000000-0000-4000-8000-000000000001"),
+                    "user_id": UUID("00000000-0000-4000-8000-000000000003"),
+                    "content": "old",
+                    "fact_type": "observation",
+                    "confidence": 0.8,
+                    "namespace": "default",
+                    "is_active": False,
+                    "weaviate_id": None,
+                }
+            ]
+
+        async def execute(self, _query, *_params):
+            events.append("clear")
+
+    async def deactivate(fact_id, weaviate_id):
+        events.append((fact_id, weaviate_id))
+
+    svc.store = SimpleNamespace(deactivate_embedding=deactivate)
+
+    asyncio.run(svc._reconcile_pending_vectors(Conn()))
+
+    assert events == [
+        ("00000000-0000-4000-8000-000000000001", None),
+        "clear",
+    ]
+
+
+def test_pending_vector_sync_survives_failed_weaviate_update(caplog):
+    svc = _service()
+    events = []
+
+    class Conn:
+        async def fetch(self, _query, *_params):
+            return [
+                {
+                    "id": UUID("00000000-0000-4000-8000-000000000001"),
+                    "user_id": UUID("00000000-0000-4000-8000-000000000003"),
+                    "content": "old",
+                    "fact_type": "observation",
+                    "confidence": 0.8,
+                    "namespace": "default",
+                    "is_active": False,
+                    "weaviate_id": "vector-old",
+                }
+            ]
+
+        async def execute(self, _query, *_params):
+            events.append("clear")
+
+    async def deactivate(_fact_id, _weaviate_id):
+        raise ConnectionError("weaviate unavailable")
+
+    svc.store = SimpleNamespace(deactivate_embedding=deactivate)
+
+    asyncio.run(svc._reconcile_pending_vectors(Conn()))
+
+    assert events == []
+    assert "error_type=ConnectionError" in caplog.text
+
+    with pytest.raises(ConnectionError, match="weaviate unavailable"):
+        asyncio.run(
+            svc._reconcile_pending_vectors(Conn(), retry_transient=True)
+        )
+
+
+def test_consolidation_sql_failure_has_no_vector_side_effect(monkeypatch):
+    import memory_service
+
+    now = datetime.now(timezone.utc)
+    facts = [
+        {
+            "id": UUID("00000000-0000-4000-8000-000000000001"),
+            "content": "older",
+            "fact_type": "observation",
+            "confidence": 0.8,
+            "namespace": "default",
+            "created_at": now,
+            "updated_at": now,
+            "metadata": {},
+            "weaviate_id": "vector-old",
+        },
+        {
+            "id": UUID("00000000-0000-4000-8000-000000000002"),
+            "content": "newer",
+            "fact_type": "observation",
+            "confidence": 0.9,
+            "namespace": "default",
+            "created_at": now,
+            "updated_at": now,
+            "metadata": {},
+            "weaviate_id": "vector-new",
+        },
+    ]
+
+    class PendingConn:
+        async def fetch(self, _query, *_params):
+            return []
+
+        async def close(self):
+            return None
+
+    class FactsConn(PendingConn):
+        async def fetch(self, _query, *_params):
+            return facts
+
+    class FailingApplyConn(PendingConn):
+        async def fetchrow(self, _query, *_params):
+            raise RuntimeError("postgres write failed")
+
+    connections = iter([PendingConn(), FactsConn(), FailingApplyConn()])
+    monkeypatch.setattr(
+        memory_service,
+        "connect_postgres",
+        AsyncMock(side_effect=lambda _url: next(connections)),
+    )
+    deactivate = AsyncMock()
+    svc = _service()
+    svc.max_facts = 100
+    svc.store = SimpleNamespace(deactivate_embedding=deactivate)
+    svc._get_extraction_model = AsyncMock(return_value="ollama/test")
+    svc._litellm_complete = AsyncMock(
+        return_value=(
+            '[{"action":"supersede","source_indices":[0,1],'
+            '"keep_index":1,"reason":"newer"}]'
+        )
+    )
+
+    with pytest.raises(RuntimeError, match="postgres write failed"):
+        asyncio.run(
+            svc.consolidate(
+                user_id="00000000-0000-4000-8000-000000000003"
+            )
+        )
+
+    deactivate.assert_not_awaited()
+
+
+def test_update_memory_retires_vector_reactivated_by_concurrent_update(
+    monkeypatch,
+):
+    import memory_service
+
+    memory_id = "00000000-0000-4000-8000-000000000001"
+    user_id = "00000000-0000-4000-8000-000000000002"
+    now = datetime.now(timezone.utc)
+    original = {
+        "id": UUID(memory_id),
+        "user_id": UUID(user_id),
+        "content": "old",
+        "fact_type": "observation",
+        "confidence": 0.9,
+        "namespace": "default",
+        "is_active": True,
+        "created_at": now,
+        "updated_at": now,
+        "metadata": {},
+        "weaviate_id": "legacy-vector",
+    }
+
+    class Conn:
+        def __init__(self):
+            self.calls = 0
+
+        async def fetchrow(self, _query, *_params):
+            self.calls += 1
+            if self.calls == 1:
+                return original
+            if self.calls == 2:
+                return {**original, "content": "new"}
+            return {"is_active": False, "vector_sync_pending": True}
+
+        async def execute(self, *_args):
+            return "OK"
+
+        async def fetch(self, _query, *_params):
+            return [
+                {
+                    **original,
+                    "content": "new",
+                    "is_active": False,
+                    "vector_sync_pending": True,
+                    "weaviate_id": memory_id,
+                }
+            ]
+
+        async def close(self):
+            return None
+
+    conn = Conn()
+    monkeypatch.setattr(
+        memory_service, "connect_postgres", AsyncMock(return_value=conn)
+    )
+    store = SimpleNamespace(
+        update_embedding=AsyncMock(return_value=memory_id),
+        deactivate_embedding=AsyncMock(),
+    )
+    svc = _service()
+    svc.store = store
+
+    asyncio.run(svc.update_memory(memory_id, user_id, {"content": "new"}))
+
+    store.deactivate_embedding.assert_awaited_once_with(memory_id, memory_id)
+
+
+@pytest.mark.parametrize("target_active", [False, True])
+def test_update_memory_reconciles_public_active_state(monkeypatch, target_active):
+    import memory_service
+
+    memory_id = "00000000-0000-4000-8000-000000000001"
+    user_id = "00000000-0000-4000-8000-000000000002"
+    now = datetime.now(timezone.utc)
+    row = {
+        "id": UUID(memory_id),
+        "user_id": UUID(user_id),
+        "content": "fact",
+        "fact_type": "observation",
+        "confidence": 0.9,
+        "namespace": "default",
+        "is_active": target_active,
+        "created_at": now,
+        "updated_at": now,
+        "metadata": {},
+        "weaviate_id": memory_id,
+    }
+
+    class Conn:
+        def __init__(self):
+            self.fetchrow_calls = 0
+            self.update_query = ""
+
+        async def fetchrow(self, query, *_params):
+            self.fetchrow_calls += 1
+            if self.fetchrow_calls == 1:
+                return {**row, "is_active": not target_active}
+            self.update_query = query
+            return row
+
+        async def fetch(self, _query, *_params):
+            return [row]
+
+        async def execute(self, *_args):
+            return "OK"
+
+        async def close(self):
+            return None
+
+    conn = Conn()
+    monkeypatch.setattr(
+        memory_service, "connect_postgres", AsyncMock(return_value=conn)
+    )
+    store = SimpleNamespace(
+        update_embedding=AsyncMock(return_value=memory_id),
+        deactivate_embedding=AsyncMock(),
+    )
+    svc = _service()
+    svc.store = store
+
+    asyncio.run(
+        svc.update_memory(memory_id, user_id, {"is_active": target_active})
+    )
+
+    assert "vector_sync_pending = true" in conn.update_query
+    if target_active:
+        store.update_embedding.assert_awaited_once()
+        store.deactivate_embedding.assert_not_awaited()
+    else:
+        store.deactivate_embedding.assert_awaited_once_with(memory_id, memory_id)
+        store.update_embedding.assert_not_awaited()
+
+
+def test_delete_memory_keeps_pending_marker_when_vector_sync_fails(monkeypatch):
+    import memory_service
+
+    memory_id = "00000000-0000-4000-8000-000000000001"
+    user_id = "00000000-0000-4000-8000-000000000002"
+    events = []
+
+    class Conn:
+        async def fetchrow(self, query, *_params):
+            assert "vector_sync_pending = true" in query
+            return {"id": UUID(memory_id)}
+
+        async def fetch(self, _query, *_params):
+            return [
+                {
+                    "id": UUID(memory_id),
+                    "user_id": UUID(user_id),
+                    "content": "fact",
+                    "fact_type": "observation",
+                    "confidence": 0.9,
+                    "namespace": "default",
+                    "is_active": False,
+                    "weaviate_id": memory_id,
+                }
+            ]
+
+        async def execute(self, *_args):
+            events.append("clear")
+
+        async def close(self):
+            return None
+
+    async def fail_deactivate(*_args):
+        raise ConnectionError("weaviate unavailable")
+
+    monkeypatch.setattr(
+        memory_service, "connect_postgres", AsyncMock(return_value=Conn())
+    )
+    svc = _service()
+    svc.store = SimpleNamespace(deactivate_embedding=fail_deactivate)
+
+    assert asyncio.run(svc.delete_memory(memory_id, user_id)) is True
+    assert events == []
+
+
+def test_consolidation_skips_fact_edited_during_llm_round_trip(monkeypatch):
+    import memory_service
+
+    now = datetime.now(timezone.utc)
+    facts = [
+        {
+            "id": UUID("00000000-0000-4000-8000-000000000001"),
+            "content": "older",
+            "fact_type": "observation",
+            "confidence": 0.8,
+            "namespace": "default",
+            "created_at": now,
+            "updated_at": now,
+            "metadata": {},
+            "weaviate_id": "vector-old",
+        },
+        {
+            "id": UUID("00000000-0000-4000-8000-000000000002"),
+            "content": "newer",
+            "fact_type": "observation",
+            "confidence": 0.9,
+            "namespace": "default",
+            "created_at": now,
+            "updated_at": now,
+            "metadata": {},
+            "weaviate_id": "vector-new",
+        },
+    ]
+
+    class PendingConn:
+        async def fetch(self, _query, *_params):
+            return []
+
+        async def close(self):
+            return None
+
+    class FactsConn(PendingConn):
+        async def fetch(self, _query, *_params):
+            return facts
+
+    class ApplyConn(PendingConn):
+        async def fetchrow(self, query, *params):
+            assert "updated_at = $3" in query
+            assert params[2] == now
+            return None
+
+        async def fetchval(self, _query, *_params):
+            return 2
+
+    connections = iter([PendingConn(), FactsConn(), ApplyConn()])
+    monkeypatch.setattr(
+        memory_service,
+        "connect_postgres",
+        AsyncMock(side_effect=lambda _url: next(connections)),
+    )
+    svc = _service()
+    svc.max_facts = 100
+    svc.store = SimpleNamespace(deactivate_embedding=AsyncMock())
+    svc._get_extraction_model = AsyncMock(return_value="ollama/test")
+    svc._litellm_complete = AsyncMock(
+        return_value=(
+            '[{"action":"supersede","source_indices":[0,1],'
+            '"keep_index":1,"reason":"newer"}]'
+        )
+    )
+
+    result = asyncio.run(
+        svc.consolidate(user_id="00000000-0000-4000-8000-000000000003")
+    )
+
+    assert result["facts_superseded"] == 0
+    svc.store.deactivate_embedding.assert_not_awaited()
+
+
 def test_update_memory_is_scoped_to_owner(monkeypatch):
     import memory_service
 
@@ -163,15 +775,9 @@ def test_delete_memory_is_scoped_to_owner(monkeypatch):
         )
     )
 
-    select_query, select_params = conn.fetchrow_calls[0]
-    update_query, update_params = conn.execute_calls[0]
+    update_query, update_params = conn.fetchrow_calls[0]
     assert success is True
-    assert "WHERE id = $1 AND user_id = $2" in select_query
     assert "WHERE id = $1 AND user_id = $2" in update_query
-    assert [str(value) for value in select_params] == [
-        "00000000-0000-4000-8000-000000000001",
-        "00000000-0000-4000-8000-000000000002",
-    ]
     assert [str(value) for value in update_params] == [
         "00000000-0000-4000-8000-000000000001",
         "00000000-0000-4000-8000-000000000002",
@@ -300,6 +906,8 @@ def test_recall_and_summarize_release_db_before_llm(monkeypatch):
             }
 
         async def fetch(self, query, *params):
+            if "vector_sync_pending = true" in query:
+                return []
             return [
                 {
                     "content": "Uses Atlas",

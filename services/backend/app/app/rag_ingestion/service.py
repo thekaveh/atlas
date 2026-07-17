@@ -178,6 +178,8 @@ class RagIngestionService:
             revision=profile.revision,
             idempotency_key=key,
             content_digest=corpus_fingerprint[:16],
+            profile_snapshot=profile.to_dict(corpus=corpus),
+            corpus=dict(corpus),
             created_at=_now_iso(),
             updated_at=_now_iso(),
         )
@@ -310,8 +312,13 @@ class RagIngestionService:
             raise KeyError(ingestion_id)
         if record.is_terminal:
             return record
-        profile = self._resolve_profile(record.profile)
-        corpus = dict(profile.corpus)
+        if record.profile_snapshot:
+            profile = LoadedProfile.from_dict(record.profile_snapshot)
+        else:
+            # Records created before execution snapshots were introduced retain
+            # their historical registry-resolution behavior.
+            profile = self._resolve_profile(record.profile)
+        corpus = dict(record.corpus or profile.corpus)
         owner = execution_owner or f"local-{uuid.uuid4()}"
         lease_seconds = (
             ingestion_execution_lease_seconds()
@@ -562,7 +569,19 @@ class RagIngestionService:
             record.phase("vector_write").note = "no vector_targets"
             return
         if not state["chunks"]:
-            record.phase("vector_write").note = "no chunks to write"
+            for target in targets:
+                if not self.deps.weaviate.available():
+                    self._target_unavailable(
+                        record, "vector_write", "weaviate", "weaviate",
+                        target.get("on_unavailable", "fail"),
+                    )
+                    return
+                class_name = f"{target['collection_prefix']}_{profile.name}"
+                await self.deps.weaviate.ensure_class(class_name)
+                await self.deps.weaviate.reconcile_objects(
+                    class_name, profile.name, []
+                )
+            record.phase("vector_write").note = "no chunks; stale objects removed"
             record.counts["vectors_written"] = 0
             return
         total = 0
@@ -600,6 +619,11 @@ class RagIngestionService:
                     for c in state["chunks"]
                 ]
                 total += await self.deps.weaviate.write_objects(class_name, objects)
+                await self.deps.weaviate.reconcile_objects(
+                    class_name,
+                    profile.name,
+                    [obj["id"] for obj in objects],
+                )
             except PhaseFatal:
                 raise
             except TRANSIENT_EXCEPTIONS:

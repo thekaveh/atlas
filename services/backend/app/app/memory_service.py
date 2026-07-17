@@ -379,6 +379,7 @@ Extract the facts as JSON:"""
         """Recall relevant memories for a query."""
         self._check_enabled()
         await self._ensure_initialized()
+        await self._reconcile_pending_vectors()
 
         # Search vector store for semantically similar memories
         similar = await self.store.search_similar(
@@ -447,6 +448,83 @@ Extract the facts as JSON:"""
 
         return {"memories": memories, "context_summary": context_summary}
 
+    async def _reconcile_pending_vectors(
+        self,
+        conn=None,
+        *,
+        retry_transient: bool = False,
+    ) -> int:
+        """Apply durable Postgres vector-retirement intents to Weaviate."""
+        if not self.store:
+            return 0
+        owns_connection = conn is None
+        if owns_connection:
+            conn = await connect_postgres(self.database_url)
+        reconciled = 0
+        try:
+            rows = await conn.fetch(
+                """
+                SELECT id, user_id, namespace, content, fact_type, confidence,
+                       is_active, weaviate_id
+                FROM public.memory_facts
+                WHERE vector_sync_pending = true
+                ORDER BY updated_at
+                LIMIT 100
+                """
+            )
+            for row in rows:
+                new_weaviate_id = None
+                try:
+                    if row["is_active"]:
+                        new_weaviate_id = await self.store.update_embedding(
+                            fact_id=str(row["id"]),
+                            content=row["content"],
+                            user_id=str(row["user_id"]),
+                            namespace=row["namespace"],
+                            fact_type=row["fact_type"],
+                            confidence=row["confidence"],
+                            weaviate_id=row.get("weaviate_id"),
+                        )
+                    else:
+                        await self.store.deactivate_embedding(
+                            str(row["id"]), row.get("weaviate_id")
+                        )
+                except (
+                    TimeoutError,
+                    ConnectionError,
+                    httpx.TimeoutException,
+                    httpx.NetworkError,
+                ) as exc:
+                    if retry_transient:
+                        raise
+                    logger.warning(
+                        "Memory vector reconciliation deferred (error_type=%s)",
+                        type(exc).__name__,
+                    )
+                    continue
+                except Exception as exc:
+                    logger.warning(
+                        "Memory vector reconciliation deferred (error_type=%s)",
+                        type(exc).__name__,
+                    )
+                    continue
+                await conn.execute(
+                    """
+                    UPDATE public.memory_facts
+                    SET vector_sync_pending = false,
+                        weaviate_id = COALESCE($2, weaviate_id),
+                        updated_at = now()
+                    WHERE id = $1 AND vector_sync_pending = true
+                    """,
+                    row["id"],
+                    new_weaviate_id,
+                )
+                reconciled += 1
+        finally:
+            if owns_connection:
+                await conn.close()
+        return reconciled
+
     async def consolidate(
         self,
         user_id: Optional[str] = None,
@@ -461,6 +539,7 @@ Extract the facts as JSON:"""
         """
         self._check_enabled()
         await self._ensure_initialized()
+        await self._reconcile_pending_vectors(retry_transient=retry_transient)
 
         # The LLM call below (per-user) can take up to 60s; holding a
         # single conn across that pins one Postgres slot per concurrent
@@ -500,7 +579,7 @@ Extract the facts as JSON:"""
                 facts = await conn.fetch(
                     """
                     SELECT id, content, fact_type, confidence, namespace,
-                           created_at, metadata
+                           created_at, updated_at, metadata, weaviate_id
                     FROM public.memory_facts
                     WHERE user_id = $1 AND is_active = true
                     ORDER BY created_at
@@ -586,27 +665,42 @@ Extract the facts as JSON:"""
                         continue
 
                     keep_fact = facts[keep_index]
-                    source_fact_uuids = [
-                        facts[i]["id"]  # Already UUID from asyncpg
-                        for i in source_indices
-                        if i != keep_index
+                    source_facts = [
+                        facts[i] for i in source_indices if i != keep_index
                     ]
 
-                    if not source_fact_uuids:
+                    if not source_facts:
                         continue
 
                     # Deactivate superseded facts
-                    for sfid in source_fact_uuids:
-                        await conn.execute(
+                    source_fact_uuids = []
+                    for source_fact in source_facts:
+                        sfid = source_fact["id"]
+                        deactivated = await conn.fetchrow(
                             """
                             UPDATE public.memory_facts
-                            SET is_active = false, superseded_by = $1, updated_at = now()
-                            WHERE id = $2
+                            SET is_active = false, superseded_by = $1,
+                                vector_sync_pending = true, updated_at = now()
+                            WHERE id = $2 AND is_active = true
+                              AND updated_at = $3
+                              AND EXISTS (
+                                  SELECT 1 FROM public.memory_facts keeper
+                                  WHERE keeper.id = $1
+                                    AND keeper.is_active = true
+                                    AND keeper.updated_at = $4
+                              )
+                            RETURNING id, weaviate_id
                             """,
                             keep_fact["id"],  # Already UUID from asyncpg
                             sfid,
+                            source_fact["updated_at"],
+                            keep_fact["updated_at"],
                         )
+                        if deactivated:
+                            source_fact_uuids.append(deactivated["id"])
 
+                    if not source_fact_uuids:
+                        continue
                     # Log the consolidation
                     await conn.execute(
                         """
@@ -631,6 +725,9 @@ Extract the facts as JSON:"""
                         total_merged += len(source_fact_uuids)
                     else:
                         total_superseded += len(source_fact_uuids)
+                    await self._reconcile_pending_vectors(
+                        conn, retry_transient=retry_transient
+                    )
 
                 # Expire old facts beyond the limit
                 excess = await conn.fetchval(
@@ -643,7 +740,7 @@ Extract the facts as JSON:"""
                 if excess > self.max_facts:
                     expired_rows = await conn.fetch(
                         """
-                        SELECT id FROM public.memory_facts
+                        SELECT id, updated_at FROM public.memory_facts
                         WHERE user_id = $1 AND is_active = true
                         ORDER BY updated_at ASC
                         LIMIT $2
@@ -652,15 +749,23 @@ Extract the facts as JSON:"""
                         excess - self.max_facts,
                     )
                     for row in expired_rows:
-                        await conn.execute(
+                        expired = await conn.fetchrow(
                             """
                             UPDATE public.memory_facts
-                            SET is_active = false, expires_at = now(), updated_at = now()
-                            WHERE id = $1
+                            SET is_active = false, expires_at = now(),
+                                vector_sync_pending = true, updated_at = now()
+                            WHERE id = $1 AND is_active = true
+                              AND updated_at = $2
+                            RETURNING id, weaviate_id
                             """,
                             row["id"],  # Already UUID from asyncpg
+                            row["updated_at"],
                         )
-                        total_expired += 1
+                        if expired:
+                            total_expired += 1
+                    await self._reconcile_pending_vectors(
+                        conn, retry_transient=retry_transient
+                    )
             finally:
                 await conn.close()
 
@@ -838,6 +943,14 @@ Extract the facts as JSON:"""
                 params.append(json.dumps(updates["metadata"]))
                 param_idx += 1
 
+            vector_fields = {"content", "fact_type", "confidence", "is_active"}
+            needs_vector_sync = any(
+                field in updates and updates[field] is not None
+                for field in vector_fields
+            )
+            if needs_vector_sync:
+                set_clauses.append("vector_sync_pending = true")
+
             params.append(memory_uuid)
             params.append(user_uuid)
             query = (
@@ -849,32 +962,8 @@ Extract the facts as JSON:"""
             if not updated:
                 return None
 
-            # Update embedding if content changed
-            if "content" in updates and updates["content"] and self.store:
-                try:
-                    new_weaviate_id = await self.store.update_embedding(
-                        fact_id=memory_id,
-                        content=updates["content"],
-                        user_id=str(updated["user_id"]),
-                        namespace=updated["namespace"],
-                        fact_type=updated["fact_type"],
-                        confidence=updated["confidence"],
-                        weaviate_id=updated["weaviate_id"],
-                    )
-                    if new_weaviate_id and new_weaviate_id != updated["weaviate_id"]:
-                        # Reuse the outer `conn` — opening a second
-                        # asyncpg connection here burns a slot for one
-                        # extra UPDATE that the same connection can run.
-                        await conn.execute(
-                            "UPDATE public.memory_facts SET weaviate_id = $1 WHERE id = $2",
-                            new_weaviate_id,
-                            memory_uuid,
-                        )
-                except Exception as exc:
-                    logger.warning(
-                        "Failed to update embedding (error_type=%s)",
-                        type(exc).__name__,
-                    )
+            if needs_vector_sync:
+                await self._reconcile_pending_vectors(conn)
 
             return {
                 "id": str(updated["id"]),
@@ -900,35 +989,20 @@ Extract the facts as JSON:"""
         user_uuid = _to_uuid(user_id)
         conn = await connect_postgres(self.database_url)
         try:
-            row = await conn.fetchrow(
-                "SELECT weaviate_id FROM public.memory_facts WHERE id = $1 AND user_id = $2",
-                memory_uuid,
-                user_uuid,
-            )
-            if not row:
-                return False
-
-            await conn.execute(
+            deleted = await conn.fetchrow(
                 """
                 UPDATE public.memory_facts
-                SET is_active = false, updated_at = now()
+                SET is_active = false, vector_sync_pending = true,
+                    updated_at = now()
                 WHERE id = $1 AND user_id = $2
+                RETURNING id
                 """,
                 memory_uuid,
                 user_uuid,
             )
-
-            # Remove from vector store
-            if self.store and row["weaviate_id"]:
-                try:
-                    await self.store.delete_embedding(
-                        memory_id, row["weaviate_id"]
-                    )
-                except Exception as exc:
-                    logger.warning(
-                        "Failed to delete embedding (error_type=%s)",
-                        type(exc).__name__,
-                    )
+            if not deleted:
+                return False
+            await self._reconcile_pending_vectors(conn)
 
             return True
 

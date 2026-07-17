@@ -18,12 +18,16 @@ CREATE TABLE IF NOT EXISTS public.memory_facts (
     metadata JSONB DEFAULT '{}'::jsonb,
     embedding vector(768),                -- pgvector fallback (Weaviate-unavailable path). 768 assumes the default LITELLM_EMBEDDING_MODEL (nomic-embed-text); a LANGMEM_EMBEDDING_MODEL with a different dimension breaks this fallback insert (use the Weaviate backend or a 768-dim model).
     weaviate_id VARCHAR(255),             -- Weaviate vector reference (used when Weaviate available)
+    vector_sync_pending BOOLEAN NOT NULL DEFAULT false,
     is_active BOOLEAN DEFAULT true,
     superseded_by UUID REFERENCES public.memory_facts(id),
     created_at TIMESTAMPTZ DEFAULT now(),
     updated_at TIMESTAMPTZ DEFAULT now(),
     expires_at TIMESTAMPTZ
 );
+
+ALTER TABLE public.memory_facts
+    ADD COLUMN IF NOT EXISTS vector_sync_pending BOOLEAN NOT NULL DEFAULT false;
 
 -- Memory extraction sessions - tracks conversation-to-memory processing
 CREATE TABLE IF NOT EXISTS public.memory_sessions (
@@ -59,6 +63,8 @@ CREATE INDEX IF NOT EXISTS idx_memory_facts_type ON public.memory_facts(fact_typ
 CREATE INDEX IF NOT EXISTS idx_memory_facts_active ON public.memory_facts(is_active);
 CREATE INDEX IF NOT EXISTS idx_memory_facts_created_at ON public.memory_facts(created_at);
 CREATE INDEX IF NOT EXISTS idx_memory_facts_user_active ON public.memory_facts(user_id, is_active);
+CREATE INDEX IF NOT EXISTS idx_memory_facts_vector_sync_pending
+    ON public.memory_facts(vector_sync_pending) WHERE vector_sync_pending = true;
 CREATE INDEX IF NOT EXISTS idx_memory_facts_conversation ON public.memory_facts(source_conversation_id);
 CREATE INDEX IF NOT EXISTS idx_memory_sessions_user_id ON public.memory_sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_memory_sessions_conversation ON public.memory_sessions(conversation_id);

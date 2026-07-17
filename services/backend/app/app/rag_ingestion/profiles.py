@@ -28,6 +28,18 @@ class LoadedProfile:
     vector_targets: List[Dict[str, Any]]
     graph_targets: List[Dict[str, Any]]
 
+    def to_dict(self, *, corpus: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        return {
+            "consumer": self.consumer,
+            "name": self.name,
+            "revision": self.revision,
+            "corpus": dict(self.corpus if corpus is None else corpus),
+            "parser_order": list(self.parser_order),
+            "chunker": dict(self.chunker),
+            "vector_targets": [dict(target) for target in self.vector_targets],
+            "graph_targets": [dict(target) for target in self.graph_targets],
+        }
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "LoadedProfile":
         return cls(
