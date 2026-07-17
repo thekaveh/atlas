@@ -22,6 +22,7 @@ storage access/secret keys), never infra secrets such as the Redis password.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Mapping
@@ -191,6 +192,48 @@ class ExportField:
     secret: bool = False  # value is a ${ref}, not a resolved secret
 
 
+# ``${VAR}``, ``${VAR:-default}``, ``${VAR-default}``, and bare ``$VAR``. Matches
+# the compose-interpolation forms the source synthesizer writes into `.env`
+# values (e.g. ``http://host.docker.internal:${COMFYUI_MPS_LOCALHOST_PORT:-8188}``).
+_INTERP_RE = re.compile(
+    r"\$\{(?P<braced>[A-Za-z_][A-Za-z0-9_]*)(?::?-(?P<default>[^}]*))?\}"
+    r"|\$(?P<bare>[A-Za-z_][A-Za-z0-9_]*)"
+)
+
+
+def _expand_interpolation(value: str, env: Mapping[str, str]) -> str:
+    """Resolve compose-style ``${…}`` / ``$VAR`` interpolations against ``env``.
+
+    The source synthesizer stores compose-interpolation *strings* in `.env` (a
+    host-source ComfyUI endpoint is ``http://host.docker.internal:${COMFYUI_MPS_LOCALHOST_PORT:-8188}``),
+    which are correct through compose but a broken literal for a consumer reading
+    the exported artifact raw (#646). Fully resolve them so no ``${…}`` survives
+    in a non-secret exported value. An unset/empty variable falls back to the
+    ``:-``/``-`` default (or empty). Bounded re-expansion handles the rare case
+    where a resolved value itself contains an interpolation.
+    """
+    if not value or "$" not in value:
+        return value
+
+    def _sub(match: "re.Match[str]") -> str:
+        braced = match.group("braced")
+        if braced is not None:
+            resolved = env.get(braced, "")
+            if resolved:
+                return resolved
+            default = match.group("default")
+            return default if default is not None else ""
+        return env.get(match.group("bare"), "")
+
+    result = value
+    for _ in range(5):  # bounded: guards against a pathological self-reference
+        expanded = _INTERP_RE.sub(_sub, result)
+        if expanded == result:
+            break
+        result = expanded
+    return result
+
+
 def _host_url(
     env: Mapping[str, str], port_var: str, default: str | None = None
 ) -> str | None:
@@ -247,11 +290,20 @@ def build_export(
                         )
                     )
                 else:
-                    out.append(ExportField(f"{prefix}_CONTAINER_ENDPOINT", value))
+                    out.append(
+                        ExportField(
+                            f"{prefix}_CONTAINER_ENDPOINT",
+                            _expand_interpolation(value, env),
+                        )
+                    )
         if svc.public_var:
             value = env.get(svc.public_var, "").strip()
             if value:
-                out.append(ExportField(f"{prefix}_PUBLIC_ENDPOINT", value))
+                out.append(
+                    ExportField(
+                        f"{prefix}_PUBLIC_ENDPOINT", _expand_interpolation(value, env)
+                    )
+                )
         # HOST_ENDPOINT is source-aware (#643): host-process sources
         # (localhost / managed-localhost-mps / ollama-localhost) serve on a fixed
         # host port, not the compose published port, which is dead or unset there.
