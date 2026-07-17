@@ -2576,11 +2576,24 @@ def load_consumer_config(
         )
         all_rag.extend(record_rag)
 
+        # Gate rerank profiles on the EFFECTIVE adapter flag, not just the host
+        # `.env` value (#654). The consumer's own `env` overlay (its `env.file` /
+        # `env.values`, parsed above into ``env_overrides``) may set
+        # ``LIGHTRAG_RERANK_ADAPTER_ENABLED=true``; per Atlas's documented env
+        # precedence a consumer manifest env value overrides the base `.env`, so
+        # a fresh checkout can enable the adapter and declare ``enable_rerank``
+        # in one manifest without pre-editing the submodule's ignored `.env`.
+        # A rerank profile still fails clearly when the merged flag is false or
+        # absent.
+        effective_adapter_enabled = lightrag_rerank_adapter_enabled
+        adapter_override = env_overrides.get("LIGHTRAG_RERANK_ADAPTER_ENABLED")
+        if adapter_override is not None:
+            effective_adapter_enabled = str(adapter_override).strip().lower() == "true"
         record_lightrag_profiles = _parse_lightrag_query_profiles_block(
             data,
             consumer_name,
             manifest_path,
-            adapter_enabled=lightrag_rerank_adapter_enabled,
+            adapter_enabled=effective_adapter_enabled,
         )
         all_lightrag_profiles.extend(record_lightrag_profiles)
         # Optional #411 integration (opt-in, not coupled): a profile with a
