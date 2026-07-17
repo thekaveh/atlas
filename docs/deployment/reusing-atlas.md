@@ -225,6 +225,16 @@ by repeating `--consumer` or by setting `ATLAS_CONSUMER_MANIFEST` with
 union; scalar conflicts such as different `PROJECT_NAME` values fail during
 validation instead of silently last-wins.
 
+Unknown or typo'd **top-level** keys are rejected with a clear error naming the
+offending key and the allowed set — a manifest that misspells `compose_overlays`
+as `compose_overlay` (or `model_sidecars` as `model_sidecar`) fails validation
+and `./start.sh … doctor` reports the `consumer-manifests` check as failed,
+instead of silently dropping the block and surfacing later as mysterious runtime
+404s. The allowed top-level keys are exactly those shown above: `name`,
+`project_name`, `brand`, `env`, `compose_overlays`, `backend_plugins`,
+`model_sidecars`, `storage`, `litellm_models`, `n8n_workflows`,
+`rag_ingestion_profiles`, and `lightrag_query_profiles`.
+
 #### 6.1.1. Back-compatible `services/_user/` overlay slot
 
 To add your own service *into* the Atlas stack (so it starts/stops with `./start.sh` / `./stop.sh` and shares the stack's network), drop a Compose fragment at `services/_user/<name>/compose.yml`. On launch the bootstrapper discovers every `services/_user/*/compose.yml` and merges it into the `docker compose` invocation (`-f docker-compose.yml -f services/_user/<name>/compose.yml …`), so your service comes up alongside the core stack. The `services/_user/` slot is gitignored upstream, so your additions never appear in an Atlas PR.
