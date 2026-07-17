@@ -222,6 +222,18 @@ def test_extract_artifacts_builds_proxy_url():
     assert a["filename"] == "out.png"
 
 
+def test_artifact_url_is_gateway_relative_contract():
+    """#678: the ComfyUI `artifact_url` is a GATEWAY-RELATIVE proxy path (no
+    scheme) — a consumer must resolve it against its own backend/gateway base,
+    unlike FAL's absolute hosted URL (pinned in test_media_gateway.py). This
+    guards the documented shape difference so the two can't silently diverge."""
+    entry = {"outputs": {"9": {"images": [{"filename": "out.png", "type": "output"}]}}}
+    url = cmc.ComfyUIMediaClient._extract_artifacts(entry)[0]["url"]
+    assert url.startswith("/comfyui/image/")  # gateway-relative
+    assert "://" not in url  # never an absolute URL
+    assert not url.startswith(("http://", "https://"))
+
+
 def test_operation_payload_local_zero_cost_envelope():
     payload = ComfyUIMediaClient(base_url="http://x")._operation_payload(
         operation_id="pid",
