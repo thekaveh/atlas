@@ -1803,6 +1803,35 @@ async def get_media_operation(
                 detail=f"Media operation {operation_id} not found",
             )
         await _maybe_reconcile_ledger(operation_id, persisted)
+        # Best-effort: cancel the underlying provider job so a timed-out op does
+        # not orphan a real workload (a ComfyUI prompt keeps burning MPS/VRAM,
+        # FAL keeps billing) after the gateway has already told the consumer the
+        # op is dead (#676). The cancel machinery already exists (#518); the
+        # timeout path just wasn't calling it. Failures are logged, never
+        # raised, and never change the timeout outcome; the ledger reconcile
+        # above is unaffected.
+        provider = operation.get("provider")
+        if provider in ("fal", "comfyui"):
+            try:
+                cancel_requested = await _cancel_media_provider(
+                    provider=provider,
+                    operation_id=operation_id,
+                    modality=operation["modality"],
+                    model=operation["model"],
+                )
+                logger.info(
+                    "Media operation %s timed out after %ss; provider cancel "
+                    "requested=%s",
+                    operation_id,
+                    operation["timeout_seconds"],
+                    cancel_requested,
+                )
+            except Exception:  # noqa: BLE001 — best-effort by contract
+                logger.warning(
+                    "Media operation %s timed out; provider cancel failed",
+                    operation_id,
+                    exc_info=True,
+                )
         return _media_response(dict(persisted["last_payload"]))
 
     provider = operation["provider"]
