@@ -74,11 +74,11 @@ EXPECTED_HOST_ROUTES = {
     # both roles on its single port).
     "stt.localhost": "http://speaches:8000/",
     "tts.localhost": "http://speaches:8000/",
-    # MinIO admin console (port 9001). Default-on (MINIO_SOURCE=container).
-    # The S3 API at port 9000 is deliberately NOT aliased — S3 clients
-    # use full URLs with explicit ports anyway and don't benefit from a
-    # friendly hostname.
+    # MinIO admin console (port 9001) and S3 API (port 9000), both
+    # default-on (MINIO_SOURCE=container): minio.localhost → console,
+    # s3.minio.localhost → the S3 API (added 2026-06-19).
     "minio.localhost": "http://minio:9001/",
+    "s3.minio.localhost": "http://minio:9000/",
     # openclaw is opt-in: .env.example defaults OPENCLAW_SOURCE=disabled, so
     # the generator omits its route. Add an opt-in check separately if the
     # default ever flips to OPENCLAW_SOURCE=container.
