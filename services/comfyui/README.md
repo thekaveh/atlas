@@ -284,6 +284,8 @@ The same preflight also runs as a CI-safe doctor check: `./start.sh doctor` repo
 
 Weights load **lazily on the first request** (~9–13 s slower than a warm request on an M2 Ultra). `health` reports `reachable` and the compute `device` (`mps` when `/system_stats` shows a non-CPU device). A freshly launched process is *reachable but cold*; the first generation warms it. `./start.sh` waits up to 60 s for reachability and prints a warm/cold line — a still-warming host is **not** an error (downstream containers retry), so read first-request latency as model load, not a hang.
 
+`status` is **ownership-aware** (#647): a bare `kill -0` on the pidfile would trust a **recycled** PID (another process inheriting the number after a reboot or crash), reporting a dead host as `running`. Instead `status` also cross-checks the process argv against the ComfyUI checkout/state dir, so a recycled or foreign (e.g. root-owned) PID reports `running: false` — and `start` then clears the stale pidfile and relaunches instead of no-opping. No manual `stop` → `start` dance is needed to recover.
+
 ### 10.5. Unsupported hosts
 
 On anything that is not macOS/arm64 (Linux CI, Intel Macs, Windows) the preflight `fail`s with an explicit message and `install`/`ensure_running` refuse to proceed — Atlas never claims a Linux container is Metal-capable. Selecting this source on such a host surfaces the error at `./start.sh` time rather than booting a half-configured stack.
