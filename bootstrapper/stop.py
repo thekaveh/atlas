@@ -108,15 +108,25 @@ class AtlasStopper:
 Usage: ./stop.sh [options]   (or: python bootstrapper/stop.py)
 
 Options:
-  --cold             Remove volumes (data will be lost)
-  --clean-hosts      Remove Atlas hosts file entries (requires sudo/admin)
-  --help-usage       Show this detailed usage message
-  --help             Show the option summary
+  --project, -p         Compose project to tear down (defaults to PROJECT_NAME / "atlas")
+  --cold                Remove volumes (data will be lost)
+  --clean-hosts         Remove Atlas hosts file entries (requires sudo/admin)
+  --stop-managed-hosts  Also stop HOST-GLOBAL managed runtimes (ComfyUI-MPS / vLLM-Metal)
+  --help-usage          Show this detailed usage message
+  --help                Show the option summary
+
+Managed host runtimes:
+  Apple-Silicon/Metal ComfyUI-MPS and vLLM-Metal run as native HOST-GLOBAL
+  processes on fixed loopback ports, shared by every Atlas consumer on this
+  machine. A project-scoped stop leaves them running by default (with an
+  advisory) so it can't interrupt another consumer. Pass --stop-managed-hosts
+  to tear them down explicitly — this affects ALL consumers using them.
 
 Examples:
-  ./stop.sh                 # Stop all containers, preserve data
-  ./stop.sh --cold          # Stop this project and remove its containers, orphans, and named volumes
-  ./stop.sh --clean-hosts   # Stop containers and clean up hosts file
+  ./stop.sh                        # Stop this project's containers, preserve data + managed hosts
+  ./stop.sh --cold                 # Stop this project and remove its containers, orphans, and named volumes
+  ./stop.sh --clean-hosts          # Stop containers and clean up hosts file
+  ./stop.sh --stop-managed-hosts   # Also stop the host-global ComfyUI-MPS / vLLM-Metal processes
 """
         print(usage_text)
         
@@ -279,6 +289,44 @@ Examples:
             )
             return False
 
+    def report_managed_hosts_left_running(self) -> None:
+        """Advisory-only counterpart to the managed-host stop methods (#655).
+
+        A managed ComfyUI-MPS / vLLM-Metal runtime is a host-global singleton on
+        a fixed loopback port, shared by every Atlas consumer on the machine. A
+        project-scoped ``./stop.sh`` must NOT terminate it just because *this*
+        project stopped — another consumer may still be using it. When one is
+        detected running, point the operator at the explicit opt-in. Never stops
+        anything; status probes are read-only.
+        """
+        env = (
+            self.config_parser.parse_env_file()
+            if self.config_parser.env_file_exists()
+            else {}
+        )
+        try:
+            from services.comfyui_mps_manager import manager_from_env
+
+            if manager_from_env(env).status().running:
+                self.banner.show_status_message(
+                    "Managed ComfyUI (MPS) host left running (host-global, shared "
+                    "across consumers). Run ./stop.sh --stop-managed-hosts to stop it.",
+                    "info",
+                )
+        except Exception:  # noqa: BLE001 — advisory must never break stop
+            pass
+        try:
+            from services.vllm_metal_manager import manager_from_env
+
+            if manager_from_env(env).status().running:
+                self.banner.show_status_message(
+                    "Managed vLLM (Metal) host left running (host-global, shared "
+                    "across consumers). Run ./stop.sh --stop-managed-hosts to stop it.",
+                    "info",
+                )
+        except Exception:  # noqa: BLE001 — advisory must never break stop
+            pass
+
     def cleanup_hosts_entries(self) -> bool:
         """Clean up hosts file entries if requested."""
         self.banner.show_section_header("Cleaning Up Hosts File", "🧹")
@@ -337,8 +385,14 @@ Examples:
                    'when running Atlas as a submodule; it persists to .env.')
 @click.option('--cold', is_flag=True, help='Remove volumes (data will be lost)')
 @click.option('--clean-hosts', is_flag=True, help='Remove Atlas hosts file entries (requires sudo/admin)')
+@click.option('--stop-managed-hosts', is_flag=True,
+              help='Also stop host-global managed runtimes (Apple-Silicon/Metal '
+                   'ComfyUI-MPS and vLLM-Metal). These are HOST-GLOBAL processes '
+                   'shared by every consumer on this machine, so a project-scoped '
+                   'stop leaves them running by default; pass this to tear them '
+                   'down explicitly (affects ALL consumers using them).')
 @click.option('--help-usage', is_flag=True, help='Show detailed usage information')
-def main(project_name, cold, clean_hosts, help_usage):
+def main(project_name, cold, clean_hosts, stop_managed_hosts, help_usage):
     """Stop Atlas — the self-hosted engineering platform."""
 
     stopper = AtlasStopper()
@@ -381,14 +435,28 @@ def main(project_name, cold, clean_hosts, help_usage):
             stopper.stop_services(cold, project_name) if dependencies_ok else False
         )
 
-        # Step 2b: Stop the Atlas-managed Apple-Silicon/Metal ComfyUI host
-        # process (#335) — a native host process compose `down` never touches.
-        comfyui_host_ok = stopper.stop_managed_comfyui_mps()
-
-        # Step 2c: Stop the Atlas-managed Apple-Silicon/Metal vLLM host
-        # process (#379) — likewise a native host process compose ignores.
-        vllm_host_ok = stopper.stop_managed_vllm_metal()
-        managed_hosts_ok = comfyui_host_ok and vllm_host_ok
+        # Step 2b/2c: Managed host runtimes (#655). ComfyUI-MPS (#335) and
+        # vLLM-Metal (#379) are native host processes on fixed loopback ports —
+        # compose `down` never touches them — but they are HOST-GLOBAL
+        # singletons shared by every consumer on this machine, not
+        # Compose-project resources. A project-scoped stop must NOT terminate
+        # one just because THIS project stopped: another consumer may still be
+        # using it (and SOURCE can't prove ownership — `.env` is mutable and the
+        # state dir is shared). Default leaves them running with an advisory;
+        # --stop-managed-hosts is the explicit, host-global-impact opt-in.
+        # Standard and --cold behave identically here.
+        if stop_managed_hosts:
+            stopper.banner.show_status_message(
+                "Stopping HOST-GLOBAL managed runtimes (--stop-managed-hosts) — "
+                "this affects every consumer sharing them on this host.",
+                "warning",
+            )
+            comfyui_host_ok = stopper.stop_managed_comfyui_mps()
+            vllm_host_ok = stopper.stop_managed_vllm_metal()
+            managed_hosts_ok = comfyui_host_ok and vllm_host_ok
+        else:
+            stopper.report_managed_hosts_left_running()
+            managed_hosts_ok = True
 
         # Step 3: Clean up hosts entries if requested
         hosts_ok = True
