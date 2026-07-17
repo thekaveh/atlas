@@ -348,7 +348,7 @@ curl -XPOST "$COMFYUI_ENDPOINT/prompt" -H 'content-type: application/json' \
 
 ### 11.4. License
 
-The weights use the [Tencent Hunyuan Community License](https://huggingface.co/tencent/Hunyuan3D-2/blob/9cd649ba6913f7a852e3286bad86bfa9a2d83dcf/LICENSE.txt). Material operator obligations:
+The weights use the [Tencent Hunyuan Community License](https://huggingface.co/tencent/Hunyuan3D-2/blob/main/LICENSE). Material operator obligations:
 
 - **Territory-restricted** — not licensed for use in the European Union, the United Kingdom, or South Korea.
 - Products or services with over **100 million monthly active users** require a separate license from Tencent.

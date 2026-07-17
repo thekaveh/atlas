@@ -54,7 +54,7 @@ _No high-confidence opportunities identified._
 _No high-confidence opportunities identified._
 
 ## 6. MCP
-Crawl4AI exposes MCP endpoints at `/mcp/sse`, `/mcp/ws`, and `/mcp/schema` on the same token-protected server. Atlas documents those endpoints here but Crawl4AI is not yet registered into the curated MCP package; that belongs with the MCP package integration work so transport, auth, and service discovery stay consistent.
+Crawl4AI exposes MCP endpoints at `/mcp/sse`, `/mcp/ws`, and `/mcp/schema` on the same token-protected server. Atlas documents those endpoints here but Crawl4AI is not registered into the curated MCP package; that belongs with the MCP package integration work so transport, auth, and service discovery stay consistent.
 
 ## 7. Troubleshooting
 - `401 Unauthorized`: include `Authorization: Bearer ${CRAWL4AI_API_TOKEN}`.
