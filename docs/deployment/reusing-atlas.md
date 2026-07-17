@@ -426,6 +426,14 @@ unavailable; Docker-free checks still run. Text output is intended for local
 debugging, while `--format json` is intended for consumer CI. The command exits
 non-zero when any check reports `fail`.
 
+`--format json` emits **pure JSON on stdout** — the `📦 Using …` dependency-manager
+banner from the shell dispatcher goes to stderr — so it pipes directly to `jq`
+with no extraction shim:
+
+```bash
+./start.sh doctor --format json 2>/dev/null | jq .ok
+```
+
 ### 6.2. Adding Supabase SQL via the user migration slot
 
 To layer project-owned database objects onto Atlas's managed Supabase instance,
