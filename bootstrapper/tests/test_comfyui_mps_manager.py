@@ -387,6 +387,8 @@ def test_start_is_idempotent_when_already_running(tmp_path, monkeypatch):
     mgr.state_dir.mkdir(parents=True, exist_ok=True)
     mgr.pid_file.write_text("999")
     monkeypatch.setattr(mod.os, "kill", lambda pid, sig: None)  # pid 999 "alive"
+    # pid 999 is OUR ComfyUI (not a stranger), so start() must no-op (#647).
+    monkeypatch.setattr(ComfyUiMpsManager, "_pid_is_stranger", lambda self, pid: False)
 
     def boom(*a, **k):
         raise AssertionError("Popen must not be called when already running")
@@ -564,16 +566,81 @@ def test_status_reflects_liveness(tmp_path, monkeypatch):
     mgr.state_dir.mkdir(parents=True)
     mgr.pid_file.write_text("555")
     mgr._write_status(installed_ref="v0.27.0", pid=555)
-    monkeypatch.setattr(mod.os, "kill", lambda pid, sig: None)
+
+    # Alive AND ours: a live PID that is not a stranger reports running. (Drive
+    # the ownership helpers directly so the test never depends on whether the
+    # host actually has a process/process-group at PID 555 — the source of the
+    # historical os.kill-vs-os.killpg flake, #647.)
+    monkeypatch.setattr(ComfyUiMpsManager, "_managed_process_alive", lambda self, pid: True)
+    monkeypatch.setattr(ComfyUiMpsManager, "_pid_is_stranger", lambda self, pid: False)
     st = mgr.status()
     assert st.running and st.pid == 555 and st.installed_ref == "v0.27.0"
 
-    def dead(pid, sig):
-        raise ProcessLookupError
-
-    monkeypatch.setattr(mod.os, "kill", dead)
+    # Dead: no live process at the PID.
+    monkeypatch.setattr(ComfyUiMpsManager, "_managed_process_alive", lambda self, pid: False)
     st2 = mgr.status()
     assert not st2.running and st2.pid is None
+
+
+def test_status_recycled_pid_reports_not_running(tmp_path, monkeypatch):
+    """#647 AC#1: a live PID whose argv is NOT our ComfyUI (a recycled/foreign
+    process) reports running=False even though kill-0 succeeds."""
+    mgr = _mgr(tmp_path)
+    mgr.state_dir.mkdir(parents=True)
+    mgr.pid_file.write_text("4242")
+    mgr._write_status(installed_ref="v0.27.0", pid=4242)
+    # kill-0 says the PID is alive, but the process is a stranger.
+    monkeypatch.setattr(ComfyUiMpsManager, "_managed_process_alive", lambda self, pid: True)
+    monkeypatch.setattr(ComfyUiMpsManager, "_pid_is_stranger", lambda self, pid: True)
+
+    st = mgr.status()
+    assert not st.running and st.pid is None
+
+
+def test_pid_alive_treats_permission_denied_as_not_ours(tmp_path, monkeypatch):
+    """#647 AC#3: a PID we cannot signal (PermissionError — a foreign, likely
+    root-owned, process recycled the number) is NOT our user-owned process."""
+    def denied(pid, sig):
+        raise PermissionError
+
+    monkeypatch.setattr(mod.os, "kill", denied)
+    assert ComfyUiMpsManager._pid_alive(4242) is False
+
+    monkeypatch.setattr(mod.os, "killpg", denied)
+    assert ComfyUiMpsManager._process_group_alive(4242) is False
+
+    # …and status() therefore reports not running for such a PID.
+    mgr = _mgr(tmp_path)
+    mgr.state_dir.mkdir(parents=True)
+    mgr.pid_file.write_text("4242")
+    st = mgr.status()
+    assert not st.running and st.pid is None
+
+
+def test_start_clears_stale_stranger_pidfile_and_launches(tmp_path, monkeypatch):
+    """#647 AC#2: start() on a stale/stranger pidfile clears it and launches
+    instead of no-opping."""
+    mgr = _mgr(tmp_path)
+    _install_stub(mgr)
+    mgr.state_dir.mkdir(parents=True, exist_ok=True)
+    mgr.pid_file.write_text("4242")
+    # The PID is alive but a stranger (recycled), so status() is not running.
+    monkeypatch.setattr(ComfyUiMpsManager, "_managed_process_alive", lambda self, pid: True)
+    monkeypatch.setattr(ComfyUiMpsManager, "_pid_is_stranger", lambda self, pid: True)
+    monkeypatch.setattr(ComfyUiMpsManager, "_port_in_use", lambda self: False)
+    launched: list[int] = []
+
+    def fake_popen(*_args, **_kwargs):
+        launched.append(7777)
+        return SimpleNamespace(pid=7777)
+
+    monkeypatch.setattr(mod.subprocess, "Popen", fake_popen)
+
+    status = mgr.start()
+    assert launched == [7777]  # it relaunched, did not no-op
+    assert status.pid == 7777
+    # The stale pointer was replaced by the freshly launched PID.
+    assert mgr.pid_file.read_text(encoding="utf-8").strip() == "7777"
 
 
 # ─────────────────────────── health ───────────────────────────
@@ -660,6 +727,9 @@ def test_concurrent_starts_assign_ownership_to_one_launcher(tmp_path, monkeypatc
         "_pid_alive",
         staticmethod(lambda _pid: True),
     )
+    # The winning launcher's process is ours, so the loser's status() sees it as
+    # running (not a stranger) and no-ops (#647).
+    monkeypatch.setattr(ComfyUiMpsManager, "_pid_is_stranger", lambda self, pid: False)
     monkeypatch.setattr(ComfyUiMpsManager, "_port_in_use", lambda self: False)
     launches: list[int] = []
 
