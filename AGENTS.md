@@ -1,6 +1,6 @@
 # AGENTS.md
 
-This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
+This file provides guidance to coding agents (e.g. Codex, Claude Code) when working with code in this repository.
 
 ## Project Overview
 
@@ -47,7 +47,7 @@ For TUI/CLI visual work: after each change, describe exactly what changed visual
 
 Strict mode is enabled, so the PR branch must be up to date with main before merge becomes available. Conversation-resolution is required.
 
-Integration flow: branch (typically a worktree under `.Codex/worktrees/<name>`) → push the branch → `gh pr create --base main` → wait for the required checks → `gh pr merge --squash --delete-branch` (squash preserves the linear history the repo prefers). Never attempt `git push origin main` or `develop`. Inspect the live rule with `gh api repos/thekaveh/atlas/rulesets`.
+Integration flow: branch (typically a dedicated git worktree) → push the branch → `gh pr create --base main` → wait for the required checks → `gh pr merge --squash --delete-branch` (squash preserves the linear history the repo prefers). Never attempt `git push origin main` or `develop`. Inspect the live rule with `gh api repos/thekaveh/atlas/rulesets`.
 
 ## Key Commands
 
