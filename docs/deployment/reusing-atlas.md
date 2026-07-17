@@ -363,6 +363,33 @@ status:
 ./start.sh --no-tui --detach --json
 ```
 
+**Shared managed-host runtimes and teardown.** Some sources run a **native
+host-global process** rather than a container: Apple-Silicon/Metal ComfyUI
+(`COMFYUI_SOURCE=managed-localhost-mps`) and vLLM Metal
+(`VLLM_METAL_SOURCE=managed-localhost`). These listen on a fixed loopback port
+and are shared by **every** Atlas consumer on the machine — they are not
+Compose-project resources, so `docker compose down` never touches them. Because
+multiple concurrent consumers (disjoint project names + base-port ranges) can
+share one such runtime, a project-scoped stop leaves it running by default:
+
+```bash
+./stop.sh --project consumer-b        # containers for consumer-b only; host-global runtimes untouched
+```
+
+If a managed host process is detected running, `stop.sh` prints an advisory
+naming the explicit opt-in. To deliberately tear the host-global runtimes down
+(ComfyUI-MPS **and** vLLM-Metal), pass `--stop-managed-hosts` — this affects
+**all** consumers using them and is reported as such:
+
+```bash
+./stop.sh --stop-managed-hosts        # also stop the host-global ComfyUI-MPS / vLLM-Metal processes
+```
+
+Standard and `--cold` stops follow the same rule. This makes unattended
+multi-consumer cold-reset loops safe: repeatedly resetting one consumer with a
+bare `./stop.sh --project <name>` (optionally `--cold`) will not interrupt
+another consumer sharing a managed host runtime.
+
 #### 6.1.4. Headless submodule upgrade validation
 
 When a parent repository pins Atlas as an `infra/` submodule, upgrade the pin

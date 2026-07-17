@@ -84,10 +84,13 @@ preflight → install → start at the launch boundary, immediately before
 `docker compose up`. If image build, Compose startup, or a required init
 container fails, Atlas stops a vLLM process created by that launch; it does not
 stop an instance that was already running. After the stack converges, the host
-process becomes part of the running stack. `./stop.sh` tears it down even if
-`VLLM_METAL_SOURCE` has since changed, because Compose cannot reach native host
-processes. For explicit control (or a CI-safe, read-only preflight) use the
-`vllm-metal` CLI group:
+process becomes part of the running stack. The process is **host-global** —
+shared by every Atlas consumer on the machine — so a project-scoped `./stop.sh`
+leaves it running by default (with an advisory) rather than interrupting another
+consumer; pass `./stop.sh --stop-managed-hosts` to tear it down explicitly (this
+affects all consumers), or use the per-runtime `vllm-metal stop` command below.
+For explicit control (or a CI-safe, read-only preflight) use the `vllm-metal`
+CLI group:
 
 ```bash
 python bootstrapper/start.py vllm-metal preflight   # OS/arch/py3.12/memory/quant probe (no install)
