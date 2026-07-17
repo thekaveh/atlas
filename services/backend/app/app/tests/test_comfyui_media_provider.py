@@ -598,3 +598,127 @@ def test_strength_clamped_to_unit_range():
     _run(handler, body)
     graph = captured["body"]["prompt"]
     assert graph["4"]["inputs"]["denoise"] == 1.0  # clamped
+
+
+# ────────────────────────────────────────────────────────────────────
+# #675: catalog entry name → bundle filename resolution
+# ────────────────────────────────────────────────────────────────────
+_CATALOG_MANIFEST_MODELS = [
+    {"name": "krea2-turbo-bf16", "bundle_id": "krea2-turbo-bf16",
+     "bundle_file_role": "diffusion", "filename": "krea2_turbo_bf16.safetensors",
+     "type": "diffusion_models"},
+    {"name": "krea2-turbo-bf16", "bundle_id": "krea2-turbo-bf16",
+     "bundle_file_role": "text_encoder", "filename": "qwen3vl_4b_bf16.safetensors",
+     "type": "text_encoders"},
+    {"name": "krea2-turbo-bf16", "bundle_id": "krea2-turbo-bf16",
+     "bundle_file_role": "vae", "filename": "qwen_image_vae.safetensors",
+     "type": "vae"},
+    {"name": "sd_xl_base_1.0", "filename": "sd_xl_base_1.0.safetensors",
+     "type": "checkpoint"},
+]
+
+
+def _write_catalog_manifest(tmp_path, monkeypatch, models=None):
+    import yaml
+
+    manifest = tmp_path / "selected-models.yaml"
+    manifest.write_text(
+        yaml.safe_dump({"models": models if models is not None else _CATALOG_MANIFEST_MODELS}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("COMFYUI_MANIFEST_PATH", str(manifest))
+    return manifest
+
+
+def test_resolve_catalog_model_bundle_single_file_and_unknown():
+    # Catalog name → per-role bundle filenames.
+    bundle = cmc._resolve_catalog_model("krea2-turbo-bf16", _CATALOG_MANIFEST_MODELS)
+    assert bundle == {
+        "kind": "bundle",
+        "roles": {
+            "diffusion": "krea2_turbo_bf16.safetensors",
+            "text_encoder": "qwen3vl_4b_bf16.safetensors",
+            "vae": "qwen_image_vae.safetensors",
+        },
+    }
+    # Single-file catalog entry name → its physical filename.
+    assert cmc._resolve_catalog_model("sd_xl_base_1.0", _CATALOG_MANIFEST_MODELS) == {
+        "kind": "file", "filename": "sd_xl_base_1.0.safetensors",
+    }
+    # A direct physical filename matches verbatim (both forms accepted).
+    assert cmc._resolve_catalog_model("krea2_turbo_bf16.safetensors", _CATALOG_MANIFEST_MODELS) == {
+        "kind": "file", "filename": "krea2_turbo_bf16.safetensors",
+    }
+    # An unknown token resolves to nothing.
+    assert cmc._resolve_catalog_model("nope", _CATALOG_MANIFEST_MODELS) is None
+
+
+def test_submit_resolves_catalog_name_to_bundle_filenames(tmp_path, monkeypatch):
+    """AC#1: model=<catalog entry name> resolves to the bundle's per-role
+    filenames in the built graph."""
+    _write_catalog_manifest(tmp_path, monkeypatch)
+    captured: Dict[str, Any] = {}
+
+    async def body(client):
+        return await client.submit_media_operation(
+            modality="image", input_payload={"prompt": "obs", "seed": 1},
+            model="krea2-turbo-bf16",
+        )
+
+    _run(_submit_handler(captured=captured), body)
+    graph = captured["last_prompt_body"]["prompt"]
+    assert graph["1"]["inputs"]["unet_name"] == "krea2_turbo_bf16.safetensors"
+    assert graph["2"]["inputs"]["clip_name"] == "qwen3vl_4b_bf16.safetensors"
+    assert graph["3"]["inputs"]["vae_name"] == "qwen_image_vae.safetensors"
+
+
+def test_submit_accepts_checkpoint_filename_form(tmp_path, monkeypatch):
+    """AC#2: model=<checkpoint filename> keeps working (verbatim) even with the
+    manifest present."""
+    _write_catalog_manifest(tmp_path, monkeypatch)
+    captured: Dict[str, Any] = {}
+
+    async def body(client):
+        return await client.submit_media_operation(
+            modality="image", input_payload={"prompt": "obs", "seed": 1},
+            model="krea2_turbo_bf16.safetensors",
+        )
+
+    _run(_submit_handler(captured=captured), body)
+    graph = captured["last_prompt_body"]["prompt"]
+    assert graph["1"]["inputs"]["unet_name"] == "krea2_turbo_bf16.safetensors"
+
+
+def test_submit_rejects_unknown_model_with_both_forms(tmp_path, monkeypatch):
+    """AC#3: an unknown token 400s (ValueError) with a message naming both
+    accepted forms."""
+    _write_catalog_manifest(tmp_path, monkeypatch)
+
+    async def body(client):
+        with pytest.raises(ValueError) as excinfo:
+            await client.submit_media_operation(
+                modality="image", input_payload={"prompt": "obs"},
+                model="totally-unknown-model",
+            )
+        message = str(excinfo.value)
+        assert "catalog" in message and "filename" in message
+        assert "krea2-turbo-bf16" in message  # lists a known catalog name
+
+    _run(lambda r: httpx.Response(200, json={}), body)
+
+
+def test_submit_without_manifest_falls_back_to_verbatim(tmp_path, monkeypatch):
+    """No manifest (ComfyUI disabled / not started) → verbatim passthrough, so
+    an unknown token is NOT pre-rejected (ComfyUI does the final validation)."""
+    monkeypatch.setenv("COMFYUI_MANIFEST_PATH", str(tmp_path / "does-not-exist.yaml"))
+    captured: Dict[str, Any] = {}
+
+    async def body(client):
+        return await client.submit_media_operation(
+            modality="image", input_payload={"prompt": "obs", "seed": 1},
+            model="sdxl_base.safetensors",
+        )
+
+    _run(_submit_handler(captured=captured), body)
+    graph = captured["last_prompt_body"]["prompt"]
+    assert graph["1"]["inputs"]["ckpt_name"] == "sdxl_base.safetensors"
