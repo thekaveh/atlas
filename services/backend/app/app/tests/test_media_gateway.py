@@ -658,6 +658,96 @@ def test_media_operation_times_out(monkeypatch):
     assert polled.json()["status"] == "timeout"
 
 
+def test_media_operation_timeout_cancels_provider_job(monkeypatch):
+    """#676 AC#1/#2: a poll that transitions an op to `timeout` best-effort
+    cancels the underlying provider job exactly once (a re-poll of the now
+    terminal op does not cancel again)."""
+    main = _fresh_main(monkeypatch)
+    _CapturingFalClient.captured = {}
+    monkeypatch.setattr(main, "FalClient", _CapturingFalClient, raising=False)
+
+    cancel_calls = []
+
+    async def _record_cancel(*, provider, operation_id, modality, model):
+        cancel_calls.append(
+            {"provider": provider, "operation_id": operation_id,
+             "modality": modality, "model": model}
+        )
+        return True
+
+    monkeypatch.setattr(main, "_cancel_media_provider", _record_cancel)
+
+    from fastapi.testclient import TestClient
+
+    client = TestClient(main.app)
+    submitted = client.post(
+        "/media/generate",
+        json={
+            "modality": "image_to_3d",
+            "provider": "fal",
+            "input": {"image": "https://cdn.example/sprite.png"},
+        },
+    )
+    assert submitted.status_code == 202
+
+    operation = asyncio.run(main.MEDIA_OPERATION_STORE.get("fal-3d-9"))
+    monkeypatch.setattr(
+        main.time, "time",
+        lambda: operation["created_at_epoch"] + operation["timeout_seconds"] + 1,
+    )
+
+    polled = client.get("/media/operations/fal-3d-9")
+    assert polled.status_code == 200
+    assert polled.json()["status"] == "timeout"
+
+    assert len(cancel_calls) == 1
+    call = cancel_calls[0]
+    assert call["provider"] == "fal"
+    assert call["operation_id"] == "fal-3d-9"
+    assert call["modality"] == "image_to_3d"
+
+    # A re-poll of the now-terminal op must NOT cancel the provider again.
+    again = client.get("/media/operations/fal-3d-9")
+    assert again.json()["status"] == "timeout"
+    assert len(cancel_calls) == 1
+
+
+def test_media_operation_timeout_survives_provider_cancel_failure(monkeypatch):
+    """#676 AC#1: a failing provider cancel is swallowed — the op still returns
+    the timeout outcome (best-effort, never raised)."""
+    main = _fresh_main(monkeypatch)
+    _CapturingFalClient.captured = {}
+    monkeypatch.setattr(main, "FalClient", _CapturingFalClient, raising=False)
+
+    async def _boom(**_kwargs):
+        raise RuntimeError("provider unreachable")
+
+    monkeypatch.setattr(main, "_cancel_media_provider", _boom)
+
+    from fastapi.testclient import TestClient
+
+    client = TestClient(main.app)
+    submitted = client.post(
+        "/media/generate",
+        json={
+            "modality": "image_to_3d",
+            "provider": "fal",
+            "input": {"image": "https://cdn.example/sprite.png"},
+        },
+    )
+    assert submitted.status_code == 202
+
+    operation = asyncio.run(main.MEDIA_OPERATION_STORE.get("fal-3d-9"))
+    monkeypatch.setattr(
+        main.time, "time",
+        lambda: operation["created_at_epoch"] + operation["timeout_seconds"] + 1,
+    )
+
+    polled = client.get("/media/operations/fal-3d-9")
+    assert polled.status_code == 200
+    assert polled.json()["status"] == "timeout"
+
+
 # ── #518: POST /media/operations/{id}/cancel ────────────────────────────────
 def _seed_inflight_operation(main, operation_id="fal-req-cxl", budget_tracked=True):
     asyncio.run(main.MEDIA_OPERATION_STORE.create({
