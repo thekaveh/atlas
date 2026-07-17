@@ -44,10 +44,14 @@ ALTER TABLE storage.objects
 
 -- Create indexes
 CREATE INDEX IF NOT EXISTS bname ON storage.buckets (name);
-CREATE INDEX IF NOT EXISTS owner ON storage.buckets (owner);
+-- Index names are unique per schema, not per table: buckets and objects both
+-- live in schema `storage`, so a shared `owner` name silently drops the second
+-- CREATE (IF NOT EXISTS turns it into a no-op) and leaves storage.objects(owner)
+-- unindexed. Use distinct names so both indexes are actually created.
+CREATE INDEX IF NOT EXISTS idx_storage_buckets_owner ON storage.buckets (owner);
 CREATE INDEX IF NOT EXISTS bucket_id ON storage.objects (bucket_id);
 CREATE INDEX IF NOT EXISTS name ON storage.objects (name);
-CREATE INDEX IF NOT EXISTS owner ON storage.objects (owner);
+CREATE INDEX IF NOT EXISTS idx_storage_objects_owner ON storage.objects (owner);
 CREATE INDEX IF NOT EXISTS path_tokens_idx ON storage.objects USING gin (path_tokens);
 
 -- Disable RLS since we're managing access through GRANTs

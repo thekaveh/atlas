@@ -876,9 +876,11 @@ CREATE INDEX bname ON storage.buckets USING btree (name);
 
 CREATE INDEX bucket_id ON storage.objects USING btree (bucket_id);
 
-CREATE INDEX name ON storage.objects USING btree (name);
+CREATE INDEX idx_storage_buckets_owner ON storage.buckets USING btree (owner);
 
-CREATE INDEX owner ON storage.buckets USING btree (owner);
+CREATE INDEX idx_storage_objects_owner ON storage.objects USING btree (owner);
+
+CREATE INDEX name ON storage.objects USING btree (name);
 
 CREATE INDEX path_tokens_idx ON storage.objects USING gin (path_tokens);
 
