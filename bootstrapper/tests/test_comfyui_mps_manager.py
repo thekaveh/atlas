@@ -979,3 +979,76 @@ def test_preflight_warns_on_empty_models_dir(tmp_path, monkeypatch):
     md = next(c for c in result.checks if c["name"] == "models_dir")
     assert md["status"] == "warn"
     assert "none of the expected" in md["detail"]
+
+
+# ── #651: COMFYUI_MPS_LISTEN + loopback-reachable probes ────────────────────
+def test_manager_from_env_threads_listen():
+    assert manager_from_env({"COMFYUI_MPS_LISTEN": "0.0.0.0"}).listen == "0.0.0.0"
+    # Default (and a blank override) preserve today's loopback behavior.
+    assert manager_from_env({}).listen == "127.0.0.1"
+    assert manager_from_env({"COMFYUI_MPS_LISTEN": ""}).listen == "127.0.0.1"
+
+
+def test_probe_host_falls_back_to_loopback_for_wildcard(tmp_path):
+    assert _mgr(tmp_path, listen="0.0.0.0")._probe_host == "127.0.0.1"
+    assert _mgr(tmp_path, listen="::")._probe_host == "127.0.0.1"
+    assert _mgr(tmp_path, listen="")._probe_host == "127.0.0.1"
+    # A concrete bind address is probed as-is.
+    assert _mgr(tmp_path, listen="192.168.1.5")._probe_host == "192.168.1.5"
+    assert _mgr(tmp_path)._probe_host == "127.0.0.1"  # default
+
+
+def test_port_probe_uses_loopback_when_listening_on_all_interfaces(tmp_path, monkeypatch):
+    mgr = _mgr(tmp_path, listen="0.0.0.0")
+    seen = {}
+
+    class _RecSock:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def settimeout(self, _t):
+            pass
+
+        def connect_ex(self, addr):
+            seen["addr"] = addr
+            return 1  # not in use
+
+    monkeypatch.setattr(mod.socket, "socket", lambda *a, **k: _RecSock())
+    assert mgr._port_in_use() is False
+    assert seen["addr"] == ("127.0.0.1", mgr.port)  # not 0.0.0.0
+
+
+def test_health_uses_loopback_probe_host(tmp_path, monkeypatch):
+    mgr = _mgr(tmp_path, listen="0.0.0.0")
+    seen = {}
+
+    def fake_urlopen(url, *a, **k):
+        seen["url"] = url
+        raise OSError("cold")  # unreachable is fine; only the URL matters
+
+    monkeypatch.setattr(mod.urllib.request, "urlopen", fake_urlopen)
+    mgr.health()
+    assert seen["url"] == f"http://127.0.0.1:{mgr.port}/system_stats"
+
+
+def test_listen_flows_to_comfyui_launch_argv(tmp_path, monkeypatch):
+    mgr = _mgr(tmp_path, listen="0.0.0.0")
+    _install_stub(mgr)
+    monkeypatch.setattr(ComfyUiMpsManager, "_port_in_use", lambda self: False)
+    monkeypatch.setattr(ComfyUiMpsManager, "_pid_is_stranger", lambda self, pid: False)
+    monkeypatch.setattr(mod.os, "kill", lambda pid, sig: (_ for _ in ()).throw(ProcessLookupError))
+    captured = {}
+
+    def fake_popen(args, *a, **k):
+        captured["args"] = list(args)
+        return SimpleNamespace(pid=4242)
+
+    monkeypatch.setattr(mod.subprocess, "Popen", fake_popen)
+    mgr.start()
+
+    args = captured["args"]
+    assert "--listen" in args
+    assert args[args.index("--listen") + 1] == "0.0.0.0"  # binds all interfaces

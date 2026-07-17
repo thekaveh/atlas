@@ -175,6 +175,7 @@ point at http://kong-api-gateway:8000.
 | COMFYUI_MPS_MODELS_PATH | comfyui | ~/Documents/ComfyUI/models | Existing host models directory the managed MPS process reuses (via extra_model_paths) so no weights are duplicated. Shared with COMFYUI_LOCAL_MODELS_PATH by default. |
 | COMFYUI_MPS_MIN_MEMORY_GB | comfyui | 16 | Minimum unified-memory headroom (GiB) the managed MPS preflight requires before launching ComfyUI; below this the preflight warns. |
 | COMFYUI_MPS_TORCH_PIN | comfyui | torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0 | Pinned Torch/vision/audio pip spec the managed MPS install applies, so fresh installs are reproducible against the same COMFYUI_MPS_REF instead of pulling whatever Torch is newest that day. Space-separated pip requirement specifiers; bump alongside COMFYUI_MPS_REF. macOS/arm64 torch wheels carry Metal/MPS. |
+| COMFYUI_MPS_LISTEN | comfyui | 127.0.0.1 | Bind address the managed MPS ComfyUI host process listens on. Default 127.0.0.1 (loopback) works on Docker Desktop/macOS where host.docker.internal forwards to host loopback. On Linux container engines, host.docker.internal maps via host-gateway to a bridge address that cannot reach a loopback listener — set 0.0.0.0 there so containers can reach the host process. Local health/port probes stay on 127.0.0.1 regardless. |
 | COMFYUI_BASE_URL | comfyui | http://comfyui:18188 | In-container default. Runtime value is COMFYUI_ENDPOINT computed by hook. |
 | COMFYUI_KONG_URL | comfyui | http://kong-api-gateway:8000/comfyui | - |
 | COMFYUI_ARGS | comfyui | --listen | - |
