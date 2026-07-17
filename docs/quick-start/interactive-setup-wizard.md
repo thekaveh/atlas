@@ -148,7 +148,7 @@ All three persist to `.env` and are consumed by `litellm-init` (via `model_resol
 
 `ComfyUI  ·  models` — a multiselect step parallel to the Ollama
 models step, shown for every non-`disabled` `COMFYUI_SOURCE`
-(`container-cpu` / `container-gpu` / `localhost`).
+(`container-cpu` / `container-gpu` / `localhost` / `managed-localhost-mps`).
 The wizard's catalog is sourced from `bootstrapper/utils/comfyui_library.py`,
 which merges a live Hugging Face scrape (per-category filters
 covering Image, Image-edit, Video, Audio, and 3D models) +
@@ -398,7 +398,7 @@ The wizard automatically discovers all configurable services from each `services
 |---------|---------|
 | LiteLLM Gateway | locked / always-on (no choice; mandatory front door for every LLM consumer) |
 | LLM Engine (Ollama upstream) | ollama-container-cpu, ollama-container-gpu, ollama-localhost, none |
-| ComfyUI | container-cpu, container-gpu, localhost, disabled |
+| ComfyUI | container-cpu, container-gpu, localhost, managed-localhost-mps, disabled |
 | Weaviate | container, localhost, disabled |
 | Multi2Vec CLIP | container-cpu, container-gpu, disabled |
 | Neo4j Graph DB | container, localhost, disabled |
