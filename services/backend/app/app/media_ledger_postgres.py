@@ -101,7 +101,7 @@ def _as_float(value: Any) -> Optional[float]:
 
 
 def _scope_lock_key(consumer: str, project: str) -> int:
-    # Stable 63-bit advisory-lock key from the consumer/project scope.
+    # Stable 32-bit advisory-lock key from the consumer/project scope.
     digest = zlib.crc32(f"{consumer}:{project}".encode("utf-8"))
     return int(digest)
 
