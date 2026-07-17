@@ -1350,3 +1350,182 @@ def test_weaviate_reconciliation_deletes_stale_profile_objects(monkeypatch):
 
     assert count == 1
     assert deleted == ["http://weaviate/v1/objects/Rag/stale"]
+
+
+# ── #673: drain resilience to transient pipeline_status failures ────────────
+def _drain_graph(timeout_seconds):
+    return [{"backend": "lightrag", "mode": "upload_documents",
+             "wait_for_extraction": True, "timeout_seconds": timeout_seconds,
+             "on_unavailable": "fail"}]
+
+
+def _skip_vector():
+    return [{"backend": "weaviate", "collection_prefix": "P", "on_unavailable": "skip"}]
+
+
+class _TransientThenIdleLightrag(FakeLightrag):
+    """Raises a transient error for the first N polls, then reports idle."""
+
+    def __init__(self, *, transient_polls, exc=None, available=True):
+        super().__init__(available=available)
+        self._transient_polls = transient_polls
+        self._exc = exc if exc is not None else httpx.ReadTimeout("")
+        self.poll_calls = 0
+
+    async def pipeline_busy(self):
+        self.poll_calls += 1
+        if self._transient_polls > 0:
+            self._transient_polls -= 1
+            raise self._exc
+        return False
+
+
+class _AlwaysTimeoutLightrag(FakeLightrag):
+    def __init__(self, *, exc=None, available=True):
+        super().__init__(available=available)
+        self._exc = exc if exc is not None else httpx.ReadTimeout("")
+        self.poll_calls = 0
+
+    async def pipeline_busy(self):
+        self.poll_calls += 1
+        raise self._exc
+
+
+class _HttpErrorLightrag(FakeLightrag):
+    def __init__(self, *, status=401, available=True):
+        super().__init__(available=available)
+        self._status = status
+        self.poll_calls = 0
+
+    async def pipeline_busy(self):
+        self.poll_calls += 1
+        request = httpx.Request("GET", "http://lightrag:9621/documents/pipeline_status")
+        response = httpx.Response(self._status, request=request, text="unauthorized")
+        raise httpx.HTTPStatusError("auth failed", request=request, response=response)
+
+
+class _CancelDuringDrainLightrag(FakeLightrag):
+    """Requests cancellation (via the store) on the first poll, then keeps
+    timing out, so the drain loop must observe the cancel between retries."""
+
+    def __init__(self, *, store, available=True):
+        super().__init__(available=available)
+        self._store = store
+        self.record_id = None
+        self.poll_calls = 0
+
+    async def pipeline_busy(self):
+        self.poll_calls += 1
+        if self.record_id is not None:
+            self._store.request_cancel(self.record_id)
+        raise httpx.ReadTimeout("")
+
+
+def test_drain_retries_transient_timeout_then_completes(tmp_path, monkeypatch):
+    """AC: a transient ReadTimeout from pipeline_status is retried and a later
+    idle poll completes the drain; the retries are recorded as evidence."""
+    _corpus(tmp_path, monkeypatch, {"a.txt": "content"})
+    pf = _profiles_file(tmp_path, vector=_skip_vector(), graph=_drain_graph(30))
+    lr = _TransientThenIdleLightrag(transient_polls=3)
+    svc = _service(
+        tmp_path,
+        Deps(embedder=FakeEmbedder(), weaviate=FakeWeaviate(), lightrag=lr,
+             poll_interval=0.01, drain_backoff_base=0.0, drain_backoff_max=0.0),
+        pf,
+    )
+    _, _, final = _run(svc)
+    assert final.status == "completed"
+    drain = final.phase("drain")
+    assert drain.status == "completed"
+    assert drain.counts["transient_retries"] == 3
+    assert drain.counts["status_polls"] == 4  # 3 timeouts + 1 idle
+    assert "transient" in (drain.note or "")
+
+
+def test_drain_deadline_exhausted_names_exception_class(tmp_path, monkeypatch):
+    """AC: repeated transient failures stop at the profile deadline, and the
+    terminal error names the exception class even though str(ReadTimeout) is
+    empty."""
+    _corpus(tmp_path, monkeypatch, {"a.txt": "content"})
+    pf = _profiles_file(tmp_path, vector=_skip_vector(), graph=_drain_graph(0))
+    lr = _AlwaysTimeoutLightrag()
+    svc = _service(
+        tmp_path,
+        Deps(embedder=FakeEmbedder(), weaviate=FakeWeaviate(), lightrag=lr,
+             poll_interval=0.01, drain_backoff_base=0.0, drain_backoff_max=0.0),
+        pf,
+    )
+    _, _, final = _run(svc)
+    assert final.status == "failed"
+    assert final.phase("drain").status == "failed"
+    message = final.errors[0]["message"]
+    assert "did not drain" in message
+    assert "ReadTimeout" in message  # empty str() still diagnosable
+
+
+def test_drain_non_retryable_http_error_fails_immediately(tmp_path, monkeypatch):
+    """AC: a 401 (or other deterministic 4xx) from pipeline_status is NOT
+    retried — it fails immediately with bounded, actionable detail."""
+    _corpus(tmp_path, monkeypatch, {"a.txt": "content"})
+    pf = _profiles_file(tmp_path, vector=_skip_vector(), graph=_drain_graph(30))
+    lr = _HttpErrorLightrag(status=401)
+    svc = _service(
+        tmp_path,
+        Deps(embedder=FakeEmbedder(), weaviate=FakeWeaviate(), lightrag=lr,
+             poll_interval=0.01, drain_backoff_base=0.0, drain_backoff_max=0.0),
+        pf,
+    )
+    _, _, final = _run(svc)
+    assert final.status == "failed"
+    assert final.phase("drain").status == "failed"
+    assert lr.poll_calls == 1  # not retried
+    error = final.phase("drain").error
+    assert error["http_status"] == 401
+    assert "pipeline_status failed" in error["message"]
+    assert "HTTPStatusError" in error["message"]
+
+
+def test_drain_cancellation_is_responsive_during_retry(tmp_path, monkeypatch):
+    """AC: cancellation stays responsive between transient-failure retries."""
+    _corpus(tmp_path, monkeypatch, {"a.txt": "content"})
+    pf = _profiles_file(tmp_path, vector=_skip_vector(), graph=_drain_graph(30))
+    store = InMemoryIngestionStore()
+    lr = _CancelDuringDrainLightrag(store=store)
+    svc = RagIngestionService(
+        store=store,
+        deps=Deps(embedder=FakeEmbedder(), weaviate=FakeWeaviate(), lightrag=lr,
+                  poll_interval=0.01, drain_backoff_base=0.0, drain_backoff_max=0.0),
+        profiles_path=pf,
+    )
+    record, _ = svc.submit("showcase-default")
+    lr.record_id = record.id
+    final = asyncio.run(svc.run(record.id))
+    assert final.status == "cancelled"
+    assert lr.poll_calls >= 1
+
+
+def test_describe_exc_renders_empty_message_as_class():
+    from rag_ingestion.service import _describe_exc
+
+    assert _describe_exc(httpx.ReadTimeout("")) == "ReadTimeout"
+    assert _describe_exc(ValueError("boom")) == "ValueError: boom"
+
+
+def test_pipeline_status_timeout_is_configurable(monkeypatch):
+    from rag_ingestion.clients import (
+        LightRagClient,
+        _resolve_pipeline_status_timeout,
+    )
+
+    monkeypatch.delenv("LIGHTRAG_PIPELINE_STATUS_TIMEOUT_SECONDS", raising=False)
+    assert LightRagClient(endpoint="http://x")._pipeline_status_timeout == 30.0
+
+    # Explicit arg wins over env.
+    monkeypatch.setenv("LIGHTRAG_PIPELINE_STATUS_TIMEOUT_SECONDS", "50")
+    assert LightRagClient(endpoint="http://x", pipeline_status_timeout=3.0)._pipeline_status_timeout == 3.0
+    assert LightRagClient(endpoint="http://x")._pipeline_status_timeout == 50.0
+
+    # Blank / non-numeric / non-positive env values fall back to the default.
+    for bad in ("", "not-a-number", "-5", "0"):
+        monkeypatch.setenv("LIGHTRAG_PIPELINE_STATUS_TIMEOUT_SECONDS", bad)
+        assert _resolve_pipeline_status_timeout(None) == 30.0
