@@ -232,6 +232,127 @@ async def test_deactivate_embedding_finds_legacy_object_when_link_is_missing(
     ]
 
 
+class _FakeExtractionConnection:
+    """Records ``execute`` args and satisfies the ``extract_facts`` DB flow."""
+
+    def __init__(self, executed: list):
+        self._executed = executed
+
+    async def execute(self, *args):
+        self._executed.append(args)
+
+    def transaction(self):
+        conn = self
+
+        class _Txn:
+            async def __aenter__(self):
+                return conn
+
+            async def __aexit__(self, *_exc):
+                return False
+
+        return _Txn()
+
+    async def fetchval(self, *_args):
+        return 0
+
+    async def fetchrow(self, *_args):
+        from datetime import datetime, timezone
+
+        now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        return {"created_at": now, "updated_at": now}
+
+    async def close(self):
+        return None
+
+
+def _extraction_service(monkeypatch, executed, *, store_embedding):
+    import memory_service
+
+    monkeypatch.setenv("DATABASE_URL", "postgresql://atlas")
+    monkeypatch.setattr(
+        memory_service,
+        "connect_postgres",
+        AsyncMock(return_value=_FakeExtractionConnection(executed)),
+    )
+    service = memory_service.MemoryService()
+    service.enabled = True
+    monkeypatch.setattr(service, "_ensure_initialized", AsyncMock())
+    monkeypatch.setattr(service, "_get_extraction_model", AsyncMock(return_value="ollama/test"))
+    monkeypatch.setattr(
+        service,
+        "_litellm_complete",
+        AsyncMock(
+            return_value='[{"content": "user likes tea", '
+            '"fact_type": "preference", "confidence": 0.9}]'
+        ),
+    )
+    service.store = SimpleNamespace(store_embedding=store_embedding)
+    return service
+
+
+def _pending_updates(executed):
+    return [
+        args
+        for args in executed
+        if args and isinstance(args[0], str) and "vector_sync_pending = true" in args[0]
+    ]
+
+
+def _weaviate_id_updates(executed):
+    return [
+        args
+        for args in executed
+        if args and isinstance(args[0], str) and "SET weaviate_id" in args[0]
+    ]
+
+
+@pytest.mark.asyncio
+async def test_extract_facts_flags_vector_sync_pending_on_embedding_failure(monkeypatch):
+    """A fact whose embedding fails to persist must be flagged
+    vector_sync_pending=true so the reconciler recovers it — otherwise it stays
+    weaviate_id=NULL + pending=false and is lost from semantic recall forever."""
+    executed: list = []
+    service = _extraction_service(
+        monkeypatch,
+        executed,
+        store_embedding=AsyncMock(side_effect=RuntimeError("weaviate down")),
+    )
+
+    result = await service.extract_facts(
+        user_id="00000000-0000-4000-8000-000000000002",
+        messages=[{"role": "user", "content": "I like tea"}],
+        conversation_id="00000000-0000-4000-8000-000000000003",
+    )
+
+    assert result["status"] == "completed"
+    assert result["facts_extracted"] == 1
+    assert _pending_updates(executed), "un-embedded fact must be flagged for the reconciler"
+    assert not _weaviate_id_updates(executed)
+
+
+@pytest.mark.asyncio
+async def test_extract_facts_sets_weaviate_id_on_embedding_success(monkeypatch):
+    """On successful embedding the fact records its weaviate_id and is NOT flagged
+    pending (the reconciler must not re-process an already-synced fact)."""
+    executed: list = []
+    service = _extraction_service(
+        monkeypatch,
+        executed,
+        store_embedding=AsyncMock(return_value="vector-1"),
+    )
+
+    result = await service.extract_facts(
+        user_id="00000000-0000-4000-8000-000000000002",
+        messages=[{"role": "user", "content": "I like tea"}],
+        conversation_id="00000000-0000-4000-8000-000000000003",
+    )
+
+    assert result["status"] == "completed"
+    assert _weaviate_id_updates(executed), "successful embedding must persist weaviate_id"
+    assert not _pending_updates(executed)
+
+
 @pytest.mark.asyncio
 async def test_deactivate_embedding_rejects_graphql_errors(monkeypatch):
     import memory_store

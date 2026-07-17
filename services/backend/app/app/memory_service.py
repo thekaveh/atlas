@@ -310,6 +310,7 @@ Extract the facts as JSON:"""
             }
 
         for fact_uuid, fact in embedding_inputs:
+            weaviate_id = None
             try:
                 weaviate_id = await self.store.store_embedding(
                     fact_id=fact["id"],
@@ -320,22 +321,33 @@ Extract the facts as JSON:"""
                     confidence=fact["confidence"],
                     metadata={},
                 )
-                if weaviate_id:
-                    conn = await connect_postgres(self.database_url)
-                    try:
-                        await conn.execute(
-                            "UPDATE public.memory_facts SET weaviate_id = $1 WHERE id = $2",
-                            weaviate_id,
-                            fact_uuid,
-                        )
-                    finally:
-                        await conn.close()
             except Exception as exc:
                 logger.warning(
                     "Failed to store embedding for fact %s (error_type=%s)",
                     fact["id"],
                     type(exc).__name__,
                 )
+            conn = await connect_postgres(self.database_url)
+            try:
+                if weaviate_id:
+                    await conn.execute(
+                        "UPDATE public.memory_facts SET weaviate_id = $1 WHERE id = $2",
+                        weaviate_id,
+                        fact_uuid,
+                    )
+                else:
+                    # Embedding was not durably stored (store_embedding raised or
+                    # returned no id). Flag the fact so _reconcile_pending_vectors
+                    # — which only selects vector_sync_pending = true — retries it
+                    # on a later recall/consolidate. Without this the fact would
+                    # keep weaviate_id=NULL with vector_sync_pending=false and stay
+                    # invisible to semantic recall permanently.
+                    await conn.execute(
+                        "UPDATE public.memory_facts SET vector_sync_pending = true WHERE id = $1",
+                        fact_uuid,
+                    )
+            finally:
+                await conn.close()
 
         return {
             "session_id": session_id,
