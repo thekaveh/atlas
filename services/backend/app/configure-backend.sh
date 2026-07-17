@@ -35,5 +35,15 @@ fi
 
 echo "backend: Configuration applied - starting backend service..."
 
+# Dev auto-reloader is opt-in (#679). Default OFF: the production/consumer image
+# runs plain uvicorn so host-side git churn in a bind-mounted plugin dir can't
+# restart or crash-loop the backend. BACKEND_DEV_RELOAD=true restores uvicorn's
+# --reload for live plugin editing; the plugin seam installs at boot, so a
+# container recreate — not a hot reload — is the correct pickup mechanism.
+if [ "${BACKEND_DEV_RELOAD:-false}" = "true" ]; then
+  echo "backend: BACKEND_DEV_RELOAD=true - enabling uvicorn --reload (dev hot-reload)"
+  exec "$@" --reload
+fi
+
 # Execute the original backend command
 exec "$@"
