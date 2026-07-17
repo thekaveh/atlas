@@ -196,7 +196,7 @@ run_zeppelin() {
     return 1
   fi
   echo "[smoke] importing and running Zeppelin notebook at ${zeppelin_url}"
-  python - "$zeppelin_url" "$notebook_path" <<'PY'
+  python3 - "$zeppelin_url" "$notebook_path" <<'PY'
 import json
 import sys
 import time
