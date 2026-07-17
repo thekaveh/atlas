@@ -461,3 +461,53 @@ def test_comfyui_output_dir_absent_for_container_and_localhost_sources() -> None
         assert "ATLAS_COMFYUI_OUTPUT_DIR" not in d, (
             f"output dir should not be surfaced for COMFYUI_SOURCE={source}"
         )
+
+
+# ── #646 AC#2: no unexpanded ${…} interpolation in non-secret values ────────
+_MPS_ENDPOINT = "http://host.docker.internal:${COMFYUI_MPS_LOCALHOST_PORT:-8188}"
+
+
+def test_container_endpoint_interpolation_is_resolved_to_set_port() -> None:
+    """A compose-interpolation `.env` value is fully resolved in the artifact."""
+    env = _base_env()
+    env["COMFYUI_SOURCE"] = "managed-localhost-mps"
+    env["COMFYUI_ENDPOINT"] = _MPS_ENDPOINT
+    env["COMFYUI_MPS_LOCALHOST_PORT"] = "8199"
+
+    d = _as_dict(build_export(env))
+    assert d["ATLAS_COMFYUI_CONTAINER_ENDPOINT"] == "http://host.docker.internal:8199"
+    assert "${" not in d["ATLAS_COMFYUI_CONTAINER_ENDPOINT"]
+
+
+def test_container_endpoint_interpolation_falls_back_to_default_when_unset() -> None:
+    """An unset variable resolves to the `:-` default, not a `${…}` literal."""
+    env = _base_env()
+    env["COMFYUI_SOURCE"] = "managed-localhost-mps"
+    env["COMFYUI_ENDPOINT"] = _MPS_ENDPOINT
+    env.pop("COMFYUI_MPS_LOCALHOST_PORT", None)
+
+    d = _as_dict(build_export(env))
+    assert d["ATLAS_COMFYUI_CONTAINER_ENDPOINT"] == "http://host.docker.internal:8188"
+
+
+def test_no_unexpanded_interpolation_in_non_secret_exported_values() -> None:
+    """AC#2: no non-secret exported value carries a `${…}` literal (env or json).
+    Secret references (secret=True) stay `${VAR}` by design, and the underlying
+    secret never leaks into the rendered artifact."""
+    env = _base_env()
+    env["COMFYUI_SOURCE"] = "managed-localhost-mps"
+    env["COMFYUI_ENDPOINT"] = _MPS_ENDPOINT
+
+    fields = build_export(env)
+    for field in fields:
+        if not field.secret:
+            assert "${" not in field.value, (
+                f"{field.name} carries an unexpanded interpolation: {field.value}"
+            )
+
+    # The infra secret reference is intentionally preserved (not expanded), and
+    # its password sentinel never appears in either rendered format.
+    d = _as_dict(fields)
+    assert d["ATLAS_REDIS_CONTAINER_ENDPOINT"] == "${REDIS_URL}"
+    assert "s3cr3t-should-never-appear" not in render_env(fields)
+    assert "s3cr3t-should-never-appear" not in render_json(fields)
