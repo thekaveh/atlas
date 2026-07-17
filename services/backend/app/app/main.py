@@ -2277,6 +2277,26 @@ async def cancel_generation(prompt_id: str):
         raise _unexpected_error("Cancel ComfyUI generation", exc)
 
 
+def _inline_content_disposition(filename: str) -> str:
+    """Build a latin-1-safe ``Content-Disposition: inline`` header value.
+
+    Strips CR/LF and quotes so the name can't break the header, exposes an ASCII
+    fallback in the plain ``filename=`` parameter, and carries the full UTF-8 name
+    via the RFC 5987 ``filename*=`` form. Without the ASCII fallback a name with
+    characters above U+00FF (e.g. ``"日本語.png"``) raises ``UnicodeEncodeError``
+    when Starlette latin-1-encodes the header — surfacing as a 500 instead of
+    returning the image.
+    """
+    from urllib.parse import quote
+
+    safe_name = filename.replace("\r", "").replace("\n", "").replace('"', "")
+    ascii_fallback = safe_name.encode("ascii", "replace").decode("ascii")
+    disposition = f'inline; filename="{ascii_fallback}"'
+    if ascii_fallback != safe_name:
+        disposition += f"; filename*=UTF-8''{quote(safe_name, safe='')}"
+    return disposition
+
+
 @app.get(
     "/comfyui/image/{filename}",
     dependencies=[Depends(require_comfy_automation_principal)],
@@ -2295,14 +2315,10 @@ async def get_generated_image(filename: str, subfolder: str = "", folder_type: s
                 content_type = "image/webp"
             
             from fastapi.responses import Response
-            # Sanitize the filename before placing it in a header: strip CR/LF
-            # (which crash the HTTP/1.1 codec with a 500) and quote per RFC 6266
-            # so a name containing ';' or '"' can't break the header structure.
-            safe_name = filename.replace("\r", "").replace("\n", "").replace('"', "")
             return Response(
                 content=image_data,
                 media_type=content_type,
-                headers={"Content-Disposition": f'inline; filename="{safe_name}"'}
+                headers={"Content-Disposition": _inline_content_disposition(filename)}
             )
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code == 404:
