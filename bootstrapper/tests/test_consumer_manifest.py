@@ -111,6 +111,77 @@ def test_consumer_manifest_resolves_paths_and_env_from_manifest_dir(tmp_path: Pa
     assert config.consumers[0].name == "rag-showcase"
 
 
+def test_unknown_top_level_key_raises_and_names_it(tmp_path: Path) -> None:
+    """#649: a typo'd top-level key (the ticket's `compose_overlay` missing the
+    trailing `s`) must fail loudly instead of being silently ignored — naming
+    the offending key, the allowed set, and the manifest origin."""
+    from core.consumer_manifest import ConsumerManifestError, load_consumer_config
+
+    _write_minimal_root(tmp_path)
+    manifest = _write_consumer(
+        tmp_path,
+        "rag-showcase",
+        extra="compose_overlay:\n  - ./compose/overlay.yml\n",
+    )
+
+    with pytest.raises(ConsumerManifestError) as excinfo:
+        load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
+
+    message = str(excinfo.value)
+    assert "unknown top-level key" in message
+    assert "compose_overlay" in message  # names the offending typo
+    assert "compose_overlays" in message  # shows the allowed key
+    assert str(manifest) in message  # names the origin
+
+
+def test_model_sidecar_typo_top_level_key_raises(tmp_path: Path) -> None:
+    """A second typo the ticket calls out: `model_sidecar` (singular)."""
+    from core.consumer_manifest import ConsumerManifestError, load_consumer_config
+
+    _write_minimal_root(tmp_path)
+    manifest = _write_consumer(
+        tmp_path,
+        "rag-showcase",
+        extra="model_sidecar:\n  ollama:\n    - llama3.2:latest\n",
+    )
+
+    with pytest.raises(ConsumerManifestError) as excinfo:
+        load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
+
+    assert "model_sidecar" in str(excinfo.value)
+
+
+def test_no_allowed_key_is_rejected_by_top_level_guard(tmp_path: Path) -> None:
+    """AC#3: none of the documented top-level keys trips the unknown-key guard.
+
+    Exercising each key in isolation keeps the test independent of the strict
+    nested-block schemas (which the per-block suites already cover): an empty
+    value makes every block parser a no-op, so the ONLY thing that could raise
+    is the top-level guard — which must never fire for an allowed key. If a key
+    were dropped from the allow-set, this fails and names it."""
+    from core.consumer_manifest import (
+        _CONSUMER_ALLOWED_TOP_LEVEL_KEYS,
+        ConsumerManifestError,
+        load_consumer_config,
+    )
+
+    _write_minimal_root(tmp_path)
+    for key in sorted(_CONSUMER_ALLOWED_TOP_LEVEL_KEYS):
+        consumer = tmp_path / f"probe-{key}"
+        consumer.mkdir()
+        manifest = consumer / "atlas.consumer.yml"
+        # `name` alone for the name-key probe; otherwise a probe name plus the
+        # key under test with an empty (no-op) value.
+        body = f"{key}:\n" if key == "name" else f"name: probe\n{key}:\n"
+        manifest.write_text(body, encoding="utf-8")
+        try:
+            load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
+        except ConsumerManifestError as exc:  # nested no-op errors are fine
+            assert "unknown top-level key" not in str(exc), (
+                f"allowed key {key!r} was rejected by the top-level guard: {exc}"
+            )
+
+
 def test_docker_manager_includes_manifest_overlays_without_user_symlink(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

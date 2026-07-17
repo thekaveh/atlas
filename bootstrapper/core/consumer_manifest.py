@@ -2420,6 +2420,30 @@ def render_lightrag_query_profiles_overlay(
     return "\n".join(lines) + "\n"
 
 
+# Every top-level key `load_consumer_config` consumes from a consumer manifest.
+# The loader reads each known key with `data.get(...)`, so a typo'd or unknown
+# top-level key (e.g. `compose_overlay:` missing the `s`, or `model_sidecar:`)
+# would otherwise be silently ignored — the block simply goes missing and the
+# consumer `doctor` reports the manifest valid. Mirrors the nested
+# `_*_ALLOWED_*_KEYS` allow-sets so the top level is validated too (#649).
+_CONSUMER_ALLOWED_TOP_LEVEL_KEYS = frozenset(
+    {
+        "name",
+        "project_name",
+        "brand",
+        "env",
+        "compose_overlays",
+        "backend_plugins",
+        "model_sidecars",
+        "storage",
+        "litellm_models",
+        "n8n_workflows",
+        "rag_ingestion_profiles",
+        "lightrag_query_profiles",
+    }
+)
+
+
 def load_consumer_config(
     root_dir: Path | str,
     *,
@@ -2456,6 +2480,16 @@ def load_consumer_config(
         base_dir = manifest_path.parent
         consumer_name = str(data.get("name") or manifest_path.parent.name)
         origin = str(manifest_path)
+
+        # Reject unknown/typo'd top-level keys BEFORE consuming any block, so a
+        # misspelling surfaces as a clear error instead of a silently-absent
+        # overlay/sidecar/model block (#649). Nested blocks already do this.
+        unknown_top = {str(k) for k in data.keys()} - _CONSUMER_ALLOWED_TOP_LEVEL_KEYS
+        if unknown_top:
+            raise ConsumerManifestError(
+                f"consumer manifest has unknown top-level key(s) {sorted(unknown_top)}; "
+                f"allowed: {sorted(_CONSUMER_ALLOWED_TOP_LEVEL_KEYS)} ({origin})"
+            )
 
         if project_name := data.get("project_name"):
             _set_scalar(env_overrides, env_origins, "PROJECT_NAME", project_name, origin)
