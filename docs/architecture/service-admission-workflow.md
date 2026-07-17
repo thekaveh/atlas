@@ -14,5 +14,5 @@ A service enters Atlas through one declarative chain: its manifest owns SOURCE v
 
 - `services/*/service.yml`
 - `bootstrapper/tracks.yml`
-- `services/topology.py`
+- `bootstrapper/services/topology.py`
 - `docs/deployment/source-configuration.md`

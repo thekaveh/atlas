@@ -14,5 +14,5 @@ Supabase identities and scoped service credentials protect Backend data planes, 
 
 - `services/*/service.yml`
 - `bootstrapper/tracks.yml`
-- `services/topology.py`
+- `bootstrapper/services/topology.py`
 - `docs/deployment/source-configuration.md`

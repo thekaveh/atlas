@@ -14,5 +14,5 @@ Kong provides stable `*.localhost` entrypoints while published ports support dir
 
 - `services/*/service.yml`
 - `bootstrapper/tracks.yml`
-- `services/topology.py`
+- `bootstrapper/services/topology.py`
 - `docs/deployment/source-configuration.md`

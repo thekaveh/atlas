@@ -14,5 +14,5 @@ Open WebUI, Backend routes, agents, and tools call LiteLLM rather than binding t
 
 - `services/*/service.yml`
 - `bootstrapper/tracks.yml`
-- `services/topology.py`
+- `bootstrapper/services/topology.py`
 - `docs/deployment/source-configuration.md`

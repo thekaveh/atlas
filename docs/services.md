@@ -1,6 +1,6 @@
 # 5.1. Service Catalog
 
-## 1. Service Catalog
+## 1. Services by Category
 
 ### 1.1. agents
 

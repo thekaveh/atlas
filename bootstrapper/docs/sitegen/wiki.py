@@ -160,7 +160,7 @@ The public site and wiki are generated from the same model:
 
 - `services/<name>/service.yml`
 - `services/<name>/README.md`
-- `services/topology.py`
+- `bootstrapper/services/topology.py`
 - `bootstrapper/tracks.yml`
 - generated architecture diagrams
 - deployment and reference documents
@@ -546,7 +546,7 @@ Before committing a parent consumer update, verify the `infra/` submodule status
 - `services/<name>/service.yml`
 - `services/<name>/compose.yml` when the service runs containers
 - `services/<name>/README.md`
-- `services/topology.py`
+- `bootstrapper/services/topology.py`
 - generated `.env.example`
 
 ## 4. Documentation Rules
