@@ -815,6 +815,13 @@ So `COMFYUI_SOURCE=managed-localhost-mps` → `http://localhost:8188`
 `http://localhost:11434` (`OLLAMA_LOCALHOST_PORT`, a field that was previously
 omitted entirely). Container sources keep rendering their published port.
 
+All non-secret exported values are **fully resolved** — the exporter expands any
+compose-style `${VAR}` / `${VAR:-default}` interpolation stored in `.env` (e.g. a
+host-source `COMFYUI_ENDPOINT` of `http://host.docker.internal:${COMFYUI_MPS_LOCALHOST_PORT:-8188}`)
+so the artifact never carries a `${…}` literal a consumer would have to
+interpolate itself (#646). Secrets remain `${VAR}` references by design — resolve
+consumer-scoped ones with `--with-secrets`.
+
 A few source-specific fields are emitted only when meaningful: under
 `COMFYUI_SOURCE=managed-localhost-mps` the export includes
 `ATLAS_COMFYUI_OUTPUT_DIR` (the native host process's image-output directory,
