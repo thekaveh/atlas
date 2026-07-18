@@ -122,7 +122,7 @@ from utils.banner import BannerDisplay
 from utils.hosts_manager import HostsManager
 from utils.key_generator import KeyGenerator
 from utils.localhost_validator import LocalhostValidator
-from core.config_parser import ConfigParser, DEFAULT_BASE_PORT
+from core.config_parser import ConfigParser, DEFAULT_BASE_PORT, DEFAULT_PROJECT_NAME
 from core.docker_manager import DockerManager
 from core.port_manager import PortManager
 from services.source_validator import SourceValidator
@@ -4065,8 +4065,46 @@ def _doctor_check_vllm_metal(starter: "AtlasStarter") -> dict:
     )
 
 
+def _doctor_check_base_port(starter: "AtlasStarter") -> dict:
+    """Warn when a consumer stack squats the default BASE_PORT (63000).
+
+    ``project_name`` isolates Docker resource names (container/volume/network)
+    but NOT host port bindings, so a consumer that keeps the default BASE_PORT
+    while running under a non-default project collides with a bare atlas
+    checkout on the same host. Use ``--base-port auto`` or a distinct block.
+    """
+    try:
+        env = starter.config_parser.parse_env_file()
+    except Exception as exc:  # pragma: no cover - defensive
+        return _doctor_result("base-port", "skipped", f"Could not read .env: {exc}")
+    raw = (env.get("BASE_PORT", "") or "").strip()
+    try:
+        base_port = int(raw) if raw else DEFAULT_BASE_PORT
+    except ValueError:
+        base_port = DEFAULT_BASE_PORT
+    project = starter.config_parser.get_project_name()
+    details = {"base_port": base_port, "project_name": project}
+    if base_port == DEFAULT_BASE_PORT and project != DEFAULT_PROJECT_NAME:
+        return _doctor_result(
+            "base-port",
+            "warn",
+            f"Consumer project '{project}' is on the default BASE_PORT "
+            f"{DEFAULT_BASE_PORT}. project_name isolates Docker resources but not "
+            f"host ports, so this stack collides with a bare atlas checkout on the "
+            f"same host. Use '--base-port auto' or pin a non-default BASE_PORT.",
+            details=details,
+        )
+    return _doctor_result(
+        "base-port",
+        "pass",
+        f"BASE_PORT {base_port} / project '{project}' — no default-port squat.",
+        details=details,
+    )
+
+
 DOCTOR_CHECKS = [
     _doctor_check_consumer_manifests,
+    _doctor_check_base_port,
     _doctor_check_compose,
     _doctor_check_overlay_env,
     _doctor_check_plugins,
@@ -4095,6 +4133,21 @@ def _print_doctor_text(results: list[dict]) -> None:
         click.echo(f"[{status}] {result['id']}: {result['message']}")
 
 
+def _parse_base_port_option(ctx, param, value):
+    """Accept an integer or the literal ``auto`` for --base-port. ``auto`` is
+    resolved to a concrete free block in ``main`` (needs the topology + live
+    port scan), so here it's passed through as the sentinel string."""
+    if value is None:
+        return None
+    text = str(value).strip().lower()
+    if text == "auto":
+        return "auto"
+    try:
+        return int(text)
+    except (TypeError, ValueError):
+        raise click.BadParameter("must be an integer or 'auto'")
+
+
 @click.group(invoke_without_command=True)
 @click.option('--project', '-p', 'project_name', type=str, default=None,
               help='Docker Compose project name — the container-family namespace '
@@ -4108,7 +4161,11 @@ def _print_doctor_text(results: list[dict]) -> None:
               help='Path to an atlas.consumer.yml manifest in a parent project. '
                    'May be passed multiple times. Relative paths resolve from '
                    'the directory that invoked start.sh.')
-@click.option('--base-port', type=int, help=f'Base port for all services (default: {DEFAULT_BASE_PORT})')
+@click.option('--base-port', type=str, callback=_parse_base_port_option,
+              help=f'Base port for all services (default: {DEFAULT_BASE_PORT}). '
+                   f'Use "auto" to select the first wholly-free BASE_PORT block — '
+                   f'recommended for submodule consumers so the stack never squats '
+                   f'the default {DEFAULT_BASE_PORT} a bare atlas checkout binds.')
 @click.option('--cold', is_flag=True, help='Perform cold start with cleanup')
 @click.option('--setup-hosts', is_flag=True, help='Setup hosts file entries (requires admin/sudo)')
 @click.option('--skip-hosts', is_flag=True, help='Skip hosts file checks and setup')
@@ -4422,6 +4479,22 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
         except ValueError as exc:
             click.echo(f"start.sh: {exc}", err=True)
             raise SystemExit(2)
+
+    # ─── Base port (--base-port auto) ────────────────────────────────
+    # Resolve the 'auto' sentinel to a concrete free BASE_PORT block up front
+    # so every downstream path (Textual + linear + setup_env_file) sees a plain
+    # int. auto scans below the ephemeral range and never returns the default,
+    # so a submodule consumer can't silently squat the port a bare atlas binds.
+    if base_port == "auto":
+        from core.port_manager import PortManager
+        chosen = PortManager().auto_base_port()
+        if chosen is None:
+            click.echo(
+                "start.sh: --base-port auto could not find a wholly-free port "
+                "block; pass an explicit --base-port.", err=True)
+            raise SystemExit(2)
+        click.echo(f"start.sh: --base-port auto selected {chosen}.")
+        base_port = chosen
 
     # JSON output is only useful for automation, so make it imply the
     # non-following detached path even if the caller omitted --detach.

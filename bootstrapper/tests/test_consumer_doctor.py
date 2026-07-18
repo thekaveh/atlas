@@ -962,3 +962,42 @@ def test_doctor_accepts_consumer_env_file_enabling_rerank_adapter(tmp_path, monk
     checks = {entry["id"]: entry for entry in payload["checks"]}
     assert checks["consumer-manifests"]["status"] == "pass", result.output
     assert "showcase" in checks["consumer-manifests"]["details"]["consumers"]
+
+
+def test_doctor_base_port_warns_on_default_squat():
+    """#717: the base-port doctor check warns when a consumer squats the
+    default BASE_PORT (project_name isolates Docker resources, not host ports)."""
+    import start as start_module
+
+    class _CP:
+        def __init__(self, env, project):
+            self._env = env
+            self._project = project
+
+        def parse_env_file(self):
+            return dict(self._env)
+
+        def get_project_name(self):
+            return self._project
+
+    class _Starter:
+        def __init__(self, env, project):
+            self.config_parser = _CP(env, project)
+
+    # consumer squatting the default port -> warn
+    r = start_module._doctor_check_base_port(_Starter({"BASE_PORT": "63000"}, "tableau"))
+    assert r["status"] == "warn"
+    assert "63000" in r["message"]
+    assert r["details"]["project_name"] == "tableau"
+
+    # bare atlas on the default port -> pass (expected)
+    r = start_module._doctor_check_base_port(_Starter({"BASE_PORT": "63000"}, "atlas"))
+    assert r["status"] == "pass"
+
+    # consumer moved to a distinct block -> pass
+    r = start_module._doctor_check_base_port(_Starter({"BASE_PORT": "64000"}, "daydreams"))
+    assert r["status"] == "pass"
+
+    # missing BASE_PORT defaults to the Atlas default; consumer project -> warn
+    r = start_module._doctor_check_base_port(_Starter({}, "rag-showcase"))
+    assert r["status"] == "warn"
