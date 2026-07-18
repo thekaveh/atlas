@@ -586,6 +586,45 @@ def _set_scalar(
     origins[key] = origin
 
 
+_CONDITIONAL_ENV_KEYS = frozenset({"enabled_if_env", "then", "else"})
+
+
+def _resolve_env_value(key: str, value: Any, manifest_path: Path) -> Any:
+    """Resolve a consumer ``env.values`` entry that may be a **key-gated
+    conditional** form, so a consumer can enable a paid provider iff its key is
+    present without a wrapper script (#722):
+
+        env:
+          values:
+            FAL_SOURCE:
+              enabled_if_env: FAL_API_KEY   # env var name (required)
+              then: enabled                 # value when set+non-empty (default "enabled")
+              else: disabled                # value when unset/empty (required)
+
+    Scalars pass through unchanged. The gate reads ``os.environ`` at load time
+    (matching the shell-invocation semantics the wrapper used).
+    """
+    if not isinstance(value, Mapping):
+        return value  # scalar; _set_scalar stringifies
+    var = value.get("enabled_if_env")
+    unknown = set(map(str, value.keys())) - _CONDITIONAL_ENV_KEYS
+    if var is None or "else" not in value or unknown:
+        raise ConsumerManifestError(
+            f"env.values['{key}'] must be a scalar or a conditional "
+            f"{{enabled_if_env: VAR, then?: X, else: Y}} form in {manifest_path}; "
+            f"got {dict(value)!r}"
+        )
+    if not isinstance(var, str) or not _LITELLM_ENV_VAR_RE.match(var):
+        raise ConsumerManifestError(
+            f"env.values['{key}'].enabled_if_env must be an env var name "
+            f"matching ^[A-Z][A-Z0-9_]*$ in {manifest_path}; got {var!r}"
+        )
+    then_value = value.get("then", "enabled")
+    else_value = value["else"]
+    present = bool((os.environ.get(var, "") or "").strip())
+    return then_value if present else else_value
+
+
 def _ordered_union(values: Iterable[str]) -> list[str]:
     out: list[str] = []
     seen: set[str] = set()
@@ -2536,7 +2575,8 @@ def load_consumer_config(
                 if not isinstance(values, Mapping):
                     raise ConsumerManifestError(f"env.values must be a mapping in {manifest_path}")
                 for key, value in values.items():
-                    _set_scalar(env_overrides, env_origins, str(key), value, origin)
+                    resolved = _resolve_env_value(str(key), value, manifest_path)
+                    _set_scalar(env_overrides, env_origins, str(key), resolved, origin)
 
         record_overlays: list[Path] = []
         for raw_overlay in _as_list(data.get("compose_overlays")):
