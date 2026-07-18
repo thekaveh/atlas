@@ -716,7 +716,6 @@ services:
       LITELLM_BASE_URL: http://litellm:4000
       LITELLM_DEFAULT_MODEL: ollama/qwen3.6:latest
       LITELLM_EMBEDDING_MODEL: ollama/nomic-embed-text
-      LITELLM_MODEL: ''
       MINIO_ENDPOINT: ''
       N8N_BASE_URL: http://n8n:5678
       PROJECT_NAME: atlas
