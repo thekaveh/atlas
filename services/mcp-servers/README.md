@@ -28,6 +28,7 @@ The runtime is built on the actively maintained standalone **FastMCP 3** framewo
 | `MCP_SERVERS_SOURCE` | `disabled` | Enables or disables the curated MCP package. |
 | `MCP_SERVERS_PORT` | generated | Host port assigned by Atlas topology. |
 | `MCP_POSTGRES_MAX_ROWS` | `50` | Maximum rows returned by the Postgres tool. |
+| `MCP_NEO4J_MAX_ROWS` | `50` (falls back to `MCP_POSTGRES_MAX_ROWS`) | Maximum rows returned by the Neo4j tool. |
 | `MCP_SEARXNG_MAX_RESULTS` | `5` | Maximum results returned by the SearXNG tool. |
 | `MCP_TOOL_TIMEOUT_SECONDS` | `15` | Upstream call timeout. |
 

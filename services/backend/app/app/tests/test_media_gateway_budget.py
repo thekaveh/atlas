@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+
+import pytest
 import importlib
 import os
 import sys
@@ -349,3 +351,86 @@ def test_reconcile_commits_on_successful_poll(monkeypatch):
     rec = spend["records"][0]
     assert rec["status"] == "committed"
     assert rec["artifact_refs"] == ["https://cdn.example/model.glb"]
+
+
+def test_cancellation_mid_submit_releases_reservation(monkeypatch):
+    # A request cancelled mid-submit (uvicorn graceful shutdown / client
+    # disconnect) raises asyncio.CancelledError — a BaseException the
+    # ``except Exception`` handlers cannot catch. The finally must still release
+    # the reservation so a durably committed RESERVED row is not stranded
+    # against the consumer's cap (which would eventually 402 legit requests).
+    main = _fresh_main(monkeypatch, budget_enabled=True, default_cap=10.0)
+    _CapturingFalClient.captured = {}
+    monkeypatch.setattr(main, "FalClient", _CapturingFalClient, raising=False)
+
+    async def cancelled(*a, **k):
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(main, "_submit_media_provider", cancelled)
+
+    import concurrent.futures
+
+    from fastapi.testclient import TestClient
+
+    client = TestClient(main.app)
+    # asyncio.CancelledError surfaces as concurrent.futures.CancelledError once
+    # it crosses the TestClient portal boundary (3.8+ split the two classes).
+    with pytest.raises((asyncio.CancelledError, concurrent.futures.CancelledError)):
+        _submit(client, consumer="acme")
+
+    spend = client.get("/media/spend", params={"consumer": "acme"}).json()
+    # Reservation released in the finally despite the BaseException.
+    assert spend["reserved_usd"] == 0.0
+
+
+def test_media_budget_prune_loop_invokes_prune_expired(monkeypatch):
+    # The reservation-reclamation backstop advertised via MEDIA_BUDGET_RETENTION_DAYS
+    # must actually run: the reaper loop calls prune_expired() each sweep. (Without
+    # scheduling it, an abandoned SUBMITTED op leaks its ledger row against the cap.)
+    main = _fresh_main(monkeypatch, budget_enabled=True, default_cap=10.0)
+    calls = []
+
+    async def fake_prune():
+        calls.append(True)
+        return 0
+
+    async def fake_sleep(_seconds):
+        if calls:  # after the first sweep, stop the loop
+            raise asyncio.CancelledError()
+
+    monkeypatch.setattr(main.MEDIA_BUDGET_ENGINE, "prune_expired", fake_prune)
+    monkeypatch.setattr(main.asyncio, "sleep", fake_sleep)
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(main._media_budget_prune_loop())
+    assert calls == [True]
+
+
+def test_attach_failure_releases_both_reservation_and_operation_ids(monkeypatch):
+    # attach_operation re-keys reservation_id → operation_id before bumping
+    # status; if the re-key landed but the bump failed, the row is under
+    # operation_id. The attach-failure handler must release BOTH ids so the
+    # reservation can't strand under the operation id.
+    main = _fresh_main(monkeypatch, budget_enabled=True, default_cap=10.0)
+    _CapturingFalClient.captured = {}
+    monkeypatch.setattr(main, "FalClient", _CapturingFalClient, raising=False)
+
+    released = []
+    real_release = main.MEDIA_BUDGET_ENGINE.release
+
+    async def capture_release(rid):
+        released.append(rid)
+        return await real_release(rid)
+
+    async def boom(*a, **k):
+        raise RuntimeError("attach bump failed after re-key")
+
+    monkeypatch.setattr(main.MEDIA_BUDGET_ENGINE, "attach_operation", boom)
+    monkeypatch.setattr(main.MEDIA_BUDGET_ENGINE, "release", capture_release)
+
+    from fastapi.testclient import TestClient
+
+    client = TestClient(main.app)
+    assert _submit(client, consumer="acme").status_code == 202
+    assert any(r.startswith("resv-") for r in released)
+    assert "fal-3d-9" in released

@@ -35,6 +35,7 @@ class _LogRecord:
     level: str         # "info" | "warn" | "error" | "ok" | "dim" | …
     source: str        # docker service name or pipeline phase
     raw: str           # ANSI line as received
+    styled: "Text | None" = None  # caller-applied Rich styling, preserved across re-renders
 
 
 class LogPane(RichLog):
@@ -121,7 +122,9 @@ class LogPane(RichLog):
     def write_styled(
         self, text: Text, *, level: str = "info", source: str = "",
     ) -> None:
-        rec = _LogRecord(level=(level or "info").lower(), source=source, raw=text.plain)
+        rec = _LogRecord(
+            level=(level or "info").lower(), source=source, raw=text.plain, styled=text,
+        )
         if (
             source
             and source not in self._disabled_sources
@@ -144,6 +147,13 @@ class LogPane(RichLog):
         return True
 
     def _write_record(self, rec: _LogRecord) -> None:
+        # A record written via write_styled carries caller-applied Rich styling
+        # (pipeline status lines: green ✓ ticks, bold-yellow warnings, bold-red
+        # error/recovery hints). Re-emit that Text verbatim so a filter re-render
+        # doesn't strip the level coloring — the whole point of those lines.
+        if rec.styled is not None:
+            self.write(rec.styled)
+            return
         # If this looks like a docker compose service line —
         #   ``<container-name>   | <body>``
         # — color the container-name prefix using the per-service

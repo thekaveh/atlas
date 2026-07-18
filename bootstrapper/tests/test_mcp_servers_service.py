@@ -192,12 +192,14 @@ def test_mcp_runtime_guards_reject_write_and_unbounded_inputs() -> None:
     assert runtime.is_safe_neo4j_read("CALL db.labels()")
     assert not runtime.is_safe_neo4j_read("CREATE (n:User)")
     assert not runtime.is_safe_neo4j_read("MATCH (n) DETACH DELETE n")
+    # A MATCH statement ends in RETURN, so it's wrapped with a server-side LIMIT.
     assert runtime.bounded_neo4j_cypher("MATCH (n) RETURN n") == (
         "CALL {\nMATCH (n) RETURN n\n}\nRETURN *\nLIMIT $atlas_limit"
     )
-    assert runtime.bounded_neo4j_cypher("CALL db.labels()") == (
-        "CALL {\nCALL db.labels()\n}\nRETURN *\nLIMIT $atlas_limit"
-    )
+    # A standalone procedure call is passed through UNWRAPPED — wrapping it in a
+    # CALL {} subquery is invalid Cypher (no YIELD/RETURN) and broke the schema
+    # tools 100%; the row cap is enforced by result.fetch() at the Python layer.
+    assert runtime.bounded_neo4j_cypher("CALL db.labels()") == "CALL db.labels()"
 
     assert runtime.clamp_limit("1000", default=5, maximum=20) == 20
     assert runtime.clamp_limit("-1", default=5, maximum=20) == 5

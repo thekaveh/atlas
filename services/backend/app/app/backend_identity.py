@@ -35,6 +35,19 @@ def _unauthorized(detail: str = "Valid backend bearer authentication is required
     )
 
 
+def _ct_equals(a: str, b: str) -> bool:
+    """Constant-time string comparison that tolerates non-ASCII input.
+
+    ``secrets.compare_digest`` raises ``TypeError`` when a ``str`` argument
+    contains a non-ASCII character, so a caller-supplied bearer token, plugin
+    api-key, or media-consumer label with any non-ASCII byte (e.g. a benign
+    Unicode ``"café"`` consumer) would otherwise escape as an unhandled 500
+    instead of a clean 401/403. Comparing the utf-8 bytes keeps it constant-time
+    and simply returns False for a non-matching non-ASCII value.
+    """
+    return secrets.compare_digest(a.encode("utf-8"), b.encode("utf-8"))
+
+
 def _authenticate_backend_principal(
     credentials: HTTPAuthorizationCredentials | None,
     *,
@@ -55,7 +68,7 @@ def _authenticate_backend_principal(
 
     token = credentials.credentials
     internal_token = (os.getenv("BACKEND_INTERNAL_API_TOKEN") or "").strip()
-    if internal_token and secrets.compare_digest(token, internal_token):
+    if internal_token and _ct_equals(token, internal_token):
         return BackendPrincipal(kind="service", subject="internal-service")
 
     scoped_tokens = (
@@ -65,7 +78,7 @@ def _authenticate_backend_principal(
     )
     for kind, env_name, subject in scoped_tokens:
         expected = (os.getenv(env_name) or "").strip()
-        if expected and secrets.compare_digest(token, expected):
+        if expected and _ct_equals(token, expected):
             if kind in allowed_scoped_callers:
                 return BackendPrincipal(kind=kind, subject=subject)  # type: ignore[arg-type]
             label = kind.replace("-", " ").title()
@@ -193,7 +206,7 @@ def authorize_user_id(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid user_id: must be a valid UUID",
             )
-        if not secrets.compare_digest(claimed, principal.subject):
+        if not _ct_equals(claimed, principal.subject):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Authenticated user does not own the requested user_id",
@@ -223,7 +236,7 @@ async def require_plugin_gateway_key(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="BACKEND_KONG_API_KEY is required by this plugin route",
         )
-    if api_key is None or not secrets.compare_digest(api_key, expected):
+    if api_key is None or not _ct_equals(api_key, expected):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Valid plugin API key authentication is required",
@@ -241,7 +254,7 @@ def authorize_media_scope(
     project = (claimed_project or "default").strip() or "default"
     if principal.can_delegate:
         return consumer or "default", project
-    if consumer and not secrets.compare_digest(consumer, principal.subject):
+    if consumer and not _ct_equals(consumer, principal.subject):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Authenticated user does not own the requested media consumer",

@@ -89,7 +89,7 @@ env:
     description: "When false (default), a budgeted submission for a model with no known cost is rejected rather than billed an unknown amount (never silently $0). Set true to allow unknown-cost submissions under a cap."
   - name: MEDIA_BUDGET_RETENTION_DAYS
     default: ""
-    description: "Optional retention window in days for media spend ledger rows; empty keeps rows indefinitely. Pruning is invoked on demand via the budget engine."
+    description: "Optional retention window in days for media spend ledger rows; empty keeps rows indefinitely (no pruning). When set, an hourly background sweep prunes rows older than the window."
   - name: MEDIA_OPERATION_TTL_SECONDS
     default: 604800
     description: "Redis retention in seconds for hosted media operation state. The default keeps terminal results available for seven days across Backend replicas and restarts."
@@ -284,7 +284,9 @@ data_flow:
     - celery
     - supavisor
     - tika
+    - docling
     - lightrag
+    - tei-reranker
     - minio
     - redis
     - otel-collector

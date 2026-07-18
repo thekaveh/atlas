@@ -48,11 +48,13 @@ def test_llm_graph_builder_manifest_admission_contract() -> None:
     }
     assert manifest["depends_on"]["required"] == ["neo4j", "litellm", "kong"]
     assert set(manifest["depends_on"]["optional"]) >= {"minio", "docling"}
+    # minio + docling are future integration points (README §5, §10.4), not
+    # current runtime calls — the compose wires only GCS + neo4j + litellm. They
+    # remain in depends_on.optional as future-ready ordering hints but are not in
+    # data_flow.calls (which drives the Current-Downstream deps table).
     assert manifest["data_flow"]["calls"] == [
         "neo4j",
         "litellm",
-        "minio",
-        "docling",
     ]
     assert manifest["extra_kong_aliases"] == ["graphbuilder-api.localhost"]
 

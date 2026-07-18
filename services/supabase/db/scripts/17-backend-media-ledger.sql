@@ -41,3 +41,17 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_media_spend_ledger_operation
 -- Scoped reads + budget totals are per consumer/project, most-recent first.
 CREATE INDEX IF NOT EXISTS idx_media_spend_ledger_scope
     ON public.media_spend_ledger (consumer, project, created_at);
+
+-- Row Level Security. This ledger is the durable source of truth for budget /
+-- quota enforcement. 06-permissions' default privileges grant `authenticated`
+-- full table rights and `anon` SELECT, and PostgREST exposes `public`, so
+-- WITHOUT RLS any holder of the public anon key could read the entire spend
+-- ledger and any authenticated user could DELETE rows or zero final_cost_usd to
+-- evade the budget cap. Scope all access to the service_role claim like the
+-- memory (14) / research (13) tables; the backend's direct supabase_admin
+-- connection bypasses RLS (owner) and is unaffected.
+ALTER TABLE public.media_spend_ledger ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Service role can access all media spend ledger" ON public.media_spend_ledger;
+CREATE POLICY "Service role can access all media spend ledger" ON public.media_spend_ledger
+    FOR ALL USING (auth.role() = 'service_role');

@@ -107,6 +107,11 @@ services:
       BACKEND_NOTEBOOK_API_TOKEN: ${BACKEND_NOTEBOOK_API_TOKEN}
       BACKEND_OPEN_WEBUI_API_TOKEN: ${BACKEND_OPEN_WEBUI_API_TOKEN}
       BACKEND_KONG_API_KEY: ${BACKEND_KONG_API_KEY}
+      # Plugin-seam knobs (read by plugin_seam.py). Forwarded so operator
+      # overrides actually reach the container — the runtime reads them but
+      # compose was not injecting them, so they were inert.
+      BACKEND_PLUGINS_PIP_TIMEOUT_SECONDS: ${BACKEND_PLUGINS_PIP_TIMEOUT_SECONDS:-300}
+      BACKEND_PLUGINS_SITE_DIR: ${BACKEND_PLUGINS_SITE_DIR:-/tmp/atlas-plugins-site}
       # Vector database integration
       WEAVIATE_URL: ${WEAVIATE_URL:-http://weaviate:8080}
       WEAVIATE_ENABLED: true

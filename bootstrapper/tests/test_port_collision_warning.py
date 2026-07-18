@@ -205,3 +205,49 @@ def test_builder_includes_warning_when_collision_present(monkeypatch):
     assert forced_port in text, (
         f"Expected the colliding port {forced_port} in the warning; got:\n{text}"
     )
+
+
+# ---------------------------------------------------------------------------
+# _get_localhost_port resolution — endpoint-var first, localhost_port_var
+# fallback so port-only rows (no endpoint URL) don't render '-'. Regression
+# for the TUI/--no-tui cross-surface divergence: services that declare only a
+# localhost port number (OpenClaw, Neo4j Graph DB) previously showed '-' in
+# the linear summary while the TUI table showed the real port.
+# ---------------------------------------------------------------------------
+
+
+def test_localhost_port_falls_back_to_port_var_for_endpointless_rows():
+    """Neo4j Graph DB / OpenClaw declare a localhost_port_var but no
+    localhost_endpoint_var; the summary must surface the configured port."""
+    assert (
+        AtlasStarter._get_localhost_port(
+            "Neo4j Graph DB", {"NEO4J_LOCALHOST_BOLT_PORT": "63023"}
+        )
+        == ":63023"
+    )
+    assert (
+        AtlasStarter._get_localhost_port(
+            "OpenClaw", {"OPENCLAW_LOCALHOST_PORT": "63065"}
+        )
+        == ":63065"
+    )
+
+
+def test_localhost_port_prefers_endpoint_var_over_port_var():
+    """When a row has both, the endpoint var wins — it encodes the active
+    source variant's port (e.g. ComfyUI's MPS port 8188, not the plain 8000)."""
+    port = AtlasStarter._get_localhost_port(
+        "ComfyUI",
+        {
+            "COMFYUI_ENDPOINT": "http://host.docker.internal:8188",
+            "COMFYUI_LOCALHOST_PORT": "8000",
+        },
+    )
+    assert port == ":8188"
+
+
+def test_localhost_port_dash_when_unset_or_unknown():
+    """No port var / unknown service → '-', never a bogus port."""
+    assert AtlasStarter._get_localhost_port("OpenClaw", {}) == "-"
+    assert AtlasStarter._get_localhost_port("OpenClaw", {"OPENCLAW_LOCALHOST_PORT": ""}) == "-"
+    assert AtlasStarter._get_localhost_port("No Such Service", {}) == "-"

@@ -28,7 +28,7 @@ Key facts:
   `linux/arm64` (the image is multi-arch — works on Apple Silicon and
   standard Linux servers). Plan-time estimates put it at 2.6 GB; the
   actual size is over 2x that. Plan disk space accordingly.
-- **Bundles 87 default skills** — synced into `~/.hermes/skills/` on every
+- **Bundles 87 default skills** — synced into `/opt/data/skills/` on every
   container start. Our `creative-comfyui-host-override.md` file is added
   alongside them and takes precedence per Hermes's skill resolver.
 

@@ -152,7 +152,7 @@ services:
         condition: service_completed_successfully
     environment:
       PGRST_DB_URI: postgres://${SUPABASE_DB_USER}:${SUPABASE_DB_PASSWORD}@supabase-db:5432/${SUPABASE_DB_NAME}
-      PGRST_DB_SCHEMA: "public,storage,auth"
+      PGRST_DB_SCHEMA: "public,storage"
       PGRST_DB_ANON_ROLE: anon
       PGRST_JWT_SECRET: ${SUPABASE_JWT_SECRET}
       PGRST_DB_USE_LEGACY_GUCS: "false"

@@ -110,6 +110,22 @@ def test_off_track_flag_emits_warning():
     assert "gen-ai-rag" in r.stderr
 
 
+def test_off_track_fal_flag_emits_warning():
+    """--track gen-ai-rag --fal-source enabled must emit a stderr warning:
+    fal belongs to gen-ai-creative, not gen-ai-rag. Regression guard for
+    fal-source being dropped from the override-warning flag set while still
+    present in the source-args set (a silently missing advisory)."""
+    r = _run(
+        "--track", "gen-ai-rag",
+        "--fal-source", "enabled",
+        "--list-tracks",
+    )
+    assert "FAL" in r.stderr, (
+        f"warning text must mention FAL; stderr={r.stderr!r}"
+    )
+    assert "gen-ai-rag" in r.stderr
+
+
 def test_all_track_suppresses_warning():
     """--track all + any --*-source flag → no warning (all includes
     everything)."""

@@ -324,8 +324,12 @@ class MemoryStore:
         embedding = await self._generate_embedding(content)
         conn = await connect_postgres(self.database_url)
         try:
+            # `$1::vector` binds the literal as text so Postgres runs the vector
+            # input function — without the cast asyncpg would infer the column's
+            # `vector` type for $1, has no codec for it, and raises at execute.
+            # Mirrors the read path (`embedding <=> $1::vector`).
             await conn.execute(
-                "UPDATE public.memory_facts SET embedding = $1 WHERE id = $2",
+                "UPDATE public.memory_facts SET embedding = $1::vector WHERE id = $2",
                 str(embedding),
                 _to_uuid(fact_id),
             )

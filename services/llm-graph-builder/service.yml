@@ -162,5 +162,3 @@ data_flow:
   calls:
     - neo4j
     - litellm
-    - minio
-    - docling

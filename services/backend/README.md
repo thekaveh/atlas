@@ -176,6 +176,10 @@ Chonkie chunking surface:
 CHONKIE_SEMANTIC_EMBEDDING_MODEL=minishlab/potion-base-32M
 ```
 
+`CHONKIE_SEMANTIC_EMBEDDING_MODEL` is an optional environment override read at
+runtime; it is not surfaced in `.env.example` and defaults to
+`minishlab/potion-base-32M` in code.
+
 `POST /api/chunk` accepts `text`, `strategy` (`recursive` by default, plus
 `token` or `semantic`), `chunk_size`, `overlap`, `tokenizer`, and semantic tuning fields.
 Responses include stable character offsets, ordered chunk indexes, optional
@@ -291,7 +295,9 @@ curl -X POST http://localhost:${BACKEND_PORT}/lightrag/rerank \
 | supavisor | data |
 | weaviate | data |
 | litellm | llm |
+| tei-reranker | llm |
 | comfyui | media |
+| docling | media |
 | fal | media |
 | tika | media |
 | celery | agents |

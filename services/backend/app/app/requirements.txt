@@ -35,8 +35,14 @@ passlib>=1.7.4
 
 # AI/ML
 chonkie>=1.7.0,<2
-# GHSA-95ww-475f-pr4f affects Ragas' multimodal URL/file helper. Atlas exposes
-# only the four text collection metrics guarded by MetricName in rag_eval_service.
+# GHSA-95ww-475f-pr4f / PYSEC-2026-3046 affect Ragas' multimodal URL/file helper
+# (SSRF). Atlas exposes only the four text collection metrics guarded by MetricName
+# in rag_eval_service, so the vulnerable multimodal path is never reached.
+# Ragas also pulls in diskcache 5.6.3 transitively (PYSEC-2026-2447: pickle
+# deserialization RCE for an attacker with write access to the cache directory); no
+# fixed release exists, and the cache lives inside the backend container where it is
+# not attacker-writable in the default deployment. Both are accepted with these
+# mitigations — re-audit on any ragas/diskcache upgrade.
 ragas==0.4.3
 fal-client>=0.8.0
 # Pillow: image_to_3d input conditioning (media_input.py) composites

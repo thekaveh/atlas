@@ -13,6 +13,12 @@ services:
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_AUTH_ANONYMOUS_ENABLED: "false"
       PROMETHEUS_ENDPOINT: ${PROMETHEUS_ENDPOINT:-http://prometheus:9090}
+      # Tempo + Loki datasources (config/provisioning/datasources/tempo-loki.yml)
+      # interpolate these from the container environment at provisioning time,
+      # exactly like PROMETHEUS_ENDPOINT above. Without them the trace/log
+      # datasources render with an empty url and are unqueryable.
+      TEMPO_ENDPOINT: ${TEMPO_ENDPOINT:-http://tempo:3200}
+      LOKI_ENDPOINT: ${LOKI_ENDPOINT:-http://loki:3100}
     ports:
       - "${HOST_BIND_IP:-}${GRAFANA_PORT}:3000"
     volumes:

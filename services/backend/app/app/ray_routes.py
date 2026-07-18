@@ -7,7 +7,6 @@ with a clear error message rather than 500.
 from __future__ import annotations
 
 import asyncio
-import hmac
 import logging
 import os
 from typing import Any, Optional
@@ -16,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
+from backend_identity import _ct_equals
 from ray_client import RayClient, RayDisabledError
 
 logger = logging.getLogger(__name__)
@@ -34,7 +34,9 @@ async def _require_ray_job_token(
             detail="Ray job API authentication is not configured",
         )
     supplied = credentials.credentials if credentials else ""
-    if not supplied or not hmac.compare_digest(supplied, expected):
+    # _ct_equals compares utf-8 bytes → a non-ASCII token yields a clean 401,
+    # not a TypeError -> 500 (hmac/secrets.compare_digest reject non-ASCII str).
+    if not supplied or not _ct_equals(supplied, expected):
         raise HTTPException(
             status_code=401,
             detail="Invalid Ray job API token",

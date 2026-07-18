@@ -644,6 +644,54 @@ def test_status_not_running_when_pid_dead(tmp_path, monkeypatch):
     assert status.pid is None
 
 
+def test_status_recycled_pid_reports_not_running(tmp_path, monkeypatch):
+    """#647: a live PID whose argv is NOT our vLLM Metal (a recycled/foreign
+    process) reports running=False even though kill-0 succeeds — status() must
+    apply the same _pid_is_stranger cross-check the comfyui-mps manager does."""
+    mgr = _mgr(tmp_path)
+    mgr.state_dir.mkdir(parents=True, exist_ok=True)
+    mgr.pid_file.write_text("4242")
+    monkeypatch.setattr(VllmMetalManager, "_managed_process_alive", lambda self, pid: True)
+    monkeypatch.setattr(VllmMetalManager, "_pid_is_stranger", lambda self, pid: True)
+    st = mgr.status()
+    assert not st.running and st.pid is None
+
+
+def test_pid_alive_treats_permission_denied_as_not_ours(tmp_path, monkeypatch):
+    """#647: a PID we cannot signal (PermissionError — a foreign, likely
+    root-owned, process recycled the number) is NOT our user-owned process."""
+    def denied(pid, sig):
+        raise PermissionError
+
+    monkeypatch.setattr(mod.os, "kill", denied)
+    assert VllmMetalManager._pid_alive(4242) is False
+
+    monkeypatch.setattr(mod.os, "killpg", denied)
+    assert VllmMetalManager._process_group_alive(4242) is False
+
+    mgr = _mgr(tmp_path)
+    mgr.state_dir.mkdir(parents=True, exist_ok=True)
+    mgr.pid_file.write_text("4242")
+    st = mgr.status()
+    assert not st.running and st.pid is None
+
+
+def test_start_clears_stale_pidfile_before_launch(tmp_path, monkeypatch):
+    """#647 arm 2: the not-running path clears a lingering stale/stranger pidfile
+    before the launch preconditions, so a failed relaunch never leaves a stale
+    pointer for a later probe (mirrors comfyui-mps)."""
+    mgr = _mgr(tmp_path)
+    mgr.state_dir.mkdir(parents=True, exist_ok=True)
+    mgr.pid_file.write_text("4242")
+    # Alive-but-stranger PID → status() reports not running.
+    monkeypatch.setattr(VllmMetalManager, "_managed_process_alive", lambda self, pid: True)
+    monkeypatch.setattr(VllmMetalManager, "_pid_is_stranger", lambda self, pid: True)
+    # venv missing → _start_locked raises *after* clearing the stale pidfile.
+    with pytest.raises(VllmMetalError):
+        mgr.start_with_ownership()
+    assert not mgr.pid_file.exists()
+
+
 # ─────────────────────────── ensure_running / remove ───────────────────────────
 def test_ensure_running_raises_on_unsupported_host(tmp_path, monkeypatch):
     monkeypatch.setattr(mod.platform, "system", lambda: "Linux")

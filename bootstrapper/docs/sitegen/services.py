@@ -327,7 +327,7 @@ def service_pages(model: DocsModel) -> dict[Path, str]:
     pages: dict[Path, str] = {}
     docs = model.root / "docs" / "site" / "services"
     categories = sorted({service.category for service in model.services})
-    sections: list[str] = ["# Service Catalog", "", "## 1. Service Catalog", ""]
+    sections: list[str] = ["# Service Catalog", "", "## 1. Services by Category", ""]
 
     for index, category in enumerate(categories, start=1):
         rows = []

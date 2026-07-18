@@ -70,12 +70,12 @@ class ResearchService:
         self._maintenance_task: Optional[asyncio.Task[Any]] = None
 
     async def _get_db_connection(self):
-        """Get database connection.
+        """Open a research-session database connection.
 
-        timeout/command_timeout bound the connect phase and per-query
-        budget. Defaults are 60s connect + None command_timeout, which
-        let a hung Postgres bouncer or stuck migration pin a uvicorn
-        worker indefinitely.
+        Delegates to ``connect_postgres``, which bounds the connect phase and
+        every query with a 10s connect timeout and a 30s command timeout, so a
+        hung Postgres bouncer or stuck query cannot pin a uvicorn worker
+        indefinitely.
         """
         return await connect_postgres(self.db_url)
 

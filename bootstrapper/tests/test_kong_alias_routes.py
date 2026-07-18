@@ -201,6 +201,21 @@ def test_backend_route_auth_open_prefix_opts_out_of_key_auth_default():
     assert any(c["username"] == "backend_api_user" for c in config["consumers"])
 
 
+def test_backend_route_auth_all_prefix_does_not_collide_with_catch_all():
+    """A consumer plugin whose prefix slugifies to the fixed catch-all name
+    (route_prefix: /all -> 'backend-api-all') must be de-duplicated, not emit a
+    second route with the same name — Kong rejects duplicate route names for the
+    whole declarative config, so a collision fails the entire gateway boot."""
+    config = _generate_with_plugin_auth("", [("/all", "open")])
+    backend = _service(config, "backend-api")
+    names = [r["name"] for r in backend["routes"]]
+    assert len(names) == len(set(names)), names  # no duplicate route names
+    assert names.count("backend-api-all") == 1   # the catch-all, once
+    all_prefix = [r for r in backend["routes"] if r.get("paths") == ["/all"]]
+    assert len(all_prefix) == 1
+    assert all_prefix[0]["name"] != "backend-api-all"  # de-duplicated
+
+
 def test_backend_route_auth_key_auth_prefix_on_open_default():
     """Base disabled + a `key-auth` prefix: only that prefix requires the key;
     the catch-all is open. Consumer/credential materialized for the prefix."""
@@ -498,6 +513,45 @@ def test_tei_reranker_route_omitted_when_disabled():
     by_host = _hosts_to_service(config)
     assert "rerank.localhost" not in by_host, (
         "rerank.localhost should not appear when TEI_RERANKER_SOURCE=disabled"
+    )
+
+
+def _hosts_to_service_map(config: dict) -> dict:
+    return {
+        host: svc
+        for svc in config["services"]
+        for route in svc.get("routes", [])
+        for host in route.get("hosts") or []
+    }
+
+
+def test_asset_worker_route_generated_when_enabled():
+    """asset-worker.localhost route is emitted when ASSET_WORKER_SOURCE=container,
+    targeting the in-network asset-worker container. The manifest alias +
+    --setup-hosts entry promise this route, so it must exist when enabled."""
+    by_host = _hosts_to_service_map(_generate("ASSET_WORKER_SOURCE=container\n"))
+    assert "asset-worker.localhost" in by_host, sorted(by_host)
+    assert by_host["asset-worker.localhost"]["url"] == "http://asset-worker:8095/"
+
+
+def test_asset_worker_route_omitted_when_disabled():
+    """asset-worker.localhost must be absent when ASSET_WORKER_SOURCE=disabled."""
+    assert "asset-worker.localhost" not in _hosts_to_service(
+        _generate("ASSET_WORKER_SOURCE=disabled\n")
+    )
+
+
+def test_asset_baker_route_generated_when_enabled():
+    """asset-baker.localhost route is emitted when ASSET_BAKER_SOURCE=container-cpu."""
+    by_host = _hosts_to_service_map(_generate("ASSET_BAKER_SOURCE=container-cpu\n"))
+    assert "asset-baker.localhost" in by_host, sorted(by_host)
+    assert by_host["asset-baker.localhost"]["url"] == "http://asset-baker:8096/"
+
+
+def test_asset_baker_route_omitted_when_disabled():
+    """asset-baker.localhost must be absent when ASSET_BAKER_SOURCE=disabled."""
+    assert "asset-baker.localhost" not in _hosts_to_service(
+        _generate("ASSET_BAKER_SOURCE=disabled\n")
     )
 
 

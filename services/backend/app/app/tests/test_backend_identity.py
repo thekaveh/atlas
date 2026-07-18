@@ -402,3 +402,21 @@ def test_media_operation_is_non_enumerating_across_user_principals(
 
     assert owner_response.status_code == 200
     assert peer_response.status_code == 404
+
+
+def test_authorize_media_scope_rejects_non_ascii_consumer_cleanly() -> None:
+    # A benign Unicode consumer label from a user principal must yield a clean
+    # 403 (ownership check), not a TypeError→500 from secrets.compare_digest.
+    principal = BackendPrincipal(kind="user", subject=str(uuid4()))
+    with pytest.raises(HTTPException) as exc:
+        authorize_media_scope(principal, "café", None)
+    assert exc.value.status_code == 403
+
+
+def test_plugin_gateway_key_non_ascii_is_401_not_500(monkeypatch) -> None:
+    from backend_identity import require_plugin_gateway_key
+
+    monkeypatch.setenv("BACKEND_KONG_API_KEY", "expected-key")
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(require_plugin_gateway_key(api_key="café-key"))
+    assert exc.value.status_code == 401

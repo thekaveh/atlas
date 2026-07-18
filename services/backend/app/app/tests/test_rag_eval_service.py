@@ -378,3 +378,29 @@ def test_collection_metric_failure_is_explicit_unless_raise_exceptions() -> None
                 records, [BrokenMetric()], raise_exceptions=True
             )
         )
+
+
+def test_dependency_error_propagates_as_503_not_400(monkeypatch):
+    # A ragas dependency outage must reach the route as
+    # RagEvaluationDependencyError (→ 503), not be re-wrapped into a plain
+    # RagEvaluationError (→ 400). Subclassing keeps its identity through the
+    # service's `except RagEvaluationError: raise` wrapper.
+    from rag_eval_service import RagEvaluationDependencyError, RagEvaluationError
+
+    assert issubclass(RagEvaluationDependencyError, RagEvaluationError)
+
+    monkeypatch.setenv("LITELLM_BASE_URL", "http://litellm:4000")
+    monkeypatch.setenv("LITELLM_API_KEY", "sk-atlas")
+    monkeypatch.setenv("LITELLM_DEFAULT_MODEL", "ollama/qwen3.6:latest")
+    monkeypatch.setenv("LITELLM_EMBEDDING_MODEL", "ollama/nomic-embed-text")
+
+    def boom_runner(records, metrics, config):
+        raise RagEvaluationDependencyError("ragas transitive dep missing")
+
+    request = RagEvaluationRequest(
+        records=[RagEvaluationRecord(question="q", answer="a", contexts=["c"])],
+        metrics=["faithfulness"],
+    )
+
+    with pytest.raises(RagEvaluationDependencyError):
+        evaluate_rag_records(request, runner=boom_runner)

@@ -102,6 +102,7 @@ from lightrag_rerank_adapter import (
 )
 from backend_identity import (
     BackendPrincipal,
+    _ct_equals,
     authorize_media_scope,
     authorize_user_id,
     principal_scope_key,
@@ -218,14 +219,47 @@ BACKEND_STORAGE_ALLOWED_BUCKETS = set(
 _SAFE_STORAGE_FILENAME = re.compile(r"^[A-Za-z0-9._ -]{1,255}$")
 
 
+# Background reclamation for abandoned media-budget reservations. The poll-time
+# timeout only fires when a client polls; a submitted operation that is never
+# polled again would otherwise keep its RESERVED/SUBMITTED ledger row counting
+# against the consumer's cap forever. prune_expired() sweeps rows older than the
+# retention window (a no-op unless MEDIA_BUDGET_RETENTION_DAYS is set); schedule
+# it so the advertised backstop actually runs.
+_MEDIA_BUDGET_PRUNE_INTERVAL_SECONDS = 3600
+_media_budget_prune_task: Optional[asyncio.Task] = None
+
+
+async def _media_budget_prune_loop() -> None:
+    while True:
+        await asyncio.sleep(_MEDIA_BUDGET_PRUNE_INTERVAL_SECONDS)
+        try:
+            pruned = await MEDIA_BUDGET_ENGINE.prune_expired()
+            if pruned:
+                logger.info(
+                    "media budget prune reclaimed %s expired ledger row(s)", pruned
+                )
+        except Exception as exc:
+            logger.warning(
+                "media budget prune sweep failed (error_type=%s)",
+                type(exc).__name__,
+            )
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
+    global _media_budget_prune_task
     await research_service.start_maintenance()
+    if MEDIA_BUDGET_ENGINE.config.enabled and MEDIA_BUDGET_ENGINE.config.retention_days:
+        _media_budget_prune_task = asyncio.create_task(_media_budget_prune_loop())
     try:
         yield
     finally:
         # Terminalize local research work before closing process-lifetime
         # clients and shared stores.
+        if _media_budget_prune_task is not None:
+            _media_budget_prune_task.cancel()
+            await asyncio.gather(_media_budget_prune_task, return_exceptions=True)
+            _media_budget_prune_task = None
         await research_service.aclose()
         await n8n_client.aclose()
         await MEDIA_OPERATION_STORE.aclose()
@@ -697,7 +731,9 @@ def _require_lightrag_rerank_token(
         )
     supplied = credentials.credentials if credentials is not None else ""
     scheme = (credentials.scheme if credentials is not None else "") or ""
-    if scheme.lower() != "bearer" or not secrets.compare_digest(supplied, expected):
+    # _ct_equals compares utf-8 bytes so a non-ASCII bearer token yields a clean
+    # 401 rather than a TypeError -> 500 (secrets.compare_digest rejects non-ASCII str).
+    if scheme.lower() != "bearer" or not _ct_equals(supplied, expected):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or missing bearer token for the LightRAG rerank adapter",
@@ -1624,134 +1660,161 @@ async def submit_media_generation(
             status_code=status.HTTP_402_PAYMENT_REQUIRED, detail=str(e)
         )
 
-    if modality == "image":
-        prepared_input = request.input
-    else:  # image_to_3d
-        # Fail fast on a missing key before any (side-effecting) storage write.
-        entry = media_registry.lookup(model)
+    # Any exit from here that does not durably attach the reservation to a
+    # persisted operation must release it — INCLUDING asyncio.CancelledError
+    # (uvicorn graceful shutdown / client disconnect), a BaseException the
+    # `except Exception` handlers below cannot catch. Without the finally, a
+    # durably committed RESERVED row (postgres budget store) is stranded
+    # against the consumer's cap forever (prune only runs when
+    # MEDIA_BUDGET_RETENTION_DAYS is set). `reservation_settled` is flipped at
+    # each terminal disposition (released best-effort, deliberately retained,
+    # or attached+persisted) so the finally releases exactly the leaked cases.
+    reservation_settled = False
+    try:
+        if modality == "image":
+            prepared_input = request.input
+        else:  # image_to_3d
+            # Fail fast on a missing key before any (side-effecting) storage write.
+            entry = media_registry.lookup(model)
+            try:
+                # prepare_image_input performs (optional) Pillow compositing and a
+                # blocking storage upload; run it off the event loop.
+                prepared = await asyncio.to_thread(
+                    prepare_image_input,
+                    request.input["image"],
+                    needs_hosted_url=bool(entry and entry.needs_hosted_url),
+                    accepts_data_uri=bool(entry.accepts_data_uri) if entry else True,
+                    condition_transparent=True,
+                    uploader=_media_input_uploader,
+                )
+            except ImageInputError as e:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=str(e),
+                )
+            except ImageHostingError as e:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail=str(e),
+                )
+            prepared_input = dict(request.input)
+            prepared_input["image"] = prepared.image
+
         try:
-            # prepare_image_input performs (optional) Pillow compositing and a
-            # blocking storage upload; run it off the event loop.
-            prepared = await asyncio.to_thread(
-                prepare_image_input,
-                request.input["image"],
-                needs_hosted_url=bool(entry and entry.needs_hosted_url),
-                accepts_data_uri=bool(entry.accepts_data_uri) if entry else True,
-                condition_transparent=True,
-                uploader=_media_input_uploader,
+            payload = await _submit_media_provider(
+                provider=provider,
+                modality=modality,
+                model=model,
+                prepared_input=prepared_input,
             )
-        except ImageInputError as e:
-            await MEDIA_BUDGET_ENGINE.release(reservation_id)
+        except HTTPException:
+            raise
+        except ValueError as e:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=str(e),
             )
-        except ImageHostingError as e:
-            await MEDIA_BUDGET_ENGINE.release(reservation_id)
+        except Exception as exc:
+            raise _unexpected_error(
+                f"Submit media generation with {provider}",
+                exc,
+                status_code=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        operation_id = str(payload["operation_id"])
+        submitted_model = str(payload.get("model") or model)
+        # Re-key the reservation to the provider's operation id so poll-time
+        # reconciliation can find it. The provider call already succeeded, so a
+        # ledger bookkeeping hiccup here must not 500 the request or permanently
+        # orphan the reservation: on failure, free the temp-id reservation
+        # best-effort and continue (this operation's spend goes untracked rather
+        # than holding the consumer's budget forever).
+        budget_tracked = reservation is not None
+        budget_cleanup_failed = False
+        try:
+            await MEDIA_BUDGET_ENGINE.attach_operation(reservation_id, operation_id)
+        except Exception:
+            budget_tracked = False
+            # attach_operation re-keys reservation_id → operation_id and then
+            # bumps status in a separate step; if the re-key landed but the bump
+            # failed, the row now lives under operation_id, so releasing only
+            # reservation_id would no-op and strand it. Release both ids
+            # best-effort — the id the row isn't under is a harmless no-op.
+            for _rid in (reservation_id, operation_id):
+                try:
+                    await MEDIA_BUDGET_ENGINE.release(_rid)
+                except Exception:
+                    budget_cleanup_failed = reservation is not None
+            # Reservation is now released (or best-effort released); the finally
+            # must not release it again.
+            reservation_settled = True
+        operation = {
+            "operation_id": operation_id,
+            "provider": provider,
+            "modality": modality,
+            "model": submitted_model,
+            "created_at_epoch": time.time(),
+            "timeout_seconds": _media_timeout_seconds(request.timeout_seconds),
+            "last_payload": payload,
+            "consumer": consumer,
+            "project": project,
+            "owner_scope": principal_scope_key(principal),
+            "budget_tracked": budget_tracked,
+            "reconciled": False,
+        }
+        try:
+            await _persist_media_operation(operation)
+        except Exception as exc:
+            # An attached reservation is deliberately RETAINED here for manual
+            # reconciliation of the already-submitted paid work; the finally
+            # must not release it.
+            reservation_settled = True
+            if provider == "fal":
+                provider_cancellation_requested = await _cancel_unpersisted_media_operation(
+                    api_key=api_key,
+                    model=submitted_model,
+                    operation_id=operation_id,
+                    modality=modality,
+                )
+            else:
+                # Local providers (comfyui) are free (cost_usd=0); an unpersisted
+                # operation has no paid work to reconcile, so no provider cancel.
+                provider_cancellation_requested = False
+            # FAL confirms only that cancellation was requested, not that paid work
+            # stopped. Without durable operation state Atlas cannot poll that request
+            # to a terminal outcome, so retain spend for manual reconciliation.
+            manual_reconciliation_required = True
+            logger.error(
+                "Provider accepted media operation %s but state persistence failed; "
+                "provider_cancellation_requested=%s "
+                "manual_reconciliation_required=%s budget_cleanup_failed=%s: %s",
+                operation_id,
+                provider_cancellation_requested,
+                manual_reconciliation_required,
+                budget_cleanup_failed,
+                exc,
+            )
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail=str(e),
-            )
-        prepared_input = dict(request.input)
-        prepared_input["image"] = prepared.image
-
-    try:
-        payload = await _submit_media_provider(
-            provider=provider,
-            modality=modality,
-            model=model,
-            prepared_input=prepared_input,
-        )
-    except HTTPException:
-        await MEDIA_BUDGET_ENGINE.release(reservation_id)
-        raise
-    except ValueError as e:
-        await MEDIA_BUDGET_ENGINE.release(reservation_id)
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
-        )
-    except Exception as exc:
-        await MEDIA_BUDGET_ENGINE.release(reservation_id)
-        raise _unexpected_error(
-            f"Submit media generation with {provider}",
-            exc,
-            status_code=status.HTTP_502_BAD_GATEWAY,
-        )
-
-    operation_id = str(payload["operation_id"])
-    submitted_model = str(payload.get("model") or model)
-    # Re-key the reservation to the provider's operation id so poll-time
-    # reconciliation can find it. The provider call already succeeded, so a
-    # ledger bookkeeping hiccup here must not 500 the request or permanently
-    # orphan the reservation: on failure, free the temp-id reservation
-    # best-effort and continue (this operation's spend goes untracked rather
-    # than holding the consumer's budget forever).
-    budget_tracked = reservation is not None
-    budget_cleanup_failed = False
-    try:
-        await MEDIA_BUDGET_ENGINE.attach_operation(reservation_id, operation_id)
-    except Exception:
-        budget_tracked = False
-        try:
-            await MEDIA_BUDGET_ENGINE.release(reservation_id)
-        except Exception:
-            budget_cleanup_failed = reservation is not None
-    operation = {
-        "operation_id": operation_id,
-        "provider": provider,
-        "modality": modality,
-        "model": submitted_model,
-        "created_at_epoch": time.time(),
-        "timeout_seconds": _media_timeout_seconds(request.timeout_seconds),
-        "last_payload": payload,
-        "consumer": consumer,
-        "project": project,
-        "owner_scope": principal_scope_key(principal),
-        "budget_tracked": budget_tracked,
-        "reconciled": False,
-    }
-    try:
-        await _persist_media_operation(operation)
-    except Exception as exc:
-        if provider == "fal":
-            provider_cancellation_requested = await _cancel_unpersisted_media_operation(
-                api_key=api_key,
-                model=submitted_model,
-                operation_id=operation_id,
-                modality=modality,
-            )
-        else:
-            # Local providers (comfyui) are free (cost_usd=0); an unpersisted
-            # operation has no paid work to reconcile, so no provider cancel.
-            provider_cancellation_requested = False
-        # FAL confirms only that cancellation was requested, not that paid work
-        # stopped. Without durable operation state Atlas cannot poll that request
-        # to a terminal outcome, so retain spend for manual reconciliation.
-        manual_reconciliation_required = True
-        logger.error(
-            "Provider accepted media operation %s but state persistence failed; "
-            "provider_cancellation_requested=%s "
-            "manual_reconciliation_required=%s budget_cleanup_failed=%s: %s",
-            operation_id,
-            provider_cancellation_requested,
-            manual_reconciliation_required,
-            budget_cleanup_failed,
-            exc,
-        )
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail={
-                "message": (
-                    "Provider accepted the operation but Atlas could not "
-                    "persist its state"
-                ),
-                "provider_operation_id": operation_id,
-                "provider_cancellation_requested": provider_cancellation_requested,
-                "manual_reconciliation_required": manual_reconciliation_required,
-            },
-        ) from exc
-    return _media_response(payload)
+                detail={
+                    "message": (
+                        "Provider accepted the operation but Atlas could not "
+                        "persist its state"
+                    ),
+                    "provider_operation_id": operation_id,
+                    "provider_cancellation_requested": provider_cancellation_requested,
+                    "manual_reconciliation_required": manual_reconciliation_required,
+                },
+            ) from exc
+        # Attached + persisted: the reservation is now tracked as this operation.
+        reservation_settled = True
+        return _media_response(payload)
+    finally:
+        if not reservation_settled:
+            try:
+                await MEDIA_BUDGET_ENGINE.release(reservation_id)
+            except Exception:
+                pass
 
 
 # Terminal media-operation statuses — once reached, polls return the stored
@@ -2277,6 +2340,26 @@ async def cancel_generation(prompt_id: str):
         raise _unexpected_error("Cancel ComfyUI generation", exc)
 
 
+def _inline_content_disposition(filename: str) -> str:
+    """Build a latin-1-safe ``Content-Disposition: inline`` header value.
+
+    Strips CR/LF and quotes so the name can't break the header, exposes an ASCII
+    fallback in the plain ``filename=`` parameter, and carries the full UTF-8 name
+    via the RFC 5987 ``filename*=`` form. Without the ASCII fallback a name with
+    characters above U+00FF (e.g. ``"日本語.png"``) raises ``UnicodeEncodeError``
+    when Starlette latin-1-encodes the header — surfacing as a 500 instead of
+    returning the image.
+    """
+    from urllib.parse import quote
+
+    safe_name = filename.replace("\r", "").replace("\n", "").replace('"', "")
+    ascii_fallback = safe_name.encode("ascii", "replace").decode("ascii")
+    disposition = f'inline; filename="{ascii_fallback}"'
+    if ascii_fallback != safe_name:
+        disposition += f"; filename*=UTF-8''{quote(safe_name, safe='')}"
+    return disposition
+
+
 @app.get(
     "/comfyui/image/{filename}",
     dependencies=[Depends(require_comfy_automation_principal)],
@@ -2295,14 +2378,10 @@ async def get_generated_image(filename: str, subfolder: str = "", folder_type: s
                 content_type = "image/webp"
             
             from fastapi.responses import Response
-            # Sanitize the filename before placing it in a header: strip CR/LF
-            # (which crash the HTTP/1.1 codec with a 500) and quote per RFC 6266
-            # so a name containing ';' or '"' can't break the header structure.
-            safe_name = filename.replace("\r", "").replace("\n", "").replace('"', "")
             return Response(
                 content=image_data,
                 media_type=content_type,
-                headers={"Content-Disposition": f'inline; filename="{safe_name}"'}
+                headers={"Content-Disposition": _inline_content_disposition(filename)}
             )
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code == 404:

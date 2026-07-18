@@ -164,4 +164,3 @@ data_flow:
     - supabase
     - redis
     - minio
-    - litellm

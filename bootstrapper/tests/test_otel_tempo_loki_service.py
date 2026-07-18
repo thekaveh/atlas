@@ -259,6 +259,14 @@ def test_grafana_provisions_tempo_and_loki_datasources() -> None:
     assert datasources["Loki"]["type"] == "loki"
     assert datasources["Loki"]["url"] == "${LOKI_ENDPOINT}"
 
+    # The datasource urls above interpolate from the container environment at
+    # provisioning time, so grafana's compose must actually forward the vars —
+    # regression guard for when TEMPO_ENDPOINT/LOKI_ENDPOINT were absent and the
+    # Tempo/Loki datasources provisioned with an empty url (unqueryable).
+    grafana_env = _compose("grafana")["services"]["grafana"]["environment"]
+    for var in ("PROMETHEUS_ENDPOINT", "TEMPO_ENDPOINT", "LOKI_ENDPOINT"):
+        assert var in grafana_env, f"grafana compose must forward {var}"
+
 
 def test_observability_tracing_docs_state_internal_only_and_grafana_surface() -> None:
     for name in ("otel-collector", "tempo", "loki"):
