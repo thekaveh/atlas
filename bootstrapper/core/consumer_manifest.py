@@ -1652,7 +1652,13 @@ RAG_INGESTION_OVERLAY_PATH = Path("volumes/backend/rag-ingestion-profiles.compos
 RAG_INGESTION_CONTAINER_PATH = "/atlas-consumer-config/rag-ingestion-profiles.json"
 
 _RAG_NAME_RE = __import__("re").compile(r"^[a-z0-9][a-z0-9._-]*$")
-_RAG_IDENT_RE = __import__("re").compile(r"^[A-Za-z][A-Za-z0-9_]*$")
+# collection_prefix must start uppercase: Weaviate silently capitalizes the
+# first letter of a stored class name, but the backend's reconcile step issues a
+# case-sensitive GraphQL `Get { <class> }` with the un-capitalized name. A
+# lowercase-first prefix therefore writes to `Ragshowcase_…` but queries
+# `ragshowcase_…` → unknown field → the vector_write phase fails. Rejecting it
+# here (fail-fast, clear error) beats a cryptic runtime failure.
+_RAG_IDENT_RE = __import__("re").compile(r"^[A-Z][A-Za-z0-9_]*$")
 _RAG_CORPUS_SOURCES = frozenset({"mount", "minio"})
 _RAG_PARSERS = frozenset({"docling", "tika", "crawl4ai", "plain_text"})
 _RAG_CHUNK_STRATEGIES = frozenset({"token", "recursive", "semantic"})
