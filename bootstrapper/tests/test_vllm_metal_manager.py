@@ -676,6 +676,22 @@ def test_pid_alive_treats_permission_denied_as_not_ours(tmp_path, monkeypatch):
     assert not st.running and st.pid is None
 
 
+def test_start_clears_stale_pidfile_before_launch(tmp_path, monkeypatch):
+    """#647 arm 2: the not-running path clears a lingering stale/stranger pidfile
+    before the launch preconditions, so a failed relaunch never leaves a stale
+    pointer for a later probe (mirrors comfyui-mps)."""
+    mgr = _mgr(tmp_path)
+    mgr.state_dir.mkdir(parents=True, exist_ok=True)
+    mgr.pid_file.write_text("4242")
+    # Alive-but-stranger PID → status() reports not running.
+    monkeypatch.setattr(VllmMetalManager, "_managed_process_alive", lambda self, pid: True)
+    monkeypatch.setattr(VllmMetalManager, "_pid_is_stranger", lambda self, pid: True)
+    # venv missing → _start_locked raises *after* clearing the stale pidfile.
+    with pytest.raises(VllmMetalError):
+        mgr.start_with_ownership()
+    assert not mgr.pid_file.exists()
+
+
 # ─────────────────────────── ensure_running / remove ───────────────────────────
 def test_ensure_running_raises_on_unsupported_host(tmp_path, monkeypatch):
     monkeypatch.setattr(mod.platform, "system", lambda: "Linux")

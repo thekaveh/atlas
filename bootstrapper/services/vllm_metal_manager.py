@@ -431,6 +431,11 @@ class VllmMetalManager:
         existing = self.status()
         if existing.running:
             return existing, False  # idempotent — one process per host
+        # Not running, but a pidfile may linger from a dead/recycled process.
+        # Clear it so we relaunch cleanly instead of leaving a stale pointer that
+        # a later probe could mislead (#647, arm 2 — mirrors comfyui-mps).
+        self._clear_pid()
+        self._untracked_pid = None
         if not self.venv_python.exists():
             raise VllmMetalError("vLLM Metal venv is not installed — run install first")
         if self._port_in_use():
