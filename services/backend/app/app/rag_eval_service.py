@@ -32,11 +32,19 @@ _METRIC_REQUIREMENTS: Dict[MetricName, tuple[bool, bool]] = {
 }
 
 
-class RagEvaluationDependencyError(RuntimeError):
+class RagEvaluationError(RuntimeError):
     pass
 
 
-class RagEvaluationError(RuntimeError):
+class RagEvaluationDependencyError(RagEvaluationError):
+    """A missing/broken ragas dependency — a server-side outage (→ 503), not a
+    client error. It MUST subclass RagEvaluationError (like the sibling
+    ChunkingDependencyError/RerankAdapterDependencyError do): the service wraps
+    the runner in ``except RagEvaluationError: raise`` / ``except Exception:
+    raise RagEvaluationError(...)``, so a sibling type would be re-wrapped and
+    lose its identity, making the route's 503 branch dead code (it would 400 a
+    dependency outage). As a subclass it survives the wrapper and the route's
+    ``except RagEvaluationDependencyError`` (checked first) maps it to 503."""
     pass
 
 
