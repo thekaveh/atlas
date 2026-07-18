@@ -171,8 +171,10 @@ services:
       RAGAS_EMBEDDINGS_MODEL: ${RAGAS_EMBEDDINGS_MODEL:-}
       # LightRAG → TEI rerank adapter (#415). TEI_RERANKER_ENDPOINT is resolved
       # by tei-reranker's own config generation; the adapter route reads it to
-      # forward {query, texts}. Token + timeout gate + configure the route.
+      # forward {query, texts}. The shared client batch limit keeps adapter
+      # slices within the selected TEI runtime's configured request contract.
       TEI_RERANKER_ENDPOINT: ${TEI_RERANKER_ENDPOINT:-}
+      TEI_RERANKER_MAX_CLIENT_BATCH_SIZE: ${TEI_RERANKER_MAX_CLIENT_BATCH_SIZE:-32}
       LIGHTRAG_RERANK_ADAPTER_ENABLED: ${LIGHTRAG_RERANK_ADAPTER_ENABLED:-false}
       LIGHTRAG_RERANK_ADAPTER_TOKEN: ${LIGHTRAG_RERANK_ADAPTER_TOKEN:-}
       LIGHTRAG_RERANK_ADAPTER_TIMEOUT_SECONDS: ${LIGHTRAG_RERANK_ADAPTER_TIMEOUT_SECONDS:-30}

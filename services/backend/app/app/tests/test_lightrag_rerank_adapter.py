@@ -62,6 +62,31 @@ def _install_client(monkeypatch, *, resp=None, exc=None, sink=None):
     monkeypatch.setattr(adapter.httpx, "Client", _Client)
 
 
+def _install_sequence_client(monkeypatch, responses, sink):
+    """Capture every request and return or raise the corresponding outcome."""
+
+    outcomes = iter(responses)
+
+    class _Client:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def post(self, url, json=None, **kwargs):
+            sink.append({"url": url, "json": json})
+            outcome = next(outcomes)
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+
+    monkeypatch.setattr(adapter.httpx, "Client", _Client)
+
+
 # ─── Translation + ordering ──────────────────────────────────────────
 
 
@@ -165,6 +190,84 @@ def test_duplicate_documents_are_reranked_independently(monkeypatch):
     assert {r.index for r in result.results} == {0, 1}
 
 
+def test_batches_documents_and_applies_global_order_and_top_n(monkeypatch):
+    monkeypatch.setenv("TEI_RERANKER_ENDPOINT", "http://tei-reranker:80")
+    monkeypatch.setenv("TEI_RERANKER_MAX_CLIENT_BATCH_SIZE", "2")
+    calls: list[dict] = []
+    _install_sequence_client(
+        monkeypatch,
+        [
+            _FakeResponse(200, [{"index": 0, "score": 0.2}, {"index": 1, "score": 0.9}]),
+            _FakeResponse(200, [{"index": 0, "score": 0.8}, {"index": 1, "score": 0.1}]),
+            _FakeResponse(200, [{"index": 0, "score": 0.95}]),
+        ],
+        calls,
+    )
+
+    result = rerank_via_tei(
+        RerankAdapterRequest(
+            query="q",
+            documents=["doc-0", "doc-1", "doc-2", "doc-3", "doc-4"],
+            top_n=3,
+            return_documents=True,
+        )
+    )
+
+    assert [call["json"]["texts"] for call in calls] == [
+        ["doc-0", "doc-1"],
+        ["doc-2", "doc-3"],
+        ["doc-4"],
+    ]
+    assert [(item.index, item.document) for item in result.results] == [
+        (4, "doc-4"),
+        (1, "doc-1"),
+        (2, "doc-2"),
+    ]
+
+
+def test_later_batch_failure_rejects_the_whole_ranking(monkeypatch):
+    monkeypatch.setenv("TEI_RERANKER_ENDPOINT", "http://tei-reranker:80")
+    monkeypatch.setenv("TEI_RERANKER_MAX_CLIENT_BATCH_SIZE", "2")
+    calls: list[dict] = []
+    _install_sequence_client(
+        monkeypatch,
+        [
+            _FakeResponse(200, [{"index": 0, "score": 0.9}, {"index": 1, "score": 0.8}]),
+            _FakeResponse(422, {"error": "batch rejected"}),
+        ],
+        calls,
+    )
+
+    with pytest.raises(RerankAdapterUpstreamError):
+        rerank_via_tei(
+            RerankAdapterRequest(query="q", documents=["a", "b", "c", "d"])
+        )
+    assert len(calls) == 2
+
+
+def test_batches_share_one_total_timeout_budget(monkeypatch):
+    monkeypatch.setenv("TEI_RERANKER_ENDPOINT", "http://tei-reranker:80")
+    monkeypatch.setenv("TEI_RERANKER_MAX_CLIENT_BATCH_SIZE", "2")
+    monkeypatch.setenv("LIGHTRAG_RERANK_ADAPTER_TIMEOUT_SECONDS", "30")
+    ticks = iter([100.0, 100.0, 131.0])
+    monkeypatch.setattr(adapter.time, "monotonic", lambda: next(ticks))
+    calls: list[dict] = []
+    _install_sequence_client(
+        monkeypatch,
+        [
+            _FakeResponse(200, [{"index": 0, "score": 0.9}, {"index": 1, "score": 0.8}]),
+            _FakeResponse(200, [{"index": 0, "score": 0.7}, {"index": 1, "score": 0.6}]),
+        ],
+        calls,
+    )
+
+    with pytest.raises(RerankAdapterTimeoutError):
+        rerank_via_tei(
+            RerankAdapterRequest(query="q", documents=["a", "b", "c", "d"])
+        )
+    assert len(calls) == 1
+
+
 # ─── Short-circuit + error mapping ───────────────────────────────────
 
 
@@ -218,6 +321,13 @@ def test_rerank_timeout_rejects_malformed_or_unbounded_values(monkeypatch, value
     monkeypatch.setenv("LIGHTRAG_RERANK_ADAPTER_TIMEOUT_SECONDS", value)
     with pytest.raises(ValueError, match="timeout"):
         adapter._timeout_seconds()
+
+
+@pytest.mark.parametrize("value", ("bad", "0", "-1", "1.5"))
+def test_rerank_batch_size_rejects_invalid_values(monkeypatch, value):
+    monkeypatch.setenv("TEI_RERANKER_MAX_CLIENT_BATCH_SIZE", value)
+    with pytest.raises(ValueError, match="batch size"):
+        adapter.validate_rerank_adapter_config()
 
 
 def test_non_json_body_raises_upstream_error(monkeypatch):
