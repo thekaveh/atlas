@@ -136,7 +136,7 @@ Pin the submodule to a release **tag** rather than tracking `main`, so infra upg
 | **`.env.user`** | Optional user-owned overlay beside the active `.env`. On every start, Atlas merges `.env.user` values into `.env` before backfill and CLI flags. Use it for local downstream-only keys that must survive `.env` regeneration without adding them to upstream `.env.example`. | `.env.user` |
 | **`ATLAS_ENV_USER_FILE`** | Optional external user-owned overlay. Use this when Atlas is a submodule and the persistent project config should live in the parent repo instead of inside the Atlas checkout. The external file is applied after sibling `.env.user`, so it wins on duplicate keys; `--project` and other CLI flags still win last. | shell env var |
 | **`atlas.consumer.yml`** | Parent-owned one-file registration for project name, branding, env overlays, external Compose overlays, backend plugin roots, and model sidecars. Pass it with `./start.sh --consumer ./atlas.consumer.yml` or `ATLAS_CONSUMER_MANIFEST`. | [§6.1](#61-registering-a-parent-project-with-atlasconsumeryml) |
-| **`BASE_PORT`** | Moves the entire host-published port block (default `63000`). `./start.sh --base-port 64000`. Does not affect in-network addresses. **Host ports are not project-scoped**, so a second Atlas stack on the same host needs a distinct `BASE_PORT` — reusing one causes silent cross-instance traffic ([§7.4](#74-run-multiple-atlas-instances-on-one-host)). | `.env` / flag |
+| **`BASE_PORT`** | Moves the entire host-published port block (default `63000`). `./start.sh --base-port 64000`, or **`--base-port auto`** to pick the first wholly-free block automatically. Does not affect in-network addresses. **Host ports are not project-scoped**, so a second Atlas stack on the same host needs a distinct `BASE_PORT` — reusing one causes silent cross-instance traffic ([§7.4](#74-run-multiple-atlas-instances-on-one-host)). | `.env` / flag |
 | **`BRAND_*`** | Rebrands the wizard/banner (name, tagline, author, repo URL, license) — make Atlas present as your platform. | `.env` (`BRAND_*` block) |
 | **`*_SOURCE`** | Enable/disable each service or pick its backend (`container` / `container-gpu` / `localhost` / `disabled`). LLMs use `ollama-container-*` / `ollama-localhost` / `none`; cloud providers toggle via the separate `CLOUD_*_SOURCE` vars. Disable what your showcase doesn't use. | `.env` / `--<svc>-source` |
 | **`--track`** | Start a curated subset (`gen-ai-rag`, `gen-ai-eng`, `gen-ai-creative`, `ml-eng`, `data-eng`, `trading`, `all`). `--track gen-ai-rag` is the natural fit for a RAG showcase. Explicit `--<service>-source` flags override track membership, which lets parent wrappers request one extra service outside the track or disable a track-prompted service. | flag |
@@ -923,11 +923,20 @@ in the ComfyUI service README §10 (`services/comfyui/README.md`).
 **Container names, networks, and volumes are `${PROJECT_NAME}-*` —
 project-isolated. Host-published ports are not: they are fixed offsets from
 `BASE_PORT` and carry no project namespace.** So a second instance on the same
-host **must** pass **both** `--project <name>` and `--base-port <distinct base>`
-(each persists to `.env`):
+host **must** pass **both** `--project <name>` and a **distinct base port**
+(each persists to `.env`). Prefer **`--base-port auto`**: it scans for and
+reserves the first wholly-free `BASE_PORT+0..N` block using Atlas's own port
+span, so you never hand-pick a number or risk squatting the default `63000` a
+bare atlas checkout binds. (`doctor` also warns when a non-default project is
+left on `63000`.)
 
 ```bash
-# Second stack on the same box — distinct project AND base port
+# Second stack on the same box — distinct project + an auto-picked free block
+# (recommended: no number to choose, never collides with a bare atlas stack):
+./start.sh --project daydreams --base-port auto \
+  --llm-provider-source ollama-localhost --comfyui-source localhost
+
+# ...or pin an explicit distinct base port instead of auto:
 ./start.sh --project daydreams --base-port 64000 \
   --llm-provider-source ollama-localhost --comfyui-source localhost
 ```
