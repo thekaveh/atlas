@@ -2413,6 +2413,7 @@ services:
     environment:
       GRAPH_DB_PASSWORD: neo4j_password
       GRAPH_DB_USER: neo4j
+      MCP_NEO4J_MAX_ROWS: ''
       MCP_POSTGRES_MAX_ROWS: '50'
       MCP_SEARXNG_MAX_RESULTS: '5'
       MCP_TOOL_TIMEOUT_SECONDS: '15'

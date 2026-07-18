@@ -449,6 +449,7 @@
 | MCP_SERVERS_PORT | mcp-servers |  | Host port for the curated MCP Streamable HTTP endpoint (container port 8000). |
 | MCP_SERVERS_SCALE | mcp-servers |  | Replicas: 1 when MCP_SERVERS_SOURCE=container, else 0. |
 | MCP_POSTGRES_MAX_ROWS | mcp-servers | 50 | Maximum rows returned by the Postgres MCP query tool. |
+| MCP_NEO4J_MAX_ROWS | mcp-servers |  | Maximum rows returned by the Neo4j MCP query tool. Empty falls back to MCP_POSTGRES_MAX_ROWS (default 50). |
 | MCP_SEARXNG_MAX_RESULTS | mcp-servers | 5 | Maximum SearXNG results returned by the web-search MCP tool. |
 | MCP_TOOL_TIMEOUT_SECONDS | mcp-servers | 15 | Timeout for upstream database/search calls made by MCP tools. |
 | MINIO_SOURCE | minio | container | - |
