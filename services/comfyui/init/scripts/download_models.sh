@@ -141,7 +141,19 @@ if [ ! -s /tmp/_comfy_active ]; then
 else
   row_count=$(wc -l < /tmp/_comfy_active | tr -d ' ')
   echo "--- found $row_count active row(s) ---"
-  while IFS="$(printf '\t')" read -r name category filename url sha target_dir; do
+  # Split each tab-separated row with `cut`, which preserves empty interior
+  # fields. `IFS=<tab> read` treats tab as IFS-whitespace and collapses runs of
+  # it, so a no-checksum row (empty `sha` column → two adjacent tabs) would
+  # shift `target_dir` into `sha` and leave `target_dir` empty — the bogus
+  # `sha` then fails `sha256sum -c` on every cache hit and re-downloads the
+  # (multi-GB) file on every restart.
+  while IFS= read -r _row; do
+    name=$(printf '%s\n' "$_row" | cut -f1)
+    category=$(printf '%s\n' "$_row" | cut -f2)
+    filename=$(printf '%s\n' "$_row" | cut -f3)
+    url=$(printf '%s\n' "$_row" | cut -f4)
+    sha=$(printf '%s\n' "$_row" | cut -f5)
+    target_dir=$(printf '%s\n' "$_row" | cut -f6)
     # Skip blank lines (defensive against trailing newline-only chunks).
     if [ -z "$name" ] || [ -z "$url" ]; then
       echo "✗ row with missing name or url; skipping"
