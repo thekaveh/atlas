@@ -445,3 +445,35 @@ async def test_reconcile_clear_guards_on_updated_at(monkeypatch):
     query, *params = clears[0]
     assert "AND updated_at = $3" in query, "clear must be guarded on the read updated_at"
     assert params == [row["id"], "vec-new", ts]
+
+
+@pytest.mark.asyncio
+async def test_pgvector_write_casts_bind_param_to_vector(monkeypatch):
+    """The pgvector fallback write must cast `$1::vector`. Without the cast
+    asyncpg infers the column's `vector` type for the bind param, has no codec
+    for it, and raises at execute — breaking every memory write whenever
+    Weaviate is disabled/unavailable. Mirrors the read path (`<=> $1::vector`)."""
+    import memory_store
+
+    executed = []
+
+    class Conn:
+        async def execute(self, query, *params):
+            executed.append((query, params))
+
+        async def close(self):
+            pass
+
+    store = memory_store.MemoryStore("postgresql://atlas")
+    monkeypatch.setattr(
+        store, "_generate_embedding", AsyncMock(return_value=[0.1, 0.2, 0.3])
+    )
+    monkeypatch.setattr(
+        memory_store, "connect_postgres", AsyncMock(return_value=Conn())
+    )
+
+    await store._store_pgvector("00000000-0000-4000-8000-000000000001", "hello")
+
+    assert executed, "pgvector write must execute an UPDATE"
+    query, _params = executed[0]
+    assert "SET embedding = $1::vector" in query
