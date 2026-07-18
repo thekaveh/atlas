@@ -157,7 +157,15 @@ def apply(
                 preserved.append(key)
         out.append(line)
 
-    env_path.write_text("".join(out), encoding="utf-8")
+    # Atomic write (tmp + replace), mirroring migration_v2/v3: a crash or
+    # disk-full mid-write must not truncate the user's .env (all their secrets).
+    # A version-stamped backup already exists above, but the live file should
+    # never be left half-written.
+    tmp = env_path.with_name(f"{env_path.name}.v1.tmp")
+    tmp.touch()
+    os.chmod(tmp, os.stat(env_path).st_mode)
+    tmp.write_text("".join(out), encoding="utf-8")
+    tmp.replace(env_path)
     return MigrationResult(rewritten, preserved, backup_path)
 
 
