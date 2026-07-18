@@ -587,6 +587,55 @@ def test_img2img_rejects_non_url_non_data_source():
     _run(lambda r: httpx.Response(200, json={}), body)
 
 
+def test_img2img_url_init_image_rejects_oversized_declared_length():
+    """A caller-supplied init-image URL whose Content-Length exceeds the byte
+    cap is rejected before the body is buffered → ValueError → gateway 400, so
+    a huge remote file can't OOM the worker."""
+
+    def handler(request):
+        if "big-img.test" in str(request.url):
+            # plain bytes → httpx sets an honest Content-Length > the cap.
+            return httpx.Response(200, content=b"\x00" * 4096, headers={"content-type": "image/png"})
+        return httpx.Response(404)
+
+    async def body(client):
+        client.max_image_bytes = 8
+        with pytest.raises(ValueError, match="byte limit"):
+            await client.submit_media_operation(
+                modality="image",
+                input_payload={"prompt": "x", "image": "https://big-img.test/huge.png"},
+                model="sdxl_base.safetensors",
+            )
+
+    _run(handler, body)
+
+
+def test_img2img_url_init_image_caps_streamed_body_without_content_length():
+    """When no Content-Length is declared (chunked transfer — the case a
+    malicious upstream would use to slip past the header precheck), the cap is
+    still enforced incrementally while streaming, not after buffering."""
+
+    async def _chunks():
+        for _ in range(64):
+            yield b"\x00" * 64  # 4096 bytes total, streamed with no Content-Length
+
+    def handler(request):
+        if "chunked-img.test" in str(request.url):
+            return httpx.Response(200, content=_chunks(), headers={"content-type": "image/png"})
+        return httpx.Response(404)
+
+    async def body(client):
+        client.max_image_bytes = 8
+        with pytest.raises(ValueError, match="byte limit"):
+            await client.submit_media_operation(
+                modality="image",
+                input_payload={"prompt": "x", "image": "https://chunked-img.test/huge.png"},
+                model="sdxl_base.safetensors",
+            )
+
+    _run(handler, body)
+
+
 def test_strength_clamped_to_unit_range():
     captured: Dict[str, Any] = {}
 

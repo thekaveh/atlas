@@ -327,6 +327,13 @@ class ComfyUIMediaClient:
     def __init__(self, *, base_url: Optional[str] = None, model: Optional[str] = None) -> None:
         self.base_url = (base_url or os.getenv("COMFYUI_BASE_URL", "http://comfyui:18188")).rstrip("/")
         self.model = (model or "").strip()
+        # Cap on init-image bytes the backend will buffer when fetching a
+        # caller-supplied img2img source URL — same knob/default (20 MiB) the
+        # ComfyUIClient.get_image_data path uses. Without it, a caller could
+        # point the backend at an arbitrarily large URL and OOM the worker.
+        self.max_image_bytes = int(os.getenv("COMFYUI_MAX_IMAGE_BYTES", "20971520"))
+        if self.max_image_bytes <= 0:
+            raise ValueError("COMFYUI_MAX_IMAGE_BYTES must be positive")
         # Per-HTTP-call timeouts (not the generation-poll budget, which the
         # gateway owns via request.timeout_seconds). Fail fast on a down host
         # (connect=5); keep a 60s read budget for the slowest legitimate round.
@@ -608,9 +615,21 @@ class ComfyUIMediaClient:
                 f"(got: {source[:32]}…)"
             )
         try:
-            resp = await self.client.get(source)
-            resp.raise_for_status()
-            return resp.content
+            # Stream with a hard byte cap so a caller-supplied URL to an
+            # arbitrarily large file can't OOM the worker (mirrors
+            # ComfyUIClient.get_image_data). A too-large image is a client
+            # error → ValueError → gateway 400, not an HTTPError → 502.
+            chunks = bytearray()
+            async with self.client.stream("GET", source) as resp:
+                resp.raise_for_status()
+                declared = resp.headers.get("content-length")
+                if declared and declared.isdigit() and int(declared) > self.max_image_bytes:
+                    raise ValueError("ComfyUI init image exceeds configured byte limit")
+                async for chunk in resp.aiter_bytes():
+                    if len(chunks) + len(chunk) > self.max_image_bytes:
+                        raise ValueError("ComfyUI init image exceeds configured byte limit")
+                    chunks.extend(chunk)
+            return bytes(chunks)
         except httpx.HTTPError as exc:
             raise ValueError(f"Could not fetch ComfyUI init image from {source}: {exc}") from exc
 
