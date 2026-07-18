@@ -1001,3 +1001,66 @@ def test_doctor_base_port_warns_on_default_squat():
     # missing BASE_PORT defaults to the Atlas default; consumer project -> warn
     r = start_module._doctor_check_base_port(_Starter({}, "rag-showcase"))
     assert r["status"] == "warn"
+
+
+def test_doctor_unpullable_models_warns_on_localhost_sources():
+    """#718: doctor warns when declared models can't be pulled for the source."""
+    import start as start_module
+
+    class _CP:
+        def __init__(self, env):
+            self._env = env
+
+        def parse_env_file(self):
+            return dict(self._env)
+
+    class _Starter:
+        def __init__(self, env):
+            self.config_parser = _CP(env)
+
+    # ollama models under a host-run source -> warn + pull guidance
+    r = start_module._doctor_check_unpullable_models(_Starter({
+        "OLLAMA_CUSTOM_MODELS": "mistral-small3.2:24b",
+        "LLM_PROVIDER_SOURCE": "ollama-localhost",
+    }))
+    assert r["status"] == "warn"
+    assert "ollama pull mistral-small3.2:24b" in r["message"]
+
+    # ollama models under a container source -> pass
+    r = start_module._doctor_check_unpullable_models(_Starter({
+        "OLLAMA_CUSTOM_MODELS": "mistral-small3.2:24b",
+        "LLM_PROVIDER_SOURCE": "ollama-container-gpu",
+    }))
+    assert r["status"] == "pass"
+
+    # comfyui models under managed-localhost-mps -> warn + MPS-path guidance
+    r = start_module._doctor_check_unpullable_models(_Starter({
+        "COMFYUI_USER_MODELS": "krea2-turbo-bf16",
+        "COMFYUI_SOURCE": "managed-localhost-mps",
+    }))
+    assert r["status"] == "warn"
+    assert "COMFYUI_MPS_MODELS_PATH" in r["message"]
+
+    # comfyui models under a container source -> pass
+    r = start_module._doctor_check_unpullable_models(_Starter({
+        "COMFYUI_USER_MODELS": "krea2-turbo-bf16",
+        "COMFYUI_SOURCE": "container-gpu",
+    }))
+    assert r["status"] == "pass"
+
+    # both no-op conditions together -> one warn covering both
+    r = start_module._doctor_check_unpullable_models(_Starter({
+        "OLLAMA_CUSTOM_MODELS": "m1",
+        "LLM_PROVIDER_SOURCE": "ollama-localhost",
+        "COMFYUI_USER_MODELS": "c1",
+        "COMFYUI_SOURCE": "managed-localhost-mps",
+    }))
+    assert r["status"] == "warn"
+    assert len(r["details"]["warnings"]) == 2
+
+    # sources host-run but nothing declared -> pass
+    r = start_module._doctor_check_unpullable_models(_Starter({
+        "LLM_PROVIDER_SOURCE": "ollama-localhost",
+        "COMFYUI_SOURCE": "managed-localhost-mps",
+    }))
+    assert r["status"] == "pass"
