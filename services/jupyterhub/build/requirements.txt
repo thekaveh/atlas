@@ -9,7 +9,7 @@ langchain>=0.3.0
 # Ragas 0.4.3 still imports langchain_community.chat_models.vertexai, which
 # is absent in langchain-community 0.4.x. Keep this compatibility cap until
 # Ragas moves that import to the newer provider package.
-langchain-community>=0.3.0,<0.4
+langchain-community>=0.4.2,<0.5
 # langchain-openai is NOT pulled in by langchain/langchain-community —
 # notebook 02_langchain_rag imports it directly (ModuleNotFoundError
 # at cell 1 without this pin).
