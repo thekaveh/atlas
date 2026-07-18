@@ -334,3 +334,15 @@ def test_worker_busy_returns_429(monkeypatch, tmp_path):
     client = TestClient(app, headers={"Authorization": f"Bearer {_TOKEN}"})
     response = client.post("/assets/bake", files={"file": ("m.glb", b"raw", "model/gltf-binary")})
     assert response.status_code == 429
+
+
+def test_bake_upload_invalid_form_param_returns_422() -> None:
+    from asset_baker import api
+
+    # mode outside the Literal bake|skip is a client error → 422, not 500.
+    response = _client(api).post(
+        "/assets/bake",
+        files={"file": ("cottage.glb", b"raw-glb", "model/gltf-binary")},
+        data={"mode": "explode"},
+    )
+    assert response.status_code == 422
