@@ -5,7 +5,7 @@ chonkie>=1.7.0,<2
 # only the four text collection metrics guarded by Backend's MetricName enum.
 ragas==0.4.3
 ollama>=0.6.2
-langchain>=0.3.0
+langchain>=1.3.14
 # Ragas 0.4.3 still imports langchain_community.chat_models.vertexai, which
 # is absent in langchain-community 0.4.x. Keep this compatibility cap until
 # Ragas moves that import to the newer provider package.
