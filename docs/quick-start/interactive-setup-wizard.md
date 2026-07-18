@@ -388,7 +388,7 @@ The big ASCII block-art lockup — shown in the wizard's brand panel and the `--
 - Generate matching art with any figlet tool, e.g. `figlet -f "ANSI Shadow" "My Brand"` (or [patorjk.com/software/taag](https://patorjk.com/software/taag/)).
 - Leading/trailing blank lines are trimmed; everything else renders verbatim with the same top→bottom blue gradient as ATLAS.
 
-> The richer image-derived **splash** (the globe hero in `atlas_hero.py`, generated from a source image by `scripts/generate_logo.py`) is a separate asset and is **not** covered by `BRAND_LOGO_FILE` — it stays the Atlas hero unless you regenerate those grids.
+> The richer image-derived **splash** (the globe hero in `atlas_hero.py`, generated from a source image by `bootstrapper/scripts/generate_logo.py`) is a separate asset and is **not** covered by `BRAND_LOGO_FILE` — it stays the Atlas hero unless you regenerate those grids.
 
 ## 16. Configurable Services
 
