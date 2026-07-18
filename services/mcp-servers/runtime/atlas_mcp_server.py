@@ -122,7 +122,7 @@ def neo4j_read_cypher(cypher: str, limit: int | None = None) -> dict[str, Any]:
     if not is_safe_neo4j_read(cypher):
         raise ValueError("Only read-only Neo4j Cypher queries are allowed.")
 
-    from neo4j import GraphDatabase, Query, RoutingControl
+    from neo4j import READ_ACCESS, GraphDatabase, Query
 
     max_rows = _env_int("MCP_NEO4J_MAX_ROWS", _env_int("MCP_POSTGRES_MAX_ROWS", 50))
     row_limit = clamp_limit(limit, default=max_rows, maximum=max_rows)
@@ -136,8 +136,14 @@ def neo4j_read_cypher(cypher: str, limit: int | None = None) -> dict[str, Any]:
     )
     try:
         with driver.session(
+            # READ_ACCESS ("READ") is the session access-mode constant; a
+            # routing-scheme URI (neo4j://, neo4j+s:// — e.g. external Aura)
+            # validates it via check_access_mode and rejects anything else.
+            # RoutingControl.READ ("r") is only valid for execute_query's
+            # routing_ arg, not here — it raises ConfigurationError on a
+            # routing pool (bolt:// ignores access mode, so both "work" there).
             database=os.getenv("NEO4J_DATABASE", "neo4j"),
-            default_access_mode=RoutingControl.READ,
+            default_access_mode=READ_ACCESS,
         ) as session:
             # A bare `timeout=` kwarg on session.run() is merged into the Cypher
             # *parameters* (and silently ignored), not applied as a transaction

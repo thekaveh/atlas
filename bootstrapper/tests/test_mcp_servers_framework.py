@@ -225,7 +225,9 @@ def test_neo4j_tool_uses_read_routing_and_bounded_cypher(monkeypatch) -> None:
     result = _run(go())
     data = result.data
     assert data == {"rows": [{"n": 1}], "returned": 1, "limit": 3}
-    assert captured["session_kwargs"]["default_access_mode"] == neo4j.RoutingControl.READ
+    # READ_ACCESS ("READ") is the correct session access-mode constant; the
+    # real routing pool's check_access_mode rejects RoutingControl.READ ("r").
+    assert captured["session_kwargs"]["default_access_mode"] == neo4j.READ_ACCESS
     # timeout is a transaction timeout carried by the Query object, NOT a Cypher
     # parameter (a bare timeout= kwarg on session.run would be silently ignored).
     assert captured["query"].text == srv.bounded_neo4j_cypher("MATCH (n) RETURN n")
