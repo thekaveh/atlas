@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+
+import pytest
 import importlib
 import os
 import sys
@@ -349,3 +351,33 @@ def test_reconcile_commits_on_successful_poll(monkeypatch):
     rec = spend["records"][0]
     assert rec["status"] == "committed"
     assert rec["artifact_refs"] == ["https://cdn.example/model.glb"]
+
+
+def test_cancellation_mid_submit_releases_reservation(monkeypatch):
+    # A request cancelled mid-submit (uvicorn graceful shutdown / client
+    # disconnect) raises asyncio.CancelledError — a BaseException the
+    # ``except Exception`` handlers cannot catch. The finally must still release
+    # the reservation so a durably committed RESERVED row is not stranded
+    # against the consumer's cap (which would eventually 402 legit requests).
+    main = _fresh_main(monkeypatch, budget_enabled=True, default_cap=10.0)
+    _CapturingFalClient.captured = {}
+    monkeypatch.setattr(main, "FalClient", _CapturingFalClient, raising=False)
+
+    async def cancelled(*a, **k):
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(main, "_submit_media_provider", cancelled)
+
+    import concurrent.futures
+
+    from fastapi.testclient import TestClient
+
+    client = TestClient(main.app)
+    # asyncio.CancelledError surfaces as concurrent.futures.CancelledError once
+    # it crosses the TestClient portal boundary (3.8+ split the two classes).
+    with pytest.raises((asyncio.CancelledError, concurrent.futures.CancelledError)):
+        _submit(client, consumer="acme")
+
+    spend = client.get("/media/spend", params={"consumer": "acme"}).json()
+    # Reservation released in the finally despite the BaseException.
+    assert spend["reserved_usd"] == 0.0

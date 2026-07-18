@@ -1624,134 +1624,155 @@ async def submit_media_generation(
             status_code=status.HTTP_402_PAYMENT_REQUIRED, detail=str(e)
         )
 
-    if modality == "image":
-        prepared_input = request.input
-    else:  # image_to_3d
-        # Fail fast on a missing key before any (side-effecting) storage write.
-        entry = media_registry.lookup(model)
+    # Any exit from here that does not durably attach the reservation to a
+    # persisted operation must release it — INCLUDING asyncio.CancelledError
+    # (uvicorn graceful shutdown / client disconnect), a BaseException the
+    # `except Exception` handlers below cannot catch. Without the finally, a
+    # durably committed RESERVED row (postgres budget store) is stranded
+    # against the consumer's cap forever (prune only runs when
+    # MEDIA_BUDGET_RETENTION_DAYS is set). `reservation_settled` is flipped at
+    # each terminal disposition (released best-effort, deliberately retained,
+    # or attached+persisted) so the finally releases exactly the leaked cases.
+    reservation_settled = False
+    try:
+        if modality == "image":
+            prepared_input = request.input
+        else:  # image_to_3d
+            # Fail fast on a missing key before any (side-effecting) storage write.
+            entry = media_registry.lookup(model)
+            try:
+                # prepare_image_input performs (optional) Pillow compositing and a
+                # blocking storage upload; run it off the event loop.
+                prepared = await asyncio.to_thread(
+                    prepare_image_input,
+                    request.input["image"],
+                    needs_hosted_url=bool(entry and entry.needs_hosted_url),
+                    accepts_data_uri=bool(entry.accepts_data_uri) if entry else True,
+                    condition_transparent=True,
+                    uploader=_media_input_uploader,
+                )
+            except ImageInputError as e:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=str(e),
+                )
+            except ImageHostingError as e:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail=str(e),
+                )
+            prepared_input = dict(request.input)
+            prepared_input["image"] = prepared.image
+
         try:
-            # prepare_image_input performs (optional) Pillow compositing and a
-            # blocking storage upload; run it off the event loop.
-            prepared = await asyncio.to_thread(
-                prepare_image_input,
-                request.input["image"],
-                needs_hosted_url=bool(entry and entry.needs_hosted_url),
-                accepts_data_uri=bool(entry.accepts_data_uri) if entry else True,
-                condition_transparent=True,
-                uploader=_media_input_uploader,
+            payload = await _submit_media_provider(
+                provider=provider,
+                modality=modality,
+                model=model,
+                prepared_input=prepared_input,
             )
-        except ImageInputError as e:
-            await MEDIA_BUDGET_ENGINE.release(reservation_id)
+        except HTTPException:
+            raise
+        except ValueError as e:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=str(e),
             )
-        except ImageHostingError as e:
-            await MEDIA_BUDGET_ENGINE.release(reservation_id)
+        except Exception as exc:
+            raise _unexpected_error(
+                f"Submit media generation with {provider}",
+                exc,
+                status_code=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        operation_id = str(payload["operation_id"])
+        submitted_model = str(payload.get("model") or model)
+        # Re-key the reservation to the provider's operation id so poll-time
+        # reconciliation can find it. The provider call already succeeded, so a
+        # ledger bookkeeping hiccup here must not 500 the request or permanently
+        # orphan the reservation: on failure, free the temp-id reservation
+        # best-effort and continue (this operation's spend goes untracked rather
+        # than holding the consumer's budget forever).
+        budget_tracked = reservation is not None
+        budget_cleanup_failed = False
+        try:
+            await MEDIA_BUDGET_ENGINE.attach_operation(reservation_id, operation_id)
+        except Exception:
+            budget_tracked = False
+            try:
+                await MEDIA_BUDGET_ENGINE.release(reservation_id)
+            except Exception:
+                budget_cleanup_failed = reservation is not None
+            # Reservation is now released (or best-effort released); the finally
+            # must not release it again.
+            reservation_settled = True
+        operation = {
+            "operation_id": operation_id,
+            "provider": provider,
+            "modality": modality,
+            "model": submitted_model,
+            "created_at_epoch": time.time(),
+            "timeout_seconds": _media_timeout_seconds(request.timeout_seconds),
+            "last_payload": payload,
+            "consumer": consumer,
+            "project": project,
+            "owner_scope": principal_scope_key(principal),
+            "budget_tracked": budget_tracked,
+            "reconciled": False,
+        }
+        try:
+            await _persist_media_operation(operation)
+        except Exception as exc:
+            # An attached reservation is deliberately RETAINED here for manual
+            # reconciliation of the already-submitted paid work; the finally
+            # must not release it.
+            reservation_settled = True
+            if provider == "fal":
+                provider_cancellation_requested = await _cancel_unpersisted_media_operation(
+                    api_key=api_key,
+                    model=submitted_model,
+                    operation_id=operation_id,
+                    modality=modality,
+                )
+            else:
+                # Local providers (comfyui) are free (cost_usd=0); an unpersisted
+                # operation has no paid work to reconcile, so no provider cancel.
+                provider_cancellation_requested = False
+            # FAL confirms only that cancellation was requested, not that paid work
+            # stopped. Without durable operation state Atlas cannot poll that request
+            # to a terminal outcome, so retain spend for manual reconciliation.
+            manual_reconciliation_required = True
+            logger.error(
+                "Provider accepted media operation %s but state persistence failed; "
+                "provider_cancellation_requested=%s "
+                "manual_reconciliation_required=%s budget_cleanup_failed=%s: %s",
+                operation_id,
+                provider_cancellation_requested,
+                manual_reconciliation_required,
+                budget_cleanup_failed,
+                exc,
+            )
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail=str(e),
-            )
-        prepared_input = dict(request.input)
-        prepared_input["image"] = prepared.image
-
-    try:
-        payload = await _submit_media_provider(
-            provider=provider,
-            modality=modality,
-            model=model,
-            prepared_input=prepared_input,
-        )
-    except HTTPException:
-        await MEDIA_BUDGET_ENGINE.release(reservation_id)
-        raise
-    except ValueError as e:
-        await MEDIA_BUDGET_ENGINE.release(reservation_id)
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
-        )
-    except Exception as exc:
-        await MEDIA_BUDGET_ENGINE.release(reservation_id)
-        raise _unexpected_error(
-            f"Submit media generation with {provider}",
-            exc,
-            status_code=status.HTTP_502_BAD_GATEWAY,
-        )
-
-    operation_id = str(payload["operation_id"])
-    submitted_model = str(payload.get("model") or model)
-    # Re-key the reservation to the provider's operation id so poll-time
-    # reconciliation can find it. The provider call already succeeded, so a
-    # ledger bookkeeping hiccup here must not 500 the request or permanently
-    # orphan the reservation: on failure, free the temp-id reservation
-    # best-effort and continue (this operation's spend goes untracked rather
-    # than holding the consumer's budget forever).
-    budget_tracked = reservation is not None
-    budget_cleanup_failed = False
-    try:
-        await MEDIA_BUDGET_ENGINE.attach_operation(reservation_id, operation_id)
-    except Exception:
-        budget_tracked = False
-        try:
-            await MEDIA_BUDGET_ENGINE.release(reservation_id)
-        except Exception:
-            budget_cleanup_failed = reservation is not None
-    operation = {
-        "operation_id": operation_id,
-        "provider": provider,
-        "modality": modality,
-        "model": submitted_model,
-        "created_at_epoch": time.time(),
-        "timeout_seconds": _media_timeout_seconds(request.timeout_seconds),
-        "last_payload": payload,
-        "consumer": consumer,
-        "project": project,
-        "owner_scope": principal_scope_key(principal),
-        "budget_tracked": budget_tracked,
-        "reconciled": False,
-    }
-    try:
-        await _persist_media_operation(operation)
-    except Exception as exc:
-        if provider == "fal":
-            provider_cancellation_requested = await _cancel_unpersisted_media_operation(
-                api_key=api_key,
-                model=submitted_model,
-                operation_id=operation_id,
-                modality=modality,
-            )
-        else:
-            # Local providers (comfyui) are free (cost_usd=0); an unpersisted
-            # operation has no paid work to reconcile, so no provider cancel.
-            provider_cancellation_requested = False
-        # FAL confirms only that cancellation was requested, not that paid work
-        # stopped. Without durable operation state Atlas cannot poll that request
-        # to a terminal outcome, so retain spend for manual reconciliation.
-        manual_reconciliation_required = True
-        logger.error(
-            "Provider accepted media operation %s but state persistence failed; "
-            "provider_cancellation_requested=%s "
-            "manual_reconciliation_required=%s budget_cleanup_failed=%s: %s",
-            operation_id,
-            provider_cancellation_requested,
-            manual_reconciliation_required,
-            budget_cleanup_failed,
-            exc,
-        )
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail={
-                "message": (
-                    "Provider accepted the operation but Atlas could not "
-                    "persist its state"
-                ),
-                "provider_operation_id": operation_id,
-                "provider_cancellation_requested": provider_cancellation_requested,
-                "manual_reconciliation_required": manual_reconciliation_required,
-            },
-        ) from exc
-    return _media_response(payload)
+                detail={
+                    "message": (
+                        "Provider accepted the operation but Atlas could not "
+                        "persist its state"
+                    ),
+                    "provider_operation_id": operation_id,
+                    "provider_cancellation_requested": provider_cancellation_requested,
+                    "manual_reconciliation_required": manual_reconciliation_required,
+                },
+            ) from exc
+        # Attached + persisted: the reservation is now tracked as this operation.
+        reservation_settled = True
+        return _media_response(payload)
+    finally:
+        if not reservation_settled:
+            try:
+                await MEDIA_BUDGET_ENGINE.release(reservation_id)
+            except Exception:
+                pass
 
 
 # Terminal media-operation statuses — once reached, polls return the stored
