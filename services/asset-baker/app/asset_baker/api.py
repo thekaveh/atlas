@@ -58,7 +58,11 @@ def create_app(*, api_token: str | None = None) -> FastAPI:
                 content={"detail": "Asset Baker authentication is not configured"},
             )
         scheme, _, credential = request.headers.get("authorization", "").partition(" ")
-        if scheme.lower() != "bearer" or not secrets.compare_digest(credential, expected_token):
+        # Compare utf-8 bytes: secrets.compare_digest raises TypeError on a
+        # non-ASCII str, which would surface as a 500 instead of this 401.
+        if scheme.lower() != "bearer" or not secrets.compare_digest(
+            credential.encode("utf-8"), expected_token.encode("utf-8")
+        ):
             return JSONResponse(
                 status_code=401,
                 content={"detail": "Invalid Asset Baker bearer token"},

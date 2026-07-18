@@ -346,3 +346,17 @@ def test_bake_upload_invalid_form_param_returns_422() -> None:
         data={"mode": "explode"},
     )
     assert response.status_code == 422
+
+
+def test_non_ascii_bearer_token_is_401_not_500() -> None:
+    from asset_baker import api
+
+    # A non-ASCII bearer (raw bytes >= 0x80, latin-1-decoded by Starlette) must
+    # yield a clean 401, not a secrets.compare_digest TypeError -> 500.
+    client = TestClient(api.create_app(api_token=_TOKEN))
+    response = client.post(
+        "/assets/bake/ref",
+        headers={"Authorization": b"Bearer caf\xe9-token"},
+        json={"input": {"bucket": "raw-assets", "key": "mesh.glb"}, "params": {}},
+    )
+    assert response.status_code == 401

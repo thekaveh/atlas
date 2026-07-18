@@ -102,6 +102,7 @@ from lightrag_rerank_adapter import (
 )
 from backend_identity import (
     BackendPrincipal,
+    _ct_equals,
     authorize_media_scope,
     authorize_user_id,
     principal_scope_key,
@@ -730,7 +731,9 @@ def _require_lightrag_rerank_token(
         )
     supplied = credentials.credentials if credentials is not None else ""
     scheme = (credentials.scheme if credentials is not None else "") or ""
-    if scheme.lower() != "bearer" or not secrets.compare_digest(supplied, expected):
+    # _ct_equals compares utf-8 bytes so a non-ASCII bearer token yields a clean
+    # 401 rather than a TypeError -> 500 (secrets.compare_digest rejects non-ASCII str).
+    if scheme.lower() != "bearer" or not _ct_equals(supplied, expected):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or missing bearer token for the LightRAG rerank adapter",
