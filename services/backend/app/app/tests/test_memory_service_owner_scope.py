@@ -949,3 +949,39 @@ def test_recall_and_summarize_release_db_before_llm(monkeypatch):
 
     assert recalled["context_summary"] == "Atlas memory summary"
     assert summarized["summary"] == "Atlas memory summary"
+
+
+@pytest.mark.asyncio
+async def test_search_pgvector_scopes_query_to_user_id(monkeypatch):
+    # Recall's tenant isolation rests entirely on the vector search's user_id
+    # filter (the Postgres re-fetch has none). Lock in that _search_pgvector both
+    # filters on AND binds the caller's user_id, so a refactor can't silently
+    # drop it → cross-tenant memory leak.
+    import memory_store
+    from memory_store import _to_uuid
+
+    executed = []
+
+    class Conn:
+        async def fetch(self, query, *params):
+            executed.append((query, params))
+            return []
+
+        async def close(self):
+            pass
+
+    store = memory_store.MemoryStore("postgresql://atlas")
+    monkeypatch.setattr(
+        store, "_generate_embedding", AsyncMock(return_value=[0.1, 0.2, 0.3])
+    )
+    monkeypatch.setattr(
+        memory_store, "connect_postgres", AsyncMock(return_value=Conn())
+    )
+
+    uid = "00000000-0000-4000-8000-000000000009"
+    await store._search_pgvector("hello", uid, "default", 5)
+
+    assert executed, "search must execute a query"
+    query, params = executed[0]
+    assert "user_id = $2" in query
+    assert params[1] == _to_uuid(uid)  # $2 is the caller's user_id, canonicalized
