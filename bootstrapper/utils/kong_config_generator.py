@@ -249,6 +249,14 @@ class KongConfigGenerator:
         if lightrag_service:
             services.append(lightrag_service)
 
+        asset_worker_service = self.generate_asset_worker_service()
+        if asset_worker_service:
+            services.append(asset_worker_service)
+
+        asset_baker_service = self.generate_asset_baker_service()
+        if asset_baker_service:
+            services.append(asset_baker_service)
+
         minio_service = self.generate_minio_service()
         if minio_service:
             services.append(minio_service)
@@ -1031,6 +1039,53 @@ class KongConfigGenerator:
                     # preserve_host is omitted (defaults False) — REST-only
                     # endpoint; no SPA redirect-URL construction from Host.
                     "hosts": ["rerank.localhost"],
+                }
+            ],
+            "plugins": [{"name": "cors"}],
+        }
+
+    def generate_asset_worker_service(self) -> Optional[Dict[str, Any]]:
+        """Kong route for the Asset Worker glTF post-processing REST API.
+
+        Gated on ``ASSET_WORKER_SOURCE != disabled`` (its only enabled variant is
+        ``container``). Like tei-reranker it is a JSON REST API, not an SPA, so
+        ``preserve_host`` is left False. The manifest alias + ``--setup-hosts``
+        entry promise this route (README §2), so without it the documented
+        ``asset-worker.localhost`` host 404s at Kong.
+        """
+        if self.get_env_value("ASSET_WORKER_SOURCE", "disabled") == "disabled":
+            return None
+        return {
+            "name": "asset-worker",
+            "url": "http://asset-worker:8095/",
+            "routes": [
+                {
+                    "name": "asset-worker-all",
+                    "strip_path": False,
+                    "hosts": ["asset-worker.localhost"],
+                }
+            ],
+            "plugins": [{"name": "cors"}],
+        }
+
+    def generate_asset_baker_service(self) -> Optional[Dict[str, Any]]:
+        """Kong route for the Asset Baker texture-bake REST API.
+
+        Gated on ``ASSET_BAKER_SOURCE != disabled`` (its only enabled variant is
+        ``container-cpu``). JSON REST API, so ``preserve_host`` is left False.
+        The manifest alias + ``--setup-hosts`` entry promise this route
+        (README §2), so without it ``asset-baker.localhost`` 404s at Kong.
+        """
+        if self.get_env_value("ASSET_BAKER_SOURCE", "disabled") == "disabled":
+            return None
+        return {
+            "name": "asset-baker",
+            "url": "http://asset-baker:8096/",
+            "routes": [
+                {
+                    "name": "asset-baker-all",
+                    "strip_path": False,
+                    "hosts": ["asset-baker.localhost"],
                 }
             ],
             "plugins": [{"name": "cors"}],

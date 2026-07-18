@@ -501,6 +501,45 @@ def test_tei_reranker_route_omitted_when_disabled():
     )
 
 
+def _hosts_to_service_map(config: dict) -> dict:
+    return {
+        host: svc
+        for svc in config["services"]
+        for route in svc.get("routes", [])
+        for host in route.get("hosts") or []
+    }
+
+
+def test_asset_worker_route_generated_when_enabled():
+    """asset-worker.localhost route is emitted when ASSET_WORKER_SOURCE=container,
+    targeting the in-network asset-worker container. The manifest alias +
+    --setup-hosts entry promise this route, so it must exist when enabled."""
+    by_host = _hosts_to_service_map(_generate("ASSET_WORKER_SOURCE=container\n"))
+    assert "asset-worker.localhost" in by_host, sorted(by_host)
+    assert by_host["asset-worker.localhost"]["url"] == "http://asset-worker:8095/"
+
+
+def test_asset_worker_route_omitted_when_disabled():
+    """asset-worker.localhost must be absent when ASSET_WORKER_SOURCE=disabled."""
+    assert "asset-worker.localhost" not in _hosts_to_service(
+        _generate("ASSET_WORKER_SOURCE=disabled\n")
+    )
+
+
+def test_asset_baker_route_generated_when_enabled():
+    """asset-baker.localhost route is emitted when ASSET_BAKER_SOURCE=container-cpu."""
+    by_host = _hosts_to_service_map(_generate("ASSET_BAKER_SOURCE=container-cpu\n"))
+    assert "asset-baker.localhost" in by_host, sorted(by_host)
+    assert by_host["asset-baker.localhost"]["url"] == "http://asset-baker:8096/"
+
+
+def test_asset_baker_route_omitted_when_disabled():
+    """asset-baker.localhost must be absent when ASSET_BAKER_SOURCE=disabled."""
+    assert "asset-baker.localhost" not in _hosts_to_service(
+        _generate("ASSET_BAKER_SOURCE=disabled\n")
+    )
+
+
 import pytest
 
 
