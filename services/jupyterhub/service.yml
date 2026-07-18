@@ -132,7 +132,7 @@ data_flow:
   # litellm (01/08), comfyui (05), n8n (06), neo4j (03), supabase (04),
   # weaviate (02), ray (07), spark (09 via SPARK_REMOTE), minio + iceberg-rest
   # (lakehouse Python clients), backend + searxng (00 env check), hermes
-  # (direct-path env for user code).
+  # (direct-path env for user code), redis (REDIS_URL cache/queue on db 3).
   calls:
     - litellm
     - hermes
@@ -142,6 +142,7 @@ data_flow:
     - ray
     - spark
     - redpanda
+    - redis
     - comfyui
     - n8n
     - backend

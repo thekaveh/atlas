@@ -74,6 +74,7 @@ _No upstream calls._
 | lightrag | agents |
 | n8n | agents |
 | backend | apps |
+| jupyterhub | apps |
 | open-webui | apps |
 
 ### 6.3. Architecture diagram
