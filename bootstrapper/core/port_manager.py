@@ -252,3 +252,32 @@ class PortManager:
                 return candidate_base
 
         return None
+
+    def auto_base_port(self, start_from: int = 20000, max_attempts: int = 200) -> Optional[int]:
+        """Find the first wholly-free BASE_PORT block for ``--base-port auto``.
+
+        Steps by the topology's full port span (``max offset + 1``) so candidate
+        blocks never overlap, scans below the IANA ephemeral range to dodge
+        transient OS-assigned listeners, and never returns ``DEFAULT_BASE_PORT``
+        — so an auto-selected consumer stack can't silently squat the default
+        port a bare atlas checkout binds. Returns None if no wholly-free block
+        is found within ``max_attempts``.
+
+        Args:
+            start_from: First base-port candidate (below the ephemeral floor).
+            max_attempts: Number of span-stepped candidates to probe.
+
+        Returns:
+            int: The first wholly-free base port, or None if none was found.
+        """
+        offsets = self.port_offsets()
+        span = (max(offsets.values()) if offsets else 0) + 1
+        for attempt in range(max_attempts):
+            candidate = start_from + attempt * span
+            if candidate == DEFAULT_BASE_PORT:
+                continue
+            if not self.validate_base_port(candidate):
+                continue
+            if not self.check_port_range_availability(candidate):
+                return candidate
+        return None

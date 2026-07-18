@@ -154,3 +154,39 @@ def test_port_unset_covers_topology():
         f"slot-allocated ports missing from unset_port_environment_variables: "
         f"{missing}"
     )
+
+
+def test_auto_base_port_skips_busy_blocks_stepping_by_span(monkeypatch):
+    """--base-port auto returns the first wholly-free block, stepping by the
+    topology span so candidate blocks never overlap (#717)."""
+    from core.port_manager import PortManager
+
+    pm = PortManager(str(_real_root()))
+    span = max(pm.port_offsets().values()) + 1
+    busy = set(pm.calculate_port_assignments(20000).values())
+    monkeypatch.setattr(pm, "check_port_availability", lambda port: port not in busy)
+
+    chosen = pm.auto_base_port(start_from=20000, max_attempts=5)
+    assert chosen == 20000 + span  # 20000 block busy -> next span-stepped block
+
+
+def test_auto_base_port_never_returns_default(monkeypatch):
+    """auto skips DEFAULT_BASE_PORT even when every port is free, so an
+    auto-selected consumer can't squat the port a bare atlas checkout binds."""
+    from core.config_parser import DEFAULT_BASE_PORT
+    from core.port_manager import PortManager
+
+    pm = PortManager(str(_real_root()))
+    monkeypatch.setattr(pm, "check_port_availability", lambda port: True)
+
+    chosen = pm.auto_base_port(start_from=DEFAULT_BASE_PORT, max_attempts=3)
+    assert chosen is not None
+    assert chosen != DEFAULT_BASE_PORT
+
+
+def test_auto_base_port_returns_none_when_no_free_block(monkeypatch):
+    from core.port_manager import PortManager
+
+    pm = PortManager(str(_real_root()))
+    monkeypatch.setattr(pm, "check_port_availability", lambda port: False)
+    assert pm.auto_base_port(start_from=20000, max_attempts=3) is None
