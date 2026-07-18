@@ -2360,6 +2360,8 @@ services:
     container_name: atlas-loki
     deploy:
       replicas: 0
+    environment:
+      LOKI_RETENTION_PERIOD: 24h
     healthcheck:
       test:
       - CMD
