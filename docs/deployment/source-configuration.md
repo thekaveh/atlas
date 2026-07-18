@@ -500,7 +500,7 @@ RAY_WORKER_COUNT=2   # number of ray-worker replicas; 0 = head-only
 ```
 - **Use case**: Default container deployment; suitable for dev machines without GPU passthrough
 - **Pros**: Head + N workers, dashboard at `ray.localhost`, REST job-submission API, client server reachable from host Python via `ray://localhost:${RAY_CLIENT_PORT}`
-- **Cons**: CPU-only — slow for heavy ML workloads. `shm_size: 4gb` required (compose handles this; rootless Docker may not honor it)
+- **Cons**: CPU-only — slow for heavy ML workloads. `shm_size: 8gb` required (compose handles this; rootless Docker may not honor it)
 - **Requirements**: ~2-3 GB image disk + ~1 GB RAM per worker
 
 #### 4.8.3. `ray-container-gpu`
