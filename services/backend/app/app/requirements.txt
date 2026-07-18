@@ -23,7 +23,7 @@ opentelemetry-instrumentation-fastapi>=0.51b0
 opentelemetry-instrumentation-httpx>=0.51b0
 
 # Database
-sqlmodel>=0.0.16
+sqlmodel>=0.0.39
 sqlalchemy>=2.0.28
 asyncpg>=0.31.0
 storage3>=0.7.0
