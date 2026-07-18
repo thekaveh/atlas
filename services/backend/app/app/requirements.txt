@@ -56,7 +56,7 @@ pytz>=2024.1
 apscheduler>=3.10.4
 scikit-learn>=1.9.0
 langchain>=0.1.14
-langchain-core>=0.1.22
+langchain-core>=1.4.9
 # Ragas 0.4.3 still imports langchain_community.chat_models.vertexai, which
 # is absent in langchain-community 0.4.x. Keep this compatibility cap until
 # Ragas moves that import to the newer provider package.
