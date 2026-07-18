@@ -27,8 +27,17 @@ ROLE_INPUTS = {
     "LIGHTRAG_KEYWORD_LLM_BINDING_HOST": {"native": "KEYWORD_LLM_BINDING_HOST", "secret": False},
     "LIGHTRAG_QUERY_LLM_BINDING_HOST": {"native": "QUERY_LLM_BINDING_HOST", "secret": False},
     "LIGHTRAG_EXTRACT_LLM_BINDING_API_KEY": {"native": "EXTRACT_LLM_BINDING_API_KEY", "secret": True},
-    "LIGHTRAG_KEYWORD_LLM_BINDING_API_KEY": {"native": "KEYWORD_LLM_BINDING_API_KEY", "secret": True},
-    "LIGHTRAG_QUERY_LLM_BINDING_API_KEY": {"native": "QUERY_LLM_BINDING_API_KEY", "secret": True},
+    "LIGHTRAG_KEYWORD_LLM_BINDING_API_KEY": {
+        "native": "KEYWORD_LLM_BINDING_API_KEY",
+        "secret": True,
+        # #721: falls back to the in-network LiteLLM master key when unset.
+        "compose": "${LIGHTRAG_KEYWORD_LLM_BINDING_API_KEY:-${LITELLM_MASTER_KEY}}",
+    },
+    "LIGHTRAG_QUERY_LLM_BINDING_API_KEY": {
+        "native": "QUERY_LLM_BINDING_API_KEY",
+        "secret": True,
+        "compose": "${LIGHTRAG_QUERY_LLM_BINDING_API_KEY:-${LITELLM_MASTER_KEY}}",
+    },
     "LIGHTRAG_EXTRACT_MAX_ASYNC_LLM": {"native": "EXTRACT_MAX_ASYNC_LLM", "secret": False},
     "LIGHTRAG_KEYWORD_MAX_ASYNC_LLM": {"native": "KEYWORD_MAX_ASYNC_LLM", "secret": False},
     "LIGHTRAG_QUERY_MAX_ASYNC_LLM": {"native": "QUERY_MAX_ASYNC_LLM", "secret": False},
@@ -95,7 +104,26 @@ def test_lightrag_compose_maps_role_inputs_to_native_env_names():
     for atlas_name, meta in ROLE_INPUTS.items():
         native_name = meta["native"]
         assert native_name in env
-        assert env[native_name] == f"${{{atlas_name}:-}}"
+        expected = meta.get("compose", f"${{{atlas_name}:-}}")
+        assert env[native_name] == expected
+
+
+def test_lightrag_keyword_query_api_keys_default_to_litellm_master_key():
+    """#721: KEYWORD/QUERY role API keys fall back to the in-network LiteLLM
+    master key when the LIGHTRAG_* override is unset, so a consumer pointing
+    those roles at LiteLLM needs zero key wiring. EXTRACT stays opt-in (empty)."""
+    env = _compose_lightrag_environment()
+
+    assert env["KEYWORD_LLM_BINDING_API_KEY"] == (
+        "${LIGHTRAG_KEYWORD_LLM_BINDING_API_KEY:-${LITELLM_MASTER_KEY}}"
+    )
+    assert env["QUERY_LLM_BINDING_API_KEY"] == (
+        "${LIGHTRAG_QUERY_LLM_BINDING_API_KEY:-${LITELLM_MASTER_KEY}}"
+    )
+    # EXTRACT remains empty-default (out of scope for #721).
+    assert env["EXTRACT_LLM_BINDING_API_KEY"] == "${LIGHTRAG_EXTRACT_LLM_BINDING_API_KEY:-}"
+    # The base binding uses the same master key the KEYWORD/QUERY roles now inherit.
+    assert env["LLM_BINDING_API_KEY"] == "${LITELLM_MASTER_KEY}"
 
 
 def test_lightrag_compose_maps_query_controls_to_native_env_names():
