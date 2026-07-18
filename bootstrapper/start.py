@@ -3006,19 +3006,30 @@ class AtlasStarter:
 
     @staticmethod
     def _get_localhost_port(service_name: str, env_vars: dict) -> str:
-        """Extract the actual localhost port from the service's endpoint env var."""
+        """Extract the localhost port for the pre-launch summary. Prefers the
+        service's endpoint env var (which encodes the active source variant's
+        port — e.g. ComfyUI's MPS port), then falls back to the dedicated
+        localhost_port_var for services that declare only a port number and no
+        endpoint URL (e.g. OpenClaw, Neo4j). Without the fallback those rows
+        rendered '-' even when a localhost port was configured."""
         from services.topology import get_topology
         _topology = get_topology()
-        var = None
+        row = None
         for r in _topology.rows:
             if r.display_name == service_name:
-                var = r.localhost_endpoint_var
+                row = r
                 break
-        if var:
-            endpoint = env_vars.get(var, '')
+        if row is None:
+            return "-"
+        if row.localhost_endpoint_var:
+            endpoint = env_vars.get(row.localhost_endpoint_var, '')
             match = re.search(r':(\d+)', endpoint)
             if match:
                 return f":{match.group(1)}"
+        if row.localhost_port_var:
+            port = env_vars.get(row.localhost_port_var, '').strip()
+            if port:
+                return f":{port}"
         return "-"
 
     @staticmethod
