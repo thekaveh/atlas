@@ -154,7 +154,13 @@ def test_postgres_tool_runs_read_only_bounded_transaction(monkeypatch) -> None:
             return self._cursor
 
     cursor = _Cursor()
-    monkeypatch.setattr(psycopg, "connect", lambda dsn, row_factory=None: _Conn(cursor))
+    connect_kwargs: dict = {}
+
+    def _fake_connect(dsn, **kwargs):
+        connect_kwargs.update(kwargs)
+        return _Conn(cursor)
+
+    monkeypatch.setattr(psycopg, "connect", _fake_connect)
 
     async def go():
         async with Client(srv.build_server()) as client:
@@ -174,6 +180,10 @@ def test_postgres_tool_runs_read_only_bounded_transaction(monkeypatch) -> None:
     timeout_param = next(params for query, params in cursor.executed if "statement_timeout" in query)
     assert timeout_param == ("15000",)
     assert cursor.fetched_n == 2
+    # autocommit=True is required so the explicit BEGIN READ ONLY actually opens
+    # the read-only transaction (psycopg3's default would emit its own BEGIN
+    # first, making READ ONLY a silent no-op that leaves the session READ WRITE).
+    assert connect_kwargs.get("autocommit") is True
 
 
 def test_neo4j_tool_uses_read_routing_and_bounded_cypher(monkeypatch) -> None:

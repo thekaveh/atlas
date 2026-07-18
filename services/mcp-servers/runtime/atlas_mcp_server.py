@@ -75,6 +75,17 @@ def is_safe_neo4j_read(cypher: str) -> bool:
 
 def bounded_neo4j_cypher(cypher: str) -> str:
     statement = _without_comments(cypher)
+    # A standalone procedure call (`CALL db.*` / `CALL apoc.meta.*`, allowed by
+    # is_safe_neo4j_read for the schema tools) CANNOT be wrapped in a
+    # `CALL { … } RETURN *` subquery: inside a subquery a procedure needs an
+    # explicit YIELD, and the unit subquery yields no variables, so Neo4j rejects
+    # `CALL { CALL db.schema.visualization() } RETURN *` at parse time — which
+    # broke neo4j_schema and every CALL-based read 100%. Run such statements
+    # unwrapped; the row cap is still enforced by result.fetch(row_limit) at the
+    # Python layer. MATCH/WITH statements end in RETURN, so wrapping them applies
+    # an additional server-side LIMIT.
+    if statement.lstrip().lower().startswith("call "):
+        return statement
     return f"CALL {{\n{statement}\n}}\nRETURN *\nLIMIT $atlas_limit"
 
 
@@ -102,7 +113,14 @@ def postgres_query(sql: str, limit: int | None = None) -> dict[str, Any]:
     row_limit = clamp_limit(limit, default=max_rows, maximum=max_rows)
     timeout_ms = _env_int("MCP_TOOL_TIMEOUT_SECONDS", 15) * 1000
 
-    with psycopg.connect(_postgres_dsn(), row_factory=dict_row) as conn:
+    # autocommit=True is REQUIRED: with psycopg3's default (autocommit=False) the
+    # driver emits its OWN BEGIN before the first execute(), so the explicit
+    # "BEGIN READ ONLY" below runs inside an already-open transaction — a no-op
+    # ("there is already a transaction in progress") that leaves the session
+    # READ WRITE, defeating the read-only guard (e.g. SELECT nextval() would
+    # advance a sequence). With autocommit=True our explicit BEGIN opens the
+    # transaction and its READ ONLY characteristic actually applies.
+    with psycopg.connect(_postgres_dsn(), autocommit=True, row_factory=dict_row) as conn:
         with conn.cursor() as cur:
             cur.execute("BEGIN READ ONLY")
             # SET does not accept bind parameters — with psycopg's server-side
