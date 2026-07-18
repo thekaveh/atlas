@@ -178,7 +178,7 @@ def test_end_to_end_completes(tmp_path, monkeypatch):
     assert final.counts["chunks"] >= 1
     assert final.counts["vectors_written"] == final.counts["chunks"]
     assert final.counts["documents_uploaded"] == 1
-    assert weav.classes == ["RagShowcase_showcase-default"]
+    assert weav.classes == ["RagShowcase_showcase_default"]
     assert final.content_digest
     assert [p.status for p in final.phases if p.name == "drain"] == ["completed"]
 
@@ -464,7 +464,7 @@ def test_empty_corpus_reconciles_away_prior_profile_objects(tmp_path, monkeypatc
     assert final.status == "completed", final.errors
     assert weaviate.object_ids == set()
     assert weaviate.reconciled[-1] == (
-        "RagShowcase_showcase-default",
+        "RagShowcase_showcase_default",
         "showcase-default",
         [],
     )
@@ -506,7 +506,7 @@ def test_run_uses_submitted_profile_snapshot_after_registry_changes(
     assert final.corpus == {"source": "mount", "path": "docs"}
     assert final.profile_snapshot["revision"] == "rev1"
     assert final.counts["files_discovered"] == 1
-    assert weaviate.classes == ["RagShowcase_showcase-default"]
+    assert weaviate.classes == ["RagShowcase_showcase_default"]
 
 
 def test_run_preserves_submitted_mount_override_after_registry_changes(
@@ -1561,3 +1561,18 @@ def test_chunk_phase_isolates_oversize_document(tmp_path, monkeypatch):
         str(_field(e, "file") or "").endswith("big.txt") for e in chunk_errors
     ), final.errors
     assert final.counts.get("chunks", 0) > 0  # small.txt still chunked
+
+
+def test_weaviate_class_name_sanitizes_profile_name():
+    import re as _re
+
+    from rag_ingestion.service import weaviate_class_name
+
+    # A hyphenated profile name (the canonical `showcase-default`) must yield a
+    # VALID Weaviate class name (^[A-Z][_0-9A-Za-z]*$), not `..._showcase-default`
+    # which 422s on ensure_class + 404s on the case-sensitive reconcile query.
+    name = weaviate_class_name("RagShowcase", "showcase-default")
+    assert name == "RagShowcase_showcase_default"
+    assert _re.match(r"^[A-Z][_0-9A-Za-z]*$", name)
+    # dots are sanitized too
+    assert weaviate_class_name("Docs", "v1.2-beta") == "Docs_v1_2_beta"

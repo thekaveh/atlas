@@ -19,6 +19,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import time
 import uuid
 from datetime import datetime, timezone
@@ -50,6 +51,21 @@ from .store import IngestionStore, default_store
 
 
 logger = logging.getLogger(__name__)
+
+
+def weaviate_class_name(collection_prefix: str, profile_name: str) -> str:
+    """Compose a valid Weaviate class name from a (validated uppercase-first)
+    collection_prefix and a profile name.
+
+    Weaviate class names must match ``^[A-Z][_0-9A-Za-z]*$``, but a profile name
+    may legitimately contain ``.``/``-`` (e.g. ``showcase-default``). Left raw,
+    ``{prefix}_{name}`` would 422 on ensure_class and the case-sensitive
+    reconcile ``Get {{ <class> }}`` query would 404. Sanitize every non-alnum
+    char in the name to ``_`` so the derived class name is always valid and the
+    write + reconcile paths agree.
+    """
+    safe_name = re.sub(r"[^0-9A-Za-z]", "_", profile_name)
+    return f"{collection_prefix}_{safe_name}"
 
 
 class PhaseFatal(RuntimeError):
@@ -622,7 +638,7 @@ class RagIngestionService:
                         target.get("on_unavailable", "fail"),
                     )
                     return
-                class_name = f"{target['collection_prefix']}_{profile.name}"
+                class_name = weaviate_class_name(target['collection_prefix'], profile.name)
                 await self.deps.weaviate.ensure_class(class_name)
                 await self.deps.weaviate.reconcile_objects(
                     class_name, profile.name, []
@@ -650,7 +666,7 @@ class RagIngestionService:
                     detail="no embeddings produced — the embedder (LITELLM_BASE_URL) is disabled",
                 )
                 return
-            class_name = f"{target['collection_prefix']}_{profile.name}"
+            class_name = weaviate_class_name(target['collection_prefix'], profile.name)
             try:
                 await self.deps.weaviate.ensure_class(class_name)
                 objects = [
