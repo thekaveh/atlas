@@ -337,7 +337,7 @@ _No upstream calls._
 
 - **`pg_cron` + `pg_net` extensions** — *Why pursue:* enables scheduled jobs and outbound HTTP from inside Postgres (database webhooks to Hermes/n8n/Edge Functions); `01-extensions.sql` currently enables only `vector`/`postgis`/`pgcrypto`. *Effort:* small.
 - **Database Webhooks** — *Why pursue:* lets row-level changes trigger LiteLLM calls or n8n flows without a polling worker; depends on `pg_net`. *Effort:* small.
-- **Row-Level Security policy coverage** — *Why pursue:* backend research and memory tables define RLS policies, but `public.users` and ComfyUI workflow/tags tables still lack table-specific RLS. Finish the per-table policy model before exposing PostgREST broadly. *Effort:* medium.
+- **Row-Level Security policy coverage** — *Why pursue:* the `public.users`, backend research, memory, and media-spend-ledger tables now define RLS policies, but the ComfyUI workflow/generation tables still lack table-specific RLS (they hold shared, non-user app state). Finish the per-table policy model before exposing those tables through PostgREST broadly. *Effort:* medium.
 - **GoTrue OAuth providers (Google, GitHub)** — *Why pursue:* stack ships with email-only login; SSO is a near-zero-code add via `GOTRUE_EXTERNAL_*` envs. *Effort:* small.
 - **`pg_graphql` endpoint** — *Why pursue:* Kong already routes `/graphql/v1/` to PostgREST's `rpc/graphql`, but no consumer uses pg_graphql's typed schema; wiring n8n/backend to it would give a typed GraphQL surface. *Effort:* small.
 - **Realtime broadcast + presence channels** — *Why pursue:* `supabase-realtime` runs but nothing subscribes; broadcast channels would let backend push job-status updates to open-webui without polling. *Effort:* medium.

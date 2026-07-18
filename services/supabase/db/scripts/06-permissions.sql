@@ -29,9 +29,14 @@ DO $$ BEGIN
 
     -- Grant access to the auth schema (assuming base image created necessary tables/functions)
     GRANT ALL ON SCHEMA auth TO service_role; -- service_role needs full access
-    GRANT SELECT ON ALL TABLES IN SCHEMA auth TO anon, authenticated;
+    -- anon/authenticated are deliberately NOT granted SELECT on auth tables. The
+    -- auth schema holds credentials (auth.users password hashes + recovery/email
+    -- tokens, auth.identities, auth.mfa_factors); upstream Supabase never grants
+    -- clients read access to it and never serves it via PostgREST. They keep only
+    -- USAGE on the schema (granted above) so RLS policies can call
+    -- auth.role()/auth.uid(). PGRST_DB_SCHEMA (supabase/compose.yml) also drops
+    -- `auth` so PostgREST cannot serve these tables at all.
     ALTER DEFAULT PRIVILEGES IN SCHEMA auth GRANT ALL ON TABLES TO service_role;
-    ALTER DEFAULT PRIVILEGES IN SCHEMA auth GRANT SELECT ON TABLES TO anon, authenticated;
     -- Note: Specific function grants might be needed depending on base image setup
 
     -- Grant access to the storage schema (assuming base image created necessary tables/functions)

@@ -3884,7 +3884,7 @@ services:
         required: true
     environment:
       PGRST_DB_ANON_ROLE: anon
-      PGRST_DB_SCHEMA: public,storage,auth
+      PGRST_DB_SCHEMA: public,storage
       PGRST_DB_URI: postgres://supabase_admin:password@supabase-db:5432/postgres
       PGRST_DB_USE_LEGACY_GUCS: 'false'
       PGRST_JWT_SECRET: ''
