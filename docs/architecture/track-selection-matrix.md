@@ -14,5 +14,5 @@ Tracks reduce the wizard to a workflow-oriented service set. Services outside th
 
 - `services/*/service.yml`
 - `bootstrapper/tracks.yml`
-- `services/topology.py`
+- `bootstrapper/services/topology.py`
 - `docs/deployment/source-configuration.md`

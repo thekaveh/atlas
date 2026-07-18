@@ -14,5 +14,5 @@ MinIO is the object data plane and Iceberg REST owns table metadata. Spark and T
 
 - `services/*/service.yml`
 - `bootstrapper/tracks.yml`
-- `services/topology.py`
+- `bootstrapper/services/topology.py`
 - `docs/deployment/source-configuration.md`

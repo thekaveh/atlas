@@ -11,8 +11,10 @@ import time
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import FileResponse, JSONResponse
 from prometheus_fastapi_instrumentator import Instrumentator
+from pydantic import ValidationError
 
 from .models import (
     ArtifactRef,
@@ -56,7 +58,11 @@ def create_app(*, api_token: str | None = None) -> FastAPI:
                 content={"detail": "Asset Baker authentication is not configured"},
             )
         scheme, _, credential = request.headers.get("authorization", "").partition(" ")
-        if scheme.lower() != "bearer" or not secrets.compare_digest(credential, expected_token):
+        # Compare utf-8 bytes: secrets.compare_digest raises TypeError on a
+        # non-ASCII str, which would surface as a 500 instead of this 401.
+        if scheme.lower() != "bearer" or not secrets.compare_digest(
+            credential.encode("utf-8"), expected_token.encode("utf-8")
+        ):
             return JSONResponse(
                 status_code=401,
                 content={"detail": "Invalid Asset Baker bearer token"},
@@ -92,12 +98,19 @@ def create_app(*, api_token: str | None = None) -> FastAPI:
     ) -> BakeResponse:
         _validate_glb_name(file.filename or "")
         _enforce_content_length(request)  # reject obviously-oversize before buffering
-        params = BakeParams(
-            target_tris=target_tris,
-            tex_size=tex_size,
-            canonical_size=canonical_size,
-            mode=mode,  # pydantic validates the Literal
-        )
+        # Built inside the handler, so FastAPI doesn't validate these Form fields
+        # for us — a bad value (e.g. mode outside the Literal, target_tris<=0)
+        # would raise ValidationError → 500. Map it to 422 like the body-validated
+        # /ref twin (client error, not server fault).
+        try:
+            params = BakeParams(
+                target_tris=target_tris,
+                tex_size=tex_size,
+                canonical_size=canonical_size,
+                mode=mode,
+            )
+        except ValidationError as exc:
+            raise HTTPException(status_code=422, detail=jsonable_encoder(exc.errors())) from exc
         file.file.seek(0)
         with tempfile.TemporaryDirectory(prefix="asset-baker-upload-") as tmp:
             input_path = Path(tmp) / "input.glb"

@@ -1652,7 +1652,22 @@ RAG_INGESTION_OVERLAY_PATH = Path("volumes/backend/rag-ingestion-profiles.compos
 RAG_INGESTION_CONTAINER_PATH = "/atlas-consumer-config/rag-ingestion-profiles.json"
 
 _RAG_NAME_RE = __import__("re").compile(r"^[a-z0-9][a-z0-9._-]*$")
-_RAG_IDENT_RE = __import__("re").compile(r"^[A-Za-z][A-Za-z0-9_]*$")
+# collection_prefix must start uppercase: Weaviate silently capitalizes the
+# first letter of a stored class name, but the backend's reconcile step issues a
+# case-sensitive GraphQL `Get { <class> }` with the un-capitalized name. A
+# lowercase-first prefix therefore writes to `Ragshowcase_…` but queries
+# `ragshowcase_…` → unknown field → the vector_write phase fails. Rejecting it
+# here (fail-fast, clear error) beats a cryptic runtime failure.
+_RAG_IDENT_RE = __import__("re").compile(r"^[A-Z][A-Za-z0-9_]*$")
+_RAG_CLASS_SANITIZE_RE = __import__("re").compile(r"[^0-9A-Za-z]")
+
+
+def _weaviate_class_name(collection_prefix: str, profile_name: str) -> str:
+    """Backend-equivalent Weaviate class-name composition (see the backend's
+    rag_ingestion.service.weaviate_class_name). The profile name's non-alnum
+    chars (`.`/`-`) are sanitized to `_` so collision detection here matches the
+    class name the backend actually writes/reconciles."""
+    return f"{collection_prefix}_{_RAG_CLASS_SANITIZE_RE.sub('_', profile_name)}"
 _RAG_CORPUS_SOURCES = frozenset({"mount", "minio"})
 _RAG_PARSERS = frozenset({"docling", "tika", "crawl4ai", "plain_text"})
 _RAG_CHUNK_STRATEGIES = frozenset({"token", "recursive", "semantic"})
@@ -1982,9 +1997,10 @@ def _validate_rag_ingestion_collisions(profiles: Iterable[RagIngestionProfile]) 
             )
         owner[profile.name] = profile.consumer
         for target in profile.vector_targets:
-            # The backend namespaces the class as ``{prefix}_{profile}`` — reject a
-            # collision so two profiles can't write into the same Weaviate class.
-            collection = f"{target.collection_prefix}_{profile.name}"
+            # The backend namespaces the class as ``{prefix}_{profile}`` (with the
+            # profile name sanitized to valid Weaviate chars) — reject a collision
+            # so two profiles can't write into the same Weaviate class.
+            collection = _weaviate_class_name(target.collection_prefix, profile.name)
             if collection in collection_owner:
                 raise ConsumerManifestError(
                     f"rag_ingestion_profiles Weaviate collection {collection!r} declared by two "

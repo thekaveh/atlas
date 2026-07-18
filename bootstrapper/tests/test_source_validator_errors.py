@@ -47,6 +47,25 @@ def test_default_env_example_is_valid(env_with_overrides):
     assert v.get_validation_errors() == []
 
 
+def test_vllm_metal_only_is_a_valid_litellm_upstream(env_with_overrides):
+    """A vLLM-Metal-only stack (no Ollama engine, no cloud) is valid — vLLM Metal
+    is a real LiteLLM upstream registered by litellm-init, so the upstream guard
+    must not reject it."""
+    v = _validator(env_with_overrides({}))
+    assert v._validate_litellm_has_upstream({
+        "LLM_PROVIDER_SOURCE": "none",
+        "VLLM_METAL_SOURCE": "managed-localhost",
+    }) is True
+
+    # No engine, no cloud, no vLLM Metal → LiteLLM has nothing to route.
+    v.validation_errors = []
+    assert v._validate_litellm_has_upstream({
+        "LLM_PROVIDER_SOURCE": "none",
+        "VLLM_METAL_SOURCE": "disabled",
+    }) is False
+    assert any("no upstream" in e for e in v.validation_errors)
+
+
 def test_cloud_key_auto_disable_write_failure_is_validation_error(tmp_path, monkeypatch):
     from utils.source_override_manager import SourceOverrideManager
 

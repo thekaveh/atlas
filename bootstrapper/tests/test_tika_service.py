@@ -155,7 +155,11 @@ def test_tika_compose_contract() -> None:
     assert service["security_opt"] == ["no-new-privileges:true"]
     assert service["pids_limit"] == 512
     assert set(service["tmpfs"]) >= {"/tmp:mode=1777"}
-    assert "http://localhost:9998/tika" in service["healthcheck"]["test"]
+    # apache/tika:3.3.1.0 has bash but no curl/wget/nc, so readiness is a bash
+    # /dev/tcp connect to the listen port (a curl probe could never succeed).
+    assert service["healthcheck"]["test"] == [
+        "CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/9998",
+    ]
 
 
 def test_tika_kong_routes_container_localhost_and_disabled(tmp_path: Path) -> None:

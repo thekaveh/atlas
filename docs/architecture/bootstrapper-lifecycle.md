@@ -14,5 +14,5 @@ Startup is an ordered configuration pipeline. Atlas loads and migrates the envir
 
 - `services/*/service.yml`
 - `bootstrapper/tracks.yml`
-- `services/topology.py`
+- `bootstrapper/services/topology.py`
 - `docs/deployment/source-configuration.md`

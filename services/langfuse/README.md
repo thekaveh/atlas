@@ -52,11 +52,12 @@ LiteLLM receives `LANGFUSE_BASE_URL`, `LANGFUSE_PUBLIC_KEY`, and `LANGFUSE_SECRE
 | minio | data |
 | redis | data |
 | supabase | data |
-| litellm | llm |
 
 ### 5.2. Current — Downstream (services that call this)
 
-_No downstream consumers._
+| Service | Category |
+|---|---|
+| litellm | llm |
 
 ### 5.3. Architecture diagram
 

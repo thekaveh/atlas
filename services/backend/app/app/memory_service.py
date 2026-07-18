@@ -310,6 +310,7 @@ Extract the facts as JSON:"""
             }
 
         for fact_uuid, fact in embedding_inputs:
+            weaviate_id = None
             try:
                 weaviate_id = await self.store.store_embedding(
                     fact_id=fact["id"],
@@ -320,22 +321,33 @@ Extract the facts as JSON:"""
                     confidence=fact["confidence"],
                     metadata={},
                 )
-                if weaviate_id:
-                    conn = await connect_postgres(self.database_url)
-                    try:
-                        await conn.execute(
-                            "UPDATE public.memory_facts SET weaviate_id = $1 WHERE id = $2",
-                            weaviate_id,
-                            fact_uuid,
-                        )
-                    finally:
-                        await conn.close()
             except Exception as exc:
                 logger.warning(
                     "Failed to store embedding for fact %s (error_type=%s)",
                     fact["id"],
                     type(exc).__name__,
                 )
+            conn = await connect_postgres(self.database_url)
+            try:
+                if weaviate_id:
+                    await conn.execute(
+                        "UPDATE public.memory_facts SET weaviate_id = $1 WHERE id = $2",
+                        weaviate_id,
+                        fact_uuid,
+                    )
+                else:
+                    # Embedding was not durably stored (store_embedding raised or
+                    # returned no id). Flag the fact so _reconcile_pending_vectors
+                    # — which only selects vector_sync_pending = true — retries it
+                    # on a later recall/consolidate. Without this the fact would
+                    # keep weaviate_id=NULL with vector_sync_pending=false and stay
+                    # invisible to semantic recall permanently.
+                    await conn.execute(
+                        "UPDATE public.memory_facts SET vector_sync_pending = true WHERE id = $1",
+                        fact_uuid,
+                    )
+            finally:
+                await conn.close()
 
         return {
             "session_id": session_id,
@@ -465,7 +477,7 @@ Extract the facts as JSON:"""
             rows = await conn.fetch(
                 """
                 SELECT id, user_id, namespace, content, fact_type, confidence,
-                       is_active, weaviate_id
+                       is_active, weaviate_id, updated_at
                 FROM public.memory_facts
                 WHERE vector_sync_pending = true
                 ORDER BY updated_at
@@ -508,6 +520,15 @@ Extract the facts as JSON:"""
                         type(exc).__name__,
                     )
                     continue
+                # Optimistic guard on updated_at (the same discipline the
+                # consolidate state transitions use): if a concurrent
+                # update_memory changed this fact after we read it — re-flagging
+                # vector_sync_pending for the NEW content — an unguarded clear
+                # here would wipe that flag against our now-stale vector write,
+                # stranding the newer content unreconciled with the flag false
+                # (permanent divergence). Guarding on the read updated_at makes
+                # this clear a no-op in that case, so the fact stays pending and
+                # a later pass reconciles the current content.
                 await conn.execute(
                     """
                     UPDATE public.memory_facts
@@ -515,9 +536,11 @@ Extract the facts as JSON:"""
                         weaviate_id = COALESCE($2, weaviate_id),
                         updated_at = now()
                     WHERE id = $1 AND vector_sync_pending = true
+                      AND updated_at = $3
                     """,
                     row["id"],
                     new_weaviate_id,
+                    row["updated_at"],
                 )
                 reconciled += 1
         finally:

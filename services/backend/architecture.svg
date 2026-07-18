@@ -67,10 +67,11 @@
   <text x="70" y="266" fill="#fbbf24" font-size="9" font-weight="700"
         text-anchor="start" style="letter-spacing:0.06em;text-transform:uppercase;">llm</text>
   <text x="290" y="266" fill="#fbbf24" font-size="9" font-weight="600"
-        text-anchor="end">1</text>
+        text-anchor="end">2</text>
 </g>
 
 <g><rect x="68" y="276" width="108" height="22" rx="4" fill="#0f172a"/><rect x="68" y="276" width="108" height="22" rx="4" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1"/><text x="122" y="291" fill="white" font-size="10" text-anchor="middle">litellm</text></g>
+<g><rect x="180" y="276" width="108" height="22" rx="4" fill="#0f172a"/><rect x="180" y="276" width="108" height="22" rx="4" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1"/><text x="234" y="291" fill="white" font-size="10" text-anchor="middle">tei-reranker</text></g>
 <g class="cluster">
   <rect x="60" y="320" width="240" height="84" rx="8"
         fill="rgba(30,41,59,0.35)"
@@ -78,12 +79,13 @@
   <text x="70" y="334" fill="#fb923c" font-size="9" font-weight="700"
         text-anchor="start" style="letter-spacing:0.06em;text-transform:uppercase;">media</text>
   <text x="290" y="334" fill="#fb923c" font-size="9" font-weight="600"
-        text-anchor="end">3</text>
+        text-anchor="end">4</text>
 </g>
 
 <g><rect x="68" y="344" width="108" height="22" rx="4" fill="#0f172a"/><rect x="68" y="344" width="108" height="22" rx="4" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1"/><text x="122" y="359" fill="white" font-size="10" text-anchor="middle">comfyui</text></g>
-<g><rect x="180" y="344" width="108" height="22" rx="4" fill="#0f172a"/><rect x="180" y="344" width="108" height="22" rx="4" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1"/><text x="234" y="359" fill="white" font-size="10" text-anchor="middle">fal</text></g>
-<g><rect x="68" y="370" width="108" height="22" rx="4" fill="#0f172a"/><rect x="68" y="370" width="108" height="22" rx="4" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1"/><text x="122" y="385" fill="white" font-size="10" text-anchor="middle">tika</text></g>
+<g><rect x="180" y="344" width="108" height="22" rx="4" fill="#0f172a"/><rect x="180" y="344" width="108" height="22" rx="4" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1"/><text x="234" y="359" fill="white" font-size="10" text-anchor="middle">docling</text></g>
+<g><rect x="68" y="370" width="108" height="22" rx="4" fill="#0f172a"/><rect x="68" y="370" width="108" height="22" rx="4" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1"/><text x="122" y="385" fill="white" font-size="10" text-anchor="middle">fal</text></g>
+<g><rect x="180" y="370" width="108" height="22" rx="4" fill="#0f172a"/><rect x="180" y="370" width="108" height="22" rx="4" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1"/><text x="234" y="385" fill="white" font-size="10" text-anchor="middle">tika</text></g>
 <g class="cluster">
   <rect x="60" y="414" width="240" height="84" rx="8"
         fill="rgba(30,41,59,0.35)"

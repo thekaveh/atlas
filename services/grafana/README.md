@@ -10,7 +10,7 @@ Unified alerting is enabled. No alert rules or contact points ship pre-provision
 
 `config/provisioning/` ships four subdirectories — Grafana scans all of them at startup and errors loudly on any that are absent:
 
-- `datasources/` — Prometheus datasource (UID `Prometheus`)
+- `datasources/` — Prometheus (`prometheus.yml`, UID `Prometheus`) plus Tempo and Loki (`tempo-loki.yml`)
 - `dashboards/` — the 7 shipped JSON dashboards + `dashboards.yml` provider
 - `alerting/` — alert rules / contact points (currently just the placeholder)
 - `plugins/` — app-plugin provisioning (currently empty, kept via `.gitkeep`)

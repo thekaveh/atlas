@@ -14,5 +14,5 @@ A service's SOURCE value selects its deployment mode, not merely an image varian
 
 - `services/*/service.yml`
 - `bootstrapper/tracks.yml`
-- `services/topology.py`
+- `bootstrapper/services/topology.py`
 - `docs/deployment/source-configuration.md`

@@ -14,7 +14,11 @@ def table(headers: list[str], rows: Iterable[list[str]]) -> str:
         "| " + " | ".join("---" for _ in headers) + " |",
     ]
     for row in rows:
-        lines.append("| " + " | ".join(cell.replace("|", "/") for cell in row) + " |")
+        # Collapse embedded newlines so a multi-line manifest description cannot
+        # split one logical row across physical lines (invalid GFM/MkDocs), and
+        # escape pipes so cell content cannot introduce spurious columns.
+        cells = [" ".join(cell.split()).replace("|", "/") for cell in row]
+        lines.append("| " + " | ".join(cells) + " |")
     return "\n".join(lines)
 
 

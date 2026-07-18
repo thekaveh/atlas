@@ -148,7 +148,7 @@ All three persist to `.env` and are consumed by `litellm-init` (via `model_resol
 
 `ComfyUI  ·  models` — a multiselect step parallel to the Ollama
 models step, shown for every non-`disabled` `COMFYUI_SOURCE`
-(`container-cpu` / `container-gpu` / `localhost`).
+(`container-cpu` / `container-gpu` / `localhost` / `managed-localhost-mps`).
 The wizard's catalog is sourced from `bootstrapper/utils/comfyui_library.py`,
 which merges a live Hugging Face scrape (per-category filters
 covering Image, Image-edit, Video, Audio, and 3D models) +
@@ -388,7 +388,7 @@ The big ASCII block-art lockup — shown in the wizard's brand panel and the `--
 - Generate matching art with any figlet tool, e.g. `figlet -f "ANSI Shadow" "My Brand"` (or [patorjk.com/software/taag](https://patorjk.com/software/taag/)).
 - Leading/trailing blank lines are trimmed; everything else renders verbatim with the same top→bottom blue gradient as ATLAS.
 
-> The richer image-derived **splash** (the globe hero in `atlas_hero.py`, generated from a source image by `scripts/generate_logo.py`) is a separate asset and is **not** covered by `BRAND_LOGO_FILE` — it stays the Atlas hero unless you regenerate those grids.
+> The richer image-derived **splash** (the globe hero in `atlas_hero.py`, generated from a source image by `bootstrapper/scripts/generate_logo.py`) is a separate asset and is **not** covered by `BRAND_LOGO_FILE` — it stays the Atlas hero unless you regenerate those grids.
 
 ## 16. Configurable Services
 
@@ -398,7 +398,7 @@ The wizard automatically discovers all configurable services from each `services
 |---------|---------|
 | LiteLLM Gateway | locked / always-on (no choice; mandatory front door for every LLM consumer) |
 | LLM Engine (Ollama upstream) | ollama-container-cpu, ollama-container-gpu, ollama-localhost, none |
-| ComfyUI | container-cpu, container-gpu, localhost, disabled |
+| ComfyUI | container-cpu, container-gpu, localhost, managed-localhost-mps, disabled |
 | Weaviate | container, localhost, disabled |
 | Multi2Vec CLIP | container-cpu, container-gpu, disabled |
 | Neo4j Graph DB | container, localhost, disabled |

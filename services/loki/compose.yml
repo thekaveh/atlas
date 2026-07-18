@@ -7,6 +7,12 @@ services:
     deploy:
       replicas: ${LOKI_SCALE:-0}
     command: ["-config.file=/etc/loki/loki.yaml", "-config.expand-env=true"]
+    environment:
+      # loki runs with -config.expand-env, so config/loki.yaml reads
+      # ${LOKI_RETENTION_PERIOD} from this container's environment. Without
+      # forwarding it here the documented retention knob is inert — loki always
+      # falls through to the in-config 24h default regardless of .env.
+      LOKI_RETENTION_PERIOD: ${LOKI_RETENTION_PERIOD:-24h}
     volumes:
       - ./config/loki.yaml:/etc/loki/loki.yaml:ro
       - loki-data:/loki

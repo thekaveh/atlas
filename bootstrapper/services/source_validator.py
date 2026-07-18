@@ -494,20 +494,29 @@ class SourceValidator:
             return False
 
     def _validate_litellm_has_upstream(self, service_sources: Dict[str, str]) -> bool:
-        """At least one upstream — Ollama engine OR a cloud provider — must be
-        configured, otherwise the LiteLLM gateway has no models to route to.
+        """At least one upstream — Ollama engine, a cloud provider, or managed
+        vLLM Metal — must be configured, otherwise the LiteLLM gateway has no
+        models to route to.
         """
         llm_source = service_sources.get('LLM_PROVIDER_SOURCE', 'ollama-container-cpu')
         cloud_enabled = any(
             service_sources.get(var, 'disabled') == 'enabled'
             for var in ('CLOUD_OPENAI_SOURCE', 'CLOUD_ANTHROPIC_SOURCE', 'CLOUD_OPENROUTER_SOURCE')
         )
+        # vLLM Metal is a genuine LiteLLM upstream: litellm-init registers a
+        # model_list entry (init.py::vllm_metal_model_entry) when
+        # VLLM_METAL_SOURCE=managed-localhost. A vLLM-Metal-only stack
+        # (LLM_PROVIDER_SOURCE=none, all cloud disabled) is valid.
+        vllm_metal_enabled = (
+            service_sources.get('VLLM_METAL_SOURCE', 'disabled') == 'managed-localhost'
+        )
 
-        if llm_source == 'none' and not cloud_enabled:
+        if llm_source == 'none' and not cloud_enabled and not vllm_metal_enabled:
             self.validation_errors.append(
                 "❌ LiteLLM has no upstream configured. Set LLM_PROVIDER_SOURCE to an "
-                "ollama-* value, or enable at least one of CLOUD_OPENAI_SOURCE / "
-                "CLOUD_ANTHROPIC_SOURCE / CLOUD_OPENROUTER_SOURCE."
+                "ollama-* value, enable at least one of CLOUD_OPENAI_SOURCE / "
+                "CLOUD_ANTHROPIC_SOURCE / CLOUD_OPENROUTER_SOURCE, or set "
+                "VLLM_METAL_SOURCE=managed-localhost."
             )
             return False
         return True

@@ -129,7 +129,7 @@ This service performs **mechanical glTF conditioning**: scale-to-target, center-
 
 The worker performs three operations in order. Uploaded bodies are copied to bounded temporary files in chunks, and the blocking transformation pipeline runs in a worker thread so health and concurrent API requests remain responsive. A process-wide semaphore admits mutation requests before request-body parsing or object-store fetch; requests beyond `ASSET_WORKER_CONCURRENCY` receive `429` without consuming transformation, upload-spooling, or MinIO-fetch capacity.
 
-1. Normalize geometry by reading float32 GLB `POSITION` accessors, choosing the largest min-AABB extent as the upright axis, remapping that axis to Y, placing the base at `y=0`, centering X/Z around the origin, and scaling to the requested target height or width.
+1. Normalize geometry by reading float32 GLB `POSITION` accessors, placing the base at `y=0`, centering X/Z around the origin, and scaling to the requested target height or width. Incoming `+Y`-up is trusted by default (`up_axis=keep`); axis reorientation is opt-in via the `up_axis` parameter (see §4.1) — the old unconditional largest-extent-to-Y remap was the #524 bug this replaced.
 2. Run `gltf-transform inspect`, `gltf-transform validate`, and `gltf-transform optimize` with the requested simplification and compression settings.
 3. Hash the optimized GLB with SHA-256 and write it to MinIO or the local artifact cache under `gltf/<sha256>.glb`.
 

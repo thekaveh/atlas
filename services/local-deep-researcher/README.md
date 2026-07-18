@@ -28,7 +28,7 @@ LOCAL_DEEP_RESEARCHER_LANGGRAPH_CLI_VERSION=0.4.31
 LOCAL_DEEP_RESEARCHER_UPSTREAM_LOCK_SHA256=26fc35ac377836de6628e5f7b180944c4d4bd50a5e9f0200bd6e663f20e35c1a
 LOCAL_DEEP_RESEARCHER_LOOPS=3                # max research iterations
 LOCAL_DEEP_RESEARCHER_SEARCH_API=searxng     # only searxng is wired today; tavily/perplexity supported upstream
-LOCAL_DEEP_RESEARCHER_WORKERS=3              # langgraph dev --n-workers
+LOCAL_DEEP_RESEARCHER_WORKERS=3              # reserved; the entrypoint does not currently pass --n-workers to langgraph dev
 ```
 
 Adaptive env (auto-injected):

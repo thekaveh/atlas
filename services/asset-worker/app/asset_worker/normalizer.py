@@ -62,15 +62,21 @@ def _parse_glb(data: bytes) -> tuple[dict, bytearray] | None:
     offset = 12
     doc = None
     bin_chunk = None
-    while offset + 8 <= len(data):
-        chunk_length, chunk_type = struct.unpack_from("<II", data, offset)
-        offset += 8
-        chunk = data[offset: offset + chunk_length]
-        offset += chunk_length
-        if chunk_type == JSON_CHUNK:
-            doc = json.loads(chunk.rstrip(b" \x00").decode("utf-8"))
-        elif chunk_type == BIN_CHUNK:
-            bin_chunk = bytearray(chunk)
+    try:
+        while offset + 8 <= len(data):
+            chunk_length, chunk_type = struct.unpack_from("<II", data, offset)
+            offset += 8
+            chunk = data[offset: offset + chunk_length]
+            offset += chunk_length
+            if chunk_type == JSON_CHUNK:
+                doc = json.loads(chunk.rstrip(b" \x00").decode("utf-8"))
+            elif chunk_type == BIN_CHUNK:
+                bin_chunk = bytearray(chunk)
+    except (ValueError, struct.error):
+        # A GLB with valid magic but a malformed JSON/UTF-8 chunk (or bad chunk
+        # framing): fall through to copy-through so `gltf-transform validate`
+        # produces the authoritative error (422) rather than a 500 raised here.
+        return None
     if not isinstance(doc, dict) or bin_chunk is None:
         return None
     return doc, bin_chunk

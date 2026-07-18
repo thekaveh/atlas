@@ -52,7 +52,11 @@ docker exec -it ${PROJECT_NAME}-neo4j-graph-db /usr/local/bin/restore.sh
 
 ### 4.4. Important Backup Notes
 
-- By default, data persists in the Docker volume between restarts
+- By default, data persists in the Docker volume between restarts — **but** once a
+  `/snapshot/backup_*.dump` exists (i.e. after `backup.sh` has run), the
+  automatic restore-on-startup (§4.3) overwrites the live volume with that
+  snapshot on every boot. Disable `auto_restore.sh` (§4.3) if you need the volume
+  to survive restarts unchanged
 - Backups are FULL dumps (`neo4j-admin database dump`); the database
   is stopped for the duration and restarted automatically (EXIT trap)
 - Backup files are timestamped for easy identification

@@ -25,8 +25,10 @@ Contracts pinned against upstream source (2026-07-11):
 
 from __future__ import annotations
 
+import logging
 import math
 import os
+import time
 from typing import List, Optional
 
 import httpx
@@ -43,6 +45,10 @@ MAX_DOCUMENTS = 512
 MAX_DOCUMENT_CHARS = 32000
 DEFAULT_TIMEOUT_SECONDS = 30.0
 MAX_TIMEOUT_SECONDS = 3600.0
+DEFAULT_BATCH_SIZE = 32
+
+
+logger = logging.getLogger(__name__)
 
 
 class RerankAdapterError(RuntimeError):
@@ -131,8 +137,27 @@ def _timeout_seconds() -> float:
     return value
 
 
+def _batch_size() -> int:
+    raw = (os.getenv("TEI_RERANKER_MAX_CLIENT_BATCH_SIZE") or "").strip()
+    if not raw:
+        return DEFAULT_BATCH_SIZE
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise ValueError(
+            "LightRAG rerank adapter batch size must be a positive integer"
+        ) from exc
+    if value <= 0:
+        raise ValueError(
+            "LightRAG rerank adapter batch size must be a positive integer"
+        )
+    # The request model already limits the complete input to MAX_DOCUMENTS.
+    return min(value, MAX_DOCUMENTS)
+
+
 def validate_rerank_adapter_config() -> None:
     _timeout_seconds()
+    _batch_size()
 
 
 def _parse_tei_items(payload: object, doc_count: int) -> List[dict]:
@@ -205,10 +230,40 @@ def rerank_via_tei(request: RerankAdapterRequest) -> RerankAdapterResponse:
         )
 
     # TEI's contract: {query, texts} → sorted [{index, score, text?}].
-    tei_payload = {"query": request.query, "texts": documents}
+    # Its client batch limit is lower than this adapter's bounded request size,
+    # so preserve original indexes while ranking each safe-sized slice.
+    batch_size = _batch_size()
+    timeout_seconds = _timeout_seconds()
+    deadline = time.monotonic() + timeout_seconds
+    items: List[dict] = []
     try:
-        with httpx.Client(timeout=_timeout_seconds()) as client:
-            response = client.post(f"{endpoint}/rerank", json=tei_payload)
+        with httpx.Client(timeout=timeout_seconds) as client:
+            for offset in range(0, len(documents), batch_size):
+                batch = documents[offset : offset + batch_size]
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise RerankAdapterTimeoutError(
+                        "TEI /rerank timed out before all batches completed"
+                    )
+                response = client.post(
+                    f"{endpoint}/rerank",
+                    json={"query": request.query, "texts": batch},
+                    timeout=remaining,
+                )
+                if response.status_code >= 400:
+                    raise RerankAdapterUpstreamError(
+                        f"TEI /rerank responded with HTTP {response.status_code}"
+                    )
+                try:
+                    payload = response.json()
+                except ValueError as exc:
+                    raise RerankAdapterUpstreamError(
+                        "TEI /rerank returned a non-JSON body"
+                    ) from exc
+                for item in _parse_tei_items(payload, len(batch)):
+                    items.append(
+                        {"index": offset + item["index"], "score": item["score"]}
+                    )
     except httpx.TimeoutException as exc:
         raise RerankAdapterTimeoutError(
             "TEI /rerank timed out before responding"
@@ -218,22 +273,12 @@ def rerank_via_tei(request: RerankAdapterRequest) -> RerankAdapterResponse:
         raise RerankAdapterDependencyError(
             "Failed to reach the TEI reranker endpoint"
         ) from exc
-
-    if response.status_code >= 400:
-        # Surface the class of failure without echoing TEI's raw body (may be
-        # large or contain internals). The status code is enough to diagnose.
-        raise RerankAdapterUpstreamError(
-            f"TEI /rerank responded with HTTP {response.status_code}"
-        )
-
-    try:
-        payload = response.json()
-    except ValueError as exc:
-        raise RerankAdapterUpstreamError(
-            "TEI /rerank returned a non-JSON body"
-        ) from exc
-
-    items = _parse_tei_items(payload, len(documents))
+    logger.info(
+        "LightRAG rerank completed: documents=%d batches=%d batch_size=%d",
+        len(documents),
+        math.ceil(len(documents) / batch_size),
+        batch_size,
+    )
     # TEI already sorts by score descending, but sort defensively so the
     # adapter's contract (best-first, deterministic tie-break by index) holds
     # regardless of upstream ordering guarantees.

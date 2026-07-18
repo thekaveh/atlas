@@ -92,7 +92,7 @@ Root credentials are NEVER surfaced to consumers — see Service accounts below.
 
 ## 4. Bucket layout
 
-Fifteen buckets are pre-provisioned by `minio-init` across twelve built-in consumers. Bucket names are the bare service identifier unless overridden:
+Sixteen buckets are pre-provisioned by `minio-init` across thirteen built-in consumers. Bucket names are the bare service identifier unless overridden:
 
 | Bucket | Intended consumer |
 |---|---|
@@ -104,6 +104,7 @@ Fifteen buckets are pre-provisioned by `minio-init` across twelve built-in consu
 | `langfuse` | Langfuse trace and media object storage |
 | `mlflow` | MLflow experiment and model artifacts |
 | `label-studio` | Label Studio import/export and annotation assets |
+| `spark-history` | Spark history-server event logs |
 | `lakehouse`, `jars`, `checkpoints`, `landing` | Iceberg lakehouse storage, Spark artifacts, checkpoints, and landing data |
 | `raw-assets` | Shared input objects written by the scoped asset-ingest identity and accepted by Asset Worker and Asset Baker reference routes |
 | `asset-worker` | Asset Worker optimized GLB outputs |
@@ -294,7 +295,6 @@ _No upstream calls._
 | jenkins | apps |
 | jupyterhub | apps |
 | label-studio | apps |
-| llm-graph-builder | apps |
 | mlflow | apps |
 | zeppelin | apps |
 

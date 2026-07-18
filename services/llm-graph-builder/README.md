@@ -34,7 +34,7 @@ The first slice offers only `container` and `disabled` source values. A localhos
 ## 5. Architecture & Wiring
 Graph Builder depends on in-stack Neo4j and LiteLLM. Atlas fails before compose if the service is enabled while `NEO4J_GRAPH_DB_SOURCE` is `disabled` or `localhost`; this keeps the first implementation aligned with the compose dependency graph and the `bolt://neo4j-graph-db:7687` internal URI.
 
-Upstream requires Neo4j 5.23 or later with APOC installed. Atlas currently pins Neo4j 5.26.x with APOC, so the bundled graph database satisfies that prerequisite.
+Upstream requires Neo4j 5.23 or later with APOC installed. Atlas pins Neo4j 5.26.x, but APOC is **not** preinstalled (the image is plain `neo4j:5.26.27`; see [services/neo4j/README.md](../neo4j/README.md)). APOC procedures must be enabled before Graph Builder's APOC-dependent operations will work.
 
 LiteLLM is exposed to Graph Builder as an OpenAI-compatible model named `atlas_litellm`. The upstream backend reads `LLM_MODEL_CONFIG_ATLAS_LITELLM`, which Atlas auto-manages as:
 
@@ -93,10 +93,8 @@ This rollback leaves existing graph data untouched by design.
 
 | Service | Category |
 |---|---|
-| minio | data |
 | neo4j | data |
 | litellm | llm |
-| docling | media |
 
 ### 10.2. Current — Downstream (services that call this)
 
