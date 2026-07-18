@@ -1529,3 +1529,35 @@ def test_pipeline_status_timeout_is_configurable(monkeypatch):
     for bad in ("", "not-a-number", "-5", "0"):
         monkeypatch.setenv("LIGHTRAG_PIPELINE_STATUS_TIMEOUT_SECONDS", bad)
         assert _resolve_pipeline_status_timeout(None) == 30.0
+
+
+def test_chunk_phase_isolates_oversize_document(tmp_path, monkeypatch):
+    # A single document over ChunkRequest's 1M-char cap must not abort the whole
+    # job — it is recorded as a chunk-phase error and other documents still
+    # chunk (matching _phase_parse's per-file isolation).
+    big = "x " * 600_000  # 1,200,000 chars > 1,000,000 → ChunkRequest ValidationError
+    _corpus(tmp_path, monkeypatch, {"big.txt": big, "small.txt": "the quick brown fox"})
+    pf = _profiles_file(tmp_path)
+    svc = _service(
+        tmp_path,
+        Deps(
+            embedder=FakeEmbedder(),
+            weaviate=FakeWeaviate(),
+            lightrag=FakeLightrag(),
+            poll_interval=0.01,
+        ),
+        pf,
+    )
+
+    _, _, final = _run(svc)
+
+    assert final.status == "completed"  # NOT failed by the one oversize doc
+
+    def _field(err, name):
+        return err[name] if isinstance(err, dict) else getattr(err, name)
+
+    chunk_errors = [e for e in final.errors if _field(e, "phase") == "chunk"]
+    assert any(
+        str(_field(e, "file") or "").endswith("big.txt") for e in chunk_errors
+    ), final.errors
+    assert final.counts.get("chunks", 0) > 0  # small.txt still chunked

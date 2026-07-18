@@ -524,30 +524,56 @@ class RagIngestionService:
         record.phase("parse").counts = {"parsed": parsed_ok, "failed": len(state["files"]) - parsed_ok}
 
     async def _phase_chunk(self, record, profile, corpus, state):
-        from chunking_service import ChunkRequest, chunk_text
+        from pydantic import ValidationError
+
+        from chunking_service import (
+            ChunkingDependencyError,
+            ChunkingError,
+            ChunkRequest,
+            chunk_text,
+        )
 
         chunker = profile.chunker or {}
         strategy = chunker.get("strategy", "recursive")
         chunk_size = int(chunker.get("chunk_size", 512))
         overlap = int(chunker.get("overlap", 64))
         chunks: List[Dict[str, Any]] = []
+        chunked_ok = 0
         for doc in state["docs"]:
             if not doc.text.strip():
                 continue
-            resp = await asyncio.to_thread(
-                chunk_text,
-                ChunkRequest(
-                    text=doc.text,
-                    strategy=strategy,
-                    chunk_size=chunk_size,
-                    overlap=overlap,
-                ),
-            )
+            try:
+                resp = await asyncio.to_thread(
+                    chunk_text,
+                    ChunkRequest(
+                        text=doc.text,
+                        strategy=strategy,
+                        chunk_size=chunk_size,
+                        overlap=overlap,
+                    ),
+                )
+            except ChunkingDependencyError:
+                # Systemic (chonkie missing) — affects every document; fail the
+                # job rather than silently isolating it to a zero-chunk success.
+                raise
+            except (ValidationError, ChunkingError) as exc:
+                # Per-document failure — e.g. doc.text over ChunkRequest's length
+                # cap, or a chonkie chunking error. Isolate it and continue like
+                # _phase_parse does, instead of aborting the whole corpus.
+                record.add_error(
+                    IngestionError(phase="chunk", file=doc.name, message=str(exc))
+                )
+                continue
             for tc in resp.chunks:
                 chunks.append({"source": doc.name, "index": tc.index, "content": tc.content})
+            chunked_ok += 1
         state["chunks"] = chunks
         record.counts["chunks"] = len(chunks)
-        record.phase("chunk").counts = {"chunks": len(chunks)}
+        record.phase("chunk").counts = {
+            "chunks": len(chunks),
+            "documents_chunked": chunked_ok,
+            "failed": len([d for d in state["docs"] if d.text.strip()]) - chunked_ok,
+        }
 
     async def _phase_embed(self, record, profile, corpus, state):
         if not profile.vector_targets:
