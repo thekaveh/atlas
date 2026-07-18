@@ -43,7 +43,7 @@ _No upstream calls._
 | celery | agents |
 | lightrag | agents |
 | n8n | agents |
-| llm-graph-builder | apps |
+| backend | apps |
 
 ### 2.3. Architecture diagram
 

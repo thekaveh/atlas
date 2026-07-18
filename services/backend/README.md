@@ -295,7 +295,9 @@ curl -X POST http://localhost:${BACKEND_PORT}/lightrag/rerank \
 | supavisor | data |
 | weaviate | data |
 | litellm | llm |
+| tei-reranker | llm |
 | comfyui | media |
+| docling | media |
 | fal | media |
 | tika | media |
 | celery | agents |

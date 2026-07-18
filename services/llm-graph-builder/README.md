@@ -93,10 +93,8 @@ This rollback leaves existing graph data untouched by design.
 
 | Service | Category |
 |---|---|
-| minio | data |
 | neo4j | data |
 | litellm | llm |
-| docling | media |
 
 ### 10.2. Current — Downstream (services that call this)
 

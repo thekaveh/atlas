@@ -337,6 +337,7 @@ curl -sX POST http://localhost:${LITELLM_PORT}/v1/chat/completions \
 
 | Service | Category |
 |---|---|
+| langfuse | infra |
 | otel-collector | infra |
 | redis | data |
 | supabase | data |
@@ -353,7 +354,6 @@ curl -sX POST http://localhost:${LITELLM_PORT}/v1/chat/completions \
 | Service | Category |
 |---|---|
 | kong | infra |
-| langfuse | infra |
 | prometheus | infra |
 | weaviate | data |
 | airflow | agents |

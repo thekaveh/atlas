@@ -284,7 +284,9 @@ data_flow:
     - celery
     - supavisor
     - tika
+    - docling
     - lightrag
+    - tei-reranker
     - minio
     - redis
     - otel-collector
