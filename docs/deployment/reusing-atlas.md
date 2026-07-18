@@ -193,6 +193,9 @@ env:
   file: ./atlas.env.user
   values:
     WEAVIATE_MEMORY_LIMIT: 4g
+    FAL_SOURCE:                       # key-gated: enabled iff FAL_API_KEY is set
+      enabled_if_env: FAL_API_KEY
+      else: disabled
 compose_overlays:
   - ./compose/rag-showcase-overlay.yml
 backend_plugins:
@@ -224,6 +227,23 @@ by repeating `--consumer` or by setting `ATLAS_CONSUMER_MANIFEST` with
 `os.pathsep`-separated paths. List-valued model declarations merge by ordered
 union; scalar conflicts such as different `PROJECT_NAME` values fail during
 validation instead of silently last-wins.
+
+An `env.values` entry may be **key-gated** instead of a plain scalar, so a
+consumer can enable a paid provider only when its key is present — declaratively,
+with no wrapper script:
+
+```yaml
+env:
+  values:
+    FAL_SOURCE:
+      enabled_if_env: FAL_API_KEY   # env var name, read from the invoking shell
+      then: enabled                 # optional; value when the var is set+non-empty (default "enabled")
+      else: disabled                # required; value when the var is unset/empty
+```
+
+The gate reads `FAL_API_KEY` from the environment at `./start.sh` time (a blank
+value counts as absent). Malformed forms — a missing `else`, an unknown key, or a
+non-`^[A-Z][A-Z0-9_]*$` env-var name — fail validation up front.
 
 Unknown or typo'd **top-level** keys are rejected with a clear error naming the
 offending key and the allowed set — a manifest that misspells `compose_overlays`

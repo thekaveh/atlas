@@ -501,3 +501,79 @@ def test_doctor_materializes_consumer_env_and_keeps_json_clean(
     # stdout must be parseable JSON — the quiet helper adds no banner lines.
     payload = json_module.loads(result.output)
     assert payload["ok"] is True
+
+
+def _write_conditional_consumer(root: Path, env_values_yaml: str, name: str = "gated") -> Path:
+    """Write a minimal valid consumer manifest with a custom env.values block."""
+    consumer = root / name
+    (consumer / "compose").mkdir(parents=True)
+    (consumer / "backend" / "plugins").mkdir(parents=True)
+    (consumer / "compose" / "overlay.yml").write_text(
+        "services:\n  demo:\n    image: alpine:3.20\n", encoding="utf-8"
+    )
+    manifest = consumer / "atlas.consumer.yml"
+    manifest.write_text(
+        f"project_name: {name}\nname: {name}\nenv:\n  values:\n{env_values_yaml}"
+        "compose_overlays:\n  - ./compose/overlay.yml\n"
+        "backend_plugins:\n  - ./backend/plugins\n",
+        encoding="utf-8",
+    )
+    return manifest
+
+
+def test_env_values_conditional_enabled_if_env(tmp_path: Path, monkeypatch) -> None:
+    """#722: a key-gated env value resolves to 'enabled' when the named env var is
+    set+non-empty, and to `else` when unset/empty — so a consumer can gate a paid
+    provider on its key without a wrapper script."""
+    from core.consumer_manifest import load_consumer_config
+
+    _write_minimal_root(tmp_path)
+    manifest = _write_conditional_consumer(
+        tmp_path,
+        "    FAL_SOURCE:\n      enabled_if_env: FAL_API_KEY\n      else: disabled\n",
+    )
+
+    monkeypatch.setenv("FAL_API_KEY", "fal-xxx")
+    cfg = load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
+    assert cfg.env_overrides["FAL_SOURCE"] == "enabled"
+
+    monkeypatch.delenv("FAL_API_KEY", raising=False)
+    cfg = load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
+    assert cfg.env_overrides["FAL_SOURCE"] == "disabled"
+
+    monkeypatch.setenv("FAL_API_KEY", "   ")  # present-but-blank == absent
+    cfg = load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
+    assert cfg.env_overrides["FAL_SOURCE"] == "disabled"
+
+
+def test_env_values_conditional_explicit_then(tmp_path: Path, monkeypatch) -> None:
+    from core.consumer_manifest import load_consumer_config
+
+    _write_minimal_root(tmp_path)
+    manifest = _write_conditional_consumer(
+        tmp_path,
+        "    COMFYUI_SOURCE:\n      enabled_if_env: HAS_GPU\n"
+        "      then: container-gpu\n      else: container-cpu\n",
+    )
+    monkeypatch.setenv("HAS_GPU", "1")
+    cfg = load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
+    assert cfg.env_overrides["COMFYUI_SOURCE"] == "container-gpu"
+    monkeypatch.delenv("HAS_GPU", raising=False)
+    cfg = load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
+    assert cfg.env_overrides["COMFYUI_SOURCE"] == "container-cpu"
+
+
+def test_env_values_conditional_malformed_raises(tmp_path: Path) -> None:
+    """#722 AC2: malformed conditional forms fail loudly."""
+    from core.consumer_manifest import ConsumerManifestError, load_consumer_config
+
+    _write_minimal_root(tmp_path)
+    cases = {
+        "noelse": "    FAL_SOURCE:\n      enabled_if_env: FAL_API_KEY\n",
+        "unknown": "    FAL_SOURCE:\n      enabled_if_env: FAL_API_KEY\n      else: disabled\n      bogus: x\n",
+        "badvar": "    FAL_SOURCE:\n      enabled_if_env: fal-api-key\n      else: disabled\n",
+    }
+    for name, block in cases.items():
+        manifest = _write_conditional_consumer(tmp_path, block, name=name)
+        with pytest.raises(ConsumerManifestError):
+            load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
