@@ -136,8 +136,12 @@ if [[ -z "${HERMES_DEFAULT_MODEL}" ]]; then
     # embeddings-only route and 500 every Hermes request. Mirrors the LightRAG
     # resolver's filter (services/lightrag/init/scripts/resolve-models.py).
     if [[ -z "${HERMES_DEFAULT_MODEL}" ]]; then
+      # `|| true`: when the filter chain empties (e.g. an Ollama-only stack with
+      # just an embedding model pulled), a grep exits 1 and `set -o pipefail`
+      # would abort the whole init container instead of falling through to the
+      # graceful "set HERMES_DEFAULT_MODEL" warning below.
       HERMES_DEFAULT_MODEL=$(printf '%s\n' "${available_ids}" \
-        | grep -vx "hermes-agent" | grep -vx "lightrag" | grep -ivE 'embed' | head -n1)
+        | grep -vx "hermes-agent" | grep -vx "lightrag" | grep -ivE 'embed' | head -n1 || true)
       if [[ -n "${HERMES_DEFAULT_MODEL}" ]]; then
         log "  auto-selected ${HERMES_DEFAULT_MODEL} (first non-hermes chat model)"
       fi

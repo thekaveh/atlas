@@ -149,6 +149,7 @@ def _build_split_graph(
     scheduler: str,
     denoise: float,
     init_image_name: Optional[str],
+    role_files_override: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
     """Multi-file bundle graph (Krea 2). Mirrors krea2-turbo-api.json:
     UNETLoader + CLIPLoader(type=krea2) + VAELoader, ConditioningZeroOut
@@ -163,8 +164,12 @@ def _build_split_graph(
     clip_name = ""
     vae_name = ""
     # Caller may pass explicit role files (from the manifest bundle); these
-    # override the single-alias default.
+    # override the single-alias default. Explicit ``diffusion=…`` tokens in the
+    # model string win; otherwise a catalog-resolved bundle (#675) supplies the
+    # per-role filenames.
     role_files = _extract_role_files(inputs_model)
+    if not role_files and role_files_override:
+        role_files = dict(role_files_override)
     if role_files:
         unet_name = role_files.get("diffusion") or role_files.get("unet") or unet_name
         clip_name = role_files.get("text_encoder") or role_files.get("clip") or clip_name
@@ -242,6 +247,74 @@ def _extract_role_files(model: str) -> Dict[str, str]:
     return roles
 
 
+def _load_catalog_manifest() -> List[Dict[str, Any]]:
+    """Read the bootstrapper-generated ComfyUI model manifest (the same file
+    the ``GET /comfyui/db/models`` route serves). Returns the ``models`` list,
+    or ``[]`` when the manifest is missing/unreadable (e.g. ComfyUI disabled or
+    not yet started) so resolution degrades to verbatim passthrough (#675).
+    """
+    import yaml
+
+    path = os.getenv("COMFYUI_MANIFEST_PATH", "/comfyui-manifest/selected-models.yaml")
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            manifest = yaml.safe_load(fh) or {}
+    except (OSError, yaml.YAMLError):
+        return []
+    models = manifest.get("models", [])
+    return models if isinstance(models, list) else []
+
+
+def _resolve_catalog_model(
+    model: str, models: List[Dict[str, Any]]
+) -> Optional[Dict[str, Any]]:
+    """Resolve a ``model`` token against the curated catalog manifest (#675).
+
+    A consumer configures the catalog *entry name* (e.g. ``krea2-turbo-bf16``,
+    the identity in ``COMFYUI_USER_MODELS`` and the one the 400 message
+    suggests), but ComfyUI loaders need the physical per-role bundle filenames.
+    The manifest flattens each bundle into per-file rows carrying ``name`` /
+    ``bundle_id`` (the entry name), ``bundle_file_role`` (diffusion /
+    text_encoder / vae), and the physical ``filename``.
+
+    Returns one of:
+    - ``{"kind": "bundle", "roles": {role: filename, ...}}`` — a multi-file entry
+      matched by catalog name.
+    - ``{"kind": "file", "filename": <name>}`` — a single-file catalog entry
+      matched by name, or a direct match on a known physical filename
+      (verbatim passthrough — the form the error message also accepts).
+    - ``None`` — the token matches no catalog entry name or known filename.
+    """
+    token = (model or "").strip()
+    if not token:
+        return None
+
+    bundles: Dict[str, Dict[str, str]] = {}
+    single_file_by_name: Dict[str, str] = {}
+    known_filenames: set[str] = set()
+    for row in models:
+        if not isinstance(row, dict):
+            continue
+        filename = str(row.get("filename") or "").strip()
+        if filename:
+            known_filenames.add(filename)
+        name = str(row.get("name") or "").strip()
+        role = str(row.get("bundle_file_role") or "").strip().lower()
+        bundle_id = str(row.get("bundle_id") or "").strip() or name
+        if role and bundle_id and filename:
+            bundles.setdefault(bundle_id, {})[role] = filename
+        elif name and filename:
+            single_file_by_name.setdefault(name, filename)
+
+    if token in bundles:
+        return {"kind": "bundle", "roles": bundles[token]}
+    if token in single_file_by_name:
+        return {"kind": "file", "filename": single_file_by_name[token]}
+    if token in known_filenames:
+        return {"kind": "file", "filename": token}
+    return None
+
+
 # ────────────────────────────────────────────────────────────────────
 # Client
 # ────────────────────────────────────────────────────────────────────
@@ -254,6 +327,13 @@ class ComfyUIMediaClient:
     def __init__(self, *, base_url: Optional[str] = None, model: Optional[str] = None) -> None:
         self.base_url = (base_url or os.getenv("COMFYUI_BASE_URL", "http://comfyui:18188")).rstrip("/")
         self.model = (model or "").strip()
+        # Cap on init-image bytes the backend will buffer when fetching a
+        # caller-supplied img2img source URL — same knob/default (20 MiB) the
+        # ComfyUIClient.get_image_data path uses. Without it, a caller could
+        # point the backend at an arbitrarily large URL and OOM the worker.
+        self.max_image_bytes = int(os.getenv("COMFYUI_MAX_IMAGE_BYTES", "20971520"))
+        if self.max_image_bytes <= 0:
+            raise ValueError("COMFYUI_MAX_IMAGE_BYTES must be positive")
         # Per-HTTP-call timeouts (not the generation-poll budget, which the
         # gateway owns via request.timeout_seconds). Fail fast on a down host
         # (connect=5); keep a 60s read budget for the slowest legitimate round.
@@ -283,6 +363,33 @@ class ComfyUIMediaClient:
             raise ValueError("provider=comfyui requires a model (checkpoint filename or catalog name)")
 
         profile = _profile_for(selected_model)
+
+        # Resolve a catalog *entry name* (e.g. krea2-turbo-bf16) to the bundle's
+        # physical per-role filenames via the manifest (#675). A checkpoint
+        # filename resolves to itself; explicit `role=file` tokens bypass this.
+        catalog_models = _load_catalog_manifest()
+        role_files_override: Optional[Dict[str, str]] = None
+        resolved_model = selected_model
+        if not _extract_role_files(selected_model):
+            resolved = _resolve_catalog_model(selected_model, catalog_models)
+            if resolved is None and catalog_models:
+                # The manifest is available but the token is neither a catalog
+                # entry name nor a known checkpoint filename — fail with a clear
+                # message naming both accepted forms (#675 AC#3).
+                known = sorted(
+                    {str(r.get("name")) for r in catalog_models if r.get("name")}
+                )
+                raise ValueError(
+                    f"provider=comfyui model {selected_model!r} is not a known "
+                    "catalog entry name or checkpoint filename. Pass a catalog "
+                    f"name (one of {known}) or a checkpoint filename."
+                )
+            if resolved is not None:
+                if resolved["kind"] == "bundle":
+                    role_files_override = resolved["roles"]
+                else:  # "file" — a single-file entry or verbatim filename match
+                    resolved_model = resolved["filename"]
+
         prompt = str(input_payload.get("prompt") or "").strip()
         if not prompt:
             raise ValueError("provider=comfyui image input must include a non-empty prompt")
@@ -316,7 +423,7 @@ class ComfyUIMediaClient:
             # cfg=1.0 families ignore the negative prompt (ConditioningZeroOut);
             # surface a clear signal rather than silently dropping it.
             graph = _build_split_graph(
-                model=selected_model,
+                model=resolved_model,
                 profile=profile,
                 prompt=prompt,
                 width=width,
@@ -328,10 +435,11 @@ class ComfyUIMediaClient:
                 scheduler=scheduler,
                 denoise=denoise,
                 init_image_name=init_image_name,
+                role_files_override=role_files_override,
             )
         else:
             graph = _build_checkpoint_graph(
-                model=selected_model,
+                model=resolved_model,
                 prompt=prompt,
                 negative_prompt=negative_prompt,
                 width=width,
@@ -507,9 +615,21 @@ class ComfyUIMediaClient:
                 f"(got: {source[:32]}…)"
             )
         try:
-            resp = await self.client.get(source)
-            resp.raise_for_status()
-            return resp.content
+            # Stream with a hard byte cap so a caller-supplied URL to an
+            # arbitrarily large file can't OOM the worker (mirrors
+            # ComfyUIClient.get_image_data). A too-large image is a client
+            # error → ValueError → gateway 400, not an HTTPError → 502.
+            chunks = bytearray()
+            async with self.client.stream("GET", source) as resp:
+                resp.raise_for_status()
+                declared = resp.headers.get("content-length")
+                if declared and declared.isdigit() and int(declared) > self.max_image_bytes:
+                    raise ValueError("ComfyUI init image exceeds configured byte limit")
+                async for chunk in resp.aiter_bytes():
+                    if len(chunks) + len(chunk) > self.max_image_bytes:
+                        raise ValueError("ComfyUI init image exceeds configured byte limit")
+                    chunks.extend(chunk)
+            return bytes(chunks)
         except httpx.HTTPError as exc:
             raise ValueError(f"Could not fetch ComfyUI init image from {source}: {exc}") from exc
 

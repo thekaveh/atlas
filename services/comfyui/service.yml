@@ -59,6 +59,12 @@ env:
   - name: COMFYUI_MPS_MIN_MEMORY_GB
     default: "16"
     description: "Minimum unified-memory headroom (GiB) the managed MPS preflight requires before launching ComfyUI; below this the preflight warns."
+  - name: COMFYUI_MPS_TORCH_PIN
+    default: "torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0"
+    description: "Pinned Torch/vision/audio pip spec the managed MPS install applies, so fresh installs are reproducible against the same COMFYUI_MPS_REF instead of pulling whatever Torch is newest that day. Space-separated pip requirement specifiers; bump alongside COMFYUI_MPS_REF. macOS/arm64 torch wheels carry Metal/MPS."
+  - name: COMFYUI_MPS_LISTEN
+    default: "127.0.0.1"
+    description: "Bind address the managed MPS ComfyUI host process listens on. Default 127.0.0.1 (loopback) works on Docker Desktop/macOS where host.docker.internal forwards to host loopback. On Linux container engines, host.docker.internal maps via host-gateway to a bridge address that cannot reach a loopback listener — set 0.0.0.0 there so containers can reach the host process. Local health/port probes stay on 127.0.0.1 regardless."
   - name: COMFYUI_BASE_URL
     default: "http://comfyui:18188"
     description: "In-container default. Runtime value is COMFYUI_ENDPOINT computed by hook."

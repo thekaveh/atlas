@@ -222,6 +222,18 @@ def test_extract_artifacts_builds_proxy_url():
     assert a["filename"] == "out.png"
 
 
+def test_artifact_url_is_gateway_relative_contract():
+    """#678: the ComfyUI `artifact_url` is a GATEWAY-RELATIVE proxy path (no
+    scheme) — a consumer must resolve it against its own backend/gateway base,
+    unlike FAL's absolute hosted URL (pinned in test_media_gateway.py). This
+    guards the documented shape difference so the two can't silently diverge."""
+    entry = {"outputs": {"9": {"images": [{"filename": "out.png", "type": "output"}]}}}
+    url = cmc.ComfyUIMediaClient._extract_artifacts(entry)[0]["url"]
+    assert url.startswith("/comfyui/image/")  # gateway-relative
+    assert "://" not in url  # never an absolute URL
+    assert not url.startswith(("http://", "https://"))
+
+
 def test_operation_payload_local_zero_cost_envelope():
     payload = ComfyUIMediaClient(base_url="http://x")._operation_payload(
         operation_id="pid",
@@ -575,6 +587,55 @@ def test_img2img_rejects_non_url_non_data_source():
     _run(lambda r: httpx.Response(200, json={}), body)
 
 
+def test_img2img_url_init_image_rejects_oversized_declared_length():
+    """A caller-supplied init-image URL whose Content-Length exceeds the byte
+    cap is rejected before the body is buffered → ValueError → gateway 400, so
+    a huge remote file can't OOM the worker."""
+
+    def handler(request):
+        if "big-img.test" in str(request.url):
+            # plain bytes → httpx sets an honest Content-Length > the cap.
+            return httpx.Response(200, content=b"\x00" * 4096, headers={"content-type": "image/png"})
+        return httpx.Response(404)
+
+    async def body(client):
+        client.max_image_bytes = 8
+        with pytest.raises(ValueError, match="byte limit"):
+            await client.submit_media_operation(
+                modality="image",
+                input_payload={"prompt": "x", "image": "https://big-img.test/huge.png"},
+                model="sdxl_base.safetensors",
+            )
+
+    _run(handler, body)
+
+
+def test_img2img_url_init_image_caps_streamed_body_without_content_length():
+    """When no Content-Length is declared (chunked transfer — the case a
+    malicious upstream would use to slip past the header precheck), the cap is
+    still enforced incrementally while streaming, not after buffering."""
+
+    async def _chunks():
+        for _ in range(64):
+            yield b"\x00" * 64  # 4096 bytes total, streamed with no Content-Length
+
+    def handler(request):
+        if "chunked-img.test" in str(request.url):
+            return httpx.Response(200, content=_chunks(), headers={"content-type": "image/png"})
+        return httpx.Response(404)
+
+    async def body(client):
+        client.max_image_bytes = 8
+        with pytest.raises(ValueError, match="byte limit"):
+            await client.submit_media_operation(
+                modality="image",
+                input_payload={"prompt": "x", "image": "https://chunked-img.test/huge.png"},
+                model="sdxl_base.safetensors",
+            )
+
+    _run(handler, body)
+
+
 def test_strength_clamped_to_unit_range():
     captured: Dict[str, Any] = {}
 
@@ -598,3 +659,127 @@ def test_strength_clamped_to_unit_range():
     _run(handler, body)
     graph = captured["body"]["prompt"]
     assert graph["4"]["inputs"]["denoise"] == 1.0  # clamped
+
+
+# ────────────────────────────────────────────────────────────────────
+# #675: catalog entry name → bundle filename resolution
+# ────────────────────────────────────────────────────────────────────
+_CATALOG_MANIFEST_MODELS = [
+    {"name": "krea2-turbo-bf16", "bundle_id": "krea2-turbo-bf16",
+     "bundle_file_role": "diffusion", "filename": "krea2_turbo_bf16.safetensors",
+     "type": "diffusion_models"},
+    {"name": "krea2-turbo-bf16", "bundle_id": "krea2-turbo-bf16",
+     "bundle_file_role": "text_encoder", "filename": "qwen3vl_4b_bf16.safetensors",
+     "type": "text_encoders"},
+    {"name": "krea2-turbo-bf16", "bundle_id": "krea2-turbo-bf16",
+     "bundle_file_role": "vae", "filename": "qwen_image_vae.safetensors",
+     "type": "vae"},
+    {"name": "sd_xl_base_1.0", "filename": "sd_xl_base_1.0.safetensors",
+     "type": "checkpoint"},
+]
+
+
+def _write_catalog_manifest(tmp_path, monkeypatch, models=None):
+    import yaml
+
+    manifest = tmp_path / "selected-models.yaml"
+    manifest.write_text(
+        yaml.safe_dump({"models": models if models is not None else _CATALOG_MANIFEST_MODELS}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("COMFYUI_MANIFEST_PATH", str(manifest))
+    return manifest
+
+
+def test_resolve_catalog_model_bundle_single_file_and_unknown():
+    # Catalog name → per-role bundle filenames.
+    bundle = cmc._resolve_catalog_model("krea2-turbo-bf16", _CATALOG_MANIFEST_MODELS)
+    assert bundle == {
+        "kind": "bundle",
+        "roles": {
+            "diffusion": "krea2_turbo_bf16.safetensors",
+            "text_encoder": "qwen3vl_4b_bf16.safetensors",
+            "vae": "qwen_image_vae.safetensors",
+        },
+    }
+    # Single-file catalog entry name → its physical filename.
+    assert cmc._resolve_catalog_model("sd_xl_base_1.0", _CATALOG_MANIFEST_MODELS) == {
+        "kind": "file", "filename": "sd_xl_base_1.0.safetensors",
+    }
+    # A direct physical filename matches verbatim (both forms accepted).
+    assert cmc._resolve_catalog_model("krea2_turbo_bf16.safetensors", _CATALOG_MANIFEST_MODELS) == {
+        "kind": "file", "filename": "krea2_turbo_bf16.safetensors",
+    }
+    # An unknown token resolves to nothing.
+    assert cmc._resolve_catalog_model("nope", _CATALOG_MANIFEST_MODELS) is None
+
+
+def test_submit_resolves_catalog_name_to_bundle_filenames(tmp_path, monkeypatch):
+    """AC#1: model=<catalog entry name> resolves to the bundle's per-role
+    filenames in the built graph."""
+    _write_catalog_manifest(tmp_path, monkeypatch)
+    captured: Dict[str, Any] = {}
+
+    async def body(client):
+        return await client.submit_media_operation(
+            modality="image", input_payload={"prompt": "obs", "seed": 1},
+            model="krea2-turbo-bf16",
+        )
+
+    _run(_submit_handler(captured=captured), body)
+    graph = captured["last_prompt_body"]["prompt"]
+    assert graph["1"]["inputs"]["unet_name"] == "krea2_turbo_bf16.safetensors"
+    assert graph["2"]["inputs"]["clip_name"] == "qwen3vl_4b_bf16.safetensors"
+    assert graph["3"]["inputs"]["vae_name"] == "qwen_image_vae.safetensors"
+
+
+def test_submit_accepts_checkpoint_filename_form(tmp_path, monkeypatch):
+    """AC#2: model=<checkpoint filename> keeps working (verbatim) even with the
+    manifest present."""
+    _write_catalog_manifest(tmp_path, monkeypatch)
+    captured: Dict[str, Any] = {}
+
+    async def body(client):
+        return await client.submit_media_operation(
+            modality="image", input_payload={"prompt": "obs", "seed": 1},
+            model="krea2_turbo_bf16.safetensors",
+        )
+
+    _run(_submit_handler(captured=captured), body)
+    graph = captured["last_prompt_body"]["prompt"]
+    assert graph["1"]["inputs"]["unet_name"] == "krea2_turbo_bf16.safetensors"
+
+
+def test_submit_rejects_unknown_model_with_both_forms(tmp_path, monkeypatch):
+    """AC#3: an unknown token 400s (ValueError) with a message naming both
+    accepted forms."""
+    _write_catalog_manifest(tmp_path, monkeypatch)
+
+    async def body(client):
+        with pytest.raises(ValueError) as excinfo:
+            await client.submit_media_operation(
+                modality="image", input_payload={"prompt": "obs"},
+                model="totally-unknown-model",
+            )
+        message = str(excinfo.value)
+        assert "catalog" in message and "filename" in message
+        assert "krea2-turbo-bf16" in message  # lists a known catalog name
+
+    _run(lambda r: httpx.Response(200, json={}), body)
+
+
+def test_submit_without_manifest_falls_back_to_verbatim(tmp_path, monkeypatch):
+    """No manifest (ComfyUI disabled / not started) → verbatim passthrough, so
+    an unknown token is NOT pre-rejected (ComfyUI does the final validation)."""
+    monkeypatch.setenv("COMFYUI_MANIFEST_PATH", str(tmp_path / "does-not-exist.yaml"))
+    captured: Dict[str, Any] = {}
+
+    async def body(client):
+        return await client.submit_media_operation(
+            modality="image", input_payload={"prompt": "obs", "seed": 1},
+            model="sdxl_base.safetensors",
+        )
+
+    _run(_submit_handler(captured=captured), body)
+    graph = captured["last_prompt_body"]["prompt"]
+    assert graph["1"]["inputs"]["ckpt_name"] == "sdxl_base.safetensors"

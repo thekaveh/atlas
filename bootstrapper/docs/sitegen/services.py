@@ -135,7 +135,7 @@ Atlas checks out a pinned ComfyUI ref (`COMFYUI_MPS_REF`, default `v0.27.0`) int
 
 ### {section_number}.2 Lifecycle And Preflight
 
-A normal `./start.sh` with this source runs preflight, install, and start automatically before Compose; `./stop.sh` stops the host process. Explicit control is available headless:
+A normal `./start.sh` with this source runs preflight, install, and start automatically before Compose. The process is **host-global** — shared by every Atlas consumer on the machine — so a project-scoped `./stop.sh` leaves it running by default (with an advisory); pass `./stop.sh --stop-managed-hosts` to stop it explicitly (this affects all consumers), or use the per-runtime `comfyui-mps stop` command below. Explicit control is available headless:
 
 ```bash
 ./start.sh comfyui-mps preflight
@@ -327,7 +327,7 @@ def service_pages(model: DocsModel) -> dict[Path, str]:
     pages: dict[Path, str] = {}
     docs = model.root / "docs" / "site" / "services"
     categories = sorted({service.category for service in model.services})
-    sections: list[str] = ["# Service Catalog", "", "## 1. Service Catalog", ""]
+    sections: list[str] = ["# Service Catalog", "", "## 1. Services by Category", ""]
 
     for index, category in enumerate(categories, start=1):
         rows = []

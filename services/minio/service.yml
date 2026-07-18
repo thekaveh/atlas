@@ -225,8 +225,9 @@ depends_on:
 rows:
   # Wizard / overview row points at MINIO_CONSOLE_PORT because the
   # `minio.localhost` alias routes to the admin console (port 9001
-  # in-container, MINIO_CONSOLE_PORT host-side). The S3 API on
-  # MINIO_PORT is NOT aliased — S3 clients use the direct port.
+  # in-container, MINIO_CONSOLE_PORT host-side). The S3 API has its own
+  # `s3.minio.localhost` alias (see extra_kong_aliases); S3 clients can
+  # also use the direct MINIO_PORT.
   - display_name: "MinIO Console"
     source_var: MINIO_SOURCE
     port_var: MINIO_CONSOLE_PORT

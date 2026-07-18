@@ -25,7 +25,7 @@ A maintainer who already understands the stack can land a new service in under a
 - [ ] **Add the new folder to the relevant track(s) in `bootstrapper/tracks.yml`** (source-configurable services only). A configurable service absent from a named track's `services:` list is force-disabled (`*_SOURCE=disabled`) there — it only runs under `--track all`. Always-on infra and the always-prompted LLM/Prometheus/Grafana tier are exempt.
 - [ ] **Run the root-safe regen, lint, and required-check checklist** → [After you save the files](#12-after-you-save-the-files--regen--lint-commands-in-order), then [CI gates](#134-ci-gates-that-run-on-every-push)
 - [ ] **Update audit-script allowlists** if your service has hard deps → [Audit-script + CI implications](#13-audit-script--ci-implications)
-- [ ] **Commit and push.** CI gates the change (four required jobs: manifest-lint+pytest, compose-equivalence+permutation matrix, docs-drift+audit-scripts, build-validation).
+- [ ] **Commit and push.** CI gates the change (three required jobs: manifest-lint+pytest, compose-equivalence+permutation matrix, docs-drift+audit-scripts; build-validation is opt-in via `ENABLE_BUILD_VALIDATION`).
 
 If you're new to this codebase, read Decisions 1–6 in sequence; the Qdrant worked example illustrates each one.
 
@@ -547,17 +547,19 @@ If your service ships a `requirements.txt` / `pyproject.toml` in a `build/` or `
 
 ### 13.4. CI gates that run on every push
 
-The `.github/workflows/services-lint.yml` workflow has four jobs, and all four
-are REQUIRED branch-protection checks:
+The `.github/workflows/services-lint.yml` workflow runs the jobs below. The
+first three are REQUIRED status checks in the `gitflow` ruleset; **Build-validation
+is opt-in** (gated on the `ENABLE_BUILD_VALIDATION` Actions variable) and is not a
+required check:
 
 | Job | What it catches |
 |---|---|
 | **Manifest lint + unit tests** | `validate_fragments` lint + 1,300+ pytest tests + the backend's own pytest suite (`services/backend/app/app/tests/`). Catches: manifest schema violations, dependency cycles, env-example drift, category overflow, backend route regressions. |
 | **Compose merge + byte-equivalence + source-permutation matrix** | Renders `docker compose config` for the merged fragment list + verifies it matches the golden baseline + tests every source variant of every service. Catches: compose-syntax errors, source-permutation regressions. |
 | **Docs drift + audit scripts** | `regen --all --check` + `make docs-check` + the remaining audits (`check_doc_links` — including `#anchor` fragment validation, `check-compose-source-deps`, `check-docs-drift`, `check-kong-routes`, `validate_research_schema`, `check-track-membership`) + a `uv lock --locked` gate for the docling localhost provider. Catches: stale per-service docs, three-surface drift, cross-surface links, missing local assets, missing `REQUIRED_DEPENDS_ON` entries, Kong route default drift, broken links/anchors, research-schema violations, stale provider locks, and track-membership omissions. |
-| **Build-validation** | `docker buildx build` for every local non-GPU Compose build context plus every `services/*/init/Dockerfile` context; GPU provider builds are intentionally excluded for runner size/time. Catches: unsatisfiable pip pins, broken Dockerfiles, and init-image drift. |
+| **Build-validation** (opt-in) | `docker buildx build` for every local non-GPU Compose build context plus every `services/*/init/Dockerfile` context; GPU provider builds are intentionally excluded for runner size/time. Catches: unsatisfiable pip pins, broken Dockerfiles, and init-image drift. Runs only when `ENABLE_BUILD_VALIDATION=true`; not a required check. |
 
-Run the equivalent of the four required jobs locally before pushing:
+Run the equivalent of the CI jobs locally before pushing:
 
 ```bash
 uv run --project bootstrapper pytest bootstrapper/tests -q                         # job 1 + 2 (minus byte-equivalence)

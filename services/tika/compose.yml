@@ -18,7 +18,10 @@ services:
     ports:
       - "${HOST_BIND_IP:-}${TIKA_PORT}:9998"
     healthcheck:
-      test: "curl -fsS http://localhost:9998/tika || exit 1"
+      # apache/tika:3.3.1.0 ships bash but NOT curl/wget/nc — the old curl probe
+      # could never succeed, leaving tika permanently `unhealthy`. Use a bash
+      # /dev/tcp connect to the listen port as the readiness probe.
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/9998"]
       interval: 30s
       timeout: 10s
       retries: 5

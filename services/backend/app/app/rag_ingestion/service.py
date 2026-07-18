@@ -19,6 +19,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import time
 import uuid
 from datetime import datetime, timezone
@@ -50,6 +51,21 @@ from .store import IngestionStore, default_store
 
 
 logger = logging.getLogger(__name__)
+
+
+def weaviate_class_name(collection_prefix: str, profile_name: str) -> str:
+    """Compose a valid Weaviate class name from a (validated uppercase-first)
+    collection_prefix and a profile name.
+
+    Weaviate class names must match ``^[A-Z][_0-9A-Za-z]*$``, but a profile name
+    may legitimately contain ``.``/``-`` (e.g. ``showcase-default``). Left raw,
+    ``{prefix}_{name}`` would 422 on ensure_class and the case-sensitive
+    reconcile ``Get {{ <class> }}`` query would 404. Sanitize every non-alnum
+    char in the name to ``_`` so the derived class name is always valid and the
+    write + reconcile paths agree.
+    """
+    safe_name = re.sub(r"[^0-9A-Za-z]", "_", profile_name)
+    return f"{collection_prefix}_{safe_name}"
 
 
 class PhaseFatal(RuntimeError):
@@ -110,6 +126,19 @@ def _http_error_details(exc: Exception) -> tuple[Optional[int], Optional[str]]:
     return status, body
 
 
+def _describe_exc(exc: BaseException) -> str:
+    """Render an exception with at least its class name.
+
+    Some transport exceptions (notably ``httpx.ReadTimeout``) have an empty
+    ``str()``, which would otherwise record a blank, non-actionable error such
+    as ``unexpected error:`` (#673). Always prefix the class name so the
+    failure is diagnosable even when the message is empty.
+    """
+    message = str(exc).strip()
+    name = type(exc).__name__
+    return f"{name}: {message}" if message else name
+
+
 class Deps:
     """Injectable upstream clients. Defaults read env; tests pass fakes."""
 
@@ -121,6 +150,8 @@ class Deps:
         weaviate: Optional[WeaviateClient] = None,
         lightrag: Optional[LightRagClient] = None,
         poll_interval: float = 2.0,
+        drain_backoff_base: float = 1.0,
+        drain_backoff_max: float = 15.0,
     ) -> None:
         self.corpus = corpus or CorpusReader()
         self.parser = parser or ParserAdapter()
@@ -128,6 +159,11 @@ class Deps:
         self.weaviate = weaviate or WeaviateClient()
         self.lightrag = lightrag or LightRagClient()
         self.poll_interval = poll_interval
+        # Bounded exponential backoff (seconds) applied between consecutive
+        # transient `pipeline_status` failures during drain (#673). Steady-state
+        # polling of a *reachable* busy pipeline still uses ``poll_interval``.
+        self.drain_backoff_base = drain_backoff_base
+        self.drain_backoff_max = drain_backoff_max
 
 
 class RagIngestionService:
@@ -178,6 +214,8 @@ class RagIngestionService:
             revision=profile.revision,
             idempotency_key=key,
             content_digest=corpus_fingerprint[:16],
+            profile_snapshot=profile.to_dict(corpus=corpus),
+            corpus=dict(corpus),
             created_at=_now_iso(),
             updated_at=_now_iso(),
         )
@@ -310,8 +348,13 @@ class RagIngestionService:
             raise KeyError(ingestion_id)
         if record.is_terminal:
             return record
-        profile = self._resolve_profile(record.profile)
-        corpus = dict(profile.corpus)
+        if record.profile_snapshot:
+            profile = LoadedProfile.from_dict(record.profile_snapshot)
+        else:
+            # Records created before execution snapshots were introduced retain
+            # their historical registry-resolution behavior.
+            profile = self._resolve_profile(record.profile)
+        corpus = dict(record.corpus or profile.corpus)
         owner = execution_owner or f"local-{uuid.uuid4()}"
         lease_seconds = (
             ingestion_execution_lease_seconds()
@@ -421,7 +464,7 @@ class RagIngestionService:
         running = next(
             (p.name for p in record.phases if p.status == STATUS_RUNNING), "finalize"
         )
-        error = IngestionError(phase=running, message=f"unexpected error: {exc}")
+        error = IngestionError(phase=running, message=f"unexpected error: {_describe_exc(exc)}")
         record.add_error(error)
         self._mark_failed_phase(record, running, error)
         record.status = STATUS_FAILED
@@ -497,30 +540,56 @@ class RagIngestionService:
         record.phase("parse").counts = {"parsed": parsed_ok, "failed": len(state["files"]) - parsed_ok}
 
     async def _phase_chunk(self, record, profile, corpus, state):
-        from chunking_service import ChunkRequest, chunk_text
+        from pydantic import ValidationError
+
+        from chunking_service import (
+            ChunkingDependencyError,
+            ChunkingError,
+            ChunkRequest,
+            chunk_text,
+        )
 
         chunker = profile.chunker or {}
         strategy = chunker.get("strategy", "recursive")
         chunk_size = int(chunker.get("chunk_size", 512))
         overlap = int(chunker.get("overlap", 64))
         chunks: List[Dict[str, Any]] = []
+        chunked_ok = 0
         for doc in state["docs"]:
             if not doc.text.strip():
                 continue
-            resp = await asyncio.to_thread(
-                chunk_text,
-                ChunkRequest(
-                    text=doc.text,
-                    strategy=strategy,
-                    chunk_size=chunk_size,
-                    overlap=overlap,
-                ),
-            )
+            try:
+                resp = await asyncio.to_thread(
+                    chunk_text,
+                    ChunkRequest(
+                        text=doc.text,
+                        strategy=strategy,
+                        chunk_size=chunk_size,
+                        overlap=overlap,
+                    ),
+                )
+            except ChunkingDependencyError:
+                # Systemic (chonkie missing) — affects every document; fail the
+                # job rather than silently isolating it to a zero-chunk success.
+                raise
+            except (ValidationError, ChunkingError) as exc:
+                # Per-document failure — e.g. doc.text over ChunkRequest's length
+                # cap, or a chonkie chunking error. Isolate it and continue like
+                # _phase_parse does, instead of aborting the whole corpus.
+                record.add_error(
+                    IngestionError(phase="chunk", file=doc.name, message=str(exc))
+                )
+                continue
             for tc in resp.chunks:
                 chunks.append({"source": doc.name, "index": tc.index, "content": tc.content})
+            chunked_ok += 1
         state["chunks"] = chunks
         record.counts["chunks"] = len(chunks)
-        record.phase("chunk").counts = {"chunks": len(chunks)}
+        record.phase("chunk").counts = {
+            "chunks": len(chunks),
+            "documents_chunked": chunked_ok,
+            "failed": len([d for d in state["docs"] if d.text.strip()]) - chunked_ok,
+        }
 
     async def _phase_embed(self, record, profile, corpus, state):
         if not profile.vector_targets:
@@ -562,7 +631,19 @@ class RagIngestionService:
             record.phase("vector_write").note = "no vector_targets"
             return
         if not state["chunks"]:
-            record.phase("vector_write").note = "no chunks to write"
+            for target in targets:
+                if not self.deps.weaviate.available():
+                    self._target_unavailable(
+                        record, "vector_write", "weaviate", "weaviate",
+                        target.get("on_unavailable", "fail"),
+                    )
+                    return
+                class_name = weaviate_class_name(target['collection_prefix'], profile.name)
+                await self.deps.weaviate.ensure_class(class_name)
+                await self.deps.weaviate.reconcile_objects(
+                    class_name, profile.name, []
+                )
+            record.phase("vector_write").note = "no chunks; stale objects removed"
             record.counts["vectors_written"] = 0
             return
         total = 0
@@ -585,7 +666,7 @@ class RagIngestionService:
                     detail="no embeddings produced — the embedder (LITELLM_BASE_URL) is disabled",
                 )
                 return
-            class_name = f"{target['collection_prefix']}_{profile.name}"
+            class_name = weaviate_class_name(target['collection_prefix'], profile.name)
             try:
                 await self.deps.weaviate.ensure_class(class_name)
                 objects = [
@@ -600,6 +681,11 @@ class RagIngestionService:
                     for c in state["chunks"]
                 ]
                 total += await self.deps.weaviate.write_objects(class_name, objects)
+                await self.deps.weaviate.reconcile_objects(
+                    class_name,
+                    profile.name,
+                    [obj["id"] for obj in objects],
+                )
             except PhaseFatal:
                 raise
             except TRANSIENT_EXCEPTIONS:
@@ -644,6 +730,18 @@ class RagIngestionService:
         record.counts["documents_uploaded"] = uploaded
         record.phase("lightrag_upload").counts = {"uploaded": uploaded}
 
+    def _drain_backoff_delay(self, consecutive_failures: int) -> float:
+        """Bounded exponential backoff with full jitter (seconds) between
+        consecutive transient ``pipeline_status`` failures. Full jitter (a
+        uniform draw in ``[0, delay]``) avoids synchronized retry storms across
+        concurrent ingestions."""
+        import random
+
+        base = max(0.0, self.deps.drain_backoff_base)
+        cap = max(base, self.deps.drain_backoff_max)
+        delay = min(base * (2 ** max(0, consecutive_failures - 1)), cap)
+        return random.uniform(0.0, delay) if delay > 0 else 0.0
+
     async def _phase_drain(self, record, profile, corpus, state):
         targets = [t for t in profile.graph_targets if t.get("wait_for_extraction", True)]
         if not targets or not self.deps.lightrag.available():
@@ -652,24 +750,83 @@ class RagIngestionService:
             return
         import asyncio
 
+        polls = 0
+        transient_retries = 0
         for target in targets:
             timeout = int(target.get("timeout_seconds", 3600))
             deadline = time.monotonic() + timeout
+            consecutive_transient = 0
+            last_transient_exc: Optional[BaseException] = None
             while True:
-                if not await self.deps.lightrag.pipeline_busy():
-                    break
-                if time.monotonic() >= deadline:
+                transient = False
+                try:
+                    polls += 1
+                    busy = await self.deps.lightrag.pipeline_busy()
+                except httpx.HTTPStatusError as exc:
+                    # Deterministic HTTP failure (401/403, validation, other
+                    # 4xx): never retried — fail immediately with bounded,
+                    # actionable detail (#673).
+                    status, body = _http_error_details(exc)
                     raise PhaseFatal(
                         IngestionError(
                             phase="drain", service="lightrag",
-                            message=f"extraction did not drain within {timeout}s",
+                            message=f"pipeline_status failed: {_describe_exc(exc)}",
+                            http_status=status, body=body,
                         )
                     )
+                except TRANSIENT_EXCEPTIONS as exc:
+                    # LightRAG can briefly stop servicing pipeline_status during
+                    # a long extraction/merge. Retry within the drain deadline
+                    # rather than failing a healthy ingestion (#673).
+                    transient = True
+                    transient_retries += 1
+                    consecutive_transient += 1
+                    last_transient_exc = exc
+                else:
+                    consecutive_transient = 0
+                    last_transient_exc = None
+                    if not busy:
+                        break
+
+                if time.monotonic() >= deadline:
+                    detail = f"extraction did not drain within {timeout}s"
+                    if last_transient_exc is not None:
+                        detail += (
+                            f" (last pipeline_status error after {transient_retries} "
+                            f"transient retr{'y' if transient_retries == 1 else 'ies'}: "
+                            f"{_describe_exc(last_transient_exc)})"
+                        )
+                    raise PhaseFatal(
+                        IngestionError(
+                            phase="drain", service="lightrag", message=detail,
+                        )
+                    )
+                # Cancellation stays responsive between every poll — including
+                # while backing off after a transient failure — and the
+                # execution-lease heartbeat runs in its own task, unaffected.
                 await self._refresh_cancel(record)
                 if record.cancel_requested:
                     raise IngestionCancelled()
-                await asyncio.sleep(self.deps.poll_interval)
-        record.phase("drain").note = "extraction drained"
+                delay = (
+                    self._drain_backoff_delay(consecutive_transient)
+                    if transient
+                    else self.deps.poll_interval
+                )
+                await asyncio.sleep(delay)
+        note = "extraction drained"
+        if transient_retries:
+            note += (
+                f" after {transient_retries} transient pipeline_status "
+                f"retr{'y' if transient_retries == 1 else 'ies'}"
+            )
+        drain_phase = record.phase("drain")
+        drain_phase.note = note
+        # Drain evidence: how many status polls ran and how many were transient
+        # retries, so an operator can see a poll race happened (#673 AC).
+        drain_phase.counts = {
+            "status_polls": polls,
+            "transient_retries": transient_retries,
+        }
 
     async def _phase_finalize(self, record, profile, corpus, state):
         record.phase("finalize").counts = dict(record.counts)

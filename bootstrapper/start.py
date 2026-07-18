@@ -239,6 +239,11 @@ class AtlasStarter:
         # Managers recorded here were started by this AtlasStarter invocation.
         # Pre-existing native hosts are deliberately never rollback-owned.
         self._managed_hosts_started_this_run: list[tuple[str, object]] = []
+        # True once a nonzero `up --wait` was reclassified as converged only
+        # after re-polling still-`starting` rows within the grace window
+        # (#677/#681) — surfaced in the --detach --json summary so automation
+        # can see the health race happened.
+        self._up_converged_after_grace: bool = False
 
 
     def show_banner(self):
@@ -2281,14 +2286,17 @@ class AtlasStarter:
         # Default: silent check, no warnings for missing entries
         return True
             
-    def perform_cold_start_cleanup(self) -> bool:
+    def perform_cold_start_cleanup(self, project_name: Optional[str] = None) -> bool:
         """Perform cold start cleanup if requested."""
         self.banner.show_section_header("Cold Start Cleanup", "🧹")
-        
+
         self.banner.show_status_message("Performing cold start cleanup...", "info")
-        
-        # Use the enhanced cold start cleanup
-        success = self.docker_manager.perform_cold_start_cleanup()
+
+        # Use the enhanced cold start cleanup. Forward the CLI project name so a
+        # `--cold --project foo` run tears down `foo` rather than the stale
+        # project still recorded in .env (the override is not persisted until
+        # setup_env_file runs later).
+        success = self.docker_manager.perform_cold_start_cleanup(project_name=project_name)
         
         if not success:
             self.banner.show_status_message("Cold cleanup failed; secrets were not rotated", "error")
@@ -2443,43 +2451,132 @@ class AtlasStarter:
         self.banner.show_status_message("All services started successfully", "success")
         return True
 
-    def _up_wait_race_converged(self) -> bool:
-        """Classify a nonzero ``up -d --wait`` as the benign one-shot race (#508).
+    def _poll_until_converged(
+        self,
+        *,
+        grace_seconds: float = 120.0,
+        poll_interval_seconds: float = 2.0,
+        poll_rows=None,
+        sleep=None,
+        monotonic=None,
+    ) -> tuple[list[dict], bool, bool, str | None]:
+        """Inspect ``compose ps`` and re-poll convergent-pending rows within a
+        bounded grace window (#677/#681).
 
-        Returns True only when ``compose ps`` reports at least one service and
-        EVERY reported service is ok per ``_compose_row_status`` (long-lived:
-        running + healthy/no-healthcheck; one-shots: exited 0). Any other
-        outcome — inspection error, empty stack, nonzero exit, unhealthy or
-        non-running service — returns False and names the offenders, so a
-        genuine failure keeps failing loudly.
+        A ``state=running, health=starting`` row is *convergent-pending*, not a
+        failure — its healthcheck is simply still in its start period. This
+        re-polls while any row is pending, up to ``grace_seconds``, so a stack
+        that is merely mid-probe at the first snapshot is given time to settle
+        before being classified.
+
+        Returns ``(services, converged, waited, error)``:
+        - ``services`` — the classified rows from the final poll.
+        - ``converged`` — True iff there is at least one service and every row
+          is ok (no genuine failure, nothing still pending).
+        - ``waited`` — True iff a pending row was observed and re-polled, so a
+          caller can flag "converged after grace".
+        - ``error`` — a ``compose ps`` inspection error, or None.
+
+        A genuine failure (``not ok and not pending``) short-circuits
+        immediately — there is no point waiting on a doomed start. Dependencies
+        (``poll_rows`` / ``sleep`` / ``monotonic``) are injectable so the
+        grace loop is unit-testable with fake ps snapshots and a fake clock.
         """
-        rows, error = self.docker_manager.compose_ps_json()
+        import time as _time
+
+        poll_rows = poll_rows or self.docker_manager.compose_ps_json
+        sleep = sleep or _time.sleep
+        monotonic = monotonic or _time.monotonic
+
+        waited = False
+        deadline = monotonic() + grace_seconds
+        while True:
+            rows, error = poll_rows()
+            if error is not None:
+                return [], False, waited, error
+            services = [self._compose_row_status(row) for row in rows]
+            genuine_failure = any(
+                not entry["ok"] and not entry["pending"] for entry in services
+            )
+            pending = [entry for entry in services if entry["pending"]]
+            # Classify now on a genuine failure (don't wait on a doomed start),
+            # an empty stack, or once nothing is still pending.
+            if genuine_failure or not services or not pending:
+                converged = bool(services) and all(
+                    entry["ok"] for entry in services
+                )
+                return services, converged, waited, None
+            # Only ``starting`` rows remain and nothing has failed — grace-wait.
+            if monotonic() >= deadline:
+                # Grace exhausted; still-pending rows now count as failures.
+                return services, False, waited, None
+            waited = True
+            sleep(min(poll_interval_seconds, max(0.0, deadline - monotonic())))
+
+    def _up_wait_race_converged(
+        self,
+        *,
+        grace_seconds: float = 120.0,
+        poll_interval_seconds: float = 2.0,
+        poll_rows=None,
+        sleep=None,
+        monotonic=None,
+    ) -> bool:
+        """Classify a nonzero ``up -d --wait`` as a benign, converged start.
+
+        Two benign races are covered: the #508 one-shot-init race (a one-shot
+        exits 0 during the wait window) and the #677/#681 long-lived-healthcheck
+        race (a service is still ``health=starting`` at the snapshot). Returns
+        True only when ``compose ps`` reports at least one service and every row
+        is ok per ``_compose_row_status`` — after re-polling any still-starting
+        rows within ``grace_seconds``. Any other outcome — inspection error,
+        empty stack, unhealthy/non-running service, or a row still starting
+        after the grace window — returns False and names the offenders, so a
+        genuine failure keeps failing loudly. Injectable deps mirror
+        ``_poll_until_converged`` for testing.
+        """
+        services, converged, waited, error = self._poll_until_converged(
+            grace_seconds=grace_seconds,
+            poll_interval_seconds=poll_interval_seconds,
+            poll_rows=poll_rows,
+            sleep=sleep,
+            monotonic=monotonic,
+        )
         if error is not None:
             self.banner.show_status_message(
                 f"Could not inspect services after nonzero `up --wait`: {error}",
                 "error",
             )
             return False
-        if not rows:
+        if not services:
             return False
-
-        services = [self._compose_row_status(row) for row in rows]
-        failing = [entry for entry in services if not entry["ok"]]
-        if failing:
-            for entry in failing:
+        if not converged:
+            for entry in services:
+                if entry["ok"]:
+                    continue
                 exit_note = (
                     f", exit code {entry['exit_code']}" if entry["exit_code"] else ""
                 )
+                reason = entry["reason"]
+                if entry["pending"]:
+                    # Still starting after the full grace window — a genuine
+                    # timeout now, not a benign mid-probe.
+                    reason = f"{reason} (still not healthy after grace window)"
                 self.banner.show_status_message(
-                    f"{entry['service']}: {entry['reason']}{exit_note}",
+                    f"{entry['service']}: {reason}{exit_note}",
                     "error",
                 )
             return False
 
+        self._up_converged_after_grace = waited
+        detail = (
+            "services converged within the health-check grace window"
+            if waited
+            else "known successful one-shot init race"
+        )
         self.banner.show_status_message(
             "Compose `up --wait` returned nonzero, but every service is "
-            "running/healthy and every one-shot exited 0 — continuing "
-            "(known successful one-shot init race).",
+            f"running/healthy and every one-shot exited 0 — continuing ({detail}).",
             "warning",
         )
         return True
@@ -2494,11 +2591,23 @@ class AtlasStarter:
         status_lower = status.lower()
 
         ok = False
+        pending = False
         reason = status or state or health or "unknown"
         if state == "running":
-            ok = health in {"", "healthy"}
-            if health and health != "healthy":
-                reason = health
+            # A running container's exit code is meaningless (Compose reports 0
+            # for a live container); never surface it as a failure signal — it
+            # is the source of the misleading "starting, exit code 0" line.
+            exit_code = ""
+            if health == "starting":
+                # Convergent-pending, NOT failed: the healthcheck is still in
+                # its start period. Callers re-poll pending rows within a grace
+                # window before classifying (#677/#681).
+                pending = True
+                reason = "starting"
+            else:
+                ok = health in {"", "healthy"}
+                if health and health != "healthy":
+                    reason = health
         elif state == "exited":
             ok = (
                 exit_code in {"", "0", "<nil>", "None"}
@@ -2515,23 +2624,57 @@ class AtlasStarter:
             "status": status or None,
             "exit_code": exit_code or None,
             "ok": ok,
+            "pending": pending,
             "reason": reason,
         }
 
-    def show_detached_status_summary(self, *, json_output: bool = False) -> bool:
-        """Print final compose status for automation-friendly detached starts."""
-        rows, error = self.docker_manager.compose_ps_json()
+    def show_detached_status_summary(
+        self,
+        *,
+        json_output: bool = False,
+        grace_seconds: float = 120.0,
+        poll_interval_seconds: float = 2.0,
+        poll_rows=None,
+        sleep=None,
+        monotonic=None,
+    ) -> bool:
+        """Print final compose status for automation-friendly detached starts.
+
+        Grace-aware (#677/#681): a service still ``health=starting`` at the
+        summary moment is re-polled within a bounded window before classifying,
+        so the final summary never false-fails on a mid-probe healthcheck. The
+        ``--json`` payload carries ``converged_after_grace`` so automation can
+        tell a health race apart from a first-pass-healthy start.
+        """
+        services, converged, waited, error = self._poll_until_converged(
+            grace_seconds=grace_seconds,
+            poll_interval_seconds=poll_interval_seconds,
+            poll_rows=poll_rows,
+            sleep=sleep,
+            monotonic=monotonic,
+        )
         if error is not None:
-            payload = {"ok": False, "error": error, "services": []}
+            payload = {
+                "ok": False,
+                "error": error,
+                "services": [],
+                "converged_after_grace": False,
+            }
             if json_output:
                 print(json.dumps(payload, indent=2, sort_keys=True))
             else:
                 self.banner.show_status_message(f"Could not inspect services: {error}", "error")
             return False
 
-        services = [self._compose_row_status(row) for row in rows]
-        ok = bool(services) and all(entry["ok"] for entry in services)
-        payload = {"ok": ok, "services": services}
+        ok = converged
+        # The race happened if this summary had to wait, or the earlier
+        # `up --wait` reclassification did.
+        converged_after_grace = bool(self._up_converged_after_grace or waited)
+        payload = {
+            "ok": ok,
+            "services": services,
+            "converged_after_grace": converged_after_grace,
+        }
 
         if json_output:
             print(json.dumps(payload, indent=2, sort_keys=True))
@@ -2863,19 +3006,30 @@ class AtlasStarter:
 
     @staticmethod
     def _get_localhost_port(service_name: str, env_vars: dict) -> str:
-        """Extract the actual localhost port from the service's endpoint env var."""
+        """Extract the localhost port for the pre-launch summary. Prefers the
+        service's endpoint env var (which encodes the active source variant's
+        port — e.g. ComfyUI's MPS port), then falls back to the dedicated
+        localhost_port_var for services that declare only a port number and no
+        endpoint URL (e.g. OpenClaw, Neo4j). Without the fallback those rows
+        rendered '-' even when a localhost port was configured."""
         from services.topology import get_topology
         _topology = get_topology()
-        var = None
+        row = None
         for r in _topology.rows:
             if r.display_name == service_name:
-                var = r.localhost_endpoint_var
+                row = r
                 break
-        if var:
-            endpoint = env_vars.get(var, '')
+        if row is None:
+            return "-"
+        if row.localhost_endpoint_var:
+            endpoint = env_vars.get(row.localhost_endpoint_var, '')
             match = re.search(r':(\d+)', endpoint)
             if match:
                 return f":{match.group(1)}"
+        if row.localhost_port_var:
+            port = env_vars.get(row.localhost_port_var, '').strip()
+            if port:
+                return f":{port}"
         return "-"
 
     @staticmethod
@@ -4299,6 +4453,7 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
                     'comfyui_source': comfyui_source,
                     'asset_worker_source': asset_worker_source,
                     'asset_baker_source': asset_baker_source,
+                    'fal_source': fal_source,
                     'weaviate_source': weaviate_source,
                     'minio_source': minio_source,
                     'n8n_source': n8n_source,

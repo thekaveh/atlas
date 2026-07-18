@@ -94,3 +94,63 @@ def test_future_block_with_backslash_splices_literally():
     out = _render_section_with_future(g, existing)
     assert "`\\d+`" in out
     assert r"C:\Users\me" in out
+
+
+def test_future_block_with_fenced_heading_is_not_split():
+    """Regression: a `Future — …` subsection body containing a column-0 `## ` or
+    `### ` line inside a code fence must be preserved verbatim. The old
+    fence-unaware slicer treated the fenced heading as a real section boundary,
+    truncating the body / splicing the regenerated block inside the fence and
+    orphaning the file tail on the next regen write."""
+    sys.path.insert(0, str(REPO_ROOT / "bootstrapper"))
+    from docs.regen import (
+        _extract_future_blocks,
+        _render_section_with_future,
+        _slice_deps_section,
+    )
+    from docs.deps_resolver import build_doc_graph
+
+    g = build_doc_graph("hermes", REPO_ROOT / "services")
+    fenced_body = (
+        "Opportunity: expose a config snippet, e.g.\n\n"
+        "```yaml\n"
+        "## upstream section header inside a fence\n"
+        "### nested example heading\n"
+        "service: hermes\n"
+        "```\n\n"
+        "Trailing prose after the fence."
+    )
+    existing = (
+        "## 5. Dependencies & Integrations\n\n"
+        "### 5.4 Future — Missing pair integrations\n\n"
+        f"{fenced_body}\n\n"
+        "### 5.5 Future — Candidate new services\n\n"
+        "_No high-confidence opportunities identified._\n\n"
+        "### 5.6 Future — Unused features in this service\n\n"
+        "_No high-confidence opportunities identified._\n\n"
+        "## 6. Troubleshooting\n\n"
+        "Some real trailing section.\n"
+    )
+
+    # The deps slice must extend past the fenced `## ` to the real `## 6.`,
+    # keeping the later Future subsection inside the block (it would be lost
+    # without fence-awareness).
+    sl = _slice_deps_section(existing)
+    assert sl is not None
+    block = existing[sl[0]: sl[1]]
+    assert "## 6. Troubleshooting" not in block
+    assert "### 5.6 Future" in block
+
+    # The full fenced body (both fenced heading lines + trailing prose) is
+    # captured for the Missing-pair-integrations subsection.
+    future = _extract_future_blocks(block)
+    mpi = future["Missing pair integrations"]
+    assert "## upstream section header inside a fence" in mpi
+    assert "### nested example heading" in mpi
+    assert "Trailing prose after the fence." in mpi
+
+    # And the regen splice preserves it verbatim without leaking the real
+    # trailing section into the deps block.
+    out = _render_section_with_future(g, existing)
+    assert "## upstream section header inside a fence" in out
+    assert "Trailing prose after the fence." in out

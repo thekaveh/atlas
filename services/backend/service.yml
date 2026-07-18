@@ -89,7 +89,7 @@ env:
     description: "When false (default), a budgeted submission for a model with no known cost is rejected rather than billed an unknown amount (never silently $0). Set true to allow unknown-cost submissions under a cap."
   - name: MEDIA_BUDGET_RETENTION_DAYS
     default: ""
-    description: "Optional retention window in days for media spend ledger rows; empty keeps rows indefinitely. Pruning is invoked on demand via the budget engine."
+    description: "Optional retention window in days for media spend ledger rows; empty keeps rows indefinitely (no pruning). When set, an hourly background sweep prunes rows older than the window."
   - name: MEDIA_OPERATION_TTL_SECONDS
     default: 604800
     description: "Redis retention in seconds for hosted media operation state. The default keeps terminal results available for seven days across Backend replicas and restarts."
@@ -99,6 +99,9 @@ env:
   - name: BACKEND_CORS_ALLOW_ORIGIN_REGEX
     default: ""
     description: "Optional regex accepted by the backend CORS middleware for wildcard subdomain policies."
+  - name: BACKEND_DEV_RELOAD
+    default: false
+    description: "Opt-in uvicorn --reload for live development (#679). Disabled by default so the production/consumer image runs a stable process: with backend_plugins bind-mounted, host-side git churn in the plugin tree would otherwise restart or crash-loop the backend. The plugin seam installs at boot, so recreate the backend to apply plugin changes."
   - name: BACKEND_KONG_AUTH
     default: disabled
     description: "Default gateway authentication mode for the api.localhost backend route: disabled (default local-dev behavior) or key-auth (requires apikey header). A backend plugin's plugin.yml `auth: open|key-auth` overrides this per route prefix (#402)."
@@ -281,7 +284,9 @@ data_flow:
     - celery
     - supavisor
     - tika
+    - docling
     - lightrag
+    - tei-reranker
     - minio
     - redis
     - otel-collector

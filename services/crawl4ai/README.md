@@ -20,7 +20,7 @@ The Kong route is created only when `CRAWL4AI_SOURCE=container`. Kong adds the s
 ## 4. Architecture & wiring
 Local Deep Researcher can use Crawl4AI when `LOCAL_DEEP_RESEARCHER_FULL_PAGE_MODE=crawl4ai`. That mode sets `FETCH_FULL_PAGE=true`, patches the upstream `fetch_raw_content()` helper at container startup, submits each URL to `POST /crawl`, polls `/task/{task_id}`, and keeps the returned markdown as `raw_content`. Failures return `None` for that URL so a single fetch problem does not abort the research loop.
 
-n8n receives `CRAWL4AI_ENDPOINT` and `CRAWL4AI_API_TOKEN` for HTTP Request nodes. This slice does not add a custom n8n community node.
+n8n receives `CRAWL4AI_ENDPOINT` and `CRAWL4AI_API_TOKEN` for HTTP Request nodes. Atlas does not add a custom n8n community node for Crawl4AI.
 
 ## 5. Dependencies & Integrations
 
@@ -54,7 +54,7 @@ _No high-confidence opportunities identified._
 _No high-confidence opportunities identified._
 
 ## 6. MCP
-Crawl4AI exposes MCP endpoints at `/mcp/sse`, `/mcp/ws`, and `/mcp/schema` on the same token-protected server. Atlas documents those endpoints here but Crawl4AI is not registered into the curated MCP package in this ticket; that belongs with the MCP package integration work so transport, auth, and service discovery stay consistent.
+Crawl4AI exposes MCP endpoints at `/mcp/sse`, `/mcp/ws`, and `/mcp/schema` on the same token-protected server. Atlas documents those endpoints here but Crawl4AI is not registered into the curated MCP package; that belongs with the MCP package integration work so transport, auth, and service discovery stay consistent.
 
 ## 7. Troubleshooting
 - `401 Unauthorized`: include `Authorization: Bearer ${CRAWL4AI_API_TOKEN}`.

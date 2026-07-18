@@ -257,11 +257,11 @@ ATLAS_COMFYUI_LIVE_ENDPOINT=http://localhost:${COMFYUI_PORT} \
 
 - **Pinned checkout + reconciled venv** — `COMFYUI_MPS_REF` (default `v0.27.0`, mirroring `COMFYUI_REF`) is checked out into `COMFYUI_MPS_STATE_DIR` (default `~/.atlas/comfyui-mps`) with a dedicated venv holding Metal-enabled Torch. Every install compares the checkout ref and requirements fingerprint with recorded state; a changed pin or dependency file is reinstalled automatically, while unchanged environments are reused.
 - **Host models reuse** — the process reads `COMFYUI_MPS_MODELS_PATH` (default `~/Documents/ComfyUI/models`, shared with `COMFYUI_LOCAL_MODELS_PATH`) through a generated `extra_model_paths.yaml`, so an existing Krea 2 / Flux install is used in place with **no duplicate weights**.
-- **Fixed port + PID/log/status files** — the process listens on `COMFYUI_MPS_LOCALHOST_PORT` (default `8188`, `127.0.0.1` only). `comfyui-mps.pid`, `comfyui-mps.log`, and `status.json` live under the state dir. A start aborts if the port is already taken by an unrelated process.
+- **Fixed port + bind address + PID/log/status files** — the process listens on `COMFYUI_MPS_LOCALHOST_PORT` (default `8188`) at `COMFYUI_MPS_LISTEN` (default `127.0.0.1`). Loopback works on Docker Desktop/macOS, where `host.docker.internal` forwards to host loopback. On **Linux container engines** `host.docker.internal` maps via `host-gateway` to a bridge address that **cannot reach a loopback-bound listener**, so set `COMFYUI_MPS_LISTEN=0.0.0.0` there to make the host process reachable from containers (#651). Atlas's own health and port probes always use `127.0.0.1` regardless of the bind address. `comfyui-mps.pid`, `comfyui-mps.log`, and `status.json` live under the state dir. A start aborts if the port is already taken by an unrelated process.
 
 ### 10.2. Lifecycle
 
-A normal `./start.sh` with this source runs preflight → install → start at the launch boundary, immediately before `docker compose up`. If image build, Compose startup, or a required init container fails, Atlas stops a ComfyUI process created by that launch; it does not stop an instance that was already running. After the stack converges, the host process becomes part of the running stack. `./stop.sh` stops it even if `COMFYUI_SOURCE` has since changed, because a container `down` cannot reach native host processes. For explicit control there is a headless CLI:
+A normal `./start.sh` with this source runs preflight → install → start at the launch boundary, immediately before `docker compose up`. If image build, Compose startup, or a required init container fails, Atlas stops a ComfyUI process created by that launch; it does not stop an instance that was already running. After the stack converges, the host process becomes part of the running stack. The process is **host-global** — shared by every Atlas consumer on the machine — so a project-scoped `./stop.sh` leaves it running by default (with an advisory) rather than interrupting another consumer; pass `./stop.sh --stop-managed-hosts` to stop it explicitly (this affects all consumers), or use the per-runtime `comfyui-mps stop` command below. A container `down` never reaches native host processes regardless. For explicit control there is a headless CLI:
 
 ```bash
 ./start.sh comfyui-mps preflight     # read-only host probe (OS/arch, memory, Torch/MPS, per-model precision). No install.
@@ -278,11 +278,13 @@ The same preflight also runs as a CI-safe doctor check: `./start.sh doctor` repo
 
 ### 10.3. Preflight (the narrow MPS probe)
 
-`preflight` is read-only and never launches anything. It checks: **OS** (macOS) and **arch** (arm64) — a hard `fail` elsewhere; **git** + **python3** presence; **unified-memory headroom** against `COMFYUI_MPS_MIN_MEMORY_GB` (`warn` below the floor — large BF16 bundles may OOM); **Torch/MPS availability** (`torch.backends.mps.is_available()`, only after the venv exists); and **per-model precision** — `fp8`/`fp8-scaled` weights crash on MPS and are flagged `warn` with a "use a BF16 variant" hint (BF16 is required; this is the ComfyUI-specific slice of the media preflight).
+`preflight` is read-only and never launches anything. It checks: **OS** (macOS) and **arch** (arm64) — a hard `fail` elsewhere; **git** + **python3** presence; **unified-memory headroom** against `COMFYUI_MPS_MIN_MEMORY_GB` (`warn` below the floor — large BF16 bundles may OOM); **host models dir** — a `warn` when `COMFYUI_MPS_MODELS_PATH` is set but missing or has none of the expected model subdirs (`checkpoints`, `vae`, `diffusion_models`, …), so a typo'd path surfaces at preflight instead of an empty model list at generation time (#648); **Torch/MPS availability** (`torch.backends.mps.is_available()`, only after the venv exists); and **per-model precision** — `fp8`/`fp8-scaled` weights crash on MPS and are flagged `warn` with a "use a BF16 variant" hint (BF16 is required; this is the ComfyUI-specific slice of the media preflight).
 
 ### 10.4. Cold vs warm, and health
 
 Weights load **lazily on the first request** (~9–13 s slower than a warm request on an M2 Ultra). `health` reports `reachable` and the compute `device` (`mps` when `/system_stats` shows a non-CPU device). A freshly launched process is *reachable but cold*; the first generation warms it. `./start.sh` waits up to 60 s for reachability and prints a warm/cold line — a still-warming host is **not** an error (downstream containers retry), so read first-request latency as model load, not a hang.
+
+`status` is **ownership-aware** (#647): a bare `kill -0` on the pidfile would trust a **recycled** PID (another process inheriting the number after a reboot or crash), reporting a dead host as `running`. Instead `status` also cross-checks the process argv against the ComfyUI checkout/state dir, so a recycled or foreign (e.g. root-owned) PID reports `running: false` — and `start` then clears the stale pidfile and relaunches instead of no-opping. No manual `stop` → `start` dance is needed to recover.
 
 ### 10.5. Unsupported hosts
 
@@ -291,6 +293,7 @@ On anything that is not macOS/arm64 (Linux CI, Intel Macs, Windows) the prefligh
 ### 10.6. Upgrades, rollback, logs, removal
 
 - **Upgrade / rollback** — change `COMFYUI_MPS_REF` in `.env` (a release tag or full commit SHA), then stop and start the service. Install detects the ref and requirements drift and reconciles the venv automatically; `install --update` remains available to force a rebuild. Stop targets the full process group so child workers do not survive the managed server.
+- **Reproducible Torch** — the install pins `torch`/`torchvision`/`torchaudio` to `COMFYUI_MPS_TORCH_PIN` (default `torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0`) rather than installing whatever is newest that day, so a fresh install against the same `COMFYUI_MPS_REF` is reproducible and `--update` honors the pin. Bump it alongside `COMFYUI_MPS_REF` when the upstream ComfyUI ref needs a newer Torch (#648).
 - **Logs** — `tail -f "${COMFYUI_MPS_STATE_DIR/#\~/$HOME}/comfyui-mps.log"` (default `~/.atlas/comfyui-mps/comfyui-mps.log`), the same file `status`/`start` report.
 - **Removal** — `./start.sh comfyui-mps remove` stops the process and deletes the state dir. Your host models dir (`COMFYUI_MPS_MODELS_PATH`) is **never** touched — it is reused, not owned.
 

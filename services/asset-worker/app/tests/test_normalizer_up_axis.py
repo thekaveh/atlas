@@ -138,3 +138,19 @@ def test_metadata_reports_actual_algorithm():
         normalization_metadata(PostprocessParams(up_axis="z"))["method"] == "axis:z"
     )
     assert normalization_metadata(PostprocessParams())["up_axis"] == "keep"
+
+
+def test_parse_glb_returns_none_on_corrupt_json_chunk() -> None:
+    import struct
+
+    from asset_worker.normalizer import _parse_glb
+
+    body = b"{ not valid json "
+    while len(body) % 4:
+        body += b" "
+    chunk = struct.pack("<II", len(body), 0x4E4F534A) + body  # JSON chunk
+    data = struct.pack("<III", 0x46546C67, 2, 12 + len(chunk)) + chunk  # glTF v2 magic
+
+    # Valid magic + version but a corrupt JSON chunk: must return None
+    # (→ copy-through → gltf-transform authoritative 422), not raise.
+    assert _parse_glb(data) is None

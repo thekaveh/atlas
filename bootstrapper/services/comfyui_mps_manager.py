@@ -30,7 +30,9 @@ import urllib.request
 from dataclasses import dataclass, field
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
+
+import yaml
 
 try:  # Native Windows can import this module for a no-op disabled-source stop.
     import fcntl
@@ -54,6 +56,14 @@ _MODEL_SUBDIRS = (
     "checkpoints", "vae", "loras", "clip", "clip_vision", "controlnet",
     "unet", "diffusion_models", "text_encoders", "upscale_models",
 )
+
+# Pinned Torch/vision/audio for a REPRODUCIBLE managed-MPS install (#648).
+# Unpinned `pip install torch …` pulls whatever is newest that day, so fresh
+# installs on different days diverge against the same ComfyUI ref. This is the
+# same coherent, security-floor-blessed triple JupyterHub's image installs; the
+# default is overridable (and bumped alongside COMFYUI_MPS_REF) via the
+# COMFYUI_MPS_TORCH_PIN env var. macOS/arm64 torch wheels carry Metal/MPS.
+_DEFAULT_TORCH_PIN = "torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0"
 
 
 @dataclass
@@ -112,11 +122,15 @@ class ComfyUiMpsManager:
         models_path: Path | str | None = None,
         min_memory_gb: int = 16,
         listen: str = "127.0.0.1",
+        torch_pin: str | None = None,
     ) -> None:
         self.state_dir = Path(state_dir).expanduser()
         self.port = int(port)
         self.ref = ref
         self.models_path = Path(models_path).expanduser() if models_path else None
+        # pip spec tokens for the pinned Torch stack (#648). A blank override
+        # falls back to the reproducible default rather than an unpinned install.
+        self.torch_pin = ((torch_pin or "").strip() or _DEFAULT_TORCH_PIN).split()
         self.min_memory_gb = int(min_memory_gb)
         self.listen = listen
         self.repo_dir = self.state_dir / "ComfyUI"
@@ -180,6 +194,25 @@ class ComfyUiMpsManager:
                 f"{mem_gb} GiB unified memory is below the {self.min_memory_gb} GiB floor; "
                 "large BF16 bundles may OOM",
             )
+
+        # Host models dir: a typo'd COMFYUI_MPS_MODELS_PATH otherwise yields an
+        # empty model list at generation time with no earlier signal (#648).
+        if self.models_path is None:
+            result.add("models_dir", _SKIPPED, "COMFYUI_MPS_MODELS_PATH not set")
+        elif not self.models_path.is_dir():
+            result.add(
+                "models_dir", _WARN,
+                f"COMFYUI_MPS_MODELS_PATH {self.models_path} does not exist — no host "
+                "models will be reused; check the path",
+            )
+        elif not any((self.models_path / sub).is_dir() for sub in _MODEL_SUBDIRS):
+            result.add(
+                "models_dir", _WARN,
+                f"COMFYUI_MPS_MODELS_PATH {self.models_path} has none of the expected "
+                f"model subdirs ({', '.join(_MODEL_SUBDIRS)}) — likely the wrong path",
+            )
+        else:
+            result.add("models_dir", _OK, f"host models dir {self.models_path} looks valid")
 
         # Torch/MPS is only meaningful once the venv exists.
         if self.venv_python.exists():
@@ -262,15 +295,17 @@ class ComfyUiMpsManager:
         if fresh:
             self._run(["python3", "-m", "venv", str(self.venv_dir)])
             self._run([str(self.venv_python), "-m", "pip", "install", "--upgrade", "pip"])
-            # torch's default macos-arm64 wheel ships Metal/MPS support.
-            self._run([str(self.venv_python), "-m", "pip", "install", "torch", "torchvision", "torchaudio"])
+            # Pinned Torch stack for a reproducible install (#648). The macos-arm64
+            # wheels carry Metal/MPS support.
+            self._run([str(self.venv_python), "-m", "pip", "install", *self.torch_pin])
             self._run([str(self.venv_python), "-m", "pip", "install", "-r",
                        str(self.repo_dir / "requirements.txt")])
         elif update or not self._installed_environment_matches(requirements_sha256):
-            # Re-pin Torch too so a security/compat bump lands without a manual
-            # venv wipe, then reconcile ComfyUI's own requirements.
-            self._run([str(self.venv_python), "-m", "pip", "install", "--upgrade",
-                       "torch", "torchvision", "torchaudio"])
+            # Re-apply the Torch pin so a security/compat bump (of the pin itself)
+            # lands without a manual venv wipe, then reconcile ComfyUI's own
+            # requirements. `==` pins are exact — no --upgrade needed, and it
+            # honors the pin rather than jumping to the newest build (#648).
+            self._run([str(self.venv_python), "-m", "pip", "install", *self.torch_pin])
             self._run([str(self.venv_python), "-m", "pip", "install", "-r",
                        str(self.repo_dir / "requirements.txt")])
 
@@ -307,14 +342,24 @@ class ComfyUiMpsManager:
             self._run(["git", "-C", str(self.repo_dir), "checkout", "--force", self.ref])
 
     def _write_model_paths(self) -> None:
-        """Point ComfyUI at the existing host models dir (no duplicate weights)."""
+        """Point ComfyUI at the existing host models dir (no duplicate weights).
+
+        Emitted via a YAML dumper so a models path containing YAML-special
+        characters (``:``, ``#``, …) is quoted rather than silently corrupting
+        the file (#648).
+        """
         if not self.models_path:
             return
         base = str(self.models_path)
-        lines = ["# AUTO-GENERATED by Atlas (#335) — reuse the host models dir.", "atlas_host:", f"  base_path: {base}"]
-        for sub in _MODEL_SUBDIRS:
-            lines.append(f"  {sub}: {base}/{sub}")
-        self.model_paths_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        config = {
+            "atlas_host": {
+                "base_path": base,
+                **{sub: f"{base}/{sub}" for sub in _MODEL_SUBDIRS},
+            }
+        }
+        header = "# AUTO-GENERATED by Atlas (#335) — reuse the host models dir.\n"
+        body = yaml.safe_dump(config, default_flow_style=False, sort_keys=False)
+        self.model_paths_file.write_text(header + body, encoding="utf-8")
 
     # ── start / stop / status ────────────────────────────────────────
     def start(self) -> ProcessStatus:
@@ -330,6 +375,12 @@ class ComfyUiMpsManager:
         existing = self.status()
         if existing.running:
             return existing, False  # idempotent — one process per host
+        # Not running, but a pidfile may linger from a dead/recycled process.
+        # Clear it so we relaunch cleanly instead of leaving a stale pointer
+        # (status() already refuses to trust it, but the file must not survive a
+        # fresh launch and mislead a later probe) (#647).
+        self._clear_pid()
+        self._untracked_pid = None
         if not self.venv_python.exists():
             raise ComfyUiMpsError("ComfyUI venv is not installed — run install first")
         if self._port_in_use():
@@ -463,7 +514,16 @@ class ComfyUiMpsManager:
 
     def status(self) -> ProcessStatus:
         pid = self._read_pid() or self._untracked_pid
-        running = pid is not None and self._managed_process_alive(pid)
+        # A pidfile + kill-0 probe alone trusts a RECYCLED PID: after a reboot or
+        # crash another process can inherit the number, and kill-0 then reports a
+        # dead ComfyUI as running (so start() no-ops while nothing listens). Also
+        # require that the PID is not provably a stranger — the argv/state-dir
+        # ownership check that previously only stop() consulted (#647).
+        running = (
+            pid is not None
+            and self._managed_process_alive(pid)
+            and not self._pid_is_stranger(pid)
+        )
         ref = None
         if self.status_file.exists():
             try:
@@ -510,7 +570,7 @@ class ComfyUiMpsManager:
 
     # ── health ───────────────────────────────────────────────────────
     def health(self, *, timeout: float = 3.0) -> dict:
-        url = f"http://{self.listen}:{self.port}/system_stats"
+        url = f"http://{self._probe_host}:{self.port}/system_stats"
         try:
             with urllib.request.urlopen(url, timeout=timeout) as resp:  # noqa: S310 - loopback only
                 body = resp.read().decode("utf-8")
@@ -554,10 +614,22 @@ class ComfyUiMpsManager:
                 f"{(result.stderr or result.stdout or '').strip()[:400]}"
             )
 
+    @property
+    def _probe_host(self) -> str:
+        """Loopback-reachable address for local health / port probes.
+
+        When ComfyUI binds all interfaces (``COMFYUI_MPS_LISTEN=0.0.0.0`` — used
+        on Linux engines where ``host.docker.internal`` maps via ``host-gateway``
+        to a bridge address a loopback-bound listener can't answer), a client
+        cannot connect to the ``0.0.0.0`` wildcard, so probe ``127.0.0.1``
+        instead (#651). A concrete bind address is probed as-is.
+        """
+        return "127.0.0.1" if self.listen in ("", "0.0.0.0", "::") else self.listen
+
     def _port_in_use(self) -> bool:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             sock.settimeout(0.5)
-            return sock.connect_ex((self.listen, self.port)) == 0
+            return sock.connect_ex((self._probe_host, self.port)) == 0
 
     def _read_pid(self) -> Optional[int]:
         if not self.pid_file.exists():
@@ -580,7 +652,9 @@ class ComfyUiMpsManager:
         except ProcessLookupError:
             return False
         except PermissionError:
-            return True
+            # We can't signal it, so it is NOT our (user-owned) managed process
+            # — a foreign, likely root-owned, process recycled the PID (#647).
+            return False
         return True
 
     @staticmethod
@@ -590,7 +664,8 @@ class ComfyUiMpsManager:
         except ProcessLookupError:
             return False
         except PermissionError:
-            return True
+            # Same as _pid_alive: a group we can't signal is not ours (#647).
+            return False
         return True
 
     def _managed_process_alive(self, pid: int) -> bool:
@@ -644,4 +719,6 @@ def manager_from_env(env: dict[str, str]) -> ComfyUiMpsManager:
         ref=env.get("COMFYUI_MPS_REF", "v0.27.0"),
         models_path=env.get("COMFYUI_MPS_MODELS_PATH") or None,
         min_memory_gb=int(env.get("COMFYUI_MPS_MIN_MEMORY_GB", "16") or "16"),
+        torch_pin=env.get("COMFYUI_MPS_TORCH_PIN") or None,
+        listen=env.get("COMFYUI_MPS_LISTEN") or "127.0.0.1",
     )

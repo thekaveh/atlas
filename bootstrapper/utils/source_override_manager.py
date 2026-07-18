@@ -144,13 +144,72 @@ class SourceOverrideManager:
         if not overrides:
             return True
 
+        # Warn BEFORE the write when a CLI source flag would CHANGE an
+        # existing non-empty .env value. A consumer wrapper that passes a
+        # defaulted `--<svc>-source` flag silently reverts an operator's
+        # hand-configured source on every start, with no error anywhere
+        # (the Tableau managed-localhost-mps → container-cpu incident, #645).
+        self._warn_on_source_changes(overrides)
+
         # Update .env file with overrides (silent — shown in summary table)
         if self.update_env_file(overrides):
             self.applied_overrides = overrides
             return True
-        
+
         return False
-    
+
+    def _read_current_env_values(self, var_names) -> Dict[str, str]:
+        """Read the current `.env` value for each of ``var_names``.
+
+        Returns a ``{var_name: value}`` map holding only the vars that are
+        actually assigned in `.env`; a missing file or an unset var is simply
+        absent from the result (distinct from an empty ``VAR=`` assignment,
+        which maps to ``""``). Values are stripped so a trailing newline or
+        stray whitespace doesn't read as a spurious change. Mirrors the
+        anchored ``^VAR=`` regex ``update_env_file`` uses, so the two agree
+        on exactly which line represents each variable.
+        """
+        env_file_path = self.config_parser.env_file_path
+        if not env_file_path.exists():
+            return {}
+        try:
+            with open(env_file_path, 'r', encoding="utf-8") as f:
+                content = f.read()
+        except OSError:
+            return {}
+        current: Dict[str, str] = {}
+        for var_name in var_names:
+            match = re.search(
+                rf'^{re.escape(var_name)}=(.*)$', content, re.MULTILINE
+            )
+            if match is not None:
+                current[var_name] = match.group(1).strip()
+        return current
+
+    def _warn_on_source_changes(self, overrides: Dict[str, str]) -> None:
+        """Print an old→new warning for each override that CHANGES a
+        non-empty existing `.env` value.
+
+        Stays silent when the incoming value equals what's already in `.env`
+        (AC#1 — no noise for wrappers that pass the already-configured value)
+        and when the existing value is empty/unset (that's establishing a
+        value, not overriding a configured one). The warning names the
+        derived family-level CLI flag (``--<env-var-dashed>``) so the operator
+        can trace which flag rewrote their `.env`. Emitted via ``print`` —
+        the standard log stream in the linear flow, captured into the TUI log
+        pane by ``wizard_screen``'s stdout redirect — matching AC#2's "in
+        both TUI and --no-tui paths".
+        """
+        current = self._read_current_env_values(overrides.keys())
+        for var_name, new_value in overrides.items():
+            old_value = current.get(var_name, "")
+            if old_value and old_value != new_value:
+                flag = '--' + var_name.lower().replace('_', '-')
+                print(
+                    f"⚠ {var_name}: {old_value} → {new_value} "
+                    f"(overridden by {flag}; persisted to .env)"
+                )
+
     def update_env_file(self, overrides: Dict[str, str]) -> bool:
         """
         Update SOURCE values in .env file using regex replacement.

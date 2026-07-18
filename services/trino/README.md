@@ -37,7 +37,7 @@ The mounted catalog file at `services/trino/catalog/lakehouse.properties` define
 - `iceberg.catalog.type=rest`
 - `iceberg.rest-catalog.uri=http://iceberg-rest:8181`
 - `iceberg.rest-catalog.warehouse=s3://lakehouse/`
-- `fs.s3.enabled=true` for Trino 482 native S3 access to MinIO at `http://minio:9000`
+- `fs.native-s3.enabled=true` for Trino 482 native S3 access to MinIO at `http://minio:9000`
 - scoped Iceberg MinIO credentials through `${ENV:MINIO_ICEBERG_ACCESS_KEY}` and `${ENV:MINIO_ICEBERG_SECRET_KEY}`
 
 This first local-development slice has no Trino authenticator configured. The

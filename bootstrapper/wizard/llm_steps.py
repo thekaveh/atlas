@@ -800,7 +800,6 @@ def build_default_model_steps(
     default is deliberately NOT changed — users who understand the risk can
     still override it with eyes open.
     """
-    _warn = warn or (lambda _msg: None)
 
     def _no_llm_active(selections: dict) -> bool:
         """Return True (→ skip) when no LLM provider is active.

@@ -22,8 +22,28 @@ storage access/secret keys), never infra secrets such as the Redis password.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Mapping
+
+
+@dataclass(frozen=True)
+class HostPortOverride:
+    """Per-source host-port resolution for host-process sources.
+
+    For host-process sources (``localhost``, ``managed-localhost-mps``,
+    ``ollama-localhost``) the compose *published* port is either dead (no
+    container listens on it) or unset, so ``ATLAS_<SVC>_HOST_ENDPOINT`` must
+    render from the port the host process actually serves on — not the default
+    ``host_port_var``. This is the exporter-side sibling of #610's source-aware
+    Kong route fix. ``default`` is the manifest's default host port, used when
+    the resolved ``.env`` doesn't carry ``port_var`` (host-source port vars keep
+    a fixed default and skip the topology slot allocator).
+    """
+
+    port_var: str
+    default: str | None = None
 
 
 @dataclass(frozen=True)
@@ -36,6 +56,8 @@ class ServiceEndpoints:
     container_secret: bool = False        # value embeds a secret (e.g. REDIS_URL)
     public_var: str | None = None         # browser-facing public base var
     host_port_var: str | None = None      # → http://localhost:${port}
+    # source value → host port for host-process sources (overrides host_port_var)
+    host_port_overrides: Mapping[str, HostPortOverride] = field(default_factory=dict)
     kong_alias: str | None = None         # → http://<alias>:${KONG_HTTP_PORT}
 
 
@@ -65,13 +87,32 @@ CONSUMER_SERVICES: tuple[ServiceEndpoints, ...] = (
         source_var="COMFYUI_SOURCE",
         container_var="COMFYUI_ENDPOINT",
         host_port_var="COMFYUI_PORT",
+        # Host-process sources serve on a fixed host port, not the (dead) compose
+        # published COMFYUI_PORT: managed-localhost-mps → 8188, localhost → 8000.
+        host_port_overrides={
+            "localhost": HostPortOverride("COMFYUI_LOCALHOST_PORT", "8000"),
+            "managed-localhost-mps": HostPortOverride(
+                "COMFYUI_MPS_LOCALHOST_PORT", "8188"
+            ),
+        },
         kong_alias="comfyui.localhost",
+    ),
+    ServiceEndpoints(
+        service="ASSET_WORKER",
+        source_var="ASSET_WORKER_SOURCE",
+        container_var="ASSET_WORKER_ENDPOINT",
+        host_port_var="ASSET_WORKER_PORT",
     ),
     ServiceEndpoints(
         service="OLLAMA",
         source_var="LLM_PROVIDER_SOURCE",
         container_var="OLLAMA_ENDPOINT",
         host_port_var="OLLAMA_PORT",
+        # ollama-localhost runs on the host; OLLAMA_PORT is unset under it, so the
+        # host endpoint must come from the host listen port (default 11434).
+        host_port_overrides={
+            "ollama-localhost": HostPortOverride("OLLAMA_LOCALHOST_PORT", "11434"),
+        },
         kong_alias="ollama.localhost",
     ),
     ServiceEndpoints(
@@ -151,8 +192,52 @@ class ExportField:
     secret: bool = False  # value is a ${ref}, not a resolved secret
 
 
-def _host_url(env: Mapping[str, str], port_var: str) -> str | None:
-    port = env.get(port_var, "").strip()
+# ``${VAR}``, ``${VAR:-default}``, ``${VAR-default}``, and bare ``$VAR``. Matches
+# the compose-interpolation forms the source synthesizer writes into `.env`
+# values (e.g. ``http://host.docker.internal:${COMFYUI_MPS_LOCALHOST_PORT:-8188}``).
+_INTERP_RE = re.compile(
+    r"\$\{(?P<braced>[A-Za-z_][A-Za-z0-9_]*)(?::?-(?P<default>[^}]*))?\}"
+    r"|\$(?P<bare>[A-Za-z_][A-Za-z0-9_]*)"
+)
+
+
+def _expand_interpolation(value: str, env: Mapping[str, str]) -> str:
+    """Resolve compose-style ``${…}`` / ``$VAR`` interpolations against ``env``.
+
+    The source synthesizer stores compose-interpolation *strings* in `.env` (a
+    host-source ComfyUI endpoint is ``http://host.docker.internal:${COMFYUI_MPS_LOCALHOST_PORT:-8188}``),
+    which are correct through compose but a broken literal for a consumer reading
+    the exported artifact raw (#646). Fully resolve them so no ``${…}`` survives
+    in a non-secret exported value. An unset/empty variable falls back to the
+    ``:-``/``-`` default (or empty). Bounded re-expansion handles the rare case
+    where a resolved value itself contains an interpolation.
+    """
+    if not value or "$" not in value:
+        return value
+
+    def _sub(match: "re.Match[str]") -> str:
+        braced = match.group("braced")
+        if braced is not None:
+            resolved = env.get(braced, "")
+            if resolved:
+                return resolved
+            default = match.group("default")
+            return default if default is not None else ""
+        return env.get(match.group("bare"), "")
+
+    result = value
+    for _ in range(5):  # bounded: guards against a pathological self-reference
+        expanded = _INTERP_RE.sub(_sub, result)
+        if expanded == result:
+            break
+        result = expanded
+    return result
+
+
+def _host_url(
+    env: Mapping[str, str], port_var: str, default: str | None = None
+) -> str | None:
+    port = env.get(port_var, "").strip() or (default or "")
     if not port:
         return None
     return f"http://localhost:{port}"
@@ -205,13 +290,31 @@ def build_export(
                         )
                     )
                 else:
-                    out.append(ExportField(f"{prefix}_CONTAINER_ENDPOINT", value))
+                    out.append(
+                        ExportField(
+                            f"{prefix}_CONTAINER_ENDPOINT",
+                            _expand_interpolation(value, env),
+                        )
+                    )
         if svc.public_var:
             value = env.get(svc.public_var, "").strip()
             if value:
-                out.append(ExportField(f"{prefix}_PUBLIC_ENDPOINT", value))
-        if svc.host_port_var:
-            host = _host_url(env, svc.host_port_var)
+                out.append(
+                    ExportField(
+                        f"{prefix}_PUBLIC_ENDPOINT", _expand_interpolation(value, env)
+                    )
+                )
+        # HOST_ENDPOINT is source-aware (#643): host-process sources
+        # (localhost / managed-localhost-mps / ollama-localhost) serve on a fixed
+        # host port, not the compose published port, which is dead or unset there.
+        host_port_var = svc.host_port_var
+        host_port_default: str | None = None
+        if source is not None and source in svc.host_port_overrides:
+            override = svc.host_port_overrides[source]
+            host_port_var = override.port_var
+            host_port_default = override.default
+        if host_port_var:
+            host = _host_url(env, host_port_var, host_port_default)
             if host:
                 out.append(ExportField(f"{prefix}_HOST_ENDPOINT", host))
         if svc.kong_alias:
@@ -229,7 +332,13 @@ def build_export(
     # so the field is emitted only for managed-localhost-mps.
     if env.get("COMFYUI_SOURCE", "").strip() == "managed-localhost-mps":
         state_dir = env.get("COMFYUI_MPS_STATE_DIR", "").strip() or "~/.atlas/comfyui-mps"
-        out.append(ExportField("ATLAS_COMFYUI_OUTPUT_DIR", f"{state_dir}/ComfyUI/output"))
+        # Expand ~ at export time (#644): tilde expansion is a shell feature, so
+        # a consumer reading the artifact programmatically would treat a literal
+        # `~` as a directory name. Path.expanduser() is the same expansion the
+        # MPS manager applies when launching the process (comfyui_mps_manager
+        # `Path(state_dir).expanduser()`), so the artifact and the process agree.
+        expanded = Path(state_dir).expanduser()
+        out.append(ExportField("ATLAS_COMFYUI_OUTPUT_DIR", f"{expanded}/ComfyUI/output"))
 
     return out
 

@@ -165,4 +165,4 @@ Output vectors are 512-d for ViT-B/32. Cosine similarity between a text vector a
 - **CPU latency.** ~50-150ms per `/vectorize` call on a modern x86 core for a single text or single image; throughput scales near-linearly with parallel HTTP calls until you hit CPU saturation.
 - **GPU latency.** The GPU variant is ~5-10× faster but the round-trip cost dominates for single-image calls; batch images (`images: [b64_1, b64_2, …]`) to amortize.
 - **Batching window.** The container processes one HTTP request at a time. Concurrent calls queue inside `uvicorn`; for high throughput, run multiple replicas (one per GPU/CPU).
-- **Vector dimensionality is fixed by the model.** ViT-B/32 → 512. Other models (SigLIP 2 → 768, larger CLIPs → 768/1024) require updating Weaviate's collection schema to match.
+- **Vector dimensionality is fixed by the model.** ViT-B/32 → 512. Other models (SigLIP 2 → 1152, larger CLIPs → 768/1024) require updating Weaviate's collection schema to match.

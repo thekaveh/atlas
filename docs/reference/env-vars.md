@@ -83,10 +83,11 @@
 | MEDIA_BUDGET_CONSUMER_CAPS | backend |  | Optional JSON map of per-scope caps, keyed by 'consumer' or 'consumer:project', e.g. {"rag-showcase":25,"rag-showcase:demo":5}. Overrides MEDIA_BUDGET_DEFAULT_USD for matching scopes. |
 | MEDIA_DISABLED_PROVIDERS | backend |  | Comma-separated media providers to kill-switch off (e.g. 'fal'). A disabled provider hard-stops its own submissions without downing the gateway or other providers. |
 | MEDIA_BUDGET_ALLOW_UNKNOWN_COST | backend | False | When false (default), a budgeted submission for a model with no known cost is rejected rather than billed an unknown amount (never silently $0). Set true to allow unknown-cost submissions under a cap. |
-| MEDIA_BUDGET_RETENTION_DAYS | backend |  | Optional retention window in days for media spend ledger rows; empty keeps rows indefinitely. Pruning is invoked on demand via the budget engine. |
+| MEDIA_BUDGET_RETENTION_DAYS | backend |  | Optional retention window in days for media spend ledger rows; empty keeps rows indefinitely (no pruning). When set, an hourly background sweep prunes rows older than the window. |
 | MEDIA_OPERATION_TTL_SECONDS | backend | 604800 | Redis retention in seconds for hosted media operation state. The default keeps terminal results available for seven days across Backend replicas and restarts. |
 | BACKEND_CORS_ORIGINS | backend | * | Comma-separated browser origins accepted by the backend CORS middleware. Default preserves local-development permissiveness. |
 | BACKEND_CORS_ALLOW_ORIGIN_REGEX | backend |  | Optional regex accepted by the backend CORS middleware for wildcard subdomain policies. |
+| BACKEND_DEV_RELOAD | backend | False | Opt-in uvicorn --reload for live development (#679). Disabled by default so the production/consumer image runs a stable process: with backend_plugins bind-mounted, host-side git churn in the plugin tree would otherwise restart or crash-loop the backend. The plugin seam installs at boot, so recreate the backend to apply plugin changes. |
 | BACKEND_KONG_AUTH | backend | disabled | Default gateway authentication mode for the api.localhost backend route: disabled (default local-dev behavior) or key-auth (requires apikey header). A backend plugin's plugin.yml `auth: open/key-auth` overrides this per route prefix (#402). |
 | BACKEND_KONG_API_KEY | backend |  | Auto-generated key accepted by Kong when BACKEND_KONG_AUTH=key-auth. Send as `apikey: <value>`. |
 | BACKEND_IDENTITY_AUTH | backend | required | Application identity boundary for backend routes: required (default) accepts Supabase user JWTs or the trusted internal-service token; disabled is an explicit emergency rollback mode. |
@@ -98,13 +99,8 @@
 | BACKEND_PLUGINS_SITE_DIR | backend | /tmp/atlas-plugins-site | Writable directory the plugin seam pip-installs plugin requirements into (`pip --target`) and prepends to sys.path before plugin imports (#559). The image runs as appuser with root-owned site-packages, so untargeted installs fail with EACCES even though appuser has a writable home/cache for runtime dependencies. Must be creatable by the backend user; falls back to untargeted pip install when it cannot be created. |
 | LANGMEM_ENABLED | backend | True | - |
 | LANGMEM_MEMORY_NAMESPACE | backend | default | - |
-| LANGMEM_AUTO_CONSOLIDATE | backend | True | Reserved — not yet honored. Memory consolidation currently runs only
-on demand via POST /memory/consolidate; there is no background
-scheduler, so changing this value has no effect today.
- |
-| LANGMEM_CONSOLIDATION_INTERVAL | backend | 86400 | Reserved — not yet honored (see LANGMEM_AUTO_CONSOLIDATE). Interval in
-seconds a future auto-consolidation scheduler would use.
- |
+| LANGMEM_AUTO_CONSOLIDATE | backend | True | Reserved — not yet honored. Memory consolidation currently runs only on demand via POST /memory/consolidate; there is no background scheduler, so changing this value has no effect today. |
+| LANGMEM_CONSOLIDATION_INTERVAL | backend | 86400 | Reserved — not yet honored (see LANGMEM_AUTO_CONSOLIDATE). Interval in seconds a future auto-consolidation scheduler would use. |
 | LANGMEM_MAX_FACTS_PER_USER | backend | 1000 | - |
 | LANGMEM_EXTRACTION_MODEL | backend |  | LiteLLM model id (empty = highest-priority active content model resolved by model_resolver from YAML catalogs + env). |
 | LANGMEM_EMBEDDING_MODEL | backend |  | - |
@@ -158,11 +154,7 @@ seconds a future auto-consolidation scheduler would use.
 | LITELLM_OPENROUTER_ENABLED | cloud-providers |  | Derived from CLOUD_OPENROUTER_SOURCE. |
 | LITELLM_ENABLED_PROVIDERS | cloud-providers |  | Comma-separated lowercase list of enabled cloud providers. |
 | CLOUDFLARED_SOURCE | cloudflared | disabled | Deployment mode: container (run the tunnel) or disabled (default). |
-| CLOUDFLARE_TUNNEL_TOKEN | cloudflared |  | Cloudflare named-tunnel token (Zero Trust > Networks > Tunnels). When
-CLOUDFLARED_SOURCE=container this must be set or the daemon exits. The
-tunnel's public hostname is configured in the Cloudflare dashboard to
-point at http://kong-api-gateway:8000.
- |
+| CLOUDFLARE_TUNNEL_TOKEN | cloudflared |  | Cloudflare named-tunnel token (Zero Trust > Networks > Tunnels). When CLOUDFLARED_SOURCE=container this must be set or the daemon exits. The tunnel's public hostname is configured in the Cloudflare dashboard to point at http://kong-api-gateway:8000. |
 | CLOUDFLARED_SCALE | cloudflared |  | Set to 1 when CLOUDFLARED_SOURCE=container, 0 when disabled. |
 | COMFYUI_SOURCE | comfyui | container-cpu | - |
 | COMFYUI_INIT_SOURCE | comfyui | container | - |
@@ -173,6 +165,8 @@ point at http://kong-api-gateway:8000.
 | COMFYUI_MPS_STATE_DIR | comfyui | ~/.atlas/comfyui-mps | Atlas-owned host state directory for the managed MPS ComfyUI: the pinned checkout, its venv, and the pid/log/status files. Never a container volume. |
 | COMFYUI_MPS_MODELS_PATH | comfyui | ~/Documents/ComfyUI/models | Existing host models directory the managed MPS process reuses (via extra_model_paths) so no weights are duplicated. Shared with COMFYUI_LOCAL_MODELS_PATH by default. |
 | COMFYUI_MPS_MIN_MEMORY_GB | comfyui | 16 | Minimum unified-memory headroom (GiB) the managed MPS preflight requires before launching ComfyUI; below this the preflight warns. |
+| COMFYUI_MPS_TORCH_PIN | comfyui | torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0 | Pinned Torch/vision/audio pip spec the managed MPS install applies, so fresh installs are reproducible against the same COMFYUI_MPS_REF instead of pulling whatever Torch is newest that day. Space-separated pip requirement specifiers; bump alongside COMFYUI_MPS_REF. macOS/arm64 torch wheels carry Metal/MPS. |
+| COMFYUI_MPS_LISTEN | comfyui | 127.0.0.1 | Bind address the managed MPS ComfyUI host process listens on. Default 127.0.0.1 (loopback) works on Docker Desktop/macOS where host.docker.internal forwards to host loopback. On Linux container engines, host.docker.internal maps via host-gateway to a bridge address that cannot reach a loopback listener — set 0.0.0.0 there so containers can reach the host process. Local health/port probes stay on 127.0.0.1 regardless. |
 | COMFYUI_BASE_URL | comfyui | http://comfyui:18188 | In-container default. Runtime value is COMFYUI_ENDPOINT computed by hook. |
 | COMFYUI_KONG_URL | comfyui | http://kong-api-gateway:8000/comfyui | - |
 | COMFYUI_ARGS | comfyui | --listen | - |
@@ -225,17 +219,8 @@ point at http://kong-api-gateway:8000.
 | FAL_ENABLE_SAFETY_CHECKER | fal | True | Whether to request the provider-side safety checker for compatible fal.ai image models. |
 | PROJECT_NAME | globals | atlas | Docker Compose project name — the container/volume/network prefix (<name>-…) and `docker compose -p` namespace. start.sh AND stop.sh read it from here, so stop tears down exactly what start launched. Override with `./start.sh --project <name>` (also -p; persists back here) or by editing this value. Set a unique name when running Atlas as a submodule so you don't collide with a base Atlas stack. |
 | BASE_PORT | globals | 63000 | Base port. Every service's *_PORT derives from this + a fixed offset. |
-| HOST_BIND_IP | globals |  | Host interface prefix for ALL published service ports. Empty (default)
-=> Docker binds 0.0.0.0 (dev). `--profile prod` sets this to
-"127.0.0.1:" so service ports are reachable only from the host (the
-public edge — Cloudflare Tunnel or Caddy — reaches Kong locally).
-Must include the trailing colon when set, e.g. "127.0.0.1:".
- |
-| HOST_GATEWAY_IP | globals | host-gateway | Bootstrapper computes this at runtime based on the runtime (Docker:
-"host-gateway"; Podman: literal gateway IP). If you copy this file to
-.env manually without running ./start.sh, set this to "host-gateway"
-on Linux/macOS Docker, or the real bridge IP on rootless setups.
- |
+| HOST_BIND_IP | globals |  | Host interface prefix for ALL published service ports. Empty (default) => Docker binds 0.0.0.0 (dev). `--profile prod` sets this to "127.0.0.1:" so service ports are reachable only from the host (the public edge — Cloudflare Tunnel or Caddy — reaches Kong locally). Must include the trailing colon when set, e.g. "127.0.0.1:". |
+| HOST_GATEWAY_IP | globals | host-gateway | Bootstrapper computes this at runtime based on the runtime (Docker: "host-gateway"; Podman: literal gateway IP). If you copy this file to .env manually without running ./start.sh, set this to "host-gateway" on Linux/macOS Docker, or the real bridge IP on rootless setups. |
 | BRAND_NAME | globals | Atlas | - |
 | BRAND_TAGLINE | globals | A self-hosted, source-configurable, multi-disciplinary engineering platform — gen-AI, ML, and data. | - |
 | BRAND_VERSION | globals | 0.1.0 | - |
@@ -244,11 +229,7 @@ on Linux/macOS Docker, or the real bridge IP on rootless setups.
 | BRAND_LICENSE | globals | Apache License 2.0 | - |
 | BRAND_REPO_URL | globals | https://github.com/thekaveh/atlas | - |
 | BRAND_LOGO_FILE | globals |  | Optional path to a custom block-art logo that overrides the built-in ATLAS lockup in the wizard + --no-tui banner (the BRAND_* rebranding contract). File format: the wide-lockup rows, an optional '---' line on its own, then the narrow (compact) fallback rows used on terminals too small for the wide one. Keep it 6 rows tall. Empty = built-in ATLAS. Format + example: docs/quick-start/interactive-setup-wizard.md (Brand Customization). |
-| COMPOSE_PROFILES | globals |  | Docker Compose profile activation list. Rebuilt from scratch on every
-./start.sh run from the active STT/TTS/doc-processor sources
-(speaches-cpu/-gpu, parakeet-gpu, chatterbox-gpu, docling-gpu/doc-gpu).
-Do not edit by hand — the bootstrapper owns this value.
- |
+| COMPOSE_PROFILES | globals |  | Docker Compose profile activation list. Rebuilt from scratch on every ./start.sh run from the active STT/TTS/doc-processor sources (speaches-cpu/-gpu, parakeet-gpu, chatterbox-gpu, docling-gpu/doc-gpu). Do not edit by hand — the bootstrapper owns this value. |
 | NVIDIA_VISIBLE_DEVICES | globals | all | Host-side GPU visibility. Forwarded into every NVIDIA-runtime container. |
 | PROD_ENV_CPUS | globals | 2 | Default container CPU cap (cores). Per-service overrides below. |
 | PROD_ENV_MEM_LIMIT | globals | 8g | - |
@@ -468,6 +449,7 @@ Do not edit by hand — the bootstrapper owns this value.
 | MCP_SERVERS_PORT | mcp-servers |  | Host port for the curated MCP Streamable HTTP endpoint (container port 8000). |
 | MCP_SERVERS_SCALE | mcp-servers |  | Replicas: 1 when MCP_SERVERS_SOURCE=container, else 0. |
 | MCP_POSTGRES_MAX_ROWS | mcp-servers | 50 | Maximum rows returned by the Postgres MCP query tool. |
+| MCP_NEO4J_MAX_ROWS | mcp-servers |  | Maximum rows returned by the Neo4j MCP query tool. Empty falls back to MCP_POSTGRES_MAX_ROWS (default 50). |
 | MCP_SEARXNG_MAX_RESULTS | mcp-servers | 5 | Maximum SearXNG results returned by the web-search MCP tool. |
 | MCP_TOOL_TIMEOUT_SECONDS | mcp-servers | 15 | Timeout for upstream database/search calls made by MCP tools. |
 | MINIO_SOURCE | minio | container | - |
@@ -638,23 +620,10 @@ Do not edit by hand — the bootstrapper owns this value.
 | RAY_HEAD_CPU_LIMIT | ray | 2.0 | Container CPU limit for ray-head (deploy.resources.limits.cpus). GCS + dashboard coordination rarely needs more than 1 core; 2.0 leaves room for brief spikes. |
 | RAY_WORKER_MEMORY_LIMIT | ray | 4g | Container memory limit per ray-worker (deploy.resources.limits.memory). Workers run tasks and actors; 4 g per replica is a modest OOM fence on a 32 GB host with the default 2 workers. Raise for large in-memory datasets. |
 | RAY_WORKER_CPU_LIMIT | ray | 2.0 | Container CPU limit per ray-worker (deploy.resources.limits.cpus). 2.0 cores per worker. Raise if workers need more parallelism; lower if the host is saturated. |
-| REDIS_SOURCE | redis | container | Single-option source toggle. Redis only ever runs as a container.
-Kept as an env entry (rather than a sources: block) so the wizard
-does not render a one-option dropdown. The legacy source validator
-still expects REDIS_SOURCE=container until Phase D.
- |
+| REDIS_SOURCE | redis | container | Single-option source toggle. Redis only ever runs as a container. Kept as an env entry (rather than a sources: block) so the wizard does not render a one-option dropdown. The legacy source validator still expects REDIS_SOURCE=container until Phase D. |
 | REDIS_PORT | redis |  | Host port. Container port is always 6379. |
-| REDIS_PASSWORD | redis | redis_password | Used by every consumer (n8n queue, kong rate-limit cache,
-open-webui websocket store, backend session/queue, local-deep-
-researcher worker queue). The default is for fresh-install
-convenience only; rotate before any deployment.
- |
-| REDIS_URL | redis | redis://:${REDIS_PASSWORD}@redis:6379/0 | Default connection string (database index 0; also n8n's queue and
-Kong's rate-limit cache). Consumers that need a different DB index
-build their own URL (open-webui + lightrag share /2, jupyterhub
-uses /3). REDIS_PASSWORD is substituted at compose-interpolation
-time.
- |
+| REDIS_PASSWORD | redis | redis_password | Used by every consumer (n8n queue, kong rate-limit cache, open-webui websocket store, backend session/queue, local-deep- researcher worker queue). The default is for fresh-install convenience only; rotate before any deployment. |
+| REDIS_URL | redis | redis://:${REDIS_PASSWORD}@redis:6379/0 | Default connection string (database index 0; also n8n's queue and Kong's rate-limit cache). Consumers that need a different DB index build their own URL (open-webui + lightrag share /2, jupyterhub uses /3). REDIS_PASSWORD is substituted at compose-interpolation time. |
 | REDIS_EXPORTER_PORT | redis |  | Host port for redis-exporter (in-container 9121). Sidecar gated by PROMETHEUS_SOURCE. |
 | REDIS_EXPORTER_SCALE | redis |  | Set by _generate_prometheus_config() to 1 when PROMETHEUS_SOURCE=container, 0 otherwise. |
 | REDPANDA_SOURCE | redpanda | disabled | - |

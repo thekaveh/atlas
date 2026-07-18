@@ -184,8 +184,9 @@ class ComfyUIManifestGenerator:
     ) -> None:
         """Write the tab-separated active-models file atomically.
 
-        The file has no header row — ``download_models.sh`` reads it with
-        ``IFS=$'\\t' read -r name category filename url sha target_dir``.
+        The file has no header row — ``download_models.sh`` reads each row and
+        splits it with ``cut -f`` (which preserves empty interior fields such as
+        a no-checksum ``sha`` column).
 
         An empty entries list produces an empty file (zero bytes), which
         ``download_models.sh`` detects via ``[ ! -s "$MANIFEST_TSV" ]`` and

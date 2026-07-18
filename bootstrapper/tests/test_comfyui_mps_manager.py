@@ -114,11 +114,15 @@ def test_preflight_fails_on_intel_mac(tmp_path, monkeypatch):
 
 def test_preflight_passes_on_darwin_arm64(tmp_path, monkeypatch):
     _darwin_arm64(monkeypatch, memsize_gb=64)
-    result = _mgr(tmp_path).preflight()
+    mgr = _mgr(tmp_path)
+    # A valid host models dir keeps the models_dir check green (#648).
+    (mgr.models_path / "checkpoints").mkdir(parents=True)
+    result = mgr.preflight()
     assert result.ok  # ok (mps skipped until venv exists)
     assert result.status in ("ok", "skipped")
     mps = next(c for c in result.checks if c["name"] == "mps")
     assert mps["status"] == "skipped"
+    assert next(c for c in result.checks if c["name"] == "models_dir")["status"] == "ok"
 
 
 def test_preflight_warns_on_low_memory(tmp_path, monkeypatch):
@@ -257,7 +261,10 @@ def test_install_reconciles_changed_requirements_without_update_flag(tmp_path, m
 
     monkeypatch.setattr(mod.subprocess, "run", rec_run)
     mgr.install()
-    assert any("pip install --upgrade torch" in " ".join(c) for c in calls)
+    assert any(
+        "pip install torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0" in " ".join(c)
+        for c in calls
+    )
 
 
 def test_install_fetches_when_ref_missing_locally(tmp_path, monkeypatch):
@@ -319,7 +326,11 @@ def test_update_reinstalls_torch(tmp_path, monkeypatch):
     monkeypatch.setattr(mod.subprocess, "run", rec_run)
     mgr.install(update=True)
     joined = [" ".join(c) for c in calls]
-    assert any("pip install --upgrade torch" in j for j in joined)
+    # #648: update re-applies the exact pinned Torch stack (no --upgrade drift).
+    assert any(
+        "pip install torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0" in j
+        for j in joined
+    )
     assert any("fetch --tags" in j for j in joined)  # update fetches
 
 
@@ -387,6 +398,8 @@ def test_start_is_idempotent_when_already_running(tmp_path, monkeypatch):
     mgr.state_dir.mkdir(parents=True, exist_ok=True)
     mgr.pid_file.write_text("999")
     monkeypatch.setattr(mod.os, "kill", lambda pid, sig: None)  # pid 999 "alive"
+    # pid 999 is OUR ComfyUI (not a stranger), so start() must no-op (#647).
+    monkeypatch.setattr(ComfyUiMpsManager, "_pid_is_stranger", lambda self, pid: False)
 
     def boom(*a, **k):
         raise AssertionError("Popen must not be called when already running")
@@ -564,16 +577,81 @@ def test_status_reflects_liveness(tmp_path, monkeypatch):
     mgr.state_dir.mkdir(parents=True)
     mgr.pid_file.write_text("555")
     mgr._write_status(installed_ref="v0.27.0", pid=555)
-    monkeypatch.setattr(mod.os, "kill", lambda pid, sig: None)
+
+    # Alive AND ours: a live PID that is not a stranger reports running. (Drive
+    # the ownership helpers directly so the test never depends on whether the
+    # host actually has a process/process-group at PID 555 — the source of the
+    # historical os.kill-vs-os.killpg flake, #647.)
+    monkeypatch.setattr(ComfyUiMpsManager, "_managed_process_alive", lambda self, pid: True)
+    monkeypatch.setattr(ComfyUiMpsManager, "_pid_is_stranger", lambda self, pid: False)
     st = mgr.status()
     assert st.running and st.pid == 555 and st.installed_ref == "v0.27.0"
 
-    def dead(pid, sig):
-        raise ProcessLookupError
-
-    monkeypatch.setattr(mod.os, "kill", dead)
+    # Dead: no live process at the PID.
+    monkeypatch.setattr(ComfyUiMpsManager, "_managed_process_alive", lambda self, pid: False)
     st2 = mgr.status()
     assert not st2.running and st2.pid is None
+
+
+def test_status_recycled_pid_reports_not_running(tmp_path, monkeypatch):
+    """#647 AC#1: a live PID whose argv is NOT our ComfyUI (a recycled/foreign
+    process) reports running=False even though kill-0 succeeds."""
+    mgr = _mgr(tmp_path)
+    mgr.state_dir.mkdir(parents=True)
+    mgr.pid_file.write_text("4242")
+    mgr._write_status(installed_ref="v0.27.0", pid=4242)
+    # kill-0 says the PID is alive, but the process is a stranger.
+    monkeypatch.setattr(ComfyUiMpsManager, "_managed_process_alive", lambda self, pid: True)
+    monkeypatch.setattr(ComfyUiMpsManager, "_pid_is_stranger", lambda self, pid: True)
+
+    st = mgr.status()
+    assert not st.running and st.pid is None
+
+
+def test_pid_alive_treats_permission_denied_as_not_ours(tmp_path, monkeypatch):
+    """#647 AC#3: a PID we cannot signal (PermissionError — a foreign, likely
+    root-owned, process recycled the number) is NOT our user-owned process."""
+    def denied(pid, sig):
+        raise PermissionError
+
+    monkeypatch.setattr(mod.os, "kill", denied)
+    assert ComfyUiMpsManager._pid_alive(4242) is False
+
+    monkeypatch.setattr(mod.os, "killpg", denied)
+    assert ComfyUiMpsManager._process_group_alive(4242) is False
+
+    # …and status() therefore reports not running for such a PID.
+    mgr = _mgr(tmp_path)
+    mgr.state_dir.mkdir(parents=True)
+    mgr.pid_file.write_text("4242")
+    st = mgr.status()
+    assert not st.running and st.pid is None
+
+
+def test_start_clears_stale_stranger_pidfile_and_launches(tmp_path, monkeypatch):
+    """#647 AC#2: start() on a stale/stranger pidfile clears it and launches
+    instead of no-opping."""
+    mgr = _mgr(tmp_path)
+    _install_stub(mgr)
+    mgr.state_dir.mkdir(parents=True, exist_ok=True)
+    mgr.pid_file.write_text("4242")
+    # The PID is alive but a stranger (recycled), so status() is not running.
+    monkeypatch.setattr(ComfyUiMpsManager, "_managed_process_alive", lambda self, pid: True)
+    monkeypatch.setattr(ComfyUiMpsManager, "_pid_is_stranger", lambda self, pid: True)
+    monkeypatch.setattr(ComfyUiMpsManager, "_port_in_use", lambda self: False)
+    launched: list[int] = []
+
+    def fake_popen(*_args, **_kwargs):
+        launched.append(7777)
+        return SimpleNamespace(pid=7777)
+
+    monkeypatch.setattr(mod.subprocess, "Popen", fake_popen)
+
+    status = mgr.start()
+    assert launched == [7777]  # it relaunched, did not no-op
+    assert status.pid == 7777
+    # The stale pointer was replaced by the freshly launched PID.
+    assert mgr.pid_file.read_text(encoding="utf-8").strip() == "7777"
 
 
 # ─────────────────────────── health ───────────────────────────
@@ -660,6 +738,9 @@ def test_concurrent_starts_assign_ownership_to_one_launcher(tmp_path, monkeypatc
         "_pid_alive",
         staticmethod(lambda _pid: True),
     )
+    # The winning launcher's process is ours, so the loser's status() sees it as
+    # running (not a stranger) and no-ops (#647).
+    monkeypatch.setattr(ComfyUiMpsManager, "_pid_is_stranger", lambda self, pid: False)
     monkeypatch.setattr(ComfyUiMpsManager, "_port_in_use", lambda self: False)
     launches: list[int] = []
 
@@ -844,3 +925,130 @@ def test_live_managed_host_reports_mps():
     health = mgr.health()
     assert health["reachable"], health
     assert health["device"] == "mps", f"expected MPS, got {health['device']}"
+
+
+# ── #648: pinned Torch, YAML-safe model paths, models-dir preflight ─────────
+def test_torch_pin_default_and_env_override(monkeypatch):
+    from services.comfyui_mps_manager import (
+        ComfyUiMpsManager as _Mgr,
+        _DEFAULT_TORCH_PIN,
+        manager_from_env,
+    )
+
+    assert _Mgr("/tmp/x").torch_pin == _DEFAULT_TORCH_PIN.split()
+    # An explicit env pin (bumped alongside COMFYUI_MPS_REF) wins.
+    m = manager_from_env({"COMFYUI_MPS_TORCH_PIN": "torch==9.9.9 torchvision==9.9.9"})
+    assert m.torch_pin == ["torch==9.9.9", "torchvision==9.9.9"]
+    # A blank override falls back to the reproducible default (never unpinned).
+    assert manager_from_env({"COMFYUI_MPS_TORCH_PIN": ""}).torch_pin == _DEFAULT_TORCH_PIN.split()
+
+
+def test_write_model_paths_quotes_yaml_special_chars(tmp_path):
+    # A models path with YAML-special characters must not corrupt the file.
+    tricky = tmp_path / "models: with #special"
+    mgr = _mgr(tmp_path, models_path=tricky)
+    mgr.state_dir.mkdir(parents=True, exist_ok=True)
+
+    mgr._write_model_paths()
+    text = mgr.model_paths_file.read_text(encoding="utf-8")
+    assert text.startswith("# AUTO-GENERATED by Atlas")
+
+    import yaml as _yaml
+
+    parsed = _yaml.safe_load(text)
+    assert parsed["atlas_host"]["base_path"] == str(tricky)
+    assert parsed["atlas_host"]["checkpoints"] == f"{tricky}/checkpoints"
+    assert parsed["atlas_host"]["vae"] == f"{tricky}/vae"
+
+
+def test_preflight_warns_on_missing_models_dir(tmp_path, monkeypatch):
+    _darwin_arm64(monkeypatch, memsize_gb=64)
+    mgr = _mgr(tmp_path, models_path=tmp_path / "does-not-exist")
+    result = mgr.preflight()
+    md = next(c for c in result.checks if c["name"] == "models_dir")
+    assert md["status"] == "warn"
+    assert "does not exist" in md["detail"]
+
+
+def test_preflight_warns_on_empty_models_dir(tmp_path, monkeypatch):
+    _darwin_arm64(monkeypatch, memsize_gb=64)
+    models = tmp_path / "empty-models"
+    models.mkdir()
+    mgr = _mgr(tmp_path, models_path=models)
+    result = mgr.preflight()
+    md = next(c for c in result.checks if c["name"] == "models_dir")
+    assert md["status"] == "warn"
+    assert "none of the expected" in md["detail"]
+
+
+# ── #651: COMFYUI_MPS_LISTEN + loopback-reachable probes ────────────────────
+def test_manager_from_env_threads_listen():
+    assert manager_from_env({"COMFYUI_MPS_LISTEN": "0.0.0.0"}).listen == "0.0.0.0"
+    # Default (and a blank override) preserve today's loopback behavior.
+    assert manager_from_env({}).listen == "127.0.0.1"
+    assert manager_from_env({"COMFYUI_MPS_LISTEN": ""}).listen == "127.0.0.1"
+
+
+def test_probe_host_falls_back_to_loopback_for_wildcard(tmp_path):
+    assert _mgr(tmp_path, listen="0.0.0.0")._probe_host == "127.0.0.1"
+    assert _mgr(tmp_path, listen="::")._probe_host == "127.0.0.1"
+    assert _mgr(tmp_path, listen="")._probe_host == "127.0.0.1"
+    # A concrete bind address is probed as-is.
+    assert _mgr(tmp_path, listen="192.168.1.5")._probe_host == "192.168.1.5"
+    assert _mgr(tmp_path)._probe_host == "127.0.0.1"  # default
+
+
+def test_port_probe_uses_loopback_when_listening_on_all_interfaces(tmp_path, monkeypatch):
+    mgr = _mgr(tmp_path, listen="0.0.0.0")
+    seen = {}
+
+    class _RecSock:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def settimeout(self, _t):
+            pass
+
+        def connect_ex(self, addr):
+            seen["addr"] = addr
+            return 1  # not in use
+
+    monkeypatch.setattr(mod.socket, "socket", lambda *a, **k: _RecSock())
+    assert mgr._port_in_use() is False
+    assert seen["addr"] == ("127.0.0.1", mgr.port)  # not 0.0.0.0
+
+
+def test_health_uses_loopback_probe_host(tmp_path, monkeypatch):
+    mgr = _mgr(tmp_path, listen="0.0.0.0")
+    seen = {}
+
+    def fake_urlopen(url, *a, **k):
+        seen["url"] = url
+        raise OSError("cold")  # unreachable is fine; only the URL matters
+
+    monkeypatch.setattr(mod.urllib.request, "urlopen", fake_urlopen)
+    mgr.health()
+    assert seen["url"] == f"http://127.0.0.1:{mgr.port}/system_stats"
+
+
+def test_listen_flows_to_comfyui_launch_argv(tmp_path, monkeypatch):
+    mgr = _mgr(tmp_path, listen="0.0.0.0")
+    _install_stub(mgr)
+    monkeypatch.setattr(ComfyUiMpsManager, "_port_in_use", lambda self: False)
+    monkeypatch.setattr(ComfyUiMpsManager, "_pid_is_stranger", lambda self, pid: False)
+    monkeypatch.setattr(mod.os, "kill", lambda pid, sig: (_ for _ in ()).throw(ProcessLookupError))
+    captured = {}
+
+    def fake_popen(args, *a, **k):
+        captured["args"] = list(args)
+        return SimpleNamespace(pid=4242)
+
+    monkeypatch.setattr(mod.subprocess, "Popen", fake_popen)
+    mgr.start()
+
+    args = captured["args"]
+    assert "--listen" in args
+    assert args[args.index("--listen") + 1] == "0.0.0.0"  # binds all interfaces

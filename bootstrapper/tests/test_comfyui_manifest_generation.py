@@ -483,11 +483,36 @@ def test_download_models_sh_reads_manifest_tsv():
 
 
 def test_download_models_sh_reads_target_dir_column():
-    """download_models.sh must honor the explicit target_dir TSV column."""
+    """download_models.sh must honor the explicit target_dir TSV column, and
+    split rows with `cut` so an empty sha column does not shift target_dir into
+    sha (whitespace-IFS `read` collapses the two adjacent tabs)."""
     text = (REPO_ROOT / "services/comfyui/init/scripts/download_models.sh").read_text()
-    assert "read -r name category filename url sha target_dir" in text
+    assert "cut -f5" in text and "cut -f6" in text
+    # The old whitespace-IFS 6-variable read silently mis-parsed no-sha rows.
+    assert "read -r name category filename url sha target_dir" not in text
     assert 'dir="$target_dir"' in text
     assert "unsafe target_dir" in text
+
+
+def test_download_models_sh_parse_preserves_empty_sha_column():
+    """Regression guard for the cache-defeat bug: a no-checksum row (empty sha
+    column) must parse with sha empty and target_dir intact. The prior
+    whitespace-IFS `read` collapsed the two adjacent tabs, put the target_dir
+    value into sha, and re-downloaded cached multi-GB models on every restart."""
+    import subprocess
+
+    row = "flux\tcheckpoints\tflux.safetensors\thttps://example/flux\t\tcheckpoints\n"
+    harness = (
+        "IFS= read -r _row\n"
+        'printf "%s|%s\\n" '
+        '"$(printf "%s\\n" "$_row" | cut -f5)" '
+        '"$(printf "%s\\n" "$_row" | cut -f6)"\n'
+    )
+    result = subprocess.run(
+        ["sh", "-c", harness], input=row, capture_output=True, text=True
+    )
+    # sha empty, target_dir preserved.
+    assert result.stdout.strip() == "|checkpoints"
 
 
 def test_download_models_sh_keeps_model_downloader_db_free():

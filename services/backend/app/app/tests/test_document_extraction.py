@@ -187,7 +187,7 @@ def test_docling_unsupported_falls_back_to_tika_with_provenance() -> None:
     }
     assert [call[0] for call in client.calls] == [
         "http://docling-gpu:8000/v1/document/convert",
-        "http://tika:9998/tika/text",
+        "http://tika:9998/tika",
     ]
 
 
@@ -212,7 +212,7 @@ def test_long_tail_extension_routes_to_tika_without_docling() -> None:
     assert result.extractor == "tika"
     assert result.fallback_reason == "long-tail-format"
     assert result.degraded is True
-    assert [call[0] for call in client.calls] == ["http://tika:9998/tika/text"]
+    assert [call[0] for call in client.calls] == ["http://tika:9998/tika"]
 
 
 def test_explicit_tika_selection_bypasses_docling() -> None:
@@ -236,7 +236,7 @@ def test_explicit_tika_selection_bypasses_docling() -> None:
 
     assert result.extractor == "tika"
     assert result.content == "Forced Tika text"
-    assert [call[0] for call in client.calls] == ["http://tika:9998/tika/text"]
+    assert [call[0] for call in client.calls] == ["http://tika:9998/tika"]
 
 
 def test_explicit_docling_selection_does_not_hide_unsupported_response() -> None:
@@ -332,7 +332,7 @@ def test_docling_transport_error_is_mapped_to_extraction_error() -> None:
 
 
 def test_tika_transport_error_is_mapped_to_extraction_error() -> None:
-    request = httpx.Request("PUT", "http://tika:9998/tika/text")
+    request = httpx.Request("PUT", "http://tika:9998/tika")
     client = FakeAsyncClient([httpx.ConnectError("refused", request=request)])
     extractor = DocumentExtractor(
         DocumentExtractorConfig(

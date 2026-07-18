@@ -239,3 +239,168 @@ def test_metric_objects_context_metrics_work_without_embeddings(_suppress_ragas_
     )
     assert len(metrics) == 3
 
+
+def test_live_runner_executes_collection_metrics_in_one_async_client_lifecycle(
+    monkeypatch, _suppress_ragas_warnings
+):
+    """Collection metrics are not legacy ``ragas.metrics.base.Metric`` objects.
+
+    The live runner must use their modern batch API instead of passing them to
+    deprecated ``ragas.evaluate()``, which rejects this type family before any
+    evaluator call.
+    """
+    from ragas.metrics.result import MetricResult
+
+    import rag_eval_service
+
+    seen: list[dict[str, object]] = []
+
+    class FakeFaithfulness:
+        name = "faithfulness"
+
+        async def ascore(self, user_input, response, retrieved_contexts):
+            raise AssertionError("abatch_score should own async execution")
+
+        def batch_score(self, inputs):
+            raise AssertionError("sync batch_score must not create a separate event loop")
+
+        async def abatch_score(self, inputs):
+            seen.extend(inputs)
+            return [
+                MetricResult(value=0.91 - index / 10, reason=f"supported-{index}")
+                for index, _ in enumerate(inputs)
+            ]
+
+    clients: dict[str, str] = {}
+    client_refs = []
+
+    def fake_metric_objects(names, *, llm, embeddings):
+        clients["llm"] = type(llm.client).__name__
+        clients["embeddings"] = type(embeddings.client).__name__
+        client_refs.append(embeddings.client)
+        return [FakeFaithfulness()]
+
+    monkeypatch.setattr(rag_eval_service, "_metric_objects", fake_metric_objects)
+
+    rows = rag_eval_service._run_ragas_evaluation(
+        [
+            {
+                "user_input": "What does Atlas use for routing?",
+                "response": "Atlas uses LiteLLM.",
+                "retrieved_contexts": ["Atlas routes model calls through LiteLLM."],
+                "reference": "LiteLLM",
+            },
+            {
+                "user_input": "Where are vectors stored?",
+                "response": "In Weaviate.",
+                "retrieved_contexts": ["Atlas uses Weaviate as its vector store."],
+                "reference": "Weaviate",
+            },
+        ],
+        ["faithfulness"],
+        {
+            "llm_api_key": "dummy",
+            "llm_base_url": "http://localhost:1/v1",
+            "evaluator_model": "dummy-chat",
+            "embeddings_model": "dummy-embed",
+            "raise_exceptions": False,
+        },
+    )
+
+    assert seen == [
+        {
+            "user_input": "What does Atlas use for routing?",
+            "response": "Atlas uses LiteLLM.",
+            "retrieved_contexts": ["Atlas routes model calls through LiteLLM."],
+        },
+        {
+            "user_input": "Where are vectors stored?",
+            "response": "In Weaviate.",
+            "retrieved_contexts": ["Atlas uses Weaviate as its vector store."],
+        },
+    ]
+    assert clients == {"llm": "AsyncInstructor", "embeddings": "AsyncOpenAI"}
+    assert client_refs[0].is_closed()
+    assert rows == [
+        {
+            "scores": {"faithfulness": 0.91},
+            "metadata": {"metric_reasons": {"faithfulness": "supported-0"}},
+        },
+        {
+            "scores": {"faithfulness": 0.81},
+            "metadata": {"metric_reasons": {"faithfulness": "supported-1"}},
+        },
+    ]
+
+
+def test_collection_metric_failure_is_explicit_unless_raise_exceptions() -> None:
+    import asyncio
+
+    import rag_eval_service
+
+    class BrokenMetric:
+        name = "faithfulness"
+
+        async def ascore(self, user_input, response, retrieved_contexts):
+            raise AssertionError("not called directly")
+
+        async def abatch_score(self, inputs):
+            raise RuntimeError("evaluator unavailable")
+
+    records = [
+        {
+            "user_input": "Q",
+            "response": "A",
+            "retrieved_contexts": ["C"],
+            "reference": None,
+        }
+    ]
+
+    rows = asyncio.run(
+        rag_eval_service._score_collection_metrics_async(
+            records, [BrokenMetric()], raise_exceptions=False
+        )
+    )
+    assert rows == [
+        {
+            "scores": {"faithfulness": None},
+            "metadata": {
+                "metric_errors": {
+                    "faithfulness": "RuntimeError: evaluator unavailable"
+                }
+            },
+        }
+    ]
+
+    with pytest.raises(RuntimeError, match="evaluator unavailable"):
+        asyncio.run(
+            rag_eval_service._score_collection_metrics_async(
+                records, [BrokenMetric()], raise_exceptions=True
+            )
+        )
+
+
+def test_dependency_error_propagates_as_503_not_400(monkeypatch):
+    # A ragas dependency outage must reach the route as
+    # RagEvaluationDependencyError (→ 503), not be re-wrapped into a plain
+    # RagEvaluationError (→ 400). Subclassing keeps its identity through the
+    # service's `except RagEvaluationError: raise` wrapper.
+    from rag_eval_service import RagEvaluationDependencyError, RagEvaluationError
+
+    assert issubclass(RagEvaluationDependencyError, RagEvaluationError)
+
+    monkeypatch.setenv("LITELLM_BASE_URL", "http://litellm:4000")
+    monkeypatch.setenv("LITELLM_API_KEY", "sk-atlas")
+    monkeypatch.setenv("LITELLM_DEFAULT_MODEL", "ollama/qwen3.6:latest")
+    monkeypatch.setenv("LITELLM_EMBEDDING_MODEL", "ollama/nomic-embed-text")
+
+    def boom_runner(records, metrics, config):
+        raise RagEvaluationDependencyError("ragas transitive dep missing")
+
+    request = RagEvaluationRequest(
+        records=[RagEvaluationRecord(question="q", answer="a", contexts=["c"])],
+        metrics=["faithfulness"],
+    )
+
+    with pytest.raises(RagEvaluationDependencyError):
+        evaluate_rag_records(request, runner=boom_runner)

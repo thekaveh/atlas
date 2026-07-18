@@ -208,7 +208,13 @@ class DocumentExtractor:
                 "TIKA_SOURCE=tika-localhost"
             )
 
-        url = f"{self.config.tika_endpoint.rstrip('/')}/tika/text"
+        # Plain-text extraction is the BARE `PUT /tika` endpoint (getText,
+        # @Produces text/plain) on the pinned apache/tika 3.3.1. `/tika/text`
+        # path-matches getJson (@Produces application/json) instead, so with an
+        # `Accept: text/plain` header it returns 406 → the whole Tika fallback
+        # fails. (Tika 4.x adds explicit `/tika/text`, but `Accept: text/plain`
+        # selects getText on both, so the bare path is version-safe.)
+        url = f"{self.config.tika_endpoint.rstrip('/')}/tika"
         response = await self._put(
             url,
             content=content,

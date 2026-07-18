@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 from collections import OrderedDict
-from typing import Any, Callable, Dict, List, Literal, Optional
+import inspect
 import os
+from typing import Any, Callable, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -30,11 +32,19 @@ _METRIC_REQUIREMENTS: Dict[MetricName, tuple[bool, bool]] = {
 }
 
 
-class RagEvaluationDependencyError(RuntimeError):
+class RagEvaluationError(RuntimeError):
     pass
 
 
-class RagEvaluationError(RuntimeError):
+class RagEvaluationDependencyError(RagEvaluationError):
+    """A missing/broken ragas dependency — a server-side outage (→ 503), not a
+    client error. It MUST subclass RagEvaluationError (like the sibling
+    ChunkingDependencyError/RerankAdapterDependencyError do): the service wraps
+    the runner in ``except RagEvaluationError: raise`` / ``except Exception:
+    raise RagEvaluationError(...)``, so a sibling type would be re-wrapped and
+    lose its identity, making the route's 503 branch dead code (it would 400 a
+    dependency outage). As a subclass it survives the wrapper and the route's
+    ``except RagEvaluationDependencyError`` (checked first) maps it to 503."""
     pass
 
 
@@ -204,12 +214,59 @@ def _metric_objects(metric_names: list[str], *, llm, embeddings):
     return [build(name) for name in metric_names]
 
 
-def _run_ragas_evaluation(
+async def _score_collection_metrics_async(
+    records: list[dict[str, Any]], metric_objects: list[Any], *, raise_exceptions: bool
+) -> list[dict[str, Any]]:
+    """Run Ragas collection metrics through their modern batch API.
+
+    ``ragas.metrics.collections`` objects are intentionally not instances of
+    the legacy ``ragas.metrics.base.Metric`` protocol accepted by deprecated
+    ``ragas.evaluate()``. Each collection metric instead exposes ``ascore`` and
+    ``abatch_score``. Filter records to the concrete ``ascore`` signature so a
+    metric never receives unrelated sample fields.
+    """
+    rows: list[dict[str, Any]] = [
+        {"scores": {}, "metadata": {}} for _ in records
+    ]
+    for metric in metric_objects:
+        name = str(getattr(metric, "name", "") or "")
+        if not name:
+            raise RagEvaluationError(
+                f"Ragas collection metric {type(metric).__name__} has no name"
+            )
+        accepted = set(inspect.signature(metric.ascore).parameters)
+        inputs = [
+            {key: value for key, value in record.items() if key in accepted}
+            for record in records
+        ]
+        try:
+            results = await metric.abatch_score(inputs)
+        except Exception as exc:
+            if raise_exceptions:
+                raise
+            detail = f"{type(exc).__name__}: {exc}"
+            for row in rows:
+                row["scores"][name] = None
+                row["metadata"].setdefault("metric_errors", {})[name] = detail
+            continue
+        if len(results) != len(records):
+            raise RagEvaluationError(
+                f"Ragas metric {name} returned {len(results)} result(s) "
+                f"for {len(records)} record(s)"
+            )
+        for row, result in zip(rows, results):
+            row["scores"][name] = getattr(result, "value", None)
+            reason = getattr(result, "reason", None)
+            if reason:
+                row["metadata"].setdefault("metric_reasons", {})[name] = reason
+    return rows
+
+
+async def _run_ragas_evaluation_async(
     records: list[dict[str, Any]], metrics: list[str], config: dict[str, Any]
 ) -> list[dict[str, Any]]:
     try:
-        from openai import OpenAI
-        from ragas import EvaluationDataset, SingleTurnSample, evaluate
+        from openai import AsyncOpenAI
         from ragas.embeddings import OpenAIEmbeddings
         from ragas.llms import llm_factory
     except ModuleNotFoundError as exc:
@@ -217,50 +274,41 @@ def _run_ragas_evaluation(
             "Ragas evaluation dependencies are not installed or are incompatible"
         ) from exc
 
-    samples = [
-        SingleTurnSample(
-            user_input=record["user_input"],
-            response=record["response"],
-            retrieved_contexts=record["retrieved_contexts"],
-            reference=record.get("reference"),
-        )
-        for record in records
-    ]
-    dataset = EvaluationDataset(samples=samples)
-
     # ragas 0.4.3's collections metrics require the modern InstructorLLM
     # abstraction. Build one from an OpenAI-compatible client pointed at the
     # LiteLLM gateway (the same base_url/key the legacy LangchainLLMWrapper
     # used); llm_factory wraps it into the InstructorLLM the metrics expect.
-    openai_client = OpenAI(
+    # Keep the client, every metric call, and client shutdown on one event loop.
+    # Calling each metric's synchronous ``batch_score`` wrapper would create a
+    # separate loop per metric while sharing this async transport.
+    async with AsyncOpenAI(
         api_key=config["llm_api_key"],
         base_url=config["llm_base_url"],
-    )
-    llm = llm_factory(config["evaluator_model"], client=openai_client)
-    embeddings = None
-    if config.get("embeddings_model"):
-        embeddings = OpenAIEmbeddings(
-            client=openai_client,
-            model=config["embeddings_model"],
-        )
+    ) as openai_client:
+        llm = llm_factory(config["evaluator_model"], client=openai_client)
+        embeddings = None
+        if config.get("embeddings_model"):
+            embeddings = OpenAIEmbeddings(
+                client=openai_client,
+                model=config["embeddings_model"],
+            )
 
-    try:
-        result = evaluate(
-            dataset,
-            metrics=_metric_objects(metrics, llm=llm, embeddings=embeddings),
-            llm=llm,
-            embeddings=embeddings,
-            show_progress=False,
+        return await _score_collection_metrics_async(
+            records,
+            _metric_objects(metrics, llm=llm, embeddings=embeddings),
             raise_exceptions=bool(config.get("raise_exceptions")),
         )
+
+
+def _run_ragas_evaluation(
+    records: list[dict[str, Any]], metrics: list[str], config: dict[str, Any]
+) -> list[dict[str, Any]]:
+    try:
+        return asyncio.run(_run_ragas_evaluation_async(records, metrics, config))
+    except RagEvaluationError:
+        raise
     except Exception as exc:  # pragma: no cover - exercised only with live evaluator calls.
         raise RagEvaluationError(str(exc)) from exc
-
-    if hasattr(result, "to_pandas"):
-        return result.to_pandas().to_dict(orient="records")
-    if hasattr(result, "scores"):
-        return list(result.scores)
-    return list(result)
 
 
 def _result_scores(

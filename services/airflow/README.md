@@ -12,7 +12,7 @@ Image: `apache/airflow:3.3.0` (Apache 2.0), wrapped by a local `services/airflow
 |---|---|---|
 | Web UI (direct) | `http://localhost:${AIRFLOW_PORT}` | `admin` / `${AIRFLOW_ADMIN_PASSWORD}` (FAB session cookie) |
 | Web UI (Kong) | `http://airflow.localhost:${KONG_HTTP_PORT}` | Same |
-| REST API | `http://airflow.localhost:${KONG_HTTP_PORT}/api/v2/` | JWT bearer — POST to `/auth/token` first; `AIRFLOW_FAB_AUTH_BACKENDS=basic_auth` applies to legacy FAB endpoints only, NOT `/api/v2/`. See §6 for the two-step curl. |
+| REST API | `http://airflow.localhost:${KONG_HTTP_PORT}/api/v2/` | JWT bearer — POST to `/auth/token` first; `AIRFLOW__FAB__AUTH_BACKENDS` (the fully-qualified basic_auth backend) applies to legacy FAB endpoints only, NOT `/api/v2/`. See §6 for the two-step curl. |
 
 `AIRFLOW_ADMIN_PASSWORD` is auto-generated on first run and persisted to `.env`. Treat it like any other secret.
 

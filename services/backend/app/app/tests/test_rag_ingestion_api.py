@@ -51,6 +51,9 @@ class _FakeWeaviate:
     async def write_objects(self, class_name, objects):
         return len(objects)
 
+    async def reconcile_objects(self, class_name, profile_name, desired_ids):
+        return 0
+
 
 class _FakeLightrag:
     def available(self):
@@ -107,6 +110,8 @@ def test_submit_sync_path_runs_and_returns_status(tmp_path, monkeypatch):
     got = client.get(f"/api/rag/ingestions/{ingestion_id}")
     assert got.status_code == 200
     assert got.json()["counts"]["documents_parsed"] == 1
+    assert got.json()["corpus"] == {"source": "mount", "path": "docs"}
+    assert got.json()["profile_snapshot"]["revision"] == "rev1"
 
 
 def test_submit_unknown_profile_returns_404(tmp_path, monkeypatch):

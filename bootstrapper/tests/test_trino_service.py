@@ -103,7 +103,7 @@ def test_trino_compose_catalog_contract() -> None:
     assert "iceberg.catalog.type=rest" in catalog
     assert "iceberg.rest-catalog.uri=http://iceberg-rest:8181" in catalog
     assert "iceberg.rest-catalog.warehouse=s3://lakehouse/" in catalog
-    assert "fs.s3.enabled=true" in catalog
+    assert "fs.native-s3.enabled=true" in catalog
     assert "s3.endpoint=http://minio:9000" in catalog
     assert "s3.region=${ENV:MINIO_REGION}" in catalog
     assert "s3.path-style-access=true" in catalog
@@ -208,7 +208,7 @@ def test_trino_kong_route_and_docs_contract() -> None:
         "atlas` is a convention",
         "CREATE SCHEMA IF NOT EXISTS lakehouse.gold",
         "CREATE TABLE lakehouse.gold.atlas_trino_ctas_smoke",
-        "fs.s3.enabled=true",
+        "fs.native-s3.enabled=true",
         "Trino 482",
         "TRINO_PORT",
         "Iceberg REST",

@@ -1,6 +1,6 @@
 # AGENTS.md
 
-This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
+This file provides guidance to coding agents (e.g. Codex, Claude Code) when working with code in this repository.
 
 ## Project Overview
 
@@ -13,6 +13,15 @@ When editing existing files, preserve all existing functionality. Never remove o
 ## Workflow Conventions
 
 After generating a report or output to a file, always display a summary or the full content to the user without being asked.
+
+## Documentation Skills
+
+Use the three-surface documentation skills for Atlas docs work:
+
+- `three-surface-docs` (`/Users/kaveh/.agents/skills/three-surface-docs/SKILL.md`) — use when creating, fixing, or extending the synchronized in-repo docs, generated MkDocs `.io` site, and GitHub wiki pipeline. Load its `reference.md` before implementation work that changes the pipeline shape, generated surfaces, wiki publishing, MkDocs config, manifest behavior, diagram propagation, or cross-surface link rewriting.
+- `three-surface-docs-audit` (`/Users/kaveh/.agents/skills/three-surface-docs-audit/SKILL.md`) — use for read-only audits of documentation health, especially before releases, after docs changes, when docs CI is red, or when checking that README, repo docs, generated site, and wiki remain self-contained and in sync. Present findings before making fixes.
+
+When docs architecture diagrams are created or materially changed, use the `architecture-diagram` skill for the diagram masters and keep generated diagram assets synchronized across all required surfaces.
 
 ## Code Review
 
@@ -38,7 +47,7 @@ For TUI/CLI visual work: after each change, describe exactly what changed visual
 
 Strict mode is enabled, so the PR branch must be up to date with main before merge becomes available. Conversation-resolution is required.
 
-Integration flow: branch (typically a worktree under `.Codex/worktrees/<name>`) → push the branch → `gh pr create --base main` → wait for the required checks → `gh pr merge --squash --delete-branch` (squash preserves the linear history the repo prefers). Never attempt `git push origin main` or `develop`. Inspect the live rule with `gh api repos/thekaveh/atlas/rulesets`.
+Integration flow: branch (typically a dedicated git worktree) → push the branch → `gh pr create --base main` → wait for the required checks → `gh pr merge --squash --delete-branch` (squash preserves the linear history the repo prefers). Never attempt `git push origin main` or `develop`. Inspect the live rule with `gh api repos/thekaveh/atlas/rulesets`.
 
 ## Key Commands
 

@@ -14,5 +14,5 @@ Metrics, traces, logs, and LLM telemetry follow separate collection paths. Prome
 
 - `services/*/service.yml`
 - `bootstrapper/tracks.yml`
-- `services/topology.py`
+- `bootstrapper/services/topology.py`
 - `docs/deployment/source-configuration.md`

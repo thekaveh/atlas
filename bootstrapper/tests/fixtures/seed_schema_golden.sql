@@ -616,6 +616,7 @@ CREATE TABLE public.memory_facts (
     metadata jsonb DEFAULT '{}'::jsonb,
     embedding public.vector(768),
     weaviate_id character varying(255),
+    vector_sync_pending boolean DEFAULT false NOT NULL,
     is_active boolean DEFAULT true,
     superseded_by uuid,
     created_at timestamp with time zone DEFAULT now(),
@@ -849,6 +850,8 @@ CREATE INDEX idx_memory_facts_user_active ON public.memory_facts USING btree (us
 
 CREATE INDEX idx_memory_facts_user_id ON public.memory_facts USING btree (user_id);
 
+CREATE INDEX idx_memory_facts_vector_sync_pending ON public.memory_facts USING btree (vector_sync_pending) WHERE (vector_sync_pending = true);
+
 CREATE INDEX idx_memory_sessions_conversation ON public.memory_sessions USING btree (conversation_id);
 
 CREATE INDEX idx_memory_sessions_status ON public.memory_sessions USING btree (status);
@@ -873,9 +876,11 @@ CREATE INDEX bname ON storage.buckets USING btree (name);
 
 CREATE INDEX bucket_id ON storage.objects USING btree (bucket_id);
 
-CREATE INDEX name ON storage.objects USING btree (name);
+CREATE INDEX idx_storage_buckets_owner ON storage.buckets USING btree (owner);
 
-CREATE INDEX owner ON storage.buckets USING btree (owner);
+CREATE INDEX idx_storage_objects_owner ON storage.objects USING btree (owner);
+
+CREATE INDEX name ON storage.objects USING btree (name);
 
 CREATE INDEX path_tokens_idx ON storage.objects USING gin (path_tokens);
 
@@ -929,6 +934,8 @@ ALTER TABLE ONLY storage.objects
 
 CREATE POLICY "Service role can access all consolidation logs" ON public.memory_consolidation_log USING ((auth.role() = 'service_role'::text));
 
+CREATE POLICY "Service role can access all media spend ledger" ON public.media_spend_ledger USING ((auth.role() = 'service_role'::text));
+
 CREATE POLICY "Service role can access all memory facts" ON public.memory_facts USING ((auth.role() = 'service_role'::text));
 
 CREATE POLICY "Service role can access all memory sessions" ON public.memory_sessions USING ((auth.role() = 'service_role'::text));
@@ -960,6 +967,8 @@ CREATE POLICY "Users can view sources for their sessions" ON public.research_sou
   WHERE ((research_sessions.id = research_sources.session_id) AND (research_sessions.user_id = auth.uid())))));
 
 CREATE POLICY "Users can view their own research sessions" ON public.research_sessions FOR SELECT USING ((auth.uid() = user_id));
+
+ALTER TABLE public.media_spend_ledger ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE public.memory_consolidation_log ENABLE ROW LEVEL SECURITY;
 
@@ -5523,29 +5532,18 @@ GRANT ALL ON FUNCTION public.sum(public.vector) TO service_role;
 
 GRANT ALL ON TABLE auth.audit_log_entries TO dashboard_user;
 GRANT ALL ON TABLE auth.audit_log_entries TO postgres;
-GRANT SELECT ON TABLE auth.audit_log_entries TO anon;
-GRANT SELECT ON TABLE auth.audit_log_entries TO authenticated;
 
 GRANT ALL ON TABLE auth.instances TO dashboard_user;
 GRANT ALL ON TABLE auth.instances TO postgres;
-GRANT SELECT ON TABLE auth.instances TO anon;
-GRANT SELECT ON TABLE auth.instances TO authenticated;
 
 GRANT ALL ON TABLE auth.refresh_tokens TO dashboard_user;
 GRANT ALL ON TABLE auth.refresh_tokens TO postgres;
-GRANT SELECT ON TABLE auth.refresh_tokens TO anon;
-GRANT SELECT ON TABLE auth.refresh_tokens TO authenticated;
 
 GRANT ALL ON SEQUENCE auth.refresh_tokens_id_seq TO dashboard_user;
 GRANT ALL ON SEQUENCE auth.refresh_tokens_id_seq TO postgres;
 
-GRANT SELECT ON TABLE auth.schema_migrations TO anon;
-GRANT SELECT ON TABLE auth.schema_migrations TO authenticated;
-
 GRANT ALL ON TABLE auth.users TO dashboard_user;
 GRANT ALL ON TABLE auth.users TO postgres;
-GRANT SELECT ON TABLE auth.users TO anon;
-GRANT SELECT ON TABLE auth.users TO authenticated;
 
 GRANT ALL ON TABLE extensions.pg_stat_statements TO postgres WITH GRANT OPTION;
 
@@ -5634,8 +5632,6 @@ ALTER DEFAULT PRIVILEGES FOR ROLE supabase_auth_admin IN SCHEMA auth GRANT ALL O
 ALTER DEFAULT PRIVILEGES FOR ROLE supabase_auth_admin IN SCHEMA auth GRANT ALL ON TABLES TO postgres;
 ALTER DEFAULT PRIVILEGES FOR ROLE supabase_auth_admin IN SCHEMA auth GRANT ALL ON TABLES TO dashboard_user;
 
-ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA auth GRANT SELECT ON TABLES TO anon;
-ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA auth GRANT SELECT ON TABLES TO authenticated;
 ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA auth GRANT ALL ON TABLES TO service_role;
 
 ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA extensions GRANT ALL ON SEQUENCES TO postgres WITH GRANT OPTION;

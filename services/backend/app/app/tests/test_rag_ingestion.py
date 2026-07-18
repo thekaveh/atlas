@@ -24,6 +24,7 @@ from rag_ingestion.clients import (
     MinioCorpusReader,
     MountCorpusReader,
     ParserAdapter,
+    WeaviateClient,
 )
 from rag_ingestion.profiles import ProfileNotFoundError, load_profiles
 from rag_ingestion.service import (
@@ -51,13 +52,20 @@ class FakeWeaviate:
         self._available = available
         self.written = []
         self.classes = []
+        self.object_ids = set()
+        self.reconciled = []
     def available(self):
         return self._available
     async def ensure_class(self, class_name):
         self.classes.append(class_name)
     async def write_objects(self, class_name, objects):
         self.written.extend(objects)
+        self.object_ids.update(obj["id"] for obj in objects)
         return len(objects)
+    async def reconcile_objects(self, class_name, profile_name, desired_ids):
+        self.reconciled.append((class_name, profile_name, list(desired_ids)))
+        self.object_ids.intersection_update(desired_ids)
+        return 0
 
 
 class FakeLightrag:
@@ -170,7 +178,7 @@ def test_end_to_end_completes(tmp_path, monkeypatch):
     assert final.counts["chunks"] >= 1
     assert final.counts["vectors_written"] == final.counts["chunks"]
     assert final.counts["documents_uploaded"] == 1
-    assert weav.classes == ["RagShowcase_showcase-default"]
+    assert weav.classes == ["RagShowcase_showcase_default"]
     assert final.content_digest
     assert [p.status for p in final.phases if p.name == "drain"] == ["completed"]
 
@@ -428,6 +436,108 @@ def test_content_change_at_same_corpus_path_creates_fresh_ingestion(
     assert created_first is True
     assert created_second is True
     assert second.id != first.id
+
+
+def test_empty_corpus_reconciles_away_prior_profile_objects(tmp_path, monkeypatch):
+    root = _corpus(tmp_path, monkeypatch, {"a.txt": "content"})
+    profile_path = _profiles_file(tmp_path)
+    weaviate = FakeWeaviate()
+    service = _service(
+        tmp_path,
+        Deps(
+            embedder=FakeEmbedder(),
+            weaviate=weaviate,
+            lightrag=FakeLightrag(available=False),
+            poll_interval=0.01,
+        ),
+        profile_path,
+    )
+    first, _ = service.submit("showcase-default")
+    assert asyncio.run(service.run(first.id)).status == "completed"
+    assert weaviate.object_ids
+
+    (root / "docs" / "a.txt").unlink()
+    second, created = service.submit("showcase-default")
+    final = asyncio.run(service.run(second.id))
+
+    assert created is True
+    assert final.status == "completed", final.errors
+    assert weaviate.object_ids == set()
+    assert weaviate.reconciled[-1] == (
+        "RagShowcase_showcase_default",
+        "showcase-default",
+        [],
+    )
+
+
+def test_run_uses_submitted_profile_snapshot_after_registry_changes(
+    tmp_path, monkeypatch
+):
+    root = _corpus(tmp_path, monkeypatch, {"a.txt": "submitted body"})
+    (root / "replacement").mkdir()
+    (root / "replacement" / "b.txt").write_text(
+        "replacement body", encoding="utf-8"
+    )
+    profile_path = _profiles_file(tmp_path)
+    weaviate = FakeWeaviate()
+    service = _service(
+        tmp_path,
+        Deps(
+            embedder=FakeEmbedder(),
+            weaviate=weaviate,
+            lightrag=FakeLightrag(available=False),
+            poll_interval=0.01,
+        ),
+        profile_path,
+    )
+    record, created = service.submit("showcase-default")
+
+    changed = json.loads(Path(profile_path).read_text(encoding="utf-8"))
+    changed["profiles"][0]["revision"] = "rev2"
+    changed["profiles"][0]["corpus"]["path"] = "replacement"
+    changed["profiles"][0]["vector_targets"][0]["collection_prefix"] = "Changed"
+    Path(profile_path).write_text(json.dumps(changed), encoding="utf-8")
+
+    final = asyncio.run(service.run(record.id))
+
+    assert created is True
+    assert final.status == "completed", final.errors
+    assert final.revision == "rev1"
+    assert final.corpus == {"source": "mount", "path": "docs"}
+    assert final.profile_snapshot["revision"] == "rev1"
+    assert final.counts["files_discovered"] == 1
+    assert weaviate.classes == ["RagShowcase_showcase_default"]
+
+
+def test_run_preserves_submitted_mount_override_after_registry_changes(
+    tmp_path, monkeypatch
+):
+    root = _corpus(tmp_path, monkeypatch, {"default.txt": "default body"})
+    (root / "override").mkdir()
+    (root / "override" / "selected.txt").write_text(
+        "selected body", encoding="utf-8"
+    )
+    profile_path = _profiles_file(tmp_path)
+    service = _service(
+        tmp_path,
+        Deps(
+            embedder=FakeEmbedder(),
+            weaviate=FakeWeaviate(),
+            lightrag=FakeLightrag(available=False),
+            poll_interval=0.01,
+        ),
+        profile_path,
+    )
+    record, _ = service.submit("showcase-default", corpus_path="override")
+    changed = json.loads(Path(profile_path).read_text(encoding="utf-8"))
+    changed["profiles"][0]["corpus"]["path"] = "docs"
+    Path(profile_path).write_text(json.dumps(changed), encoding="utf-8")
+
+    final = asyncio.run(service.run(record.id))
+
+    assert final.status == "completed", final.errors
+    assert final.corpus == {"source": "mount", "path": "override"}
+    assert final.counts["files_discovered"] == 1
 
 
 def test_parser_fallback_to_plain_text(tmp_path, monkeypatch):
@@ -1084,3 +1194,385 @@ def test_full_record_is_json_serializable(tmp_path, monkeypatch):
     # The status endpoint serializes this; ensure it round-trips.
     blob = json.dumps(final.to_dict())
     assert json.loads(blob)["status"] == "completed"
+
+
+def test_weaviate_object_422_is_only_idempotent_when_object_exists(monkeypatch):
+    request = httpx.Request("POST", "http://weaviate/v1/objects")
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, *_args, **_kwargs):
+            return httpx.Response(422, request=request, text="invalid vector")
+
+        async def head(self, url):
+            return httpx.Response(404, request=httpx.Request("HEAD", url))
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **_kwargs: Client())
+
+    with pytest.raises(httpx.HTTPStatusError, match="422"):
+        asyncio.run(
+            WeaviateClient("http://weaviate").write_objects(
+                "Rag", [{"id": "object-1", "properties": {}, "vector": [0.1]}]
+            )
+        )
+
+
+def test_weaviate_object_422_counts_existing_deterministic_object(monkeypatch):
+    request = httpx.Request("POST", "http://weaviate/v1/objects")
+
+    puts = []
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, *_args, **_kwargs):
+            return httpx.Response(422, request=request, text="already exists")
+
+        async def head(self, url):
+            return httpx.Response(204, request=httpx.Request("HEAD", url))
+
+        async def put(self, url, json):
+            puts.append((url, json))
+            return httpx.Response(200, request=httpx.Request("PUT", url))
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **_kwargs: Client())
+
+    written = asyncio.run(
+        WeaviateClient("http://weaviate").write_objects(
+            "Rag", [{"id": "object-1", "properties": {}, "vector": [0.1]}]
+        )
+    )
+
+    assert written == 1
+    assert puts[0][0] == "http://weaviate/v1/objects/Rag/object-1"
+    assert puts[0][1]["vector"] == [0.1]
+
+
+def test_weaviate_existing_object_does_not_hide_invalid_replacement(monkeypatch):
+    post_request = httpx.Request("POST", "http://weaviate/v1/objects")
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, *_args, **_kwargs):
+            return httpx.Response(422, request=post_request, text="duplicate id")
+
+        async def head(self, url):
+            return httpx.Response(204, request=httpx.Request("HEAD", url))
+
+        async def put(self, url, json):
+            return httpx.Response(
+                422, request=httpx.Request("PUT", url), text="invalid vector"
+            )
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **_kwargs: Client())
+
+    with pytest.raises(httpx.HTTPStatusError, match="422"):
+        asyncio.run(
+            WeaviateClient("http://weaviate").write_objects(
+                "Rag", [{"id": "object-1", "properties": {}, "vector": [0.1]}]
+            )
+        )
+
+
+def test_weaviate_schema_422_requires_the_class_to_exist(monkeypatch):
+    post_request = httpx.Request("POST", "http://weaviate/v1/schema")
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def get(self, url):
+            return httpx.Response(404, request=httpx.Request("GET", url))
+
+        async def post(self, *_args, **_kwargs):
+            return httpx.Response(422, request=post_request, text="invalid schema")
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **_kwargs: Client())
+
+    with pytest.raises(httpx.HTTPStatusError, match="422"):
+        asyncio.run(WeaviateClient("http://weaviate").ensure_class("Rag"))
+
+
+def test_weaviate_reconciliation_deletes_stale_profile_objects(monkeypatch):
+    deleted = []
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, url, json):
+            return httpx.Response(
+                200,
+                request=httpx.Request("POST", url),
+                json={
+                    "data": {
+                        "Get": {
+                            "Rag": [
+                                {"_additional": {"id": "keep"}},
+                                {"_additional": {"id": "stale"}},
+                            ]
+                        }
+                    }
+                },
+            )
+
+        async def delete(self, url):
+            deleted.append(url)
+            return httpx.Response(204, request=httpx.Request("DELETE", url))
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **_kwargs: Client())
+
+    count = asyncio.run(
+        WeaviateClient("http://weaviate").reconcile_objects(
+            "Rag", "showcase-default", ["keep"]
+        )
+    )
+
+    assert count == 1
+    assert deleted == ["http://weaviate/v1/objects/Rag/stale"]
+
+
+# ── #673: drain resilience to transient pipeline_status failures ────────────
+def _drain_graph(timeout_seconds):
+    return [{"backend": "lightrag", "mode": "upload_documents",
+             "wait_for_extraction": True, "timeout_seconds": timeout_seconds,
+             "on_unavailable": "fail"}]
+
+
+def _skip_vector():
+    return [{"backend": "weaviate", "collection_prefix": "P", "on_unavailable": "skip"}]
+
+
+class _TransientThenIdleLightrag(FakeLightrag):
+    """Raises a transient error for the first N polls, then reports idle."""
+
+    def __init__(self, *, transient_polls, exc=None, available=True):
+        super().__init__(available=available)
+        self._transient_polls = transient_polls
+        self._exc = exc if exc is not None else httpx.ReadTimeout("")
+        self.poll_calls = 0
+
+    async def pipeline_busy(self):
+        self.poll_calls += 1
+        if self._transient_polls > 0:
+            self._transient_polls -= 1
+            raise self._exc
+        return False
+
+
+class _AlwaysTimeoutLightrag(FakeLightrag):
+    def __init__(self, *, exc=None, available=True):
+        super().__init__(available=available)
+        self._exc = exc if exc is not None else httpx.ReadTimeout("")
+        self.poll_calls = 0
+
+    async def pipeline_busy(self):
+        self.poll_calls += 1
+        raise self._exc
+
+
+class _HttpErrorLightrag(FakeLightrag):
+    def __init__(self, *, status=401, available=True):
+        super().__init__(available=available)
+        self._status = status
+        self.poll_calls = 0
+
+    async def pipeline_busy(self):
+        self.poll_calls += 1
+        request = httpx.Request("GET", "http://lightrag:9621/documents/pipeline_status")
+        response = httpx.Response(self._status, request=request, text="unauthorized")
+        raise httpx.HTTPStatusError("auth failed", request=request, response=response)
+
+
+class _CancelDuringDrainLightrag(FakeLightrag):
+    """Requests cancellation (via the store) on the first poll, then keeps
+    timing out, so the drain loop must observe the cancel between retries."""
+
+    def __init__(self, *, store, available=True):
+        super().__init__(available=available)
+        self._store = store
+        self.record_id = None
+        self.poll_calls = 0
+
+    async def pipeline_busy(self):
+        self.poll_calls += 1
+        if self.record_id is not None:
+            self._store.request_cancel(self.record_id)
+        raise httpx.ReadTimeout("")
+
+
+def test_drain_retries_transient_timeout_then_completes(tmp_path, monkeypatch):
+    """AC: a transient ReadTimeout from pipeline_status is retried and a later
+    idle poll completes the drain; the retries are recorded as evidence."""
+    _corpus(tmp_path, monkeypatch, {"a.txt": "content"})
+    pf = _profiles_file(tmp_path, vector=_skip_vector(), graph=_drain_graph(30))
+    lr = _TransientThenIdleLightrag(transient_polls=3)
+    svc = _service(
+        tmp_path,
+        Deps(embedder=FakeEmbedder(), weaviate=FakeWeaviate(), lightrag=lr,
+             poll_interval=0.01, drain_backoff_base=0.0, drain_backoff_max=0.0),
+        pf,
+    )
+    _, _, final = _run(svc)
+    assert final.status == "completed"
+    drain = final.phase("drain")
+    assert drain.status == "completed"
+    assert drain.counts["transient_retries"] == 3
+    assert drain.counts["status_polls"] == 4  # 3 timeouts + 1 idle
+    assert "transient" in (drain.note or "")
+
+
+def test_drain_deadline_exhausted_names_exception_class(tmp_path, monkeypatch):
+    """AC: repeated transient failures stop at the profile deadline, and the
+    terminal error names the exception class even though str(ReadTimeout) is
+    empty."""
+    _corpus(tmp_path, monkeypatch, {"a.txt": "content"})
+    pf = _profiles_file(tmp_path, vector=_skip_vector(), graph=_drain_graph(0))
+    lr = _AlwaysTimeoutLightrag()
+    svc = _service(
+        tmp_path,
+        Deps(embedder=FakeEmbedder(), weaviate=FakeWeaviate(), lightrag=lr,
+             poll_interval=0.01, drain_backoff_base=0.0, drain_backoff_max=0.0),
+        pf,
+    )
+    _, _, final = _run(svc)
+    assert final.status == "failed"
+    assert final.phase("drain").status == "failed"
+    message = final.errors[0]["message"]
+    assert "did not drain" in message
+    assert "ReadTimeout" in message  # empty str() still diagnosable
+
+
+def test_drain_non_retryable_http_error_fails_immediately(tmp_path, monkeypatch):
+    """AC: a 401 (or other deterministic 4xx) from pipeline_status is NOT
+    retried — it fails immediately with bounded, actionable detail."""
+    _corpus(tmp_path, monkeypatch, {"a.txt": "content"})
+    pf = _profiles_file(tmp_path, vector=_skip_vector(), graph=_drain_graph(30))
+    lr = _HttpErrorLightrag(status=401)
+    svc = _service(
+        tmp_path,
+        Deps(embedder=FakeEmbedder(), weaviate=FakeWeaviate(), lightrag=lr,
+             poll_interval=0.01, drain_backoff_base=0.0, drain_backoff_max=0.0),
+        pf,
+    )
+    _, _, final = _run(svc)
+    assert final.status == "failed"
+    assert final.phase("drain").status == "failed"
+    assert lr.poll_calls == 1  # not retried
+    error = final.phase("drain").error
+    assert error["http_status"] == 401
+    assert "pipeline_status failed" in error["message"]
+    assert "HTTPStatusError" in error["message"]
+
+
+def test_drain_cancellation_is_responsive_during_retry(tmp_path, monkeypatch):
+    """AC: cancellation stays responsive between transient-failure retries."""
+    _corpus(tmp_path, monkeypatch, {"a.txt": "content"})
+    pf = _profiles_file(tmp_path, vector=_skip_vector(), graph=_drain_graph(30))
+    store = InMemoryIngestionStore()
+    lr = _CancelDuringDrainLightrag(store=store)
+    svc = RagIngestionService(
+        store=store,
+        deps=Deps(embedder=FakeEmbedder(), weaviate=FakeWeaviate(), lightrag=lr,
+                  poll_interval=0.01, drain_backoff_base=0.0, drain_backoff_max=0.0),
+        profiles_path=pf,
+    )
+    record, _ = svc.submit("showcase-default")
+    lr.record_id = record.id
+    final = asyncio.run(svc.run(record.id))
+    assert final.status == "cancelled"
+    assert lr.poll_calls >= 1
+
+
+def test_describe_exc_renders_empty_message_as_class():
+    from rag_ingestion.service import _describe_exc
+
+    assert _describe_exc(httpx.ReadTimeout("")) == "ReadTimeout"
+    assert _describe_exc(ValueError("boom")) == "ValueError: boom"
+
+
+def test_pipeline_status_timeout_is_configurable(monkeypatch):
+    from rag_ingestion.clients import (
+        LightRagClient,
+        _resolve_pipeline_status_timeout,
+    )
+
+    monkeypatch.delenv("LIGHTRAG_PIPELINE_STATUS_TIMEOUT_SECONDS", raising=False)
+    assert LightRagClient(endpoint="http://x")._pipeline_status_timeout == 30.0
+
+    # Explicit arg wins over env.
+    monkeypatch.setenv("LIGHTRAG_PIPELINE_STATUS_TIMEOUT_SECONDS", "50")
+    assert LightRagClient(endpoint="http://x", pipeline_status_timeout=3.0)._pipeline_status_timeout == 3.0
+    assert LightRagClient(endpoint="http://x")._pipeline_status_timeout == 50.0
+
+    # Blank / non-numeric / non-positive env values fall back to the default.
+    for bad in ("", "not-a-number", "-5", "0"):
+        monkeypatch.setenv("LIGHTRAG_PIPELINE_STATUS_TIMEOUT_SECONDS", bad)
+        assert _resolve_pipeline_status_timeout(None) == 30.0
+
+
+def test_chunk_phase_isolates_oversize_document(tmp_path, monkeypatch):
+    # A single document over ChunkRequest's 1M-char cap must not abort the whole
+    # job — it is recorded as a chunk-phase error and other documents still
+    # chunk (matching _phase_parse's per-file isolation).
+    big = "x " * 600_000  # 1,200,000 chars > 1,000,000 → ChunkRequest ValidationError
+    _corpus(tmp_path, monkeypatch, {"big.txt": big, "small.txt": "the quick brown fox"})
+    pf = _profiles_file(tmp_path)
+    svc = _service(
+        tmp_path,
+        Deps(
+            embedder=FakeEmbedder(),
+            weaviate=FakeWeaviate(),
+            lightrag=FakeLightrag(),
+            poll_interval=0.01,
+        ),
+        pf,
+    )
+
+    _, _, final = _run(svc)
+
+    assert final.status == "completed"  # NOT failed by the one oversize doc
+
+    def _field(err, name):
+        return err[name] if isinstance(err, dict) else getattr(err, name)
+
+    chunk_errors = [e for e in final.errors if _field(e, "phase") == "chunk"]
+    assert any(
+        str(_field(e, "file") or "").endswith("big.txt") for e in chunk_errors
+    ), final.errors
+    assert final.counts.get("chunks", 0) > 0  # small.txt still chunked
+
+
+def test_weaviate_class_name_sanitizes_profile_name():
+    import re as _re
+
+    from rag_ingestion.service import weaviate_class_name
+
+    # A hyphenated profile name (the canonical `showcase-default`) must yield a
+    # VALID Weaviate class name (^[A-Z][_0-9A-Za-z]*$), not `..._showcase-default`
+    # which 422s on ensure_class + 404s on the case-sensitive reconcile query.
+    name = weaviate_class_name("RagShowcase", "showcase-default")
+    assert name == "RagShowcase_showcase_default"
+    assert _re.match(r"^[A-Z][_0-9A-Za-z]*$", name)
+    # dots are sanitized too
+    assert weaviate_class_name("Docs", "v1.2-beta") == "Docs_v1_2_beta"

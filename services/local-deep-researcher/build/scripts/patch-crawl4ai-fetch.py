@@ -91,7 +91,7 @@ def main() -> None:
         return
 
     patched, count = re.subn(
-        r"(?ms)^def fetch_raw_content\\(url: str\\) -> Optional\\[str\\]:.*?(?=^@traceable\\n)",
+        r"(?ms)^def fetch_raw_content\(url: str\) -> Optional\[str\]:.*?(?=^@traceable\n)",
         _crawl4ai_fetch_replacement(),
         text,
         count=1,

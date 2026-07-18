@@ -79,6 +79,7 @@ _No upstream calls._
 |---|---|
 | kong | infra |
 | litellm | llm |
+| backend | apps |
 
 ### 5.3. Architecture diagram
 

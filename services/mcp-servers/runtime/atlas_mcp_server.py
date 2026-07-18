@@ -5,9 +5,19 @@ import re
 from typing import Any
 
 try:
-    from mcp.server.fastmcp import FastMCP
+    from fastmcp import FastMCP
 except ImportError:  # pragma: no cover - lets guard tests run without runtime deps.
     FastMCP = None  # type: ignore[assignment]
+
+
+# Streamable HTTP path and the Host allowlist for FastMCP 3's host/origin
+# protection. Direct loopback forms (127.0.0.1 / localhost / ::1) are always
+# permitted by FastMCP; Atlas additionally reaches this runtime by the Compose
+# service hostname (`mcp-servers`, in-network DNS) and the Kong route hostname
+# (`mcp.localhost`). Any other Host/Origin is rejected (421/403). Ports are
+# stripped before matching, so no port suffixes are needed here.
+_HTTP_PATH = "/mcp"
+_ALLOWED_HOSTS = ("mcp-servers", "mcp.localhost")
 
 
 _SQL_FORBIDDEN = re.compile(
@@ -65,6 +75,17 @@ def is_safe_neo4j_read(cypher: str) -> bool:
 
 def bounded_neo4j_cypher(cypher: str) -> str:
     statement = _without_comments(cypher)
+    # A standalone procedure call (`CALL db.*` / `CALL apoc.meta.*`, allowed by
+    # is_safe_neo4j_read for the schema tools) CANNOT be wrapped in a
+    # `CALL { … } RETURN *` subquery: inside a subquery a procedure needs an
+    # explicit YIELD, and the unit subquery yields no variables, so Neo4j rejects
+    # `CALL { CALL db.schema.visualization() } RETURN *` at parse time — which
+    # broke neo4j_schema and every CALL-based read 100%. Run such statements
+    # unwrapped; the row cap is still enforced by result.fetch(row_limit) at the
+    # Python layer. MATCH/WITH statements end in RETURN, so wrapping them applies
+    # an additional server-side LIMIT.
+    if statement.lstrip().lower().startswith("call "):
+        return statement
     return f"CALL {{\n{statement}\n}}\nRETURN *\nLIMIT $atlas_limit"
 
 
@@ -92,10 +113,23 @@ def postgres_query(sql: str, limit: int | None = None) -> dict[str, Any]:
     row_limit = clamp_limit(limit, default=max_rows, maximum=max_rows)
     timeout_ms = _env_int("MCP_TOOL_TIMEOUT_SECONDS", 15) * 1000
 
-    with psycopg.connect(_postgres_dsn(), row_factory=dict_row) as conn:
+    # autocommit=True is REQUIRED: with psycopg3's default (autocommit=False) the
+    # driver emits its OWN BEGIN before the first execute(), so the explicit
+    # "BEGIN READ ONLY" below runs inside an already-open transaction — a no-op
+    # ("there is already a transaction in progress") that leaves the session
+    # READ WRITE, defeating the read-only guard (e.g. SELECT nextval() would
+    # advance a sequence). With autocommit=True our explicit BEGIN opens the
+    # transaction and its READ ONLY characteristic actually applies.
+    with psycopg.connect(_postgres_dsn(), autocommit=True, row_factory=dict_row) as conn:
         with conn.cursor() as cur:
             cur.execute("BEGIN READ ONLY")
-            cur.execute("SET LOCAL statement_timeout = %s", (timeout_ms,))
+            # SET does not accept bind parameters — with psycopg's server-side
+            # binding "SET LOCAL statement_timeout = %s" is sent as "= $1" and
+            # Postgres rejects it with a syntax error, killing every query.
+            # set_config(..., is_local=true) is the parameter-safe SET LOCAL.
+            cur.execute(
+                "SELECT set_config('statement_timeout', %s, true)", (str(timeout_ms),)
+            )
             cur.execute(sql)
             rows = cur.fetchmany(row_limit)
             cur.execute("ROLLBACK")
@@ -106,9 +140,9 @@ def neo4j_read_cypher(cypher: str, limit: int | None = None) -> dict[str, Any]:
     if not is_safe_neo4j_read(cypher):
         raise ValueError("Only read-only Neo4j Cypher queries are allowed.")
 
-    from neo4j import GraphDatabase, RoutingControl
+    from neo4j import READ_ACCESS, GraphDatabase, Query
 
-    max_rows = _env_int("MCP_POSTGRES_MAX_ROWS", 50)
+    max_rows = _env_int("MCP_NEO4J_MAX_ROWS", _env_int("MCP_POSTGRES_MAX_ROWS", 50))
     row_limit = clamp_limit(limit, default=max_rows, maximum=max_rows)
     timeout = _env_int("MCP_TOOL_TIMEOUT_SECONDS", 15)
     driver = GraphDatabase.driver(
@@ -120,13 +154,22 @@ def neo4j_read_cypher(cypher: str, limit: int | None = None) -> dict[str, Any]:
     )
     try:
         with driver.session(
+            # READ_ACCESS ("READ") is the session access-mode constant; a
+            # routing-scheme URI (neo4j://, neo4j+s:// — e.g. external Aura)
+            # validates it via check_access_mode and rejects anything else.
+            # RoutingControl.READ ("r") is only valid for execute_query's
+            # routing_ arg, not here — it raises ConfigurationError on a
+            # routing pool (bolt:// ignores access mode, so both "work" there).
             database=os.getenv("NEO4J_DATABASE", "neo4j"),
-            default_access_mode=RoutingControl.READ,
+            default_access_mode=READ_ACCESS,
         ) as session:
+            # A bare `timeout=` kwarg on session.run() is merged into the Cypher
+            # *parameters* (and silently ignored), not applied as a transaction
+            # timeout. Query(..., timeout=) is the driver's per-transaction
+            # timeout; atlas_limit remains the query parameter.
             result = session.run(
-                bounded_neo4j_cypher(cypher),
+                Query(bounded_neo4j_cypher(cypher), timeout=timeout),
                 atlas_limit=row_limit,
-                timeout=timeout,
             )
             rows = [record.data() for record in result.fetch(row_limit)]
     finally:
@@ -167,15 +210,10 @@ def searxng_web_search(query: str, limit: int | None = None) -> dict[str, Any]:
 
 def build_server():
     if FastMCP is None:
-        raise RuntimeError("mcp package is not installed.")
-    mcp = FastMCP(
-        "Atlas Curated MCP Servers",
-        host="0.0.0.0",
-        port=8000,
-        streamable_http_path="/mcp",
-        stateless_http=True,
-        json_response=True,
-    )
+        raise RuntimeError("fastmcp package is not installed.")
+    # FastMCP 3: transport settings (host/port/path/stateless/json) belong to
+    # run()/http_app(), not the constructor.
+    mcp = FastMCP("Atlas Curated MCP Servers")
     mcp.tool(description="Run a bounded, read-only SQL query against Atlas Postgres.")(postgres_query)
     mcp.tool(description="Inspect the Atlas Neo4j graph schema.")(neo4j_schema)
     mcp.tool(description="Run a bounded, read-only Cypher query against Atlas Neo4j.")(neo4j_read_cypher)
@@ -183,5 +221,21 @@ def build_server():
     return mcp
 
 
+def run_server(mcp=None) -> None:
+    """Serve over Streamable HTTP with the same `/mcp`, stateless, JSON-response
+    behavior as before, now via FastMCP 3's `run()` transport API plus explicit
+    Host/Origin protection (Kong Basic Auth + ACL remain the external boundary)."""
+    (mcp or build_server()).run(
+        transport="http",
+        host="0.0.0.0",
+        port=8000,
+        path=_HTTP_PATH,
+        stateless_http=True,
+        json_response=True,
+        host_origin_protection=True,
+        allowed_hosts=list(_ALLOWED_HOSTS),
+    )
+
+
 if __name__ == "__main__":
-    build_server().run(transport="streamable-http")
+    run_server()

@@ -74,6 +74,8 @@ class IngestionRecord:
     counts: Dict[str, int] = field(default_factory=dict)
     errors: List[Dict[str, Any]] = field(default_factory=list)
     content_digest: Optional[str] = None
+    profile_snapshot: Optional[Dict[str, Any]] = None
+    corpus: Optional[Dict[str, Any]] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
     cancel_requested: bool = False
@@ -83,8 +85,20 @@ class IngestionRecord:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "IngestionRecord":
-        phases = [PhaseRecord(**p) for p in data.get("phases", [])]
+        def list_field(name: str) -> List[Any]:
+            value = data.get(name, [])
+            # Redis Lua cjson represents an empty table as {}, losing whether
+            # Python originally supplied [] or {}. Both persisted list fields
+            # are unambiguous here, so repair only absent/empty legacy shapes.
+            if value is None or value == {}:
+                return []
+            if not isinstance(value, list):
+                raise ValueError(f"{name} must be a list")
+            return value
+
+        phases = [PhaseRecord(**p) for p in list_field("phases")]
         payload = {k: v for k, v in data.items() if k != "phases"}
+        payload["errors"] = list_field("errors")
         return cls(phases=phases, **payload)
 
     def phase(self, name: str) -> PhaseRecord:
@@ -139,6 +153,8 @@ class RagIngestionRecordResponse(BaseModel):
     counts: Dict[str, int]
     errors: List[Dict[str, Any]]
     content_digest: Optional[str] = None
+    profile_snapshot: Optional[Dict[str, Any]] = None
+    corpus: Optional[Dict[str, Any]] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
     cancel_requested: bool = False

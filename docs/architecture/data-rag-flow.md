@@ -14,5 +14,5 @@ The Backend coordinates ingestion: processors extract source material, MinIO pre
 
 - `services/*/service.yml`
 - `bootstrapper/tracks.yml`
-- `services/topology.py`
+- `bootstrapper/services/topology.py`
 - `docs/deployment/source-configuration.md`

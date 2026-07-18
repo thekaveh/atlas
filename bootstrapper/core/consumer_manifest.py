@@ -1652,7 +1652,22 @@ RAG_INGESTION_OVERLAY_PATH = Path("volumes/backend/rag-ingestion-profiles.compos
 RAG_INGESTION_CONTAINER_PATH = "/atlas-consumer-config/rag-ingestion-profiles.json"
 
 _RAG_NAME_RE = __import__("re").compile(r"^[a-z0-9][a-z0-9._-]*$")
-_RAG_IDENT_RE = __import__("re").compile(r"^[A-Za-z][A-Za-z0-9_]*$")
+# collection_prefix must start uppercase: Weaviate silently capitalizes the
+# first letter of a stored class name, but the backend's reconcile step issues a
+# case-sensitive GraphQL `Get { <class> }` with the un-capitalized name. A
+# lowercase-first prefix therefore writes to `Ragshowcase_…` but queries
+# `ragshowcase_…` → unknown field → the vector_write phase fails. Rejecting it
+# here (fail-fast, clear error) beats a cryptic runtime failure.
+_RAG_IDENT_RE = __import__("re").compile(r"^[A-Z][A-Za-z0-9_]*$")
+_RAG_CLASS_SANITIZE_RE = __import__("re").compile(r"[^0-9A-Za-z]")
+
+
+def _weaviate_class_name(collection_prefix: str, profile_name: str) -> str:
+    """Backend-equivalent Weaviate class-name composition (see the backend's
+    rag_ingestion.service.weaviate_class_name). The profile name's non-alnum
+    chars (`.`/`-`) are sanitized to `_` so collision detection here matches the
+    class name the backend actually writes/reconciles."""
+    return f"{collection_prefix}_{_RAG_CLASS_SANITIZE_RE.sub('_', profile_name)}"
 _RAG_CORPUS_SOURCES = frozenset({"mount", "minio"})
 _RAG_PARSERS = frozenset({"docling", "tika", "crawl4ai", "plain_text"})
 _RAG_CHUNK_STRATEGIES = frozenset({"token", "recursive", "semantic"})
@@ -1982,9 +1997,10 @@ def _validate_rag_ingestion_collisions(profiles: Iterable[RagIngestionProfile]) 
             )
         owner[profile.name] = profile.consumer
         for target in profile.vector_targets:
-            # The backend namespaces the class as ``{prefix}_{profile}`` — reject a
-            # collision so two profiles can't write into the same Weaviate class.
-            collection = f"{target.collection_prefix}_{profile.name}"
+            # The backend namespaces the class as ``{prefix}_{profile}`` (with the
+            # profile name sanitized to valid Weaviate chars) — reject a collision
+            # so two profiles can't write into the same Weaviate class.
+            collection = _weaviate_class_name(target.collection_prefix, profile.name)
             if collection in collection_owner:
                 raise ConsumerManifestError(
                     f"rag_ingestion_profiles Weaviate collection {collection!r} declared by two "
@@ -2420,6 +2436,30 @@ def render_lightrag_query_profiles_overlay(
     return "\n".join(lines) + "\n"
 
 
+# Every top-level key `load_consumer_config` consumes from a consumer manifest.
+# The loader reads each known key with `data.get(...)`, so a typo'd or unknown
+# top-level key (e.g. `compose_overlay:` missing the `s`, or `model_sidecar:`)
+# would otherwise be silently ignored — the block simply goes missing and the
+# consumer `doctor` reports the manifest valid. Mirrors the nested
+# `_*_ALLOWED_*_KEYS` allow-sets so the top level is validated too (#649).
+_CONSUMER_ALLOWED_TOP_LEVEL_KEYS = frozenset(
+    {
+        "name",
+        "project_name",
+        "brand",
+        "env",
+        "compose_overlays",
+        "backend_plugins",
+        "model_sidecars",
+        "storage",
+        "litellm_models",
+        "n8n_workflows",
+        "rag_ingestion_profiles",
+        "lightrag_query_profiles",
+    }
+)
+
+
 def load_consumer_config(
     root_dir: Path | str,
     *,
@@ -2456,6 +2496,16 @@ def load_consumer_config(
         base_dir = manifest_path.parent
         consumer_name = str(data.get("name") or manifest_path.parent.name)
         origin = str(manifest_path)
+
+        # Reject unknown/typo'd top-level keys BEFORE consuming any block, so a
+        # misspelling surfaces as a clear error instead of a silently-absent
+        # overlay/sidecar/model block (#649). Nested blocks already do this.
+        unknown_top = {str(k) for k in data.keys()} - _CONSUMER_ALLOWED_TOP_LEVEL_KEYS
+        if unknown_top:
+            raise ConsumerManifestError(
+                f"consumer manifest has unknown top-level key(s) {sorted(unknown_top)}; "
+                f"allowed: {sorted(_CONSUMER_ALLOWED_TOP_LEVEL_KEYS)} ({origin})"
+            )
 
         if project_name := data.get("project_name"):
             _set_scalar(env_overrides, env_origins, "PROJECT_NAME", project_name, origin)
@@ -2542,11 +2592,24 @@ def load_consumer_config(
         )
         all_rag.extend(record_rag)
 
+        # Gate rerank profiles on the EFFECTIVE adapter flag, not just the host
+        # `.env` value (#654). The consumer's own `env` overlay (its `env.file` /
+        # `env.values`, parsed above into ``env_overrides``) may set
+        # ``LIGHTRAG_RERANK_ADAPTER_ENABLED=true``; per Atlas's documented env
+        # precedence a consumer manifest env value overrides the base `.env`, so
+        # a fresh checkout can enable the adapter and declare ``enable_rerank``
+        # in one manifest without pre-editing the submodule's ignored `.env`.
+        # A rerank profile still fails clearly when the merged flag is false or
+        # absent.
+        effective_adapter_enabled = lightrag_rerank_adapter_enabled
+        adapter_override = env_overrides.get("LIGHTRAG_RERANK_ADAPTER_ENABLED")
+        if adapter_override is not None:
+            effective_adapter_enabled = str(adapter_override).strip().lower() == "true"
         record_lightrag_profiles = _parse_lightrag_query_profiles_block(
             data,
             consumer_name,
             manifest_path,
-            adapter_enabled=lightrag_rerank_adapter_enabled,
+            adapter_enabled=effective_adapter_enabled,
         )
         all_lightrag_profiles.extend(record_lightrag_profiles)
         # Optional #411 integration (opt-in, not coupled): a profile with a

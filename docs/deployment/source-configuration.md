@@ -10,6 +10,18 @@ The easiest way to configure SOURCE variables is the **interactive setup wizard*
 
 SOURCE variables control how each service is deployed — whether in a Docker container, using a localhost installation, or disabling the service entirely. (The legacy `external` and `api` source values were retired earlier in 2026; see the `LLM_PROVIDER_SOURCE` migration note below.)
 
+### 2.1. CLI source flags persist to `.env` (consumer-wrapper trap)
+
+Every `--<service>-source` flag (`--comfyui-source`, `--llm-provider-source`, `--ray-source`, …) is written into `.env` as an explicit override on **every** start — the flag is persisted, not applied for that run only. This is convenient for one-off reconfiguration but a trap for wrapper scripts: a wrapper that passes a *defaulted* source flag (e.g. `--comfyui-source "${COMFYUI_SOURCE:-container-cpu}"`) silently rewrites a hand-configured `.env` value back to the default on every restart.
+
+To make that visible, the bootstrapper prints a warning whenever a CLI source flag would **change** an existing non-empty `.env` value — on the standard log stream in the `--no-tui` flow and in the TUI log pane alike:
+
+```
+⚠ COMFYUI_SOURCE: managed-localhost-mps → container-cpu (overridden by --comfyui-source; persisted to .env)
+```
+
+A flag equal to the value already in `.env` is silent (no noise), as is first-time assignment of an empty/unset variable. **Guidance for wrappers:** do not pass a source flag when `.env` already carries the intended value — omit the flag and let `.env` be the source of truth, or only pass it when you genuinely intend to change the persisted configuration.
+
 ## 3. Service SOURCE Support Matrix
 
 This matrix lists every `*_SOURCE` variable currently exposed in `.env.example`. Detailed prose below focuses on the most common user-facing services; init/internal rows are included here so operators can understand what appears in `.env`.
@@ -22,7 +34,7 @@ This matrix lists every `*_SOURCE` variable currently exposed in `.env.example`.
 | `CLOUD_ANTHROPIC_SOURCE` | `disabled` | `enabled`, `disabled` | User-facing | Toggles Anthropic as a LiteLLM upstream. Requires `ANTHROPIC_API_KEY`. |
 | `CLOUD_OPENROUTER_SOURCE` | `disabled` | `enabled`, `disabled` | User-facing | Toggles OpenRouter as a LiteLLM upstream. Requires `OPENROUTER_API_KEY`. |
 | `LITELLM_SOURCE` | `container` | `container` | Infra / always-on | LiteLLM gateway. Always on; not user-disableable. |
-| `COMFYUI_SOURCE` | `container-cpu` | `container-cpu`, `container-gpu`, `localhost`, `disabled` | User-facing | Image generation service. |
+| `COMFYUI_SOURCE` | `container-cpu` | `container-cpu`, `container-gpu`, `localhost`, `managed-localhost-mps`, `disabled` | User-facing | Image generation service. |
 | `ASSET_WORKER_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | glTF post-processing worker for upright, normalized, optimized 3D assets. |
 | `ASSET_BAKER_SOURCE` | `disabled` | `container-cpu`, `disabled` | User-facing optional | Blender headless HP→LP bake worker (voxel-remesh → decimate → Smart-UV → bake color+normal). Cycles CPU; ~2 GB Blender image. |
 | `FAL_SOURCE` | `disabled` | `enabled`, `disabled` | User-facing optional | Cloud media provider for backend simple generation routes. Requires `FAL_API_KEY` only when enabled. |
@@ -337,7 +349,7 @@ MINIO_ENDPOINT=http://minio:9000
 MINIO_PUBLIC_ENDPOINT=http://localhost:63020
 ```
 - **Use case**: S3-compatible artifact-tier object storage (ComfyUI outputs, Backend blobs, n8n files, JupyterHub datasets, Doc Processor output)
-- **Pros**: Twelve pre-provisioned buckets across nine consumers with scoped service-account credentials; complements Supabase Storage; admin console at `http://localhost:63021` (S3 API on `:63020`)
+- **Pros**: Sixteen pre-provisioned buckets across thirteen consumers with scoped service-account credentials; complements Supabase Storage; admin console at `http://localhost:63021` (S3 API on `:63020`)
 - **Cons**: Container resource usage
 - **Requirements**: None
 
@@ -488,7 +500,7 @@ RAY_WORKER_COUNT=2   # number of ray-worker replicas; 0 = head-only
 ```
 - **Use case**: Default container deployment; suitable for dev machines without GPU passthrough
 - **Pros**: Head + N workers, dashboard at `ray.localhost`, REST job-submission API, client server reachable from host Python via `ray://localhost:${RAY_CLIENT_PORT}`
-- **Cons**: CPU-only — slow for heavy ML workloads. `shm_size: 4gb` required (compose handles this; rootless Docker may not honor it)
+- **Cons**: CPU-only — slow for heavy ML workloads. `shm_size: 8gb` required (compose handles this; rootless Docker may not honor it)
 - **Requirements**: ~2-3 GB image disk + ~1 GB RAM per worker
 
 #### 4.8.3. `ray-container-gpu`

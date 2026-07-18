@@ -33,7 +33,10 @@ def _base_env(base_port: int = 63000) -> dict[str, str]:
         "LITELLM_PORT": str(base_port + 40),
         "COMFYUI_SOURCE": "container",
         "COMFYUI_ENDPOINT": "http://comfyui:18188",
-        "COMFYUI_PORT": str(base_port + 53),
+        "COMFYUI_PORT": str(base_port + 54),
+        "ASSET_WORKER_SOURCE": "container",
+        "ASSET_WORKER_ENDPOINT": "http://asset-worker:8095",
+        "ASSET_WORKER_PORT": str(base_port + 53),
         "LLM_PROVIDER_SOURCE": "ollama-container-cpu",
         "OLLAMA_ENDPOINT": "http://ollama:11434",
         "OLLAMA_PORT": str(base_port + 78),
@@ -94,6 +97,95 @@ def test_source_flip_reflected_in_export() -> None:
     assert d["ATLAS_COMFYUI_CONTAINER_ENDPOINT"] == "http://host.docker.internal:8188"
 
 
+# ── #643: source-aware HOST_ENDPOINT for host-process sources ────────────────
+
+def test_comfyui_host_endpoint_container_uses_published_port() -> None:
+    """Container sources keep today's behavior: HOST_ENDPOINT renders from the
+    compose published COMFYUI_PORT (no regression)."""
+    for source in ("container", "container-cpu", "container-gpu"):
+        env = _base_env()
+        env["COMFYUI_SOURCE"] = source
+        d = _as_dict(build_export(env))
+        # _base_env sets COMFYUI_PORT = 63054
+        assert d["ATLAS_COMFYUI_HOST_ENDPOINT"] == "http://localhost:63054", source
+
+
+def test_comfyui_host_endpoint_managed_mps_uses_mps_localhost_port() -> None:
+    """managed-localhost-mps runs a host process on COMFYUI_MPS_LOCALHOST_PORT
+    (default 8188); the compose published COMFYUI_PORT is dead there. Regression
+    for Symptom 1 (dead :BASE+54 exported)."""
+    env = _base_env()
+    env["COMFYUI_SOURCE"] = "managed-localhost-mps"
+    env["COMFYUI_MPS_LOCALHOST_PORT"] = "8188"
+    d = _as_dict(build_export(env))
+    assert d["ATLAS_COMFYUI_HOST_ENDPOINT"] == "http://localhost:8188"
+    assert d["ATLAS_COMFYUI_HOST_ENDPOINT"] != f"http://localhost:{env['COMFYUI_PORT']}"
+
+
+def test_comfyui_host_endpoint_managed_mps_default_when_port_unset() -> None:
+    """The MPS host port carries a fixed manifest default (8188); if the resolved
+    .env omits it, the export falls back to that default rather than emitting
+    nothing."""
+    env = _base_env()
+    env["COMFYUI_SOURCE"] = "managed-localhost-mps"
+    env.pop("COMFYUI_MPS_LOCALHOST_PORT", None)
+    d = _as_dict(build_export(env))
+    assert d["ATLAS_COMFYUI_HOST_ENDPOINT"] == "http://localhost:8188"
+
+
+def test_comfyui_host_endpoint_localhost_uses_localhost_port() -> None:
+    """The localhost source serves on COMFYUI_LOCALHOST_PORT (default 8000)."""
+    env = _base_env()
+    env["COMFYUI_SOURCE"] = "localhost"
+    env["COMFYUI_LOCALHOST_PORT"] = "8000"
+    d = _as_dict(build_export(env))
+    assert d["ATLAS_COMFYUI_HOST_ENDPOINT"] == "http://localhost:8000"
+
+
+def test_ollama_host_endpoint_localhost_emitted() -> None:
+    """Under ollama-localhost the host Ollama endpoint is knowable (default
+    :11434) and must be emitted — Symptom 2 (field silently omitted because
+    OLLAMA_PORT is unset under this source)."""
+    env = _base_env()
+    env["LLM_PROVIDER_SOURCE"] = "ollama-localhost"
+    env["OLLAMA_LOCALHOST_PORT"] = "11434"
+    d = _as_dict(build_export(env))
+    assert d["ATLAS_OLLAMA_SOURCE"] == "ollama-localhost"
+    assert d["ATLAS_OLLAMA_HOST_ENDPOINT"] == "http://localhost:11434"
+
+
+def test_ollama_host_endpoint_localhost_default_when_port_unset() -> None:
+    """OLLAMA_LOCALHOST_PORT carries a fixed default (11434); the export falls
+    back to it when the resolved .env omits the var."""
+    env = _base_env()
+    env["LLM_PROVIDER_SOURCE"] = "ollama-localhost"
+    env.pop("OLLAMA_LOCALHOST_PORT", None)
+    env.pop("OLLAMA_PORT", None)
+    d = _as_dict(build_export(env))
+    assert d["ATLAS_OLLAMA_HOST_ENDPOINT"] == "http://localhost:11434"
+
+
+def test_asset_worker_host_endpoint_exported_under_container_source() -> None:
+    """ASSET_WORKER gained a ServiceEndpoints entry (#643): its HOST_ENDPOINT and
+    in-network CONTAINER_ENDPOINT export under the container source instead of
+    consumers hardcoding :BASE+53."""
+    d = _as_dict(build_export(_base_env()))
+    assert d["ATLAS_ASSET_WORKER_SOURCE"] == "container"
+    assert d["ATLAS_ASSET_WORKER_HOST_ENDPOINT"] == "http://localhost:63053"
+    assert d["ATLAS_ASSET_WORKER_CONTAINER_ENDPOINT"] == "http://asset-worker:8095"
+
+
+def test_asset_worker_disabled_emits_only_source() -> None:
+    """When disabled (its default), ASSET_WORKER advertises only its SOURCE."""
+    env = _base_env()
+    env["ASSET_WORKER_SOURCE"] = "disabled"
+    env["ASSET_WORKER_ENDPOINT"] = ""
+    d = _as_dict(build_export(env))
+    assert d["ATLAS_ASSET_WORKER_SOURCE"] == "disabled"
+    assert "ATLAS_ASSET_WORKER_HOST_ENDPOINT" not in d
+    assert "ATLAS_ASSET_WORKER_CONTAINER_ENDPOINT" not in d
+
+
 # ── disabled services ───────────────────────────────────────────────
 
 def test_disabled_service_emits_only_source() -> None:
@@ -136,7 +228,7 @@ def test_every_service_emits_a_source_field() -> None:
     """Each consumer-relevant service advertises its active SOURCE mode so a
     consumer can distinguish active vs disabled services (AC #2)."""
     d = _as_dict(build_export(_base_env()))
-    for svc in ("BACKEND", "LITELLM", "COMFYUI", "OLLAMA", "MINIO",
+    for svc in ("BACKEND", "LITELLM", "COMFYUI", "ASSET_WORKER", "OLLAMA", "MINIO",
                 "WEAVIATE", "NEO4J", "N8N", "REDIS", "SUPABASE"):
         assert f"ATLAS_{svc}_SOURCE" in d, f"missing SOURCE for {svc}"
 
@@ -325,14 +417,33 @@ def test_cli_secret_export_replaces_existing_file_as_owner_only(
 # ── #612: surface the managed-localhost-mps output dir ──────────────────────
 def test_comfyui_output_dir_emitted_for_managed_localhost_mps() -> None:
     """Under the managed-MPS source, the host output dir is a known filesystem
-    path consumers read images from — surface it (don't make them hardcode it)."""
+    path consumers read images from — surface it (don't make them hardcode it).
+    The tilde default is expanded at export time (#644): consumers read the
+    artifact programmatically, so a literal `~` would be treated as a
+    directory name, and the emitted path must equal the directory the managed
+    process actually writes to (the manager expanduser()s the same value)."""
     env = _base_env()
     env["COMFYUI_SOURCE"] = "managed-localhost-mps"
     d = _as_dict(build_export(env))
-    assert d["ATLAS_COMFYUI_OUTPUT_DIR"] == "~/.atlas/comfyui-mps/ComfyUI/output"
+    expected = f"{Path('~/.atlas/comfyui-mps').expanduser()}/ComfyUI/output"
+    assert d["ATLAS_COMFYUI_OUTPUT_DIR"] == expected
+    assert "~" not in d["ATLAS_COMFYUI_OUTPUT_DIR"]
+    assert d["ATLAS_COMFYUI_OUTPUT_DIR"].startswith("/")
+
+
+def test_comfyui_output_dir_expands_explicit_tilde_override() -> None:
+    """#644: an explicitly-set COMFYUI_MPS_STATE_DIR containing `~` expands too."""
+    env = _base_env()
+    env["COMFYUI_SOURCE"] = "managed-localhost-mps"
+    env["COMFYUI_MPS_STATE_DIR"] = "~/custom/atlas-mps"
+    d = _as_dict(build_export(env))
+    expected = f"{Path('~/custom/atlas-mps').expanduser()}/ComfyUI/output"
+    assert d["ATLAS_COMFYUI_OUTPUT_DIR"] == expected
+    assert "~" not in d["ATLAS_COMFYUI_OUTPUT_DIR"]
 
 
 def test_comfyui_output_dir_respects_state_dir_override() -> None:
+    """An absolute COMFYUI_MPS_STATE_DIR passes through unchanged."""
     env = _base_env()
     env["COMFYUI_SOURCE"] = "managed-localhost-mps"
     env["COMFYUI_MPS_STATE_DIR"] = "/opt/atlas/comfyui-mps"
@@ -350,3 +461,53 @@ def test_comfyui_output_dir_absent_for_container_and_localhost_sources() -> None
         assert "ATLAS_COMFYUI_OUTPUT_DIR" not in d, (
             f"output dir should not be surfaced for COMFYUI_SOURCE={source}"
         )
+
+
+# ── #646 AC#2: no unexpanded ${…} interpolation in non-secret values ────────
+_MPS_ENDPOINT = "http://host.docker.internal:${COMFYUI_MPS_LOCALHOST_PORT:-8188}"
+
+
+def test_container_endpoint_interpolation_is_resolved_to_set_port() -> None:
+    """A compose-interpolation `.env` value is fully resolved in the artifact."""
+    env = _base_env()
+    env["COMFYUI_SOURCE"] = "managed-localhost-mps"
+    env["COMFYUI_ENDPOINT"] = _MPS_ENDPOINT
+    env["COMFYUI_MPS_LOCALHOST_PORT"] = "8199"
+
+    d = _as_dict(build_export(env))
+    assert d["ATLAS_COMFYUI_CONTAINER_ENDPOINT"] == "http://host.docker.internal:8199"
+    assert "${" not in d["ATLAS_COMFYUI_CONTAINER_ENDPOINT"]
+
+
+def test_container_endpoint_interpolation_falls_back_to_default_when_unset() -> None:
+    """An unset variable resolves to the `:-` default, not a `${…}` literal."""
+    env = _base_env()
+    env["COMFYUI_SOURCE"] = "managed-localhost-mps"
+    env["COMFYUI_ENDPOINT"] = _MPS_ENDPOINT
+    env.pop("COMFYUI_MPS_LOCALHOST_PORT", None)
+
+    d = _as_dict(build_export(env))
+    assert d["ATLAS_COMFYUI_CONTAINER_ENDPOINT"] == "http://host.docker.internal:8188"
+
+
+def test_no_unexpanded_interpolation_in_non_secret_exported_values() -> None:
+    """AC#2: no non-secret exported value carries a `${…}` literal (env or json).
+    Secret references (secret=True) stay `${VAR}` by design, and the underlying
+    secret never leaks into the rendered artifact."""
+    env = _base_env()
+    env["COMFYUI_SOURCE"] = "managed-localhost-mps"
+    env["COMFYUI_ENDPOINT"] = _MPS_ENDPOINT
+
+    fields = build_export(env)
+    for field in fields:
+        if not field.secret:
+            assert "${" not in field.value, (
+                f"{field.name} carries an unexpanded interpolation: {field.value}"
+            )
+
+    # The infra secret reference is intentionally preserved (not expanded), and
+    # its password sentinel never appears in either rendered format.
+    d = _as_dict(fields)
+    assert d["ATLAS_REDIS_CONTAINER_ENDPOINT"] == "${REDIS_URL}"
+    assert "s3cr3t-should-never-appear" not in render_env(fields)
+    assert "s3cr3t-should-never-appear" not in render_json(fields)

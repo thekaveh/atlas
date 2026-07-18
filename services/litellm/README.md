@@ -319,7 +319,7 @@ psql -h localhost -p ${SUPABASE_DB_PORT} -U postgres -d litellm -c "SELECT * FRO
 
 ## 12. Backup option
 
-If LiteLLM ever stops being a fit (license shift, security incident, project drift), [Portkey AI Gateway](https://github.com/Portkey-ai/gateway) (Apache-2.0, approximately 8,700 GitHub stars, 1,600+ models) is the documented fallback. Migration cost is bounded because every consumer reads only `LITELLM_BASE_URL` + `LITELLM_API_KEY` — swap the gateway, not the consumers.
+If LiteLLM ever stops being a fit (license shift, security incident, project drift), [Portkey AI Gateway](https://github.com/Portkey-ai/gateway) (Apache-2.0) is the documented fallback. Migration cost is bounded because every consumer reads only `LITELLM_BASE_URL` + `LITELLM_API_KEY` — swap the gateway, not the consumers.
 
 ## 13. Built-in `lightrag` model
 
@@ -337,6 +337,7 @@ curl -sX POST http://localhost:${LITELLM_PORT}/v1/chat/completions \
 
 | Service | Category |
 |---|---|
+| langfuse | infra |
 | otel-collector | infra |
 | redis | data |
 | supabase | data |
@@ -353,7 +354,6 @@ curl -sX POST http://localhost:${LITELLM_PORT}/v1/chat/completions \
 | Service | Category |
 |---|---|
 | kong | infra |
-| langfuse | infra |
 | prometheus | infra |
 | weaviate | data |
 | airflow | agents |

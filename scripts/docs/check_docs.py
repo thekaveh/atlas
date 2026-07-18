@@ -32,7 +32,7 @@ def check_self_containment(repo_root: Path, generated_root: Path) -> list[Findin
     docs_root = repo_root / "docs"
     if docs_root.is_dir():
         repo_inputs.extend(
-            path for path in sorted(docs_root.rglob("*.md"))
+            path for path in _tracked_docs(repo_root)
             if not _is_internal_doc(path, docs_root)
         )
     services_root = repo_root / "services"
@@ -110,11 +110,35 @@ def _tracked_service_readmes(repo_root: Path) -> list[Path]:
     ]
 
 
+def _tracked_docs(repo_root: Path) -> list[Path]:
+    """Return git-tracked Markdown under docs/, matching what a fresh CI
+    checkout sees. Untracked/gitignored docs (e.g. local planning notes under
+    docs/plans/) must not trip the completeness/self-containment/placeholder
+    gates the way a raw filesystem walk would. Falls back to a filesystem walk
+    when git is unavailable, mirroring ``_tracked_service_readmes``.
+    """
+    docs_root = repo_root / "docs"
+    result = subprocess.run(
+        ["git", "ls-files", "--", "docs"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        return sorted(docs_root.rglob("*.md")) if docs_root.is_dir() else []
+    return sorted(
+        repo_root / relative
+        for relative in result.stdout.splitlines()
+        if relative.endswith(".md") and (repo_root / relative).is_file()
+    )
+
+
 def check_completeness(manifest: Manifest, repo_root: Path) -> list[Finding]:
     docs_root = repo_root / "docs"
     declared = {page.source for page in manifest.pages}
     findings: list[Finding] = []
-    for path in sorted(docs_root.rglob("*.md")):
+    for path in _tracked_docs(repo_root):
         relative = path.relative_to(repo_root).as_posix()
         if _is_internal_doc(path, docs_root) or relative in declared:
             continue
@@ -133,7 +157,7 @@ def check_completeness(manifest: Manifest, repo_root: Path) -> list[Finding]:
 def check_placeholders(repo_root: Path) -> list[Finding]:
     docs_root = repo_root / "docs"
     findings: list[Finding] = []
-    for path in sorted(docs_root.rglob("*.md")):
+    for path in _tracked_docs(repo_root):
         if _is_internal_doc(path, docs_root):
             continue
         for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):

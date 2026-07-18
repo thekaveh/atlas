@@ -34,6 +34,9 @@ env:
   - name: MCP_POSTGRES_MAX_ROWS
     default: "50"
     description: "Maximum rows returned by the Postgres MCP query tool."
+  - name: MCP_NEO4J_MAX_ROWS
+    default: ""
+    description: "Maximum rows returned by the Neo4j MCP query tool. Empty falls back to MCP_POSTGRES_MAX_ROWS (default 50)."
   - name: MCP_SEARXNG_MAX_RESULTS
     default: "5"
     description: "Maximum SearXNG results returned by the web-search MCP tool."

@@ -206,6 +206,29 @@ def test_minio_corpus_requires_same_consumer_storage_bucket(tmp_path: Path) -> N
         load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
 
 
+def test_lowercase_first_collection_prefix_rejected(tmp_path: Path) -> None:
+    # Weaviate capitalizes the first letter of a stored class name but the
+    # backend's reconcile query is case-sensitive, so a lowercase-first prefix
+    # writes `Ragshowcase_…` yet queries `ragshowcase_…` → vector_write fails.
+    # Reject it up front with a clear error instead.
+    manifest = _write_consumer(
+        tmp_path,
+        "c",
+        """
+        rag_ingestion_profiles:
+          version: 1
+          profiles:
+            - name: p
+              corpus: {source: mount, path: docs}
+              vector_targets:
+                - {backend: weaviate, collection_prefix: ragShowcase, on_unavailable: skip}
+        """,
+    )
+
+    with pytest.raises(ConsumerManifestError, match="collection_prefix"):
+        load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
+
+
 # ── collisions / ownership ──────────────────────────────────────────
 
 def test_duplicate_name_within_consumer_rejected(tmp_path: Path) -> None:
