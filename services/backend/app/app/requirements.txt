@@ -12,7 +12,7 @@ fastapi>=0.110.0,<0.137
 # are reasonable performance defaults the bare `uvicorn` distribution omits.
 uvicorn[standard]>=0.27.0
 pydantic>=2.6.0
-email-validator>=2.1.0
+email-validator>=2.3.0
 httpx>=0.27.0
 python-multipart>=0.0.31
 prometheus-fastapi-instrumentator>=7.0.0
