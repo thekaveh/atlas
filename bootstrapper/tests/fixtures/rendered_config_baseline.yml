@@ -1029,7 +1029,9 @@ services:
       GF_SECURITY_ADMIN_USER: admin
       GF_SERVER_ROOT_URL: http://grafana.localhost:63000
       GF_USERS_ALLOW_SIGN_UP: 'false'
+      LOKI_ENDPOINT: http://loki:3100
       PROMETHEUS_ENDPOINT: http://prometheus:9090
+      TEMPO_ENDPOINT: http://tempo:3200
     healthcheck:
       test:
       - CMD-SHELL
