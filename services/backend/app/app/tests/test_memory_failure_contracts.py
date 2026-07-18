@@ -381,3 +381,67 @@ async def test_deactivate_embedding_rejects_graphql_errors(monkeypatch):
         await store.deactivate_embedding(
             "00000000-0000-4000-8000-000000000001", None
         )
+
+
+class _FakeReconcileConnection:
+    """Serves one page of pending rows to ``_reconcile_pending_vectors`` and
+    records the clear-UPDATE args."""
+
+    def __init__(self, rows, executed):
+        self._rows = rows
+        self._executed = executed
+
+    async def fetch(self, *_args):
+        return self._rows
+
+    async def execute(self, *args):
+        self._executed.append(args)
+
+    async def close(self):
+        return None
+
+
+@pytest.mark.asyncio
+async def test_reconcile_clear_guards_on_updated_at(monkeypatch):
+    """The reconcile flag-clear must carry an optimistic updated_at guard so a
+    concurrent update_memory that re-flags the fact for new content isn't
+    silently wiped against our now-stale vector write (permanent divergence)."""
+    import memory_service
+    from datetime import datetime, timezone
+
+    monkeypatch.setenv("DATABASE_URL", "postgresql://atlas")
+    ts = datetime(2026, 1, 2, tzinfo=timezone.utc)
+    row = {
+        "id": "11111111-1111-4000-8000-000000000001",
+        "user_id": "22222222-2222-4000-8000-000000000002",
+        "namespace": "default",
+        "content": "user likes tea",
+        "fact_type": "preference",
+        "confidence": 0.9,
+        "is_active": True,
+        "weaviate_id": None,
+        "updated_at": ts,
+    }
+    executed: list = []
+    conn = _FakeReconcileConnection([row], executed)
+    monkeypatch.setattr(
+        memory_service, "connect_postgres", AsyncMock(return_value=conn)
+    )
+    service = memory_service.MemoryService()
+    service.enabled = True
+    service.store = SimpleNamespace(
+        update_embedding=AsyncMock(return_value="vec-new"),
+        deactivate_embedding=AsyncMock(),
+    )
+
+    reconciled = await service._reconcile_pending_vectors()
+
+    assert reconciled == 1
+    clears = [
+        a for a in executed
+        if a and isinstance(a[0], str) and "vector_sync_pending = false" in a[0]
+    ]
+    assert clears, "reconcile must clear the pending flag"
+    query, *params = clears[0]
+    assert "AND updated_at = $3" in query, "clear must be guarded on the read updated_at"
+    assert params == [row["id"], "vec-new", ts]

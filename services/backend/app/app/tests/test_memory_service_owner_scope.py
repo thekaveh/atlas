@@ -331,6 +331,7 @@ def test_pending_vector_sync_is_cleared_only_after_success(monkeypatch):
                     "namespace": "default",
                     "is_active": False,
                     "weaviate_id": None,
+                    "updated_at": datetime.now(timezone.utc),
                 }
             ]
 

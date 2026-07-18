@@ -477,7 +477,7 @@ Extract the facts as JSON:"""
             rows = await conn.fetch(
                 """
                 SELECT id, user_id, namespace, content, fact_type, confidence,
-                       is_active, weaviate_id
+                       is_active, weaviate_id, updated_at
                 FROM public.memory_facts
                 WHERE vector_sync_pending = true
                 ORDER BY updated_at
@@ -520,6 +520,15 @@ Extract the facts as JSON:"""
                         type(exc).__name__,
                     )
                     continue
+                # Optimistic guard on updated_at (the same discipline the
+                # consolidate state transitions use): if a concurrent
+                # update_memory changed this fact after we read it — re-flagging
+                # vector_sync_pending for the NEW content — an unguarded clear
+                # here would wipe that flag against our now-stale vector write,
+                # stranding the newer content unreconciled with the flag false
+                # (permanent divergence). Guarding on the read updated_at makes
+                # this clear a no-op in that case, so the fact stays pending and
+                # a later pass reconciles the current content.
                 await conn.execute(
                     """
                     UPDATE public.memory_facts
@@ -527,9 +536,11 @@ Extract the facts as JSON:"""
                         weaviate_id = COALESCE($2, weaviate_id),
                         updated_at = now()
                     WHERE id = $1 AND vector_sync_pending = true
+                      AND updated_at = $3
                     """,
                     row["id"],
                     new_weaviate_id,
+                    row["updated_at"],
                 )
                 reconciled += 1
         finally:
