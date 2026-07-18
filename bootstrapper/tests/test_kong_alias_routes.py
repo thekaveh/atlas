@@ -201,6 +201,21 @@ def test_backend_route_auth_open_prefix_opts_out_of_key_auth_default():
     assert any(c["username"] == "backend_api_user" for c in config["consumers"])
 
 
+def test_backend_route_auth_all_prefix_does_not_collide_with_catch_all():
+    """A consumer plugin whose prefix slugifies to the fixed catch-all name
+    (route_prefix: /all -> 'backend-api-all') must be de-duplicated, not emit a
+    second route with the same name — Kong rejects duplicate route names for the
+    whole declarative config, so a collision fails the entire gateway boot."""
+    config = _generate_with_plugin_auth("", [("/all", "open")])
+    backend = _service(config, "backend-api")
+    names = [r["name"] for r in backend["routes"]]
+    assert len(names) == len(set(names)), names  # no duplicate route names
+    assert names.count("backend-api-all") == 1   # the catch-all, once
+    all_prefix = [r for r in backend["routes"] if r.get("paths") == ["/all"]]
+    assert len(all_prefix) == 1
+    assert all_prefix[0]["name"] != "backend-api-all"  # de-duplicated
+
+
 def test_backend_route_auth_key_auth_prefix_on_open_default():
     """Base disabled + a `key-auth` prefix: only that prefix requires the key;
     the catch-all is open. Consumer/credential materialized for the prefix."""

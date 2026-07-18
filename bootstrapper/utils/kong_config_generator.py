@@ -1684,7 +1684,11 @@ class KongConfigGenerator:
         # the same name (e.g. /a/b and /a-b) and Kong rejects duplicate route
         # names for the WHOLE declarative config (#402 review H1).
         routes: List[Dict[str, Any]] = []
-        used_names: set[str] = set()
+        # Seed with the fixed catch-all name appended below, so a consumer plugin
+        # whose prefix slugifies to it (route_prefix: /all -> 'backend-api-all')
+        # is de-duplicated rather than producing two routes with the same name —
+        # which Kong rejects for the WHOLE declarative config (gateway won't boot).
+        used_names: set[str] = {'backend-api-all'}
         for prefix, mode in self.plugin_route_auth:
             base = f'backend-api-{self._route_slug(prefix)}'
             name = base
