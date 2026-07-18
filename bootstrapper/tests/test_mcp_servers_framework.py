@@ -169,9 +169,10 @@ def test_postgres_tool_runs_read_only_bounded_transaction(monkeypatch) -> None:
     assert any("statement_timeout" in stmt for stmt in statements)
     assert "select id from public.users" in statements
     assert statements[-1] == "ROLLBACK"
-    # the timeout is a bounded positive value applied via SET LOCAL
+    # the timeout is applied via the parameter-safe set_config (SET LOCAL); a
+    # bare "SET LOCAL statement_timeout = %s" is a syntax error on real Postgres.
     timeout_param = next(params for query, params in cursor.executed if "statement_timeout" in query)
-    assert timeout_param == (15_000,)
+    assert timeout_param == ("15000",)
     assert cursor.fetched_n == 2
 
 
@@ -225,8 +226,12 @@ def test_neo4j_tool_uses_read_routing_and_bounded_cypher(monkeypatch) -> None:
     data = result.data
     assert data == {"rows": [{"n": 1}], "returned": 1, "limit": 3}
     assert captured["session_kwargs"]["default_access_mode"] == neo4j.RoutingControl.READ
-    assert captured["query"] == srv.bounded_neo4j_cypher("MATCH (n) RETURN n")
+    # timeout is a transaction timeout carried by the Query object, NOT a Cypher
+    # parameter (a bare timeout= kwarg on session.run would be silently ignored).
+    assert captured["query"].text == srv.bounded_neo4j_cypher("MATCH (n) RETURN n")
+    assert captured["query"].timeout == 15
     assert captured["kwargs"]["atlas_limit"] == 3
+    assert "timeout" not in captured["kwargs"]
     assert captured["closed"] is True
 
 

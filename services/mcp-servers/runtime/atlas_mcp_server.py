@@ -105,7 +105,13 @@ def postgres_query(sql: str, limit: int | None = None) -> dict[str, Any]:
     with psycopg.connect(_postgres_dsn(), row_factory=dict_row) as conn:
         with conn.cursor() as cur:
             cur.execute("BEGIN READ ONLY")
-            cur.execute("SET LOCAL statement_timeout = %s", (timeout_ms,))
+            # SET does not accept bind parameters — with psycopg's server-side
+            # binding "SET LOCAL statement_timeout = %s" is sent as "= $1" and
+            # Postgres rejects it with a syntax error, killing every query.
+            # set_config(..., is_local=true) is the parameter-safe SET LOCAL.
+            cur.execute(
+                "SELECT set_config('statement_timeout', %s, true)", (str(timeout_ms),)
+            )
             cur.execute(sql)
             rows = cur.fetchmany(row_limit)
             cur.execute("ROLLBACK")
@@ -116,9 +122,9 @@ def neo4j_read_cypher(cypher: str, limit: int | None = None) -> dict[str, Any]:
     if not is_safe_neo4j_read(cypher):
         raise ValueError("Only read-only Neo4j Cypher queries are allowed.")
 
-    from neo4j import GraphDatabase, RoutingControl
+    from neo4j import GraphDatabase, Query, RoutingControl
 
-    max_rows = _env_int("MCP_POSTGRES_MAX_ROWS", 50)
+    max_rows = _env_int("MCP_NEO4J_MAX_ROWS", _env_int("MCP_POSTGRES_MAX_ROWS", 50))
     row_limit = clamp_limit(limit, default=max_rows, maximum=max_rows)
     timeout = _env_int("MCP_TOOL_TIMEOUT_SECONDS", 15)
     driver = GraphDatabase.driver(
@@ -133,10 +139,13 @@ def neo4j_read_cypher(cypher: str, limit: int | None = None) -> dict[str, Any]:
             database=os.getenv("NEO4J_DATABASE", "neo4j"),
             default_access_mode=RoutingControl.READ,
         ) as session:
+            # A bare `timeout=` kwarg on session.run() is merged into the Cypher
+            # *parameters* (and silently ignored), not applied as a transaction
+            # timeout. Query(..., timeout=) is the driver's per-transaction
+            # timeout; atlas_limit remains the query parameter.
             result = session.run(
-                bounded_neo4j_cypher(cypher),
+                Query(bounded_neo4j_cypher(cypher), timeout=timeout),
                 atlas_limit=row_limit,
-                timeout=timeout,
             )
             rows = [record.data() for record in result.fetch(row_limit)]
     finally:
