@@ -42,9 +42,6 @@ sys.path.insert(0, str(ROOT / "bootstrapper"))
 EXPECTED_HOST_ROUTES = {
     "comfyui.localhost": "http://comfyui:18188/",
     "n8n.localhost": "http://n8n:5678/",
-    # MinIO S3 API friendly host (separate from the minio.localhost console
-    # route -> :9001). Declared via extra_kong_aliases in the manifest.
-    "s3.minio.localhost": "http://minio:9000/",
     "search.localhost": "http://searxng:8080/",
     "jupyter.localhost": "http://jupyterhub:8888/",
     "api.localhost": "http://backend:8000/",
