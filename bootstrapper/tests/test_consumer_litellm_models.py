@@ -609,3 +609,33 @@ def test_generated_artifacts_never_contain_secret_values(tmp_path: Path) -> None
 def test_backend_template_resolves_to_in_network_url() -> None:
     # BASE_PORT-independent in-network base (container-internal port).
     assert LITELLM_ENDPOINT_TEMPLATES["ATLAS_BACKEND_INTERNAL"] == "http://backend:8000"
+
+
+def test_consumer_litellm_reload_without_manual_restart_contract():
+    """#719: consumer litellm_models become discoverable in /v1/models with NO
+    consumer-side `docker restart` or admin-API call. Guaranteed by two Atlas
+    invariants working together:
+
+    (1) the launch always recreates containers (`docker compose up
+        --force-recreate`), so the litellm container re-reads config.yaml even on
+        a warm start; and
+    (2) the litellm server waits for litellm-init to finish
+        (`service_completed_successfully`), so config.yaml — which merges the
+        generated consumer-models.yaml — is fully rendered before litellm reads it.
+
+    A regression in either invariant silently reintroduces the consumer-side
+    restart this contract removes.
+    """
+    import inspect
+    from core.docker_manager import DockerManager
+
+    # (1) launch force-recreates the litellm container every start.
+    assert "--force-recreate" in inspect.getsource(DockerManager.start_services)
+
+    # (2) litellm waits for the freshly-rendered config from litellm-init.
+    compose = yaml.safe_load(
+        (Path(__file__).resolve().parents[2] / "services" / "litellm" / "compose.yml")
+        .read_text(encoding="utf-8")
+    )
+    dep = compose["services"]["litellm"]["depends_on"]["litellm-init"]
+    assert dep["condition"] == "service_completed_successfully"

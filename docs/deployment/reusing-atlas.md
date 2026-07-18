@@ -607,6 +607,8 @@ litellm_models:
 
 Because LiteLLM's config is regenerated from YAML + env on every start, Atlas **merges owned model rows into the declarative config before LiteLLM boots** — it never calls the LiteLLM admin API. On `./start.sh`, the bootstrapper resolves each row, writes the gitignored `volumes/litellm/consumer-models.yaml`, and `litellm-init` appends those rows to `config.yaml` after the stack rows (`hermes-agent`, `lightrag`) and catalog models.
 
+**No consumer-side reload is needed.** Every `./start.sh` recreates the stack with `docker compose up --force-recreate`, and the LiteLLM server waits for `litellm-init` (`service_completed_successfully`) before it boots. So on *every* start — cold or warm — LiteLLM is recreated reading the freshly-merged `config.yaml`, and your declared aliases appear in `/v1/models` immediately. **Do not** `docker restart` the LiteLLM container or hit its admin API from your own launcher to "pick up" model changes — that's redundant with the recreate-on-start contract.
+
 **What the contract enforces:**
 
 - **Ownership is derived from the manifest, not spoofable.** Every generated row is stamped with `model_info.atlas_owner: <consumer>`. An explicit `owner:` may only restate the consumer's own name — claiming another's is rejected. A removed manifest removes **only that consumer's** rows on the next start; stack rows and sibling-consumer rows are untouched.
