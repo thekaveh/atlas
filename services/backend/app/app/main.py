@@ -218,14 +218,47 @@ BACKEND_STORAGE_ALLOWED_BUCKETS = set(
 _SAFE_STORAGE_FILENAME = re.compile(r"^[A-Za-z0-9._ -]{1,255}$")
 
 
+# Background reclamation for abandoned media-budget reservations. The poll-time
+# timeout only fires when a client polls; a submitted operation that is never
+# polled again would otherwise keep its RESERVED/SUBMITTED ledger row counting
+# against the consumer's cap forever. prune_expired() sweeps rows older than the
+# retention window (a no-op unless MEDIA_BUDGET_RETENTION_DAYS is set); schedule
+# it so the advertised backstop actually runs.
+_MEDIA_BUDGET_PRUNE_INTERVAL_SECONDS = 3600
+_media_budget_prune_task: Optional[asyncio.Task] = None
+
+
+async def _media_budget_prune_loop() -> None:
+    while True:
+        await asyncio.sleep(_MEDIA_BUDGET_PRUNE_INTERVAL_SECONDS)
+        try:
+            pruned = await MEDIA_BUDGET_ENGINE.prune_expired()
+            if pruned:
+                logger.info(
+                    "media budget prune reclaimed %s expired ledger row(s)", pruned
+                )
+        except Exception as exc:
+            logger.warning(
+                "media budget prune sweep failed (error_type=%s)",
+                type(exc).__name__,
+            )
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
+    global _media_budget_prune_task
     await research_service.start_maintenance()
+    if MEDIA_BUDGET_ENGINE.config.enabled and MEDIA_BUDGET_ENGINE.config.retention_days:
+        _media_budget_prune_task = asyncio.create_task(_media_budget_prune_loop())
     try:
         yield
     finally:
         # Terminalize local research work before closing process-lifetime
         # clients and shared stores.
+        if _media_budget_prune_task is not None:
+            _media_budget_prune_task.cancel()
+            await asyncio.gather(_media_budget_prune_task, return_exceptions=True)
+            _media_budget_prune_task = None
         await research_service.aclose()
         await n8n_client.aclose()
         await MEDIA_OPERATION_STORE.aclose()
@@ -1699,10 +1732,16 @@ async def submit_media_generation(
             await MEDIA_BUDGET_ENGINE.attach_operation(reservation_id, operation_id)
         except Exception:
             budget_tracked = False
-            try:
-                await MEDIA_BUDGET_ENGINE.release(reservation_id)
-            except Exception:
-                budget_cleanup_failed = reservation is not None
+            # attach_operation re-keys reservation_id → operation_id and then
+            # bumps status in a separate step; if the re-key landed but the bump
+            # failed, the row now lives under operation_id, so releasing only
+            # reservation_id would no-op and strand it. Release both ids
+            # best-effort — the id the row isn't under is a harmless no-op.
+            for _rid in (reservation_id, operation_id):
+                try:
+                    await MEDIA_BUDGET_ENGINE.release(_rid)
+                except Exception:
+                    budget_cleanup_failed = reservation is not None
             # Reservation is now released (or best-effort released); the finally
             # must not release it again.
             reservation_settled = True
