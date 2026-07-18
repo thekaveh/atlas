@@ -437,6 +437,8 @@ services:
       BACKEND_N8N_API_TOKEN: ''
       BACKEND_NOTEBOOK_API_TOKEN: ''
       BACKEND_OPEN_WEBUI_API_TOKEN: ''
+      BACKEND_PLUGINS_PIP_TIMEOUT_SECONDS: '300'
+      BACKEND_PLUGINS_SITE_DIR: /tmp/atlas-plugins-site
       BACKEND_STORAGE_ALLOWED_BUCKETS: default
       CELERY_BROKER_URL: ''
       CELERY_BROKER_VISIBILITY_TIMEOUT_SECONDS: '3600'
@@ -4336,8 +4338,10 @@ services:
       JAVA_TOOL_OPTIONS: -Xmx768m
     healthcheck:
       test:
-      - CMD-SHELL
-      - curl -fsS http://localhost:9998/tika || exit 1
+      - CMD
+      - bash
+      - -c
+      - exec 3<>/dev/tcp/localhost/9998
       timeout: 10s
       interval: 30s
       retries: 5
