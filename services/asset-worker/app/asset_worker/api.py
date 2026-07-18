@@ -12,8 +12,10 @@ import time
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import FileResponse, JSONResponse
 from prometheus_fastapi_instrumentator import Instrumentator
+from pydantic import ValidationError
 
 from .models import (
     RefPostprocessRequest,
@@ -109,17 +111,23 @@ def create_app(*, api_token: str | None = None) -> FastAPI:
         collider_decimation: float | None = Form(default=None),
     ) -> PostprocessResponse:
         _validate_glb_name(file.filename or "")
-        params = PostprocessParams(
-            target_height_m=target_height_m,
-            target_width_m=target_width_m,
-            normalize_axis=normalize_axis,
-            up_axis=up_axis,
-            simplify_ratio=simplify_ratio,
-            draco=draco,
-            meshopt=meshopt,
-            ktx2=ktx2,
-            collider_decimation=collider_decimation,
-        )
+        # Built inside the handler, so FastAPI doesn't validate these Form fields
+        # for us — a bad value would raise ValidationError → 500. Map it to 422
+        # like the body-validated /ref twin does (client error, not server fault).
+        try:
+            params = PostprocessParams(
+                target_height_m=target_height_m,
+                target_width_m=target_width_m,
+                normalize_axis=normalize_axis,
+                up_axis=up_axis,
+                simplify_ratio=simplify_ratio,
+                draco=draco,
+                meshopt=meshopt,
+                ktx2=ktx2,
+                collider_decimation=collider_decimation,
+            )
+        except ValidationError as exc:
+            raise HTTPException(status_code=422, detail=jsonable_encoder(exc.errors())) from exc
         return await _run_blocking_request(request, _process_upload, file.file, params)
 
     @app.post("/gltf/postprocess/ref", response_model=PostprocessResponse)

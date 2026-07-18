@@ -369,3 +369,16 @@ def test_cancelled_request_holds_slot_until_transform_thread_exits(
 
     assert asyncio.run(scenario()) == 429
     assert calls == 1
+
+
+def test_postprocess_invalid_form_param_returns_422() -> None:
+    from asset_worker import api
+
+    # up_axis outside the Literal keep|auto|x|y|z is a client error → 422,
+    # not a 500 (the params model is built inside the handler).
+    response = _client(api).post(
+        "/gltf/postprocess",
+        files={"file": ("scene.glb", b"raw-glb", "model/gltf-binary")},
+        data={"up_axis": "sideways"},
+    )
+    assert response.status_code == 422
