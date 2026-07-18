@@ -53,11 +53,13 @@ def test_langfuse_manifest_admission_contract() -> None:
         "kong",
         "ray",
     ]
+    # langfuse does not call litellm — litellm posts traces TO langfuse
+    # (success_callback:["langfuse"], asserted below). The edge lives on
+    # litellm.calls, not here.
     assert manifest["data_flow"]["calls"] == [
         "supabase",
         "redis",
         "minio",
-        "litellm",
     ]
 
     env_vars = {entry["name"]: entry for entry in manifest["env"]}
