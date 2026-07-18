@@ -33,11 +33,58 @@ SERVICES_DIR = REPO_ROOT / "services"
 
 DEPS_HEADER_RE = re.compile(r"^##\s+(?:(\d+)\.\s+)?Dependencies\s*&\s*Integrations\b", re.MULTILINE)
 NEXT_TOP_HEADER_RE = re.compile(r"^##\s+", re.MULTILINE)
+NEXT_SUBSEC_HEADER_RE = re.compile(r"^###\s+", re.MULTILINE)
 FUTURE_HEADER_RE = re.compile(
     r"^###\s+(?:\d+\.\d+\.?\s+)?Future\s*[—-]\s*(Missing pair integrations|Candidate new services|Unused features in this service)\b",
     re.MULTILINE,
 )
 PLACEHOLDER_LINE = "_No high-confidence opportunities identified._"
+
+_FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})")
+
+
+def _fenced_spans(text: str) -> list[tuple[int, int]]:
+    """Char-offset spans covering fenced code blocks (``` or ~~~).
+
+    Header detection must ignore ``## ``/``### `` lines that live inside a code
+    fence — user-authored ``Future — …`` subsections routinely embed snippets
+    (a YAML ``## note``, a diff, a heading example). Without this the slicer
+    treats a fenced heading as a real section boundary and corrupts the README
+    on the next regen write (splice-inside-fence / orphaned tail / truncation).
+    """
+    spans: list[tuple[int, int]] = []
+    open_off: int | None = None
+    open_char = ""
+    open_len = 0
+    offset = 0
+    for line in text.splitlines(keepends=True):
+        m = _FENCE_RE.match(line)
+        if m:
+            marker = m.group(1)
+            if open_off is None:
+                open_off, open_char, open_len = offset, marker[0], len(marker)
+            elif marker[0] == open_char and len(marker) >= open_len:
+                # A closing fence is the same char, at least as long, with no
+                # trailing info string.
+                if line.strip()[len(marker):].strip() == "":
+                    spans.append((open_off, offset + len(line)))
+                    open_off = None
+        offset += len(line)
+    if open_off is not None:  # unterminated fence → to end of text
+        spans.append((open_off, len(text)))
+    return spans
+
+
+def _in_fence(pos: int, spans: list[tuple[int, int]]) -> bool:
+    return any(a <= pos < b for a, b in spans)
+
+
+def _search_outside_fences(pattern: re.Pattern, text: str, start: int, spans: list[tuple[int, int]]):
+    """First match of ``pattern`` at/after ``start`` that is not inside a fence."""
+    for m in pattern.finditer(text, start):
+        if not _in_fence(m.start(), spans):
+            return m
+    return None
 
 
 def _enumerate_doc_folders() -> list[str]:
@@ -60,7 +107,8 @@ def _slice_deps_section(readme_text: str) -> tuple[int, int] | None:
     if not m:
         return None
     start = m.start()
-    nxt = NEXT_TOP_HEADER_RE.search(readme_text, m.end())
+    spans = _fenced_spans(readme_text)
+    nxt = _search_outside_fences(NEXT_TOP_HEADER_RE, readme_text, m.end(), spans)
     end = nxt.start() if nxt else len(readme_text)
     return (start, end)
 
@@ -78,16 +126,25 @@ def _extract_future_blocks(deps_text: str) -> dict[str, str]:
         "Candidate new services": "",
         "Unused features in this service": "",
     }
-    matches = list(FUTURE_HEADER_RE.finditer(deps_text))
-    for m in matches:
+    spans = _fenced_spans(deps_text)
+    for m in FUTURE_HEADER_RE.finditer(deps_text):
+        if _in_fence(m.start(), spans):
+            # A `### Future — …` line inside a code fence is example text, not a
+            # real subsection heading.
+            continue
         key = m.group(1)
         body_start = m.end()
-        # Block extends to the next ### or ## header
-        nxt_subsec = re.search(r"^###\s+", deps_text[body_start:], re.MULTILINE)
-        nxt_topsec = re.search(r"^##\s+", deps_text[body_start:], re.MULTILINE)
-        candidates = [c.start() for c in (nxt_subsec, nxt_topsec) if c is not None]
-        end_rel = min(candidates) if candidates else len(deps_text) - body_start
-        body = deps_text[body_start: body_start + end_rel].strip()
+        # Block extends to the next ### or ## header that is NOT inside a fence.
+        boundaries = [
+            b.start()
+            for b in (
+                _search_outside_fences(NEXT_SUBSEC_HEADER_RE, deps_text, body_start, spans),
+                _search_outside_fences(NEXT_TOP_HEADER_RE, deps_text, body_start, spans),
+            )
+            if b is not None
+        ]
+        end = min(boundaries) if boundaries else len(deps_text)
+        body = deps_text[body_start:end].strip()
         # Strip placeholder
         if body == PLACEHOLDER_LINE or not body:
             out[key] = ""
