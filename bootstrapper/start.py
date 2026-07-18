@@ -3581,6 +3581,62 @@ def _doctor_check_model_sidecars(starter: "AtlasStarter") -> dict:
     )
 
 
+def _doctor_check_unpullable_models(starter: "AtlasStarter") -> dict:
+    """Warn when a consumer declares models Atlas can't pull for the selected
+    source. ``OLLAMA_CUSTOM_MODELS`` (from ``model_sidecars.ollama``) is only
+    pulled for ``ollama-container-*`` — not host-run ``*-localhost`` sources;
+    ``COMFYUI_USER_MODELS`` catalog downloads only run for ``container*``
+    ComfyUI — not a source that reuses a host weight tree
+    (``managed-localhost-mps`` / ``localhost``). In those cases the declaration
+    is a silent no-op and the operator must provision on the host.
+    """
+    env = starter.config_parser.parse_env_file()
+    warnings: list[str] = []
+
+    ollama_models = (env.get("OLLAMA_CUSTOM_MODELS", "") or "").strip()
+    llm_source = (env.get("LLM_PROVIDER_SOURCE", "") or "").strip()
+    if ollama_models and llm_source.endswith("-localhost"):
+        pulls = " ".join(m.strip() for m in ollama_models.split(",") if m.strip())
+        warnings.append(
+            f"OLLAMA_CUSTOM_MODELS ({ollama_models}) is declared but "
+            f"LLM_PROVIDER_SOURCE={llm_source} is host-run — Atlas only pulls for "
+            f"ollama-container-* sources, so nothing is provisioned. Pull on the "
+            f"host: `ollama pull {pulls}`."
+        )
+
+    comfy_models = (env.get("COMFYUI_USER_MODELS", "") or "").strip()
+    comfy_source = (env.get("COMFYUI_SOURCE", "") or "").strip()
+    if (
+        comfy_models
+        and comfy_source
+        and not comfy_source.startswith("container")
+        and comfy_source != "disabled"
+    ):
+        if comfy_source == "managed-localhost-mps":
+            where = "place the weights under COMFYUI_MPS_MODELS_PATH on the host"
+        else:
+            where = "place the weights in your host ComfyUI models directory"
+        warnings.append(
+            f"COMFYUI_USER_MODELS ({comfy_models}) is declared but "
+            f"COMFYUI_SOURCE={comfy_source} reuses a host weight tree — Atlas only "
+            f"downloads the catalog for container* sources, so nothing is "
+            f"provisioned. Provision manually: {where}."
+        )
+
+    if warnings:
+        return _doctor_result(
+            "unpullable-models",
+            "warn",
+            " ".join(warnings),
+            details={"warnings": warnings},
+        )
+    return _doctor_result(
+        "unpullable-models",
+        "pass",
+        "No declared-but-unpullable model provisioning for the selected sources.",
+    )
+
+
 def _doctor_check_litellm_models(starter: "AtlasStarter") -> dict:
     """Validate consumer-declared LiteLLM model rows (#411).
 
@@ -4110,6 +4166,7 @@ DOCTOR_CHECKS = [
     _doctor_check_plugins,
     _doctor_check_plugin_manifests,
     _doctor_check_model_sidecars,
+    _doctor_check_unpullable_models,
     _doctor_check_litellm_models,
     _doctor_check_n8n_workflows,
     _doctor_check_rag_ingestion_profiles,
