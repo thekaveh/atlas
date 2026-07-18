@@ -35,7 +35,7 @@ Database-index convention (consumer-built URLs):
 
 | DB | Consumer | Notes |
 |---|---|---|
-| 0 | n8n, kong (backend's `REDIS_URL` is injected but unread) | n8n queue (`QUEUE_BULL_REDIS_DB: 0`); Kong rate-limit cache (no `KONG_REDIS_DATABASE` set → library default 0) |
+| 0 | n8n, kong, litellm, langfuse, backend | n8n queue (`QUEUE_BULL_REDIS_DB: 0`); Kong rate-limit cache (no `KONG_REDIS_DATABASE` set → library default 0); LiteLLM cache and Langfuse BullMQ (no db index → library default 0); backend media-operation store + readiness probe via `REDIS_URL` |
 | 2 | open-webui, lightrag | WebSocket store (`OPEN_WEB_UI_REDIS_DB`) + LightRAG KV/doc-status — disjoint key shapes |
 | 3 | jupyterhub | notebook `REDIS_URL` |
 | 4 | celery | broker + result backend (`CELERY_BROKER_URL` / `CELERY_RESULT_BACKEND`) |
@@ -44,7 +44,7 @@ Database-index convention (consumer-built URLs):
 
 **Startup ordering.** The manifest's `depends_on.required: supabase` is **ordering / slot-pinning only** — the topology port allocator derives slot positions from `depends_on`, so removing it would renumber later services' ports. Redis has no functional Postgres dependency, and `compose.yml` no longer gates redis startup on supabase-db-init (PR #11 dropped that); the only compose-level `depends_on` is `redis-exporter` waiting on `redis` being healthy.
 
-**Consumers.** From the data-flow graph (§6.2): `litellm` (cache + budget tracking), `lightrag` (KV/doc-status), `open-webui` (WebSocket store), `airflow`, and `prometheus` (redis-exporter scrape) reach Redis at runtime. n8n, Kong, and JupyterHub consume it via compose env wiring (`QUEUE_BULL_REDIS_*` / `KONG_REDIS_HOST` / the notebook `REDIS_URL` on db `/3`) — modeled as compose-level wiring. The backend gets `REDIS_URL` injected but no backend code reads it today; Local Deep Researcher is unwired (future pair, §6.4).
+**Consumers.** From the data-flow graph (§6.2): `litellm` (cache + budget tracking), `lightrag` (KV/doc-status), `open-webui` (WebSocket store), `airflow`, and `prometheus` (redis-exporter scrape) reach Redis at runtime. n8n, Kong, and JupyterHub consume it via compose env wiring (`QUEUE_BULL_REDIS_*` / `KONG_REDIS_HOST` / the notebook `REDIS_URL` on db `/3`) — modeled as compose-level wiring. The backend reads `REDIS_URL` for its media-operation store (`media_operation_store.py`) and readiness probe (`readiness.py`), on db 0; Local Deep Researcher is unwired (future pair, §6.4).
 
 **Failure mode.** Every consumer treats Redis as fatal: a Redis outage kills n8n queue execution, drops Open WebUI live updates, breaks LiteLLM caching, and stalls LightRAG's KV layer. There is no fallback in the stack.
 
