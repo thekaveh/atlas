@@ -511,3 +511,36 @@ def test_no_unexpanded_interpolation_in_non_secret_exported_values() -> None:
     assert d["ATLAS_REDIS_CONTAINER_ENDPOINT"] == "${REDIS_URL}"
     assert "s3cr3t-should-never-appear" not in render_env(fields)
     assert "s3cr3t-should-never-appear" not in render_json(fields)
+
+
+def test_managed_mps_container_endpoint_expands_interpolation_token():
+    """#725/#646: a ${VAR:-default} token in a non-secret container endpoint is
+    fully resolved at export time, so a consumer reading it raw never gets a
+    literal ${...}."""
+    env = _base_env()
+    env["COMFYUI_SOURCE"] = "managed-localhost-mps"
+    env["COMFYUI_ENDPOINT"] = "http://host.docker.internal:${COMFYUI_MPS_LOCALHOST_PORT:-8188}"
+
+    env["COMFYUI_MPS_LOCALHOST_PORT"] = "9999"  # explicit port resolves
+    d = _as_dict(build_export(env, with_secrets=False))
+    assert d["ATLAS_COMFYUI_CONTAINER_ENDPOINT"] == "http://host.docker.internal:9999"
+    assert "${" not in d["ATLAS_COMFYUI_CONTAINER_ENDPOINT"]
+
+    del env["COMFYUI_MPS_LOCALHOST_PORT"]  # unset -> :- default
+    d = _as_dict(build_export(env, with_secrets=False))
+    assert d["ATLAS_COMFYUI_CONTAINER_ENDPOINT"] == "http://host.docker.internal:8188"
+
+
+def test_no_interpolation_token_survives_in_nonsecret_export_fields():
+    """#725: no `${` leaks into any non-secret exported field (managed-mps env);
+    secret fields stay as ${VAR} references and never leak the resolved secret."""
+    env = _base_env()
+    env["COMFYUI_SOURCE"] = "managed-localhost-mps"
+    env["COMFYUI_ENDPOINT"] = "http://host.docker.internal:${COMFYUI_MPS_LOCALHOST_PORT:-8188}"
+    fields = build_export(env, with_secrets=False)
+
+    for f in fields:
+        if not f.secret:
+            assert "${" not in f.value, f"{f.name} leaked an interpolation token: {f.value!r}"
+    # the redis password must never appear anywhere in the export
+    assert all("s3cr3t-should-never-appear" not in f.value for f in fields)
