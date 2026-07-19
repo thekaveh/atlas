@@ -1107,8 +1107,15 @@ A few source-specific fields are emitted only when meaningful: under
 `$COMFYUI_MPS_STATE_DIR/ComfyUI/output`, tilde-expanded to an absolute path at
 export time so consumers can open it programmatically without shell expansion),
 so consumers reading generated images off disk don't hardcode the internal
-layout. It is omitted for the container and localhost sources (outputs land in
-a Docker volume / the user's own ComfyUI install).
+layout — and its **`ATLAS_COMFYUI_INPUT_DIR`** twin (#758,
+`$COMFYUI_MPS_STATE_DIR/ComfyUI/input`) for consumers that *stage* images into
+ComfyUI (img2img / img2mesh drivers). Both are omitted for the container and
+localhost sources (the dirs are a Docker volume / the user's own ComfyUI
+install). Under `BLENDER_MCP_SOURCE=localhost` the export includes
+**`ATLAS_BLENDER_MCP_HOST_ENDPOINT`** (#758) — note the **`tcp://`** scheme:
+the Blender MCP add-on serves a raw TCP socket, not HTTP, so the value is
+`tcp://localhost:$BLENDER_MCP_LOCALHOST_PORT` and must be dialed with a socket
+client, not an HTTP library.
 
 **Secrets.** By default the output contains **no secret values** — infra secrets
 (e.g. the Redis password inside `REDIS_URL`) are emitted as `${VAR}` references.
