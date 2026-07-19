@@ -479,7 +479,7 @@ For NVIDIA GPU acceleration, set the relevant SOURCE variables to a `*-container
 
 ### 6.3. Using as infrastructure foundation
 
-Atlas is designed to back other projects (e.g. a RAG-showcase app) as shared infrastructure. The two ready-today paths are **standalone + shared network** (your project is a separate repo that joins `${PROJECT_NAME}-network`) and **Git submodule** (vendor Atlas into your repo). For the full decision guide — which method, what's ready, how to wire and customize it — see **[Reusing Atlas as Infrastructure](docs/deployment/reusing-atlas.md)**.
+Atlas is designed to back other projects (e.g. a RAG-showcase app) as shared infrastructure. The two ready-today paths are **standalone + shared network** (your project is a separate repo that joins `${PROJECT_NAME}-network`) and **Git submodule** (vendor Atlas into your repo). For the full decision guide — which method, what's ready, how to wire and customize it — see **[Reusing Atlas as Infrastructure](docs/deployment/reusing-atlas.md)**. New submodule consumers can follow its ordered, example-rich from-scratch walkthrough (§4.1) end to end.
 
 The submodule path in brief:
 
