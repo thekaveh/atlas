@@ -152,7 +152,7 @@ brand:
 env:
   file: ./atlas.env.user                 # optional flat .env overlay
   values:
-    BASE_PORT: "63100"                   # a fixed, non-default block — never 63000 (durable; §7.2)
+    BASE_PORT: auto                      # durable free block — distinct per consumer, stable across restarts
     FAL_SOURCE:                          # key-gated: enabled iff the key is present
       enabled_if_env: FAL_API_KEY
       else: disabled
@@ -187,14 +187,20 @@ reference.
 **3. Isolation — distinct project + non-default port.** `project_name` isolates
 Docker **resource names** (container/volume/network are `<name>-…`); it does
 **not** namespace host ports. So a second stack on one host also needs a distinct
-**`BASE_PORT`**. Commit a **fixed** non-default `BASE_PORT` in the manifest (as
-above) so it is durable — it survives a cold `.env` regen (§7.2) and stays stable
-across restarts. Just never use the default `63000` a bare `atlas` checkout binds;
-`doctor` warns if a non-default project is left on it. For a one-off/dev stack you
-can instead pass `--base-port auto` at launch, which reserves the first
-wholly-free block and persists it to `.env` (commit that number once you want a
-durable pin — a launcher that passes `--base-port auto` every run re-resolves each
-start). Details: [§7.4](#74-run-multiple-atlas-instances-on-one-host).
+**`BASE_PORT`**, never the default `63000` a bare `atlas` checkout binds (`doctor`
+warns if a non-default project is left on it). Three ways, in order of preference:
+
+- **`BASE_PORT: auto` in the manifest (recommended, esp. for several consumers on
+  one host).** Atlas reserves the first wholly-free `BASE_PORT+0..N` block — one
+  that skips `63000` **and** any block already in use by another running stack —
+  then **persists it and keeps it** across restarts. Consumers started in turn
+  each get a **distinct, stable** block with no numbers to coordinate. (Details:
+  [§7.4](#74-run-multiple-atlas-instances-on-one-host).)
+- **A fixed non-default number** (e.g. `BASE_PORT: "63100"`) when you want a
+  specific, identical port on every host.
+- **`--base-port auto` at launch** — the one-off form: resolves a free block
+  **fresh** each time it's passed (good for a quick relocation; for a durable pin
+  prefer the manifest `auto` above).
 
 **4. Startup ordering.** Run the preflights, then launch — each step guards the
 next:
@@ -1073,7 +1079,7 @@ rather than repeating them.
 > **New consumer, empty repo?** The [§4.1 ordered walkthrough](#41-stand-up-a-consumer-from-scratch--the-ordered-walkthrough) runs this journey end-to-end with copy-pasteable commands. This runbook is the day-2 reference for the same steps and the operational behaviors behind them.
 
 1. **Register** a parent manifest — [§6.1](#61-registering-a-parent-project-with-atlasconsumeryml) (`atlas.consumer.yml`).
-2. **Pin identity** (`PROJECT_NAME` + a **distinct, fixed** `BASE_PORT`) durably in the manifest — §7.2 — never the default `63000`; `doctor` warns if a non-default project is left on it. (`--base-port auto` reserves the first free block for a one-off/dev run and persists it; commit the number for a durable pin.)
+2. **Pin identity** (`PROJECT_NAME` + a distinct `BASE_PORT`) durably in the manifest — §7.2 — never the default `63000`; `doctor` warns if a non-default project is left on it. Set **`BASE_PORT: auto`** in the manifest to have Atlas reserve a distinct free block per consumer and keep it stable across restarts (best for several consumers on one host, §7.4), or commit a fixed number. (`--base-port auto` at launch is the one-off, resolve-fresh form.)
 3. **Select sources** once (`container` / `localhost` / `managed-localhost-mps` / `ollama-localhost` / `none`) — §7.3, [source-configuration.md](source-configuration.md). Gate a paid provider on its key with the manifest's key-gated [`enabled_if_env`](#61-registering-a-parent-project-with-atlasconsumeryml) form instead of a wrapper script.
 4. **Validate** headlessly — `env backfill` + `compose validate` + `doctor` ([operations.md](../operations.md); [§6.1.4](#614-headless-submodule-upgrade-validation) / [§6.1.5](#615-consumer-doctor-for-ci-preflight)). `doctor` also lints the default-`63000` squat and **declared-but-unpullable** model provisioning (`model_sidecars.ollama` / `COMFYUI_USER_MODELS` under a `*-localhost` source).
 5. **Start** — `./start.sh --consumer … --base-port auto` (first run may pass source flags; see §7.3). Your consumer LiteLLM models are discoverable in `/v1/models` on start with **no `docker restart`**, and declared n8n workflows activate even **without an `N8N_API_KEY`** — Atlas performs any restart the webhook needs. Do **not** script an admin-API call or a container restart to "pick up" model/workflow changes.
@@ -1136,20 +1142,32 @@ in the ComfyUI service README §10 (`services/comfyui/README.md`).
 **Container names, networks, and volumes are `${PROJECT_NAME}-*` —
 project-isolated. Host-published ports are not: they are fixed offsets from
 `BASE_PORT` and carry no project namespace.** So a second instance on the same
-host **must** pass **both** `--project <name>` and a **distinct base port**
-(each persists to `.env`). Prefer **`--base-port auto`**: it scans for and
-reserves the first wholly-free `BASE_PORT+0..N` block using Atlas's own port
-span, so you never hand-pick a number or risk squatting the default `63000` a
-bare atlas checkout binds. (`doctor` also warns when a non-default project is
-left on `63000`.)
+host **must** have **both** a distinct `project_name` and a distinct `BASE_PORT`
+(both persist to `.env`), never the default `63000`.
+
+For **committed consumers that run side by side** (the common case — several
+Atlas-backed products on one dev box), set **`BASE_PORT: auto` in each
+`atlas.consumer.yml`**. Atlas reserves a distinct free `BASE_PORT+0..N` block per
+consumer — skipping `63000` **and** any block whose ports are already in use by
+another running stack — then **persists it and keeps it** across restarts. So
+three consumers started in turn each land on their own **durable** block
+(`20000`, `20110`, `20220`, …) with no numbers to coordinate and no drift on a
+warm restart. A cold start re-resolves, still skipping occupied blocks. For an
+**ad-hoc** stack, pass **`--base-port auto`** at launch (resolves a free block
+*fresh* each run). Either way you never hand-pick a number or squat the default;
+`doctor` warns if a non-default project is left on `63000`.
 
 ```bash
-# Second stack on the same box — distinct project + an auto-picked free block
-# (recommended: no number to choose, never collides with a bare atlas stack):
+# Committed consumer — BASE_PORT: auto in the manifest gives each a distinct,
+# durable block; the launcher needs no port flag:
+./start.sh --consumer ./atlas.consumer.yml --project daydreams \
+  --llm-provider-source ollama-localhost --comfyui-source localhost
+
+# Ad-hoc stack — resolve a free block fresh at launch:
 ./start.sh --project daydreams --base-port auto \
   --llm-provider-source ollama-localhost --comfyui-source localhost
 
-# ...or pin an explicit distinct base port instead of auto:
+# ...or pin an explicit distinct base port:
 ./start.sh --project daydreams --base-port 64000 \
   --llm-provider-source ollama-localhost --comfyui-source localhost
 ```
