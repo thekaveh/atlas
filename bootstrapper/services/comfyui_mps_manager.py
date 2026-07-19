@@ -9,7 +9,9 @@ memory, Torch/MPS availability, per-model precision), an idempotent pinned
 install/update into an Atlas-owned state directory, and start/stop/status/health
 with pid/log/status files. One process per host (Apple-Silicon GPU work
 serializes — a second instance is net-negative), reusing the existing host models
-directory so no weights are duplicated.
+directory so no weights are duplicated — and provisioning declared-but-missing
+catalog models into it idempotently (#754: the same resolved file set the
+container init downloads, delivered host-side).
 
 All host effects (subprocess, platform, socket, HTTP, filesystem) go through
 thin stdlib calls so the manager is fully unit-testable with mocks on generic
@@ -26,6 +28,7 @@ import signal
 import socket
 import subprocess
 import time
+import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from contextlib import contextmanager
@@ -101,6 +104,32 @@ class ProcessStatus:
             "port": self.port,
             "installed_ref": self.installed_ref,
             "log_file": self.log_file,
+        }
+
+
+@dataclass
+class ProvisionResult:
+    """Outcome of a host-side model provision run (#754).
+
+    Mirrors the container ``download_models.sh`` philosophy: per-file failures
+    are collected, not raised — one bad URL must not abort a stack launch."""
+
+    provisioned: list[str] = field(default_factory=list)
+    skipped: list[str] = field(default_factory=list)
+    failed: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+
+    @property
+    def ok(self) -> bool:
+        return not self.failed
+
+    def to_dict(self) -> dict:
+        return {
+            "provisioned": list(self.provisioned),
+            "skipped": list(self.skipped),
+            "failed": list(self.failed),
+            "warnings": list(self.warnings),
+            "ok": self.ok,
         }
 
 
@@ -709,6 +738,279 @@ class ComfyUiMpsManager:
             "pid": pid,
         }
         self.status_file.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+    # ── model provisioning (#754: #718 warn → provision) ─────────────
+    _PROVISION_STATE_NAME = ".atlas_provisioned.json"
+    _DISK_HEADROOM = 1.05  # 5% slack over the summed missing-file sizes
+
+    def provision_models(
+        self,
+        rows: list[dict],
+        *,
+        verify: bool = False,
+        log=None,
+    ) -> ProvisionResult:
+        """Idempotently provision the resolved model set into the host tree.
+
+        ``rows`` is the SAME per-file structure the container TSV is built from
+        (``comfyui_resolver.manifest_dict(...)["models"]``: name · type ·
+        filename · download_url · sha256 · file_size_bytes · target_dir …) —
+        one source of truth, two delivery mechanisms (container init vs. host
+        provision). Semantics mirror ``download_models.sh``:
+
+        - present + matching sha256 → skipped (a state sidecar caches verified
+          stat+sha so unchanged files skip without re-hashing multi-GB blobs;
+          ``verify=True`` forces a full re-hash);
+        - present, sha declared, mismatch → re-fetched (corrupt/partial repair);
+        - present, no sha declared → presence is a hit (container parity);
+        - downloads stream to ``<dest>.part`` with HTTP-Range resume, then
+          sha-verify and ``os.replace`` — an interrupted pull never leaves a
+          corrupt weight in place, and the next run resumes the ``.part``;
+        - MPS-unsafe precisions (fp8*) are skipped with a warning instead of
+          pulling gigabytes that crash on Metal (#346);
+        - a disk-space preflight fails the whole run early (before any byte is
+          fetched) when free space can't hold the missing files;
+        - per-file failures are collected, never raised (stack launch parity
+          with the non-fatal container init).
+
+        License notice (#756): rows carrying a license are announced — name,
+        URL, and material restrictions — before their download starts, so the
+        catalog's license surface fires on the provisioning path too.
+        """
+        emit = log or (lambda message: None)
+        result = ProvisionResult()
+        if self.models_path is None:
+            result.failed.append(
+                "COMFYUI_MPS_MODELS_PATH is not set — nowhere to provision"
+            )
+            return result
+
+        # Dedupe by physical path (multiple logical bundles may share a file —
+        # the TSV writer enforces metadata agreement; first row wins here).
+        plan: list[dict] = []
+        seen: set[tuple[str, str]] = set()
+        for row in rows:
+            key = (str(row.get("target_dir", "")), str(row.get("filename", "")))
+            if not key[1] or key in seen:
+                continue
+            seen.add(key)
+            precision = str(row.get("precision") or "").lower()
+            if precision in _MPS_UNSAFE_PRECISIONS:
+                result.warnings.append(
+                    f"{key[0]}/{key[1]}: precision {precision!r} crashes on MPS "
+                    f"(Metal) — skipped; select a BF16 variant (#346)"
+                )
+                continue
+            plan.append(row)
+
+        state = self._load_provision_state()
+
+        # Disk preflight over files that would actually download.
+        missing_bytes = 0
+        for row in plan:
+            dest = self._provision_dest(row)
+            size = row.get("file_size_bytes")
+            if not dest.exists() and isinstance(size, (int, float)):
+                part = self._part_path(dest)
+                already = part.stat().st_size if part.exists() else 0
+                missing_bytes += max(0, int(size) - already)
+        if missing_bytes:
+            try:
+                free = shutil.disk_usage(self.models_path).free
+            except OSError:
+                free = None
+            if free is not None and free < missing_bytes * self._DISK_HEADROOM:
+                result.failed.append(
+                    f"insufficient disk space: need ~{missing_bytes / 1e9:.1f} GB "
+                    f"for missing model files but only {free / 1e9:.1f} GB free "
+                    f"under {self.models_path} — freeing space or trimming "
+                    f"COMFYUI_USER_MODELS required (nothing was downloaded)"
+                )
+                return result
+
+        # License surface: announce each distinct license among files that are
+        # not already present, before any byte of them is fetched.
+        announced: set[str] = set()
+        for row in plan:
+            name = str(row.get("license_name") or "").strip()
+            if not name or name in announced:
+                continue
+            if self._provision_dest(row).exists():
+                continue
+            announced.add(name)
+            restrictions = row.get("license_restrictions") or []
+            url = str(row.get("license_url") or "").strip()
+            notice = f"license: downloads governed by \'{name}\'"
+            if url:
+                notice += f" ({url})"
+            emit(notice)
+            for item in restrictions:
+                emit(f"license:   - {item}")
+
+        for row in plan:
+            label = f"{row.get('target_dir')}/{row.get('filename')}"
+            dest = self._provision_dest(row)
+            sha = str(row.get("sha256") or "").strip()
+            try:
+                outcome = self._provision_one(row, dest, sha, state, verify=verify, emit=emit)
+            except Exception as exc:  # noqa: BLE001 — per-file isolation
+                result.failed.append(f"{label}: {exc}")
+                emit(f"✗ {label} failed: {exc}")
+                continue
+            if outcome == "skipped":
+                result.skipped.append(label)
+                emit(f"✔ {label} (already present, skipped)")
+            else:
+                result.provisioned.append(label)
+                emit(f"✓ {label} downloaded and verified")
+
+        self._save_provision_state(state)
+        return result
+
+    def models_satisfied(self, rows: list[dict]) -> tuple[bool, list[str]]:
+        """Presence check for the doctor lint: (all present, missing labels).
+
+        MPS-unsafe rows are excluded — the provisioner deliberately skips them,
+        so they must not keep the lint red forever."""
+        if self.models_path is None:
+            return False, ["COMFYUI_MPS_MODELS_PATH not set"]
+        missing: list[str] = []
+        seen: set[tuple[str, str]] = set()
+        for row in rows:
+            key = (str(row.get("target_dir", "")), str(row.get("filename", "")))
+            if not key[1] or key in seen:
+                continue
+            seen.add(key)
+            if str(row.get("precision") or "").lower() in _MPS_UNSAFE_PRECISIONS:
+                continue
+            if not self._provision_dest(row).exists():
+                missing.append(f"{key[0]}/{key[1]}")
+        return not missing, missing
+
+    def _provision_dest(self, row: dict) -> Path:
+        assert self.models_path is not None
+        return self.models_path / str(row.get("target_dir") or "") / str(row.get("filename"))
+
+    @staticmethod
+    def _part_path(dest: Path) -> Path:
+        return dest.with_name(dest.name + ".part")
+
+    def _provision_one(
+        self,
+        row: dict,
+        dest: Path,
+        sha: str,
+        state: dict,
+        *,
+        verify: bool,
+        emit,
+    ) -> str:
+        """Provision one file; returns "skipped" or "provisioned". Raises on failure."""
+        state_key = str(dest.relative_to(self.models_path))
+        if dest.exists():
+            if sha:
+                cached = state.get(state_key) or {}
+                stat = dest.stat()
+                if (
+                    not verify
+                    and cached.get("sha256") == sha
+                    and cached.get("size") == stat.st_size
+                    and cached.get("mtime_ns") == stat.st_mtime_ns
+                ):
+                    return "skipped"  # fast path: previously verified, unchanged
+                actual = self._sha256_file(dest)
+                if actual == sha:
+                    self._record_state(state, state_key, dest, sha)
+                    return "skipped"
+                emit(f"↻ {state_key}: sha256 mismatch — re-fetching corrupt file")
+                dest.unlink()
+                state.pop(state_key, None)
+            else:
+                return "skipped"  # no checksum declared: presence is a hit
+
+        url = str(row.get("download_url") or "").strip()
+        if not url:
+            raise ComfyUiMpsError(f"no download_url for {state_key}")
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        part = self._part_path(dest)
+        self._fetch_to_part(url, part)
+        if sha:
+            actual = self._sha256_file(part)
+            if actual != sha:
+                part.unlink(missing_ok=True)  # poisoned bytes: no resume
+                raise ComfyUiMpsError(
+                    f"sha256 mismatch after download (expected {sha[:12]}…, got "
+                    f"{actual[:12]}…) — partial removed; re-run to retry"
+                )
+        os.replace(part, dest)
+        if sha:
+            self._record_state(state, state_key, dest, sha)
+        return "provisioned"
+
+    def _fetch_to_part(self, url: str, part: Path, *, chunk_size: int = 1 << 20) -> None:
+        """Stream ``url`` into ``part`` with HTTP-Range resume.
+
+        A transport error KEEPS the partial (the next run resumes it — wget -c
+        parity); an HTTP error status drops it (a served error page must never
+        be mistaken for model bytes)."""
+        resume_from = part.stat().st_size if part.exists() else 0
+        request = urllib.request.Request(url)
+        if resume_from:
+            request.add_header("Range", f"bytes={resume_from}-")
+        try:
+            response = urllib.request.urlopen(request, timeout=30)
+        except urllib.error.HTTPError as exc:
+            if exc.code == 416 and resume_from:
+                # Range not satisfiable — the part is already the full file.
+                return
+            part.unlink(missing_ok=True)
+            raise ComfyUiMpsError(f"HTTP {exc.code} fetching {url}") from exc
+        with response:
+            status = getattr(response, "status", 200)
+            mode = "ab" if (resume_from and status == 206) else "wb"
+            with open(part, mode) as handle:
+                while True:
+                    chunk = response.read(chunk_size)
+                    if not chunk:
+                        break
+                    handle.write(chunk)
+
+    @staticmethod
+    def _sha256_file(path: Path, *, chunk_size: int = 1 << 20) -> str:
+        digest = hashlib.sha256()
+        with open(path, "rb") as handle:
+            while True:
+                chunk = handle.read(chunk_size)
+                if not chunk:
+                    break
+                digest.update(chunk)
+        return digest.hexdigest()
+
+    def _provision_state_path(self) -> Path:
+        assert self.models_path is not None
+        return self.models_path / self._PROVISION_STATE_NAME
+
+    def _load_provision_state(self) -> dict:
+        try:
+            return json.loads(self._provision_state_path().read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+
+    def _save_provision_state(self, state: dict) -> None:
+        try:
+            path = self._provision_state_path()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_name(path.name + ".tmp")
+            tmp.write_text(json.dumps(state, indent=1, sort_keys=True), encoding="utf-8")
+            os.replace(tmp, path)
+        except OSError:  # state is an optimization, never a failure
+            pass
+
+    @staticmethod
+    def _record_state(state: dict, key: str, dest: Path, sha: str) -> None:
+        stat = dest.stat()
+        state[key] = {"sha256": sha, "size": stat.st_size, "mtime_ns": stat.st_mtime_ns}
 
 
 def manager_from_env(env: dict[str, str]) -> ComfyUiMpsManager:
