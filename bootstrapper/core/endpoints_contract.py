@@ -339,6 +339,25 @@ def build_export(
         # `Path(state_dir).expanduser()`), so the artifact and the process agree.
         expanded = Path(state_dir).expanduser()
         out.append(ExportField("ATLAS_COMFYUI_OUTPUT_DIR", f"{expanded}/ComfyUI/output"))
+        # Input dir (#758): the img2img / img2mesh staging path consumers write
+        # INTO before submitting a workflow. Same managed-mps-only scoping —
+        # under container sources `input` is a Docker named volume
+        # (comfyui-input), not a host-writable path, so no field is emitted.
+        out.append(ExportField("ATLAS_COMFYUI_INPUT_DIR", f"{expanded}/ComfyUI/input"))
+
+    # Blender MCP (#758): a host-only bridge (virtual manifest, no container).
+    # NOTE the scheme — the Blender add-on serves a RAW TCP socket, not HTTP,
+    # so the field carries ``tcp://`` (matching the manifest's own
+    # BLENDER_MCP_ENDPOINT hint). Exporting ``http://`` here would hand naive
+    # consumers a URL that no HTTP client can use. Emitted only when the
+    # source is enabled (localhost); a managed source is #759's follow-up.
+    if env.get("BLENDER_MCP_SOURCE", "").strip() == "localhost":
+        blender_port = env.get("BLENDER_MCP_LOCALHOST_PORT", "").strip() or "9876"
+        out.append(
+            ExportField(
+                "ATLAS_BLENDER_MCP_HOST_ENDPOINT", f"tcp://localhost:{blender_port}"
+            )
+        )
 
     return out
 

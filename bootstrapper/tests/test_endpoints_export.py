@@ -463,6 +463,63 @@ def test_comfyui_output_dir_absent_for_container_and_localhost_sources() -> None
         )
 
 
+# ── #758: ComfyUI input dir + Blender MCP host endpoint ─────────────────────
+def test_comfyui_input_dir_emitted_for_managed_localhost_mps() -> None:
+    """#758: the img2img/img2mesh staging path consumers write INTO. Same
+    managed-MPS-only scoping and #644 tilde expansion as the output dir."""
+    env = _base_env()
+    env["COMFYUI_SOURCE"] = "managed-localhost-mps"
+    d = _as_dict(build_export(env))
+    expected = f"{Path('~/.atlas/comfyui-mps').expanduser()}/ComfyUI/input"
+    assert d["ATLAS_COMFYUI_INPUT_DIR"] == expected
+    assert "~" not in d["ATLAS_COMFYUI_INPUT_DIR"]
+    # Input and output dirs always travel together under managed MPS.
+    assert d["ATLAS_COMFYUI_OUTPUT_DIR"].endswith("/ComfyUI/output")
+
+
+def test_comfyui_input_dir_respects_state_dir_override() -> None:
+    env = _base_env()
+    env["COMFYUI_SOURCE"] = "managed-localhost-mps"
+    env["COMFYUI_MPS_STATE_DIR"] = "/opt/atlas/comfyui-mps"
+    d = _as_dict(build_export(env))
+    assert d["ATLAS_COMFYUI_INPUT_DIR"] == "/opt/atlas/comfyui-mps/ComfyUI/input"
+
+
+def test_comfyui_input_dir_absent_for_container_and_localhost_sources() -> None:
+    """Under container sources `input` is a Docker named volume (comfyui-input),
+    not a host-writable path; a localhost install's layout is unknown."""
+    for source in ("container", "container-cpu", "localhost", "disabled"):
+        env = _base_env()
+        env["COMFYUI_SOURCE"] = source
+        d = _as_dict(build_export(env))
+        assert "ATLAS_COMFYUI_INPUT_DIR" not in d, (
+            f"input dir should not be surfaced for COMFYUI_SOURCE={source}"
+        )
+
+
+def test_blender_mcp_host_endpoint_emitted_with_tcp_scheme() -> None:
+    """#758: the Blender add-on serves a RAW TCP socket — the exported field
+    must carry tcp:// (matching the manifest's BLENDER_MCP_ENDPOINT hint), not
+    a misleading http:// no HTTP client could use."""
+    env = _base_env()
+    env["BLENDER_MCP_SOURCE"] = "localhost"
+    d = _as_dict(build_export(env))
+    assert d["ATLAS_BLENDER_MCP_HOST_ENDPOINT"] == "tcp://localhost:9876"
+
+    env["BLENDER_MCP_LOCALHOST_PORT"] = "7777"
+    d = _as_dict(build_export(env))
+    assert d["ATLAS_BLENDER_MCP_HOST_ENDPOINT"] == "tcp://localhost:7777"
+
+
+def test_blender_mcp_host_endpoint_absent_when_disabled() -> None:
+    for source in ("", "disabled"):
+        env = _base_env()
+        if source:
+            env["BLENDER_MCP_SOURCE"] = source
+        d = _as_dict(build_export(env))
+        assert "ATLAS_BLENDER_MCP_HOST_ENDPOINT" not in d
+
+
 # ── #646 AC#2: no unexpanded ${…} interpolation in non-secret values ────────
 _MPS_ENDPOINT = "http://host.docker.internal:${COMFYUI_MPS_LOCALHOST_PORT:-8188}"
 
