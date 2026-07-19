@@ -438,6 +438,11 @@ class ConsumerRecord:
 class ConsumerConfig:
     consumers: tuple[ConsumerRecord, ...] = ()
     env_overrides: dict[str, str] = field(default_factory=dict)
+    # Deployment-profile defaults (#755): the consumer's named default profile
+    # (canonical id; `dev` is normalized to `default`) and per-profile field
+    # overrides merged over bootstrapper/profiles.yml by the applier.
+    profile: str | None = None
+    profile_overrides: dict[str, dict] = field(default_factory=dict)
     compose_overlays: list[Path] = field(default_factory=list)
     storage: tuple[StorageStore, ...] = ()
     storage_overlay: StorageOverlay | None = None
@@ -567,6 +572,51 @@ def _resolve_existing_dir(base_dir: Path, raw_path: str, *, label: str) -> Path:
     if not path.is_dir():
         raise ConsumerManifestError(f"{label} does not exist or is not a directory: {path}")
     return path
+
+
+def _merge_profile_overrides_block(
+    acc: dict[str, dict],
+    new: Mapping,
+    origin: str,
+) -> None:
+    """Accumulate one manifest's ``profile_overrides:`` into ``acc`` (#755).
+
+    Two-level deep merge (profile -> field -> scalar|map). Differing scalar
+    leaves from different manifests conflict loudly (mirrors ``_set_scalar``);
+    ``sources``/``env`` maps merge per-key with the same conflict rule."""
+    for prof_name, fields_raw in new.items():
+        if not isinstance(fields_raw, Mapping):
+            raise ConsumerManifestError(
+                f"profile_overrides.{prof_name} must be a mapping ({origin})"
+            )
+        bucket = acc.setdefault(str(prof_name), {})
+        for field_name, value in fields_raw.items():
+            fname = str(field_name)
+            if isinstance(value, Mapping):
+                sub = bucket.setdefault(fname, {})
+                if not isinstance(sub, dict):
+                    raise ConsumerManifestError(
+                        f"profile_overrides.{prof_name}.{fname} has conflicting "
+                        f"shapes across consumer manifests ({origin})"
+                    )
+                for k, v in value.items():
+                    ks, vs = str(k), str(v)
+                    if ks in sub and sub[ks] != vs:
+                        raise ConsumerManifestError(
+                            f"profile_overrides.{prof_name}.{fname}.{ks} has "
+                            f"conflicting consumer manifest values: {sub[ks]!r} "
+                            f"vs {vs!r} ({origin})"
+                        )
+                    sub[ks] = vs
+            else:
+                vs = "" if value is None else str(value)
+                if fname in bucket and bucket[fname] != vs:
+                    raise ConsumerManifestError(
+                        f"profile_overrides.{prof_name}.{fname} has conflicting "
+                        f"consumer manifest values: {bucket[fname]!r} vs {vs!r} "
+                        f"({origin})"
+                    )
+                bucket[fname] = vs
 
 
 def _set_scalar(
@@ -2485,6 +2535,8 @@ _CONSUMER_ALLOWED_TOP_LEVEL_KEYS = frozenset(
     {
         "name",
         "project_name",
+        "profile",
+        "profile_overrides",
         "brand",
         "env",
         "compose_overlays",
@@ -2519,6 +2571,9 @@ def load_consumer_config(
 
     env_overrides: dict[str, str] = {}
     env_origins: dict[str, str] = {}
+    declared_profile: str | None = None
+    declared_profile_origin = ""
+    profile_overrides_acc: dict[str, dict] = {}
     consumers: list[ConsumerRecord] = []
     compose_overlays: list[Path] = []
     backend_plugins: list[Path] = []
@@ -2548,6 +2603,49 @@ def load_consumer_config(
 
         if project_name := data.get("project_name"):
             _set_scalar(env_overrides, env_origins, "PROJECT_NAME", project_name, origin)
+
+        if raw_profile := data.get("profile"):
+            from services.profiles import CANONICAL_PROFILES, canonical_profile
+
+            cprof = canonical_profile(str(raw_profile))
+            if cprof not in CANONICAL_PROFILES:
+                raise ConsumerManifestError(
+                    f"profile '{raw_profile}' is not a known deployment profile "
+                    f"(default/dev/prod) in {manifest_path}"
+                )
+            if declared_profile is not None and declared_profile != cprof:
+                raise ConsumerManifestError(
+                    f"profile has conflicting consumer manifest values: "
+                    f"{declared_profile_origin}={declared_profile!r}, {origin}={cprof!r}"
+                )
+            declared_profile = cprof
+            declared_profile_origin = origin
+
+        profile_overrides_block = data.get("profile_overrides") or {}
+        if profile_overrides_block:
+            if not isinstance(profile_overrides_block, Mapping):
+                raise ConsumerManifestError(
+                    f"profile_overrides must be a mapping in {manifest_path}"
+                )
+            from services.profiles import (
+                ProfileConfigError,
+                load_profile_bundles,
+                merge_consumer_profile_overrides,
+            )
+
+            try:
+                # Shape/name validation now, so a typo fails at manifest load
+                # (and in `doctor`) rather than at profile-apply time.
+                merge_consumer_profile_overrides(
+                    load_profile_bundles(),
+                    {str(k): v for k, v in profile_overrides_block.items()},
+                    origin=origin,
+                )
+            except ProfileConfigError as exc:
+                raise ConsumerManifestError(str(exc)) from exc
+            _merge_profile_overrides_block(
+                profile_overrides_acc, profile_overrides_block, origin
+            )
 
         brand = data.get("brand") or {}
         if brand:
@@ -2764,6 +2862,8 @@ def load_consumer_config(
     return ConsumerConfig(
         consumers=tuple(consumers),
         env_overrides=env_overrides,
+        profile=declared_profile,
+        profile_overrides=profile_overrides_acc,
         compose_overlays=compose_overlays,
         storage=tuple(all_storage),
         storage_overlay=storage_overlay,

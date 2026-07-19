@@ -451,15 +451,46 @@ env:
 - `./start.sh … doctor` reports each resolution and the capability that matched
   (the `auto-sources` check).
 
+**Deployment profiles — one switch for the whole environment (#755).** Beyond
+per-var selection, a consumer can select a named **environment bundle**. Atlas
+ships two declarative bundles in `bootstrapper/profiles.yml` — `default` (alias
+`dev`) and `prod` — each naming per-profile `sources` (a concrete id or
+`auto`), `env` values (limits/logging knobs), and `host_bind_ip`. The manifest
+may name its default environment and override individual bundle fields
+(override-only — consumers cannot define new profile names):
+
+```yaml
+profile: dev                          # this project's default environment
+profile_overrides:
+  dev:
+    sources: { comfyui: auto }        # delegate to the #753 resolver
+    env: { WEAVIATE_MEMORY_LIMIT: 4g }
+  prod:
+    sources: { comfyui: container-gpu }
+```
+
+`./start.sh` with no `--profile` flag uses the manifest's `profile:`;
+`--profile prod` selects the whole prod set in one switch (loopback bind,
+observability ON, log rotation, prod sources). Semantics per field: a profile's
+`sources` are asserted on every start of that profile **except** when that
+service's source was set by an explicit CLI flag this run (operator wins);
+`env` values apply only when unset (an operator-set value is kept with a
+notice); switching profiles resets the prior profile's asserted sources to
+their service defaults (no residue), while a same-profile restart never resets
+anything — tracked via the `ATLAS_PROFILE_APPLIED` marker in `.env`. The
+`profile` doctor check reports the effective bundle and the precedence tier
+each managed value currently comes from.
+
 Unknown or typo'd **top-level** keys are rejected with a clear error naming the
 offending key and the allowed set — a manifest that misspells `compose_overlays`
 as `compose_overlay` (or `model_sidecars` as `model_sidecar`) fails validation
 and `./start.sh … doctor` reports the `consumer-manifests` check as failed,
 instead of silently dropping the block and surfacing later as mysterious runtime
 404s. The allowed top-level keys are exactly those shown above: `name`,
-`project_name`, `brand`, `env`, `compose_overlays`, `backend_plugins`,
-`model_sidecars`, `storage`, `litellm_models`, `n8n_workflows`,
-`rag_ingestion_profiles`, and `lightrag_query_profiles`.
+`project_name`, `profile`, `profile_overrides`, `brand`, `env`,
+`compose_overlays`, `backend_plugins`, `model_sidecars`, `storage`,
+`litellm_models`, `n8n_workflows`, `rag_ingestion_profiles`, and
+`lightrag_query_profiles`.
 
 #### 6.1.1. Back-compatible `services/_user/` overlay slot
 

@@ -1,0 +1,46 @@
+# Deployment-profile bundles (#755) — the declarative environment sets applied
+# by `--profile <name>` (or a consumer manifest's `profile:` default).
+#
+# This file expresses EXACTLY the behavior `apply_profile_overrides` used to
+# hard-code, so a repo that never touches profiles behaves identically:
+#   prod    → bind ports to loopback, observability ON (unless an explicit
+#             --prometheus-source/--grafana-source flag was passed this run),
+#             log-rotation defaults (unless operator-set).
+#   default → clear the prod-managed bind sentinel; select nothing else.
+#
+# Field semantics (enforced by AtlasStarter.apply_profile_overrides):
+#   host_bind_ip  Non-empty → asserted on every start of this profile (the
+#                 defining property). Empty → cleared only when the current
+#                 value equals another profile's non-empty bind (sentinel
+#                 discipline — an operator's custom bind is never touched).
+#   sources       {<service-name>: <option-id> | auto}. Asserted on every
+#                 start of this profile unless that service's source was set
+#                 by an explicit CLI flag this run (operator wins). `auto`
+#                 delegates to the durable `<SVC>_SOURCE: auto` resolver
+#                 (#753). On a profile SWITCH, a value asserted by the prior
+#                 profile is reset to the service default first (sentinel
+#                 discipline), so transitions leave no source residue.
+#   env           {<ENV_VAR>: <value>}. Applied only when the var is unset or
+#                 empty; an operator-set value is kept with a one-line notice
+#                 (the LOG_MAX_* discipline). Use for limits/logging knobs,
+#                 e.g. WEAVIATE_MEMORY_LIMIT.
+#
+# Names: `default` and `prod` are the canonical profiles (matching the
+# manifest options' `profiles:` tags); `dev` is accepted everywhere as an
+# alias for `default`. Consumers may OVERRIDE fields per profile via
+# `profile_overrides:` in atlas.consumer.yml — they may not define new
+# profile names.
+version: 1
+profiles:
+  default:
+    host_bind_ip: ""
+    sources: {}
+    env: {}
+  prod:
+    host_bind_ip: "127.0.0.1:"
+    sources:
+      prometheus: container
+      grafana: container
+    env:
+      LOG_MAX_SIZE: "10m"
+      LOG_MAX_FILE: "3"
