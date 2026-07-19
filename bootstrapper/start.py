@@ -300,6 +300,10 @@ class AtlasStarter:
             bool: True if successful
         """
         overrides = self.source_override_manager.collect_overrides(**kwargs)
+        # Remember which SOURCE vars the operator set explicitly THIS run, so
+        # the profile applier can honor operator-wins for any profile-managed
+        # source (generalizes the historical prometheus/grafana-only guards).
+        self._explicit_source_vars = set(overrides.keys())
         if overrides:
             return self.source_override_manager.apply_overrides(overrides)
         return True
@@ -311,67 +315,175 @@ class AtlasStarter:
         explicit_prometheus: str | None = None,
         explicit_grafana: str | None = None,
     ) -> bool:
-        """Apply deployment-profile env overrides to .env.
+        """Apply the active deployment profile's declarative bundle to .env (#755).
+
+        Bundles live in ``bootstrapper/profiles.yml`` (platform-defined
+        ``default``/``prod``; ``dev`` aliases ``default``) with consumer
+        ``profile_overrides:`` merged on top. Field semantics (preserving the
+        behaviors this method used to hard-code):
+
+        - ``host_bind_ip``: non-empty → asserted on every start of this
+          profile (the defining prod property). Empty/undeclared → cleared
+          only when the current value equals another profile's non-empty
+          bind (sentinel discipline; an operator's custom bind is kept).
+        - ``sources``: asserted on every start of this profile, EXCEPT when
+          that service's source was set by an explicit CLI flag this run
+          (operator wins — tracked via ``_explicit_source_vars`` plus the
+          legacy ``explicit_prometheus``/``explicit_grafana`` params).
+          ``auto`` delegates to the durable ``<SVC>_SOURCE: auto`` resolver
+          (#753). On a profile SWITCH (tracked via ``ATLAS_PROFILE_APPLIED``),
+          sources the prior profile asserted are reset to their service
+          default first, so transitions leave no residue; a same-profile
+          restart never resets (a wizard/operator selection that happens to
+          equal a bundle value is safe).
+        - ``env``: applied only when the var is unset/empty; an operator-set
+          value is kept with a one-line notice (the LOG_MAX_* discipline).
 
         Called from both the linear (--no-tui) path and the TUI wizard
-        pipeline so prod-profile configuration applies regardless of how
-        Atlas is started.
-
-        Args:
-            profile:             The resolved profile ("default" or "prod").
-            explicit_prometheus: Non-None when --prometheus-source was passed
-                                 explicitly (CLI flag or wizard selection); the
-                                 default-ON override is then skipped. Note: a
-                                 persisted PROMETHEUS_SOURCE=disabled in .env
-                                 with NO explicit flag is still overridden to
-                                 container under prod (the flag, not the .env
-                                 value, gates the skip).
-            explicit_grafana:    Same for grafana.
-
-        Returns:
-            bool: True on success.
+        pipeline so profile configuration applies regardless of how Atlas is
+        started.
         """
-        if profile != "prod":
-            # Clear the prod-managed bind-IP if it is exactly the value
-            # prod writes, so switching back to the default profile does
-            # not leave ports silently bound to 127.0.0.1. Any other
-            # (user-set) value is left untouched.
-            _PROD_BIND = "127.0.0.1:"
-            env_vars = self.config_parser.parse_env_file()
-            current_bind = env_vars.get("HOST_BIND_IP", "")
-            if current_bind == _PROD_BIND:
-                print("profile=default: cleared HOST_BIND_IP (ports return to all-interfaces)")
-                return self.source_override_manager.update_env_file({"HOST_BIND_IP": ""})
-            return True
-        prod_overrides: Dict[str, str] = {"HOST_BIND_IP": "127.0.0.1:"}
-        if explicit_prometheus is None:
-            prod_overrides["PROMETHEUS_SOURCE"] = "container"
-        if explicit_grafana is None:
-            prod_overrides["GRAFANA_SOURCE"] = "container"
-        # LOG_MAX_SIZE / LOG_MAX_FILE are prod-managed defaults. Unlike
-        # HOST_BIND_IP (the defining prod property, always overwritten) they
-        # are the kind of value an operator customizes once and forgets, so
-        # surface a one-line notice when a run diverges from the operator's
-        # setting rather than silently resetting it (mirrors the default
-        # branch's 'cleared HOST_BIND_IP' notice).
-        _existing = self.config_parser.parse_env_file()
-        for _log_key, _prod_default in (("LOG_MAX_SIZE", "10m"), ("LOG_MAX_FILE", "3")):
-            _current = _existing.get(_log_key)
-            if not _current:
-                # Only apply the prod default when the operator hasn't set a
-                # real value (None or empty string). LOG_MAX_* is the kind of
-                # knob an operator customizes once (compliance/retention); prod
-                # must NOT clobber a hand-set value — mirrors the
-                # PROMETHEUS/GRAFANA explicit-flag gates and the default
-                # branch's sentinel-only HOST_BIND_IP rewrite.
-                # Unset/empty → prod default; set → preserved.
-                prod_overrides[_log_key] = _prod_default
-            elif _current != _prod_default:
+        from services.host_capabilities import probe_host_capabilities  # noqa: F401
+        from services.manifests import load_manifests, option_in_profile
+        from services.profiles import (
+            ProfileConfigError,
+            canonical_profile,
+            load_profile_bundles,
+            merge_consumer_profile_overrides,
+        )
+
+        active = canonical_profile(profile)
+        try:
+            bundles = load_profile_bundles()
+            consumer_config = self.config_parser.load_consumer_config()
+            bundles = merge_consumer_profile_overrides(
+                bundles, getattr(consumer_config, "profile_overrides", None) or {}
+            )
+        except ProfileConfigError as exc:
+            print(f"profile={active}: invalid profile configuration: {exc}")
+            return False
+        bundle = bundles.get(active)
+        if bundle is None:
+            print(f"profile={active}: unknown profile")
+            return False
+
+        manifests = load_manifests(self.root_dir / "services")
+        by_name = {m.name: m for m in manifests if m.sources is not None}
+        env_vars = self.config_parser.parse_env_file()
+        prior_applied = (env_vars.get("ATLAS_PROFILE_APPLIED", "") or "").strip()
+        switching = bool(prior_applied) and prior_applied != active
+
+        explicit_vars = set(getattr(self, "_explicit_source_vars", set()) or set())
+        for legacy_service, legacy_value in (
+            ("prometheus", explicit_prometheus),
+            ("grafana", explicit_grafana),
+        ):
+            if legacy_value is not None and legacy_service in by_name:
+                explicit_vars.add(by_name[legacy_service].sources.var)
+
+        overrides: Dict[str, str] = {}
+
+        # ── host_bind_ip ─────────────────────────────────────────────
+        other_binds = {
+            b.host_bind_ip
+            for name, b in bundles.items()
+            if name != active and b.host_bind_ip
+        }
+        declared_bind = bundle.host_bind_ip
+        current_bind = env_vars.get("HOST_BIND_IP", "")
+        if declared_bind:
+            overrides["HOST_BIND_IP"] = declared_bind
+        elif current_bind and current_bind in other_binds:
+            print(
+                f"profile={active}: cleared HOST_BIND_IP (ports return to all-interfaces)"
+            )
+            overrides["HOST_BIND_IP"] = ""
+
+        # ── sources: undo the prior profile's asserts on a SWITCH ────
+        auto_vars: list[str] = []
+        if switching:
+            prior_bundle = bundles.get(prior_applied)
+            if prior_bundle is not None:
+                for svc, prior_id in prior_bundle.sources.items():
+                    if prior_id == "auto" or svc not in by_name:
+                        continue
+                    var = by_name[svc].sources.var
+                    if var in explicit_vars or svc in bundle.sources:
+                        continue  # operator wins / new profile re-declares it
+                    if (env_vars.get(var, "") or "").strip() == prior_id:
+                        overrides[var] = by_name[svc].sources.default
+                        print(
+                            f"profile={active}: reset {var} to "
+                            f"'{by_name[svc].sources.default}' (was asserted by "
+                            f"profile '{prior_applied}')"
+                        )
+
+        # ── sources: assert this profile's selections ────────────────
+        for svc, source_id in bundle.sources.items():
+            manifest = by_name.get(svc)
+            if manifest is None:
                 print(
-                    f"profile=prod: keeping operator-set {_log_key}={_current!r} "
-                    f"(prod default is {_prod_default!r})"
+                    f"profile={active}: sources.{svc} names a service without a "
+                    f"sources block; ignoring"
                 )
-        return self.source_override_manager.update_env_file(prod_overrides)
+                continue
+            var = manifest.sources.var
+            if var in explicit_vars:
+                continue  # explicit CLI flag this run wins
+            if source_id == "auto":
+                current = (env_vars.get(var, "") or "").strip()
+                if switching:
+                    prior_bundle = bundles.get(prior_applied)
+                    prior_id = (prior_bundle.sources.get(svc) if prior_bundle else None)
+                    if prior_id and prior_id != "auto" and current == prior_id:
+                        # Clear the prior profile's assert so `auto` re-resolves
+                        # instead of durably keeping the residue.
+                        self._merge_env_file_overrides({var: manifest.sources.default})
+                auto_vars.append(var)
+                continue
+            option_ids = {opt.id for opt in manifest.sources.options}
+            if source_id not in option_ids:
+                print(
+                    f"profile={active}: sources.{svc}='{source_id}' is not one of "
+                    f"{sorted(option_ids)}"
+                )
+                return False
+            if not option_in_profile(manifests, svc, source_id, active):
+                print(
+                    f"profile={active}: sources.{svc}='{source_id}' is not offered "
+                    f"under this profile"
+                )
+                return False
+            overrides[var] = source_id
+
+        # ── env: defaults unless operator-set ────────────────────────
+        for env_key, declared_value in bundle.env.items():
+            current = env_vars.get(env_key)
+            if not current:
+                overrides[env_key] = declared_value
+            elif current != declared_value:
+                print(
+                    f"profile={active}: keeping operator-set {env_key}={current!r} "
+                    f"(profile default is {declared_value!r})"
+                )
+
+        # Write the marker only when this run actually changes something (or
+        # completes a switch) — a no-op run must leave .env byte-identical.
+        if overrides or auto_vars or switching:
+            overrides["ATLAS_PROFILE_APPLIED"] = active
+        if overrides and not self.source_override_manager.update_env_file(overrides):
+            return False
+
+        # `auto` selections route through the durable #753 resolver (which
+        # reads the just-updated .env for its keep/resolve decision).
+        if auto_vars:
+            resolved = self._resolve_auto_source_overrides(
+                {var: "auto" for var in auto_vars}
+            )
+            concrete = {k: v for k, v in resolved.items() if v != "auto"}
+            if concrete:
+                self._merge_env_file_overrides(concrete)
+        return True
 
     def apply_cloud_api_keys(self, keys: Dict[str, str]) -> bool:
         """
@@ -4450,10 +4562,92 @@ def _doctor_check_auto_sources(starter: "AtlasStarter") -> dict:
     return _doctor_result("auto-sources", "pass", "; ".join(lines), details=details)
 
 
+def _doctor_check_profile(starter: "AtlasStarter") -> dict:
+    """Report the resolved deployment-profile environment (#755): the active
+    profile (consumer `profile:` default unless a --profile flag overrides at
+    launch), the effective bundle after consumer `profile_overrides:`, and the
+    precedence tier each managed value currently comes from."""
+    from services.profiles import (
+        ProfileConfigError,
+        canonical_profile,
+        load_profile_bundles,
+        merge_consumer_profile_overrides,
+    )
+
+    try:
+        consumer_config = starter.config_parser.load_consumer_config()
+        env = starter.config_parser.parse_env_file()
+    except Exception as exc:  # pragma: no cover - defensive
+        return _doctor_result("profile", "skipped", f"Could not read config: {exc}")
+    try:
+        bundles = merge_consumer_profile_overrides(
+            load_profile_bundles(),
+            getattr(consumer_config, "profile_overrides", None) or {},
+        )
+    except ProfileConfigError as exc:
+        return _doctor_result("profile", "fail", str(exc))
+
+    declared = getattr(consumer_config, "profile", None)
+    active = canonical_profile(declared)
+    applied = (env.get("ATLAS_PROFILE_APPLIED", "") or "").strip()
+    bundle = bundles.get(active)
+
+    from services.manifests import load_manifests
+
+    by_name = {
+        m.name: m
+        for m in load_manifests(starter.root_dir / "services")
+        if m.sources is not None
+    }
+    fields: dict = {}
+    if bundle is not None:
+        if bundle.host_bind_ip is not None:
+            current = env.get("HOST_BIND_IP", "")
+            fields["HOST_BIND_IP"] = {
+                "profile_value": bundle.host_bind_ip,
+                "current": current,
+                "tier": "profile" if current == bundle.host_bind_ip else "operator",
+            }
+        for svc, sid in bundle.sources.items():
+            manifest = by_name.get(svc)
+            if manifest is None:
+                continue
+            var = manifest.sources.var
+            current = (env.get(var, "") or "").strip()
+            tier = (
+                "profile"
+                if (sid != "auto" and current == sid)
+                else ("auto" if sid == "auto" else "operator")
+            )
+            fields[var] = {"profile_value": sid, "current": current, "tier": tier}
+        for var, value in bundle.env.items():
+            current = env.get(var, "")
+            fields[var] = {
+                "profile_value": value,
+                "current": current,
+                "tier": "profile" if current == value else "operator",
+            }
+
+    details = {
+        "declared_default": declared or "(none — implicit default)",
+        "active": active,
+        "last_applied": applied or "(never)",
+        "fields": fields,
+    }
+    return _doctor_result(
+        "profile",
+        "pass",
+        f"profile={active} (declared: {declared or 'none'}; last applied: "
+        f"{applied or 'never'}); {len(fields)} managed value(s).",
+        details=details,
+    )
+
+
 DOCTOR_CHECKS = [
     _doctor_check_consumer_manifests,
     _doctor_check_base_port,
     _doctor_check_auto_sources,
+    _doctor_check_profile,
     _doctor_check_compose,
     _doctor_check_overlay_env,
     _doctor_check_plugins,
@@ -4762,12 +4956,14 @@ def _parse_base_port_option(ctx, param, value):
                    'model-set v3) for this run. Version sentinels are NOT stamped, '
                    'so the migration re-prompts on the next run.')
 @click.option('--profile',
-              type=click.Choice(['default', 'prod'], case_sensitive=False),
-              help='Deployment profile. "prod": bind all service ports to '
-                   '127.0.0.1 (public edge fronts Kong), enable log rotation, '
-                   'default observability ON, and hide dev-only (localhost) '
-                   'sources. Does not bypass the wizard. (Resource limits are '
-                   'always-on .env defaults, not profile-gated.)')
+              type=click.Choice(['default', 'dev', 'prod'], case_sensitive=False),
+              help='Deployment profile (declarative bundles in '
+                   'bootstrapper/profiles.yml; "dev" aliases "default"). '
+                   '"prod": bind all service ports to 127.0.0.1 (public edge '
+                   'fronts Kong), enable log rotation, default observability '
+                   'ON, and hide dev-only (localhost) sources. Unset: the '
+                   'consumer manifest may name its default via `profile:`. '
+                   'Does not bypass the wizard.')
 @click.pass_context
 def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, cold, setup_hosts, skip_hosts, llm_provider_source,
          cloud_openai_source, cloud_anthropic_source, cloud_openrouter_source,
@@ -4981,6 +5177,23 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
     starter = AtlasStarter()
 
     try:
+        # Resolve the deployment profile: explicit --profile wins; else the
+        # consumer manifest's `profile:` default (#755); else "default".
+        # `dev` is an alias for `default` (services/profiles.py).
+        from services.profiles import canonical_profile as _canonical_profile
+
+        if profile is None:
+            try:
+                profile = starter.config_parser.load_consumer_config().profile
+            except Exception:  # noqa: BLE001 — a malformed manifest surfaces
+                # through the consumer-manifests doctor check, not here.
+                profile = None
+        if profile is not None:
+            # Canonicalize (dev → default) but PRESERVE None: a bare
+            # ./start.sh with no manifest default must keep the wizard's
+            # profile-picker step (which keys off profile is None).
+            profile = _canonical_profile(profile)
+
         # Cloud LLM provider keys passed via CLI flags. Persisting to
         # .env happens later, alongside source overrides — gathered
         # here so the implied --cloud-*-source toggles are applied

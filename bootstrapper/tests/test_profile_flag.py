@@ -14,7 +14,8 @@ def test_cli_declares_profile():
 
 def test_profile_choices():
     opt = next(p for p in start.main.params if p.name == "profile")
-    assert set(opt.type.choices) == {"default", "prod"}
+    # `dev` is the #755 alias for `default` (services/profiles.py).
+    assert set(opt.type.choices) == {"default", "dev", "prod"}
 
 
 def test_profile_cli_default_is_unset_for_interactive_picker():
