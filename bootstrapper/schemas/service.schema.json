@@ -117,6 +117,27 @@
           "type": "string",
           "description": "Default source id. Must match one of options[].id."
         },
+        "auto_prefer": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Ordered preference list driving `<SVC>_SOURCE: auto` resolution (#753). The first entry whose requires_capability holds on the host (and whose option is offered under the active deployment profile) wins. An entry without requires_capability is always eligible — put the terminal fallback (e.g. container-cpu) last. Omit for services that should not support `auto`.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id"],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]*$",
+                "description": "A source id. Must match one of options[].id."
+              },
+              "requires_capability": {
+                "enum": ["apple_silicon", "nvidia_gpu", "host_ollama"],
+                "description": "Host capability gating this entry (probed by services/host_capabilities.py). Omitted = always eligible."
+              }
+            }
+          }
+        },
         "options": {
           "type": "array",
           "minItems": 1,

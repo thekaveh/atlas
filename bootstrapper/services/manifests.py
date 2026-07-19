@@ -82,12 +82,26 @@ class SourceOption:
 
 
 @dataclass(frozen=True)
+class AutoPreference:
+    """One ordered entry in `sources.auto_prefer` (#753).
+
+    Drives `<SVC>_SOURCE: auto` resolution: the first entry whose
+    `requires_capability` holds on the host (per services/host_capabilities.py)
+    wins. `requires_capability=None` means always eligible — the terminal
+    fallback (place it last)."""
+
+    id: str
+    requires_capability: str | None = None
+
+
+@dataclass(frozen=True)
 class SourcesBlock:
     """The `sources:` block of a manifest, present only for source-configurable services."""
 
     var: str
     default: str
     options: list[SourceOption]
+    auto_prefer: list[AutoPreference] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -374,6 +388,13 @@ def _to_dataclass(raw: dict[str, Any], source_path: Path) -> Manifest:
                     profiles=list(opt["profiles"]) if "profiles" in opt else None,
                 )
                 for opt in sources_raw["options"]
+            ],
+            auto_prefer=[
+                AutoPreference(
+                    id=pref["id"],
+                    requires_capability=pref.get("requires_capability"),
+                )
+                for pref in sources_raw.get("auto_prefer") or []
             ],
         )
 
