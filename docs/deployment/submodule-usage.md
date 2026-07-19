@@ -4,6 +4,8 @@ This guide explains how to use Atlas as a git submodule in your project, allowin
 
 > **New here?** Start with [Reusing Atlas as Infrastructure](reusing-atlas.md) — it compares all the reuse methods (standalone shared-network vs submodule vs fork), states what's ready, and walks a concrete consumer example. This page is the deep-dive for the **submodule** method specifically.
 
+> **Which integration style? Prefer the manifest.** The **recommended** path for a new submodule consumer is a committed **`atlas.consumer.yml`** passed via `./infra/start.sh --consumer <path>` — one validated file for branding, env, compose overlays, backend plugins, storage buckets, and model/route registration (see [Reusing Atlas §6](reusing-atlas.md)). The parent-owned **`services/_user/` symlink + `.env.user` + wrapper-flags** layout in [§4.2](#42-parent-repo-consumer-reference-layout) below **remains fully supported for existing integrations**, but it is the **legacy tier**: new consumers should prefer the manifest, and existing ones can move over with the migration guide at the end of §4.2.
+
 ## 1. Table of Contents
 
 - [Quick Start](#2-quick-start)
@@ -118,6 +120,15 @@ myproject/
 ```
 
 ### 4.2. Parent-repo consumer reference layout
+
+> **Legacy-supported tier.** This parent-owned `services/_user/`-symlink +
+> `.env.user` + wrapper-flags layout is the **older** integration style. It
+> **remains fully supported** for existing consumers, but the **canonical path
+> for a new consumer is a committed `atlas.consumer.yml`** manifest
+> (`--consumer`), which folds branding, env, overlays, plugins, storage, and
+> registration into one validated file — no symlink into the submodule, no
+> hand-kept `.env.user`, no wrapper duplicating flags. If you are on this layout,
+> see **"Migrating this layout to the manifest"** at the end of this section.
 
 Real Atlas consumers have converged on a parent-owned layout where the parent
 repository owns application code, overlay fragments, branding, wrapper scripts,
@@ -255,6 +266,29 @@ Validation checklist before committing a parent consumer update:
   force-set by the wrapper or passed as explicit CLI flags.
 - The wrapper documents the chosen `--track` and every explicit source override
   that intentionally differs from that track.
+
+**Migrating this layout to the `atlas.consumer.yml` manifest.** Everything the
+legacy layout expresses through a symlink + `.env.user` + wrapper flags maps to a
+single committed `atlas.consumer.yml` consumed via `./infra/start.sh --consumer
+<path>`. The mapping:
+
+| Legacy `_user/` + `.env.user` + wrapper | `atlas.consumer.yml` key |
+|---|---|
+| `PROJECT_NAME` (force-set) | `project_name:` |
+| `BRAND_*` in `.env.user` | `brand:` (`name`, `tagline`, …) |
+| `*_SOURCE` / other overrides in `.env.user` or as CLI flags | `env:` → `values:` (a source you toggle on a key becomes the key-gated `enabled_if_env` form) |
+| `services/_user/<name>/compose.yml` symlink → `compose/<name>-overlay.yml` | `compose_overlays:` (external path; no symlink into `infra/`) |
+| backend plugin dir mounted into the plugin seam | `backend_plugins:` |
+| `MINIO_EXTRA_CONSUMERS` + referenced bucket/cred vars | `storage:` → `buckets:` |
+| `--track <k>` wrapper flag | pass `--track <k>` alongside `--consumer`, or leave sources explicit in `env.values` |
+| `endpoints export` env file the wrapper consumes | unchanged — still `./infra/start.sh endpoints export` (add `endpoints assert --require …` in CI) |
+
+After migrating, drop the `services/_user/<name>/compose.yml` symlink and the
+`setup-overlay.sh`/`.env.user` wrapper steps; keep only a thin launcher that calls
+`./infra/start.sh --consumer ./atlas.consumer.yml --project <name>`. A source that
+must be enabled only when its key is present (e.g. `FAL_SOURCE`) uses the key-gated
+`env.values` form so no wrapper shell logic remains. See
+[Reusing Atlas §6.1](reusing-atlas.md) for the full manifest key reference.
 
 ### 4.3. Parent .gitignore Configuration
 
