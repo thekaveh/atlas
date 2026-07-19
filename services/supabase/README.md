@@ -300,7 +300,6 @@ _No upstream calls._
 | iceberg-rest | data |
 | supavisor | data |
 | litellm | llm |
-| comfyui | media |
 | airflow | agents |
 | celery | agents |
 | lightrag | agents |
@@ -330,7 +329,6 @@ _No upstream calls._
 ### 9.5. Future — Candidate new services
 
 - **Supabase Edge Functions (Deno)** ([details](../../docs/research/candidates/supabase-edge-functions.md)) — *Headline:* self-hosted Deno serverless layer that lets Postgres triggers and Kong routes invoke short TypeScript handlers without standing up n8n. *Wires into:* litellm, n8n, supabase-storage, kong.
-- **Supavisor** ([details](../../docs/research/candidates/supavisor.md)) — *Headline:* Supabase's own Postgres connection pooler — protects `supabase-db` from the 10+ stack services that each open their own pool. *Wires into:* backend, n8n, litellm, jupyterhub, local-deep-researcher.
 - **imgproxy** ([details](../../docs/research/candidates/imgproxy.md)) — *Headline:* on-the-fly image transform/resize sidecar that Supabase Storage's `IMGPROXY_URL` is purpose-built to talk to. *Wires into:* supabase-storage, minio, comfyui, open-webui, backend.
 
 ### 9.6. Future — Unused features in this service

@@ -525,7 +525,7 @@ atlas/
 ├── bootstrapper/              # Python startup, SOURCE parsing, port/Kong generation, wizard
 │   ├── services/              # Manifest loader, validator, env_assembler, hooks, sc_synthesizer
 │   ├── schemas/               # JSON Schemas for service.yml manifests
-│   ├── tests/                 # 1,300+ tests (loader, validator, byte-equiv, source-permutation, hooks)
+│   ├── tests/                 # 2,800+ tests (loader, validator, byte-equiv, source-permutation, hooks)
 │   ├── tools/                 # validate_fragments CLI lint
 │   └── start.py / stop.py     # Entry points
 ├── services/                  # 56 service.yml manifests + 3 doc-only folders (representative subset shown below; see services/ for the full list)

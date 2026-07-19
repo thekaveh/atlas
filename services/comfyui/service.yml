@@ -82,8 +82,10 @@ env:
     default: "linux/amd64"
   - name: COMFYUI_UPLOAD_TO_SUPABASE
     default: true
+    description: "Reserved/inert flag. No consumer exists in the stock ai-dock image, Atlas provisioning, or the backend, so ComfyUI does NOT currently upload its outputs to Supabase; kept as a placeholder for a future output-upload custom node."
   - name: COMFYUI_STORAGE_BUCKET
     default: "comfyui-images"
+    description: "Reserved bucket name for the (currently inert) COMFYUI_UPLOAD_TO_SUPABASE placeholder; unused until an output-upload node is wired."
   - name: COMFYUI_MODELS_PATH
     default: "/opt/ComfyUI/models"
   - name: COMFYUI_LOCAL_MODELS_PATH
@@ -228,8 +230,10 @@ runtime_adaptive:
     extra_hosts_adaptation: inherit from comfyui
 
 data_flow:
-  calls:
-    # ComfyUI uploads each generated image to Supabase Storage via Kong
-    # (COMFYUI_UPLOAD_TO_SUPABASE=true). It does NOT call LiteLLM at runtime
-    # — the only LiteLLM path is via custom nodes, and that volume is unseeded.
-    - supabase
+  # No upstream runtime calls. The backend submits workflows to ComfyUI and
+  # fetches results (ComfyUI is a downstream of backend, not a caller), and it
+  # does NOT call LiteLLM at runtime. The COMFYUI_UPLOAD_TO_SUPABASE / storage
+  # env vars are inert placeholders: no consumer exists in the stock ai-dock
+  # image, Atlas provisioning, or the backend (verified 2026-07 by grepping the
+  # image filesystem + the repo), so there is no comfyui->supabase runtime edge.
+  calls: []

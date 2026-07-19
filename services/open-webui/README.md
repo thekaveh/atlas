@@ -94,7 +94,6 @@ Because upstream now marks Pipelines as legacy for new deployments and recommend
 
 - **Open WebUI Pipelines** ([details](../../docs/research/candidates/open-webui-pipelines.md)) — *Headline:* First-party plugin server for filters (rate-limit, toxicity, Langfuse tracing) and custom pipe providers. *Wires into:* open-webui, litellm, hermes, kong.
 - **mcpo** ([details](../../docs/research/candidates/mcpo.md)) — *Headline:* Open WebUI's MCP-to-OpenAPI proxy exposes any stdio/SSE MCP server as a REST tool server consumable by Open WebUI and LiteLLM. *Wires into:* open-webui, hermes, litellm, n8n, kong.
-- **Langfuse** ([details](../../docs/research/candidates/langfuse.md)) — *Headline:* Self-hostable LLM observability (traces, evals, prompt management) plugged in via the Pipelines filter. *Wires into:* litellm, hermes, n8n, comfyui, supabase, redis.
 
 ### 5.6. Future — Unused features in this service
 

@@ -58,7 +58,9 @@ MetaMCP, Docker MCP Gateway, and `mcpo` remain later or conditional tools. MetaM
 
 ### 5.2. Current — Downstream (services that call this)
 
-_No downstream consumers._
+| Service | Category |
+|---|---|
+| kong | infra |
 
 ### 5.3. Architecture diagram
 

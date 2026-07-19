@@ -774,7 +774,7 @@ env:
 
 - **Inventory.** `GET /plugins` on the backend lists every mounted plugin — name, route prefix, health/docs, auth policy, declared env (secret values masked as `***`), and load status (`loaded` / `skipped` / `error`). Secret *values* are never exposed, but env-var names/flags are; `/plugins` is served under the backend route, so it inherits `BACKEND_KONG_AUTH` (open in local-dev default, gated once you set `key-auth`).
 - **Startup + preflight validation.** The seam validates declared env at boot, and [`./start.sh doctor`](#615-consumer-doctor-for-ci-preflight) re-validates it before launch: required-but-missing and enum/type mismatches are reported by plugin + var name. Secret values are never echoed.
-- **Fail-fast, isolated.** A present-but-malformed `plugin.yml` does **not** degrade to manifest-less loading — that one plugin is **skipped** with a structured error and the others stay healthy. Duplicate plugin names, overlapping prefixes, and prefixes that shadow a built-in backend route (`api`, `comfyui`, `documents`, `health`, `jobs`, `media`, `memory`, `plugins`, `research`, `storage`, `workflows`) are rejected before mounting.
+- **Fail-fast, isolated.** A present-but-malformed `plugin.yml` does **not** degrade to manifest-less loading — that one plugin is **skipped** with a structured error and the others stay healthy. Duplicate plugin names, overlapping prefixes, and prefixes that shadow a built-in backend route are rejected before mounting. The reserved set is the backend's `RESERVED_ROUTE_PREFIXES` (17 names): `api`, `comfyui`, `docs`, `documents`, `health`, `jobs`, `lightrag`, `media`, `memory`, `metrics`, `openapi.json`, `plugins`, `ready`, `redoc`, `research`, `storage`, `workflows`.
 - **Per-plugin gateway and application auth.** `auth: key-auth` puts Kong key-auth on that plugin's `route_prefix` and validates the same `BACKEND_KONG_API_KEY` inside FastAPI, preventing direct-port bypass. `auth: open` is an explicit public opt-out. `auth: inherit`, and plugins without a manifest, use the Backend application identity boundary. Atlas composes the matching Kong policy per prefix; distinct per-prefix credentials remain a future extension.
 
 The `plugin_manifest_version` is a hard-pinned contract version — a manifest built for a version this backend does not understand is skipped rather than mis-read. The canonical schema is [`bootstrapper/schemas/plugin.schema.json`](https://github.com/thekaveh/atlas/blob/main/bootstrapper/schemas/plugin.schema.json).
@@ -959,8 +959,10 @@ Atlas's bootstrapper computes a set of **auto-managed endpoint variables** in `.
 |----------|---------------|----------------------------------|----------------------------------|
 | `COMFYUI_ENDPOINT` | `COMFYUI_SOURCE` | `http://comfyui:18188` | `http://host.docker.internal:8000` |
 | `OLLAMA_ENDPOINT` | `LLM_PROVIDER_SOURCE` | `http://ollama:11434` | `http://host.docker.internal:11434` |
-| `LITELLM_BASE_URL` | `LLM_PROVIDER_SOURCE` | `http://litellm:4000/v1` | `http://host.docker.internal:63040/v1` |
-| `MINIO_ENDPOINT` | `MINIO_SOURCE` | `http://minio:9000` | `http://host.docker.internal:63020` |
+| `LITELLM_BASE_URL` | locked (always-on; does not vary by source) | `http://litellm:4000` | n/a (locked — no localhost mode) |
+| `MINIO_ENDPOINT` | `MINIO_SOURCE` | `http://minio:9000` | n/a (`container`/`disabled` only — no localhost mode) |
+
+`LITELLM_BASE_URL` is the base URL with **no path suffix** — LiteLLM's OpenAI-compatible routes live under `/v1` (e.g. `${LITELLM_BASE_URL}/v1/chat/completions`), so append `/v1` in your client.
 
 **Consumer-bridging pattern.** In your overlay Compose fragment or `services/_user/` service, bridge the auto-managed endpoint into your service's own variable using a three-level fallback:
 
@@ -971,7 +973,7 @@ services:
     environment:
       # Own override → Atlas's computed endpoint → hard-coded in-network default
       MY_COMFYUI_URL: ${MY_COMFYUI_URL:-${COMFYUI_ENDPOINT:-http://comfyui:18188}}
-      MY_LITELLM_URL: ${MY_LITELLM_URL:-${LITELLM_BASE_URL:-http://litellm:4000/v1}}
+      MY_LITELLM_URL: ${MY_LITELLM_URL:-${LITELLM_BASE_URL:-http://litellm:4000}}  # append /v1 for OpenAI routes
 ```
 
 This ensures your consumer works transparently across all `*_SOURCE` values (container, localhost, etc.) without per-source branching. The same pattern applies to `OLLAMA_ENDPOINT`, `MINIO_ENDPOINT`, and any future auto-managed endpoint Atlas adds.
@@ -1147,11 +1149,12 @@ host **must** have **both** a distinct `project_name` and a distinct `BASE_PORT`
 
 For **committed consumers that run side by side** (the common case — several
 Atlas-backed products on one dev box), set **`BASE_PORT: auto` in each
-`atlas.consumer.yml`**. Atlas reserves a distinct free `BASE_PORT+0..N` block per
-consumer — skipping `63000` **and** any block whose ports are already in use by
+`atlas.consumer.yml`**. Atlas reserves a distinct free `BASE_PORT+0..99` block per
+consumer (the allocator steps by 100 — the topology's max port offset is 99) —
+skipping `63000` **and** any block whose ports are already in use by
 another running stack — then **persists it and keeps it** across restarts. So
 three consumers started in turn each land on their own **durable** block
-(`20000`, `20110`, `20220`, …) with no numbers to coordinate and no drift on a
+(`20000`, `20100`, `20200`, …) with no numbers to coordinate and no drift on a
 warm restart. A cold start re-resolves, still skipping occupied blocks. For an
 **ad-hoc** stack, pass **`--base-port auto`** at launch (resolves a free block
 *fresh* each run). Either way you never hand-pick a number or squat the default;
@@ -1218,7 +1221,7 @@ base port `<BASE>`:
 
 ```bash
 docker ps --filter "name=<project>-"          # every container prefixed with your project
-# expect: every published host port in <BASE>..<BASE>+109
+# expect: every published host port in <BASE>..<BASE>+99
 #         zero <project>-ollama* containers when using ollama-localhost
 #         the OTHER instance's containers untouched
 ./start.sh endpoints export --format env      # ATLAS_*_HOST_ENDPOINT ports match <BASE>

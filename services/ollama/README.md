@@ -21,7 +21,8 @@ Ollama is the local LLM engine that runs behind the always-on **LiteLLM gateway*
 | Path | URL | Notes |
 |---|---|---|
 | Through LiteLLM | `http://localhost:63040/v1` | Consumer-facing OpenAI-compatible endpoint. Use `LITELLM_BASE_URL` from `.env`. |
-| Direct (internal) | `http://ollama:11434` | Reachable only from inside the Compose network. The Ollama container no longer publishes a host port. |
+| Kong alias | `http://ollama.localhost:${KONG_HTTP_PORT}` | Host-reachable proxy to raw Ollama `/api` (needs `./start.sh --setup-hosts`). Bypasses LiteLLM — use it for Ollama-native calls (`/api/tags`, `/api/pull`, `/api/ps`). |
+| Direct (internal) | `http://ollama:11434` | Reachable over the Compose network. The Ollama container no longer publishes a host port, so from the host reach it through the Kong alias above. |
 
 The Ollama container no longer publishes a host port; the OpenAI-compatible surface is owned by LiteLLM (default `LITELLM_PORT=63040`). See the canonical port table at [Ports and Routes](../../docs/deployment/ports-and-routes.md).
 
@@ -124,7 +125,6 @@ Note: backend, open-webui, n8n, jupyterhub, local-deep-researcher, hermes, weavi
 
 ### 6.5. Future — Candidate new services
 
-- **Langfuse** ([details](../../docs/research/candidates/langfuse.md)) — *Headline:* self-hosted LLM trace, eval, and prompt-management store. *Wires into:* litellm (native callback), hermes, backend, n8n, local-deep-researcher, open-webui.
 - **OpenLIT** ([details](../../docs/research/candidates/openlit.md)) — *Headline:* OpenTelemetry-native observability for LLM + vector calls with first-class Ollama instrumentation. *Wires into:* backend, hermes, jupyterhub, weaviate, litellm.
 
 ### 6.6. Future — Unused features in this service

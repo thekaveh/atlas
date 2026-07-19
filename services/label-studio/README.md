@@ -65,6 +65,7 @@ MLflow and Weaviate export examples are intentionally notebook-owned in this fir
 
 | Service | Category |
 |---|---|
+| kong | infra |
 | jupyterhub | apps |
 
 ### 5.3. Architecture diagram

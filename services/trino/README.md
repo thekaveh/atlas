@@ -121,6 +121,7 @@ Atlas does not create bronze/silver/gold namespaces at stack startup; data-eng-l
 
 | Service | Category |
 |---|---|
+| kong | infra |
 | zeppelin | apps |
 
 ### 5.3. Architecture diagram

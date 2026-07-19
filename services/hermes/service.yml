@@ -89,7 +89,7 @@ env:
     auto_managed: true
   - name: HERMES_ENDPOINT
     auto_managed: true
-    description: "Resolved per HERMES_SOURCE. Consumed by openclaw-gateway, LiteLLM model_list."
+    description: "Resolved per HERMES_SOURCE. Consumed by n8n, jupyterhub, LiteLLM model_list; also env-pre-wired for backend + openclaw (not yet exercised)."
   # *_INTERNAL_URL — auto-managed by bootstrapper from other services'
   # SOURCE values; hermes-init reads these to render config.yaml with
   # graceful degradation (empty string = skip provider). Owned here

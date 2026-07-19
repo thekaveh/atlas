@@ -154,6 +154,7 @@ Outputs are SHA-256 content-addressed and written to MinIO (`bake/<sha256>.{glb,
 
 | Service | Category |
 |---|---|
+| kong | infra |
 | prometheus | infra |
 
 ### 6.3. Architecture diagram
