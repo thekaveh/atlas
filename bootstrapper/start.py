@@ -5502,6 +5502,64 @@ def endpoints_export_command(
         click.echo(text, nl=False)
 
 
+@endpoints_group.command("assert")
+@click.option(
+    "--require",
+    "required",
+    type=str,
+    default=None,
+    help="Comma/space-separated export field names that MUST be present for the "
+    "current stack; exits non-zero if any is absent. Run this in consumer CI so "
+    "an Atlas field rename/removal fails loudly instead of silently degrading.",
+)
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["text", "json"], case_sensitive=False),
+    default="text",
+    show_default=True,
+    help="With no --require, list the available export field names.",
+)
+def endpoints_assert_command(required: str | None, output_format: str) -> None:
+    """Assert the consumer endpoint contract — a CI drift gate for submodule consumers.
+
+    Consumers pin Atlas as a submodule and read specific ``ATLAS_*`` export
+    fields (e.g. ``ATLAS_LITELLM_HOST_ENDPOINT``). Run
+    ``./infra/start.sh endpoints assert --require ATLAS_LITELLM_HOST_ENDPOINT,…``
+    in consumer CI against the configured stack so a future Atlas rename/removal
+    of a depended-on field fails loudly. With no ``--require``, prints the
+    available field names (``--format json`` for machine parsing).
+    """
+    from core.endpoints_contract import build_export
+
+    starter = AtlasStarter()
+    try:
+        env = starter.config_parser.parse_env_file()
+    except Exception:  # pragma: no cover - defensive (no .env yet)
+        env = {}
+    available = sorted({f.name for f in build_export(env, with_secrets=False)})
+
+    if required:
+        want = [f for f in required.replace(",", " ").split() if f]
+        missing = [f for f in want if f not in available]
+        if missing:
+            click.echo(
+                "endpoints assert: missing required export field(s): "
+                + ", ".join(sorted(missing))
+                + f".\nAvailable ({len(available)}): {', '.join(available)}",
+                err=True,
+            )
+            raise click.exceptions.Exit(1)
+        click.echo(f"endpoints assert: all {len(want)} required field(s) present.")
+        return
+
+    if output_format.lower() == "json":
+        click.echo(json.dumps(available))
+    else:
+        for name in available:
+            click.echo(name)
+
+
 @main.group("comfyui-mps")
 def comfyui_mps_group() -> None:
     """Manage the native Apple-Silicon/Metal (MPS) ComfyUI host (#335).
