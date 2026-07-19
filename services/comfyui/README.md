@@ -254,7 +254,7 @@ ATLAS_COMFYUI_LIVE_ENDPOINT=http://localhost:${COMFYUI_PORT} \
 ### 10.1. What Atlas manages
 
 - **Pinned checkout + reconciled venv** — `COMFYUI_MPS_REF` (default `v0.27.0`, mirroring `COMFYUI_REF`) is checked out into `COMFYUI_MPS_STATE_DIR` (default `~/.atlas/comfyui-mps`) with a dedicated venv holding Metal-enabled Torch. Every install compares the checkout ref and requirements fingerprint with recorded state; a changed pin or dependency file is reinstalled automatically, while unchanged environments are reused.
-- **Host models reuse** — the process reads `COMFYUI_MPS_MODELS_PATH` (default `~/Documents/ComfyUI/models`, shared with `COMFYUI_LOCAL_MODELS_PATH`) through a generated `extra_model_paths.yaml`, so an existing Krea 2 / Flux install is used in place with **no duplicate weights**.
+- **Host models reuse + provisioning** — the process reads `COMFYUI_MPS_MODELS_PATH` (default `~/Documents/ComfyUI/models`, shared with `COMFYUI_LOCAL_MODELS_PATH`) through a generated `extra_model_paths.yaml`, so an existing Krea 2 / Flux install is used in place with **no duplicate weights**. Declared-but-missing catalog models (`COMFYUI_USER_MODELS`) are **auto-provisioned** into that tree on start (#754): the same resolved per-file set the container init would download — idempotent (sha256-verified skip), resumable (`.part` + HTTP Range), atomic (temp + rename), BF16-aware (fp8 variants are skipped with a warning instead of pulled), disk-preflighted, and license-announcing. Per-file failures never abort the stack; re-run with `./start.sh comfyui-mps provision`.
 - **Fixed port + bind address + PID/log/status files** — the process listens on `COMFYUI_MPS_LOCALHOST_PORT` (default `8188`) at `COMFYUI_MPS_LISTEN` (default `127.0.0.1`). Loopback works on Docker Desktop/macOS, where `host.docker.internal` forwards to host loopback. On **Linux container engines** `host.docker.internal` maps via `host-gateway` to a bridge address that **cannot reach a loopback-bound listener**, so set `COMFYUI_MPS_LISTEN=0.0.0.0` there to make the host process reachable from containers (#651). Atlas's own health and port probes always use `127.0.0.1` regardless of the bind address. `comfyui-mps.pid`, `comfyui-mps.log`, and `status.json` live under the state dir. A start aborts if the port is already taken by an unrelated process.
 
 ### 10.2. Lifecycle
@@ -265,6 +265,7 @@ A normal `./start.sh` with this source runs preflight → install → start at t
 ./start.sh comfyui-mps preflight     # read-only host probe (OS/arch, memory, Torch/MPS, per-model precision). No install.
 ./start.sh comfyui-mps install       # idempotent pinned checkout + venv + Metal Torch
 ./start.sh comfyui-mps install --update   # force a fresh dependency reconciliation
+./start.sh comfyui-mps provision     # idempotent model provisioning into COMFYUI_MPS_MODELS_PATH (#754); --verify forces a full re-hash
 ./start.sh comfyui-mps start         # launch the host process (idempotent — one per host)
 ./start.sh comfyui-mps status        # running / pid / installed ref (JSON)
 ./start.sh comfyui-mps health        # probe /system_stats: reachability + compute device (mps/cpu)
@@ -293,7 +294,7 @@ On anything that is not macOS/arm64 (Linux CI, Intel Macs, Windows) the prefligh
 - **Upgrade / rollback** — change `COMFYUI_MPS_REF` in `.env` (a release tag or full commit SHA), then stop and start the service. Install detects the ref and requirements drift and reconciles the venv automatically; `install --update` remains available to force a rebuild. Stop targets the full process group so child workers do not survive the managed server.
 - **Reproducible Torch** — the install pins `torch`/`torchvision`/`torchaudio` to `COMFYUI_MPS_TORCH_PIN` (default `torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0`) rather than installing whatever is newest that day, so a fresh install against the same `COMFYUI_MPS_REF` is reproducible and `--update` honors the pin. Bump it alongside `COMFYUI_MPS_REF` when the upstream ComfyUI ref needs a newer Torch (#648).
 - **Logs** — `tail -f "${COMFYUI_MPS_STATE_DIR/#\~/$HOME}/comfyui-mps.log"` (default `~/.atlas/comfyui-mps/comfyui-mps.log`), the same file `status`/`start` report.
-- **Removal** — `./start.sh comfyui-mps remove` stops the process and deletes the state dir. Your host models dir (`COMFYUI_MPS_MODELS_PATH`) is **never** touched — it is reused, not owned.
+- **Removal** — `./start.sh comfyui-mps remove` stops the process and deletes the state dir. Your host models dir (`COMFYUI_MPS_MODELS_PATH`) is **never deleted or pruned** — existing weights are reused, not owned; provisioning only *adds* declared catalog files (plus a small `.atlas_provisioned.json` verification cache).
 
 ### 10.7. n8n is excluded (unchanged)
 

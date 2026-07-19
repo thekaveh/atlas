@@ -1198,8 +1198,12 @@ generation from Metal to an unusable CPU container with no error anywhere
 truth thereafter (edit `.env` or the manifest, not the launch command).
 `managed-localhost-mps` is now a valid `--comfyui-source` value, so it can be
 selected on first run or set directly in `.env`; its managed lifecycle
-(preflight / install / start / status / stop, `COMFYUI_MPS_*` vars) is documented
-in the ComfyUI service README §10 (`services/comfyui/README.md`).
+(preflight / install / **provision** / start / status / stop, `COMFYUI_MPS_*`
+vars) is documented in the ComfyUI service README §10
+(`services/comfyui/README.md`). Declared `COMFYUI_USER_MODELS` are
+**auto-provisioned** into `COMFYUI_MPS_MODELS_PATH` on start (#754) — no manual
+weight staging; the `unpullable-models` doctor lint passes once the host tree
+satisfies the declared catalog.
 
 **Better: skip the first-run flags entirely with `auto`.** Committing
 `COMFYUI_SOURCE: auto` / `LLM_PROVIDER_SOURCE: auto` in the manifest (§6.1)
