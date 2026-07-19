@@ -2447,9 +2447,37 @@ class AtlasStarter:
         if not self.verify_one_shot_init_containers():
             self.rollback_managed_host_processes()
             return False
+        self._reactivate_n8n_if_needed()
         self.commit_managed_host_processes()
         self.banner.show_status_message("All services started successfully", "success")
         return True
+
+    def _reactivate_n8n_if_needed(self) -> None:
+        """Restart n8n once after seeding so a consumer's production webhook
+        registers when the workflow was activated **without** an ``N8N_API_KEY``.
+
+        n8n CE registers a workflow's production webhook only when the n8n
+        *server* (re)starts. With a key, the seed activates over the public API
+        and the webhook registers immediately (no restart). Without a key, the
+        seed persists ``active=true`` via ``n8n publish:workflow`` — but the
+        running server ignores that until it restarts (empirically verified on
+        n8nio/n8n:2.28.2: publish prints "restart required" and the production
+        webhook stays 404 until a restart, then 200). So Atlas performs the one
+        restart the consumer would otherwise do by hand. No-op with a key, with
+        n8n disabled, or when no active consumer workflow is declared.
+        """
+        try:
+            consumer = self.config_parser.load_consumer_config()
+            env = self.config_parser.parse_env_file()
+        except Exception:
+            return
+        if not _n8n_needs_reactivation_restart(env, consumer):
+            return
+        self.banner.show_status_message(
+            "Restarting n8n to register consumer webhook(s) (no N8N_API_KEY)...",
+            "info",
+        )
+        self.docker_manager.execute_compose_command(["restart", "n8n"])
 
     def _poll_until_converged(
         self,
@@ -3270,6 +3298,36 @@ def _compose_validation_summary(output: str) -> str | None:
     if service:
         return f"Service {service} has neither an image nor a build context."
     return None
+
+
+def _n8n_workflow_effective_active(wf) -> bool:
+    """Mirror seed-workflows.js ``effectiveActive``: ``'true'`` → active,
+    ``'false'`` → not, ``'fromJson'`` → read the workflow file's own ``active``
+    flag (defaulting to inactive on any read/parse error)."""
+    if wf.active == "true":
+        return True
+    if wf.active == "false":
+        return False
+    try:
+        data = json.loads(Path(wf.source_path).read_text(encoding="utf-8"))
+        return bool(data.get("active"))
+    except Exception:
+        return False
+
+
+def _n8n_needs_reactivation_restart(env: "dict[str, str]", consumer) -> bool:
+    """True when Atlas must restart n8n after seeding to register a consumer's
+    production webhook: an active n8n workflow is declared, n8n is enabled, and
+    **no** ``N8N_API_KEY`` is configured. With a key the seed activates over the
+    API and the webhook registers immediately (no restart needed)."""
+    if (env.get("N8N_API_KEY", "") or "").strip():
+        return False
+    if (env.get("N8N_SOURCE", "") or "").strip() in ("", "disabled"):
+        return False
+    return any(
+        _n8n_workflow_effective_active(wf)
+        for wf in getattr(consumer, "n8n_workflows", ())
+    )
 
 
 def _doctor_result(
