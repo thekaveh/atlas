@@ -2264,6 +2264,33 @@ class AtlasStarter:
             "can take several minutes)…",
             "info",
         )
+
+        # #754: provision the resolved model set into the host tree BEFORE the
+        # process serves requests — same catalog selection the container init
+        # would pull, same non-fatal philosophy (a failed download must not
+        # abort the stack; generation just 404s for that model until re-run).
+        rows = _resolved_comfyui_model_rows(env)
+        if rows:
+            self.banner.show_status_message(
+                f"  • Provisioning {len(rows)} declared ComfyUI model file(s) "
+                f"into {manager.models_path} (idempotent; present files skip)…",
+                "info",
+            )
+            provision = manager.provision_models(
+                rows, log=lambda m: self.banner.show_status_message(f"    {m}", "info")
+            )
+            for warning in provision.warnings:
+                self.banner.show_status_message(f"    {warning}", "warning")
+            if not provision.ok:
+                for failure in provision.failed:
+                    self.banner.show_status_message(f"    ✗ {failure}", "warning")
+                self.banner.show_status_message(
+                    "  • Some ComfyUI models could not be provisioned — the host "
+                    "starts anyway; re-run `./start.sh comfyui-mps provision` "
+                    "after fixing the issue.",
+                    "warning",
+                )
+
         try:
             status, created = manager.ensure_running_with_ownership()
         except ComfyUiMpsError as exc:
@@ -3626,6 +3653,21 @@ def _doctor_result(
     }
 
 
+def _resolved_comfyui_model_rows(env: dict) -> list[dict]:
+    """The per-file ComfyUI model rows the container TSV is built from (#754).
+
+    One source of truth for "what models this stack needs": the same
+    ``comfyui_resolver`` output drives the container init download AND the
+    managed-host provisioner. Returns [] when nothing is selected or the
+    resolver cannot run (a malformed catalog surfaces through its own lint)."""
+    try:
+        from utils.comfyui_resolver import active_comfyui_models, manifest_dict
+
+        return list(manifest_dict(active_comfyui_models(env)).get("models", []))
+    except Exception:  # noqa: BLE001 — resolver issues have their own surfaces
+        return []
+
+
 def _doctor_check_compose(starter: "AtlasStarter") -> dict:
     try:
         returncode, stdout, stderr, _cmd = starter.docker_manager.validate_compose_config()
@@ -3952,15 +3994,31 @@ def _doctor_check_unpullable_models(starter: "AtlasStarter") -> dict:
         and comfy_source != "disabled"
     ):
         if comfy_source == "managed-localhost-mps":
-            where = "place the weights under COMFYUI_MPS_MODELS_PATH on the host"
+            # #754: the managed host IS provisioned by Atlas now. Presence of
+            # the resolved file set decides pass vs. actionable warn.
+            try:
+                from services.comfyui_mps_manager import manager_from_env
+
+                rows = _resolved_comfyui_model_rows(env)
+                satisfied, missing = manager_from_env(env).models_satisfied(rows)
+            except Exception as exc:  # noqa: BLE001 - defensive
+                satisfied, missing = False, [f"could not check host tree: {exc}"]
+            if not satisfied:
+                warnings.append(
+                    f"COMFYUI_USER_MODELS ({comfy_models}) is declared but the "
+                    f"host tree is missing: {', '.join(missing)}. Atlas "
+                    f"provisions these on the next `./start.sh` (or run "
+                    f"`./start.sh comfyui-mps provision` now)."
+                )
         else:
-            where = "place the weights in your host ComfyUI models directory"
-        warnings.append(
-            f"COMFYUI_USER_MODELS ({comfy_models}) is declared but "
-            f"COMFYUI_SOURCE={comfy_source} reuses a host weight tree — Atlas only "
-            f"downloads the catalog for container* sources, so nothing is "
-            f"provisioned. Provision manually: {where}."
-        )
+            warnings.append(
+                f"COMFYUI_USER_MODELS ({comfy_models}) is declared but "
+                f"COMFYUI_SOURCE={comfy_source} reuses a host weight tree Atlas "
+                f"does not manage — the catalog is downloaded for container* "
+                f"sources and provisioned for managed-localhost-mps (#754), but "
+                f"not for an unmanaged localhost install. Provision manually: "
+                f"place the weights in your host ComfyUI models directory."
+            )
 
     if warnings:
         return _doctor_result(
@@ -6162,6 +6220,41 @@ def comfyui_mps_remove_command() -> None:
     manager = _comfyui_mps_manager()
     manager.remove()
     click.echo(f"Removed {manager.state_dir}.")
+
+@comfyui_mps_group.command("provision")
+@click.option("--verify", is_flag=True,
+              help="Force a full sha256 re-hash of present files instead of "
+                   "trusting the cached verification state.")
+def comfyui_mps_provision(verify: bool) -> None:
+    """Provision the declared ComfyUI model set into the host tree (#754).
+
+    Fetches the resolved COMFYUI_USER_MODELS catalog selection (the same
+    per-file set the container init would download) into
+    COMFYUI_MPS_MODELS_PATH — idempotent, checksum-verified, resumable.
+    Runs automatically on a managed-localhost-mps start; this command is the
+    manual re-run for repair or pre-staging."""
+    starter = AtlasStarter()
+    env = starter.config_parser.parse_env_file()
+    from services.comfyui_mps_manager import manager_from_env
+
+    manager = manager_from_env(env)
+    rows = _resolved_comfyui_model_rows(env)
+    if not rows:
+        print("No ComfyUI models declared (COMFYUI_USER_MODELS is empty) — nothing to do.")
+        return
+    print(f"Provisioning {len(rows)} model file(s) into {manager.models_path} …")
+    result = manager.provision_models(rows, verify=verify, log=print)
+    for warning in result.warnings:
+        print(f"⚠ {warning}")
+    print(
+        f"provision summary: downloaded={len(result.provisioned)} "
+        f"skipped={len(result.skipped)} failed={len(result.failed)}"
+    )
+    if not result.ok:
+        for failure in result.failed:
+            print(f"✗ {failure}")
+        sys.exit(1)
+
 
 
 @main.group("vllm-metal")
