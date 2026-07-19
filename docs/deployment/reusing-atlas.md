@@ -115,7 +115,174 @@ cp .env.example .env                   # set PROJECT_NAME to your project
 ./start.sh
 ```
 
-Pin the submodule to a release **tag** rather than tracking `main`, so infra upgrades are explicit, reviewable commits — see [releasing.md](releasing.md) for the tag convention. This is the same shared-network model as Method A (your app joins `${PROJECT_NAME}-network`), with the difference that Atlas's source lives inside your repo at a pinned commit. The **complete** guide — directory layout, `.gitignore`, custom env-file location, integration patterns, contributing upstream, CI/CD, multiple stacks, troubleshooting — is [submodule-usage.md](submodule-usage.md).
+Pin the submodule to a release **tag** or a reviewed `main`-ancestor commit rather than tracking `main`, so infra upgrades are explicit, reviewable commits — see [releasing.md](releasing.md) for the tag convention. This is the same shared-network model as Method A (your app joins `${PROJECT_NAME}-network`), with the difference that Atlas's source lives inside your repo at a pinned commit. The **complete** reference — directory layout, `.gitignore`, custom env-file location, integration patterns, contributing upstream, CI/CD, multiple stacks, troubleshooting — is [submodule-usage.md](submodule-usage.md).
+
+### 4.1. Stand up a consumer from scratch — the ordered walkthrough
+
+The canonical greenfield path: empty repo → a running, isolated, reproducible
+Atlas-backed stack. Each step is runnable; deep dives are linked per step.
+(Already on the older `_user/`-symlink layout? Use the
+[migration guide](submodule-usage.md#42-parent-repo-consumer-reference-layout).)
+
+**1. Vendor + pin.** Vendor Atlas and pin it to a specific reviewed commit (a
+release tag or a `main`-ancestor SHA) so every infra upgrade is an explicit,
+reviewable pointer bump:
+
+```bash
+git submodule add https://github.com/thekaveh/atlas infra
+cd infra && git checkout <atlas-tag-or-main-ancestor-sha> && cd ..
+git add .gitmodules infra && git commit -m "vendor atlas@<sha>"
+```
+
+Re-pin on a cadence: bump the submodule pointer to a newer reviewed commit, then
+re-run your CI gates (step 8). A stale pin misses upstream fixes (including
+security fixes); a moving pin makes builds irreproducible.
+
+**2. Author `atlas.consumer.yml`.** One committed manifest is the single source
+of truth for how you extend Atlas — consumed with `--consumer` (step 4). A
+complete example:
+
+```yaml
+# atlas.consumer.yml (parent repo root)
+name: myproject
+project_name: myproject                 # Docker resource namespace (step 3)
+brand:
+  name: MyProject
+  tagline: "MyProject on Atlas"
+env:
+  file: ./atlas.env.user                 # optional flat .env overlay
+  values:
+    BASE_PORT: auto                      # or a fixed non-default block (step 3)
+    FAL_SOURCE:                          # key-gated: enabled iff the key is present
+      enabled_if_env: FAL_API_KEY
+      else: disabled
+compose_overlays:
+  - ./compose/myproject-overlay.yml      # external overlay; no symlink into infra/
+backend_plugins:
+  - ./backend/plugins                    # mounted into the backend plugin seam (step 6)
+litellm_models:                          # expose plugin routes as LiteLLM models
+  version: 1
+  models:
+    - name: myproject-rag                # globally-unique, non-reserved alias
+      api_base: "${ATLAS_BACKEND_INTERNAL}/myproject-rag/v1"
+      api_key_var: MYPROJECT_API_KEY
+n8n_workflows:                           # seed + activate workflows
+  version: 1
+  workflows:
+    - id: myproject-flow                 # namespaced to atlas-consumer-myproject-flow
+      path: ./n8n/myproject-flow.workflow.json
+      active: "true"
+storage:                                 # parent-owned MinIO buckets + scoped creds
+  buckets:
+    - name: assets                       # bucket defaults to "<consumer>-<name>"
+```
+
+**Reserved-namespace rules:** litellm aliases may not shadow a stack-owned model
+(runtime `hermes-agent`/`lightrag` + every catalog model name); n8n ids are
+namespaced `atlas-consumer-<id>`; a storage bucket may **not** be named `backend`
+(a built-in). Unknown top-level keys are rejected. See
+[§6.1](#61-registering-a-parent-project-with-atlasconsumeryml) for the full key
+reference.
+
+**3. Isolation — distinct project + non-default port.** `project_name` isolates
+Docker **resource names** (container/volume/network are `<name>-…`); it does
+**not** namespace host ports. So a second stack on one host also needs a distinct
+**`BASE_PORT`**. Prefer `--base-port auto` (or `BASE_PORT: auto` in the manifest),
+which reserves the first wholly-free block and never squats the default `63000` a
+bare `atlas` checkout binds. `doctor` warns if a non-default project is left on
+`63000`. Details: [§7.4](#74-run-multiple-atlas-instances-on-one-host).
+
+**4. Startup ordering.** Run the preflights, then launch — each step guards the
+next:
+
+```bash
+cd infra
+./start.sh env backfill                                  # fill any new .env keys from .env.example
+./start.sh compose validate                              # assert the merged compose is well-formed
+./start.sh doctor --format json                          # consumer-manifest + base-port + unpullable-model lints
+./start.sh --consumer "$(pwd)/../atlas.consumer.yml" \
+  --project myproject --base-port auto [--track <k>] [--detach]
+```
+
+`env backfill` keeps `.env` complete across pin bumps; `compose validate` catches
+overlay/manifest errors before any container starts; `doctor` surfaces
+contract/port/provisioning problems; `--detach` exits after the health gates.
+
+**5. Consuming endpoints.** Your host-side code (a devserver, a desktop app)
+reads the exported contract; in-container plugins use compose service DNS
+directly.
+
+```bash
+./infra/start.sh endpoints export --format env > atlas-endpoints.env   # ATLAS_* KEY=value
+```
+
+Host tools read `ATLAS_<SVC>_HOST_ENDPOINT` (e.g. `ATLAS_MINIO_HOST_ENDPOINT`);
+in-network containers use the service name (`http://minio:9000`). Never hard-code
+a `localhost:<port>` — it moves with `BASE_PORT`. Full field list:
+[§6.5](#65-exporting-the-endpoint-contract-endpoints-export).
+
+**6. Backend plugin seam.** Each `backend_plugins` dir is mounted into the backend
+at `/app/plugins`; a plugin serving an OpenAI-compatible route can be surfaced as
+a LiteLLM model (step 2's `litellm_models`). A plugin sources object storage from
+the **exported scoped vars** (`ATLAS_STORE_<store>_*`), never a hand-wired
+`MINIO_PUBLIC_URL` or a published MinIO port. Details:
+[§6.3](#63-adding-backend-api-routes-via-the-plugin-seam).
+
+**7. Teardown.**
+
+```bash
+./infra/stop.sh --project myproject          # stop this stack's containers
+./infra/stop.sh --project myproject --cold   # also remove this project's volumes (data loss)
+```
+
+`--cold` removes the project's named volumes (DB, MinIO, model caches) — a clean
+slate; omit it to preserve data across restarts.
+
+**8. CI drift gates.** Wire these into your consumer CI so an Atlas pin bump can't
+break you silently:
+
+```bash
+./infra/start.sh doctor --format json                    # manifest + lints
+./infra/start.sh endpoints assert --require \
+  ATLAS_LITELLM_HOST_ENDPOINT,ATLAS_MINIO_HOST_ENDPOINT   # contract fields you read (#723)
+```
+
+Plus assert your `.env.user`/manifest overlay still applies after a cold cycle,
+and fail CI if the pinned Atlas is far behind `main` (pin-freshness).
+
+**9. Common footguns.**
+
+- **Default-port collision.** Leaving `BASE_PORT=63000` under a non-default
+  project collides with a bare `atlas` checkout — host ports aren't
+  project-scoped. Use `--base-port auto` (`doctor` warns otherwise).
+- **Declared-but-unpullable models.** `model_sidecars.ollama` /
+  `COMFYUI_USER_MODELS` are only provisioned for **container** sources; under
+  `ollama-localhost` / `managed-localhost-mps` you must pull on the host (`doctor`
+  warns).
+- **Committed-value clobber.** A value committed in the manifest re-applies every
+  start and overwrites an operator's temporary `.env` edit — keep human-tuned
+  values (e.g. model lists) host-local, and commit only identity (`project_name`,
+  `BASE_PORT`).
+
+**Complete worked example — a minimal consumer repo:**
+
+```
+myproject/
+├── .gitmodules                       # pins infra/ to a reviewed Atlas commit
+├── atlas.consumer.yml                # the manifest above
+├── atlas.env.user                    # optional flat overlay (gitignored: secrets)
+├── compose/
+│   └── myproject-overlay.yml         # external overlay (no symlink into infra/)
+├── backend/plugins/myproject-rag/    # backend plugin (→ /app/plugins)
+├── n8n/myproject-flow.workflow.json  # seeded workflow
+├── scripts/start.sh                  # thin launcher (the step-4 command)
+├── src/                              # your application code
+└── infra/                            # Atlas submodule @ pinned commit
+```
+
+`scripts/start.sh` is a thin wrapper around the step-4 launch — no symlinking into
+`infra/`, no `.env` mutation, no `docker restart` of Atlas containers. That is the
+whole integration.
 
 ---
 
