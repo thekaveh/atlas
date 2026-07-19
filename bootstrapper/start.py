@@ -593,15 +593,18 @@ class AtlasStarter:
 
         consumer_config = self.config_parser.load_consumer_config()
         if consumer_config.env_overrides:
-            self._merge_env_file_overrides(consumer_config.env_overrides)
-            count = len(consumer_config.env_overrides)
+            resolved_overrides = self._resolve_auto_base_port_override(
+                dict(consumer_config.env_overrides)
+            )
+            self._merge_env_file_overrides(resolved_overrides)
+            count = len(resolved_overrides)
             names = ", ".join(consumer.name for consumer in consumer_config.consumers)
             self.banner.show_status_message(
                 f"  • Applied consumer manifest env ({count} override{'s' if count != 1 else ''})"
                 f" for {names}",
                 "info",
             )
-            applied_overrides.update(consumer_config.env_overrides)
+            applied_overrides.update(resolved_overrides)
 
         return applied_overrides
 
@@ -629,7 +632,9 @@ class AtlasStarter:
             # (which reports it as a structured `fail`), not crash preflight
             # before any check has run.
             return {}
-        overrides = consumer_config.env_overrides or {}
+        overrides = self._resolve_auto_base_port_override(
+            dict(consumer_config.env_overrides or {})
+        )
         if overrides:
             self._merge_env_file_overrides(overrides)
         return overrides
@@ -663,6 +668,50 @@ class AtlasStarter:
             os.replace(tmp_path, env_file_path)
         finally:
             tmp_path.unlink(missing_ok=True)
+
+    def _resolve_auto_base_port_override(self, overrides: Dict[str, str]) -> Dict[str, str]:
+        """Resolve a manifest ``BASE_PORT: auto`` to a concrete, **durable** free
+        block (returns a new dict; non-auto overrides are returned unchanged).
+
+        Manifest ``auto`` means "give this consumer a stable free BASE_PORT
+        block". It resolves to the first wholly-free ``BASE_PORT+0..N`` block —
+        which skips the default 63000 AND any block whose ports are in use by
+        another running stack, so several consumers started in turn each land on
+        a **distinct** block. The resolved value is persisted to ``.env`` and
+        **kept** on later starts (a previously-resolved non-default block is
+        reused as-is, so a warm restart never moves and never mistakes its own
+        running containers for another stack's). A cold start (regenerated
+        ``.env`` → default) re-resolves, still skipping occupied blocks.
+
+        Unlike the one-off ``--base-port auto`` CLI flag (which resolves fresh
+        every time it is passed), the manifest form is committed and must be
+        stable — that is the whole point of pinning identity in the manifest.
+        """
+        if str(overrides.get("BASE_PORT", "")).strip().lower() != "auto":
+            return overrides
+        current = (self.config_parser.parse_env_file().get("BASE_PORT", "") or "").strip()
+        try:
+            current_int: Optional[int] = int(current)
+        except ValueError:
+            current_int = None
+        if (
+            current_int is not None
+            and current_int != DEFAULT_BASE_PORT
+            and self.port_manager.validate_base_port(current_int)
+        ):
+            resolved = current_int  # durable: keep this consumer's prior block
+        else:
+            resolved = self.port_manager.auto_base_port()
+            if resolved is None:
+                self.banner.show_status_message(
+                    "BASE_PORT=auto could not find a free port block; using the "
+                    f"default {DEFAULT_BASE_PORT}. Set an explicit BASE_PORT.",
+                    "warning",
+                )
+                resolved = DEFAULT_BASE_PORT
+        merged = dict(overrides)
+        merged["BASE_PORT"] = str(resolved)
+        return merged
 
     def _remove_env_keys_by_prefix(self, prefix: str) -> None:
         """Drop every ``.env`` line whose KEY starts with ``prefix``. Used to
@@ -1397,10 +1446,17 @@ class AtlasStarter:
         if base_port is None:
             current = (self.config_parser.parse_env_file()
                        .get('BASE_PORT', '') or '').strip()
-            try:
-                base_port = int(current)
-            except ValueError:
-                base_port = DEFAULT_BASE_PORT
+            if current.lower() == "auto":
+                # Defensive: a manifest BASE_PORT=auto is normally resolved to a
+                # concrete value by _resolve_auto_base_port_override during the
+                # env-overlay merge; if it ever reaches here unresolved, pick a
+                # free block rather than int()-failing to the default 63000.
+                base_port = self.port_manager.auto_base_port() or DEFAULT_BASE_PORT
+            else:
+                try:
+                    base_port = int(current)
+                except ValueError:
+                    base_port = DEFAULT_BASE_PORT
 
         # Validate base port
         if not self.port_manager.validate_base_port(base_port):
