@@ -66,6 +66,23 @@ Plain `python3 scripts/check-kong-routes.py` works too if `PyYAML` is on your sy
 - `airflow.localhost` → Airflow Web UI + REST API (`AIRFLOW_SOURCE != disabled`; routes to in-container `airflow-webserver:8080`; same alias serves UI at `/` and REST API under `/api/v2/`)
 - `lightrag.localhost` → http://lightrag:9621/ (LightRAG WebUI + API; `preserve_host` enabled)
 - `rerank.localhost` → http://tei-reranker:80/ (TEI rerank API)
+- `grafana.localhost` → http://grafana:3000/ (Grafana dashboards; `GRAFANA_SOURCE != disabled`)
+- `prometheus.localhost` → http://prometheus:9090/ (Prometheus UI; `PROMETHEUS_SOURCE != disabled`)
+- `ray.localhost` → http://ray-head:8265/ (Ray dashboard; `RAY_SOURCE != disabled`)
+- `langfuse.localhost` → http://langfuse-web:3000/ (Langfuse observability UI; `LANGFUSE_SOURCE=container`)
+- `mlflow.localhost` → http://mlflow:5000/ (MLflow tracking UI; `MLFLOW_SOURCE=container`)
+- `label-studio.localhost` → http://label-studio:8080/ (Label Studio; `LABEL_STUDIO_SOURCE=container`)
+- `jenkins.localhost` → http://jenkins:8080/ (Jenkins CI; `JENKINS_SOURCE=container`)
+- `graphbuilder.localhost` → http://llm-graph-builder-frontend:8080/ and `graphbuilder-api.localhost` → http://llm-graph-builder-backend:8000/ (Neo4j LLM Graph Builder UI + API; `LLM_GRAPH_BUILDER_SOURCE=container`)
+- `mcp.localhost` → http://mcp-servers:8000/ (MCP servers; `MCP_SERVERS_SOURCE != disabled`)
+- `flower.localhost` → http://flower:5555/ (Celery Flower dashboard; `CELERY_SOURCE=container`)
+- `asset-baker.localhost` → http://asset-baker:8096/ (Asset Baker API; `ASSET_BAKER_SOURCE != disabled`)
+- `asset-worker.localhost` → http://asset-worker:8095/ (Asset Worker API; `ASSET_WORKER_SOURCE != disabled`)
+- `crawl4ai.localhost` → http://crawl4ai:11235/ (Crawl4AI; `CRAWL4AI_SOURCE=container`)
+- `tika.localhost` → http://tika:9998/ (Apache Tika; `TIKA_SOURCE != disabled`)
+- `verba.localhost` → http://verba:8000/ (Verba RAG UI; `VERBA_SOURCE != disabled`)
+
+> The authoritative, always-current route set is the generated **§13.1 Current — Upstream** table (derived from `data_flow.calls`); the list above names the primary aliases and their upstreams.
 
 Example: `curl http://lightrag.localhost:${KONG_HTTP_PORT}/health`
 
@@ -223,29 +240,42 @@ For more information on Kong's role in the overall architecture, see the system 
 | Service | Category |
 |---|---|
 | grafana | infra |
+| langfuse | infra |
 | prometheus ↔ | infra |
 | ray | infra |
 | minio | data |
 | neo4j | data |
+| redpanda | data |
 | spark | data |
 | supabase | data |
+| trino | data |
 | weaviate | data |
 | litellm | llm |
 | ollama | llm |
 | tei-reranker | llm |
+| asset-baker | media |
+| asset-worker | media |
 | comfyui | media |
+| crawl4ai | media |
 | doc-processor | media |
 | searxng | media |
 | stt-provider | media |
+| tika | media |
 | tts-provider | media |
 | airflow | agents |
+| celery | agents |
 | hermes | agents |
 | lightrag | agents |
+| mcp-servers | agents |
 | n8n | agents |
 | openclaw | agents |
 | backend | apps |
+| jenkins | apps |
 | jupyterhub | apps |
+| label-studio | apps |
+| llm-graph-builder | apps |
 | local-deep-researcher | apps |
+| mlflow | apps |
 | open-webui | apps |
 | verba | apps |
 
@@ -282,7 +312,7 @@ For more information on Kong's role in the overall architecture, see the system 
 - **`ai-proxy` plugin** — *Why pursue:* Kong's AI Gateway normalizes OpenAI/Anthropic/Ollama request shapes at the edge, worth evaluating as a comparison (not replacement) for LiteLLM's role. *Effort:* large.
 - **`ai-prompt-guard` plugin** — *Why pursue:* regex allow/deny on prompt content at the gateway gives a defense-in-depth layer before LiteLLM. *Effort:* medium.
 - **Health-check active probing** — *Why pursue:* swap the one-shot TCP probe at startup for Kong's `healthchecks.active` block so localhost services auto-recover when they bounce. *Effort:* small.
-- **Admin API on a private port** — *Why pursue:* Kong's admin API (8001) is currently disabled; selectively exposing read-only `/status` on an internal port would unblock health dashboards. *Effort:* small.
+- **Admin API on a private host port** — *Why pursue:* Kong's admin API (8001) is bound to container loopback (`127.0.0.1:8001`) — reachable via `docker exec` (see §14.2) but not exposed to the host or network. Selectively publishing read-only `/status` on an internal host port would unblock external health dashboards. *Effort:* small.
 
 ## 14. Troubleshooting
 

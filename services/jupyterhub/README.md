@@ -2,7 +2,7 @@
 
 **Port:** 63094
 **Category:** Application Tier
-**Dependencies:** PostgreSQL, Redis, LiteLLM (gateway to Ollama / cloud LLMs), Weaviate, Neo4j, MinIO, Iceberg REST, Spark
+**Primary dependencies:** PostgreSQL, Redis, LiteLLM (gateway to Ollama / cloud LLMs), Weaviate, Neo4j, MinIO, Iceberg REST, Spark — see §15 (Dependencies & Integrations) for the full upstream set (Ray, Redpanda, ComfyUI, n8n, backend, SearXNG, Hermes, MLflow, Label Studio, …).
 
 ---
 
@@ -108,11 +108,14 @@ requirements. Service-dependent execution remains an explicit live smoke test.
 
 ### 6.1. Connect to the LLM gateway (LiteLLM)
 
-Every notebook talks to LiteLLM via the OpenAI-compatible API — never to Ollama directly. The container has `OPENAI_API_BASE` and `OPENAI_API_KEY` pre-set from `LITELLM_BASE_URL` and `LITELLM_API_KEY` (which equals `LITELLM_MASTER_KEY`).
+Every notebook talks to LiteLLM via the OpenAI-compatible API — never to Ollama directly. `startup.sh` writes `OPENAI_API_BASE` and `OPENAI_API_KEY` (derived from `LITELLM_BASE_URL` and `LITELLM_API_KEY`, which equals `LITELLM_MASTER_KEY`) into the work-dir `/home/jovyan/work/.env` — they are not in the container's process env, so load them with `load_dotenv()` before reading them via `os.getenv`.
 
 ```python
 import os
+from dotenv import load_dotenv
 from openai import OpenAI
+
+load_dotenv()  # loads /home/jovyan/work/.env written by startup.sh
 
 client = OpenAI(
     base_url=os.getenv("OPENAI_API_BASE"),  # e.g. http://litellm:4000/v1
@@ -466,7 +469,10 @@ For the current high-level stack diagram, see [Architecture Diagram](../../docs/
 | weaviate | data |
 | litellm | llm |
 | comfyui | media |
+| docling | media |
 | searxng | media |
+| stt-provider | media |
+| tts-provider | media |
 | hermes | agents |
 | n8n | agents |
 | backend | apps |
@@ -494,8 +500,7 @@ For the current high-level stack diagram, see [Architecture Diagram](../../docs/
 
 ### 15.5. Future — Candidate new services
 
-- **MLflow** ([details](../../docs/research/candidates/mlflow.md)) — *Headline:* self-hosted experiment-tracking, run-history, and model-registry server backed by Supabase Postgres + MinIO artifacts. *Wires into:* jupyterhub, backend, supabase, minio, n8n.
-- **Label Studio** ([details](../../docs/research/candidates/label-studio.md)) — *Headline:* multi-user annotation studio for text, image, audio, and document labeling that produces supervised datasets for downstream ingestion. *Wires into:* jupyterhub, backend, weaviate, minio, supabase.
+_No high-confidence opportunities identified._
 
 ### 15.6. Future — Unused features in this service
 

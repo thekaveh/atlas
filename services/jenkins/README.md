@@ -61,7 +61,9 @@ Jenkins calls MinIO to publish built artifacts. Airflow, Spark, notebooks, and d
 
 ### 6.2. Current — Downstream (services that call this)
 
-_No downstream consumers._
+| Service | Category |
+|---|---|
+| kong | infra |
 
 ### 6.3. Architecture diagram
 

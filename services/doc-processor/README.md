@@ -284,7 +284,11 @@ rather than reproducible results.
 
 ### 9.1. Open WebUI
 
-Document upload and processing automatically uses doc processor endpoint if available.
+Open WebUI is **not** auto-wired to the doc processor — it uses its own built-in
+extraction, and `services/open-webui/service.yml` deliberately leaves
+`DOCLING_ENDPOINT` commented out. To route Open WebUI's document extraction
+through Docling, set `CONTENT_EXTRACTION_ENGINE=docling` (and the matching
+Docling endpoint) manually.
 
 ### 9.2. n8n Workflows
 
@@ -436,11 +440,9 @@ No document processing service.
 
 ### 13.2. Optional (Can Use Doc Processor)
 
-- **open-webui**: Document upload and processing
 - **n8n**: Document processing workflows
 - **backend**: Proxy document processing API endpoints
 - **jupyterhub**: Notebooks with document processing capabilities
-- **local-deep-researcher**: Research document analysis
 
 ## 14. Advanced Features
 
@@ -508,6 +510,7 @@ _No upstream calls._
 | lightrag | agents |
 | n8n | agents |
 | backend | apps |
+| jupyterhub | apps |
 
 ### 16.3. Architecture diagram
 

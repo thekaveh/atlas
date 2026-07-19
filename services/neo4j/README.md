@@ -255,7 +255,6 @@ _No upstream calls._
 
 ### 13.5. Future — Candidate new services
 
-- **Neo4j LLM Knowledge Graph Builder** ([details](../../docs/research/candidates/neo4j-llm-graph-builder.md)) — *Headline:* first-party Neo4j Labs app that turns PDFs/web pages/YouTube transcripts into a queryable knowledge graph. *Wires into:* backend, doc-processor, open-webui, minio.
 - **Graphiti (Zep)** ([details](../../docs/research/candidates/graphiti.md)) — *Headline:* temporal knowledge-graph framework for agent memory, built on Neo4j. *Wires into:* hermes, backend, n8n, local-deep-researcher.
 - **NeoDash** ([details](../../docs/research/candidates/neodash.md)) — *Headline:* low-code Cypher dashboards over the existing Neo4j instance, no extra database. *Wires into:* kong (route at `dash.localhost`), backend.
 

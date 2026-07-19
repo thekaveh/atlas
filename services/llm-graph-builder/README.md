@@ -98,7 +98,9 @@ This rollback leaves existing graph data untouched by design.
 
 ### 10.2. Current — Downstream (services that call this)
 
-_No downstream consumers._
+| Service | Category |
+|---|---|
+| kong | infra |
 
 ### 10.3. Architecture diagram
 

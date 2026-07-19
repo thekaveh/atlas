@@ -39,7 +39,7 @@ Key facts:
 | OpenAI-compatible API (direct) | `http://localhost:${HERMES_API_PORT}` (default 63072) | Bearer token: `${HERMES_API_KEY}`. Same surface as OpenAI's `/v1/chat/completions`. |
 | Dashboard (direct) | `http://localhost:${HERMES_DASHBOARD_PORT}` (default 63073) | Web admin UI for skills, sessions, model config. |
 | Dashboard (Kong) | `http://hermes.localhost:63000` | Requires `./start.sh --setup-hosts`. |
-| Internal DNS (other containers) | `http://hermes:8642` | Reachable from LiteLLM, n8n, backend, jupyterhub, openclaw. |
+| Internal DNS (other containers) | `http://hermes:8642` | Reachable from LiteLLM, n8n, jupyterhub; backend + openclaw have the env pre-wired but do not yet call it (see §10.2). |
 
 See the canonical port table at [Ports and Routes](../../docs/deployment/ports-and-routes.md).
 
@@ -187,12 +187,14 @@ their env exposes `HERMES_ENDPOINT`):
 - **Open WebUI** — `hermes-agent` model in the chat dropdown (via LiteLLM).
 - **n8n** — `hermes-agent` callable from any HTTP-Request or AI node; also
   `HERMES_ENDPOINT` in the worker process env.
-- **Backend API** — `HERMES_ENDPOINT` + `HERMES_API_KEY` for code paths that
-  want the agent loop instead of raw chat completions.
+- **Backend API** — `HERMES_ENDPOINT` + `HERMES_API_KEY` are injected into the
+  backend env, pre-wired for a future direct path to the agent loop; no backend
+  code references them today, so this consumption is not yet exercised.
 - **JupyterHub** — notebooks see `HERMES_ENDPOINT` for direct calls; also
   the `hermes-agent` model via LiteLLM.
-- **OpenClaw** — `HERMES_ENDPOINT` + `HERMES_API_KEY` so OpenClaw can bridge
-  Hermes agents to messaging channels (WhatsApp / Telegram / Discord).
+- **OpenClaw** — `HERMES_ENDPOINT` + `HERMES_API_KEY` are pre-wired for a future
+  bridge from Hermes agents to messaging channels (WhatsApp / Telegram /
+  Discord); per OpenClaw's README this path is not yet called.
 
 ## 7. References
 
@@ -269,7 +271,6 @@ example DAG.
 
 ### 10.5. Future — Candidate new services
 
-- **Langfuse** ([details](../../docs/research/candidates/langfuse.md)) — *Headline:* Self-hostable observability and prompt-trace store for LLM and diffusion workflows, capturing structured traces, evaluations, and cost telemetry. *Wires into:* litellm, hermes, n8n, comfyui, supabase, minio.
 - **MCP Gateway** ([details](../../docs/research/candidates/mcp-gateway.md)) — *Headline:* A consolidated MCP server exposing neo4j, weaviate, minio, n8n, and supabase as MCP tools any MCP-native client can mount. *Wires into:* hermes, open-webui, jupyterhub, neo4j, weaviate, minio, n8n.
 
 ### 10.6. Future — Unused features in this service

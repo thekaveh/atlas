@@ -173,8 +173,8 @@
 | COMFYUI_AUTO_UPDATE | comfyui | True | AI-Dock startup update flag. Atlas keeps this true so COMFYUI_REF pins the upstream ComfyUI core even when the base image tag lags. |
 | COMFYUI_REF | comfyui | v0.27.0 | Pinned upstream ComfyUI git ref passed to AI-Dock. Use a release tag or full commit SHA when deliberately changing the ComfyUI core. |
 | COMFYUI_PLATFORM | comfyui | linux/amd64 | - |
-| COMFYUI_UPLOAD_TO_SUPABASE | comfyui | True | - |
-| COMFYUI_STORAGE_BUCKET | comfyui | comfyui-images | - |
+| COMFYUI_UPLOAD_TO_SUPABASE | comfyui | True | Reserved/inert flag. No consumer exists in the stock ai-dock image, Atlas provisioning, or the backend, so ComfyUI does NOT currently upload its outputs to Supabase; kept as a placeholder for a future output-upload custom node. |
+| COMFYUI_STORAGE_BUCKET | comfyui | comfyui-images | Reserved bucket name for the (currently inert) COMFYUI_UPLOAD_TO_SUPABASE placeholder; unused until an output-upload node is wired. |
 | COMFYUI_MODELS_PATH | comfyui | /opt/ComfyUI/models | - |
 | COMFYUI_LOCAL_MODELS_PATH | comfyui | ~/Documents/ComfyUI/models | - |
 | COMFYUI_USER_MODELS | comfyui |  | Comma-separated catalog model names the user picked in the wizard (or via --comfyui-models). Read by services/comfyui/init/scripts/download_models.sh. |
@@ -266,7 +266,7 @@
 | HERMES_INIT_SOURCE | hermes | container | Auto-managed by hermes. Container/disabled. |
 | HERMES_INIT_SCALE | hermes |  | - |
 | HERMES_SCALE | hermes |  | - |
-| HERMES_ENDPOINT | hermes |  | Resolved per HERMES_SOURCE. Consumed by openclaw-gateway, LiteLLM model_list. |
+| HERMES_ENDPOINT | hermes |  | Resolved per HERMES_SOURCE. Consumed by n8n, jupyterhub, LiteLLM model_list; also env-pre-wired for backend + openclaw (not yet exercised). |
 | TTS_INTERNAL_URL | hermes |  | - |
 | STT_INTERNAL_URL | hermes |  | - |
 | COMFYUI_INTERNAL_URL | hermes |  | - |
@@ -353,8 +353,8 @@
 | LIGHTRAG_KEYWORD_LLM_BINDING_HOST | lightrag |  | Optional KEYWORD role provider endpoint. Empty = inherit LLM_BINDING_HOST. |
 | LIGHTRAG_QUERY_LLM_BINDING_HOST | lightrag |  | Optional QUERY role provider endpoint. Empty = inherit LLM_BINDING_HOST. |
 | LIGHTRAG_EXTRACT_LLM_BINDING_API_KEY | lightrag |  | Optional EXTRACT role provider API key. Empty = inherit LLM_BINDING_API_KEY for same-provider roles. |
-| LIGHTRAG_KEYWORD_LLM_BINDING_API_KEY | lightrag |  | Optional KEYWORD role provider API key. Empty = inherit LLM_BINDING_API_KEY for same-provider roles. |
-| LIGHTRAG_QUERY_LLM_BINDING_API_KEY | lightrag |  | Optional QUERY role provider API key. Empty = inherit LLM_BINDING_API_KEY for same-provider roles. |
+| LIGHTRAG_KEYWORD_LLM_BINDING_API_KEY | lightrag |  | Optional KEYWORD role provider API key. Empty = defaults to ${LITELLM_MASTER_KEY} at compose (#721) so LiteLLM-routed roles need no key wiring. |
+| LIGHTRAG_QUERY_LLM_BINDING_API_KEY | lightrag |  | Optional QUERY role provider API key. Empty = defaults to ${LITELLM_MASTER_KEY} at compose (#721) so LiteLLM-routed roles need no key wiring. |
 | LIGHTRAG_EXTRACT_MAX_ASYNC_LLM | lightrag |  | Optional EXTRACT role LLM concurrency. Empty = inherit MAX_ASYNC_LLM. |
 | LIGHTRAG_KEYWORD_MAX_ASYNC_LLM | lightrag |  | Optional KEYWORD role LLM concurrency. Empty = inherit MAX_ASYNC_LLM. |
 | LIGHTRAG_QUERY_MAX_ASYNC_LLM | lightrag |  | Optional QUERY role LLM concurrency. Empty = inherit MAX_ASYNC_LLM. |

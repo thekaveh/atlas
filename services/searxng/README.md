@@ -57,7 +57,7 @@ Inherited from the default (no longer forked here): the full engine list with co
 
 **Trusted-proxy concern.** SearXNG's bot detection trusts only configured proxies for `X-Forwarded-For`. The stack's `config/limiter.toml` sets `botdetection.trusted_proxies` to the three RFC1918 ranges (so any Docker bridge network qualifies) and adds `pass_ip` entries for loopback and the same private ranges, which is how n8n / LDR / backend requests pass through cleanly even when the limiter is later enabled.
 
-**Consumers (data-flow downstream):** Kong, Hermes, n8n, Local Deep Researcher, JupyterHub (SEARXNG_URL in the notebook env), Open WebUI. The data-flow graph doesn't list Open WebUI today because the upstream-supported web-search toggle is wired off — flipping `ENABLE_RAG_WEB_SEARCH=true` and `RAG_WEB_SEARCH_ENGINE=searxng` adds Open WebUI as a runtime caller.
+**Consumers (data-flow downstream):** Kong, Hermes, mcp-servers (`SEARXNG_URL` in the MCP server env), n8n, JupyterHub (`SEARXNG_URL` in the notebook env), Local Deep Researcher. The data-flow graph doesn't list Open WebUI today because the upstream-supported web-search toggle is wired off — flipping `ENABLE_RAG_WEB_SEARCH=true` and `RAG_WEB_SEARCH_ENGINE=searxng` adds Open WebUI as a runtime caller.
 
 **Volumes / state.** No persistent volumes — SearXNG is stateless. Restarts are instant.
 

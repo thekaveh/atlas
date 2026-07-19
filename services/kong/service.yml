@@ -89,6 +89,21 @@ data_flow:
     - lightrag
     - tei-reranker
     - verba
+    # Additional SOURCE-gated routes the generator emits (kong_config_generator.py)
+    # — each fronts its <alias>.localhost host when the service is enabled.
+    - trino
+    - redpanda
+    - tika
+    - crawl4ai
+    - langfuse
+    - mlflow
+    - label-studio
+    - jenkins
+    - llm-graph-builder
+    - mcp-servers
+    - celery
+    - asset-baker
+    - asset-worker
     # Observability routes (kong_config_generator.py:206-212, 932) — Kong
     # fronts grafana.localhost / prometheus.localhost / ray.localhost
     # when each service is enabled.

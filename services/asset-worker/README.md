@@ -147,6 +147,7 @@ The service is intentionally separate from the media gateway. Provider-specific 
 
 | Service | Category |
 |---|---|
+| kong | infra |
 | prometheus | infra |
 
 ### 6.3. Architecture diagram

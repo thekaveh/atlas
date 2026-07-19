@@ -1,6 +1,6 @@
 # 5.2.51. TEI Reranker
 
-> **Image:** `ghcr.io/huggingface/text-embeddings-inference:cpu-1.9` (CPU) / `:1.9` (GPU)
+> **Image:** `ghcr.io/huggingface/text-embeddings-inference` — CPU: `cpu-1.9` (amd64) / `cpu-arm64-latest` (arm64), GPU: `:1.9`
 > **Container port:** 80  · **Default host port:** allocated by `topology.py` slot allocator (LLM band 63040–63049)
 > **Default:** disabled
 
@@ -20,6 +20,11 @@ The service is reusable by consumers that send TEI's request body shape (`query`
 | `container-gpu` | 1 | `http://tei-reranker:80` | CUDA image; needs NVIDIA |
 | `localhost` | 0 | `http://host.docker.internal:${TEI_RERANKER_LOCALHOST_PORT}` | Host-installed TEI |
 | `disabled` | 0 | `""` | Reranker service off |
+
+When `TEI_RERANKER_SOURCE=container` (either GPU or CPU variant), Kong also
+generates the gateway alias `rerank.localhost` → `http://tei-reranker:80/`, so
+callers can reach the reranker through the gateway in addition to the direct
+`http://tei-reranker:80` / `http://localhost:${TEI_RERANKER_PORT}` endpoints.
 
 ## 3. Configuration
 
