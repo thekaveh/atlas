@@ -20,6 +20,15 @@ images:
 sources:
   var: COMFYUI_SOURCE
   default: container-cpu
+  # Drives `COMFYUI_SOURCE: auto` (#753): the first entry whose host capability
+  # holds wins (Apple Silicon → managed Metal process; NVIDIA → GPU container;
+  # anything else → the CPU container terminal fallback).
+  auto_prefer:
+    - id: managed-localhost-mps
+      requires_capability: apple_silicon
+    - id: container-gpu
+      requires_capability: nvidia_gpu
+    - id: container-cpu
   options:
     - id: container-cpu
       label: "Container (CPU)"

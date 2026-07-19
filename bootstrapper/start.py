@@ -593,8 +593,10 @@ class AtlasStarter:
 
         consumer_config = self.config_parser.load_consumer_config()
         if consumer_config.env_overrides:
-            resolved_overrides = self._resolve_auto_base_port_override(
-                dict(consumer_config.env_overrides)
+            resolved_overrides = self._resolve_auto_source_overrides(
+                self._resolve_auto_base_port_override(
+                    dict(consumer_config.env_overrides)
+                )
             )
             self._merge_env_file_overrides(resolved_overrides)
             count = len(resolved_overrides)
@@ -632,8 +634,11 @@ class AtlasStarter:
             # (which reports it as a structured `fail`), not crash preflight
             # before any check has run.
             return {}
-        overrides = self._resolve_auto_base_port_override(
-            dict(consumer_config.env_overrides or {})
+        overrides = self._resolve_auto_source_overrides(
+            self._resolve_auto_base_port_override(
+                dict(consumer_config.env_overrides or {})
+            ),
+            quiet=True,
         )
         if overrides:
             self._merge_env_file_overrides(overrides)
@@ -711,6 +716,114 @@ class AtlasStarter:
                 resolved = DEFAULT_BASE_PORT
         merged = dict(overrides)
         merged["BASE_PORT"] = str(resolved)
+        return merged
+
+    def _resolve_auto_source_overrides(
+        self, overrides: Dict[str, str], *, quiet: bool = False
+    ) -> Dict[str, str]:
+        """Resolve manifest ``<SVC>_SOURCE: auto`` sentinels to concrete,
+        **durable**, host-correct option ids (#753) — the source-selection
+        analog of ``_resolve_auto_base_port_override`` above, sharing its
+        durability contract:
+
+        1. **Durable keep.** A concrete, valid, non-default value already in
+           ``.env`` (a prior ``auto`` resolution or an operator's explicit
+           ``--<svc>-source`` override) is kept as-is — never clobbered.
+           (To durably force the *default* id on a host where ``auto`` would
+           pick otherwise, commit the concrete id instead of ``auto``.)
+        2. **Platform-adaptive resolve.** Otherwise pick the first
+           ``sources.auto_prefer`` entry whose host capability holds
+           (services/host_capabilities.py) and whose option is offered under
+           the active deployment profile (``option_in_profile``). Entries are
+           declarative, ordered, and end in an unconditional terminal
+           fallback (lint-enforced), so resolution never dead-ends.
+        3. **Persist & keep.** The concrete id is merged into ``.env``; the
+           next start hits step 1. A cold regen (``.env`` back to defaults)
+           re-resolves — still host-correct.
+
+        Runs before source validation, so the validator only ever sees
+        concrete ids. Vars set to ``auto`` that match no manifest sources
+        block are left untouched — the validator then rejects the literal
+        ``auto`` with its normal valid-options error, keeping the mistake
+        loud rather than silently dropped.
+        """
+        auto_keys = [
+            key
+            for key, value in overrides.items()
+            if key != "BASE_PORT" and str(value).strip().lower() == "auto"
+        ]
+        if not auto_keys:
+            return overrides
+
+        from services.host_capabilities import probe_host_capabilities
+        from services.manifests import load_manifests, option_in_profile
+
+        manifests = load_manifests(self.root_dir / "services")
+        by_source_var = {m.sources.var: m for m in manifests if m.sources is not None}
+        env = self.config_parser.parse_env_file()
+        profile = getattr(self, "profile", "default") or "default"
+        capabilities = probe_host_capabilities()
+
+        merged = dict(overrides)
+        for key in auto_keys:
+            manifest = by_source_var.get(key)
+            if manifest is None or manifest.sources is None:
+                if not quiet:
+                    self.banner.show_status_message(
+                        f"{key}=auto has no manifest sources block to resolve against; "
+                        "leaving as-is (source validation will reject it).",
+                        "warning",
+                    )
+                continue
+            sources = manifest.sources
+            option_ids = {opt.id for opt in sources.options}
+
+            current = (env.get(key, "") or "").strip()
+            if (
+                current
+                and current.lower() != "auto"
+                and current != sources.default
+                and current in option_ids
+            ):
+                merged[key] = current  # durable: keep prior resolution/override
+                continue
+
+            resolved: Optional[str] = None
+            matched = ""
+            for pref in sources.auto_prefer:
+                if pref.id not in option_ids:
+                    continue  # lint catches this; stay safe at runtime too
+                if not option_in_profile(manifests, manifest.name, pref.id, profile):
+                    continue
+                if pref.requires_capability is not None and not capabilities.has(
+                    pref.requires_capability
+                ):
+                    continue
+                resolved = pref.id
+                matched = pref.requires_capability or "terminal fallback"
+                break
+
+            if resolved is None:
+                reason = (
+                    "no auto_prefer entries declared"
+                    if not sources.auto_prefer
+                    else "no auto_prefer entry eligible on this host/profile"
+                )
+                if not quiet:
+                    self.banner.show_status_message(
+                        f"{key}=auto could not resolve ({reason}); using the service "
+                        f"default '{sources.default}'.",
+                        "warning",
+                    )
+                resolved = sources.default
+                matched = "service default"
+
+            merged[key] = resolved
+            if not quiet:
+                self.banner.show_status_message(
+                    f"  • [auto] {key}=auto → {resolved} (matched capability: {matched})",
+                    "info",
+                )
         return merged
 
     def _remove_env_keys_by_prefix(self, prefix: str) -> None:
@@ -4272,9 +4385,75 @@ def _doctor_check_base_port(starter: "AtlasStarter") -> dict:
     )
 
 
+def _doctor_check_auto_sources(starter: "AtlasStarter") -> dict:
+    """Report how each consumer ``<SVC>_SOURCE: auto`` declaration resolved
+    (#753) — the concrete id now in ``.env`` plus the host capability that
+    matches, so "why did it pick this?" is answerable without reading code.
+    Analogous to the base-port lint for ``BASE_PORT: auto`` (#751)."""
+    try:
+        consumer_config = starter.config_parser.load_consumer_config()
+        env = starter.config_parser.parse_env_file()
+    except Exception as exc:  # pragma: no cover - defensive
+        return _doctor_result("auto-sources", "skipped", f"Could not read config: {exc}")
+
+    declared = sorted(
+        key
+        for key, value in (consumer_config.env_overrides or {}).items()
+        if key != "BASE_PORT" and str(value).strip().lower() == "auto"
+    )
+    if not declared:
+        return _doctor_result(
+            "auto-sources", "pass", "No <SVC>_SOURCE: auto declarations."
+        )
+
+    from services.host_capabilities import probe_host_capabilities
+    from services.manifests import load_manifests
+
+    capabilities = probe_host_capabilities()
+    matched_caps = [c for c in ("apple_silicon", "nvidia_gpu", "host_ollama") if capabilities.has(c)]
+    by_source_var = {
+        m.sources.var: m
+        for m in load_manifests(starter.root_dir / "services")
+        if m.sources is not None
+    }
+
+    details: dict = {"host_capabilities": matched_caps}
+    unresolved: list[str] = []
+    lines: list[str] = []
+    for key in declared:
+        resolved = (env.get(key, "") or "").strip()
+        manifest = by_source_var.get(key)
+        if manifest is None:
+            unresolved.append(f"{key}: no manifest sources block")
+            continue
+        if not resolved or resolved.lower() == "auto":
+            unresolved.append(f"{key}: not yet resolved (run start or preflight)")
+            continue
+        cap = next(
+            (
+                p.requires_capability or "terminal fallback"
+                for p in manifest.sources.auto_prefer
+                if p.id == resolved
+            ),
+            "explicit/default",
+        )
+        details[key] = {"resolved": resolved, "matched": cap}
+        lines.append(f"{key}=auto → {resolved} ({cap})")
+
+    if unresolved:
+        return _doctor_result(
+            "auto-sources",
+            "warn",
+            "; ".join(unresolved + lines),
+            details=details,
+        )
+    return _doctor_result("auto-sources", "pass", "; ".join(lines), details=details)
+
+
 DOCTOR_CHECKS = [
     _doctor_check_consumer_manifests,
     _doctor_check_base_port,
+    _doctor_check_auto_sources,
     _doctor_check_compose,
     _doctor_check_overlay_env,
     _doctor_check_plugins,

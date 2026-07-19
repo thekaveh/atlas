@@ -153,6 +153,8 @@ env:
   file: ./atlas.env.user                 # optional flat .env overlay
   values:
     BASE_PORT: auto                      # durable free block — distinct per consumer, stable across restarts
+    COMFYUI_SOURCE: auto                 # durable host-adaptive source — MPS on Apple Silicon, container-gpu on NVIDIA, container-cpu elsewhere
+    LLM_PROVIDER_SOURCE: auto            # host Ollama if installed, else container
     FAL_SOURCE:                          # key-gated: enabled iff the key is present
       enabled_if_env: FAL_API_KEY
       else: disabled
@@ -421,6 +423,33 @@ env:
 The gate reads `FAL_API_KEY` from the environment at `./start.sh` time (a blank
 value counts as absent). Malformed forms — a missing `else`, an unknown key, or a
 non-`^[A-Z][A-Z0-9_]*$` env-var name — fail validation up front.
+
+A `<SVC>_SOURCE` entry may also be the **`auto` sentinel** — the source-selection
+analog of `BASE_PORT: auto` (#753). It resolves once, before source validation,
+to the best source for **this** host and is then durable:
+
+```yaml
+env:
+  values:
+    COMFYUI_SOURCE: auto        # Apple Silicon → managed-localhost-mps; NVIDIA → container-gpu; else container-cpu
+    LLM_PROVIDER_SOURCE: auto   # host Ollama installed → ollama-localhost; else container
+```
+
+- **Durable keep.** A concrete, valid, *non-default* value already in `.env` — a
+  prior `auto` resolution or an explicit `--<svc>-source` override — is kept
+  as-is; `auto` never clobbers it. (To durably force the service *default* on a
+  host where `auto` would pick otherwise, commit the concrete id instead of
+  `auto`.)
+- **Platform-adaptive.** Resolution follows the service manifest's ordered
+  `sources.auto_prefer` list, matched against a host-capability probe
+  (`apple_silicon`, `nvidia_gpu`, `host_ollama`), restricted to options offered
+  under the active `--profile`. Services without `auto_prefer` fall back to
+  their default with a warning.
+- **Cold-regen safe.** A regenerated `.env` re-resolves host-correctly instead
+  of silently reverting to `container-cpu` — the same committed manifest is
+  right on a Metal Mac, an NVIDIA box, and Linux CI.
+- `./start.sh … doctor` reports each resolution and the capability that matched
+  (the `auto-sources` check).
 
 Unknown or typo'd **top-level** keys are rejected with a clear error naming the
 offending key and the allowed set — a manifest that misspells `compose_overlays`
@@ -1110,12 +1139,14 @@ env:
     BASE_PORT: "63000"         # re-applied every start; survives cold .env regen
 ```
 
-**Inverse rule — do NOT put machine-specific values in `env.values`.** A manifest
-value re-applies every start and clobbers temporary operator switches, so
-OS-specific paths (e.g. `COMFYUI_MPS_MODELS_PATH`) and hand-toggled source
-selections belong in `.env` (or `.env.user`), not the committed manifest. Keep
-`env.values` to the identity and branding that should be identical on every
-machine.
+**Inverse rule — do NOT put machine-specific *scalars* in `env.values`.** A
+manifest scalar re-applies every start and clobbers temporary operator switches,
+so OS-specific paths (e.g. `COMFYUI_MPS_MODELS_PATH`) belong in `.env` (or
+`.env.user`), not the committed manifest. For **source selections** the right
+committed form is the **`auto` sentinel** (§6.1): `COMFYUI_SOURCE: auto`
+resolves per host and never clobbers an operator override — unlike a committed
+concrete id, which re-applies every start. Keep concrete `env.values` to the
+identity and branding that should be identical on every machine.
 
 ### 7.3. Select sources once; keep `.env` as the source of truth
 
@@ -1138,6 +1169,13 @@ truth thereafter (edit `.env` or the manifest, not the launch command).
 selected on first run or set directly in `.env`; its managed lifecycle
 (preflight / install / start / status / stop, `COMFYUI_MPS_*` vars) is documented
 in the ComfyUI service README §10 (`services/comfyui/README.md`).
+
+**Better: skip the first-run flags entirely with `auto`.** Committing
+`COMFYUI_SOURCE: auto` / `LLM_PROVIDER_SOURCE: auto` in the manifest (§6.1)
+removes the ritual: every start — including after a cold `.env` regen — resolves
+the host-correct source, keeps a prior resolution, and honors any explicit
+`--<svc>-source` override durably. The wrapper-script footgun above cannot
+happen, because there is no flag to re-assert.
 
 ### 7.4. Run multiple Atlas instances on one host
 

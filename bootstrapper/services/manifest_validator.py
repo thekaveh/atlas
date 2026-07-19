@@ -96,6 +96,7 @@ def validate_manifests(
     issues.extend(_check_engine_orphans(manifests))
     issues.extend(_check_runtime_sc_source_coverage(manifests))
     issues.extend(_check_prod_option_availability(manifests))
+    issues.extend(_check_auto_prefer_integrity(manifests))
     if services_root is not None:
         issues.extend(_check_fragment_containers(manifests, services_root))
 
@@ -612,6 +613,69 @@ def _check_prod_option_availability(
                         f"profiles=[default], leaving no option available under "
                         f"--profile prod. At least one option must be unannotated "
                         f"or include 'prod' in its profiles list."
+                    ),
+                )
+            )
+    return issues
+
+
+def _check_auto_prefer_integrity(manifests: list[Manifest]) -> list[ValidationIssue]:
+    """`sources.auto_prefer` (#753) must be internally coherent.
+
+    Three invariants, so `<SVC>_SOURCE: auto` resolution can never select a
+    value the validator would then reject:
+    - every auto_prefer id must be one of the declared options[].id;
+    - every requires_capability must be a capability the shared probe knows
+      (services/host_capabilities.py KNOWN_CAPABILITIES — the schema enum
+      enforces this on load, this lint guards in-memory manifests too);
+    - a non-empty list must end with at least one unconditional entry
+      (no requires_capability), so resolution always has a terminal fallback
+      and cannot dead-end into "no eligible option" on a capability-less host.
+    """
+    from services.host_capabilities import KNOWN_CAPABILITIES
+
+    issues: list[ValidationIssue] = []
+    for m in manifests:
+        if m.sources is None or not m.sources.auto_prefer:
+            continue
+        option_ids = {opt.id for opt in m.sources.options}
+        for pref in m.sources.auto_prefer:
+            if pref.id not in option_ids:
+                issues.append(
+                    ValidationIssue(
+                        kind="auto_prefer_unknown_option",
+                        manifest=m.name,
+                        message=(
+                            f"auto_prefer id '{pref.id}' is not one of the declared "
+                            f"source options: {', '.join(sorted(option_ids))}"
+                        ),
+                    )
+                )
+            if (
+                pref.requires_capability is not None
+                and pref.requires_capability not in KNOWN_CAPABILITIES
+            ):
+                issues.append(
+                    ValidationIssue(
+                        kind="auto_prefer_unknown_capability",
+                        manifest=m.name,
+                        message=(
+                            f"auto_prefer entry '{pref.id}' requires unknown capability "
+                            f"'{pref.requires_capability}' (known: "
+                            f"{', '.join(KNOWN_CAPABILITIES)})"
+                        ),
+                    )
+                )
+        if all(p.requires_capability is not None for p in m.sources.auto_prefer):
+            issues.append(
+                ValidationIssue(
+                    kind="auto_prefer_no_fallback",
+                    manifest=m.name,
+                    message=(
+                        "auto_prefer has no unconditional terminal entry — every "
+                        "entry requires a capability, so `auto` resolution could "
+                        "dead-end on a host with none of them. Add a final entry "
+                        "without requires_capability (e.g. the container-cpu id)."
                     ),
                 )
             )
