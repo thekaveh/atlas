@@ -19,6 +19,15 @@ images:
 sources:
   var: LLM_PROVIDER_SOURCE
   default: ollama-container-cpu
+  # Drives `LLM_PROVIDER_SOURCE: auto` (#753): a host Ollama install wins
+  # (serve models natively), else an NVIDIA host gets the GPU container, else
+  # the CPU container terminal fallback.
+  auto_prefer:
+    - id: ollama-localhost
+      requires_capability: host_ollama
+    - id: ollama-container-gpu
+      requires_capability: nvidia_gpu
+    - id: ollama-container-cpu
   options:
     - id: ollama-container-cpu
       label: "Container (CPU)"
