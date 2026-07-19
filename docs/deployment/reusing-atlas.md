@@ -152,7 +152,7 @@ brand:
 env:
   file: ./atlas.env.user                 # optional flat .env overlay
   values:
-    BASE_PORT: auto                      # or a fixed non-default block (step 3)
+    BASE_PORT: "63100"                   # a fixed, non-default block — never 63000 (durable; §7.2)
     FAL_SOURCE:                          # key-gated: enabled iff the key is present
       enabled_if_env: FAL_API_KEY
       else: disabled
@@ -187,10 +187,14 @@ reference.
 **3. Isolation — distinct project + non-default port.** `project_name` isolates
 Docker **resource names** (container/volume/network are `<name>-…`); it does
 **not** namespace host ports. So a second stack on one host also needs a distinct
-**`BASE_PORT`**. Prefer `--base-port auto` (or `BASE_PORT: auto` in the manifest),
-which reserves the first wholly-free block and never squats the default `63000` a
-bare `atlas` checkout binds. `doctor` warns if a non-default project is left on
-`63000`. Details: [§7.4](#74-run-multiple-atlas-instances-on-one-host).
+**`BASE_PORT`**. Commit a **fixed** non-default `BASE_PORT` in the manifest (as
+above) so it is durable — it survives a cold `.env` regen (§7.2) and stays stable
+across restarts. Just never use the default `63000` a bare `atlas` checkout binds;
+`doctor` warns if a non-default project is left on it. For a one-off/dev stack you
+can instead pass `--base-port auto` at launch, which reserves the first
+wholly-free block and persists it to `.env` (commit that number once you want a
+durable pin — a launcher that passes `--base-port auto` every run re-resolves each
+start). Details: [§7.4](#74-run-multiple-atlas-instances-on-one-host).
 
 **4. Startup ordering.** Run the preflights, then launch — each step guards the
 next:
@@ -201,7 +205,7 @@ cd infra
 ./start.sh compose validate                              # assert the merged compose is well-formed
 ./start.sh doctor --format json                          # consumer-manifest + base-port + unpullable-model lints
 ./start.sh --consumer "$(pwd)/../atlas.consumer.yml" \
-  --project myproject --base-port auto [--track <k>] [--detach]
+  --project myproject [--track <k>] [--detach]   # BASE_PORT + project come from the manifest
 ```
 
 `env backfill` keeps `.env` complete across pin bumps; `compose validate` catches
@@ -1066,12 +1070,14 @@ rather than repeating them.
 
 ### 7.1. The journey in order
 
+> **New consumer, empty repo?** The [§4.1 ordered walkthrough](#41-stand-up-a-consumer-from-scratch--the-ordered-walkthrough) runs this journey end-to-end with copy-pasteable commands. This runbook is the day-2 reference for the same steps and the operational behaviors behind them.
+
 1. **Register** a parent manifest — [§6.1](#61-registering-a-parent-project-with-atlasconsumeryml) (`atlas.consumer.yml`).
-2. **Pin identity** (`PROJECT_NAME`, `BASE_PORT`) durably — §7.2.
-3. **Select sources** once (`container` / `localhost` / `managed-localhost-mps` / `ollama-localhost` / `none`) — §7.3, [source-configuration.md](source-configuration.md).
-4. **Validate** headlessly — `env backfill` + `compose validate` + `doctor` ([operations.md](../operations.md); [§6.1.4](#614-headless-submodule-upgrade-validation) / [§6.1.5](#615-consumer-doctor-for-ci-preflight)).
-5. **Start** — `./start.sh` (first run may pass source flags; see §7.3).
-6. **Export endpoints** for your app — [§6.5](#65-exporting-the-endpoint-contract-endpoints-export).
+2. **Pin identity** (`PROJECT_NAME` + a **distinct, fixed** `BASE_PORT`) durably in the manifest — §7.2 — never the default `63000`; `doctor` warns if a non-default project is left on it. (`--base-port auto` reserves the first free block for a one-off/dev run and persists it; commit the number for a durable pin.)
+3. **Select sources** once (`container` / `localhost` / `managed-localhost-mps` / `ollama-localhost` / `none`) — §7.3, [source-configuration.md](source-configuration.md). Gate a paid provider on its key with the manifest's key-gated [`enabled_if_env`](#61-registering-a-parent-project-with-atlasconsumeryml) form instead of a wrapper script.
+4. **Validate** headlessly — `env backfill` + `compose validate` + `doctor` ([operations.md](../operations.md); [§6.1.4](#614-headless-submodule-upgrade-validation) / [§6.1.5](#615-consumer-doctor-for-ci-preflight)). `doctor` also lints the default-`63000` squat and **declared-but-unpullable** model provisioning (`model_sidecars.ollama` / `COMFYUI_USER_MODELS` under a `*-localhost` source).
+5. **Start** — `./start.sh --consumer … --base-port auto` (first run may pass source flags; see §7.3). Your consumer LiteLLM models are discoverable in `/v1/models` on start with **no `docker restart`**, and declared n8n workflows activate even **without an `N8N_API_KEY`** — Atlas performs any restart the webhook needs. Do **not** script an admin-API call or a container restart to "pick up" model/workflow changes.
+6. **Export + assert endpoints** for your app — [§6.5](#65-exporting-the-endpoint-contract-endpoints-export). Add **`endpoints assert --require …`** to your CI so an Atlas pin bump can't silently drop a field your code reads.
 7. **Operate day-2** — multi-instance isolation (§7.4), host-service coexistence (§7.5), upgrades (§7.6), verification (§7.7).
 
 ### 7.2. Pin instance identity in the manifest, not just `.env`
@@ -1194,11 +1200,20 @@ base port `<BASE>`:
 
 ```bash
 docker ps --filter "name=<project>-"          # every container prefixed with your project
-# expect: every published host port in <BASE>..<BASE>+99
+# expect: every published host port in <BASE>..<BASE>+109
 #         zero <project>-ollama* containers when using ollama-localhost
 #         the OTHER instance's containers untouched
 ./start.sh endpoints export --format env      # ATLAS_*_HOST_ENDPOINT ports match <BASE>
+./start.sh doctor --format json               # manifest + base-port + unpullable-model lints (0 warn)
+./start.sh endpoints assert --require \
+  ATLAS_LITELLM_HOST_ENDPOINT,ATLAS_MINIO_HOST_ENDPOINT   # the export fields your code reads
 ```
+
+**Wire the last two into consumer CI.** `doctor` (manifest validity + the
+default-port / unpullable-model lints) and `endpoints assert --require <the
+fields you read>` are the standing drift gates: run them against your configured
+stack on every pin bump so an upstream change fails your build loudly instead of
+degrading the running consumer. See [§4.1 step 8](#41-stand-up-a-consumer-from-scratch--the-ordered-walkthrough).
 
 **Known cosmetic caveat.** A `--detach` / non-TTY start can print
 `[ERROR] <svc>: starting, exit code 0` and `Failed to start some services` while
