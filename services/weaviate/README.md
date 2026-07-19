@@ -91,13 +91,13 @@ Optional consumers should use `WEAVIATE_URL` and perform feature-level readiness
 
 - **weaviate ↔ minio** — *Why:* Weaviate has no backup strategy today; `weaviate-data` is a single local volume. The `backup-s3` module turns MinIO into a durable backup target without new infra. *Mechanism:* enable `backup-s3` in `WEAVIATE_ENABLE_MODULES`; set `BACKUP_S3_BUCKET=weaviate-backups`, `BACKUP_S3_ENDPOINT=minio:9000`, `BACKUP_S3_USE_SSL=false`, `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`; trigger via `POST /v1/backups/s3`. *Effort:* small. *Confidence:* high.
 - **weaviate ↔ doc-processor** — *Why:* closes the RAG loop. Docling already extracts structured text + tables from PDFs; today nothing routes that output into Weaviate, so n8n/backend re-implement chunking ad hoc. *Mechanism:* n8n flow or backend route reads docling JSON, chunks, then `POST /v1/batch/objects` into a `Document` collection vectorized via `text2vec-openai`. *Effort:* medium. *Confidence:* high.
-- **weaviate ↔ n8n** — *Why:* n8n ships a first-class Weaviate node; workflows could ingest webhook payloads, search, and feed retrieval into the existing AI Agent nodes — currently unused despite both services being co-deployed. *Mechanism:* n8n Weaviate node → `http://weaviate:8080` (REST) or gRPC on `:50051`. *Effort:* small. *Confidence:* high.
+- **weaviate ↔ n8n** — *Why:* the env wiring already exists (n8n injects `WEAVIATE_URL` and declares weaviate a required dep), but no shipped example workflow uses n8n's first-class Weaviate node to ingest webhook payloads, search, and feed retrieval into the existing AI Agent nodes. *Mechanism:* seed an example workflow driving the n8n Weaviate node → `http://weaviate:8080` (REST) or gRPC on `:50051`. *Effort:* small. *Confidence:* high.
 - **weaviate ↔ hermes** — *Why:* Hermes has no long-term memory or retrieval tool. A Weaviate-backed memory skill lets Hermes recall past sessions, store tool outputs, and do semantic lookup over user docs. *Mechanism:* Hermes custom skill posts/queries via the Weaviate Python client to `http://weaviate:8080` with hybrid search; collection seeded by `weaviate-init`. *Effort:* medium. *Confidence:* medium.
 - **weaviate ↔ comfyui** — *Why:* ComfyUI generates images but they're write-only artifacts on disk. CLIP-vectorizing them into Weaviate enables similarity search over the user's own generation history ("more like this"). *Mechanism:* ComfyUI custom node or n8n post-execution hook → `POST /v1/objects` to a `Generation` collection vectorized by `multi2vec-clip` (already enabled). *Effort:* medium. *Confidence:* medium.
 
 ### 5.5. Future — Candidate new services
 
-- **Verba** ([details](../../docs/research/candidates/verba.md)) — *Headline:* Weaviate's official RAG chat UI, drop-in over the existing cluster. *Wires into:* litellm, doc-processor, kong.
+_No high-confidence opportunities identified._
 
 ### 5.6. Future — Unused features in this service
 

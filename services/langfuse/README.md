@@ -57,6 +57,7 @@ LiteLLM receives `LANGFUSE_BASE_URL`, `LANGFUSE_PUBLIC_KEY`, and `LANGFUSE_SECRE
 
 | Service | Category |
 |---|---|
+| kong | infra |
 | litellm | llm |
 
 ### 5.3. Architecture diagram

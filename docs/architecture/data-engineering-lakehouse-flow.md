@@ -1,6 +1,6 @@
 # 6.9. Data Engineering Lakehouse Flow
 
-MinIO, Iceberg REST, Spark, JupyterHub, Zeppelin, Airflow, Trino, Redpanda, Jenkins, and init containers.
+MinIO, Iceberg REST, Spark, JupyterHub, Zeppelin, Airflow, Trino, and Redpanda.
 
 ## 1. Diagram
 

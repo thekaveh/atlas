@@ -53,7 +53,7 @@ To change which models are exposed, run the wizard (`./start.sh`) or edit the re
 
 `volumes/litellm/config.yaml` is rebuilt on every run, so direct edits there are overwritten. Per-provider routing rules baked into `litellm-init`:
 
-- **Ollama** rows: `model: ollama/<name>`, `api_base: $LITELLM_OLLAMA_UPSTREAM`.
+- **Ollama** rows: `model: ollama/<name>`, `api_base: $LITELLM_OLLAMA_UPSTREAM`. `render_model_list` actually registers **two** aliases per Ollama model — `ollama/<name>` and the bare `<name>` — and selects the `ollama_chat/` adapter for chat models (falling back to `ollama/` for embeddings); see §7 for the accurate per-endpoint detail.
 - **OpenAI** rows: `model: <name>`, `api_key: $OPENAI_API_KEY`.
 - **Anthropic** rows: `model: anthropic/<name>`, `api_key: $ANTHROPIC_API_KEY`.
 - **OpenRouter** rows: `model: <name>` (catalog names already carry the `openrouter/` prefix), `api_key: $OPENROUTER_API_KEY`.
@@ -384,7 +384,7 @@ curl -sX POST http://localhost:${LITELLM_PORT}/v1/chat/completions \
 
 ### 14.5. Future — Candidate new services
 
-- **Langfuse** ([details](../../docs/research/candidates/langfuse.md)) — *Headline:* self-hostable LLM observability (traces, prompts, evals) with a documented LiteLLM callback. *Wires into:* litellm, hermes, n8n, open-webui, backend, local-deep-researcher, jupyterhub.
+_No high-confidence opportunities identified._
 
 ### 14.6. Future — Unused features in this service
 

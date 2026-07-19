@@ -90,6 +90,7 @@ Redis visibility timeout is intentionally longer than the hard task time limit. 
 
 | Service | Category |
 |---|---|
+| kong | infra |
 | backend | apps |
 
 ### 6.3. Architecture diagram

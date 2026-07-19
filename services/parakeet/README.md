@@ -39,6 +39,7 @@ _No upstream calls._
 | kong | infra |
 | hermes | agents |
 | n8n | agents |
+| jupyterhub | apps |
 | open-webui | apps |
 
 ### 2.3. Architecture diagram

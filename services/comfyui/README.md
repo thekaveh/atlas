@@ -6,7 +6,7 @@ Three source variants cover the common deployment shapes: containerized CPU and 
 
 ## 1. Overview
 
-Image: `ghcr.io/ai-dock/comfyui:v2-cpu-22.04-v0.2.7` (CPU default) or an operator-provided CUDA ai-dock variant for GPU. Atlas pins the upstream ComfyUI core through `COMFYUI_REF=v0.27.0` and keeps `COMFYUI_AUTO_UPDATE=true` so the ai-dock startup path checks out that release even when the base image tag lags. Output behavior: by default outputs are uploaded to Supabase Storage via `COMFYUI_UPLOAD_TO_SUPABASE=true` and the `COMFYUI_STORAGE_BUCKET=comfyui-images` bucket. A second volume (`comfyui-custom-nodes`) holds allowlisted community nodes cloned from `services/comfyui/custom-nodes.yaml`.
+Image: `ghcr.io/ai-dock/comfyui:v2-cpu-22.04-v0.2.7` (CPU default) or an operator-provided CUDA ai-dock variant for GPU. Atlas pins the upstream ComfyUI core through `COMFYUI_REF=v0.27.0` and keeps `COMFYUI_AUTO_UPDATE=true` so the ai-dock startup path checks out that release even when the base image tag lags. Output behavior: generated images land in the `comfyui-output` volume and are served by the `/view` endpoint. The `COMFYUI_UPLOAD_TO_SUPABASE=true` / `COMFYUI_STORAGE_BUCKET=comfyui-images` env vars are **reserved but currently inert** — no component in the stock ai-dock image, Atlas provisioning, or the backend consumes them, so outputs are *not* uploaded to Supabase today (see §5.4). A second volume (`comfyui-custom-nodes`) holds allowlisted community nodes cloned from `services/comfyui/custom-nodes.yaml`.
 
 ## 2. Access
 
@@ -66,19 +66,17 @@ COMFYUI_SCALE / COMFYUI_INIT_SCALE
 
 **Init flow** (`comfyui-init`): plain alpine + `apk add wget ca-certificates`. At bootstrapper start, `comfyui_resolver` (host-side, DB-free) computes the active model set from `COMFYUI_USER_MODELS` + `services/comfyui/custom-models.yaml` and writes `volumes/comfyui/selected-models.yaml` (full manifest) and `volumes/comfyui/active-models.tsv` (shell-consumable TSV). A single logical catalog entry may declare `files:` to download multiple artifacts as one selectable bundle; the manifest expands that bundle into one row per file with `bundle_id`, `bundle_file_role`, `precision`, `variant`, and explicit `target_dir` metadata. The same pass maps active `requires_custom_node` values through `services/comfyui/custom-nodes.yaml` and writes `volumes/comfyui/active-custom-nodes.tsv`; only allowlisted GitHub repos pinned to full commit SHAs are auto-installed. `comfyui-init` bind-mounts `volumes/comfyui/` and downloads each model TSV row into the `comfyui-models` volume via resumable `wget -c` with optional SHA256 verification. The main ComfyUI container mounts the same manifest directory plus `services/comfyui/provisioning/provision_custom_nodes.sh` as AI-Dock's provisioning hook; that hook clones each custom-node TSV row into `comfyui-custom-nodes` and installs `requirements.txt` through the ComfyUI Python environment when `install_requirements=true`. Failure mode is non-fatal — ComfyUI starts even if downloads or custom-node provisioning are incomplete, you just get model-not-found or node-missing errors at workflow time. The former `comfyui-catalog-init` container and `public.comfyui_models` DB table have been removed.
 
-**Hard dependencies** (`depends_on.required`): `supabase`, `litellm`, `ollama`. The Supabase dep covers the Storage upload path; LiteLLM and Ollama are listed for **canonical wizard/row ordering** (the topology backbone — see ollama/parakeet for the same convention), NOT because ComfyUI calls them at startup. ComfyUI's only `runtime_adaptive` entry is `adapts_to: comfyui`.
+**Hard dependencies** (`depends_on.required`): `supabase`, `litellm`, `ollama`. The `supabase-storage` dep is **reserved wiring** for a future output-upload path that is currently inert (no consumer — see §5.4); LiteLLM and Ollama are listed for **canonical wizard/row ordering** (the topology backbone — see ollama/parakeet for the same convention), NOT because ComfyUI calls them at startup. ComfyUI's only `runtime_adaptive` entry is `adapts_to: comfyui`.
 
-**Volumes:** `comfyui-models` (checkpoints, VAEs, LoRAs), `comfyui-custom-nodes` (allowlisted community nodes cloned at pinned refs), `comfyui-input` (input images at `/opt/ComfyUI/input`), `comfyui-output` (generated images, also uploaded to Supabase).
+**Volumes:** `comfyui-models` (checkpoints, VAEs, LoRAs), `comfyui-custom-nodes` (allowlisted community nodes cloned at pinned refs), `comfyui-input` (input images at `/opt/ComfyUI/input`), `comfyui-output` (generated images, served by `/view`).
 
-**Output deduplication.** None today — the same workflow run twice generates two outputs and two Supabase uploads. There is no content-hash dedup pass.
+**Output deduplication.** None today — the same workflow run twice generates two output files in the `comfyui-output` volume. There is no content-hash dedup pass.
 
 ## 5. Dependencies & Integrations
 
 ### 5.1. Current — Upstream (this service calls)
 
-| Service | Category |
-|---|---|
-| supabase | data |
+_No upstream calls._
 
 ### 5.2. Current — Downstream (services that call this)
 
@@ -98,14 +96,14 @@ COMFYUI_SCALE / COMFYUI_INIT_SCALE
 
 ### 5.4. Future — Missing pair integrations
 
-- **comfyui ↔ minio** — *Why:* ComfyUI currently uploads outputs to Supabase Storage via `COMFYUI_UPLOAD_TO_SUPABASE`/`COMFYUI_STORAGE_BUCKET`, but `services/minio/service.yml` already provisions a dedicated `comfyui` bucket plus `MINIO_COMFYUI_ACCESS_KEY` that is never consumed. Routing outputs to MinIO keeps generated media in the artifact tier and gives downstream services a stable S3 URL. *Mechanism:* small ComfyUI custom node (or sidecar reading the `executed` event on `ws://comfyui:18188/ws`) that pushes `/view`-rendered artifacts to `s3://comfyui` on `http://minio:9000` using `MINIO_COMFYUI_ACCESS_KEY`. Add `minio` to `runtime_deps.optional`. *Effort:* small. *Confidence:* high.
+- **comfyui ↔ minio** — *Why:* ComfyUI does not currently persist outputs beyond the `comfyui-output` volume — the `COMFYUI_UPLOAD_TO_SUPABASE`/`COMFYUI_STORAGE_BUCKET` env vars are inert placeholders with no consumer, and `services/minio/service.yml` already provisions a dedicated `comfyui` bucket plus `MINIO_COMFYUI_ACCESS_KEY` that is never used. Routing outputs to MinIO would be the first real output-persistence path, keeping generated media in the artifact tier with a stable S3 URL. *Mechanism:* small ComfyUI custom node (or sidecar reading the `executed` event on `ws://comfyui:18188/ws`) that pushes `/view`-rendered artifacts to `s3://comfyui` on `http://minio:9000` using `MINIO_COMFYUI_ACCESS_KEY`. Add `minio` to `runtime_deps.optional`. *Effort:* small. *Confidence:* high.
 - **comfyui ↔ weaviate (via multi2vec-clip)** — *Why:* every ComfyUI generation produces an image plus the prompt that made it. The stack already runs `multi2vec-clip` as part of the weaviate family, so generated outputs can be auto-embedded for similarity search with zero new infra. *Mechanism:* post-execution hook PUTs `{image, prompt, workflow_id}` into a `ComfyImage` Weaviate class with `vectorizer: multi2vec-clip` on `http://weaviate:8080/v1/objects`. *Effort:* medium. *Confidence:* high.
 - **comfyui ↔ n8n** — *Why:* `services/n8n/service.yml` already installs `n8n-nodes-comfyui` and the image-to-image package, but the comfyui manifest declares no `runtime_deps.optional` link to n8n and the credentials store is not pre-seeded. *Mechanism:* pre-seed an n8n credential at startup (n8n REST API `POST /credentials`) pointing at `${COMFYUI_ENDPOINT}`; add `n8n` to comfyui's `runtime_deps.optional`. *Effort:* small. *Confidence:* medium.
 - **comfyui ↔ redis** — *Why:* compose already lists `redis` in `depends_on` but Redis isn't actually used by ComfyUI. A small queue-state bridge would let n8n/backend poll job status without holding a websocket open per request. *Mechanism:* custom node subscribing to its own websocket and mirroring `executing`/`executed`/`progress` events into Redis pubsub channels `comfyui:job:<prompt_id>`. *Effort:* medium. *Confidence:* low (cheaper path is polling `/history`).
 
 ### 5.5. Future — Candidate new services
 
-- **Langfuse** ([details](../../docs/research/candidates/langfuse.md)) — *Headline:* self-hostable trace store capturing LiteLLM + ComfyUI + Hermes generation pipelines end-to-end. *Wires into:* litellm, hermes, n8n, backend, open-webui.
+_No high-confidence opportunities identified._
 
 ### 5.6. Future — Unused features in this service
 
@@ -120,7 +118,7 @@ COMFYUI_SCALE / COMFYUI_INIT_SCALE
 
 **Init container downloads stall mid-workflow.** `comfyui-init` runs in the background of the first `./start.sh`; large model sets (`full`) take ~10 GB and 5-15 min. Workflows referencing not-yet-downloaded models 404 until init exits. `docker logs <project>-comfyui-init -f` shows progress.
 
-**Generated images don't appear in Supabase.** Confirm `COMFYUI_UPLOAD_TO_SUPABASE=true` and `SUPABASE_SERVICE_KEY` is valid. Upload happens after each successful workflow; failure mode is silent retry (check `docker logs <project>-comfyui` for `[supabase upload] …`).
+**Generated images don't appear in Supabase.** Expected — the Supabase-upload path is currently **inert**: the stock ai-dock image, Atlas provisioning, and the backend contain no upload component, so `COMFYUI_UPLOAD_TO_SUPABASE` / `COMFYUI_STORAGE_BUCKET` do nothing today (reserved placeholders for a future output-upload node). Retrieve outputs from the `comfyui-output` volume or the `/view` endpoint instead.
 
 **Localhost mode (`COMFYUI_SOURCE=localhost`) — containers can't reach host.** Linux Docker needs `host.docker.internal` mapped to the host gateway. The bootstrapper injects `extra_hosts: ["host.docker.internal:host-gateway"]` automatically; if you bypassed it, that's the gap. Kong's compose has the same wiring for the same reason.
 
@@ -249,7 +247,7 @@ ATLAS_COMFYUI_LIVE_ENDPOINT=http://localhost:${COMFYUI_PORT} \
 
 ## 10. Managed Apple-Silicon / Metal (MPS) source
 
-`COMFYUI_SOURCE=managed-localhost-mps` is a **managed** host source for Apple Silicon (M-series) Macs. Docker Desktop on macOS cannot pass Metal into a Linux container, so instead of a container Atlas installs and runs a **native ComfyUI process on the host** and points `COMFYUI_ENDPOINT` at it — turning the unmanaged `localhost` mode (where you install, update, and launch ComfyUI yourself) into a provisioned one. Every downstream consumer (backend, Open WebUI, JupyterHub, Celery, consumer manifests) resolves the same `COMFYUI_ENDPOINT` contract, so nothing downstream cares that the source is a host process rather than a container.
+`COMFYUI_SOURCE=managed-localhost-mps` is a **managed** host source for Apple Silicon (M-series) Macs. Docker Desktop on macOS cannot pass Metal into a Linux container, so instead of a container Atlas installs and runs a **native ComfyUI process on the host** and points `COMFYUI_ENDPOINT` at it — turning the unmanaged `localhost` mode (where you install, update, and launch ComfyUI yourself) into a provisioned one. Every downstream consumer (backend, Open WebUI, JupyterHub, consumer manifests) resolves the same `COMFYUI_ENDPOINT` contract, so nothing downstream cares that the source is a host process rather than a container.
 
 **One process per host.** A single ComfyUI instance already saturates the GPU on Apple Silicon; a second instance on the same box is net-negative (GPU contention). The managed source therefore runs exactly one process, keyed by a PID file. Parallelism comes from more machines, not more instances.
 
@@ -299,7 +297,7 @@ On anything that is not macOS/arm64 (Linux CI, Intel Macs, Windows) the prefligh
 
 ### 10.7. n8n is excluded (unchanged)
 
-n8n does not receive `COMFYUI_ENDPOINT` injection today for **any** ComfyUI source (`n8n-nodes-comfyui` is installed, but users hand-enter `http://comfyui:18188` in workflow credentials — tracked as a "Missing pair integration" in [`services/n8n/README.md`](../n8n/README.md#6-dependencies--integrations)). The managed-MPS source does not change that: it is consumed identically to every other source by the backend, Open WebUI, JupyterHub, and Celery, which **do** receive the endpoint. Wiring n8n is out of scope here and left to that separately-tracked integration.
+n8n does not receive `COMFYUI_ENDPOINT` injection today for **any** ComfyUI source (`n8n-nodes-comfyui` is installed, but users hand-enter `http://comfyui:18188` in workflow credentials — tracked as a "Missing pair integration" in [`services/n8n/README.md`](../n8n/README.md#6-dependencies--integrations)). The managed-MPS source does not change that: it is consumed identically to every other source by the backend, Open WebUI, and JupyterHub, which **do** receive the endpoint (Celery inherits `COMFYUI_BASE_URL` from the backend image but runs no ComfyUI task, so it is not a functional consumer). Wiring n8n is out of scope here and left to that separately-tracked integration.
 
 ### 10.8. Verification
 

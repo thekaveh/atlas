@@ -96,11 +96,11 @@ env:
   - name: LIGHTRAG_KEYWORD_LLM_BINDING_API_KEY
     default: ""
     secret: true
-    description: "Optional KEYWORD role provider API key. Empty = inherit LLM_BINDING_API_KEY for same-provider roles."
+    description: "Optional KEYWORD role provider API key. Empty = defaults to ${LITELLM_MASTER_KEY} at compose (#721) so LiteLLM-routed roles need no key wiring."
   - name: LIGHTRAG_QUERY_LLM_BINDING_API_KEY
     default: ""
     secret: true
-    description: "Optional QUERY role provider API key. Empty = inherit LLM_BINDING_API_KEY for same-provider roles."
+    description: "Optional QUERY role provider API key. Empty = defaults to ${LITELLM_MASTER_KEY} at compose (#721) so LiteLLM-routed roles need no key wiring."
   - name: LIGHTRAG_EXTRACT_MAX_ASYNC_LLM
     default: ""
     description: "Optional EXTRACT role LLM concurrency. Empty = inherit MAX_ASYNC_LLM."

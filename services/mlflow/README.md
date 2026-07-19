@@ -66,6 +66,7 @@ with mlflow.start_run():
 
 | Service | Category |
 |---|---|
+| kong | infra |
 | jupyterhub | apps |
 
 ### 5.3. Architecture diagram

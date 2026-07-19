@@ -46,7 +46,7 @@ ARCHITECTURE_PERSPECTIVES: dict[str, tuple[str, str, list[str]]] = {
     ),
     "data-engineering-lakehouse-flow": (
         "Data Engineering Lakehouse Flow",
-        "MinIO, Iceberg REST, Spark, JupyterHub, Zeppelin, Airflow, Trino, Redpanda, Jenkins, and init containers.",
+        "MinIO, Iceberg REST, Spark, JupyterHub, Zeppelin, Airflow, Trino, and Redpanda.",
         ["MinIO", "Iceberg REST", "Spark", "JupyterHub", "Zeppelin", "Airflow", "Trino", "Redpanda"],
     ),
     "observability-flow": (
@@ -145,7 +145,6 @@ ARCHITECTURE_EDGES: dict[str, list[tuple[str, str, str]]] = {
         ("Services", "Prometheus", "metrics"),
         ("Services", "Langfuse", "LLM traces"),
         ("OTel Collector", "Tempo", "traces"),
-        ("OTel Collector", "Loki", "logs"),
         ("Prometheus", "Grafana", "query"),
         ("Tempo", "Grafana", "query"),
         ("Loki", "Grafana", "query"),
