@@ -837,6 +837,24 @@ So `COMFYUI_SOURCE=managed-localhost-mps` → `http://localhost:8188`
 `http://localhost:11434` (`OLLAMA_LOCALHOST_PORT`, a field that was previously
 omitted entirely). Container sources keep rendering their published port.
 
+**Guard against contract drift in your CI (`endpoints assert`).** The export
+field **names** are a stable compatibility contract, but a future Atlas pin bump
+could rename or drop one — and your consumer would then silently read `None` and
+fall back to a broken default with no failing test. Assert the fields you depend
+on against the pinned submodule, so a rename fails loudly:
+
+```bash
+# Fails (exit 1) if any listed field is absent from the current contract:
+./start.sh endpoints assert --require ATLAS_LITELLM_HOST_ENDPOINT,ATLAS_MINIO_HOST_ENDPOINT,ATLAS_COMFYUI_HOST_ENDPOINT
+
+# No --require: list the available field names (machine-readable):
+./start.sh endpoints assert --format json
+```
+
+Run the `--require` form (with the exact fields your code reads) in consumer CI
+against your configured stack — it's the recommended drift gate for a vendored
+Atlas.
+
 All non-secret exported values are **fully resolved** — the exporter expands any
 compose-style `${VAR}` / `${VAR:-default}` interpolation stored in `.env` (e.g. a
 host-source `COMFYUI_ENDPOINT` of `http://host.docker.internal:${COMFYUI_MPS_LOCALHOST_PORT:-8188}`)
