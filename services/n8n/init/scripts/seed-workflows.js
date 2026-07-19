@@ -217,7 +217,18 @@ async function main() {
           log(`WARN - activation of '${wf.id}' returned HTTP ${a.status || 'none'}; production webhook NOT registered`);
         }
       } else {
-        log(`note: '${wf.id}' active but N8N_API_KEY unset — production webhook registers on next n8n restart`);
+        // No API key: n8n CE can't activate over the public API. Persist
+        // active=true via the CLI (publish:workflow) — n8n's production webhook
+        // is only registered when the SERVER (re)starts (empirically verified on
+        // n8nio/n8n:2.28.2: publish sets active=true in the DB but the running
+        // server ignores it until restart), so Atlas restarts n8n once after
+        // seeding (_reactivate_n8n_if_needed) to register it with no consumer action.
+        const pub = runCommand('n8n', ['publish:workflow', '--id=' + wf.seed_id]);
+        if (pub.status === 0) {
+          log(`✓ '${wf.id}' set active via CLI (publish:workflow); Atlas restarts n8n post-seed to register the production webhook (no N8N_API_KEY)`);
+        } else {
+          log(`WARN - CLI activation (publish:workflow) of '${wf.id}' failed; imported but inactive`);
+        }
       }
     }
   }
