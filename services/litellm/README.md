@@ -65,7 +65,7 @@ The wizard's multiselect choices persist as comma-separated lists in `.env` so t
 | Env var | Set by | Notes |
 |---|---|---|
 | `OLLAMA_USER_MODELS` | Single unified Ollama models multiselect (source-aware — container shows the library scrape only; localhost shows a merged view where rows are badged `[pulled]` if already on the upstream and `[library]` if catalog-only). | `model_resolver` computes the active set (every source); `ollama-pull` then pulls those models for container sources. |
-| `OLLAMA_CUSTOM_MODELS` | Ollama "additional models to pull" free-text step. | Merged into the active set by `model_resolver` for every Ollama source. `ollama-pull` fetches them for container sources. For `ollama-localhost`, you must `ollama pull <name>` on your host yourself. |
+| `OLLAMA_CUSTOM_MODELS` | Ollama "additional models to pull" free-text step. | Merged into the active set by `model_resolver` for every Ollama source. `ollama-pull` fetches them for container sources. For `ollama-localhost`, the bootstrapper pulls the declared union (`OLLAMA_USER_MODELS` ∪ `OLLAMA_CUSTOM_MODELS`) onto the host daemon at every start (#757). |
 | `OPENAI_USER_MODELS` | OpenAI multiselect (after live `/v1/models` fetch). | `model_resolver` activates matching catalog entries; names not in the curated catalog are synthesized with generic capability defaults. |
 | `ANTHROPIC_USER_MODELS` | Anthropic multiselect (after live `/v1/models` fetch). | Same synthesize-on-missing handling as OpenAI. |
 | `OPENROUTER_USER_MODELS` | OpenRouter multiselect (after live `/api/v1/models` fetch). | Same synthesize-on-missing handling. |

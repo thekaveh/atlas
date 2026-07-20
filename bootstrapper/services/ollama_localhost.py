@@ -76,6 +76,8 @@ def host_base_url(env: Mapping[str, str]) -> str:
     ``localhost:$OLLAMA_LOCALHOST_PORT``, not the in-network
     ``host.docker.internal`` form containers use."""
     port = (env.get("OLLAMA_LOCALHOST_PORT", "") or "").strip() or _DEFAULT_PORT
+    if not port.isdigit():  # a malformed port must degrade, never crash (#757)
+        port = _DEFAULT_PORT
     return f"http://localhost:{port}"
 
 
@@ -89,7 +91,9 @@ def list_host_tags(base_url: str, *, timeout: float = _TAGS_TIMEOUT) -> set[str]
     try:
         with urllib.request.urlopen(f"{base_url}/api/tags", timeout=timeout) as response:
             payload = json.loads(response.read().decode("utf-8"))
-    except (urllib.error.URLError, OSError, ValueError):
+    except Exception:  # noqa: BLE001 — URLError/OSError/ValueError/InvalidURL:
+        # any query failure means "cannot see the daemon"; callers treat None
+        # as unreachable and warn. Provisioning is strictly non-fatal.
         return None
     tags: set[str] = set()
     for model in payload.get("models") or []:

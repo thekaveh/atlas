@@ -305,10 +305,10 @@ class BlenderMcpManager:
         self.pid_file.write_text(str(process.pid), encoding="utf-8")
         deadline = time.monotonic() + wait_timeout
         while time.monotonic() < deadline:
+            if process.poll() is not None:
+                break  # child died — a port held by a FOREIGN process is not success
             if self._port_in_use():
                 return ProcessStatus(running=True, pid=process.pid, port_open=True)
-            if process.poll() is not None:
-                break
             time.sleep(0.5)
         tail = self._log_tail()
         self.stop()
@@ -319,8 +319,8 @@ class BlenderMcpManager:
 
     def stop(self) -> bool:
         pid = self._read_pid()
-        self.pid_file.unlink(missing_ok=True)
         if pid is None or not self._pid_alive(pid):
+            self.pid_file.unlink(missing_ok=True)
             return True
         try:
             os.killpg(pid, signal.SIGTERM)
@@ -331,6 +331,7 @@ class BlenderMcpManager:
                 return False
         for _ in range(20):
             if not self._pid_alive(pid):
+                self.pid_file.unlink(missing_ok=True)
                 return True
             time.sleep(0.25)
         try:
@@ -339,9 +340,14 @@ class BlenderMcpManager:
             pass
         for _ in range(20):  # SIGKILL is not instantaneous — grant a grace window
             if not self._pid_alive(pid):
+                self.pid_file.unlink(missing_ok=True)
                 return True
             time.sleep(0.25)
-        return not self._pid_alive(pid)
+        stopped = not self._pid_alive(pid)
+        if stopped:
+            self.pid_file.unlink(missing_ok=True)
+        # a failed stop KEEPS the pid file so the process is not orphan-tracked
+        return stopped
 
     def status(self) -> ProcessStatus:
         pid = self._read_pid()
@@ -416,7 +422,10 @@ class BlenderMcpManager:
         except ProcessLookupError:
             return False
         except PermissionError:
-            return True
+            # #647 doctrine (mirrors comfyui_mps_manager): a process we cannot
+            # signal is not ours — treat a recycled/stale pid as not-running
+            # rather than adopting (or later SIGTERMing) a stranger.
+            return False
         return True
 
     def _log_tail(self, lines: int = 12) -> str:
@@ -439,9 +448,12 @@ def manager_from_env(env: dict[str, str]) -> BlenderMcpManager:
     def _get(key: str, default: str = "") -> str:
         return (env.get(key, "") or "").strip() or default
 
+    raw_port = _get("BLENDER_MCP_LOCALHOST_PORT", "9876")
+    if not raw_port.isdigit():  # malformed env must not traceback the launch/CLI
+        raw_port = "9876"
     return BlenderMcpManager(
         state_dir=_get("BLENDER_MCP_STATE_DIR", "~/.atlas/blender-mcp"),
-        port=int(_get("BLENDER_MCP_LOCALHOST_PORT", "9876")),
+        port=int(raw_port),
         bind=_get("BLENDER_MCP_BIND", "127.0.0.1"),
         blender_path=_get("BLENDER_MCP_BLENDER_PATH"),
         addon_ref=_get("BLENDER_MCP_ADDON_REF", DEFAULT_ADDON_REF),

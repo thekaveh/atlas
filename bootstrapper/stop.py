@@ -250,6 +250,46 @@ Examples:
             )
             return False
 
+    def stop_managed_blender_mcp(self) -> bool:
+        """Stop the Atlas-managed headless Blender MCP bridge (#759).
+
+        The ``managed-localhost`` source runs a native headless Blender on the
+        host (not a container), so ``docker compose down`` never touches it —
+        and it serves an execute_code TCP socket, so it must not silently
+        outlive an explicit managed-hosts teardown. A no-op when not running.
+        The current SOURCE value is intentionally ignored: a prior launch may
+        still own a process after the selection changed.
+        """
+        try:
+            env = (
+                self.config_parser.parse_env_file()
+                if self.config_parser.env_file_exists()
+                else {}
+            )
+            from services.blender_mcp_manager import manager_from_env
+
+            manager = manager_from_env(env)
+            before = manager.status()
+            stopped = manager.stop()
+            after = manager.status()
+            if after.running:
+                self.banner.show_status_message(
+                    "Managed Blender MCP bridge is still running after stop.",
+                    "warning",
+                )
+                return False
+            if before.running and stopped:
+                self.banner.show_status_message(
+                    "Stopped the managed headless Blender MCP bridge.",
+                    "info",
+                )
+            return True
+        except Exception as exc:  # noqa: BLE001 — teardown must never break stop
+            self.banner.show_status_message(
+                f"Could not stop the managed Blender MCP bridge: {exc}", "warning"
+            )
+            return False
+
     def stop_managed_vllm_metal(self) -> bool:
         """Stop the Atlas-managed vLLM Metal host process (#379).
 
@@ -304,6 +344,19 @@ Examples:
             if self.config_parser.env_file_exists()
             else {}
         )
+        try:
+            from services.blender_mcp_manager import manager_from_env as _blender_mfe
+
+            if _blender_mfe(env).status().running:
+                self.banner.show_status_message(
+                    "Managed Blender MCP bridge left running (host-global, shared "
+                    "across consumers; serves execute_code on loopback). Stop it "
+                    "explicitly with `./stop.sh --stop-managed-hosts` or "
+                    "`./start.sh blender-mcp stop`.",
+                    "info",
+                )
+        except Exception:  # noqa: BLE001 — advisory only
+            pass
         try:
             from services.comfyui_mps_manager import manager_from_env
 
@@ -453,7 +506,8 @@ def main(project_name, cold, clean_hosts, stop_managed_hosts, help_usage):
             )
             comfyui_host_ok = stopper.stop_managed_comfyui_mps()
             vllm_host_ok = stopper.stop_managed_vllm_metal()
-            managed_hosts_ok = comfyui_host_ok and vllm_host_ok
+            blender_host_ok = stopper.stop_managed_blender_mcp()
+            managed_hosts_ok = comfyui_host_ok and vllm_host_ok and blender_host_ok
         else:
             stopper.report_managed_hosts_left_running()
             managed_hosts_ok = True

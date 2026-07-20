@@ -146,6 +146,20 @@ def test_invalid_env_value_re_resolves(monkeypatch):
 # ── resolver: profile awareness ──────────────────────────────────────
 
 
+def test_durable_dev_only_value_re_resolves_under_prod(monkeypatch):
+    """C1 hardening: a durably-kept dev-only value (managed-localhost-mps)
+    must NOT survive into --profile prod — keeping it would fail prod source
+    validation on every start until a hand-edit. Re-resolve instead."""
+    _patch_caps(monkeypatch, _caps(apple_silicon=True))
+    s = _starter({"COMFYUI_SOURCE": "managed-localhost-mps"}, profile="prod")
+    r = s._resolve_auto_source_overrides({"COMFYUI_SOURCE": "auto"})
+    assert r["COMFYUI_SOURCE"] == "container-cpu"  # prod-eligible fallback
+    # ...and under default the same durable value IS kept (no behavior change).
+    s2 = _starter({"COMFYUI_SOURCE": "managed-localhost-mps"}, profile="default")
+    r2 = s2._resolve_auto_source_overrides({"COMFYUI_SOURCE": "auto"})
+    assert r2["COMFYUI_SOURCE"] == "managed-localhost-mps"
+
+
 def test_profile_prod_excludes_dev_only_options(monkeypatch):
     # managed-localhost-mps is profiles:[default] (dev-only): under prod an
     # Apple-Silicon host must fall through to the terminal container fallback.

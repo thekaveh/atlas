@@ -200,6 +200,71 @@ def test_start_failure_reports_log_tail(tmp_path, monkeypatch):
         m.start(wait_timeout=1.0)
 
 
+def test_manager_from_env_malformed_port_falls_back(tmp_path):
+    m = manager_from_env({"BLENDER_MCP_LOCALHOST_PORT": "not-a-port",
+                          "BLENDER_MCP_STATE_DIR": str(tmp_path)})
+    assert m.port == 9876  # degrade, never traceback the launch/CLI
+
+
+def test_pid_alive_permission_error_means_not_ours(monkeypatch):
+    """#647 doctrine: a process we cannot signal is a stranger, not ours —
+    a recycled pid must not fake `running` (skipping the real launch) or get
+    SIGTERMed by stop()."""
+    def perm(pid, sig):
+        raise PermissionError
+
+    monkeypatch.setattr(bm.os, "kill", perm)
+    assert BlenderMcpManager._pid_alive(12345) is False
+
+
+def test_start_foreign_port_holder_is_not_success(tmp_path, monkeypatch):
+    """A dead child + an open port (foreign process, e.g. a GUI Blender) must
+    raise, not report the stranger as our managed process."""
+    m = _manager(tmp_path)
+    m.state_dir.mkdir(parents=True)
+    m.addon_path.write_bytes(ADDON_BYTES)
+    m.launcher_path.write_text("launcher")
+    m.log_file.write_text("Address already in use\n")
+    monkeypatch.setattr(m, "blender_binary", lambda: "/fake/blender")
+
+    class _DeadProc:
+        pid = 4244
+
+        def poll(self):
+            return 1
+
+    monkeypatch.setattr(bm.subprocess, "Popen", lambda *a, **k: _DeadProc())
+    monkeypatch.setattr(m, "_port_in_use", lambda: True)  # foreign holder
+    with pytest.raises(BlenderMcpError, match="Address already in use"):
+        m.start(wait_timeout=1.0)
+
+
+def test_stop_py_tears_down_managed_blender(monkeypatch, tmp_path):
+    """#759 hardening: ./stop.sh --stop-managed-hosts must stop the code-exec
+    bridge like the other managed hosts."""
+    import stop as stop_module
+
+    assert hasattr(stop_module.AtlasStopper, "stop_managed_blender_mcp")
+    stopper = stop_module.AtlasStopper.__new__(stop_module.AtlasStopper)
+    calls = {}
+
+    class _FakeMgr:
+        def status(self):
+            calls.setdefault("status", 0)
+            calls["status"] += 1
+            return NS(running=calls["status"] == 1)  # running before, stopped after
+
+        def stop(self):
+            calls["stop"] = True
+            return True
+
+    stopper.config_parser = NS(env_file_exists=lambda: False, parse_env_file=lambda: {})
+    stopper.banner = NS(show_status_message=lambda *a, **k: None)
+    monkeypatch.setattr(bm, "manager_from_env", lambda env: _FakeMgr())
+    assert stopper.stop_managed_blender_mcp() is True
+    assert calls.get("stop") is True
+
+
 def test_status_and_stop_with_dead_pid(tmp_path):
     m = _manager(tmp_path)
     m.state_dir.mkdir(parents=True)

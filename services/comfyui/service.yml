@@ -64,7 +64,7 @@ env:
     description: "Atlas-owned host state directory for the managed MPS ComfyUI: the pinned checkout, its venv, and the pid/log/status files. Never a container volume."
   - name: COMFYUI_MPS_MODELS_PATH
     default: "~/Documents/ComfyUI/models"
-    description: "Existing host models directory the managed MPS process reuses (via extra_model_paths) so no weights are duplicated. Shared with COMFYUI_LOCAL_MODELS_PATH by default."
+    description: "Existing host models directory the managed MPS process reuses (via extra_model_paths) so no weights are duplicated. Shared with COMFYUI_LOCAL_MODELS_PATH by default. Also the provisioning destination under managed-localhost-mps: the host provisioner (#754) downloads declared COMFYUI_USER_MODELS here at start — not just a reuse path."
   - name: COMFYUI_MPS_MIN_MEMORY_GB
     default: "16"
     description: "Minimum unified-memory headroom (GiB) the managed MPS preflight requires before launching ComfyUI; below this the preflight warns."
@@ -101,7 +101,7 @@ env:
     default: "~/Documents/ComfyUI/models"
   - name: COMFYUI_USER_MODELS
     default: ""
-    description: "Comma-separated catalog model names the user picked in the wizard (or via --comfyui-models). Read by services/comfyui/init/scripts/download_models.sh."
+    description: "Comma-separated catalog model names the user picked in the wizard (or via --comfyui-models). Read by services/comfyui/init/scripts/download_models.sh; and by the managed-MPS host provisioner (#754), which downloads the same resolved set into COMFYUI_MPS_MODELS_PATH."
   - name: COMFYUI_CUSTOM_MODELS_FILE
     default: "/custom-models.yaml"
     description: "Path to the ComfyUI custom-models sidecar YAML (user-authored models not in the curated catalog). Read by comfyui_resolver when generating the download manifest, and by the wizard's model picker."

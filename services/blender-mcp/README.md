@@ -19,7 +19,8 @@ This profile is intentionally conservative. Current Blender MCP workflows depend
 Enable the wizard profile with:
 
 ```bash
-./start.sh --blender-mcp-source localhost
+./start.sh --blender-mcp-source localhost           # user-run GUI add-on
+./start.sh --blender-mcp-source managed-localhost   # Atlas-managed headless (#759)
 ```
 
 The profile is hidden/rejected under `--profile prod`.
@@ -28,7 +29,7 @@ The profile is hidden/rejected under `--profile prod`.
 
 | Variable | Default | Purpose |
 |---|---:|---|
-| `BLENDER_MCP_SOURCE` | `disabled` | Enables the host-only Blender MCP profile when set to `localhost`. |
+| `BLENDER_MCP_SOURCE` | `disabled` | Enables the host-only Blender MCP profile when set to `localhost` (user-run GUI) or `managed-localhost` (Atlas-managed headless, #759). |
 | `BLENDER_MCP_HOST` | `localhost` | Hostname where the Blender MCP add-on socket listens. |
 | `BLENDER_MCP_LOCALHOST_PORT` | `9876` | Host-tool socket port. This is not allocated from Atlas topology because Atlas does not own the Blender process. |
 | `BLENDER_MCP_ENDPOINT` | generated | Runtime endpoint hint for MCP-client integrations (`tcp://…`). Empty when disabled. Exported as `ATLAS_BLENDER_MCP_HOST_ENDPOINT` for both host sources (#758). |
