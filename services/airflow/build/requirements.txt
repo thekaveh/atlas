@@ -1,4 +1,13 @@
-apache-airflow-providers-apache-spark>=5.4.0
+# <6 cap (#782): the 6.x provider line switched its dependency from classic
+# `pyspark` to the new `pyspark-client` (Spark Connect split). pyspark-client
+# 4.2.0 ships an overlapping pyspark/ module tree that OVERWRITES parts of the
+# pinned pyspark==4.1.2 install (pip file collision) — the resulting mixed
+# tree fails `import pyspark` (SparkExecutorInfo ImportError) and hard-fails
+# the image build. The 5.x line depends on classic pyspark and composes with
+# the pinned 4.1.2 client, which must match the apache/spark:4.1.2 cluster
+# (services/spark) and iceberg-spark-runtime-4.1. Lift the cap only when the
+# whole Spark family (cluster image + iceberg runtime + pyspark pin) moves.
+apache-airflow-providers-apache-spark>=5.4.0,<6
 apache-airflow-providers-amazon>=9.29.0
 apache-airflow-providers-postgres>=6.7.0
 apache-airflow-providers-redis>=4.4.4

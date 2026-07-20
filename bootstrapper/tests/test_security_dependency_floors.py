@@ -81,6 +81,13 @@ def test_airflow_uses_supported_core_and_unfrozen_provider_security_fixes() -> N
     assert "ARG BASE_IMAGE=apache/airflow:3.3.0" in dockerfile
     assert "--constraint" not in dockerfile
     assert "setuptools>=83.0.0" in requirements
+    # #782: the 6.x spark provider swapped its dep to pyspark-client, whose
+    # overlapping module tree overwrites the pinned pyspark==4.1.2 files and
+    # breaks `import pyspark` (SparkExecutorInfo ImportError → image build
+    # fails). The cap and the classic-pyspark pin move only with the whole
+    # Spark 4.1 family (cluster image + iceberg-spark-runtime-4.1).
+    assert "apache-airflow-providers-apache-spark>=5.4.0,<6" in requirements
+    assert "pyspark[connect]==4.1.2" in requirements
 
 
 def test_airflow_build_validation_uses_runtime_core_release() -> None:
