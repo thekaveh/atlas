@@ -92,7 +92,7 @@ For `ollama-container-*` sources, `ollama-pull` reads the active set from `OLLAM
 
 | Variable | Set by | Consumed by |
 |---|---|---|
-| `OLLAMA_USER_MODELS` | Single unified Ollama models multi-select. | `model_resolver` (active set computation from YAML catalogs + env, used by `litellm-init` and `ollama-pull`); `ollama-pull` for container sources only. |
+| `OLLAMA_USER_MODELS` | Single unified Ollama models multi-select. | `model_resolver` (active set computation from YAML catalogs + env, used by `litellm-init` and `ollama-pull`); `ollama-pull` for container sources; the bootstrapper's host pull for `ollama-localhost` (#757). |
 | `OLLAMA_CUSTOM_MODELS` | Wizard "additional models to pull" text step. | `model_resolver` (merged into active set); `ollama-pull` for container sources; the bootstrapper's host pull for `ollama-localhost` (#757). |
 
 ## 6. Dependencies & Integrations

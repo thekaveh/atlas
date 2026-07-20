@@ -405,11 +405,26 @@ class AtlasStarter:
             prior_bundle = bundles.get(prior_applied)
             if prior_bundle is not None:
                 for svc, prior_id in prior_bundle.sources.items():
-                    if prior_id == "auto" or svc not in by_name:
+                    if svc not in by_name:
                         continue
                     var = by_name[svc].sources.var
                     if var in explicit_vars or svc in bundle.sources:
                         continue  # operator wins / new profile re-declares it
+                    if prior_id == "auto":
+                        # A prior bundle-`auto` resolution: reset only when the
+                        # resolved value is not offered under the NEW profile
+                        # (dev-only residue that would fail validation).
+                        current_value = (env_vars.get(var, "") or "").strip()
+                        if current_value and not option_in_profile(
+                            manifests, svc, current_value, active
+                        ):
+                            overrides[var] = by_name[svc].sources.default
+                            print(
+                                f"profile={active}: reset {var} to "
+                                f"'{by_name[svc].sources.default}' (prior profile's "
+                                f"auto-resolved '{current_value}' is not offered here)"
+                            )
+                        continue
                     if (env_vars.get(var, "") or "").strip() == prior_id:
                         overrides[var] = by_name[svc].sources.default
                         print(
@@ -746,6 +761,11 @@ class AtlasStarter:
             # (which reports it as a structured `fail`), not crash preflight
             # before any check has run.
             return {}
+        if getattr(self, "profile", None) in (None, ""):
+            # Standalone doctor/endpoints runs never pass --profile; resolve
+            # against the consumer manifest's declared default so `auto`
+            # cannot poison a prod deployment's .env with dev-only sources.
+            self.profile = getattr(consumer_config, "profile", None) or "default"
         overrides = self._resolve_auto_source_overrides(
             self._resolve_auto_base_port_override(
                 dict(consumer_config.env_overrides or {})
@@ -838,11 +858,14 @@ class AtlasStarter:
         analog of ``_resolve_auto_base_port_override`` above, sharing its
         durability contract:
 
-        1. **Durable keep.** A concrete, valid, non-default value already in
-           ``.env`` (a prior ``auto`` resolution or an operator's explicit
-           ``--<svc>-source`` override) is kept as-is — never clobbered.
-           (To durably force the *default* id on a host where ``auto`` would
-           pick otherwise, commit the concrete id instead of ``auto``.)
+        1. **Durable keep.** A concrete, valid, **non-default** value already
+           in ``.env`` (a prior ``auto`` resolution or an operator's explicit
+           ``--<svc>-source`` override) is kept — provided the active profile
+           offers it (a dev-only value under ``--profile prod`` re-resolves,
+           or prod validation would fail every start). KNOWN LIMIT: an
+           operator override *to the service default id* is indistinguishable
+           from a cold regen and is re-resolved on the next start — to durably
+           force the default, commit the concrete id instead of ``auto``.
         2. **Platform-adaptive resolve.** Otherwise pick the first
            ``sources.auto_prefer`` entry whose host capability holds
            (services/host_capabilities.py) and whose option is offered under
@@ -897,8 +920,20 @@ class AtlasStarter:
                 and current != sources.default
                 and current in option_ids
             ):
-                merged[key] = current  # durable: keep prior resolution/override
-                continue
+                if option_in_profile(manifests, manifest.name, current, profile):
+                    merged[key] = current  # durable: keep prior resolution/override
+                    continue
+                # The kept value is not offered under the ACTIVE profile (e.g.
+                # a dev-only managed-localhost-mps under --profile prod): keeping
+                # it would fail prod source validation on every start until a
+                # hand-edit. Re-resolve instead — self-healing beats durability
+                # when the durable value is invalid for this run.
+                if not quiet:
+                    self.banner.show_status_message(
+                        f"  • [auto] {key}: prior value '{current}' is not offered "
+                        f"under profile '{profile}' — re-resolving.",
+                        "info",
+                    )
 
             resolved: Optional[str] = None
             matched = ""
@@ -2255,13 +2290,13 @@ class AtlasStarter:
         env = self.config_parser.parse_env_file()
         if (env.get("BLENDER_MCP_SOURCE", "") or "").strip() != "managed-localhost":
             return True
-        manager = manager_from_env(env)
         self.banner.show_status_message(
             "  • BLENDER_MCP_SOURCE=managed-localhost — provisioning the pinned "
             "blender-mcp add-on and launching headless Blender…",
             "info",
         )
         try:
+            manager = manager_from_env(env)
             status, created = manager.ensure_running()
         except BlenderMcpError as exc:
             self.banner.show_status_message(
@@ -2361,6 +2396,14 @@ class AtlasStarter:
         # would pull, same non-fatal philosophy (a failed download must not
         # abort the stack; generation just 404s for that model until re-run).
         rows = _resolved_comfyui_model_rows(env)
+        if rows and not manager.preflight().ok:
+            self.banner.show_status_message(
+                "  • Skipping model provisioning — host preflight fails (the "
+                "start below will report why); nothing multi-GB is downloaded "
+                "onto an unsupported host.",
+                "warning",
+            )
+            rows = []
         if rows:
             self.banner.show_status_message(
                 f"  • Provisioning {len(rows)} declared ComfyUI model file(s) "
@@ -4054,13 +4097,15 @@ def _doctor_check_model_sidecars(starter: "AtlasStarter") -> dict:
 
 
 def _doctor_check_unpullable_models(starter: "AtlasStarter") -> dict:
-    """Warn when a consumer declares models Atlas can't pull for the selected
-    source. ``OLLAMA_CUSTOM_MODELS`` (from ``model_sidecars.ollama``) is only
-    pulled for ``ollama-container-*`` — not host-run ``*-localhost`` sources;
-    ``COMFYUI_USER_MODELS`` catalog downloads only run for ``container*``
-    ComfyUI — not a source that reuses a host weight tree
-    (``managed-localhost-mps`` / ``localhost``). In those cases the declaration
-    is a silent no-op and the operator must provision on the host.
+    """Presence-check declared models for the selected sources (#718 → #754/#757).
+
+    Container sources are provisioned by init containers; managed host sources
+    are provisioned by Atlas at start (ComfyUI managed-localhost-mps downloads
+    the resolved catalog, ollama-localhost pulls declared tags onto the host
+    daemon). This lint passes when the declared set is present, and warns —
+    naming what's missing and the command that provisions it — when not. Only
+    an unmanaged ComfyUI ``localhost`` install remains hands-off (Atlas never
+    writes into a user-owned tree).
     """
     env = starter.config_parser.parse_env_file()
     warnings: list[str] = []
@@ -4079,7 +4124,12 @@ def _doctor_check_unpullable_models(starter: "AtlasStarter") -> dict:
 
         declared = declared_models(env)
         if declared:
-            present = list_host_tags(host_base_url(env))
+            try:
+                present = list_host_tags(host_base_url(env))
+            except Exception as exc:  # noqa: BLE001 — a malformed port/env must
+                # degrade to a warning, never crash the whole doctor run.
+                present = None
+                warnings.append(f"Could not query the host Ollama: {exc}")
             if present is None:
                 warnings.append(
                     f"Host Ollama at {host_base_url(env)} is not reachable — the "
@@ -4112,7 +4162,14 @@ def _doctor_check_unpullable_models(starter: "AtlasStarter") -> dict:
                 from services.comfyui_mps_manager import manager_from_env
 
                 rows = _resolved_comfyui_model_rows(env)
-                satisfied, missing = manager_from_env(env).models_satisfied(rows)
+                if not rows:
+                    # A resolver failure yields [] — declared models with an
+                    # unresolvable catalog must warn, not silently pass (#754).
+                    satisfied, missing = False, [
+                        "declared catalog could not be resolved (see catalog lint)"
+                    ]
+                else:
+                    satisfied, missing = manager_from_env(env).models_satisfied(rows)
             except Exception as exc:  # noqa: BLE001 - defensive
                 satisfied, missing = False, [f"could not check host tree: {exc}"]
             if not satisfied:
@@ -5384,6 +5441,12 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
             # ./start.sh with no manifest default must keep the wizard's
             # profile-picker step (which keys off profile is None).
             profile = _canonical_profile(profile)
+        # Make the resolved profile visible to the <SVC>_SOURCE:auto resolver
+        # on EVERY path (wizard + TUI-launch call prepare_environment before
+        # the wizard pipeline would otherwise set starter.profile) — a
+        # profile-blind resolution can durably pin a dev-only source that
+        # prod validation then rejects on every start.
+        starter.profile = profile or "default"
 
         # Cloud LLM provider keys passed via CLI flags. Persisting to
         # .env happens later, alongside source overrides — gathered

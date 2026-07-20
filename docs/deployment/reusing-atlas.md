@@ -146,6 +146,7 @@ complete example:
 # atlas.consumer.yml (parent repo root)
 name: myproject
 project_name: myproject                 # Docker resource namespace (step 3)
+profile: dev                            # default environment bundle (#755); dev aliases default
 brand:
   name: MyProject
   tagline: "MyProject on Atlas"
@@ -1113,7 +1114,8 @@ layout — and its **`ATLAS_COMFYUI_INPUT_DIR`** twin (#758,
 `$COMFYUI_MPS_STATE_DIR/ComfyUI/input`) for consumers that *stage* images into
 ComfyUI (img2img / img2mesh drivers). Both are omitted for the container and
 localhost sources (the dirs are a Docker volume / the user's own ComfyUI
-install). Under `BLENDER_MCP_SOURCE=localhost` the export includes
+install). Under a Blender host source (`localhost` or `managed-localhost`,
+#759) the export includes
 **`ATLAS_BLENDER_MCP_HOST_ENDPOINT`** (#758) — note the **`tcp://`** scheme:
 the Blender MCP add-on serves a raw TCP socket, not HTTP, so the value is
 `tcp://localhost:$BLENDER_MCP_LOCALHOST_PORT` and must be dialed with a socket
@@ -1184,8 +1186,10 @@ manifest scalar re-applies every start and clobbers temporary operator switches,
 so OS-specific paths (e.g. `COMFYUI_MPS_MODELS_PATH`) belong in `.env` (or
 `.env.user`), not the committed manifest. For **source selections** the right
 committed form is the **`auto` sentinel** (§6.1): `COMFYUI_SOURCE: auto`
-resolves per host and never clobbers an operator override — unlike a committed
-concrete id, which re-applies every start. Keep concrete `env.values` to the
+resolves per host and never clobbers a **non-default** operator override (an
+override to the service default id is indistinguishable from a cold regen and
+re-resolves — commit the concrete id to pin the default; §6.1) — unlike a
+committed concrete id, which re-applies every start. Keep concrete `env.values` to the
 identity and branding that should be identical on every machine.
 
 ### 7.3. Select sources once; keep `.env` as the source of truth
@@ -1212,13 +1216,18 @@ vars) is documented in the ComfyUI service README §10
 (`services/comfyui/README.md`). Declared `COMFYUI_USER_MODELS` are
 **auto-provisioned** into `COMFYUI_MPS_MODELS_PATH` on start (#754) — no manual
 weight staging; the `unpullable-models` doctor lint passes once the host tree
-satisfies the declared catalog.
+satisfies the declared catalog. The Blender bridge has the same managed shape:
+`BLENDER_MCP_SOURCE=managed-localhost` provisions the pinned add-on and runs
+headless Blender (lifecycle `./start.sh blender-mcp …`; loopback-only; see
+`services/blender-mcp/README.md`).
 
 **Better: skip the first-run flags entirely with `auto`.** Committing
 `COMFYUI_SOURCE: auto` / `LLM_PROVIDER_SOURCE: auto` in the manifest (§6.1)
 removes the ritual: every start — including after a cold `.env` regen — resolves
 the host-correct source, keeps a prior resolution, and honors any explicit
-`--<svc>-source` override durably. The wrapper-script footgun above cannot
+**non-default** `--<svc>-source` override durably (an override to the service
+default id is indistinguishable from a cold regen and re-resolves — commit the
+concrete id to pin the default; §6.1). The wrapper-script footgun above cannot
 happen, because there is no flag to re-assert.
 
 ### 7.4. Run multiple Atlas instances on one host
