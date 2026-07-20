@@ -47,7 +47,7 @@ Pillow>=12.3.0
 # atlas_finance.research guards and notebook 11.
 openbb==4.7.2
 openbb-yfinance==1.6.3
-ccxt==4.5.64
+ccxt==4.5.67
 
 # Lakehouse clients
 # Keep boto3/s3fs aligned through botocore + fsspec to avoid slow resolver
