@@ -84,7 +84,7 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | [asset-baker](../services/asset-baker/README.md) | Asset Baker (Blender HP→LP bake) | all, gen-ai-creative | ASSET_BAKER_SOURCE | disabled | container-cpu, disabled | minio |
 | [asset-worker](../services/asset-worker/README.md) | Asset Worker (glTF post-processing) | all, gen-ai-creative | ASSET_WORKER_SOURCE | disabled | container, disabled | minio |
-| [blender-mcp](../services/blender-mcp/README.md) | Blender MCP | all, gen-ai-creative | BLENDER_MCP_SOURCE | disabled | localhost, disabled | - |
+| [blender-mcp](../services/blender-mcp/README.md) | Blender MCP | all, gen-ai-creative | BLENDER_MCP_SOURCE | disabled | localhost, managed-localhost, disabled | - |
 | [chatterbox](../services/chatterbox/README.md) | Chatterbox (voice-cloning TTS, GPU) | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | - | - | - | tts-provider |
 | [comfyui](../services/comfyui/README.md) | ComfyUI (image generation) | all, gen-ai-creative, gen-ai-eng | COMFYUI_SOURCE | container-cpu | container-cpu, container-gpu, localhost, managed-localhost-mps, disabled | supabase, litellm, ollama |
 | [crawl4ai](../services/crawl4ai/README.md) | Crawl4AI (JS-capable web extraction) | all, gen-ai-rag | CRAWL4AI_SOURCE | disabled | container, disabled | - |
