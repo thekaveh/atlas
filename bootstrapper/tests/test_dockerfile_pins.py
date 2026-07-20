@@ -114,3 +114,27 @@ def test_at_least_one_dockerfile_discovered() -> None:
     """Belt-and-suspenders: if the glob returns zero, fail loudly."""
     files = _discover_dockerfiles()
     assert files, "No Dockerfiles discovered under services/**/Dockerfile"
+
+def test_jupyterhub_pyg_lib_pin_is_satisfiable(  # #776 regression
+) -> None:
+    """pyg_lib on data.pyg.org's torch-2.11.0+cpu index exists ONLY as 0.6.0,
+    with cp311 wheels for x86_64/macOS/Windows but no linux-aarch64 wheel, no
+    sdist, and no PyPI presence — so an unguarded or wrong-version pin makes
+    the jupyterhub image build (and therefore the whole --cold bring-up)
+    hard-fail. Contract: the pin stays 0.6.0 and stays platform-marked to
+    x86_64; the sibling PyG packages (which DO ship aarch64 wheels) stay
+    unconditional; the find-links stays matched to the torch 2.11 CPU build.
+    """
+    requirements = (
+        REPO_ROOT / "services" / "jupyterhub" / "build" / "requirements.txt"
+    ).read_text(encoding="utf-8")
+    lines = [line.strip() for line in requirements.splitlines()]
+    pyg_lib_lines = [l for l in lines if l.startswith("pyg_lib")]
+    assert pyg_lib_lines == ['pyg_lib==0.6.0; platform_machine == "x86_64"'], (
+        "pyg_lib must stay 0.6.0 (the only version on the torch-2.11 index) "
+        "and platform-marked to x86_64 (no linux-aarch64 wheel exists) — see #776"
+    )
+    assert "--find-links https://data.pyg.org/whl/torch-2.11.0+cpu.html" in lines
+    for unconditional in ("torch-scatter==2.1.2", "torch-sparse==0.6.18",
+                          "torch-cluster==1.6.3"):
+        assert unconditional in lines, f"{unconditional} must stay unconditional"
