@@ -9,7 +9,7 @@
 | ASSET_WORKER_SOURCE | asset-worker | disabled | container, disabled |
 | BACKEND_SOURCE | backend | container | - |
 | BACKUP_SOURCE | backup | disabled | container, disabled |
-| BLENDER_MCP_SOURCE | blender-mcp | disabled | localhost, disabled |
+| BLENDER_MCP_SOURCE | blender-mcp | disabled | localhost, managed-localhost, disabled |
 | CELERY_SOURCE | celery | disabled | container, disabled |
 | CLOUD_OPENAI_SOURCE | cloud-providers | disabled | enabled, disabled |
 | CLOUD_ANTHROPIC_SOURCE | cloud-providers | disabled | enabled, disabled |

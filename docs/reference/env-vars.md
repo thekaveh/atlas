@@ -124,7 +124,14 @@
 | BLENDER_MCP_SOURCE | blender-mcp | disabled | Host-installed Blender MCP bridge source. Disabled by default because Blender MCP can execute generated Python code inside Blender. |
 | BLENDER_MCP_HOST | blender-mcp | localhost | Host where the Blender MCP add-on socket is listening. |
 | BLENDER_MCP_LOCALHOST_PORT | blender-mcp | 9876 | Host port for the Blender MCP add-on socket. This is a host-tool port hint, not a Kong or container port. |
-| BLENDER_MCP_ENDPOINT | blender-mcp |  | Resolved endpoint hint for future MCP clients when BLENDER_MCP_SOURCE=localhost. |
+| BLENDER_MCP_ENDPOINT | blender-mcp |  | Resolved endpoint hint for MCP clients when BLENDER_MCP_SOURCE is a host source (localhost / managed-localhost). |
+| BLENDER_MCP_STATE_DIR | blender-mcp | ~/.atlas/blender-mcp | State dir for the managed-localhost source (#759): pinned add-on, generated headless launcher, pid/log files. Removed by `./start.sh blender-mcp remove`. |
+| BLENDER_MCP_BIND | blender-mcp | 127.0.0.1 | Bind address for the managed headless bridge. Loopback-only by default — execute_code runs arbitrary Python inside Blender; any other value is refused unless BLENDER_MCP_ALLOW_REMOTE=true. |
+| BLENDER_MCP_ALLOW_REMOTE | blender-mcp | False | Explicit second opt-in required to bind the managed bridge beyond loopback. Leave false unless you own the network boundary. |
+| BLENDER_MCP_BLENDER_PATH | blender-mcp |  | Explicit Blender binary for the managed source. Empty = auto-detect (/Applications/Blender.app on macOS, `blender` on PATH elsewhere). Atlas manages the MCP bridge, not the Blender application — install Blender yourself. |
+| BLENDER_MCP_ADDON_REF | blender-mcp | 6641189231caf3752302ae20591bc87fda85fc4e | Pinned ahujasid/blender-mcp ref whose addon.py the managed source provisions. Move together with BLENDER_MCP_ADDON_SHA256. |
+| BLENDER_MCP_ADDON_SHA256 | blender-mcp | bba60831f5f89a74deda0294b131668a086cf46eb35a6a01abbd0d21d9e92630 | sha256 of the pinned addon.py; the manager refuses to install a mismatching download (it will later execute arbitrary Python). |
+| BLENDER_MCP_ADDON_FILE | blender-mcp |  | Escape hatch: use a local add-on file instead of the pinned download (no sha verification; preflight warns). |
 | CELERY_SOURCE | celery | disabled | Deployment mode: container (backend worker + Flower) or disabled. |
 | CELERY_WORKER_SCALE | celery |  | - |
 | FLOWER_SCALE | celery |  | - |

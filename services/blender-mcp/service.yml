@@ -11,7 +11,10 @@ sources:
   default: disabled
   options:
     - id: localhost
-      label: "Localhost (host Blender MCP add-on + server)"
+      label: "Localhost (host Blender MCP add-on + server, user-run GUI)"
+      profiles: [default]
+    - id: managed-localhost
+      label: "Host (Atlas-managed headless Blender + MCP bridge)"
       profiles: [default]
     - id: disabled
       label: "Disabled"
@@ -28,7 +31,28 @@ env:
     description: "Host port for the Blender MCP add-on socket. This is a host-tool port hint, not a Kong or container port."
   - name: BLENDER_MCP_ENDPOINT
     auto_managed: true
-    description: "Resolved endpoint hint for future MCP clients when BLENDER_MCP_SOURCE=localhost."
+    description: "Resolved endpoint hint for MCP clients when BLENDER_MCP_SOURCE is a host source (localhost / managed-localhost)."
+  - name: BLENDER_MCP_STATE_DIR
+    default: "~/.atlas/blender-mcp"
+    description: "State dir for the managed-localhost source (#759): pinned add-on, generated headless launcher, pid/log files. Removed by `./start.sh blender-mcp remove`."
+  - name: BLENDER_MCP_BIND
+    default: "127.0.0.1"
+    description: "Bind address for the managed headless bridge. Loopback-only by default — execute_code runs arbitrary Python inside Blender; any other value is refused unless BLENDER_MCP_ALLOW_REMOTE=true."
+  - name: BLENDER_MCP_ALLOW_REMOTE
+    default: false
+    description: "Explicit second opt-in required to bind the managed bridge beyond loopback. Leave false unless you own the network boundary."
+  - name: BLENDER_MCP_BLENDER_PATH
+    default: ""
+    description: "Explicit Blender binary for the managed source. Empty = auto-detect (/Applications/Blender.app on macOS, `blender` on PATH elsewhere). Atlas manages the MCP bridge, not the Blender application — install Blender yourself."
+  - name: BLENDER_MCP_ADDON_REF
+    default: "6641189231caf3752302ae20591bc87fda85fc4e"
+    description: "Pinned ahujasid/blender-mcp ref whose addon.py the managed source provisions. Move together with BLENDER_MCP_ADDON_SHA256."
+  - name: BLENDER_MCP_ADDON_SHA256
+    default: "bba60831f5f89a74deda0294b131668a086cf46eb35a6a01abbd0d21d9e92630"
+    description: "sha256 of the pinned addon.py; the manager refuses to install a mismatching download (it will later execute arbitrary Python)."
+  - name: BLENDER_MCP_ADDON_FILE
+    default: ""
+    description: "Escape hatch: use a local add-on file instead of the pinned download (no sha verification; preflight warns)."
 
 depends_on:
   required: []
@@ -46,6 +70,12 @@ rows:
 runtime_sc:
   blender_mcp:
     localhost:
+      scale: 0
+      environment:
+        BLENDER_MCP_ENDPOINT: tcp://${BLENDER_MCP_HOST:-localhost}:${BLENDER_MCP_LOCALHOST_PORT:-9876}
+      deploy: {}
+      extra_hosts: []
+    managed-localhost:
       scale: 0
       environment:
         BLENDER_MCP_ENDPOINT: tcp://${BLENDER_MCP_HOST:-localhost}:${BLENDER_MCP_LOCALHOST_PORT:-9876}

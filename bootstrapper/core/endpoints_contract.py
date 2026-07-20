@@ -349,9 +349,10 @@ def build_export(
     # NOTE the scheme — the Blender add-on serves a RAW TCP socket, not HTTP,
     # so the field carries ``tcp://`` (matching the manifest's own
     # BLENDER_MCP_ENDPOINT hint). Exporting ``http://`` here would hand naive
-    # consumers a URL that no HTTP client can use. Emitted only when the
-    # source is enabled (localhost); a managed source is #759's follow-up.
-    if env.get("BLENDER_MCP_SOURCE", "").strip() == "localhost":
+    # consumers a URL that no HTTP client can use. Emitted for both host
+    # sources — user-run (localhost) and Atlas-managed headless
+    # (managed-localhost, #759).
+    if env.get("BLENDER_MCP_SOURCE", "").strip() in ("localhost", "managed-localhost"):
         blender_port = env.get("BLENDER_MCP_LOCALHOST_PORT", "").strip() or "9876"
         out.append(
             ExportField(
