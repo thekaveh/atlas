@@ -15,20 +15,25 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "bootstrapper"))
 
 
-def _starter(env, port_manager):
+def _starter(env, port_manager, *, own_containers=False):
     import start
 
     s = start.AtlasStarter.__new__(start.AtlasStarter)
     s.config_parser = NS(parse_env_file=lambda: dict(env))
     s.port_manager = port_manager
     s.banner = NS(show_status_message=lambda *a, **k: None)
+    s._project_has_running_containers = lambda overrides: own_containers
     return s
 
 
 def test_resolver_keeps_non_default_and_resolves_fresh_otherwise():
     from core.config_parser import DEFAULT_BASE_PORT
 
-    pm = NS(auto_base_port=lambda: 20000, validate_base_port=lambda p: 1024 <= p <= 65000)
+    pm = NS(
+        auto_base_port=lambda: 20000,
+        validate_base_port=lambda p: 1024 <= p <= 65000,
+        check_port_range_availability=lambda p: [],  # block free
+    )
 
     # not auto -> unchanged
     r = _starter({}, pm)._resolve_auto_base_port_override({"BASE_PORT": "63100"})
@@ -86,3 +91,68 @@ def test_manifest_base_port_auto_parses_to_literal(tmp_path):
     manifest = _write_conditional_consumer(tmp_path, "    BASE_PORT: auto\n")
     cfg = load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
     assert cfg.env_overrides["BASE_PORT"] == "auto"
+
+def test_foreign_occupancy_re_resolves_own_occupancy_keeps():
+    """#727 composed-run finding: several consumers resolving `auto` at
+    different times can each persist the SAME first-free block. The keep rule
+    must distinguish ownership:
+      free                  → keep (durable)
+      occupied + ours up    → keep (warm restart)
+      occupied + not ours   → re-resolve to the next free block (self-heal)
+      docker unknowable     → keep (never surprise-move ports)"""
+    pm_busy = NS(
+        auto_base_port=lambda: 20100,
+        validate_base_port=lambda p: 1024 <= p <= 65000,
+        check_port_range_availability=lambda p: [20000, 20012],  # occupied
+    )
+    env = {"BASE_PORT": "20000", "PROJECT_NAME": "consumer-a"}
+
+    # occupied by a FOREIGN stack → re-resolve
+    r = _starter(env, pm_busy, own_containers=False)._resolve_auto_base_port_override(
+        {"BASE_PORT": "auto"}
+    )
+    assert r["BASE_PORT"] == "20100"
+
+    # occupied by OUR OWN containers (warm restart) → keep
+    r = _starter(env, pm_busy, own_containers=True)._resolve_auto_base_port_override(
+        {"BASE_PORT": "auto"}
+    )
+    assert r["BASE_PORT"] == "20000"
+
+    # occupied + foreign + NO free block anywhere → keep with warning, not crash
+    pm_full = NS(
+        auto_base_port=lambda: None,
+        validate_base_port=lambda p: True,
+        check_port_range_availability=lambda p: [20000],
+    )
+    r = _starter(env, pm_full, own_containers=False)._resolve_auto_base_port_override(
+        {"BASE_PORT": "auto"}
+    )
+    assert r["BASE_PORT"] == "20000"
+
+
+def test_ownership_probe_is_conservative_on_docker_errors(monkeypatch):
+    import start
+    import subprocess as sp
+
+    s = start.AtlasStarter.__new__(start.AtlasStarter)
+    s.config_parser = NS(parse_env_file=lambda: {"PROJECT_NAME": "x"})
+
+    monkeypatch.setattr(
+        start.subprocess, "run",
+        lambda *a, **k: (_ for _ in ()).throw(sp.SubprocessError("no docker")),
+    )
+    assert s._project_has_running_containers({}) is True  # conservative keep
+
+    monkeypatch.setattr(
+        start.subprocess, "run",
+        lambda *a, **k: NS(returncode=0, stdout="abc123\n"),
+    )
+    assert s._project_has_running_containers({}) is True  # containers up
+
+    monkeypatch.setattr(
+        start.subprocess, "run",
+        lambda *a, **k: NS(returncode=0, stdout=""),
+    )
+    assert s._project_has_running_containers({}) is False  # none of ours
+
