@@ -160,7 +160,10 @@ def test_jupyter_binary_ml_stack_uses_supported_security_baseline() -> None:
     assert "torchaudio==2.11.0" in requirements
     assert "nltk>=3.10.0" in requirements
     assert "torch-2.11.0+cpu.html" in requirements
-    assert "pyg_lib==0.7.0" in requirements
+    # #776: 0.7.0 does not exist on the torch-2.11 index (only 0.6.0, and
+    # only with x86_64 wheels) — an unsatisfiable pin is not a security floor,
+    # it is a broken cold build. The platform marker is part of the contract.
+    assert 'pyg_lib==0.6.0; platform_machine == "x86_64"' in requirements
     assert "torch-spline-conv" not in requirements
     assert "torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0" in dockerfile
     assert "--index-url https://download.pytorch.org/whl/cpu" in dockerfile
