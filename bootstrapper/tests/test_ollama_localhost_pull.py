@@ -36,6 +36,19 @@ def test_declared_models_union_order_dedup():
 def test_host_base_url_default_and_override():
     assert ol.host_base_url({}) == "http://localhost:11434"
     assert ol.host_base_url({"OLLAMA_LOCALHOST_PORT": "21434"}) == "http://localhost:21434"
+    # A malformed port must degrade to the default, never crash the launch
+    # or the doctor with http.client.InvalidURL (hardening).
+    assert ol.host_base_url({"OLLAMA_LOCALHOST_PORT": "abc"}) == "http://localhost:11434"
+
+
+def test_list_host_tags_swallows_invalid_url(monkeypatch):
+    import http.client
+
+    def boom(*a, **k):
+        raise http.client.InvalidURL("nonnumeric port")
+
+    monkeypatch.setattr(ol.urllib.request, "urlopen", boom)
+    assert ol.list_host_tags("http://localhost:abc") is None
 
 
 # ── /api/tags listing ────────────────────────────────────────────────

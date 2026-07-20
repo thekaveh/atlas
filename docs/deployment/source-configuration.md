@@ -50,7 +50,7 @@ This matrix lists every `*_SOURCE` variable currently exposed in `.env.example`.
 | `CELERY_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Redis-backed async backend worker tier plus Flower monitor for long-running memory/research-style jobs. |
 | `SUPAVISOR_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Internal-only Supabase Postgres transaction pooler for selected app clients; no Kong alias or host slot-allocated port in v1. |
 | `MCP_SERVERS_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Curated MCP package exposing read-oriented Postgres, Neo4j, and SearXNG tools. Hard-gated on Neo4j and SearXNG. |
-| `BLENDER_MCP_SOURCE` | `disabled` | `localhost`, `disabled` | User-facing optional | Host-only Blender MCP bridge for creative 3D experiments. Development-only, disabled by default, and intentionally not exposed through Kong. |
+| `BLENDER_MCP_SOURCE` | `disabled` | `localhost`, `managed-localhost`, `disabled` | User-facing optional | Host-only Blender MCP bridge for creative 3D experiments. Development-only, disabled by default, and intentionally not exposed through Kong. |
 | `LANGFUSE_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | LLM trace, prompt, eval, latency, and cost observability for LiteLLM-routed calls. Hard-gated on MinIO. |
 | `OTEL_COLLECTOR_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Internal-only OpenTelemetry ingest for backend/LiteLLM traces; requires `TEMPO_SOURCE=container` when enabled. No Kong route in v1. |
 | `TEMPO_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Internal-only Grafana Tempo trace store with local development storage and Grafana datasource provisioning. No Kong route in v1. |
@@ -117,7 +117,7 @@ These services can run on your host machine instead of in containers:
 | **TTS Provider** | `TTS_PROVIDER_SOURCE` | `chatterbox-localhost` | Run Chatterbox voice cloning natively (macOS MPS / Linux) |
 | **Document Processor** | `DOC_PROCESSOR_SOURCE` | `docling-localhost` | Use a host Docling service |
 | **Apache Tika** | `TIKA_SOURCE` | `tika-localhost` | Use a host Tika server for long-tail fallback extraction |
-| **Blender MCP** | `BLENDER_MCP_SOURCE` | `localhost` | Use a host-installed Blender MCP add-on/server without exposing it through Kong |
+| **Blender MCP** | `BLENDER_MCP_SOURCE` | `localhost`, `managed-localhost` | Use a host-installed Blender MCP add-on/server without exposing it through Kong. `managed-localhost` runs an Atlas-provisioned headless Blender + MCP bridge — see `services/blender-mcp/README.md`. |
 
 ### 3.2. Container-Only or Stack-Managed Services
 
@@ -136,12 +136,12 @@ Some features within services are controlled by feature flags rather than SOURCE
 The interactive wizard's per-provider multiselects persist as comma-separated env vars in `.env`. On each `docker compose up`:
 
 - **`litellm-init`** calls `model_resolver.active_models(env)` — which reads `services/ollama/models.yaml`, `services/litellm/models.yaml`, and the `*_USER_MODELS` vars below — to render `volumes/litellm/config.yaml`. No DB query involved.
-- **`ollama-pull`** pre-pulls Ollama models (container sources only) using the same resolved active set.
+- **`ollama-pull`** pre-pulls Ollama models (container sources only) using the same resolved active set. For `ollama-localhost`, the bootstrapper pulls the same declared union onto the host daemon at every start (#757) — present tags skip, missing ones stream, per-tag failures warn without aborting.
 
 | Variable | Set by | Default | Notes |
 |---|---|---|---|
-| `OLLAMA_USER_MODELS` | Single unified Ollama models multiselect (source-aware; localhost rows are badged `[pulled]` / `[library]`). | Default-active baseline (qwen3.6:latest, qwen3-embedding:0.6b, nomic-embed-text). | Consumed by `model_resolver` for every Ollama source. Pulled by `ollama-pull` only for container sources. |
-| `OLLAMA_CUSTOM_MODELS` | Ollama "additional models to pull" free-text step. | Empty. | Comma-separated. Pulled by `ollama-pull` for container sources only. |
+| `OLLAMA_USER_MODELS` | Single unified Ollama models multiselect (source-aware; localhost rows are badged `[pulled]` / `[library]`). | Default-active baseline (qwen3.6:latest, qwen3-embedding:0.6b, nomic-embed-text). | Consumed by `model_resolver` for every Ollama source. Pulled by `ollama-pull` for container sources; for `ollama-localhost` the bootstrapper pulls the declared set onto the host daemon at start (#757). |
+| `OLLAMA_CUSTOM_MODELS` | Ollama "additional models to pull" free-text step. | Empty. | Comma-separated. Pulled by `ollama-pull` for container sources; for `ollama-localhost` the bootstrapper pulls them onto the host daemon at start (#757). |
 | `OPENAI_USER_MODELS` | OpenAI multiselect (live `/v1/models` fetch). | Curated default-active intersection (gpt-5, gpt-5-mini, text-embedding-3-large) when key valid. | Requires `OPENAI_API_KEY`. |
 | `ANTHROPIC_USER_MODELS` | Anthropic multiselect (live `/v1/models` fetch). | Curated default-active intersection (claude-opus-4-7, claude-sonnet-4-6) when key valid. | Requires `ANTHROPIC_API_KEY`. |
 | `OPENROUTER_USER_MODELS` | OpenRouter multiselect (live `/api/v1/models` fetch). | `openrouter/auto` when reachable. | Requires `OPENROUTER_API_KEY`. |
@@ -186,10 +186,10 @@ Setup for localhost:
 # Install Ollama
 curl -fsSL https://ollama.com/install.sh | sh
 
-# Start Ollama service
+# Start Ollama service — the only required step
 ollama serve &
 
-# Pull required models
+# Optional pre-warm — Atlas pulls the declared tags automatically at start (#757)
 ollama pull qwen3.6:latest
 ollama pull qwen3-embedding:0.6b
 ```
@@ -1051,14 +1051,12 @@ docker stats
 
 ## 10. Deployment profile (`--profile prod`)
 
-Beyond the per-service `*_SOURCE` variables above, a small set of global variables is managed by the **deployment profile**. `./start.sh --profile prod` (or the wizard's profile step) writes them; `--profile default` clears the prod-managed bind IP. They are not `*_SOURCE` toggles, so they don't appear in the §2 matrix.
+The deployment profile is now a **declarative bundle** defined in `bootstrapper/profiles.yml` (#755). Two platform bundles ship — `default` and `prod` (`dev` is accepted everywhere as an alias for `default`) — and each declares three fields:
 
-| Variable | Default | Set by `--profile prod` | Meaning |
-|----------|---------|-------------------------|---------|
-| `HOST_BIND_IP` | _(empty)_ | `127.0.0.1:` | Host-interface prefix on every published port. Empty → `0.0.0.0` (dev); `127.0.0.1:` → ports reachable only from the host, with the public edge (Cloudflare Tunnel / reverse proxy) fronting Kong. |
-| `LOG_MAX_SIZE` | `10m` | `10m` | Per-container json-file log max size (Docker logging option). |
-| `LOG_MAX_FILE` | `3` | `3` | Per-container json-file log file count. |
+- **`sources`** — per-service source selections, each either a concrete option id (e.g. `prod` selects `prometheus: container` + `grafana: container`) or the host-adaptive `auto` sentinel (#753).
+- **`env`** — profile-managed values (e.g. `prod`'s `LOG_MAX_SIZE=10m` / `LOG_MAX_FILE=3`), applied only when the variable is unset or empty — an operator-set value is kept.
+- **`host_bind_ip`** — the published-port interface prefix: `prod` asserts `127.0.0.1:` (ports reachable only from the host, with the public edge fronting Kong); `default` leaves ports on `0.0.0.0`.
 
-Under `--profile prod`, `PROMETHEUS_SOURCE` and `GRAFANA_SOURCE` are also defaulted to `container` (observability on) unless you set them explicitly. Per-service resource limits (`*_MEMORY_LIMIT` / `*_CPU_LIMIT`) are always-on `.env` defaults, independent of the profile. See [reusing-atlas.md](reusing-atlas.md) and the `--profile prod` line in the README for the full behavior.
+`./start.sh --profile prod` (or the wizard's profile step) applies the bundle. The active profile is tracked via the `ATLAS_PROFILE_APPLIED` marker, and a profile **switch** first resets the prior profile's asserted sources to their service defaults, so transitions leave no source residue. An explicit `--<svc>-source` CLI flag passed on the current run always wins over the profile's selection. Consumers may pin `profile:` and override individual fields via `profile_overrides:` in `atlas.consumer.yml` — see [reusing-atlas.md](reusing-atlas.md) §6.1 for the consumer view. Per-service resource limits (`*_MEMORY_LIMIT` / `*_CPU_LIMIT`) remain always-on `.env` defaults, independent of the profile.
 
 For more troubleshooting help, see [../quick-start/troubleshooting.md](../quick-start/troubleshooting.md).
