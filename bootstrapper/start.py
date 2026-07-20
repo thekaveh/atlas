@@ -2196,6 +2196,9 @@ class AtlasStarter:
             if not self._finalize_managed_vllm_metal():
                 self.rollback_managed_host_processes()
                 return False
+            if not self._finalize_managed_blender_mcp():
+                self.rollback_managed_host_processes()
+                return False
             # #757: non-fatal — a host daemon the user hasn't started (or a
             # typo'd tag) must never abort the stack; it only warns.
             self._finalize_ollama_localhost_models()
@@ -2237,6 +2240,50 @@ class AtlasStarter:
     def commit_managed_host_processes(self) -> None:
         """Release rollback ownership after the stack has converged."""
         self._managed_hosts_started_this_run.clear()
+
+    def _finalize_managed_blender_mcp(self) -> bool:
+        """Bring up the Atlas-managed headless Blender + MCP bridge (#759).
+
+        ``BLENDER_MCP_SOURCE=managed-localhost`` provisions the pinned add-on
+        + launcher and runs `blender --background` with the main-thread queue
+        shim, so composition automation needs no GUI and no manual Connect
+        click. Fatal on failure (the user explicitly chose this source);
+        no-op for localhost (user-run GUI) and disabled.
+        """
+        from services.blender_mcp_manager import BlenderMcpError, manager_from_env
+
+        env = self.config_parser.parse_env_file()
+        if (env.get("BLENDER_MCP_SOURCE", "") or "").strip() != "managed-localhost":
+            return True
+        manager = manager_from_env(env)
+        self.banner.show_status_message(
+            "  • BLENDER_MCP_SOURCE=managed-localhost — provisioning the pinned "
+            "blender-mcp add-on and launching headless Blender…",
+            "info",
+        )
+        try:
+            status, created = manager.ensure_running()
+        except BlenderMcpError as exc:
+            self.banner.show_status_message(
+                f"Managed Blender MCP bridge could not start: {exc}", "error"
+            )
+            return False
+        if created:
+            self._managed_hosts_started_this_run.append(("Blender MCP", manager))
+        health = manager.health()
+        if health.get("reachable"):
+            self.banner.show_status_message(
+                f"  • Blender MCP bridge healthy on tcp://{manager.bind}:{manager.port} "
+                f"(scene objects: {health.get('objects')})",
+                "info",
+            )
+        else:
+            self.banner.show_status_message(
+                "  • Blender MCP bridge started but not yet answering commands — "
+                "first load can lag; check `./start.sh blender-mcp health`.",
+                "warning",
+            )
+        return True
 
     def _finalize_ollama_localhost_models(self) -> None:
         """Pull declared models onto the host Ollama for ``ollama-localhost``
@@ -4766,6 +4813,24 @@ def _doctor_check_profile(starter: "AtlasStarter") -> dict:
     )
 
 
+def _doctor_check_blender_mcp(starter: "AtlasStarter") -> dict:
+    """Preflight the managed Blender MCP bridge (#759) when selected."""
+    env = starter.config_parser.parse_env_file()
+    if (env.get("BLENDER_MCP_SOURCE", "") or "").strip() != "managed-localhost":
+        return _doctor_result(
+            "blender-mcp", "pass", "BLENDER_MCP_SOURCE is not managed-localhost."
+        )
+    from services.blender_mcp_manager import manager_from_env
+
+    try:
+        result = manager_from_env(env).preflight()
+    except Exception as exc:  # pragma: no cover - defensive
+        return _doctor_result("blender-mcp", "skipped", f"Could not preflight: {exc}")
+    status = {"ok": "pass", "warn": "warn", "fail": "fail"}.get(result.status, "warn")
+    summary = "; ".join(f"{c['name']}: {c['detail']}" for c in result.checks)
+    return _doctor_result("blender-mcp", status, summary, details=result.to_dict())
+
+
 DOCTOR_CHECKS = [
     _doctor_check_consumer_manifests,
     _doctor_check_base_port,
@@ -4784,6 +4849,7 @@ DOCTOR_CHECKS = [
     _doctor_check_lightrag_rerank_adapter,
     _doctor_check_comfyui_mps,
     _doctor_check_vllm_metal,
+    _doctor_check_blender_mcp,
     _doctor_check_endpoints,
     _doctor_check_submodule_clean,
 ]
@@ -4938,8 +5004,10 @@ def _parse_base_port_option(ctx, param, value):
               type=click.Choice(['container', 'disabled'], case_sensitive=False),
               help='Override MCP_SERVERS_SOURCE')
 @click.option('--blender-mcp-source',
-              type=click.Choice(['localhost', 'disabled'], case_sensitive=False),
-              help='Override BLENDER_MCP_SOURCE — host-installed Blender MCP bridge.')
+              type=click.Choice(['localhost', 'managed-localhost', 'disabled'], case_sensitive=False),
+              help='Override BLENDER_MCP_SOURCE — host Blender MCP bridge: '
+                   'localhost (user-run GUI) or managed-localhost '
+                   '(Atlas-provisioned headless, #759).')
 @click.option('--jupyterhub-source',
               type=click.Choice(['container', 'disabled'], case_sensitive=False),
               help='Override JUPYTERHUB_SOURCE')
@@ -6319,6 +6387,92 @@ def comfyui_mps_provision(verify: bool) -> None:
         for failure in result.failed:
             print(f"✗ {failure}")
         sys.exit(1)
+
+@main.group("blender-mcp")
+def blender_mcp_group() -> None:
+    """Manage the Atlas-managed headless Blender + MCP bridge (#759).
+
+    BLENDER_MCP_SOURCE=managed-localhost provisions the pinned blender-mcp
+    add-on + a headless launcher and runs `blender --background` with a
+    main-thread pump, so MCP composition automation needs no GUI. A normal
+    ./start.sh with that source runs install+start automatically; these
+    commands are the manual lifecycle. Loopback-bound by default —
+    execute_code runs arbitrary Python inside Blender."""
+
+
+def _blender_mcp_manager():
+    starter = AtlasStarter()
+    env = starter.config_parser.parse_env_file()
+    from services.blender_mcp_manager import manager_from_env
+
+    return manager_from_env(env)
+
+
+@blender_mcp_group.command("preflight")
+def blender_mcp_preflight() -> None:
+    """Read-only host probe (Blender binary, bind policy, add-on pin, port)."""
+    result = _blender_mcp_manager().preflight()
+    print(json.dumps(result.to_dict(), indent=2))
+    if not result.ok:
+        sys.exit(1)
+
+
+@blender_mcp_group.command("install")
+def blender_mcp_install() -> None:
+    """Provision the pinned add-on (sha256-verified) + headless launcher."""
+    from services.blender_mcp_manager import BlenderMcpError
+
+    manager = _blender_mcp_manager()
+    try:
+        manager.install()
+    except BlenderMcpError as exc:
+        print(f"install failed: {exc}")
+        sys.exit(1)
+    print(f"provisioned {manager.addon_path} + launcher (ref {manager.addon_ref[:12]})")
+
+
+@blender_mcp_group.command("start")
+def blender_mcp_start() -> None:
+    """Launch the headless bridge (installs first if needed)."""
+    from services.blender_mcp_manager import BlenderMcpError
+
+    manager = _blender_mcp_manager()
+    try:
+        manager.install()
+        status = manager.start()
+    except BlenderMcpError as exc:
+        print(f"start failed: {exc}")
+        sys.exit(1)
+    print(json.dumps(status.to_dict(), indent=2))
+
+
+@blender_mcp_group.command("stop")
+def blender_mcp_stop() -> None:
+    """Stop the managed bridge process."""
+    print("stopped" if _blender_mcp_manager().stop() else "could not stop (see log)")
+
+
+@blender_mcp_group.command("status")
+def blender_mcp_status() -> None:
+    """Pid/port status of the managed bridge."""
+    print(json.dumps(_blender_mcp_manager().status().to_dict(), indent=2))
+
+
+@blender_mcp_group.command("health")
+def blender_mcp_health() -> None:
+    """Live JSON round-trip (get_scene_info) through the bridge socket."""
+    health = _blender_mcp_manager().health()
+    print(json.dumps(health, indent=2))
+    if not health.get("reachable"):
+        sys.exit(1)
+
+
+@blender_mcp_group.command("remove")
+def blender_mcp_remove() -> None:
+    """Stop the bridge and delete the state dir (add-on, launcher, logs)."""
+    _blender_mcp_manager().remove()
+    print("removed")
+
 
 
 

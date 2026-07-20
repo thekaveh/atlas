@@ -36,7 +36,12 @@ def test_blender_mcp_manifest_is_disabled_virtual_localhost_profile() -> None:
     assert manifest["sources"]["options"] == [
         {
             "id": "localhost",
-            "label": "Localhost (host Blender MCP add-on + server)",
+            "label": "Localhost (host Blender MCP add-on + server, user-run GUI)",
+            "profiles": ["default"],
+        },
+        {
+            "id": "managed-localhost",
+            "label": "Host (Atlas-managed headless Blender + MCP bridge)",
             "profiles": ["default"],
         },
         {"id": "disabled", "label": "Disabled"},
