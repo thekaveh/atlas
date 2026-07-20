@@ -1003,9 +1003,12 @@ def test_doctor_base_port_warns_on_default_squat():
     assert r["status"] == "warn"
 
 
-def test_doctor_unpullable_models_warns_on_localhost_sources():
-    """#718: doctor warns when declared models can't be pulled for the source."""
+def test_doctor_unpullable_models_warns_on_localhost_sources(monkeypatch):
+    """#718 (+#757): the ollama branch now presence-checks the host daemon —
+    mocked here so the test is hermetic (CI has no daemon; a dev machine's
+    real daemon would make the result environment-dependent)."""
     import start as start_module
+    import services.ollama_localhost as ollama_localhost
 
     class _CP:
         def __init__(self, env):
@@ -1018,13 +1021,36 @@ def test_doctor_unpullable_models_warns_on_localhost_sources():
         def __init__(self, env):
             self.config_parser = _CP(env)
 
-    # ollama models under a host-run source -> warn + pull guidance
+    # declared tag missing from a reachable host daemon -> warn + pull guidance
+    monkeypatch.setattr(ollama_localhost, "list_host_tags", lambda base_url, **kw: set())
     r = start_module._doctor_check_unpullable_models(_Starter({
         "OLLAMA_CUSTOM_MODELS": "mistral-small3.2:24b",
         "LLM_PROVIDER_SOURCE": "ollama-localhost",
     }))
     assert r["status"] == "warn"
     assert "ollama pull mistral-small3.2:24b" in r["message"]
+
+    # declared tag present on the host daemon -> pass (#757: warn → pass)
+    monkeypatch.setattr(
+        ollama_localhost,
+        "list_host_tags",
+        lambda base_url, **kw: {"mistral-small3.2:24b"},
+    )
+    r = start_module._doctor_check_unpullable_models(_Starter({
+        "OLLAMA_CUSTOM_MODELS": "mistral-small3.2:24b",
+        "LLM_PROVIDER_SOURCE": "ollama-localhost",
+    }))
+    assert r["status"] == "pass"
+
+    # unreachable daemon -> warn pointing at `ollama serve` + next start
+    monkeypatch.setattr(ollama_localhost, "list_host_tags", lambda base_url, **kw: None)
+    r = start_module._doctor_check_unpullable_models(_Starter({
+        "OLLAMA_CUSTOM_MODELS": "mistral-small3.2:24b",
+        "LLM_PROVIDER_SOURCE": "ollama-localhost",
+    }))
+    assert r["status"] == "warn"
+    assert "not reachable" in r["message"]
+    monkeypatch.setattr(ollama_localhost, "list_host_tags", lambda base_url, **kw: set())
 
     # ollama models under a container source -> pass
     r = start_module._doctor_check_unpullable_models(_Starter({

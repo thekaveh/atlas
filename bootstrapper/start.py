@@ -2196,6 +2196,9 @@ class AtlasStarter:
             if not self._finalize_managed_vllm_metal():
                 self.rollback_managed_host_processes()
                 return False
+            # #757: non-fatal — a host daemon the user hasn't started (or a
+            # typo'd tag) must never abort the stack; it only warns.
+            self._finalize_ollama_localhost_models()
         except BaseException:
             self.rollback_managed_host_processes()
             raise
@@ -2234,6 +2237,47 @@ class AtlasStarter:
     def commit_managed_host_processes(self) -> None:
         """Release rollback ownership after the stack has converged."""
         self._managed_hosts_started_this_run.clear()
+
+    def _finalize_ollama_localhost_models(self) -> None:
+        """Pull declared models onto the host Ollama for ``ollama-localhost``
+        (#757) — the host analog of the ``ollama-pull`` init container, so a
+        consumer's ``model_sidecars.ollama`` declaration provisions identically
+        across sources. Idempotent (present tags skip; Ollama verifies layers
+        natively) and strictly non-fatal: an unreachable daemon or a failed tag
+        warns and moves on. Pulled models surface in LiteLLM ``/v1/models``
+        without a restart via OLLAMA_AUTO_IMPORT_LOCAL_MODELS (default true).
+        """
+        from services.ollama_localhost import declared_models, pull_declared_models
+
+        env = self.config_parser.parse_env_file()
+        if (env.get("LLM_PROVIDER_SOURCE", "") or "").strip() != "ollama-localhost":
+            return
+        declared = declared_models(env)
+        if not declared:
+            return
+        self.banner.show_status_message(
+            f"  • LLM_PROVIDER_SOURCE=ollama-localhost — ensuring {len(declared)} "
+            f"declared model tag(s) on the host Ollama (present tags skip)…",
+            "info",
+        )
+        result = pull_declared_models(
+            env, log=lambda m: self.banner.show_status_message(f"    {m}", "info")
+        )
+        if not result.reachable:
+            self.banner.show_status_message(
+                "    Host Ollama is not reachable — start it (`ollama serve`) and "
+                "re-run ./start.sh to provision the declared models.",
+                "warning",
+            )
+            return
+        if result.failed:
+            for failure in result.failed:
+                self.banner.show_status_message(f"    ✗ {failure}", "warning")
+            self.banner.show_status_message(
+                "  • Some Ollama models could not be pulled — the stack starts "
+                "anyway; fix the tag(s) and re-run ./start.sh.",
+                "warning",
+            )
 
     def _finalize_managed_comfyui_mps(self) -> bool:
         """Bring up the Atlas-managed Apple-Silicon/Metal ComfyUI host (#335).
@@ -3974,16 +4018,37 @@ def _doctor_check_unpullable_models(starter: "AtlasStarter") -> dict:
     env = starter.config_parser.parse_env_file()
     warnings: list[str] = []
 
-    ollama_models = (env.get("OLLAMA_CUSTOM_MODELS", "") or "").strip()
     llm_source = (env.get("LLM_PROVIDER_SOURCE", "") or "").strip()
-    if ollama_models and llm_source.endswith("-localhost"):
-        pulls = " ".join(m.strip() for m in ollama_models.split(",") if m.strip())
-        warnings.append(
-            f"OLLAMA_CUSTOM_MODELS ({ollama_models}) is declared but "
-            f"LLM_PROVIDER_SOURCE={llm_source} is host-run — Atlas only pulls for "
-            f"ollama-container-* sources, so nothing is provisioned. Pull on the "
-            f"host: `ollama pull {pulls}`."
+    if llm_source == "ollama-localhost":
+        # #757: Atlas provisions the host daemon now. Presence of the declared
+        # tag set (OLLAMA_USER_MODELS ∪ OLLAMA_CUSTOM_MODELS — the same union
+        # the container pull uses) decides pass vs. actionable warn, naming
+        # each missing tag (the host analogue of the #718 container lint).
+        from services.ollama_localhost import (
+            declared_models,
+            host_base_url,
+            list_host_tags,
         )
+
+        declared = declared_models(env)
+        if declared:
+            present = list_host_tags(host_base_url(env))
+            if present is None:
+                warnings.append(
+                    f"Host Ollama at {host_base_url(env)} is not reachable — the "
+                    f"{len(declared)} declared model tag(s) will be pulled on the "
+                    f"next ./start.sh once the daemon is running (`ollama serve`)."
+                )
+            else:
+                normalized = {t if ":" in t else f"{t}:latest" for t in declared}
+                missing = sorted(normalized - present)
+                if missing:
+                    warnings.append(
+                        f"Declared Ollama model(s) missing from the host daemon: "
+                        f"{', '.join(missing)}. Atlas pulls these on the next "
+                        f"./start.sh (or pull now: `ollama pull "
+                        f"{' && ollama pull '.join(missing)}`)."
+                    )
 
     comfy_models = (env.get("COMFYUI_USER_MODELS", "") or "").strip()
     comfy_source = (env.get("COMFYUI_SOURCE", "") or "").strip()
