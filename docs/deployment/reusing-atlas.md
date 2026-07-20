@@ -267,10 +267,12 @@ and fail CI if the pinned Atlas is far behind `main` (pin-freshness).
 - **Default-port collision.** Leaving `BASE_PORT=63000` under a non-default
   project collides with a bare `atlas` checkout — host ports aren't
   project-scoped. Use `--base-port auto` (`doctor` warns otherwise).
-- **Declared-but-unpullable models.** `model_sidecars.ollama` /
-  `COMFYUI_USER_MODELS` are only provisioned for **container** sources; under
-  `ollama-localhost` / `managed-localhost-mps` you must pull on the host (`doctor`
-  warns).
+- **Declared models on host sources.** `model_sidecars.ollama` /
+  `COMFYUI_USER_MODELS` now provision on host sources too: `managed-localhost-mps`
+  downloads the resolved ComfyUI set (#754) and `ollama-localhost` pulls the
+  declared tags onto the host daemon (#757) — both idempotent, at every start.
+  Only an **unmanaged** ComfyUI `localhost` install remains hands-off; `doctor`
+  names anything declared-but-missing.
 - **Committed-value clobber.** A value committed in the manifest re-applies every
   start and overwrites an operator's temporary `.env` edit — keep human-tuned
   values (e.g. model lists) host-local, and commit only identity (`project_name`,
