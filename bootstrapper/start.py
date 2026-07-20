@@ -836,7 +836,32 @@ class AtlasStarter:
             and current_int != DEFAULT_BASE_PORT
             and self.port_manager.validate_base_port(current_int)
         ):
-            resolved = current_int  # durable: keep this consumer's prior block
+            # Durable keep — but only when the block is actually OURS to keep.
+            # Several consumers resolving `auto` at different times (while the
+            # others are down) can each persist the SAME "first free" block;
+            # the first to start binds it and every later stack must re-resolve
+            # or refuse to boot (#727 composed-run finding). Distinguish:
+            #   block free                     → keep (durable, incl. cold)
+            #   occupied + our containers up   → keep (warm restart)
+            #   occupied + no containers of ours → FOREIGN stack: re-resolve
+            in_use = self.port_manager.check_port_range_availability(current_int)
+            if not in_use or self._project_has_running_containers(overrides):
+                resolved = current_int  # durable: keep this consumer's block
+            else:
+                self.banner.show_status_message(
+                    f"BASE_PORT=auto: persisted block {current_int} is bound by "
+                    f"another stack on this host — re-resolving to a free block "
+                    f"(the prior block was not ours to keep).",
+                    "warning",
+                )
+                resolved = self.port_manager.auto_base_port()
+                if resolved is None:
+                    self.banner.show_status_message(
+                        "BASE_PORT=auto could not find a free port block; keeping "
+                        f"{current_int} (expect bind conflicts).",
+                        "warning",
+                    )
+                    resolved = current_int
         else:
             resolved = self.port_manager.auto_base_port()
             if resolved is None:
@@ -849,6 +874,30 @@ class AtlasStarter:
         merged = dict(overrides)
         merged["BASE_PORT"] = str(resolved)
         return merged
+
+    def _project_has_running_containers(self, overrides: Dict[str, str]) -> bool:
+        """True when this consumer's compose project has containers up — the
+        warm-restart signal that its persisted BASE_PORT block is genuinely
+        its own. Conservative on any docker error: returns True (keep the
+        block; never surprise-move ports when ownership can't be verified)."""
+        project = (
+            (overrides.get("PROJECT_NAME") or "").strip()
+            or (self.config_parser.parse_env_file().get("PROJECT_NAME", "") or "").strip()
+            or DEFAULT_PROJECT_NAME
+        )
+        try:
+            probe = subprocess.run(
+                [
+                    "docker", "ps", "-q",
+                    "--filter", f"label=com.docker.compose.project={project}",
+                ],
+                capture_output=True, text=True, timeout=10, check=False,
+            )
+            if probe.returncode != 0:
+                return True  # docker unreachable → conservative keep
+            return bool(probe.stdout.strip())
+        except (OSError, subprocess.SubprocessError):
+            return True  # conservative keep
 
     def _resolve_auto_source_overrides(
         self, overrides: Dict[str, str], *, quiet: bool = False
