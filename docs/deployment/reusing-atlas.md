@@ -138,6 +138,23 @@ Re-pin on a cadence: bump the submodule pointer to a newer reviewed commit, then
 re-run your CI gates (step 8). A stale pin misses upstream fixes (including
 security fixes); a moving pin makes builds irreproducible.
 
+**Stale local images are rebuilt automatically after a pin bump (#506).** An
+in-place submodule upgrade changes the Atlas source but leaves your previously
+built local images (`<project>-backend:local`, etc.) untouched — and
+`docker compose up --force-recreate` recreates *containers* from those stale
+images, so without a rebuild the backend can run last week's code against this
+week's compose/env (e.g. a pre-Celery image → `ModuleNotFoundError`). Atlas now
+detects this: it records the source commit its local images were last built at
+(in a gitignored `.atlas-build-state` marker) and, when the commit has changed,
+a normal `./start.sh` adds `--build` so stale images rebuild **before**
+containers are recreated. The three paths behave as expected:
+
+- **Fresh clone** — no marker yet → images build on first start.
+- **Unchanged restart** — commit matches the marker → no rebuild, fast start (buildkit still caches, so a rebuild that does run only touches contexts that actually changed).
+- **Submodule upgrade** — commit differs → stale local images rebuild automatically; no manual `docker compose build` needed.
+
+(Uncommitted local edits to a Dockerfile under the same commit aren't auto-detected — rebuild those with `./start.sh --cold` or an explicit `docker compose build`.)
+
 **2. Author `atlas.consumer.yml`.** One committed manifest is the single source
 of truth for how you extend Atlas — consumed with `--consumer` (step 4). A
 complete example:
