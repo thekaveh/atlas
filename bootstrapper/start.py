@@ -5739,6 +5739,21 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
         #      the wizard's _selections_to_args already handles them, and
         #      writing "disabled" here would incorrectly cause the wizard to
         #      be skipped (source_args would look non-empty).
+        # #783: SOURCE vars the consumer manifest declares in env.values —
+        # declared intent must survive the track force-disable (a manifest's
+        # MINIO_SOURCE: container was silently reverted to disabled when the
+        # track excluded minio, forcing consumers into workaround flags).
+        consumer_declared_source_keys: frozenset = frozenset()
+        try:
+            _cc = starter.config_parser.load_consumer_config()
+            consumer_declared_source_keys = frozenset(
+                var.lower()
+                for var in (_cc.env_overrides or {})
+                if var.endswith("_SOURCE") and var.lower() in source_args
+            )
+        except Exception:  # noqa: BLE001 — malformed manifests surface via doctor
+            pass
+
         overridden_services: set = set()
         if track is not None:
             try:
@@ -5753,6 +5768,7 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
                     track_key=track,
                     registry=_rg2,
                     force_disable=not wizard_requested,
+                    consumer_declared=consumer_declared_source_keys,
                 )
         starter.active_track = track
         starter.active_track_overrides = frozenset(overridden_services)
@@ -5895,6 +5911,7 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
                         track_key=track,
                         registry=_reg,
                         force_disable=True,
+                        consumer_declared=consumer_declared_source_keys,
                     )
                 except Exception as exc:  # noqa: BLE001
                     # Synthesis is the only thing enforcing the --track
