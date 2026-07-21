@@ -125,3 +125,67 @@ def test_explicit_off_track_disabled_flag_is_not_reported_as_enabling_override()
 
     assert source_args["comfyui_source"] == "disabled"
     assert "comfyui" not in overridden_services
+
+
+def test_consumer_declared_source_survives_track_force_disable():
+    """#783: a SOURCE var the consumer manifest declares in env.values is
+    exempt from the off-track force-disable — declared intent beats the track
+    default (daydreams' MINIO_SOURCE: container was silently reverted to
+    disabled under gen-ai-creative, forcing a --minio-source workaround flag).
+    An explicit CLI value still wins over both."""
+    reg = load_tracks()
+    source_args = {
+        "minio_source": None,       # off-track for gen-ai-creative? verified below
+        "airflow_source": None,     # off-track, NOT consumer-declared
+    }
+    track = reg.by_key["gen-ai-creative"]
+    assert not is_in_track(track, "minio", always_on=reg.always_on), (
+        "precondition: minio must be out of gen-ai-creative for this test"
+    )
+
+    overridden = synthesize_track_source_args(
+        source_args,
+        track_key="gen-ai-creative",
+        registry=reg,
+        force_disable=True,
+        consumer_declared=frozenset({"minio_source"}),
+    )
+
+    assert source_args["minio_source"] is None      # NOT filled with disabled
+    assert source_args["airflow_source"] == "disabled"  # undeclared: unchanged behavior
+    assert "minio" in overridden                    # advisory surface records it
+
+
+def test_consumer_declared_does_not_shadow_explicit_cli_disable():
+    """--minio-source disabled on the CLI wins even when the manifest declares
+    the var (per-run operator intent beats committed intent)."""
+    reg = load_tracks()
+    source_args = {"minio_source": "disabled"}
+
+    overridden = synthesize_track_source_args(
+        source_args,
+        track_key="gen-ai-creative",
+        registry=reg,
+        force_disable=True,
+        consumer_declared=frozenset({"minio_source"}),
+    )
+
+    assert source_args["minio_source"] == "disabled"
+    assert overridden == set()
+
+
+def test_consumer_declared_in_track_service_is_noop():
+    """Declaring an in-track service changes nothing (membership short-circuits)."""
+    reg = load_tracks()
+    source_args = {"weaviate_source": None}
+
+    overridden = synthesize_track_source_args(
+        source_args,
+        track_key="gen-ai-rag",
+        registry=reg,
+        force_disable=True,
+        consumer_declared=frozenset({"weaviate_source"}),
+    )
+
+    assert source_args["weaviate_source"] is None
+    assert overridden == set()
