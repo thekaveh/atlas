@@ -1772,7 +1772,12 @@ class WizardScreen(Screen):
 
             self._write_status("🚀 Starting containers…",
                                style="bold cyan", source="pipeline")
-            rc = await self._run_compose(["up", "-d", "--force-recreate", *(targets or [])])
+            # #506: rebuild stale local images after an in-place source upgrade
+            # on the warm TUI launch too (the cold path already builds above);
+            # `source_build_args()` is empty when the source commit is unchanged.
+            # Kept on one line — the pipeline-step guards locate this call by the
+            # literal `self._run_compose(["up"` substring.
+            rc = await self._run_compose(["up", "-d", "--force-recreate", *self._starter.docker_manager.source_build_args(), *(targets or [])])
             if rc != 0:
                 self._write_status("❌ Start failed — capturing per-service logs to launch log",
                                    style="bold red", source="pipeline")
@@ -1784,6 +1789,7 @@ class WizardScreen(Screen):
                 )
                 self._mark_launch_failed()
                 return
+            self._starter.docker_manager.mark_source_built()
             ok = await asyncio.to_thread(
                 starter.verify_one_shot_init_containers,
                 lambda msg, level="info": self._safe_log(
