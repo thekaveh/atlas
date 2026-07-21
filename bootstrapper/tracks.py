@@ -314,6 +314,7 @@ def synthesize_track_source_args(
     track_key: str | None,
     registry: TrackRegistry,
     force_disable: bool,
+    consumer_declared: frozenset[str] | set[str] = frozenset(),
 ) -> set[str]:
     """Apply track membership to Click-style ``*_source`` argument dicts.
 
@@ -321,6 +322,14 @@ def synthesize_track_source_args(
     ``force_disable`` is true, off-track services without an explicit value are
     filled with ``"disabled"``. Wizard mode passes ``force_disable=False`` so
     it can record overrides without making source_args look CLI-configured.
+
+    ``consumer_declared`` (#783): cli-style keys (e.g. ``minio_source``) whose
+    SOURCE var the consumer manifest explicitly declares in ``env.values``.
+    Declared intent beats the track default: those services are exempt from
+    the force-disable fill (and recorded as overrides), so a manifest's
+    ``MINIO_SOURCE: container`` survives an out-of-track selection instead of
+    being silently reverted to ``disabled`` — an explicit CLI flag still wins
+    over both.
     """
     overridden_services: set[str] = set()
     if track_key is None:
@@ -336,6 +345,11 @@ def synthesize_track_source_args(
             continue
         explicit_value = source_args.get(cli_key)
         if explicit_value is not None and explicit_value != "disabled":
+            overridden_services.add(svc_key)
+        elif explicit_value is None and cli_key in consumer_declared:
+            # Consumer-manifest-declared source: leave untouched so the
+            # env.values declaration lands in .env unclobbered; record it as
+            # an override for the advisory line.
             overridden_services.add(svc_key)
         elif explicit_value is None and force_disable:
             source_args[cli_key] = "disabled"
