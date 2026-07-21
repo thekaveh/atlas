@@ -395,6 +395,16 @@ class DockerManager:
         # This ensures containers are recreated with updated port settings
         args.append('--force-recreate')
 
+        # #506: rebuild stale local-build images after an in-place source
+        # upgrade. `--force-recreate` recreates containers but reuses the
+        # existing locally-built image even when its Dockerfile/context changed
+        # with a submodule pin bump — so the backend can run old code (e.g. a
+        # pre-Celery image → ModuleNotFoundError). Gate `--build` on the source
+        # commit having changed since images were last built here, so ordinary
+        # restarts stay fast and only an actual upgrade triggers a rebuild.
+        build_args = self.source_build_args()
+        args.extend(build_args)
+
         if wait:
             args.extend(['--wait', '--wait-timeout', str(wait_timeout_seconds)])
 
@@ -402,7 +412,82 @@ class DockerManager:
         if targets:
             args.extend(targets)
 
-        return self.execute_compose_command(args)
+        rc = self.execute_compose_command(args)
+        if rc == 0 and build_args:
+            self.mark_source_built()
+        return rc
+
+    # ------------------------------------------------------------------ #
+    # Source-drift image freshness (#506)
+    # ------------------------------------------------------------------ #
+    SOURCE_BUILD_MARKER = ".atlas-build-state"
+
+    def _current_source_commit(self) -> Optional[str]:
+        """The selected Atlas source commit (submodule/clone HEAD), or None when
+        the root is not a git checkout — in which case the coarse drift signal
+        is unavailable and freshness behaves exactly as before (no forced
+        rebuild)."""
+        try:
+            result = subprocess.run(
+                ['git', 'rev-parse', 'HEAD'],
+                cwd=str(self.root_dir),
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+            if result.returncode != 0:
+                return None
+            return result.stdout.strip() or None
+        except (OSError, subprocess.SubprocessError):
+            return None
+
+    def _source_marker_path(self) -> Path:
+        return self.root_dir / self.SOURCE_BUILD_MARKER
+
+    def pending_source_rebuild(self) -> bool:
+        """True when local-build images are stale relative to the selected Atlas
+        source commit: the commit changed since images were last built here, or
+        they were never built at this checkout. False when unchanged, or when
+        the commit is indeterminate (not a git checkout) — the latter keeps
+        non-git deployments on the prior behavior instead of rebuilding every
+        start."""
+        current = self._current_source_commit()
+        if current is None:
+            return False
+        try:
+            recorded = self._source_marker_path().read_text(encoding='utf-8').strip()
+        except OSError:
+            recorded = ''
+        return recorded != current
+
+    def source_build_args(self) -> list[str]:
+        """``['--build']`` when the source drifted since the last build here,
+        else ``[]``. Threaded into every WARM ``up`` call site (#506) so a
+        normal start after an in-place upgrade rebuilds stale local images
+        before recreating containers. buildkit's content-addressed cache keeps
+        this cheap — only contexts that actually changed rebuild; unchanged
+        ones cache-hit."""
+        if self.pending_source_rebuild():
+            self._on_command(
+                "      Atlas source changed since local images were last built "
+                "— rebuilding stale local images (--build)."
+            )
+            return ['--build']
+        return []
+
+    def mark_source_built(self) -> None:
+        """Record the current source commit as the point at which local images
+        were last built, so the next warm start skips the rebuild when nothing
+        changed. Best-effort: a missing/unwritable marker just triggers one
+        extra (cache-hit) rebuild next start, never incorrect behavior."""
+        current = self._current_source_commit()
+        if current is None:
+            return
+        try:
+            self._source_marker_path().write_text(current + '\n', encoding='utf-8')
+        except OSError:
+            pass
 
     def validate_compose_config(self) -> tuple[int, str, str, list[str]]:
         """Run ``docker compose config -q`` for the assembled Atlas stack.

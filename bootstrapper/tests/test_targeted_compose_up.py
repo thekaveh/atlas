@@ -122,3 +122,24 @@ def test_all_call_sites_thread_the_target_set():
     assert dm_src.count("enabled_service_targets()") >= 1  # start_services
     assert "enabled_service_targets()" in start_src        # cold path
     assert "enabled_service_targets" in wizard_src         # TUI launch
+
+
+def test_warm_up_sites_thread_source_build_args():
+    """#506 structural guard: both WARM `up` call sites — DockerManager.
+    start_services (linear) and the TUI launch in wizard_screen.py — thread
+    `source_build_args()` so a normal start after an in-place source upgrade
+    rebuilds stale local images, and record `mark_source_built()` on success.
+    A regression at either site reintroduces the stale-image bug (backend runs
+    old code after a submodule pin bump)."""
+    dm_src = (REPO_ROOT / "bootstrapper" / "core" / "docker_manager.py").read_text()
+    wizard_src = (
+        REPO_ROOT / "bootstrapper" / "ui" / "textual" / "screens" / "wizard_screen.py"
+    ).read_text()
+    assert "def source_build_args" in dm_src
+    assert "def mark_source_built" in dm_src
+    # start_services (canonical warm path) consults the drift gate + records.
+    assert "self.source_build_args()" in dm_src
+    assert "self.mark_source_built()" in dm_src
+    # TUI warm launch consults the drift gate + records.
+    assert "source_build_args()" in wizard_src
+    assert "mark_source_built()" in wizard_src

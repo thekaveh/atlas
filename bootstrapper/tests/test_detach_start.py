@@ -50,6 +50,10 @@ def test_docker_start_services_can_wait_for_health(monkeypatch) -> None:
     # test deterministically asserts the historical full-graph argv shape
     # (the targeted argv is covered by test_targeted_compose_up.py).
     monkeypatch.setattr(manager, "enabled_service_targets", lambda: None)
+    # #506: neutralize source-drift so the argv is deterministic regardless of
+    # this checkout's git HEAD / .atlas-build-state marker (the --build gate is
+    # covered by test_source_drift_rebuild.py).
+    monkeypatch.setattr(manager, "source_build_args", lambda: [])
 
     assert manager.start_services(detached=True, wait=True, wait_timeout_seconds=123) == 0
     assert captured == [

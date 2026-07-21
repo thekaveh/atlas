@@ -2909,6 +2909,11 @@ class AtlasStarter:
                 self.rollback_managed_host_processes()
                 return False
 
+            # Cold start just built every enabled local image fresh — record the
+            # source commit so the next warm start (#506) doesn't rebuild them
+            # again until the source actually changes.
+            self.docker_manager.mark_source_built()
+
             print("    - Starting containers...")
             # Start with force recreate for cold start
             up_args = ['up', '-d', '--force-recreate']
