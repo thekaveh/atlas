@@ -64,6 +64,48 @@ def test_asset_baker_verifies_pinned_blender_archive() -> None:
     assert f"ASSET_BAKER_BLENDER_SHA256:-{BLENDER_SHA256}" in compose
 
 
+def test_asset_baker_blender_download_is_reproducible() -> None:
+    """#505: the pinned Blender download must be reproducible and not depend on
+    the dead canonical host. Locks in the reproducibility invariants so a future
+    edit can't silently reintroduce the single-host 403 break:
+      - download.blender.org is NOT the sole/hard-coded source (it 403s bots);
+      - the build fetches from the official mirror network (>= 2 mirrors);
+      - an unsupported architecture fails fast with an actionable message
+        (Blender ships linux-x64 only — no official linux-arm64 tarball);
+      - the installed version is asserted against the pin at build time.
+    """
+    dockerfile = DOCKERFILE.read_text(encoding="utf-8")
+
+    # The dead canonical host must not be the sole downloader. It may still be
+    # named in an explanatory comment, but no `curl`/download line may target it.
+    for line in dockerfile.splitlines():
+        if "download.blender.org" in line:
+            assert line.lstrip().startswith("#"), (
+                "download.blender.org 403s automated clients (#505); it must not "
+                f"be an active download source: {line!r}"
+            )
+
+    # Official Blender mirror network — at least two distinct mirrors so a single
+    # outage cannot break the build.
+    mirrors = [
+        "ftp.nluug.nl",
+        "mirror.clarkson.edu",
+        "mirrors.ocf.berkeley.edu",
+        "mirrors.dotsrc.org",
+    ]
+    present = [m for m in mirrors if m in dockerfile]
+    assert len(present) >= 2, f"expected >= 2 Blender mirrors, found {present}"
+
+    # Architecture guard with an actionable message + non-zero exit.
+    assert 'arch="$(uname -m)"' in dockerfile
+    assert '"$arch" != "x86_64"' in dockerfile
+    assert "supports linux/amd64 only" in dockerfile
+
+    # Build-time version assertion against the pinned version.
+    assert '/opt/blender/blender --version' in dockerfile
+    assert 'expected Blender ${BLENDER_VERSION}' in dockerfile
+
+
 def test_asset_baker_runtime_sc_variants() -> None:
     manifest = _manifest()
     variants = manifest["runtime_sc"]["asset-baker"]
