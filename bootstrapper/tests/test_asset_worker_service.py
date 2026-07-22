@@ -14,10 +14,27 @@ ROOT = Path(__file__).resolve().parents[2]
 SERVICES = ROOT / "services"
 MANIFEST = SERVICES / "asset-worker" / "service.yml"
 README = SERVICES / "asset-worker" / "README.md"
+COMPOSE = SERVICES / "asset-worker" / "compose.yml"
 
 
 def _manifest() -> dict:
     return yaml.safe_load(MANIFEST.read_text(encoding="utf-8"))
+
+
+def test_asset_worker_healthcheck_is_dependency_free() -> None:
+    """#790: the asset-worker image installs only ca-certificates + the gltf CLI
+    — no curl/wget — so a curl-based healthcheck marks the container `unhealthy`
+    forever and fails `--wait` gates. The probe must use a tool actually present
+    in the image (python/uvicorn are), hitting /health."""
+    test = yaml.safe_load(COMPOSE.read_text(encoding="utf-8"))[
+        "services"
+    ]["asset-worker"]["healthcheck"]["test"]
+    joined = " ".join(test)
+    assert "curl" not in joined and "wget" not in joined, (
+        f"asset-worker healthcheck must not use curl/wget (not in the image): {test}"
+    )
+    assert "python" in test, f"expected a dependency-free python probe: {test}"
+    assert "8095/health" in joined, "probe must hit the app's /health endpoint"
 
 
 def test_asset_worker_manifest_contract() -> None:
