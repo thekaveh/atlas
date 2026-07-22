@@ -149,21 +149,35 @@ BEGIN
            AND (SELECT attname FROM pg_attribute
                  WHERE attrelid = conrelid
                    AND attnum  = conkey[1]) = 'user_id';
-        IF legacy_fk IS NOT NULL THEN
-            EXECUTE format('ALTER TABLE public.%I DROP CONSTRAINT %I', tbl, legacy_fk);
-            RAISE NOTICE 'public.%: dropped legacy user_id FK %', tbl, legacy_fk;
-        END IF;
+        -- #800: guard the VARCHAR→UUID cast. A pre-existing volume whose legacy
+        -- user_id holds a non-UUID string makes `USING user_id::uuid` raise
+        -- `invalid input syntax for type uuid`, which would abort the whole DO
+        -- block and fail DB init on EVERY start. Wrap the per-table migration in
+        -- a nested block: on any error the implicit savepoint rolls back THIS
+        -- table's changes (the FK drop included) and a WARNING is raised, leaving
+        -- the table in its legacy shape for the operator to clean up — instead of
+        -- aborting init for the whole stack. Fresh installs never reach here (the
+        -- data_type guard above CONTINUEs on already-uuid columns).
+        BEGIN
+            IF legacy_fk IS NOT NULL THEN
+                EXECUTE format('ALTER TABLE public.%I DROP CONSTRAINT %I', tbl, legacy_fk);
+                RAISE NOTICE 'public.%: dropped legacy user_id FK %', tbl, legacy_fk;
+            END IF;
 
-        EXECUTE format(
-            'ALTER TABLE public.%I ALTER COLUMN user_id TYPE uuid USING user_id::uuid',
-            tbl
-        );
+            EXECUTE format(
+                'ALTER TABLE public.%I ALTER COLUMN user_id TYPE uuid USING user_id::uuid',
+                tbl
+            );
 
-        EXECUTE format(
-            'ALTER TABLE public.%I ADD CONSTRAINT %I FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE',
-            tbl, tbl || '_user_id_fkey'
-        );
+            EXECUTE format(
+                'ALTER TABLE public.%I ADD CONSTRAINT %I FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE',
+                tbl, tbl || '_user_id_fkey'
+            );
 
-        RAISE NOTICE 'public.%: user_id migrated VARCHAR(255) → UUID, FK → public.users(id)', tbl;
+            RAISE NOTICE 'public.%: user_id migrated VARCHAR(255) → UUID, FK → public.users(id)', tbl;
+        EXCEPTION
+            WHEN others THEN
+                RAISE WARNING 'public.%: legacy user_id VARCHAR→UUID migration skipped (%); non-UUID values present — column left as-is, clean them up and re-run', tbl, SQLERRM;
+        END;
     END LOOP;
 END $$;
