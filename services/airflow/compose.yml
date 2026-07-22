@@ -102,6 +102,13 @@ services:
           cpus: "${AIRFLOW_SCHEDULER_CPU_LIMIT:-1.0}"
     environment:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      # Airflow 3.3.0's Task-SDK supervisor resolves the Execution API per task
+      # via get_execution_api_server_url(), which falls back to
+      # http://localhost:8080/execution/ when unset — but `airflow api-server`
+      # runs in the separate airflow-webserver container, so localhost is
+      # unreachable and every task dies at Pre-Execute with httpcore.ConnectError
+      # (#791). Point it at the webserver's compose DNS name (project-agnostic).
+      AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://airflow-webserver:8080/execution/
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${AIRFLOW_DB_USER}:${AIRFLOW_DB_PASSWORD}@supabase-db:5432/airflow
       AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
       # Required for inter-process signed-payload validation (DagFileProcessor
@@ -185,6 +192,10 @@ services:
           cpus: "${AIRFLOW_DAG_PROCESSOR_CPU_LIMIT:-1.0}"
     environment:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      # See scheduler block: the dag-processor is a separate Task-SDK process
+      # that also resolves the Execution API and must not fall back to
+      # localhost:8080 (#791).
+      AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://airflow-webserver:8080/execution/
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${AIRFLOW_DB_USER}:${AIRFLOW_DB_PASSWORD}@supabase-db:5432/airflow
       AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
       AIRFLOW__API__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
