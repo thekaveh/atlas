@@ -124,6 +124,33 @@ def test_airflow_scheduler_carries_api_secret_key():
         )
 
 
+def test_airflow_scheduler_and_dag_processor_set_execution_api_server_url():
+    """#791: Airflow 3.3.0's Task-SDK supervisor resolves the Execution API per
+    task via get_execution_api_server_url(), falling back to
+    http://localhost:8080/execution/ when unset. Atlas runs `airflow api-server`
+    only in the separate airflow-webserver container, so on the scheduler /
+    dag-processor localhost:8080 is unreachable and every task dies at
+    Pre-Execute (httpcore.ConnectError → supervisor SIGKILL). Both task-side
+    processes must point the Execution API at the webserver's compose DNS name
+    (project-prefix-agnostic), NOT localhost. The api-server (webserver) serves
+    /execution/ locally and must NOT be pinned to itself by DNS here."""
+    doc = yaml.safe_load(COMPOSE.read_text(encoding="utf-8"))
+    expected = "http://airflow-webserver:8080/execution/"
+    for svc_name in ("airflow-scheduler", "airflow-dag-processor"):
+        env = doc["services"][svc_name]["environment"]
+        assert env.get("AIRFLOW__CORE__EXECUTION_API_SERVER_URL") == expected, (
+            f"{svc_name} must set AIRFLOW__CORE__EXECUTION_API_SERVER_URL to "
+            f"{expected!r} (compose DNS, not localhost) — else every DAG task "
+            f"dies at Pre-Execute under Airflow 3.3.0."
+        )
+    # The webserver hosts the api-server itself — it must not carry the override.
+    ws_env = doc["services"]["airflow-webserver"]["environment"]
+    assert "AIRFLOW__CORE__EXECUTION_API_SERVER_URL" not in ws_env, (
+        "airflow-webserver serves /execution/ locally; it must not be pinned to "
+        "its own DNS name."
+    )
+
+
 def test_airflow_webserver_uses_fab_auth_manager_for_basic_auth():
     """Airflow 3.x defaults to SimpleAuthManager. The Web UI authentication
     surface (FAB session cookie at `/login/`) needs explicit FabAuthManager
