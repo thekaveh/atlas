@@ -357,7 +357,9 @@ class ResearchService:
             # Use the research client to start the research
             research_response = await self.research_client.start_research(request)
 
-            if research_response.status != ResearchStatus.RUNNING:
+            # #802: start_research now reports PENDING (thread created), not
+            # RUNNING (the run is dispatched later by wait_for_completion).
+            if research_response.status != ResearchStatus.PENDING:
                 raise ResearchError(f"Failed to start research: {research_response.message}")
 
             remote_session_id = research_response.session_id

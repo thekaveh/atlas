@@ -317,7 +317,7 @@ def test_execute_research_discards_remote_pending_request_when_cancelled_before_
         async def start_research(self, request):
             return ResearchResponse(
                 session_id="remote-thread-1",
-                status=ResearchStatus.RUNNING,
+                status=ResearchStatus.PENDING,
                 message="started",
             )
 
@@ -356,7 +356,7 @@ def test_execute_research_discards_remote_pending_request_when_wait_is_cancelled
         async def start_research(self, request):
             return ResearchResponse(
                 session_id="remote-thread-1",
-                status=ResearchStatus.RUNNING,
+                status=ResearchStatus.PENDING,
                 message="started",
             )
 

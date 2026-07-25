@@ -95,7 +95,9 @@ def test_research_client_uses_langgraph_thread_and_run_stream(monkeypatch):
 
     assert health["status"] == "healthy"
     assert start.session_id == "thread-123"
-    assert start.status == ResearchStatus.RUNNING
+    # #802: thread creation reports PENDING, not RUNNING — the run is not
+    # dispatched until wait_for_completion.
+    assert start.status == ResearchStatus.PENDING
     assert done.status == ResearchStatus.COMPLETED
     assert result is not None
     assert result.content == "Finished report"
