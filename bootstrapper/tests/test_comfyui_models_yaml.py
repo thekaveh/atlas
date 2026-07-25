@@ -82,10 +82,13 @@ def test_yaml_passes_schema():
 
 
 def test_yaml_has_expected_entry_count():
-    """Curated YAML must contain exactly 16 entries (snapshot count)."""
+    """Curated YAML entry count must match the regenerable snapshot — no magic
+    literal, so adding a curated model only updates the snapshot fixture (#815)."""
     data = yaml.safe_load(_YAML_PATH.read_text(encoding="utf-8"))
-    assert len(data["models"]) == 16, (
-        f"Expected 16 curated entries (snapshot count); got {len(data['models'])}"
+    snapshot = json.loads(_SNAPSHOT_PATH.read_text(encoding="utf-8"))
+    assert len(data["models"]) == snapshot["curated_count"], (
+        f"models.yaml has {len(data['models'])} entries; "
+        f"snapshot expects {snapshot['curated_count']}"
     )
 
 
@@ -330,11 +333,14 @@ def test_list_curated_raises_on_missing_yaml(monkeypatch, tmp_path):
         list_curated()
 
 
-def test_list_curated_returns_16_entries_happy_path():
-    """Happy path: list_curated() must return the 16 curated entries when
-    services/comfyui/models.yaml is present and valid.
+def test_list_curated_returns_snapshot_count_happy_path():
+    """Happy path: list_curated() must return the snapshot's curated_count
+    entries when services/comfyui/models.yaml is present and valid — derived
+    from the regenerable snapshot, not a magic literal (#815).
     """
     entries = list_curated()
-    assert len(entries) == 16, (
-        f"Expected 16 curated entries from list_curated(); got {len(entries)}"
+    snapshot = json.loads(_SNAPSHOT_PATH.read_text(encoding="utf-8"))
+    assert len(entries) == snapshot["curated_count"], (
+        f"list_curated() returned {len(entries)}; "
+        f"snapshot expects {snapshot['curated_count']}"
     )
