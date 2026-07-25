@@ -165,7 +165,7 @@ def _skip_unless_stack_up():
 
 def test_every_host_ollama_model_is_published_by_litellm():
     """The user's concrete bug: a model pulled on the host
-    (``qwen3.6:35b-a3b-coding-mxfp8``) didn't appear in LiteLLM's
+    (``a host-pulled custom model tag``) didn't appear in LiteLLM's
     ``/v1/models``. Under the current flow, ``litellm-init`` fetches
     host ``/api/tags`` via ``ollama_discovery.list_pulled_models()``
     (when ``OLLAMA_AUTO_IMPORT_LOCAL_MODELS=true``) and includes those
