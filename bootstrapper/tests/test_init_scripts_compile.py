@@ -67,6 +67,11 @@ def _discover_node_init_scripts() -> list[Path]:
 
 
 def _tracked_service_scripts(suffix: str) -> list[Path]:
+    # #814: this runs at parametrize-collection; a missing git CLI would abort
+    # collection instead of yielding no cases. Guard it (git is effectively
+    # always present, so real behavior is unchanged).
+    if shutil.which("git") is None:
+        return []
     tracked = subprocess.check_output(
         ["git", "ls-files", "services"], cwd=REPO_ROOT, text=True
     ).splitlines()

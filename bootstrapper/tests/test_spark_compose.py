@@ -6,12 +6,16 @@ so it cannot render standalone. We exercise it through the merged
 top-level compose, which is also how it ships at runtime.
 """
 from pathlib import Path
+import shutil
 import subprocess
+
+import pytest
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 COMPOSE = REPO_ROOT / "services" / "spark" / "compose.yml"
 
+@pytest.mark.skipif(shutil.which("docker") is None, reason="docker CLI unavailable")
 def test_spark_fragment_renders():
     result = subprocess.run(
         [

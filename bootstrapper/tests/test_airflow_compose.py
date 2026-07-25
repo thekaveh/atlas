@@ -1,12 +1,16 @@
 """Smoke + structural tests for services/airflow/compose.yml."""
 from pathlib import Path
+import shutil
 import subprocess
+
+import pytest
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 COMPOSE = REPO_ROOT / "services" / "airflow" / "compose.yml"
 
 
+@pytest.mark.skipif(shutil.which("docker") is None, reason="docker CLI unavailable")
 def test_airflow_fragment_renders():
     result = subprocess.run(
         [
