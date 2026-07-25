@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
+
+import pytest
 from pathlib import Path
 
 from tests.three_surface_test_utils import surface_text
@@ -133,6 +136,7 @@ def test_asset_processor_compose_never_falls_back_to_minio_root() -> None:
         assert "service_completed_successfully" in compose_text
 
 
+@pytest.mark.skipif(shutil.which("docker") is None, reason="docker CLI unavailable")
 def test_renamed_asset_input_bucket_reaches_both_processor_allowlists() -> None:
     env = os.environ.copy()
     env.update(
