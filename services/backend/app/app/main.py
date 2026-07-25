@@ -2360,12 +2360,38 @@ def _inline_content_disposition(filename: str) -> str:
     return disposition
 
 
+_COMFY_VIEW_FOLDER_TYPES = frozenset({"output", "input", "temp"})
+
+
+def _validate_comfy_view_params(subfolder: str, folder_type: str) -> None:
+    """#801: `subfolder` + `folder_type` are forwarded straight to ComfyUI's
+    `/view` as query params. Reject an out-of-set folder_type and a
+    path-traversal subfolder with HTTP 400 so a caller cannot point the internal
+    ComfyUI at arbitrary folders. Callers MUST invoke this before any try/except
+    that would otherwise convert the 400 into a 500."""
+    if folder_type not in _COMFY_VIEW_FOLDER_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="folder_type must be one of: output, input, temp",
+        )
+    if subfolder and (
+        ".." in subfolder or subfolder.startswith("/") or "\x00" in subfolder
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="subfolder must be a relative path without '..' or a leading '/'",
+        )
+
+
 @app.get(
     "/comfyui/image/{filename}",
     dependencies=[Depends(require_comfy_automation_principal)],
 )
 async def get_generated_image(filename: str, subfolder: str = "", folder_type: str = "output"):
     """Get a generated image from ComfyUI"""
+    # Validate BEFORE the try/except below (the catch-all would otherwise turn a
+    # 400 into a 500).
+    _validate_comfy_view_params(subfolder, folder_type)
     try:
         async with ComfyUIClient() as client:
             image_data = await client.get_image_data(filename, subfolder, folder_type)
