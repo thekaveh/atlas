@@ -6,7 +6,7 @@ Before the fix, ``_leaf_render_data`` ran inherited badges through
 ``_inherited_leaf_badges`` which strips status tags under the comment
 *"every leaf of a [library] parent is library; the user already sees
 that on the parent right above"*. That assumption is wrong: a family
-like ``qwen3.6`` whose host has ``qwen3.6:35b-a3b-coding-mxfp8``
+like ``qwen3.6`` whose host has ``qwen3.6:custom-quant``
 pulled but not ``qwen3.6:27b``/``35b``/etc. has mixed-status leaves.
 The fix added a per-leaf status computation that consults
 ``opt.pulled_variants`` directly.
@@ -85,13 +85,13 @@ def test_leaf_carrying_a_pulled_tag_renders_pulled_status(panel):
     """A variant whose tag is in ``opt.pulled_variants`` renders
     ``[pulled]`` even when the parent family is in the library."""
     opt = _qwen_parent_option(
-        pulled_variants=frozenset({"35b-a3b-coding-mxfp8"}),
+        pulled_variants=frozenset({"custom-quant"}),
     )
     _, _, leaf_badges = panel._leaf_render_data(
-        _leaf_row("35b-a3b-coding-mxfp8"), opt,
+        _leaf_row("custom-quant"), opt,
     )
     assert "pulled" in leaf_badges, (
-        f"Leaf 35b-a3b-coding-mxfp8 is on the host (in pulled_variants) — "
+        f"Leaf custom-quant is on the host (in pulled_variants) — "
         f"must render [pulled]. Got: {leaf_badges}"
     )
     assert "library" not in leaf_badges, (
@@ -108,7 +108,7 @@ def test_sibling_leaf_not_on_host_renders_library_status(panel):
     of a pulled family inherited ``[pulled]`` (after the family
     badge fix) which was equally wrong."""
     opt = _qwen_parent_option(
-        pulled_variants=frozenset({"35b-a3b-coding-mxfp8"}),
+        pulled_variants=frozenset({"custom-quant"}),
     )
     _, _, leaf_badges = panel._leaf_render_data(_leaf_row("27b"), opt)
     assert "library" in leaf_badges, (
@@ -120,18 +120,18 @@ def test_sibling_leaf_not_on_host_renders_library_status(panel):
 
 def test_mixed_status_within_one_family_is_independently_rendered(panel):
     """End-to-end: render every leaf under a family that has SOME
-    pulled, SOME not. The pulled set ``{latest, 35b-a3b-coding-mxfp8}``
+    pulled, SOME not. The pulled set ``{latest, custom-quant}``
     must light up exactly those two leaves; every other variant must
     stay ``[library]``."""
     opt = _qwen_parent_option(
-        pulled_variants=frozenset({"latest", "35b-a3b-coding-mxfp8"}),
+        pulled_variants=frozenset({"latest", "custom-quant"}),
     )
     leaves_to_check = (
         ("latest", "pulled"),
         ("27b", "library"),
         ("35b", "library"),
         ("27b-coding-mxfp8", "library"),
-        ("35b-a3b-coding-mxfp8", "pulled"),
+        ("custom-quant", "pulled"),
         ("35b-a3b-coding-nvfp4", "library"),
     )
     for tag, expected in leaves_to_check:
@@ -162,7 +162,7 @@ def test_leaf_carries_no_status_when_pulled_variants_is_empty(panel):
 # ────────────────────────────────────────────────────────────────────────────
 # _rebuild_visible — pulled tag must appear as a leaf row even when it's
 # absent from both the listing-page sizes and the detail-page variant
-# cache. Previously, ``qwen3.6:35b-a3b-coding-mxfp8`` was silently checked
+# cache. Previously, ``qwen3.6:custom-quant`` was silently checked
 # but invisible because the fallback loop iterated ``(_LATEST_TAG, *sizes)``
 # without consulting ``opt.pulled_variants``.
 # ────────────────────────────────────────────────────────────────────────────
@@ -197,7 +197,7 @@ def _fake_step(options):
 
 def test_rebuild_surfaces_pulled_tag_missing_from_listing_and_detail():
     """The original screenshot bug: a user pulled
-    ``qwen3.6:35b-a3b-coding-mxfp8`` (a community/custom build that is
+    ``qwen3.6:custom-quant`` (a community/custom build that is
     NOT on ollama.com's listing or detail page). With the parent
     expanded and the detail-page cache empty, the fallback path used
     to iterate only ``(latest, 27b, 35b)`` and silently drop the
@@ -205,12 +205,12 @@ def test_rebuild_surfaces_pulled_tag_missing_from_listing_and_detail():
     catalog CSV. After the fix, the pulled tag is appended as a leaf
     row so the user can see what's on their host."""
     opt = _qwen_parent_option(
-        pulled_variants=frozenset({"latest", "35b-a3b-coding-mxfp8"}),
+        pulled_variants=frozenset({"latest", "custom-quant"}),
     )
     stub = _RebuildStub(_fake_step([opt]), expanded={"qwen3.6"})
     rows = stub._rebuild_visible()
     leaves = [r.variant for r in rows if r.kind == "leaf"]
-    assert "35b-a3b-coding-mxfp8" in leaves, (
+    assert "custom-quant" in leaves, (
         "Pulled tag absent from listing/detail page must still render "
         f"as a leaf row. Got leaves: {leaves}"
     )
@@ -250,7 +250,7 @@ def test_rebuild_uses_detail_cache_then_appends_unlisted_pulled_tags():
         for t in ("latest", "27b", "35b", "27b-mlx", "35b-mlx")
     ]
     opt = _qwen_parent_option(
-        pulled_variants=frozenset({"latest", "35b-a3b-coding-mxfp8"}),
+        pulled_variants=frozenset({"latest", "custom-quant"}),
     )
     stub = _RebuildStub(
         _fake_step([opt]),
@@ -264,7 +264,7 @@ def test_rebuild_uses_detail_cache_then_appends_unlisted_pulled_tags():
         f"Detail-page tags must drive leaf order. Got: {leaves}"
     )
     # Pulled tag missing from the detail page is appended.
-    assert "35b-a3b-coding-mxfp8" in leaves[5:], (
+    assert "custom-quant" in leaves[5:], (
         f"Custom pulled tag must still appear when detail page omits "
         f"it. Got: {leaves}"
     )
