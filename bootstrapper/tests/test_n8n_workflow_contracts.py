@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
+
+import pytest
 from pathlib import Path
 
 
@@ -45,6 +48,8 @@ const output = (() => {{
 }})();
 process.stdout.write(JSON.stringify(output));
 """
+    if shutil.which("node") is None:
+        pytest.skip("node CLI unavailable")
     return subprocess.run(
         ["node"],
         input=harness,
@@ -178,6 +183,7 @@ def test_research_workflows_carry_state_in_items_not_execution_custom_data() -> 
         assert "$execution.customData" not in code, path.name
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node CLI unavailable")
 def test_code_node_javascript_parses() -> None:
     for path in WORKFLOWS:
         for node in _load(path).get("nodes", []):

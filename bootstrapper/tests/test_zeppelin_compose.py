@@ -4,12 +4,16 @@ Mirrors the test_spark_compose.py pattern — exercises through the merged
 top-level compose (the fragment can't render standalone because it
 references backend-network from the top-level)."""
 from pathlib import Path
+import shutil
 import subprocess
+
+import pytest
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 COMPOSE = REPO_ROOT / "services" / "zeppelin" / "compose.yml"
 
+@pytest.mark.skipif(shutil.which("docker") is None, reason="docker CLI unavailable")
 def test_zeppelin_fragment_renders():
     result = subprocess.run(
         [
