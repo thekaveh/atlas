@@ -315,11 +315,10 @@ git commit -m "feat(docs-lint): cross-file duplicate-block finder"
 ### Task 3: Fix diagram-narration prose (architecture pages + README captions + diagrams README)
 
 **Files:**
-- Modify: `docs/architecture/platform-overview.md`, `network-routing-topology.md`, `source-configuration-model.md`, `track-selection-matrix.md`, `data-rag-flow.md`, `llm-provider-flow.md`, `data-engineering-lakehouse-flow.md`, `observability-flow.md`, `security-auth-secrets-boundary.md`, `service-admission-workflow.md`, `bootstrapper-lifecycle.md` (the `## N. How To Read This View` section in each)
-- Modify: `README.md:11`, `README.md:15` (the two image captions)
-- Modify: `docs/diagrams/README.md:36-40`, `:19`, `:11-14` (cosmetic production prose)
+- Modify (GENERATOR — the architecture `.md` are NOT hand-authored): `bootstrapper/docs/sitegen/pages.py`. The per-slug "How To Read This View" prose for all 11 architecture pages lives in the `ARCHITECTURE_INTERPRETATIONS: dict[str, str]` mapping (~line 251); the section heading is emitted by the `architecture_pages()` template (~line 781, `## 2. How To Read This View`). The committed `docs/architecture/*.md` are regenerated from this by `make docs-build` (Layer A, `scripts/docs/canonical_references.py`) — editing the `.md` directly is reverted by the build and fails the `check_docs` drift gate. Fix the generator, then run `make docs-build` and commit the regenerated `.md` alongside `pages.py`.
+- Modify (hand-authored — edit directly): `README.md:11`, `README.md:15` (the two image captions); `docs/diagrams/README.md:36-40`, `:19`, `:11-14` (cosmetic production prose). These are NOT generated.
 
-**Interfaces:** none (editorial). Verified by `diagram_narration_findings` + `production_style_findings` returning empty.
+**Interfaces:** none (editorial). Verified by `diagram_narration_findings` + `production_style_findings` returning empty over the regenerated committed `.md`, and `make docs-check` green.
 
 - [ ] **Step 1: Establish the failing verification**
 
@@ -339,29 +338,31 @@ PY
 ```
 Expected: non-zero HITS (the current narration/style prose).
 
-- [ ] **Step 2: Rewrite each "How To Read This View" section**
+- [ ] **Step 2: Rewrite each interpretation in the generator + rename the section heading**
 
-For each of the 11 architecture pages, replace the prose that restates the SVG with **only non-obvious insight** — rationale, constraints, gotchas, cross-references — or delete the section if nothing non-obvious remains. Rules:
-- Delete any sentence a reader could derive by looking at the diagram (node names, "X routes to Y", "clients enter through Kong").
+In `bootstrapper/docs/sitegen/pages.py`, rewrite each value of `ARCHITECTURE_INTERPRETATIONS` (one string per slug) to **only non-obvious insight** — rationale, constraints, gotchas, cross-references — dropping any sentence a reader could derive from the diagram itself. Rules:
+- Delete node-name narration and "X routes to Y" / "clients enter through Kong" restatement.
 - Keep only: *why* it's arranged this way, edge cases, where a boundary is enforced, and links to the authoritative page.
-- Example — `docs/architecture/platform-overview.md` §2 currently reads *"Clients enter through Kong or a deliberately published direct port. Application and agent services consume the shared LLM and data layers; LiteLLM keeps local inference and cloud-provider credentials behind one OpenAI-compatible boundary."* → keep only the non-obvious half, e.g.: *"Direct published ports bypass Kong deliberately, for host tools that can't use the `*.localhost` gateway. All model traffic — local and cloud — is funneled through LiteLLM so credentials and routing live in exactly one place ([LLM provider flow](./llm-provider-flow.md))."* Rename the heading to `## 2. Notes` (or drop it) where it's no longer "how to read".
-- Renumber sections if one is removed (keep the baked `## N.` numbering contiguous; `make docs-build` / `check_numbered_headings` will enforce it).
+- Example — the `platform-overview` interpretation currently reads *"Clients enter through Kong or a deliberately published direct port. Application and agent services consume the shared LLM and data layers; LiteLLM keeps local inference and cloud-provider credentials behind one OpenAI-compatible boundary."* → keep only the non-obvious half, e.g.: *"Direct published ports bypass Kong deliberately, for host tools that can't use the `*.localhost` gateway. All model traffic — local and cloud — is funneled through LiteLLM so credentials and routing live in exactly one place (see [LLM provider flow](./llm-provider-flow.md))."*
+- Since the section is no longer "how to read," rename the template heading at pages.py ~781 from `## 2. How To Read This View` to `## 2. Notes` (one edit, applies to all pages). Keep the baked `## N.` numbering contiguous — do not remove the section (removing one section from the template would renumber `## 3. Source Files`; `check_numbered_headings` enforces contiguity). If an interpretation has genuinely nothing non-obvious, use a single terse pointer sentence rather than deleting the section.
+- If a bootstrapper unit test snapshots architecture-page or interpretation content, update that fixture to match; `cd bootstrapper && uv run pytest -q -k "docs or architecture or sitegen or pages"` surfaces such tests.
 
 - [ ] **Step 3: Fix the two README captions and the diagrams-README production prose**
 
 - `README.md:11` and `README.md:15`: replace the pixel-by-pixel image narration with a one-line functional caption (what the reader should take away, not what the pixels are). E.g. the topology caption → *"How a request reaches a service: clients → Kong → apps/agents → shared LLM + data layers."* Keep it under one line; it must not enumerate what the SVG already labels.
 - `docs/diagrams/README.md`: delete the styling/production narration at `:36-40` ("same palette, same JetBrains Mono, same slate-950 background"), `:19` (palette-mirroring detail), and reduce `:11-14` to the actionable fact only (*"The top-level diagram is hand-authored; edit `docs/diagrams/architecture.html` and re-run `make docs-build`."*). Cosmetic "how it looks" belongs nowhere in prose.
 
-- [ ] **Step 4: Verify the finders are clean + docs still build**
+- [ ] **Step 4: Regenerate, then verify finders clean + docs build green**
 
-Run the Step-1 snippet again → Expected: `HITS 0`.
-Run: `make docs-build && make docs-check` → Expected: exit 0 (strict build + numbering + drift all green).
+Run `make docs-build` FIRST (regenerates `docs/architecture/*.md` from the edited generator), THEN the Step-1 finder snippet over the regenerated `.md` → Expected: `HITS 0`.
+Run: `make docs-check` → Expected: exit 0 (strict build + numbering + canonical-drift all green — proves the committed `.md` match the generator).
 Restore diagram PNGs: `git restore docs/diagrams/img/` (no diagram master changed).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add docs/architecture/*.md README.md docs/diagrams/README.md
+git add bootstrapper/docs/sitegen/pages.py docs/architecture/ README.md docs/diagrams/README.md
+# include any updated bootstrapper test fixture from Step 2 if applicable
 git commit -m "docs: remove diagram-narration and production-style prose"
 ```
 
@@ -370,9 +371,9 @@ git commit -m "docs: remove diagram-narration and production-style prose"
 ### Task 4: De-duplicate the pasted "Source Files" block across architecture pages
 
 **Files:**
-- Modify: the `## N. Source Files` section in each architecture page listed in Task 3.
+- Modify (GENERATOR): `bootstrapper/docs/sitegen/pages.py`. The "Source Files" block is HARDCODED as the same four bullets in the `architecture_pages()` template (~lines 785-790) for every page. Add a new `ARCHITECTURE_SOURCE_FILES: dict[str, list[str]]` mapping (one list per slug, beside `ARCHITECTURE_INTERPRETATIONS`) and change the template to render `ARCHITECTURE_SOURCE_FILES[slug]` instead of the literal list. Then `make docs-build` regenerates the committed `.md`.
 
-**Interfaces:** Verified by `duplicate_block_findings` returning empty for the architecture pages.
+**Interfaces:** Verified by `duplicate_block_findings` returning empty over the regenerated `docs/architecture/*.md`, and `make docs-check` green.
 
 - [ ] **Step 1: Establish the failing verification**
 
@@ -388,24 +389,30 @@ PY
 ```
 Expected: the identical 4-bullet Source Files block flagged on ~9–11 pages.
 
-- [ ] **Step 2: Make each page's Source Files list view-specific and accurate**
+- [ ] **Step 2: Add the per-slug source-file mapping + wire the template**
 
-For each architecture page, replace the copy-pasted 4-bullet list (`services/*/service.yml`, `bootstrapper/tracks.yml`, `bootstrapper/services/topology.py`, `docs/deployment/source-configuration.md`) with the files that **actually** drive *that* view. Ground each against the tree:
-- `network-routing-topology.md` → the Kong route generator (`bootstrapper/utils/kong_config_generator.py`), topology, and `services/kong/*`.
-- `observability-flow.md` → `services/{prometheus,grafana,loki,tempo,otel-collector}/*`, not `tracks.yml`.
-- `security-auth-secrets-boundary.md` → `services/{kong,supabase}/*`, `bootstrapper/generate_supabase_keys.py`.
-- `source-configuration-model.md` / `track-selection-matrix.md` → these legitimately reference `tracks.yml` + `topology.py`; keep only the ones that apply.
-- Where a page has no distinctive source set, drop the section rather than pad it.
+In `bootstrapper/docs/sitegen/pages.py`, add `ARCHITECTURE_SOURCE_FILES: dict[str, list[str]]` with one entry per slug (same keys as `ARCHITECTURE_PERSPECTIVES`), each listing the files that **actually** drive that view — grounded against the tree:
+- `network-routing-topology` → `bootstrapper/utils/kong_config_generator.py`, `bootstrapper/services/topology.py`, `services/kong/service.yml`.
+- `observability-flow` → `services/{prometheus,grafana,loki,tempo,otel-collector}/service.yml` (not `tracks.yml`).
+- `security-auth-secrets-boundary` → `services/kong/service.yml`, `services/supabase/service.yml`, `bootstrapper/generate_supabase_keys.py`.
+- `source-configuration-model` / `track-selection-matrix` → `bootstrapper/tracks.yml`, `bootstrapper/services/topology.py` (these legitimately use them).
+- `bootstrapper-lifecycle` → `bootstrapper/start.py`, `bootstrapper/core/docker_manager.py`.
+- `llm-provider-flow` → `services/litellm/*`, `services/ollama/service.yml`.
+- `data-rag-flow` → `services/{weaviate,backend,lightrag}/service.yml`.
+- `data-engineering-lakehouse-flow` → `services/{minio,trino,iceberg-rest,spark}/service.yml`.
+- `service-admission-workflow` → `bootstrapper/services/manifest_validator.py`, `bootstrapper/services/source_validator.py`.
+- `platform-overview` → keep a short, genuinely-cross-cutting set (`services/*/service.yml`, `bootstrapper/services/topology.py`).
+Change the template's `## 3. Source Files` block (pages.py ~785-790) to render the bullets from `ARCHITECTURE_SOURCE_FILES[slug]`. Verify each referenced path exists (`ls`); do not list a file that isn't real.
 
-- [ ] **Step 3: Verify no duplicate block remains + build green**
+- [ ] **Step 3: Regenerate + verify no duplicate block + build green**
 
-Run the Step-1 snippet → Expected: no output (empty).
+Run `make docs-build` (regenerates the `.md`), then the Step-1 snippet over the regenerated pages → Expected: no output (empty; per-view lists are now distinct enough that no 4-line block repeats across ≥4 pages).
 Run: `make docs-check` → Expected: exit 0. Restore PNGs: `git restore docs/diagrams/img/`.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add docs/architecture/*.md
+git add bootstrapper/docs/sitegen/pages.py docs/architecture/
 git commit -m "docs: replace copy-pasted Source Files block with per-view sources"
 ```
 
