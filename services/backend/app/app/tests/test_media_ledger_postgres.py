@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, patch
 
 from media_ledger import STATUS_RESERVED, LedgerRecord, _utcnow
@@ -8,6 +9,20 @@ from media_ledger import STATUS_RESERVED, LedgerRecord, _utcnow
 
 def _run(coro):
     return asyncio.run(coro)
+
+
+def _acquire_patch(conn):
+    """Patch the shared pool's ``acquire_conn`` (#804) to yield ``conn``.
+
+    The durable ledger draws short-lived connections from the pool via
+    ``db_connection.acquire_conn``; tests inject their FakeConn there instead
+    of at ``asyncpg.connect``."""
+
+    @asynccontextmanager
+    async def _acq(_url, **_kw):
+        yield conn
+
+    return patch("db_connection.acquire_conn", _acq)
 
 
 class _FakeTxn:
@@ -80,7 +95,7 @@ def _record(op_id="op-1", cost=0.05, consumer="acme"):
 
 def test_append_inserts_all_columns():
     conn = FakeConn()
-    with patch("asyncpg.connect", new_callable=AsyncMock, return_value=conn):
+    with _acquire_patch(conn):
         _run(_store(conn).append(_record()))
 
     inserts = conn.inserted()
@@ -91,12 +106,13 @@ def test_append_inserts_all_columns():
     assert args[0] == "op-1"  # operation_id
     assert args[1] == "acme"  # consumer
     assert len(args) == 16
-    assert conn.closed is True
+    # #804: the connection is drawn from the shared pool (released on context
+    # exit), not closed by the caller — so no `conn.closed` assertion here.
 
 
 def test_reserve_within_cap_admits_under_cap():
     conn = FakeConn(fetch_rows=[])  # no prior spend
-    with patch("asyncpg.connect", new_callable=AsyncMock, return_value=conn):
+    with _acquire_patch(conn):
         admitted = _run(_store(conn).reserve_within_cap(_record(cost=0.05), cap=10.0))
 
     assert admitted is True
@@ -108,7 +124,7 @@ def test_reserve_within_cap_admits_under_cap():
 def test_reserve_within_cap_denies_over_cap_without_insert():
     # Prior committed spend of 9.99 leaves < 0.05 under a 10.0 cap.
     conn = FakeConn(fetch_rows=[{"status": "committed", "cost": 9.99}])
-    with patch("asyncpg.connect", new_callable=AsyncMock, return_value=conn):
+    with _acquire_patch(conn):
         admitted = _run(_store(conn).reserve_within_cap(_record(cost=0.05), cap=10.0))
 
     assert admitted is False
@@ -127,7 +143,7 @@ def test_totals_splits_reserved_and_committed():
             {"status": "denied", "cost": 0.99},  # ignored
         ]
     )
-    with patch("asyncpg.connect", new_callable=AsyncMock, return_value=conn):
+    with _acquire_patch(conn):
         reserved, committed = _run(_store(conn).totals("acme", "default"))
 
     assert round(reserved, 6) == 0.08
@@ -155,7 +171,7 @@ def test_get_maps_row_to_record():
         "updated_at": now,
     }
     conn = FakeConn(fetchrow_result=row)
-    with patch("asyncpg.connect", new_callable=AsyncMock, return_value=conn):
+    with _acquire_patch(conn):
         rec = _run(_store(conn).get("op-9"))
 
     assert rec.operation_id == "op-9"
@@ -165,7 +181,7 @@ def test_get_maps_row_to_record():
 
 def test_rekey_updates_operation_id():
     conn = FakeConn()
-    with patch("asyncpg.connect", new_callable=AsyncMock, return_value=conn):
+    with _acquire_patch(conn):
         _run(_store(conn).rekey("resv-1", "prov-1"))
 
     updates = [s for s in conn.executed_sql() if "UPDATE public.media_spend_ledger" in s]
@@ -175,7 +191,7 @@ def test_rekey_updates_operation_id():
 
 def test_prune_returns_deleted_count():
     conn = FakeConn(execute_result="DELETE 3")
-    with patch("asyncpg.connect", new_callable=AsyncMock, return_value=conn):
+    with _acquire_patch(conn):
         pruned = _run(_store(conn).prune(_utcnow()))
 
     assert pruned == 3

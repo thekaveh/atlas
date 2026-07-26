@@ -15,7 +15,7 @@ from uuid import UUID, uuid4
 
 import httpx
 
-from db_connection import connect_postgres
+from db_connection import acquire_conn, connect_postgres
 from memory_store import MemoryStore, _to_uuid
 
 logger = logging.getLogger("memory_service")
@@ -138,6 +138,20 @@ class MemoryService:
             message = choices[0].get("message") or {}
             return message.get("content") or ""
 
+    def _acquire(self):
+        """Acquire a SHORT-LIVED pooled connection (#804).
+
+        Use this for DB ops that never hold the connection across non-DB I/O
+        (an LLM completion, an embedding call, a Weaviate round-trip). The four
+        reconcile-orbit paths — ``_reconcile_pending_vectors`` and its
+        conn-passing callers ``consolidate`` / ``update_memory`` /
+        ``delete_memory`` — deliberately keep a DEDICATED ``connect_postgres``
+        connection instead, because they hold it across Weaviate reconcile I/O;
+        pinning a bounded pool slot there would risk pool starvation. See the
+        pool invariant in db_connection.py.
+        """
+        return acquire_conn(self.database_url)
+
     async def extract_facts(
         self,
         user_id: str,
@@ -153,8 +167,7 @@ class MemoryService:
         session_id = str(session_uuid)
         user_uuid = _to_uuid(user_id)
         conv_uuid = _to_uuid(conversation_id)
-        conn = await connect_postgres(self.database_url)
-        try:
+        async with self._acquire() as conn:
             await conn.execute(
                 """
                 INSERT INTO public.memory_sessions
@@ -165,8 +178,6 @@ class MemoryService:
                 user_uuid,
                 conv_uuid,
             )
-        finally:
-            await conn.close()
 
         conversation_text = "\n".join(
             f"{msg.get('role', 'user')}: {msg.get('content', '')}"
@@ -219,8 +230,7 @@ Extract the facts as JSON:"""
         stored_facts: List[Dict[str, Any]] = []
         embedding_inputs: List[tuple[Any, Dict[str, Any]]] = []
         try:
-            conn = await connect_postgres(self.database_url)
-            try:
+            async with self._acquire() as conn:
                 async with conn.transaction():
                     await conn.execute(
                         "SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))",
@@ -298,8 +308,6 @@ Extract the facts as JSON:"""
                         len(stored_facts),
                         session_uuid,
                     )
-            finally:
-                await conn.close()
         except Exception as exc:
             await self._mark_extraction_failed(session_uuid, exc)
             return {
@@ -327,8 +335,7 @@ Extract the facts as JSON:"""
                     fact["id"],
                     type(exc).__name__,
                 )
-            conn = await connect_postgres(self.database_url)
-            try:
+            async with self._acquire() as conn:
                 if weaviate_id:
                     await conn.execute(
                         "UPDATE public.memory_facts SET weaviate_id = $1 WHERE id = $2",
@@ -346,8 +353,6 @@ Extract the facts as JSON:"""
                         "UPDATE public.memory_facts SET vector_sync_pending = true WHERE id = $1",
                         fact_uuid,
                     )
-            finally:
-                await conn.close()
 
         return {
             "session_id": session_id,
@@ -358,8 +363,7 @@ Extract the facts as JSON:"""
 
     async def _mark_extraction_failed(self, session_uuid: Any, exc: Exception) -> None:
         try:
-            conn = await connect_postgres(self.database_url)
-            try:
+            async with self._acquire() as conn:
                 await conn.execute(
                     """
                     UPDATE public.memory_sessions
@@ -370,8 +374,6 @@ Extract the facts as JSON:"""
                     "Memory extraction failed",
                     session_uuid,
                 )
-            finally:
-                await conn.close()
         except Exception as persist_error:
             logger.error(
                 "Memory extraction failure could not be persisted "
@@ -399,8 +401,7 @@ Extract the facts as JSON:"""
         )
 
         # Fetch full fact records from PostgreSQL
-        conn = await connect_postgres(self.database_url)
-        try:
+        async with self._acquire() as conn:
             memories = []
             for result in similar:
                 pg_id = result.get("pg_fact_id")
@@ -431,8 +432,6 @@ Extract the facts as JSON:"""
                             "metadata": json.loads(row["metadata"]) if isinstance(row["metadata"], str) else (row["metadata"] or {}),
                         }
                     )
-        finally:
-            await conn.close()
 
         context_summary = None
         if memories:
@@ -471,6 +470,9 @@ Extract the facts as JSON:"""
             return 0
         owns_connection = conn is None
         if owns_connection:
+            # #804 HOLD: dedicated connection — this loop holds `conn` across
+            # Weaviate update/deactivate I/O below, so it must NOT draw from the
+            # shared pool (would pin a bounded slot across slow I/O).
             conn = await connect_postgres(self.database_url)
         reconciled = 0
         try:
@@ -576,8 +578,7 @@ Extract the facts as JSON:"""
         if user_id:
             user_ids = [_to_uuid(user_id)]
         else:
-            conn = await connect_postgres(self.database_url)
-            try:
+            async with self._acquire() as conn:
                 rows = await conn.fetch(
                     """
                     SELECT DISTINCT user_id FROM public.memory_facts
@@ -585,8 +586,6 @@ Extract the facts as JSON:"""
                     """
                 )
                 user_ids = [row["user_id"] for row in rows]
-            finally:
-                await conn.close()
 
         total_reviewed = 0
         total_merged = 0
@@ -597,8 +596,7 @@ Extract the facts as JSON:"""
             # Fetch facts under a brief connection; release before the
             # LLM call so the connection slot is free during the round-
             # trip (up to 60s per user).
-            conn = await connect_postgres(self.database_url)
-            try:
+            async with self._acquire() as conn:
                 facts = await conn.fetch(
                     """
                     SELECT id, content, fact_type, confidence, namespace,
@@ -609,8 +607,6 @@ Extract the facts as JSON:"""
                     """,
                     uid,
                 )
-            finally:
-                await conn.close()
 
             total_reviewed += len(facts)
 
@@ -669,8 +665,10 @@ Extract the facts as JSON:"""
                 )
                 continue
 
-            # Apply consolidation actions under a fresh connection.
-            conn = await connect_postgres(self.database_url)
+            # #804 HOLD: dedicated connection — the apply loop passes `conn`
+            # into _reconcile_pending_vectors (Weaviate I/O) below, so it must
+            # NOT draw from the shared pool. Keep it on connect_postgres.
+            conn = await connect_postgres(self.database_url)  # HOLD
             try:
                 for action_data in actions:
                     action = action_data.get("action", "")
@@ -790,7 +788,7 @@ Extract the facts as JSON:"""
                         conn, retry_transient=retry_transient
                     )
             finally:
-                await conn.close()
+                await conn.close()  # HOLD (see above)
 
         return {
             "user_id": user_id,
@@ -808,8 +806,7 @@ Extract the facts as JSON:"""
         await self._ensure_initialized()
         user_uuid = _to_uuid(user_id)
 
-        conn = await connect_postgres(self.database_url)
-        try:
+        async with self._acquire() as conn:
             facts = await conn.fetch(
                 """
                 SELECT content, fact_type, confidence
@@ -837,8 +834,6 @@ Extract the facts as JSON:"""
                     "summary": "No memories stored for this user yet.",
                     "total_facts": 0,
                 }
-        finally:
-            await conn.close()
 
         facts_text = "\n".join(
             f"- [{row['fact_type']}] {row['content']} (confidence: {row['confidence']})"
@@ -880,8 +875,7 @@ Extract the facts as JSON:"""
         self._check_enabled()
         user_uuid = _to_uuid(user_id)
 
-        conn = await connect_postgres(self.database_url)
-        try:
+        async with self._acquire() as conn:
             rows = await conn.fetch(
                 """
                 SELECT id, content, fact_type, confidence, namespace,
@@ -927,8 +921,6 @@ Extract the facts as JSON:"""
                 "total": total,
             }
 
-        finally:
-            await conn.close()
 
     async def update_memory(
         self, memory_id: str, user_id: str, updates: Dict[str, Any]
@@ -939,7 +931,9 @@ Extract the facts as JSON:"""
 
         memory_uuid = _to_uuid(memory_id)
         user_uuid = _to_uuid(user_id)
-        conn = await connect_postgres(self.database_url)
+        # #804 HOLD: dedicated connection — passes `conn` into
+        # _reconcile_pending_vectors (Weaviate I/O) below; must not use the pool.
+        conn = await connect_postgres(self.database_url)  # HOLD
         try:
             # Check if fact exists
             row = await conn.fetchrow(
@@ -1001,7 +995,7 @@ Extract the facts as JSON:"""
             }
 
         finally:
-            await conn.close()
+            await conn.close()  # HOLD (see above)
 
     async def delete_memory(self, memory_id: str, user_id: str) -> bool:
         """Soft-delete a memory fact (set is_active=false)."""
@@ -1010,7 +1004,9 @@ Extract the facts as JSON:"""
 
         memory_uuid = _to_uuid(memory_id)
         user_uuid = _to_uuid(user_id)
-        conn = await connect_postgres(self.database_url)
+        # #804 HOLD: dedicated connection — passes `conn` into
+        # _reconcile_pending_vectors (Weaviate I/O) below; must not use the pool.
+        conn = await connect_postgres(self.database_url)  # HOLD
         try:
             deleted = await conn.fetchrow(
                 """
@@ -1030,7 +1026,7 @@ Extract the facts as JSON:"""
             return True
 
         finally:
-            await conn.close()
+            await conn.close()  # HOLD (see above)
 
     async def health_check(self) -> Dict[str, Any]:
         """Check memory service health."""
@@ -1045,13 +1041,10 @@ Extract the facts as JSON:"""
         try:
             await self._ensure_initialized()
 
-            conn = await connect_postgres(self.database_url)
-            try:
+            async with self._acquire() as conn:
                 count = await conn.fetchval(
                     "SELECT COUNT(*) FROM public.memory_facts WHERE is_active = true"
                 )
-            finally:
-                await conn.close()
 
             return {
                 "status": "healthy",

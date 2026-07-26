@@ -1,12 +1,68 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import UUID
 
 import pytest
+
+
+async def _release_fake(conn):
+    """Simulate returning a pooled connection: mark the fake relinquished.
+
+    Real pooling *releases* (not closes) a connection, but the fakes here use
+    ``close()``/``.closed`` to mean "the app is no longer holding this
+    connection" — which is exactly the property the release-before-LLM tests
+    assert. Calling the fake's ``close()`` on context exit keeps those
+    assertions faithful under the pooled seam."""
+    close = getattr(conn, "close", None)
+    if close is not None:
+        await close()
+
+
+def _also_route_acquire(monkeypatch, module, get_conn):
+    """Route the #804 SAFE pooled path (`acquire_conn`) through the SAME
+    connection source as the patched `connect_postgres`.
+
+    SAFE short-lived DB ops (extract-facts inserts, the consolidate facts
+    fetch, recall/summarize/list reads, pgvector store/search) now draw from
+    the shared pool via ``acquire_conn`` instead of ``connect_postgres``. Tests
+    that sequence connections (e.g. ``iter([PendingConn, FactsConn, ApplyConn])``)
+    must feed both functions from the same source so the call-order the
+    ordering contracts rely on is preserved. ``get_conn`` returns the next
+    connection exactly like the ``connect_postgres`` side-effect does."""
+
+    @asynccontextmanager
+    async def _acq(_url="", **_kw):
+        conn = get_conn()
+        try:
+            yield conn
+        finally:
+            await _release_fake(conn)
+
+    monkeypatch.setattr(module, "acquire_conn", _acq)
+
+
+def _route_acquire_via_connect(monkeypatch, module, connect):
+    """Route `acquire_conn` through an async `connect(url)` factory.
+
+    Used by the release-before-LLM tests, whose ``connect`` appends each opened
+    connection to a list they later assert is fully closed. Under #804 those
+    code paths open via ``acquire_conn``, so the pooled path must call the same
+    factory and relinquish (close) the connection on context exit."""
+
+    @asynccontextmanager
+    async def _acq(url="", **_kw):
+        conn = await connect(url)
+        try:
+            yield conn
+        finally:
+            await _release_fake(conn)
+
+    monkeypatch.setattr(module, "acquire_conn", _acq)
 
 
 class FakeConn:
@@ -88,6 +144,7 @@ def test_consolidate_reraises_transient_llm_failure_for_worker(monkeypatch):
     monkeypatch.setattr(
         memory_service, "connect_postgres", AsyncMock(return_value=FactsConn())
     )
+    _also_route_acquire(monkeypatch, memory_service, FactsConn)
 
     try:
         asyncio.run(
@@ -184,6 +241,7 @@ def test_consolidate_deactivates_weaviate_before_superseding_fact(monkeypatch):
         "connect_postgres",
         AsyncMock(side_effect=lambda _url: next(connections)),
     )
+    _also_route_acquire(monkeypatch, memory_service, lambda: next(connections))
     svc = _service()
     svc.max_facts = 100
     svc._get_extraction_model = AsyncMock(return_value="ollama/test")
@@ -293,6 +351,7 @@ def test_consolidate_deactivates_weaviate_before_retention_expiry(monkeypatch):
         "connect_postgres",
         AsyncMock(side_effect=lambda _url: next(connections)),
     )
+    _also_route_acquire(monkeypatch, memory_service, lambda: next(connections))
     svc = _service()
     svc.max_facts = 1
     svc._get_extraction_model = AsyncMock(return_value="ollama/test")
@@ -439,6 +498,7 @@ def test_consolidation_sql_failure_has_no_vector_side_effect(monkeypatch):
         "connect_postgres",
         AsyncMock(side_effect=lambda _url: next(connections)),
     )
+    _also_route_acquire(monkeypatch, memory_service, lambda: next(connections))
     deactivate = AsyncMock()
     svc = _service()
     svc.max_facts = 100
@@ -516,6 +576,7 @@ def test_update_memory_retires_vector_reactivated_by_concurrent_update(
     monkeypatch.setattr(
         memory_service, "connect_postgres", AsyncMock(return_value=conn)
     )
+    _also_route_acquire(monkeypatch, memory_service, lambda: conn)
     store = SimpleNamespace(
         update_embedding=AsyncMock(return_value=memory_id),
         deactivate_embedding=AsyncMock(),
@@ -574,6 +635,7 @@ def test_update_memory_reconciles_public_active_state(monkeypatch, target_active
     monkeypatch.setattr(
         memory_service, "connect_postgres", AsyncMock(return_value=conn)
     )
+    _also_route_acquire(monkeypatch, memory_service, lambda: conn)
     store = SimpleNamespace(
         update_embedding=AsyncMock(return_value=memory_id),
         deactivate_embedding=AsyncMock(),
@@ -632,6 +694,7 @@ def test_delete_memory_keeps_pending_marker_when_vector_sync_fails(monkeypatch):
     monkeypatch.setattr(
         memory_service, "connect_postgres", AsyncMock(return_value=Conn())
     )
+    _also_route_acquire(monkeypatch, memory_service, Conn)
     svc = _service()
     svc.store = SimpleNamespace(deactivate_embedding=fail_deactivate)
 
@@ -694,6 +757,7 @@ def test_consolidation_skips_fact_edited_during_llm_round_trip(monkeypatch):
         "connect_postgres",
         AsyncMock(side_effect=lambda _url: next(connections)),
     )
+    _also_route_acquire(monkeypatch, memory_service, lambda: next(connections))
     svc = _service()
     svc.max_facts = 100
     svc.store = SimpleNamespace(deactivate_embedding=AsyncMock())
@@ -718,6 +782,7 @@ def test_update_memory_is_scoped_to_owner(monkeypatch):
 
     conn = FakeConn()
     monkeypatch.setattr(memory_service, "connect_postgres", AsyncMock(return_value=conn))
+    _also_route_acquire(monkeypatch, memory_service, lambda: conn)
 
     asyncio.run(
         _service().update_memory(
@@ -757,6 +822,7 @@ def test_memory_database_boundaries_use_uuid_objects(monkeypatch):
 
     conn = StrictUuidConn()
     monkeypatch.setattr(memory_service, "connect_postgres", AsyncMock(return_value=conn))
+    _also_route_acquire(monkeypatch, memory_service, lambda: conn)
 
     listed = asyncio.run(_service().list_memories(user_id))
 
@@ -768,6 +834,7 @@ def test_delete_memory_is_scoped_to_owner(monkeypatch):
 
     conn = FakeConn()
     monkeypatch.setattr(memory_service, "connect_postgres", AsyncMock(return_value=conn))
+    _also_route_acquire(monkeypatch, memory_service, lambda: conn)
 
     success = asyncio.run(
         _service().delete_memory(
@@ -846,6 +913,7 @@ def test_extract_releases_db_during_llm_and_locks_quota_transaction(monkeypatch)
     svc = _extraction_service()
     svc._litellm_complete = complete
     monkeypatch.setattr(memory_service, "connect_postgres", connect)
+    _route_acquire_via_connect(monkeypatch, memory_service, connect)
 
     result = asyncio.run(
         svc.extract_facts(
@@ -873,6 +941,7 @@ def test_extract_marks_session_failed_for_malformed_fact_shape(monkeypatch):
     svc = _extraction_service()
     svc._litellm_complete = AsyncMock(return_value='["not-an-object"]')
     monkeypatch.setattr(memory_service, "connect_postgres", connect)
+    _route_acquire_via_connect(monkeypatch, memory_service, connect)
 
     result = asyncio.run(
         svc.extract_facts(
@@ -939,6 +1008,7 @@ def test_recall_and_summarize_release_db_before_llm(monkeypatch):
         )
     )
     monkeypatch.setattr(memory_service, "connect_postgres", connect)
+    _route_acquire_via_connect(monkeypatch, memory_service, connect)
 
     recalled = asyncio.run(
         svc.recall("00000000-0000-4000-8000-000000000002", "Atlas")
@@ -974,9 +1044,8 @@ async def test_search_pgvector_scopes_query_to_user_id(monkeypatch):
     monkeypatch.setattr(
         store, "_generate_embedding", AsyncMock(return_value=[0.1, 0.2, 0.3])
     )
-    monkeypatch.setattr(
-        memory_store, "connect_postgres", AsyncMock(return_value=Conn())
-    )
+    # #804: _search_pgvector draws from the shared pool via acquire_conn.
+    _also_route_acquire(monkeypatch, memory_store, Conn)
 
     uid = "00000000-0000-4000-8000-000000000009"
     await store._search_pgvector("hello", uid, "default", 5)

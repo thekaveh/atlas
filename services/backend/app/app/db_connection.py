@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import asyncio
+import os
+from contextlib import asynccontextmanager
 from urllib.parse import urlparse
 
 import asyncpg
@@ -27,3 +30,78 @@ async def connect_postgres(
     if _uses_transaction_pooler(database_url):
         kwargs["statement_cache_size"] = 0
     return await asyncpg.connect(database_url, **kwargs)
+
+
+# ---------------------------------------------------------------------------
+# Shared connection pool (#804)
+#
+# Every SHORT-LIVED DB op should acquire from a shared pool instead of paying a
+# fresh TCP + auth handshake per operation. Pools are cached per database_url
+# (all backend services read the same DATABASE_URL, so they share one pool) and
+# created lazily under a lock; the FastAPI lifespan pre-warms + disposes them.
+#
+# INVARIANT: never hold a *pooled* connection across a long/non-DB await (an LLM
+# completion, an embedding call, a Weaviate/HTTP round-trip, a poll). Doing so
+# pins a bounded pool slot across slow I/O and risks a reaped connection. Code
+# paths that legitimately hold a connection across such I/O (e.g. the memory
+# vector-reconcile loop) must keep using `connect_postgres` — a dedicated
+# ephemeral connection — NOT the pool.
+# ---------------------------------------------------------------------------
+
+_POOL_MIN = int(os.getenv("BACKEND_PG_POOL_MIN", "1"))
+_POOL_MAX = int(os.getenv("BACKEND_PG_POOL_MAX", "10"))
+
+_pools: dict[str, asyncpg.Pool] = {}
+_pools_lock = asyncio.Lock()
+
+
+async def get_pg_pool(
+    database_url: str,
+    *,
+    timeout: int = 10,
+    command_timeout: int = 30,
+) -> asyncpg.Pool:
+    """Return the shared asyncpg pool for ``database_url``, creating it lazily.
+
+    Sizing is env-tunable (``BACKEND_PG_POOL_MIN`` / ``BACKEND_PG_POOL_MAX``).
+    The transaction-pooler ``statement_cache_size=0`` nuance and the existing
+    connect/command timeouts are preserved."""
+    pool = _pools.get(database_url)
+    if pool is not None and not pool._closed:  # noqa: SLF001 — asyncpg exposes no public isopen
+        return pool
+    async with _pools_lock:
+        pool = _pools.get(database_url)
+        if pool is not None and not pool._closed:  # noqa: SLF001
+            return pool
+        kwargs: dict = {"timeout": timeout, "command_timeout": command_timeout}
+        if _uses_transaction_pooler(database_url):
+            kwargs["statement_cache_size"] = 0
+        pool = await asyncpg.create_pool(
+            database_url,
+            min_size=_POOL_MIN,
+            max_size=_POOL_MAX,
+            **kwargs,
+        )
+        _pools[database_url] = pool
+        return pool
+
+
+@asynccontextmanager
+async def acquire_conn(database_url: str, **pool_kwargs):
+    """Acquire a pooled connection for a SHORT-LIVED DB op.
+
+    Drop-in for the ``conn = await connect_postgres(...); try: ... finally:
+    await conn.close()`` pattern — used as ``async with acquire_conn(url) as
+    conn:``. See the pool invariant above: do NOT use this while holding the
+    connection across non-DB I/O."""
+    pool = await get_pg_pool(database_url, **pool_kwargs)
+    async with pool.acquire() as conn:
+        yield conn
+
+
+async def close_pg_pools() -> None:
+    """Dispose all cached pools (FastAPI lifespan shutdown)."""
+    async with _pools_lock:
+        for pool in _pools.values():
+            await pool.close()
+        _pools.clear()
