@@ -525,12 +525,24 @@ def _is_service_readme(path):
     parts = path.relative_to(ROOT).parts
     return len(parts) >= 3 and parts[0] == "services" and parts[-1] == "README.md"
 
+# Internal planning/research scratch — meta-docs that legitimately QUOTE the very
+# phrases this gate bans (e.g. "the diagram above shows", "JetBrains Mono"). Same
+# exemption set as scripts/docs/check_docs.py::_INTERNAL_DIRS.
+_CONTENT_QUALITY_EXEMPT = (
+    "docs/superpowers/",
+    "docs/research/",
+    "docs/strategy/",
+    "docs/maintenance/",
+)
+
 def check_content_quality():
     hits = []
     docs = {}
     for path in documentation_paths(ROOT):
-        text = path.read_text(encoding="utf-8", errors="ignore")
         rel = path.relative_to(ROOT).as_posix()
+        if rel.startswith(_CONTENT_QUALITY_EXEMPT):
+            continue
+        text = path.read_text(encoding="utf-8", errors="ignore")
         docs[rel] = text
         for line_number, message in diagram_narration_findings(text):
             hits.append(f"{rel}:{line_number}: diagram-narration: {message!r}")
@@ -540,7 +552,15 @@ def check_content_quality():
             text, is_service_readme=_is_service_readme(path)
         ):
             hits.append(f"{rel}:{line_number}: marketing adjective {word!r}")
-    for rel, message in duplicate_block_findings(docs):
+    # Duplicate-block detection is scoped to the architecture perspective pages,
+    # where a copy-pasted block is the anti-pattern this gate exists to prevent
+    # (the Task-4 "Source Files" case). Running it corpus-wide would flag the
+    # 59 service READMEs' legitimately-repeated auto-generated sections
+    # (Dependencies & Integrations, Access boilerplate) as false positives.
+    arch_docs = {
+        rel: docs[rel] for rel in docs if rel.startswith("docs/architecture/")
+    }
+    for rel, message in duplicate_block_findings(arch_docs):
         hits.append(f"{rel}: {message}")
     return hits
 ```
