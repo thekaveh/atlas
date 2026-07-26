@@ -31,20 +31,20 @@ This effort is a single, comprehensive overhaul delivered in two phases — **Fo
 
 Findings below are from a four-part read of the `develop` tree; file references are exact.
 
-### 4.1 Pipeline & single source of truth — **healthy, keep it**
+### 4.1. Pipeline & single source of truth — **healthy, keep it**
 - **Single source:** committed Markdown enumerated by `docs/manifest.yaml` (110 canonical pages) — `docs/**`, root `README.md`, and `services/*/README.md`. Per-service content itself derives from `services/*/service.yml`.
 - **Two generation layers:** Layer A (`scripts/docs/canonical_references.py` + `bootstrapper/docs/sitegen/{model,pages,services}.py`) back-generates manifest-derived pages into the committed `docs/` tree; Layer B (`scripts/docs/build_docs.py`) projects the committed source into `generated/site/` (MkDocs input) and `generated/wiki/`, and emits `mkdocs.yml`. Chained by the `Makefile` (`docs-build`, `docs-check`).
 - **`mkdocs.yml` is generated + gitignored** (`.gitignore:8-10`); nav is a pure function of the manifest (`build_docs._nav_entries`). Structure changes happen in `docs/manifest.yaml`; theme changes in `build_docs.render_mkdocs_yml`.
 - **Sync enforced by construction:** SHA-256 determinism check (`build_docs._assert_dirs_equal`), canonical-drift gate (`canonical_references.sync_canonical_references`, surfaced by `check_docs`), cross-surface link forbiddance / self-containment (`links.is_forbidden`, `check_docs.check_self_containment`), completeness + placeholder gates, and diagram-PNG fingerprint staleness (`render_diagrams`, PNG `tEXt AtlasSourceSHA256`).
 - **Deploy:** `.github/workflows/docs-pages.yml` — push to `main` on doc paths → `make docs-check` → Pages artifact deploy; a follow-on job pushes the wiki to branch `master` via `push_wiki.py`.
 
-### 4.2 Information architecture — disciplined but three real problems
+### 4.2. Information architecture — disciplined but three real problems
 The manifest imposes a clean 10-bucket taxonomy (Overview · Quick Start · Core Concepts · Tracks · Services · Architecture · Configuration · Operations · Development · Reference). Problems:
 1. **Root `README.md` (659 lines) is a parallel mini-site** with its own 1–12 numbering, re-telling quick-start, overview, the SOURCE system, service access, and reuse. Largest single duplication surface. Contains a generated `<!-- TOPOLOGY:BEGIN/END -->` table (`README.md:259-325`).
 2. **Four-way fact duplication:** ports/routes live in the README TOPOLOGY block, `docs/reference/ports-routes.md`, `docs/deployment/ports-and-routes.md`, and each service README §2; SOURCE values in README §3.4, `docs/reference/source-values.md`, `docs/architecture/source-configuration-model.md`, `docs/core-concepts.md`; tracks in `docs/tracks.md`, `docs/reference/tracks.md`, README §1.5.
 3. **Folder ↔ section drift + thin pages + oversized files:** `docs/deployment/` files are scattered across nav §7 and §8; stub pages (`docs/tracks.md` 13 lines, `docs/configuration.md` 13 lines, `docs/reference/index.md` 22 lines); `docs/CHANGELOG.md` (2831 lines) and `docs/ROADMAP.md` (1416) sit inside Development; ~100 markdown files under research/ (64) · superpowers/ (33) · strategy/ (7) are outside the nav entirely (exempted in `check_docs`).
 
-### 4.3 Content quality — strong corpus, localized defects
+### 4.3. Content quality — strong corpus, localized defects
 The newer service READMEs are clinical and fact-checked. Defects concentrate in:
 - **Diagram-narration / stating-the-obvious:** the 11 architecture pages' "How To Read This View" sections restate the SVG (e.g. `docs/architecture/platform-overview.md:11`, `network-routing-topology.md:11`); two root-README image captions narrate pixel-by-pixel (`README.md:11`, `README.md:15`); `docs/diagrams/README.md:36-40` documents cosmetic production detail ("same JetBrains Mono, same slate-950 background").
 - **Redundancy:** an identical "Source Files" block pasted across ~9–11 architecture pages (e.g. `docs/architecture/platform-overview.md:15-18`) — redundant and partly ungrounded (claims unrelated views derive from the same two files); a config sentence duplicated across weaviate/ollama READMEs; the Ollama picker explanation told three times.
@@ -52,7 +52,7 @@ The newer service READMEs are clinical and fact-checked. Defects concentrate in:
 - **Tone:** kong / supabase / doc-processor READMEs use marketing register ("intelligent API gateway", "AI-powered") against an otherwise clinical corpus — a house-style consistency gap.
 - **Cross-surface leakage:** essentially clean (only the standard Material `repo_url` header link; no genuine in-repo→site/wiki leaks in user-facing pages).
 
-### 4.4 The `.io` site — stock Material, big headroom
+### 4.4. The `.io` site — stock Material, big headroom
 - Theme: Material for MkDocs, **dark-first** (`slate` + `default` schemes), `primary`/`accent: custom` driven by CSS variables in `docs/assets/stylesheets/atlas.css` (~3 KB "space" palette). **No logo, no favicon, no custom font, no `overrides/` template dir.** Homepage is a bespoke `docs/index.md` hero (poster + wizard screenshot) using `.atlas-home*` CSS.
 - Reskin levers, all in three places: `build_docs.render_mkdocs_yml` (theme config), `docs/assets/stylesheets/atlas.css` (the visual system), and `docs/index.md` (+ a new `overrides/` dir + brand assets).
 - Legacy to avoid disturbing: `bootstrapper/docs/sitegen/{theme,wiki,rendering}.py` and `scripts/*-docs-*.py` shims are dormant; the active pipeline is `scripts/docs/*` + `make`.
@@ -72,21 +72,21 @@ The newer service READMEs are clinical and fact-checked. Defects concentrate in:
 
 ## 6. Phase 1 — Foundation
 
-### 6.1 Information architecture
+### 6.1. Information architecture
 - **Shrink `README.md`** to a landing: one-paragraph pitch, a 30-second quick-start, the generated `TOPOLOGY` table, a short "what's inside / where to go" link block into the docs. Remove the 1–12 numbering and every section that merely restates a canonical page. Move any genuinely unique prose into the matching canonical page first (no information loss).
 - **One home per duplicated fact:** designate the generated `docs/reference/*` pages as canonical for ports/routes, SOURCE values, tracks, service-dependencies, env-vars, manifest-fields. Replace narrative copies elsewhere with a one-line summary + link. Keep only generated tables (they can't drift); delete hand-maintained twins.
 - **Folder ↔ section coherence:** re-home `docs/deployment/*` so the physical folder predicts its nav section, or split into `docs/configuration/` + `docs/operations/` to match §7/§8. Enrich or merge the stub pages. Relocate `CHANGELOG.md`/`ROADMAP.md` out of the reader-facing Development bucket (e.g. to repo root or a clearly-marked "Project" area) so they stop dominating the nav.
 - **Archival index:** add an in-repo `docs/internal/README.md` (or extend `docs/README.md`) that indexes research/ · superpowers/ · strategy/ with one line each; keep them `check_docs`-exempt and out of the site nav.
 - All of the above is expressed by editing `docs/manifest.yaml` (nav/numbering) + moving/rewriting the source files; `make docs-build` re-projects all surfaces.
 
-### 6.2 Content-quality full pass
+### 6.2. Content-quality full pass
 - **Diagram-narration:** rewrite each architecture page's "How To Read This View" to keep only what the diagram cannot convey (rationale, constraints, gotchas, cross-refs); drop the section where nothing non-obvious remains. Delete the two narrating README captions and the cosmetic production prose in `docs/diagrams/README.md`.
 - **De-duplication:** replace the pasted "Source Files" block with either a per-view accurate short list or a generated block; collapse the tripled Ollama-picker explanation to one canonical location + links; remove the duplicated config sentence.
 - **Tone:** rewrite kong / supabase / doc-processor READMEs into the clinical house style used by backend/litellm/comfyui.
 - **Ungrounded facts:** `default_active`→`default`; reconcile the Ollama count to one verified number; replace "2,800+ tests" with a verified figure or a non-numeric phrasing.
 - **Method:** every change is fact-checked against the tree; the pass is exhaustive (all nav pages + all service READMEs), not sampled.
 
-### 6.3 Content-lint gate
+### 6.3. Content-lint gate
 - Extend `scripts/docs/heading_quality.py` (or a sibling `content_quality.py`) into a gate wired into `make docs-check` and `docs-pages.yml`. Rules (all with an allowlist/inline-suppress for rare legitimate cases):
   - Ban diagram-narration phrases near an image/diagram embed: "the diagram (above|below) shows", "as you can see", "the image shows", etc.
   - Ban production/style narration: "(dark|light) (background|accent)", "same .* font", "per the .* style", orientation/color descriptions.
@@ -95,34 +95,34 @@ The newer service READMEs are clinical and fact-checked. Defects concentrate in:
   - Keep the existing TODO/TBD/FIXME/XXX placeholder gate.
 - Ship the gate with the cleanup in the same change so CI is green on introduction.
 
-### 6.4 Sync verification
+### 6.4. Sync verification
 - Confirm the determinism, canonical-drift, self-containment, completeness, and diagram-fingerprint gates cover every new/moved page; run `make docs-check` to prove green; close any residual content drift the audit surfaced.
 
 ## 7. Phase 2 — Reskin ("Clean Systems", light-first)
 
-### 7.1 Design tokens (pinned; final hex confirmed during implementation)
+### 7.1. Design tokens (pinned; final hex confirmed during implementation)
 - **Light:** bg `#ffffff`, surface `#f8fafc`, text `#0f172a`, muted `#5b6472`, border `#e6e9ef` (slight cool bias — a *chosen* neutral, not pure grey), accent `#2563eb`, accent-hover `#1d4ed8`, code-bg `#0f172a`/code-fg `#e2e8f0`.
 - **Dark (true equal, not an inversion):** bg `#0d1117`, surface `#161b22`, text `#e6edf3`, muted `#8b949e`, border `#21262d`, accent `#5b8bff`.
 - Semantic admonition colors (note/tip/warning/danger) kept separate from the blue accent.
 
-### 7.2 Typography (proposed; confirm faces in the plan)
+### 7.2. Typography (proposed; confirm faces in the plan)
 - Body/headings: a clean, legible docs sans with a little character — proposed **Public Sans** (neutral, high-legibility, non-cliché) or **IBM Plex Sans**; deliberately avoiding the Inter/Space-Grotesk default.
 - Code/labels: **JetBrains Mono** or **IBM Plex Mono**.
 - Self-hosted via Material's `theme.font` (Material bundles/self-hosts, satisfying privacy + the site's offline-ish build). Set a type scale; headings `text-wrap: balance`; body near 65–72ch.
 
-### 7.3 Theme config (`build_docs.render_mkdocs_yml`)
+### 7.3. Theme config (`build_docs.render_mkdocs_yml`)
 - Flip to **light-first** palette order; keep the dark toggle. `primary`/`accent: custom` (tokens from CSS).
 - Add `theme.logo`, `theme.favicon`, `theme.font`, and `custom_dir: overrides`.
 - Nav: top **tabs** (`navigation.tabs`) + sections + index pages + TOC follow + code copy + search suggest/highlight (mostly already set); consider `navigation.instant` for SPA-like feel.
 
-### 7.4 Stylesheet (`docs/assets/stylesheets/atlas.css` — rewrite)
+### 7.4. Stylesheet (`docs/assets/stylesheets/atlas.css` — rewrite)
 - Replace the dark-space system with the token set above; hairline borders, generous spacing, refined code/table/admonition styling; both themes via `[data-theme]`/`prefers-color-scheme` at the token level.
 - Rebuild the `.atlas-home*` landing components for the new identity.
 
-### 7.5 Brand assets
+### 7.5. Brand assets
 - A simple, geometric **Atlas logomark** (SVG, works at favicon size, both themes) + wordmark in the nav; generate `favicon.ico`/PNG set. Store under `docs/assets/` and wire via theme config + `render_site` copy.
 
-### 7.6 Rich landing (`docs/index.md` + `overrides/home.html` if needed + CSS)
+### 7.6. Rich landing (`docs/index.md` + `overrides/home.html` if needed + CSS)
 - Hero: tagline + subhead + primary CTAs (Quick Start · Service Catalog · Architecture).
 - Capability grid: the tracks (gen-ai-eng / rag / creative / ml-eng / data-eng / trading) or headline services as cards.
 - A quick-start code moment (`./start.sh …` with tabbed variants).

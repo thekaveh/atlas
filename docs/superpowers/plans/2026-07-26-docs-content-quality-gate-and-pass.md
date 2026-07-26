@@ -10,7 +10,7 @@
 
 **This is PR #1 of 4** in `docs/superpowers/specs/2026-07-26-docs-overhaul-and-reskin-design.md` §10. It is independently shippable and green on its own.
 
-## Global Constraints
+## 1. Global Constraints
 
 - **Single source of truth:** all page content lives in committed Markdown enumerated by `docs/manifest.yaml`; never edit `generated/**`, `site/**`, or `mkdocs.yml` (gitignored build artifacts).
 - **PNG-drift trap:** docs/bootstrapper builds rewrite `docs/diagrams/img/*.png` with non-deterministic bytes. ALWAYS `git add <explicit files>`; NEVER `git add -A`; restore `docs/diagrams/img/` before committing unless a diagram master genuinely changed.
@@ -22,7 +22,7 @@
 
 ---
 
-### Task 1: Content-lint rules module — fence-aware finders
+### 1.1. Task 1: Content-lint rules module — fence-aware finders
 
 **Files:**
 - Create: `scripts/docs/content_quality.py`
@@ -211,7 +211,7 @@ git commit -m "feat(docs-lint): fence-aware content-quality rules module"
 
 ---
 
-### Task 2: Cross-file duplicate-block finder
+### 1.2. Task 2: Cross-file duplicate-block finder
 
 **Files:**
 - Modify: `scripts/docs/content_quality.py`
@@ -312,7 +312,7 @@ git commit -m "feat(docs-lint): cross-file duplicate-block finder"
 
 ---
 
-### Task 3: Fix diagram-narration prose (architecture pages + README captions + diagrams README)
+### 1.3. Task 3: Fix diagram-narration prose (architecture pages + README captions + diagrams README)
 
 **Files:**
 - Modify (GENERATOR — the architecture `.md` are NOT hand-authored): `bootstrapper/docs/sitegen/pages.py`. The per-slug "How To Read This View" prose for all 11 architecture pages lives in the `ARCHITECTURE_INTERPRETATIONS: dict[str, str]` mapping (~line 251); the section heading is emitted by the `architecture_pages()` template (~line 781, `## 2. How To Read This View`). The committed `docs/architecture/*.md` are regenerated from this by `make docs-build` (Layer A, `scripts/docs/canonical_references.py`) — editing the `.md` directly is reverted by the build and fails the `check_docs` drift gate. Fix the generator, then run `make docs-build` and commit the regenerated `.md` alongside `pages.py`.
@@ -368,7 +368,7 @@ git commit -m "docs: remove diagram-narration and production-style prose"
 
 ---
 
-### Task 4: De-duplicate the pasted "Source Files" block across architecture pages
+### 1.4. Task 4: De-duplicate the pasted "Source Files" block across architecture pages
 
 **Files:**
 - Modify (GENERATOR): `bootstrapper/docs/sitegen/pages.py`. The "Source Files" block is HARDCODED as the same four bullets in the `architecture_pages()` template (~lines 785-790) for every page. Add a new `ARCHITECTURE_SOURCE_FILES: dict[str, list[str]]` mapping (one list per slug, beside `ARCHITECTURE_INTERPRETATIONS`) and change the template to render `ARCHITECTURE_SOURCE_FILES[slug]` instead of the literal list. Then `make docs-build` regenerates the committed `.md`.
@@ -418,7 +418,7 @@ git commit -m "docs: replace copy-pasted Source Files block with per-view source
 
 ---
 
-### Task 5: Rewrite marketing-tone READMEs to house style
+### 1.5. Task 5: Rewrite marketing-tone READMEs to house style
 
 **Files:**
 - Modify: `services/kong/README.md`, `services/supabase/README.md`, `services/doc-processor/README.md`
@@ -463,7 +463,7 @@ git commit -m "docs: rewrite kong/supabase/doc-processor READMEs to house style"
 
 ---
 
-### Task 6: Fix ungrounded / drifting facts
+### 1.6. Task 6: Fix ungrounded / drifting facts
 
 **Files:**
 - Modify: `services/ollama/README.md:85` (`default_active` → `default`)
@@ -500,7 +500,7 @@ git commit -m "docs: ground ollama model-key, library count, and test-count clai
 
 ---
 
-### Task 7: Register the gate in the docs-drift audit + prove full green
+### 1.7. Task 7: Register the gate in the docs-drift audit + prove full green
 
 **Files:**
 - Modify: `scripts/check-docs-drift.py` (add `check_content_quality()` + register in the `checks` dict)
@@ -566,18 +566,18 @@ git commit -m "feat(docs-lint): enforce content-quality gate in docs-drift audit
 
 ---
 
-## Self-Review
+## 2. Self-Review
 
 **Spec coverage (against §6.2–6.3 of the design):**
-- Content-lint gate wired into the docs audit → Tasks 1, 2, 7. ✅
-- Diagram-narration removal (11 pages + 2 captions + diagrams README) → Task 3. ✅
-- "Source Files" block de-dup → Task 4. ✅
-- Tone READMEs (kong/supabase/doc-processor) → Task 5. ✅
-- Ungrounded facts (default_active, Ollama count, test count) → Task 6. ✅
-- Green-on-introduction ordering (content fixed before gate enforces) → Tasks 3–6 precede Task 7. ✅
+- Content-lint gate wired into the docs audit → Tasks 1, 2, 7. — covered
+- Diagram-narration removal (11 pages + 2 captions + diagrams README) → Task 3. — covered
+- "Source Files" block de-dup → Task 4. — covered
+- Tone READMEs (kong/supabase/doc-processor) → Task 5. — covered
+- Ungrounded facts (default_active, Ollama count, test count) → Task 6. — covered
+- Green-on-introduction ordering (content fixed before gate enforces) → Tasks 3–6 precede Task 7. — covered
 
-**Placeholder scan:** No "TBD/handle edge cases/similar to Task N". Editorial tasks cite exact files/lines + the specific defect + the corrected text + a machine verification (finder snippet / grep / `make docs-check`). ✅
+**Placeholder scan:** No "TBD/handle edge cases/similar to Task N". Editorial tasks cite exact files/lines + the specific defect + the corrected text + a machine verification (finder snippet / grep / `make docs-check`). — covered
 
-**Type consistency:** finder signatures defined in Tasks 1–2 (`diagram_narration_findings`, `production_style_findings`, `marketing_adjective_findings(text, *, is_service_readme)`, `duplicate_block_findings(docs, *, min_lines, min_pages)`) are consumed with those exact names/kwargs in Task 7. ✅
+**Type consistency:** finder signatures defined in Tasks 1–2 (`diagram_narration_findings`, `production_style_findings`, `marketing_adjective_findings(text, *, is_service_readme)`, `duplicate_block_findings(docs, *, min_lines, min_pages)`) are consumed with those exact names/kwargs in Task 7. — covered
 
 **Note on the exhaustive sweep:** the gate in Task 7 runs over `documentation_paths(ROOT)` (every tracked `.md`), so if any *unsampled* page carries a defect class, Step 2 fails and that page must be fixed before commit — this is what makes the pass exhaustive rather than limited to the audit's samples.
