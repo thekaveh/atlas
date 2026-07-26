@@ -58,3 +58,24 @@ def test_duplicate_block_across_pages_flagged():
 def test_unique_blocks_not_flagged():
     docs = {f"p{i}.md": f"# Page {i}\n\nunique line {i}\nother {i}\n" for i in range(5)}
     assert duplicate_block_findings(docs, min_lines=4, min_pages=4) == []
+
+
+def test_multiple_duplicated_blocks_on_one_page_yield_one_finding():
+    # Page p1 (non-last) contains TWO distinct 4-line blocks, each duplicated across 4+ pages
+    block1 = "- `a.yml`\n- `b.py`\n- `c.md`\n- `d.txt`\n"
+    block2 = "line1\nline2\nline3\nline4\n"
+    docs = {}
+    for i in range(7):
+        if i == 1:
+            # p1 has both blocks
+            docs[f"p{i}.md"] = f"# Page {i}\n\n{block1}{block2}tail\n"
+        elif i < 4:
+            # p0, p2, p3 have block1 (4 pages total with block1)
+            docs[f"p{i}.md"] = f"# Page {i}\n\n{block1}tail\n"
+        else:
+            # p4, p5, p6 have block2 (4 pages total with block2)
+            docs[f"p{i}.md"] = f"# Page {i}\n\n{block2}tail\n"
+    findings = duplicate_block_findings(docs, min_lines=4, min_pages=4)
+    # Only one finding for p1, despite two duplicate blocks
+    p1_findings = [f for f in findings if f[0] == "p1.md"]
+    assert len(p1_findings) == 1

@@ -114,7 +114,7 @@ def duplicate_block_findings(
     window_pages: dict[tuple[str, ...], set[str]] = {}
     per_page_windows: dict[str, list[tuple[str, ...]]] = {}
     for path, text in docs.items():
-        lines = [text for _, text in _content_lines(text)]
+        lines = [t for _, t in _content_lines(text)]
         windows = []
         for i in range(0, max(0, len(lines) - min_lines + 1)):
             window = tuple(lines[i : i + min_lines])
@@ -137,10 +137,10 @@ def duplicate_block_findings(
                         f"{len(pages)} pages",
                     )
                 )
-    # de-dup to one finding per page for the first offending block
-    if any(p == path for p, _ in findings):
-        first = next((f for f in findings if f[0] == path), None)
-        findings = [f for f in findings if f[0] != path]
-        if first:
+        # de-dup to one finding per page for the first offending block
+        page_findings = [f for f in findings if f[0] == path]
+        if page_findings:
+            first = page_findings[0]
+            findings = [f for f in findings if f[0] != path]
             findings.append(first)
     return sorted(findings)
