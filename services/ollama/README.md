@@ -82,7 +82,7 @@ Failure modes degrade gracefully:
 - `/api/tags` unreachable → merged view degrades to library-only with a warning. Logged.
 - Both down → placeholder row explains what to fix.
 
-The default-active baseline (qwen3.6:latest, qwen3-embedding:0.6b, nomic-embed-text) is baked into `services/ollama/models.yaml` with `default_active: true`, so the multi-select is **purely additive** — leaving everything unchecked still leaves the baseline active. Pre-checking behaviour: on first visit (`OLLAMA_USER_MODELS` empty), the wizard pre-checks the default-active baseline so the user sees it already ticked. On subsequent visits, the saved `OLLAMA_USER_MODELS` selection is restored, intersected with the visible options.
+The default-active baseline (qwen3.6:latest, qwen3-embedding:0.6b, nomic-embed-text) is baked into `services/ollama/models.yaml` with `default: true`, so the multi-select is **purely additive** — leaving everything unchecked still leaves the baseline active. Pre-checking behaviour: on first visit (`OLLAMA_USER_MODELS` empty), the wizard pre-checks the default-active baseline so the user sees it already ticked. On subsequent visits, the saved `OLLAMA_USER_MODELS` selection is restored, intersected with the visible options.
 
 When adding an **embedding** model to `services/ollama/models.yaml`, declare its output vector dimension with `dim:` (e.g. `dim: 768` for `nomic-embed-text`). The wizard's embedding-default step pre-selects whichever model's `dim` equals `MEMORY_FACTS_EMBEDDING_DIM` (768 — the backend `memory_facts vector(768)` column), and `model_resolver.embedding_dim_warning` flags a non-matching pick at `.env`-write time. See the header comments in `services/ollama/models.yaml`.
 
