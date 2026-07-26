@@ -8,7 +8,7 @@ Host ports, Kong aliases, direct service ports, backend-network-only services, a
 
 ## 2. Notes
 
-Localhost-mode services don't get a duplicate container on the backend network; the configured host gateway address is what lets in-network callers reach the host-run process instead.
+The host-gateway address is runtime-dependent, not a fixed IP: Docker accepts the literal `host-gateway` value in `extra_hosts` and resolves it internally, but Podman has no such shortcut — it queries the default bridge network's IPAM gateway IP directly (`resolve_host_gateway_ip()` in `bootstrapper/utils/system.py`), falling back to a throwaway container if that lookup fails.
 
 ## 3. Source Files
 
