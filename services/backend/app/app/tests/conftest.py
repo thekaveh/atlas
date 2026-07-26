@@ -84,7 +84,13 @@ def fastapi_client(monkeypatch, ray_enabled_env, mock_job_submission_client):
     without a running Docker stack.
     """
     # Provide stub values for env vars main.py requires at import time.
-    # Only set if not already present so a real .env still wins.
+    # #817: "real .env wins" affordance — the stub is applied ONLY when the var
+    # is absent, so a developer can point these tests at a live stack by
+    # exporting real KONG_URL / SUPABASE_SERVICE_KEY / DATABASE_URL. Trade-off:
+    # an exported value silently overrides the stub, making the fixture
+    # shell-dependent. It's inert for the unit tests here (they never open those
+    # connections), but if you see a test behave differently between shells,
+    # check for one of these exported in your environment.
     for _var, _default in (
         ("KONG_URL", "http://kong-api-gateway:8000"),
         ("SUPABASE_SERVICE_KEY", "dummy-key"),
