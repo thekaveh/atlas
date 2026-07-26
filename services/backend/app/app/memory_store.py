@@ -13,7 +13,7 @@ from uuid import UUID
 
 import httpx
 
-from db_connection import connect_postgres
+from db_connection import acquire_conn
 
 
 def _to_uuid(value: Union[str, UUID, None]) -> Optional[UUID]:
@@ -322,8 +322,9 @@ class MemoryStore:
     async def _store_pgvector(self, fact_id: str, content: str):
         """Store embedding in pgvector column."""
         embedding = await self._generate_embedding(content)
-        conn = await connect_postgres(self.database_url)
-        try:
+        # #804: embedding already generated above (no connection held across
+        # that I/O), so this short UPDATE/SELECT draws from the shared pool.
+        async with acquire_conn(self.database_url) as conn:
             # `$1::vector` binds the literal as text so Postgres runs the vector
             # input function — without the cast asyncpg would infer the column's
             # `vector` type for $1, has no codec for it, and raises at execute.
@@ -333,8 +334,6 @@ class MemoryStore:
                 str(embedding),
                 _to_uuid(fact_id),
             )
-        finally:
-            await conn.close()
 
     async def search_similar(
         self,
@@ -430,8 +429,9 @@ class MemoryStore:
     ) -> List[Dict[str, Any]]:
         """Search pgvector for similar memories using cosine similarity."""
         embedding = await self._generate_embedding(query)
-        conn = await connect_postgres(self.database_url)
-        try:
+        # #804: embedding already generated above (no connection held across
+        # that I/O), so this short UPDATE/SELECT draws from the shared pool.
+        async with acquire_conn(self.database_url) as conn:
             rows = await conn.fetch(
                 """
                 SELECT id, content, fact_type, confidence,
@@ -460,8 +460,6 @@ class MemoryStore:
                 }
                 for row in rows
             ]
-        finally:
-            await conn.close()
 
     async def delete_embedding(self, fact_id: str, weaviate_id: Optional[str] = None):
         """Delete an embedding from the vector store."""

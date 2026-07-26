@@ -48,6 +48,12 @@ env:
   - name: RESEARCH_SESSION_LEASE_SECONDS
     default: 300
     description: "Maximum age in seconds for pending research work or a running session heartbeat before the Backend atomically marks the abandoned session failed."
+  - name: BACKEND_PG_POOL_MIN
+    default: 1
+    description: "Minimum connections kept warm in the Backend's shared asyncpg pool (#804). Short-lived DB ops draw from this pool instead of paying a fresh connect handshake each time; long-hold paths (memory vector-reconcile) keep dedicated connections."
+  - name: BACKEND_PG_POOL_MAX
+    default: 10
+    description: "Maximum connections the Backend's shared asyncpg pool (#804) opens per database URL. Concurrent short-lived DB ops beyond this queue for a free slot rather than over-subscribing Postgres."
   - name: BACKEND_STORAGE_ALLOWED_BUCKETS
     default: default
     description: "Comma-separated Supabase Storage bucket allowlist accepted by /storage/upload."

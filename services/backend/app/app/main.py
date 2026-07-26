@@ -248,12 +248,23 @@ async def _media_budget_prune_loop() -> None:
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
     global _media_budget_prune_task
+    # #804: pre-warm the shared asyncpg pool at startup, best-effort — if the DB
+    # is not reachable yet, the pool is created lazily on first use rather than
+    # failing app startup (keeps the TestClient/unit path working too).
+    from db_connection import get_pg_pool, close_pg_pools
+    _db_url = os.getenv("DATABASE_URL")
+    if _db_url:
+        try:
+            await get_pg_pool(_db_url)
+        except Exception:  # noqa: BLE001 — startup must not hard-fail on DB warmup
+            logger.warning("PG pool pre-warm failed; will create lazily on first use")
     await research_service.start_maintenance()
     if MEDIA_BUDGET_ENGINE.config.enabled and MEDIA_BUDGET_ENGINE.config.retention_days:
         _media_budget_prune_task = asyncio.create_task(_media_budget_prune_loop())
     try:
         yield
     finally:
+        await close_pg_pools()
         # Terminalize local research work before closing process-lifetime
         # clients and shared stores.
         if _media_budget_prune_task is not None:
