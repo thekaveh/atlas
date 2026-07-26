@@ -37,7 +37,7 @@
     </div>
     <section class="interpretation">
       <h2>How to read this view</h2>
-      <p>Clients enter through Kong or a deliberately published direct port. Application and agent services consume the shared LLM and data layers; LiteLLM keeps local inference and cloud-provider credentials behind one OpenAI-compatible boundary.</p>
+      <p>Direct published ports bypass Kong deliberately, for host tools that can&#x27;t use the `*.localhost` gateway. All model traffic — local and cloud — is funneled through LiteLLM so credentials and routing live in exactly one place (see [LLM provider flow](./llm-provider-flow.md)).</p>
     </section>
   </main>
 </body>

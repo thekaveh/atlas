@@ -37,7 +37,7 @@
     </div>
     <section class="interpretation">
       <h2>How to read this view</h2>
-      <p>MinIO is the object data plane and Iceberg REST owns table metadata. Spark and Trino execute against that shared lakehouse; JupyterHub, Zeppelin, and Airflow submit interactive or scheduled work, while Redpanda supplies streaming inputs.</p>
+      <p>Iceberg REST&#x27;s catalog metadata lives in Supabase Postgres via a JDBC catalog, not a Hive metastore — if `CATALOG_URI` isn&#x27;t pointed at `jdbc:postgresql://supabase-db:5432/iceberg`, the base image silently falls back to a local SQLite catalog and metadata vanishes on restart. Trino runs single-coordinator, no worker scaling, by design. Spark still starts with `ICEBERG_REST_SOURCE=disabled` for ML-only use; only lakehouse SQL fails.</p>
     </section>
   </main>
 </body>

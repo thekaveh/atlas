@@ -6,9 +6,9 @@ Host ports, Kong aliases, direct service ports, backend-network-only services, a
 
 [Open the interactive diagram](./network-routing-topology.html).
 
-## 2. How To Read This View
+## 2. Notes
 
-Kong provides stable `*.localhost` entrypoints while published ports support direct host access. Internal-only traffic remains on the Compose backend network. Localhost modes cross the container boundary through the configured host gateway instead of starting a duplicate workload.
+Localhost-mode services don't get a duplicate container on the backend network; the configured host gateway address is what lets in-network callers reach the host-run process instead.
 
 ## 3. Source Files
 

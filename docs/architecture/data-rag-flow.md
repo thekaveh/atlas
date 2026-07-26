@@ -6,9 +6,9 @@ Ingestion, document processing, object storage, vector and graph stores, backend
 
 [Open the interactive diagram](./data-rag-flow.html).
 
-## 2. How To Read This View
+## 2. Notes
 
-The Backend coordinates ingestion: processors extract source material, MinIO preserves objects, Weaviate stores vector representations, and Neo4j stores graph relationships. Open WebUI and tool callers consume that assembled retrieval surface through Backend APIs.
+Backend isn't the only writer into these stores: LightRAG writes directly to Neo4j over Bolt and to Supabase pgvector, and other MinIO consumers (the Iceberg pipeline, asset-worker) hold their own scoped IAM credentials and write directly too — only Backend's own ingestion path is pictured here, not every producer.
 
 ## 3. Source Files
 

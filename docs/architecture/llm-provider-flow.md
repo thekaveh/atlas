@@ -6,9 +6,9 @@ Ollama, LiteLLM, cloud passthroughs, Open WebUI, backend, MCP/tool access, and t
 
 [Open the interactive diagram](./llm-provider-flow.html).
 
-## 2. How To Read This View
+## 2. Notes
 
-Open WebUI, Backend routes, agents, and tools call LiteLLM rather than binding to a provider. LiteLLM dispatches to local Ollama or enabled cloud providers and exposes one model catalog. Tracing observes requests without becoming part of the inference data path.
+Disabling a cloud provider in `.env` doesn't error — the model resolver silently produces zero catalog entries for it. Ollama models get two aliases (`ollama/<name>` and the bare name); either works. Tracing observes requests out-of-band and isn't part of the inference call path, so a tracing-backend outage doesn't affect completions.
 
 ## 3. Source Files
 

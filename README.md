@@ -8,11 +8,11 @@ A self-hosted, source-configurable, multi-disciplinary engineering platform — 
 
 [![Atlas — interactive setup wizard streaming the launch phase, with the ASCII brand banner pinned at the top of the terminal](./docs/screenshots/wizard-running.png)](./docs/screenshots/wizard-running.png)
 
-*The Textual TUI wizard mid-launch: ASCII brand banner pinned at the top, stack overview + cloud-API status, filter + log-source chips, and the live `docker compose` log stream below. Captured during a normal `./start.sh` run.*
+*The Textual TUI wizard streaming a live `./start.sh` launch — one view for stack status and logs.*
 
 [![Atlas — topologically-ordered architecture diagram](./docs/diagrams/architecture.svg)](./docs/diagrams/architecture.svg)
 
-*Topologically ordered architecture: external clients enter through Kong, which routes to Apps and Agents; those services call the LLM Core (LiteLLM to Ollama and cloud providers) and the Media and Data tiers. Per-service diagrams under `services/<name>/architecture.svg` derive their relationships from each manifest's `data_flow.calls`.*
+*How a request reaches a service: clients → Kong → apps/agents → shared LLM + data layers. Per-service diagrams under `services/<name>/architecture.svg` derive from each manifest's `data_flow.calls`.*
 
 ## 1. Quick Start
 

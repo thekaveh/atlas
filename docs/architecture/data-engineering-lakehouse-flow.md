@@ -6,9 +6,9 @@ MinIO, Iceberg REST, Spark, JupyterHub, Zeppelin, Airflow, Trino, and Redpanda.
 
 [Open the interactive diagram](./data-engineering-lakehouse-flow.html).
 
-## 2. How To Read This View
+## 2. Notes
 
-MinIO is the object data plane and Iceberg REST owns table metadata. Spark and Trino execute against that shared lakehouse; JupyterHub, Zeppelin, and Airflow submit interactive or scheduled work, while Redpanda supplies streaming inputs.
+Iceberg REST's catalog metadata lives in Supabase Postgres via a JDBC catalog, not a Hive metastore — if `CATALOG_URI` isn't pointed at `jdbc:postgresql://supabase-db:5432/iceberg`, the base image silently falls back to a local SQLite catalog and metadata vanishes on restart. Trino runs single-coordinator, no worker scaling, by design. Spark still starts with `ICEBERG_REST_SOURCE=disabled` for ML-only use; only lakehouse SQL fails.
 
 ## 3. Source Files
 

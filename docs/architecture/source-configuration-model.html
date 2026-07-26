@@ -37,7 +37,7 @@
     </div>
     <section class="interpretation">
       <h2>How to read this view</h2>
-      <p>A service&#x27;s SOURCE value selects its deployment mode, not merely an image variant. Container modes create Compose workloads, localhost modes redirect consumers to the host, and disabled modes remove workloads. The LLM-specific `none` mode leaves LiteLLM available for cloud-only routing.</p>
+      <p>SOURCE selects a deployment mode, not just an image variant — the same value gates Compose scale, env wiring, and Kong route generation together. `none` is unique to the LLM provider family; no other service exposes it.</p>
     </section>
   </main>
 </body>

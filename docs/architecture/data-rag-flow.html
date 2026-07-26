@@ -37,7 +37,7 @@
     </div>
     <section class="interpretation">
       <h2>How to read this view</h2>
-      <p>The Backend coordinates ingestion: processors extract source material, MinIO preserves objects, Weaviate stores vector representations, and Neo4j stores graph relationships. Open WebUI and tool callers consume that assembled retrieval surface through Backend APIs.</p>
+      <p>Backend isn&#x27;t the only writer into these stores: LightRAG writes directly to Neo4j over Bolt and to Supabase pgvector, and other MinIO consumers (the Iceberg pipeline, asset-worker) hold their own scoped IAM credentials and write directly too — only Backend&#x27;s own ingestion path is pictured here, not every producer.</p>
     </section>
   </main>
 </body>

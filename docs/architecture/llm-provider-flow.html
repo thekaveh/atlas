@@ -37,7 +37,7 @@
     </div>
     <section class="interpretation">
       <h2>How to read this view</h2>
-      <p>Open WebUI, Backend routes, agents, and tools call LiteLLM rather than binding to a provider. LiteLLM dispatches to local Ollama or enabled cloud providers and exposes one model catalog. Tracing observes requests without becoming part of the inference data path.</p>
+      <p>Disabling a cloud provider in `.env` doesn&#x27;t error — the model resolver silently produces zero catalog entries for it. Ollama models get two aliases (`ollama/&lt;name&gt;` and the bare name); either works. Tracing observes requests out-of-band and isn&#x27;t part of the inference call path, so a tracing-backend outage doesn&#x27;t affect completions.</p>
     </section>
   </main>
 </body>

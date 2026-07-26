@@ -37,7 +37,7 @@
     </div>
     <section class="interpretation">
       <h2>How to read this view</h2>
-      <p>Tracks reduce the wizard to a workflow-oriented service set. Services outside that set are force-disabled after prompting, while an explicit CLI source override remains authoritative and is reported to the operator.</p>
+      <p>An explicit CLI `--&lt;svc&gt;-source` override always wins over track selection and is reported to the operator as an advisory warning. SOURCE values declared in a consumer manifest&#x27;s `env.values` also survive the track force-disable step — only implicit track defaults get overridden.</p>
     </section>
   </main>
 </body>

@@ -6,9 +6,9 @@ How Atlas tracks map to service families and force-disable out-of-track services
 
 [Open the interactive diagram](./track-selection-matrix.html).
 
-## 2. How To Read This View
+## 2. Notes
 
-Tracks reduce the wizard to a workflow-oriented service set. Services outside that set are force-disabled after prompting, while an explicit CLI source override remains authoritative and is reported to the operator.
+An explicit CLI `--<svc>-source` override always wins over track selection and is reported to the operator as an advisory warning. SOURCE values declared in a consumer manifest's `env.values` also survive the track force-disable step — only implicit track defaults get overridden.
 
 ## 3. Source Files
 

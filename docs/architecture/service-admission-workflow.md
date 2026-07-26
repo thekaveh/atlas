@@ -6,9 +6,9 @@ Manifest, compose fragment, topology row, env assembler, docs regeneration, diag
 
 [Open the interactive diagram](./service-admission-workflow.html).
 
-## 2. How To Read This View
+## 2. Notes
 
-A service enters Atlas through one declarative chain: its manifest owns SOURCE values and metadata, Compose owns workloads, topology owns placement and ports, and the env/docs generators project those records. Drift and integration tests prevent a partial service definition from landing.
+`manifest_validator.py`'s fragment check is what actually blocks a partial landing: `missing_fragment` for a non-virtual manifest with no `compose.yml`, `unexpected_fragment` for a virtual manifest that ships one anyway, and `fragment_container_drift` when the manifest's `containers[]` disagrees with the compose file's `services:` keys. `tools/validate_fragments.py` runs this in CI and separately checks `.env.example` drift and the README `TOPOLOGY` block.
 
 ## 3. Source Files
 

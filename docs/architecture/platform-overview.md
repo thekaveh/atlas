@@ -6,9 +6,9 @@ User entrypoints, Kong, apps, agents, LLM core, data stores, and cloud-provider 
 
 [Open the interactive diagram](./platform-overview.html).
 
-## 2. How To Read This View
+## 2. Notes
 
-Clients enter through Kong or a deliberately published direct port. Application and agent services consume the shared LLM and data layers; LiteLLM keeps local inference and cloud-provider credentials behind one OpenAI-compatible boundary.
+Direct published ports bypass Kong deliberately, for host tools that can't use the `*.localhost` gateway. All model traffic — local and cloud — is funneled through LiteLLM so credentials and routing live in exactly one place (see [LLM provider flow](./llm-provider-flow.md)).
 
 ## 3. Source Files
 

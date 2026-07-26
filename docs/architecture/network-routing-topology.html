@@ -37,7 +37,7 @@
     </div>
     <section class="interpretation">
       <h2>How to read this view</h2>
-      <p>Kong provides stable `*.localhost` entrypoints while published ports support direct host access. Internal-only traffic remains on the Compose backend network. Localhost modes cross the container boundary through the configured host gateway instead of starting a duplicate workload.</p>
+      <p>Localhost-mode services don&#x27;t get a duplicate container on the backend network; the configured host gateway address is what lets in-network callers reach the host-run process instead.</p>
     </section>
   </main>
 </body>
