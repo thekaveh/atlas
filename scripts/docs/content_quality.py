@@ -93,3 +93,54 @@ def marketing_adjective_findings(
     if not is_service_readme:
         return []
     return _scan(text, _MARKETING_RE)
+
+
+def _content_lines(text: str) -> list[tuple[int, str]]:
+    """Non-fence, non-blank lines as (line_number, stripped_text)."""
+    out = []
+    for line_number, line, in_fence in _structural_lines(text):
+        if in_fence:
+            continue
+        stripped = line.strip()
+        if stripped:
+            out.append((line_number, stripped))
+    return out
+
+
+def duplicate_block_findings(
+    docs: dict[str, str], *, min_lines: int = 4, min_pages: int = 4
+) -> list[tuple[str, str]]:
+    # Map each normalized window -> set of pages it appears on.
+    window_pages: dict[tuple[str, ...], set[str]] = {}
+    per_page_windows: dict[str, list[tuple[str, ...]]] = {}
+    for path, text in docs.items():
+        lines = [text for _, text in _content_lines(text)]
+        windows = []
+        for i in range(0, max(0, len(lines) - min_lines + 1)):
+            window = tuple(lines[i : i + min_lines])
+            windows.append(window)
+            window_pages.setdefault(window, set()).add(path)
+        per_page_windows[path] = windows
+    findings: list[tuple[str, str]] = []
+    for path in docs:
+        seen: set[tuple[str, ...]] = set()
+        for window in per_page_windows[path]:
+            if window in seen:
+                continue
+            pages = window_pages[window]
+            if len(pages) >= min_pages:
+                seen.add(window)
+                findings.append(
+                    (
+                        path,
+                        f"block starting {window[0]!r} is duplicated across "
+                        f"{len(pages)} pages",
+                    )
+                )
+    # de-dup to one finding per page for the first offending block
+    if any(p == path for p, _ in findings):
+        first = next((f for f in findings if f[0] == path), None)
+        findings = [f for f in findings if f[0] != path]
+        if first:
+            findings.append(first)
+    return sorted(findings)

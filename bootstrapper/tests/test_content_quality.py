@@ -9,6 +9,7 @@ from scripts.docs.content_quality import (  # noqa: E402
     diagram_narration_findings,
     production_style_findings,
     marketing_adjective_findings,
+    duplicate_block_findings,
 )
 
 
@@ -45,3 +46,15 @@ def test_marketing_adjectives_allowlisted_phrases_ok():
     # "powerful" inside a quoted CLI example or non-service doc is not flagged here
     text = "The optimizer is powerful.\n"
     assert marketing_adjective_findings(text, is_service_readme=False) == []
+
+
+def test_duplicate_block_across_pages_flagged():
+    block = "- `a.yml`\n- `b.py`\n- `c.md`\n- `d.txt`\n"
+    docs = {f"p{i}.md": f"# Page {i}\n\n{block}\ntail {i}\n" for i in range(5)}
+    findings = duplicate_block_findings(docs, min_lines=4, min_pages=4)
+    assert len(findings) == 5  # every page carrying the shared block
+
+
+def test_unique_blocks_not_flagged():
+    docs = {f"p{i}.md": f"# Page {i}\n\nunique line {i}\nother {i}\n" for i in range(5)}
+    assert duplicate_block_findings(docs, min_lines=4, min_pages=4) == []
