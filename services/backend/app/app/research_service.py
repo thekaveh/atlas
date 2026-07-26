@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import json
 from uuid import UUID, uuid4
 
-from db_connection import connect_postgres
+from db_connection import get_pg_pool
 from research_client import (
     ResearchClient,
     ResearchRequest,
@@ -68,16 +68,36 @@ class ResearchService:
         )
         self.heartbeat_interval = max(1, min(30, self.lease_seconds // 3))
         self._maintenance_task: Optional[asyncio.Task[Any]] = None
+        self._pool = None
 
     async def _get_db_connection(self):
-        """Open a research-session database connection.
+        """Acquire a research-session database connection from the shared pool.
 
-        Delegates to ``connect_postgres``, which bounds the connect phase and
-        every query with a 10s connect timeout and a 30s command timeout, so a
-        hung Postgres bouncer or stuck query cannot pin a uvicorn worker
-        indefinitely.
+        Every research query is short-lived and never holds the connection
+        across the long research-poll I/O (that runs on a separate task with no
+        connection held), so drawing from the shared pool (#804) is safe here.
+        The pool preserves the 10s connect / 30s command timeouts so a hung
+        Postgres bouncer or stuck query cannot pin a uvicorn worker. Callers
+        MUST return the connection via ``_release_db_connection``.
         """
-        return await connect_postgres(self.db_url)
+        pool = await get_pg_pool(self.db_url)
+        self._pool = pool
+        return await pool.acquire()
+
+    async def _release_db_connection(self, conn) -> None:
+        """Return a research connection (paired with _get_db_connection).
+
+        Normally releases back to the shared pool. If no pool was established
+        (e.g. ``_get_db_connection`` was overridden in a test, or acquisition
+        failed before the pool was cached), the connection is closed directly —
+        a real pooled connection cannot exist without ``self._pool`` being set,
+        so this fallback only ever runs on a non-pooled/dedicated connection.
+        """
+        pool = getattr(self, "_pool", None)
+        if pool is None:
+            await conn.close()
+            return
+        await pool.release(conn)
 
     async def start_research(
         self,
@@ -109,7 +129,7 @@ class ResearchService:
                 """, session_id, 1, "start",
                     f"Research session started for query: {query}")
         finally:
-            await conn.close()
+            await self._release_db_connection(conn)
 
         # Start background research task. add_done_callback surfaces any
         # exception raised before _run_research_background's outer try
@@ -219,7 +239,7 @@ class ResearchService:
             """, session_id, 2, "execute", "Starting research execution")
             return True
         finally:
-            await conn.close()
+            await self._release_db_connection(conn)
 
     async def _write_research_heartbeat(self, session_id: str) -> None:
         conn = await self._get_db_connection()
@@ -230,7 +250,7 @@ class ResearchService:
                 WHERE id = $1 AND status = $2
             """, session_id, ResearchStatus.RUNNING.value)
         finally:
-            await conn.close()
+            await self._release_db_connection(conn)
 
     async def _heartbeat_research(self, session_id: str) -> None:
         while True:
@@ -274,7 +294,7 @@ class ResearchService:
                         "Research failed: worker lease expired")
                 return len(rows)
         finally:
-            await conn.close()
+            await self._release_db_connection(conn)
 
     async def _maintenance_loop(self) -> None:
         while True:
@@ -318,7 +338,7 @@ class ResearchService:
                 VALUES ($1, $2, $3, $4)
             """, session_id, step, step_type, message)
         finally:
-            await conn.close()
+            await self._release_db_connection(conn)
 
     async def _record_research_failure(
         self, session_id: str, error_message: str
@@ -343,7 +363,7 @@ class ResearchService:
             """, session_id, 99, "error", f"Research failed: {error_message}")
             return True
         finally:
-            await conn.close()
+            await self._release_db_connection(conn)
 
     async def _execute_research(
         self, 
@@ -441,7 +461,7 @@ class ResearchService:
                     session_id, ResearchStatus.RUNNING.value)
                 return True
         finally:
-            await conn.close()
+            await self._release_db_connection(conn)
 
     async def get_research_status(
         self, session_id: str, owner_user_id: Optional[str] = None
@@ -475,7 +495,7 @@ class ResearchService:
                 "error_message": row["error_message"]
             }
         finally:
-            await conn.close()
+            await self._release_db_connection(conn)
 
     async def get_research_result(
         self, session_id: str, owner_user_id: Optional[str] = None
@@ -508,7 +528,7 @@ class ResearchService:
                 "status": row["status"]
             }
         finally:
-            await conn.close()
+            await self._release_db_connection(conn)
 
     async def list_user_sessions(
         self, 
@@ -552,7 +572,7 @@ class ResearchService:
                 for row in rows
             ]
         finally:
-            await conn.close()
+            await self._release_db_connection(conn)
 
     async def cancel_research(
         self, session_id: str, owner_user_id: Optional[str] = None
@@ -590,7 +610,7 @@ class ResearchService:
             
             return True
         finally:
-            await conn.close()
+            await self._release_db_connection(conn)
 
     async def get_research_logs(
         self, session_id: str, owner_user_id: Optional[str] = None
@@ -625,7 +645,7 @@ class ResearchService:
                 for row in rows
             ]
         finally:
-            await conn.close()
+            await self._release_db_connection(conn)
 
     async def health_check(self) -> Dict[str, Any]:
         """Check service health including database and research client"""
@@ -643,7 +663,7 @@ class ResearchService:
             finally:
                 # close in finally — a probe failure post-connect used to
                 # leak the connection (every other site closes in finally).
-                await conn.close()
+                await self._release_db_connection(conn)
             results["database"] = "healthy"
         except Exception as e:
             logger.warning(

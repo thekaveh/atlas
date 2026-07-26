@@ -1,10 +1,30 @@
 from __future__ import annotations
 
 import logging
+from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+
+
+def _also_route_acquire(monkeypatch, module, get_conn):
+    """Route the #804 SAFE pooled path (`acquire_conn`) to the same fake conn
+    source as the patched `connect_postgres`. Short-lived DB ops (extract-facts
+    inserts, pgvector writes) draw from the shared pool via ``acquire_conn``;
+    the fake's ``close()`` on context exit simulates the pool release."""
+
+    @asynccontextmanager
+    async def _acq(_url="", **_kw):
+        conn = get_conn()
+        try:
+            yield conn
+        finally:
+            close = getattr(conn, "close", None)
+            if close is not None:
+                await close()
+
+    monkeypatch.setattr(module, "acquire_conn", _acq)
 
 
 @pytest.mark.asyncio
@@ -59,6 +79,7 @@ async def test_extraction_failure_persists_stable_message(monkeypatch, caplog):
         "connect_postgres",
         AsyncMock(return_value=Connection()),
     )
+    _also_route_acquire(monkeypatch, memory_service, Connection)
     monkeypatch.setenv("DATABASE_URL", "postgresql://atlas")
     service = memory_service.MemoryService()
 
@@ -275,6 +296,9 @@ def _extraction_service(monkeypatch, executed, *, store_embedding):
         "connect_postgres",
         AsyncMock(return_value=_FakeExtractionConnection(executed)),
     )
+    _also_route_acquire(
+        monkeypatch, memory_service, lambda: _FakeExtractionConnection(executed)
+    )
     service = memory_service.MemoryService()
     service.enabled = True
     monkeypatch.setattr(service, "_ensure_initialized", AsyncMock())
@@ -468,9 +492,8 @@ async def test_pgvector_write_casts_bind_param_to_vector(monkeypatch):
     monkeypatch.setattr(
         store, "_generate_embedding", AsyncMock(return_value=[0.1, 0.2, 0.3])
     )
-    monkeypatch.setattr(
-        memory_store, "connect_postgres", AsyncMock(return_value=Conn())
-    )
+    # #804: _store_pgvector draws from the shared pool via acquire_conn.
+    _also_route_acquire(monkeypatch, memory_store, Conn)
 
     await store._store_pgvector("00000000-0000-4000-8000-000000000001", "hello")
 

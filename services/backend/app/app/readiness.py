@@ -14,6 +14,10 @@ async def _postgres_ready() -> None:
     database_url = (os.getenv("DATABASE_URL") or "").strip()
     if not database_url:
         raise RuntimeError("DATABASE_URL is unset")
+    # #804: intentionally a DEDICATED connection, not the shared pool — a
+    # readiness probe needs its own tight 3s bound and must answer "is Postgres
+    # reachable?" independently of pool saturation (all pool slots checked out
+    # by slow queries must not make the probe hang or wrongly report unready).
     conn = await connect_postgres(database_url, timeout=3, command_timeout=3)
     try:
         await conn.fetchval("SELECT 1")

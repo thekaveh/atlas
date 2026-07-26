@@ -112,34 +112,29 @@ class PostgresLedgerStore:
     def __init__(self, database_url: str) -> None:
         self._database_url = database_url
 
-    async def _connect(self):
-        # Lazy: asyncpg is only imported when the durable store is used.
-        from db_connection import connect_postgres
+    def _acquire(self):
+        # #804: every ledger op is short-lived and never holds the connection
+        # across non-DB I/O, so it draws from the shared pool. Lazy import keeps
+        # asyncpg out of the module load path until the durable store is used.
+        from db_connection import acquire_conn
 
-        return await connect_postgres(self._database_url)
+        return acquire_conn(self._database_url)
 
     async def append(self, record: LedgerRecord) -> None:
-        conn = await self._connect()
-        try:
+        async with self._acquire() as conn:
             await conn.execute(self._insert_sql(), *_record_to_params(record))
-        finally:
-            await conn.close()
 
     async def get(self, operation_id: str) -> Optional[LedgerRecord]:
-        conn = await self._connect()
-        try:
+        async with self._acquire() as conn:
             row = await conn.fetchrow(
                 f"SELECT {', '.join(_COLUMNS)} FROM {_TABLE} "
                 "WHERE operation_id = $1 ORDER BY created_at DESC LIMIT 1",
                 operation_id,
             )
             return _row_to_record(row) if row else None
-        finally:
-            await conn.close()
 
     async def update(self, record: LedgerRecord) -> None:
-        conn = await self._connect()
-        try:
+        async with self._acquire() as conn:
             await conn.execute(
                 f"UPDATE {_TABLE} SET status = $2, final_cost_usd = $3, "
                 "artifact_refs = $4, reason = $5, updated_at = $6 "
@@ -151,27 +146,19 @@ class PostgresLedgerStore:
                 record.reason,
                 record.updated_at,
             )
-        finally:
-            await conn.close()
 
     async def rekey(self, old_id: str, new_id: str) -> None:
-        conn = await self._connect()
-        try:
+        async with self._acquire() as conn:
             await conn.execute(
                 f"UPDATE {_TABLE} SET operation_id = $2, updated_at = now() "
                 "WHERE operation_id = $1",
                 old_id,
                 new_id,
             )
-        finally:
-            await conn.close()
 
     async def totals(self, consumer: str, project: str) -> Tuple[float, float]:
-        conn = await self._connect()
-        try:
+        async with self._acquire() as conn:
             return await self._totals(conn, consumer, project)
-        finally:
-            await conn.close()
 
     async def _totals(self, conn, consumer: str, project: str) -> Tuple[float, float]:
         rows = await conn.fetch(
@@ -195,8 +182,7 @@ class PostgresLedgerStore:
         self, record: LedgerRecord, cap: Optional[float]
     ) -> bool:
         """Atomic totals-check + insert under a per-scope advisory lock."""
-        conn = await self._connect()
-        try:
+        async with self._acquire() as conn:
             async with conn.transaction():
                 await conn.execute(
                     "SELECT pg_advisory_xact_lock($1)",
@@ -210,8 +196,6 @@ class PostgresLedgerStore:
                         return False
                 await conn.execute(self._insert_sql(), *_record_to_params(record))
                 return True
-        finally:
-            await conn.close()
 
     async def list(
         self,
@@ -232,20 +216,16 @@ class PostgresLedgerStore:
         if until is not None:
             params.append(until)
             clauses.append(f"created_at <= ${len(params)}")
-        conn = await self._connect()
-        try:
+        async with self._acquire() as conn:
             rows = await conn.fetch(
                 f"SELECT {', '.join(_COLUMNS)} FROM {_TABLE} "
                 f"WHERE {' AND '.join(clauses)} ORDER BY created_at ASC",
                 *params,
             )
             return [_row_to_record(row) for row in rows]
-        finally:
-            await conn.close()
 
     async def prune(self, older_than: datetime) -> int:
-        conn = await self._connect()
-        try:
+        async with self._acquire() as conn:
             result = await conn.execute(
                 f"DELETE FROM {_TABLE} WHERE created_at < $1", older_than
             )
@@ -254,8 +234,6 @@ class PostgresLedgerStore:
                 return int(str(result).split()[-1])
             except (ValueError, IndexError):
                 return 0
-        finally:
-            await conn.close()
 
     @staticmethod
     def _insert_sql() -> str:
