@@ -12,7 +12,5 @@ Manifest, compose fragment, topology row, env assembler, docs regeneration, diag
 
 ## 3. Source Files
 
-- `services/*/service.yml`
-- `bootstrapper/tracks.yml`
-- `bootstrapper/services/topology.py`
-- `docs/deployment/source-configuration.md`
+- `bootstrapper/services/manifest_validator.py`
+- `bootstrapper/services/source_validator.py`

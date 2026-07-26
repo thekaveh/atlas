@@ -12,7 +12,6 @@ An explicit CLI `--<svc>-source` override always wins over track selection and i
 
 ## 3. Source Files
 
-- `services/*/service.yml`
 - `bootstrapper/tracks.yml`
+- `bootstrapper/tracks.py`
 - `bootstrapper/services/topology.py`
-- `docs/deployment/source-configuration.md`

@@ -13,6 +13,4 @@ Direct published ports bypass Kong deliberately, for host tools that can't use t
 ## 3. Source Files
 
 - `services/*/service.yml`
-- `bootstrapper/tracks.yml`
 - `bootstrapper/services/topology.py`
-- `docs/deployment/source-configuration.md`

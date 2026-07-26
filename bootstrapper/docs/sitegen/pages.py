@@ -66,6 +66,64 @@ ARCHITECTURE_PERSPECTIVES: dict[str, tuple[str, str, list[str]]] = {
     ),
 }
 
+ARCHITECTURE_SOURCE_FILES: dict[str, list[str]] = {
+    "platform-overview": [
+        "services/*/service.yml",
+        "bootstrapper/services/topology.py",
+    ],
+    "bootstrapper-lifecycle": [
+        "bootstrapper/start.py",
+        "bootstrapper/core/docker_manager.py",
+    ],
+    "source-configuration-model": [
+        "bootstrapper/services/manifests.py",
+        "bootstrapper/tracks.yml",
+        "bootstrapper/services/topology.py",
+    ],
+    "track-selection-matrix": [
+        "bootstrapper/tracks.yml",
+        "bootstrapper/tracks.py",
+        "bootstrapper/services/topology.py",
+    ],
+    "network-routing-topology": [
+        "bootstrapper/utils/kong_config_generator.py",
+        "bootstrapper/services/topology.py",
+        "services/kong/service.yml",
+    ],
+    "data-rag-flow": [
+        "services/weaviate/service.yml",
+        "services/backend/service.yml",
+        "services/lightrag/service.yml",
+    ],
+    "llm-provider-flow": [
+        "services/litellm/service.yml",
+        "services/litellm/models.yaml",
+        "services/ollama/service.yml",
+    ],
+    "data-engineering-lakehouse-flow": [
+        "services/minio/service.yml",
+        "services/trino/service.yml",
+        "services/iceberg-rest/service.yml",
+        "services/spark/service.yml",
+    ],
+    "observability-flow": [
+        "services/prometheus/service.yml",
+        "services/grafana/service.yml",
+        "services/loki/service.yml",
+        "services/tempo/service.yml",
+        "services/otel-collector/service.yml",
+    ],
+    "security-auth-secrets-boundary": [
+        "services/kong/service.yml",
+        "services/supabase/service.yml",
+        "bootstrapper/generate_supabase_keys.py",
+    ],
+    "service-admission-workflow": [
+        "bootstrapper/services/manifest_validator.py",
+        "bootstrapper/services/source_validator.py",
+    ],
+}
+
 ARCHITECTURE_EDGES: dict[str, list[tuple[str, str, str]]] = {
     "platform-overview": [
         ("Clients", "Kong", "HTTP"),
@@ -803,10 +861,7 @@ def architecture_pages(model: DocsModel) -> dict[Path, str]:
 
 ## 3. Source Files
 
-- `services/*/service.yml`
-- `bootstrapper/tracks.yml`
-- `bootstrapper/services/topology.py`
-- `docs/deployment/source-configuration.md`
+{chr(10).join(f"- `{path}`" for path in ARCHITECTURE_SOURCE_FILES[slug])}
 
 """
         rows.append([f"[{title}]({slug}.md)", description])

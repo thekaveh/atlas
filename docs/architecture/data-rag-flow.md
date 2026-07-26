@@ -12,7 +12,6 @@ Backend isn't the only writer into these stores: LightRAG writes directly to Neo
 
 ## 3. Source Files
 
-- `services/*/service.yml`
-- `bootstrapper/tracks.yml`
-- `bootstrapper/services/topology.py`
-- `docs/deployment/source-configuration.md`
+- `services/weaviate/service.yml`
+- `services/backend/service.yml`
+- `services/lightrag/service.yml`

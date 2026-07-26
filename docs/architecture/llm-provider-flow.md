@@ -12,7 +12,6 @@ Disabling a cloud provider in `.env` doesn't error — the model resolver silent
 
 ## 3. Source Files
 
-- `services/*/service.yml`
-- `bootstrapper/tracks.yml`
-- `bootstrapper/services/topology.py`
-- `docs/deployment/source-configuration.md`
+- `services/litellm/service.yml`
+- `services/litellm/models.yaml`
+- `services/ollama/service.yml`

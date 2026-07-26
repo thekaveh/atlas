@@ -12,7 +12,7 @@ Iceberg REST's catalog metadata lives in Supabase Postgres via a JDBC catalog, n
 
 ## 3. Source Files
 
-- `services/*/service.yml`
-- `bootstrapper/tracks.yml`
-- `bootstrapper/services/topology.py`
-- `docs/deployment/source-configuration.md`
+- `services/minio/service.yml`
+- `services/trino/service.yml`
+- `services/iceberg-rest/service.yml`
+- `services/spark/service.yml`

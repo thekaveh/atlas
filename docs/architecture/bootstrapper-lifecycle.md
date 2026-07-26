@@ -12,7 +12,5 @@ Each stage gates the next; a failure in any stage before Compose must abort the 
 
 ## 3. Source Files
 
-- `services/*/service.yml`
-- `bootstrapper/tracks.yml`
-- `bootstrapper/services/topology.py`
-- `docs/deployment/source-configuration.md`
+- `bootstrapper/start.py`
+- `bootstrapper/core/docker_manager.py`

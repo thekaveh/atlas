@@ -12,7 +12,6 @@ SOURCE selects a deployment mode, not just an image variant — the same value g
 
 ## 3. Source Files
 
-- `services/*/service.yml`
+- `bootstrapper/services/manifests.py`
 - `bootstrapper/tracks.yml`
 - `bootstrapper/services/topology.py`
-- `docs/deployment/source-configuration.md`

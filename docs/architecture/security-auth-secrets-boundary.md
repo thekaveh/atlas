@@ -12,7 +12,6 @@ Not every surface sits behind Supabase auth: Backend's `/health`, `/ready`, `/me
 
 ## 3. Source Files
 
-- `services/*/service.yml`
-- `bootstrapper/tracks.yml`
-- `bootstrapper/services/topology.py`
-- `docs/deployment/source-configuration.md`
+- `services/kong/service.yml`
+- `services/supabase/service.yml`
+- `bootstrapper/generate_supabase_keys.py`

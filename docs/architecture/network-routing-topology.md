@@ -12,7 +12,6 @@ The host-gateway address is runtime-dependent, not a fixed IP: Docker accepts th
 
 ## 3. Source Files
 
-- `services/*/service.yml`
-- `bootstrapper/tracks.yml`
+- `bootstrapper/utils/kong_config_generator.py`
 - `bootstrapper/services/topology.py`
-- `docs/deployment/source-configuration.md`
+- `services/kong/service.yml`

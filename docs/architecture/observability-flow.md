@@ -12,7 +12,8 @@ Langfuse is deliberately outside the OTel path: LiteLLM emits Langfuse traces vi
 
 ## 3. Source Files
 
-- `services/*/service.yml`
-- `bootstrapper/tracks.yml`
-- `bootstrapper/services/topology.py`
-- `docs/deployment/source-configuration.md`
+- `services/prometheus/service.yml`
+- `services/grafana/service.yml`
+- `services/loki/service.yml`
+- `services/tempo/service.yml`
+- `services/otel-collector/service.yml`
