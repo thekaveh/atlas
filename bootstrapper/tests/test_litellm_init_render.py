@@ -108,6 +108,23 @@ def _load_init_module(env_overrides: dict | None = None):
     return mod
 
 
+@pytest.fixture(autouse=True)
+def _restore_environ():
+    """#817: ``_load_init_module`` mutates ``os.environ`` directly — ``ATLAS_CATALOG_DIR``,
+    ``ATLAS_MODELS_DIR`` and arbitrary ``env_overrides`` — because module-level
+    constants bind at ``exec_module`` while resolvers read env at call time, so a
+    plain ``monkeypatch`` can't cover both phases. Those writes previously leaked
+    process-globally (the class ``_clean_env`` fixtures only reset a fixed
+    subset), risking order-dependence across tests/files. Snapshot + restore the
+    whole environment around every test in this module so nothing leaks."""
+    saved = os.environ.copy()
+    try:
+        yield
+    finally:
+        os.environ.clear()
+        os.environ.update(saved)
+
+
 # ---------------------------------------------------------------------------
 # Test 1: default ollama-container-cpu config
 # ---------------------------------------------------------------------------
