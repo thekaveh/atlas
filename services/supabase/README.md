@@ -1,10 +1,10 @@
 # 5.2.49. Supabase Ecosystem
 
-Supabase provides the core database infrastructure for Atlas, including PostgreSQL database, authentication, storage, realtime subscriptions, and a management dashboard.
+Supabase provides Postgres, Auth, Storage, Realtime, and a management dashboard that Atlas builds on.
 
 ## 1. Overview
 
-The Supabase ecosystem consists of multiple integrated services:
+Atlas runs these Supabase services:
 
 - **PostgreSQL Database** - Primary database with pgvector and PostGIS extensions
 - **Auth Service (GoTrue)** - User authentication and JWT management  

@@ -1,6 +1,6 @@
 # 5.2.22. Kong API Gateway
 
-Kong serves as the intelligent API gateway for Atlas, providing dynamic routing, authentication, and service management.
+Kong is Atlas's API gateway. It routes `*.localhost` requests to services using configuration generated at startup, and handles authentication and service management for those routes.
 
 ## 1. Overview
 
@@ -8,7 +8,7 @@ Kong acts as the central entry point for most services, routing requests to appr
 
 ## 2. Dynamic Configuration
 
-Unlike traditional static configuration files, Atlas uses dynamic Kong configuration that adapts to your SOURCE settings:
+Kong's configuration is generated dynamically at startup and adapts to the current SOURCE settings, rather than being maintained as static config files:
 
 - **Automatic Route Generation**: Kong routes are created based on enabled services
 - **Health Checking**: Localhost services are checked for availability before routing
@@ -225,7 +225,7 @@ Key methods:
 
 ## 12. Integration with Other Services
 
-Kong integrates tightly with:
+Kong integrates with:
 - **Service Configuration**: Uses SOURCE values from service_config.py
 - **Environment Management**: Reads from parsed .env files
 - **Health Monitoring**: Checks localhost service availability
