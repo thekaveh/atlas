@@ -139,7 +139,17 @@ def check_stale_architecture_refs():
 
 
 def check_source_matrix():
+    # The per-service SOURCE matrix used to be hand-maintained in
+    # docs/deployment/source-configuration.md; that copy was retired in
+    # favor of the GENERATED docs/reference/source-values.md (single
+    # canonical source, regenerated from the manifests). This probe now
+    # requires every *_SOURCE var to be documented in the generated
+    # reference and/or the hand-authored guide (which still carries
+    # per-service prose for the user-facing services), and requires the
+    # guide to link to the canonical reference instead of re-duplicating
+    # it wholesale.
     env = (ROOT / '.env.example').read_text(encoding="utf-8", errors='ignore')
+    reference = (ROOT / 'docs/reference/source-values.md').read_text(encoding="utf-8", errors='ignore')
     guide = (ROOT / 'docs/deployment/source-configuration.md').read_text(encoding="utf-8", errors='ignore')
     missing = []
     source_vars = sorted(set(re.findall(r'^([A-Z0-9_]+_SOURCE)=', env, re.M)))
@@ -148,8 +158,15 @@ def check_source_matrix():
         # file is broken, not that the matrix is in sync.
         return ['.env.example: no *_SOURCE= variables matched — check pattern/file']
     for var in source_vars:
-        if var not in guide:
-            missing.append(f'docs/deployment/source-configuration.md: missing {var}')
+        if var not in reference and var not in guide:
+            missing.append(
+                f'{var}: undocumented in both docs/reference/source-values.md and '
+                'docs/deployment/source-configuration.md'
+            )
+    if 'reference/source-values.md' not in guide:
+        missing.append(
+            'docs/deployment/source-configuration.md: missing link to docs/reference/source-values.md'
+        )
     return missing
 
 

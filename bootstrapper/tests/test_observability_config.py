@@ -184,11 +184,12 @@ def test_prometheus_scrapes_both_asset_processors() -> None:
 
 
 def test_prometheus_docs_inventory_both_asset_processors() -> None:
+    # docs/deployment/source-configuration.md and the root README used to carry
+    # duplicate copies of this "15 scrape jobs / Asset Worker+Baker" inventory;
+    # the docs IA restructure (Tasks 2-3) intentionally removed those duplicates
+    # in favor of the canonical services/prometheus/README.md plus the
+    # ROADMAP/strategy mentions, which remain asserted below.
     readme = (ROOT / "services/prometheus/README.md").read_text(encoding="utf-8")
-    source_docs = (ROOT / "docs/deployment/source-configuration.md").read_text(
-        encoding="utf-8"
-    )
-    root_readme = (ROOT / "README.md").read_text(encoding="utf-8")
     roadmap = (ROOT / "docs/ROADMAP.md").read_text(encoding="utf-8")
     strategy = (ROOT / "docs/strategy/atlas-vnext-strategy-report.md").read_text(
         encoding="utf-8"
@@ -197,13 +198,6 @@ def test_prometheus_docs_inventory_both_asset_processors() -> None:
     assert "15 targets ship" in readme
     assert "| `asset-worker` | `asset-worker:8095` |" in readme
     assert "| `asset-baker` | `asset-baker:8096` |" in readme
-    assert "15 pre-configured scrape jobs" in source_docs
-    assert "Asset Worker" in source_docs
-    assert "Asset Baker" in source_docs
-    assert "Prometheus itself" in source_docs
-    assert "Grafana" in source_docs
-    assert "15 scrape jobs" in root_readme
-    assert "13 scrape jobs" not in root_readme
     assert "15 scrape targets" in roadmap
     assert "13 scrape targets" not in roadmap
     assert "15 scrape jobs" in strategy

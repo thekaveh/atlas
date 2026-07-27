@@ -163,3 +163,17 @@ Each PR is independently green and shippable; the order preserves "foundation be
 - Whether the "Source Files" block becomes generated or hand-curated per view.
 - Logomark concept (geometric "A" / atlas motif) — 2–3 quick options before committing.
 - Whether to adopt `navigation.tabs` vs the current `navigation.sections` top-level treatment.
+
+PR #2 status (landed): delivered the duplication-kill only — root `README.md` shrunk 659 to ~125 lines (links to canonical pages instead of restating them), the hand-maintained SOURCE matrix and ports/alias table de-duplicated in favor of the generated `docs/reference/*` pages, and index pages added for the internal `strategy/` + `maintenance/` trees. Three doc-coupled tests were repointed to the canonical homes of their facts (not weakened).
+
+Deferred from PR #2 (each forces a manifest-renumber ripple — reorder plus H1 rebake on every hand-authored page plus regen plus H2 renumber, with `_validate_numbering` failing on any drift; a documented deferral, not a silent cap):
+
+- Nav-section reordering and the `docs/deployment/` folder rename (folder currently feeds both nav sections 7 and 8).
+- Collapsing the two byte-identical generated track tables (`docs/tracks.md` at nav section 4 vs `docs/reference/tracks.md` at 10.5) — requires editing the sitegen generator plus the manifest.
+- Splitting the oversized `docs/CHANGELOG.md` and `docs/ROADMAP.md`.
+
+Follow-ups surfaced during PR #2 (worth tracked tickets):
+
+- The generated `docs/reference/source-values.md` omits the six `*_INIT_SOURCE` vars (a `bootstrapper/docs/sitegen` `reference_pages` generator gap, bridged inline in the deployment guide for now).
+- Roughly ten `services/*/README.md` still describe `docs/deployment/ports-and-routes.md` as "the canonical port table"; the single canonical source is the generated `docs/reference/ports-routes.md`.
+- The `check-docs-drift.py` `source_matrix` probe was evolved to accept every `*_SOURCE` var documented in the generated reference or the guide, and to require the guide to link the reference — a still-enforcing change made because the old probe hard-required the removed duplication.

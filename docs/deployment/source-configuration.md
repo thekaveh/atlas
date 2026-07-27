@@ -22,80 +22,9 @@ To make that visible, the bootstrapper prints a warning whenever a CLI source fl
 
 A flag equal to the value already in `.env` is silent (no noise), as is first-time assignment of an empty/unset variable. **Guidance for wrappers:** do not pass a source flag when `.env` already carries the intended value — omit the flag and let `.env` be the source of truth, or only pass it when you genuinely intend to change the persisted configuration.
 
-## 3. Service SOURCE Support Matrix
+## 3. SOURCE Values Reference
 
-This matrix lists every `*_SOURCE` variable currently exposed in `.env.example`. Detailed prose below focuses on the most common user-facing services; init/internal rows are included here so operators can understand what appears in `.env`.
-
-| SOURCE variable | Default | Options | Category | Notes |
-|---|---|---|---|---|
-| `LLM_PROVIDER_SOURCE` | `ollama-container-cpu` | `ollama-container-cpu`, `ollama-container-gpu`, `ollama-localhost`, `none` | User-facing | Local Ollama upstream behind LiteLLM. Use `none` for cloud-only operation. |
-| `VLLM_METAL_SOURCE` | `disabled` | `managed-localhost`, `disabled` | User-facing optional | Managed Apple-silicon (Metal) vLLM host process, registered with LiteLLM as an OpenAI-compatible upstream. macOS/arm64 + Python 3.12 only; no container source and no Kong route. |
-| `CLOUD_OPENAI_SOURCE` | `disabled` | `enabled`, `disabled` | User-facing | Toggles OpenAI as a LiteLLM upstream. Requires `OPENAI_API_KEY`. |
-| `CLOUD_ANTHROPIC_SOURCE` | `disabled` | `enabled`, `disabled` | User-facing | Toggles Anthropic as a LiteLLM upstream. Requires `ANTHROPIC_API_KEY`. |
-| `CLOUD_OPENROUTER_SOURCE` | `disabled` | `enabled`, `disabled` | User-facing | Toggles OpenRouter as a LiteLLM upstream. Requires `OPENROUTER_API_KEY`. |
-| `LITELLM_SOURCE` | `container` | `container` | Infra / always-on | LiteLLM gateway. Always on; not user-disableable. |
-| `COMFYUI_SOURCE` | `container-cpu` | `container-cpu`, `container-gpu`, `localhost`, `managed-localhost-mps`, `disabled` | User-facing | Image generation service. |
-| `ASSET_WORKER_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | glTF post-processing worker for upright, normalized, optimized 3D assets. |
-| `ASSET_BAKER_SOURCE` | `disabled` | `container-cpu`, `disabled` | User-facing optional | Blender headless HP→LP bake worker (voxel-remesh → decimate → Smart-UV → bake color+normal). Cycles CPU; ~2 GB Blender image. |
-| `FAL_SOURCE` | `disabled` | `enabled`, `disabled` | User-facing optional | Cloud media provider for backend simple generation routes. Requires `FAL_API_KEY` only when enabled. |
-| `PROMETHEUS_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Observability scraper + TSDB. Bundles node-exporter and cAdvisor; gates postgres-exporter / redis-exporter sidecars. |
-| `GRAFANA_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Observability dashboards + unified alerting. Pre-provisions the Prometheus datasource and 7 starter dashboards. |
-| `WEAVIATE_SOURCE` | `container` | `container`, `localhost`, `disabled` | User-facing | Vector database. |
-| `MINIO_SOURCE` | `container` | `container`, `disabled` | User-facing | S3-compatible artifact-tier object storage. |
-| `N8N_SOURCE` | `container` | `container`, `disabled` | User-facing | Workflow automation. |
-| `SEARXNG_SOURCE` | `container` | `container`, `disabled` | User-facing | Privacy metasearch. |
-| `CRAWL4AI_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Browser-backed extraction API for Local Deep Researcher and n8n HTTP workflows. Token-protected and disabled by default. |
-| `TIKA_SOURCE` | `disabled` | `container`, `tika-localhost`, `disabled` | User-facing optional | Apache Tika fallback extractor for long-tail document formats. Disabled by default and degraded/plain-text by design. |
-| `LLM_GRAPH_BUILDER_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Neo4j Labs document-to-knowledge-graph builder UI/API for the RAG track. Requires in-stack Neo4j and LiteLLM. |
-| `CELERY_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Redis-backed async backend worker tier plus Flower monitor for long-running memory/research-style jobs. |
-| `SUPAVISOR_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Internal-only Supabase Postgres transaction pooler for selected app clients; no Kong alias or host slot-allocated port in v1. |
-| `MCP_SERVERS_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Curated MCP package exposing read-oriented Postgres, Neo4j, and SearXNG tools. Hard-gated on Neo4j and SearXNG. |
-| `BLENDER_MCP_SOURCE` | `disabled` | `localhost`, `managed-localhost`, `disabled` | User-facing optional | Host-only Blender MCP bridge for creative 3D experiments. Development-only, disabled by default, and intentionally not exposed through Kong. |
-| `LANGFUSE_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | LLM trace, prompt, eval, latency, and cost observability for LiteLLM-routed calls. Hard-gated on MinIO. |
-| `OTEL_COLLECTOR_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Internal-only OpenTelemetry ingest for backend/LiteLLM traces; requires `TEMPO_SOURCE=container` when enabled. No Kong route in v1. |
-| `TEMPO_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Internal-only Grafana Tempo trace store with local development storage and Grafana datasource provisioning. No Kong route in v1. |
-| `LOKI_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Internal-only Grafana Loki log store with short local retention and Grafana datasource provisioning. Log shipping remains a follow-up. |
-| `MLFLOW_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Experiment tracking and MinIO-backed artifacts for the ML Engineering track. Hard-gated on MinIO. |
-| `VERBA_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Archived/discontinued Weaviate RAG demo UI for the RAG track. Disabled by default; hard-gated on Weaviate and wired to LiteLLM. |
-| `OPENCLAW_SOURCE` | `disabled` | `container`, `localhost`, `disabled` | User-facing | AI messaging agent. |
-| `HERMES_SOURCE` | `container` | `container`, `localhost`, `disabled` | User-facing | Programmable AI agent runtime (Nous Research). Routes reasoning through LiteLLM and appears as the `hermes-agent` model to every consumer. |
-| `STT_PROVIDER_SOURCE` | `speaches-container-cpu` | `speaches-container-cpu`, `speaches-container-gpu`, `parakeet-container-gpu`, `parakeet-localhost`, `whisper-cpp-localhost`, `disabled` | User-facing optional | Speech-to-text provider. Speaches is the CPU-friendly default; Parakeet remains for SOTA NVIDIA; whisper.cpp is the best Apple Silicon native option. |
-| `TEI_RERANKER_SOURCE` | `disabled` | `container-cpu`, `container-gpu`, `localhost`, `disabled` | User-facing optional | Cross-encoder reranker (default `mxbai-rerank-base-v1`) for RAG quality lift. LightRAG direct wiring is disabled until a compatible adapter exists. |
-| `TTS_PROVIDER_SOURCE` | `speaches-container-cpu` | `speaches-container-cpu`, `speaches-container-gpu`, `chatterbox-container-gpu`, `chatterbox-localhost`, `disabled` | User-facing optional | Text-to-speech provider. Speaches serves Kokoro/Piper voices; Chatterbox adds 5-sec zero-shot voice cloning. |
-| `DOC_PROCESSOR_SOURCE` | `disabled` | `docling-container-gpu`, `docling-localhost`, `disabled` | User-facing optional | Document processing provider. |
-| `JUPYTERHUB_SOURCE` | `container` | `container`, `disabled` | User-facing optional | Data science, PySpark, and PyIceberg lakehouse notebooks; adaptive integrations. |
-| `RAY_SOURCE` | `disabled` | `ray-container-cpu`, `ray-container-gpu`, `disabled` | User-facing optional | Distributed compute cluster (head + workers). Backend `/api/ray/*` and notebook 07 light up when enabled. |
-| `AIRFLOW_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Workflow orchestration with seeded Connections and SparkSubmit/S3A lakehouse smoke. |
-| `SPARK_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Spark master/workers + Connect sidecar + history server; lakehouse-ready when Iceberg REST is enabled. |
-| `ZEPPELIN_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Zeppelin notebooks; seeded for standalone Spark (`spark://spark-master:7077`) plus MinIO/Iceberg (hard-gated on `SPARK_SOURCE=container`). |
-| `JENKINS_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Jenkins controller with Maven and MinIO JAR publishing seam for data-eng Spark apps. |
-| `ICEBERG_REST_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Internal Iceberg REST catalog backed by Supabase Postgres and MinIO lakehouse buckets. |
-| `TRINO_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | SQL query engine over the Iceberg REST + MinIO lakehouse path. Hard-gated on MinIO and Iceberg REST. |
-| `REDPANDA_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Kafka-compatible streaming broker and Console for the data-eng track. Spark receives `SPARK_KAFKA_BOOTSTRAP_SERVERS=redpanda:9092` when enabled. |
-| `MULTI2VEC_CLIP_SOURCE` | `container-cpu` | `container-cpu`, `container-gpu`, `disabled` | User-facing optional | Multimodal Weaviate vectorizer. |
-| `LIGHTRAG_SOURCE` | `disabled` | `container`, `localhost`, `disabled` | User-facing optional | Graph-augmented RAG server. Storage adapts to Supabase pgvector, Neo4j, Redis. |
-| `LOCAL_DEEP_RESEARCHER_SOURCE` | `container` | `container`, `disabled` | User-facing optional | Local research/orchestration service. |
-| `OPEN_WEB_UI_SOURCE` | `container` | `container`, `disabled` | Adaptive application | Main chat UI; adapts to LLM provider. |
-| `BACKEND_SOURCE` | `container` | `container` | Adaptive core | Always-on Backend API; not disableable in this remediation track. |
-| `REDIS_SOURCE` | `container` | `container` | Infra | Cache/session/queue service. |
-| `KONG_API_GATEWAY_SOURCE` | `container` | `container` | Infra | API gateway and friendly host routing. |
-| `NEO4J_GRAPH_DB_SOURCE` | `container` | `container`, `localhost`, `disabled` | Infra / user-facing data | Graph database. |
-| `SUPABASE_DB_SOURCE` | `container` | `container` | Infra | PostgreSQL database. |
-| `SUPABASE_META_SOURCE` | `container` | `container`, `disabled` | Infra | Supabase metadata service. |
-| `SUPABASE_STORAGE_SOURCE` | `container` | `container`, `disabled` | Infra | Supabase storage service. |
-| `SUPABASE_AUTH_SOURCE` | `container` | `container`, `disabled` | Infra | Supabase auth service. |
-| `SUPABASE_API_SOURCE` | `container` | `container`, `disabled` | Infra | Supabase REST API. |
-| `SUPABASE_REALTIME_SOURCE` | `container` | `container`, `disabled` | Infra | Supabase realtime service. |
-| `SUPABASE_STUDIO_SOURCE` | `container` | `container`, `disabled` | Infra UI | Supabase admin UI. |
-| `WEAVIATE_INIT_SOURCE` | `container` | `container`, `disabled` | Auto-managed init | Initializes Weaviate schemas/config. |
-| `MINIO_INIT_SOURCE` | `container` | `container`, `disabled` | Auto-managed init | Initializes MinIO buckets, IAM policies, and service accounts. |
-| `COMFYUI_INIT_SOURCE` | `container` | `container`, `disabled` | Auto-managed init | Initializes ComfyUI assets/config. |
-| `N8N_INIT_SOURCE` | `container` | `container`, `disabled` | Auto-managed init | Installs n8n community nodes on first boot; workflow templates are imported manually. |
-| `OPENCLAW_INIT_SOURCE` | `container` | `container`, `disabled` | Auto-managed init | Initializes OpenClaw config where applicable. |
-| `HERMES_INIT_SOURCE` | `container` | `container`, `disabled` | Auto-managed init | Renders `/opt/data/config.yaml` for Hermes from environment (model, TTS, STT, ComfyUI host override). |
-| `SUPABASE_DB_INIT_SOURCE` | `container` | `container`, `disabled` | Auto-managed init | Initializes Supabase database state. |
-| `CLOUDFLARED_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | Cloudflare Tunnel public edge — terminates TLS at Cloudflare and proxies to Kong (egress-only, no inbound ports). Requires `CLOUDFLARE_TUNNEL_TOKEN`. |
-| `BACKUP_SOURCE` | `disabled` | `container`, `disabled` | User-facing optional | On-demand backup runner — Postgres dump + named-volume snapshots pushed to MinIO/S3. Invoke via `docker compose run --rm backup`. |
+A SOURCE value is the `*_SOURCE` env var setting that picks how a given service is deployed — `container` (Docker), a `localhost`/`managed-localhost` variant (host process), or `disabled` (excluded from compose); some services expose additional named variants (GPU/CPU flavors, provider choices, etc.). The full generated list of every `*_SOURCE` variable, its default, and its valid options lives in [SOURCE Values](../reference/source-values.md); the full env var catalog (including non-SOURCE vars) is in [Environment Variables](../reference/env-vars.md).
 
 > The `litellm-init` container is mandatory and has no SOURCE toggle — it always runs when the stack starts. `litellm-init` provisions the dedicated `litellm` Postgres database and renders `volumes/litellm/config.yaml` from the YAML model catalogs (`services/ollama/models.yaml`, `services/litellm/models.yaml`) + the wizard's `*_USER_MODELS` env vars, via `model_resolver`. No separate catalog-init container is involved in LLM model selection.
 
@@ -121,7 +50,7 @@ These services can run on your host machine instead of in containers:
 
 ### 3.2. Container-Only or Stack-Managed Services
 
-Container-only and stack-managed services should normally be left at their defaults unless you are intentionally reducing the stack or debugging a specific component. Init service SOURCE variables are usually managed by the startup flow and should not be the first knob users change.
+Container-only and stack-managed services should normally be left at their defaults unless you are intentionally reducing the stack or debugging a specific component. Init service SOURCE variables (`COMFYUI_INIT_SOURCE`, `HERMES_INIT_SOURCE`, `MINIO_INIT_SOURCE`, `N8N_INIT_SOURCE`, `OPENCLAW_INIT_SOURCE`, `WEAVIATE_INIT_SOURCE`) are usually managed by the startup flow and should not be the first knob users change.
 
 ### 3.3. Feature Flags (Non-SOURCE)
 
