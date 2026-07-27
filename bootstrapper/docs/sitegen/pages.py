@@ -87,6 +87,7 @@ ARCHITECTURE_SOURCE_FILES: dict[str, list[str]] = {
     ],
     "network-routing-topology": [
         "bootstrapper/utils/kong_config_generator.py",
+        "bootstrapper/utils/system.py",
         "bootstrapper/services/topology.py",
         "services/kong/service.yml",
     ],

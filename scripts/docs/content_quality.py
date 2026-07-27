@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import re
 
+from .heading_quality import _structural_lines
+
 _SUPPRESS = "<!-- lint-ok -->"
 
 # Rule 1 — prose that narrates an adjacent diagram/image.
@@ -51,22 +53,6 @@ _MARKETING_RE = re.compile(
     r"\b(" + "|".join(re.escape(word) for word in _MARKETING_WORDS) + r")\b",
     re.IGNORECASE,
 )
-
-
-def _structural_lines(text: str):
-    in_fence = False
-    fence_marker = ""
-    for line_number, line in enumerate(text.splitlines(keepends=True), 1):
-        stripped = line.lstrip()
-        marker = stripped[:3]
-        if marker in {"```", "~~~"}:
-            if not in_fence:
-                in_fence, fence_marker = True, marker
-            elif marker == fence_marker:
-                in_fence, fence_marker = False, ""
-            yield line_number, line, True
-            continue
-        yield line_number, line, in_fence
 
 
 def _scan(text: str, pattern: re.Pattern) -> list[tuple[int, str]]:

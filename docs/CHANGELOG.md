@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### 1.1. Added — 2026-07-19 — Managed headless Blender MCP source
 
 - **`BLENDER_MCP_SOURCE=managed-localhost` (#759)** — Atlas now provisions the pinned `ahujasid/blender-mcp` add-on (sha256-verified) and runs headless `blender --background` as a managed host process, via a generated launcher that shims the add-on's timer registration into a main-thread queue so the same execution contract holds without a GUI event loop. The bridge binds loopback-only unless `BLENDER_MCP_ALLOW_REMOTE=true` (a deliberate double opt-in), and the lifecycle mirrors the ComfyUI MPS surface: `./start.sh blender-mcp preflight|install|start|stop|status|health|remove`.
+- **Content-quality lint gate (`scripts/docs/content_quality.py`)** — enforced in the docs-drift audit; flags diagram-narration prose, production/style narration, marketing adjectives in service READMEs, and copy-pasted blocks across architecture pages, plus a one-time content pass removing existing instances.
 
 ### 1.2. Added — 2026-07-19 — Host model pulls for `ollama-localhost`
 
