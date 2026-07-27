@@ -2,14 +2,11 @@
 
 Ports and Kong hostnames are derived from `BASE_PORT` in `.env` (default `63000`) and the per-category slot allocator in `bootstrapper/services/topology.py`. Move the whole stack with `./start.sh --base-port <port>` or by editing `BASE_PORT`.
 
-## 1. Authoritative sources
+## 1. Canonical reference
 
-The full per-service port + Kong-alias mapping is maintained in three places:
+The full per-service port-variable-to-Kong-alias mapping is generated from the service manifests and lives in [docs/reference/ports-routes.md](../reference/ports-routes.md) — that page, not this one, is the single authoritative source for which port variables and Kong aliases a service uses. The README's generated [Service topology](../../README.md#3-service-topology) block presents the same mapping as a browsable table. `bootstrapper/services/topology.py` is the code-level source both are generated from.
 
-- **`.env.example`** at the repo root — every `*_PORT` env var with its default; the auto-regenerated baseline.
-- **README generated topology block** — the tested, generated service/port/Kong-host table near the top of the README.
-- **README "Service overview" table** — manually curated browser-facing URLs and auth notes (§ 4.1); review it when route or auth behavior changes.
-- **`bootstrapper/services/topology.py`** — code-level source of truth; `Topology.port_defaults` and `Topology.aliases`.
+This page documents route *behavior* the generated tables don't carry: per-alias auth mechanisms and routing notes (§2), per-engine port quirks (§3), and localhost-mode port overrides (§4).
 
 ## 2. Kong hostnames
 
