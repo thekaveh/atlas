@@ -49,18 +49,14 @@ JUPYTERHUB_SOURCE=disabled
 
 ```bash
 JUPYTERHUB_SOURCE=container     # Options: container, disabled
-# Base image is the maintained quay.io home of the Jupyter Docker Stacks.
-# The old Docker Hub jupyter/* images were frozen in 2023, so we migrated to
-# quay.io and pinned the python-3.11 line (patch 3.11.10) — same Python, just
-# the maintained registry. A moving :latest tag would force a full rebuild
-# (8-10 min) every start; a pinned patch keeps Docker-layer caching.
+# Maintained quay.io home of the Jupyter Docker Stacks, pinned to python-3.11.10.
 JUPYTERHUB_IMAGE=quay.io/jupyter/datascience-notebook:python-3.11.10
 JUPYTERHUB_PORT=63094
 JUPYTERHUB_TOKEN=               # Optional: authentication token
 BACKEND_NOTEBOOK_API_TOKEN=     # Auto-generated; scoped Backend bearer
 ```
 
-> **Performance Tip**: The `python-3.11` tag provides stable Docker layer caching, reducing rebuild times from 8-10 minutes to 5-10 seconds on subsequent starts. Using `:latest` forces Docker to check for updates and rebuild layers every time.
+> **Performance Tip**: The pinned `python-3.11.10` tag keeps Docker layer caching stable (5-10 s rebuilds); a moving `:latest` tag would force a full 8-10 min rebuild on every start.
 
 ### 4.2. Authentication
 
@@ -70,14 +66,14 @@ BACKEND_NOTEBOOK_API_TOKEN=     # Auto-generated; scoped Backend bearer
 
 `BACKEND_NOTEBOOK_API_TOKEN` is separate from Jupyter's login token. Atlas
 injects it into the server-side notebook environment so the bundled Chonkie
-and Ragas notebooks can call `/api/chunk` and `/api/rag/evaluate`. The Backend
-accepts it only on stateless document extraction, chunking, and evaluation
-routes; it cannot access memory, research, media ownership, storage, workflow,
-job, or ingestion operations. Do not print it or persist it in notebook output.
-This token scopes Backend API access only. JupyterHub remains an
-operator-trusted engineering environment with direct database and service
-credentials; it is not a hostile multi-tenant sandbox. The unused Supabase
-service-role key is deliberately not injected.
+and Ragas notebooks can call the Backend's stateless `/api/chunk` and
+`/api/rag/evaluate` endpoints; it does not grant access to memory, research,
+media, storage, workflow, job, or ingestion operations. Do not print it or
+persist it in notebook output. See `services/backend/README.md` for the full
+route-scoping contract. JupyterHub remains an operator-trusted engineering
+environment with direct database and service credentials; it is not a
+hostile multi-tenant sandbox. The unused Supabase service-role key is
+deliberately not injected.
 
 ## 5. Sample Notebooks
 
@@ -106,117 +102,16 @@ requirements. Service-dependent execution remains an explicit live smoke test.
 
 ## 6. Service Integration Examples
 
-### 6.1. Connect to the LLM gateway (LiteLLM)
+Every notebook talks to LiteLLM via the OpenAI-compatible API — never to Ollama directly. `startup.sh` writes `OPENAI_API_BASE` / `OPENAI_API_KEY` into the work-dir `/home/jovyan/work/.env`; since they aren't in the container's process env, load them with `load_dotenv()` before reading via `os.getenv`. Weaviate, Neo4j, and the Postgres/Supabase clients connect directly using the equivalent auto-injected `WEAVIATE_URL` / `NEO4J_URI` / `NEO4J_USER` / `NEO4J_PASSWORD` env vars. Spark Connect (`SPARK_REMOTE`, default `sc://spark-connect:15002`, requires `SPARK_SOURCE != disabled`) and the MinIO/Iceberg lakehouse clients (`boto3`, `pyiceberg`, `duckdb` against `AWS_ENDPOINT_URL_S3` / `ICEBERG_REST_URI` / `ICEBERG_WAREHOUSE`) work the same way — connection details are pre-wired, no credentials to hand-assemble.
 
-Every notebook talks to LiteLLM via the OpenAI-compatible API — never to Ollama directly. `startup.sh` writes `OPENAI_API_BASE` and `OPENAI_API_KEY` (derived from `LITELLM_BASE_URL` and `LITELLM_API_KEY`, which equals `LITELLM_MASTER_KEY`) into the work-dir `/home/jovyan/work/.env` — they are not in the container's process env, so load them with `load_dotenv()` before reading them via `os.getenv`.
+Working, runnable examples for each of these live in the sample notebooks (§5): `01_litellm_basics.ipynb`, `02_langchain_rag.ipynb`, `03_neo4j_graphs.ipynb`, and `09_spark_connect.ipynb`. For the advanced Iceberg/Spark lakehouse validation flow (`MERGE INTO`, `VERSION AS OF`, Structured Streaming, table maintenance), see `12_iceberg_advanced_sql.ipynb` or run it directly from the repository root with `scripts/smoke-iceberg-advanced-sql.sh spark-connect` — see [`docs/deployment/iceberg-advanced-smoke.md`](../../docs/deployment/iceberg-advanced-smoke.md) for the full smoke-test contract.
 
-```python
-import os
-from dotenv import load_dotenv
-from openai import OpenAI
+### 6.1. Connecting to the lakehouse from Python
 
-load_dotenv()  # loads /home/jovyan/work/.env written by startup.sh
-
-client = OpenAI(
-    base_url=os.getenv("OPENAI_API_BASE"),  # e.g. http://litellm:4000/v1
-    api_key=os.getenv("OPENAI_API_KEY"),    # equals $LITELLM_API_KEY
-)
-
-response = client.chat.completions.create(
-    model="ollama/qwen3.6:latest",  # or "gpt-4o", "claude-sonnet-4-6", etc.
-    messages=[{"role": "user", "content": "Hello!"}],
-)
-print(response.choices[0].message.content)
-```
-
-LangChain users should reach for `ChatOpenAI` / `OpenAIEmbeddings` against the same env vars:
+The image ships the Python lakehouse clients used by Atlas data tracks — `boto3`, `s3fs`, `pyiceberg[s3fs]`, `pyarrow`, and `duckdb` — pre-wired against MinIO and the Iceberg REST catalog. Load the catalog with `pyiceberg.catalog.load_catalog` and call `list_namespaces()` to confirm connectivity:
 
 ```python
-from langchain_openai import ChatOpenAI
-
-llm = ChatOpenAI(model="ollama/qwen3.6:latest")  # picks up OPENAI_API_BASE / OPENAI_API_KEY
-```
-
-### 6.2. Connect to Weaviate (Vector DB)
-
-```python
-import os
-import weaviate
-
-client = weaviate.connect_to_custom(
-    http_host=os.getenv("WEAVIATE_URL").replace("http://", "").split(":")[0],
-    http_port=8080
-)
-```
-
-### 6.3. Connect to Neo4j (Graph DB)
-
-```python
-import os
-from neo4j import GraphDatabase
-
-driver = GraphDatabase.driver(
-    os.getenv("NEO4J_URI"),
-    auth=(os.getenv("NEO4J_USER"), os.getenv("NEO4J_PASSWORD"))
-)
-```
-
-### 6.4. Run Spark (Spark Connect)
-
-The image carries `pyspark-client` — a thin Spark Connect client, no JVM. The
-driver runs on the `spark-connect` sidecar (requires `SPARK_SOURCE != disabled`);
-`s3a://` and Spark History work via the server's own conf, so no storage keys in
-the notebook. `SPARK_REMOTE` (compose-injected, default `sc://spark-connect:15002`)
-can be overridden to target a remote/managed endpoint (e.g. EMR Serverless). See
-`09_spark_connect.ipynb`.
-
-```python
-import os
-from pyspark.sql import SparkSession
-
-spark = SparkSession.builder.remote(
-    os.getenv("SPARK_REMOTE", "sc://spark-connect:15002")
-).getOrCreate()
-spark.range(5).show()
-```
-
-The advanced lakehouse validation notebook lives at
-`12_iceberg_advanced_sql.ipynb` and can also be run from the repository root:
-
-```bash
-scripts/smoke-iceberg-advanced-sql.sh spark-connect
-```
-
-This is an opt-in `data-eng` / `all` track smoke. It adds No new service, no new
-SOURCE, and no new port; it requires `SPARK_SOURCE=container`,
-`ICEBERG_REST_SOURCE=container`, and `MINIO_SOURCE=container`. It covers
-`MERGE INTO`, `VERSION AS OF`, Structured Streaming from `s3a://landing/` into
-Iceberg with `s3a://checkpoints/`, and maintenance procedures. See
-[`docs/deployment/iceberg-advanced-smoke.md`](../../docs/deployment/iceberg-advanced-smoke.md).
-
-### 6.5. Query the lakehouse from Python
-
-The image includes the Python lakehouse clients used by Atlas data tracks:
-`boto3`, `s3fs`, `pyiceberg[s3fs]`, `pyarrow`, and `duckdb`. Compose injects
-scoped Jupyter MinIO credentials, `AWS_ENDPOINT_URL_S3=http://minio:9000`,
-`ICEBERG_REST_URI=http://iceberg-rest:8181`, and
-`ICEBERG_WAREHOUSE=s3://lakehouse/` by default. The MinIO calls work whenever
-MinIO is enabled; the Iceberg catalog smoke requires `ICEBERG_REST_SOURCE=container`.
-
-```python
-import os
-import boto3
-import duckdb
 from pyiceberg.catalog import load_catalog
-
-s3 = boto3.client(
-    "s3",
-    endpoint_url=os.environ["AWS_ENDPOINT_URL_S3"],
-    aws_access_key_id=os.environ["AWS_ACCESS_KEY_ID"],
-    aws_secret_access_key=os.environ["AWS_SECRET_ACCESS_KEY"],
-    region_name=os.environ.get("AWS_DEFAULT_REGION", "us-east-1"),
-)
-print([bucket["Name"] for bucket in s3.list_buckets()["Buckets"]])
 
 catalog = load_catalog(
     "rest",
@@ -224,34 +119,13 @@ catalog = load_catalog(
     warehouse=os.environ["ICEBERG_WAREHOUSE"],
 )
 print(catalog.list_namespaces())
-
-arrow_table = catalog.load_table(("default", "example")).scan().to_arrow()
-print(duckdb.sql("select count(*) from arrow_table").fetchone())
 ```
 
-Import smoke:
+MinIO access goes through `boto3`/`s3fs` against `AWS_ENDPOINT_URL_S3`. Validate both from the host with:
 
 ```bash
-docker exec ${PROJECT_NAME}-jupyterhub python - <<'PY'
-import boto3, s3fs, pyarrow, duckdb
-from pyiceberg.catalog import load_catalog
-print("lakehouse imports ok")
-PY
-```
-
-Catalog smoke:
-
-```bash
-docker exec ${PROJECT_NAME}-jupyterhub python - <<'PY'
-import os
-from pyiceberg.catalog import load_catalog
-catalog = load_catalog(
-    "rest",
-    uri=os.environ["ICEBERG_REST_URI"],
-    warehouse=os.environ["ICEBERG_WAREHOUSE"],
-)
-print(catalog.list_namespaces())
-PY
+docker exec ${PROJECT_NAME}-jupyterhub python -c \
+  "import boto3, s3fs, pyarrow, duckdb; from pyiceberg.catalog import load_catalog; print('ok')"
 ```
 
 ## 7. Data Persistence
@@ -323,50 +197,7 @@ VS Code's Jupyter extension can use this container as the **remote kernel** for 
 
 ### 10.3. What's pre-configured on the stack side
 
-#### 10.3.1. The container's startup chain
-
-The container launches via a 4-step chain that ultimately invokes `jupyter lab` with the right flags. Knowing this chain matters because the compose-level `command:` override sits at exactly one of the steps, and editing it incorrectly silently breaks user-id setup or argv forwarding.
-
-```
-docker run
-  → ENTRYPOINT (Dockerfile):     /usr/local/bin/startup.sh
-  → CMD (compose `command:`):    start-notebook.sh \
-                                   --ServerApp.allow_origin=${JUPYTER_ALLOW_ORIGIN:-*} \
-                                   --ServerApp.allow_remote_access=True \
-                                   --ServerApp.disable_check_xsrf=False
-```
-
-Docker then `exec`s `ENTRYPOINT + CMD` as a single argv:
-
-```
-/usr/local/bin/startup.sh start-notebook.sh --ServerApp.allow_origin=${JUPYTER_ALLOW_ORIGIN:-*} \
-    --ServerApp.allow_remote_access=True --ServerApp.disable_check_xsrf=False
-```
-
-The four pieces of the chain:
-
-| Step | Lives in | Role |
-|---|---|---|
-| 1. `ENTRYPOINT` → `/usr/local/bin/startup.sh` | `services/jupyterhub/build/Dockerfile` (`ENTRYPOINT` directive near the end) | Our wrapper. Prints the env summary, materialises `/home/jovyan/work/.env` from the resolved environment, prints the welcome banner, then ends with `exec "$@"` — which **forwards every CMD token unchanged** to the next stage. |
-| 2. `CMD` → `start-notebook.sh ...` | `services/jupyterhub/compose.yml` `command:` block | This **replaces** the Dockerfile's `CMD ["start-notebook.sh"]` with our explicit list (the script name + three flags). Compose's `command:` always replaces the Dockerfile's CMD, never extends it — so the script name **must stay as element 0** of the list. Lose it and `startup.sh` ends up `exec`ing whatever flag is first, fails to find an executable, and the container restart-loops with `exec: --ServerApp.allow_origin=...: not found`. |
-| 3. `start-notebook.sh` | upstream `jupyter/docker-stacks` image | The official Jupyter docker-stacks boot script. Switches UIDs/GIDs based on `NB_UID`/`NB_GID`/`GRANT_SUDO`, sources hooks under `/usr/local/bin/before-notebook.d/`, then `exec`s `jupyter lab` with **all of its own `$@` forwarded through**. Contract documented at [jupyter/docker-stacks](https://github.com/jupyter/docker-stacks/blob/main/images/docker-stacks-foundation/start.sh). |
-| 4. `jupyter lab --ServerApp.allow_origin=<JUPYTER_ALLOW_ORIGIN> ...` | runtime | Jupyter Server (the underlying app) parses each `--ServerApp.<name>=<value>` as a Traitlet config set on the `ServerApp` class — equivalent to writing the same value in `jupyter_server_config.py`. |
-
-Net effect: the three flags reach `jupyter lab` exactly as if they were in a config file, without us needing to mount one.
-
-#### 10.3.2. What each flag actually changes
-
-| Flag | Mechanism it disables / opens | Why VS Code needs it |
-|---|---|---|
-| `--ServerApp.allow_origin=${JUPYTER_ALLOW_ORIGIN:-*}` | Two things at once: (a) the `Access-Control-Allow-Origin` response header for CORS preflights, and (b) the WebSocket-upgrade `Origin` header check. By default, Jupyter Server rejects any non-empty origin that doesn't match the bound interface. | VS Code's webview frame sends `Origin: vscode-webview://...` on the kernel-WebSocket handshake. HTTP requests succeed (token auth handles those) but the upgrade is rejected with `403 Forbidden` and cell-execute hangs. The default `*` accepts any origin; **the token gate still applies on every request.** |
-| `--ServerApp.allow_remote_access=True` | The "is the source IP local?" pre-check that runs *before* token auth. By default, Jupyter only accepts connections whose source IP matches the bound interface (loopback). | When VS Code on your host talks to the container, the request crosses Docker's network namespace — from the container's POV the source IP is the Docker bridge, not loopback. Without this flag, Jupyter returns `403 Forbidden — Disallowed origin` and the token check never runs. |
-| `--ServerApp.disable_check_xsrf=False` | Cross-Site Request Forgery protection on POST/PUT/DELETE. `False` is **already** Jupyter's default. | Listed explicitly NOT to change behaviour but as a visible knob for a future "POST returns 403" debug session. VS Code's Jupyter extension sends the XSRF token in headers, so XSRF stays on safely. |
-
-`JUPYTER_ALLOW_ORIGIN=*` is exported in the container environment and interpolated into the CLI flag above, making `.env` the single origin allowlist knob.
-
-> **Tightening the origin allowlist:** `allow_origin='*'` is acceptable here because **the token is the auth gate** — without `JUPYTERHUB_TOKEN`, no request reaches the kernel. If you want a tighter list (e.g., only `vscode-webview://*` plus your dev origin), set `JUPYTER_ALLOW_ORIGIN` to a comma-separated allowlist in `.env` and restart JupyterHub.
-
-> **Why not a config file?** A `jupyter_server_config.py` would work equivalently, but it requires either baking it into the image (rebuild on every config tweak) or bind-mounting it (one more volume to track). CLI flags on `command:` are the lowest-friction knob: edit one line in compose, restart, done.
+The container's `ENTRYPOINT` (`services/jupyterhub/build/Dockerfile`) wraps the upstream `start-notebook.sh` boot script, and the compose `command:` override (`services/jupyterhub/compose.yml`) appends three `--ServerApp.*` flags so the upstream server accepts VS Code's remote-kernel workflow across the Docker network: `allow_origin` opens the CORS/WebSocket origin check (VS Code's webview origin would otherwise be rejected), `allow_remote_access` lets the non-loopback, container-bridge connection through the pre-auth IP check, and `disable_check_xsrf=False` keeps CSRF protection on (already Jupyter's default; listed explicitly as a visible knob). None of this loosens authentication — the `JUPYTERHUB_TOKEN` remains the actual auth gate on every request. To tighten the origin allowlist beyond `*`, set `JUPYTER_ALLOW_ORIGIN` to a comma-separated list in `.env` and restart. See the `ENTRYPOINT` / `command:` directives in the Dockerfile and compose fragment for the exact dispatch chain.
 
 ### 10.4. Notebook layout: where files live
 
@@ -423,13 +254,7 @@ docker exec ${PROJECT_NAME}-jupyterhub bash -lc \
 
 The expected last line is `sum=30`. The first run for each Scala kernel resolves Almond's classpath and can take 30-60 s; subsequent runs are sub-second.
 
-**To pin different Scala / Almond versions** edit `services/jupyterhub/build/Dockerfile` and bump the `ALMOND_VERSION` / `ALMOND_SCALA_2_VERSION` / `ALMOND_SCALA_3_VERSION` build args at the top, then rebuild:
-
-```bash
-docker compose build jupyterhub && ./stop.sh && ./start.sh
-```
-
-The Scala toolchain (JDK 17 + Coursier + both Almond kernels) adds **~600 MB** to the container image. If you don't need Scala, drop the `apt-get` `openjdk-17-jdk-headless` line plus the two `cs launch` blocks from the Dockerfile and rebuild.
+Scala/Almond versions are pinned via build args near the top of `services/jupyterhub/build/Dockerfile`; edit and rebuild there to change them or to drop the Scala toolchain entirely.
 
 ## 12. Architecture
 

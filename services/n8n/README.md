@@ -6,7 +6,7 @@ n8n is also the only "agents"-tier service besides Hermes; the two are complemen
 
 ## 1. Overview
 
-Image: `n8nio/n8n:2.28.2`. The web/API container handles HTTP + UI; the worker container handles execution. Both share state through Supabase Postgres (workflow definitions, executions history, credentials) and Redis (queue + execution coordination). The `n8n-init` container runs after the web/API container is reachable, installs required community nodes, then exits. Startup now checks that one-shot exit code after detached `compose up` and fails the launcher if it exited nonzero.
+Image: `n8nio/n8n:2.28.2`. The web/API container handles HTTP + UI; the worker container handles execution. Both share state through Supabase Postgres (workflow definitions, executions history, credentials) and Redis (queue + execution coordination). The `n8n-init` container runs after the web/API container is reachable, installs required community nodes, then exits. The launcher checks that one-shot exit code and fails if it exited nonzero.
 
 Track placement: n8n is available in `all`, `gen-ai-eng`, and `gen-ai-rag`. In the RAG track it provides workflow orchestration for document ingestion, search-to-extraction flows, vector-store operations, and human-reviewed automation around the RAG services.
 
@@ -32,12 +32,9 @@ N8N_EXECUTIONS_MODE=queue           # queue (default, requires worker + redis) |
 N8N_INIT_NODES=n8n-nodes-comfyui@0.0.9,@ksc1234/n8n-nodes-comfyui-image-to-image@1.0.2
 ```
 
-n8n 2.28.2 always uses the owner-account setup flow. Community nodes are
-loaded from the pinned packages installed by `n8n-init`; the retired
-`N8N_AUTH_ENABLED`, `N8N_ALLOW_CONNECTIONS_FROM`,
-`N8N_COMMUNITY_PACKAGES_ENABLED`, and
-`N8N_COMMUNITY_PACKAGES_ALLOW_TOOL_USAGE` variables are intentionally absent
-because this n8n release does not consume them.
+n8n 2.28.2 always uses the owner-account setup flow, and community nodes are
+loaded from the pinned packages installed by `n8n-init` — no auth-mode or
+community-package env vars are needed for the pinned image.
 
 Adaptive env (auto-injected based on active SOURCE values):
 
@@ -61,13 +58,12 @@ BACKEND_N8N_API_TOKEN=            # auto-generated workflow-scoped bearer
 ```
 
 The bundled Backend-calling workflows attach
-`Authorization: Bearer $env.BACKEND_N8N_API_TOKEN` to every request. The
+`Authorization: Bearer $env.BACKEND_N8N_API_TOKEN` to every request; the
 value is present on both the n8n web and worker containers because queue-mode
-executions run on the worker. Workflow expressions can read this value, so the
-Backend accepts it only on the research, memory-automation, legacy ComfyUI, and
-storage-upload routes used by the bundled workflows. It cannot access plugin,
-workflow-administration, generic-job, or RAG-ingestion operator routes. Do not
-return it in webhook payloads, execution output, or browser-side code.
+executions run on the worker. The token is scoped to a limited set of Backend
+routes — the Backend's own docs define exactly which routes it can and cannot
+reach. Do not return it in webhook payloads, execution output, or browser-side
+code.
 
 **Required runtime dep:** `weaviate` (per `runtime_deps.n8n.requires`). With `WEAVIATE_SOURCE=disabled`, n8n is force-disabled with an error message — the stack design treats Weaviate-backed vector ops as load-bearing for the seeded AI workflows.
 
@@ -83,7 +79,7 @@ return it in webhook payloads, execution output, or browser-side code.
 **Init flow** (`n8n-init`, pinned n8n image + npm lockfile):
 
 1. Before the n8n web or worker process starts, install the committed exact package set with `npm ci --omit=dev --ignore-scripts` into the shared `/home/node/.n8n/nodes` directory.
-2. `n8n-workflow` is pinned to the version inside `n8nio/n8n:2.28.2`, avoiding wildcard peer drift. n8n's first-party MCP client, tool, registry, and trigger nodes replace the redundant `n8n-nodes-mcp` community package and its vulnerable transitive chain. `N8N_INIT_NODES` can replace the default set only with comma-separated exact `name@x.y.z` specs; the former unversioned Atlas default is recognized as a compatibility alias for the committed lock.
+2. Package versions (including the `n8n-workflow` peer dependency) are pinned to avoid drift; the pinning rationale and community-node replacement history are documented as comments near the n8n-init lockfile. `N8N_INIT_NODES` can replace the default set only with comma-separated exact `name@x.y.z` specs.
 3. Print completion. The seeded workflow template in `services/n8n/init/config/`
    (mounted at `/config/`) is imported **manually** via the n8n UI — `n8n-init`
    does not auto-import workflows.
@@ -95,15 +91,9 @@ return it in webhook payloads, execution output, or browser-side code.
 
 **Hermes wiring.** `HERMES_ENDPOINT` is injected so workflows can call into Hermes via the HTTP Request node. Inverse path (Hermes → n8n) is webhook-driven: n8n's public REST API has no execute endpoint, so expose a Webhook-trigger workflow and have Hermes POST to its URL.
 
-**Seeded workflows.** `services/n8n/init/config/searxng-research-workflow.json` ships as a worked example of the SearXNG → LiteLLM research pattern, imported manually via the n8n UI. Additional example workflows are staged under `services/n8n/workflows-stage/workflows/` for the same manual-import path. Before activating any staged webhook workflow, create an n8n **Header Auth** credential, select it on the webhook node in place of the `Atlas Webhook Header Auth` placeholder, and configure callers with the same header and value. The examples intentionally cannot expose a production webhook until that local credential is bound. Batch research accepts 1–25 queries; each query is 1–4,000 characters with `max_loops` from 1 through 10 and `search_api` set to `duckduckgo` or `searxng`. Repository tests validate the pinned HTTP Request/Webhook method fields, credential references, real webhook-body shape, fresh-database importability, trigger reachability, and Code-node syntax. Research examples carry request/session context in ordinary items and explicit node references, poll before retrieving results, and produce terminal reports even when every session fails; they do not mutate `$execution.customData`.
+**Seeded workflows.** `services/n8n/init/config/searxng-research-workflow.json` ships as a worked example of the SearXNG → LiteLLM research pattern, imported manually via the n8n UI. Additional example workflows are staged under `services/n8n/workflows-stage/workflows/` for the same manual-import path. Before activating any staged webhook workflow, create an n8n **Header Auth** credential, select it on the webhook node in place of the `Atlas Webhook Header Auth` placeholder, and configure callers with the same header and value. The examples intentionally cannot expose a production webhook until that local credential is bound. Parameter validation ranges (query count/length, loop limits, search-API choice) and node-level behavior live in the workflow JSON's own inline notes; the bootstrapper test suite validates the workflow's structure and importability.
 
-**Consumer workflow seeding (#412).** A downstream consumer no longer has to script workflow import/activation/readiness itself. It declares an `n8n_workflows` block in `atlas.consumer.yml` (see [reusing-atlas.md §6.3.3](../../docs/deployment/reusing-atlas.md#633-seeding-n8n-workflows-with-n8n_workflows)) and Atlas seeds them for it:
-
-1. The bootstrapper validates each workflow (JSON parseable, **credential-safe** — a node may reference credentials by a `{id, name}` mapping only; a raw string/list value or a mapping with extra keys, i.e. an embedded credential `data` payload, is rejected; optional `sha256` checksum; stable/unique id; non-colliding webhook routes), normalizes the JSON to an **Atlas-namespaced id** `atlas-consumer-<id>` (stripping runtime-state carriers `staticData`/`pinData`) with the activation policy baked in, and writes the gitignored `volumes/n8n/consumer-workflows/` (per-workflow JSON + `plan.json`) plus a compose overlay adding an Atlas-owned **`n8n-seed`** container (the n8n image, sharing the n8n schema).
-2. After n8n is healthy, the seeder (`seed-workflows.sh`, a thin wrapper that `exec`s node on `seed-workflows.js` — **node, not `wget`**, because the n8n image is Alpine/BusyBox whose `wget` has no `--method` and there is no `curl`) runs `n8n import:workflow` for each file — **idempotent, keyed by the namespaced `atlas-consumer-<id>`**, so re-running startup updates the workflow in place, never creates a duplicate active workflow, and — because Atlas owns the `atlas-consumer-*` id namespace — can never overwrite another consumer's or a user's workflow.
-3. When `N8N_API_KEY` is set, the seed activates workflows through the public API (checking the HTTP status and warning on a non-2xx) so their production webhooks register on the running instance without a restart, and **reconciles removed workflows** — any `atlas-consumer-*` workflow no longer declared by a manifest is deactivated + deleted so a since-removed entry doesn't orphan a live webhook. Without a key the workflow is imported + active-persisted (its webhook registers on the next n8n restart) and reconcile is skipped (logged). Declared webhooks are then probed for readiness (opt-in; `POST` probes require an explicit `probe: true` because they can trigger side effects).
-
-All artifacts regenerate every start, so removing a manifest — or a single workflow — drops exactly its own generated files on the next start. Seeder HTTP operations have a manifest-owned 10-second absolute deadline (`N8N_SEED_HTTP_TIMEOUT_MS`) and 1 MiB response ceiling (`N8N_SEED_MAX_RESPONSE_BYTES`), while spawned n8n CLI operations have a manifest-owned 120-second deadline (`N8N_SEED_COMMAND_TIMEOUT_MS`); all values must be positive. The detached startup verifier includes `n8n-seed`, so a crash or nonzero container exit cannot be omitted from the final launch result. The seeder remains **best-effort** per workflow: an import or activation failure is logged and isolated and does not make the seed container fail, so one bad consumer workflow cannot abort `docker compose up --wait`. Coverage: `bootstrapper/tests/test_consumer_n8n_workflows.py`, `test_consumer_doctor.py`, `test_n8n_seed_bounds.py`, and `test_init_scripts_compile.py` (`node --check` on the seeder). The live import/activation/reconcile/webhook-probe against a running n8n is an optional live test (not exercised by the unit suite).
+**Consumer workflow seeding.** A downstream consumer no longer has to script workflow import/activation/readiness itself: it declares an `n8n_workflows` block in `atlas.consumer.yml` (see [reusing-atlas.md §6.3.3](../../docs/deployment/reusing-atlas.md#633-seeding-n8n-workflows-with-n8n_workflows)), and the bootstrapper validates, namespaces (`atlas-consumer-<id>`), imports, and activates each workflow via a dedicated `n8n-seed` container once n8n is healthy — idempotently, and best-effort per workflow so one bad consumer workflow can't abort startup. Removed manifest entries are reconciled (deactivated + deleted) when an `N8N_API_KEY` is configured. Timeout/size bounds and the full validation, namespacing, and reconciliation spec live in the bootstrapper seeder implementation under `services/n8n/`.
 
 ## 5. Calling LightRAG from n8n
 

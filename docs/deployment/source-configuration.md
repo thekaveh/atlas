@@ -224,7 +224,7 @@ FAL_MODEL=fal-ai/flux/dev
 - **Pros**: No local GPU or ComfyUI container required for compatible prompt-to-image requests.
 - **Cons**: Requires internet access, provider quota, and per-generation provider cost.
 - **Requirements**: `FAL_API_KEY` when `FAL_SOURCE=enabled`; no key required when `FAL_SOURCE=disabled`.
-- **Behavior**: `POST /comfyui/generate` uses FAL when enabled for compatibility with existing Open WebUI and n8n callers. `POST /media/generate` is the durable provider-neutral operation route and supports verified FAL image and image-to-3D endpoints with owner-scoped Redis state, conservative cancellation accounting, and normalized artifacts/provenance. Image-to-3D currently supports TRELLIS, Hunyuan3D, Tripo, and Rodin; unverified registry candidates are rejected. ComfyUI-specific workflow, queue, history, cancellation, and image-file routes remain ComfyUI-specific.
+- **Behavior**: `POST /comfyui/generate` uses FAL when enabled, for backward compatibility with existing Open WebUI and n8n callers. `POST /media/generate` is the provider-neutral route for FAL image and image-to-3D generation (TRELLIS, Hunyuan3D, Tripo, Rodin); the full request/response contract is served at the backend's `/docs` (Swagger) endpoint.
 
 ### 4.3. WEAVIATE_SOURCE
 
@@ -249,7 +249,7 @@ MULTI2VEC_CLIP_SIGLIP2_IMAGE=semitechnologies/multi2vec-clip:google-siglip2-so40
 
 If `MULTI2VEC_CLIP_SOURCE=disabled`, remove `multi2vec-clip` from `WEAVIATE_ENABLE_MODULES` (leaving `text2vec-openai,text2vec-ollama,generative-openai,generative-ollama`) and set `CLIP_INFERENCE_API=` so Weaviate does not advertise a disabled inference endpoint.
 
-`MULTI2VEC_CLIP_SIGLIP2_IMAGE` is a documented opt-in reference value for the live `MULTI2VEC_CLIP_IMAGE` variable. Do not change `MULTI2VEC_CLIP_IMAGE` on an existing stack unless every collection using `multi2vec-clip` has a migration plan: the default ViT-B/32 image emits 512-d vectors, while the SigLIP 2 `so400m` 512 image emits 1152-d vectors. Existing collections must be recreated or revectorized/reindexed before inserts and searches use the new image. Keep `CLIP_INFERENCE_API=http://multi2vec-clip:8080`; prefer `MULTI2VEC_CLIP_SOURCE=container-gpu` for production SigLIP 2 evaluation.
+`MULTI2VEC_CLIP_SIGLIP2_IMAGE` is a documented opt-in alternative to the default `MULTI2VEC_CLIP_IMAGE`. Switching it is a breaking change for existing collections — the default ViT-B/32 image emits 512-d vectors versus 1152-d for SigLIP 2 — so a swap requires recreating or revectorizing/reindexing every collection that uses `multi2vec-clip`. See the [multi2vec-clip service README](../../services/multi2vec-clip/README.md) for the full migration steps.
 
 #### 4.3.2. `localhost`
 ```bash
@@ -407,7 +407,7 @@ LIGHTRAG_QUERY_MAX_TOTAL_TOKENS=12000
 
 Use `EXTRACT` and `KEYWORD` for high-volume structured extraction work and `QUERY` for final answer generation. For local Ollama deployments, a cheaper non-reasoning extraction model usually keeps indexing responsive while allowing query answering to use the project-selected stronger model. Empty role-specific values inherit the base `LLM_MODEL`, so existing deployments do not need to set these variables.
 
-The `LIGHTRAG_QUERY_*` knobs map to LightRAG's native query defaults. Numeric query defaults stay concrete because LightRAG parses these env vars as integers and does not accept empty strings. `LIGHTRAG_QUERY_ENABLE_RERANK` defaults to `false` because LightRAG's built-in Jina/Cohere rerank clients send `{query, documents}`, while TEI's `/rerank` route expects `{query, texts}`. Keep it off unless routing LightRAG through a compatible adapter or custom rerank binding.
+The `LIGHTRAG_QUERY_*` knobs map to LightRAG's native query defaults and must stay set to concrete numbers (LightRAG parses them as integers and rejects empty strings). `LIGHTRAG_QUERY_ENABLE_RERANK` defaults to `false` because LightRAG's built-in rerank clients are not wire-compatible with TEI's `/rerank` route — leave it off unless routing through a compatible adapter. See the [LightRAG service README](../../services/lightrag/README.md) for the full query-parameter reference.
 
 ### 4.8. RAY_SOURCE
 
@@ -798,12 +798,6 @@ Best for local development with minimal resources:
           --searxng-source disabled
 ```
 
-Benefits:
-- Lower memory usage
-- Faster AI inference
-- Reduced container count
-- Easy debugging
-
 ### 5.2. Production Setup
 Best for production with full features:
 
@@ -814,12 +808,6 @@ Best for production with full features:
           --n8n-source container \
           --searxng-source container
 ```
-
-Benefits:
-- GPU acceleration
-- All features enabled
-- Consistent environment
-- Scalable architecture
 
 ### 5.3. Minimal Setup
 Best for testing or resource-constrained environments:
@@ -832,12 +820,6 @@ Best for testing or resource-constrained environments:
           --n8n-source disabled \
           --searxng-source disabled
 ```
-
-Benefits:
-- Minimal resource usage (no local Ollama)
-- Cloud-powered AI through LiteLLM
-- Fast startup
-- Basic chat functionality
 
 Make sure `OPENAI_API_KEY` (or whichever cloud key matches your enabled `CLOUD_*_SOURCE`) is set in `.env`.
 
@@ -896,40 +878,9 @@ Understanding which services depend on others:
 - **SearxNG** → Independent privacy search
 - **Weaviate** → Optional unless needed for semantic search
 
-## 8. Performance Considerations
+## 8. Troubleshooting SOURCE Configurations
 
-### 8.1. Memory Usage by Configuration
-
-**High Memory** (12GB+ recommended):
-- All services containerized
-- GPU services enabled
-- Large models loaded
-
-**Medium Memory** (8GB recommended):
-- Mix of localhost and container
-- Some services disabled
-- Smaller models
-
-**Low Memory** (4GB minimum):
-- API-based LLM
-- Most services disabled
-- Minimal container footprint
-
-### 8.2. CPU Usage
-
-**CPU Intensive**:
-- Container-based AI services
-- Multiple simultaneous AI tasks
-- All services enabled
-
-**CPU Efficient**:
-- Localhost AI services
-- GPU-accelerated containers
-- Selective service enabling
-
-## 9. Troubleshooting SOURCE Configurations
-
-### 9.1. Common Issues
+### 8.1. Common Issues
 
 **Service won't start with localhost SOURCE**:
 ```bash
@@ -963,7 +914,7 @@ env | grep ^KONG_
 ./start.sh --setup-hosts
 ```
 
-### 9.2. Debug Commands
+### 8.2. Debug Commands
 
 ```bash
 # Check active SOURCE values
@@ -978,7 +929,7 @@ docker exec ${PROJECT_NAME}-kong-api-gateway curl http://${PROJECT_NAME}-comfyui
 docker stats
 ```
 
-## 10. Deployment profile (`--profile prod`)
+## 9. Deployment profile (`--profile prod`)
 
 The deployment profile is now a **declarative bundle** defined in `bootstrapper/profiles.yml` (#755). Two platform bundles ship — `default` and `prod` (`dev` is accepted everywhere as an alias for `default`) — and each declares three fields:
 

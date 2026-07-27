@@ -99,7 +99,7 @@ curl -X POST http://localhost:63051/v1/document/convert \
 | `DOCLING_CHUNK_SIZE` | Default chunk size for RAG | `512` |
 | `DOCLING_CHUNK_OVERLAP` | Default chunk overlap | `50` |
 
-Container and localhost providers stream uploads to bounded temporary files. Files larger than `DOCLING_MAX_FILE_SIZE` return `413`, empty uploads return `400`, and conversion failures return a non-success response so Backend fallback and ingestion logic cannot index an error message as document content. Chunk overlap must be non-negative and no greater than half the chunk size. A conversion may return at most 10,000 chunks; requests that would exceed that response ceiling return `413`.
+Uploads stream to bounded temporary files and are rejected (`413`/`400`) if they exceed `DOCLING_MAX_FILE_SIZE` or are empty, so a failed conversion is never indexed as document content downstream. `DOCLING_CHUNK_OVERLAP` must stay non-negative and no more than half of `DOCLING_CHUNK_SIZE`; a single conversion is capped at 10,000 chunks. Full validation and status-code behavior lives in the provider's shared `api_server.py` module.
 
 ### 4.4. Localhost-Specific
 
@@ -109,180 +109,19 @@ Container and localhost providers stream uploads to bounded temporary files. Fil
 
 ## 5. API Reference
 
-### 5.1. POST /v1/document/convert
-
-Convert documents to structured format.
-
-**Request:**
-
-```bash
-curl -X POST http://localhost:63051/v1/document/convert \
-  -F "file=@document.pdf" \
-  -F "output_format=markdown" \
-  -F "use_ocr=auto" \
-  -F "table_mode=accurate" \
-  -F "enable_chunking=true" \
-  -F "chunk_size=512" \
-  -F "chunk_overlap=50"
-```
-
-**Parameters:**
-
-- `file` (required): Document file (PDF, DOCX, PPTX, HTML, images, etc.)
-- `output_format`: Output format (`markdown`, `html`, `json`, `doctags`)
-- `use_ocr`: OCR mode (`auto`, `always`, `never`)
-- `table_mode`: Table extraction quality (`accurate`, `fast`)
-- `enable_chunking`: Enable RAG chunking (boolean)
-- `chunk_size`: Size of each chunk in characters
-- `chunk_overlap`: Overlap between chunks in characters; no more than half of `chunk_size`
-
-**Response:**
-
-```json
-{
-  "content": "# Extracted Document\n\nContent here...",
-  "format": "markdown",
-  "metadata": {
-    "pages": 10,
-    "tables": 3,
-    "images": 5,
-    "formulas": 2,
-    "processing_time": 1.23,
-    "source_format": "pdf",
-    "file_size": 1024000
-  },
-  "chunks": [
-    {
-      "text": "Chunk text here...",
-      "metadata": {
-        "chunk_index": 0,
-        "page_number": 1,
-        "section_title": "Introduction",
-        "chunk_type": "text"
-      }
-    }
-  ]
-}
-```
-
-### 5.2. GET /health
-
-Readiness endpoint. It returns `200` only when the selected provider's document
-converter can be imported; otherwise it returns `503` and an empty
-`models_loaded` list.
-
-**Request:**
-
-```bash
-curl http://localhost:63051/health
-```
-
-**Response:**
-
-```json
-{
-  "status": "healthy",
-  "backend": "cuda",
-  "device": "cuda"
-}
-```
-
-### 5.3. GET /v1/models
-
-List available models and configurations.
-
-**Request:**
-
-```bash
-curl http://localhost:63051/v1/models
-```
-
-**Response:**
-
-```json
-{
-  "models": [
-    {
-      "id": "docling-default",
-      "name": "Docling Document Processor",
-      "description": "IBM Docling with TableFormer and DocLayNet"
-    }
-  ]
-}
-```
+The service exposes an OpenAI-compatible REST API: `POST /v1/document/convert` uploads a file and returns structured content (optionally chunked for RAG) with the request shown in §3; `GET /health` is the readiness probe, returning `200` only when the selected provider's document converter can be imported and `503` otherwise; `GET /v1/models` lists the available conversion model configuration. The full request/response schema, all `convert` parameters (`output_format`, `use_ocr`, `table_mode`, `enable_chunking`, `chunk_size`, `chunk_overlap`), and response fields are served live at the running instance's `/docs` (Swagger UI) endpoint.
 
 ## 6. Supported Formats
 
-### 6.1. Documents
-- PDF (.pdf)
-- Microsoft Word (.docx, .doc)
-- Microsoft PowerPoint (.pptx, .ppt)
-- Microsoft Excel (.xlsx)
-- HTML (.html, .htm)
-
-### 6.2. Images
-- PNG (.png)
-- JPEG (.jpg, .jpeg)
-- TIFF (.tiff, .tif)
+Documents: PDF, Microsoft Word (`.docx`/`.doc`), PowerPoint (`.pptx`/`.ppt`), Excel (`.xlsx`), and HTML. Images: PNG, JPEG, and TIFF. See §1 for the high-level format summary.
 
 ## 7. Output Formats
 
-### 7.1. Markdown (Default)
-Clean, readable markdown with preserved structure.
+`output_format` selects the shape of the returned content: `markdown` (default) for clean, readable structure; `html` for semantic markup with styling preserved; `json` for structured output with detailed metadata; `doctags`, Docling's native format with full document structure. See §5's parameter list for the request field.
 
-```bash
-output_format=markdown
-```
+## 8. Integration
 
-### 7.2. HTML
-Semantic HTML with preserved styling information.
-
-```bash
-output_format=html
-```
-
-### 7.3. JSON
-Structured JSON with detailed metadata.
-
-```bash
-output_format=json
-```
-
-### 7.4. DocTags
-IBM Docling's native format with full document structure.
-
-```bash
-output_format=doctags
-```
-
-## 8. Performance
-
-The figures below are illustrative order-of-magnitude estimates, not measured
-benchmarks. Actual throughput depends on document complexity, page count, table
-density, and the specific hardware — treat the per-GPU rows as rough guidance
-rather than reproducible results.
-
-### 8.1. GPU Backend (NVIDIA)
-
-| Hardware | Table Speed | PDF Speed | Memory |
-|----------|-------------|-----------|--------|
-| RTX 3060 | 4.3x faster | ~2s/page | ~2GB VRAM |
-| RTX 4090 | 4.3x faster | ~1s/page | ~2GB VRAM |
-| A100 | 4.3x faster | ~0.5s/page | ~2GB VRAM |
-
-### 8.2. CPU Backend (Localhost)
-
-| Hardware | Table Speed | PDF Speed | Memory |
-|----------|-------------|-----------|--------|
-| M1/M2/M3 | Baseline | ~5s/page | ~2GB RAM |
-| Intel i7 | Baseline | ~8s/page | ~2GB RAM |
-| AMD Ryzen | Baseline | ~6s/page | ~2GB RAM |
-
-*Speed depends on document complexity and number of tables*
-
-## 9. Integration
-
-### 9.1. Open WebUI
+### 8.1. Open WebUI
 
 Open WebUI is **not** auto-wired to the doc processor — it uses its own built-in
 extraction, and `services/open-webui/service.yml` deliberately leaves
@@ -290,7 +129,7 @@ extraction, and `services/open-webui/service.yml` deliberately leaves
 through Docling, set `CONTENT_EXTRACTION_ENGINE=docling` (and the matching
 Docling endpoint) manually.
 
-### 9.2. n8n Workflows
+### 8.2. n8n Workflows
 
 Use HTTP Request node:
 
@@ -298,107 +137,21 @@ Use HTTP Request node:
 POST http://docling-gpu:8000/v1/document/convert
 ```
 
-### 9.3. JupyterHub Notebooks
+### 8.3. JupyterHub Notebooks
 
-```python
-import requests
+JupyterHub notebooks call the same `/v1/document/convert` endpoint with `requests`, passing `output_format`/`enable_chunking`/`chunk_size` as form data and reading `content` and `metadata` back from the JSON response — see §3 for the equivalent `curl` request.
 
-with open("document.pdf", "rb") as f:
-    response = requests.post(
-        "http://docling-gpu:8000/v1/document/convert",
-        files={"file": f},
-        data={
-            "output_format": "markdown",
-            "enable_chunking": True,
-            "chunk_size": 512
-        }
-    )
-
-result = response.json()
-print(result["content"])
-print(f"Extracted {result['metadata']['pages']} pages")
-```
-
-### 9.4. Backend API
+### 8.4. Backend API
 
 The backend service automatically exposes doc processor endpoints if available.
 
-## 10. RAG Integration
+## 9. RAG Integration
 
-### 10.1. Enable Chunking
+Passing `enable_chunking=true` (with `chunk_size`/`chunk_overlap`) to `/v1/document/convert` returns pre-split `chunks`, each carrying `chunk_index`, `page_number`, `section_title`, and `chunk_type` metadata, ready to embed and store in a vector database such as Weaviate. A typical pipeline is: convert with chunking enabled → embed each chunk → store in Weaviate → retrieve top-k chunks for a query → pass them as context to an LLM. JupyterHub ships an example RAG notebook (`02_langchain_rag.ipynb`) demonstrating this end to end.
 
-```bash
-curl -X POST http://localhost:63051/v1/document/convert \
-  -F "file=@document.pdf" \
-  -F "enable_chunking=true" \
-  -F "chunk_size=512" \
-  -F "chunk_overlap=50"
-```
+## 10. Source Modes
 
-### 10.2. Chunk Metadata
-
-Each chunk includes:
-- `chunk_index`: Position in document
-- `page_number`: Source page (if available)
-- `section_title`: Section heading (if available)
-- `chunk_type`: Content type (text, table, image, formula, code)
-
-### 10.3. Example RAG Workflow
-
-```python
-import requests
-import json
-
-# 1. Convert document with chunking
-with open("document.pdf", "rb") as f:
-    response = requests.post(
-        "http://localhost:63051/v1/document/convert",
-        files={"file": f},
-        data={"enable_chunking": True, "chunk_size": 512}
-    )
-
-result = response.json()
-
-# 2. Store chunks in vector database
-for chunk in result["chunks"]:
-    # Generate embeddings and store in Weaviate
-    embedding = generate_embedding(chunk["text"])
-    store_in_weaviate(chunk["text"], embedding, chunk["metadata"])
-
-# 3. Query for relevant chunks
-query = "What are the main findings?"
-relevant_chunks = search_weaviate(query, top_k=5)
-
-# 4. Generate answer with LLM
-context = "\n\n".join([c["text"] for c in relevant_chunks])
-answer = llm_query(f"Context: {context}\n\nQuestion: {query}")
-```
-
-## 11. Architecture
-
-```
-services/docling/provider/
-├── gpu/                    # NVIDIA GPU implementation (Docker)
-│   ├── Dockerfile         # CUDA + PyTorch optimized
-│   ├── processor.py       # Docling processing logic
-│   └── requirements.txt   # Dependencies
-├── localhost/              # Native execution (CPU or GPU)
-│   ├── server.py          # Standalone FastAPI server
-│   ├── processor.py       # Docling processing logic
-│   ├── models.py          # Pydantic models (copied from shared)
-│   ├── utils.py           # Utilities (copied from shared)
-│   ├── pyproject.toml     # Dependencies (installed with uv sync)
-│   ├── uv.lock            # Pinned dependency lock
-│   └── README.md          # Installation guide
-└── shared/                 # Common components
-    ├── api_server.py      # FastAPI REST server (used by GPU)
-    ├── models.py          # Pydantic response models
-    └── utils.py           # File handling and chunking
-```
-
-## 12. Source Modes
-
-### 12.1. docling-container-gpu
+### 10.1. docling-container-gpu
 
 Runs Docling in Docker container with NVIDIA GPU acceleration.
 
@@ -411,7 +164,7 @@ Runs Docling in Docker container with NVIDIA GPU acceleration.
 - Isolated environment
 - No local installation needed
 
-### 12.2. docling-localhost
+### 10.2. docling-localhost
 
 Connects to Docling running on host machine.
 
@@ -424,7 +177,7 @@ Connects to Docling running on host machine.
 - Can use native GPU drivers
 - Easier debugging
 
-### 12.3. disabled
+### 10.3. disabled
 
 No document processing service.
 
@@ -432,76 +185,32 @@ No document processing service.
 
 **Impact**: Document upload/conversion features unavailable
 
-## 13. Required Services
+## 11. Required Services
 
-### 13.1. Required
+### 11.1. Required
 
 - None (Document processor is optional for all services)
 
-### 13.2. Optional (Can Use Doc Processor)
+### 11.2. Optional (Can Use Doc Processor)
 
 - **n8n**: Document processing workflows
 - **backend**: Proxy document processing API endpoints
 - **jupyterhub**: Notebooks with document processing capabilities
 
-## 14. Advanced Features
-
-### 14.1. Table Extraction Modes
-
-**Accurate Mode** (default):
-- Uses TableFormer model for precise table extraction
-- 4.3x faster on GPU
-- Best for complex tables with merged cells
-
-**Fast Mode**:
-- Uses rule-based extraction
-- 10x faster than accurate mode
-- Best for simple tables
-
-### 14.2. OCR Modes
-
-**Auto** (default):
-- Only uses OCR when needed (scanned PDFs, images)
-- Best balance of speed and accuracy
-
-**Always**:
-- Forces OCR on all documents
-- Slower but may extract more text
-
-**Never**:
-- Disables OCR completely
-- Fastest but may miss text in images
-
-### 14.3. Formula Extraction
-
-```bash
-DOCLING_ENABLE_FORMULAS=true
-```
-
-Extracts mathematical formulas in LaTeX format.
-
-### 14.4. Code Block Extraction
-
-```bash
-DOCLING_ENABLE_CODE_BLOCKS=true
-```
-
-Identifies and extracts code blocks with syntax preservation.
-
-## 15. References
+## 12. References
 
 - [Docling Documentation](https://docling-project.github.io/docling/)
 - [Docling GitHub](https://github.com/DS4SD/docling)
 - [TableFormer Paper](https://arxiv.org/abs/2203.01017)
 - [DocLayNet Dataset](https://github.com/DS4SD/DocLayNet)
 
-## 16. Dependencies & Integrations
+## 13. Dependencies & Integrations
 
-### 16.1. Current — Upstream (this service calls)
+### 13.1. Current — Upstream (this service calls)
 
 _No upstream calls._
 
-### 16.2. Current — Downstream (services that call this)
+### 13.2. Current — Downstream (services that call this)
 
 | Service | Category |
 |---|---|
@@ -512,13 +221,13 @@ _No upstream calls._
 | backend | apps |
 | jupyterhub | apps |
 
-### 16.3. Architecture diagram
+### 13.3. Architecture diagram
 
 ![doc-processor architecture](./architecture.svg)
 
 [Open the interactive HTML diagram](./architecture.html) for a full-screen view.
 
-### 16.4. Future — Missing pair integrations
+### 13.4. Future — Missing pair integrations
 
 - **doc-processor ↔ weaviate** — *Why:* closes the RAG loop — Docling already emits structure-aware chunks; persisting them straight into the stack's vector store removes per-consumer reimplementation. *Mechanism:* post-convert callback writes to `http://weaviate:8080/v1/objects` (upstream ships `rag_weaviate.ipynb` showing the pattern). *Effort:* medium. *Confidence:* high.
 - **doc-processor ↔ minio** — *Why:* convert is slow (1-8s/page) and the same source is frequently re-requested. Caching `(sha256 → DocTags JSON)` in MinIO removes re-processing cost and gives stable S3 URIs that n8n/backend can reference. *Mechanism:* sidecar writes `s3://docling-cache/<sha>.json` via boto3 on convert; subsequent requests short-circuit. *Effort:* medium. *Confidence:* medium.
@@ -526,12 +235,12 @@ _No upstream calls._
 - **doc-processor ↔ hermes** — *Why:* Hermes agents lack a "read this document" tool. Docling-MCP exposes convert/extract directly to MCP-capable runtimes. *Mechanism:* run `docling-mcp` as a streamable-HTTP MCP endpoint registered as a Hermes custom provider. *Effort:* medium. *Confidence:* medium.
 - **doc-processor ↔ redis** — *Why:* response-cache the slow conversions in the stack's already-deployed cache. *Mechanism:* keyed on `sha256(file)+options`, TTL 24h, stored at `redis://redis:6379/2` with compressed JSON. *Effort:* small. *Confidence:* medium.
 
-### 16.5. Future — Candidate new services
+### 13.5. Future — Candidate new services
 
 - **Docling MCP Server** ([details](../../docs/research/candidates/docling-mcp.md)) — *Headline:* first-party MCP wrapper exposing Docling convert/extract tools to agent runtimes. *Wires into:* hermes, openclaw, backend.
 - **Apache Tika** ([details](../../docs/research/candidates/apache-tika.md)) — *Headline:* fallback extractor for legacy/exotic formats Docling doesn't cover (RTF, ODT, EML, MSG, ZIP). *Wires into:* n8n, backend.
 
-### 16.6. Future — Unused features in this service
+### 13.6. Future — Unused features in this service
 
 - **Audio/ASR pipeline** — *Why pursue:* Docling natively parses WAV/MP3/WebVTT to DoclingDocument with timestamps + sections, more structured than raw STT output. *Effort:* medium.
 - **HybridChunker (tokenizer-aware)** — *Why pursue:* replaces naive `chunk_size`/`chunk_overlap` with embedding-model-aware boundaries, materially improving RAG recall. *Effort:* small.
@@ -539,9 +248,9 @@ _No upstream calls._
 - **VLM pipeline (GraniteDocling 258M)** — *Why pursue:* better layout + chart understanding than the default DocLayNet/TableFormer pair, at low VRAM cost. *Effort:* medium.
 - **Structured information extraction (beta)** — *Why pursue:* enables doc → entities/relations without a separate LLM step, feeding the proposed Neo4j integration. *Effort:* large.
 
-## 17. Troubleshooting
+## 14. Troubleshooting
 
-### 17.1. Model Download Fails
+### 14.1. Model Download Fails
 
 **Problem**: First startup fails to download models
 
@@ -550,7 +259,7 @@ _No upstream calls._
 2. Set `HUGGING_FACE_HUB_TOKEN` if needed
 3. Verify disk space (~1GB required)
 
-### 17.2. Slow Processing
+### 14.2. Slow Processing
 
 **Problem**: Document processing slower than expected
 
@@ -559,7 +268,7 @@ _No upstream calls._
 - **GPU**: Use `table_mode=fast` for faster (less accurate) table extraction
 - **Memory**: Ensure sufficient RAM/VRAM available
 
-### 17.3. OCR Issues
+### 14.3. OCR Issues
 
 **Problem**: Text not extracted from scanned PDFs
 
@@ -568,7 +277,7 @@ _No upstream calls._
 - Check document quality (low-res images may fail)
 - Verify OCR dependencies are installed
 
-### 17.4. Container Won't Start
+### 14.4. Container Won't Start
 
 **Problem**: docling-gpu fails to start
 
@@ -578,7 +287,7 @@ _No upstream calls._
 3. Ensure Docker has sufficient resources allocated
 4. Check GPU drivers and CUDA version
 
-### 17.5. File Size Errors
+### 14.5. File Size Errors
 
 **Problem**: "File too large" error
 

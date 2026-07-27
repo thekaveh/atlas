@@ -268,26 +268,14 @@ Validation checklist before committing a parent consumer update:
   that intentionally differs from that track.
 
 **Migrating this layout to the `atlas.consumer.yml` manifest.** Everything the
-legacy layout expresses through a symlink + `.env.user` + wrapper flags maps to a
-single committed `atlas.consumer.yml` consumed via `./infra/start.sh --consumer
-<path>`. The mapping:
-
-| Legacy `_user/` + `.env.user` + wrapper | `atlas.consumer.yml` key |
-|---|---|
-| `PROJECT_NAME` (force-set) | `project_name:` |
-| `BRAND_*` in `.env.user` | `brand:` (`name`, `tagline`, …) |
-| `*_SOURCE` / other overrides in `.env.user` or as CLI flags | `env:` → `values:` (a source you toggle on a key becomes the key-gated `enabled_if_env` form) |
-| `services/_user/<name>/compose.yml` symlink → `compose/<name>-overlay.yml` | `compose_overlays:` (external path; no symlink into `infra/`) |
-| backend plugin dir mounted into the plugin seam | `backend_plugins:` |
-| `MINIO_EXTRA_CONSUMERS` + referenced bucket/cred vars | `storage:` → `buckets:` |
-| `--track <k>` wrapper flag | pass `--track <k>` alongside `--consumer`, or leave sources explicit in `env.values` |
-| `endpoints export` env file the wrapper consumes | unchanged — still `./infra/start.sh endpoints export` (add `endpoints assert --require …` in CI) |
-
-After migrating, drop the `services/_user/<name>/compose.yml` symlink and the
-`setup-overlay.sh`/`.env.user` wrapper steps; keep only a thin launcher that calls
-`./infra/start.sh --consumer ./atlas.consumer.yml --project <name>`. A source that
-must be enabled only when its key is present (e.g. `FAL_SOURCE`) uses the key-gated
-`env.values` form so no wrapper shell logic remains. See
+legacy layout expresses through a symlink + `.env.user` + wrapper flags — the
+force-set `PROJECT_NAME`/`BRAND_*` values, `*_SOURCE` overrides, the
+`services/_user/<name>/compose.yml` symlink, backend plugin mounts, and
+`MINIO_EXTRA_CONSUMERS` buckets — maps onto a single committed
+`atlas.consumer.yml` consumed via `./infra/start.sh --consumer <path>`. After
+migrating, drop the symlink and the `setup-overlay.sh`/`.env.user` wrapper
+steps; keep only a thin launcher that calls `./infra/start.sh --consumer
+./atlas.consumer.yml --project <name>`. See
 [Reusing Atlas §6.1](reusing-atlas.md) for the full manifest key reference.
 
 ### 4.3. Parent .gitignore Configuration
@@ -549,104 +537,17 @@ echo "All services stopped!"
 
 ## 7. Contributing Back
 
-When using atlas as a submodule, you can contribute improvements back to the project using the standard git workflow.
-
-### 7.1. Contribution Workflow
-
-#### 7.1.1. Create a Fork
-
-```bash
-# Fork the Atlas repository to your account on GitHub
-# Then add your fork as a remote (replace with your fork URL)
-
-cd infra
-git remote add fork <your-fork-url>
-```
-
-#### 7.1.2. Create a Feature Branch
-
-```bash
-cd infra
-git checkout -b feature/my-improvement
-```
-
-#### 7.1.3. Make Your Changes
-
-```bash
-# Edit files in the infra/ directory
-vim bootstrapper/start.py
-
-# Test your changes
-./start.sh
-
-# Commit your changes
-git add .
-git commit -m "Add feature: improved startup validation"
-```
-
-#### 7.1.4. Push to Your Fork
-
-```bash
-git push fork feature/my-improvement
-```
-
-#### 7.1.5. Create Pull Request
-
-- Go to GitHub and create a PR from your fork's branch
-- Target the original atlas repository's `main` branch
-- Describe your changes and their benefits
-
-#### 7.1.6. Update Submodule After Merge
-
-Once your PR is merged:
-
-```bash
-cd infra
-git checkout main
-git pull origin main
-
-# Update parent repository to track new commit
-cd ..
-git add infra
-git commit -m "Update atlas submodule to latest version"
-```
-
-### 7.2. Local Customizations vs. Contributions
-
-**Keep as local changes (don't contribute):**
-- `.env` configuration
-- Project-specific customizations
-- Temporary debugging changes
-
-**Consider contributing back:**
-- Bug fixes
-- New service integrations
-- Performance improvements
-- Documentation enhancements
-- Error handling improvements
-
-### 7.3. Maintaining Local Customizations
-
-If you need to maintain local customizations while staying up-to-date:
-
-```bash
-cd infra
-
-# Create a local customization branch
-git checkout -b local-customizations
-
-# Make your custom changes
-vim services/custom-service/docker-compose.yml
-
-git add .
-git commit -m "Local: Add company-specific service"
-
-# When upstream updates are available
-git fetch origin
-git rebase origin/main
-
-# Resolve conflicts if any
-```
+Because `infra/` is a normal git checkout, improvements you make there follow
+the standard GitHub fork/branch/PR workflow — fork the repository, branch and
+commit inside `infra/`, push to your fork, and open a PR against `main`; once
+merged, update the submodule pointer and commit that pointer bump in the
+parent repository. Keep `.env` and other project-specific configuration as
+local-only changes; contribute bug fixes, new integrations, and other
+generally useful changes back upstream. If you need to carry local
+customizations across upstream updates, keep them on a dedicated branch and
+rebase it onto `main` as updates land. See GitHub's own documentation on
+[forking and pull requests](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests-and-forks)
+for the mechanics.
 
 ## 8. Troubleshooting
 
@@ -762,12 +663,9 @@ manifests (`volumes/comfyui/selected-models.yaml`, `active-models.tsv`,
 at the repo root — is gitignored, so submodule-cleanliness checks in
 consumer CI stay green across starts. If `git -C infra status` reports
 tracked-file modifications after a start, that's an Atlas bug — please
-file it. (Pins that predate the `volumes/comfyui` untracking fix show
-exactly this symptom for the two ComfyUI manifest files. When bumping
-past the fix, discard the locally rewritten copies first —
-`git -C infra checkout -- volumes/comfyui/` — otherwise git refuses to
-apply the update because the incoming commit deletes files you have
-locally modified.)
+file it. If an update fails because the incoming commit deletes a file
+your local checkout shows as modified, discard the local copy first
+(`git -C infra checkout -- <path>`) and retry.
 
 ## 9. Advanced Topics
 

@@ -576,33 +576,13 @@ uv run --project bootstrapper python scripts/check-kong-routes.py               
 uv run --project bootstrapper python scripts/validate_research_schema.py --all    # job 3 research schema
 uv run --project bootstrapper python scripts/check-track-membership.py            # job 3 track coverage
 (cd services/docling/provider/localhost && uv lock --locked)                      # job 3 docling lock
-for spec in \
-  "services/airflow/build|Dockerfile|--build-arg BASE_IMAGE=apache/airflow:3.3.0" \
-  "services/asset-worker/app|Dockerfile|" \
-  "services/asset-baker/app|Dockerfile|" \
-  "services/backend/app|Dockerfile|" \
-  "services/iceberg-rest/build|Dockerfile|" \
-  "services/jenkins/build|Dockerfile|" \
-  "services/jupyterhub/build|Dockerfile|" \
-  "services/local-deep-researcher/build|Dockerfile|" \
-  "services/mcp-servers/runtime|../build/Dockerfile|" \
-  "services/neo4j/build|Dockerfile|" \
-  "services/spark/build|Dockerfile|--build-arg BASE_IMAGE=apache/spark:4.1.2" \
-  "services/zeppelin/build|Dockerfile|" \
-  "services/label-studio/init|Dockerfile|" \
-  "services/langfuse/init|Dockerfile|" \
-  "services/litellm/init|Dockerfile|" \
-  "services/mlflow/init|Dockerfile|" \
-  "services/open-webui/init|Dockerfile|"
-do
-  IFS='|' read -r context dockerfile extra_args <<< "$spec"
-  dockerfile_path="$context/$dockerfile"
-  if [ -n "$extra_args" ]; then
-    docker buildx build --load $extra_args -f "$dockerfile_path" "$context/"
-  else
-    docker buildx build --load -f "$dockerfile_path" "$context/"
-  fi
-done
+# job 4 (opt-in Build-validation): docker buildx build over every local non-GPU
+# build context plus every services/*/init/Dockerfile. The full, current list
+# lives in the build matrix in .github/workflows/services-lint.yml — treat that
+# workflow file as the source of truth, not this doc. Build contexts validated
+# in CI include services/asset-worker/app, services/asset-baker/app,
+# services/backend/app, and others — representative example:
+docker buildx build --load -f services/backend/app/Dockerfile services/backend/app/
 ```
 
 ### 13.5. Model-picker CLI flags: the four-seam rule
@@ -613,8 +593,7 @@ user-model-selection path) needs FOUR coordinated edits, not two:
 2. the `source_mapping` / collector-dict entry,
 3. the `user_model_selections[KEY] = kwarg` assignment in `main()`,
 4. the `wizard_screen` bucket lambda in `integration.py`.
-PR #17 shipped a flag that silently dropped its value because seam 4
-was missed. AST-based seam-parity tests
+Missing seam 4 silently drops the flag's value. AST-based seam-parity tests
 (`tests/test_user_model_selections_seam_parity.py`,
 `tests/test_wizard_app_discovery.py`) guard all four — extend them when
 adding a picker.
@@ -632,13 +611,12 @@ Distilled from real audit findings — each entry cites the commit, PR, or memor
 
 ### 14.1. Dependency-list gotchas
 
-- **Cross-category `depends_on.required` is a display-order pin.** Removing `litellm` from `ollama.required` is correct from a runtime POV but shifts the wizard's row order in the llm block (and transitively can affect media services like ComfyUI that chain through ollama). Keep cross-category edges and document the intent inline. See commit `d98bc5a`.
-- **Don't depend on virtual aggregates in `required`.** `globals`, `cloud-providers`, `tts-provider` are virtual — no container, no compose. Depending on them adds a phantom node to the topo sort. The audit removed phantom `globals` edges from `supabase` and `docling`.
-- **Compose-only deps vs. manifest deps must align both ways.** Kong's manifest used to list 19 proxy targets in `required` but compose only had 5 (truly correct — over-claimed). Backend's manifest only listed `[supabase, redis]` but compose waited for `litellm` health (under-claimed). The audit corrected both; `scripts/check-compose-source-deps.py` now catches missing edges.
+`depends_on.required` doubles as a runtime-boot gate and the wizard's display-order backbone — see [Decision 5](#9-decision-5--dependencies-depends_onrequired--optional) for the full footgun and convention. In short: don't drop a cross-category edge just because it isn't a real runtime dependency (it may be pinning wizard display order), don't depend on virtual aggregates like `globals`/`cloud-providers`/`tts-provider` (no container, no compose), and make sure manifest deps and compose `depends_on` agree in both directions — `scripts/check-compose-source-deps.py` enforces the latter.
 
 ### 14.2. URL / localhost handling
 
-- **`<SVC>_LOCALHOST_PORT` is the single source of truth.** Per PR #10 (see the localhost-port-override CHANGELOG entry for the full design), localhost variants no longer carry a `<SVC>_LOCALHOST_URL` env var. Declare an integer-valued `<SVC>_LOCALHOST_PORT` instead and let every consumer derive the URL inline: `http://host.docker.internal:${<SVC>_LOCALHOST_PORT:-<default>}`. The same PORT var must be read by the in-container consumer (`runtime_sc.<svc>.localhost.environment`), the Kong route generator (`bootstrapper/utils/kong_config_generator.py`), and the wizard's inline-input widget (`rows[].localhost_port_var`). Asymmetric reads (e.g. Kong reads PORT but the consumer reads a hard-coded URL) silently let the two paths disagree about where the localhost upstream lives — `memory: feedback_localhost_url_override_symmetry`.
+`<SVC>_LOCALHOST_PORT` is the single source of truth for localhost URLs — see [Decision 3](#7-decision-3--source-variants) for the full rule. The gotcha: the in-container consumer, the Kong route generator, and the wizard's inline-input widget must all read the *same* PORT var, or the paths silently disagree about where the localhost upstream lives.
+
 - **Kong routes fronting browser SPAs need `preserve_host: True`.** Without it the SPA emits unreachable redirect URLs containing the internal Docker hostname.
 
 ### 14.3. Init-container patterns
@@ -659,8 +637,7 @@ Distilled from real audit findings — each entry cites the commit, PR, or memor
 
 ### 14.6. Wizard discovery gotchas
 
-- **A service missing from `SourceOverrideManager.source_mapping` is silently dropped from the wizard.** The wizard's `ServiceDiscovery.discover()` filters every service through the mapping — anything whose `<runtime_sc_key>_source` isn't a mapping key gets skipped without warning. Symptom: the user runs `./start.sh`, picks a base port, and the wizard jumps right past your new service. Fix: register the entry as described in [Mechanics — source_override_manager registration](#114-bootstrapperutilssource_override_managerpy--register-the-cli-key). The pinning test in `test_wizard_app_discovery.py::test_source_mapping_includes_app_service_flags` enforces this — add your CLI key to its assertion list. (This bit Ray in commit `2d027b9`; the runbook didn't flag the registration step before.)
-- **Multi-container families need TWO source_mapping entries.** One for CLI flag plumbing (the family-level `<name>_source`), one for ServiceDiscovery to find the runtime_sc top-level key (the head container's `<head>_source`). Both point to the same env var. See the Ray example in `bootstrapper/utils/source_override_manager.py`.
+A service missing from `SourceOverrideManager.source_mapping` is silently dropped from the wizard — no error, the prompt just never appears. See [§11.4](#114-bootstrapperutilssource_override_managerpy--register-the-cli-key) for the registration mechanics, including the two-entry pattern multi-container families need.
 
 ## 15. Subdirectory naming convention
 
