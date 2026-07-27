@@ -15,26 +15,15 @@ S3-compatible object storage for the artifact tier of the stack. Complements Sup
 | S3 API (internal) | `http://minio:9000` | What sibling containers (backend, n8n, ComfyUI, JupyterHub, docling consumers) call via the per-bucket service-account credentials. |
 | Admin console (internal) | `http://minio:9001` | What Kong proxies for the console alias. |
 
-Both Kong routes are generated in
-`bootstrapper/utils/kong_config_generator.py` and gated on
-`MINIO_SOURCE != disabled`: `generate_minio_service()` →
-`minio.localhost` (console, `minio:9001`) and
-`generate_minio_s3_service()` → `s3.minio.localhost` (S3 API,
-`minio:9000`). Both use `preserve_host: True` so the browser/client
-keeps its real Host header (the console SPA builds correct redirect URLs;
-the S3 client's SigV4 signature still validates). `s3.minio.localhost` is
-declared via `extra_kong_aliases` in `services/minio/service.yml`, so
-`--setup-hosts` wires it into `/etc/hosts`.
+Both Kong routes are generated in `bootstrapper/utils/kong_config_generator.py`, gated on `MINIO_SOURCE != disabled`, and use `preserve_host` so the browser/client keeps its real Host header (the console SPA builds correct redirect URLs; the S3 client's SigV4 signature still validates).
 
 ### 2.1. Connecting an external S3-compatible client (CLI, SDK, TUI)
 
 Any S3-compatible tool — `aws` CLI, boto3, `mc`, `s3cmd`, rclone, or a
-custom client — connects with these settings. Two endpoints work; pick one:
-
-- **Direct host port** `http://localhost:${MINIO_PORT}` (default `63020`) —
-  recommended; no proxy hop, best for heavy/upload traffic.
-- **Kong alias** `http://s3.minio.localhost:${KONG_HTTP_PORT}` — a stable
-  friendly host that doesn't change with `BASE_PORT`; needs `--setup-hosts`.
+custom client — connects with these settings. Two endpoints work: the
+direct host port (no proxy hop, best for heavy/upload traffic) or the
+Kong alias (a stable, `BASE_PORT`-independent hostname; needs
+`--setup-hosts`). Both reach the same S3 API and validate SigV4 signatures.
 
 | Setting | Value | Source |
 |---|---|---|
@@ -50,38 +39,6 @@ port is `BASE_PORT + 20` by default), so it's safe to hard-code in an
 external tool's profile. Use the root credentials for browse-everything
 access, or a per-bucket service-account key (see §5) to scope a tool to
 one bucket.
-
-`aws` CLI example:
-
-```sh
-aws --endpoint-url "http://localhost:${MINIO_PORT:-63020}" \
-    --region us-east-1 \
-    s3 ls
-# Credentials via env or ~/.aws/credentials:
-#   AWS_ACCESS_KEY_ID=minioadmin
-#   AWS_SECRET_ACCESS_KEY=$(grep ^MINIO_ROOT_PASSWORD= .env | cut -d= -f2-)
-# aws CLI uses path-style automatically against a custom --endpoint-url.
-```
-
-Generic client config (the fields a tool like a standalone S3 TUI needs):
-
-```
-endpoint  = localhost:63020      # or ${MINIO_PORT}; host, no scheme for some clients
-use_ssl   = false
-region    = us-east-1
-access_key = minioadmin
-secret_key = <MINIO_ROOT_PASSWORD from .env>
-path_style = true
-```
-
-> **Direct port vs Kong alias.** Both reach the same S3 API. The Kong
-> alias (`s3.minio.localhost`) gives a stable, `BASE_PORT`-independent
-> hostname — convenient to hard-code in an external tool — and uses
-> `preserve_host` so the client's SigV4 signature (which covers the Host
-> header) still validates through the proxy. The direct host port skips
-> the proxy hop entirely, which is preferable for large/streaming
-> uploads. For a browse-oriented tool either is fine; for bulk transfer,
-> prefer the direct port.
 
 ## 3. Default credentials
 
@@ -115,140 +72,48 @@ pre-existing processor output settings remain canonical as
 `ASSET_WORKER_MINIO_BUCKET` and `ASSET_BAKER_MINIO_BUCKET`; provisioning and
 runtime writes consume those same values, so renamed buckets remain aligned.
 
-Parent-owned consumers can add their own bucket and scoped service account without
-forking Atlas by passing `MINIO_EXTRA_CONSUMERS` into `minio-init`. The value is a
-space-separated list of entries using the same grammar as the built-in consumers.
-The fifth field adds writable buckets; the optional sixth field adds read-only
-buckets:
-
-```text
-CONSUMER:BUCKET_VAR:ACCESS_VAR:SECRET_VAR[:RW_BUCKET_VAR,...[:RO_BUCKET_VAR,...]]
-```
-
-For example, a DayDreams-style parent overlay can define:
-
-```yaml
-services:
-  minio-init:
-    environment:
-      MINIO_EXTRA_CONSUMERS: "daydreams:MINIO_BUCKET_DAYDREAMS:MINIO_DAYDREAMS_ACCESS_KEY:MINIO_DAYDREAMS_SECRET_KEY"
-      MINIO_BUCKET_DAYDREAMS: ${MINIO_BUCKET_DAYDREAMS:-daydreams-artifacts}
-      MINIO_DAYDREAMS_ACCESS_KEY: ${MINIO_DAYDREAMS_ACCESS_KEY}
-      MINIO_DAYDREAMS_SECRET_KEY: ${MINIO_DAYDREAMS_SECRET_KEY}
-```
-
-The bucket, access key, and secret key variables live in the parent-owned
-`.env.user` or `ATLAS_ENV_USER_FILE`; Atlas's tracked `.env.example` only owns
-the generic `MINIO_EXTRA_CONSUMERS` hook.
+Parent-owned consumers can add their own bucket and scoped service account
+without forking Atlas by passing `MINIO_EXTRA_CONSUMERS` into `minio-init` —
+a space-separated list of `CONSUMER:BUCKET_VAR:ACCESS_VAR:SECRET_VAR` entries
+(optionally extended with extra read/write bucket lists), with the referenced
+variables supplied by the parent-owned `.env.user` or `ATLAS_ENV_USER_FILE`.
+See [reusing-atlas.md](../../docs/deployment/reusing-atlas.md) for the full
+grammar and a worked example; §6.1 below covers the newer declarative
+`storage:` alternative.
 
 ## 5. Service accounts
 
-Each consumer has its own MinIO service account with an inline IAM policy scoped to one bucket or a small named set. The Iceberg account has four writable buckets. The generated `MINIO_ASSET_INGEST_*` identity can populate `raw-assets` without root access. Each asset processor can read and list that shared input bucket, but can write or delete objects only in its own output bucket. Extra consumers declared via `MINIO_EXTRA_CONSUMERS` receive the same idempotent bucket, named policy, and inline service-account provisioning:
-
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    { "Effect": "Allow", "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
-      "Resource": ["arn:aws:s3:::<bucket>/*"] },
-    { "Effect": "Allow", "Action": ["s3:ListBucket"],
-      "Resource": ["arn:aws:s3:::<bucket>"] }
-  ]
-}
-```
+Each consumer has its own MinIO service account with an inline IAM policy scoped to get/put/delete/list on its own bucket (or a small named set — the Iceberg account has four writable buckets; the shared `MINIO_ASSET_INGEST_*` identity can populate `raw-assets` without root access, and each asset processor can only read/list that shared bucket while writing to its own). Extra consumers declared via `MINIO_EXTRA_CONSUMERS` receive the same idempotent bucket, named policy, and inline service-account provisioning. The policy JSON is generated by the `minio-init` provisioning script.
 
 Built-in credentials are auto-generated to `.env` and exposed as `MINIO_<NAME>_ACCESS_KEY` and `MINIO_<NAME>_SECRET_KEY` where `<NAME>` is one of the built-in consumers. Parent-owned extra consumer credentials are supplied by the parent overlay. A cross-bucket access attempt with a consumer credential returns `403 AccessDenied`.
 
 ## 6. Consumer integration recipe (for follow-up PRs)
 
-Python (boto3):
-
-```python
-import boto3
-from botocore.client import Config
-import os
-
-s3 = boto3.client(
-    "s3",
-    endpoint_url=os.environ["MINIO_ENDPOINT"],
-    aws_access_key_id=os.environ["MINIO_BACKEND_ACCESS_KEY"],
-    aws_secret_access_key=os.environ["MINIO_BACKEND_SECRET_KEY"],
-    region_name=os.environ["MINIO_REGION"],
-    config=Config(s3={"addressing_style": "path"}),
-)
-s3.put_object(Bucket=os.environ["MINIO_BUCKET_BACKEND"], Key="hello.txt", Body=b"hello")
-```
-
-Shell (`mc`):
-
-```sh
-mc alias set local http://localhost:${MINIO_PORT} "$MINIO_BACKEND_ACCESS_KEY" "$MINIO_BACKEND_SECRET_KEY"
-mc cp ./somefile local/backend/somefile
-```
+A consumer connects with any standard S3 SDK or the `mc` CLI, using the
+endpoint and per-bucket credentials from §2.1 and §5 (e.g. boto3 with
+`Config(s3={"addressing_style": "path"})`, or `mc alias set` against the
+host port).
 
 ### 6.1. Declarative consumer storage contract (`storage:`)
 
 A downstream consumer (see [reusing-atlas.md](../../docs/deployment/reusing-atlas.md))
-declares object stores in its `atlas.consumer.yml` instead of hand-writing a
-`minio-init` compose override and reverse-engineering endpoints:
-
-```yaml
-# atlas.consumer.yml
-name: daydreams
-storage:
-  buckets:
-    - name: artifacts              # store handle (unique per consumer)
-      bucket: daydreams-artifacts  # optional; default "<consumer>-<name>"
-      extra_buckets: [daydreams-thumbs]   # optional, share the scoped account
-```
-
-Atlas compiles each store to the existing `MINIO_EXTRA_CONSUMERS` grammar
-(no init logic is forked): it sets `MINIO_BUCKET_<KEY>`, appends the
-`CONSUMER:BUCKET_VAR:ACCESS_VAR:SECRET_VAR[:EXTRA…]` entry, generates a scoped
-service-account credential once (persisted, never rotated on restart), and
-**generates the `minio-init` overlay for you** (a gitignored
-`volumes/minio/consumer-storage.compose.yml`) so no consumer compose override is
-required. Bucket names are validated (S3 rules) and collision-checked against
-built-in buckets and across consumers.
-
-Each store also exports stable, per-store fields (consumed by #345 endpoint
-wiring) — bucket, **distinct** internal vs public-read endpoints, region, and
-**credential references** (variable names, never raw secret values):
-
-```text
-ATLAS_STORE_DAYDREAMS_ARTIFACTS_BUCKET=daydreams-artifacts
-ATLAS_STORE_DAYDREAMS_ARTIFACTS_INTERNAL_ENDPOINT=http://minio:9000
-ATLAS_STORE_DAYDREAMS_ARTIFACTS_PUBLIC_ENDPOINT=http://localhost:${MINIO_PORT}
-ATLAS_STORE_DAYDREAMS_ARTIFACTS_REGION=us-east-1
-ATLAS_STORE_DAYDREAMS_ARTIFACTS_ACCESS_KEY_VAR=MINIO_DAYDREAMS_ARTIFACTS_ACCESS_KEY
-ATLAS_STORE_DAYDREAMS_ARTIFACTS_SECRET_KEY_VAR=MINIO_DAYDREAMS_ARTIFACTS_SECRET_KEY
-```
-
-The public endpoint tracks `BASE_PORT`/host changes automatically. The
-underlying `MINIO_EXTRA_CONSUMERS` overlay path (§6 above and
-[reusing-atlas.md §6.1.2](../../docs/deployment/reusing-atlas.md#612-adding-parent-owned-minio-buckets))
-remains supported for existing `_user` integrations.
+can declare object stores in its `atlas.consumer.yml` `storage:` block instead
+of hand-writing a `minio-init` compose override. Atlas compiles each declared
+store to the existing `MINIO_EXTRA_CONSUMERS` grammar, provisions a scoped
+service-account credential, and generates the `minio-init` overlay
+automatically — no consumer compose override is required. Each store exports
+stable `ATLAS_STORE_<KEY>_*` fields (bucket, internal/public endpoints,
+region, credential variable names). Full schema and field reference:
+[reusing-atlas.md](../../docs/deployment/reusing-atlas.md).
 
 ### 6.2. Browser-safe presigned URLs (sign against the public host)
 
 Presigned-URL signatures cover the request **host**, so signing against the
 internal endpoint (`minio:9000`) and then rewriting the URL to the public host
-produces an invalid signature — a standing bug class. **Never rewrite a signed
-URL.** Sign directly against the browser-visible public endpoint:
-
-- With boto3: create the client with `endpoint_url` set to the **public** base
-  (`ATLAS_STORE_<KEY>_PUBLIC_ENDPOINT`) before calling `generate_presigned_url`.
-- Dependency-free: use Atlas's reference presigner
-  `bootstrapper/utils/s3_presign.py::presign_get_url(endpoint=<public>, …)`,
-  which signs against the exact host you pass and returns the URL verbatim
-  (path-style by default, TTL-bounded, with optional
-  `response_content_type` / `response_content_disposition`).
-
-An opt-in live smoke test
-(`bootstrapper/tests/test_storage_presign_e2e.py`, `ATLAS_STORAGE_E2E=1`)
-uploads with the scoped credential against the internal endpoint and fetches
-the object through a presigned URL signed against the public endpoint — proving
-the round-trip without root credentials.
+produces an invalid signature. **Never rewrite a signed URL** — sign directly
+against the browser-visible public endpoint (e.g. boto3's `endpoint_url` set
+to the public base before calling `generate_presigned_url`). Atlas also ships
+a dependency-free reference presigner in `bootstrapper/utils/s3_presign.py`.
 
 ## 7. Source variants
 
