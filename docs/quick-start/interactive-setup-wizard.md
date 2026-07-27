@@ -193,8 +193,8 @@ entry stay flat, as do civitai numeric IDs, the curated allowlist,
 and sidecar entries.
 
 **Catalog load latency** — the wizard makes follow-up calls to Hugging Face
-to populate real file sizes for each model, which adds a modest delay the
-first time the ComfyUI picker opens. A repo whose size lookup fails just
+to populate real file sizes for each model, which adds ~10–15 s of extra load
+the first time the ComfyUI picker opens. A repo whose size lookup fails just
 shows `0.00 GB` without blocking the rest of the catalog from loading.
 
 **Source-aware behaviour** — the picker fires for all non-`disabled`
