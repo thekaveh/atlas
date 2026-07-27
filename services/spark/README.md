@@ -4,9 +4,7 @@ Spark runs as a 5-container family in the stack's `data` band: `spark-master`, `
 
 ## 1. Overview
 
-Image: locally built `${PROJECT_NAME}-spark:local` — `FROM apache/spark:4.1.2` plus hadoop-aws, AWS SDK v2, `iceberg-spark-runtime-4.1_2.13:1.11.0`, and `iceberg-aws-bundle:1.11.0` jars baked in by `services/spark/build/Dockerfile` (the upstream image ships no S3A or Iceberg support). Standalone mode — no YARN, no Kubernetes. Each role (master, worker, history, connect) is launched with an explicit `/opt/spark/bin/spark-class` or `start-connect-server.sh` command in `services/spark/compose.yml` since `apache/spark` doesn't carry the `SPARK_MODE=master|worker|history` env-driven entrypoint that Bitnami used to ship. **Spark Connect (gRPC) runs on the dedicated `spark-connect` sidecar at `sc://spark-connect:15002`** — earlier drafts attempted to host Connect inside the master JVM via `SPARK_DAEMON_JAVA_OPTS`, but `spark-class Master` doesn't honour `--conf` or `spark.plugins`, so the listener never bound. The sidecar runs `start-connect-server.sh --master spark://spark-master:7077`, which is the upstream-supported pattern.
-
-> **Note on image choice:** earlier drafts of this service pinned `bitnami/spark:4.1.2`. Bitnami's image library moved behind the Broadcom paywall in 2025; no public 4.x tag exists today. `apache/spark` is the upstream-maintained alternative.
+Image: locally built `${PROJECT_NAME}-spark:local` — `FROM apache/spark:4.1.2` plus hadoop-aws, AWS SDK v2, `iceberg-spark-runtime-4.1_2.13:1.11.0`, and `iceberg-aws-bundle:1.11.0` jars baked in by `services/spark/build/Dockerfile` (the upstream image ships no S3A or Iceberg support). Standalone mode — no YARN, no Kubernetes. Each role (master, worker, history, connect) is launched with an explicit `/opt/spark/bin/spark-class` or `start-connect-server.sh` command in `services/spark/compose.yml`, since `apache/spark` (the upstream-maintained image; used in place of Bitnami's now-paywalled one) doesn't carry an env-driven `SPARK_MODE` entrypoint. **Spark Connect (gRPC) runs on the dedicated `spark-connect` sidecar at `sc://spark-connect:15002`**, started via `start-connect-server.sh --master spark://spark-master:7077`.
 
 ## 2. Access
 
@@ -78,7 +76,7 @@ scripts/smoke-iceberg-advanced-sql.sh zeppelin
 ```
 
 The advanced smoke is an opt-in validation surface for the `data-eng` and `all`
-tracks. It adds No new service, no new SOURCE, and no new port; it uses the
+tracks. It adds no new service, no new SOURCE, and no new port; it uses the
 existing Spark, Iceberg REST, MinIO, JupyterHub, and Zeppelin topology. The smoke
 covers `MERGE INTO`, `VERSION AS OF`, `rollback_to_snapshot`, `CREATE BRANCH`
 with `spark.wap.branch`, schema evolution, nested JSON, Structured Streaming
@@ -96,17 +94,7 @@ A reference helper ships at [`examples/emr_serverless_connect.py`](./examples/em
 it runs the boto3 session lifecycle (`start_session` → `get_session_endpoint` →
 `SparkSession.builder.remote(...)` with the session token → `terminate_session`).
 
-Caveats (why it's a documented helper, not a wired source):
-
-- **Version pinning.** EMR Serverless interactive is Spark **3.5.6**; a Spark
-  Connect client must match its server, so this needs a *separate* environment
-  (`pip install "pyspark[connect]==3.5.6" boto3`) — it cannot share JupyterHub's
-  `pyspark-client==4.1.2` kernel (which targets the in-stack 4.1.2 sidecar).
-- **Ephemeral + auth.** Sessions are short-lived: the auth token expires hourly,
-  `spark.stop()` only disconnects (you must `terminate` to stop billing), and IAM
-  (`emr-serverless:StartSession`/`GetSessionEndpoint`/…) gates the session APIs.
-- This is why EMR is a helper + docs, not a `SPARK_SOURCE` variant — its
-  session/token model doesn't map to the stack's static, always-on endpoints.
+It's a documented helper rather than a wired `SPARK_SOURCE` variant because EMR Serverless's Spark version, ephemeral/billed sessions, and IAM-gated session APIs don't map to the stack's static, always-on endpoints — the client must run in a separate Python environment matching EMR's Spark version, and sessions need explicit termination to stop billing. Exact version pins, IAM actions, and session semantics are documented in the helper script itself.
 
 ## 5. Dependencies & Integrations
 
@@ -153,3 +141,4 @@ _No high-confidence opportunities identified._
 - **Workers don't appear in the master UI** — Compose's `depends_on: spark-master: condition: service_healthy` should serialize this. If a worker stays "lost", check `docker logs ${PROJECT_NAME}-spark-worker-1`.
 - **OOM in a worker** — the worker container is cgroup-capped at `${SPARK_WORKER_MEMORY_LIMIT:-4g}` (compose `deploy.resources.limits.memory`), but Spark's *internal* executor heap (`SPARK_WORKER_MEMORY`) is unset, so the JVM sizes itself heuristically and can exceed the cgroup → OOM-kill. For production, set `SPARK_WORKER_MEMORY` (Spark heap) below `SPARK_WORKER_MEMORY_LIMIT` (container cap) to leave headroom for off-heap/overhead.
 - **Spark Connect refused** — the gRPC server runs on the `spark-connect` sidecar (NOT spark-master); clients must use `sc://spark-connect:15002`. The port is backend-network-only — don't expose 15002 to the host.
+- **Checking Spark Connect readiness** — the sidecar publishes a Docker health signal (`starting` → `healthy`) once `15002` accepts sessions: `docker inspect --format '{{.State.Health.Status}}' ${PROJECT_NAME}-spark-connect`.
