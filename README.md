@@ -109,6 +109,7 @@ Full port + Kong-route detail: [docs/reference/ports-routes.md](docs/reference/p
 - **Running Atlas for another project** — [Reusing Atlas as Infrastructure](docs/deployment/reusing-atlas.md), [Using as a submodule](docs/deployment/submodule-usage.md)
 - **Contributing** — [Development](docs/development.md) (repository layout, parent-repo consumer layout, required docs checks), [Adding a service](docs/CONTRIBUTING-services.md), [Security policy](SECURITY.md)
 - **Release history** — [ROADMAP](docs/ROADMAP.md), [CHANGELOG](docs/CHANGELOG.md), [Releasing & version tags](docs/deployment/releasing.md)
+- **Project & internal docs** — research, strategy, and maintenance notes live under `docs/`: [docs/research/README.md](docs/research/README.md), [docs/strategy/README.md](docs/strategy/README.md), [docs/maintenance/README.md](docs/maintenance/README.md)
 
 ## 5. Contributing
 
