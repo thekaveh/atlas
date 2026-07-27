@@ -19,23 +19,123 @@
   </section>
 </div>
 
-## 1. Start Here
+## 1. Capabilities
 
-- [Quick Start](quick-start/index.md)
-- [Core Concepts](core-concepts.md)
-- [Service Catalog](services.md)
-- [Architecture](architecture/index.md)
-- [Reference](reference/index.md)
+Atlas organizes 59 service families into 7 tracks. Each track pre-selects a working subset of the platform for one class of workload; the setup wizard prompts for track-scoped services and force-disables the rest.
 
-## 2. Documentation Scope
+<div class="atlas-home__grid" markdown="1">
 
-This site indexes 59 service families, 7 tracks, and 53 SOURCE-configurable surfaces from repository-owned source files.
+<div class="atlas-card" markdown="1">
+<p class="atlas-card__title">Generative AI · Engineering</p>
+<p class="atlas-card__body">Agentic apps + workflows with voice, vision, and search.</p>
 
-## 3. Documentation Organization
+[View track services →](reference/tracks.md){: .atlas-card__link}
+</div>
 
-The public hierarchy covers platform concepts, every service family, architecture, configuration, operations, development, and generated references. Each surface carries the same page set and the diagram assets required to read it independently.
+<div class="atlas-card" markdown="1">
+<p class="atlas-card__title">Generative AI · RAG</p>
+<p class="atlas-card__body">Retrieval-augmented generation — vectors, graph, reranker, doc ingest, web search, workflow automation.</p>
 
-## 4. Setup Surface
+[View track services →](reference/tracks.md){: .atlas-card__link}
+</div>
+
+<div class="atlas-card" markdown="1">
+<p class="atlas-card__title">Generative AI · Creative</p>
+<p class="atlas-card__body">Multimodal generation — image, voice, vision, doc.</p>
+
+[View track services →](reference/tracks.md){: .atlas-card__link}
+</div>
+
+<div class="atlas-card" markdown="1">
+<p class="atlas-card__title">ML Engineering</p>
+<p class="atlas-card__body">Distributed training/inference + notebooks + experiment storage.</p>
+
+[View track services →](reference/tracks.md){: .atlas-card__link}
+</div>
+
+<div class="atlas-card" markdown="1">
+<p class="atlas-card__title">Data Engineering</p>
+<p class="atlas-card__body">Batch + lakehouse + graph + vector with orchestration.</p>
+
+[View track services →](reference/tracks.md){: .atlas-card__link}
+</div>
+
+<div class="atlas-card" markdown="1">
+<p class="atlas-card__title">Trading / Financial Research</p>
+<p class="atlas-card__body">Read-only financial research and paper portfolios in notebooks; no live trading.</p>
+
+[View track services →](reference/tracks.md){: .atlas-card__link}
+</div>
+
+</div>
+
+## 2. Quick Start
+
+<div class="atlas-home__quickstart" markdown="1">
+
+```bash
+./start.sh
+./start.sh --track gen-ai-rag
+./start.sh --llm-provider-source ollama-container-gpu
+```
+
+Interactive wizard by default; CLI flags skip prompts for the values you set. Full flow, flags, and troubleshooting: [Quick Start](quick-start/index.md){: .atlas-home__quickstart-link}.
+</div>
+
+## 3. Platform Topology
+
+<div class="atlas-home__topology" markdown="1">
+
+![Atlas platform topology: entrypoints, Kong gateway, apps and agents, LLM core, data stores, and cloud-provider boundary](diagrams/architecture.html)
+
+<p class="atlas-home__caption">Kong routes every *.localhost host; LiteLLM is the single path for local and cloud model traffic.</p>
+
+</div>
+
+Per-flow diagrams (data/RAG, LLM provider routing, observability, security boundary, bootstrapper lifecycle): [Architecture](architecture/index.md).
+
+## 4. Documentation Map
+
+<div class="atlas-home__grid" markdown="1">
+
+<div class="atlas-card" markdown="1">
+<p class="atlas-card__title">Quick Start</p>
+<p class="atlas-card__body">Run the wizard, pick a track, launch the stack.</p>
+
+[Start here →](quick-start/index.md){: .atlas-card__link}
+</div>
+
+<div class="atlas-card" markdown="1">
+<p class="atlas-card__title">Core Concepts</p>
+<p class="atlas-card__body">SOURCE values, tracks, adaptive services, Kong routing.</p>
+
+[Read concepts →](core-concepts.md){: .atlas-card__link}
+</div>
+
+<div class="atlas-card" markdown="1">
+<p class="atlas-card__title">Service Catalog</p>
+<p class="atlas-card__body">Every service family, its SOURCE variants, and dependencies.</p>
+
+[Browse services →](services.md){: .atlas-card__link}
+</div>
+
+<div class="atlas-card" markdown="1">
+<p class="atlas-card__title">Architecture</p>
+<p class="atlas-card__body">Platform, data-flow, and lifecycle diagrams.</p>
+
+[View architecture →](architecture/index.md){: .atlas-card__link}
+</div>
+
+<div class="atlas-card" markdown="1">
+<p class="atlas-card__title">Reference</p>
+<p class="atlas-card__body">Env vars, ports, manifest fields, SOURCE values — 59 configurable surfaces.</p>
+
+[Open reference →](reference/index.md){: .atlas-card__link}
+</div>
+
+</div>
+
+## 5. Setup Surface
 
 <div class="atlas-screenshot">
   <img src="screenshots/wizard-running.png" alt="Atlas setup wizard running the launch phase">

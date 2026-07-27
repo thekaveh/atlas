@@ -287,3 +287,123 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* -----------------------------------------------------------------------
+   Homepage — section rhythm for content below the hero
+   ----------------------------------------------------------------------- */
+.md-main__inner:has(.atlas-home) .md-typeset h2 {
+  border-top: 1px solid var(--atlas-border);
+  margin-top: 3rem;
+  padding-top: 2.5rem;
+}
+
+.md-main__inner:has(.atlas-home) .md-typeset > p:has(+ .atlas-home__grid),
+.md-main__inner:has(.atlas-home) .md-typeset > p:has(+ .atlas-home__quickstart) {
+  color: var(--atlas-muted);
+  max-width: 48rem;
+}
+
+/* -----------------------------------------------------------------------
+   Homepage — capability / doc-map card grid
+   ----------------------------------------------------------------------- */
+.atlas-home__grid {
+  display: grid;
+  gap: 1.25rem;
+  grid-template-columns: repeat(auto-fit, minmax(15.5rem, 1fr));
+  margin: 1.5rem 0;
+}
+
+.atlas-card {
+  background-color: var(--atlas-surface);
+  border: 1px solid var(--atlas-border);
+  border-radius: var(--atlas-radius);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 1.25rem 1.4rem;
+  transition: border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.atlas-card:hover,
+.atlas-card:focus-within {
+  border-color: var(--atlas-accent);
+  box-shadow: var(--atlas-shadow-soft);
+  transform: translateY(-2px);
+}
+
+.atlas-card__title {
+  color: var(--atlas-text);
+  font-weight: 600;
+  margin: 0;
+}
+
+.atlas-card__body {
+  color: var(--atlas-muted);
+  flex-grow: 1;
+  font-size: 0.92rem;
+  margin: 0;
+}
+
+.atlas-card__link,
+.atlas-card__link:visited {
+  color: var(--atlas-link);
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin-top: 0.25rem;
+  text-decoration: none;
+}
+
+.atlas-card__link:hover,
+.atlas-card__link:focus {
+  text-decoration: underline;
+}
+
+/* -----------------------------------------------------------------------
+   Homepage — quick-start code moment
+   ----------------------------------------------------------------------- */
+.atlas-home__quickstart {
+  background-color: var(--atlas-surface);
+  border: 1px solid var(--atlas-border);
+  border-radius: var(--atlas-radius);
+  margin: 1.5rem 0;
+  padding: 1.5rem 1.5rem 1.25rem;
+}
+
+.atlas-home__quickstart .md-typeset pre {
+  margin: 0 0 1rem;
+}
+
+.atlas-home__quickstart p {
+  color: var(--atlas-muted);
+  font-size: 0.92rem;
+  margin: 0;
+}
+
+.atlas-home__quickstart-link,
+.atlas-home__quickstart-link:visited {
+  color: var(--atlas-link);
+  font-weight: 600;
+}
+
+/* -----------------------------------------------------------------------
+   Homepage — topology strip
+   ----------------------------------------------------------------------- */
+.atlas-home__topology {
+  margin: 1.5rem 0;
+  text-align: center;
+}
+
+.atlas-home__topology img {
+  background-color: var(--atlas-bg);
+  border: 1px solid var(--atlas-border);
+  border-radius: var(--atlas-radius);
+  box-shadow: var(--atlas-shadow-soft);
+  max-width: 100%;
+}
+
+.atlas-home__caption {
+  color: var(--atlas-muted);
+  font-size: 0.88rem;
+  margin: 0.75rem auto 0;
+  max-width: 40rem;
+}
