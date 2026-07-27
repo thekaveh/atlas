@@ -1,10 +1,10 @@
 # 5.2.13. Document Processor Service
 
-AI-powered document processing using IBM's Docling library with OpenAI-compatible API.
+Document processing using IBM's Docling library, exposed through an OpenAI-compatible API.
 
 ## 1. Overview
 
-The Document Processor service offers intelligent document conversion and extraction with:
+The Document Processor service converts and extracts content from documents. It supports:
 
 - **Multiple Backend Support**: Localhost (CPU/GPU) and Docker (NVIDIA GPU)
 - **Advanced Processing**: Tables (DocLayNet + TableFormer), formulas, images, code blocks

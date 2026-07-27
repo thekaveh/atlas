@@ -37,7 +37,7 @@
     </div>
     <section class="interpretation">
       <h2>How to read this view</h2>
-      <p>A service enters Atlas through one declarative chain: its manifest owns SOURCE values and metadata, Compose owns workloads, topology owns placement and ports, and the env/docs generators project those records. Drift and integration tests prevent a partial service definition from landing.</p>
+      <p>`manifest_validator.py`&#x27;s fragment check is what actually blocks a partial landing: `missing_fragment` for a non-virtual manifest with no `compose.yml`, `unexpected_fragment` for a virtual manifest that ships one anyway, and `fragment_container_drift` when the manifest&#x27;s `containers[]` disagrees with the compose file&#x27;s `services:` keys. `tools/validate_fragments.py` runs this in CI and separately checks `.env.example` drift and the README `TOPOLOGY` block.</p>
     </section>
   </main>
 </body>

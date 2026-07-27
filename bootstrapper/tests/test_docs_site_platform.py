@@ -187,7 +187,7 @@ def test_architecture_pages_explain_the_views_without_publication_instructions()
         if page.name in {"README.md", "index.md"}:
             continue
         text = page.read_text(encoding="utf-8")
-        assert "## 2. How To Read This View" in text, page
+        assert "## 2. Notes" in text, page
         assert "## 3. Source Files" in text, page
         assert "## 4. Maintenance" not in text, page
         assert "architecture-diagram design system" not in text, page

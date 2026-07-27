@@ -6,13 +6,12 @@ Supabase, Kong, service auth notes, API keys, local secrets, cloud keys, and int
 
 [Open the interactive diagram](./security-auth-secrets-boundary.html).
 
-## 2. How To Read This View
+## 2. Notes
 
-Supabase identities and scoped service credentials protect Backend data planes, while Kong applies gateway policy at published aliases. Generated local secrets and cloud keys stay in runtime configuration. Any deliberately unauthenticated local port remains an operator-trusted development boundary.
+Not every surface sits behind Supabase auth: Backend's `/health`, `/ready`, `/metrics`, and API-doc routes are intentionally public (no bearer token) — don't publish them beyond the intended network boundary. Kong's own Admin API (8001) is loopback-only, reachable via `docker exec`, never published. JupyterHub is explicitly operator-trusted, with direct database and service access rather than a policy gate.
 
 ## 3. Source Files
 
-- `services/*/service.yml`
-- `bootstrapper/tracks.yml`
-- `bootstrapper/services/topology.py`
-- `docs/deployment/source-configuration.md`
+- `services/kong/service.yml`
+- `services/supabase/service.yml`
+- `bootstrapper/generate_supabase_keys.py`

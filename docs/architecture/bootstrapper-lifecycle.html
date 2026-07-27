@@ -37,7 +37,7 @@
     </div>
     <section class="interpretation">
       <h2>How to read this view</h2>
-      <p>Startup is an ordered configuration pipeline. Atlas loads and migrates the environment, synthesizes manifests, applies track decisions, and generates routes before Compose receives the final service graph. A failure before launch must not be reported as a running stack.</p>
+      <p>Each stage gates the next; a failure in any stage before Compose must abort the run rather than report a partially launched stack. Env loading also applies the chained env-file migrations (`bootstrapper/services/migrations/`) before manifests are synthesized.</p>
     </section>
   </main>
 </body>
