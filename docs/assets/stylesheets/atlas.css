@@ -59,7 +59,7 @@
   --atlas-muted: #8b949e;
   --atlas-border: #21262d;
   --atlas-accent: #5b8bff;
-  --atlas-accent-hover: color-mix(in srgb, #5b8bff 80%, white);
+  --atlas-accent-hover: color-mix(in srgb, #5b8bff 80%, black);
   --atlas-link: #79a6ff;
   --atlas-code-bg: var(--atlas-surface);
   --atlas-code-fg: var(--atlas-text);
