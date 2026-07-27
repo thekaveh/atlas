@@ -171,71 +171,18 @@ Two worked patterns use this shape:
   that differ from the selected creative track.
 
 The important design choice is that `infra/services/_user/<name>/compose.yml`
-is only the discovery slot. Keep the real overlay file in the parent repository
-and symlink it into the slot:
-
-```bash
-#!/usr/bin/env bash
-# scripts/setup-overlay.sh
-set -euo pipefail
-
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SLOT="$ROOT/infra/services/_user/myproject"
-OVERLAY="$ROOT/compose/myproject-overlay.yml"
-
-mkdir -p "$SLOT"
-ln -sfn "../../../../compose/myproject-overlay.yml" "$SLOT/compose.yml"
-test -f "$OVERLAY"
-```
-
-The wrapper should be idempotent so a fresh clone, CI checkout, or updated
-submodule can run it safely before every start.
-
-Parent-owned start scripts should force project wiring decisions instead of
-setting them only when absent:
-
-```bash
-#!/usr/bin/env bash
-# scripts/start-infra.sh
-set -euo pipefail
-
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-"$ROOT/scripts/setup-overlay.sh"
-
-export ATLAS_ENV_USER_FILE="$ROOT/atlas.env.user"
-
-set_env() {
-  local key="$1"
-  local value="$2"
-  if grep -q "^${key}=" "$ROOT/infra/.env" 2>/dev/null; then
-    perl -0pi -e "s/^${key}=.*$/${key}=${value}/m" "$ROOT/infra/.env"
-  else
-    printf '%s=%s\n' "$key" "$value" >> "$ROOT/infra/.env"
-  fi
-}
-
-cp -n "$ROOT/infra/.env.example" "$ROOT/infra/.env"
-set_env PROJECT_NAME myproject
-set_env BRAND_NAME "My Project"
-set_env BRAND_TAGLINE "Project-owned Atlas infrastructure"
-set_env N8N_SOURCE container
-set_env MINIO_SOURCE container
-
-"$ROOT/infra/start.sh" \
-  --track gen-ai-rag \
-  --n8n-source container \
-  --minio-source container
-```
-
-Do not use a `set_env_default` helper for project-critical source choices.
-Atlas's `.env.example` intentionally ships defaults for many `*_SOURCE` keys,
-so "set only if absent" often does nothing. If the parent project requires a
-service mode, force-set it in the wrapper or pass the matching CLI flag.
-
-Explicit `--<service>-source` flags override the selected `--track`. This is
+is only a discovery slot: keep the real overlay file in the parent repository
+and symlink it into the slot with a small idempotent setup script (so a fresh
+clone, CI checkout, or updated submodule can re-run it safely), then have a
+parent-owned start script force-set project-critical wiring — `PROJECT_NAME`,
+`BRAND_*`, and any `*_SOURCE` choices the project requires — rather than
+setting them only when absent. Atlas's `.env.example` intentionally ships
+defaults for many `*_SOURCE` keys, so a "set only if absent" helper often does
+nothing; force it in the wrapper or pass the matching CLI flag instead.
+Explicit `--<service>-source` flags override the selected `--track`, which is
 the supported way for a consumer to start from a broad track and then request
-one extra service outside the track, or disable a service that the track would
-normally prompt for.
+one extra service outside it, or disable one the track would normally prompt
+for.
 
 | Area | Parent repository owns | `infra/` submodule owns |
 |------|------------------------|-------------------------|
@@ -247,47 +194,23 @@ normally prompt for.
 | Object storage extension | `MINIO_EXTRA_CONSUMERS` plus referenced parent-owned bucket/access/secret vars | Generic `minio-init` hook that provisions declared buckets and scoped service accounts |
 | Database extension | Parent-reviewed SQL templates or migration source | Optional `services/supabase/db/_user/*.sql` execution slot |
 
-Validation checklist before committing a parent consumer update:
-
-- `git -C infra status --short` is clean after `scripts/start-infra.sh` has run,
-  except for intentionally ignored `.env`, `.env.user`, `_user` slots, and
-  runtime volumes.
-- The parent commit pins `infra/` to a specific Atlas commit or release tag; it
-  does not track a moving branch implicitly.
-- Parent-owned overlays live under the parent repository, and
-  `infra/services/_user/<name>/compose.yml` is a symlink or generated discovery
-  pointer to that parent-owned file.
-- Parent-owned object buckets use `MINIO_EXTRA_CONSUMERS` in the overlay; the
-  referenced bucket/access/secret variables live in `.env.user` or
-  `ATLAS_ENV_USER_FILE`.
-- `.env`, `.env.user`, `infra/volumes/`, and runtime data directories remain
-  untracked.
-- Project-critical `*_SOURCE`, `PROJECT_NAME`, and `BRAND_*` values are
-  force-set by the wrapper or passed as explicit CLI flags.
-- The wrapper documents the chosen `--track` and every explicit source override
-  that intentionally differs from that track.
+Before committing a parent consumer update, confirm `git -C infra status
+--short` is clean of anything beyond the intentionally ignored `.env`,
+`.env.user`, `_user` slots, and runtime volumes; that `infra/` is pinned to a
+specific Atlas commit or tag rather than a moving branch; and that
+project-critical `*_SOURCE`, `PROJECT_NAME`, and `BRAND_*` values are
+force-set by the wrapper (or passed as explicit CLI flags) rather than left to
+chance.
 
 **Migrating this layout to the `atlas.consumer.yml` manifest.** Everything the
-legacy layout expresses through a symlink + `.env.user` + wrapper flags maps to a
-single committed `atlas.consumer.yml` consumed via `./infra/start.sh --consumer
-<path>`. The mapping:
-
-| Legacy `_user/` + `.env.user` + wrapper | `atlas.consumer.yml` key |
-|---|---|
-| `PROJECT_NAME` (force-set) | `project_name:` |
-| `BRAND_*` in `.env.user` | `brand:` (`name`, `tagline`, …) |
-| `*_SOURCE` / other overrides in `.env.user` or as CLI flags | `env:` → `values:` (a source you toggle on a key becomes the key-gated `enabled_if_env` form) |
-| `services/_user/<name>/compose.yml` symlink → `compose/<name>-overlay.yml` | `compose_overlays:` (external path; no symlink into `infra/`) |
-| backend plugin dir mounted into the plugin seam | `backend_plugins:` |
-| `MINIO_EXTRA_CONSUMERS` + referenced bucket/cred vars | `storage:` → `buckets:` |
-| `--track <k>` wrapper flag | pass `--track <k>` alongside `--consumer`, or leave sources explicit in `env.values` |
-| `endpoints export` env file the wrapper consumes | unchanged — still `./infra/start.sh endpoints export` (add `endpoints assert --require …` in CI) |
-
-After migrating, drop the `services/_user/<name>/compose.yml` symlink and the
-`setup-overlay.sh`/`.env.user` wrapper steps; keep only a thin launcher that calls
-`./infra/start.sh --consumer ./atlas.consumer.yml --project <name>`. A source that
-must be enabled only when its key is present (e.g. `FAL_SOURCE`) uses the key-gated
-`env.values` form so no wrapper shell logic remains. See
+legacy layout expresses through a symlink + `.env.user` + wrapper flags — the
+force-set `PROJECT_NAME`/`BRAND_*` values, `*_SOURCE` overrides, the
+`services/_user/<name>/compose.yml` symlink, backend plugin mounts, and
+`MINIO_EXTRA_CONSUMERS` buckets — maps onto a single committed
+`atlas.consumer.yml` consumed via `./infra/start.sh --consumer <path>`. After
+migrating, drop the symlink and the `setup-overlay.sh`/`.env.user` wrapper
+steps; keep only a thin launcher that calls `./infra/start.sh --consumer
+./atlas.consumer.yml --project <name>`. See
 [Reusing Atlas §6.1](reusing-atlas.md) for the full manifest key reference.
 
 ### 4.3. Parent .gitignore Configuration
@@ -549,104 +472,17 @@ echo "All services stopped!"
 
 ## 7. Contributing Back
 
-When using atlas as a submodule, you can contribute improvements back to the project using the standard git workflow.
-
-### 7.1. Contribution Workflow
-
-#### 7.1.1. Create a Fork
-
-```bash
-# Fork the Atlas repository to your account on GitHub
-# Then add your fork as a remote (replace with your fork URL)
-
-cd infra
-git remote add fork <your-fork-url>
-```
-
-#### 7.1.2. Create a Feature Branch
-
-```bash
-cd infra
-git checkout -b feature/my-improvement
-```
-
-#### 7.1.3. Make Your Changes
-
-```bash
-# Edit files in the infra/ directory
-vim bootstrapper/start.py
-
-# Test your changes
-./start.sh
-
-# Commit your changes
-git add .
-git commit -m "Add feature: improved startup validation"
-```
-
-#### 7.1.4. Push to Your Fork
-
-```bash
-git push fork feature/my-improvement
-```
-
-#### 7.1.5. Create Pull Request
-
-- Go to GitHub and create a PR from your fork's branch
-- Target the original atlas repository's `main` branch
-- Describe your changes and their benefits
-
-#### 7.1.6. Update Submodule After Merge
-
-Once your PR is merged:
-
-```bash
-cd infra
-git checkout main
-git pull origin main
-
-# Update parent repository to track new commit
-cd ..
-git add infra
-git commit -m "Update atlas submodule to latest version"
-```
-
-### 7.2. Local Customizations vs. Contributions
-
-**Keep as local changes (don't contribute):**
-- `.env` configuration
-- Project-specific customizations
-- Temporary debugging changes
-
-**Consider contributing back:**
-- Bug fixes
-- New service integrations
-- Performance improvements
-- Documentation enhancements
-- Error handling improvements
-
-### 7.3. Maintaining Local Customizations
-
-If you need to maintain local customizations while staying up-to-date:
-
-```bash
-cd infra
-
-# Create a local customization branch
-git checkout -b local-customizations
-
-# Make your custom changes
-vim services/custom-service/docker-compose.yml
-
-git add .
-git commit -m "Local: Add company-specific service"
-
-# When upstream updates are available
-git fetch origin
-git rebase origin/main
-
-# Resolve conflicts if any
-```
+Because `infra/` is a normal git checkout, improvements you make there follow
+the standard GitHub fork/branch/PR workflow — fork the repository, branch and
+commit inside `infra/`, push to your fork, and open a PR against `main`; once
+merged, update the submodule pointer and commit that pointer bump in the
+parent repository. Keep `.env` and other project-specific configuration as
+local-only changes; contribute bug fixes, new integrations, and other
+generally useful changes back upstream. If you need to carry local
+customizations across upstream updates, keep them on a dedicated branch and
+rebase it onto `main` as updates land. See GitHub's own documentation on
+[forking and pull requests](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests-and-forks)
+for the mechanics.
 
 ## 8. Troubleshooting
 
@@ -762,12 +598,9 @@ manifests (`volumes/comfyui/selected-models.yaml`, `active-models.tsv`,
 at the repo root — is gitignored, so submodule-cleanliness checks in
 consumer CI stay green across starts. If `git -C infra status` reports
 tracked-file modifications after a start, that's an Atlas bug — please
-file it. (Pins that predate the `volumes/comfyui` untracking fix show
-exactly this symptom for the two ComfyUI manifest files. When bumping
-past the fix, discard the locally rewritten copies first —
-`git -C infra checkout -- volumes/comfyui/` — otherwise git refuses to
-apply the update because the incoming commit deletes files you have
-locally modified.)
+file it. If an update fails because the incoming commit deletes a file
+your local checkout shows as modified, discard the local copy first
+(`git -C infra checkout -- <path>`) and retry.
 
 ## 9. Advanced Topics
 
