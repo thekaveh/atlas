@@ -6,13 +6,11 @@ How start.sh flows through env loading, migrations, manifest synthesis, track fi
 
 [Open the interactive diagram](./bootstrapper-lifecycle.html).
 
-## 2. How To Read This View
+## 2. Notes
 
-Startup is an ordered configuration pipeline. Atlas loads and migrates the environment, synthesizes manifests, applies track decisions, and generates routes before Compose receives the final service graph. A failure before launch must not be reported as a running stack.
+Each stage gates the next; a failure in any stage before Compose must abort the run rather than report a partially launched stack. Env loading also applies the chained env-file migrations (`bootstrapper/services/migrations/`) before manifests are synthesized.
 
 ## 3. Source Files
 
-- `services/*/service.yml`
-- `bootstrapper/tracks.yml`
-- `bootstrapper/services/topology.py`
-- `docs/deployment/source-configuration.md`
+- `bootstrapper/start.py`
+- `bootstrapper/core/docker_manager.py`

@@ -6,13 +6,13 @@ Host ports, Kong aliases, direct service ports, backend-network-only services, a
 
 [Open the interactive diagram](./network-routing-topology.html).
 
-## 2. How To Read This View
+## 2. Notes
 
-Kong provides stable `*.localhost` entrypoints while published ports support direct host access. Internal-only traffic remains on the Compose backend network. Localhost modes cross the container boundary through the configured host gateway instead of starting a duplicate workload.
+The host-gateway address is runtime-dependent, not a fixed IP: Docker accepts the literal `host-gateway` value in `extra_hosts` and resolves it internally, but Podman has no such shortcut — it queries the default bridge network's IPAM gateway IP directly (`resolve_host_gateway_ip()` in `bootstrapper/utils/system.py`), falling back to a throwaway container if that lookup fails.
 
 ## 3. Source Files
 
-- `services/*/service.yml`
-- `bootstrapper/tracks.yml`
+- `bootstrapper/utils/kong_config_generator.py`
+- `bootstrapper/utils/system.py`
 - `bootstrapper/services/topology.py`
-- `docs/deployment/source-configuration.md`
+- `services/kong/service.yml`

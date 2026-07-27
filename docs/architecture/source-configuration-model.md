@@ -6,13 +6,12 @@ Container, localhost, disabled, none, cloud-provider enablement, and adaptive-se
 
 [Open the interactive diagram](./source-configuration-model.html).
 
-## 2. How To Read This View
+## 2. Notes
 
-A service's SOURCE value selects its deployment mode, not merely an image variant. Container modes create Compose workloads, localhost modes redirect consumers to the host, and disabled modes remove workloads. The LLM-specific `none` mode leaves LiteLLM available for cloud-only routing.
+SOURCE selects a deployment mode, not just an image variant — the same value gates Compose scale, env wiring, and Kong route generation together. `none` is unique to the LLM provider family; no other service exposes it.
 
 ## 3. Source Files
 
-- `services/*/service.yml`
+- `bootstrapper/services/manifests.py`
 - `bootstrapper/tracks.yml`
 - `bootstrapper/services/topology.py`
-- `docs/deployment/source-configuration.md`

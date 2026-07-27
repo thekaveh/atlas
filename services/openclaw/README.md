@@ -4,7 +4,7 @@ Open-source AI agent for messaging platforms with web-based administration dashb
 
 ## 1. Overview
 
-The OpenClaw service provides an AI-powered agent that connects to messaging apps:
+The OpenClaw service provides an LLM-backed agent that connects to messaging apps:
 
 - **Messaging Integration**: WhatsApp, Telegram, Discord, Slack, iMessage
 - **File Management**: Read, create, and manage files in a dedicated workspace

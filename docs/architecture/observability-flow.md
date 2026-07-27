@@ -6,13 +6,14 @@ Prometheus, Grafana, Langfuse, OpenTelemetry Collector, Tempo, Loki, and service
 
 [Open the interactive diagram](./observability-flow.html).
 
-## 2. How To Read This View
+## 2. Notes
 
-Metrics, traces, logs, and LLM telemetry follow separate collection paths. Prometheus scrapes metrics, the OpenTelemetry Collector forwards traces, Loki stores logs, and Grafana correlates those stores; Langfuse remains the LLM-specific request and evaluation surface.
+Langfuse is deliberately outside the OTel path: LiteLLM emits Langfuse traces via its own `success_callback`, not through the Collector, because Langfuse is the LLM-behavior layer while Prometheus/Grafana stay the infrastructure-metrics layer. Only backend and LiteLLM OTLP traces currently reach Tempo via the Collector; Loki log export isn't wired up yet.
 
 ## 3. Source Files
 
-- `services/*/service.yml`
-- `bootstrapper/tracks.yml`
-- `bootstrapper/services/topology.py`
-- `docs/deployment/source-configuration.md`
+- `services/prometheus/service.yml`
+- `services/grafana/service.yml`
+- `services/loki/service.yml`
+- `services/tempo/service.yml`
+- `services/otel-collector/service.yml`

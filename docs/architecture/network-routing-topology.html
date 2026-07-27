@@ -37,7 +37,7 @@
     </div>
     <section class="interpretation">
       <h2>How to read this view</h2>
-      <p>Kong provides stable `*.localhost` entrypoints while published ports support direct host access. Internal-only traffic remains on the Compose backend network. Localhost modes cross the container boundary through the configured host gateway instead of starting a duplicate workload.</p>
+      <p>The host-gateway address is runtime-dependent, not a fixed IP: Docker accepts the literal `host-gateway` value in `extra_hosts` and resolves it internally, but Podman has no such shortcut — it queries the default bridge network&#x27;s IPAM gateway IP directly (`resolve_host_gateway_ip()` in `bootstrapper/utils/system.py`), falling back to a throwaway container if that lookup fails.</p>
     </section>
   </main>
 </body>

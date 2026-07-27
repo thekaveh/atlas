@@ -8,11 +8,11 @@ A self-hosted, source-configurable, multi-disciplinary engineering platform — 
 
 [![Atlas — interactive setup wizard streaming the launch phase, with the ASCII brand banner pinned at the top of the terminal](./docs/screenshots/wizard-running.png)](./docs/screenshots/wizard-running.png)
 
-*The Textual TUI wizard mid-launch: ASCII brand banner pinned at the top, stack overview + cloud-API status, filter + log-source chips, and the live `docker compose` log stream below. Captured during a normal `./start.sh` run.*
+*The Textual TUI wizard streaming a live `./start.sh` launch — one view for stack status and logs.*
 
 [![Atlas — topologically-ordered architecture diagram](./docs/diagrams/architecture.svg)](./docs/diagrams/architecture.svg)
 
-*Topologically ordered architecture: external clients enter through Kong, which routes to Apps and Agents; those services call the LLM Core (LiteLLM to Ollama and cloud providers) and the Media and Data tiers. Per-service diagrams under `services/<name>/architecture.svg` derive their relationships from each manifest's `data_flow.calls`.*
+*How a request reaches a service: clients → Kong → apps/agents → shared LLM + data layers. Per-service diagrams under `services/<name>/architecture.svg` derive from each manifest's `data_flow.calls`.*
 
 ## 1. Quick Start
 
@@ -105,7 +105,7 @@ Running `./start.sh` with no arguments launches an interactive setup wizard that
 
 - Step-by-step service configuration with descriptions and contextual hints (GPU requirements, localhost options, etc.)
 - LLM cluster spliced immediately after the LLM Engine step: single unified Ollama models multiselect (source-aware — localhost rows are badged `[pulled]` / `[library]`) + a free-text "additional models to pull" step → OpenAI / Anthropic / OpenRouter key + multiselect pairs (live `/v1/models` fetch), keeping engine + local + cloud adjacent in the wizard flow
-- Live `ollama.com/library` scrape (a few hundred entries; exact count depends on the upstream catalog at fetch time) for both container and host-side Ollama sources
+- Live `ollama.com/library` scrape (~230 entries; exact count depends on the upstream catalog at fetch time) for both container and host-side Ollama sources
 - Real-time command preview showing the equivalent CLI command as you make selections
 - Dependency validation that warns if you enable a service without its required dependencies
 - Pre-launch summary table with all endpoints and access URLs before starting
@@ -525,7 +525,7 @@ atlas/
 ├── bootstrapper/              # Python startup, SOURCE parsing, port/Kong generation, wizard
 │   ├── services/              # Manifest loader, validator, env_assembler, hooks, sc_synthesizer
 │   ├── schemas/               # JSON Schemas for service.yml manifests
-│   ├── tests/                 # 2,800+ tests (loader, validator, byte-equiv, source-permutation, hooks)
+│   ├── tests/                 # 2,300+ tests (loader, validator, byte-equiv, source-permutation, hooks)
 │   ├── tools/                 # validate_fragments CLI lint
 │   └── start.py / stop.py     # Entry points
 ├── services/                  # 56 service.yml manifests + 3 doc-only folders (representative subset shown below; see services/ for the full list)

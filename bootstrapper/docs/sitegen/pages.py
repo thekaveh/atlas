@@ -66,6 +66,65 @@ ARCHITECTURE_PERSPECTIVES: dict[str, tuple[str, str, list[str]]] = {
     ),
 }
 
+ARCHITECTURE_SOURCE_FILES: dict[str, list[str]] = {
+    "platform-overview": [
+        "services/*/service.yml",
+        "bootstrapper/services/topology.py",
+    ],
+    "bootstrapper-lifecycle": [
+        "bootstrapper/start.py",
+        "bootstrapper/core/docker_manager.py",
+    ],
+    "source-configuration-model": [
+        "bootstrapper/services/manifests.py",
+        "bootstrapper/tracks.yml",
+        "bootstrapper/services/topology.py",
+    ],
+    "track-selection-matrix": [
+        "bootstrapper/tracks.yml",
+        "bootstrapper/tracks.py",
+        "bootstrapper/services/topology.py",
+    ],
+    "network-routing-topology": [
+        "bootstrapper/utils/kong_config_generator.py",
+        "bootstrapper/utils/system.py",
+        "bootstrapper/services/topology.py",
+        "services/kong/service.yml",
+    ],
+    "data-rag-flow": [
+        "services/weaviate/service.yml",
+        "services/backend/service.yml",
+        "services/lightrag/service.yml",
+    ],
+    "llm-provider-flow": [
+        "services/litellm/service.yml",
+        "services/litellm/models.yaml",
+        "services/ollama/service.yml",
+    ],
+    "data-engineering-lakehouse-flow": [
+        "services/minio/service.yml",
+        "services/trino/service.yml",
+        "services/iceberg-rest/service.yml",
+        "services/spark/service.yml",
+    ],
+    "observability-flow": [
+        "services/prometheus/service.yml",
+        "services/grafana/service.yml",
+        "services/loki/service.yml",
+        "services/tempo/service.yml",
+        "services/otel-collector/service.yml",
+    ],
+    "security-auth-secrets-boundary": [
+        "services/kong/service.yml",
+        "services/supabase/service.yml",
+        "bootstrapper/generate_supabase_keys.py",
+    ],
+    "service-admission-workflow": [
+        "bootstrapper/services/manifest_validator.py",
+        "bootstrapper/services/source_validator.py",
+    ],
+}
+
 ARCHITECTURE_EDGES: dict[str, list[tuple[str, str, str]]] = {
     "platform-overview": [
         ("Clients", "Kong", "HTTP"),
@@ -250,69 +309,88 @@ _NODE_KINDS = {
 
 ARCHITECTURE_INTERPRETATIONS: dict[str, str] = {
     "platform-overview": (
-        "Clients enter through Kong or a deliberately published direct port. "
-        "Application and agent services consume the shared LLM and data layers; "
-        "LiteLLM keeps local inference and cloud-provider credentials behind one "
-        "OpenAI-compatible boundary."
+        "Direct published ports bypass Kong deliberately, for host tools that "
+        "can't use the `*.localhost` gateway. All model traffic — local and "
+        "cloud — is funneled through LiteLLM so credentials and routing live in "
+        "exactly one place (see [LLM provider flow](./llm-provider-flow.md))."
     ),
     "bootstrapper-lifecycle": (
-        "Startup is an ordered configuration pipeline. Atlas loads and migrates "
-        "the environment, synthesizes manifests, applies track decisions, and "
-        "generates routes before Compose receives the final service graph. A "
-        "failure before launch must not be reported as a running stack."
+        "Each stage gates the next; a failure in any stage before Compose must "
+        "abort the run rather than report a partially launched stack. Env "
+        "loading also applies the chained env-file migrations "
+        "(`bootstrapper/services/migrations/`) before manifests are synthesized."
     ),
     "source-configuration-model": (
-        "A service's SOURCE value selects its deployment mode, not merely an "
-        "image variant. Container modes create Compose workloads, localhost modes "
-        "redirect consumers to the host, and disabled modes remove workloads. The "
-        "LLM-specific `none` mode leaves LiteLLM available for cloud-only routing."
+        "SOURCE selects a deployment mode, not just an image variant — the same "
+        "value gates Compose scale, env wiring, and Kong route generation "
+        "together. `none` is unique to the LLM provider family; no other "
+        "service exposes it."
     ),
     "track-selection-matrix": (
-        "Tracks reduce the wizard to a workflow-oriented service set. Services "
-        "outside that set are force-disabled after prompting, while an explicit "
-        "CLI source override remains authoritative and is reported to the operator."
+        "An explicit CLI `--<svc>-source` override always wins over track "
+        "selection and is reported to the operator as an advisory warning. "
+        "SOURCE values declared in a consumer manifest's `env.values` also "
+        "survive the track force-disable step — only implicit track defaults "
+        "get overridden."
     ),
     "network-routing-topology": (
-        "Kong provides stable `*.localhost` entrypoints while published ports "
-        "support direct host access. Internal-only traffic remains on the Compose "
-        "backend network. Localhost modes cross the container boundary through "
-        "the configured host gateway instead of starting a duplicate workload."
+        "The host-gateway address is runtime-dependent, not a fixed IP: "
+        "Docker accepts the literal `host-gateway` value in `extra_hosts` "
+        "and resolves it internally, but Podman has no such shortcut — it "
+        "queries the default bridge network's IPAM gateway IP directly "
+        "(`resolve_host_gateway_ip()` in `bootstrapper/utils/system.py`), "
+        "falling back to a throwaway container if that lookup fails."
     ),
     "data-rag-flow": (
-        "The Backend coordinates ingestion: processors extract source material, "
-        "MinIO preserves objects, Weaviate stores vector representations, and "
-        "Neo4j stores graph relationships. Open WebUI and tool callers consume "
-        "that assembled retrieval surface through Backend APIs."
+        "Backend isn't the only writer into these stores: LightRAG writes "
+        "directly to Neo4j over Bolt and to Supabase pgvector, and other MinIO "
+        "consumers (the Iceberg pipeline, asset-worker) hold their own scoped "
+        "IAM credentials and write directly too — only Backend's own "
+        "ingestion path is pictured here, not every producer."
     ),
     "llm-provider-flow": (
-        "Open WebUI, Backend routes, agents, and tools call LiteLLM rather than "
-        "binding to a provider. LiteLLM dispatches to local Ollama or enabled cloud "
-        "providers and exposes one model catalog. Tracing observes requests without "
-        "becoming part of the inference data path."
+        "Disabling a cloud provider in `.env` doesn't error — the model "
+        "resolver silently produces zero catalog entries for it. Ollama "
+        "models get two aliases (`ollama/<name>` and the bare name); either "
+        "works. Tracing observes requests out-of-band and isn't part of the "
+        "inference call path, so a tracing-backend outage doesn't affect "
+        "completions."
     ),
     "data-engineering-lakehouse-flow": (
-        "MinIO is the object data plane and Iceberg REST owns table metadata. "
-        "Spark and Trino execute against that shared lakehouse; JupyterHub, "
-        "Zeppelin, and Airflow submit interactive or scheduled work, while "
-        "Redpanda supplies streaming inputs."
+        "Iceberg REST's catalog metadata lives in Supabase Postgres via a "
+        "JDBC catalog, not a Hive metastore — if `CATALOG_URI` isn't pointed "
+        "at `jdbc:postgresql://supabase-db:5432/iceberg`, the base image "
+        "silently falls back to a local SQLite catalog and metadata vanishes "
+        "on restart. Trino runs single-coordinator, no worker scaling, by "
+        "design. Spark still starts with `ICEBERG_REST_SOURCE=disabled` for "
+        "ML-only use; only lakehouse SQL fails."
     ),
     "observability-flow": (
-        "Metrics, traces, logs, and LLM telemetry follow separate collection paths. "
-        "Prometheus scrapes metrics, the OpenTelemetry Collector forwards traces, "
-        "Loki stores logs, and Grafana correlates those stores; Langfuse remains the "
-        "LLM-specific request and evaluation surface."
+        "Langfuse is deliberately outside the OTel path: LiteLLM emits "
+        "Langfuse traces via its own `success_callback`, not through the "
+        "Collector, because Langfuse is the LLM-behavior layer while "
+        "Prometheus/Grafana stay the infrastructure-metrics layer. Only "
+        "backend and LiteLLM OTLP traces currently reach Tempo via the "
+        "Collector; Loki log export isn't wired up yet."
     ),
     "security-auth-secrets-boundary": (
-        "Supabase identities and scoped service credentials protect Backend data "
-        "planes, while Kong applies gateway policy at published aliases. Generated "
-        "local secrets and cloud keys stay in runtime configuration. Any deliberately "
-        "unauthenticated local port remains an operator-trusted development boundary."
+        "Not every surface sits behind Supabase auth: Backend's `/health`, "
+        "`/ready`, `/metrics`, and API-doc routes are intentionally public "
+        "(no bearer token) — don't publish them beyond the intended network "
+        "boundary. Kong's own Admin API (8001) is loopback-only, reachable "
+        "via `docker exec`, never published. JupyterHub is explicitly "
+        "operator-trusted, with direct database and service access rather "
+        "than a policy gate."
     ),
     "service-admission-workflow": (
-        "A service enters Atlas through one declarative chain: its manifest owns "
-        "SOURCE values and metadata, Compose owns workloads, topology owns placement "
-        "and ports, and the env/docs generators project those records. Drift and "
-        "integration tests prevent a partial service definition from landing."
+        "`manifest_validator.py`'s fragment check is what actually blocks a "
+        "partial landing: `missing_fragment` for a non-virtual manifest with "
+        "no `compose.yml`, `unexpected_fragment` for a virtual manifest that "
+        "ships one anyway, and `fragment_container_drift` when the "
+        "manifest's `containers[]` disagrees with the compose file's "
+        "`services:` keys. `tools/validate_fragments.py` runs this in CI and "
+        "separately checks `.env.example` drift and the README `TOPOLOGY` "
+        "block."
     ),
 }
 
@@ -778,16 +856,13 @@ def architecture_pages(model: DocsModel) -> dict[Path, str]:
 
 [Open the interactive diagram](./{slug}.html).
 
-## 2. How To Read This View
+## 2. Notes
 
 {interpretation}
 
 ## 3. Source Files
 
-- `services/*/service.yml`
-- `bootstrapper/tracks.yml`
-- `bootstrapper/services/topology.py`
-- `docs/deployment/source-configuration.md`
+{chr(10).join(f"- `{path}`" for path in ARCHITECTURE_SOURCE_FILES[slug])}
 
 """
         rows.append([f"[{title}]({slug}.md)", description])
