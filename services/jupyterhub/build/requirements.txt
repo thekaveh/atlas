@@ -47,7 +47,7 @@ Pillow>=12.3.0
 # atlas_finance.research guards and notebook 11.
 openbb==4.7.2
 openbb-yfinance==1.6.3
-ccxt==4.5.64
+ccxt==4.5.68
 
 # Lakehouse clients
 # Keep boto3/s3fs aligned through botocore + fsspec to avoid slow resolver
@@ -59,7 +59,7 @@ s3fs==2024.9.0
 fsspec==2024.9.0
 pyiceberg[s3fs]==0.11.1
 pyarrow==23.0.1
-duckdb==1.5.4
+duckdb==1.5.5
 
 # Visualization
 matplotlib>=3.9.0
@@ -111,7 +111,7 @@ pyspark-client==4.1.2
 # The package was previously published as `nnx-pytorch`; that distribution
 # is deprecated. `thekaveh-nnx` is the renamed successor. The [lm] extra
 # pulls language-model deps used by the ml-lab notebooks that `import nnx`.
-thekaveh-nnx[lm]==0.2.0
+thekaveh-nnx[lm]==0.2.1
 python-louvain  # `community` module — community_detection-karate notebook
 nltk>=3.10.0  # SentimentIntensityAnalyzer — sentiment_classification-vader notebook (vader_lexicon downloaded in Dockerfile)
 spacy  # tokenizer + lemmatizer — text_classification-agnews + sentiment_classification-vader (en_core_web_sm downloaded in Dockerfile)
