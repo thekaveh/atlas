@@ -12,29 +12,13 @@ Image: `apache/zeppelin:0.12.1` (Apache 2.0), wrapped by `services/zeppelin/buil
 
 ### 1.1. Spark backend posture
 
-Atlas should treat Zeppelin as a Spark-submit/standalone Spark notebook surface:
-
-- The selected backend is `spark.master=spark://spark-master:7077`.
-- The implementation path for zero-touch lakehouse notebooks is a bundled or mounted `SPARK_HOME` plus seeded interpreter settings for MinIO S3A and the Iceberg REST `lakehouse` catalog.
-- JupyterHub remains the Spark Connect notebook path for Python and Scala clients that use `SPARK_REMOTE`, `SparkSession.builder.remote(...)`, or Spark Connect client libraries directly.
-
-The stack should not configure Spark Connect's remote property as the happy path for Zeppelin `%spark` on Spark 4.
+`%spark` uses the standalone backend (`spark.master=spark://spark-master:7077`) via a seeded interpreter, not Spark Connect's `spark.remote` — Spark 4 rejects mixing the two. See the Zeppelin Backend Decision link above for the full rationale; JupyterHub remains the stack's Spark Connect notebook surface.
 
 ### 1.2. Zero-touch Spark interpreter seeding
 
-`zeppelin-init` waits for the Zeppelin REST API, updates the stock `spark` interpreter setting, restarts it, and exits. It is idempotent: rerunning it preserves user-owned properties while overwriting Atlas-owned Spark/lakehouse values.
+`zeppelin-init` waits for the Zeppelin REST API, updates the stock `spark` interpreter with Atlas's Spark master, MinIO S3A, and Iceberg REST `lakehouse` catalog settings, then restarts it and exits. It is idempotent: rerunning it preserves user-owned properties while overwriting Atlas-owned values.
 
-Seeded values include:
-
-- `SPARK_HOME=/opt/spark`
-- `spark.master=spark://spark-master:7077`
-- `zeppelin.spark.enableSupportedVersionCheck=false`
-- `spark.submit.deployMode=client`
-- `spark.driver.host=zeppelin` and `spark.driver.bindAddress=0.0.0.0`
-- MinIO S3A settings for `s3a://` reads/writes and Spark event logs
-- Iceberg REST catalog settings for `lakehouse` at `http://iceberg-rest:8181`
-
-Manual recovery path: open Zeppelin at `http://localhost:${ZEPPELIN_PORT}`, go to top-right user menu → **Interpreter** → `spark`, and verify the values above. Click **Save**, then confirm the restart prompt if you make changes.
+Manual recovery path: open Zeppelin at `http://localhost:${ZEPPELIN_PORT}`, go to top-right user menu → **Interpreter** → `spark` to review or edit the seeded values directly. Click **Save**, then confirm the restart prompt if you make changes.
 
 ### 1.3. Verify it works
 
@@ -82,24 +66,11 @@ For the intended zero-touch path, users should not configure storage credentials
 
 ### 1.5. Reaching Spark Connect from outside the stack (host IDEs, remote/cloud)
 
-The `spark-connect` sidecar is **backend-only by design** — it publishes no host port, so `sc://spark-connect:15002` resolves only from inside the Docker `backend-network` for clients that actually use Spark Connect. JupyterHub is the in-stack notebook surface for that protocol. Two ways to go further, both tracked as roadmap items:
-
-- **Host-side IDE / local Jupyter:** would require publishing the 15002 gRPC port to the host (then `sc://localhost:<port>`). Not enabled in the in-stack-only baseline.
-- **Remote/managed Spark (cloud burst):** the same `spark.remote` client can point at a managed Spark Connect endpoint instead. Amazon EMR Serverless, for example, exposes interactive Spark Connect sessions at `sc://<endpoint>:443/;use_ssl=true;x-aws-proxy-auth=<token>` — the token is fetched per-session via the `emr-serverless` API and expires hourly, and the client's Spark version must match the EMR release's Spark version. That is a fundamentally different, ephemeral-session + IAM model than the static in-network sidecar — useful for scale-out, not a drop-in replacement.
+The `spark-connect` sidecar is **backend-only by design** — it publishes no host port, so `sc://spark-connect:15002` resolves only from inside the Docker `backend-network`. JupyterHub is the in-stack notebook surface for that protocol. Publishing the gRPC port for host-side IDEs, and pointing `spark.remote` at a managed cloud Spark Connect endpoint instead, are both tracked as roadmap items — neither is enabled in the in-stack-only baseline.
 
 ### 1.6. Driving Zeppelin from VS Code
 
-Zeppelin speaks its own REST + websocket protocol, **not** the Jupyter kernel protocol — so VS Code's built-in Jupyter extension cannot connect to it. Use the community **"Zeppelin Notebook"** extension ([`AllenLi1231.zeppelin-vscode`](https://marketplace.visualstudio.com/items?itemName=AllenLi1231.zeppelin-vscode)) instead. It renders `.zpln` notebooks in VS Code and runs every paragraph **server-side** on the Zeppelin server:
-
-1. Install `AllenLi1231.zeppelin-vscode` from the Marketplace (requires Zeppelin >= 0.8.0; this image is 0.12.1).
-2. Open or create a `.zpln` file. On the first cell run, the extension prompts for the **server URL** — enter `http://localhost:${ZEPPELIN_PORT}` (no credentials; the stack ships no auth — see §2).
-3. Confirm `zeppelin-init` has completed successfully if the Spark interpreter is not ready yet. The setting lives server-side, so it applies to the web UI and VS Code alike.
-
-Because execution happens on the server, `%spark` (Scala) and `%spark.pyspark` cells use the same Zeppelin-side Spark interpreter as the web UI — VS Code never needs a Scala kernel or a Spark client of its own, and S3A/MinIO + the History Server behave identically.
-
-**Remote host:** the extension only needs the HTTP UI, so SSH-tunnel it and point at localhost — `ssh -N -L ${ZEPPELIN_PORT}:localhost:${ZEPPELIN_PORT} user@host`. You do **not** expose Spark RPC or backend-only Spark Connect ports.
-
-**Caveats** (third-party extension): no notebook permissions / version-control / cron; don't edit a cell mid-run (close and reopen the notebook to resync); the VS Code language mode is cosmetic syntax highlighting only. The browser UI (§2) is the dependable fallback.
+Zeppelin speaks its own REST + websocket protocol, not the Jupyter kernel protocol, so VS Code's built-in Jupyter extension cannot connect to it. The community **"Zeppelin Notebook"** extension ([`AllenLi1231.zeppelin-vscode`](https://marketplace.visualstudio.com/items?itemName=AllenLi1231.zeppelin-vscode)) renders `.zpln` files and runs paragraphs server-side against the same Spark interpreter as the web UI — point it at `http://localhost:${ZEPPELIN_PORT}` (no credentials; see §2), SSH-tunneling that port for a remote host. See the extension's Marketplace page for setup steps and caveats; the browser UI (§2) is the dependable fallback.
 
 ## 2. Access
 
@@ -123,8 +94,8 @@ ZEPPELIN_PORT=                     # auto-assigned (apps band)
 - **Spark** (required) — `%spark` cells use the standalone Spark interpreter path selected in the Zeppelin backend decision: `SPARK_HOME` plus `spark.master=spark://spark-master:7077`.
 - **MinIO** — `s3a://` credentials come from the generated `MINIO_SPARK_*` service account. It is limited to the Spark event-log and lakehouse workflow buckets; Zeppelin never receives MinIO root credentials.
 - **Iceberg REST** (optional) — when `ICEBERG_REST_SOURCE=container`, the seeded `lakehouse` catalog points to `http://iceberg-rest:8181` and uses the scoped Iceberg MinIO credentials for S3FileIO.
-- **Trino** (optional) — when `TRINO_SOURCE=container`, `zeppelin-init` waits for `http://trino:8080/v1/info` and creates or updates a named JDBC interpreter profile `trino` (group `jdbc`) with `default.driver=io.trino.jdbc.TrinoDriver`, `default.url=jdbc:trino://trino:8080/lakehouse`, `default.user=atlas`, and dependency `io.trino:trino-jdbc:482`. Then `%trino SHOW CATALOGS` works without manual UI setup. Trino still requires `MINIO_SOURCE=container` and `ICEBERG_REST_SOURCE=container`; if `TRINO_SOURCE=disabled`, the init script logs a skip and leaves existing JDBC settings alone.
-- **Supabase Postgres** — JDBC connection details exposed as env vars (`ZEPPELIN_JDBC_POSTGRES_URL` / `_USER` / `_PASSWORD`). Zeppelin does not auto-bind these to the JDBC interpreter — one-time setup: open Zeppelin → Interpreter → `+ Create`, name it `postgres` with interpreter group `jdbc`, and set `default.driver=org.postgresql.Driver`, `default.url=jdbc:postgresql://supabase-db:5432/${SUPABASE_DB_NAME}` (copy the exact value from the container's `ZEPPELIN_JDBC_POSTGRES_URL` env — `${SUPABASE_DB_NAME}` defaults to `postgres` but is configurable), `default.user`/`default.password` from the corresponding env vars. Then `%postgres SELECT version()` works — note the old `%jdbc(postgres)` prefix syntax was removed in Zeppelin 0.12 (the interpreter warns "not supported anymore" and falls back to `default.*`). Tracked as a future improvement (bind-mount `conf/interpreter.json` so this is zero-touch).
+- **Trino** (optional) — when `TRINO_SOURCE=container`, `zeppelin-init` seeds a named JDBC interpreter profile `trino` pointed at the lakehouse catalog, so `%trino SHOW CATALOGS` works without manual UI setup. The exact interpreter properties live in the zeppelin-init source. Trino still requires `MINIO_SOURCE=container` and `ICEBERG_REST_SOURCE=container`; if `TRINO_SOURCE=disabled`, the init script logs a skip and leaves existing JDBC settings alone.
+- **Supabase Postgres** — JDBC connection details are exposed as env vars (`ZEPPELIN_JDBC_POSTGRES_URL` / `_USER` / `_PASSWORD`), but Zeppelin does not auto-bind them to a JDBC interpreter. One-time manual setup is required: create a `postgres` JDBC interpreter in the Zeppelin UI using those env var values. Zero-touch seeding (bind-mounting `conf/interpreter.json`) is tracked as a future improvement.
 - **LiteLLM** (optional) — Python interpreter can call the LiteLLM gateway via `openai.OpenAI(base_url="http://litellm:4000/v1", api_key=...)`. No pre-configuration ships; users wire it themselves.
 
 ## 5. Starter notebook
@@ -139,22 +110,19 @@ ZEPPELIN_PORT=                     # auto-assigned (apps band)
 Use it as a template for your own notebooks.
 
 `services/zeppelin/notebooks/iceberg_advanced_sql.zpln` is the opt-in
-standalone Spark counterpart to JupyterHub's Spark Connect advanced smoke. Run it
+standalone Spark counterpart to JupyterHub's Spark Connect advanced smoke,
+covering Iceberg's MERGE/branching/streaming/maintenance surface. Run it
 from the Zeppelin UI or from the repository root:
 
 ```bash
 scripts/smoke-iceberg-advanced-sql.sh zeppelin
 ```
 
-This `data-eng` / `all` track smoke adds No new service, no new SOURCE, and no
-new port. It requires `SPARK_SOURCE=container`, `ICEBERG_REST_SOURCE=container`,
-`MINIO_SOURCE=container`, and `ZEPPELIN_SOURCE=container`; it exercises
-`MERGE INTO`, `VERSION AS OF`, `rollback_to_snapshot`, `CREATE BRANCH` with
-`spark.wap.branch`, schema evolution, nested JSON, Structured Streaming from
-`s3a://landing/` into Iceberg with checkpoints under `s3a://checkpoints/`, and
-maintenance procedures including `rewrite_data_files`, `expire_snapshots`, and
-`remove_orphan_files`. See
-[`docs/deployment/iceberg-advanced-smoke.md`](../../docs/deployment/iceberg-advanced-smoke.md).
+This `data-eng` / `all` track smoke adds no new service, SOURCE, or port. It
+requires `SPARK_SOURCE`, `ICEBERG_REST_SOURCE`, `MINIO_SOURCE`, and
+`ZEPPELIN_SOURCE` all set to `container`. See
+[`docs/deployment/iceberg-advanced-smoke.md`](../../docs/deployment/iceberg-advanced-smoke.md)
+for the full feature list this smoke exercises.
 
 ## 6. Dependencies & Integrations
 
