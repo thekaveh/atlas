@@ -45,7 +45,45 @@ drivers and Zeppelin `%spark` paragraphs. Raise the value for more Spark Connect
 enough unused cores for those standalone workloads; otherwise Connect can
 monopolize the cluster and leave other applications stuck in `PENDING`.
 
-A minimal Spark Connect lakehouse smoke (create a namespace/table via `sc://spark-connect:15002` and query it) is a quick way to confirm the wiring works from an in-stack client. A more thorough, opt-in Iceberg validation — `MERGE INTO`, time travel, branching, schema evolution, streaming, and maintenance calls — is available via `scripts/smoke-iceberg-advanced-sql.sh {spark-connect|zeppelin}`; see [`docs/deployment/iceberg-advanced-smoke.md`](../../docs/deployment/iceberg-advanced-smoke.md) for the full walkthrough.
+Spark Connect also publishes a Docker health signal once its backend-only
+listener accepts TCP connections on `15002`. Downstream wait-for-healthy tooling
+can verify it with:
+
+```bash
+docker inspect --format '{{.State.Health.Status}}' ${PROJECT_NAME}-spark-connect
+```
+
+Expected result: `starting` during JVM startup, then `healthy` after
+`sc://spark-connect:15002` is accepting sessions. The probe runs inside the
+container and does not publish `15002` to the host.
+
+Minimal Spark Connect lakehouse smoke from an in-stack client:
+
+```python
+from pyspark.sql import SparkSession
+
+spark = SparkSession.builder.remote("sc://spark-connect:15002").getOrCreate()
+spark.sql("CREATE NAMESPACE IF NOT EXISTS lakehouse.bronze")
+spark.sql("CREATE TABLE IF NOT EXISTS lakehouse.bronze.t (id BIGINT, note STRING) USING iceberg")
+spark.sql("SHOW NAMESPACES IN lakehouse").show()
+```
+
+Advanced Iceberg smoke:
+
+```bash
+scripts/smoke-iceberg-advanced-sql.sh spark-connect
+scripts/smoke-iceberg-advanced-sql.sh zeppelin
+```
+
+The advanced smoke is an opt-in validation surface for the `data-eng` and `all`
+tracks. It adds no new service, no new SOURCE, and no new port; it uses the
+existing Spark, Iceberg REST, MinIO, JupyterHub, and Zeppelin topology. The smoke
+covers `MERGE INTO`, `VERSION AS OF`, `rollback_to_snapshot`, `CREATE BRANCH`
+with `spark.wap.branch`, schema evolution, nested JSON, Structured Streaming
+from `s3a://landing/` into Iceberg with checkpoints under `s3a://checkpoints/`,
+and maintenance calls such as `rewrite_data_files`, `expire_snapshots`, and
+`remove_orphan_files`. See
+[`docs/deployment/iceberg-advanced-smoke.md`](../../docs/deployment/iceberg-advanced-smoke.md).
 
 ### 4.1. Cloud burst: Amazon EMR Serverless (optional)
 

@@ -185,7 +185,12 @@ Atlas exposes Krea 2 as two independent BF16 catalog selections. Both use ComfyU
 
 Container sources use a `COMFYUI_MEMORY_LIMIT=40g` hard ceiling so the bundle can load without the former 4 GB container OOM boundary. This is a limit, not a reservation; smaller workloads still consume only their actual memory.
 
-Both bundles are roughly 35 GB on disk and recommend 32 GB RAM/VRAM. Exact catalog IDs, per-file sizes, and pinned SHA-256 hashes are maintained in `services/comfyui/models.yaml`, the authoritative catalog source.
+| Bundle | Catalog ID | Precision | Disk | Recommended RAM | Recommended VRAM |
+|---|---|---:|---:|---:|---:|
+| Krea 2 Turbo | `krea2-turbo-bf16` | BF16 | 35.413 GB | 32 GB | 32 GB |
+| Krea 2 RAW | `krea2-raw-bf16` | BF16 | 35.413 GB | 32 GB | 32 GB |
+
+Exact catalog IDs, per-file sizes, and pinned SHA-256 hashes are maintained in `services/comfyui/models.yaml`, the authoritative catalog source.
 
 ### 9.2. Pinned artifacts
 
@@ -205,7 +210,9 @@ curl -X POST http://localhost:${COMFYUI_PORT}/prompt \
 
 ### 9.4. License and deployment obligations
 
-The weights use the pinned [Krea 2 Community License](https://huggingface.co/krea/Krea-2-Turbo/blob/1161245028ef398cd0a951101b2bbf486464f841/LICENSE.pdf), which imposes a revenue-based commercial threshold and a content-filtering obligation — see the license for exact terms. These obligations appear directly in the model picker and generated manifest metadata so operators see them before downloading the weights.
+The weights use the pinned [Krea 2 Community License](https://huggingface.co/krea/Krea-2-Turbo/blob/1161245028ef398cd0a951101b2bbf486464f841/LICENSE.pdf). Commercial use at or above **$1,000,000 USD ($1M) in company-wide annual revenue** requires an enterprise license. Deployments must also implement reasonable and appropriate **content filtering**. The authoritative license does not state a seat-count threshold; the previously reported 50-seat limit must not be applied.
+
+These obligations appear directly in the model picker and generated manifest metadata so operators see them before downloading the weights.
 
 ### 9.5. Verification
 
@@ -312,7 +319,11 @@ curl -XPOST "$COMFYUI_ENDPOINT/prompt" -H 'content-type: application/json' \
 
 ### 11.4. License
 
-The weights use the [Tencent Hunyuan Community License](https://huggingface.co/tencent/Hunyuan3D-2/blob/main/LICENSE), which carries territorial restrictions and a monthly-active-user scale threshold requiring a separate license above it — see the license for exact terms.
+The weights use the [Tencent Hunyuan Community License](https://huggingface.co/tencent/Hunyuan3D-2/blob/main/LICENSE). Material operator obligations:
+
+- **Territory-restricted** — not licensed for use in the European Union, the United Kingdom, or South Korea.
+- Products or services with over **100 million monthly active users** require a separate license from Tencent.
+- Use is subject to the Tencent Hunyuan Community License Agreement and its Acceptable Use Policy.
 
 ### 11.5. Verification
 

@@ -171,18 +171,71 @@ Two worked patterns use this shape:
   that differ from the selected creative track.
 
 The important design choice is that `infra/services/_user/<name>/compose.yml`
-is only a discovery slot: keep the real overlay file in the parent repository
-and symlink it into the slot with a small idempotent setup script (so a fresh
-clone, CI checkout, or updated submodule can re-run it safely), then have a
-parent-owned start script force-set project-critical wiring — `PROJECT_NAME`,
-`BRAND_*`, and any `*_SOURCE` choices the project requires — rather than
-setting them only when absent. Atlas's `.env.example` intentionally ships
-defaults for many `*_SOURCE` keys, so a "set only if absent" helper often does
-nothing; force it in the wrapper or pass the matching CLI flag instead.
-Explicit `--<service>-source` flags override the selected `--track`, which is
+is only the discovery slot. Keep the real overlay file in the parent repository
+and symlink it into the slot:
+
+```bash
+#!/usr/bin/env bash
+# scripts/setup-overlay.sh
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SLOT="$ROOT/infra/services/_user/myproject"
+OVERLAY="$ROOT/compose/myproject-overlay.yml"
+
+mkdir -p "$SLOT"
+ln -sfn "../../../../compose/myproject-overlay.yml" "$SLOT/compose.yml"
+test -f "$OVERLAY"
+```
+
+The wrapper should be idempotent so a fresh clone, CI checkout, or updated
+submodule can run it safely before every start.
+
+Parent-owned start scripts should force project wiring decisions instead of
+setting them only when absent:
+
+```bash
+#!/usr/bin/env bash
+# scripts/start-infra.sh
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+"$ROOT/scripts/setup-overlay.sh"
+
+export ATLAS_ENV_USER_FILE="$ROOT/atlas.env.user"
+
+set_env() {
+  local key="$1"
+  local value="$2"
+  if grep -q "^${key}=" "$ROOT/infra/.env" 2>/dev/null; then
+    perl -0pi -e "s/^${key}=.*$/${key}=${value}/m" "$ROOT/infra/.env"
+  else
+    printf '%s=%s\n' "$key" "$value" >> "$ROOT/infra/.env"
+  fi
+}
+
+cp -n "$ROOT/infra/.env.example" "$ROOT/infra/.env"
+set_env PROJECT_NAME myproject
+set_env BRAND_NAME "My Project"
+set_env BRAND_TAGLINE "Project-owned Atlas infrastructure"
+set_env N8N_SOURCE container
+set_env MINIO_SOURCE container
+
+"$ROOT/infra/start.sh" \
+  --track gen-ai-rag \
+  --n8n-source container \
+  --minio-source container
+```
+
+Do not use a `set_env_default` helper for project-critical source choices.
+Atlas's `.env.example` intentionally ships defaults for many `*_SOURCE` keys,
+so "set only if absent" often does nothing. If the parent project requires a
+service mode, force-set it in the wrapper or pass the matching CLI flag.
+
+Explicit `--<service>-source` flags override the selected `--track`. This is
 the supported way for a consumer to start from a broad track and then request
-one extra service outside it, or disable one the track would normally prompt
-for.
+one extra service outside the track, or disable a service that the track would
+normally prompt for.
 
 | Area | Parent repository owns | `infra/` submodule owns |
 |------|------------------------|-------------------------|
@@ -194,13 +247,25 @@ for.
 | Object storage extension | `MINIO_EXTRA_CONSUMERS` plus referenced parent-owned bucket/access/secret vars | Generic `minio-init` hook that provisions declared buckets and scoped service accounts |
 | Database extension | Parent-reviewed SQL templates or migration source | Optional `services/supabase/db/_user/*.sql` execution slot |
 
-Before committing a parent consumer update, confirm `git -C infra status
---short` is clean of anything beyond the intentionally ignored `.env`,
-`.env.user`, `_user` slots, and runtime volumes; that `infra/` is pinned to a
-specific Atlas commit or tag rather than a moving branch; and that
-project-critical `*_SOURCE`, `PROJECT_NAME`, and `BRAND_*` values are
-force-set by the wrapper (or passed as explicit CLI flags) rather than left to
-chance.
+Validation checklist before committing a parent consumer update:
+
+- `git -C infra status --short` is clean after `scripts/start-infra.sh` has run,
+  except for intentionally ignored `.env`, `.env.user`, `_user` slots, and
+  runtime volumes.
+- The parent commit pins `infra/` to a specific Atlas commit or release tag; it
+  does not track a moving branch implicitly.
+- Parent-owned overlays live under the parent repository, and
+  `infra/services/_user/<name>/compose.yml` is a symlink or generated discovery
+  pointer to that parent-owned file.
+- Parent-owned object buckets use `MINIO_EXTRA_CONSUMERS` in the overlay; the
+  referenced bucket/access/secret variables live in `.env.user` or
+  `ATLAS_ENV_USER_FILE`.
+- `.env`, `.env.user`, `infra/volumes/`, and runtime data directories remain
+  untracked.
+- Project-critical `*_SOURCE`, `PROJECT_NAME`, and `BRAND_*` values are
+  force-set by the wrapper or passed as explicit CLI flags.
+- The wrapper documents the chosen `--track` and every explicit source override
+  that intentionally differs from that track.
 
 **Migrating this layout to the `atlas.consumer.yml` manifest.** Everything the
 legacy layout expresses through a symlink + `.env.user` + wrapper flags — the

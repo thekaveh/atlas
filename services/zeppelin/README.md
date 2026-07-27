@@ -12,13 +12,29 @@ Image: `apache/zeppelin:0.12.1` (Apache 2.0), wrapped by `services/zeppelin/buil
 
 ### 1.1. Spark backend posture
 
-`%spark` uses the standalone backend (`spark.master=spark://spark-master:7077`) via a seeded interpreter, not Spark Connect's `spark.remote` — Spark 4 rejects mixing the two. See the Zeppelin Backend Decision link above for the full rationale; JupyterHub remains the stack's Spark Connect notebook surface.
+Atlas should treat Zeppelin as a Spark-submit/standalone Spark notebook surface:
+
+- The selected backend is `spark.master=spark://spark-master:7077`.
+- The implementation path for zero-touch lakehouse notebooks is a bundled or mounted `SPARK_HOME` plus seeded interpreter settings for MinIO S3A and the Iceberg REST `lakehouse` catalog.
+- JupyterHub remains the Spark Connect notebook path for Python and Scala clients that use `SPARK_REMOTE`, `SparkSession.builder.remote(...)`, or Spark Connect client libraries directly.
+
+The stack should not configure Spark Connect's remote property as the happy path for Zeppelin `%spark` on Spark 4.
 
 ### 1.2. Zero-touch Spark interpreter seeding
 
-`zeppelin-init` waits for the Zeppelin REST API, updates the stock `spark` interpreter with Atlas's Spark master, MinIO S3A, and Iceberg REST `lakehouse` catalog settings, then restarts it and exits. It is idempotent: rerunning it preserves user-owned properties while overwriting Atlas-owned values.
+`zeppelin-init` waits for the Zeppelin REST API, updates the stock `spark` interpreter setting, restarts it, and exits. It is idempotent: rerunning it preserves user-owned properties while overwriting Atlas-owned Spark/lakehouse values.
 
-Manual recovery path: open Zeppelin at `http://localhost:${ZEPPELIN_PORT}`, go to top-right user menu → **Interpreter** → `spark` to review or edit the seeded values directly. Click **Save**, then confirm the restart prompt if you make changes.
+Seeded values include:
+
+- `SPARK_HOME=/opt/spark`
+- `spark.master=spark://spark-master:7077`
+- `zeppelin.spark.enableSupportedVersionCheck=false`
+- `spark.submit.deployMode=client`
+- `spark.driver.host=zeppelin` and `spark.driver.bindAddress=0.0.0.0`
+- MinIO S3A settings for `s3a://` reads/writes and Spark event logs
+- `spark.sql.catalog.lakehouse.uri=http://iceberg-rest:8181` and the rest of the Iceberg REST catalog settings for `lakehouse`
+
+Manual recovery path: open Zeppelin at `http://localhost:${ZEPPELIN_PORT}`, go to top-right user menu → **Interpreter** → `spark`, and verify the values above. Click **Save**, then confirm the restart prompt if you make changes.
 
 ### 1.3. Verify it works
 
@@ -94,7 +110,7 @@ ZEPPELIN_PORT=                     # auto-assigned (apps band)
 - **Spark** (required) — `%spark` cells use the standalone Spark interpreter path selected in the Zeppelin backend decision: `SPARK_HOME` plus `spark.master=spark://spark-master:7077`.
 - **MinIO** — `s3a://` credentials come from the generated `MINIO_SPARK_*` service account. It is limited to the Spark event-log and lakehouse workflow buckets; Zeppelin never receives MinIO root credentials.
 - **Iceberg REST** (optional) — when `ICEBERG_REST_SOURCE=container`, the seeded `lakehouse` catalog points to `http://iceberg-rest:8181` and uses the scoped Iceberg MinIO credentials for S3FileIO.
-- **Trino** (optional) — when `TRINO_SOURCE=container`, `zeppelin-init` seeds a named JDBC interpreter profile `trino` pointed at the lakehouse catalog, so `%trino SHOW CATALOGS` works without manual UI setup. The exact interpreter properties live in the zeppelin-init source. Trino still requires `MINIO_SOURCE=container` and `ICEBERG_REST_SOURCE=container`; if `TRINO_SOURCE=disabled`, the init script logs a skip and leaves existing JDBC settings alone.
+- **Trino** (optional) — when `TRINO_SOURCE=container`, `zeppelin-init` waits for `http://trino:8080/v1/info` and creates or updates a named JDBC interpreter profile `trino` (group `jdbc`) with `default.driver=io.trino.jdbc.TrinoDriver`, `default.url=jdbc:trino://trino:8080/lakehouse`, `default.user=atlas`, and dependency `io.trino:trino-jdbc:482`. Then `%trino SHOW CATALOGS` works without manual UI setup. Trino still requires `MINIO_SOURCE=container` and `ICEBERG_REST_SOURCE=container`; if `TRINO_SOURCE=disabled`, the init script logs a skip and leaves existing JDBC settings alone.
 - **Supabase Postgres** — JDBC connection details are exposed as env vars (`ZEPPELIN_JDBC_POSTGRES_URL` / `_USER` / `_PASSWORD`), but Zeppelin does not auto-bind them to a JDBC interpreter. One-time manual setup is required: create a `postgres` JDBC interpreter in the Zeppelin UI using those env var values. Zero-touch seeding (bind-mounting `conf/interpreter.json`) is tracked as a future improvement.
 - **LiteLLM** (optional) — Python interpreter can call the LiteLLM gateway via `openai.OpenAI(base_url="http://litellm:4000/v1", api_key=...)`. No pre-configuration ships; users wire it themselves.
 

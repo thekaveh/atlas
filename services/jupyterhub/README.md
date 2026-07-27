@@ -106,6 +106,28 @@ Every notebook talks to LiteLLM via the OpenAI-compatible API — never to Ollam
 
 Working, runnable examples for each of these live in the sample notebooks (§5): `01_litellm_basics.ipynb`, `02_langchain_rag.ipynb`, `03_neo4j_graphs.ipynb`, and `09_spark_connect.ipynb`. For the advanced Iceberg/Spark lakehouse validation flow (`MERGE INTO`, `VERSION AS OF`, Structured Streaming, table maintenance), see `12_iceberg_advanced_sql.ipynb` or run it directly from the repository root with `scripts/smoke-iceberg-advanced-sql.sh spark-connect` — see [`docs/deployment/iceberg-advanced-smoke.md`](../../docs/deployment/iceberg-advanced-smoke.md) for the full smoke-test contract.
 
+### 6.1. Connecting to the lakehouse from Python
+
+The image ships the Python lakehouse clients used by Atlas data tracks — `boto3`, `s3fs`, `pyiceberg[s3fs]`, `pyarrow`, and `duckdb` — pre-wired against MinIO and the Iceberg REST catalog. Load the catalog with `pyiceberg.catalog.load_catalog` and call `list_namespaces()` to confirm connectivity:
+
+```python
+from pyiceberg.catalog import load_catalog
+
+catalog = load_catalog(
+    "rest",
+    uri=os.environ["ICEBERG_REST_URI"],
+    warehouse=os.environ["ICEBERG_WAREHOUSE"],
+)
+print(catalog.list_namespaces())
+```
+
+MinIO access goes through `boto3`/`s3fs` against `AWS_ENDPOINT_URL_S3`. Validate both from the host with:
+
+```bash
+docker exec ${PROJECT_NAME}-jupyterhub python -c \
+  "import boto3, s3fs, pyarrow, duckdb; from pyiceberg.catalog import load_catalog; print('ok')"
+```
+
 ## 7. Data Persistence
 
 - **Work Directory**: `/home/jovyan/work` - Persisted in `jupyterhub-data` volume

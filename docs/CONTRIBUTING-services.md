@@ -579,7 +579,9 @@ uv run --project bootstrapper python scripts/check-track-membership.py          
 # job 4 (opt-in Build-validation): docker buildx build over every local non-GPU
 # build context plus every services/*/init/Dockerfile. The full, current list
 # lives in the build matrix in .github/workflows/services-lint.yml — treat that
-# workflow file as the source of truth, not this doc. Representative example:
+# workflow file as the source of truth, not this doc. Build contexts validated
+# in CI include services/asset-worker/app, services/asset-baker/app,
+# services/backend/app, and others — representative example:
 docker buildx build --load -f services/backend/app/Dockerfile services/backend/app/
 ```
 

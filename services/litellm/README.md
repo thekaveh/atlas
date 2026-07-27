@@ -169,10 +169,20 @@ curl -s http://localhost:${LITELLM_PORT}/v1/model/info \
   -H "Authorization: Bearer ${LITELLM_MASTER_KEY}"
 ```
 
-LightRAG and other consumers select a role (`extract`, `query`, …) via a
-deterministic tie-breaking procedure — documented as a docstring on the
-role-selection function in `model_resolver.py` — that is provider- and
-hardware-agnostic.
+LightRAG and other consumers should select `extract`, `query`, or another role
+with this deterministic procedure (also documented as a docstring on the
+role-selection function in `model_resolver.py`):
+
+1. Keep rows with `inferred: false`, the required `kind` or capability, and the
+   role in `atlas_model_metadata.recommended_roles`.
+2. Apply an explicit operator preference when one is configured.
+3. Otherwise use lexical `(provider, catalog_name, model_name)` order as the
+   provider-neutral fallback.
+4. Deduplicate Ollama's dual aliases by `(provider, catalog_name)` and retain
+   the operator's preferred alias.
+
+This ordering is deterministic without assuming Ollama, Apple Silicon, a
+specific model family, or any other hardware/provider combination.
 
 ## 8. Thinking models (`think: false`)
 
