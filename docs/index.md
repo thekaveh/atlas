@@ -26,15 +26,15 @@ Atlas organizes 59 service families into 7 tracks. Each track pre-selects a work
 <div class="atlas-home__grid" markdown="1">
 
 <div class="atlas-card" markdown="1">
-<p class="atlas-card__title">Generative AI · Engineering</p>
-<p class="atlas-card__body">Agentic apps + workflows with voice, vision, and search.</p>
+<p class="atlas-card__title">Generative AI · RAG</p>
+<p class="atlas-card__body">Retrieval-augmented generation — vectors, graph, reranker, doc ingest, web search, workflow automation.</p>
 
 [View track services →](reference/tracks.md){: .atlas-card__link}
 </div>
 
 <div class="atlas-card" markdown="1">
-<p class="atlas-card__title">Generative AI · RAG</p>
-<p class="atlas-card__body">Retrieval-augmented generation — vectors, graph, reranker, doc ingest, web search, workflow automation.</p>
+<p class="atlas-card__title">Generative AI · Engineering</p>
+<p class="atlas-card__body">Agentic apps + workflows with voice, vision, and search.</p>
 
 [View track services →](reference/tracks.md){: .atlas-card__link}
 </div>
@@ -128,7 +128,7 @@ Per-flow diagrams (data/RAG, LLM provider routing, observability, security bound
 
 <div class="atlas-card" markdown="1">
 <p class="atlas-card__title">Reference</p>
-<p class="atlas-card__body">Env vars, ports, manifest fields, SOURCE values — 59 configurable surfaces.</p>
+<p class="atlas-card__body">Env vars, ports, manifest fields, and the 53 SOURCE-configurable service surfaces.</p>
 
 [Open reference →](reference/index.md){: .atlas-card__link}
 </div>
