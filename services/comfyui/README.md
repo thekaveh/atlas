@@ -64,7 +64,7 @@ COMFYUI_SCALE / COMFYUI_INIT_SCALE
 
 **Request flow.** The backend POSTs a workflow JSON to `${COMFYUI_ENDPOINT}/prompt` and receives a `prompt_id` (n8n workflows call the backend's `/comfyui/*` routes rather than ComfyUI directly). To track progress, the caller either polls `GET /history/{prompt_id}` or opens a `/ws` websocket and filters by `prompt_id`. Outputs land under `output/` inside the container; the `/view` endpoint serves them by filename.
 
-**Init flow** (`comfyui-init`): plain alpine + `apk add wget ca-certificates`. At bootstrapper start, `comfyui_resolver` (host-side, DB-free) computes the active model set from `COMFYUI_USER_MODELS` + `services/comfyui/custom-models.yaml` and writes `volumes/comfyui/selected-models.yaml` (full manifest) and `volumes/comfyui/active-models.tsv` (shell-consumable TSV). A single logical catalog entry may declare `files:` to download multiple artifacts as one selectable bundle; the manifest expands that bundle into one row per file with `bundle_id`, `bundle_file_role`, `precision`, `variant`, and explicit `target_dir` metadata. The same pass maps active `requires_custom_node` values through `services/comfyui/custom-nodes.yaml` and writes `volumes/comfyui/active-custom-nodes.tsv`; only allowlisted GitHub repos pinned to full commit SHAs are auto-installed. `comfyui-init` bind-mounts `volumes/comfyui/` and downloads each model TSV row into the `comfyui-models` volume via resumable `wget -c` with optional SHA256 verification. The main ComfyUI container mounts the same manifest directory plus `services/comfyui/provisioning/provision_custom_nodes.sh` as AI-Dock's provisioning hook; that hook clones each custom-node TSV row into `comfyui-custom-nodes` and installs `requirements.txt` through the ComfyUI Python environment when `install_requirements=true`. Failure mode is non-fatal — ComfyUI starts even if downloads or custom-node provisioning are incomplete, you just get model-not-found or node-missing errors at workflow time. The former `comfyui-catalog-init` container and `public.comfyui_models` DB table have been removed.
+**Init flow** (`comfyui-init`): at bootstrapper start, a host-side resolver computes the active model and custom-node set from `COMFYUI_USER_MODELS` and the catalog files, then writes a runtime manifest that `comfyui-init` downloads into the `comfyui-models` volume (resumable, SHA256-verified) and that the main ComfyUI container's AI-Dock provisioning hook uses to clone allowlisted custom-node repos into `comfyui-custom-nodes`. Failure mode is non-fatal — ComfyUI starts even if downloads or custom-node provisioning are incomplete; you get model-not-found or node-missing errors at workflow time instead. The manifest format, bundle-expansion, and TSV schema are documented in the `comfyui_resolver` module and `services/comfyui/provisioning/provision_custom_nodes.sh`.
 
 **Hard dependencies** (`depends_on.required`): `supabase`, `litellm`, `ollama`. The `supabase-storage` dep is **reserved wiring** for a future output-upload path that is currently inert (no consumer — see §5.4); LiteLLM and Ollama are listed for **canonical wizard/row ordering** (the topology backbone — see ollama/parakeet for the same convention), NOT because ComfyUI calls them at startup. ComfyUI's only `runtime_adaptive` entry is `adapts_to: comfyui`.
 
@@ -168,24 +168,7 @@ docker run --rm -v <project>-comfyui-models:/m alpine \
 
 **Backend REST view.** `GET /comfyui/db/models?active_only=true` on the backend service returns the active catalog rows for Open WebUI + n8n consumers.
 
-**Queue a workflow programmatically.**
-
-```bash
-curl -X POST http://localhost:${COMFYUI_PORT}/prompt \
-  -H 'content-type: application/json' \
-  -d @workflow.json
-# → {"prompt_id": "abc-123", "number": 0, "node_errors": {}}
-
-curl http://localhost:${COMFYUI_PORT}/history/abc-123
-# → {"abc-123": {"prompt": [...], "outputs": {...}}}
-```
-
-**Monitor a running workflow.**
-
-```bash
-# Open ws://comfyui:18188/ws and filter messages by prompt_id
-# Event types: status, executing, executed, progress, execution_error
-```
+**Queue and monitor a workflow programmatically.** POST a workflow graph to `/prompt` to get back a `prompt_id`, then either poll `/history/{prompt_id}` or open `ws://comfyui:18188/ws` and filter events by that ID (`status`, `executing`, `executed`, `progress`, `execution_error`). This is stock ComfyUI API behavior — the full request/response contract is documented by upstream ComfyUI, not repeated here.
 
 ## 8. Performance notes
 
@@ -202,21 +185,11 @@ Atlas exposes Krea 2 as two independent BF16 catalog selections. Both use ComfyU
 
 Container sources use a `COMFYUI_MEMORY_LIMIT=40g` hard ceiling so the bundle can load without the former 4 GB container OOM boundary. This is a limit, not a reservation; smaller workloads still consume only their actual memory.
 
-| Bundle | Catalog ID | Precision | Disk | Recommended RAM | Recommended VRAM |
-|---|---|---:|---:|---:|---:|
-| Krea 2 Turbo | `krea2-turbo-bf16` | BF16 | 35.413 GB | 32 GB | 32 GB |
-| Krea 2 RAW | `krea2-raw-bf16` | BF16 | 35.413 GB | 32 GB | 32 GB |
+Both bundles are roughly 35 GB on disk and recommend 32 GB RAM/VRAM. Exact catalog IDs, per-file sizes, and pinned SHA-256 hashes are maintained in `services/comfyui/models.yaml`, the authoritative catalog source.
 
 ### 9.2. Pinned artifacts
 
-All four unique files come from immutable revision `8038ce89b91b042141541ad0fa51b985ca262c5f` of [`Comfy-Org/Krea-2`](https://huggingface.co/Comfy-Org/Krea-2/tree/8038ce89b91b042141541ad0fa51b985ca262c5f).
-
-| Bundle use | Target | Bytes | SHA-256 |
-|---|---|---:|---|
-| Turbo diffusion model | `diffusion_models/krea2_turbo_bf16.safetensors` | 26,283,332,608 | `78bbf8f4165eda19cea3cb06c78089221932a39e2eed8af9da741f942c47ffb3` |
-| RAW diffusion model | `diffusion_models/krea2_raw_bf16.safetensors` | 26,283,332,608 | `f99bb0ff8e362b77342bc4994e0c50906fe7ef7074864b181b7d48d2fa6d03d7` |
-| Shared text encoder | `text_encoders/qwen3vl_4b_bf16.safetensors` | 8,875,719,384 | `36f3ff447ef59201722e8f9ce6020c9819fdcfba6aa2608c4e09b1c0ce114e34` |
-| Shared VAE | `vae/qwen_image_vae.safetensors` | 253,806,246 | `a70580f0213e67967ee9c95f05bb400e8fb08307e017a924bf3441223e023d1f` |
+All four unique files (Turbo diffusion model, RAW diffusion model, shared text encoder, shared VAE) come from immutable revision `8038ce89b91b042141541ad0fa51b985ca262c5f` of [`Comfy-Org/Krea-2`](https://huggingface.co/Comfy-Org/Krea-2/tree/8038ce89b91b042141541ad0fa51b985ca262c5f). Per-file target paths, byte sizes, and SHA-256 hashes are recorded in `services/comfyui/models.yaml`.
 
 ### 9.3. Core-node workflow
 
@@ -232,9 +205,7 @@ curl -X POST http://localhost:${COMFYUI_PORT}/prompt \
 
 ### 9.4. License and deployment obligations
 
-The weights use the pinned [Krea 2 Community License](https://huggingface.co/krea/Krea-2-Turbo/blob/1161245028ef398cd0a951101b2bbf486464f841/LICENSE.pdf). Commercial use at or above **$1,000,000 USD ($1M) in company-wide annual revenue** requires an enterprise license. Deployments must also implement reasonable and appropriate **content filtering**. The authoritative license does not state a seat-count threshold; the previously reported 50-seat limit must not be applied.
-
-These obligations appear directly in the model picker and generated manifest metadata so operators see them before downloading the weights.
+The weights use the pinned [Krea 2 Community License](https://huggingface.co/krea/Krea-2-Turbo/blob/1161245028ef398cd0a951101b2bbf486464f841/LICENSE.pdf), which imposes a revenue-based commercial threshold and a content-filtering obligation — see the license for exact terms. These obligations appear directly in the model picker and generated manifest metadata so operators see them before downloading the weights.
 
 ### 9.5. Verification
 
@@ -283,7 +254,7 @@ The same preflight also runs as a CI-safe doctor check: `./start.sh doctor` repo
 
 Weights load **lazily on the first request** (~9–13 s slower than a warm request on an M2 Ultra). `health` reports `reachable` and the compute `device` (`mps` when `/system_stats` shows a non-CPU device). A freshly launched process is *reachable but cold*; the first generation warms it. `./start.sh` waits up to 60 s for reachability and prints a warm/cold line — a still-warming host is **not** an error (downstream containers retry), so read first-request latency as model load, not a hang.
 
-`status` is **ownership-aware** (#647): a bare `kill -0` on the pidfile would trust a **recycled** PID (another process inheriting the number after a reboot or crash), reporting a dead host as `running`. Instead `status` also cross-checks the process argv against the ComfyUI checkout/state dir, so a recycled or foreign (e.g. root-owned) PID reports `running: false` — and `start` then clears the stale pidfile and relaunches instead of no-opping. No manual `stop` → `start` dance is needed to recover.
+`status` is **ownership-aware**: it verifies the pidfile's PID actually belongs to a ComfyUI process before reporting `running`, rather than trusting a possibly-recycled PID. A stale or foreign PID is treated as not running, and `start` clears it and relaunches automatically — no manual `stop` → `start` dance needed to recover. See `bootstrapper/tests/test_comfyui_mps_manager.py` for the exact recovery logic.
 
 ### 10.5. Unsupported hosts
 
@@ -292,7 +263,7 @@ On anything that is not macOS/arm64 (Linux CI, Intel Macs, Windows) the prefligh
 ### 10.6. Upgrades, rollback, logs, removal
 
 - **Upgrade / rollback** — change `COMFYUI_MPS_REF` in `.env` (a release tag or full commit SHA), then stop and start the service. Install detects the ref and requirements drift and reconciles the venv automatically; `install --update` remains available to force a rebuild. Stop targets the full process group so child workers do not survive the managed server.
-- **Reproducible Torch** — the install pins `torch`/`torchvision`/`torchaudio` to `COMFYUI_MPS_TORCH_PIN` (default `torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0`) rather than installing whatever is newest that day, so a fresh install against the same `COMFYUI_MPS_REF` is reproducible and `--update` honors the pin. Bump it alongside `COMFYUI_MPS_REF` when the upstream ComfyUI ref needs a newer Torch (#648).
+- **Reproducible Torch** — Torch versions are pinned via `COMFYUI_MPS_TORCH_PIN` and reconciled automatically, so a fresh install against the same `COMFYUI_MPS_REF` is reproducible rather than installing whatever is newest that day. Bump the pin alongside `COMFYUI_MPS_REF` when the upstream ComfyUI ref needs a newer Torch; see the install script's own comments for the current default pin string.
 - **Logs** — `tail -f "${COMFYUI_MPS_STATE_DIR/#\~/$HOME}/comfyui-mps.log"` (default `~/.atlas/comfyui-mps/comfyui-mps.log`), the same file `status`/`start` report.
 - **Removal** — `./start.sh comfyui-mps remove` stops the process and deletes the state dir. Your host models dir (`COMFYUI_MPS_MODELS_PATH`) is **never deleted or pruned** — existing weights are reused, not owned; provisioning only *adds* declared catalog files (plus a small `.atlas_provisioned.json` verification cache).
 
@@ -324,17 +295,11 @@ Native support is **shape-only** — geometry generation with **no texture / PBR
 
 ### 11.1. Inventory
 
-| Model | Catalog ID | Category | Precision | Disk | RAM | VRAM |
-|-------|-----------|----------|-----------|------|-----|------|
-| Hunyuan3D-2 | `hunyuan3d-2` | `mesh_model` | fp16 | 4.928 GB | 16 GB | 8 GB |
+Single catalog entry `hunyuan3d-2` (`mesh_model`, fp16), roughly 4.9 GB on disk, recommending 16 GB RAM / 8 GB VRAM. Catalog ID, disk/RAM/VRAM figures, and the pinned SHA-256 are maintained in `services/comfyui/models.yaml`.
 
 ### 11.2. Pinned artifact
 
-| Role | Target | Bytes | SHA-256 |
-|------|--------|-------|---------|
-| dit checkpoint | `checkpoints/hunyuan3d-dit-v2.safetensors` | 4,928,151,562 | `360bc281fc956d4acac0c3d36d5ec0ebf8cdddbf4b8892e894d12419388d479b` |
-
-The URL and license are pinned to immutable revision [`9cd649ba6913f7a852e3286bad86bfa9a2d83dcf`](https://huggingface.co/tencent/Hunyuan3D-2/tree/9cd649ba6913f7a852e3286bad86bfa9a2d83dcf) of [`tencent/Hunyuan3D-2`](https://huggingface.co/tencent/Hunyuan3D-2). The dit checkpoint's category is `mesh_model` but its `target_dir` overrides to `checkpoints` so ComfyUI's `ImageOnlyCheckpointLoader` resolves it. Native Hunyuan3D-2 support predates Atlas's pinned ComfyUI ref (`COMFYUI_REF` / `COMFYUI_MPS_REF`, default `v0.27.0`).
+The dit checkpoint (`checkpoints/hunyuan3d-dit-v2.safetensors`) is pinned to immutable revision [`9cd649ba6913f7a852e3286bad86bfa9a2d83dcf`](https://huggingface.co/tencent/Hunyuan3D-2/tree/9cd649ba6913f7a852e3286bad86bfa9a2d83dcf) of [`tencent/Hunyuan3D-2`](https://huggingface.co/tencent/Hunyuan3D-2); exact byte size and SHA-256 are recorded in `services/comfyui/models.yaml`. The checkpoint's category is `mesh_model` but its `target_dir` overrides to `checkpoints` so ComfyUI's `ImageOnlyCheckpointLoader` resolves it. Native Hunyuan3D-2 support predates Atlas's pinned ComfyUI ref (`COMFYUI_REF` / `COMFYUI_MPS_REF`, default `v0.27.0`).
 
 ### 11.3. Core-node workflow
 
@@ -347,11 +312,7 @@ curl -XPOST "$COMFYUI_ENDPOINT/prompt" -H 'content-type: application/json' \
 
 ### 11.4. License
 
-The weights use the [Tencent Hunyuan Community License](https://huggingface.co/tencent/Hunyuan3D-2/blob/main/LICENSE). Material operator obligations:
-
-- **Territory-restricted** — not licensed for use in the European Union, the United Kingdom, or South Korea.
-- Products or services with over **100 million monthly active users** require a separate license from Tencent.
-- Use is subject to the Tencent Hunyuan Community License Agreement and its Acceptable Use Policy.
+The weights use the [Tencent Hunyuan Community License](https://huggingface.co/tencent/Hunyuan3D-2/blob/main/LICENSE), which carries territorial restrictions and a monthly-active-user scale threshold requiring a separate license above it — see the license for exact terms.
 
 ### 11.5. Verification
 
