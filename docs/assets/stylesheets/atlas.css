@@ -1,50 +1,134 @@
+/* =============================================================================
+   Atlas docs — "Clean Systems" design system
+   Light-first, dual-theme via [data-md-color-scheme]. Airy layout, hairline
+   borders, one calm blue accent. Semantic admonition colors (note/tip/
+   warning/danger) are Material's own per-type hues and are left untouched —
+   they stay separate from the accent by design.
+   ============================================================================= */
+
 :root {
-  --atlas-void: #020617;
-  --atlas-panel: #07111f;
-  --atlas-panel-strong: #0b1728;
-  --atlas-ink: #e5f4ff;
-  --atlas-ink-strong: #f8fbff;
-  --atlas-muted: #9fb7cc;
-  --atlas-blue: #60a5fa;
-  --atlas-sky: #38bdf8;
-  --atlas-cyan: #0ea5e9;
-  --atlas-electric: #7dd3fc;
-  --atlas-gold: #d5a22a;
+  --atlas-radius: 10px;
+  --atlas-radius-sm: 6px;
+  --atlas-content-measure: 48rem;
+  --atlas-shadow-soft: 0 1px 2px rgba(15, 23, 42, 0.06);
 }
 
-[data-md-color-scheme="slate"] {
-  --md-primary-fg-color: #07111f;
-  --md-primary-bg-color: #f8fbff;
-  --md-accent-fg-color: #38bdf8;
-  --md-default-bg-color: #020617;
-  --md-default-fg-color: #e5f4ff;
-  --md-typeset-a-color: #38bdf8;
-}
-
+/* -----------------------------------------------------------------------
+   Tokens — Light (`default`)
+   ----------------------------------------------------------------------- */
 [data-md-color-scheme="default"] {
-  --md-primary-fg-color: #f8fbff;
-  --md-primary-bg-color: #020617;
-  --md-accent-fg-color: #0ea5e9;
-  --md-typeset-a-color: #0369a1;
+  --atlas-bg: #ffffff;
+  --atlas-surface: #f8fafc;
+  --atlas-text: #0f172a;
+  --atlas-muted: #5b6472;
+  --atlas-border: #e6e9ef;
+  --atlas-accent: #2563eb;
+  --atlas-accent-hover: #1d4ed8;
+  --atlas-link: #1d4ed8;
+  --atlas-code-bg: #0f172a;
+  --atlas-code-fg: #e2e8f0;
+
+  --md-default-bg-color: var(--atlas-bg);
+  --md-default-fg-color: var(--atlas-text);
+  --md-default-fg-color--light: var(--atlas-muted);
+  --md-default-fg-color--lighter: color-mix(in srgb, var(--atlas-muted) 55%, transparent);
+  --md-default-fg-color--lightest: color-mix(in srgb, var(--atlas-muted) 25%, transparent);
+
+  --md-primary-fg-color: var(--atlas-bg);
+  --md-primary-bg-color: var(--atlas-text);
+
+  --md-accent-fg-color: var(--atlas-accent);
+  --md-accent-fg-color--transparent: color-mix(in srgb, var(--atlas-accent) 12%, transparent);
+
+  --md-typeset-a-color: var(--atlas-link);
+  --md-typeset-table-color: var(--atlas-border);
+
+  --md-code-bg-color: var(--atlas-code-bg);
+  --md-code-fg-color: var(--atlas-code-fg);
+
+  --md-admonition-bg-color: var(--atlas-surface);
 }
 
+/* -----------------------------------------------------------------------
+   Tokens — Dark (`slate`) — a true equal, not an inversion of light
+   ----------------------------------------------------------------------- */
+[data-md-color-scheme="slate"] {
+  --atlas-bg: #0d1117;
+  --atlas-surface: #161b22;
+  --atlas-text: #e6edf3;
+  --atlas-muted: #8b949e;
+  --atlas-border: #21262d;
+  --atlas-accent: #5b8bff;
+  --atlas-accent-hover: color-mix(in srgb, #5b8bff 80%, white);
+  --atlas-link: #79a6ff;
+  --atlas-code-bg: var(--atlas-surface);
+  --atlas-code-fg: var(--atlas-text);
+
+  --md-default-bg-color: var(--atlas-bg);
+  --md-default-fg-color: var(--atlas-text);
+  --md-default-fg-color--light: var(--atlas-muted);
+  --md-default-fg-color--lighter: color-mix(in srgb, var(--atlas-muted) 45%, transparent);
+  --md-default-fg-color--lightest: color-mix(in srgb, var(--atlas-muted) 20%, transparent);
+
+  --md-primary-fg-color: var(--atlas-bg);
+  --md-primary-bg-color: var(--atlas-text);
+
+  --md-accent-fg-color: var(--atlas-accent);
+  --md-accent-fg-color--transparent: color-mix(in srgb, var(--atlas-accent) 16%, transparent);
+
+  --md-typeset-a-color: var(--atlas-link);
+  --md-typeset-table-color: var(--atlas-border);
+
+  --md-code-bg-color: var(--atlas-code-bg);
+  --md-code-fg-color: var(--atlas-code-fg);
+
+  --md-admonition-bg-color: var(--atlas-surface);
+}
+
+/* -----------------------------------------------------------------------
+   Header + nav tabs — flat, hairline, no gradients
+   ----------------------------------------------------------------------- */
 .md-header {
-  background: rgba(2, 6, 23, 0.94);
-  border-bottom: 1px solid rgba(96, 165, 250, 0.22);
+  background-color: var(--md-primary-fg-color);
+  border-bottom: 1px solid var(--atlas-border);
+  box-shadow: none;
+  color: var(--md-primary-bg-color);
+}
+
+.md-header--shadow {
+  box-shadow: var(--atlas-shadow-soft);
+}
+
+.md-tabs {
+  background-color: var(--md-primary-fg-color);
+  border-bottom: 1px solid var(--atlas-border);
+  color: var(--md-primary-bg-color);
+}
+
+.md-tabs__link {
+  box-shadow: inset 0 -2px 0 0 transparent;
+  transition: box-shadow 0.2s ease, opacity 0.25s;
+}
+
+.md-tabs__item--active .md-tabs__link,
+.md-tabs__link:hover,
+.md-tabs__link:focus {
+  box-shadow: inset 0 -2px 0 0 var(--md-accent-fg-color);
 }
 
 .md-main {
-  background:
-    linear-gradient(115deg, rgba(14, 165, 233, 0.13), transparent 30rem),
-    linear-gradient(180deg, #07111f 0, #020617 32rem, #020617 100%);
+  background-color: var(--md-default-bg-color);
 }
 
+/* -----------------------------------------------------------------------
+   Layout — grid width + comfortable content measure
+   ----------------------------------------------------------------------- */
 .md-grid {
   max-width: min(92rem, calc(100vw - 2rem));
 }
 
 .md-content__inner {
-  max-width: 58rem;
+  max-width: var(--atlas-content-measure);
 }
 
 .md-content--atlas-wide {
@@ -65,62 +149,117 @@
   max-width: none;
 }
 
-[data-md-color-scheme="default"] .md-main {
-  background:
-    linear-gradient(115deg, rgba(14, 165, 233, 0.08), transparent 30rem),
-    linear-gradient(180deg, #f8fbff 0, #eef7ff 32rem, #ffffff 100%);
-}
-
+/* -----------------------------------------------------------------------
+   Headings
+   ----------------------------------------------------------------------- */
 .md-typeset h1,
 .md-typeset h2,
 .md-typeset h3 {
   letter-spacing: 0;
 }
 
+.md-typeset h1,
+.md-typeset h2 {
+  text-wrap: balance;
+}
+
 .md-typeset h1 {
-  color: var(--atlas-ink-strong);
-  font-weight: 760;
+  color: var(--md-default-fg-color);
+  font-weight: 700;
 }
 
-[data-md-color-scheme="default"] .md-typeset h1 {
-  color: #020617;
+.md-typeset h2 {
+  font-weight: 600;
 }
 
+/* -----------------------------------------------------------------------
+   Tables — hairline borders, generous spacing
+   ----------------------------------------------------------------------- */
+.md-typeset table:not([class]) {
+  border: 1px solid var(--atlas-border);
+  border-radius: var(--atlas-radius-sm);
+}
+
+.md-typeset table:not([class]) th {
+  background-color: var(--atlas-surface);
+  border-bottom: 1px solid var(--atlas-border);
+}
+
+/* -----------------------------------------------------------------------
+   Code + pre — rounded, token-driven background
+   ----------------------------------------------------------------------- */
+.md-typeset code {
+  border-radius: var(--atlas-radius-sm);
+}
+
+.md-typeset pre > code {
+  border: 1px solid var(--atlas-border);
+  border-radius: var(--atlas-radius);
+}
+
+/* -----------------------------------------------------------------------
+   Admonitions — thin left rule in the semantic color, calm background
+   ----------------------------------------------------------------------- */
+.md-typeset .admonition,
+.md-typeset details {
+  background-color: var(--md-admonition-bg-color);
+  border-style: solid;
+  border-width: 0 0 0 3px;
+  border-radius: var(--atlas-radius-sm);
+  box-shadow: none;
+}
+
+/* -----------------------------------------------------------------------
+   Homepage hero (`docs/index.md`) — accent CTAs, calm kicker, airy grid
+   ----------------------------------------------------------------------- */
 .atlas-home {
   display: grid;
-  gap: 2rem;
-  margin: 1rem 0 2.5rem;
+  gap: 2.5rem;
+  margin: 1.5rem 0 3rem;
 }
 
 .atlas-home__hero {
   align-items: center;
   display: grid;
-  gap: 1.4rem;
-  grid-template-columns: minmax(20rem, 0.75fr) minmax(26rem, 1.25fr);
+  gap: 2rem;
+  grid-template-columns: minmax(20rem, 0.85fr) minmax(24rem, 1.15fr);
 }
 
 .atlas-home__copy {
-  max-width: 44rem;
+  max-width: 42rem;
+}
+
+.atlas-kicker {
+  color: var(--atlas-muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .atlas-home__actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.65rem;
-  margin-top: 1rem;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
 }
 
 .atlas-home__actions a {
-  border: 1px solid rgba(56, 189, 248, 0.45);
-  border-radius: 8px;
-  color: var(--atlas-ink-strong);
+  background-color: var(--atlas-accent);
+  border: 1px solid var(--atlas-accent);
+  border-radius: var(--atlas-radius-sm);
+  color: #ffffff;
   display: inline-flex;
-  font-weight: 700;
-  padding: 0.55rem 0.8rem;
+  font-weight: 600;
+  padding: 0.6rem 1.1rem;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
 }
 
-[data-md-color-scheme="default"] .atlas-home__actions a {
-  color: #020617;
+.atlas-home__actions a:hover,
+.atlas-home__actions a:focus {
+  background-color: var(--atlas-accent-hover);
+  border-color: var(--atlas-accent-hover);
+  color: #ffffff;
 }
 
 .atlas-home__media {
@@ -130,9 +269,9 @@
 .atlas-home__media img,
 .atlas-screenshot img,
 .atlas-diagram img {
-  border: 1px solid rgba(96, 165, 250, 0.24);
-  border-radius: 8px;
-  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.34);
+  border: 1px solid var(--atlas-border);
+  border-radius: var(--atlas-radius);
+  box-shadow: var(--atlas-shadow-soft);
 }
 
 .atlas-home__media img {
@@ -140,14 +279,7 @@
 }
 
 .atlas-screenshot {
-  margin-top: 1.5rem;
-}
-
-.atlas-kicker {
-  color: var(--atlas-sky);
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+  margin-top: 2rem;
 }
 
 @media screen and (max-width: 76rem) {
