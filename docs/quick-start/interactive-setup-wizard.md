@@ -68,7 +68,7 @@ A single unified multi-select shown for every `ollama-*` source. The option list
 Each row is 2 cells tall and surfaces:
 
 **Line 1** (cursor + expand-glyph + checkbox + label + capability columns + pull count):
-- **Capability badges** — `[embedding]`, `[thinking]`, `[vision]`, `[tools]`, `[audio]`, `[mlx]`. Pulled from each model card's `x-test-capability` spans (and the MLX chip on each model's detail page for the `[mlx]` slot); a row may carry zero, one, or several. Rendered in a fixed canonical column order with reserved per-slot widths so the same tag lands at the same horizontal column across rows — absent capabilities still reserve their slot. Narrow terminals (< 100 cells for parents, < 130 for leaves) fall back to inline variable-width tags so the pull-count column doesn't get pushed off-screen.
+- **Capability badges** — `[embedding]`, `[thinking]`, `[vision]`, `[tools]`, `[audio]`, `[mlx]` show which capabilities a model supports; a row may carry zero, one, or several. Column layout and narrow-terminal fallback rendering are internal to the model-row renderer (`bootstrapper/ui/textual/widgets`).
 - **Status badges** — `[pulled]` / `[library]` / `[default]` plus the `[legacy]` marker for models updated > 365 days ago. Rendered after the capability block with variable width.
 - **Pull count** — far right, muted, in `K`/`M`/`B` format (e.g. `114.2M`). Right-aligned to the row width.
 
@@ -82,18 +82,11 @@ Line 2 wraps to multiple visual rows on narrow terminals when a model has many v
 
 **Filter chips** appear directly below the search box: `Filter  [ALL]  embedding  thinking  vision  tools  audio`. Click a chip — or press **`f`** to cycle them from the keyboard — to narrow the list to that capability. Single-select; click `ALL` (or keep pressing `f` to wrap) to reset. The chip filter and the search box **stack**: a row must match both the active chip AND the search substring to render. Filtering is a view operation only — rows you've already checked stay checked when hidden and reappear when the filter is cleared.
 
-**Ollama Cloud-exclusive entries excluded** — the live listing-page scrape flags models carrying the `cloud` chip that publish no pullable variants (`glm-5`, `minimax-m2`, `kimi-k2`, `deepseek-v4-pro`, …). Those can't be `ollama pull`-ed, so the wizard drops them from the multiselect before render and writes `[info/ollama-fetch] excluded N cloud-only Ollama Cloud model(s)` to the session log. Hybrid entries that publish both cloud and pullable local variants (`gemma3`, `gpt-oss`, `qwen3-coder`, `deepseek-v3.1`, …) stay in the list with their local variants intact.
+**Ollama Cloud-exclusive entries excluded** — models that publish no pullable variant (cloud-only listings) can't be `ollama pull`-ed, so the wizard drops them from the list and logs the excluded count to the session log. Hybrid entries that publish both cloud and pullable local variants keep their local variants in the list.
 
 **Variant picker (in-place tree)** — multi-variant Ollama rows show an expansion indicator on the left. Press **`Space`** on the parent to expand the tree in place; the variants appear as indented leaves with connector lines directly below. Press `Space` again to collapse. Press `Space` on a leaf to toggle that specific tag. Single-variant rows (`nomic-embed-text`, custom local builds) toggle directly on `Space`. Selections persist to `OLLAMA_USER_MODELS` as `qwen3:8b,qwen3:14b` — `ollama-pull` will fetch each one. The parent's `[selected]` is the aggregate state — green when any leaf is checked. Arrows, Enter, and Esc all keep working naturally; cursor and focus stay in the prompt panel throughout (no popup).
 
-**Rich per-variant data via the detail page** — on the first expand of any parent, the wizard fires an async fetch of `ollama.com/library/{model}` (the model's detail page) and parses its per-variant table. Subsequent expansions of the same parent use the in-memory cache (sub-millisecond). The detail page is much richer than the listing:
-
-- **Real variants** — beyond the param-count tags (`8b`, `70b`) the listing exposes, the detail page lists every Ollama tag the model maker publishes: quantization variants like `27b-coding-mxfp8` and `35b-a3b-mlx-bf16`.
-- **Real sizes** — actual disk footprint (`5.2GB`, `523MB`) rather than the Q4 approximation we compute from the param count.
-- **Context window** — `40K` / `128K` / `256K` per variant.
-- **Per-variant capability tags** — derived from the detail page's `Input` column. A variant whose Input is `Text, Image` gets a `[vision]` badge; `Audio` gets `[audio]`. This means leaves of the same parent can carry different capabilities (e.g., `gemma3:4b` has `[vision]` while `gemma3:270m` doesn't).
-
-While the fetch is in flight, the parent's expansion shows a single `Fetching variants from ollama.com/library …` status leaf. On parse failure (network down, upstream HTML changed), the wizard falls back to the listing-page sizes (synthetic `:latest` + param-count tags). The fetch never blocks navigation — arrows, filter chips, and other steps remain responsive throughout.
+**Rich per-variant data** — expanding a parent row fetches the model's Ollama library detail page, which is richer than the listing: every published tag (not just the `8b`/`70b` param-count buckets), real per-variant disk sizes in place of the initial estimate, context window, and per-variant capability tags — so, e.g., `gemma3:4b` can show `[vision]` while `gemma3:270m` doesn't. The fetch runs in the background without blocking navigation and falls back to the listing-page estimates on failure.
 
 **Bare ↔ tagged invariant**: per row, `_checked_values` contains either the bare model name (`qwen3` → pulls `:latest`) OR one+ tagged forms (`qwen3:8b`), never both. The synthetic `latest` leaf at the top of every expansion lets you pick the model-maker default explicitly. Toggling a leaf auto-clears any pre-existing bare entry for that parent.
 
@@ -132,7 +125,7 @@ If the live fetch fails (network outage, key rejected, 5xx), the wizard falls ba
 
 ### 4.5. Splash + cache + back-invalidation
 
-Live fetches run in a background worker so the wizard stays responsive (Esc still works). While the request is in flight, the multiselect renders a single `Fetching <provider> models…` row (the **fetch status**). Once data arrives, the status is replaced with the real options. The fetched list is cached for the lifetime of the wizard process and re-used if you navigate forward and back. Pressing **Esc** to return to a prior step **invalidates** the cache for any provider step at or after the new position AND bumps a generation counter so any in-flight worker that has since become stale silently drops its result instead of polluting the now-empty cache. Re-entry triggers a fresh fetch with the (possibly updated) key.
+Live fetches run in the background so the wizard stays responsive; a `Fetching <provider> models…` placeholder shows until real options arrive, and the result is cached for the wizard session so navigating forward and back doesn't refetch. Returning to a prior step with **Esc** invalidates the cache for that provider and any later step, so re-entering triggers a fresh fetch — useful if you just changed the API key.
 
 ### 4.6. LLM defaults · chat / embedding / vision (single-select)
 
@@ -199,34 +192,19 @@ leaf is checked. Selections persist as full repository names in
 entry stay flat, as do civitai numeric IDs, the curated allowlist,
 and sidecar entries.
 
-**Catalog load latency** — Hugging Face's list endpoint returns
-each model card without sibling file sizes, so the wizard fires
-one per-repo `/api/models/{id}?blobs=true` follow-up call to
-populate real `size_gb` values. These calls fan out across a
-ThreadPoolExecutor of 10 workers (HF rate-limits at higher
-concurrency); total cost is **~10–15 s** of extra wizard load on
-first open for the ~130-entry HF tier. Per-repo failures are
-silent; the affected row keeps `0.00 GB` and the rest of the
-catalog still loads.
+**Catalog load latency** — the wizard makes follow-up calls to Hugging Face
+to populate real file sizes for each model, which adds a modest delay the
+first time the ComfyUI picker opens. A repo whose size lookup fails just
+shows `0.00 GB` without blocking the rest of the catalog from loading.
 
 **Source-aware behaviour** — the picker fires for all non-`disabled`
 ComfyUI sources, but the downstream init pipeline branches:
 
-- **`container-cpu` / `container-gpu`** — at bootstrapper start,
-  `comfyui_resolver` computes the active set from `COMFYUI_USER_MODELS`
-  + `services/comfyui/custom-models.yaml` and writes
-  `volumes/comfyui/selected-models.yaml` (manifest) and
-  `volumes/comfyui/active-models.tsv`. It also maps required custom
-  nodes through `services/comfyui/custom-nodes.yaml` and writes
-  `volumes/comfyui/active-custom-nodes.tsv` (all three are gitignored
-  runtime artifacts — regenerated every start, never committed).
-  `comfyui-init` then
-  downloads each model in the model TSV into the `comfyui-models`
-  volume via wget. The AI-Dock provisioning hook in the main ComfyUI
-  container clones each allowlisted custom-node row into the
-  `comfyui-custom-nodes` volume at the pinned commit SHA and installs
-  its requirements when enabled.
-  Selections persist to `COMFYUI_USER_MODELS` in `.env`.
+- **`container-cpu` / `container-gpu`** — at bootstrapper start, the
+  resolver computes the active model and required-custom-node set from
+  your selections and the init containers download/install them into the
+  ComfyUI containers automatically. Selections persist to
+  `COMFYUI_USER_MODELS` in `.env`.
 - **`localhost`** — `comfyui-init` is scaled to 0 (the download
   container would write into a path the host ComfyUI doesn't read), but
   the bootstrapper still writes the manifest so the backend
@@ -240,16 +218,11 @@ catalog names) in `.env`. CLI flag `--comfyui-models` accepts the
 same CSV. CLI flag `--comfyui-custom-models-file PATH` overrides
 the default sidecar YAML location.
 
-**Multi-file bundles** — a single catalog name can represent a bundle
-declared with `files:` in `services/comfyui/models.yaml` or
-`services/comfyui/custom-models.yaml`. Selecting that one logical row writes
-one manifest entry per file and one TSV download row per file. Each file can
-declare its own category, filename, SHA256, target directory, precision, and
-variant, so Krea-style model sets can stage diffusion weights into
-`diffusion_models/`, text encoders into `text_encoders/`, and VAEs into
-`vae/` without asking the user to select three separate rows. Mesh/3D bundles
-can also route loader-specific weights to `checkpoints/` while remaining
-grouped under one catalog selection.
+**Multi-file bundles** — a single catalog entry can represent a bundle of
+related files (e.g. diffusion weights, a text encoder, and a VAE for one
+model set), so selecting one row downloads every file the bundle needs into
+its correct target directory. The bundle schema is documented alongside
+`services/comfyui/models.yaml`.
 
 When the upstream HF / civitai scrape fails (rare), the wizard
 falls back to the bundled allowlist via
@@ -368,25 +341,7 @@ Empty values fall back to the canonical defaults (encoded in `bootstrapper/ui/st
 
 ### 15.1. Block-art logo (`BRAND_LOGO_FILE`)
 
-The big ASCII block-art lockup — shown in the wizard's brand panel and the `--no-tui` startup banner — defaults to the built-in **ATLAS** art (an [ANSI-Shadow](https://patorjk.com/software/taag/#p=display&f=ANSI%20Shadow) figlet lockup). Point `BRAND_LOGO_FILE` at a text file to override it; leave it empty to keep ATLAS. Both render surfaces read the same file (`bootstrapper/utils/brand_logo.py`), so the override stays in parity across the TUI and the linear banner.
-
-**File format** — the *wide* lockup rows, an optional `---` line on its own, then the *narrow* (compact) fallback used on terminals too small for the wide one:
-
-```
- ██████╗  █████╗  ██████╗
- ██╔══██╗██╔══██╗██╔════╝
- ██████╔╝███████║██║  ███╗
- ██╔══██╗██╔══██║██║   ██║
- ██║  ██║██║  ██║╚██████╔╝
- ╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝
----
-(optional narrower variant here)
-```
-
-- Keep the art **6 rows tall** (figlet's ANSI-Shadow output already is, regardless of word length) so it fits the brand panel.
-- Provide the compact section for long names — without a `---` separator the single block is reused at every width and will clip on narrow terminals.
-- Generate matching art with any figlet tool, e.g. `figlet -f "ANSI Shadow" "My Brand"` (or [patorjk.com/software/taag](https://patorjk.com/software/taag/)).
-- Leading/trailing blank lines are trimmed; everything else renders verbatim with the same top→bottom blue gradient as ATLAS.
+The big ASCII block-art lockup — shown in the wizard's brand panel and the `--no-tui` startup banner — defaults to the built-in **ATLAS** art (an [ANSI-Shadow](https://patorjk.com/software/taag/#p=display&f=ANSI%20Shadow) figlet lockup). Point `BRAND_LOGO_FILE` at a text file to override it; leave it empty to keep ATLAS. Generate matching art with any figlet tool, e.g. `figlet -f "ANSI Shadow" "My Brand"` (or [patorjk.com/software/taag](https://patorjk.com/software/taag/)) — the expected file layout (wide lockup, optional `---`-separated narrow fallback for small terminals) is documented in `bootstrapper/utils/brand_logo.py`, which both render surfaces read so the override stays in parity across the TUI and the linear banner.
 
 > The richer image-derived **splash** (the globe hero in `atlas_hero.py`, generated from a source image by `bootstrapper/scripts/generate_logo.py`) is a separate asset and is **not** covered by `BRAND_LOGO_FILE` — it stays the Atlas hero unless you regenerate those grids.
 
