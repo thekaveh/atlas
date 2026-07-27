@@ -2164,7 +2164,7 @@ Highlights:
 ### 1.109. Architecture diagrams — skill-driven rewrite
 
 The top-level architecture diagram (`docs/diagrams/architecture.svg`) is now
-hand-authored through the `architecture-diagram` skill — JetBrains Mono on a slate-950
+hand-authored through the `architecture-diagram` skill — JetBrains Mono on a slate-950 <!-- lint-ok -->
 background, category palette of cyan / emerald / violet / amber / rose /
 orange / slate, layered topological flow from external clients down
 through Kong → Apps → Agents → LLM Core → Media → Data → Ray. The
