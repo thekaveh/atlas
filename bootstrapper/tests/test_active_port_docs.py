@@ -46,16 +46,10 @@ def test_active_service_port_claims_match_topology() -> None:
     chatterbox = ports["CHATTERBOX_PORT"]
     speaches = ports["SPEACHES_PORT"]
     claims = {
-        "README.md": (
-            f"# SearxNG (Search):      http://localhost:{searxng}",
-            f"# ComfyUI:               http://localhost:{comfyui}",
-            f"| **ComfyUI** | http://localhost:{comfyui} |",
-            f"| **SearxNG** | http://localhost:{searxng} |",
-            f"Default Speaches: http://localhost:{speaches}",
-            f"Parakeet STT on `:{stt}` or Chatterbox TTS on `:{chatterbox}`",
-            f"`TTS_PROVIDER_PORT={tts}` is a display slot",
-            f"| **Apache Tika** | http://localhost:{tika} |",
-        ),
+        # Root README no longer advertises per-service endpoints directly (Task 2,
+        # docs IA restructure) — it links to the generated docs/reference/ports-routes.md
+        # and keeps only the generated TOPOLOGY table. Per-service READMEs below remain
+        # the canonical, still-checked homes for these port claims.
         "services/comfyui/README.md": (
             f"`http://localhost:${{COMFYUI_PORT}}` (default `{comfyui}`)",
         ),

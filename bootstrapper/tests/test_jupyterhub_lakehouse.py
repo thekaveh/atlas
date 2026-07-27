@@ -101,10 +101,17 @@ def test_jupyterhub_docs_cover_lakehouse_clients_and_validation() -> None:
 
 
 def test_jupyterhub_deployment_docs_describe_current_data_track_lakehouse_path() -> None:
+    # The dedicated SOURCE matrix row that used to spell out "PyIceberg lakehouse
+    # notebooks" in prose was removed as duplication (docs IA restructure, Task 3);
+    # the fact still lives in this file's SPARK_SOURCE section (§4.11), which names
+    # JupyterHub explicitly and references the `pyiceberg` package (its actual,
+    # lowercase PyPI/import name — used consistently across the manifest,
+    # requirements.txt, and services/jupyterhub/README.md) as part of the lakehouse
+    # client stack.
     source_config = (ROOT / "docs" / "deployment" / "source-configuration.md").read_text(
         encoding="utf-8"
     )
 
     assert "JupyterHub" in source_config
-    assert "PyIceberg" in source_config
+    assert "pyiceberg" in source_config
     assert "JupyterHub + Backend wiring is a future spec" not in source_config
