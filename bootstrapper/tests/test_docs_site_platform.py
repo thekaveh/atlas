@@ -228,21 +228,34 @@ def test_wiki_contains_the_complete_manifest_page_set_and_navigation() -> None:
         assert not any(is_forbidden(link.target, "wiki") for link in find_links(text))
 
 
-def test_home_and_theme_preserve_the_atlas_dark_visual_contract() -> None:
+def test_home_and_theme_preserve_the_atlas_clean_systems_visual_contract() -> None:
     config = _mkdocs()
     home = (ROOT / "docs" / "index.md").read_text(encoding="utf-8")
     css = THEME_CSS.read_text(encoding="utf-8")
 
     assert config["theme"]["name"] == "material"
-    assert config["theme"]["palette"][0]["scheme"] == "slate"
-    assert config["theme"]["palette"][0]["toggle"]["name"] == "Switch to light mode"
-    assert config["theme"]["palette"][1]["scheme"] == "default"
+    # Light-first "Clean Systems" palette order: default (light) before slate (dark).
+    assert config["theme"]["palette"][0]["scheme"] == "default"
+    assert config["theme"]["palette"][0]["toggle"]["name"] == "Switch to dark mode"
+    assert config["theme"]["palette"][1]["scheme"] == "slate"
+    assert config["theme"]["palette"][1]["toggle"]["name"] == "Switch to light mode"
+    assert config["theme"]["logo"]
+    assert config["theme"]["favicon"]
+    assert config["theme"]["font"]["text"] == "Public Sans"
     assert "atlas-home" in home
     assert "assets/atlas-poster-blue.png" in home
     assert "assets/atlas-poster-gold.png" not in home
     assert "screenshots/wizard-running.png" in home
     assert ".md-content--atlas-wide" in css
-    assert "grid-template-columns: minmax(20rem, 0.75fr) minmax(26rem, 1.25fr)" in css
+    # Clean Systems accent is present; the old dark-first "atlas dark" void tokens are gone.
+    assert "#2563eb" in css
+    assert "#020617" not in css
+    assert "atlas-void" not in css
+    # Hero stays a two-column grid without pinning the exact minmax() fractions.
+    hero_rule = re.search(r"\.atlas-home__hero\s*\{([^}]*)\}", css)
+    assert hero_rule is not None
+    assert "grid-template-columns:" in hero_rule.group(1)
+    assert hero_rule.group(1).count("minmax(") == 2
     assert "fonts.googleapis.com" not in css
     assert THEME_HERO_IMAGE.exists()
     assert THEME_POSTER_BLUE.exists()
