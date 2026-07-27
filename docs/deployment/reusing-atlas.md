@@ -627,20 +627,14 @@ per-service status summary, and exits with `0` only when the final status
 summary is healthy. Startup targets only the **enabled** services from the
 rendered Compose projection (derived from the resolved configuration — tracks,
 overrides, and consumer overlays included), so a broken local build belonging
-to a disabled/out-of-track service can no longer abort the bring-up; the
-selected target set (and the excluded disabled services) is echoed for
-debugging (#504). A nonzero Compose `up --wait` return is re-inspected before
-failing: when every service is running/healthy and every one-shot init exited
-`0`, it is classified as the known benign one-shot race and startup continues
-to the final summary; genuine failures still fail and name the offending
-service and exit code (#508). A service whose healthcheck is still in its start
-period (`health=starting`) at that moment is treated as **convergent-pending**,
-not failed: the still-starting rows are re-polled within a bounded grace window
-(up to ~120 s) before classifying, so a stack that is merely mid-probe no longer
-false-fails with `[ERROR] … starting` lines or a nonzero exit (#677/#681).
-Genuine failures (unhealthy, exited-nonzero, or still starting after the grace
-window) still fail loudly and name the service. Add `--json` when a parent
-script needs machine-readable status:
+to a disabled/out-of-track service cannot abort the bring-up. A service whose
+healthcheck is still in its start period (`health=starting`) is treated as
+**convergent-pending**, not failed: it is re-polled within a bounded grace
+window (up to ~120 s) before classifying, so a stack that is merely mid-probe
+does not false-fail. Genuine failures (unhealthy, exited non-zero, or still
+starting after the grace window) still fail loudly and name the offending
+service and exit code. Add `--json` when a parent script needs machine-readable
+status:
 
 ```bash
 ./start.sh --no-tui --detach --json
@@ -854,7 +848,7 @@ env:
 
 - **Inventory.** `GET /plugins` on the backend lists every mounted plugin — name, route prefix, health/docs, auth policy, declared env (secret values masked as `***`), and load status (`loaded` / `skipped` / `error`). Secret *values* are never exposed, but env-var names/flags are; `/plugins` is served under the backend route, so it inherits `BACKEND_KONG_AUTH` (open in local-dev default, gated once you set `key-auth`).
 - **Startup + preflight validation.** The seam validates declared env at boot, and [`./start.sh doctor`](#615-consumer-doctor-for-ci-preflight) re-validates it before launch: required-but-missing and enum/type mismatches are reported by plugin + var name. Secret values are never echoed.
-- **Fail-fast, isolated.** A present-but-malformed `plugin.yml` does **not** degrade to manifest-less loading — that one plugin is **skipped** with a structured error and the others stay healthy. Duplicate plugin names, overlapping prefixes, and prefixes that shadow a built-in backend route are rejected before mounting. The reserved set is the backend's `RESERVED_ROUTE_PREFIXES` (17 names): `api`, `comfyui`, `docs`, `documents`, `health`, `jobs`, `lightrag`, `media`, `memory`, `metrics`, `openapi.json`, `plugins`, `ready`, `redoc`, `research`, `storage`, `workflows`.
+- **Fail-fast, isolated.** A present-but-malformed `plugin.yml` does **not** degrade to manifest-less loading — that one plugin is **skipped** with a structured error and the others stay healthy. Duplicate plugin names, overlapping prefixes, and prefixes that shadow one of the backend's reserved built-in route names are rejected before mounting; the reserved-name list is defined in the schema linked below.
 - **Per-plugin gateway and application auth.** `auth: key-auth` puts Kong key-auth on that plugin's `route_prefix` and validates the same `BACKEND_KONG_API_KEY` inside FastAPI, preventing direct-port bypass. `auth: open` is an explicit public opt-out. `auth: inherit`, and plugins without a manifest, use the Backend application identity boundary. Atlas composes the matching Kong policy per prefix; distinct per-prefix credentials remain a future extension.
 
 The `plugin_manifest_version` is a hard-pinned contract version — a manifest built for a version this backend does not understand is skipped rather than mis-read. The canonical schema is [`bootstrapper/schemas/plugin.schema.json`](https://github.com/thekaveh/atlas/blob/main/bootstrapper/schemas/plugin.schema.json).
@@ -886,13 +880,7 @@ Because LiteLLM's config is regenerated from YAML + env on every start, Atlas **
 
 **No consumer-side reload is needed.** Every `./start.sh` recreates the stack with `docker compose up --force-recreate`, and the LiteLLM server waits for `litellm-init` (`service_completed_successfully`) before it boots. So on *every* start — cold or warm — LiteLLM is recreated reading the freshly-merged `config.yaml`, and your declared aliases appear in `/v1/models` immediately. **Do not** `docker restart` the LiteLLM container or hit its admin API from your own launcher to "pick up" model changes — that's redundant with the recreate-on-start contract.
 
-**What the contract enforces:**
-
-- **Ownership is derived from the manifest, not spoofable.** Every generated row is stamped with `model_info.atlas_owner: <consumer>`. An explicit `owner:` may only restate the consumer's own name — claiming another's is rejected. A removed manifest removes **only that consumer's** rows on the next start; stack rows and sibling-consumer rows are untouched.
-- **Approved endpoints only.** `api_base` is resolved against an allowlist of in-network Atlas endpoint templates — currently `${ATLAS_BACKEND_INTERNAL}` (`http://backend:8000`, where §6.3 plugins mount). It must resolve to a **clean base URL** (`scheme://host/path`): an arbitrary external host, an unapproved `${...}` template, leftover unresolved interpolation, userinfo credentials (`user:pass@…`), or **any query string or fragment** (the usual carrier for `?authorization=…`, `?api_key=…`, `#token`) is **rejected at load**. So a generated LiteLLM row can never exfiltrate to an off-stack host or carry a secret into the config file or startup log.
-- **Secrets stay references.** Use `api_key_var` (an `UPPER_SNAKE` env var name), never a literal `api_key`. Atlas renders `api_key: os.environ/<VAR>` (the same form as the stack `hermes-agent` row) and generates a compose overlay that passes that var into the `litellm` container so it resolves at request time. The secret **value** appears in no generated file, overlay, log, or doctor output.
-- **Unique, non-reserved aliases.** Aliases are globally unique across all consumers (one generated config) and may not shadow a stack-owned alias — that reserved set is **catalog-derived**: the runtime rows (`hermes-agent`, `lightrag`) *and* every YAML-catalog model name (`gpt-4o`, `nomic-embed-text`, …), rejected up front. As a last-line defense, `litellm-init` also **skips** any consumer row whose alias collides with an already-rendered stack model, so a stack model can never be silently hijacked (LiteLLM would otherwise load-balance duplicate `model_name`s across both endpoints).
-- **Preflight cross-check.** [`./start.sh doctor`](#615-consumer-doctor-for-ci-preflight) validates the block and cross-checks each backend-hosted model's first route segment against the declared `plugin.yml` `route_prefix`es (§6.3.1) — a model pointing at a route no plugin serves surfaces as an advisory warning rather than a dead `/v1/models` entry.
+**What the contract enforces.** Ownership is derived from the manifest (rows are stamped `model_info.atlas_owner: <consumer>`, and a removed manifest removes only that consumer's rows). `api_base` must resolve to a clean URL against an allowlist of in-network Atlas endpoints (currently `${ATLAS_BACKEND_INTERNAL}`, i.e. `http://backend:8000`) — an external host, userinfo credentials, or any query string / fragment is rejected at load, so a row can never exfiltrate to an off-stack host or carry a secret. Secrets are declared by `api_key_var` (an env var **name**), never a literal `api_key`; the value never appears in a generated file, log, or doctor output. Aliases must be globally unique and may not shadow a stack-owned or catalog model name. [`./start.sh doctor`](#615-consumer-doctor-for-ci-preflight) cross-checks each model's route against the declared `plugin.yml` `route_prefix` (§6.3.1).
 
 This is exactly how a RAG-showcase-style consumer retires a bespoke `register_models.py`: declare the approaches and flavor aliases in the manifest and let Atlas own the LiteLLM wiring.
 
@@ -919,14 +907,7 @@ n8n_workflows:
 
 On `./start.sh`, the bootstrapper normalizes each workflow JSON to an **Atlas-namespaced id** `atlas-consumer-<id>` (baking in the activation policy and stripping the runtime-state carriers `staticData`/`pinData`), writes the gitignored `volumes/n8n/consumer-workflows/` + a `plan.json`, and generates a compose overlay that runs an Atlas-owned **`n8n-seed`** container (the n8n image, sharing the n8n schema). After n8n is healthy, the seed imports each workflow with `n8n import:workflow` — **keyed by the namespaced `atlas-consumer-<id>`, so re-running startup updates the workflow in place and never creates a duplicate active workflow**. (The seeder uses **node**, not `wget`, for its API calls: the n8n image is Alpine/BusyBox and its `wget` has no `--method`.)
 
-**What the contract enforces:**
-
-- **Stable, owned, unique ids — auto-namespaced.** `id` is the idempotency key; it is globally unique across consumers and ownership is manifest-derived (a spoofed `owner:` is rejected). The declared `id` is the identity you see in logs, but the **imported DB id is the reserved `atlas-consumer-<id>`** — Atlas owns that id namespace, so a seeded workflow **can never overwrite a workflow an operator built by hand in the UI** (or a stack workflow) even if the ids look the same; you no longer have to hand-namespace to stay clear of user workflows. A removed manifest — or a removed single workflow — drops **only** its own generated artifacts on the next start, and (when `N8N_API_KEY` is set) the seed **reconciles**: any `atlas-consumer-*` workflow no longer declared is deactivated + deleted so a since-removed entry doesn't orphan a live webhook. Another consumer's or a user's workflows are never touched.
-- **Credentials never in the workflow JSON.** A node may reference a credential by a `{id, name}` mapping only; a raw string/list value (an inline secret) or a mapping with extra keys (an embedded credential `data` payload) is **rejected at load**, as are the runtime-state carriers `staticData`/`pinData` (stripped during normalization). The generated `plan.json` and overlay carry only ids/paths/statuses — never the workflow body — and the seed logs never print workflow content.
-- **Validated up front.** Malformed JSON, a missing file, an `active`/`version` outside the allowed set, a checksum mismatch, and duplicate webhook routes are all rejected at load; [`./start.sh doctor`](#615-consumer-doctor-for-ci-preflight) re-checks the files and warns when an **effectively-active** workflow (respecting `fromJson`) declares webhooks but `N8N_API_KEY` is unset.
-- **Webhook readiness (opt-in).** Declared webhooks are probed for readiness after import. A `GET`/`HEAD` probe is safe to issue; a **`POST` probe is opt-in** (`probe: true`) because it can trigger workflow side effects — a POST webhook without it is tracked for route-collision detection but never called.
-- **Activation needs no consumer action — with or without an API key.** When `N8N_API_KEY` is set, the seed activates each workflow through the n8n public API (checking the HTTP status and warning on a non-2xx) so its production webhook registers on the **running** instance — no restart. Without a key, n8n CE can't activate over the API: the seed persists `active=true` via `n8n publish:workflow`, but n8n only registers a production webhook when the **server** restarts (a live `active=true` write is ignored by the running process — empirically verified on `n8nio/n8n:2.28.2`). So Atlas performs that one restart of the n8n container after seeding, and the webhook registers with **no consumer-side `docker restart` or manual `publish:workflow`**. (`doctor` still warns if an effectively-active workflow declares webhooks and no key is set, so you know the restart path is in play.)
-- **Best-effort, never aborts launch.** A per-workflow import/activation failure is logged and isolated — the `n8n-seed` container always exits 0 — so one bad consumer workflow can't fail a `docker compose up --wait`.
+**What the contract enforces.** Each declared `id` imports under the reserved database id `atlas-consumer-<id>`, so re-running startup updates the workflow in place and can never overwrite a workflow an operator built by hand in the UI. A removed manifest, or a removed single workflow, drops only its own generated artifacts on the next start; with `N8N_API_KEY` set, the seed also reconciles — an undeclared `atlas-consumer-*` workflow is deactivated and deleted so it doesn't orphan a live webhook. Credentials may only be referenced by a `{id, name}` mapping, never embedded inline — a raw secret or extra-keyed credential payload is rejected at load, and generated artifacts and seed logs never carry workflow content. Malformed JSON, an invalid `active`/`version`, a checksum mismatch, and duplicate webhook routes are all rejected up front; [`./start.sh doctor`](#615-consumer-doctor-for-ci-preflight) warns when an active workflow declares webhooks without `N8N_API_KEY` set. Declared webhooks are readiness-probed after import — `GET`/`HEAD` by default; a `POST` probe requires `probe: true` since it can trigger side effects. n8n Community Edition cannot activate a workflow over its API without a key, so without one Atlas restarts the n8n container once after seeding to register the webhook — no consumer-side restart or manual activation needed. A per-workflow import/activation failure is logged and isolated; the seed container always exits 0 so one bad workflow can't fail startup.
 
 Downstream payoff: `rag-showcase` deletes its `import:workflow` + activate + restart + `/healthz`-poll sequence from `scripts/start-all.sh` and declares the workflow in the manifest.
 
@@ -953,7 +934,7 @@ rag_ingestion_profiles:
         - { backend: lightrag, mode: upload_documents, wait_for_extraction: true, timeout_seconds: 3600, on_unavailable: skip }
 ```
 
-On `./start.sh`, the bootstrapper validates + normalizes each profile, hashes it into a stable **`revision`**, writes the gitignored `volumes/backend/rag-ingestion-profiles.json`, and generates a compose overlay that bind-mounts that file into both Backend and Celery at the reserved internal contract path `/atlas-consumer-config/rag-ingestion-profiles.json`. Both services receive the same `RAG_INGESTION_PROFILES_FILE`, Redis state URL, upstream endpoints, and resource limits. For a MinIO corpus, the bucket must also be declared under the same consumer's `storage.buckets`; Atlas compiles that store's access/secret **variable names** into the profile and injects only those scoped credential references into both services. (The reserved `/atlas-consumer-config/` directory sits *outside* the `/app` source bind — Docker Desktop/VirtioFS rejects nested single-file mountpoints inside a bound directory, #533.) The backend exposes an async job API to submit ingestions headlessly:
+On `./start.sh`, the bootstrapper validates + normalizes each profile, hashes it into a stable **`revision`**, writes the gitignored `volumes/backend/rag-ingestion-profiles.json`, and generates a compose overlay that bind-mounts that file into both Backend and Celery at a reserved internal contract path. Both services receive the same `RAG_INGESTION_PROFILES_FILE`, Redis state URL, upstream endpoints, and resource limits. For a MinIO corpus, the bucket must also be declared under the same consumer's `storage.buckets`; Atlas compiles that store's access/secret **variable names** into the profile and injects only those scoped credential references into both services. The backend exposes an async job API to submit ingestions headlessly:
 
 ```bash
 # Submit (async when the Celery tier is enabled, else runs in-request); returns an ingestion id.
@@ -975,20 +956,9 @@ services:
       - ./corpus:/app/corpus:ro
 ```
 
-**What the contract enforces / provides:**
+**What the contract enforces.** A `mount` corpus must be a relative path under the shared execution root (`RAG_INGESTION_CORPUS_ROOT`, default `/app/corpus`) — an absolute path, a `~`, or a `..` segment is rejected; a MinIO corpus must reference a store the same consumer declared. Corpus discovery is bounded by manifest-owned limits (`RAG_INGESTION_MAX_FILE_BYTES`, default 100 MiB; `RAG_INGESTION_MAX_CORPUS_BYTES`, default 1 GiB; `RAG_INGESTION_MAX_FILES`, default 10,000) before content is retained in memory. `parser_order` is invoked exactly as declared — no silent fallback across parsers — and each job records observable phases (`discover → parse → chunk → embed → vector_write → lightrag_upload → drain → finalize`) with per-file errors isolated so one bad file doesn't fail the batch. Each `vector_target`/`graph_target` declares `on_unavailable: fail | skip` so a disabled backend fails or visibly skips rather than silently degrading. Ingestions are idempotent and leased: the job key is consumer + profile + revision + corpus fingerprint (so a resubmit of unchanged content returns the existing job, changed content creates a fresh one), and each execution holds an owner-fenced Redis lease (`RAG_INGESTION_EXECUTION_LEASE_SECONDS`, default 30) so duplicate deliveries and lost workers can't double-write. A `wait_for_extraction: true` graph target polls LightRAG until idle or `timeout_seconds`, then finalizes.
 
-- **No arbitrary host paths or credentials.** A `mount` corpus is a relative path resolved under the shared execution root (`RAG_INGESTION_CORPUS_ROOT`, default `/app/corpus`); an absolute path, a `~`, or a `..` segment is rejected at load and again at runtime. A MinIO bucket/prefix must match a store declared by the same consumer, and the generated runtime profile carries scoped env-var references rather than secret values or root credentials.
-- **Bounded corpus discovery.** Mounted files and MinIO objects are read in bounded chunks. Atlas rejects a file over `RAG_INGESTION_MAX_FILE_BYTES` (default 100 MiB), a discovery pass over `RAG_INGESTION_MAX_CORPUS_BYTES` (default 1 GiB aggregate), or a corpus over `RAG_INGESTION_MAX_FILES` (default 10,000) before retaining unbounded content in Backend memory. Tune these manifest-owned limits for a trusted larger corpus instead of disabling the boundary.
-- **Exact parser ordering.** Each `parser_order` entry invokes that parser specifically: `docling` does not silently consume the `tika` slot, and `tika` bypasses Docling. Unsupported or unavailable parsers advance to the next declared entry. Discovery and Chonkie execution are offloaded from the API event loop when the Celery tier is disabled.
-- **Observable phases.** The job records `discover → parse → chunk → embed → vector_write → lightrag_upload → drain → finalize`, each with status, counts, timing, and a note; a `GET` returns the full machine-readable record.
-- **Actionable, redacted failures.** A per-file parse failure records the file, phase, upstream service, and safe status/message and is **isolated** so other files still ingest. Raw Docling/Tika bodies and transport details stay in Backend logs and never enter the public job record. A capability failure or a drain timeout fails the job with a clear message.
-- **Capability-gated targets.** Each `vector_target`/`graph_target` declares `on_unavailable: fail | skip`. When the backend's SOURCE is disabled (its endpoint env var is empty), Atlas either fails the job or records a visible **skip** — never silently degrades. `./start.sh doctor` warns up front when an `on_unavailable: fail` target's backend is unset.
-- **Idempotent, leased, namespaced, no duplicate writes.** The ingestion key is **consumer + profile + revision + corpus fingerprint**: mounted files are content-hashed and MinIO objects use stable object-version metadata, so changing content at the same path creates a fresh job while an identical re-submit returns the existing one. The store claims that key atomically across concurrent submitters. Each execution then acquires an owner-fenced Redis lease before phase side effects and renews it while running; duplicate Celery deliveries retry after the lease window, and stale owners cannot save. Configure the 10–300 second window with `RAG_INGESTION_EXECUTION_LEASE_SECONDS` (default 30). A broker dispatch failure records a failed job and releases its key for retry; cancellation and terminal status remain monotonic when API and worker updates race. Weaviate classes are namespaced `{collection_prefix}_{profile}` (collisions rejected at load), and objects use a deterministic id so a re-run upserts rather than duplicates. A profile edit also flips the `revision`, forcing a fresh ingestion.
-- **Immutable submitted definition.** The durable job stores and returns the effective corpus and complete normalized profile snapshot at submission. Registry regeneration, a later profile revision, or removal of a submitted corpus override cannot change queued work. A confirmed Weaviate create conflict triggers a full replacement of the deterministic object, so changed content updates in place and unrelated schema, property, or vector validation failures remain visible. A post-write profile reconciliation removes stale higher-index chunks and objects for sources absent from the submitted corpus.
-- **Fenced execution and independent retries.** Losing a renewable execution lease cancels the stale worker's active async phase and reschedules the job after the lease window. Lease-contention retries are unbounded and do not consume the separate three-retry exponential-backoff budget for transient upstream failures; exhausting that budget records a terminal failed ingestion so a corrected resubmission can create fresh work. LightRAG uploads derive a stable source name from document path and content, making retries idempotent and preventing equal basenames in different directories from colliding.
-- **Drain with a timeout.** When a LightRAG target sets `wait_for_extraction: true`, Atlas polls the extraction pipeline until idle or `timeout_seconds`, then finalizes (or fails on timeout).
-
-Live ingestion against running Docling/Tika/Weaviate/LightRAG is an **optional** live test; the unit suite validates the contract, the phase state machine, capability semantics, idempotency, and path safety with fake upstreams.
+Live ingestion against running Docling/Tika/Weaviate/LightRAG is an **optional** live test; the unit suite validates the contract, the phase state machine, capability semantics, idempotency, and path safety with fake upstreams. The complete field-level contract lives in the backend's ingestion module and its test suite (`app/app/tests/test_rag_ingestion.py`).
 
 Downstream payoff: `rag-showcase` keeps owning its datasets, comparison reports, and approach-specific plugins, while Atlas owns the repeatable ingestion lifecycle across documents, vector stores, and LightRAG.
 
@@ -1019,15 +989,7 @@ On `./start.sh`, the bootstrapper validates + normalizes each profile, hashes it
 
 **How this differs from role-specific model settings.** The `LIGHTRAG_EXTRACT_*` / `LIGHTRAG_KEYWORD_*` / `LIGHTRAG_QUERY_*` env vars pick **which model runs each LightRAG role** for the single deployment-wide default — one active configuration at a time. A query profile is a **named, per-query flavor** you select at call time; many coexist, so you can compare modes/retrieval bounds across the same corpus without editing Atlas-tracked env. Profiles never replace those env defaults — they layer on top of them (see precedence below).
 
-**What the contract enforces / provides:**
-
-- **Supported modes only.** `mode` is required and must be one of `local | global | hybrid | mix | naive` (LightRAG's `QueryParam.mode`). There is no `LIGHTRAG_QUERY_MODE` env var — mode is runtime-selected — so the profile always states it explicitly.
-- **Bounded positive integers.** `top_k`, `chunk_top_k`, and `max_total_tokens` are optional; a present value must be a strictly-positive integer within a sane cap (a YAML boolean or float is rejected). An **omitted** bound is left out of the registry so the backend inherits the deployment `LIGHTRAG_QUERY_*` default.
-- **Precedence.** The compiled registry carries an explicit `precedence: [request, profile, service_env_default]` contract: a per-request query parameter overrides the profile, which overrides the service env default. That is how an omitted bound resolves at runtime.
-- **Rerank requires the backend adapter (#415).** `enable_rerank: true` is **rejected at load** unless the deployment opts the LightRAG rerank adapter in with `LIGHTRAG_RERANK_ADAPTER_ENABLED=true` (and `TEI_RERANKER_SOURCE` enabled). LightRAG's built-in rerank clients POST `{query, documents}` while TEI's `/rerank` expects `{query, texts}`, so a profile must never point directly at TEI — it reranks through the backend adapter route (`POST /lightrag/rerank`), which translates the two shapes. With the flag off, a rerank-on profile fails fast at load rather than 5xx-ing at query time. See [`services/backend/README.md` §5.1](https://github.com/thekaveh/atlas/blob/main/services/backend/README.md#51-lightrag--tei-rerank-adapter-post-lightragrerank-415). The gate reads the **effective** flag: you can enable the adapter in the **same manifest** via `env.file` / `env.values` (`LIGHTRAG_RERANK_ADAPTER_ENABLED=true`) and declare `enable_rerank: true` together — no pre-editing Atlas's ignored `.env` on a fresh checkout — because a consumer manifest env value overrides the base `.env` per Atlas's documented env merge order. A rerank profile still fails clearly when the merged flag is false or absent (#654).
-- **Namespaced + collision-free.** Profile names are globally unique across consumers (rejected at load), and ownership is manifest-derived (a spoofed `owner` is rejected). A removed manifest drops exactly its own profiles next start, so a **deployment with no profiles stays byte- and behavior-compatible** with the single-default LightRAG.
-- **No secrets.** The registry contains only flavor knobs and model-name **references** — never credentials.
-- **Optional LiteLLM alias (opt-in, not coupled).** A profile that sets `litellm_alias` also emits a consumer-owned [`litellm_models`](#632-exposing-plugin-models-to-litellm-with-litellm_models) row pointing at the backend's profile-aware OpenAI route, so the flavor appears as a selectable model in Open WebUI / LiteLLM. The alias shares the global LiteLLM alias namespace (reserved + cross-consumer collisions rejected). A profile with no `litellm_alias` generates no row.
+**What the contract enforces.** `mode` is required (`local | global | hybrid | mix | naive`); `top_k`, `chunk_top_k`, and `max_total_tokens` are optional strictly-positive integers, and an omitted bound falls through to the deployment's `LIGHTRAG_QUERY_*` env default via an explicit request-then-profile-then-env-default precedence. `enable_rerank: true` is rejected at load unless the deployment has opted the LightRAG rerank adapter in with `LIGHTRAG_RERANK_ADAPTER_ENABLED=true` (and `TEI_RERANKER_SOURCE` enabled) — see [`services/backend/README.md` §5.1](https://github.com/thekaveh/atlas/blob/main/services/backend/README.md#51-lightrag--tei-rerank-adapter-post-lightragrerank-415) for why LightRAG's rerank wire shape needs a backend adapter. Profile names are globally unique and ownership is manifest-derived, so a removed manifest drops exactly its own profiles and a deployment with no profiles stays behavior-compatible with the single-default LightRAG. The registry holds only flavor knobs and model-name references — never credentials. A profile that sets `litellm_alias` also emits a consumer-owned [`litellm_models`](#632-exposing-plugin-models-to-litellm-with-litellm_models) row so the flavor appears as a selectable model in Open WebUI / LiteLLM.
 
 Downstream payoff: `rag-showcase` moves its graph-RAG flavor definitions out of bespoke code/config into a reusable Atlas profile contract — comparable, documentable, and visible to Open WebUI users.
 
@@ -1121,22 +1083,16 @@ so the artifact never carries a `${…}` literal a consumer would have to
 interpolate itself (#646). Secrets remain `${VAR}` references by design — resolve
 consumer-scoped ones with `--with-secrets`.
 
-A few source-specific fields are emitted only when meaningful: under
-`COMFYUI_SOURCE=managed-localhost-mps` the export includes
-`ATLAS_COMFYUI_OUTPUT_DIR` (the native host process's image-output directory,
-`$COMFYUI_MPS_STATE_DIR/ComfyUI/output`, tilde-expanded to an absolute path at
-export time so consumers can open it programmatically without shell expansion),
-so consumers reading generated images off disk don't hardcode the internal
-layout — and its **`ATLAS_COMFYUI_INPUT_DIR`** twin (#758,
-`$COMFYUI_MPS_STATE_DIR/ComfyUI/input`) for consumers that *stage* images into
-ComfyUI (img2img / img2mesh drivers). Both are omitted for the container and
-localhost sources (the dirs are a Docker volume / the user's own ComfyUI
-install). Under a Blender host source (`localhost` or `managed-localhost`,
-#759) the export includes
-**`ATLAS_BLENDER_MCP_HOST_ENDPOINT`** (#758) — note the **`tcp://`** scheme:
-the Blender MCP add-on serves a raw TCP socket, not HTTP, so the value is
-`tcp://localhost:$BLENDER_MCP_LOCALHOST_PORT` and must be dialed with a socket
-client, not an HTTP library.
+A few source-specific fields are emitted only when meaningful: under a managed
+Metal ComfyUI source, the export adds `ATLAS_COMFYUI_OUTPUT_DIR` and
+`ATLAS_COMFYUI_INPUT_DIR` (tilde-expanded, absolute host paths) so consumers
+that read or stage images on disk don't hardcode the internal layout — see
+[`services/comfyui/README.md`](../../services/comfyui/README.md) for the
+managed-host directory layout. Under a Blender host source the export adds
+`ATLAS_BLENDER_MCP_HOST_ENDPOINT`, which uses a `tcp://` scheme (a raw socket,
+not HTTP) — see
+[`services/blender-mcp/README.md`](../../services/blender-mcp/README.md) for
+the client contract.
 
 **Secrets.** By default the output contains **no secret values** — infra secrets
 (e.g. the Redis password inside `REDIS_URL`) are emitted as `${VAR}` references.
@@ -1221,8 +1177,7 @@ That turns an innocent wrapper script into a footgun: a launcher that runs
 
 re-applies `container-cpu` on **every** restart, silently reverting a
 hand-configured `COMFYUI_SOURCE=managed-localhost-mps` and demoting image
-generation from Metal to an unusable CPU container with no error anywhere
-(observed live, 2026-07-13).
+generation from Metal to an unusable CPU container with no error anywhere.
 
 **Rule:** pass source flags on **first run only**; treat `.env` as the source of
 truth thereafter (edit `.env` or the manifest, not the launch command).
@@ -1314,13 +1269,12 @@ A warm `./start.sh` recreates containers (`--force-recreate`) but **never
 rebuilds** them; the local image build (`compose build --no-cache`) runs **only
 on `--cold`**. So after you advance your Atlas submodule pin, a plain warm
 restart keeps running the **stale** locally-built images (backend, asset-worker,
-…) with no indication — e.g. a backend fix silently absent because the old image
-is still live (this bit the `up_axis` fix in #524, ignored by the pre-bump image
-without error).
+…) with no indication — a backend fix can be silently absent because the old
+image is still live.
 
 **After moving the pin, rebuild:** cold-start (`./stop.sh --cold && ./start.sh`)
 or rebuild the affected local-build services with
-`docker compose build --no-cache <svc>` before a warm start. Tracked as #506.
+`docker compose build --no-cache <svc>` before a warm start.
 
 ### 7.7. Post-launch verification
 
