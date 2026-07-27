@@ -83,22 +83,11 @@ To add a model outside the curated catalogs without re-running the wizard: set t
 | `bootstrapper/utils` → `/catalog:ro` | resolver **modules** (`model_resolver.py`, `llm_catalog.py`, `cloud_providers.py`, `litellm_settings.py`, …) | `ATLAS_CATALOG_DIR` (`/catalog`) | `init.py::_catalog_dir()` |
 | `services/{ollama,litellm}/models.yaml` → `/atlas-models/<svc>-models.yaml:ro` | model **catalogs** (flat `<svc>-models.yaml` layout) | `ATLAS_MODELS_DIR` (`/atlas-models`) | `llm_catalog._find_models_dir()` → `_find_yaml()` |
 
-Two non-obvious constraints make this split load-bearing — each one previously caused a `docker compose up` abort:
+The two mounts are kept separate deliberately: catalogs can't be nested inside the read-only `/catalog` mount, and `/catalog` must be on `sys.path` so `litellm-init`'s loose sibling imports resolve. Both constraints are documented alongside `init.py::_catalog_dir()`, which is the authoritative reference when touching this wiring. When adding a new resolver module that `litellm-init` exec-loads, keep the dual-context import shape — `try: from utils import X` / `except ImportError: import X` — so it works both in the bootstrapper venv (package context) and the container (`/catalog` loose modules). Coverage: `bootstrapper/tests/test_litellm_init_loose_imports.py` and `test_compose_nested_mounts.py`.
 
-- **The YAMLs are NOT mounted inside `/catalog`.** `/catalog` is a read-only bind mount, and runc on Docker 29.x / macOS cannot create a mountpoint file inside a `:ro` bind mount (`make mountpoint … read-only file system`). The catalogs therefore live in their own writable `/atlas-models` dir, found via the flat `<dir>/<svc>-models.yaml` form.
-- **`/catalog` is placed on `sys.path`.** `init.py` exec-loads `model_resolver` via `importlib`; inside the container there is no `utils` package, so `model_resolver` falls back to loose sibling imports (`import llm_catalog`, `from cloud_providers import …`). `importlib.exec_module` does not add the module's own directory to `sys.path`, so `_catalog_dir()` inserts `/catalog` there — without it those loose imports raise `ModuleNotFoundError` and `litellm-init` exits 1.
+### 5.3. Consumer-declared model rows
 
-When you add a new resolver module that `litellm-init` exec-loads, keep the dual-context import shape — `try: from utils import X` / `except ImportError: import X` — so it works both in the bootstrapper venv (package context) and the container (`/catalog` loose modules). Coverage: `bootstrapper/tests/test_litellm_init_loose_imports.py` (loose import, both catalog layouts) and `test_compose_nested_mounts.py` (no file mounted inside a `:ro` parent).
-
-### 5.3. Consumer-declared model rows (#411)
-
-A downstream integration can surface its own OpenAI-compatible routes (typically served by a [backend plugin](../backend/README.md)) as first-class LiteLLM models by declaring a `litellm_models` block in `atlas.consumer.yml` — see [reusing-atlas.md §6.3.2](../../docs/deployment/reusing-atlas.md#632-exposing-plugin-models-to-litellm-with-litellm_models). Because the config is regenerated declaratively on every start, Atlas **merges** owned rows rather than calling the LiteLLM admin API:
-
-1. The bootstrapper resolves each row host-side — ownership is stamped from the manifest name (non-spoofable), `api_base` must resolve (via `${ATLAS_BACKEND_INTERNAL}` → `http://backend:8000`) to a clean base URL with no userinfo/query/fragment (blocking credential leakage and off-stack SSRF), aliases may not collide with a YAML-catalog model name (`gpt-4o`, `nomic-embed-text`, …) or the runtime rows, and secrets stay as `os.environ/<VAR>` references — and writes the gitignored `volumes/litellm/consumer-models.yaml` (`model_list: [...]`).
-2. `services/litellm/init/scripts/init.py::load_consumer_model_rows()` reads that file (path from `LITELLM_CONSUMER_MODELS_FILE`, in the shared `/litellm-config` mount) and appends the rows to `model_list` **after** the stack rows (`hermes-agent`, `lightrag`) and catalog models — **skipping** any row whose alias collides with an already-rendered stack model (the stack row always wins). A missing/malformed file degrades to "no consumer models" — it never aborts `litellm-init`.
-3. A companion generated compose overlay (`volumes/litellm/consumer-models.compose.yml`) passes each declared `api_key_var` into the `litellm` container so it resolves the reference at request time.
-
-Effect: the consumer's aliases appear in `/v1/models` for Open WebUI, n8n, and the backend with **no registration script**. Removing the manifest removes only that consumer's rows on the next start; stack and sibling rows are untouched. Coverage: `bootstrapper/tests/test_consumer_litellm_models.py`, `test_litellm_init_render.py::TestConsumerModelMerge`, `test_consumer_doctor.py`.
+A downstream integration can surface its own OpenAI-compatible routes (typically served by a [backend plugin](../backend/README.md)) as first-class LiteLLM models by declaring a `litellm_models` block in `atlas.consumer.yml` — see [reusing-atlas.md §6.3.2](../../docs/deployment/reusing-atlas.md#632-exposing-plugin-models-to-litellm-with-litellm_models) for the full merge, validation, and secret-handling contract. Because the config is regenerated declaratively on every start, Atlas merges these consumer-owned rows into `model_list` rather than calling the LiteLLM admin API, so the consumer's aliases appear in `/v1/models` with no registration script; removing the manifest removes only that consumer's rows on the next start. Coverage: `bootstrapper/tests/test_consumer_litellm_models.py`, `test_litellm_init_render.py::TestConsumerModelMerge`, `test_consumer_doctor.py`.
 
 ## 6. Access
 
@@ -162,25 +151,14 @@ compatible.
 
 ### 7.1. Versioned model capability metadata
 
-Catalog rows may declare `metadata_version: 1` with these provider-neutral
-fields:
-
-| Field | Purpose |
-|---|---|
-| `kind` | Distinguishes `chat` from `embedding`. |
-| `adapter` | Selects a LiteLLM adapter such as `ollama_chat`, `ollama`, `openai`, `anthropic`, or `openrouter`. |
-| `capabilities` | Declares chat, embedding, tools, vision, reasoning, and structured-output support. |
-| `request_defaults` | Applies model-specific request defaults such as `think: false`. |
-| `recommended_roles` | Recommends `extract`, `keyword`, `query`, `judge`, `embedding`, or `vision` roles. |
-| `dim` | Records an embedding model's output vector dimension. |
-
-The loader merges metadata when a model appears in multiple role sections and
-rejects conflicts. Embedding entries require `dim` and cannot carry chat-only
-request defaults. LiteLLM receives standard `model_info` fields plus a
-namespaced `atlas_model_metadata` block, allowing LightRAG and future consumers
-to assign `extract`, `query`, and other roles without provider, model-family,
-or hardware assumptions. The curated `bge-m3` row proves that embedding
-routing does not depend on `embed` appearing in the model name.
+Catalog rows may declare `metadata_version: 1` — provider-neutral fields covering
+`kind` (chat/embedding), `adapter`, `capabilities`, `request_defaults` (e.g.
+`think: false`), `recommended_roles` (`extract`, `keyword`, `query`, `judge`,
+`embedding`, `vision`), and an embedding's `dim`. The full field schema is
+documented as a docstring/schema comment next to the loader in
+`llm_catalog.py`. LiteLLM receives standard `model_info` fields plus a
+namespaced `atlas_model_metadata` block, letting LightRAG and future consumers
+assign roles without provider, model-family, or hardware assumptions.
 
 Detailed metadata is available from authenticated `GET /v1/model/info`;
 `GET /v1/models` is the compatibility listing and does not expose the complete
@@ -191,19 +169,10 @@ curl -s http://localhost:${LITELLM_PORT}/v1/model/info \
   -H "Authorization: Bearer ${LITELLM_MASTER_KEY}"
 ```
 
-LightRAG and other consumers should select `extract`, `query`, or another role
-with this deterministic procedure:
-
-1. Keep rows with `inferred: false`, the required `kind` or capability, and the
-   role in `atlas_model_metadata.recommended_roles`.
-2. Apply an explicit operator preference when one is configured.
-3. Otherwise use lexical `(provider, catalog_name, model_name)` order as the
-   provider-neutral fallback.
-4. Deduplicate Ollama's dual aliases by `(provider, catalog_name)` and retain
-   the operator's preferred alias.
-
-This ordering is deterministic without assuming Ollama, Apple Silicon, a
-specific model family, or any other hardware/provider combination.
+LightRAG and other consumers select a role (`extract`, `query`, …) via a
+deterministic tie-breaking procedure — documented as a docstring on the
+role-selection function in `model_resolver.py` — that is provider- and
+hardware-agnostic.
 
 ## 8. Thinking models (`think: false`)
 
@@ -238,36 +207,15 @@ curl -s -X POST http://localhost:63040/v1/chat/completions \
 
 ### 9.1. Expected startup noise (cosmetic, self-resolves in milliseconds)
 
-The very first time the `litellm` container reaches the database after a
-cold boot, the `${PROJECT_NAME}-supabase-db` log will emit a burst of
-`relation "<…>" does not exist at character 15` errors against the
-`litellm` database. They look alarming but they are benign:
-
-```
-supabase_admin@litellm ERROR:  relation "LiteLLM_VerificationTokenView" does not exist
-supabase_admin@litellm ERROR:  relation "MonthlyGlobalSpend" does not exist
-supabase_admin@litellm ERROR:  relation "Last30dKeysBySpend" does not exist
-supabase_admin@litellm ERROR:  relation "Last30dModelsBySpend" does not exist
-supabase_admin@litellm ERROR:  relation "MonthlyGlobalSpendPerKey" does not exist
-supabase_admin@litellm ERROR:  relation "MonthlyGlobalSpendPerUserPerKey" does not exist
-supabase_admin@litellm ERROR:  relation "DailyTagSpend" does not exist
-supabase_admin@litellm ERROR:  relation "Last30dTopEndUsersSpend" does not exist
-```
-
-**What it is:** LiteLLM spawns 4 uvicorn worker processes
-(`--num_workers 4`); each independently bootstraps its Prisma query
-engine and probes the eight dashboard views above. The probes race
-LiteLLM's own per-worker `_create_database_views()` task and a
-read-committed catalog-snapshot lookup in Postgres — for a 30–40 ms
-window after the proxy starts serving traffic, some workers see a
-relation that other workers / the Prisma migration step have just
-created. After that window the views are visible to every backend and
-the errors never recur.
-
-**How to verify it's the harmless one:**
+The first time the `litellm` container reaches the database after a cold boot,
+the `${PROJECT_NAME}-supabase-db` log emits a burst of
+`relation "<…>" does not exist` errors against the `litellm` database. This is
+an upstream LiteLLM race: its 4 uvicorn workers each bootstrap Prisma and probe
+the dashboard views concurrently with the view-creation step, so a worker can
+briefly see a relation the migration hasn't created yet. It clears within tens
+of milliseconds and never recurs. Confirm all 8 dashboard views exist:
 
 ```bash
-# All 8 views present in the litellm DB:
 docker exec -e PGPASSWORD="$SUPABASE_DB_PASSWORD" ${PROJECT_NAME}-supabase-db \
   psql -U supabase_admin -d litellm -tAc "
     SELECT count(*) FROM pg_views WHERE schemaname='public' AND viewname IN
@@ -275,21 +223,9 @@ docker exec -e PGPASSWORD="$SUPABASE_DB_PASSWORD" ${PROJECT_NAME}-supabase-db \
        'Last30dModelsBySpend','MonthlyGlobalSpendPerKey','MonthlyGlobalSpendPerUserPerKey',
        'DailyTagSpend','Last30dTopEndUsersSpend')"
 # Expect: 8
-
-# All errors are clustered in a single sub-second window at startup:
-docker logs ${PROJECT_NAME}-supabase-db 2>&1 | grep "ERROR.*does not exist" | awk '{print $2}' | sort -u
-# Expect: one timestamp, all within ~50 ms
-
-# After that window, no new ones appear:
-docker logs --since 1m ${PROJECT_NAME}-supabase-db 2>&1 | grep -c "ERROR.*does not exist"
-# Expect: 0
 ```
 
-This is an upstream LiteLLM behavior (reproducible with the stock
-`ghcr.io/berriai/litellm` image, no compose-layer fix possible without
-forking the image or aggressively suppressing Postgres logs).
-If those three checks pass it's the cosmetic race; if `count` ≠ 8 or
-new errors keep appearing after startup, it's a real bug — escalate.
+If the count is not 8, or the errors keep recurring after startup, it is a real bug — escalate.
 
 ## 10. Smoke tests
 
