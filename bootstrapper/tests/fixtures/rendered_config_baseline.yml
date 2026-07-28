@@ -21,7 +21,7 @@ services:
           cpus: 1
           memory: '2147483648'
     environment:
-      AIRFLOW__API__JWT_SECRET: ''
+      AIRFLOW__API_AUTH__JWT_SECRET: ''
       AIRFLOW__API__SECRET_KEY: ''
       AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
       AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://airflow-webserver:8080/execution/
@@ -88,7 +88,7 @@ services:
     deploy:
       replicas: 0
     environment:
-      AIRFLOW__API__JWT_SECRET: ''
+      AIRFLOW__API_AUTH__JWT_SECRET: ''
       AIRFLOW__API__SECRET_KEY: ''
       AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
       AIRFLOW__CORE__FERNET_KEY: ''
@@ -148,7 +148,7 @@ services:
           cpus: 1
           memory: '2147483648'
     environment:
-      AIRFLOW__API__JWT_SECRET: ''
+      AIRFLOW__API_AUTH__JWT_SECRET: ''
       AIRFLOW__API__SECRET_KEY: ''
       AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
       AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://airflow-webserver:8080/execution/
@@ -219,7 +219,7 @@ services:
           cpus: 1
           memory: '2147483648'
     environment:
-      AIRFLOW__API__JWT_SECRET: ''
+      AIRFLOW__API_AUTH__JWT_SECRET: ''
       AIRFLOW__API__SECRET_KEY: ''
       AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
       AIRFLOW__CORE__EXECUTOR: LocalExecutor

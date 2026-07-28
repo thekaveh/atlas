@@ -861,7 +861,7 @@ class KeyGenerator:
         return _cli_safe_token_urlsafe(32)
 
     def generate_airflow_jwt_secret(self) -> str:
-        """AIRFLOW__API__JWT_SECRET (Airflow 3.x). Signs Execution API JWTs
+        """AIRFLOW__API_AUTH__JWT_SECRET (Airflow 3.x). Signs Execution API JWTs
         (the `/execution/` task-supervisor protocol + the `/api/v2/` auth-token
         exchange). Distinct from SECRET_KEY: when unset, every Airflow process
         (webserver, scheduler, dag-processor) mints its own random secret, so a
