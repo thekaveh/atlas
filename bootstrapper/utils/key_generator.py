@@ -860,6 +860,16 @@ class KeyGenerator:
         JWTs). Was [webserver] secret_key + Flask session in 2.x. 32 chars."""
         return _cli_safe_token_urlsafe(32)
 
+    def generate_airflow_jwt_secret(self) -> str:
+        """AIRFLOW__API__JWT_SECRET (Airflow 3.x). Signs Execution API JWTs
+        (the `/execution/` task-supervisor protocol + the `/api/v2/` auth-token
+        exchange). Distinct from SECRET_KEY: when unset, every Airflow process
+        (webserver, scheduler, dag-processor) mints its own random secret, so a
+        JWT issued by one fails signature verification in another and the
+        Execution API returns 403 (`InvalidSignatureError`). 32 chars — same
+        strength posture as SECRET_KEY / LITELLM_MASTER_KEY."""
+        return _cli_safe_token_urlsafe(32)
+
     def generate_airflow_admin_password(self) -> str:
         """Admin login password. 24 chars URL-safe random."""
         return _cli_safe_token_urlsafe(18)
@@ -914,6 +924,25 @@ class KeyGenerator:
         if not force and current:
             return True
         return self.update_env_key('AIRFLOW_SECRET_KEY', self.generate_airflow_secret_key())
+
+    def generate_and_update_airflow_jwt_secret(self, force: bool = False) -> bool:
+        """Generate and update AIRFLOW_JWT_SECRET in .env file.
+
+        Idempotent (``force=False``): an existing value sticks so a warm
+        restart never rotates the secret — rotating it mid-run would again
+        desynchronize webserver/scheduler/dag-processor (each would re-mint
+        against the new value while in-flight JWTs were signed by the old
+        one) and reproduce the exact 403 this var exists to fix (#850).
+
+        Args:
+            force: Generate a new secret even if one already exists.
+        Returns:
+            True if the value is now present in .env.
+        """
+        current = self.get_current_env_value('AIRFLOW_JWT_SECRET')
+        if not force and current:
+            return True
+        return self.update_env_key('AIRFLOW_JWT_SECRET', self.generate_airflow_jwt_secret())
 
     def generate_and_update_airflow_admin_password(self, force: bool = False) -> bool:
         """Generate and update AIRFLOW_ADMIN_PASSWORD in .env file.
@@ -1091,6 +1120,10 @@ class KeyGenerator:
         # admin/role rotation locks operators out).
         results['AIRFLOW_FERNET_KEY'] = self.generate_and_update_airflow_fernet_key(force=False)
         results['AIRFLOW_SECRET_KEY'] = self.generate_and_update_airflow_secret_key(force=False)
+        # Execution API JWT secret — shared across webserver/scheduler/dag-
+        # processor (#850). Idempotent like the other Airflow secrets so a
+        # warm restart never rotates it (re-rotation reproduces the 403).
+        results['AIRFLOW_JWT_SECRET'] = self.generate_and_update_airflow_jwt_secret(force=False)
         results['AIRFLOW_ADMIN_PASSWORD'] = self.generate_and_update_airflow_admin_password(force=False)
         results['JENKINS_ADMIN_PASSWORD'] = self.generate_and_update_jenkins_admin_password(force=False)
         results['MLFLOW_DB_PASSWORD'] = self.generate_and_update_mlflow_db_password(force=False)
