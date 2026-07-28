@@ -6,6 +6,8 @@ import subprocess
 import pytest
 import yaml
 
+from utils.key_generator import KeyGenerator
+
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 COMPOSE = REPO_ROOT / "services" / "airflow" / "compose.yml"
 
@@ -126,6 +128,59 @@ def test_airflow_scheduler_carries_api_secret_key():
             f"{svc_name}.AIRFLOW__API__SECRET_KEY should be "
             f"${{AIRFLOW_SECRET_KEY}}, not {env['AIRFLOW__API__SECRET_KEY']!r}"
         )
+
+
+def test_airflow_execution_api_jwt_secret_shared_across_services():
+    """#850: Airflow 3.x signs Execution API JWTs with AIRFLOW__API__JWT_SECRET.
+    When it is unset, webserver / scheduler / dag-processor each mint their own
+    random secret, so a task JWT issued by one process fails signature
+    verification in the webserver and the Execution API PATCH returns 403
+    (`InvalidSignatureError` / `Invalid auth token`) before the operator runs.
+
+    SECRET_KEY matching across the family is NOT enough — `jwt_secret` is a
+    distinct config key. Every service that issues OR validates an Execution
+    API JWT must inject the SAME auto-generated AIRFLOW_JWT_SECRET value.
+    """
+    doc = yaml.safe_load(COMPOSE.read_text(encoding="utf-8"))
+    for svc_name in ("airflow-webserver", "airflow-scheduler", "airflow-dag-processor"):
+        env = doc["services"][svc_name]["environment"]
+        assert "AIRFLOW__API__JWT_SECRET" in env, (
+            f"{svc_name} is missing AIRFLOW__API__JWT_SECRET. Without a shared "
+            f"jwt_secret, cross-process Execution API JWT verification fails "
+            f"with 403 InvalidSignatureError (#850)."
+        )
+        assert env["AIRFLOW__API__JWT_SECRET"] == "${AIRFLOW_JWT_SECRET}", (
+            f"{svc_name}.AIRFLOW__API__JWT_SECRET should reference the shared "
+            f"${{AIRFLOW_JWT_SECRET}}, not {env['AIRFLOW__API__JWT_SECRET']!r} — "
+            f"a literal or per-service value reproduces the #850 signature drift."
+        )
+
+
+def test_airflow_jwt_secret_generator_is_idempotent(tmp_path):
+    """#850 AC#1: AIRFLOW_JWT_SECRET is generated once during Atlas setup and
+    NOT rotated on a warm restart — re-running the bootstrapper must preserve
+    the existing value (re-rotation would re-desynchronize webserver /
+    scheduler / dag-processor and reproduce the 403)."""
+    (tmp_path / ".env").write_text("PROJECT_NAME=atlas\n", encoding="utf-8")
+    kg = KeyGenerator(str(tmp_path))
+
+    # First run generates; second run preserves (force=False).
+    assert kg.generate_and_update_airflow_jwt_secret() is True
+    first = kg.get_current_env_value("AIRFLOW_JWT_SECRET")
+    assert first, "AIRFLOW_JWT_SECRET should be generated when absent"
+    assert kg.generate_and_update_airflow_jwt_secret() is True
+    assert kg.get_current_env_value("AIRFLOW_JWT_SECRET") == first, (
+        "AIRFLOW_JWT_SECRET must not rotate on a warm restart (force=False)."
+    )
+
+    # A hand-supplied value sticks (operator override, never clobbered).
+    kg.update_env_key("AIRFLOW_JWT_SECRET", "operator-fixed-value")
+    assert kg.generate_and_update_airflow_jwt_secret() is True
+    assert kg.get_current_env_value("AIRFLOW_JWT_SECRET") == "operator-fixed-value"
+
+    # force=True is the only path that rotates.
+    assert kg.generate_and_update_airflow_jwt_secret(force=True) is True
+    assert kg.get_current_env_value("AIRFLOW_JWT_SECRET") != "operator-fixed-value"
 
 
 def test_airflow_scheduler_and_dag_processor_set_execution_api_server_url():
