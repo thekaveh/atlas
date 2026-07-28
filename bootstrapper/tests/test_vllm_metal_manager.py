@@ -620,6 +620,13 @@ def test_stop_waits_for_group_after_sigkill(tmp_path, monkeypatch):
 
 # ─────────────────────────── status ───────────────────────────
 def test_status_reflects_liveness(tmp_path, monkeypatch):
+    # status() gates liveness on _managed_process_alive AND not _pid_is_stranger
+    # (NOT _pid_alive alone). Patch the exact pair status() consults so the
+    # verdict never touches the real OS process table: pid 321 colliding with a
+    # live CI daemon made _pid_is_stranger's `ps` probe return True ("stranger")
+    # intermittently, flipping running=False under the full suite (#828). The
+    # recycled-pid product behavior itself stays covered by
+    # test_status_recycled_pid_reports_not_running.
     mgr = _mgr(tmp_path)
     mgr.state_dir.mkdir(parents=True, exist_ok=True)
     mgr.pid_file.write_text("321")
@@ -627,7 +634,8 @@ def test_status_reflects_liveness(tmp_path, monkeypatch):
         {"installed_version": mgr.plugin_version, "installed_core_version": mgr.core_version,
          "port": 8000, "model": "Qwen/Qwen2.5-7B-Instruct", "pid": 321}
     ))
-    monkeypatch.setattr(mgr, "_pid_alive", lambda pid: True)
+    monkeypatch.setattr(mgr, "_managed_process_alive", lambda pid: True)
+    monkeypatch.setattr(mgr, "_pid_is_stranger", lambda pid: False)
     status = mgr.status()
     assert status.running and status.pid == 321
     assert status.installed_version == mgr.plugin_version
