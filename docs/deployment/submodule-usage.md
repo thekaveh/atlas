@@ -267,6 +267,15 @@ Validation checklist before committing a parent consumer update:
 - The wrapper documents the chosen `--track` and every explicit source override
   that intentionally differs from that track.
 
+**The launcher never silently advances the submodule pin (#797).** On every
+`./infra/start.sh` and `./infra/stop.sh`, Atlas makes a read-only check that
+`infra/`'s working HEAD still matches the gitlink the parent has committed. If
+it doesn't — or the parent has staged a pointer change — the launcher prints a
+loud warning naming the recorded vs working commits and how to re-pin, then
+continues. It never runs `git checkout`, `pull`, or `git add` on the submodule
+itself, and there is no auto-update path: bumping the pin is always an explicit
+parent-side action (`cd infra && git checkout <tag>` then commit the parent).
+
 **Migrating this layout to the `atlas.consumer.yml` manifest.** Everything the
 legacy layout expresses through a symlink + `.env.user` + wrapper flags — the
 force-set `PROJECT_NAME`/`BRAND_*` values, `*_SOURCE` overrides, the

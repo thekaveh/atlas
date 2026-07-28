@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from utils.banner import BannerDisplay
 from utils.hosts_manager import HostsManager
+from utils.submodule_pin_guard import warn_if_submodule_pin_drifted
 from core.config_parser import ConfigParser
 from core.docker_manager import DockerManager
 
@@ -518,6 +519,11 @@ def main(project_name, cold, clean_hosts, stop_managed_hosts, help_usage):
             # Don't exit on hosts cleanup failure — but DO tell the truth
             # about it in the final banner instead of a blanket ✅.
             hosts_ok = stopper.cleanup_hosts_entries()
+
+        # #797: read-only pin-drift tripwire (mirrors start.py). After any
+        # stop, surface a consumer submodule pin drift loudly instead of
+        # silently — the launcher never moves/stages the pin, only warns.
+        warn_if_submodule_pin_drifted(stopper.root_dir)
 
         # Step 4: Show final status
         stopper.show_final_status(

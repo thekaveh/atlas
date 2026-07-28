@@ -121,6 +121,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from utils.banner import BannerDisplay
 from utils.hosts_manager import HostsManager
 from utils.key_generator import KeyGenerator
+from utils.submodule_pin_guard import warn_if_submodule_pin_drifted
 from utils.localhost_validator import LocalhostValidator
 from core.config_parser import ConfigParser, DEFAULT_BASE_PORT, DEFAULT_PROJECT_NAME
 from core.docker_manager import DockerManager
@@ -6157,6 +6158,12 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
             sys.exit(1)
         if not starter.start_docker_services(cold_start=cold, wait=detach or json_output):
             sys.exit(1)
+        # #797: read-only tripwire. If Atlas is running as a consumer git
+        # submodule (infra/), surface any pin drift (working HEAD != recorded
+        # gitlink, or the superproject staged the pointer) LOUDLY instead of
+        # silently. The launcher itself never moves/stages the pin — it only
+        # warns. No-op for standalone clones / non-git checkouts.
+        warn_if_submodule_pin_drifted(starter.config_parser.root_dir)
         starter.show_container_status_and_verify_ports()
         starter.check_comfyui_models()
         if detach:
