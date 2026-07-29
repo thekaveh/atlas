@@ -34,6 +34,11 @@ Configure the Ollama upstream through `.env`, the interactive wizard, or CLI fla
 LLM_PROVIDER_SOURCE=<option>
 # Optional, only when LLM_PROVIDER_SOURCE=ollama-localhost:
 OLLAMA_LOCALHOST_PORT=11434
+# Parallel serving (container-* sources only; #849) — multi-agent consumers
+# (8+ concurrent requests) need OLLAMA_NUM_PARALLEL > 1 (Ollama's default is 1).
+# For ollama-localhost the host daemon owns both (e.g. launchctl setenv on macOS).
+OLLAMA_NUM_PARALLEL=8
+OLLAMA_MAX_LOADED_MODELS=2
 ```
 
 LiteLLM resolves the upstream URL from `LITELLM_OLLAMA_UPSTREAM` (set automatically by the bootstrapper based on `LLM_PROVIDER_SOURCE`). Consumers should never reference `LITELLM_OLLAMA_UPSTREAM` directly.
