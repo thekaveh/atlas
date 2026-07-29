@@ -41,7 +41,7 @@ Key facts:
 | Dashboard (Kong) | `http://hermes.localhost:63000` | Requires `./start.sh --setup-hosts`. |
 | Internal DNS (other containers) | `http://hermes:8642` | Reachable from LiteLLM, n8n, jupyterhub; backend + openclaw have the env pre-wired but do not yet call it (see §10.2). |
 
-See the canonical port table at [Ports and Routes](../../docs/deployment/ports-and-routes.md).
+See the canonical port table at [Ports and Routes](../../docs/reference/ports-routes.md).
 
 ## 3. Architecture & wiring
 

@@ -18,7 +18,7 @@ Image: `cloudflare/cloudflared:2026.6.1` (pin a dated tag; bump deliberately).
 | Internal metrics | `cloudflared:2000/metrics` | Prometheus-compatible; not scraped by default |
 | Host port | — | None. Egress-only. |
 
-All public hostnames and routing rules are defined in the Cloudflare Zero Trust dashboard, not in this repository. Kong selects Atlas routes by their internal Host values (`api.localhost`, `chat.localhost`, `n8n.localhost`, and the other aliases in the [Ports and Routes](../../docs/deployment/ports-and-routes.md) reference). A public hostname therefore needs an Origin HTTP Host Header override (`httpHostHeader` in an ingress rule) set to the exact Kong alias for the service it exposes. Forwarding an arbitrary public Host header to Kong without this override returns a Kong 404.
+All public hostnames and routing rules are defined in the Cloudflare Zero Trust dashboard, not in this repository. Kong selects Atlas routes by their internal Host values (`api.localhost`, `chat.localhost`, `n8n.localhost`, and the other aliases in the [Ports and Routes](../../docs/reference/ports-routes.md) reference). A public hostname therefore needs an Origin HTTP Host Header override (`httpHostHeader` in an ingress rule) set to the exact Kong alias for the service it exposes. Forwarding an arbitrary public Host header to Kong without this override returns a Kong 404.
 
 ## 3. Configuration
 

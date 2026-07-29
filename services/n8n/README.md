@@ -18,7 +18,7 @@ Track placement: n8n is available in `all`, `gen-ai-eng`, and `gen-ai-rag`. In t
 | Kong | `http://n8n.localhost:${KONG_HTTP_PORT}` | Recommended for browser use; needs `./start.sh --setup-hosts`. Kong route uses `preserve_host: True`. |
 | Webhook | `${N8N_HOST}/webhook/<path>` | n8n's webhook entry point; resolves to whichever host you used to reach n8n. |
 
-Canonical port table: [Ports and Routes](../../docs/deployment/ports-and-routes.md).
+Canonical port table: [Ports and Routes](../../docs/reference/ports-routes.md).
 
 ## 3. Configuration
 

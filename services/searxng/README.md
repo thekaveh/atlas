@@ -19,7 +19,7 @@ Image: `searxng/searxng:2026.6.28-357662d86`. Container port: `8080`. Source var
 | Internal | `http://searxng:8080/search` | What sibling containers call (LDR, n8n, Hermes, Open WebUI). |
 | JSON API | `GET /search?q=…&format=json` | Enabled in `settings.yml`; used by every machine consumer. |
 
-Canonical port table: [Ports and Routes](../../docs/deployment/ports-and-routes.md).
+Canonical port table: [Ports and Routes](../../docs/reference/ports-routes.md).
 
 ## 3. Configuration
 

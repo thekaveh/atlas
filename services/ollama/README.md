@@ -24,7 +24,7 @@ Ollama is the local LLM engine that runs behind the always-on **LiteLLM gateway*
 | Kong alias | `http://ollama.localhost:${KONG_HTTP_PORT}` | Host-reachable proxy to raw Ollama `/api` (needs `./start.sh --setup-hosts`). Bypasses LiteLLM — use it for Ollama-native calls (`/api/tags`, `/api/pull`, `/api/ps`). |
 | Direct (internal) | `http://ollama:11434` | Reachable over the Compose network. The Ollama container no longer publishes a host port, so from the host reach it through the Kong alias above. |
 
-The Ollama container no longer publishes a host port; the OpenAI-compatible surface is owned by LiteLLM (default `LITELLM_PORT=63040`). See the canonical port table at [Ports and Routes](../../docs/deployment/ports-and-routes.md).
+The Ollama container no longer publishes a host port; the OpenAI-compatible surface is owned by LiteLLM (default `LITELLM_PORT=63040`). See the canonical port table at [Ports and Routes](../../docs/reference/ports-routes.md).
 
 ## 3. Configuration
 
