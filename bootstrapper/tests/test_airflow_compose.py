@@ -131,27 +131,35 @@ def test_airflow_scheduler_carries_api_secret_key():
 
 
 def test_airflow_execution_api_jwt_secret_shared_across_services():
-    """#850: Airflow 3.x signs Execution API JWTs with AIRFLOW__API__JWT_SECRET.
-    When it is unset, webserver / scheduler / dag-processor each mint their own
-    random secret, so a task JWT issued by one process fails signature
-    verification in the webserver and the Execution API PATCH returns 403
-    (`InvalidSignatureError` / `Invalid auth token`) before the operator runs.
+    """#850: Airflow 3.3 resolves the Execution-API JWT secret under
+    ``[api_auth] jwt_secret`` — NOT ``[api] jwt_secret``. Inject it as
+    AIRFLOW__API_AUTH__JWT_SECRET (env → ``[api_auth]``); the earlier
+    AIRFLOW__API__JWT_SECRET (``[api]``) was accepted but ineffective, so the
+    effective value still differed between services and the Execution API PATCH
+    returned 403 (``InvalidSignatureError`` / ``Invalid auth token``) before
+    the operator ran — this assertion locks the section against that regression.
 
-    SECRET_KEY matching across the family is NOT enough — `jwt_secret` is a
-    distinct config key. Every service that issues OR validates an Execution
-    API JWT must inject the SAME auto-generated AIRFLOW_JWT_SECRET value.
+    SECRET_KEY matching across the family is NOT enough — ``jwt_secret`` is a
+    distinct key under a distinct section. Every service that issues OR
+    validates an Execution-API JWT must inject the SAME auto-generated
+    AIRFLOW_JWT_SECRET via AIRFLOW__API_AUTH__JWT_SECRET.
+
+    CI asserts the ``[api_auth]`` env key is present and shared on all three
+    services; the EFFECTIVE ``airflow config get-value api_auth jwt_secret``
+    being equal across a live cluster is the consumer's downstream gate (no
+    live Airflow in CI).
     """
     doc = yaml.safe_load(COMPOSE.read_text(encoding="utf-8"))
     for svc_name in ("airflow-webserver", "airflow-scheduler", "airflow-dag-processor"):
         env = doc["services"][svc_name]["environment"]
-        assert "AIRFLOW__API__JWT_SECRET" in env, (
-            f"{svc_name} is missing AIRFLOW__API__JWT_SECRET. Without a shared "
+        assert "AIRFLOW__API_AUTH__JWT_SECRET" in env, (
+            f"{svc_name} is missing AIRFLOW__API_AUTH__JWT_SECRET. Without a shared "
             f"jwt_secret, cross-process Execution API JWT verification fails "
             f"with 403 InvalidSignatureError (#850)."
         )
-        assert env["AIRFLOW__API__JWT_SECRET"] == "${AIRFLOW_JWT_SECRET}", (
-            f"{svc_name}.AIRFLOW__API__JWT_SECRET should reference the shared "
-            f"${{AIRFLOW_JWT_SECRET}}, not {env['AIRFLOW__API__JWT_SECRET']!r} — "
+        assert env["AIRFLOW__API_AUTH__JWT_SECRET"] == "${AIRFLOW_JWT_SECRET}", (
+            f"{svc_name}.AIRFLOW__API_AUTH__JWT_SECRET should reference the shared "
+            f"${{AIRFLOW_JWT_SECRET}}, not {env['AIRFLOW__API_AUTH__JWT_SECRET']!r} — "
             f"a literal or per-service value reproduces the #850 signature drift."
         )
 
