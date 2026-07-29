@@ -1677,7 +1677,7 @@ class ServiceConfig:
         if tts_source.startswith('speaches-container'):
             speaches_env = self.config_parser.parse_env_file()
             env_vars['OPEN_WEB_UI_TTS_MODEL'] = speaches_env.get(
-                'SPEACHES_TTS_MODEL', 'hexgrad/Kokoro-82M'
+                'SPEACHES_TTS_MODEL', 'speaches-ai/Kokoro-82M-v1.0-ONNX'
             )
             env_vars['OPEN_WEB_UI_TTS_VOICE'] = 'af_heart'
         elif tts_source.startswith('chatterbox'):
