@@ -2982,6 +2982,8 @@ services:
       replicas: 1
     environment:
       NVIDIA_VISIBLE_DEVICES: all
+      OLLAMA_MAX_LOADED_MODELS: '2'
+      OLLAMA_NUM_PARALLEL: '8'
     image: ollama/ollama:0.30.11
     logging:
       driver: json-file
