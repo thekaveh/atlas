@@ -29,10 +29,11 @@ env:
     default: "ghcr.io/speaches-ai/speaches:0.9.0-rc.3-cuda"
     description: "CUDA build of the same image. When the speaches-gpu profile wins, the bootstrapper writes this value into SPEACHES_IMAGE (the compose interpolation target)."
   - name: SPEACHES_TTS_MODEL
-    default: "hexgrad/Kokoro-82M"
-    description: "Model name Open WebUI sends in /v1/audio/speech requests."
+    default: "speaches-ai/Kokoro-82M-v1.0-ONNX"
+    description: "Model id Open WebUI sends in /v1/audio/speech requests. Must be the Speaches Kokoro ONNX executor id (speaches-ai/Kokoro-82M-v1.0-ONNX); the HuggingFace 'hexgrad/Kokoro-82M' id is invalid for Speaches and 404s (#799)."
   - name: SPEACHES_STT_MODEL
     default: "Systran/faster-distil-whisper-large-v3"
+    description: "Reserved STT model knob — currently INERT: PRELOAD_MODELS is a hard-coded literal (not interpolated from this var), so changing it has no effect on what Speaches loads (#799). Open WebUI also hard-codes AUDIO_STT_MODEL: whisper-1, which Speaches aliases to Systran/faster-whisper-large-v3; making STT functional needs the correct preloads + a live-container validation (see #799)."
   - name: SPEACHES_PORT
     # default computed by services/topology.py slot allocator
     description: "Host port for the Speaches container (in-container listen port is 8000)."

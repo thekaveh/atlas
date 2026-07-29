@@ -666,8 +666,8 @@
 | SPARK_WORKER_MEMORY_LIMIT | spark | 4g | Container memory limit per spark-worker (deploy.resources.limits.memory). Workers run executor JVMs; 4 g per replica is a conservative cap on a 32 GB host with the default 2 workers (8 g total). Raise for memory-intensive jobs. |
 | SPARK_WORKER_CPU_LIMIT | spark | 2.0 | Container CPU limit per spark-worker (deploy.resources.limits.cpus). 2.0 cores per worker leaves headroom for other services on the host. |
 | SPEACHES_GPU_IMAGE | speaches | ghcr.io/speaches-ai/speaches:0.9.0-rc.3-cuda | CUDA build of the same image. When the speaches-gpu profile wins, the bootstrapper writes this value into SPEACHES_IMAGE (the compose interpolation target). |
-| SPEACHES_TTS_MODEL | speaches | hexgrad/Kokoro-82M | Model name Open WebUI sends in /v1/audio/speech requests. |
-| SPEACHES_STT_MODEL | speaches | Systran/faster-distil-whisper-large-v3 | - |
+| SPEACHES_TTS_MODEL | speaches | speaches-ai/Kokoro-82M-v1.0-ONNX | Model id Open WebUI sends in /v1/audio/speech requests. Must be the Speaches Kokoro ONNX executor id (speaches-ai/Kokoro-82M-v1.0-ONNX); the HuggingFace 'hexgrad/Kokoro-82M' id is invalid for Speaches and 404s (#799). |
+| SPEACHES_STT_MODEL | speaches | Systran/faster-distil-whisper-large-v3 | Reserved STT model knob — currently INERT: PRELOAD_MODELS is a hard-coded literal (not interpolated from this var), so changing it has no effect on what Speaches loads (#799). Open WebUI also hard-codes AUDIO_STT_MODEL: whisper-1, which Speaches aliases to Systran/faster-whisper-large-v3; making STT functional needs the correct preloads + a live-container validation (see #799). |
 | SPEACHES_PORT | speaches |  | Host port for the Speaches container (in-container listen port is 8000). |
 | SPEACHES_SCALE | speaches |  | Computed by bootstrapper/services/service_config.py::_generate_stt_provider_config (or _generate_tts_provider_config) — set to 1 when STT_PROVIDER_SOURCE OR TTS_PROVIDER_SOURCE picks a speaches-* variant. |
 | SUPABASE_DB_SOURCE | supabase | container | Single-option (container only). Kept for forward-compat with legacy source-validator. |
