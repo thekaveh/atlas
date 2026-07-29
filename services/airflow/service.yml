@@ -45,7 +45,7 @@ env:
   - name: AIRFLOW_JWT_SECRET
     default: ""
     secret: true
-    description: "Auto-generated. AIRFLOW__API__JWT_SECRET — signs Execution API JWTs (the /execution/ task-supervisor protocol + /api/v2/ auth-token exchange). Distinct from AIRFLOW_SECRET_KEY: when unset, webserver/scheduler/dag-processor each mint their own and cross-process JWT verification fails with 403 InvalidSignatureError (#850). Idempotent — never rotates on warm restart."
+    description: "Auto-generated. AIRFLOW__API_AUTH__JWT_SECRET — signs Execution API JWTs (the /execution/ task-supervisor protocol + /api/v2/ auth-token exchange). Distinct from AIRFLOW_SECRET_KEY: when unset, webserver/scheduler/dag-processor each mint their own and cross-process JWT verification fails with 403 InvalidSignatureError (#850). Idempotent — never rotates on warm restart."
   - name: AIRFLOW_ADMIN_PASSWORD
     default: ""
     secret: true
@@ -123,7 +123,7 @@ runtime_sc:
         # Also defaults to SimpleAuthManager (no basic_auth); explicit
         # FabAuthManager required for HTTP basic auth on the REST API.
         AIRFLOW__API__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
-        AIRFLOW__API__JWT_SECRET: ${AIRFLOW_JWT_SECRET}
+        AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_JWT_SECRET}
         AIRFLOW__CORE__AUTH_MANAGER: "airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager"
         AIRFLOW__FAB__AUTH_BACKENDS: "airflow.providers.fab.auth_manager.api.auth.backend.basic_auth"
         AIRFLOW__CORE__LOAD_EXAMPLES: "false"
@@ -160,7 +160,7 @@ runtime_sc:
         # Dual-write per project_runtime_sc_vs_compose_env_dual_write.md.
         # Airflow 3.x: was AIRFLOW__WEBSERVER__SECRET_KEY (section retired).
         AIRFLOW__API__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
-        AIRFLOW__API__JWT_SECRET: ${AIRFLOW_JWT_SECRET}
+        AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_JWT_SECRET}
         # Parity with api-server + init. DagFileProcessor invokes
         # AuthManager during DAG parsing.
         AIRFLOW__CORE__AUTH_MANAGER: "airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager"
@@ -198,7 +198,7 @@ runtime_sc:
         AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: "postgresql+psycopg2://${AIRFLOW_DB_USER}:${AIRFLOW_DB_PASSWORD}@supabase-db:5432/airflow"
         AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
         AIRFLOW__API__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
-        AIRFLOW__API__JWT_SECRET: ${AIRFLOW_JWT_SECRET}
+        AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_JWT_SECRET}
         AIRFLOW__CORE__AUTH_MANAGER: "airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager"
         AIRFLOW__FAB__AUTH_BACKENDS: "airflow.providers.fab.auth_manager.api.auth.backend.basic_auth"
         AIRFLOW__CORE__LOAD_EXAMPLES: "false"
@@ -276,7 +276,7 @@ runtime_sc:
         # init script's `airflow users create` CLI (FAB provider)
         # actually writes the admin row.
         AIRFLOW__API__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
-        AIRFLOW__API__JWT_SECRET: ${AIRFLOW_JWT_SECRET}
+        AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_JWT_SECRET}
         AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
         AIRFLOW__FAB__AUTH_BACKENDS: airflow.providers.fab.auth_manager.api.auth.backend.basic_auth
       deploy: {}

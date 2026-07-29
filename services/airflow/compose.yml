@@ -24,7 +24,7 @@ services:
       # now serves both UI and REST). Setting the old AIRFLOW__WEBSERVER__
       # SECRET_KEY name was a silent no-op.
       AIRFLOW__API__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
-      AIRFLOW__API__JWT_SECRET: ${AIRFLOW_JWT_SECRET}
+      AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_JWT_SECRET}
       # Airflow 3.x defaults to SimpleAuthManager which does NOT support
       # HTTP basic_auth — the README's curl examples and the Hermes →
       # Airflow REST trigger pattern need the FAB auth manager.
@@ -120,7 +120,7 @@ services:
       # Airflow 3.x: was AIRFLOW__WEBSERVER__SECRET_KEY ([webserver] section
       # retired); canonical is now AIRFLOW__API__SECRET_KEY.
       AIRFLOW__API__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
-      AIRFLOW__API__JWT_SECRET: ${AIRFLOW_JWT_SECRET}
+      AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_JWT_SECRET}
       # Parity with api-server + init: scheduler's DagFileProcessor calls
       # AuthManager.is_authorized_dag during DAG parsing. Without these,
       # it falls back to SimpleAuthManager and may emit auth warnings
@@ -201,7 +201,7 @@ services:
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${AIRFLOW_DB_USER}:${AIRFLOW_DB_PASSWORD}@supabase-db:5432/airflow
       AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
       AIRFLOW__API__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
-      AIRFLOW__API__JWT_SECRET: ${AIRFLOW_JWT_SECRET}
+      AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_JWT_SECRET}
       AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
       AIRFLOW__FAB__AUTH_BACKENDS: airflow.providers.fab.auth_manager.api.auth.backend.basic_auth
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
@@ -309,7 +309,7 @@ services:
       # failure, leaving the webserver auth-backend without an admin to
       # validate against (same 401 class as Pass 9's basic_auth bug).
       AIRFLOW__API__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
-      AIRFLOW__API__JWT_SECRET: ${AIRFLOW_JWT_SECRET}
+      AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_JWT_SECRET}
       AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
       AIRFLOW__FAB__AUTH_BACKENDS: airflow.providers.fab.auth_manager.api.auth.backend.basic_auth
     volumes:
