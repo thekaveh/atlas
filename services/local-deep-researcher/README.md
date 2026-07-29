@@ -16,7 +16,7 @@ Image: `python:3.11.15-slim`. At startup, the managed repo volume is checked out
 | Kong | `http://research.localhost:63000` | Route generated from `LOCAL_DEEP_RESEARCHER_SOURCE` (needs the `--setup-hosts` entries). |
 | LangGraph API | `POST /threads`, `POST /threads/{id}/runs/stream` | Standard LangGraph dev-server endpoints. |
 
-Canonical port table: [Ports and Routes](../../docs/deployment/ports-and-routes.md).
+Canonical port table: [Ports and Routes](../../docs/reference/ports-routes.md).
 
 ## 3. Configuration
 

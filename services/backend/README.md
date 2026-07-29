@@ -20,7 +20,7 @@ Source: `services/backend/app/`. The FastAPI app boots in `app/main.py`, mounts 
 | RAG ingestion | `POST /api/rag/ingestions`, `GET /api/rag/ingestions[/{id}]`, `POST /api/rag/ingestions/{id}/cancel` | Internal-service only. Generic ingestion job over a consumer `rag_ingestion_profile` with machine-readable per-phase status. |
 | Ray jobs | `POST /api/ray/jobs/submit`, `GET`/`DELETE /api/ray/jobs/{job_id}`, `/api/ray/cluster/status` | Requires `Authorization: Bearer ${RAY_JOB_API_TOKEN}` on direct and Kong access paths. |
 
-Canonical port table: [Ports and Routes](../../docs/deployment/ports-and-routes.md).
+Canonical port table: [Ports and Routes](../../docs/reference/ports-routes.md).
 
 ## 3. Configuration
 

@@ -17,7 +17,7 @@ Image: `semitechnologies/multi2vec-clip:sentence-transformers-clip-ViT-B-32-1.5.
 | Kong | — | Infra module; no Kong route. |
 | Meta | `GET http://multi2vec-clip:8080/meta` | Returns model config; useful as a health probe. |
 
-Canonical port table: [Ports and Routes](../../docs/deployment/ports-and-routes.md).
+Canonical port table: [Ports and Routes](../../docs/reference/ports-routes.md).
 
 ## 3. Configuration
 

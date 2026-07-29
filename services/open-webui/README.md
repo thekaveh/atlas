@@ -15,7 +15,7 @@ Main browser chat UI. It adapts to the configured LLM provider and related stack
 | Direct | http://localhost:63096 | Works when the service is enabled in container mode and the port is exposed. |
 | Kong | http://chat.localhost:63000 | Requires `./start.sh --setup-hosts`; only available for services with Kong routes. |
 
-See the canonical port table at [Ports and Routes](../../docs/deployment/ports-and-routes.md).
+See the canonical port table at [Ports and Routes](../../docs/reference/ports-routes.md).
 
 ## 3. Configuration
 
