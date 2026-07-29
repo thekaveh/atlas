@@ -16,11 +16,13 @@
 | CLOUD_OPENROUTER_SOURCE | cloud-providers | disabled | enabled, disabled |
 | CLOUDFLARED_SOURCE | cloudflared | disabled | container, disabled |
 | COMFYUI_SOURCE | comfyui | container-cpu | container-cpu, container-gpu, localhost, managed-localhost-mps, disabled |
+| COMFYUI_INIT_SOURCE | comfyui | container | container, disabled |
 | CRAWL4AI_SOURCE | crawl4ai | disabled | container, disabled |
 | DOC_PROCESSOR_SOURCE | docling | disabled | disabled, docling-localhost, docling-container-gpu |
 | FAL_SOURCE | fal | disabled | enabled, disabled |
 | GRAFANA_SOURCE | grafana | disabled | container, disabled |
 | HERMES_SOURCE | hermes | container | container, localhost, disabled |
+| HERMES_INIT_SOURCE | hermes | container | container, disabled |
 | ICEBERG_REST_SOURCE | iceberg-rest | disabled | container, disabled |
 | JENKINS_SOURCE | jenkins | disabled | container, disabled |
 | JUPYTERHUB_SOURCE | jupyterhub | container | container, disabled |
@@ -34,12 +36,15 @@
 | LOKI_SOURCE | loki | disabled | container, disabled |
 | MCP_SERVERS_SOURCE | mcp-servers | disabled | container, disabled |
 | MINIO_SOURCE | minio | container | container, disabled |
+| MINIO_INIT_SOURCE | minio | container | container, disabled |
 | MLFLOW_SOURCE | mlflow | disabled | container, disabled |
 | N8N_SOURCE | n8n | container | container, disabled |
+| N8N_INIT_SOURCE | n8n | container | container, disabled |
 | NEO4J_GRAPH_DB_SOURCE | neo4j | container | container, localhost, disabled |
 | LLM_PROVIDER_SOURCE | ollama | ollama-container-cpu | ollama-container-cpu, ollama-container-gpu, ollama-localhost, none |
 | OPEN_WEB_UI_SOURCE | open-webui | container | container, disabled |
 | OPENCLAW_SOURCE | openclaw | disabled | disabled, container, localhost |
+| OPENCLAW_INIT_SOURCE | openclaw | container | container, disabled |
 | OTEL_COLLECTOR_SOURCE | otel-collector | disabled | container, disabled |
 | STT_PROVIDER_SOURCE | parakeet | speaches-container-cpu | speaches-container-cpu, speaches-container-gpu, parakeet-container-gpu, parakeet-localhost, whisper-cpp-localhost, disabled |
 | PROMETHEUS_SOURCE | prometheus | disabled | container, disabled |
@@ -65,4 +70,6 @@
 | VERBA_SOURCE | verba | disabled | container, disabled |
 | VLLM_METAL_SOURCE | vllm-metal | disabled | managed-localhost, disabled |
 | WEAVIATE_SOURCE | weaviate | container | container, localhost, disabled |
+| WEAVIATE_INIT_SOURCE | weaviate | container | container, disabled |
+| MULTI2VEC_CLIP_SOURCE | weaviate | container-cpu | container-cpu, container-gpu, disabled |
 | ZEPPELIN_SOURCE | zeppelin | disabled | container, disabled |
