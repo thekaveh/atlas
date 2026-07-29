@@ -18,7 +18,7 @@ Volume: `${PROJECT_NAME}-redis-data` (AOF append log). `./stop.sh --cold` remove
 | Internal | `redis://:${REDIS_PASSWORD}@redis:6379/<db>` | What sibling containers use. |
 | Kong | — | Redis is infrastructure; no Kong route. |
 
-Canonical port table: [Ports and Routes](../../docs/deployment/ports-and-routes.md).
+Canonical port table: [Ports and Routes](../../docs/reference/ports-routes.md).
 
 ## 3. Configuration
 

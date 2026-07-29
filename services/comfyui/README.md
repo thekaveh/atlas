@@ -17,7 +17,7 @@ Image: `ghcr.io/ai-dock/comfyui:v2-cpu-22.04-v0.2.7` (CPU default) or an operato
 | Internal | `${COMFYUI_ENDPOINT}` | Resolved per `COMFYUI_SOURCE`: `http://comfyui:18188` for container, `http://host.docker.internal:${COMFYUI_LOCALHOST_PORT}` for localhost. |
 | WebSocket | `ws://comfyui:18188/ws` | Streams progress events; one connection per caller today. |
 
-Canonical port table: [Ports and Routes](../../docs/deployment/ports-and-routes.md).
+Canonical port table: [Ports and Routes](../../docs/reference/ports-routes.md).
 
 ## 3. Configuration
 
