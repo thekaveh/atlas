@@ -1109,6 +1109,45 @@ Output is deterministic and byte-stable for the same inputs, so a consumer's
 overlay doctor can diff it across runs. This replaces per-consumer `.env`
 grepping and the hand-maintained endpoint/URL-rewrite bridges.
 
+### 6.6. Host Ollama sizing for multi-model ingest (`ollama-localhost`)
+
+A graph-RAG ingest drives several Ollama models in one run — an EXTRACT model,
+an embedding model, and a KEYWORD/QUERY model — and under Ollama's defaults the
+large ones evict each other between calls (`ollama ps` shows `Stopping…`),
+causing reload thrash that stalls extraction. On a host with room to hold the
+whole ingest set resident, raise the daemon's resident-model ceiling and pin
+the set for the run's duration, then revert.
+
+**Set-for-run-then-revert (macOS — the host daemon is host-owned under
+`ollama-localhost`, so Atlas cannot set this for you):**
+
+```bash
+# Before the run — keep the ingest model-set resident. Size to YOUR set +
+# free RAM (4 covered extract 37 GB + embed + keyword 29 GB on a 192 GB host):
+launchctl setenv OLLAMA_MAX_LOADED_MODELS 4
+launchctl setenv OLLAMA_KEEP_ALIVE -1        # "UNTIL: Forever" — no idle unload
+# Restart Ollama.app so the daemon picks up the env, then confirm:
+ollama ps                                     # the set holds at UNTIL: Forever
+```
+
+```bash
+# After the run — revert so you don't pin model RAM indefinitely:
+launchctl unsetenv OLLAMA_MAX_LOADED_MODELS
+launchctl unsetenv OLLAMA_KEEP_ALIVE
+# Restart Ollama.app; defaults (KEEP_ALIVE=5m, evict-on-pressure) return.
+```
+
+The RAM cost is real and the reason this is a run-scoped tweak, not a default:
+holding the set resident (e.g. ~66 GB for a 37 GB extract + 29 GB keyword
+model) stays allocated until you revert and restart the daemon. Size
+`OLLAMA_MAX_LOADED_MODELS` to your ingest set and free RAM, not higher.
+
+> **Container sources don't need this.** For `ollama-container-*`, Atlas sets
+> the parallel-serving knobs (`OLLAMA_NUM_PARALLEL`, `OLLAMA_MAX_LOADED_MODELS`)
+> in the container's compose environment (#849), so the engine owns them
+> directly. This section is only for `ollama-localhost`, where the host daemon
+> is a host-owned prerequisite Atlas does not manage (#798).
+
 ---
 
 ## 7. Consumer adoption runbook (the full journey)
