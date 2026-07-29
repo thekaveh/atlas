@@ -191,6 +191,22 @@ def _source_metadata(
                 values=[option.id for option in manifest.sources.options],
             )
         ]
+        # Also surface secondary SOURCE vars declared as env entries — chiefly
+        # the *_INIT_SOURCE init-container selectors (COMFYUI_INIT_SOURCE,
+        # HERMES_INIT_SOURCE, …) — so the canonical source-values.md matrix
+        # lists EVERY *_SOURCE var, not just the primary (#836). The primary
+        # (manifest.sources.var) is already surfaced above; skip it. Values
+        # resolve via the same runtime_sc lookup the no-sources-block branch
+        # uses (empty → "-"), never the primary's option list.
+        for env in manifest.env:
+            if env.name.endswith("_SOURCE") and env.name != manifest.sources.var:
+                source_surfaces.append(
+                    SourceSurface(
+                        var=env.name,
+                        default=str(env.default) if env.default is not None else "",
+                        values=_runtime_surface_values(manifest, env.name),
+                    )
+                )
     else:
         source_surfaces = [
             SourceSurface(

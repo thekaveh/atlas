@@ -50,7 +50,7 @@ These services can run on your host machine instead of in containers:
 
 ### 3.2. Container-Only or Stack-Managed Services
 
-Container-only and stack-managed services should normally be left at their defaults unless you are intentionally reducing the stack or debugging a specific component. Init service SOURCE variables (`COMFYUI_INIT_SOURCE`, `HERMES_INIT_SOURCE`, `MINIO_INIT_SOURCE`, `N8N_INIT_SOURCE`, `OPENCLAW_INIT_SOURCE`, `WEAVIATE_INIT_SOURCE`) are usually managed by the startup flow and should not be the first knob users change.
+Container-only and stack-managed services should normally be left at their defaults unless you are intentionally reducing the stack or debugging a specific component. Init-service SOURCE variables (the `*_INIT_SOURCE` selectors) are usually managed by the startup flow and should not be the first knob users change.
 
 ### 3.3. Feature Flags (Non-SOURCE)
 
