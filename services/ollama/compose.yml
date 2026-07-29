@@ -10,6 +10,13 @@ services:
     # Direct CLI access from host: docker exec -it ${PROJECT_NAME}-ollama ollama <cmd>
     environment:
       NVIDIA_VISIBLE_DEVICES: ${OLLAMA_NVIDIA_VISIBLE_DEVICES:-all}
+      # Parallel serving (#849): multi-agent consumers (8+ concurrent
+      # requests) need NUM_PARALLEL > 1; Ollama's default of 1 serializes.
+      # MAX_LOADED_MODELS bounds resident-model memory. Inert when this
+      # container is scaled to 0 (ollama-localhost); the host daemon owns
+      # both for that source.
+      OLLAMA_NUM_PARALLEL: ${OLLAMA_NUM_PARALLEL:-8}
+      OLLAMA_MAX_LOADED_MODELS: ${OLLAMA_MAX_LOADED_MODELS:-2}
     deploy:
       replicas: ${OLLAMA_SCALE:-1}
     logging:
