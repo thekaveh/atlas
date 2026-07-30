@@ -178,6 +178,7 @@ def render_mkdocs_yml(manifest: Manifest) -> str:
             "favicon": "assets/brand/favicon.svg",
         },
         "extra_css": ["stylesheets/atlas.css"],
+        "plugins": ["search", "privacy"],
         "markdown_extensions": [
             "admonition",
             "attr_list",
