@@ -111,24 +111,26 @@ SparkSubmitOperator(
 )
 ```
 
-**Applying the #792 wrapper — confirm via REST instead of the broken `:7077` poll.** The `SparkSubmitHook.submit()` call returns the driver id *without polling* (the poll is driven by the operator's `execute()`, not `submit()`). So the cleanest pattern is to use the hook directly + `confirm_driver_status_via_rest()` (from `services/airflow/dags/atlas_spark_utils.py`), which queries the master's `:6066` REST endpoint directly and raises only on a genuine failure:
+**Applying the #792 wrapper — submit + REST confirmation via `:6066`.** In the shipped provider version (`apache-airflow-providers-apache-spark` 5.x), `SparkSubmitHook.submit(application)` returns `None` (not a driver id) and *itself* invokes `_start_driver_status_tracking()` for cluster mode — the incompatible `:7077` RPC poll runs *inside* `submit()`. The correct pattern (from `services/airflow/dags/atlas_spark_utils.py`) is: construct the hook, disable the poll (`_should_track_driver_status = False`) **before** calling `submit(application)`, then read `hook._driver_id` and confirm via the master's `:6066` REST endpoint:
 
 ```python
 from airflow.providers.apache.spark.hooks.spark_submit import SparkSubmitHook
-from atlas_spark_utils import confirm_driver_status_via_rest
+from atlas_spark_utils import submit_and_confirm_via_rest
 
 hook = SparkSubmitHook(
     conn_id="spark_default",
-    application="s3a://jars/atlas/lakehouse-smoke/latest/atlas-lakehouse-smoke.jar",
     conf=spark_conf,
 )
-driver_id = hook.submit()        # blocks (waitAppCompletion=true) → returns driver_id
-confirm_driver_status_via_rest(  # queries :6066 REST → FINISHED + success (or raises)
-    driver_id, rest_host="spark-master"
+# submit_and_confirm_via_rest disables the hook's :7077 poll, submits the
+# application, extracts hook._driver_id, and confirms FINISHED+success via :6066.
+driver_id = submit_and_confirm_via_rest(
+    hook,
+    application="s3a://jars/atlas/lakehouse-smoke/latest/atlas-lakehouse-smoke.jar",
+    rest_host="spark-master",
 )
 ```
 
-This **never masks a real failure**: `submit()` raises on a genuine submission error (spark-submit exits non-zero) *before* the confirmation runs, and `confirm_driver_status_via_rest()` raises `RuntimeError` if the driver is not `FINISHED + success`. The only exception tolerated is the redundant `:7077` RPC poll — which `submit()` never triggers.
+This **never masks a real failure**: `submit()` raises on a genuine submission error (spark-submit exits non-zero) *before* the REST confirmation runs; `confirm_driver_status_via_rest()` raises `RuntimeError` if the driver is not `FINISHED + success`; and if `submit()` does not set a `driver_id`, the function raises rather than confirm blindly.
 
 Validation flow:
 
