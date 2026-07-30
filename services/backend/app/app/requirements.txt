@@ -44,7 +44,7 @@ chonkie>=1.7.0,<2
 # not attacker-writable in the default deployment. Both are accepted with these
 # mitigations — re-audit on any ragas/diskcache upgrade.
 ragas==0.4.3
-fal-client>=0.8.0
+fal-client>=1.0.0
 # Pillow: image_to_3d input conditioning (media_input.py) composites
 # transparent inputs onto a neutral background before submission. Imported
 # lazily at request time only, so it stays out of main.py's import closure and
