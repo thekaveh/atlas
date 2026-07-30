@@ -111,6 +111,25 @@ SparkSubmitOperator(
 )
 ```
 
+**Applying the #792 wrapper — confirm via REST instead of the broken `:7077` poll.** The `SparkSubmitHook.submit()` call returns the driver id *without polling* (the poll is driven by the operator's `execute()`, not `submit()`). So the cleanest pattern is to use the hook directly + `confirm_driver_status_via_rest()` (from `services/airflow/dags/atlas_spark_utils.py`), which queries the master's `:6066` REST endpoint directly and raises only on a genuine failure:
+
+```python
+from airflow.providers.apache.spark.hooks.spark_submit import SparkSubmitHook
+from atlas_spark_utils import confirm_driver_status_via_rest
+
+hook = SparkSubmitHook(
+    conn_id="spark_default",
+    application="s3a://jars/atlas/lakehouse-smoke/latest/atlas-lakehouse-smoke.jar",
+    conf=spark_conf,
+)
+driver_id = hook.submit()        # blocks (waitAppCompletion=true) → returns driver_id
+confirm_driver_status_via_rest(  # queries :6066 REST → FINISHED + success (or raises)
+    driver_id, rest_host="spark-master"
+)
+```
+
+This **never masks a real failure**: `submit()` raises on a genuine submission error (spark-submit exits non-zero) *before* the confirmation runs, and `confirm_driver_status_via_rest()` raises `RuntimeError` if the driver is not `FINISHED + success`. The only exception tolerated is the redundant `:7077` RPC poll — which `submit()` never triggers.
+
 Validation flow:
 
 ```bash
