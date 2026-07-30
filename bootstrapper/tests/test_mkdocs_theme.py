@@ -23,3 +23,15 @@ def test_theme_declares_font_logo_favicon():
     assert t["font"]["code"] == "JetBrains Mono"
     assert t["logo"] == "assets/brand/atlas-logo.svg"
     assert t["favicon"] == "assets/brand/favicon.svg"
+
+
+def test_privacy_plugin_self_hosts_fonts():
+    """#841: the privacy plugin must be enabled so fonts self-host (no external
+    fonts.googleapis.com/gstatic.com at runtime)."""
+    plugins = _cfg().get("plugins", [])
+    assert "privacy" in plugins, (
+        f"mkdocs.yml plugins must include 'privacy' to self-host fonts (#841); got {plugins}"
+    )
+    assert "search" in plugins, (
+        f"explicit plugins list must retain 'search'; got {plugins}"
+    )
