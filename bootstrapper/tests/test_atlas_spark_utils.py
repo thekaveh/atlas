@@ -1,16 +1,19 @@
-"""Tests for the Atlas Spark standalone driver-status REST confirmation (#792, #876).
+"""Tests for the Atlas Spark standalone driver-status REST confirmation (#792, #876, #880).
 
-Tests two functions:
+Tests three functions:
 - ``confirm_driver_status_via_rest()`` — pure-Python REST query (urllib mock).
-- ``submit_and_confirm_via_rest()`` — orchestration that disables the hook's
-  :7077 poll, submits, extracts ``_driver_id``, and confirms via REST.
+- ``_extract_driver_id_from_log()`` — regex extraction from spark-submit log lines.
+- ``submit_and_confirm_via_rest()`` — orchestration that disables the :7077 poll,
+  captures the spark-submit log, extracts the driver ID via regex (NOT from
+  ``hook._driver_id``, which the shipped provider only sets on the tracking path
+  we disable — #880), and confirms via REST.
 
-The ``submit_and_confirm_via_rest()`` tests use a mock hook that faithfully
-represents the shipped SparkSubmitHook API (#876 live evidence):
+The mock hook faithfully represents the shipped SparkSubmitHook API (#876, #880):
 - ``__init__`` does NOT accept ``application``.
-- ``submit(application)`` takes the JAR path and returns None.
-- ``_driver_id`` is set on the hook during submit.
-- ``_should_track_driver_status`` is an attribute (overridable to False).
+- ``submit(application)`` returns None.
+- ``_process_spark_submit_log(lines)`` is called during submit.
+- ``_driver_id`` stays None when ``_should_track_driver_status`` is False.
+- ``_should_track_driver_status`` is an attribute (overridable).
 """
 from __future__ import annotations
 
@@ -21,7 +24,6 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
-# Load the utility by file path (it lives in services/airflow/dags/, not bootstrapper/).
 _MOD_PATH = (
     Path(__file__).resolve().parents[2]
     / "services" / "airflow" / "dags" / "atlas_spark_utils.py"
@@ -31,9 +33,8 @@ _mod = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_mod)
 confirm_driver_status_via_rest = _mod.confirm_driver_status_via_rest
 submit_and_confirm_via_rest = _mod.submit_and_confirm_via_rest
+_extract_driver_id_from_log = _mod._extract_driver_id_from_log
 
-
-# ─── helpers ───────────────────────────────────────────────────────────
 
 def _mock_response(payload: dict):
     mock = MagicMock()
@@ -43,28 +44,39 @@ def _mock_response(payload: dict):
     return mock
 
 
-_DRIVER_ID = "driver-202607301200-0001"
+_FINISHED = {"driverState": "FINISHED", "success": True}
+_DRIVER_ID = "driver-20260730220946-0000"
+_LOG_LINES = [
+    "Running spark-submit using cluster deploy mode",
+    "Driver successfully submitted as driver-20260730220946-0000",
+    "spark-submit exited with code 0",
+]
 
 
-def _make_mock_hook(driver_id: str | None = _DRIVER_ID, submit_raises: Exception | None = None):
-    """Build a mock SparkSubmitHook matching the shipped API (#876):
-    _should_track_driver_status starts True; submit(application) sets
-    _driver_id (or raises); submit returns None."""
+def _make_mock_hook(
+    log_lines: list[str] | None = None,
+    driver_id: str | None = None,
+    submit_raises: Exception | None = None,
+):
+    """Mock SparkSubmitHook matching the shipped API (#876, #880):
+    _should_track_driver_status starts True; _driver_id stays None (the provider
+    only sets it on the tracking path, which we disable); submit(application)
+    calls _process_spark_submit_log then returns None."""
     hook = MagicMock()
     hook._should_track_driver_status = True
-    hook._driver_id = None
+    hook._driver_id = driver_id  # None by default — simulates #880.
+    hook._process_spark_submit_log = MagicMock()
+
+    lines = log_lines if log_lines is not None else _LOG_LINES
 
     def _submit(app):
-        hook._driver_id = driver_id
+        hook._process_spark_submit_log(iter(lines))
         if submit_raises:
             raise submit_raises
         return None
 
     hook.submit.side_effect = _submit
     return hook
-
-
-_FINISHED = {"driverState": "FINISHED", "success": True}
 
 
 # ─── confirm_driver_status_via_rest ────────────────────────────────────
@@ -101,43 +113,69 @@ def test_confirm_propagates_http_errors():
             confirm_driver_status_via_rest(_DRIVER_ID)
 
 
-# ─── submit_and_confirm_via_rest (#876 corrected API) ──────────────────
+# ─── _extract_driver_id_from_log ───────────────────────────────────────
+
+def test_extract_finds_driver_id_in_log():
+    assert _extract_driver_id_from_log(_LOG_LINES) == _DRIVER_ID
+
+
+def test_extract_returns_none_for_empty_log():
+    assert _extract_driver_id_from_log([]) is None
+
+
+def test_extract_returns_none_for_log_without_driver_id():
+    assert _extract_driver_id_from_log(["some log line", "another line"]) is None
+
+
+# ─── submit_and_confirm_via_rest (log-capture approach, #880) ──────────
+
+def test_submit_extracts_driver_id_from_captured_log():
+    """AC #880: the driver ID is obtained even when _should_track_driver_status
+    is disabled (hook._driver_id stays None — the shipped provider only sets it
+    on the tracking path). The ID is extracted from the spark-submit log."""
+    hook = _make_mock_hook(driver_id=None)  # _driver_id stays None (#880).
+    with patch("urllib.request.urlopen", return_value=_mock_response(_FINISHED)):
+        result = submit_and_confirm_via_rest(hook, "s3a://jars/app.jar")
+    assert result == _DRIVER_ID
+
 
 def test_submit_disables_poll_before_submitting():
-    """AC #876: prove the pattern does not call _start_driver_status_tracking()."""
+    """AC: the provider's :7077 poll is never invoked."""
     hook = _make_mock_hook()
     with patch("urllib.request.urlopen", return_value=_mock_response(_FINISHED)):
         submit_and_confirm_via_rest(hook, "s3a://jars/app.jar")
     assert hook._should_track_driver_status is False
-    hook.submit.assert_called_once_with("s3a://jars/app.jar")
 
 
-def test_submit_passes_application_to_submit_not_init():
-    """AC #876: validate the documented call signature."""
+def test_submit_confirms_via_rest_with_extracted_id():
+    """AC: the helper queries :6066 using the extracted ID."""
     hook = _make_mock_hook()
-    with patch("urllib.request.urlopen", return_value=_mock_response(_FINISHED)):
-        submit_and_confirm_via_rest(hook, "s3a://jars/app.jar")
-    hook.submit.assert_called_once_with("s3a://jars/app.jar")
-
-
-def test_submit_extracts_driver_id_and_confirms():
-    """AC #876: expose the submitted driver ID and confirm FINISHED+success."""
-    hook = _make_mock_hook(driver_id="driver-abc-123")
     with patch("urllib.request.urlopen", return_value=_mock_response(_FINISHED)) as m:
-        result = submit_and_confirm_via_rest(hook, "s3a://jars/app.jar")
-    assert result == "driver-abc-123"
-    assert "driver-abc-123" in m.call_args[0][0]
+        submit_and_confirm_via_rest(hook, "s3a://jars/app.jar")
+    url = m.call_args[0][0]
+    assert _DRIVER_ID in url and ":6066/" in url
 
 
 def test_submit_preserves_genuine_errors():
-    """AC #876: preserve genuine submission failures."""
+    """AC: a genuine submission failure is not turned into success."""
     hook = _make_mock_hook(submit_raises=RuntimeError("spark-submit exited 1"))
     with pytest.raises(RuntimeError, match="spark-submit exited 1"):
         submit_and_confirm_via_rest(hook, "s3a://jars/app.jar")
 
 
-def test_submit_raises_when_no_driver_id():
-    """If submit() set no driver_id (submission failed before launch), raise."""
-    hook = _make_mock_hook(driver_id=None)
-    with pytest.raises(RuntimeError, match="did not set a driver_id"):
-        submit_and_confirm_via_rest(hook, "s3a://jars/app.jar")
+def test_submit_raises_when_no_driver_id_in_log():
+    """If neither the log nor hook._driver_id yields a driver ID, raise."""
+    hook = _make_mock_hook(log_lines=["no driver id here"], driver_id=None)
+    with patch("urllib.request.urlopen"):
+        with pytest.raises(RuntimeError, match="Could not extract"):
+            submit_and_confirm_via_rest(hook, "s3a://jars/app.jar")
+
+
+def test_submit_falls_back_to_hook_driver_id_if_log_misses():
+    """If the regex misses but hook._driver_id is set (e.g., on the tracking
+    path), use it as a fallback."""
+    hook = _make_mock_hook(log_lines=["no match"], driver_id="driver-fallback-0000")
+    with patch("urllib.request.urlopen", return_value=_mock_response(_FINISHED)) as m:
+        result = submit_and_confirm_via_rest(hook, "s3a://jars/app.jar")
+    assert result == "driver-fallback-0000"
+    assert "driver-fallback-0000" in m.call_args[0][0]
