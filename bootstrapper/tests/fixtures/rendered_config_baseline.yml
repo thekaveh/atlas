@@ -3822,7 +3822,7 @@ services:
       SPARK_KAFKA_BOOTSTRAP_SERVERS: ''
       SPARK_MASTER_HOST: spark-master
       SPARK_MASTER_OPTS: -Dspark.master.rest.enabled=true -Dspark.master.rest.host=spark-master
-        -Dspark.master.rest.port=6066
+        -Dspark.master.rest.port=6066 -Dspark.standalone.submit.waitAppCompletion=true
     healthcheck:
       test:
       - CMD

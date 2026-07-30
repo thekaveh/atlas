@@ -43,6 +43,7 @@ services:
         -Dspark.master.rest.enabled=true
         -Dspark.master.rest.host=spark-master
         -Dspark.master.rest.port=6066
+        -Dspark.standalone.submit.waitAppCompletion=true
     command:
       - /opt/spark/bin/spark-class
       - org.apache.spark.deploy.master.Master

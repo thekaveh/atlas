@@ -107,6 +107,7 @@ runtime_sc:
           -Dspark.master.rest.enabled=true
           -Dspark.master.rest.host=spark-master
           -Dspark.master.rest.port=6066
+          -Dspark.standalone.submit.waitAppCompletion=true
       deploy: {}
       extra_hosts: []
     disabled:
