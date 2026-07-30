@@ -1,15 +1,18 @@
-"""Atlas Spark utilities for the standalone cluster (#792).
+"""Atlas Spark utilities for the standalone cluster (#792, #876).
 
-The SparkSubmitOperator polls post-submit driver status via spark_default
-(:7077 RPC) — which always fails with a protocol mismatch on the standalone
-master (the REST endpoint is on :6066). After ``spark.standalone.submit.
-waitAppCompletion=true`` makes ``spark-submit`` block+succeed, the poll is a
-redundant false-negative.
+The shipped ``SparkSubmitHook`` (apache-airflow-providers-apache-spark 5.x)
+invokes ``_start_driver_status_tracking()`` *inside* ``submit()`` for cluster
+mode — polling the connection's RPC port (:7077), which is a protocol mismatch
+against the standalone master's REST endpoint (:6066). The hook returns ``None``
+(not a driver id) and the poll raises ``AirflowException`` (#876 live evidence).
 
-This module provides ``confirm_driver_status_via_rest()`` — a lightweight
-function that queries the master's REST endpoint (:6066) directly, bypassing
-the broken poll. It is a pure Python callable (uses ``urllib``, no Airflow
-import needed) so it can be unit-tested without a running cluster.
+This module provides:
+
+- ``confirm_driver_status_via_rest()`` — pure-Python REST confirmation (urllib).
+- ``submit_and_confirm_via_rest()`` — orchestrates submit + REST confirmation
+  by **disabling the hook's poll** (``_should_track_driver_status = False``)
+  before ``submit()``, then extracting ``hook._driver_id`` and confirming via
+  the ``:6066`` REST endpoint.
 """
 from __future__ import annotations
 
@@ -27,25 +30,19 @@ def confirm_driver_status_via_rest(
 
     Queries ``http://<rest_host>:<rest_port>/v1/submissions/status/<driver_id>``
     and returns the REST payload. Raises ``RuntimeError`` if the driver did not
-    finish successfully — so a caller can ``submit()`` then ``confirm()`` and
-    only succeed when the job genuinely finished, never masking a real failure.
+    finish successfully.
 
     Args:
-        driver_id: The Spark standalone submission ID (returned by
-            ``SparkSubmitHook.submit()``).
-        rest_host: The spark-master hostname (default ``spark-master`` — the
-            Atlas compose DNS name, backend-network-only).
+        driver_id: The Spark standalone submission ID (from ``hook._driver_id``
+            after ``submit()`` — NOT returned by ``submit()`` itself, which is
+            ``None`` in the shipped provider version).
+        rest_host: The spark-master hostname (default ``spark-master``).
         rest_port: The standalone REST port (default 6066).
         timeout: HTTP timeout in seconds.
 
-    Returns:
-        The REST response payload (e.g. ``{"driverState": "FINISHED",
-        "success": true}``).
-
     Raises:
         RuntimeError: The driver is not ``FINISHED + success``.
-        URLError: The REST endpoint is unreachable (master not running, wrong
-            host, etc.).
+        URLError: The REST endpoint is unreachable.
     """
     url = f"http://{rest_host}:{rest_port}/v1/submissions/status/{driver_id}"
     with urllib.request.urlopen(url, timeout=timeout) as resp:
@@ -59,3 +56,53 @@ def confirm_driver_status_via_rest(
             f"This is a real failure, not the :7077 poll false-negative."
         )
     return payload
+
+
+def submit_and_confirm_via_rest(
+    hook,
+    application: str,
+    *,
+    rest_host: str = "spark-master",
+) -> str:
+    """Submit a Spark job and confirm the driver's status via REST (#792, #876).
+
+    The hook's ``_should_track_driver_status`` is set to ``False`` **before**
+    ``submit()`` so the provider's ``_start_driver_status_tracking()`` (the
+    incompatible :7077 RPC poll) never runs. After ``submit()`` returns (``None``
+    in the shipped version), the driver id is read from ``hook._driver_id`` and
+    confirmed via the master's ``:6066`` REST endpoint.
+
+    **Never masks a genuine failure**: ``submit()`` raises on a real submission
+    error (spark-submit exits non-zero) before the REST confirmation runs;
+    ``confirm_driver_status_via_rest()`` raises ``RuntimeError`` if the driver
+    is not ``FINISHED + success``.
+
+    Args:
+        hook: A ``SparkSubmitHook`` instance (constructed by the caller — this
+            function is hook-agnostic so it can be unit-tested with a mock).
+        application: The application JAR path (passed to ``hook.submit()`` —
+            NOT to the hook's ``__init__``, which does not accept it in the
+            shipped provider version).
+        rest_host: The spark-master hostname for REST confirmation.
+
+    Returns:
+        The driver id on success.
+
+    Raises:
+        RuntimeError: No driver_id was set (submission failed before the driver
+            launched), or the driver did not finish successfully.
+        Exception: Any genuine submission error from ``hook.submit()``.
+    """
+    # Disable the provider's :7077 RPC poll — it runs inside submit() for
+    # cluster mode and always fails with a protocol mismatch (#792, #876).
+    hook._should_track_driver_status = False
+    hook.submit(application)  # returns None; _driver_id is set on the hook.
+
+    driver_id = hook._driver_id
+    if not driver_id:
+        raise RuntimeError(
+            "SparkSubmitHook did not set a driver_id — the submission may "
+            "have failed before the driver launched, or the log format changed."
+        )
+    confirm_driver_status_via_rest(driver_id, rest_host=rest_host)
+    return driver_id
