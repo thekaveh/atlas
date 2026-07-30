@@ -117,3 +117,4 @@ nltk>=3.10.0  # SentimentIntensityAnalyzer — sentiment_classification-vader no
 spacy  # tokenizer + lemmatizer — text_classification-agnews + sentiment_classification-vader (en_core_web_sm downloaded in Dockerfile)
 torchao>=0.17  # transitive via nnx.quantize_int8 + nnx.qat_train_step_factory — quantization-mnist notebook
 prettytable  # nnx Utils.print_table renderer — used by 14 of 29 notebooks
+fastmcp==3.4.4  # MCP client toolkit — matches services/mcp-servers runtime (#598, #600)

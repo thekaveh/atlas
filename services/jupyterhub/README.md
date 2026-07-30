@@ -94,6 +94,7 @@ deliberately not injected.
 | `12_iceberg_advanced_sql.ipynb` | Spark Connect advanced Iceberg smoke: `MERGE INTO`, `VERSION AS OF`, branch/WAP, schema evolution, nested JSON, Structured Streaming, and table maintenance. |
 | `13_chonkie_chunking.ipynb` | Compare Chonkie token, recursive, and optional semantic chunking, then call the Backend `/api/chunk` runtime endpoint. |
 | `14_ragas_evaluation.ipynb` | Evaluate RAG answers with Ragas metrics and the Backend `/api/rag/evaluate` runtime endpoint. |
+| `15_mcp_clients.ipynb` | Discover and invoke the Curated MCP Servers via FastMCP 3, handle errors, and prototype in-process tools (#600). |
 
 The repository gate keeps this inventory synchronized with the image welcome
 page and environment-check notebook, compiles every Python code cell, and
@@ -299,6 +300,7 @@ For the current high-level stack diagram, see [Architecture Diagram](../../docs/
 | stt-provider | media |
 | tts-provider | media |
 | hermes | agents |
+| mcp-servers | agents |
 | n8n | agents |
 | backend | apps |
 | label-studio | apps |
