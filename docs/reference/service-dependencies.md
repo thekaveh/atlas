@@ -24,7 +24,7 @@
 | hermes | litellm | - | litellm, stt-provider, tts-provider, comfyui, searxng, airflow, lightrag |
 | iceberg-rest | minio, supabase | - | minio, supabase |
 | jenkins | minio | airflow, spark | minio |
-| jupyterhub | supabase, redis, litellm | minio, iceberg-rest, spark, redpanda | litellm, hermes, weaviate, neo4j, supabase, ray, spark, redpanda, redis, comfyui, n8n, backend, searxng, minio, iceberg-rest, mlflow, label-studio, docling, stt-provider, tts-provider |
+| jupyterhub | supabase, redis, litellm | minio, iceberg-rest, spark, mcp-servers, redpanda | litellm, hermes, weaviate, neo4j, supabase, ray, spark, redpanda, redis, comfyui, n8n, backend, searxng, minio, iceberg-rest, mlflow, label-studio, docling, stt-provider, tts-provider, mcp-servers |
 | kong | supabase, redis | - | backend, open-webui, jupyterhub, n8n, hermes, openclaw, local-deep-researcher, minio, supabase, weaviate, neo4j, comfyui, searxng, stt-provider, tts-provider, doc-processor, litellm, ollama, airflow, spark, lightrag, tei-reranker, verba, trino, redpanda, tika, crawl4ai, langfuse, mlflow, label-studio, jenkins, llm-graph-builder, mcp-servers, celery, asset-baker, asset-worker, grafana, prometheus, ray |
 | label-studio | supabase, minio | jupyterhub, mlflow | supabase, minio |
 | langfuse | supabase, redis, minio, litellm, kong, ray | - | supabase, redis, minio |

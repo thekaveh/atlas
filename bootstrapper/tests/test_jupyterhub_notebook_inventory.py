@@ -18,6 +18,7 @@ STARTUP_FILE = ROOT / "services" / "jupyterhub" / "build" / "scripts" / "startup
 MODULE_DISTRIBUTIONS = {
     "boto3": "boto3",
     "ccxt": "ccxt",
+    "fastmcp": "fastmcp",
     "chonkie": "chonkie",
     "dotenv": "python-dotenv",
     "httpx": "httpx",

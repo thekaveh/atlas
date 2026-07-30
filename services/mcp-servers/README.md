@@ -61,6 +61,7 @@ MetaMCP, Docker MCP Gateway, and `mcpo` remain later or conditional tools. MetaM
 | Service | Category |
 |---|---|
 | kong | infra |
+| jupyterhub | apps |
 
 ### 5.3. Architecture diagram
 
