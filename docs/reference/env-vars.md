@@ -301,6 +301,7 @@
 | JUPYTERHUB_TOKEN | jupyterhub |  | Optional. Empty = generate on start. |
 | JUPYTER_ALLOW_ORIGIN | jupyterhub | * | Allowed browser origin for Jupyter Server websocket upgrades; keep '*' for local dev, narrow for shared deployments. |
 | SPARK_REMOTE | jupyterhub | sc://spark-connect:15002 | Spark Connect endpoint used by bundled notebooks; override for a remote or managed Spark Connect server. |
+| MCP_SERVERS_URL | jupyterhub |  | Streamable HTTP URL for the Curated MCP Servers endpoint (http://mcp-servers:8000/mcp). Set by the bootstrapper when MCP_SERVERS_SOURCE is enabled; empty when disabled (#600). |
 | JUPYTERHUB_SCALE | jupyterhub |  | - |
 | KONG_API_GATEWAY_SOURCE | kong | container | Single-option (container only). |
 | KONG_HTTP_PORT | kong |  | - |
