@@ -36,6 +36,9 @@ env:
   - name: SPARK_REMOTE
     default: "sc://spark-connect:15002"
     description: "Spark Connect endpoint used by bundled notebooks; override for a remote or managed Spark Connect server."
+  - name: MCP_SERVERS_URL
+    default: ""
+    description: "Streamable HTTP URL for the Curated MCP Servers endpoint (http://mcp-servers:8000/mcp). Set by the bootstrapper when MCP_SERVERS_SOURCE is enabled; empty when disabled (#600)."
   - name: JUPYTERHUB_SCALE
     auto_managed: true
 
@@ -48,6 +51,7 @@ depends_on:
     - minio
     - iceberg-rest
     - spark
+    - mcp-servers
     - redpanda
 
 rows:
@@ -88,6 +92,7 @@ runtime_adaptive:
     - ray
     - mlflow
     - label-studio
+    - mcp_servers
     environment_adaptation:
       LITELLM_BASE_URL: http://litellm:4000
       LITELLM_API_KEY: ${LITELLM_MASTER_KEY}
@@ -103,6 +108,7 @@ runtime_adaptive:
       LABEL_STUDIO_URL: ${LABEL_STUDIO_ENDPOINT}
       LABEL_STUDIO_API_URL: ${LABEL_STUDIO_API_URL}
       LABEL_STUDIO_API_KEY: ${LABEL_STUDIO_USER_TOKEN}
+      MCP_SERVERS_URL: http://mcp-servers:8000/mcp
     extra_hosts_adaptation: inherit from llm_provider
 
 runtime_deps:
@@ -113,6 +119,7 @@ runtime_deps:
     - n8n
     - weaviate
     - comfyui
+    - mcp-servers
     - parakeet
     - speaches
     - chatterbox
@@ -156,3 +163,4 @@ data_flow:
     - docling
     - stt-provider
     - tts-provider
+    - mcp-servers
