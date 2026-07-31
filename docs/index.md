@@ -5,8 +5,9 @@
 <div class="atlas-home">
   <section class="atlas-home__hero">
     <div class="atlas-home__copy">
-      <p class="atlas-kicker">Source-configurable local AI, data, and engineering stack</p>
-      <p>Atlas is a self-hosted engineering platform for generative AI, RAG, creative AI, ML engineering, and data engineering workloads. Docker Compose fragments, service manifests, SOURCE values, tracks, and Kong routes combine into one configurable local platform.</p>
+      <p class="atlas-kicker">One Docker Compose stack for self-hosted gen-AI, ML, and data engineering</p>
+      <p>Spin up chat, RAG, agents, distributed compute, and a full data platform — every service switchable between container, localhost, or off.</p>
+      <p>Atlas is a self-hosted engineering platform that bundles 30+ services — an LLM gateway and inference, vector and graph databases, workflow and DAG automation, distributed compute, object storage, notebooks, and observability — behind a Kong gateway and an adaptive FastAPI backend.</p>
       <div class="atlas-home__actions">
         <a href="quick-start/">Quick Start</a>
         <a href="services/">Service Catalog</a>
