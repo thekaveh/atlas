@@ -35,11 +35,11 @@ The pipeline finding that shapes this design: `docs/index.md` is hand-authored a
 
 Findings below are from a read of the `develop` tree; references are exact.
 
-### 4.1 The reference (`nativ`)
+### 4.1. The reference (`nativ`)
 
 `nativ`'s `README.md` opens, in order: a full-width poster banner inside `<p align="center">`; a centered `<h1 align="center">Nativ</h1>`; a centered bold tagline (`Local AI, native to your Mac.`); a centered one-line subtitle; a centered badge row of four shields; then a two-paragraph executive summary as plain lead-in prose with no heading; then the first `##` section. Notably the badges are *tech* badges (macOS, Apple silicon, Swift, MLX), not CI/license status badges.
 
-### 4.2 Atlas today, per surface
+### 4.2. Atlas today, per surface
 
 Root `README.md` (hand-authored, 127 lines):
 
@@ -54,7 +54,7 @@ Root `README.md` (hand-authored, 127 lines):
 
 `generated/wiki/Home.md` (generated): currently mirrors the rich `docs/index.md` landing (same hero and `## 1. Capabilities` grid), with wiki-style link targets.
 
-### 4.3 Pipeline map (decisive)
+### 4.3. Pipeline map (decisive)
 
 Layer A (`scripts/docs/canonical_references.py`) regenerates only `docs/tracks.md`, `docs/services.md`, `docs/reference/index.md`, the `docs/reference/*` pages, and the `docs/architecture/*` pages. It does **not** write `docs/index.md` or `README.md`. The `home` template inside `static_pages` (`bootstrapper/docs/sitegen/pages.py:428`) is fetched but never consumed, i.e. dead code.
 
@@ -70,13 +70,13 @@ Consequences for this design:
 
 ## 5. Design
 
-### 5.1 Authoring approach (source of truth)
+### 5.1. Authoring approach (source of truth)
 
 Hand-author the opening in `README.md` and `docs/index.md`. Add one parity test (`bootstrapper/tests/test_doc_header_parity.py`) asserting the canonical tagline and the executive summary's opening sentence are byte-identical in both files. Because the `.io` and wiki derive from `docs/index.md`, that two-way check effectively covers all three surfaces.
 
 This matches the repo's established pattern (drift tests as the enforcement mechanism, e.g. `test_env_assembler`, `test_docs_drift`, `content_quality`) and introduces no new generation step. A canonical-content module plus generator (the DRY alternative) is not justified for two hand-authored copies and is rejected for this effort.
 
-### 5.2 Canonical content
+### 5.2. Canonical content
 
 The short About one-liner stays as GitHub's About box. At the top of the docs the opening becomes:
 
@@ -97,7 +97,7 @@ The short About one-liner stays as GitHub's About box. At the top of the docs th
 
 Badge caveat: Ollama is an optional service (the platform also runs cloud-only through LiteLLM). If the owner prefers always-on fabric over the headline LLM runtime, FastAPI or Supabase are honest replacements; the decision is deferred to implementation.
 
-### 5.3 `README.md` layout (before and after)
+### 5.3. `README.md` layout (before and after)
 
 The opening block becomes, in order:
 
@@ -112,11 +112,11 @@ The opening block becomes, in order:
 
 The architecture diagram moves out of the opening and into the Service Topology section (its conceptual home), with its caption and a pointer to the full diagram set. The old `## 2. What is Atlas` is removed; its content is absorbed by the lead-in summary, and subsequent sections renumber (Service Topology becomes section 2, Documentation section 3, and so on). Section numbers are re-stamped with `scripts/number-markdown-headings.py`.
 
-### 5.4 `docs/index.md` hero
+### 5.4. `docs/index.md` hero
 
 The hero block is re-pointed to the new messaging: the kicker becomes the tagline, a subtitle line is added, and the hero paragraph becomes the first sentence of the executive summary. The action links and the poster figure are kept. The existing Capabilities grid below already serves as the at-a-glance layer, so the bullet list is not duplicated on the landing. Badges are README-only (a GitHub convention); the landing keeps its action buttons. The `# 1. Atlas Documentation` H1 and the rest of the landing are unchanged.
 
-### 5.5 Wiki home
+### 5.5. Wiki home
 
 No direct edit. After `docs/index.md` is updated, `make docs-build` regenerates `generated/wiki/Home.md` from it. Implementation verifies the hero change propagated; if it did not, the wiki projection path is investigated before commit.
 
