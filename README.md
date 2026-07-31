@@ -2,17 +2,35 @@
   <img src="./assets/atlas-poster-blue.png" alt="Atlas — the Titan holding the globe, with the ATLAS-PLATFORM wordmark" width="100%">
 </p>
 
-# Atlas
+<h1 align="center">Atlas</h1>
 
-A self-hosted, source-configurable, multi-disciplinary engineering platform — gen-AI, ML, and data — composable from a single Docker Compose stack.
+<p align="center">
+  <strong>One Docker Compose stack for self-hosted gen-AI, ML, and data engineering.</strong>
+</p>
+
+<p align="center">
+  Spin up chat, RAG, agents, distributed compute, and a full data platform — every service switchable between container, localhost, or off.
+</p>
+
+<p align="center">
+  <img alt="Docker Compose" src="https://img.shields.io/badge/Docker%20Compose-orchestration-2496ED?logo=docker&logoColor=white">
+  <img alt="Ollama" src="https://img.shields.io/badge/Ollama-local%20LLMs-000000?logo=ollama&logoColor=white">
+  <img alt="LiteLLM" src="https://img.shields.io/badge/LiteLLM-LLM%20gateway-2563EB">
+  <img alt="Kong" src="https://img.shields.io/badge/Kong-API%20gateway-003459?logo=kong&logoColor=white">
+</p>
+
+Atlas is a self-hosted engineering platform that bundles 30+ services — an LLM gateway and inference, vector and graph databases, workflow and DAG automation, distributed compute, object storage, notebooks, and observability — behind a Kong gateway and an adaptive FastAPI backend.
+
+Every service is independently switchable between `container`, `localhost`, and `disabled` through its own SOURCE variable, so the same stack scales from a CPU starter to a multi-GPU lab. A tracks system (`gen-ai-rag`, `gen-ai-eng`, `gen-ai-creative`, `ml-eng`, `data-eng`, `trading`, `all`) preselects a working subset per workflow; the always-on core is Supabase, Redis, LiteLLM, and the Backend API.
+
+- **30+ services across 7 tracks**, all ports derived from one `BASE_PORT`
+- **Always-on core:** Supabase, Redis, LiteLLM, Backend
+- **Per-service SOURCE:** `container` / `localhost` / `disabled`
+- **One command:** `./start.sh` runs the interactive setup wizard
 
 [![Atlas — interactive setup wizard streaming the launch phase, with the ASCII brand banner pinned at the top of the terminal](./docs/screenshots/wizard-running.png)](./docs/screenshots/wizard-running.png)
 
 *The Textual TUI wizard streaming a live `./start.sh` launch — one view for stack status and logs.*
-
-[![Atlas — topologically-ordered architecture diagram](./docs/diagrams/architecture.svg)](./docs/diagrams/architecture.svg)
-
-*How a request reaches a service: clients → Kong → apps/agents → shared LLM + data layers. Per-service diagrams under `services/<name>/architecture.svg` derive from each manifest's `data_flow.calls`.*
 
 ## 1. Quick start
 
@@ -23,11 +41,7 @@ git clone https://github.com/thekaveh/atlas && cd atlas
 
 `./start.sh` with no arguments launches an interactive setup wizard covering track selection, per-service SOURCE choices, base-port selection, host aliases, and a launch summary; the default configuration runs a CPU starter stack (chat UI, workflow automation, vector database, privacy search). See [docs/quick-start/index.md](docs/quick-start/index.md) for the first-run walkthrough and [docs/quick-start/interactive-setup-wizard.md](docs/quick-start/interactive-setup-wizard.md) for what the wizard does step by step.
 
-## 2. What is Atlas
-
-Atlas is a self-hosted engineering platform for generative AI, ML, and data workloads. It bundles 30+ services (LLM gateway + inference, vector + graph DBs, workflow + DAG automation, distributed compute, object storage, notebooks, observability) behind a Kong gateway and an adaptive FastAPI backend, with each service independently switchable between `container`, `localhost`, or `disabled` via its own SOURCE variable. A **tracks system** (`gen-ai-rag`, `gen-ai-eng`, `gen-ai-creative`, `ml-eng`, `data-eng`, `trading`, `all`) picks sensible per-workflow defaults; the always-on core is Supabase, Redis, LiteLLM, and the Backend API.
-
-## 3. Service topology
+## 2. Service topology
 
 <!-- TOPOLOGY:BEGIN -->
 _Engine-only manifests (speaches, chatterbox) are not listed — they're selected as source variants of their parent (STT Provider / TTS Provider) rather than as standalone services._
@@ -97,9 +111,13 @@ _Engine-only manifests (speaches, chatterbox) are not listed — they're selecte
 | Apps & UIs | Apache Zeppelin | 63099 | — |
 <!-- TOPOLOGY:END -->
 
+[![Atlas — topologically-ordered architecture diagram](./docs/diagrams/architecture.svg)](./docs/diagrams/architecture.svg)
+
+*How a request reaches a service: clients → Kong → apps/agents → shared LLM + data layers. Per-service diagrams under `services/<name>/architecture.svg` derive from each manifest's `data_flow.calls`.*
+
 Full port + Kong-route detail: [docs/reference/ports-routes.md](docs/reference/ports-routes.md) and [docs/deployment/ports-and-routes.md](docs/deployment/ports-and-routes.md). Per-service documentation: [docs/services.md](docs/services.md).
 
-## 4. Documentation
+## 3. Documentation
 
 [docs/README.md](docs/README.md) is the full documentation index. Key entry points:
 
@@ -111,15 +129,15 @@ Full port + Kong-route detail: [docs/reference/ports-routes.md](docs/reference/p
 - **Release history** — [ROADMAP](docs/ROADMAP.md), [CHANGELOG](docs/CHANGELOG.md), [Releasing & version tags](docs/deployment/releasing.md)
 - **Project & internal docs** — research, strategy, and maintenance notes live under `docs/`: [docs/research/README.md](docs/research/README.md), [docs/strategy/README.md](docs/strategy/README.md), [docs/maintenance/README.md](docs/maintenance/README.md)
 
-## 5. Contributing
+## 4. Contributing
 
 Contributions welcome. Open a PR or an issue to propose changes.
 
-## 6. License
+## 5. License
 
 [Apache License 2.0](LICENSE)
 
-## 7. Support
+## 6. Support
 
 - Check the [documentation](docs/README.md)
 - Report issues on [GitHub Issues](https://github.com/thekaveh/atlas/issues)
