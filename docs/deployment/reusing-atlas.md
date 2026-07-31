@@ -117,7 +117,7 @@ cp .env.example .env                   # set PROJECT_NAME to your project
 
 Pin the submodule to a release **tag** or a reviewed `main`-ancestor commit rather than tracking `main`, so infra upgrades are explicit, reviewable commits — see [releasing.md](releasing.md) for the tag convention. This is the same shared-network model as Method A (your app joins `${PROJECT_NAME}-network`), with the difference that Atlas's source lives inside your repo at a pinned commit. The **complete** reference — directory layout, `.gitignore`, custom env-file location, integration patterns, contributing upstream, CI/CD, multiple stacks, troubleshooting — is [submodule-usage.md](submodule-usage.md).
 
-### 4.1. Stand up a consumer from scratch — the ordered walkthrough
+### 4.1. Stand up a consumer from scratch, the ordered walkthrough
 
 The canonical greenfield path: empty repo → a running, isolated, reproducible
 Atlas-backed stack. Each step is runnable; deep dives are linked per step.
@@ -1161,7 +1161,7 @@ rather than repeating them.
 
 ### 7.1. The journey in order
 
-> **New consumer, empty repo?** The [§4.1 ordered walkthrough](#41-stand-up-a-consumer-from-scratch--the-ordered-walkthrough) runs this journey end-to-end with copy-pasteable commands. This runbook is the day-2 reference for the same steps and the operational behaviors behind them.
+> **New consumer, empty repo?** The [§4.1 ordered walkthrough](#41-stand-up-a-consumer-from-scratch-the-ordered-walkthrough) runs this journey end-to-end with copy-pasteable commands. This runbook is the day-2 reference for the same steps and the operational behaviors behind them.
 
 1. **Register** a parent manifest — [§6.1](#61-registering-a-parent-project-with-atlasconsumeryml) (`atlas.consumer.yml`).
 2. **Pin identity** (`PROJECT_NAME` + a distinct `BASE_PORT`) durably in the manifest — §7.2 — never the default `63000`; `doctor` warns if a non-default project is left on it. Set **`BASE_PORT: auto`** in the manifest to have Atlas reserve a distinct free block per consumer and keep it stable across restarts (best for several consumers on one host, §7.4), or commit a fixed number. (`--base-port auto` at launch is the one-off, resolve-fresh form.)
@@ -1335,7 +1335,7 @@ docker ps --filter "name=<project>-"          # every container prefixed with yo
 default-port / unpullable-model lints) and `endpoints assert --require <the
 fields you read>` are the standing drift gates: run them against your configured
 stack on every pin bump so an upstream change fails your build loudly instead of
-degrading the running consumer. See [§4.1 step 8](#41-stand-up-a-consumer-from-scratch--the-ordered-walkthrough).
+degrading the running consumer. See [§4.1 step 8](#41-stand-up-a-consumer-from-scratch-the-ordered-walkthrough).
 
 **Known cosmetic caveat.** A `--detach` / non-TTY start can print
 `[ERROR] <svc>: starting, exit code 0` and `Failed to start some services` while
