@@ -20,3 +20,9 @@ def test_readme_header_matches_canonical() -> None:
     text = README.read_text(encoding="utf-8")
     assert CANONICAL_TAGLINE in text, "README.md is missing the canonical tagline"
     assert CANONICAL_SUMMARY_ANCHOR in text, "README.md is missing the canonical summary anchor"
+
+
+def test_index_header_matches_canonical() -> None:
+    text = INDEX.read_text(encoding="utf-8")
+    assert CANONICAL_TAGLINE in text, "docs/index.md is missing the canonical tagline"
+    assert CANONICAL_SUMMARY_ANCHOR in text, "docs/index.md is missing the canonical summary anchor"
