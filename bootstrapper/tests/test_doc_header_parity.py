@@ -9,7 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 
-CANONICAL_TAGLINE = "One Docker Compose stack for self-hosted gen-AI, ML, and data engineering"
+CANONICAL_TAGLINE = "A self-hosted, pre-integrated gen-AI, ML, and data platform — one Docker Compose stack"
 CANONICAL_SUMMARY_ANCHOR = "Atlas is a self-hosted engineering platform that bundles 30+ services"
 
 README = ROOT / "README.md"
