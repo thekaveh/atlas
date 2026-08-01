@@ -19,7 +19,23 @@
   <img alt="Kong" src="https://img.shields.io/badge/Kong-API%20gateway-003459?logo=kong&logoColor=white">
 </p>
 
-<p align="center"><sub>Powered by LiteLLM · Ollama · vLLM &nbsp;·&nbsp; Postgres · Weaviate · Neo4j · Redis · MinIO &nbsp;·&nbsp; Ray · Spark &nbsp;·&nbsp; n8n · Airflow &nbsp;·&nbsp; JupyterHub · Zeppelin &nbsp;·&nbsp; Prometheus · Grafana · Langfuse</sub></p>
+<p align="center">
+  <img alt="vLLM" src="https://img.shields.io/badge/vLLM-inference-0F8041">
+  <img alt="Supabase" src="https://img.shields.io/badge/Supabase-Postgres-3FCF8E?logo=supabase&logoColor=white">
+  <img alt="Weaviate" src="https://img.shields.io/badge/Weaviate-vector-262C30?logo=weaviate">
+  <img alt="Neo4j" src="https://img.shields.io/badge/Neo4j-graph-4581FF?logo=neo4j&logoColor=white">
+  <img alt="Redis" src="https://img.shields.io/badge/Redis-cache-DC382D?logo=redis&logoColor=white">
+  <img alt="MinIO" src="https://img.shields.io/badge/MinIO-object-C72E49?logo=minio">
+  <img alt="Ray" src="https://img.shields.io/badge/Ray-compute-028CF0?logo=ray">
+  <img alt="Spark" src="https://img.shields.io/badge/Spark-compute-E25A1C?logo=apachespark&logoColor=white">
+  <img alt="n8n" src="https://img.shields.io/badge/n8n-workflow-EA4B71?logo=n8n&logoColor=white">
+  <img alt="Airflow" src="https://img.shields.io/badge/Airflow-orchestrator-017CEE?logo=apacheairflow&logoColor=white">
+  <img alt="JupyterHub" src="https://img.shields.io/badge/JupyterHub-notebooks-F37626?logo=jupyter&logoColor=white">
+  <img alt="Zeppelin" src="https://img.shields.io/badge/Zeppelin-notebooks-FFD700">
+  <img alt="Prometheus" src="https://img.shields.io/badge/Prometheus-metrics-E6522C?logo=prometheus&logoColor=white">
+  <img alt="Grafana" src="https://img.shields.io/badge/Grafana-dashboards-F46800?logo=grafana&logoColor=white">
+  <img alt="Langfuse" src="https://img.shields.io/badge/Langfuse-tracing-FF7E29">
+</p>
 
 Atlas is a self-hosted engineering platform that bundles 30+ services — LLM inference and a gateway, vector and graph databases, workflow and DAG automation, distributed compute, object storage, notebooks, and observability — behind a Kong gateway and an adaptive FastAPI backend.
 
