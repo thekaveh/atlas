@@ -5,11 +5,11 @@
 <h1 align="center">Atlas</h1>
 
 <p align="center">
-  <strong>One Docker Compose stack for self-hosted gen-AI, ML, and data engineering.</strong>
+  <strong>A self-hosted, pre-integrated gen-AI, ML, and data platform — one Docker Compose stack</strong>
 </p>
 
 <p align="center">
-  Spin up chat, RAG, agents, distributed compute, and a full data platform — every service switchable between container, localhost, or off.
+  Chat, RAG, agents, distributed compute, and a full data platform — every service wired together out of the box, and switchable between container, localhost, or off.
 </p>
 
 <p align="center">
@@ -19,14 +19,36 @@
   <img alt="Kong" src="https://img.shields.io/badge/Kong-API%20gateway-003459?logo=kong&logoColor=white">
 </p>
 
-Atlas is a self-hosted engineering platform that bundles 30+ services — an LLM gateway and inference, vector and graph databases, workflow and DAG automation, distributed compute, object storage, notebooks, and observability — behind a Kong gateway and an adaptive FastAPI backend.
+<p align="center">
+  <img alt="vLLM" src="https://img.shields.io/badge/vLLM-inference-0F8041">
+  <img alt="Supabase" src="https://img.shields.io/badge/Supabase-Postgres-3FCF8E?logo=supabase&logoColor=white">
+  <img alt="Weaviate" src="https://img.shields.io/badge/Weaviate-vector-262C30?logo=weaviate">
+  <img alt="Neo4j" src="https://img.shields.io/badge/Neo4j-graph-4581FF?logo=neo4j&logoColor=white">
+  <img alt="Redis" src="https://img.shields.io/badge/Redis-cache-DC382D?logo=redis&logoColor=white">
+  <img alt="MinIO" src="https://img.shields.io/badge/MinIO-object-C72E49?logo=minio">
+  <img alt="Ray" src="https://img.shields.io/badge/Ray-compute-028CF0?logo=ray">
+  <img alt="Spark" src="https://img.shields.io/badge/Spark-compute-E25A1C?logo=apachespark&logoColor=white">
+  <img alt="n8n" src="https://img.shields.io/badge/n8n-workflow-EA4B71?logo=n8n&logoColor=white">
+  <img alt="Airflow" src="https://img.shields.io/badge/Airflow-orchestrator-017CEE?logo=apacheairflow&logoColor=white">
+  <img alt="JupyterHub" src="https://img.shields.io/badge/JupyterHub-notebooks-F37626?logo=jupyter&logoColor=white">
+  <img alt="Zeppelin" src="https://img.shields.io/badge/Zeppelin-notebooks-FFD700">
+  <img alt="Prometheus" src="https://img.shields.io/badge/Prometheus-metrics-E6522C?logo=prometheus&logoColor=white">
+  <img alt="Grafana" src="https://img.shields.io/badge/Grafana-dashboards-F46800?logo=grafana&logoColor=white">
+  <img alt="Langfuse" src="https://img.shields.io/badge/Langfuse-tracing-FF7E29">
+</p>
 
-Every service is independently switchable between `container`, `localhost`, and `disabled` through its own SOURCE variable, so the same stack scales from a CPU starter to a multi-GPU lab. A tracks system (`gen-ai-rag`, `gen-ai-eng`, `gen-ai-creative`, `ml-eng`, `data-eng`, `trading`, `all`) preselects a working subset per workflow; the always-on core is Supabase, Redis, LiteLLM, and the Backend API.
+Atlas is a self-hosted engineering platform that bundles 30+ services — LLM inference and a gateway, vector and graph databases, workflow and DAG automation, distributed compute, object storage, notebooks, and observability — behind a Kong gateway and an adaptive FastAPI backend.
+
+It's not a catalog of independent containers: the services are integrated out of the box. Kong routes every `*.localhost` host, LiteLLM unifies local and cloud models behind one API, an adaptive FastAPI backend auto-wires to whichever vector, graph, workflow, and media services you enable, Supabase provides shared auth and storage, and one observability pipeline plus declared dependency ordering tie it all together.
+
+Every service is independently switchable between `container`, `localhost`, and `disabled` through its own SOURCE variable, so the same stack scales from a CPU starter to a multi-GPU lab. Seven tracks — Generative AI · RAG, Generative AI · Engineering, Generative AI · Creative, ML Engineering, Data Engineering, Trading/Financial Research, and All/Custom — preselect a working subset per workflow, and a `--profile` switch (`dev`/`default` vs `prod`) flips the same stack between a loose dev layout and a hardened prod one. The always-on core is Kong, Supabase, Redis, LiteLLM, and the Backend API.
 
 - **30+ services across 7 tracks**, all ports derived from one `BASE_PORT`
-- **Always-on core:** Supabase, Redis, LiteLLM, Backend
+- **Integrated, not just launched:** Kong routing, the LiteLLM model gateway, an adaptive backend, shared Supabase auth, and one observability pipeline
+- **Always-on core:** Kong, Supabase, Redis, LiteLLM, Backend
 - **Per-service SOURCE:** `container` / `localhost` / `disabled`
-- **One command:** `./start.sh` runs the interactive setup wizard
+- **Profiles:** `--profile dev` (default) or `--profile prod` (loopback-bound, observability on)
+- **One command:** `./start.sh` opens the interactive **Textual TUI wizard** — pick a track, choose per-service sources, set the base port, and watch the live launch
 
 [![Atlas — interactive setup wizard streaming the launch phase, with the ASCII brand banner pinned at the top of the terminal](./docs/screenshots/wizard-running.png)](./docs/screenshots/wizard-running.png)
 
