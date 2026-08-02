@@ -555,7 +555,7 @@ All four are required status checks in the live `gitflow` ruleset:
 |---|---|
 | **Manifest lint + unit tests** | `validate_fragments` lint + 1,300+ pytest tests + the backend's own pytest suite (`services/backend/app/app/tests/`). Catches: manifest schema violations, dependency cycles, env-example drift, category overflow, backend route regressions. |
 | **Compose merge + byte-equivalence + source-permutation matrix** | Renders `docker compose config` for the merged fragment list + verifies it matches the golden baseline + tests every source variant of every service. Catches: compose-syntax errors, source-permutation regressions. |
-| **Docs drift + audit scripts** | `regen --all --check` + `make docs-check` + the remaining audits (`check_doc_links` — including `#anchor` fragment validation, `check-compose-source-deps`, `check-docs-drift`, `check-kong-routes`, `validate_research_schema`, `check-track-membership`) + a `uv lock --locked` gate for the docling localhost provider. Catches: stale per-service docs, three-surface drift, cross-surface links, missing local assets, missing `REQUIRED_DEPENDS_ON` entries, Kong route default drift, broken links/anchors, research-schema violations, stale provider locks, and track-membership omissions. |
+| **Docs drift + audit scripts** | `regen --all --check` + `make docs-check` + the remaining audits (`check_doc_links` — including `#anchor` fragment validation, `check-compose-source-deps`, `check-docs-drift`, `check-kong-routes`, `validate_research_schema`, `check-track-membership`) + lock verification for the Docling localhost provider, Local Deep Researcher, and compiled service runtimes + a vulnerability audit of compiled runtime locks. Catches: stale per-service docs, three-surface drift, cross-surface links, missing local assets, missing `REQUIRED_DEPENDS_ON` entries, Kong route default drift, broken links/anchors, research-schema violations, stale or unreproducible runtime locks, vulnerable runtime dependency closures, and track-membership omissions. |
 | **Build-validation** | `docker buildx build` for every local non-GPU Compose build context plus every `services/*/init/Dockerfile` context; GPU provider builds are intentionally excluded for runner size/time. Catches: unsatisfiable pip pins, broken Dockerfiles, and init-image drift. Runs on every workflow execution and is required. |
 
 Run the equivalent of the CI jobs locally before pushing:
@@ -574,6 +574,10 @@ uv run --project bootstrapper python scripts/check-kong-routes.py               
 uv run --project bootstrapper python scripts/validate_research_schema.py --all    # job 3 research schema
 uv run --project bootstrapper python scripts/check-track-membership.py            # job 3 track coverage
 (cd services/docling/provider/localhost && uv lock --locked)                      # job 3 docling lock
+uv run --project bootstrapper python scripts/refresh-local-deep-researcher-lock.py --check  # job 3 Local Deep Researcher lock
+uv run --project bootstrapper python -m scripts.check_runtime_locks               # job 3 compiled runtime locks
+uv tool install pip-audit==2.10.0                                                  # job 3 pinned vulnerability-audit tool
+uv run --project bootstrapper python -m scripts.audit_runtime_locks               # job 3 runtime vulnerability audit
 # job 4 (required Build-validation): docker buildx build over every local non-GPU
 # build context plus every services/*/init/Dockerfile. The full, current list
 # lives in the build matrix in .github/workflows/services-lint.yml — treat that

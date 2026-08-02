@@ -1,9 +1,14 @@
 from __future__ import annotations
 
-import tomllib
 import json
 import re
 from pathlib import Path
+import sys
+
+if sys.version_info >= (3, 11):
+    import tomllib
+else:  # pragma: no cover - exercised by the Python 3.10 test environment
+    import tomli as tomllib
 
 import yaml
 
@@ -381,6 +386,16 @@ def test_required_ci_exercises_tier_a_runtime_constraints() -> None:
         "services/asset-baker/app/requirements-locked.txt",
     ):
         assert f"-c {constraint}" in workflow
+
+    for venv_var in (
+        "BACKEND_TEST_VENV",
+        "MCP_TEST_VENV",
+        "ASSET_TEST_VENV",
+    ):
+        assert f'uv venv --python 3.12 "${venv_var}"' in workflow
+
+    assert "name: Run bootstrapper tests on Python 3.10" in workflow
+    assert "uv run --python 3.10 --isolated --locked --group dev" in workflow
 
 
 def test_external_contract_ledger_matches_executable_pyg_lib_pin() -> None:

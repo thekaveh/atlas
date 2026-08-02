@@ -1,10 +1,13 @@
 """Local Deep Researcher runtime inputs must be manifest-owned and pinned."""
 
-from pathlib import Path
+import builtins
 import importlib.util
+from pathlib import Path
 import re
+import runpy
 import subprocess
 import sys
+from types import ModuleType
 
 from packaging.version import Version
 import pytest
@@ -182,6 +185,25 @@ def test_runtime_lock_generator_is_byte_equivalent():
         cwd=REPO,
         check=True,
     )
+
+
+def test_runtime_lock_generator_falls_back_to_tomli(monkeypatch):
+    script_path = REPO / "scripts/refresh-local-deep-researcher-lock.py"
+    tomli = ModuleType("tomli")
+    tomli.loads = lambda _text: {}  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "tomli", tomli)
+
+    real_import = builtins.__import__
+
+    def import_without_tomllib(name, *args, **kwargs):
+        if name == "tomllib":
+            raise ModuleNotFoundError("No module named 'tomllib'")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", import_without_tomllib)
+    namespace = runpy.run_path(str(script_path), run_name="refresh_ldr_lock_test")
+
+    assert namespace["tomllib"] is tomli
 
 
 def test_runtime_lock_check_fails_on_byte_drift(tmp_path, monkeypatch):

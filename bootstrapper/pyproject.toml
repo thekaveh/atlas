@@ -16,6 +16,7 @@ dependencies = [
     "jsonschema>=4.0.0",     # Validates services/<name>/service.yml against bootstrapper/schemas/*
     "textual-image>=0.12,<0.13",  # Smooth splash poster via the terminal's image protocol (Kitty/Sixel/iTerm); <0.13 keeps Python 3.10 support. Block-art fallback where unsupported.
     "pillow>=12.3.0",        # Explicit floor for textual-image; clears the 12.2 font/image allocation advisories
+    "tomli>=2.0.1; python_version < '3.11'",  # stdlib tomllib compatibility for the supported Python 3.10 floor
 ]
 
 [build-system]
