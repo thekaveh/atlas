@@ -1,7 +1,7 @@
 # Default must match services/docling/service.yml::images and
 # services/docling/compose.yml so a hand-invoked `docker buildx build .`
 # pulls the same image the bootstrapper-managed compose flow uses.
-ARG BASE_IMAGE=pytorch/pytorch:2.12.1-cuda12.6-cudnn9-runtime
+ARG BASE_IMAGE=pytorch/pytorch:2.13.0-cuda12.6-cudnn9-runtime@sha256:6acf597eeb8e376a96580dde4952f37cc017fef732bb40bfc73f28f25e3f64b4
 FROM ${BASE_IMAGE}
 
 WORKDIR /app

@@ -51,14 +51,16 @@ WORKDIR /home/jovyan
 
 # Copy requirements file
 COPY requirements.txt /tmp/requirements.txt
+COPY requirements.lock /tmp/requirements.lock
 COPY atlas_finance /home/jovyan/atlas_finance
 
 # PyG family packages require torch at metadata-generation time. Install the
 # matching CPU trio first so the general PyPI index cannot pull CUDA runtimes.
 RUN pip install --no-cache-dir \
-      torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0 \
+      torch==2.13.0 torchvision==0.28.0 \
       --index-url https://download.pytorch.org/whl/cpu
-RUN pip install --no-cache-dir -r /tmp/requirements.txt
+RUN pip install --no-cache-dir \
+      -r /tmp/requirements.txt -c /tmp/requirements.lock
 
 # ml-lab NLP-task assets: spaCy language model + NLTK VADER lexicon. These are
 # bundled separately from their respective pip packages (spacy / nltk) and are

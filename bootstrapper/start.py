@@ -12,7 +12,6 @@ import os
 import json
 import shlex
 import subprocess
-import tempfile
 from datetime import date
 from pathlib import Path
 import click
@@ -46,26 +45,7 @@ def _format_today() -> str:
 
 def _write_private_text(path: Path, text: str) -> None:
     """Atomically replace *path* with an owner-readable text file."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, temporary_name = tempfile.mkstemp(
-        prefix=f".{path.name}.",
-        dir=path.parent,
-        text=True,
-    )
-    temporary_path = Path(temporary_name)
-    try:
-        os.chmod(temporary_path, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            fd = -1
-            handle.write(text)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary_path, path)
-        os.chmod(path, 0o600)
-    finally:
-        if fd >= 0:
-            os.close(fd)
-        temporary_path.unlink(missing_ok=True)
+    atomic_write_text(path, text, mode=0o600)
 
 
 def _run_privileged_hosts_setup() -> bool:
@@ -118,10 +98,11 @@ def _run_privileged_hosts_setup() -> bool:
 # Add the current directory to the path so we can import our modules
 sys.path.insert(0, str(Path(__file__).parent))
 
+from utils.atomic_write import atomic_write_text
 from utils.banner import BannerDisplay
 from utils.hosts_manager import HostsManager
 from utils.key_generator import KeyGenerator
-from utils.submodule_pin_guard import warn_if_submodule_pin_drifted
+from core.linear_startup import LinearStartupOptions, run_linear_startup
 from utils.localhost_validator import LocalhostValidator
 from core.config_parser import ConfigParser, DEFAULT_BASE_PORT, DEFAULT_PROJECT_NAME
 from core.docker_manager import DockerManager
@@ -6006,171 +5987,28 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
 
         # Linear (--no-tui / non-TTY) flow from here on — the wizard and
         # CLI-flag TUI branches above both sys.exit() before this point.
-        starter.no_splash = no_splash
-        starter.profile = profile
-        starter.show_banner()
-
-        if not starter.prepare_environment(cold_start=cold, base_port=base_port, project_name=project_name):
-            sys.exit(1)
-
-        # Pull in any keys added to .env.example since the user's .env
-        # was written (e.g. a worktree merge added a new service like
-        # MinIO and its config block). Idempotent; preserves all
-        # existing values and auto-generated secrets.
-        if not starter.backfill_missing_env_vars():
-            sys.exit(1)
-
-        if not starter.apply_source_overrides(**source_args):
-            sys.exit(1)
-
-        # Apply prod-profile env overrides (and default-profile cleanup)
-        # after source overrides so the observability default-ON only
-        # fires when the user didn't pass an explicit
-        # --prometheus-source / --grafana-source flag. The default
-        # branch clears HOST_BIND_IP when it equals the prod-managed
-        # "127.0.0.1:" value, preventing it from persisting across runs.
-        if not starter.apply_profile_overrides(
-            profile or "default",
-            explicit_prometheus=prometheus_source,
-            explicit_grafana=grafana_source,
-        ):
-            sys.exit(1)
-
-        # Persist any CLI-supplied cloud API keys to .env. No-op when
-        # the dict is empty.
-        if not starter.apply_cloud_api_keys(cloud_api_keys):
-            sys.exit(1)
-
-        # Persist any CLI-supplied user model selections to .env.
-        # litellm-init reads these on the next docker compose up via model_resolver.
-        if not starter.apply_user_model_selections(user_model_selections):
-            sys.exit(1)
-
-        # v0 → v1 port-layout migration. Runs after .env is fully populated
-        # (setup_env_file + backfill + overrides) but before port_manager
-        # rewrites ports, so we act on the user's pre-existing values rather
-        # than ones we've just computed. The TUI flows call this helper
-        # themselves immediately after backfill (see run_setup_flow /
-        # run_launch_flow); this branch covers the --no-tui linear path.
-        starter.run_port_migration(no_port_migrate)
-
-        # Step 2: Validate SOURCE configurations.
-        # Profile-source compatibility check runs first so --profile prod
-        # with a dev-only source (e.g. ollama-localhost) fails fast with a
-        # clear message before the heavier structural validation pass.
-        if profile == "prod":
-            _svc_srcs = starter.config_parser.parse_service_sources()
-            starter.source_validator.validation_errors = []
-            if not starter.source_validator.validate_sources_for_profile(_svc_srcs, "prod"):
-                starter.source_validator.print_validation_results()
-                sys.exit(1)
-        if not starter.validate_source_configurations():
-            sys.exit(1)
-        
-        # Step 3: Handle port configuration. Clear stale shell-exported
-        # *_PORT vars first so they can't shadow the freshly computed
-        # assignments (parity with the TUI pipeline's "Clear stale port
-        # environment" step, which runs unconditionally).
-        starter.unset_port_environment_variables()
-        if not starter.handle_port_configuration(base_port):
-            sys.exit(1)
-        
-        # Secrets MUST be generated/rotated BEFORE any config-gen step that
-        # bakes a secret into a derived value. generate_service_configuration
-        # embeds SUPABASE_DB_PASSWORD / GRAPH_DB_PASSWORD / REDIS_PASSWORD into
-        # LIGHTRAG_PG_URI / LIGHTRAG_NEO4J_PASSWORD / LIGHTRAG_REDIS_URI; the
-        # Kong/LiteLLM configs embed their own keys. If those ran first and a
-        # password then rotated (cold start, or a first-run placeholder→real
-        # upgrade), the derived value would carry the STALE secret while the DB
-        # volume is initdb'd with the NEW one → "password authentication failed
-        # for user supabase_admin" from lightrag-init against a fresh volume.
-
-        # Step 3.9a: Validate Supabase keys (auto-generate for cold start)
-        if not starter.validate_supabase_keys(cold_start=cold):
-            sys.exit(1)
-
-        # Step 3.9b: Generate encryption keys — rotate/ensure ALL secrets before
-        # any derived-config step below reads them.
-        if not starter.generate_encryption_keys(cold_start=cold):
-            sys.exit(1)
-
-        # Step 4: Generate service configuration
-        if not starter.generate_service_configuration():
-            sys.exit(1)
-
-        # Step 4.1: Check service dependencies
-        if not starter.check_service_dependencies():
-            sys.exit(1)
-
-        # Step 4.5: Generate dynamic Kong configuration
-        if not starter.generate_kong_configuration():
-            sys.exit(1)
-
-        # Step 4.55: Write LiteLLM stub config.yaml so the bind mount has
-        # a file. The real model_list is rendered later by litellm-init
-        # from the YAML catalogs + env — see services/litellm/init/scripts/init.py.
-        if not starter.generate_litellm_configuration():
-            sys.exit(1)
-
-        # Step 4.56: Write ComfyUI manifest (selected-models.yaml + active-models.tsv)
-        # so comfyui-init can download the active set without querying the DB.
-        # Skipped when COMFYUI_SOURCE=disabled. Mirrors generate_litellm_configuration.
-        if not starter.generate_comfyui_manifest():
-            sys.exit(1)
-
-        # Step 5: Handle hosts configuration
-        if not starter.handle_hosts_configuration(setup_hosts, skip_hosts):
-            sys.exit(1)
-
-        # Step 6.1: Prod-launch gate — refuse to start if any managed secret
-        # still equals its shipped placeholder. Runs AFTER generate_encryption_keys
-        # so a normal first-run auto-rotation happens first and does NOT trip this
-        # gate. Only fires when --profile prod is active.
-        if getattr(starter, "profile", "default") == "prod":
-            try:
-                starter.key_generator.assert_no_placeholders_remaining()
-            except RuntimeError as exc:
-                print(f"ERROR: {exc}", file=sys.stderr)
-                sys.exit(1)
-
-        # Step 7: Validate localhost services before starting
-        if not starter.validate_localhost_services():
-            sys.exit(1)
-
-        # Defensive final backfill — see notes on the wizard pipeline's
-        # matching step. Catches any case where an intermediate pipeline
-        # step regenerated .env from a parsed snapshot rather than the
-        # in-place regex replacement, dropping keys present in
-        # .env.example but not (yet) tracked by service_config.
-        if not starter.backfill_missing_env_vars():
-            sys.exit(1)
-
-        # Pre-launch summary + docker streaming. TUI-capable runs exit
-        # before reaching this point (the Textual wizard owns its own
-        # summary, confirmation, and live log streaming). This linear
-        # flow runs only for --no-tui / non-TTY contexts: show the
-        # Rich-Table summary, prompt for confirm, then stream docker
-        # output via TTY passthrough.
-        if not starter.show_pre_launch_summary(track=track, assume_yes=detach or json_output):
-            starter.banner.console.print("\n  [color(245)]Launch cancelled.[/color(245)]")
-            sys.exit(0)
-        if not starter.start_managed_host_processes():
-            sys.exit(1)
-        if not starter.start_docker_services(cold_start=cold, wait=detach or json_output):
-            sys.exit(1)
-        # #797: read-only tripwire. If Atlas is running as a consumer git
-        # submodule (infra/), surface any pin drift (working HEAD != recorded
-        # gitlink, or the superproject staged the pointer) LOUDLY instead of
-        # silently. The launcher itself never moves/stages the pin — it only
-        # warns. No-op for standalone clones / non-git checkouts.
-        warn_if_submodule_pin_drifted(starter.config_parser.root_dir)
-        starter.show_container_status_and_verify_ports()
-        starter.check_comfyui_models()
-        if detach:
-            if not starter.show_detached_status_summary(json_output=json_output):
-                sys.exit(1)
-            sys.exit(0)
-        starter.show_container_logs()
+        exit_code = run_linear_startup(
+            starter,
+            LinearStartupOptions(
+                cold=cold,
+                base_port=base_port,
+                project_name=project_name,
+                source_args=source_args,
+                profile=profile,
+                explicit_prometheus=prometheus_source,
+                explicit_grafana=grafana_source,
+                cloud_api_keys=cloud_api_keys,
+                user_model_selections=user_model_selections,
+                no_port_migrate=no_port_migrate,
+                setup_hosts=setup_hosts,
+                skip_hosts=skip_hosts,
+                track=track,
+                detach=detach,
+                json_output=json_output,
+                no_splash=no_splash,
+            ),
+        )
+        sys.exit(exit_code)
 
     except click.ClickException:
         # Let click render its own usage/parameter errors (e.g. the

@@ -1,5 +1,5 @@
 ARG BASE_IMAGE=python:3.12.9-slim
-ARG NODE_IMAGE=node:22-bookworm-slim
+ARG NODE_IMAGE=node:22-bookworm-slim@sha256:f32b81066cde10a75dbac96646099533316d94bac4150c55da1636e1f0ffdc46
 FROM ${NODE_IMAGE} AS node-runtime
 FROM ${BASE_IMAGE}
 

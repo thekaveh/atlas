@@ -43,7 +43,12 @@ on their host.
   Ollama catalog). Floor-bumped immediately to clear.
 - `torch.load` deserialization RCE (CVE-2025-32434, critical) in the former
   `torch==2.4.1` JupyterHub image: **remediated**. JupyterHub now ships the
-  coordinated PyTorch 2.11 CPU trio and matching PyTorch-Geometric wheel set.
+  coordinated PyTorch 2.13 CPU pair and matching PyTorch-Geometric wheel set.
+- `torch.jit.script` memory corruption (GHSA-rrmf-rvhw-rf47): **remediated**.
+  Docling GPU and JupyterHub now use Torch 2.13.0; the Jupyter PyG family moved
+  to the official 2.13 CPU wheel index and `pyg_lib` 0.8 ABI3 wheel. The unused
+  torchaudio and legacy scatter/sparse/cluster extensions were removed rather
+  than held on vulnerable or unavailable companion releases.
 - Ragas multimodal URL-processing SSRF (CVE-2026-6587): **unreachable**.
   Backend exposes only a closed enum of text metrics and never imports the
   vulnerable multimodal collection; Jupyter use is operator-authored code.
@@ -59,9 +64,8 @@ on their host.
   Atlas loads only the `PARAKEET_MODEL` chosen in process environment at
   startup. Transcription requests cannot supply or change a model repository.
 - setuptools source-distribution exclusion bypass (CVE-2026-59890):
-  **platform/path unreachable** in runtime images. It affects sdist creation
-  on macOS normalization filesystems; Atlas services run Linux images and do
-  not build source distributions from request data.
+  **remediated**. Shipped compiled graphs and the Docling localhost lock now
+  resolve setuptools 83.0.0 or newer.
 - Local Deep Researcher runtime graph: **remediated and audit-clean**. The
   generated hash-pinned lock now enforces patched floors for Click,
   langchain-classic, LangSmith, and Soup Sieve; the refresh command and

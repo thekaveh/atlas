@@ -8,7 +8,7 @@ services:
       context: ./provider
       dockerfile: gpu/Dockerfile
       args:
-        BASE_IMAGE: ${DOCLING_GPU_IMAGE:-pytorch/pytorch:2.12.1-cuda12.6-cudnn9-runtime}
+        BASE_IMAGE: ${DOCLING_GPU_IMAGE:-pytorch/pytorch:2.13.0-cuda12.6-cudnn9-runtime@sha256:6acf597eeb8e376a96580dde4952f37cc017fef732bb40bfc73f28f25e3f64b4}
     container_name: ${PROJECT_NAME}-docling-gpu
     restart: unless-stopped
     runtime: nvidia

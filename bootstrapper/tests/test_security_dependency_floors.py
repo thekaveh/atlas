@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import tomllib
+import json
+import re
 from pathlib import Path
 
 
@@ -70,6 +72,12 @@ def test_backend_ci_installs_the_owned_test_contract() -> None:
     assert "pytest-asyncio omitted intentionally" not in workflow
 
 
+def test_backend_fal_client_supports_cancellable_async_transport() -> None:
+    requirements = _text("services/backend/app/app/requirements.txt")
+
+    assert "fal-client>=1.0.0" in requirements
+
+
 def test_airflow_uses_supported_core_and_unfrozen_provider_security_fixes() -> None:
     manifest = _text("services/airflow/service.yml")
     compose = _text("services/airflow/compose.yml")
@@ -86,7 +94,7 @@ def test_airflow_uses_supported_core_and_unfrozen_provider_security_fixes() -> N
     # breaks `import pyspark` (SparkExecutorInfo ImportError → image build
     # fails). The cap and the classic-pyspark pin move only with the whole
     # Spark 4.1 family (cluster image + iceberg-spark-runtime-4.1).
-    assert "apache-airflow-providers-apache-spark>=5.4.0,<6" in requirements
+    assert "apache-airflow-providers-apache-spark==5.6.0" in requirements
     assert "pyspark[connect]==4.1.2" in requirements
 
 
@@ -162,29 +170,26 @@ def test_jupyter_binary_ml_stack_uses_supported_security_baseline() -> None:
     dockerfile = _text("services/jupyterhub/build/Dockerfile")
 
     assert "pyarrow==23.0.1" in requirements
-    assert "torch==2.11.0" in requirements
-    assert "torchvision==0.26.0" in requirements
-    assert "torchaudio==2.11.0" in requirements
+    assert "torch==2.13.0" in requirements
+    assert "torchvision==0.28.0" in requirements
+    assert "torchaudio" not in requirements
     assert "nltk>=3.10.0" in requirements
-    assert "torch-2.11.0+cpu.html" in requirements
-    # #776: 0.7.0 does not exist on the torch-2.11 index (only 0.6.0, and
-    # only with x86_64 wheels) — an unsatisfiable pin is not a security floor,
-    # it is a broken cold build. The platform marker is part of the contract.
-    assert 'pyg_lib==0.6.0; platform_machine == "x86_64"' in requirements
+    assert "torch-2.13.0+cpu.html" in requirements
+    assert "pyg_lib==0.8.0" in requirements
     assert "torch-spline-conv" not in requirements
-    assert "torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0" in dockerfile
+    assert "torch==2.13.0 torchvision==0.28.0" in dockerfile
+    assert "torchaudio" not in dockerfile
     assert "--index-url https://download.pytorch.org/whl/cpu" in dockerfile
 
 
 def test_dependabot_torch_coordination_matches_current_compiled_family() -> None:
     dependabot = _text(".github/dependabot.yml")
 
-    assert "torch-2.11.0+cpu.html" in dependabot
-    assert "torch-2.4.0+cpu.html" not in dependabot
+    assert "torch-2.13.0+cpu.html" in dependabot
+    assert "torch-2.11.0+cpu.html" not in dependabot
     for package in (
         "torch",
         "torchvision",
-        "torchaudio",
         "torch-scatter",
         "torch-sparse",
         "torch-cluster",
@@ -212,6 +217,101 @@ def test_n8n_does_not_publish_retired_noop_environment_knobs() -> None:
     for surface, content in surfaces.items():
         for name in retired:
             assert name not in content, f"{name} remains on the n8n {surface} surface"
+
+
+def test_mcp_framework_contracts_run_with_runtime_dependencies_in_ci() -> None:
+    workflow = _text(".github/workflows/services-lint.yml")
+
+    assert "services/mcp-servers/runtime/requirements.txt" in workflow
+    assert "bootstrapper/tests/test_mcp_servers_framework.py" in workflow
+
+
+def test_dependabot_covers_all_active_small_service_manifests() -> None:
+    dependabot = _text(".github/dependabot.yml")
+
+    for directory in (
+        '"/services/asset-worker/app"',
+        '"/services/asset-baker/app"',
+        '"/services/mcp-servers/runtime"',
+    ):
+        assert directory in dependabot
+    assert "package-ecosystem: npm" in dependabot
+    assert 'directory: "/services/n8n/init/config"' in dependabot
+
+
+def test_required_workflow_runs_for_every_pull_request_path() -> None:
+    workflow = _text(".github/workflows/services-lint.yml")
+    pull_request_block = workflow.split("pull_request:", 1)[1].split("push:", 1)[0]
+
+    assert not re.search(r"^\s+paths:", pull_request_block, re.MULTILINE)
+
+
+def test_build_validation_is_not_opt_in() -> None:
+    workflow = _text(".github/workflows/services-lint.yml")
+
+    assert "ENABLE_BUILD_VALIDATION" not in workflow
+    assert "Build-validation (Dockerfile + requirements.txt installability)" in workflow
+
+
+def test_large_service_runtime_graphs_use_compiled_constraints() -> None:
+    workflow = _text(".github/workflows/services-lint.yml")
+    assert "python -m scripts.check_runtime_locks" in workflow
+
+    surfaces = (
+        ("services/backend/app/Dockerfile", "services/backend/app/app/requirements.lock"),
+        ("services/airflow/build/Dockerfile", "services/airflow/build/requirements.lock"),
+        ("services/jupyterhub/build/Dockerfile", "services/jupyterhub/build/requirements.lock"),
+        (
+            "services/parakeet/provider/gpu/Dockerfile",
+            "services/parakeet/provider/gpu/requirements.lock",
+        ),
+    )
+    for dockerfile_path, lock_path in surfaces:
+        dockerfile = _text(dockerfile_path)
+        lock = _text(lock_path)
+        assert "requirements.lock" in dockerfile, dockerfile_path
+        assert "-c " in dockerfile, dockerfile_path
+        assert lock and all(
+            not line or line.startswith("#") or "==" in line
+            for line in lock.splitlines()
+        ), lock_path
+
+
+def test_notebook_hygiene_is_part_of_a_required_ci_job() -> None:
+    workflow = _text(".github/workflows/services-lint.yml")
+
+    assert workflow.count("python -m scripts.notebook_reproducibility") >= 2
+
+
+def test_n8n_comfyui_nodes_override_sharp_to_patched_release() -> None:
+    package = json.loads(_text("services/n8n/init/config/package.json"))
+
+    assert package["overrides"]["sharp"] == "0.35.3"
+    assert '"node_modules/sharp"' in _text("services/n8n/init/config/package-lock.json")
+    assert '"version": "0.35.3"' in _text(
+        "services/n8n/init/config/package-lock.json"
+    )
+
+
+def test_external_contract_ledger_matches_executable_pyg_lib_pin() -> None:
+    requirements = _text("services/jupyterhub/build/requirements.txt")
+    ledger = _text("docs/maintenance/external-contract-ledger.md")
+
+    assert "pyg_lib==0.8.0" in requirements
+    assert "pyg_lib==0.8.0" in ledger
+    assert "pyg_lib==0.6.0" not in ledger
+
+
+def test_all_secret_writers_use_shared_atomic_primitive() -> None:
+    for relative in (
+        "bootstrapper/services/service_config.py",
+        "bootstrapper/utils/source_override_manager.py",
+        "bootstrapper/utils/key_generator.py",
+        "bootstrapper/utils/supabase_keys.py",
+    ):
+        content = _text(relative)
+        assert "atomic_write_text(" in content, relative
+        assert "os.replace(tmp_path" not in content, relative
 
 
 def test_ray_runtime_and_clients_move_in_lockstep() -> None:

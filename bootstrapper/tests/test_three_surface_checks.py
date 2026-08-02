@@ -7,6 +7,7 @@ from scripts.docs.check_docs import (
     check_wiki_links,
 )
 from scripts.docs.manifest import load_manifest
+from bootstrapper.tests import three_surface_test_utils
 
 
 def _manifest(tmp_path: Path):
@@ -130,3 +131,37 @@ def test_wiki_link_check_reports_missing_markdown_and_html_targets(tmp_path: Pat
         "missing local wiki target: missing/",
         "missing local wiki target: assets/missing.png",
     ]
+
+
+def test_wiki_link_check_rejects_markdown_page_destinations(tmp_path: Path) -> None:
+    wiki = tmp_path / "generated" / "wiki"
+    wiki.mkdir(parents=True)
+    (wiki / "Home.md").write_text("[Guide](2.1-Guide.md)\n", encoding="utf-8")
+    (wiki / "2.1-Guide.md").write_text("# Guide\n", encoding="utf-8")
+
+    findings = check_wiki_links(tmp_path, wiki)
+
+    assert [finding.message for finding in findings] == [
+        "wiki page links must be extensionless: 2.1-Guide.md"
+    ]
+
+
+def test_generated_doc_helper_never_rasterizes_committed_pngs(monkeypatch) -> None:
+    calls: list[bool] = []
+
+    def fake_build(_manifest_path, _root, *, site, wiki, check):
+        assert site is True
+        assert wiki is True
+        calls.append(check)
+
+    three_surface_test_utils._manifest.cache_clear()
+    monkeypatch.setattr(three_surface_test_utils, "build", fake_build)
+    monkeypatch.setattr(
+        three_surface_test_utils,
+        "load_manifest",
+        lambda *_args: object(),
+    )
+
+    three_surface_test_utils.ensure_generated_docs()
+
+    assert calls == [True]

@@ -303,7 +303,7 @@ def test_fal_client_constructs_subscribe_request(monkeypatch):
 
     captured = {}
 
-    def fake_subscribe(model, *, arguments):
+    async def fake_subscribe(model, *, arguments):
         captured["model"] = model
         captured["arguments"] = arguments
         return {
@@ -410,16 +410,90 @@ def test_fal_queue_submit_applies_configured_timeout(monkeypatch):
     client = FalClient(api_key="fal-key", model="fal-ai/flux/dev")
     client.timeout_seconds = 0.01
 
-    def slow_submit(*args):
-        time.sleep(0.1)
-        return {"request_id": "late"}
+    cancelled = asyncio.Event()
+
+    async def slow_submit(*args):
+        try:
+            await asyncio.sleep(1)
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
 
     monkeypatch.setattr(client, "_submit", slow_submit)
+    monkeypatch.setattr(
+        asyncio,
+        "to_thread",
+        lambda *_args, **_kwargs: pytest.fail(
+            "FAL provider calls must not escape into an uncancellable worker thread"
+        ),
+    )
 
     with pytest.raises(asyncio.TimeoutError):
         asyncio.run(
             client.submit_media_operation(
                 modality="image", input={"prompt": "atlas"}
+            )
+        )
+    assert cancelled.is_set()
+
+
+def test_fal_queue_submit_uses_async_sdk_native_timeout(monkeypatch):
+    captured = {}
+
+    class FakeAsyncClient:
+        def __init__(self, *, key, default_timeout):
+            captured["client"] = {
+                "key": key,
+                "default_timeout": default_timeout,
+            }
+
+        async def submit(self, model, *, arguments, start_timeout):
+            captured["submit"] = {
+                "model": model,
+                "arguments": arguments,
+                "start_timeout": start_timeout,
+            }
+            return types.SimpleNamespace(request_id="fal-async-1")
+
+    monkeypatch.setitem(
+        sys.modules,
+        "fal_client",
+        types.SimpleNamespace(AsyncClient=FakeAsyncClient),
+    )
+    from fal_media_client import FalClient
+
+    submitted = asyncio.run(
+        FalClient(
+            api_key="fal-key",
+            model="fal-ai/flux/dev",
+            timeout_seconds=12,
+        ).submit_media_operation(
+            modality="image",
+            input={"prompt": "atlas"},
+        )
+    )
+
+    assert captured["client"] == {"key": "fal-key", "default_timeout": 12.0}
+    assert captured["submit"]["start_timeout"] == 12
+    assert submitted["operation_id"] == "fal-async-1"
+
+
+def test_fal_queue_submit_rejects_missing_provider_request_id(monkeypatch):
+    async def fake_submit(_model, *, arguments):
+        return {}
+
+    monkeypatch.setitem(
+        sys.modules,
+        "fal_client",
+        types.SimpleNamespace(submit=fake_submit),
+    )
+    from fal_media_client import FalClient
+
+    with pytest.raises(RuntimeError, match="request ID"):
+        asyncio.run(
+            FalClient(api_key="fal-key").submit_media_operation(
+                modality="image",
+                input={"prompt": "atlas"},
             )
         )
 
@@ -430,8 +504,8 @@ def test_fal_queue_status_and_result_apply_configured_timeout(monkeypatch):
     client = FalClient(api_key="fal-key", model="fal-ai/flux/dev")
     client.timeout_seconds = 0.01
 
-    def slow_status(*args):
-        time.sleep(0.1)
+    async def slow_status(*args):
+        await asyncio.sleep(0.1)
         return Completed()
 
     monkeypatch.setattr(client, "_status", slow_status)
@@ -440,7 +514,10 @@ def test_fal_queue_status_and_result_apply_configured_timeout(monkeypatch):
             client.get_media_operation(operation_id="fal-1", modality="image")
         )
 
-    monkeypatch.setattr(client, "_status", lambda *args: Completed())
+    async def completed_status(*args):
+        return Completed()
+
+    monkeypatch.setattr(client, "_status", completed_status)
     monkeypatch.setattr(client, "_result", slow_status)
     with pytest.raises(asyncio.TimeoutError):
         asyncio.run(
@@ -454,8 +531,8 @@ def test_fal_queue_cancel_timeout_degrades_to_false(monkeypatch):
     client = FalClient(api_key="fal-key", model="fal-ai/flux/dev")
     client.timeout_seconds = 0.01
 
-    def slow_cancel(*args):
-        time.sleep(0.1)
+    async def slow_cancel(*args):
+        await asyncio.sleep(0.1)
 
     monkeypatch.setattr(client, "_cancel", slow_cancel)
 
@@ -468,16 +545,16 @@ def test_fal_queue_cancel_timeout_degrades_to_false(monkeypatch):
 def _stub_fal_queue(monkeypatch, *, result_payload, status_obj=None):
     captured: dict = {}
 
-    def fake_submit(model, *, arguments):
+    async def fake_submit(model, *, arguments):
         captured["submit"] = {"model": model, "arguments": arguments}
         return types.SimpleNamespace(request_id="fal-3d-1")
 
-    def fake_status(model, request_id):
+    async def fake_status(model, request_id):
         captured["status"] = {"model": model, "request_id": request_id}
         # Default to the real "job finished" shape, not a fabricated .status.
         return status_obj if status_obj is not None else Completed()
 
-    def fake_result(model, request_id):
+    async def fake_result(model, request_id):
         captured["result"] = {"model": model, "request_id": request_id}
         return result_payload
 
@@ -678,10 +755,10 @@ def test_fal_client_image_to_3d_real_status_shapes(monkeypatch):
 def test_fal_client_image_to_3d_failed_status_has_no_artifact(monkeypatch):
     # Real fal shape: a failed job is a Completed carrying a truthy error; the
     # result must NOT be fetched and no artifact is produced.
-    def fake_status(model, request_id):
+    async def fake_status(model, request_id):
         return Completed(error="mesh generation failed", error_type="InternalError")
 
-    def fake_result(model, request_id):  # pragma: no cover - must not be called
+    async def fake_result(model, request_id):  # pragma: no cover - must not be called
         raise AssertionError("result must not be fetched for a failed operation")
 
     monkeypatch.setitem(
@@ -704,12 +781,13 @@ def test_fal_client_image_to_3d_failed_status_has_no_artifact(monkeypatch):
 def test_fal_client_image_to_3d_cancelled_status_string_shape(monkeypatch):
     # Forward-compat: a dict/string-shaped status reporting cancellation still
     # normalizes to 'cancelled' (the real SDK has no distinct cancelled class).
+    async def cancelled_status(_model, _request_id):
+        return {"status": "CANCELED"}
+
     monkeypatch.setitem(
         sys.modules,
         "fal_client",
-        types.SimpleNamespace(
-            status=lambda model, request_id: {"status": "CANCELED"}
-        ),
+        types.SimpleNamespace(status=cancelled_status),
     )
     from fal_media_client import FalClient
 
@@ -826,7 +904,7 @@ def _submit_image_operation(monkeypatch, input_payload, *, model="fal-ai/flux/de
     class _Handle:
         request_id = "fal-img-1"
 
-    def fake_submit(model, *, arguments):
+    async def fake_submit(model, *, arguments):
         captured["model"] = model
         captured["arguments"] = arguments
         return _Handle()
@@ -1055,7 +1133,7 @@ def test_fal_image_submit_accepts_nested_image_size_fallback(monkeypatch):
 def test_fal_client_cancel_delivers_via_sdk(monkeypatch):
     captured = {}
 
-    def fake_cancel(model, request_id):
+    async def fake_cancel(model, request_id):
         captured["model"] = model
         captured["request_id"] = request_id
 

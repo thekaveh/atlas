@@ -35,8 +35,8 @@ def test_source_map_uses_local_site_and_wiki_paths(tmp_path: Path) -> None:
         "docs/guides/setup.md": "guides/setup.md",
     }
     assert build_source_map(manifest, "wiki") == {
-        "docs/index.md": "Home.md",
-        "docs/guides/setup.md": "2.1-Setup.md",
+        "docs/index.md": "Home",
+        "docs/guides/setup.md": "2.1-Setup",
     }
 
 
@@ -107,13 +107,13 @@ def test_rewrite_maps_html_anchors_to_numbered_wiki_pages() -> None:
         source_path="docs/index.md",
         output_path="Home.md",
         source_map={
-            "docs/quick-start/index.md": "2.1-Launch-Atlas.md",
-            "docs/services.md": "5.1-Service-Catalog.md",
+            "docs/quick-start/index.md": "2.1-Launch-Atlas",
+            "docs/services.md": "5.1-Service-Catalog",
         },
     )
 
-    assert '<a href="2.1-Launch-Atlas.md">Quick Start</a>' in rendered
-    assert '<a href="5.1-Service-Catalog.md">Service Catalog</a>' in rendered
+    assert '<a href="2.1-Launch-Atlas">Quick Start</a>' in rendered
+    assert '<a href="5.1-Service-Catalog">Service Catalog</a>' in rendered
     assert '<a href="https://docs.docker.com/">Docker</a>' in rendered
 
 
@@ -129,3 +129,30 @@ def test_rewrite_leaves_site_html_anchors_on_pretty_urls() -> None:
     )
 
     assert rendered == markdown
+
+
+def test_rewrite_maps_markdown_links_to_extensionless_wiki_pages(
+    tmp_path: Path,
+) -> None:
+    manifest = _manifest(tmp_path)
+    rendered = rewrite_for_surface(
+        "[setup](guides/setup.md#configuration)\n",
+        surface="wiki",
+        source_path="docs/index.md",
+        output_path="Home.md",
+        source_map=build_source_map(manifest, "wiki"),
+    )
+
+    assert rendered == "[setup](2.1-Setup#configuration)\n"
+
+
+def test_rewrite_strips_mkdocs_attribute_lists_from_wiki() -> None:
+    rendered = rewrite_for_surface(
+        "[Launch](quick-start/index.md){: .atlas-card__link}\n",
+        surface="wiki",
+        source_path="docs/index.md",
+        output_path="Home.md",
+        source_map={"docs/quick-start/index.md": "2.1-Launch-Atlas"},
+    )
+
+    assert rendered == "[Launch](2.1-Launch-Atlas)\n"

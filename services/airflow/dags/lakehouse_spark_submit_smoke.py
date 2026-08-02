@@ -14,6 +14,21 @@ from airflow import DAG
 from airflow.providers.amazon.aws.hooks.s3 import S3Hook
 from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
 from airflow.providers.standard.operators.python import PythonOperator
+from atlas_spark_utils import RestConfirmingSparkHook
+
+
+class AtlasSparkSubmitOperator(SparkSubmitOperator):
+    """Spark submit operator with standalone-driver REST confirmation."""
+
+    def __init__(self, *, rest_host: str = "spark-master", **kwargs):
+        super().__init__(**kwargs)
+        self.rest_host = rest_host
+
+    def _get_hook(self):
+        return RestConfirmingSparkHook(
+            super()._get_hook(),
+            rest_host=self.rest_host,
+        )
 
 
 JARS_BUCKET = os.environ.get("MINIO_BUCKET_ICEBERG_JARS", "jars")
@@ -115,7 +130,7 @@ with DAG(
         python_callable=prepare_s3a_assets,
     )
 
-    submit_lakehouse_job = SparkSubmitOperator(
+    submit_lakehouse_job = AtlasSparkSubmitOperator(
         task_id="submit_lakehouse_s3a_jar",
         conn_id="spark_default",
         application=f"s3a://{JARS_BUCKET}/{JAR_KEY}",

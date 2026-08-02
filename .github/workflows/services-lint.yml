@@ -16,30 +16,6 @@ name: services-lint
 on:
   pull_request:
     branches: [main, develop]
-    # Every required-checks-eligible file must appear here, or a PR
-    # touching only that file deadlocks: no job runs ⇒ no status posts
-    # ⇒ required-check rule never satisfies. PR #48 hit exactly this on
-    # a .github/dependabot.yml-only change.
-    paths:
-      - "services/**"
-      - "docs/**"
-      - "assets/**"
-      - "scripts/**"
-      - "Makefile"
-      - "docker-compose.yml"
-      - "bootstrapper/**"
-      - ".env.example"
-      - ".gitignore"
-      - ".gitattributes"
-      - "README.md"
-      - "AGENTS.md"
-      - "SECURITY.md"
-      - "LICENSE"
-      - "start.sh"
-      - "stop.sh"
-      - ".github/workflows/services-lint.yml"
-      - ".github/workflows/docs-pages.yml"
-      - ".github/dependabot.yml"
   push:
     branches: [main, develop]
 
@@ -95,6 +71,15 @@ jobs:
           VIRTUAL_ENV="$BACKEND_TEST_VENV" uv pip install \
             -r requirements.txt -r requirements-dev.txt
           "$BACKEND_TEST_VENV/bin/python" -m pytest tests/ -q -W error
+
+      - name: MCP framework contract tests
+        run: |
+          MCP_TEST_VENV="${RUNNER_TEMP:-$PWD}/mcp-ci-venv"
+          uv venv "$MCP_TEST_VENV"
+          VIRTUAL_ENV="$MCP_TEST_VENV" uv pip install \
+            -r services/mcp-servers/runtime/requirements.txt pytest
+          "$MCP_TEST_VENV/bin/python" -m pytest \
+            bootstrapper/tests/test_mcp_servers_framework.py -q -W error
 
       - name: Asset processor API tests
         run: |
@@ -215,6 +200,9 @@ jobs:
       - name: Track-membership audit
         run: uv run --project bootstrapper python scripts/check-track-membership.py
 
+      - name: Notebook source hygiene
+        run: uv run --project bootstrapper python -m scripts.notebook_reproducibility
+
       - name: Docling localhost-provider lock check
         working-directory: services/docling/provider/localhost
         # Host-run provider (no Dockerfile), so build-validation can't
@@ -224,6 +212,9 @@ jobs:
 
       - name: Local Deep Researcher runtime lock check
         run: uv run --project bootstrapper python scripts/refresh-local-deep-researcher-lock.py --check
+
+      - name: Compiled service runtime lock checks
+        run: uv run --project bootstrapper python -m scripts.check_runtime_locks
 
   notebook-reproducibility:
     name: Notebook source hygiene
@@ -241,11 +232,6 @@ jobs:
 
   build-validation:
     name: Build-validation (Dockerfile + requirements.txt installability)
-    # Temporarily opt-in because this full image matrix adds 20+ minutes to
-    # every PR. Re-enable it by setting the repository Actions variable
-    # ENABLE_BUILD_VALIDATION=true and restoring this check in the gitflow
-    # ruleset's required-status-check list.
-    if: ${{ vars.ENABLE_BUILD_VALIDATION == 'true' }}
     runs-on: ubuntu-latest
     # Catches the Pass 12 / Pass 13 class of bug: unsatisfiable pip pins,
     # nonexistent packages, broken Dockerfile syntax. Compose-shape checks

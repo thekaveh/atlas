@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[2]
 @lru_cache(maxsize=1)
 def _manifest() -> Manifest:
     manifest_path = ROOT / "docs" / "manifest.yaml"
-    build(manifest_path, ROOT, site=True, wiki=True, check=False)
+    build(manifest_path, ROOT, site=True, wiki=True, check=True)
     return load_manifest(manifest_path, ROOT)
 
 

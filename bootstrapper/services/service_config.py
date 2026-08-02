@@ -8,6 +8,7 @@ import os
 import re
 from typing import Dict, Any, Optional
 from core.config_parser import ConfigParser
+from utils.atomic_write import atomic_write_text
 from utils.system import get_localhost_host, resolve_host_gateway_ip
 
 
@@ -1928,21 +1929,7 @@ class ServiceConfig:
                     # Variable doesn't exist, append it
                     updated_content += f'\n{replacement}'
             
-            # Write atomically (tmp + os.replace): a crash mid-write on an
-            # in-place open(..., 'w') truncates the user's secrets-bearing
-            # .env. Preserve the original mode (a user-chmod'd 0600 .env must
-            # not come back umask-default) and never leave the tmp behind on
-            # failure. Mirrors utils/source_override_manager.py.
-            tmp_path = f"{env_file_path}.tmp"
-            try:
-                original_mode = os.stat(env_file_path).st_mode
-                with open(tmp_path, 'w', encoding="utf-8") as f:
-                    os.chmod(tmp_path, original_mode)
-                    f.write(updated_content)
-                os.replace(tmp_path, env_file_path)
-            finally:
-                if os.path.exists(tmp_path):
-                    os.remove(tmp_path)
+            atomic_write_text(env_file_path, updated_content)
 
             return True
             

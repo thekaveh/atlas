@@ -292,15 +292,15 @@ def test_media_generate_requires_enabled_fal_source_and_key(monkeypatch):
 def test_fal_client_submits_and_polls_queue_operations(monkeypatch):
     captured = {}
 
-    def fake_submit(model, *, arguments):
+    async def fake_submit(model, *, arguments):
         captured["submit"] = {"model": model, "arguments": arguments}
         return types.SimpleNamespace(request_id="fal-queue-1")
 
-    def fake_status(model, request_id):
+    async def fake_status(model, request_id):
         captured["status"] = {"model": model, "request_id": request_id}
         return types.SimpleNamespace(status="COMPLETED")
 
-    def fake_result(model, request_id):
+    async def fake_result(model, request_id):
         captured["result"] = {"model": model, "request_id": request_id}
         return {
             "images": [

@@ -26,11 +26,13 @@ USER airflow
 # langchain-openai; no apache-airflow-providers-langchain package
 # exists on PyPI.)
 COPY requirements.txt /tmp/airflow-providers.txt
+COPY requirements.lock /tmp/airflow-providers.lock
 # The official base already installs Airflow core from its matching constraints.
 # Upstream explicitly limits those constraints to the core install; reapplying
 # them here blocks PySpark 4.1.2's pandas floor and freezes provider transitives
 # below later security fixes.
-RUN pip install --no-cache-dir -r /tmp/airflow-providers.txt
+RUN pip install --no-cache-dir \
+      -r /tmp/airflow-providers.txt -c /tmp/airflow-providers.lock
 
 # SparkSubmitOperator shells out to spark-submit. The PySpark wheel provides
 # the script and Spark distribution, but the Airflow image needs a stable

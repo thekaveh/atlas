@@ -10,13 +10,41 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
 _RUN_SH = Path(__file__).resolve().parents[1] / "_run.sh"
+
+
+def _bootstrapper_python_wrapper(tmp_path: Path) -> Path:
+    venv = tmp_path / "bootstrapper-venv"
+    python = venv / "bin" / "python"
+    python.parent.mkdir(parents=True)
+    python.write_text(
+        f"#!/bin/sh\nexec {shlex.quote(sys.executable)} \"$@\"\n",
+        encoding="utf-8",
+    )
+    python.chmod(0o755)
+    return venv
+
+
+def _path_without_uv(tmp_path: Path, sh: str, dirname: str) -> str:
+    tool_bin = tmp_path / "system-bin"
+    tool_bin.mkdir()
+    python3 = tool_bin / "python3"
+    python3.write_text(
+        "#!/bin/sh\necho 'clean system Python has no Atlas dependencies' >&2\nexit 42\n",
+        encoding="utf-8",
+    )
+    python3.chmod(0o755)
+    return os.pathsep.join(
+        (str(tool_bin), os.path.dirname(sh), os.path.dirname(dirname))
+    )
 
 
 def test_dispatcher_banners_are_redirected_to_stderr() -> None:
@@ -41,20 +69,8 @@ def test_stdout_is_clean_json_through_system_python(tmp_path: Path) -> None:
     forced deterministically."""
     sh = shutil.which("sh")
     dirname = shutil.which("dirname")
-    python3 = shutil.which("python3")
-    if not (sh and dirname and python3):
-        pytest.skip("requires sh, dirname, and python3 on PATH")
-
-    # A PATH holding only the dirs for the tools the dispatcher needs, so
-    # `command -v uv` fails and the system-Python branch runs.
-    needed_dirs = {
-        os.path.dirname(sh),
-        os.path.dirname(dirname),
-        os.path.dirname(python3),
-    }
-    uv = shutil.which("uv")
-    if uv and os.path.dirname(uv) in needed_dirs:
-        pytest.skip("uv shares a directory with a required tool; cannot force system-Python branch")
+    if not (sh and dirname):
+        pytest.skip("requires sh and dirname on PATH")
 
     # Copy the real dispatcher into the sandbox so SELF_DIR resolves here and
     # the probe script is found next to it.
@@ -62,7 +78,11 @@ def test_stdout_is_clean_json_through_system_python(tmp_path: Path) -> None:
     shutil.copy(_RUN_SH, run_sh)
     (tmp_path / "probe.py").write_text('print(\'{"ok": true}\')\n', encoding="utf-8")
 
-    env = {**os.environ, "PATH": os.pathsep.join(sorted(needed_dirs))}
+    env = {
+        **os.environ,
+        "PATH": _path_without_uv(tmp_path, sh, dirname),
+        "ATLAS_BOOTSTRAPPER_VENV": str(_bootstrapper_python_wrapper(tmp_path)),
+    }
     result = subprocess.run(
         [sh, str(run_sh), "probe.py"],
         capture_output=True,
@@ -76,3 +96,26 @@ def test_stdout_is_clean_json_through_system_python(tmp_path: Path) -> None:
     assert "📦" not in result.stdout
     # The banner still appears, on stderr (AC#2).
     assert "📦" in result.stderr
+
+
+def test_system_python_fallback_runs_real_start_help(tmp_path: Path) -> None:
+    sh = shutil.which("sh")
+    dirname = shutil.which("dirname")
+    if not (sh and dirname):
+        pytest.skip("requires sh and dirname on PATH")
+
+    env = {
+        **os.environ,
+        "PATH": _path_without_uv(tmp_path, sh, dirname),
+        "ATLAS_BOOTSTRAPPER_VENV": str(_bootstrapper_python_wrapper(tmp_path)),
+    }
+    result = subprocess.run(
+        [sh, str(_RUN_SH), "start.py", "--help"],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "Usage:" in result.stdout
+    assert "ModuleNotFoundError" not in result.stderr

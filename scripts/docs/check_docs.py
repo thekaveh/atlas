@@ -66,6 +66,16 @@ def check_wiki_links(repo_root: Path, wiki_root: Path) -> list[Finding]:
             target = unquote(raw_target.partition("#")[0])
             if not target or _SCHEME_RE.match(target) or target.startswith("//"):
                 continue
+            if not link.is_image and target.lower().endswith(".md"):
+                findings.append(
+                    Finding(
+                        severity="error",
+                        path=path.relative_to(repo_root).as_posix(),
+                        message=f"wiki page links must be extensionless: {raw_target}",
+                        surface="wiki",
+                    )
+                )
+                continue
             candidate = (path.parent / target).resolve()
             try:
                 candidate.relative_to(resolved_root)

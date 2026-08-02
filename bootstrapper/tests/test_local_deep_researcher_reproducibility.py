@@ -1,11 +1,13 @@
 """Local Deep Researcher runtime inputs must be manifest-owned and pinned."""
 
 from pathlib import Path
+import importlib.util
 import re
 import subprocess
 import sys
 
 from packaging.version import Version
+import pytest
 import yaml
 
 
@@ -180,3 +182,31 @@ def test_runtime_lock_generator_is_byte_equivalent():
         cwd=REPO,
         check=True,
     )
+
+
+def test_runtime_lock_check_fails_on_byte_drift(tmp_path, monkeypatch):
+    script_path = REPO / "scripts/refresh-local-deep-researcher-lock.py"
+    spec = importlib.util.spec_from_file_location("refresh_ldr_lock", script_path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+
+    runtime_pyproject = tmp_path / "runtime-pyproject.toml"
+    runtime_uv_lock = tmp_path / "runtime.uv.lock"
+    runtime_requirements = tmp_path / "runtime-requirements.lock"
+    runtime_pyproject.write_text("[project]\nname='test'\nversion='0'\n", encoding="utf-8")
+    runtime_uv_lock.write_text("version = 1\n", encoding="utf-8")
+    runtime_requirements.write_text("stale\n", encoding="utf-8")
+
+    monkeypatch.setattr(module, "RUNTIME_PYPROJECT", runtime_pyproject)
+    monkeypatch.setattr(module, "RUNTIME_UV_LOCK", runtime_uv_lock)
+    monkeypatch.setattr(module, "RUNTIME_REQUIREMENTS", runtime_requirements)
+    monkeypatch.setattr(module, "_pins", lambda: ("ref", "sha", "cli"))
+    monkeypatch.setattr(
+        module,
+        "_stable_export",
+        lambda *_args: "regenerated\n",
+    )
+
+    with pytest.raises(SystemExit, match="runtime lock drift"):
+        module.check()

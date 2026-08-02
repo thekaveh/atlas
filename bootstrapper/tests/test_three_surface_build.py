@@ -52,7 +52,7 @@ def test_build_projects_same_content_to_site_and_wiki(tmp_path: Path) -> None:
     assert "# 1. Overview" in wiki_home
     assert "A canonical sentence." in site_home and "A canonical sentence." in wiki_home
     assert "[Guide](guide.md)" in site_home
-    assert "[Guide](2-Guide.md)" in wiki_home
+    assert "[Guide](2-Guide)" in wiki_home
     assert (root / "generated" / "wiki" / "_Sidebar.md").exists()
     assert (root / "generated" / "wiki" / "_Footer.md").exists()
     assert (root / "generated" / "site" / "assets" / "poster.png").read_bytes() == b"poster"

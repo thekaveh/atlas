@@ -130,3 +130,30 @@ def submit_and_confirm_via_rest(
     # --- 5. Confirm via REST ---
     confirm_driver_status_via_rest(driver_id, rest_host=rest_host)
     return driver_id
+
+
+class RestConfirmingSparkHook:
+    """Adapter that preserves the operator hook contract while using REST status.
+
+    SparkSubmitOperator.execute still owns its normal configuration and
+    OpenLineage injection. Only the hook submit boundary is replaced, so
+    cluster-mode completion is confirmed through the standalone master's
+    supported REST port instead of the RPC port.
+    """
+
+    def __init__(self, hook, *, rest_host: str = "spark-master") -> None:
+        self._hook = hook
+        self._rest_host = rest_host
+
+    def submit(self, application: str):
+        return submit_and_confirm_via_rest(
+            self._hook,
+            application,
+            rest_host=self._rest_host,
+        )
+
+    def on_kill(self) -> None:
+        self._hook.on_kill()
+
+    def __getattr__(self, name):
+        return getattr(self._hook, name)
