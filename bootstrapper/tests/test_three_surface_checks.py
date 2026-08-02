@@ -146,16 +146,47 @@ def test_wiki_link_check_rejects_markdown_page_destinations(tmp_path: Path) -> N
     ]
 
 
-def test_generated_doc_helper_never_rasterizes_committed_pngs(monkeypatch) -> None:
-    calls: list[bool] = []
+def test_wiki_link_check_rejects_residual_mkdocs_attributes(tmp_path: Path) -> None:
+    wiki = tmp_path / "generated" / "wiki"
+    wiki.mkdir(parents=True)
+    (wiki / "Home.md").write_text(
+        "[Guide](2.1-Guide){: .atlas-card__link}.\n", encoding="utf-8"
+    )
+    (wiki / "2.1-Guide.md").write_text("# Guide\n", encoding="utf-8")
 
-    def fake_build(_manifest_path, _root, *, site, wiki, check):
-        assert site is True
-        assert wiki is True
-        calls.append(check)
+    findings = check_wiki_links(tmp_path, wiki)
+
+    assert [finding.message for finding in findings] == [
+        "residual MkDocs attribute list at line 1"
+    ]
+
+
+def test_generated_doc_helper_never_rasterizes_committed_pngs(monkeypatch) -> None:
+    calls: list[tuple[str, Path]] = []
+
+    def fake_site(_manifest, _root, destination):
+        calls.append(("site", destination))
+
+    def fake_wiki(_manifest, _root, destination):
+        calls.append(("wiki", destination))
+
+    def fake_diagrams(
+        _manifest,
+        _root,
+        site_dir,
+        _png_dir,
+        wiki_dir,
+        *,
+        check_png,
+    ):
+        assert check_png is True
+        calls.append(("site-diagrams", site_dir))
+        calls.append(("wiki-diagrams", wiki_dir))
 
     three_surface_test_utils._manifest.cache_clear()
-    monkeypatch.setattr(three_surface_test_utils, "build", fake_build)
+    monkeypatch.setattr(three_surface_test_utils, "render_site", fake_site)
+    monkeypatch.setattr(three_surface_test_utils, "render_wiki", fake_wiki)
+    monkeypatch.setattr(three_surface_test_utils, "render_all", fake_diagrams)
     monkeypatch.setattr(
         three_surface_test_utils,
         "load_manifest",
@@ -164,4 +195,13 @@ def test_generated_doc_helper_never_rasterizes_committed_pngs(monkeypatch) -> No
 
     three_surface_test_utils.ensure_generated_docs()
 
-    assert calls == [True]
+    assert [name for name, _path in calls] == [
+        "site",
+        "wiki",
+        "site-diagrams",
+        "wiki-diagrams",
+    ]
+    assert all(
+        three_surface_test_utils.PROJECTION_ROOT in path.parents
+        for _name, path in calls
+    )

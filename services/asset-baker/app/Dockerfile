@@ -68,7 +68,9 @@ RUN set -eux; \
 
 WORKDIR /app
 COPY requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r /app/requirements.txt
+COPY requirements-locked.txt /app/requirements-locked.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt -c /app/requirements-locked.txt \
+    && pip check
 
 COPY asset_baker /app/asset_baker
 COPY main.py /app/main.py

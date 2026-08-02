@@ -177,7 +177,7 @@ Outputs are SHA-256 content-addressed and written to MinIO (`bake/<sha256>.{glb,
 
 ![asset-baker architecture](./architecture.svg)
 
-[Open the interactive HTML diagram](./architecture.html) for a full-screen view.
+[Open the full-size diagram](./architecture.html) for a full-screen view.
 
 ### 6.4. Future — Missing pair integrations
 

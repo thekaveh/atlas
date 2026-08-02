@@ -63,6 +63,11 @@ on their host.
   **operator-controlled**. NeMo 2.7.x requires Transformers 4.57.x, while
   Atlas loads only the `PARAKEET_MODEL` chosen in process environment at
   startup. Transcription requests cannot supply or change a model repository.
+- PyG local wheel `pyg-lib==0.8.0+pt213cpu`: **explicit audit exclusion**.
+  PyPI's advisory endpoint cannot query the PEP 440 local build identifier.
+  The wheel comes from PyG's official Torch 2.13 CPU index, is ABI-coupled to
+  the pinned Torch family, and had no known advisory at the 2026-08-02 review.
+  CI requires this exact exclusion and fails if the local package/version drifts.
 - setuptools source-distribution exclusion bypass (CVE-2026-59890):
   **remediated**. Shipped compiled graphs and the Docling localhost lock now
   resolve setuptools 83.0.0 or newer.

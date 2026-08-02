@@ -778,15 +778,7 @@ class AtlasStarter:
                 separator = "" if updated_content.endswith("\n") else "\n"
                 updated_content += f"{separator}{replacement}\n"
 
-        tmp_path = Path(str(env_file_path) + ".tmp")
-        try:
-            original_mode = os.stat(env_file_path).st_mode
-            with open(tmp_path, "w", encoding="utf-8") as f:
-                os.chmod(tmp_path, original_mode)
-                f.write(updated_content)
-            os.replace(tmp_path, env_file_path)
-        finally:
-            tmp_path.unlink(missing_ok=True)
+        atomic_write_text(env_file_path, updated_content, mode=0o600)
 
     def _resolve_auto_base_port_override(self, overrides: Dict[str, str]) -> Dict[str, str]:
         """Resolve a manifest ``BASE_PORT: auto`` to a concrete, **durable** free
@@ -1020,15 +1012,7 @@ class AtlasStarter:
         updated = "".join(kept)
         if updated == content:
             return
-        tmp_path = Path(str(env_file_path) + ".tmp")
-        try:
-            original_mode = os.stat(env_file_path).st_mode
-            with open(tmp_path, "w", encoding="utf-8") as f:
-                os.chmod(tmp_path, original_mode)
-                f.write(updated)
-            os.replace(tmp_path, env_file_path)
-        finally:
-            tmp_path.unlink(missing_ok=True)
+        atomic_write_text(env_file_path, updated, mode=0o600)
 
     def validate_persisted_project_name(self) -> bool:
         """Fail before mutating .env when its stored PROJECT_NAME is invalid."""
@@ -1284,7 +1268,15 @@ class AtlasStarter:
                         new_lines.append(f"{key}={blank_fills[key]}{eol}")
                         continue
                 new_lines.append(line)
-            env_file_path.write_text("".join(new_lines), encoding="utf-8")
+            try:
+                atomic_write_text(
+                    env_file_path, "".join(new_lines), mode=0o600,
+                )
+            except OSError as e:
+                self.banner.show_status_message(
+                    f"Failed to fill blank values in {env_file_path}: {e}", "error",
+                )
+                return False
             env_text = env_file_path.read_text(encoding="utf-8")
             self.banner.show_status_message(
                 f"Filled {len(blank_fills)} blank value(s) from .env.example: "
@@ -1314,7 +1306,7 @@ class AtlasStarter:
         )
 
         try:
-            env_file_path.write_text(new_env_text, encoding="utf-8")
+            atomic_write_text(env_file_path, new_env_text, mode=0o600)
         except OSError as e:
             self.banner.show_status_message(
                 f"Failed to backfill {env_file_path}: {e}", "error",

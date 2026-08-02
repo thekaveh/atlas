@@ -276,7 +276,9 @@ def test_jupyterhub_receives_label_studio_url_and_client() -> None:
     requirements = (
         REPO_ROOT / "services" / "jupyterhub" / "build" / "requirements.txt"
     ).read_text()
-    assert "label-studio-sdk" in requirements
+    # The notebooks integrate through the configured Label Studio HTTP URL;
+    # the unused SDK was removed because it pinned a vulnerable code generator.
+    assert "label-studio-sdk" not in requirements
 
 
 def test_label_studio_kong_route_only_when_container(tmp_path: Path) -> None:
@@ -322,7 +324,7 @@ def test_label_studio_docs_describe_storage_exports_and_guardrails() -> None:
         "Postgres",
         "MinIO",
         "S3-compatible",
-        "label-studio-sdk",
+        "intentionally not bundled",
         "MLflow",
         "Weaviate",
         "SSO",
@@ -330,3 +332,4 @@ def test_label_studio_docs_describe_storage_exports_and_guardrails() -> None:
         "project-specific",
     ):
         assert expected in readme
+    assert "from label_studio_sdk import Client" not in readme

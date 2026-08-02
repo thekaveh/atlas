@@ -320,3 +320,39 @@ def test_lifespan_closes_n8n_client(monkeypatch):
     with TestClient(main.app):
         pass
     assert closed == {"n8n": True, "research": True, "research_started": True}
+
+
+def test_lifespan_closes_remaining_resources_after_one_closer_fails(monkeypatch):
+    _stub_required_env(monkeypatch)
+    from fastapi.testclient import TestClient
+    import db_connection
+    import main
+
+    closed = []
+
+    async def fake_start():
+        return None
+
+    async def fail_research_close():
+        closed.append("research")
+        raise RuntimeError("research close failed")
+
+    async def close_pg():
+        closed.append("postgres")
+
+    async def close_n8n():
+        closed.append("n8n")
+
+    async def close_operations():
+        closed.append("operations")
+
+    monkeypatch.setattr(main.research_service, "start_maintenance", fake_start)
+    monkeypatch.setattr(main.research_service, "aclose", fail_research_close)
+    monkeypatch.setattr(db_connection, "close_pg_pools", close_pg)
+    monkeypatch.setattr(main.n8n_client, "aclose", close_n8n)
+    monkeypatch.setattr(main.MEDIA_OPERATION_STORE, "aclose", close_operations)
+
+    with pytest.raises(RuntimeError, match="research close failed"):
+        with TestClient(main.app):
+            pass
+    assert closed == ["research", "postgres", "n8n", "operations"]

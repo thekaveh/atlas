@@ -5,6 +5,8 @@ import json
 import re
 from pathlib import Path
 
+import yaml
+
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -236,7 +238,25 @@ def test_dependabot_covers_all_active_small_service_manifests() -> None:
     ):
         assert directory in dependabot
     assert "package-ecosystem: npm" in dependabot
-    assert 'directory: "/services/n8n/init/config"' in dependabot
+    assert '"/services/n8n/init/config"' in dependabot
+
+
+def test_dependabot_covers_every_production_npm_lock() -> None:
+    config = yaml.safe_load(_text(".github/dependabot.yml"))
+    npm_directories: set[str] = set()
+    for update in config["updates"]:
+        if update["package-ecosystem"] != "npm":
+            continue
+        npm_directories.update(update.get("directories", []))
+        if directory := update.get("directory"):
+            npm_directories.add(directory)
+
+    locks = {
+        f"/{path.parent.relative_to(ROOT).as_posix()}"
+        for path in (ROOT / "services").rglob("package-lock.json")
+        if "node_modules" not in path.parts
+    }
+    assert locks == npm_directories
 
 
 def test_required_workflow_runs_for_every_pull_request_path() -> None:
@@ -258,18 +278,34 @@ def test_large_service_runtime_graphs_use_compiled_constraints() -> None:
     assert "python -m scripts.check_runtime_locks" in workflow
 
     surfaces = (
-        ("services/backend/app/Dockerfile", "services/backend/app/app/requirements.lock"),
-        ("services/airflow/build/Dockerfile", "services/airflow/build/requirements.lock"),
-        ("services/jupyterhub/build/Dockerfile", "services/jupyterhub/build/requirements.lock"),
+        ("services/backend/app/Dockerfile", "services/backend/app/app/requirements-locked.txt"),
+        ("services/airflow/build/Dockerfile", "services/airflow/build/requirements-locked.txt"),
+        ("services/jupyterhub/build/Dockerfile", "services/jupyterhub/build/requirements-locked.txt"),
         (
             "services/parakeet/provider/gpu/Dockerfile",
-            "services/parakeet/provider/gpu/requirements.lock",
+            "services/parakeet/provider/gpu/requirements-locked.txt",
+        ),
+        (
+            "services/asset-baker/app/Dockerfile",
+            "services/asset-baker/app/requirements-locked.txt",
+        ),
+        (
+            "services/asset-worker/app/Dockerfile",
+            "services/asset-worker/app/requirements-locked.txt",
+        ),
+        (
+            "services/docling/provider/gpu/Dockerfile",
+            "services/docling/provider/gpu/requirements-locked.txt",
+        ),
+        (
+            "services/mcp-servers/build/Dockerfile",
+            "services/mcp-servers/runtime/requirements-locked.txt",
         ),
     )
     for dockerfile_path, lock_path in surfaces:
         dockerfile = _text(dockerfile_path)
         lock = _text(lock_path)
-        assert "requirements.lock" in dockerfile, dockerfile_path
+        assert "requirements-locked.txt" in dockerfile, dockerfile_path
         assert "-c " in dockerfile, dockerfile_path
         assert lock and all(
             not line or line.startswith("#") or "==" in line
@@ -280,7 +316,35 @@ def test_large_service_runtime_graphs_use_compiled_constraints() -> None:
 def test_notebook_hygiene_is_part_of_a_required_ci_job() -> None:
     workflow = _text(".github/workflows/services-lint.yml")
 
-    assert workflow.count("python -m scripts.notebook_reproducibility") >= 2
+    assert workflow.count("python -m scripts.notebook_reproducibility") == 1
+
+
+def test_runtime_lock_vulnerability_audit_is_required() -> None:
+    workflow = _text(".github/workflows/services-lint.yml")
+    audit = _text("scripts/audit_runtime_locks.py")
+
+    assert "pip-audit==2.10.0" in workflow
+    assert "python -m scripts.audit_runtime_locks" in workflow
+    assert "PYSEC-2026-2447" in audit
+    assert "PYSEC-2026-3046" in audit
+
+
+def test_tracked_shell_scripts_have_a_pinned_shellcheck_gate() -> None:
+    workflow = _text(".github/workflows/services-lint.yml")
+
+    assert "shellcheck-v0.11.0.linux.x86_64.tar.xz" in workflow
+    assert "8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198" in workflow
+    assert "sha256sum -c -" in workflow
+    assert "git ls-files -z '*.sh' | xargs -0 shellcheck -x" in workflow
+
+
+def test_jupyter_does_not_ship_unused_label_studio_sdk() -> None:
+    requirements = _text("services/jupyterhub/build/requirements.txt")
+    lock = _text("services/jupyterhub/build/requirements-locked.txt")
+
+    assert "label-studio-sdk" not in requirements
+    assert "label-studio-sdk" not in lock
+    assert "datamodel-code-generator" not in lock
 
 
 def test_n8n_comfyui_nodes_override_sharp_to_patched_release() -> None:
@@ -293,6 +357,32 @@ def test_n8n_comfyui_nodes_override_sharp_to_patched_release() -> None:
     )
 
 
+def test_asset_worker_toolchain_uses_an_audited_npm_lock() -> None:
+    package = json.loads(_text("services/asset-worker/app/package.json"))
+    dockerfile = _text("services/asset-worker/app/Dockerfile")
+    helper = _text("scripts/gltf-transform-postprocess.sh")
+
+    assert package["dependencies"]["@gltf-transform/cli"] == "4.4.1"
+    assert package["overrides"]["sharp"] == "0.35.3"
+    assert "package-lock.json" in dockerfile
+    assert "npm ci --omit=dev" in dockerfile
+    assert "npm install -g" not in dockerfile
+    assert "package-lock.json" in helper
+    assert "npm ci --omit=dev" in helper
+    assert "npx --yes" not in helper
+
+
+def test_required_ci_exercises_tier_a_runtime_constraints() -> None:
+    workflow = _text(".github/workflows/services-lint.yml")
+
+    for constraint in (
+        "services/mcp-servers/runtime/requirements-locked.txt",
+        "services/asset-worker/app/requirements-locked.txt",
+        "services/asset-baker/app/requirements-locked.txt",
+    ):
+        assert f"-c {constraint}" in workflow
+
+
 def test_external_contract_ledger_matches_executable_pyg_lib_pin() -> None:
     requirements = _text("services/jupyterhub/build/requirements.txt")
     ledger = _text("docs/maintenance/external-contract-ledger.md")
@@ -302,16 +392,61 @@ def test_external_contract_ledger_matches_executable_pyg_lib_pin() -> None:
     assert "pyg_lib==0.6.0" not in ledger
 
 
-def test_all_secret_writers_use_shared_atomic_primitive() -> None:
-    for relative in (
+def test_all_production_env_writers_use_shared_atomic_primitive() -> None:
+    atomic_writers = (
+        "bootstrapper/start.py",
+        "bootstrapper/core/config_parser.py",
+        "bootstrapper/core/port_manager.py",
+        "bootstrapper/services/source_validator.py",
+        "bootstrapper/services/migrations/migration_v1.py",
+        "bootstrapper/services/migrations/migration_v2.py",
+        "bootstrapper/services/migrations/migration_v3.py",
+        "bootstrapper/scripts/reorg_user_env.py",
         "bootstrapper/services/service_config.py",
         "bootstrapper/utils/source_override_manager.py",
         "bootstrapper/utils/key_generator.py",
         "bootstrapper/utils/supabase_keys.py",
-    ):
+    )
+    for relative in atomic_writers:
         content = _text(relative)
-        assert "atomic_write_text(" in content, relative
-        assert "os.replace(tmp_path" not in content, relative
+        assert (
+            "atomic_write_text(" in content
+            or "create_private_backup(" in content
+        ), relative
+
+    forbidden_by_module = {
+        "bootstrapper/start.py": (
+            'Path(str(env_file_path) + ".tmp")',
+            "env_file_path.write_text(",
+        ),
+        "bootstrapper/core/config_parser.py": ("shutil.copy2(",),
+        "bootstrapper/core/port_manager.py": ("tempfile.mkstemp(",),
+        "bootstrapper/services/source_validator.py": (
+            "with open(env_file, 'w'",
+            "pass  # silent",
+        ),
+        "bootstrapper/services/migrations/migration_v1.py": (
+            "backup_path.touch(",
+            "tmp.write_text(",
+            "env_path.write_text(",
+        ),
+        "bootstrapper/services/migrations/migration_v2.py": (
+            "backup.touch(",
+            "tmp.write_text(",
+            "env_path.write_text(",
+        ),
+        "bootstrapper/services/migrations/migration_v3.py": (
+            "backup.touch(",
+            "tmp.write_text(",
+            "env_path.write_text(",
+        ),
+        "bootstrapper/scripts/reorg_user_env.py": ("ENV_PATH.write_text(",),
+        "bootstrapper/utils/key_generator.py": ("shutil.copy2(",),
+    }
+    for relative, forbidden_fragments in forbidden_by_module.items():
+        content = _text(relative)
+        for fragment in forbidden_fragments:
+            assert fragment not in content, f"{relative}: {fragment}"
 
 
 def test_ray_runtime_and_clients_move_in_lockstep() -> None:
@@ -351,3 +486,17 @@ def test_backend_does_not_ship_unused_direct_groq_clients() -> None:
     requirements = _text("services/backend/app/app/requirements.txt")
     assert "langchain-groq" not in requirements
     assert "\ngroq" not in requirements
+
+
+def test_jupyterhub_external_build_artifacts_are_digest_verified() -> None:
+    dockerfile = _text("services/jupyterhub/build/Dockerfile")
+    assert dockerfile.count("sha256sum -c -") >= 3
+    assert "python -m spacy download" not in dockerfile
+    assert "nltk.download(" not in dockerfile
+    for argument in (
+        "COURSIER_SHA256=",
+        "SPACY_MODEL_SHA256=",
+        "NLTK_DATA_COMMIT=",
+        "VADER_LEXICON_SHA256=",
+    ):
+        assert argument in dockerfile

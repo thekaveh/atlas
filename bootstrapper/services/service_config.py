@@ -1446,8 +1446,9 @@ class ServiceConfig:
     def _generate_prometheus_config(self, source_value: str) -> dict:
         """Resolve scales for the prometheus family + cross-manifest exporter sidecars.
 
-        PROMETHEUS_SCALE / NODE_EXPORTER_SCALE / CADVISOR_SCALE follow PROMETHEUS_SOURCE
-        directly. POSTGRES_EXPORTER_SCALE and REDIS_EXPORTER_SCALE are written here too
+        PROMETHEUS_SCALE / NODE_EXPORTER_SCALE / CADVISOR_SCALE follow
+        PROMETHEUS_SOURCE directly. POSTGRES_EXPORTER_SCALE and
+        REDIS_EXPORTER_SCALE are written here too
         because the sidecars live in other manifests (supabase, redis) but are useless
         when nothing scrapes them. This is the canonical cross-manifest scale
         arithmetic pattern — see _generate_stt_provider_config.
@@ -1929,7 +1930,7 @@ class ServiceConfig:
                     # Variable doesn't exist, append it
                     updated_content += f'\n{replacement}'
             
-            atomic_write_text(env_file_path, updated_content)
+            atomic_write_text(env_file_path, updated_content, mode=0o600)
 
             return True
             

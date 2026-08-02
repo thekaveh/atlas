@@ -156,3 +156,15 @@ def test_rewrite_strips_mkdocs_attribute_lists_from_wiki() -> None:
     )
 
     assert rendered == "[Launch](2.1-Launch-Atlas)\n"
+
+
+def test_rewrite_strips_mkdocs_attribute_lists_before_punctuation() -> None:
+    rendered = rewrite_for_surface(
+        "[Launch](quick-start/index.md){: .atlas-card__link}.\n",
+        surface="wiki",
+        source_path="docs/index.md",
+        output_path="Home.md",
+        source_map={"docs/quick-start/index.md": "2.1-Launch-Atlas"},
+    )
+
+    assert rendered == "[Launch](2.1-Launch-Atlas).\n"

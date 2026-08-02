@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Optional, Dict
 
 from core.config_parser import ConfigParser
-from utils.atomic_write import atomic_write_text
+from utils.atomic_write import atomic_write_text, create_private_backup
 
 
 def _cli_safe_token_urlsafe(nbytes: int) -> str:
@@ -257,11 +257,7 @@ class KeyGenerator:
         try:
             # Create backup if requested
             if create_backup:
-                import datetime
-                timestamp = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
-                backup_path = self.root_dir / f".env.backup.{timestamp}"
-                import shutil
-                shutil.copy2(self.env_file_path, backup_path)
+                create_private_backup(self.env_file_path)
 
             # Read current content
             with open(self.env_file_path, 'r', encoding="utf-8") as f:
@@ -287,7 +283,7 @@ class KeyGenerator:
                     updated_content += '\n'
                 updated_content += f'{key_name}={key_value}\n'
             
-            atomic_write_text(self.env_file_path, updated_content)
+            atomic_write_text(self.env_file_path, updated_content, mode=0o600)
             
             return True
             

@@ -784,6 +784,9 @@ class _ReconcileSpy:
 
     async def reconcile(self, **kwargs):
         self.calls.append(kwargs)
+        from types import SimpleNamespace
+
+        return SimpleNamespace(status="released", final_cost_usd=None)
 
 
 class _CancelFalClient:

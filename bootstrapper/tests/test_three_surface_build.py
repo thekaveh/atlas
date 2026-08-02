@@ -91,6 +91,45 @@ def test_build_check_detects_no_difference_after_second_render(tmp_path: Path) -
     build(root / "docs" / "manifest.yaml", root, site=True, wiki=True, check=True)
 
 
+def test_build_check_never_renders_into_repository_outputs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _repo(tmp_path)
+    manifest = root / "docs" / "manifest.yaml"
+    build(manifest, root, site=True, wiki=True, check=False)
+
+    from scripts.docs import build_docs
+
+    real_render_site = build_docs.render_site
+    real_render_wiki = build_docs.render_wiki
+
+    def guarded_site(model, repo_root, destination):
+        assert destination != root / "generated" / "site"
+        return real_render_site(model, repo_root, destination)
+
+    def guarded_wiki(model, repo_root, destination):
+        assert destination != root / "generated" / "wiki"
+        return real_render_wiki(model, repo_root, destination)
+
+    monkeypatch.setattr(build_docs, "render_site", guarded_site)
+    monkeypatch.setattr(build_docs, "render_wiki", guarded_wiki)
+
+    build(manifest, root, site=True, wiki=True, check=True)
+
+
+def test_build_check_does_not_require_ignored_generated_outputs(
+    tmp_path: Path,
+) -> None:
+    root = _repo(tmp_path)
+    manifest = root / "docs" / "manifest.yaml"
+    build(manifest, root, site=True, wiki=True, check=False)
+    import shutil
+
+    shutil.rmtree(root / "generated")
+
+    build(manifest, root, site=True, wiki=True, check=True)
+
+
 def test_build_check_does_not_rerender_committed_pngs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -104,6 +143,43 @@ def test_build_check_does_not_rerender_committed_pngs(
     monkeypatch.setattr("scripts.docs.render_diagrams.svg_to_png", fail_if_called)
 
     build(manifest, root, site=True, wiki=True, check=True)
+
+
+def test_projection_build_does_not_rerender_current_committed_pngs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _repo(tmp_path)
+    manifest = root / "docs" / "manifest.yaml"
+    build(manifest, root, site=True, wiki=True, check=False)
+
+    def fail_if_called(*args: object, **kwargs: object) -> None:
+        raise AssertionError("projection builds must reuse current committed PNGs")
+
+    monkeypatch.setattr("scripts.docs.render_diagrams.svg_to_png", fail_if_called)
+
+    build(manifest, root, site=True, wiki=True, check=False)
+
+
+def test_validation_projection_rejects_missing_committed_png_without_repair(
+    tmp_path: Path,
+) -> None:
+    root = _repo(tmp_path)
+    manifest = root / "docs" / "manifest.yaml"
+    build(manifest, root, site=True, wiki=True, check=False)
+    png = root / "docs" / "diagrams" / "img" / "overview.png"
+    png.unlink()
+
+    with pytest.raises(RuntimeError, match="diagram PNG is stale"):
+        build(
+            manifest,
+            root,
+            site=True,
+            wiki=True,
+            check=False,
+            verify_png=True,
+        )
+
+    assert not png.exists()
 
 
 def test_build_check_detects_committed_diagram_png_drift_without_rewriting_it(

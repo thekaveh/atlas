@@ -2,13 +2,14 @@ from fastapi import FastAPI, HTTPException, status, UploadFile, File, Query, Req
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from storage3 import SyncStorageClient as StorageClient
 from typing import Optional, cast, Dict, Any, List, Union, Literal
 from contextlib import asynccontextmanager
 import os
 import asyncio
 import logging
+import math
 import httpx
 import asyncpg
 import yaml
@@ -17,6 +18,7 @@ import time
 import secrets
 import traceback
 from datetime import datetime, timezone
+from decimal import Decimal
 
 from n8n_client import N8nClient
 from research_service import ResearchService
@@ -24,6 +26,7 @@ from comfyui_client import ComfyUIClient
 from comfyui_media_client import ComfyUIMediaClient
 from fal_media_client import (
     FalClient,
+    FalSubmissionAmbiguousError,
     fal_timeout_seconds_from_env,
     preflight_media_operation,
     validate_fal_config,
@@ -42,11 +45,13 @@ from media_request_limit import (
     media_request_max_bytes_from_env,
 )
 from media_operation_store import (
+    MediaOperationCollisionError,
     TERMINAL_MEDIA_STATUSES,
     build_media_operation_store,
 )
 from media_ledger import (
     BudgetExceeded,
+    LedgerOperationCollisionError,
     ProviderDisabled,
     UnknownCostRejected,
 )
@@ -226,7 +231,9 @@ _SAFE_STORAGE_FILENAME = re.compile(r"^[A-Za-z0-9._ -]{1,255}$")
 # retention window (a no-op unless MEDIA_BUDGET_RETENTION_DAYS is set); schedule
 # it so the advertised backstop actually runs.
 _MEDIA_BUDGET_PRUNE_INTERVAL_SECONDS = 3600
+_MEDIA_LEDGER_INTENT_INTERVAL_SECONDS = 30
 _media_budget_prune_task: Optional[asyncio.Task] = None
+_media_ledger_intent_task: Optional[asyncio.Task] = None
 
 
 async def _media_budget_prune_loop() -> None:
@@ -245,9 +252,38 @@ async def _media_budget_prune_loop() -> None:
             )
 
 
+async def _media_ledger_intent_loop() -> None:
+    """Drain durable attach/cleanup intents even when their owner never polls."""
+    while True:
+        await asyncio.sleep(_MEDIA_LEDGER_INTENT_INTERVAL_SECONDS)
+        try:
+            operations = await MEDIA_OPERATION_STORE.pending_ledger_intents()
+        except Exception as exc:
+            logger.warning(
+                "media ledger intent scan failed (error_type=%s)",
+                type(exc).__name__,
+            )
+            continue
+        for operation in operations:
+            operation_id = str(operation.get("operation_id") or "")
+            if not operation_id:
+                continue
+            try:
+                recovered = await _maybe_recover_media_ledger_intent(
+                    operation_id, operation
+                )
+                await _maybe_reconcile_ledger(operation_id, recovered)
+            except Exception as exc:
+                logger.warning(
+                    "media ledger intent recovery failed for %s (error_type=%s)",
+                    operation_id,
+                    type(exc).__name__,
+                )
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
-    global _media_budget_prune_task
+    global _media_budget_prune_task, _media_ledger_intent_task
     # #804: pre-warm the shared asyncpg pool at startup, best-effort — if the DB
     # is not reachable yet, the pool is created lazily on first use rather than
     # failing app startup (keeps the TestClient/unit path working too).
@@ -259,21 +295,37 @@ async def _lifespan(app: FastAPI):
         except Exception:  # noqa: BLE001 — startup must not hard-fail on DB warmup
             logger.warning("PG pool pre-warm failed; will create lazily on first use")
     await research_service.start_maintenance()
-    if MEDIA_BUDGET_ENGINE.config.enabled and MEDIA_BUDGET_ENGINE.config.retention_days:
+    if MEDIA_BUDGET_ENGINE.config.retention_days:
         _media_budget_prune_task = asyncio.create_task(_media_budget_prune_loop())
+    _media_ledger_intent_task = asyncio.create_task(_media_ledger_intent_loop())
     try:
         yield
     finally:
-        await close_pg_pools()
         # Terminalize local research work before closing process-lifetime
         # clients and shared stores.
         if _media_budget_prune_task is not None:
             _media_budget_prune_task.cancel()
             await asyncio.gather(_media_budget_prune_task, return_exceptions=True)
             _media_budget_prune_task = None
-        await research_service.aclose()
-        await n8n_client.aclose()
-        await MEDIA_OPERATION_STORE.aclose()
+        if _media_ledger_intent_task is not None:
+            _media_ledger_intent_task.cancel()
+            await asyncio.gather(_media_ledger_intent_task, return_exceptions=True)
+            _media_ledger_intent_task = None
+        shutdown_error: Optional[Exception] = None
+        for component, closer in (
+            ("research service", research_service.aclose),
+            ("Postgres pools", close_pg_pools),
+            ("n8n client", n8n_client.aclose),
+            ("media operation store", MEDIA_OPERATION_STORE.aclose),
+        ):
+            try:
+                await closer()
+            except Exception as exc:
+                logger.error("Failed to close %s: %s", component, exc)
+                if shutdown_error is None:
+                    shutdown_error = exc
+        if shutdown_error is not None:
+            raise shutdown_error
 
 
 app = FastAPI(
@@ -1205,6 +1257,44 @@ class MediaGenerateRequest(BaseModel):
     project: Optional[str] = Field(default=None, max_length=255)
 
 
+class MediaManualReconciliationRequest(BaseModel):
+    """Operator disposition for a FAL submission with no provider request id."""
+
+    outcome: Literal["commit", "release"]
+    # Matches the Supabase ledger's numeric(12,6) storage boundary and rejects
+    # JSON values such as 1e999 that Pydantic would otherwise coerce to inf.
+    final_cost_usd: Optional[float] = Field(
+        default=None,
+        ge=0,
+        le=999_999.999_999,
+        allow_inf_nan=False,
+        strict=True,
+    )
+
+    @field_validator("final_cost_usd", mode="before")
+    @classmethod
+    def reject_nonfinite_cost_before_error_serialization(cls, value: Any) -> Any:
+        # Python's JSON decoder turns 1e999 into ``inf``. Replacing that with a
+        # safe invalid token lets FastAPI serialize its normal 422 response
+        # instead of failing while attempting to echo a non-JSON float.
+        if isinstance(value, float) and not math.isfinite(value):
+            return "non-finite"
+        return value
+
+    @field_validator("final_cost_usd")
+    @classmethod
+    def require_database_precision(cls, value: Optional[float]) -> Optional[float]:
+        if value is not None and Decimal(str(value)).as_tuple().exponent < -6:
+            raise ValueError("final_cost_usd supports at most 6 decimal places")
+        return value
+
+    @model_validator(mode="after")
+    def reject_cost_for_release(self):
+        if self.outcome == "release" and self.final_cost_usd is not None:
+            raise ValueError("final_cost_usd is only valid when outcome=commit")
+        return self
+
+
 class MediaSpendResponse(BaseModel):
     """Scoped spend read for a single consumer (optionally one project)."""
 
@@ -1256,6 +1346,26 @@ async def _require_media_operation_store() -> None:
         ) from exc
 
 
+async def _transition_media_payload_or_503(
+    operation_id: str,
+    payload: Dict[str, Any],
+    *,
+    expected_status: Optional[str] = None,
+) -> tuple[Optional[Dict[str, Any]], bool]:
+    try:
+        return await MEDIA_OPERATION_STORE.transition_payload(
+            operation_id,
+            payload,
+            expected_status=expected_status,
+        )
+    except Exception as exc:
+        logger.warning("Media operation transition failed: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Media operation state store is unavailable; retry",
+        ) from exc
+
+
 async def _persist_media_operation(operation: Dict[str, Any]) -> None:
     last_error: Optional[Exception] = None
     for delay in _MEDIA_STATE_PERSIST_DELAYS:
@@ -1264,6 +1374,8 @@ async def _persist_media_operation(operation: Dict[str, Any]) -> None:
         try:
             await MEDIA_OPERATION_STORE.create(operation)
             return
+        except MediaOperationCollisionError:
+            raise
         except Exception as exc:
             last_error = exc
     assert last_error is not None
@@ -1340,19 +1452,366 @@ async def _maybe_reconcile_ledger(
 ) -> None:
     """Reconcile the spend ledger once, when an operation reaches a terminal
     status. Succeeded commits the spend; failed/cancelled/timeout release it."""
-    if not operation.get("budget_tracked") or operation.get("reconciled"):
-        return
     payload = dict(operation.get("last_payload") or {})
     op_status = str(payload.get("status", ""))
     if op_status not in TERMINAL_MEDIA_STATUSES:
         return
-    await MEDIA_BUDGET_ENGINE.reconcile(
-        operation_id=operation_id,
-        status=op_status,
-        final_cost_usd=payload.get("cost_usd"),
-        artifact_refs=_media_artifact_refs(payload),
+    provenance = dict(payload.get("provenance") or {})
+    manual_outcome = provenance.get("manual_reconciliation_outcome")
+    if operation.get("reconciled"):
+        if manual_outcome and provenance.get("ledger_reconciliation_pending"):
+            provenance["manual_reconciliation_required"] = False
+            provenance["ledger_reconciliation_pending"] = False
+            payload["provenance"] = provenance
+            try:
+                _, repaired = await MEDIA_OPERATION_STORE.replace_terminal_payload(
+                    operation_id, op_status, payload
+                )
+            except Exception as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Media operation state store is unavailable",
+                ) from exc
+            if not repaired:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"Media operation {operation_id} changed; retry",
+                )
+        return
+    ledger_record_exists = bool(
+        operation.get("budget_tracked")
+        or provenance.get("ledger_attach_completed")
     )
-    await MEDIA_OPERATION_STORE.mark_reconciled(operation_id)
+    ledger_record_recovered = False
+    if manual_outcome and not ledger_record_exists:
+        # A Postgres INSERT can commit even when its acknowledgement is lost.
+        # Probe before treating this as a local-only disposition so a hidden
+        # RESERVED recovery row cannot remain stranded.
+        try:
+            ledger_record_exists = (
+                await MEDIA_BUDGET_ENGINE.store.get(operation_id)
+            ) is not None
+            ledger_record_recovered = ledger_record_exists
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Media recovery ledger is unavailable; retry reconciliation",
+            ) from exc
+    if ledger_record_recovered:
+        provenance["ledger_record_recovered_after_lost_ack"] = True
+        provenance["ledger_record_persisted"] = True
+        payload["provenance"] = provenance
+    if ledger_record_exists:
+        try:
+            settled = await MEDIA_BUDGET_ENGINE.reconcile(
+                operation_id=operation_id,
+                status=op_status,
+                final_cost_usd=payload.get("cost_usd"),
+                artifact_refs=_media_artifact_refs(payload),
+                reason=(
+                    f"manual reconciliation: {manual_outcome}"
+                    if manual_outcome
+                    else None
+                ),
+                force=bool(
+                    operation.get("budget_tracked")
+                    or manual_outcome
+                    or provenance.get("ledger_attach_completed")
+                    or provenance.get("ledger_cleanup_completed")
+                ),
+            )
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Media spend ledger is unavailable; retry reconciliation",
+            ) from exc
+        if settled is None:
+            retention_days = MEDIA_BUDGET_ENGINE.config.retention_days
+            operation_age = time.time() - float(
+                operation.get("created_at_epoch") or time.time()
+            )
+            if (
+                retention_days
+                and operation_age >= retention_days * 86400
+                and not manual_outcome
+                and op_status != "submission_unknown"
+                and not provenance.get("manual_reconciliation_required")
+            ):
+                provenance["ledger_retention_pruned"] = True
+                provenance["ledger_reconciliation_pending"] = False
+                provenance["manual_reconciliation_required"] = False
+                payload["provenance"] = provenance
+                try:
+                    _, finalized = (
+                        await MEDIA_OPERATION_STORE.replace_terminal_payload(
+                            operation_id, op_status, payload
+                        )
+                    )
+                    marked = await MEDIA_OPERATION_STORE.mark_reconciled(operation_id)
+                except Exception as exc:
+                    raise HTTPException(
+                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                        detail="Media operation state store is unavailable",
+                    ) from exc
+                if not finalized or not marked:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail=f"Media operation {operation_id} changed; retry",
+                    )
+                return
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=(
+                    f"Media recovery record {operation_id} is unavailable; "
+                    "retry on the process that owns the configured store"
+                ),
+            )
+        expected_ledger_status = (
+            media_ledger.STATUS_COMMITTED
+            if op_status == "succeeded"
+            else media_ledger.STATUS_RELEASED
+        )
+        disposition_conflict = settled.status != expected_ledger_status
+        cost_conflict = (
+            settled.status == media_ledger.STATUS_COMMITTED
+            and op_status == "succeeded"
+            and payload.get("cost_usd") is not None
+            and settled.effective_cost() != payload.get("cost_usd")
+        )
+        if disposition_conflict or cost_conflict:
+            if manual_outcome and settled.status in {
+                media_ledger.STATUS_COMMITTED,
+                media_ledger.STATUS_RELEASED,
+            }:
+                winner_outcome = (
+                    "commit"
+                    if settled.status == media_ledger.STATUS_COMMITTED
+                    else "release"
+                )
+                winner_payload = dict(payload)
+                winner_payload["status"] = (
+                    "succeeded" if winner_outcome == "commit" else "failed"
+                )
+                if winner_outcome == "commit":
+                    winner_payload["cost_usd"] = settled.effective_cost()
+                else:
+                    winner_payload["cost_usd"] = None
+                winner_provenance = dict(provenance)
+                winner_provenance["requested_manual_reconciliation_outcome"] = (
+                    manual_outcome
+                )
+                winner_provenance["requested_manual_reconciliation_cost_usd"] = (
+                    payload.get("cost_usd")
+                )
+                winner_provenance["manual_reconciliation_outcome"] = winner_outcome
+                winner_provenance["ledger_winner_cost_usd"] = (
+                    settled.effective_cost()
+                    if winner_outcome == "commit"
+                    else None
+                )
+                winner_provenance["ledger_conflict_kind"] = (
+                    "outcome_and_cost"
+                    if disposition_conflict and cost_conflict
+                    else "outcome"
+                    if disposition_conflict
+                    else "cost"
+                )
+                winner_provenance["ledger_winner_adopted"] = True
+                winner_provenance["manual_reconciliation_required"] = False
+                winner_provenance["ledger_reconciliation_pending"] = False
+                winner_payload["provenance"] = winner_provenance
+                try:
+                    _, repaired = await MEDIA_OPERATION_STORE.adopt_ledger_reconciliation(
+                        operation_id,
+                        str(manual_outcome),
+                        winner_payload,
+                    )
+                except Exception as exc:
+                    raise HTTPException(
+                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                        detail="Media operation state store is unavailable",
+                    ) from exc
+                if not repaired:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail=f"Media operation {operation_id} changed; retry",
+                    )
+                try:
+                    marked = await MEDIA_OPERATION_STORE.mark_reconciled(operation_id)
+                except Exception as exc:
+                    raise HTTPException(
+                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                        detail="Media operation state store is unavailable",
+                    ) from exc
+                if not marked:
+                    raise HTTPException(
+                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                        detail="Media operation reconciliation state was lost; retry",
+                    )
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=(
+                        f"Media operation {operation_id} had already been "
+                        f"settled as {winner_outcome}; operation state was "
+                        "aligned to the ledger winner"
+                    ),
+                )
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"Media operation {operation_id} conflicts with the "
+                    "persisted ledger disposition"
+                ),
+            )
+    elif not manual_outcome:
+        return
+    if provenance.get("manual_reconciliation_outcome"):
+        provenance["manual_reconciliation_required"] = False
+        provenance["ledger_reconciliation_pending"] = False
+        payload["provenance"] = provenance
+        try:
+            _, finalized = await MEDIA_OPERATION_STORE.replace_terminal_payload(
+                operation_id,
+                op_status,
+                payload,
+            )
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Media operation state store is unavailable",
+            ) from exc
+        if not finalized:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Media operation {operation_id} changed; retry",
+            )
+    try:
+        marked = await MEDIA_OPERATION_STORE.mark_reconciled(operation_id)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Media operation state store is unavailable",
+        ) from exc
+    if not marked:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Media operation reconciliation state was lost; retry",
+        )
+
+
+async def _maybe_recover_media_ledger_intent(
+    operation_id: str, operation: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Retry durable ledger attachment or release-only cleanup before polling."""
+    payload = dict(operation.get("last_payload") or {})
+    provenance = dict(payload.get("provenance") or {})
+    recovered_attach = False
+    if provenance.get("ledger_attach_pending"):
+        candidate_ids = tuple(provenance.get("ledger_attach_candidate_ids") or ())
+        reservation_id = str(candidate_ids[0]) if candidate_ids else ""
+        try:
+            await MEDIA_BUDGET_ENGINE.protect_attach_ids((reservation_id,))
+            await MEDIA_BUDGET_ENGINE.attach_operation(
+                reservation_id,
+                operation_id,
+                consumer=str(operation.get("consumer") or ""),
+                project=str(operation.get("project") or ""),
+                provider=str(operation.get("provider") or ""),
+                model=str(operation.get("model") or ""),
+                modality=str(operation.get("modality") or ""),
+                force=True,
+            )
+            attached = await MEDIA_BUDGET_ENGINE.store.get(operation_id)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={
+                    "message": "Media ledger attachment is pending; retry polling",
+                    "recovery_ledger_ids": list(candidate_ids),
+                },
+            ) from exc
+        if attached is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={
+                    "message": "Media ledger attachment is unresolved; retry polling",
+                    "recovery_ledger_ids": list(candidate_ids),
+                },
+            )
+        provenance["ledger_attach_pending"] = False
+        provenance["ledger_attach_completed"] = True
+        provenance["ledger_attach_protection_clear_pending"] = True
+        recovered_attach = True
+    elif provenance.get("ledger_cleanup_pending"):
+        candidate_ids = tuple(provenance.get("ledger_cleanup_candidate_ids") or ())
+        try:
+            for candidate_id in candidate_ids:
+                await MEDIA_BUDGET_ENGINE.release(str(candidate_id), force=True)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={
+                    "message": "Media ledger cleanup is pending; retry polling",
+                    "recovery_ledger_ids": list(candidate_ids),
+                },
+            ) from exc
+        provenance["ledger_cleanup_pending"] = False
+        provenance["ledger_cleanup_completed"] = True
+        if provenance.get("ledger_cleanup_only"):
+            payload["status"] = "failed"
+            provenance["manual_reconciliation_required"] = False
+            provenance["manual_reconciliation_outcome"] = "release"
+            provenance["ledger_reconciliation_pending"] = False
+    elif provenance.get("ledger_attach_protection_clear_pending"):
+        try:
+            await MEDIA_BUDGET_ENGINE.clear_attach_protection(operation_id)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Media ledger attachment cleanup is pending; retry polling",
+            ) from exc
+        try:
+            persisted, changed = (
+                await MEDIA_OPERATION_STORE.complete_attach_protection_clear(
+                    operation_id
+                )
+            )
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Media operation state store is unavailable; retry",
+            ) from exc
+        if persisted is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Media operation {operation_id} not found",
+            )
+        if not changed:
+            return persisted
+        return persisted
+    else:
+        return operation
+    payload["provenance"] = provenance
+    persisted, changed = await _transition_media_payload_or_503(
+        operation_id,
+        payload,
+        expected_status=str((operation.get("last_payload") or {}).get("status", "")),
+    )
+    if persisted is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Media operation {operation_id} not found",
+        )
+    if not changed:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Media operation {operation_id} changed; retry polling",
+        )
+    if recovered_attach:
+        return await _maybe_recover_media_ledger_intent(operation_id, persisted)
+    return persisted
 
 
 def _media_timeout_seconds(request_timeout: Optional[int] = None) -> float:
@@ -1670,16 +2129,18 @@ async def submit_media_generation(
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED, detail=str(e)
         )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Media spend ledger is unavailable; retry submission",
+        ) from exc
 
-    # Any exit from here that does not durably attach the reservation to a
-    # persisted operation must release it — INCLUDING asyncio.CancelledError
-    # (uvicorn graceful shutdown / client disconnect), a BaseException the
-    # `except Exception` handlers below cannot catch. Without the finally, a
-    # durably committed RESERVED row (postgres budget store) is stranded
-    # against the consumer's cap forever (prune only runs when
-    # MEDIA_BUDGET_RETENTION_DAYS is set). `reservation_settled` is flipped at
-    # each terminal disposition (released best-effort, deliberately retained,
-    # or attached+persisted) so the finally releases exactly the leaked cases.
+    # Release exits that are known to precede provider submission. Once a
+    # non-idempotent provider call starts, cancellation or a lost response is
+    # ambiguous and the handler below durably retains the reservation instead.
+    # `reservation_settled` is flipped at each terminal disposition (released,
+    # deliberately retained, or attached+persisted) so finally handles only
+    # the provably safe cases.
     reservation_settled = False
     try:
         if modality == "image":
@@ -1718,6 +2179,89 @@ async def submit_media_generation(
                 model=model,
                 prepared_input=prepared_input,
             )
+        except (FalSubmissionAmbiguousError, asyncio.CancelledError) as exc:
+            # FAL may have accepted paid work before the response carrying its
+            # request id was lost. Releasing the reservation would under-count
+            # that work, so retain it under Atlas' durable local id and expose
+            # an explicit manual-reconciliation record.
+            reservation_settled = True
+            ledger_record_persisted = reservation is not None
+            try:
+                await asyncio.shield(
+                    MEDIA_BUDGET_ENGINE.record_ambiguous(
+                        operation_id=reservation_id,
+                        consumer=consumer,
+                        project=project,
+                        provider=provider,
+                        model=model,
+                        modality=modality,
+                        estimated_cost_usd=estimated_cost,
+                        pricing_source_ts=pricing_ts,
+                        model_version=model_version,
+                    )
+                )
+                ledger_record_persisted = True
+            except Exception as ledger_exc:
+                logger.error(
+                    "Ambiguous FAL submission %s could not be recorded in "
+                    "the recovery ledger: %s",
+                    reservation_id,
+                    ledger_exc,
+                )
+            unknown_payload = {
+                "operation_id": reservation_id,
+                "status": "submission_unknown",
+                "provider": provider,
+                "model": model,
+                "modality": modality,
+                "artifact_url": None,
+                "artifacts": [],
+                "cost_usd": estimated_cost,
+                "license": None,
+                "provenance": {
+                    "provider_request_id": None,
+                    "manual_reconciliation_required": True,
+                    "ledger_record_persisted": ledger_record_persisted,
+                },
+                "raw": None,
+            }
+            unknown_operation = {
+                "operation_id": reservation_id,
+                "provider": provider,
+                "modality": modality,
+                "model": model,
+                "created_at_epoch": time.time(),
+                "timeout_seconds": _media_timeout_seconds(request.timeout_seconds),
+                "last_payload": unknown_payload,
+                "consumer": consumer,
+                "project": project,
+                "owner_scope": principal_scope_key(principal),
+                "budget_tracked": ledger_record_persisted,
+                "reconciled": False,
+            }
+            local_record_persisted = True
+            try:
+                await asyncio.shield(_persist_media_operation(unknown_operation))
+            except Exception as persistence_exc:
+                local_record_persisted = False
+                logger.error(
+                    "Ambiguous FAL submission %s could not be persisted: %s",
+                    reservation_id,
+                    persistence_exc,
+                )
+            if isinstance(exc, asyncio.CancelledError):
+                raise
+            raise HTTPException(
+                status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                detail={
+                    "message": str(exc),
+                    "submission_status": "unknown",
+                    "local_submission_id": reservation_id,
+                    "local_record_persisted": local_record_persisted,
+                    "ledger_record_persisted": ledger_record_persisted,
+                    "manual_reconciliation_required": True,
+                },
+            ) from exc
         except HTTPException:
             raise
         except ValueError as e:
@@ -1734,31 +2278,91 @@ async def submit_media_generation(
 
         operation_id = str(payload["operation_id"])
         submitted_model = str(payload.get("model") or model)
+        # From this point the provider has returned an accepted operation id.
+        # A cancellation at any following await must retain, never release,
+        # the protected reservation for later operator reconciliation.
+        reservation_settled = True
         # Re-key the reservation to the provider's operation id so poll-time
         # reconciliation can find it. The provider call already succeeded, so a
-        # ledger bookkeeping hiccup here must not 500 the request or permanently
-        # orphan the reservation: on failure, free the temp-id reservation
-        # best-effort and continue (this operation's spend goes untracked rather
-        # than holding the consumer's budget forever).
+        # ledger bookkeeping hiccup here must not orphan or release paid work;
+        # persist a durable retry intent and retain the reservation instead.
         budget_tracked = reservation is not None
-        budget_cleanup_failed = False
+        ledger_attach_pending = False
+        post_accept_cancelled = False
+        cleanup_candidate_ids: tuple[str, ...] = ()
         try:
-            await MEDIA_BUDGET_ENGINE.attach_operation(reservation_id, operation_id)
+            await MEDIA_BUDGET_ENGINE.attach_operation(
+                reservation_id,
+                operation_id,
+                consumer=consumer,
+                project=project,
+                provider=provider,
+                model=submitted_model,
+                modality=modality,
+            )
+        except asyncio.CancelledError:
+            post_accept_cancelled = True
+            budget_tracked = False
+            cleanup_candidate_ids = (reservation_id, operation_id)
+            ledger_attach_pending = reservation is not None
+        except LedgerOperationCollisionError as exc:
+            await MEDIA_BUDGET_ENGINE.release(reservation_id, force=True)
+            reservation_settled = True
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Provider returned a duplicate media operation id",
+            ) from exc
         except Exception:
             budget_tracked = False
-            # attach_operation re-keys reservation_id → operation_id and then
-            # bumps status in a separate step; if the re-key landed but the bump
-            # failed, the row now lives under operation_id, so releasing only
-            # reservation_id would no-op and strand it. Release both ids
-            # best-effort — the id the row isn't under is a harmless no-op.
-            for _rid in (reservation_id, operation_id):
-                try:
-                    await MEDIA_BUDGET_ENGINE.release(_rid)
-                except Exception:
-                    budget_cleanup_failed = reservation is not None
-            # Reservation is now released (or best-effort released); the finally
-            # must not release it again.
+            # The re-key and status bump are separate writes, so persist both
+            # possible ids and retry attachment before polling. Releasing here
+            # would undercount paid work the provider already accepted.
+            cleanup_candidate_ids = (reservation_id, operation_id)
+            ledger_attach_pending = reservation is not None
             reservation_settled = True
+            try:
+                await MEDIA_BUDGET_ENGINE.protect_attach_ids((reservation_id,))
+            except Exception as protection_exc:
+                logger.warning(
+                    "Could not retention-protect pending ledger attachment %s: %s",
+                    operation_id,
+                    protection_exc,
+                )
+        operation_payload = dict(payload)
+        if ledger_attach_pending:
+            cleanup_provenance = dict(operation_payload.get("provenance") or {})
+            cleanup_provenance["ledger_attach_pending"] = True
+            cleanup_provenance["ledger_attach_candidate_ids"] = list(
+                cleanup_candidate_ids
+            )
+            operation_payload["provenance"] = cleanup_provenance
+        elif budget_tracked:
+            cleanup_provenance = dict(operation_payload.get("provenance") or {})
+            cleanup_provenance["ledger_attach_protection_clear_pending"] = True
+            operation_payload["provenance"] = cleanup_provenance
+        if post_accept_cancelled and reservation is None:
+            try:
+                await asyncio.shield(
+                    MEDIA_BUDGET_ENGINE.record_ambiguous(
+                        operation_id=operation_id,
+                        consumer=consumer,
+                        project=project,
+                        provider=provider,
+                        model=submitted_model,
+                        modality=modality,
+                        estimated_cost_usd=estimated_cost,
+                        pricing_source_ts=pricing_ts,
+                        model_version=model_version,
+                        allow_existing=False,
+                    )
+                )
+                budget_tracked = True
+            except Exception as exc:
+                logger.error(
+                    "Could not persist cancellation recovery ledger row for %s: %s",
+                    operation_id,
+                    exc,
+                )
         operation = {
             "operation_id": operation_id,
             "provider": provider,
@@ -1766,15 +2370,43 @@ async def submit_media_generation(
             "model": submitted_model,
             "created_at_epoch": time.time(),
             "timeout_seconds": _media_timeout_seconds(request.timeout_seconds),
-            "last_payload": payload,
+            "last_payload": operation_payload,
             "consumer": consumer,
             "project": project,
+            "submission_id": reservation_id,
             "owner_scope": principal_scope_key(principal),
             "budget_tracked": budget_tracked,
             "reconciled": False,
         }
         try:
-            await _persist_media_operation(operation)
+            persist_task = asyncio.create_task(_persist_media_operation(operation))
+            try:
+                await asyncio.shield(persist_task)
+            except asyncio.CancelledError:
+                post_accept_cancelled = True
+                await persist_task
+        except MediaOperationCollisionError as exc:
+            # Never cancel or retention-mark an id already owned by another
+            # request. Release only a ledger row whose immutable attribution
+            # proves it belongs to this submission.
+            candidate_ids = (reservation_id, operation_id) if budget_tracked else (
+                reservation_id,
+            )
+            for candidate_id in candidate_ids:
+                candidate = await MEDIA_BUDGET_ENGINE.store.get(candidate_id)
+                if candidate is not None and (
+                    candidate.consumer,
+                    candidate.project,
+                    candidate.provider,
+                    candidate.model,
+                    candidate.modality,
+                ) == (consumer, project, provider, submitted_model, modality):
+                    await MEDIA_BUDGET_ENGINE.release(candidate_id, force=True)
+            reservation_settled = True
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Provider returned a duplicate media operation id",
+            ) from exc
         except Exception as exc:
             # An attached reservation is deliberately RETAINED here for manual
             # reconciliation of the already-submitted paid work; the finally
@@ -1795,14 +2427,51 @@ async def submit_media_generation(
             # stopped. Without durable operation state Atlas cannot poll that request
             # to a terminal outcome, so retain spend for manual reconciliation.
             manual_reconciliation_required = True
+            recovery_ledger_ids: list[str] = []
+            if ledger_attach_pending:
+                recovery_ledger_ids = list(cleanup_candidate_ids)
+            elif budget_tracked:
+                recovery_ledger_ids = [operation_id]
+            else:
+                try:
+                    await MEDIA_BUDGET_ENGINE.record_ambiguous(
+                        operation_id=operation_id,
+                        consumer=consumer,
+                        project=project,
+                        provider=provider,
+                        model=submitted_model,
+                        modality=modality,
+                        estimated_cost_usd=estimated_cost,
+                        pricing_source_ts=pricing_ts,
+                        model_version=model_version,
+                    )
+                    recovery_ledger_ids = [operation_id]
+                except Exception as recovery_exc:
+                    logger.error(
+                        "Could not persist recovery ledger row for accepted "
+                        "operation %s: %s",
+                        operation_id,
+                        recovery_exc,
+                    )
+            if recovery_ledger_ids:
+                try:
+                    await MEDIA_BUDGET_ENGINE.protect_recovery_ids(
+                        tuple(recovery_ledger_ids)
+                    )
+                except Exception as protection_exc:
+                    logger.error(
+                        "Could not retention-protect recovery ledger ids %s: %s",
+                        recovery_ledger_ids,
+                        protection_exc,
+                    )
             logger.error(
                 "Provider accepted media operation %s but state persistence failed; "
                 "provider_cancellation_requested=%s "
-                "manual_reconciliation_required=%s budget_cleanup_failed=%s: %s",
+                "manual_reconciliation_required=%s ledger_attach_pending=%s: %s",
                 operation_id,
                 provider_cancellation_requested,
                 manual_reconciliation_required,
-                budget_cleanup_failed,
+                ledger_attach_pending,
                 exc,
             )
             raise HTTPException(
@@ -1813,19 +2482,86 @@ async def submit_media_generation(
                         "persist its state"
                     ),
                     "provider_operation_id": operation_id,
+                    "recovery_ledger_ids": recovery_ledger_ids,
                     "provider_cancellation_requested": provider_cancellation_requested,
                     "manual_reconciliation_required": manual_reconciliation_required,
                 },
             ) from exc
         # Attached + persisted: the reservation is now tracked as this operation.
         reservation_settled = True
+        persisted_operation = await MEDIA_OPERATION_STORE.get(operation_id)
+        if persisted_operation is not None:
+            try:
+                await _maybe_recover_media_ledger_intent(
+                    operation_id, persisted_operation
+                )
+            except HTTPException:
+                # The durable outbox retains transient clear/attach work.
+                pass
+        if post_accept_cancelled:
+            raise asyncio.CancelledError()
         return _media_response(payload)
     finally:
-        if not reservation_settled:
+        if not reservation_settled and reservation is not None:
             try:
                 await MEDIA_BUDGET_ENGINE.release(reservation_id)
-            except Exception:
-                pass
+            except Exception as cleanup_exc:
+                cleanup_payload = {
+                    "operation_id": reservation_id,
+                    "status": "submission_unknown",
+                    "provider": provider,
+                    "model": model,
+                    "modality": modality,
+                    "artifact_url": None,
+                    "artifacts": [],
+                    "cost_usd": estimated_cost,
+                    "license": None,
+                    "provenance": {
+                        "provider_request_id": None,
+                        "manual_reconciliation_required": True,
+                        "ledger_cleanup_only": True,
+                        "ledger_cleanup_pending": True,
+                        "ledger_cleanup_candidate_ids": [reservation_id],
+                        "ledger_record_persisted": True,
+                    },
+                    "raw": None,
+                }
+                cleanup_operation = {
+                    "operation_id": reservation_id,
+                    "provider": provider,
+                    "modality": modality,
+                    "model": model,
+                    "created_at_epoch": time.time(),
+                    "timeout_seconds": _media_timeout_seconds(
+                        request.timeout_seconds
+                    ),
+                    "last_payload": cleanup_payload,
+                    "consumer": consumer,
+                    "project": project,
+                    "owner_scope": principal_scope_key(principal),
+                    "budget_tracked": True,
+                    "reconciled": False,
+                }
+                local_record_persisted = True
+                try:
+                    await _persist_media_operation(cleanup_operation)
+                except Exception as persistence_exc:
+                    local_record_persisted = False
+                    logger.error(
+                        "Could not persist cleanup intent %s: %s",
+                        reservation_id,
+                        persistence_exc,
+                    )
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail={
+                        "message": "Media ledger cleanup is pending",
+                        "local_submission_id": reservation_id,
+                        "recovery_ledger_ids": [reservation_id],
+                        "local_record_persisted": local_record_persisted,
+                        "manual_reconciliation_required": True,
+                    },
+                ) from cleanup_exc
 
 
 # Terminal media-operation statuses — once reached, polls return the stored
@@ -1837,7 +2573,14 @@ async def get_media_operation(
     principal: BackendPrincipal = Depends(require_backend_principal),
 ):
     """Poll a hosted media generation operation."""
-    operation = await MEDIA_OPERATION_STORE.get(operation_id)
+    try:
+        operation = await MEDIA_OPERATION_STORE.get(operation_id)
+    except Exception as exc:
+        logger.warning("Media operation lookup failed for %s: %s", operation_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Media operation state store is unavailable",
+        ) from exc
     if not operation:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -1854,13 +2597,23 @@ async def get_media_operation(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Media operation {operation_id} not found",
         )
+    operation = await _maybe_recover_media_ledger_intent(operation_id, operation)
     # Terminal payloads are stable: never re-poll the provider (a cancelled op
     # must not flip back to the provider's in-flight status, #518).
     last_payload = dict(operation.get("last_payload") or {})
     current_status = str(last_payload.get("status", ""))
+    if current_status == "submission_unknown":
+        return _media_response(last_payload)
     if current_status in TERMINAL_MEDIA_STATUSES:
         await _maybe_reconcile_ledger(operation_id, operation)
-        return _media_response(last_payload)
+        try:
+            refreshed = await MEDIA_OPERATION_STORE.get(operation_id)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Media operation state store is unavailable; retry",
+            ) from exc
+        return _media_response(dict((refreshed or operation)["last_payload"]))
     elapsed = time.time() - float(operation["created_at_epoch"])
     if (
         current_status != "cancellation_requested"
@@ -1868,7 +2621,7 @@ async def get_media_operation(
     ):
         payload = dict(operation["last_payload"])
         payload["status"] = "timeout"
-        persisted, _ = await MEDIA_OPERATION_STORE.transition_payload(
+        persisted, _ = await _transition_media_payload_or_503(
             operation_id, payload, expected_status=current_status
         )
         if persisted is None:
@@ -1941,16 +2694,17 @@ async def get_media_operation(
             status_code=status.HTTP_502_BAD_GATEWAY,
         )
 
+    merged_provenance = dict(last_payload.get("provenance") or {})
+    merged_provenance.update(dict(payload.get("provenance") or {}))
+    payload["provenance"] = merged_provenance
+
     if (
         current_status == "cancellation_requested"
         and str(payload.get("status", "")) not in TERMINAL_MEDIA_STATUSES
     ):
-        provider_provenance = dict(payload.get("provenance") or {})
-        provider_provenance.update(dict(last_payload.get("provenance") or {}))
         payload["status"] = "cancellation_requested"
-        payload["provenance"] = provider_provenance
 
-    persisted, _ = await MEDIA_OPERATION_STORE.transition_payload(
+    persisted, _ = await _transition_media_payload_or_503(
         operation_id, payload, expected_status=current_status
     )
     if persisted is None:
@@ -1978,7 +2732,14 @@ async def cancel_media_operation(
     completes. Idempotency: ``404`` for an unknown operation and ``409`` for an
     already-terminal operation or an existing cancellation request.
     """
-    operation = await MEDIA_OPERATION_STORE.get(operation_id)
+    try:
+        operation = await MEDIA_OPERATION_STORE.get(operation_id)
+    except Exception as exc:
+        logger.warning("Media operation lookup failed for %s: %s", operation_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Media operation state store is unavailable",
+        ) from exc
     if not operation:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -1999,6 +2760,14 @@ async def cancel_media_operation(
     for _ in range(3):
         last_payload = dict(operation.get("last_payload") or {})
         current_status = str(last_payload.get("status", ""))
+        if current_status == "submission_unknown":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"Media operation {operation_id} has no provider request id; "
+                    "manual reconciliation is required"
+                ),
+            )
         if current_status in TERMINAL_MEDIA_STATUSES:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -2020,7 +2789,7 @@ async def cancel_media_operation(
         provenance = dict(payload.get("provenance") or {})
         provenance["provider_cancellation_requested"] = False
         payload["provenance"] = provenance
-        persisted, changed = await MEDIA_OPERATION_STORE.transition_payload(
+        persisted, changed = await _transition_media_payload_or_503(
             operation_id, payload, expected_status=current_status
         )
         if persisted is None:
@@ -2059,11 +2828,299 @@ async def cancel_media_operation(
     provenance = dict(payload.get("provenance") or {})
     provenance["provider_cancellation_requested"] = provider_cancellation_requested
     payload["provenance"] = provenance
-    enriched, _ = await MEDIA_OPERATION_STORE.transition_payload(
+    enriched, _ = await _transition_media_payload_or_503(
         operation_id, payload, expected_status="cancellation_requested"
     )
     final_operation = enriched or persisted
     return _media_response(dict(final_operation["last_payload"]))
+
+
+@app.post(
+    "/media/operations/{operation_id}/reconcile",
+    response_model=MediaOperationResponse,
+    dependencies=[Depends(require_service_principal)],
+)
+async def reconcile_unknown_media_submission(
+    operation_id: str,
+    request: MediaManualReconciliationRequest,
+):
+    """Commit or release an ambiguous FAL submission after operator review."""
+
+    def require_compatible_retry_cost(persisted_payload: Dict[str, Any]) -> None:
+        if (
+            request.outcome == "commit"
+            and request.final_cost_usd is not None
+            and persisted_payload.get("cost_usd") != request.final_cost_usd
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"Media operation {operation_id} was already committed "
+                    "with a different final cost"
+                ),
+            )
+
+    def require_known_commit_cost(known_cost: Optional[float]) -> None:
+        if (
+            request.outcome == "commit"
+            and request.final_cost_usd is None
+            and known_cost is None
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=(
+                    "final_cost_usd is required when the ambiguous submission "
+                    "has no known estimated cost"
+                ),
+            )
+
+    async def refetch_operation_state() -> Optional[Dict[str, Any]]:
+        try:
+            return await MEDIA_OPERATION_STORE.get(operation_id)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Media operation state store is unavailable; retry",
+            ) from exc
+
+    operation_store_unavailable = False
+    try:
+        operation = await MEDIA_OPERATION_STORE.get(operation_id)
+    except Exception as exc:
+        logger.warning(
+            "Operation-state lookup failed during manual reconciliation of %s; "
+            "falling back to the spend ledger: %s",
+            operation_id,
+            exc,
+        )
+        operation_store_unavailable = True
+        operation = None
+    if not operation:
+        # The provider may have accepted work while the separate operation
+        # store was unavailable. The reservation ledger is the durable source
+        # of truth in that explicitly reported local_record_persisted=false
+        # recovery case.
+        try:
+            record = await MEDIA_BUDGET_ENGINE.store.get(operation_id)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Media spend ledger is unavailable; retry reconciliation",
+            ) from exc
+        if record is None:
+            if operation_store_unavailable:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Media operation state store is unavailable; retry",
+                )
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Media operation {operation_id} not found",
+            )
+        require_known_commit_cost(
+            record.final_cost_usd
+            if record.final_cost_usd is not None
+            else record.estimated_cost_usd
+        )
+        wanted_status = (
+            media_ledger.STATUS_COMMITTED
+            if request.outcome == "commit"
+            else media_ledger.STATUS_RELEASED
+        )
+        if record.status in {
+            media_ledger.STATUS_COMMITTED,
+            media_ledger.STATUS_RELEASED,
+        }:
+            pass
+        elif record.status not in {
+            media_ledger.STATUS_RESERVED,
+            media_ledger.STATUS_SUBMITTED,
+        }:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Media operation {operation_id} cannot be reconciled",
+            )
+        else:
+            try:
+                record = await MEDIA_BUDGET_ENGINE.reconcile(
+                    operation_id=operation_id,
+                    status=(
+                        "succeeded" if request.outcome == "commit" else "failed"
+                    ),
+                    final_cost_usd=request.final_cost_usd,
+                    reason=f"manual reconciliation: {request.outcome}",
+                    force=True,
+                )
+            except Exception as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Media spend ledger is unavailable; retry reconciliation",
+                ) from exc
+            if record is None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Media operation {operation_id} not found",
+                )
+        if operation_store_unavailable and record.status in {
+            media_ledger.STATUS_COMMITTED,
+            media_ledger.STATUS_RELEASED,
+        }:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=(
+                    "Ledger disposition is durable, but operation-state sync "
+                    "is pending; retry reconciliation"
+                ),
+            )
+        if record.status != wanted_status:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"Media operation {operation_id} was already reconciled "
+                    "with a different outcome"
+                ),
+            )
+        if (
+            request.outcome == "commit"
+            and request.final_cost_usd is not None
+            and record.effective_cost() != request.final_cost_usd
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"Media operation {operation_id} was already committed "
+                    "with a different final cost"
+                ),
+            )
+        return _media_response(
+            {
+                "operation_id": operation_id,
+                "status": "succeeded" if request.outcome == "commit" else "failed",
+                "provider": record.provider,
+                "model": record.model,
+                "modality": record.modality,
+                "artifact_url": None,
+                "artifacts": [],
+                "cost_usd": record.effective_cost(),
+                "license": None,
+                "provenance": {
+                    "provider_request_id": None,
+                    "local_record_persisted": False,
+                    "manual_reconciliation_required": False,
+                    "manual_reconciliation_outcome": request.outcome,
+                },
+                "raw": None,
+            }
+        )
+
+    last_payload = dict(operation.get("last_payload") or {})
+    if (
+        (last_payload.get("provenance") or {}).get("ledger_cleanup_only")
+        and request.outcome != "release"
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cleanup-only recovery operations can only be released",
+        )
+    require_known_commit_cost(last_payload.get("cost_usd"))
+    current_status = str(last_payload.get("status", ""))
+    provenance = dict(last_payload.get("provenance") or {})
+    prior_outcome = provenance.get("manual_reconciliation_outcome")
+    expected_manual_status = "submission_unknown"
+    if current_status != "submission_unknown":
+        expected_terminal = "succeeded" if request.outcome == "commit" else "failed"
+        if prior_outcome == request.outcome and current_status == expected_terminal:
+            require_compatible_retry_cost(last_payload)
+            await _maybe_reconcile_ledger(operation_id, operation)
+            refreshed = await refetch_operation_state()
+            return _media_response(dict((refreshed or operation)["last_payload"]))
+        try:
+            recovery_record = await MEDIA_BUDGET_ENGINE.store.get(operation_id)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Media spend ledger is unavailable; retry reconciliation",
+            ) from exc
+        ledger_outcome = (
+            "commit"
+            if recovery_record is not None
+            and recovery_record.status == media_ledger.STATUS_COMMITTED
+            else "release"
+            if recovery_record is not None
+            and recovery_record.status == media_ledger.STATUS_RELEASED
+            else None
+        )
+        if not (
+            recovery_record is not None
+            and ledger_outcome == request.outcome
+            and str(recovery_record.reason or "").startswith(
+                "manual reconciliation:"
+            )
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"Media operation {operation_id} does not require manual reconciliation"
+                ),
+            )
+        expected_manual_status = current_status
+
+    payload = dict(last_payload)
+    payload["status"] = "succeeded" if request.outcome == "commit" else "failed"
+    if request.outcome == "commit" and request.final_cost_usd is not None:
+        payload["cost_usd"] = request.final_cost_usd
+    provenance = dict(payload.get("provenance") or {})
+    provenance["manual_reconciliation_required"] = True
+    provenance["manual_reconciliation_outcome"] = request.outcome
+    provenance["ledger_reconciliation_pending"] = True
+    if provenance.get("ledger_cleanup_only") and request.outcome == "release":
+        provenance["ledger_cleanup_pending"] = False
+        provenance["ledger_cleanup_completed"] = True
+    payload["provenance"] = provenance
+
+    try:
+        if expected_manual_status in TERMINAL_MEDIA_STATUSES:
+            persisted, changed = await MEDIA_OPERATION_STORE.adopt_ledger_fallback(
+                operation_id,
+                int(operation.get("state_version", 0)),
+                payload,
+            )
+        else:
+            persisted, changed = await MEDIA_OPERATION_STORE.transition_payload(
+                operation_id,
+                payload,
+                expected_status=expected_manual_status,
+            )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Media operation state store is unavailable; retry",
+        ) from exc
+    if persisted is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Media operation {operation_id} not found",
+        )
+    if not changed:
+        persisted_payload = dict(persisted.get("last_payload") or {})
+        persisted_provenance = dict(persisted_payload.get("provenance") or {})
+        expected_terminal = "succeeded" if request.outcome == "commit" else "failed"
+        if (
+            persisted_payload.get("status") == expected_terminal
+            and persisted_provenance.get("manual_reconciliation_outcome")
+            == request.outcome
+        ):
+            require_compatible_retry_cost(persisted_payload)
+            await _maybe_reconcile_ledger(operation_id, persisted)
+            refreshed = await refetch_operation_state()
+            return _media_response(dict((refreshed or persisted)["last_payload"]))
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Media operation {operation_id} was already reconciled",
+        )
+    await _maybe_reconcile_ledger(operation_id, persisted)
+    refreshed = await refetch_operation_state()
+    return _media_response(dict((refreshed or persisted)["last_payload"]))
 
 
 @app.get("/media/spend", response_model=MediaSpendResponse)
@@ -2084,9 +3141,16 @@ async def get_media_spend(
             consumer=consumer,
             project=resolved_project if project is not None else None,
         )
-    summary = await MEDIA_BUDGET_ENGINE.spend(
-        consumer=consumer, project=resolved_project if project is not None else None
-    )
+    try:
+        summary = await MEDIA_BUDGET_ENGINE.spend(
+            consumer=consumer,
+            project=resolved_project if project is not None else None,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Media spend ledger is unavailable; retry",
+        ) from exc
     return MediaSpendResponse(enabled=True, **summary)
 
 

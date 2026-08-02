@@ -16,9 +16,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Copy requirements
 COPY gpu/requirements.txt /app/requirements.txt
+COPY gpu/requirements-locked.txt /app/requirements-locked.txt
 
 # Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt -c requirements-locked.txt \
+    && pip check
 
 # Copy shared components
 COPY shared/*.py /app/

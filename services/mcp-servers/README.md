@@ -67,7 +67,7 @@ MetaMCP, Docker MCP Gateway, and `mcpo` remain later or conditional tools. MetaM
 
 ![mcp-servers architecture](./architecture.svg)
 
-[Open the interactive HTML diagram](./architecture.html) for a full-screen view.
+[Open the full-size diagram](./architecture.html) for a full-screen view.
 
 ### 5.4. Future — Missing pair integrations
 

@@ -39,15 +39,20 @@ Label Studio's S3/import/export storage connections remain project-specific in u
 
 ### 4.1. Notebook Export Loop
 
-JupyterHub receives `LABEL_STUDIO_URL` and `LABEL_STUDIO_API_URL` when the service is enabled and includes `label-studio-sdk`. A notebook can export annotations and then log artifacts to MLflow or upsert reviewed rows into Weaviate:
+JupyterHub receives `LABEL_STUDIO_URL`, `LABEL_STUDIO_API_URL`, and `LABEL_STUDIO_API_KEY` when the service is enabled. The optional `label-studio-sdk` is intentionally not bundled because current releases pin a vulnerable code-generator dependency. Use the already-installed `httpx` client for the direct REST flow, then log exported artifacts to MLflow or upsert reviewed rows into Weaviate:
 
 ```python
 import os
-from label_studio_sdk import Client
+import httpx
 
-client = Client(url=os.environ["LABEL_STUDIO_API_URL"], api_key=os.environ["LABEL_STUDIO_API_KEY"])
-project = client.get_project(1)
-annotations = project.export_tasks(export_type="JSON")
+response = httpx.get(
+    f'{os.environ["LABEL_STUDIO_API_URL"].rstrip("/")}/api/projects/1/export',
+    headers={"Authorization": f'Token {os.environ["LABEL_STUDIO_API_KEY"]}'},
+    params={"exportType": "JSON"},
+    timeout=60,
+)
+response.raise_for_status()
+annotations = response.json()
 ```
 
 MLflow and Weaviate export examples are intentionally notebook-owned in this first slice; the Label Studio service does not automatically write model registry entries or vector collections.
@@ -72,7 +77,7 @@ MLflow and Weaviate export examples are intentionally notebook-owned in this fir
 
 ![label-studio architecture](./architecture.svg)
 
-[Open the interactive HTML diagram](./architecture.html) for a full-screen view.
+[Open the full-size diagram](./architecture.html) for a full-screen view.
 
 ### 5.4. Future — Missing pair integrations
 

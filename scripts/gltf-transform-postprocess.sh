@@ -35,10 +35,15 @@ mkdir -p "$(dirname "$output")"
 
 docker run --rm \
   -v "$PWD:/workspace" \
+  -v "$PWD/services/asset-worker/app:/tooling:ro" \
   -w /workspace \
-  node:22-alpine \
+  node:22-bookworm-slim@sha256:f32b81066cde10a75dbac96646099533316d94bac4150c55da1636e1f0ffdc46 \
   sh -eu -c '
-    npx --yes --package @gltf-transform/cli@4.4.1 -- gltf-transform inspect "$1"
-    npx --yes --package @gltf-transform/cli@4.4.1 -- gltf-transform validate "$1"
-    npx --yes --package @gltf-transform/cli@4.4.1 -- gltf-transform optimize "$1" "$2" --compress meshopt --texture-compress webp
+    mkdir /tmp/gltf-transform
+    cp /tooling/package.json /tooling/package-lock.json /tmp/gltf-transform/
+    npm ci --omit=dev --prefix /tmp/gltf-transform
+    cli=/tmp/gltf-transform/node_modules/.bin/gltf-transform
+    "$cli" inspect "$1"
+    "$cli" validate "$1"
+    "$cli" optimize "$1" "$2" --compress meshopt --texture-compress webp
   ' sh "$input" "$output"

@@ -14,8 +14,10 @@ lifecycle:
 * concurrency-safe reserve/release semantics so two simultaneous submissions at
   the remaining-budget boundary cannot both pass.
 
-The capability is **disabled by default** (`MEDIA_BUDGET_ENABLED=false`); when
-disabled every method is a no-op and the gateway behaves exactly as before.
+Budget enforcement is **disabled by default** (`MEDIA_BUDGET_ENABLED=false`).
+Ordinary operations remain accounting no-ops in that mode, while an ambiguous
+provider submission still records the minimal recovery row needed for an
+operator disposition.
 
 Two stores share one interface: `InMemoryLedgerStore` (the tested reference,
 also used when no durable store is configured) and `PostgresLedgerStore`
@@ -41,6 +43,10 @@ STATUS_SUBMITTED = "submitted"
 STATUS_COMMITTED = "committed"
 STATUS_RELEASED = "released"
 STATUS_DENIED = "denied"
+AMBIGUOUS_RECOVERY_REASON = (
+    "ambiguous provider submission; manual reconciliation required"
+)
+ATTACH_RECOVERY_REASON = "ledger attachment pending automatic recovery"
 
 # Statuses that still hold budget (a live reservation).
 _RESERVED_STATES = frozenset({STATUS_RESERVED, STATUS_SUBMITTED})
@@ -77,6 +83,10 @@ class ProviderDisabled(BudgetError):
 
 class UnknownCostRejected(BudgetError):
     """Budgets are enforced but the model has no known cost (never treat as $0)."""
+
+
+class LedgerOperationCollisionError(RuntimeError):
+    """A provider operation id already belongs to another ledger record."""
 
 
 @dataclass(frozen=True)
@@ -193,10 +203,10 @@ class MediaBudgetConfig:
         if store not in {"postgres", "memory"}:
             raise ValueError("MEDIA_BUDGET_STORE must be 'postgres' or 'memory'")
         database_url = (os.getenv("DATABASE_URL") or "").strip() or None
-        if enabled and store == "postgres" and not database_url:
+        if store == "postgres" and not database_url:
             raise ValueError(
-                "DATABASE_URL is required when MEDIA_BUDGET_ENABLED=true and "
-                "MEDIA_BUDGET_STORE=postgres"
+                "DATABASE_URL is required when MEDIA_BUDGET_STORE=postgres "
+                "for ambiguous-submission recovery"
             )
         return cls(
             enabled=enabled,
@@ -257,9 +267,15 @@ class InMemoryLedgerStore:
 
     def __init__(self) -> None:
         self._records: Dict[str, LedgerRecord] = {}
+        self._lock = asyncio.Lock()
 
     async def append(self, record: LedgerRecord) -> None:
-        self._records[record.operation_id] = record
+        async with self._lock:
+            if record.operation_id in self._records:
+                raise LedgerOperationCollisionError(
+                    f"media ledger operation id collision: {record.operation_id}"
+                )
+            self._records[record.operation_id] = record
 
     async def get(self, operation_id: str) -> Optional[LedgerRecord]:
         return self._records.get(operation_id)
@@ -267,11 +283,76 @@ class InMemoryLedgerStore:
     async def update(self, record: LedgerRecord) -> None:
         self._records[record.operation_id] = record
 
+    async def attach_if_reserved(
+        self, old_id: str, new_id: str
+    ) -> Optional[LedgerRecord]:
+        async with self._lock:
+            record = self._records.get(old_id)
+            if record is None or record.status not in _RESERVED_STATES:
+                return self._records.get(new_id)
+            if old_id != new_id and new_id in self._records:
+                raise LedgerOperationCollisionError(
+                    f"media ledger operation id collision: {new_id}"
+                )
+            if old_id != new_id:
+                del self._records[old_id]
+            attached = replace(
+                record,
+                operation_id=new_id,
+                status=STATUS_SUBMITTED,
+                updated_at=_utcnow(),
+            )
+            self._records[new_id] = attached
+            return attached
+
+    async def protect_reason_if_reserved(
+        self, operation_id: str, reason: str
+    ) -> bool:
+        async with self._lock:
+            record = self._records.get(operation_id)
+            if record is None or record.status not in _RESERVED_STATES:
+                return False
+            self._records[operation_id] = replace(
+                record, reason=reason, updated_at=_utcnow()
+            )
+            return True
+
+    async def clear_attach_protection(self, operation_id: str) -> None:
+        async with self._lock:
+            record = self._records.get(operation_id)
+            if (
+                record is not None
+                and record.status in _RESERVED_STATES
+                and record.reason == ATTACH_RECOVERY_REASON
+            ):
+                self._records[operation_id] = replace(
+                    record, reason=None, updated_at=_utcnow()
+                )
+
+    async def settle_if_reserved(
+        self, record: LedgerRecord
+    ) -> Optional[LedgerRecord]:
+        """Atomically install one terminal disposition and return the winner."""
+        async with self._lock:
+            current = self._records.get(record.operation_id)
+            if current is None:
+                return None
+            if current.status in _RESERVED_STATES:
+                self._records[record.operation_id] = record
+                return record
+            return current
+
     async def rekey(self, old_id: str, new_id: str) -> None:
-        record = self._records.pop(old_id, None)
-        if record is None:
-            return
-        self._records[new_id] = replace(record, operation_id=new_id)
+        async with self._lock:
+            record = self._records.get(old_id)
+            if record is None:
+                return
+            if new_id in self._records:
+                raise LedgerOperationCollisionError(
+                    f"media ledger operation id collision: {new_id}"
+                )
+            del self._records[old_id]
+            self._records[new_id] = replace(record, operation_id=new_id)
 
     async def totals(self, consumer: str, project: str) -> Tuple[float, float]:
         reserved = 0.0
@@ -312,6 +393,11 @@ class InMemoryLedgerStore:
             oid
             for oid, rec in self._records.items()
             if rec.created_at < older_than
+            and not (
+                rec.status in _RESERVED_STATES
+                and rec.reason
+                in {AMBIGUOUS_RECOVERY_REASON, ATTACH_RECOVERY_REASON}
+            )
         ]
         for oid in stale:
             del self._records[oid]
@@ -455,6 +541,9 @@ class BudgetEngine:
             currency=self.config.currency,
             estimated_cost_usd=estimated_cost_usd,
             pricing_source_ts=pricing_source_ts,
+            # Protect the reservation before any provider side effect. A crash
+            # during submission is indistinguishable from provider acceptance.
+            reason=ATTACH_RECOVERY_REASON,
             created_at=now,
             updated_at=now,
         )
@@ -506,7 +595,18 @@ class BudgetEngine:
             await self.store.append(record)
             return True
 
-    async def attach_operation(self, reservation_id: str, operation_id: str) -> None:
+    async def attach_operation(
+        self,
+        reservation_id: str,
+        operation_id: str,
+        *,
+        consumer: Optional[str] = None,
+        project: Optional[str] = None,
+        provider: Optional[str] = None,
+        model: Optional[str] = None,
+        modality: Optional[str] = None,
+        force: bool = False,
+    ) -> None:
         """Re-key a reservation to the provider's operation id + mark submitted.
 
         The reservation is created before provider invocation (so budgets stop
@@ -514,33 +614,66 @@ class BudgetEngine:
         returns its operation id the record is re-keyed to it so poll-time
         reconciliation can find it.
         """
-        if not self.config.enabled:
+        if not self.config.enabled and not force:
             return
         record = await self.store.get(reservation_id)
         if record is None:
-            return
-        await self.store.rekey(reservation_id, operation_id)
-        new_status = (
-            STATUS_SUBMITTED if record.status == STATUS_RESERVED else record.status
+            # A prior attempt may have completed the re-key but failed before
+            # marking SUBMITTED. Retry against the provider id in that case.
+            record = await self.store.get(operation_id)
+            if record is None:
+                return
+        expected = (consumer, project, provider, model, modality)
+        actual = (
+            record.consumer,
+            record.project,
+            record.provider,
+            record.model,
+            record.modality,
         )
-        await self.store.update(
-            replace(
-                record,
-                operation_id=operation_id,
-                status=new_status,
-                updated_at=_utcnow(),
+        if any(value is not None for value in expected) and any(
+            wanted is not None and wanted != got
+            for wanted, got in zip(expected, actual)
+        ):
+            raise LedgerOperationCollisionError(
+                f"media ledger operation id collision: {operation_id}"
             )
+        attached = await self.store.attach_if_reserved(
+            record.operation_id, operation_id
         )
+        if attached is not None and any(
+            wanted is not None and wanted != got
+            for wanted, got in zip(
+                expected,
+                (
+                    attached.consumer,
+                    attached.project,
+                    attached.provider,
+                    attached.model,
+                    attached.modality,
+                ),
+            )
+        ):
+            raise LedgerOperationCollisionError(
+                f"media ledger operation id collision: {operation_id}"
+            )
 
-    async def release(self, operation_id: str) -> None:
+    async def release(self, operation_id: str, *, force: bool = False) -> None:
         """Release a still-held reservation (e.g. provider submission failed)."""
-        if not self.config.enabled:
+        if not self.config.enabled and not force:
             return
         record = await self.store.get(operation_id)
         if record is None or record.status not in _RESERVED_STATES:
             return
-        await self.store.update(
-            replace(record, status=STATUS_RELEASED, updated_at=_utcnow())
+        await self.store.settle_if_reserved(
+            replace(
+                record,
+                status=STATUS_RELEASED,
+                reason=(
+                    None if record.reason == ATTACH_RECOVERY_REASON else record.reason
+                ),
+                updated_at=_utcnow(),
+            )
         )
 
     async def reconcile(
@@ -550,41 +683,140 @@ class BudgetEngine:
         status: str,
         final_cost_usd: Optional[float] = None,
         artifact_refs: Tuple[str, ...] = (),
-    ) -> None:
+        reason: Optional[str] = None,
+        force: bool = False,
+    ) -> Optional[LedgerRecord]:
         """Reconcile a terminal operation.
 
         `status='succeeded'` commits the spend (final cost if the provider
         reported one, else the estimate — never silently $0). Any other terminal
         status (failed / cancelled / timeout) releases the reservation.
         """
-        if not self.config.enabled:
-            return
+        if not self.config.enabled and not force:
+            return None
         record = await self.store.get(operation_id)
         if record is None or record.status in (
             STATUS_COMMITTED,
             STATUS_RELEASED,
             STATUS_DENIED,
         ):
-            return
+            return record
 
         if status == "succeeded":
             new_status = STATUS_COMMITTED
         else:
             new_status = STATUS_RELEASED
 
-        await self.store.update(
-            replace(
-                record,
-                status=new_status,
-                # Keep the estimate when the provider reports no final cost, so
-                # an unknown cost is never persisted as $0.
-                final_cost_usd=(
-                    final_cost_usd if final_cost_usd is not None else record.final_cost_usd
-                ),
-                artifact_refs=tuple(artifact_refs) or record.artifact_refs,
-                updated_at=_utcnow(),
-            )
+        candidate = replace(
+            record,
+            status=new_status,
+            # Keep the estimate when the provider reports no final cost, so
+            # an unknown cost is never persisted as $0.
+            final_cost_usd=(
+                final_cost_usd if final_cost_usd is not None else record.final_cost_usd
+            ),
+            artifact_refs=tuple(artifact_refs) or record.artifact_refs,
+            reason=(
+                reason
+                if reason is not None
+                else None
+                if record.reason
+                in {ATTACH_RECOVERY_REASON, AMBIGUOUS_RECOVERY_REASON}
+                else record.reason
+            ),
+            updated_at=_utcnow(),
         )
+        return await self.store.settle_if_reserved(candidate)
+
+    async def record_ambiguous(
+        self,
+        *,
+        operation_id: str,
+        consumer: str,
+        project: str,
+        provider: str,
+        model: str,
+        modality: str,
+        estimated_cost_usd: Optional[float],
+        pricing_source_ts: Optional[datetime],
+        model_version: Optional[str],
+        allow_existing: bool = True,
+    ) -> LedgerRecord:
+        """Persist a recovery row even when budget enforcement is disabled."""
+        existing = await self.store.get(operation_id)
+        if existing is not None:
+            if not allow_existing or (
+                existing.consumer,
+                existing.project,
+                existing.provider,
+                existing.model,
+                existing.modality,
+            ) != (consumer, project, provider, model, modality):
+                raise LedgerOperationCollisionError(
+                    f"media ledger operation id collision: {operation_id}"
+                )
+            if (
+                existing.status in _RESERVED_STATES
+                and existing.reason != AMBIGUOUS_RECOVERY_REASON
+            ):
+                await self.store.protect_reason_if_reserved(
+                    operation_id, AMBIGUOUS_RECOVERY_REASON
+                )
+                refreshed = await self.store.get(operation_id)
+                return refreshed if refreshed is not None else existing
+            return existing
+        now = _utcnow()
+        record = LedgerRecord(
+            operation_id=operation_id,
+            consumer=consumer,
+            project=project,
+            provider=provider,
+            model=model,
+            model_version=model_version,
+            modality=modality,
+            status=STATUS_RESERVED,
+            currency=self.config.currency,
+            estimated_cost_usd=estimated_cost_usd,
+            pricing_source_ts=pricing_source_ts,
+            reason=AMBIGUOUS_RECOVERY_REASON,
+            created_at=now,
+            updated_at=now,
+        )
+        await self.store.append(record)
+        return record
+
+    async def protect_recovery_ids(
+        self, operation_ids: Tuple[str, ...]
+    ) -> Tuple[str, ...]:
+        """Mark whichever candidate rows exist as retention-protected recovery."""
+        protected: List[str] = []
+        for operation_id in operation_ids:
+            record = await self.store.get(operation_id)
+            if record is None:
+                continue
+            await self.store.protect_reason_if_reserved(
+                operation_id, AMBIGUOUS_RECOVERY_REASON
+            )
+            protected.append(operation_id)
+        return tuple(protected)
+
+    async def protect_attach_ids(
+        self, operation_ids: Tuple[str, ...]
+    ) -> Tuple[str, ...]:
+        """Mark owned attach candidates without implying manual reconciliation."""
+        protected: List[str] = []
+        for operation_id in operation_ids:
+            record = await self.store.get(operation_id)
+            if record is None:
+                continue
+            await self.store.protect_reason_if_reserved(
+                operation_id, ATTACH_RECOVERY_REASON
+            )
+            protected.append(operation_id)
+        return tuple(protected)
+
+    async def clear_attach_protection(self, operation_id: str) -> None:
+        await self.store.clear_attach_protection(operation_id)
 
     async def spend(
         self,
@@ -627,7 +859,7 @@ class BudgetEngine:
         }
 
     async def prune_expired(self) -> int:
-        if not self.config.enabled or not self.config.retention_days:
+        if not self.config.retention_days:
             return 0
         from datetime import timedelta
 
@@ -638,13 +870,13 @@ class BudgetEngine:
 def build_store(config: MediaBudgetConfig) -> Any:
     """Select the ledger store from config.
 
-    Enabled Postgres configuration is validated before this factory runs, so a
-    missing database URL cannot silently downgrade enforcement to process-local
-    memory. Disabled or explicitly memory-backed configurations use the
+    Configured Postgres is validated before this factory runs, so a missing
+    database URL cannot silently downgrade enforcement or ambiguity recovery to
+    process-local memory. Only explicitly memory-backed configurations use the
     reference store.
     """
     if config.store == "postgres" and config.database_url:
-        # Imported lazily so the in-memory / disabled paths never touch asyncpg.
+        # Imported lazily so the explicitly in-memory path never touches asyncpg.
         from media_ledger_postgres import PostgresLedgerStore
 
         return PostgresLedgerStore(config.database_url)

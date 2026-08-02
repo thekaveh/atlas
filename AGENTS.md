@@ -42,12 +42,13 @@ For TUI/CLI visual work: after each change, describe exactly what changed visual
 - `Manifest lint + unit tests`
 - `Compose merge + byte-equivalence + source-permutation matrix`
 - `Docs drift + audit scripts`
+- `Build-validation (Dockerfile + requirements.txt installability)`
 
-`Build-validation (Dockerfile + requirements.txt installability)` is temporarily opt-in through the repository Actions variable `ENABLE_BUILD_VALIDATION=true` and is not a required check. Restore it to the `gitflow` ruleset when re-enabling it.
+Build validation is enabled on every workflow run and is a required check in the live `gitflow` ruleset.
 
-Strict mode is enabled, so the PR branch must be up to date with main before merge becomes available. Conversation-resolution is required.
+Strict mode is enabled, so each PR branch must be up to date with that PR's target branch before merge becomes available. Conversation-resolution is required.
 
-Integration flow: branch (typically a dedicated git worktree) → push the branch → `gh pr create --base main` → wait for the required checks → `gh pr merge --squash --delete-branch` (squash preserves the linear history the repo prefers). Never attempt `git push origin main` or `develop`. Inspect the live rule with `gh api repos/thekaveh/atlas/rulesets`.
+Gitflow integration uses two PRs: branch (typically a dedicated git worktree) → push → PR to `develop` → required checks → squash merge; then `develop` → PR to `main` → required checks → squash merge. Never attempt `git push origin main` or `develop`. Inspect the live rule with `gh api repos/thekaveh/atlas/rulesets`.
 
 ## Key Commands
 

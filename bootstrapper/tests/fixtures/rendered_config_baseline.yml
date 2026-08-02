@@ -21,8 +21,8 @@ services:
           cpus: 1
           memory: '2147483648'
     environment:
-      AIRFLOW__API_AUTH__JWT_SECRET: ''
       AIRFLOW__API__SECRET_KEY: ''
+      AIRFLOW__API_AUTH__JWT_SECRET: ''
       AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
       AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://airflow-webserver:8080/execution/
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
@@ -88,8 +88,8 @@ services:
     deploy:
       replicas: 0
     environment:
-      AIRFLOW__API_AUTH__JWT_SECRET: ''
       AIRFLOW__API__SECRET_KEY: ''
+      AIRFLOW__API_AUTH__JWT_SECRET: ''
       AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
       AIRFLOW__CORE__FERNET_KEY: ''
       AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
@@ -148,8 +148,8 @@ services:
           cpus: 1
           memory: '2147483648'
     environment:
-      AIRFLOW__API_AUTH__JWT_SECRET: ''
       AIRFLOW__API__SECRET_KEY: ''
+      AIRFLOW__API_AUTH__JWT_SECRET: ''
       AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
       AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://airflow-webserver:8080/execution/
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
@@ -219,8 +219,8 @@ services:
           cpus: 1
           memory: '2147483648'
     environment:
-      AIRFLOW__API_AUTH__JWT_SECRET: ''
       AIRFLOW__API__SECRET_KEY: ''
+      AIRFLOW__API_AUTH__JWT_SECRET: ''
       AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__CORE__FERNET_KEY: ''
@@ -629,6 +629,11 @@ services:
       read_only: true
       volume: {}
   cadvisor:
+    cap_drop:
+    - ALL
+    command:
+    - --docker=unix:///var/run/atlas-docker-api-disabled.sock
+    - --store_container_labels=false
     container_name: atlas-cadvisor
     deploy:
       replicas: 0
@@ -645,31 +650,16 @@ services:
       target: 8080
       published: '63008'
       protocol: tcp
+    read_only: true
     restart: unless-stopped
+    security_opt:
+    - no-new-privileges:true
+    tmpfs:
+    - /tmp
     volumes:
-    - type: bind
-      source: /
-      target: /rootfs
-      read_only: true
-      bind: {}
-    - type: bind
-      source: /var/run/docker.sock
-      target: /var/run/docker.sock
-      read_only: true
-      bind: {}
     - type: bind
       source: /sys
       target: /sys
-      read_only: true
-      bind: {}
-    - type: bind
-      source: /var/lib/docker/
-      target: /var/lib/docker
-      read_only: true
-      bind: {}
-    - type: bind
-      source: /dev/disk/
-      target: /dev/disk
       read_only: true
       bind: {}
   celery-worker:
@@ -1207,6 +1197,7 @@ services:
       dockerfile: Dockerfile
       args:
         BASE_IMAGE: apache/iceberg-rest-fixture:1.10.1
+        POSTGRES_JDBC_SHA512: 3759e7160591863e5100361298943df94488a6e4ee03936d20723638142fe8038c9a6a47fa8ee7e424f4ef09bb351edc89dfe2ae4acdfc0f92699a8b00196c5c
         POSTGRES_JDBC_VERSION: 42.7.12
     container_name: atlas-iceberg-rest
     depends_on:

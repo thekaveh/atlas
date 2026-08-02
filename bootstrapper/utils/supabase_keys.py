@@ -163,7 +163,7 @@ class SupabaseKeyGenerator:
                         updated_content += '\n'
                     updated_content += f'{replacement}\n'
             
-            atomic_write_text(env_file_path, updated_content)
+            atomic_write_text(env_file_path, updated_content, mode=0o600)
 
             return True
             

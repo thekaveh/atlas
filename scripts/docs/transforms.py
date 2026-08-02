@@ -17,9 +17,7 @@ _HTML_HREF_RE = re.compile(
     r"(?P<target>.*?)(?P=quote)",
     re.IGNORECASE,
 )
-_MARKDOWN_ATTR_LIST_RE = re.compile(
-    r"[ \t]*\{:\s+[^}\n]+\}[ \t]*(?=\r?\n?$)"
-)
+_MARKDOWN_ATTR_LIST_RE = re.compile(r"[ \t]*\{:\s+[^}\n]+\}")
 _SCHEME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*:")
 _ATLAS_BLOB_PREFIX = "https://github.com/thekaveh/atlas/blob/"
 

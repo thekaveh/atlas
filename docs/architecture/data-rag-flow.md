@@ -4,7 +4,7 @@ Ingestion, document processing, object storage, vector and graph stores, backend
 
 ## 1. Diagram
 
-[Open the interactive diagram](./data-rag-flow.html).
+[Open the full-size diagram](./data-rag-flow.html).
 
 ## 2. Notes
 

@@ -71,7 +71,9 @@ def test_cold_stop_cleanup_does_not_prune_unrelated_projects(tmp_path, monkeypat
 
 
 def test_all_entry_paths_prepare_environment_before_secret_rotation():
-    linear = (REPO / "bootstrapper" / "start.py").read_text(encoding="utf-8")
+    linear = (
+        REPO / "bootstrapper" / "core" / "linear_startup.py"
+    ).read_text(encoding="utf-8")
     tui = (
         REPO
         / "bootstrapper"
@@ -81,11 +83,13 @@ def test_all_entry_paths_prepare_environment_before_secret_rotation():
         / "wizard_screen.py"
     ).read_text(encoding="utf-8")
 
-    main_flow = linear[linear.index("def main(") :]
+    main_flow = linear[linear.index("def run_linear_startup(") :]
     linear_prepare = main_flow.index("starter.prepare_environment(")
-    linear_rotation = main_flow.index("starter.generate_encryption_keys(cold_start=cold)")
+    linear_rotation = main_flow.index(
+        "starter.generate_encryption_keys(cold_start=options.cold)"
+    )
     assert linear_prepare < linear_rotation
-    assert main_flow.count("starter.prepare_environment(") == 3
+    assert main_flow.count("starter.prepare_environment(") == 1
     assert "starter.setup_env_file(" not in main_flow
 
     assert '("Cold-start cleanup"' not in tui

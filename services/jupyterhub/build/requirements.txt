@@ -79,7 +79,6 @@ torchvision==0.28.0
 # Deep Learning — higher-level frameworks
 torchmetrics==1.4.2
 mlflow==3.14.0
-label-studio-sdk==2.0.0
 
 # Graph Neural Networks (PyG) — ABI3 wheels matched to the Torch 2.13 CPU
 # build. The 2.13 index publishes pyg_lib 0.8 for both Linux x86_64 and arm64.

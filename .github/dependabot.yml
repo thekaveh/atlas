@@ -93,7 +93,9 @@ updates:
       include: "scope"
     target-branch: develop
   - package-ecosystem: npm
-    directory: "/services/n8n/init/config"
+    directories:
+      - "/services/asset-worker/app"
+      - "/services/n8n/init/config"
     schedule:
       interval: weekly
       day: monday

@@ -7,7 +7,13 @@ import os
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
 
+import httpx
+
 import media_registry
+
+
+class FalSubmissionAmbiguousError(asyncio.TimeoutError):
+    """Atlas timed out before FAL returned the accepted request identifier."""
 
 
 _DEFAULT_IMAGE_MODEL = "fal-ai/flux/dev"
@@ -246,9 +252,20 @@ class FalClient:
         selected_model, arguments = self._prepare_media_operation(
             modality=modality, input=input, model=model
         )
-        submitted = await self._call_async_with_timeout(
-            self._submit, selected_model, arguments
-        )
+        try:
+            submitted = await self._call_async_with_timeout(
+                self._submit, selected_model, arguments
+            )
+        except asyncio.TimeoutError as exc:
+            raise FalSubmissionAmbiguousError(
+                "FAL submission timed out before a provider request id was returned; "
+                "the provider may still have accepted the request"
+            ) from exc
+        except (httpx.TransportError, ConnectionError, OSError) as exc:
+            raise FalSubmissionAmbiguousError(
+                "FAL submission transport failed before a provider request id was "
+                "returned; the provider may still have accepted the request"
+            ) from exc
         operation_id = self._extract_request_id(submitted)
 
         return self._operation_payload(
@@ -622,7 +639,7 @@ class FalClient:
                 or getattr(payload, "id", None)
             )
         if not value:
-            raise RuntimeError(
+            raise FalSubmissionAmbiguousError(
                 "FAL submission response did not include a provider request ID"
             )
         return str(value)

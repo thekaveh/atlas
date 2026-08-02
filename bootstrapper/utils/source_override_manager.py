@@ -253,7 +253,7 @@ class SourceOverrideManager:
                     print(f"⚠️  {var_name} not found in .env, appending...")
                     updated_content += f'\n{replacement}'
             
-            atomic_write_text(env_file_path, updated_content)
+            atomic_write_text(env_file_path, updated_content, mode=0o600)
             
             return True
             

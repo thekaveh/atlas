@@ -1,12 +1,18 @@
 # 5.2.41. Prometheus (metrics scraper + TSDB)
 
-Prometheus runs as a family of three containers in the stack's `infra` band: the main `prometheus` server, `node-exporter` for host-level metrics, and `cadvisor` for per-container metrics. All three share a single lifecycle — `PROMETHEUS_SOURCE` is one toggle that scales them as a unit.
+Prometheus runs as a family of three containers in the stack's `infra` band: the main `prometheus` server, `node-exporter` for host-level metrics, and `cadvisor` for cgroup-level container metrics. All three share a single lifecycle — `PROMETHEUS_SOURCE` is one toggle that scales them as a unit.
 
 ## 1. Overview
 
 Image: `prom/prometheus:v2.55.1` (Apache 2.0). The bundled exporters are `prom/node-exporter:v1.11.1` and `gcr.io/cadvisor/cadvisor:v0.55.1`. Default TSDB retention is **7 days**, user-configurable at wizard time via the inline secondary numeric input on the Prometheus source step.
 
 The scrape config is static (`services/prometheus/config/prometheus.yml`) and lists every supported target across the stack. Targets that belong to services currently `disabled` simply report `UP=0` — cleaner than templating the scrape file based on enabled services. Recording / alert rules live under `services/prometheus/config/rules/`; the bundled `stack-recording.yml` is an empty placeholder.
+
+### 1.1. cAdvisor isolation boundary
+
+cAdvisor receives no Docker socket, Docker API proxy, host-root mount, or Docker data-directory mount. It reads only the host cgroup hierarchy through `/sys`, runs with a read-only root filesystem, all Linux capabilities dropped, and `no-new-privileges`. Docker discovery is explicitly pointed at a nonexistent socket and container-label storage is disabled.
+
+This deliberately trades friendly Docker names and labels for isolation: container series are keyed by cgroup ID. Use Compose/Grafana context to correlate IDs when needed. Host CPU, memory, disk, and network names remain available from `node-exporter`.
 
 ## 2. Access
 
@@ -95,7 +101,7 @@ Ollama is **deliberately not scraped** — LiteLLM is its gateway and emits per-
 
 ![prometheus architecture](./architecture.svg)
 
-[Open the interactive HTML diagram](./architecture.html) for a full-screen view.
+[Open the full-size diagram](./architecture.html) for a full-screen view.
 
 ### 5.4. Future — Missing pair integrations
 

@@ -16,10 +16,10 @@ the sentinel to 2.
 
 from __future__ import annotations
 
-import os
 import re
-from datetime import datetime
 from pathlib import Path
+
+from utils.atomic_write import atomic_write_text, create_private_backup
 
 
 # Maps each legacy URL env var to its replacement PORT env var.
@@ -154,17 +154,8 @@ def apply(env_path: Path) -> None:
     # default. tmp + replace means an interrupted write can't truncate .env —
     # the asymmetry that previously left v2 the only non-atomic, backup-less
     # migration.
-    ts = datetime.now().strftime("%Y%m%dT%H%M%S")
-    backup = env_path.with_name(f"{env_path.name}.backup.v2.{ts}")
-    backup.touch()
-    os.chmod(backup, os.stat(env_path).st_mode)
-    backup.write_text(original, encoding="utf-8")
-
-    tmp = env_path.with_name(f"{env_path.name}.v2.tmp")
-    tmp.touch()
-    os.chmod(tmp, os.stat(env_path).st_mode)
-    tmp.write_text(new_text, encoding="utf-8")
-    tmp.replace(env_path)
+    create_private_backup(env_path, version="v2")
+    atomic_write_text(env_path, new_text, mode=0o600)
 
 
 def stamp_version(env_path: Path, version: int = 2) -> None:
@@ -182,4 +173,4 @@ def stamp_version(env_path: Path, version: int = 2) -> None:
         if lines and not lines[-1].endswith("\n"):
             lines[-1] += "\n"
         lines.append(f"BOOTSTRAPPER_PORT_LAYOUT_VERSION={version}\n")
-    env_path.write_text("".join(lines), encoding="utf-8")
+    atomic_write_text(env_path, "".join(lines), mode=0o600)

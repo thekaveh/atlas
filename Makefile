@@ -16,6 +16,7 @@ docs-build:
 	$(MKDOCS) build --strict
 
 docs-check:
+	$(PYTHON) -m scripts.docs.build_docs --verify-diagrams
 	$(PYTHON) -m scripts.docs.check_docs
 	$(MKDOCS) build --strict
 	$(PYTHON) -m scripts.docs.check_site --built-only

@@ -8,9 +8,9 @@ lock, so two simultaneous submissions at the remaining-budget boundary cannot
 both pass.
 
 asyncpg is imported lazily (via `db_connection`) so this module is only loaded
-when `MEDIA_BUDGET_STORE=postgres` is actually selected — the in-memory /
-disabled paths never touch a database, keeping the backend CI unit-test venv
-satisfied.
+when `MEDIA_BUDGET_STORE=postgres` is selected. That store also holds ambiguous
+submission recovery rows when enforcement is disabled; the explicitly
+in-memory path never touches a database.
 """
 
 from __future__ import annotations
@@ -21,7 +21,12 @@ from datetime import datetime
 from typing import Any, List, Optional, Tuple
 
 from media_ledger import (
+    AMBIGUOUS_RECOVERY_REASON,
+    ATTACH_RECOVERY_REASON,
+    LedgerOperationCollisionError,
     STATUS_COMMITTED,
+    STATUS_RESERVED,
+    STATUS_SUBMITTED,
     LedgerRecord,
     _RESERVED_STATES,
 )
@@ -122,7 +127,14 @@ class PostgresLedgerStore:
 
     async def append(self, record: LedgerRecord) -> None:
         async with self._acquire() as conn:
-            await conn.execute(self._insert_sql(), *_record_to_params(record))
+            try:
+                await conn.execute(self._insert_sql(), *_record_to_params(record))
+            except Exception as exc:
+                if type(exc).__name__ == "UniqueViolationError":
+                    raise LedgerOperationCollisionError(
+                        f"media ledger operation id collision: {record.operation_id}"
+                    ) from exc
+                raise
 
     async def get(self, operation_id: str) -> Optional[LedgerRecord]:
         async with self._acquire() as conn:
@@ -147,14 +159,103 @@ class PostgresLedgerStore:
                 record.updated_at,
             )
 
-    async def rekey(self, old_id: str, new_id: str) -> None:
+    async def clear_attach_protection(self, operation_id: str) -> None:
+        """Atomically clear only a still-held attach marker."""
         async with self._acquire() as conn:
             await conn.execute(
-                f"UPDATE {_TABLE} SET operation_id = $2, updated_at = now() "
-                "WHERE operation_id = $1",
-                old_id,
+                f"UPDATE {_TABLE} SET reason = NULL, updated_at = now() "
+                "WHERE operation_id = $1 AND reason = $2 "
+                "AND status = ANY($3::text[])",
+                operation_id,
+                ATTACH_RECOVERY_REASON,
+                [STATUS_RESERVED, STATUS_SUBMITTED],
+            )
+
+    async def protect_reason_if_reserved(
+        self, operation_id: str, reason: str
+    ) -> bool:
+        async with self._acquire() as conn:
+            result = await conn.execute(
+                f"UPDATE {_TABLE} SET reason = $2, updated_at = now() "
+                "WHERE operation_id = $1 AND status = ANY($3::text[])",
+                operation_id,
+                reason,
+                [STATUS_RESERVED, STATUS_SUBMITTED],
+            )
+            return str(result).endswith(" 1")
+
+    async def attach_if_reserved(
+        self, old_id: str, new_id: str
+    ) -> Optional[LedgerRecord]:
+        async with self._acquire() as conn:
+            try:
+                row = await conn.fetchrow(
+                    f"UPDATE {_TABLE} SET operation_id = $2, "
+                    "status = $3, updated_at = now() "
+                    "WHERE operation_id = $1 AND status = ANY($4::text[]) "
+                    f"RETURNING {', '.join(_COLUMNS)}",
+                    old_id,
+                    new_id,
+                    STATUS_SUBMITTED,
+                    [STATUS_RESERVED, STATUS_SUBMITTED],
+                )
+            except Exception as exc:
+                if type(exc).__name__ == "UniqueViolationError":
+                    raise LedgerOperationCollisionError(
+                        f"media ledger operation id collision: {new_id}"
+                    ) from exc
+                raise
+            if row:
+                return _row_to_record(row)
+            row = await conn.fetchrow(
+                f"SELECT {', '.join(_COLUMNS)} FROM {_TABLE} "
+                "WHERE operation_id = $1 ORDER BY created_at DESC LIMIT 1",
                 new_id,
             )
+            return _row_to_record(row) if row else None
+
+    async def settle_if_reserved(
+        self, record: LedgerRecord
+    ) -> Optional[LedgerRecord]:
+        """Atomically settle a held row and return the persisted winner."""
+        async with self._acquire() as conn:
+            row = await conn.fetchrow(
+                f"UPDATE {_TABLE} SET status = $2, final_cost_usd = $3, "
+                "artifact_refs = $4, reason = $5, updated_at = $6 "
+                "WHERE operation_id = $1 AND status = ANY($7::text[]) "
+                f"RETURNING {', '.join(_COLUMNS)}",
+                record.operation_id,
+                record.status,
+                record.final_cost_usd,
+                json.dumps(list(record.artifact_refs)),
+                record.reason,
+                record.updated_at,
+                [STATUS_RESERVED, STATUS_SUBMITTED],
+            )
+            if row:
+                return _row_to_record(row)
+            row = await conn.fetchrow(
+                f"SELECT {', '.join(_COLUMNS)} FROM {_TABLE} "
+                "WHERE operation_id = $1 ORDER BY created_at DESC LIMIT 1",
+                record.operation_id,
+            )
+            return _row_to_record(row) if row else None
+
+    async def rekey(self, old_id: str, new_id: str) -> None:
+        async with self._acquire() as conn:
+            try:
+                await conn.execute(
+                    f"UPDATE {_TABLE} SET operation_id = $2, updated_at = now() "
+                    "WHERE operation_id = $1",
+                    old_id,
+                    new_id,
+                )
+            except Exception as exc:
+                if type(exc).__name__ == "UniqueViolationError":
+                    raise LedgerOperationCollisionError(
+                        f"media ledger operation id collision: {new_id}"
+                    ) from exc
+                raise
 
     async def totals(self, consumer: str, project: str) -> Tuple[float, float]:
         async with self._acquire() as conn:
@@ -227,7 +328,12 @@ class PostgresLedgerStore:
     async def prune(self, older_than: datetime) -> int:
         async with self._acquire() as conn:
             result = await conn.execute(
-                f"DELETE FROM {_TABLE} WHERE created_at < $1", older_than
+                f"DELETE FROM {_TABLE} WHERE created_at < $1 "
+                "AND NOT (status = ANY($2::text[]) "
+                "AND COALESCE(reason = ANY($3::text[]), FALSE))",
+                older_than,
+                [STATUS_RESERVED, STATUS_SUBMITTED],
+                [AMBIGUOUS_RECOVERY_REASON, ATTACH_RECOVERY_REASON],
             )
             # asyncpg returns e.g. "DELETE 3".
             try:

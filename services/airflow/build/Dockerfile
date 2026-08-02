@@ -26,7 +26,7 @@ USER airflow
 # langchain-openai; no apache-airflow-providers-langchain package
 # exists on PyPI.)
 COPY requirements.txt /tmp/airflow-providers.txt
-COPY requirements.lock /tmp/airflow-providers.lock
+COPY requirements-locked.txt /tmp/airflow-providers.lock
 # The official base already installs Airflow core from its matching constraints.
 # Upstream explicitly limits those constraints to the core install; reapplying
 # them here blocks PySpark 4.1.2's pandas floor and freezes provider transitives

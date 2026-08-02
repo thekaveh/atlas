@@ -10,11 +10,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Copy requirements
 COPY gpu/requirements.txt /app/requirements.txt
-COPY gpu/requirements.lock /app/requirements.lock
+COPY gpu/requirements-locked.txt /app/requirements-locked.txt
 
 # Install Python dependencies
 RUN pip install --no-cache-dir \
-      -r requirements.txt -c requirements.lock
+      -r requirements.txt -c requirements-locked.txt
 
 # Copy shared API server and utilities
 COPY shared/api_server.py /app/

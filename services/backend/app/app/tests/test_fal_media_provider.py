@@ -405,7 +405,7 @@ class Queued:  # mirrors fal_client.client.Queued
 
 
 def test_fal_queue_submit_applies_configured_timeout(monkeypatch):
-    from fal_media_client import FalClient
+    from fal_media_client import FalClient, FalSubmissionAmbiguousError
 
     client = FalClient(api_key="fal-key", model="fal-ai/flux/dev")
     client.timeout_seconds = 0.01
@@ -428,13 +428,57 @@ def test_fal_queue_submit_applies_configured_timeout(monkeypatch):
         ),
     )
 
-    with pytest.raises(asyncio.TimeoutError):
+    with pytest.raises(FalSubmissionAmbiguousError):
         asyncio.run(
             client.submit_media_operation(
                 modality="image", input={"prompt": "atlas"}
             )
         )
     assert cancelled.is_set()
+
+
+def test_fal_queue_timeout_after_provider_acceptance_is_marked_ambiguous(
+    monkeypatch,
+):
+    from fal_media_client import FalClient, FalSubmissionAmbiguousError
+
+    client = FalClient(api_key="fal-key", model="fal-ai/flux/dev")
+    client.timeout_seconds = 0.01
+    provider_accepted = asyncio.Event()
+
+    async def accepted_without_id(*_args):
+        provider_accepted.set()
+        await asyncio.sleep(1)
+
+    monkeypatch.setattr(client, "_submit", accepted_without_id)
+
+    with pytest.raises(FalSubmissionAmbiguousError):
+        asyncio.run(
+            client.submit_media_operation(
+                modality="image", input={"prompt": "atlas"}
+            )
+        )
+    assert provider_accepted.is_set()
+
+
+def test_fal_queue_transport_failure_is_marked_ambiguous(monkeypatch):
+    import httpx
+
+    from fal_media_client import FalClient, FalSubmissionAmbiguousError
+
+    client = FalClient(api_key="fal-key", model="fal-ai/flux/dev")
+
+    async def reset_after_post(*_args):
+        raise httpx.ReadError("connection reset after request write")
+
+    monkeypatch.setattr(client, "_submit", reset_after_post)
+
+    with pytest.raises(FalSubmissionAmbiguousError, match="transport failed"):
+        asyncio.run(
+            client.submit_media_operation(
+                modality="image", input={"prompt": "atlas"}
+            )
+        )
 
 
 def test_fal_queue_submit_uses_async_sdk_native_timeout(monkeypatch):
@@ -478,6 +522,22 @@ def test_fal_queue_submit_uses_async_sdk_native_timeout(monkeypatch):
     assert submitted["operation_id"] == "fal-async-1"
 
 
+def test_pinned_fal_sdk_exposes_the_async_timeout_contract():
+    import inspect
+    from importlib.metadata import version
+
+    import fal_client
+
+    assert version("fal-client") == "1.0.0"
+    client_parameters = inspect.signature(fal_client.AsyncClient).parameters
+    submit_parameters = inspect.signature(
+        fal_client.AsyncClient.submit
+    ).parameters
+    assert "default_timeout" in client_parameters
+    assert "arguments" in submit_parameters
+    assert "start_timeout" in submit_parameters
+
+
 def test_fal_queue_submit_rejects_missing_provider_request_id(monkeypatch):
     async def fake_submit(_model, *, arguments):
         return {}
@@ -487,9 +547,9 @@ def test_fal_queue_submit_rejects_missing_provider_request_id(monkeypatch):
         "fal_client",
         types.SimpleNamespace(submit=fake_submit),
     )
-    from fal_media_client import FalClient
+    from fal_media_client import FalClient, FalSubmissionAmbiguousError
 
-    with pytest.raises(RuntimeError, match="request ID"):
+    with pytest.raises(FalSubmissionAmbiguousError, match="request ID"):
         asyncio.run(
             FalClient(api_key="fal-key").submit_media_operation(
                 modality="image",

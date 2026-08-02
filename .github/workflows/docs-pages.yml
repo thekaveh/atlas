@@ -22,8 +22,6 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
   group: docs-pages
@@ -67,6 +65,10 @@ jobs:
     name: Deploy documentation
     needs: build
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -102,11 +104,14 @@ jobs:
         run: |
           mkdir -p ~/.ssh
           printf '%s\n' "${{ secrets.WIKI_DEPLOY_KEY }}" > ~/.ssh/wiki_key
+          printf '%s\n' 'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' > ~/.ssh/github_known_hosts
           chmod 600 ~/.ssh/wiki_key
+          chmod 644 ~/.ssh/github_known_hosts
 
       - name: Build and publish wiki
         env:
           WIKI_DEPLOY_KEY: /home/runner/.ssh/wiki_key
+          WIKI_KNOWN_HOSTS: /home/runner/.ssh/github_known_hosts
         run: |
           uv run --project bootstrapper python -m scripts.docs.build_docs --wiki
           uv run --project bootstrapper python -m scripts.docs.push_wiki --push
