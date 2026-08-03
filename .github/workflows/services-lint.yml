@@ -242,11 +242,13 @@ jobs:
         run: uv run --project bootstrapper python -m scripts.notebook_reproducibility
 
       - name: Docling localhost-provider lock check
-        working-directory: services/docling/provider/localhost
         # Host-run provider (no Dockerfile), so build-validation can't
         # exercise its pins; this catches unsatisfiable bumps and a stale
         # uv.lock at PR time instead of on a user's machine.
-        run: uv lock --locked
+        run: >-
+          uv run --project bootstrapper python -m scripts.bounded_subprocess
+          --label "Docling localhost lock check"
+          --cwd services/docling/provider/localhost -- uv lock --locked
 
       - name: Local Deep Researcher runtime lock check
         run: uv run --project bootstrapper python scripts/refresh-local-deep-researcher-lock.py --check
@@ -256,7 +258,9 @@ jobs:
 
       - name: Audit compiled service runtime locks
         run: |
-          uv tool install pip-audit==2.10.0
+          uv run --project bootstrapper python -m scripts.bounded_subprocess \
+            --label "pip-audit tool installation" -- \
+            uv tool install pip-audit==2.10.0
           uv run --project bootstrapper python -m scripts.audit_runtime_locks
 
   build-validation:

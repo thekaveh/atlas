@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import json
-import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
 from scripts import audit_runtime_locks
 from scripts import check_runtime_locks
+from scripts.bounded_subprocess import CommandTimedOut
 
 
 def test_audit_runtime_lock_accepts_exact_reviewed_advisories(
@@ -23,7 +23,7 @@ def test_audit_runtime_lock_accepts_exact_reviewed_advisories(
 
     def fake_run(command, **kwargs):
         captured["command"] = " ".join(command)
-        captured["timeout"] = str(kwargs.get("timeout"))
+        captured["timeout"] = str(kwargs.get("timeout_seconds"))
         audit_input = Path(command[command.index("-r") + 1])
         captured["input"] = audit_input.read_text(encoding="utf-8")
         payload = {
@@ -37,7 +37,7 @@ def test_audit_runtime_lock_accepts_exact_reviewed_advisories(
         }
         return SimpleNamespace(returncode=1, stdout=json.dumps(payload), stderr="")
 
-    monkeypatch.setattr(audit_runtime_locks.subprocess, "run", fake_run)
+    monkeypatch.setattr(audit_runtime_locks, "run_bounded", fake_run)
 
     assert audit_runtime_locks.audit_spec(spec, root=Path("/")) == []
     assert "local-wheel" not in captured["input"]
@@ -52,9 +52,9 @@ def test_audit_timeout_is_bounded_and_does_not_echo_subprocess_details(
     lock.write_text("safe==1.0\n", encoding="utf-8")
 
     def time_out(*_args, **_kwargs):
-        raise subprocess.TimeoutExpired(["pip-audit", "secret-argument"], 300)
+        raise CommandTimedOut
 
-    monkeypatch.setattr(audit_runtime_locks.subprocess, "run", time_out)
+    monkeypatch.setattr(audit_runtime_locks, "run_bounded", time_out)
     failures = audit_runtime_locks.audit_spec(
         audit_runtime_locks.AuditSpec(str(lock)), root=Path("/")
     )
@@ -70,8 +70,8 @@ def test_audit_failure_redacts_subprocess_output(tmp_path: Path, monkeypatch) ->
     lock = tmp_path / "requirements-locked.txt"
     lock.write_text("safe==1.0\n", encoding="utf-8")
     monkeypatch.setattr(
-        audit_runtime_locks.subprocess,
-        "run",
+        audit_runtime_locks,
+        "run_bounded",
         lambda *_args, **_kwargs: SimpleNamespace(
             returncode=2,
             stdout="",
@@ -96,8 +96,8 @@ def test_audit_runtime_lock_rejects_unreviewed_local_versions(
     lock.write_text("new-local==2.0+cpu\n", encoding="utf-8")
     spec = audit_runtime_locks.AuditSpec(str(lock))
     monkeypatch.setattr(
-        audit_runtime_locks.subprocess,
-        "run",
+        audit_runtime_locks,
+        "run_bounded",
         lambda *_args, **_kwargs: SimpleNamespace(
             returncode=0,
             stdout=json.dumps({"dependencies": []}),
@@ -133,8 +133,8 @@ def test_audit_runtime_lock_rejects_new_and_stale_allowlist_entries(
         ]
     }
     monkeypatch.setattr(
-        audit_runtime_locks.subprocess,
-        "run",
+        audit_runtime_locks,
+        "run_bounded",
         lambda *_args, **_kwargs: SimpleNamespace(
             returncode=1, stdout=json.dumps(payload), stderr=""
         ),
@@ -197,10 +197,22 @@ def test_all_unlocked_runtime_graphs_are_resolved_before_audit() -> None:
 def test_every_networked_lock_and_audit_subprocess_has_a_deadline() -> None:
     audit_source = Path(audit_runtime_locks.__file__).read_text(encoding="utf-8")
     check_source = Path(check_runtime_locks.__file__).read_text(encoding="utf-8")
-    assert audit_source.count("timeout=COMMAND_TIMEOUT_SECONDS") == 4
-    assert check_source.count("timeout=COMMAND_TIMEOUT_SECONDS") == 1
+    assert audit_source.count("timeout_seconds=COMMAND_TIMEOUT_SECONDS") == 4
+    assert check_source.count("timeout_seconds=COMMAND_TIMEOUT_SECONDS") == 1
     assert audit_runtime_locks.COMMAND_TIMEOUT_SECONDS == 300
     assert check_runtime_locks.COMMAND_TIMEOUT_SECONDS == 300
+    refresh_source = (
+        Path(audit_runtime_locks.__file__).parent
+        / "refresh-local-deep-researcher-lock.py"
+    ).read_text(encoding="utf-8")
+    assert "run_bounded(" in refresh_source
+    workflow = (
+        Path(audit_runtime_locks.__file__).parents[1]
+        / ".github/workflows/services-lint.yml"
+    ).read_text(encoding="utf-8")
+    assert workflow.count("python -m scripts.bounded_subprocess") == 2
+    assert "-- uv lock --locked" in workflow
+    assert "uv tool install pip-audit==2.10.0" in workflow
 
 
 def test_npm_audit_rejects_registry_error_json(
@@ -209,8 +221,8 @@ def test_npm_audit_rejects_registry_error_json(
     project = tmp_path / "n8n"
     project.mkdir()
     monkeypatch.setattr(
-        audit_runtime_locks.subprocess,
-        "run",
+        audit_runtime_locks,
+        "run_bounded",
         lambda *_args, **_kwargs: SimpleNamespace(
             returncode=1,
             stdout=json.dumps(
@@ -236,8 +248,8 @@ def test_npm_audit_requires_vulnerability_totals(
     project = tmp_path / "n8n"
     project.mkdir()
     monkeypatch.setattr(
-        audit_runtime_locks.subprocess,
-        "run",
+        audit_runtime_locks,
+        "run_bounded",
         lambda *_args, **_kwargs: SimpleNamespace(
             returncode=0, stdout=json.dumps({"metadata": {}}), stderr=""
         ),

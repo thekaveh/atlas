@@ -419,20 +419,28 @@ def test_services_lint_build_validation_covers_all_local_build_contexts() -> Non
 
 def test_adapter_tmpfs_covers_default_concurrent_upload_and_result_budget() -> None:
     compose = yaml.safe_load((ROOT / "services/docling/compose.yml").read_text())
+    manifest = yaml.safe_load((ROOT / "services/docling/service.yml").read_text())
     adapter = compose["services"]["docling-lightrag-adapter"]
     environment = adapter["environment"]
+    manifest_env = {entry["name"]: entry for entry in manifest["env"]}
 
     def default_int(name: str) -> int:
         value = environment[name]
         return int(re.search(r":-(\d+)}$", value).group(1))
 
     tmpfs = adapter["tmpfs"][0]
-    size_mib = int(re.search(r"size=(\d+)m", tmpfs).group(1))
+    assert "${DOCLING_ADAPTER_TMPFS_SIZE:-512m}" in tmpfs
+    size_mib = int(
+        str(manifest_env["DOCLING_ADAPTER_TMPFS_SIZE"]["default"]).removesuffix("m")
+    )
     required_bytes = default_int("DOCLING_ADAPTER_MAX_JOBS") * (
         default_int("DOCLING_MAX_FILE_SIZE")
         + default_int("DOCLING_ADAPTER_MAX_RESULT_BYTES")
     )
     assert size_mib * 1024 * 1024 >= required_bytes + 64 * 1024 * 1024
+    assert "shutil.disk_usage(root).free < required_storage" in (
+        ROOT / "services/docling/provider/adapter/app.py"
+    ).read_text(encoding="utf-8")
 
 
 def test_docs_do_not_reference_retired_required_check_counts() -> None:

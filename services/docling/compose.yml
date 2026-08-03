@@ -87,16 +87,16 @@ services:
       DOCLING_ADAPTER_RESULT_TTL_SECONDS: ${DOCLING_ADAPTER_RESULT_TTL_SECONDS:-900}
       DOCLING_ADAPTER_MAX_RESULT_BYTES: ${DOCLING_ADAPTER_MAX_RESULT_BYTES:-104857600}
       DOCLING_ADAPTER_UPSTREAM_MAX_ATTEMPTS: ${DOCLING_ADAPTER_UPSTREAM_MAX_ATTEMPTS:-3}
+      DOCLING_ADAPTER_DOWNLOAD_TIMEOUT_SECONDS: ${DOCLING_ADAPTER_DOWNLOAD_TIMEOUT_SECONDS:-300}
     networks:
       - docling-lightrag-network
     extra_hosts:
       - "host.docker.internal:${HOST_GATEWAY_IP}"
     read_only: true
     tmpfs:
-      # Two default jobs may each retain a 50 MiB upload and stream a 100 MiB
-      # result. 512 MiB leaves headroom for multipart staging and filesystem
-      # metadata while keeping ephemeral storage bounded.
-      - /tmp:size=512m,mode=1777
+      # Startup verifies actual capacity against MAX_JOBS × (upload + result)
+      # plus 64 MiB staging headroom.
+      - /tmp:size=${DOCLING_ADAPTER_TMPFS_SIZE:-512m},mode=1777
     cap_drop:
       - ALL
     security_opt:

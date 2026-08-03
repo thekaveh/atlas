@@ -33,6 +33,7 @@ class Job:
     completed_at: float | None = None
     owns_slot: bool = True
     task: asyncio.Task[None] | None = None
+    result_claimed: bool = False
 
 
 class JobRegistry:
@@ -159,14 +160,23 @@ class JobRegistry:
         async with self._lock:
             self._cleanup_expired_locked()
             job = self._jobs.get(task_id)
-            if job is None or job.status != "success" or job.result_path is None:
+            if (
+                job is None
+                or job.status != "success"
+                or job.result_path is None
+                or job.result_claimed
+            ):
                 return None
-            result_path = job.result_path
-            job.result_path = None
-            job.upload_path.unlink(missing_ok=True)
+            job.result_claimed = True
+            return job.result_path
+
+    async def finish_result(self, task_id: str) -> None:
+        async with self._lock:
+            job = self._jobs.pop(task_id, None)
+            if job is None:
+                return
+            self._delete_job_files(job)
             self._release_job_slot_locked(job)
-            del self._jobs[task_id]
-            return result_path
 
     async def cleanup_expired(self) -> None:
         async with self._lock:
@@ -178,6 +188,7 @@ class JobRegistry:
             task_id
             for task_id, job in self._jobs.items()
             if job.completed_at is not None
+            and not job.result_claimed
             and now - job.completed_at >= self.result_ttl_seconds
         ]
         for task_id in expired:

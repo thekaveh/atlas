@@ -8,7 +8,6 @@ import difflib
 import hashlib
 from pathlib import Path
 import shutil
-import subprocess
 import tempfile
 
 try:
@@ -17,6 +16,21 @@ except ModuleNotFoundError:  # Python 3.10
     import tomli as tomllib
 
 import yaml
+
+try:
+    from scripts.bounded_subprocess import (
+        CommandTimedOut,
+        DEFAULT_TIMEOUT_SECONDS,
+        redacted_failure,
+        run_bounded,
+    )
+except ModuleNotFoundError:  # Direct ``python scripts/...`` invocation.
+    from bounded_subprocess import (  # type: ignore[no-redef]
+        CommandTimedOut,
+        DEFAULT_TIMEOUT_SECONDS,
+        redacted_failure,
+        run_bounded,
+    )
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -37,12 +51,20 @@ SECURITY_DEPENDENCIES = (
 
 
 def _run(*args: str, cwd: Path | None = None, quiet: bool = False) -> None:
-    subprocess.run(
-        args,
-        cwd=cwd,
-        check=True,
-        stdout=subprocess.DEVNULL if quiet else None,
-    )
+    del quiet
+    label = f"Local Deep Researcher {args[0]} command"
+    try:
+        result = run_bounded(
+            args,
+            cwd=cwd,
+            timeout_seconds=DEFAULT_TIMEOUT_SECONDS,
+        )
+    except CommandTimedOut as exc:
+        raise SystemExit(
+            f"{label} timed out after {DEFAULT_TIMEOUT_SECONDS} seconds"
+        ) from exc
+    if result.returncode != 0:
+        raise SystemExit(redacted_failure(label, result.returncode))
 
 
 def _pins() -> tuple[str, str, str]:

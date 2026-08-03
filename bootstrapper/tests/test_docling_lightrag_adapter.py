@@ -8,6 +8,7 @@ import io
 import sys
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from httpx2 import ASGITransport, AsyncClient
@@ -359,6 +360,26 @@ def test_adapter_docs_match_pinned_lightrag_route_contract():
         assert "/v1/documents/parse" not in text, f"{path} documents a stale route"
 
 
+def test_adapter_rejects_storage_smaller_than_configured_working_set(
+    monkeypatch, tmp_path
+):
+    adapter_app = _load_app_module(monkeypatch)
+    monkeypatch.setenv("DOCLING_ADAPTER_MAX_RESULT_BYTES", "100")
+    monkeypatch.setattr(
+        adapter_app.shutil,
+        "disk_usage",
+        lambda _path: SimpleNamespace(free=64 * 1024 * 1024),
+    )
+
+    with pytest.raises(ValueError, match="temporary storage"):
+        adapter_app.create_app(
+            upstream=ControlledUpstream(),
+            spool_root=tmp_path,
+            max_jobs=2,
+            upload_max_bytes=100,
+        )
+
+
 @_run_async
 async def test_claimed_result_is_deleted_when_response_send_fails(
     monkeypatch, tmp_path
@@ -366,8 +387,18 @@ async def test_claimed_result_is_deleted_when_response_send_fails(
     adapter_app = _load_app_module(monkeypatch)
     result_path = tmp_path / "result.zip"
     result_path.write_bytes(_bundle())
+    finished = False
+
+    async def finish():
+        nonlocal finished
+        finished = True
+        result_path.unlink(missing_ok=True)
+
     response = adapter_app._EphemeralFileResponse(
-        result_path, media_type="application/zip"
+        result_path,
+        media_type="application/zip",
+        finish=finish,
+        timeout_seconds=5,
     )
 
     async def receive():
@@ -376,8 +407,143 @@ async def test_claimed_result_is_deleted_when_response_send_fails(
     async def send(_message):
         raise RuntimeError("simulated client disconnect")
 
-    scope = {"type": "http", "method": "GET", "headers": []}
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "headers": [],
+        "extensions": {},
+    }
     with pytest.raises(RuntimeError, match="client disconnect"):
         await response(scope, receive, send)
 
+    assert not result_path.exists()
+    assert finished
+
+
+@_run_async
+async def test_result_slot_remains_occupied_until_download_finishes(
+    monkeypatch, tmp_path
+):
+    adapter_app = _load_app_module(monkeypatch)
+    registry = adapter_app.JobRegistry(
+        root=tmp_path, max_jobs=1, result_ttl_seconds=900
+    )
+    upload = tmp_path / "upload.pdf"
+    upload.write_bytes(b"document")
+    reservation = await registry.reserve()
+    assert reservation is not None
+
+    async def worker(_path, _name):
+        return _bundle()
+
+    task_id = await registry.start(
+        reservation,
+        upload_path=upload,
+        upload_name="upload.pdf",
+        worker=worker,
+    )
+    for _ in range(20):
+        if await registry.status(task_id) == "success":
+            break
+        await asyncio.sleep(0)
+
+    result_path = await registry.claim_result(task_id)
+    assert result_path is not None
+    assert await registry.reserve() is None
+
+    await registry.finish_result(task_id)
+    assert not result_path.exists()
+    next_reservation = await registry.reserve()
+    assert next_reservation is not None
+    await registry.release_reservation(next_reservation)
+
+
+@_run_async
+async def test_one_shot_result_ignores_range_and_sends_complete_archive(
+    monkeypatch, tmp_path
+):
+    adapter_app = _load_app_module(monkeypatch)
+    payload = _bundle()
+    result_path = tmp_path / "result.zip"
+    result_path.write_bytes(payload)
+
+    async def finish():
+        result_path.unlink(missing_ok=True)
+
+    response = adapter_app._EphemeralFileResponse(
+        result_path,
+        media_type="application/zip",
+        finish=finish,
+        timeout_seconds=5,
+    )
+    sent = []
+
+    async def receive():
+        return {"type": "http.disconnect"}
+
+    async def send(message):
+        sent.append(message)
+
+    await response(
+        {
+            "type": "http",
+            "method": "GET",
+            "headers": [(b"range", b"bytes=0-1")],
+            "extensions": {},
+        },
+        receive,
+        send,
+    )
+
+    start = next(message for message in sent if message["type"] == "http.response.start")
+    body = b"".join(
+        message.get("body", b"")
+        for message in sent
+        if message["type"] == "http.response.body"
+    )
+    assert start["status"] == 200
+    assert body == payload
+    assert not result_path.exists()
+
+
+@_run_async
+async def test_slow_result_download_times_out_and_releases_cleanup(
+    monkeypatch, tmp_path
+):
+    adapter_app = _load_app_module(monkeypatch)
+    result_path = tmp_path / "result.zip"
+    result_path.write_bytes(_bundle())
+    finished = False
+
+    async def finish():
+        nonlocal finished
+        finished = True
+        result_path.unlink(missing_ok=True)
+
+    response = adapter_app._EphemeralFileResponse(
+        result_path,
+        media_type="application/zip",
+        finish=finish,
+        timeout_seconds=0.01,
+    )
+
+    async def receive():
+        return {"type": "http.disconnect"}
+
+    async def send(_message):
+        await asyncio.Event().wait()
+
+    with pytest.raises(asyncio.TimeoutError):
+        await response(
+            {
+                "type": "http",
+                "method": "GET",
+                "headers": [],
+                "extensions": {},
+            },
+            receive,
+            send,
+        )
+
+    assert finished
     assert not result_path.exists()

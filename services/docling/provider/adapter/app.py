@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import os
+import shutil
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -23,17 +24,33 @@ SUBMIT_PATH = "/v1/convert/file/async"
 
 
 class _EphemeralFileResponse(FileResponse):
-    """Delete a claimed result even when response transmission is interrupted."""
+    """Finish a claimed result lease after one complete-body transmission."""
 
-    def __init__(self, path: Path, **kwargs) -> None:
-        self._cleanup_path = path
+    def __init__(
+        self, path: Path, *, finish, timeout_seconds: float, **kwargs
+    ) -> None:
+        self._finish = finish
+        self._timeout_seconds = timeout_seconds
         super().__init__(path, **kwargs)
 
     async def __call__(self, scope, receive, send) -> None:
+        # This endpoint is intentionally one-shot. Ignore Range so malformed,
+        # unsatisfiable, and partial requests all receive the complete archive.
+        scope = {
+            **scope,
+            "headers": [
+                (name, value)
+                for name, value in scope.get("headers", [])
+                if name.lower() != b"range"
+            ],
+        }
         try:
-            await super().__call__(scope, receive, send)
+            await asyncio.wait_for(
+                super().__call__(scope, receive, send),
+                timeout=self._timeout_seconds,
+            )
         finally:
-            self._cleanup_path.unlink(missing_ok=True)
+            await self._finish()
 
 
 def _positive_int(name: str, default: int) -> int:
@@ -96,18 +113,33 @@ def create_app(
     clock: Callable[[], float] = time.monotonic,
 ) -> FastAPI:
     root = spool_root or Path(os.getenv("DOCLING_ADAPTER_SPOOL_ROOT", "/tmp/docling-adapter"))
+    configured_max_jobs = max_jobs or _positive_int("DOCLING_ADAPTER_MAX_JOBS", 2)
+    maximum_upload = upload_max_bytes or _positive_int(
+        "DOCLING_MAX_FILE_SIZE", 52_428_800
+    )
+    maximum_result = _positive_int(
+        "DOCLING_ADAPTER_MAX_RESULT_BYTES", 104_857_600
+    )
+    root.mkdir(parents=True, exist_ok=True)
+    required_storage = configured_max_jobs * (maximum_upload + maximum_result)
+    required_storage += 64 * 1024 * 1024
+    if shutil.disk_usage(root).free < required_storage:
+        raise ValueError(
+            "Docling adapter temporary storage is smaller than the configured "
+            "concurrent upload and result budget"
+        )
     registry = JobRegistry(
         root=root,
-        max_jobs=max_jobs or _positive_int("DOCLING_ADAPTER_MAX_JOBS", 2),
+        max_jobs=configured_max_jobs,
         result_ttl_seconds=result_ttl_seconds
         or _positive_int("DOCLING_ADAPTER_RESULT_TTL_SECONDS", 900),
         clock=clock,
     )
-    maximum_upload = upload_max_bytes or _positive_int(
-        "DOCLING_MAX_FILE_SIZE", 52_428_800
-    )
     timeout = job_timeout_seconds or _positive_int(
         "DOCLING_INFERENCE_TIMEOUT_SECONDS", 900
+    )
+    download_timeout = _positive_int(
+        "DOCLING_ADAPTER_DOWNLOAD_TIMEOUT_SECONDS", 300
     )
     provider = upstream or DoclingUpstream(
         endpoint=os.getenv(
@@ -116,9 +148,7 @@ def create_app(
         ),
         token=os.getenv("DOCLING_API_TOKEN", ""),
         result_root=root,
-        max_result_bytes=_positive_int(
-            "DOCLING_ADAPTER_MAX_RESULT_BYTES", 104_857_600
-        ),
+        max_result_bytes=maximum_result,
         max_capacity_retries=_positive_int(
             "DOCLING_ADAPTER_UPSTREAM_MAX_ATTEMPTS", 3
         )
@@ -211,6 +241,8 @@ def create_app(
         return _EphemeralFileResponse(
             result_path,
             media_type="application/zip",
+            finish=lambda: registry.finish_result(task_id),
+            timeout_seconds=download_timeout,
         )
 
     app.add_middleware(_AdmissionMiddleware, registry=registry)

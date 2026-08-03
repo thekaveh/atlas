@@ -2,14 +2,20 @@
 
 from __future__ import annotations
 
-import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from scripts.bounded_subprocess import (
+    CommandTimedOut,
+    DEFAULT_TIMEOUT_SECONDS,
+    redacted_failure,
+    run_bounded,
+)
+
 
 ROOT = Path(__file__).resolve().parents[1]
-COMMAND_TIMEOUT_SECONDS = 300
+COMMAND_TIMEOUT_SECONDS = DEFAULT_TIMEOUT_SECONDS
 
 
 @dataclass(frozen=True)
@@ -82,7 +88,7 @@ def main() -> int:
             for platform in spec.platforms:
                 candidate = temporary_dir / f"{index}-{platform}.lock"
                 try:
-                    result = subprocess.run(
+                    result = run_bounded(
                         [
                             "uv",
                             "pip",
@@ -102,12 +108,9 @@ def main() -> int:
                             "--quiet",
                         ],
                         cwd=ROOT,
-                        text=True,
-                        capture_output=True,
-                        check=False,
-                        timeout=COMMAND_TIMEOUT_SECONDS,
+                        timeout_seconds=COMMAND_TIMEOUT_SECONDS,
                     )
-                except subprocess.TimeoutExpired:
+                except CommandTimedOut:
                     failures.append(
                         f"{spec.lock} ({platform}): resolution timed out after "
                         f"{COMMAND_TIMEOUT_SECONDS} seconds"
@@ -115,8 +118,10 @@ def main() -> int:
                     continue
                 if result.returncode != 0:
                     failures.append(
-                        f"{spec.lock} ({platform}): resolution failed "
-                        f"(uv exited {result.returncode}; subprocess output redacted)"
+                        redacted_failure(
+                            f"{spec.lock} ({platform}): resolution",
+                            result.returncode,
+                        )
                     )
                     continue
                 if candidate.read_bytes() != lock.read_bytes():

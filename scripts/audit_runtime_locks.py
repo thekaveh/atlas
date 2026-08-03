@@ -4,15 +4,21 @@ from __future__ import annotations
 
 import json
 import re
-import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from scripts.bounded_subprocess import (
+    CommandTimedOut,
+    DEFAULT_TIMEOUT_SECONDS,
+    redacted_failure,
+    run_bounded,
+)
+
 
 ROOT = Path(__file__).resolve().parents[1]
 _LOCAL_VERSION_RE = re.compile(r"^[A-Za-z0-9_.-]+==[^\s]+\+[^\s]+$")
-COMMAND_TIMEOUT_SECONDS = 300
+COMMAND_TIMEOUT_SECONDS = DEFAULT_TIMEOUT_SECONDS
 
 
 @dataclass(frozen=True)
@@ -180,24 +186,21 @@ def audit_spec(spec: AuditSpec, *, root: Path = ROOT) -> list[str]:
         audit_input = Path(raw_temp) / "requirements.txt"
         audit_input.write_text(public_requirements, encoding="utf-8")
         try:
-            result = subprocess.run(
+            result = run_bounded(
                 [
                     "pip-audit", "-r", str(audit_input), "--no-deps", "--disable-pip",
                     "--strict", "--format", "json",
                 ],
-                cwd=root, capture_output=True, text=True, check=False,
-                timeout=COMMAND_TIMEOUT_SECONDS,
+                cwd=root,
+                timeout_seconds=COMMAND_TIMEOUT_SECONDS,
             )
-        except subprocess.TimeoutExpired:
+        except CommandTimedOut:
             return [
                 f"{display_name}: pip-audit timed out after "
                 f"{COMMAND_TIMEOUT_SECONDS} seconds"
             ]
     if result.returncode not in {0, 1}:
-        return [
-            f"{display_name}: pip-audit failed (exit {result.returncode}; "
-            "subprocess output redacted)"
-        ]
+        return [redacted_failure(f"{display_name}: pip-audit", result.returncode)]
     try:
         payload = json.loads(result.stdout)
     except json.JSONDecodeError as exc:
@@ -223,24 +226,25 @@ def audit_source_spec(spec: SourceSpec, *, root: Path = ROOT) -> list[str]:
     with tempfile.TemporaryDirectory(prefix="atlas-runtime-compile-") as raw_temp:
         lock = Path(raw_temp) / "requirements-locked.txt"
         try:
-            result = subprocess.run(
+            result = run_bounded(
                 [
                     "uv", "pip", "compile", str(root / spec.requirements),
                     "--python-version", "3.12", "--python-platform", spec.python_platform,
                     "--no-header", "--output-file", str(lock),
                 ],
-                cwd=root, capture_output=True, text=True, check=False,
-                timeout=COMMAND_TIMEOUT_SECONDS,
+                cwd=root,
+                timeout_seconds=COMMAND_TIMEOUT_SECONDS,
             )
-        except subprocess.TimeoutExpired:
+        except CommandTimedOut:
             return [
                 f"{spec.requirements}: uv compile timed out after "
                 f"{COMMAND_TIMEOUT_SECONDS} seconds"
             ]
         if result.returncode != 0:
             return [
-                f"{spec.requirements}: uv compile failed (exit {result.returncode}; "
-                "subprocess output redacted)"
+                redacted_failure(
+                    f"{spec.requirements}: uv compile", result.returncode
+                )
             ]
         return audit_spec(
             AuditSpec(
@@ -255,24 +259,21 @@ def audit_uv_project(project: str, *, root: Path = ROOT) -> list[str]:
     with tempfile.TemporaryDirectory(prefix="atlas-uv-export-") as raw_temp:
         lock = Path(raw_temp) / "requirements-locked.txt"
         try:
-            result = subprocess.run(
+            result = run_bounded(
                 [
                     "uv", "export", "--project", str(root / project), "--locked",
                     "--no-hashes", "--no-emit-project", "--output-file", str(lock),
                 ],
-                cwd=root, capture_output=True, text=True, check=False,
-                timeout=COMMAND_TIMEOUT_SECONDS,
+                cwd=root,
+                timeout_seconds=COMMAND_TIMEOUT_SECONDS,
             )
-        except subprocess.TimeoutExpired:
+        except CommandTimedOut:
             return [
                 f"{project}: uv export timed out after "
                 f"{COMMAND_TIMEOUT_SECONDS} seconds"
             ]
         if result.returncode != 0:
-            return [
-                f"{project}: uv export failed (exit {result.returncode}; "
-                "subprocess output redacted)"
-            ]
+            return [redacted_failure(f"{project}: uv export", result.returncode)]
         return audit_spec(
             AuditSpec(str(lock), display_name=f"{project}/uv.lock"),
             root=Path("/"),
@@ -281,12 +282,12 @@ def audit_uv_project(project: str, *, root: Path = ROOT) -> list[str]:
 
 def audit_npm_project(project: str, *, root: Path = ROOT) -> list[str]:
     try:
-        result = subprocess.run(
+        result = run_bounded(
             ["npm", "audit", "--package-lock-only", "--omit=dev", "--json"],
-            cwd=root / project, capture_output=True, text=True, check=False,
-            timeout=COMMAND_TIMEOUT_SECONDS,
+            cwd=root / project,
+            timeout_seconds=COMMAND_TIMEOUT_SECONDS,
         )
-    except subprocess.TimeoutExpired:
+    except CommandTimedOut:
         return [
             f"{project}: npm audit timed out after "
             f"{COMMAND_TIMEOUT_SECONDS} seconds"
@@ -296,10 +297,7 @@ def audit_npm_project(project: str, *, root: Path = ROOT) -> list[str]:
     except json.JSONDecodeError as exc:
         return [f"{project}: invalid npm audit JSON: {exc}"]
     if result.returncode not in {0, 1}:
-        return [
-            f"{project}: npm audit failed (exit {result.returncode}; "
-            "subprocess output redacted)"
-        ]
+        return [redacted_failure(f"{project}: npm audit", result.returncode)]
     if payload.get("error"):
         return [f"{project}: npm audit registry request failed (details redacted)"]
     metadata = payload.get("metadata")

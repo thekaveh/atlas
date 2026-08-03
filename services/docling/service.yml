@@ -77,6 +77,12 @@ env:
   - name: DOCLING_ADAPTER_UPSTREAM_MAX_ATTEMPTS
     default: 3
     description: "Total bounded Docling request attempts when the provider returns HTTP 429."
+  - name: DOCLING_ADAPTER_DOWNLOAD_TIMEOUT_SECONDS
+    default: 300
+    description: "Positive maximum seconds for one result transmission; expiry deletes the artifact and releases its adapter slot."
+  - name: DOCLING_ADAPTER_TMPFS_SIZE
+    default: 512m
+    description: "Bounded adapter temporary-storage mount. Size must cover MAX_JOBS times the upload-plus-result limits, plus at least 64 MiB staging headroom; startup fails when actual capacity is smaller."
   - name: DOCLING_ADAPTER_SCALE
     auto_managed: true
     description: "Derived adapter replica count; one only when both LightRAG and Docling are enabled."
