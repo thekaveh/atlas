@@ -237,10 +237,10 @@ async def _run_streamed_command(
         return returncode
     except asyncio.TimeoutError:
         assert timeout_seconds is not None
-        on_line(f"Command timed out after {timeout_seconds:.0f}s")
         await _stop_process_tree(
             proc, termination_grace_seconds=termination_grace_seconds
         )
+        on_line(f"Command timed out after {timeout_seconds:.0f}s")
         return 124
     except asyncio.CancelledError:
         await _cancel_stream_and_stop(

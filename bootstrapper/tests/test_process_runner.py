@@ -459,3 +459,42 @@ def test_streamed_command_sink_failure_reaps_process_group(tmp_path: Path) -> No
     asyncio.run(exercise())
     time.sleep(0.6)
     assert not marker.exists()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX process-group contract")
+def test_streamed_timeout_notice_sink_failure_reaps_process_group(
+    tmp_path: Path,
+) -> None:
+    from ui.textual.screens.wizard_screen import _run_streamed_command
+
+    marker = tmp_path / "streamed-timeout-sink-failure-descendant"
+    descendant = (
+        "import pathlib,signal,time; "
+        "signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+        "time.sleep(0.4); "
+        f"pathlib.Path({str(marker)!r}).touch()"
+    )
+    leader = (
+        "import subprocess,sys,time; "
+        "subprocess.Popen([sys.executable, '-c', sys.argv[1]], "
+        "stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL); "
+        "time.sleep(1)"
+    )
+
+    def fail_sink(_line: str) -> None:
+        raise OSError("simulated timeout-notice sink failure")
+
+    async def exercise() -> None:
+        with pytest.raises(OSError, match="timeout-notice sink failure"):
+            await _run_streamed_command(
+                [sys.executable, "-c", leader, descendant],
+                cwd=tmp_path,
+                env=os.environ.copy(),
+                on_line=fail_sink,
+                timeout_seconds=0.05,
+                termination_grace_seconds=0.05,
+            )
+
+    asyncio.run(exercise())
+    time.sleep(0.6)
+    assert not marker.exists()
