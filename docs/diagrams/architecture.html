@@ -213,9 +213,14 @@
         <line x1="700" y1="295" x2="700" y2="308" stroke="#fb7185" stroke-width="1" stroke-dasharray="3,3" opacity="0.55"/>
         <line x1="950" y1="295" x2="950" y2="308" stroke="#fb7185" stroke-width="1" stroke-dasharray="3,3" opacity="0.55"/>
 
-        <!-- Kong to Agents (fan-out for Hermes, n8n, OpenClaw, LightRAG, Airflow that have Kong host-aliases) -->
-        <line x1="450" y1="258" x2="450" y2="295" stroke="#fb7185" stroke-width="1" stroke-dasharray="3,3" opacity="0.4"/>
-        <line x1="950" y1="258" x2="950" y2="295" stroke="#fb7185" stroke-width="1" stroke-dasharray="3,3" opacity="0.4"/>
+        <!-- Kong to Agents (rose side trunk + fan-out to every displayed routed agent) -->
+        <path d="M 790 258 L 1325 275 L 1325 390" fill="none" stroke="#fb7185" stroke-width="1" stroke-dasharray="3,3" opacity="0.55"/>
+        <line x1="140" y1="390" x2="1325" y2="390" stroke="#fb7185" stroke-width="1" stroke-dasharray="3,3" opacity="0.55"/>
+        <line x1="140" y1="390" x2="140" y2="428" stroke="#fb7185" stroke-width="1" marker-end="url(#arrow-rose)" opacity="0.7"/>
+        <line x1="390" y1="390" x2="390" y2="428" stroke="#fb7185" stroke-width="1" marker-end="url(#arrow-rose)" opacity="0.7"/>
+        <line x1="640" y1="390" x2="640" y2="428" stroke="#fb7185" stroke-width="1" marker-end="url(#arrow-rose)" opacity="0.7"/>
+        <line x1="890" y1="390" x2="890" y2="428" stroke="#fb7185" stroke-width="1" marker-end="url(#arrow-rose)" opacity="0.7"/>
+        <line x1="1140" y1="390" x2="1140" y2="428" stroke="#fb7185" stroke-width="1" marker-end="url(#arrow-rose)" opacity="0.7"/>
 
         <!-- Apps to Agents (cyan, partial) -->
         <line x1="450" y1="360" x2="450" y2="428" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)" opacity="0.55"/>

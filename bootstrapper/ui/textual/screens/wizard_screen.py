@@ -70,6 +70,33 @@ _FAMILY_FLAG_STEM = {
     "celery-worker": "celery",
 }
 
+_FAILURE_LOG_TIMEOUT_SECONDS = 60.0
+_PROCESS_TERMINATION_GRACE_SECONDS = 2.0
+
+
+async def _stop_process_tree(proc: asyncio.subprocess.Process) -> None:
+    """Stop an async subprocess and descendants, then reap the leader."""
+    try:
+        if os.name == "posix":
+            os.killpg(proc.pid, signal.SIGTERM)
+        else:  # pragma: no cover - native Windows is not exercised in CI
+            proc.terminate()
+    except ProcessLookupError:
+        pass
+    try:
+        await asyncio.wait_for(proc.wait(), timeout=_PROCESS_TERMINATION_GRACE_SECONDS)
+        return
+    except asyncio.TimeoutError:
+        pass
+    try:
+        if os.name == "posix":
+            os.killpg(proc.pid, signal.SIGKILL)
+        else:  # pragma: no cover
+            proc.kill()
+    except ProcessLookupError:
+        pass
+    await proc.wait()
+
 
 async def _await_uncancellable(task: asyncio.Task):
     """Wait for a thread-backed task despite repeated cancellation requests."""
@@ -1310,14 +1337,29 @@ class WizardScreen(Screen):
                 stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
+                start_new_session=os.name == "posix",
             )
             assert proc.stdout is not None
             captured: list[str] = []
-            async for raw in proc.stdout:
-                line = raw.decode(errors="replace").rstrip("\r\n")
-                fh.write(line + "\n")
-                captured.append(line)
-            await proc.wait()
+            async def capture() -> None:
+                async for raw in proc.stdout:
+                    line = raw.decode(errors="replace").rstrip("\r\n")
+                    fh.write(line + "\n")
+                    captured.append(line)
+                await proc.wait()
+
+            try:
+                await asyncio.wait_for(
+                    capture(), timeout=_FAILURE_LOG_TIMEOUT_SECONDS
+                )
+            except asyncio.TimeoutError:
+                await _stop_process_tree(proc)
+                fh.write(
+                    f"# capture timed out after {_FAILURE_LOG_TIMEOUT_SECONDS:.0f}s\n"
+                )
+            except asyncio.CancelledError:
+                await _stop_process_tree(proc)
+                raise
             fh.flush()
             self._emit_failure_hints(captured)
         except Exception as exc:  # noqa: BLE001
@@ -1443,7 +1485,7 @@ class WizardScreen(Screen):
           • Pipeline-step callbacks invoked via ``asyncio.to_thread`` —
             they run in a worker thread; UI writes must marshal back
             to the main loop with ``call_from_thread``.
-          • ``_run_compose`` / ``_run_command`` — these are coroutines
+          • ``_run_compose`` — this is a coroutine
             on the main event loop; ``call_from_thread`` from the
             same thread silently mis-routes (no UI update). Use a
             direct call instead.
@@ -1888,50 +1930,6 @@ class WizardScreen(Screen):
                 pass
             sys.stdout, sys.stderr = old_stdout, old_stderr
             self._close_launch_log_tee()
-
-    async def _run_command(
-        self, cmd: list[str], *, ignore_errors: bool = False,
-    ) -> int:
-        # Route through _safe_log so the launch-log tee picks up
-        # the command and its output. Direct _log_pane.write_* calls
-        # bypass the tee — that's the gap that left the user's first
-        # failure with only the bootstrapper pipeline in the file.
-        self._safe_log("$ " + " ".join(cmd), source="docker", level="dim")
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdin=asyncio.subprocess.DEVNULL,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT,
-            )
-        except (OSError, RuntimeError) as exc:
-            # OSError covers PermissionError etc., not just a missing
-            # binary. (Compose-detection RuntimeErrors raise BEFORE this
-            # try — they surface via the pipeline-level "launch crashed"
-            # handler instead.)
-            self._write_status(f"❌ {exc}", style="bold red", source="docker")
-            return 1
-        try:
-            assert proc.stdout is not None
-            async for raw in proc.stdout:
-                line = raw.decode(errors="replace").rstrip("\r\n")
-                self._safe_log(line, source="docker", level="info")
-            rc = await proc.wait()
-            if rc != 0 and not ignore_errors:
-                self._write_status(f"  ↳ exit {rc}", style="dim red",
-                                   source="docker")
-            return rc
-        except asyncio.CancelledError:
-            with contextlib.suppress(ProcessLookupError):
-                proc.send_signal(signal.SIGINT)
-            with contextlib.suppress(asyncio.TimeoutError):
-                await asyncio.wait_for(proc.wait(), timeout=3)
-            if proc.returncode is None:
-                with contextlib.suppress(ProcessLookupError):
-                    proc.kill()
-                with contextlib.suppress(Exception):
-                    await proc.wait()
-            raise
 
     async def _run_compose(self, args: list[str]) -> int:
         # IMPORTANT: stdout is a pipe (no TTY). Don't pass

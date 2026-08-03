@@ -411,6 +411,15 @@ def test_every_required_services_lint_job_has_a_deadline() -> None:
     )
     for job in ("lint", "compose-equivalence", "audit-scripts", "build-validation"):
         assert workflow["jobs"][job]["timeout-minutes"] > 0, job
+        assert workflow["jobs"][job]["runs-on"] == "ubuntu-24.04", job
+
+
+def test_every_docs_publication_job_has_a_deadline() -> None:
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/docs-pages.yml").read_text(encoding="utf-8")
+    )
+    for job in ("build", "deploy", "wiki"):
+        assert workflow["jobs"][job]["timeout-minutes"] > 0, job
 
 
 def test_local_docs_build_and_check_commands_use_bounded_runner() -> None:

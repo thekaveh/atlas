@@ -810,23 +810,3 @@ class SourceValidator:
 
         valid_sources = self.get_valid_sources_for_service(service_key)
         return sorted(list(valid_sources))
-    
-    def suggest_valid_source(self, service_var: str, invalid_source: str) -> Optional[str]:
-        """
-        Suggest a valid SOURCE value for an invalid one.
-        
-        Args:
-            service_var: SOURCE variable name
-            invalid_source: The invalid source value
-            
-        Returns:
-            str: Suggested valid source, or None if no suggestion
-        """
-        valid_options = self.get_service_source_options(service_var)
-        
-        if not valid_options:
-            return None
-            
-        # Simple suggestion logic - return first valid option
-        # Could be enhanced with fuzzy matching in the future
-        return valid_options[0] if valid_options else None

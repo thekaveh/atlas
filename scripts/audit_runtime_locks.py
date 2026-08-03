@@ -65,6 +65,12 @@ AUDIT_SPECS = (
     AuditSpec("services/docling/provider/gpu/requirements-locked.txt"),
     AuditSpec("services/docling/provider/adapter/requirements-locked.txt"),
     AuditSpec("services/mcp-servers/runtime/requirements-locked.txt"),
+    AuditSpec(
+        "services/backend/app/app/requirements-test-locked.txt",
+        frozenset({"PYSEC-2026-2447", "PYSEC-2026-3046"}),
+    ),
+    AuditSpec("services/mcp-servers/runtime/requirements-test-locked.txt"),
+    AuditSpec("services/asset-worker/app/requirements-test-locked.txt"),
     AuditSpec("services/local-deep-researcher/build/config/runtime-requirements.lock"),
 )
 
@@ -100,12 +106,17 @@ AUDITED_RUNTIME_MANIFESTS = frozenset(
         "services/airflow/build/requirements-locked.txt",
         "services/asset-baker/app/requirements.txt",
         "services/asset-baker/app/requirements-locked.txt",
+        "services/asset-worker/app/requirements-test.txt",
+        "services/asset-worker/app/requirements-test-locked.txt",
         "services/asset-worker/app/package-lock.json",
         "services/asset-worker/app/package.json",
         "services/asset-worker/app/requirements.txt",
         "services/asset-worker/app/requirements-locked.txt",
         "services/backend/app/app/requirements.txt",
+        "services/backend/app/app/requirements-dev.txt",
         "services/backend/app/app/requirements-locked.txt",
+        "services/backend/app/app/requirements-test.txt",
+        "services/backend/app/app/requirements-test-locked.txt",
         "services/docling/provider/gpu/requirements.txt",
         "services/docling/provider/gpu/requirements-locked.txt",
         "services/docling/provider/adapter/requirements.txt",
@@ -119,6 +130,8 @@ AUDITED_RUNTIME_MANIFESTS = frozenset(
         "services/local-deep-researcher/locks/runtime.uv.lock",
         "services/mcp-servers/runtime/requirements.txt",
         "services/mcp-servers/runtime/requirements-locked.txt",
+        "services/mcp-servers/runtime/requirements-test.txt",
+        "services/mcp-servers/runtime/requirements-test-locked.txt",
         "services/n8n/init/config/package-lock.json",
         "services/n8n/init/config/package.json",
         "services/parakeet/provider/gpu/requirements.txt",
@@ -143,8 +156,6 @@ def discover_runtime_manifests(root: Path = ROOT) -> frozenset[str]:
                 path.name in {"pyproject.toml", "uv.lock", "package.json", "package-lock.json"}
                 or (path.name.startswith("requirements") and path.suffix == ".txt")
             ):
-                if path.name == "requirements-dev.txt":
-                    continue
                 found.add(relative.as_posix())
     nonstandard = {
         "services/local-deep-researcher/build/config/runtime-requirements.lock",

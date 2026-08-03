@@ -27,7 +27,7 @@ permissions:
 jobs:
   lint:
     name: Manifest lint + unit tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -88,7 +88,7 @@ jobs:
           # closure. Both are repository-managed; no inline CI subset may
           # drift from the application or pytest plugin contracts.
           VIRTUAL_ENV="$BACKEND_TEST_VENV" uv pip install \
-            -r requirements.txt -r requirements-dev.txt -c requirements-locked.txt
+            -r requirements.txt -r requirements-dev.txt -c requirements-test-locked.txt
           "$BACKEND_TEST_VENV/bin/python" -m pytest tests/ -q -W error \
             --cov=. --cov-config=.coveragerc --cov-branch \
             --cov-report=term --cov-fail-under=79
@@ -98,9 +98,8 @@ jobs:
           MCP_TEST_VENV="${RUNNER_TEMP:-$PWD}/mcp-ci-venv"
           uv venv --python 3.12 "$MCP_TEST_VENV"
           VIRTUAL_ENV="$MCP_TEST_VENV" uv pip install \
-            -r services/mcp-servers/runtime/requirements.txt \
-            -c services/mcp-servers/runtime/requirements-locked.txt \
-            pytest
+            -r services/mcp-servers/runtime/requirements-test.txt \
+            -c services/mcp-servers/runtime/requirements-test-locked.txt
           "$MCP_TEST_VENV/bin/python" -m pytest \
             bootstrapper/tests/test_mcp_servers_framework.py -q -W error
 
@@ -109,11 +108,8 @@ jobs:
           ASSET_TEST_VENV="${RUNNER_TEMP:-$PWD}/asset-ci-venv"
           uv venv --python 3.12 "$ASSET_TEST_VENV"
           VIRTUAL_ENV="$ASSET_TEST_VENV" uv pip install \
-            -r services/asset-worker/app/requirements.txt \
-            -r services/asset-baker/app/requirements.txt \
-            -c services/asset-worker/app/requirements-locked.txt \
-            -c services/asset-baker/app/requirements-locked.txt \
-            pytest httpx2
+            -r services/asset-worker/app/requirements-test.txt \
+            -c services/asset-worker/app/requirements-test-locked.txt
           (
             cd services/asset-worker/app
             "$ASSET_TEST_VENV/bin/python" -m pytest tests/ -q
@@ -138,7 +134,7 @@ jobs:
 
   compose-equivalence:
     name: Compose merge + byte-equivalence + source-permutation matrix
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -179,7 +175,7 @@ jobs:
 
   audit-scripts:
     name: Docs drift + audit scripts
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -258,6 +254,9 @@ jobs:
       - name: Compiled service runtime lock checks
         run: uv run --project bootstrapper python -m scripts.check_runtime_locks
 
+      - name: Compiled CI test lock checks
+        run: uv run --project bootstrapper python -m scripts.check_test_locks
+
       - name: Audit compiled service runtime locks
         run: |
           uv run --project bootstrapper python -m scripts.bounded_subprocess \
@@ -267,7 +266,7 @@ jobs:
 
   build-validation:
     name: Build-validation (Dockerfile + requirements.txt installability)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     # Catches the Pass 12 / Pass 13 class of bug: unsatisfiable pip pins,
     # nonexistent packages, broken Dockerfile syntax. Compose-shape checks

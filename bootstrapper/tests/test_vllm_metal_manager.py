@@ -17,6 +17,7 @@ import hashlib
 import io
 import json
 import platform
+import subprocess
 import tarfile
 from pathlib import Path
 
@@ -397,6 +398,15 @@ def test_install_raises_on_failed_preflight(tmp_path, monkeypatch):
     mgr = _mgr(tmp_path)
     with pytest.raises(VllmMetalError, match="preflight failed"):
         mgr.install()
+
+
+def test_run_translates_install_timeout(tmp_path, monkeypatch):
+    def time_out(_cmd, **_kwargs):
+        raise subprocess.TimeoutExpired(["slow"], 1)
+
+    monkeypatch.setattr(mod, "run_with_deadline", time_out)
+    with pytest.raises(VllmMetalError, match="timed out"):
+        _mgr(tmp_path)._run(["slow"])
 
 
 # ─────────────────────────── start ───────────────────────────

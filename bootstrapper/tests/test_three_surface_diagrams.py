@@ -85,3 +85,12 @@ def test_platform_diagram_does_not_route_kong_to_loopback_only_zeppelin() -> Non
     )
 
     assert 'x1="1200" y1="295" x2="1200" y2="308"' not in svg
+
+
+def test_platform_diagram_routes_kong_to_each_displayed_agent() -> None:
+    svg = (ROOT / "docs" / "diagrams" / "architecture.svg").read_text(
+        encoding="utf-8"
+    )
+
+    for x in (140, 390, 640, 890, 1140):
+        assert f'x1="{x}" y1="390" x2="{x}" y2="428"' in svg

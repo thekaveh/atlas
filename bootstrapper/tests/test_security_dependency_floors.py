@@ -71,10 +71,10 @@ def test_backend_ci_installs_the_owned_test_contract() -> None:
 
     assert "pytest" not in requirements
     assert "httpx2" not in requirements
-    assert "pytest>=9.1.1" in dev_requirements
-    assert "pytest-asyncio>=1.4.0" in dev_requirements
-    assert "httpx2>=2.6.0" in dev_requirements
-    assert '-r requirements.txt -r requirements-dev.txt' in workflow
+    assert "pytest==9.1.1" in dev_requirements
+    assert "pytest-asyncio==1.4.0" in dev_requirements
+    assert "httpx2==2.6.0" in dev_requirements
+    assert "requirements-test-locked.txt" in workflow
     assert "requirements-dev.txt" not in dockerfile
     assert "pytest-asyncio omitted intentionally" not in workflow
 
@@ -229,7 +229,7 @@ def test_n8n_does_not_publish_retired_noop_environment_knobs() -> None:
 def test_mcp_framework_contracts_run_with_runtime_dependencies_in_ci() -> None:
     workflow = _text(".github/workflows/services-lint.yml")
 
-    assert "services/mcp-servers/runtime/requirements.txt" in workflow
+    assert "services/mcp-servers/runtime/requirements-test.txt" in workflow
     assert "bootstrapper/tests/test_mcp_servers_framework.py" in workflow
 
 
@@ -385,11 +385,13 @@ def test_required_ci_exercises_tier_a_runtime_constraints() -> None:
     workflow = _text(".github/workflows/services-lint.yml")
 
     for constraint in (
-        "services/mcp-servers/runtime/requirements-locked.txt",
-        "services/asset-worker/app/requirements-locked.txt",
-        "services/asset-baker/app/requirements-locked.txt",
+        "services/mcp-servers/runtime/requirements-test-locked.txt",
+        "services/asset-worker/app/requirements-test-locked.txt",
     ):
         assert f"-c {constraint}" in workflow
+
+    assert "python -m scripts.check_test_locks" in workflow
+    assert "pytest httpx2" not in workflow
 
     for venv_var in (
         "BACKEND_TEST_VENV",

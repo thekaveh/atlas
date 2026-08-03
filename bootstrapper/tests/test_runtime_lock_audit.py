@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 from scripts import audit_runtime_locks
 from scripts import check_runtime_locks
+from scripts import check_test_locks
 from scripts.bounded_subprocess import CommandLaunchError, CommandTimedOut
 
 
@@ -198,6 +199,23 @@ def test_local_deep_researcher_nonstandard_runtime_graph_is_audited() -> None:
     )
 
 
+def test_local_deep_researcher_aiohttp_security_floor_is_exported() -> None:
+    root = Path(audit_runtime_locks.__file__).parents[1]
+    refresher = (root / "scripts/refresh-local-deep-researcher-lock.py").read_text(
+        encoding="utf-8"
+    )
+    project = (
+        root / "services/local-deep-researcher/locks/runtime-pyproject.toml"
+    ).read_text(encoding="utf-8")
+    runtime = (
+        root / "services/local-deep-researcher/build/config/runtime-requirements.lock"
+    ).read_text(encoding="utf-8")
+
+    assert '"aiohttp>=3.14.3"' in refresher
+    assert '"aiohttp>=3.14.3"' in project
+    assert "aiohttp==3.14.3" in runtime
+
+
 def test_all_unlocked_runtime_graphs_are_resolved_before_audit() -> None:
     paths = {spec.requirements for spec in audit_runtime_locks.SOURCE_SPECS}
     assert paths == {
@@ -216,10 +234,13 @@ def test_all_unlocked_runtime_graphs_are_resolved_before_audit() -> None:
 def test_every_networked_lock_and_audit_subprocess_has_a_deadline() -> None:
     audit_source = Path(audit_runtime_locks.__file__).read_text(encoding="utf-8")
     check_source = Path(check_runtime_locks.__file__).read_text(encoding="utf-8")
+    test_check_source = Path(check_test_locks.__file__).read_text(encoding="utf-8")
     assert audit_source.count("timeout_seconds=COMMAND_TIMEOUT_SECONDS") == 4
     assert check_source.count("timeout_seconds=COMMAND_TIMEOUT_SECONDS") == 1
+    assert test_check_source.count("timeout_seconds=COMMAND_TIMEOUT_SECONDS") == 1
     assert audit_runtime_locks.COMMAND_TIMEOUT_SECONDS == 300
     assert check_runtime_locks.COMMAND_TIMEOUT_SECONDS == 300
+    assert check_test_locks.COMMAND_TIMEOUT_SECONDS == 300
     refresh_source = (
         Path(audit_runtime_locks.__file__).parent
         / "refresh-local-deep-researcher-lock.py"

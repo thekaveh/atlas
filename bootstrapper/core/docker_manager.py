@@ -14,6 +14,10 @@ import time
 from typing import Callable, List, Optional
 from pathlib import Path
 from core.config_parser import ConfigParser
+from core.process_runner import run_with_deadline
+
+
+_COMPOSE_PROBE_TIMEOUT_SECONDS = 60.0
 
 
 class DockerManager:
@@ -326,15 +330,10 @@ class DockerManager:
         """
         cmd = self._build_compose_command(['config', '--format', 'json'])
         try:
-            result = subprocess.run(
+            result = run_with_deadline(
                 cmd,
                 cwd=str(self.root_dir),
-                stdin=subprocess.DEVNULL,
-                capture_output=True,
-                text=True,
-                check=False,
-                encoding="utf-8",
-                errors="replace",
+                timeout_seconds=_COMPOSE_PROBE_TIMEOUT_SECONDS,
             )
             if result.returncode != 0:
                 return None
@@ -498,15 +497,10 @@ class DockerManager:
         """
         cmd = self._build_compose_command(['config', '-q'])
         try:
-            result = subprocess.run(
+            result = run_with_deadline(
                 cmd,
                 cwd=str(self.root_dir),
-                stdin=subprocess.DEVNULL,
-                capture_output=True,
-                text=True,
-                check=False,
-                encoding="utf-8",
-                errors="replace",
+                timeout_seconds=_COMPOSE_PROBE_TIMEOUT_SECONDS,
             )
             return result.returncode, result.stdout, result.stderr, cmd
         except Exception as e:

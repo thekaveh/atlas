@@ -48,9 +48,18 @@ the current/latest status observed during the pass, and the evidence source.
 | Dependabot deleted-path alerts | 38 alerts for historical `tts-provider/localhost/uv.lock` | Path absent from every live branch; history retained in Git | Deleted manifests must not remain actionable security inventory | All 38 dismissed as `not_used`; active-path alerts remained open for remediation or explicit reachability triage |
 | LightRAG async Docling parser | Image `ghcr.io/hkuds/lightrag:v1.5.4`, tag commit `9a45b64c` | Pinned client source and image contract inspected on 2026-08-03 | Client submits multipart field `files` to `POST /v1/convert/file/async`, polls `GET /v1/status/poll/{task_id}`, downloads `GET /v1/result/{task_id}`, and expects a ZIP result | The isolated adapter implements only this public route subset; executable contract tests assert methods, paths, field name, payloads, polling states, and cleanup |
 
-## 4. Open Ledger Gaps
+## 4. 2026-08-03 Contract Closure
 
-- Record exact external CLI contracts for MinIO `mc`, n8n community package
-  REST endpoints, Airflow CLI commands, and Docker Compose as those paths are
-  live-smoked or upgraded.
-- Add image vulnerability scanning for digest-pinned runtime images.
+| Integration point | Exact version inspected | Consumed contract checked | Evidence / disposition |
+|---|---:|---|---|
+| MinIO client provisioning | `minio/mc:RELEASE.2025-08-13T08-35-41Z`, local image ID `sha256:5dee113e…63ad1` | The pinned executable accepts `mc admin policy create TARGET POLICYNAME POLICYFILE`; `mc admin user svcacct add ALIAS ACCOUNT` with `--access-key`, `--secret-key`, and `--policy`; and `svcacct edit ALIAS SERVICE-ACCOUNT` with `--secret-key` and `--policy` | Executed each pinned-image `--help` path on 2026-08-03. These are the exact commands and flags in `services/minio/init/scripts/init-minio.sh`; the previous migration deferral is closed. |
+| n8n workflow/package lifecycle | `n8nio/n8n:2.28.2`, local image ID `sha256:d609c3f5…71abe` | `import:workflow` accepts `--input` and `--activeState=fromJson`; `publish:workflow` accepts `--id`. Community packages are installed with committed `npm ci --omit=dev --ignore-scripts`; Atlas does not consume an n8n package-management REST endpoint. | Executed both pinned-image CLI help paths on 2026-08-03. Existing executable workflow/import tests and the committed npm lock guard the remaining contract. |
+| Airflow initialization | `apache/airflow:3.3.0`, local image ID `sha256:4a50b8df…a71c9` | `airflow db migrate`; `airflow users create` with username/name/role/email/password; and `airflow connections add` with the connection ID and typed connection flags all exist in the pinned image | Executed all three pinned-image CLI help paths on 2026-08-03; init-script tests guard the exact flags and idempotent delete/add sequence. |
+| Docker Compose orchestration | Docker Compose `5.1.4`; Atlas minimum `2.20.3` | Top-level `include`, `--env-file`, `config -q`, JSON config/ps output, explicit service targets, and project-name placement | The local exact binary passed the full Compose configuration/source-permutation suite; startup separately enforces the documented minimum before using modular includes. |
+| Local Deep Researcher aiohttp floor | `aiohttp>=3.14.3` in the combined lock inputs; resolved `3.14.3` | CVE-2026-59881 and CVE-2026-69243 are fixed in 3.14.2; CVE-2026-69244 is fixed in 3.14.3 | The lock refresher now applies the patched floor over the manifest-pinned upstream graph; byte-equivalence and the repository-wide vulnerability audit guard it. |
+
+## 5. Reviewed Deferrals
+
+| Gap | Interim controls | Owner | Review trigger / deadline |
+|---|---|---|---|
+| Registry-level vulnerability scanning for the full runtime image inventory | Checked-in defaults use immutable digests where upstream publishes usable multi-architecture indexes; Python and npm contents are independently lock-audited; Dependabot and the external-contract ledger track known exposure. A scanner is not added inside the required PR gate yet because pulling and unpacking the complete 30+ image matrix would materially exceed its current 90-minute build budget and requires a documented registry-auth/rate-limit policy. | Atlas maintainers | Design a scheduled, digest-keyed Trivy/Grype workflow before 2026-09-01; re-open immediately when adding a private registry, publishing Atlas images, or receiving a container-base advisory. |
