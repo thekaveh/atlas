@@ -113,6 +113,7 @@ def test_iceberg_rest_env_example_contract() -> None:
         "ICEBERG_REST_PORT=",
         "ICEBERG_REST_IMAGE=apache/iceberg-rest-fixture:1.10.1",
         "ICEBERG_REST_POSTGRES_JDBC_VERSION=42.7.12",
+        "ICEBERG_REST_POSTGRES_JDBC_SHA512=3759e7160591863e5100361298943df9",
         "ICEBERG_DB_USER=iceberg",
         "ICEBERG_DB_PASSWORD=",
         "MINIO_BUCKET_ICEBERG_LAKEHOUSE=lakehouse",
@@ -174,6 +175,9 @@ def test_iceberg_rest_compose_contract() -> None:
     assert rest["build"]["context"] == "./build"
     assert rest["build"]["args"]["BASE_IMAGE"] == "${ICEBERG_REST_IMAGE:-apache/iceberg-rest-fixture:1.10.1}"
     assert rest["build"]["args"]["POSTGRES_JDBC_VERSION"] == "${ICEBERG_REST_POSTGRES_JDBC_VERSION:-42.7.12}"
+    assert rest["build"]["args"]["POSTGRES_JDBC_SHA512"].startswith(
+        "${ICEBERG_REST_POSTGRES_JDBC_SHA512:-3759e7160591863e5100361298943df9"
+    )
     assert rest["image"] == "${PROJECT_NAME}-iceberg-rest:local"
     assert rest["ports"] == ["${HOST_BIND_IP:-}${ICEBERG_REST_PORT}:8181"]
     assert rest["depends_on"]["iceberg-rest-init"]["condition"] == "service_completed_successfully"
@@ -194,7 +198,15 @@ def test_iceberg_rest_build_makes_postgres_driver_readable() -> None:
     dockerfile = (SERVICE_DIR / "build" / "Dockerfile").read_text()
 
     assert "USER root" in dockerfile
+    assert (
+        "ARG POSTGRES_JDBC_SHA512="
+        "3759e7160591863e5100361298943df94488a6e4ee03936d20723638142fe8038"
+        "c9a6a47fa8ee7e424f4ef09bb351edc89dfe2ae4acdfc0f92699a8b00196c5c"
+    ) in dockerfile
     assert "postgresql-${POSTGRES_JDBC_VERSION}.jar" in dockerfile
+    assert "curl -fsSL" in dockerfile
+    assert "sha512sum -c -" in dockerfile
+    assert "ADD http" not in dockerfile
     assert "chmod 0644 /usr/lib/iceberg-rest/postgresql.jar" in dockerfile
     assert "chown iceberg:iceberg /usr/lib/iceberg-rest/postgresql.jar" in dockerfile
     assert "USER iceberg" in dockerfile

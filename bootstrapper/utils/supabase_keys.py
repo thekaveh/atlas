@@ -14,6 +14,7 @@ import time
 from pathlib import Path
 from typing import Optional
 from core.config_parser import ConfigParser
+from utils.atomic_write import atomic_write_text
 
 
 class SupabaseKeyGenerator:
@@ -162,22 +163,7 @@ class SupabaseKeyGenerator:
                         updated_content += '\n'
                     updated_content += f'{replacement}\n'
             
-            # Atomic, mode-preserving write (tmp + os.replace) — mirrors
-            # KeyGenerator.update_env_key + SourceOverrideManager. The
-            # Supabase JWT secret, anon key, and service key are the most
-            # security-critical credentials in the stack; an in-place 'w'
-            # truncates them all on a crash mid-write, with no recovery
-            # path short of regeneration.
-            import os as _os
-            tmp_path = Path(str(env_file_path) + '.tmp')
-            try:
-                original_mode = _os.stat(env_file_path).st_mode
-                with open(tmp_path, 'w', encoding="utf-8") as f:
-                    _os.chmod(tmp_path, original_mode)
-                    f.write(updated_content)
-                _os.replace(tmp_path, env_file_path)
-            finally:
-                tmp_path.unlink(missing_ok=True)
+            atomic_write_text(env_file_path, updated_content, mode=0o600)
 
             return True
             

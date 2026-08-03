@@ -18,7 +18,7 @@ containers:
 
 images:
   - var: CHATTERBOX_IMAGE
-    default: "travisvn/chatterbox-tts-api:gpu"
+    default: "travisvn/chatterbox-tts-api:gpu@sha256:8c0b379172d48b49d59d8f29a35fa23c0dc27955dba4d3ab41a77b2d71b4711f"
     container: chatterbox
     notes: "Rolling :gpu tag. Pin to a digest in production via `docker pull travisvn/chatterbox-tts-api:gpu` + paste the digest."
 

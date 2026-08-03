@@ -58,7 +58,7 @@ _No upstream calls._
 
 ![tika architecture](./architecture.svg)
 
-[Open the interactive HTML diagram](./architecture.html) for a full-screen view.
+[Open the full-size diagram](./architecture.html) for a full-screen view.
 
 ### 6.4. Future — Missing pair integrations
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from datetime import timedelta
 
 import pytest
@@ -14,6 +15,7 @@ from media_ledger import (
     BudgetEngine,
     BudgetExceeded,
     InMemoryLedgerStore,
+    LedgerOperationCollisionError,
     MediaBudgetConfig,
     ProviderDisabled,
     UnknownCostRejected,
@@ -74,8 +76,16 @@ def test_budget_config_rejects_fail_open_values(monkeypatch, name, value):
         MediaBudgetConfig.from_env()
 
 
-def test_enabled_postgres_budget_requires_database_url(monkeypatch):
+def test_postgres_recovery_store_requires_database_url(monkeypatch):
     _budget_env(monkeypatch, MEDIA_BUDGET_STORE="postgres")
+    with pytest.raises(ValueError, match="DATABASE_URL"):
+        MediaBudgetConfig.from_env()
+
+    _budget_env(
+        monkeypatch,
+        MEDIA_BUDGET_ENABLED="false",
+        MEDIA_BUDGET_STORE="postgres",
+    )
     with pytest.raises(ValueError, match="DATABASE_URL"):
         MediaBudgetConfig.from_env()
 
@@ -173,6 +183,103 @@ def test_reserve_attach_commit_lifecycle():
     assert committed.artifact_refs == ("https://cdn/x.glb",)
     assert summary["committed_usd"] == 0.05
     assert summary["reserved_usd"] == 0.0
+
+
+def test_attach_rejects_existing_provider_id_and_preserves_both_rows():
+    engine = _engine(default_cap_usd=10.0)
+
+    async def run():
+        await _reserve(engine, "provider-op", 0.05, consumer="tenant-a")
+        await _reserve(engine, "temporary-op", 0.05, consumer="tenant-b")
+        with pytest.raises(LedgerOperationCollisionError):
+            await engine.attach_operation("temporary-op", "provider-op")
+        return (
+            await engine.store.get("provider-op"),
+            await engine.store.get("temporary-op"),
+        )
+
+    existing, temporary = asyncio.run(run())
+    assert existing.consumer == "tenant-a"
+    assert temporary.consumer == "tenant-b"
+
+
+def test_attach_validates_identity_before_rekeying_reservation():
+    engine = _engine(default_cap_usd=10.0)
+
+    async def run():
+        await _reserve(engine, "temporary-op", 0.05, consumer="tenant-a")
+        with pytest.raises(LedgerOperationCollisionError):
+            await engine.attach_operation(
+                "temporary-op", "provider-op", consumer="tenant-b"
+            )
+        return (
+            await engine.store.get("temporary-op"),
+            await engine.store.get("provider-op"),
+        )
+
+    temporary, provider = asyncio.run(run())
+    assert temporary.consumer == "tenant-a"
+    assert provider is None
+
+
+def test_recovery_attachment_and_release_bypass_disabled_admission_toggle():
+    engine = _engine(default_cap_usd=10.0)
+
+    async def run():
+        await _reserve(engine, "temporary-op", 0.05)
+        engine.config.enabled = False
+        await engine.attach_operation(
+            "temporary-op",
+            "provider-op",
+            consumer="acme",
+            project="default",
+            provider="fal",
+            model="fal-ai/trellis",
+            modality="image_to_3d",
+            force=True,
+        )
+        attached = await engine.store.get("provider-op")
+        await engine.release("provider-op", force=True)
+        return attached, await engine.store.get("provider-op")
+
+    attached, released = asyncio.run(run())
+    assert attached.status == STATUS_SUBMITTED
+    assert released.status == STATUS_RELEASED
+    assert released.reason is None
+
+
+def test_clear_attach_protection_cannot_overwrite_terminal_settlement():
+    engine = _engine(default_cap_usd=10.0)
+
+    async def run():
+        await _reserve(engine, "operation", 0.05)
+        await engine.reconcile(operation_id="operation", status="succeeded")
+        terminal = await engine.store.get("operation")
+        await engine.store.update(
+            replace(terminal, reason="ledger attachment pending automatic recovery")
+        )
+        await engine.clear_attach_protection("operation")
+        return await engine.store.get("operation")
+
+    record = asyncio.run(run())
+    assert record.status == STATUS_COMMITTED
+    assert record.reason == "ledger attachment pending automatic recovery"
+
+
+def test_concurrent_protection_and_release_cannot_resurrect_terminal_row():
+    engine = _engine(default_cap_usd=10.0)
+
+    async def run():
+        await _reserve(engine, "temporary", 0.05)
+        await engine.attach_operation("temporary", "provider-op")
+        await asyncio.gather(
+            engine.protect_attach_ids(("provider-op",)),
+            engine.release("provider-op"),
+        )
+        return await engine.store.get("provider-op")
+
+    record = asyncio.run(run())
+    assert record.status == STATUS_RELEASED
 
 
 # --- budget cap hard-stop ---------------------------------------------------
@@ -467,6 +574,25 @@ def test_reconcile_does_not_mutate_attribution():
     assert after.created_at == before.created_at
 
 
+def test_concurrent_opposite_reconciliations_preserve_first_winner():
+    engine = _engine(default_cap_usd=10.0)
+
+    async def run():
+        await _reserve(engine, "op-race", 0.05)
+        winners = await asyncio.gather(
+            engine.reconcile(
+                operation_id="op-race", status="succeeded", final_cost_usd=0.04
+            ),
+            engine.reconcile(operation_id="op-race", status="failed"),
+        )
+        persisted = await engine.store.get("op-race")
+        return winners, persisted
+
+    winners, persisted = asyncio.run(run())
+    assert persisted.status in {"committed", "released"}
+    assert {winner.status for winner in winners} == {persisted.status}
+
+
 def test_retention_prune_drops_old_rows():
     engine = _engine(default_cap_usd=10.0, retention_days=7)
 
@@ -477,7 +603,12 @@ def test_retention_prune_drops_old_rows():
         from dataclasses import replace
 
         await engine.store.update(
-            replace(old, operation_id="stale", created_at=_utcnow() - timedelta(days=30))
+            replace(
+                old,
+                operation_id="stale",
+                status=STATUS_RELEASED,
+                created_at=_utcnow() - timedelta(days=30),
+            )
         )
         pruned = await engine.prune_expired()
         remaining = await engine.spend(consumer="acme")
@@ -486,3 +617,114 @@ def test_retention_prune_drops_old_rows():
     pruned, remaining = asyncio.run(run())
     assert pruned == 1
     assert {r["operation_id"] for r in remaining["records"]} == {"fresh"}
+
+
+def test_retention_prune_preserves_unresolved_ambiguous_recovery_row():
+    engine = _engine(default_cap_usd=10.0, retention_days=7)
+
+    async def run():
+        record = await engine.record_ambiguous(
+            operation_id="ambiguous-old",
+            consumer="acme",
+            project="default",
+            provider="fal",
+            model="fal-ai/flux/dev",
+            modality="image",
+            estimated_cost_usd=None,
+            pricing_source_ts=None,
+            model_version=None,
+        )
+        from dataclasses import replace
+
+        await engine.store.update(
+            replace(record, created_at=_utcnow() - timedelta(days=30))
+        )
+        pruned = await engine.prune_expired()
+        return pruned, await engine.store.get("ambiguous-old")
+
+    pruned, retained = asyncio.run(run())
+    assert pruned == 0
+    assert retained is not None
+
+
+def test_ambiguous_recovery_rejects_existing_operation_identity_collision():
+    engine = _engine(default_cap_usd=10.0)
+
+    async def run():
+        await _reserve(engine, "provider-op", 0.05, consumer="tenant-a")
+        with pytest.raises(LedgerOperationCollisionError):
+            await engine.record_ambiguous(
+                operation_id="provider-op",
+                consumer="tenant-b",
+                project="default",
+                provider="fal",
+                model="fal-ai/trellis",
+                modality="image_to_3d",
+                estimated_cost_usd=0.05,
+                pricing_source_ts=_utcnow(),
+                model_version=None,
+            )
+
+    asyncio.run(run())
+
+
+def test_concurrent_ambiguous_append_cannot_overwrite_identity():
+    engine = _engine(default_cap_usd=10.0)
+
+    async def write(consumer):
+        return await engine.record_ambiguous(
+            operation_id="duplicate-provider-id",
+            consumer=consumer,
+            project="default",
+            provider="fal",
+            model="fal-ai/trellis",
+            modality="image_to_3d",
+            estimated_cost_usd=0.05,
+            pricing_source_ts=_utcnow(),
+            model_version=None,
+        )
+
+    async def run():
+        results = await asyncio.gather(
+            write("tenant-a"), write("tenant-b"), return_exceptions=True
+        )
+        return results, await engine.store.get("duplicate-provider-id")
+
+    results, persisted = asyncio.run(run())
+    assert sum(isinstance(item, LedgerOperationCollisionError) for item in results) == 1
+    assert persisted.consumer in {"tenant-a", "tenant-b"}
+
+
+def test_retention_prune_preserves_protected_attach_reservation():
+    engine = _engine(default_cap_usd=10.0, retention_days=1)
+
+    async def run():
+        await _reserve(engine, "attach-pending", 0.05)
+        await engine.protect_recovery_ids(("attach-pending",))
+        record = await engine.store.get("attach-pending")
+        old = _utcnow() - timedelta(days=2)
+        await engine.store.update(replace(record, created_at=old, updated_at=old))
+        return await engine.prune_expired(), await engine.store.get("attach-pending")
+
+    pruned, retained = asyncio.run(run())
+    assert pruned == 0
+    assert retained is not None
+
+
+def test_retention_prune_reclaims_unprotected_legacy_reservation():
+    engine = _engine(default_cap_usd=10.0, retention_days=1)
+
+    async def run():
+        await _reserve(engine, "legacy-reservation", 0.05)
+        record = await engine.store.get("legacy-reservation")
+        old = _utcnow() - timedelta(days=2)
+        await engine.store.update(
+            replace(record, reason=None, created_at=old, updated_at=old)
+        )
+        return await engine.prune_expired(), await engine.store.get(
+            "legacy-reservation"
+        )
+
+    pruned, retained = asyncio.run(run())
+    assert pruned == 1
+    assert retained is None

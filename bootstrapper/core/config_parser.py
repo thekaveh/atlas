@@ -10,6 +10,8 @@ import sys
 from typing import Dict, Optional, Any
 from pathlib import Path
 
+from utils.atomic_write import create_private_backup
+
 
 # Single source of truth for the default base port. Imported by start.py and
 # the Textual wizard (ui/textual/integration.py) so both stay in sync.
@@ -333,14 +335,5 @@ class ConfigParser:
         if not self.env_file_exists():
             raise FileNotFoundError("Cannot backup .env file - it doesn't exist")
 
-        import datetime
-        timestamp = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
-
-        # Create backup in the same directory as the .env file
-        # This ensures backups work correctly with custom paths
-        backup_filename = f"{self.env_file_path.name}.backup.{timestamp}"
-        backup_path = self.env_file_path.parent / backup_filename
-
-        import shutil
-        shutil.copy2(self.env_file_path, backup_path)
+        backup_path = create_private_backup(self.env_file_path)
         return str(backup_path)

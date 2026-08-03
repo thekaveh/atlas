@@ -4,7 +4,7 @@ Host ports, Kong aliases, direct service ports, backend-network-only services, a
 
 ## 1. Diagram
 
-[Open the interactive diagram](./network-routing-topology.html).
+[Open the full-size diagram](./network-routing-topology.html).
 
 ## 2. Notes
 

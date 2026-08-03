@@ -6,23 +6,14 @@ tracks the latest patch).
 A floating tag means rebuilds can pick up a future supply-chain-compromised
 or behaviorally-changed base image without lockstep visibility. Today the
 stack uses patch-version tags everywhere (e.g. `python:3.12.13-slim`,
-`apache/airflow:3.3.0`, `pytorch/pytorch:2.12.1-cuda12.6-cudnn9-runtime`).
+`apache/airflow:3.3.0`, `pytorch/pytorch:2.13.0-cuda12.6-cudnn9-runtime`).
 This test locks that posture in CI so a future contributor can't
 re-introduce a floating tag silently.
 
-ARG-defaulted FROMs (e.g. `FROM ${BASE_IMAGE}`) are exempt because the ARG is
-the user-facing override knob (compose injects `*_IMAGE` from .env at build
-time). The `*_IMAGE` defaults live in the manifests and flow into .env.example
-via env_assembler; most are patch-pinned, but a few documented floating
-exceptions exist (chatterbox `:gpu`, tei `cpu-arm64-latest`, jenkins
-`lts-jdk21`). This guard does NOT verify their pin posture — regen only keeps
-.env.example in sync with the manifests, it does not check pinning (a prior
-version of this docstring claimed otherwise). A `*_IMAGE` pin-lint is a
-worthwhile follow-up but non-trivial: a correct predicate must distinguish
-genuinely-pinned non-semver tags (postgres 2-part `17.10-alpine`, NGC calendar
-`26.06-py3`, minio `RELEASE.…`, jupyter `python-3.11.10`, ai-dock
-`v2-cpu-…-v0.2.7`) from floating ones (`python:3.12`), which a naive
-"N-part version" rule cannot.
+ARG-defaulted FROMs (e.g. `FROM ${BASE_IMAGE}`) remain user-overridable, but
+their checked-in defaults are covered by a focused regression test below.
+Non-semver channel tags that cannot be replaced with a release tag are pinned
+to the registry's immutable multi-platform digest.
 """
 from __future__ import annotations
 
@@ -115,26 +106,36 @@ def test_at_least_one_dockerfile_discovered() -> None:
     files = _discover_dockerfiles()
     assert files, "No Dockerfiles discovered under services/**/Dockerfile"
 
+
+@pytest.mark.parametrize(
+    ("relative_path", "floating_reference"),
+    [
+        ("services/chatterbox/service.yml", "travisvn/chatterbox-tts-api:gpu\""),
+        (
+            "services/tei-reranker/service.yml",
+            "text-embeddings-inference:cpu-arm64-latest\"",
+        ),
+        ("services/jenkins/service.yml", "jenkins/jenkins:lts-jdk21\""),
+        ("services/jenkins/build/Dockerfile", "jenkins/jenkins:lts-jdk21\n"),
+        ("services/asset-worker/app/Dockerfile", "node:22-bookworm-slim\n"),
+    ],
+)
+def test_known_channel_image_defaults_are_digest_pinned(
+    relative_path: str, floating_reference: str
+) -> None:
+    text = (REPO_ROOT / relative_path).read_text(encoding="utf-8")
+    assert floating_reference not in text
+    assert "@sha256:" in text
+
 def test_jupyterhub_pyg_lib_pin_is_satisfiable(  # #776 regression
 ) -> None:
-    """pyg_lib on data.pyg.org's torch-2.11.0+cpu index exists ONLY as 0.6.0,
-    with cp311 wheels for x86_64/macOS/Windows but no linux-aarch64 wheel, no
-    sdist, and no PyPI presence — so an unguarded or wrong-version pin makes
-    the jupyterhub image build (and therefore the whole --cold bring-up)
-    hard-fail. Contract: the pin stays 0.6.0 and stays platform-marked to
-    x86_64; the sibling PyG packages (which DO ship aarch64 wheels) stay
-    unconditional; the find-links stays matched to the torch 2.11 CPU build.
-    """
+    """The PyG ABI3 wheel and index must move with the Torch CPU family."""
     requirements = (
         REPO_ROOT / "services" / "jupyterhub" / "build" / "requirements.txt"
     ).read_text(encoding="utf-8")
     lines = [line.strip() for line in requirements.splitlines()]
     pyg_lib_lines = [l for l in lines if l.startswith("pyg_lib")]
-    assert pyg_lib_lines == ['pyg_lib==0.6.0; platform_machine == "x86_64"'], (
-        "pyg_lib must stay 0.6.0 (the only version on the torch-2.11 index) "
-        "and platform-marked to x86_64 (no linux-aarch64 wheel exists) — see #776"
-    )
-    assert "--find-links https://data.pyg.org/whl/torch-2.11.0+cpu.html" in lines
-    for unconditional in ("torch-scatter==2.1.2", "torch-sparse==0.6.18",
-                          "torch-cluster==1.6.3"):
-        assert unconditional in lines, f"{unconditional} must stay unconditional"
+    assert pyg_lib_lines == ["pyg_lib==0.8.0"]
+    assert "--find-links https://data.pyg.org/whl/torch-2.13.0+cpu.html" in lines
+    for retired in ("torch-scatter", "torch-sparse", "torch-cluster"):
+        assert not any(line.startswith(retired) for line in lines)

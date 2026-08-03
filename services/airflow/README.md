@@ -87,16 +87,16 @@ Use it as a template. Drop your own DAGs into `services/airflow/dags/` — they'
 
 ### 5.1. Lakehouse SparkSubmit smoke
 
-`services/airflow/dags/lakehouse_spark_submit_smoke.py` is a manual DAG (`schedule=None`) for the data-engineering track. It prepares a tiny landing object, uploads the image-built validation JAR to `s3a://jars/atlas/lakehouse-smoke/latest/atlas-lakehouse-smoke.jar`, and runs `SparkSubmitOperator` with `deploy_mode="cluster"` against `spark://spark-master:7077`.
+`services/airflow/dags/lakehouse_spark_submit_smoke.py` is a manual DAG (`schedule=None`) for the data-engineering track. It prepares a tiny landing object, uploads the image-built validation JAR to `s3a://jars/atlas/lakehouse-smoke/latest/atlas-lakehouse-smoke.jar`, and runs the Atlas `SparkSubmitOperator` subclass with `deploy_mode="cluster"` against `spark://spark-master:7077`.
 
 Cluster deploy mode is the Atlas default for this path because the Spark driver runs on a Spark worker that already carries the S3A and Iceberg runtime jars. Airflow still carries Java, `spark-submit`, `hadoop-aws`, the AWS SDK v2 bundle, and Iceberg jars so the submit client can resolve S3A resources and so client-mode experiments do not immediately fail on missing classes.
 
-**Post-submit driver-status polling — the `:7077`/`:6066` one-connection limitation (#792, option 3).** Atlas enables the standalone master's backend-network-only REST endpoint at `spark-master:6066` (no host port or Kong route); a direct status check (`curl http://spark-master:6066/v1/submissions/status/<driver-id>`) can query it. The `SparkSubmitOperator`, though, polls post-submit driver status through the single `spark_default` connection — seeded on the RPC port `:7077` — and the Spark provider only takes the REST poll path when the connection's own port is `:6066`. No single port serves both cluster-mode submission (`:7077`) and driver-status polling (`:6066`), so the operator's poll falls back to RPC against `:7077` and raises a benign `Failed to poll for the driver status` *after the job has already finished*. Atlas resolves this with **option 3**: the master sets `spark.standalone.submit.waitAppCompletion=true`, so the standalone submit blocks until the driver completes and the submit itself reports the final driver state — the subsequent poll is redundant. Treat that poll exception as a false-negative **only** when the submit already reported success; a genuine submission failure surfaces from the submit call itself, before the poll starts (so the pattern does not mask real failures). Confirm a suspected false-negative with a direct REST check to `spark-master:6066` (driver state `FINISHED` + `success: true`) — e.g. from inside the scheduler container. End-to-end verification of this pattern needs the `data-eng` track live (Airflow + Spark standalone).
+**Post-submit driver status — the `:7077`/`:6066` one-connection limitation (#792).** Atlas enables the standalone master's backend-network-only REST endpoint at `spark-master:6066` (no host port or Kong route). The provider's normal cluster-mode hook tries to poll driver status through the `spark_default` RPC connection on `:7077`, but the supported standalone status API is REST on `:6066`. The shipped DAG therefore uses `AtlasSparkSubmitOperator`: inherited operator execution still owns configuration and OpenLineage injection, while its hook adapter disables the incompatible poll, captures the submitted driver ID, and requires `FINISHED + success` from `:6066`. This post-submit driver status check keeps genuine submit or terminal driver failures as task failures.
 
 The smoke DAG passes explicit S3A, Iceberg REST, and Spark event-log config:
 
 ```python
-SparkSubmitOperator(
+AtlasSparkSubmitOperator(
     task_id="submit_lakehouse_s3a_jar",
     conn_id="spark_default",
     application="s3a://jars/atlas/lakehouse-smoke/latest/atlas-lakehouse-smoke.jar",
@@ -111,21 +111,12 @@ SparkSubmitOperator(
 )
 ```
 
-**Applying the #792 wrapper — submit + REST confirmation via `:6066`.** In the shipped provider version (`apache-airflow-providers-apache-spark` 5.x), `SparkSubmitHook.submit(application)` returns `None` (not a driver id) and *itself* invokes `_start_driver_status_tracking()` for cluster mode — the incompatible `:7077` RPC poll runs *inside* `submit()`. Worse (#880): the provider populates `hook._driver_id` **only** on the tracking path, so disabling the poll also prevents the ID from being set. The Atlas helper (`submit_and_confirm_via_rest` in `services/airflow/dags/atlas_spark_utils.py`) solves this by wrapping `_process_spark_submit_log` to capture the spark-submit log, extracting the standalone submission ID (`driver-YYYYMMDDHHMMSS-NNNN`) via regex, and confirming via `:6066` REST — all without the provider's poll:
+**Applying the #792 wrapper — submit + REST confirmation via `:6066`.** Atlas exact-pins `apache-airflow-providers-apache-spark==5.6.0` because the adapter deliberately uses that release's hook internals. The reusable `RestConfirmingSparkHook` captures the spark-submit log, extracts the standalone submission ID (`driver-YYYYMMDDHHMMSS-NNNN`), and confirms it through `:6066`:
 
 ```python
-from airflow.providers.apache.spark.hooks.spark_submit import SparkSubmitHook
-from atlas_spark_utils import submit_and_confirm_via_rest
-
-hook = SparkSubmitHook(
+submit_lakehouse_job = AtlasSparkSubmitOperator(
+    task_id="submit_lakehouse_s3a_jar",
     conn_id="spark_default",
-    conf=spark_conf,
-)
-# submit_and_confirm_via_rest: (1) disables the :7077 poll, (2) wraps
-# _process_spark_submit_log to capture the log, (3) extracts the driver ID
-# via regex, (4) confirms FINISHED+success via :6066 REST.
-driver_id = submit_and_confirm_via_rest(
-    hook,
     application="s3a://jars/atlas/lakehouse-smoke/latest/atlas-lakehouse-smoke.jar",
     rest_host="spark-master",
 )
@@ -196,7 +187,7 @@ This pattern — agent runtime → orchestrated workflow — pairs Hermes's reac
 
 ![airflow architecture](./architecture.svg)
 
-[Open the interactive HTML diagram](./architecture.html) for a full-screen view.
+[Open the full-size diagram](./architecture.html) for a full-screen view.
 
 ### 7.4. Future — Missing pair integrations
 

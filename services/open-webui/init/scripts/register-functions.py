@@ -150,6 +150,7 @@ def register_functions(token):
 
     print(f"open-webui-init: Found {len(function_files)} function file(s)")
 
+    failures = []
     for filepath in function_files:
         filename = os.path.basename(filepath)
         function_id = re.sub(r"[^a-zA-Z0-9_]", "_", os.path.splitext(filename)[0])
@@ -171,6 +172,13 @@ def register_functions(token):
                 print(f"open-webui-init: Created function: {name} ({function_id})")
         except Exception as e:
             print(f"open-webui-init: ERROR registering function {function_id}: {e}")
+            failures.append(function_id)
+
+    if failures:
+        raise RuntimeError(
+            f"Failed to register {len(failures)} Open WebUI function(s): "
+            + ", ".join(failures)
+        )
 
 
 def main():

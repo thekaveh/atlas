@@ -27,6 +27,9 @@ import sys
 from datetime import date
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from utils.atomic_write import atomic_write_text
+
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 # Honor ATLAS_ENV_FILE (deprecated alias: GENAI_ENV_FILE) like every
 # other .env consumer (start.py, config_parser, docker_manager,
@@ -179,7 +182,7 @@ def main() -> int:
         print("\n(dry-run; not writing)")
         return 0
 
-    ENV_PATH.write_text(new_text, encoding="utf-8")
+    atomic_write_text(ENV_PATH, new_text, mode=0o600)
     print(f"\nwrote {ENV_PATH}")
     return 0
 

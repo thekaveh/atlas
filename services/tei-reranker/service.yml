@@ -19,7 +19,7 @@ images:
     container: tei-reranker
     notes: "Used when TEI_RERANKER_SOURCE=container-cpu on amd64 hosts. Compiled with ORT backend (requires ONNX model weights)."
   - var: TEI_RERANKER_CPU_ARM64_IMAGE
-    default: "ghcr.io/huggingface/text-embeddings-inference:cpu-arm64-latest"
+    default: "ghcr.io/huggingface/text-embeddings-inference:cpu-arm64-latest@sha256:35c50d7494de22deecdb783b8f5b7e1d05765709bd90071b03469b9440d28656"
     container: tei-reranker
     notes: "Used when TEI_RERANKER_SOURCE=container-cpu on arm64 hosts (Apple Silicon). Compiled with candle backend (loads safetensors natively, no ONNX required). Unversioned tag — HF doesn't publish versioned arm64 tags as of 2026-06-06."
   - var: TEI_RERANKER_GPU_IMAGE

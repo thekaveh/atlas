@@ -270,6 +270,7 @@ def register_tools(token):
 
     print(f"open-webui-init: Found {len(tool_files)} tool file(s)")
 
+    failures = []
     for filepath in tool_files:
         filename = os.path.basename(filepath)
         # Open WebUI requires alphanumeric + underscores only
@@ -291,6 +292,13 @@ def register_tools(token):
                 print(f"open-webui-init: Created tool: {name} ({tool_id})")
         except Exception as e:
             print(f"open-webui-init: ERROR registering {tool_id}: {e}")
+            failures.append(tool_id)
+
+    if failures:
+        raise RuntimeError(
+            f"Failed to register {len(failures)} Open WebUI tool(s): "
+            + ", ".join(failures)
+        )
 
 
 def main():

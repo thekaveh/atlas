@@ -4,7 +4,7 @@ Manifest, compose fragment, topology row, env assembler, docs regeneration, diag
 
 ## 1. Diagram
 
-[Open the interactive diagram](./service-admission-workflow.html).
+[Open the full-size diagram](./service-admission-workflow.html).
 
 ## 2. Notes
 

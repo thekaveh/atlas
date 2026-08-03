@@ -159,10 +159,11 @@ def test_gltf_transform_postprocess_script_contract() -> None:
     mode = SCRIPT.stat().st_mode
 
     assert mode & os.X_OK
-    assert "@gltf-transform/cli@4.4.1" in text
-    assert "gltf-transform inspect" in text
-    assert "gltf-transform validate" in text
-    assert "gltf-transform optimize" in text
+    assert "package-lock.json" in text
+    assert "npm ci --omit=dev" in text
+    assert '"$cli" inspect' in text
+    assert '"$cli" validate' in text
+    assert '"$cli" optimize' in text
     assert "--compress meshopt" in text
     assert "--texture-compress webp" in text
     assert "docker run" in text

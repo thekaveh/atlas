@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -18,8 +19,15 @@ def _git_env(key_path: Path | None) -> dict[str, str]:
     env.setdefault("GIT_COMMITTER_NAME", "Atlas Docs Bot")
     env.setdefault("GIT_COMMITTER_EMAIL", "docs@atlas.local")
     if key_path:
+        known_hosts = (os.environ.get("WIKI_KNOWN_HOSTS") or "").strip()
+        if not known_hosts:
+            raise RuntimeError(
+                "WIKI_KNOWN_HOSTS must point to a reviewed SSH known_hosts file"
+            )
         env["GIT_SSH_COMMAND"] = (
-            f"ssh -i {key_path} -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+            f"ssh -i {shlex.quote(str(key_path))} -o IdentitiesOnly=yes "
+            "-o StrictHostKeyChecking=yes "
+            f"-o UserKnownHostsFile={shlex.quote(known_hosts)}"
         )
     return env
 

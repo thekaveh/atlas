@@ -17,6 +17,7 @@ _HTML_HREF_RE = re.compile(
     r"(?P<target>.*?)(?P=quote)",
     re.IGNORECASE,
 )
+_MARKDOWN_ATTR_LIST_RE = re.compile(r"[ \t]*\{:\s+[^}\n]+\}")
 _SCHEME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*:")
 _ATLAS_BLOB_PREFIX = "https://github.com/thekaveh/atlas/blob/"
 
@@ -26,7 +27,9 @@ def build_source_map(manifest: Manifest, surface: str) -> dict[str, str]:
         raise ValueError(f"Unsupported generated surface: {surface}")
     return {
         page.source: (
-            page.site_path.as_posix() if surface == "site" else page.wiki_path.as_posix()
+            page.site_path.as_posix()
+            if surface == "site"
+            else page.wiki_path.with_suffix("").as_posix()
         )
         for page in manifest.pages
     }
@@ -139,5 +142,6 @@ def rewrite_for_surface(
             rendered = _MARKDOWN_LINK_RE.sub(rewrite_match, line)
             if surface == "wiki":
                 rendered = _HTML_HREF_RE.sub(rewrite_html_href, rendered)
+                rendered = _MARKDOWN_ATTR_LIST_RE.sub("", rendered)
             output.append(rendered)
     return "".join(output)

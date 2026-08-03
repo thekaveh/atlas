@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 from typing import Dict, List, Optional, Set
 from core.config_parser import ConfigParser
+from utils.atomic_write import atomic_write_text
 
 
 class SourceValidator:
@@ -407,40 +408,40 @@ class SourceValidator:
         # Clean up stale auto-managed lines from old .env files. These were
         # written by the previous bootstrapper and are now dead. Leaving them
         # is harmless but confusing during debugging.
-        self._strip_lines_from_env([
-            'XTTS_ENDPOINT', 'PARAKEET_ENDPOINT', 'XTTS_GPU_SCALE'
-        ])
+        try:
+            self._strip_lines_from_env([
+                'XTTS_ENDPOINT', 'PARAKEET_ENDPOINT', 'XTTS_GPU_SCALE'
+            ])
+        except OSError as exc:
+            self.validation_errors.append(
+                f"❌ Could not remove retired TTS/STT settings from .env: {exc}."
+            )
+            return False
         return True
 
     def _strip_lines_from_env(self, var_names: List[str]) -> None:
         """Remove any ``VAR=…`` line whose key matches ``var_names`` from .env.
 
-        Best-effort: failures here don't fail the launch pipeline because
-        leftover stale env lines are inert (no consumer reads them after
-        this change).
+        Write failures propagate so the launch pipeline never continues after
+        an attempted repair whose durable state is uncertain.
         """
         env_file = self.config_parser.env_file_path
         if not env_file.exists():
             return
-        try:
-            with open(env_file, 'r', encoding="utf-8") as f:
-                lines = f.readlines()
-            keep = []
-            stripped_any = False
-            for line in lines:
-                # Match ``VAR=`` at line start (ignoring leading whitespace).
-                # We do NOT touch commented lines or lines that mention the
-                # var in passing — we only remove assignments.
-                lhs = line.split('=', 1)[0].strip()
-                if lhs in var_names:
-                    stripped_any = True
-                    continue
-                keep.append(line)
-            if stripped_any:
-                with open(env_file, 'w', encoding="utf-8") as f:
-                    f.writelines(keep)
-        except Exception:  # noqa: BLE001
-            pass  # silent — not critical
+        lines = env_file.read_text(encoding="utf-8").splitlines(keepends=True)
+        keep = []
+        stripped_any = False
+        for line in lines:
+            # Match ``VAR=`` at line start (ignoring leading whitespace).
+            # We do NOT touch commented lines or lines that mention the
+            # var in passing — we only remove assignments.
+            lhs = line.split('=', 1)[0].strip()
+            if lhs in var_names:
+                stripped_any = True
+                continue
+            keep.append(line)
+        if stripped_any:
+            atomic_write_text(env_file, "".join(keep), mode=0o600)
 
     def _enforce_cloud_keys_present(self) -> bool:
         """Auto-disable cloud providers whose API key is empty.

@@ -20,8 +20,9 @@ from __future__ import annotations
 
 import re
 import sys
-from datetime import datetime
 from pathlib import Path
+
+from utils.atomic_write import atomic_write_text, create_private_backup
 
 
 _SENTINEL = "BOOTSTRAPPER_PORT_LAYOUT_VERSION"
@@ -175,14 +176,7 @@ def apply(env_path: Path) -> None:
     # Backup. Version-stamped so it can't collide with v1's backup in a single
     # v1→v2→v3 chain (both used to name it ``.env.backup.<ts>`` at second
     # precision, so v3 silently overwrote v1's pristine snapshot).
-    ts = datetime.now().strftime("%Y%m%dT%H%M%S")
-    backup = env_path.with_name(f"{env_path.name}.backup.v3.{ts}")
-    backup.touch()
-    # Backup carries the same secrets — clamp to the original mode
-    # before writing (a user-chmod'd 0600 .env must not back up 0644).
-    import os as _os
-    _os.chmod(backup, _os.stat(env_path).st_mode)
-    backup.write_text(text, encoding="utf-8")
+    backup = create_private_backup(env_path, version="v3")
 
     # Translate COMFYUI_MODEL_SET → catalog CSV.
     old_value = parsed.get(_OLD_VAR, "")
@@ -204,18 +198,7 @@ def apply(env_path: Path) -> None:
     if "COMFYUI_CUSTOM_MODELS_FILE" not in parsed:
         new_text = _replace_or_append(new_text, "COMFYUI_CUSTOM_MODELS_FILE", "/custom-models.yaml")
 
-    # Atomic write via tmp + rename, preserving the original mode (a
-    # user-chmod'd 0600 .env must not come back umask-default).
-    tmp = env_path.with_suffix(env_path.suffix + ".tmp")
-    original_mode = _os.stat(env_path).st_mode
-    try:
-        # chmod BEFORE writing secrets (no umask-default window).
-        tmp.touch()
-        _os.chmod(tmp, original_mode)
-        tmp.write_text(new_text, encoding="utf-8")
-        tmp.replace(env_path)
-    finally:
-        tmp.unlink(missing_ok=True)
+    atomic_write_text(env_path, new_text, mode=0o600)
 
     print(
         f"[migration_v3] COMFYUI_MODEL_SET={old_value!r} → "
@@ -239,4 +222,4 @@ def stamp_version(env_path: Path, version: int = 3) -> None:
         if lines and not lines[-1].endswith("\n"):
             lines[-1] += "\n"
         lines.append(f"BOOTSTRAPPER_PORT_LAYOUT_VERSION={version}\n")
-    env_path.write_text("".join(lines), encoding="utf-8")
+    atomic_write_text(env_path, "".join(lines), mode=0o600)

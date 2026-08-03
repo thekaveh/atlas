@@ -4,7 +4,7 @@ Prometheus, Grafana, Langfuse, OpenTelemetry Collector, Tempo, Loki, and service
 
 ## 1. Diagram
 
-[Open the interactive diagram](./observability-flow.html).
+[Open the full-size diagram](./observability-flow.html).
 
 ## 2. Notes
 

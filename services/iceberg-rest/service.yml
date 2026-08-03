@@ -40,6 +40,9 @@ env:
   - name: ICEBERG_REST_POSTGRES_JDBC_VERSION
     default: "42.7.12"
     description: "PostgreSQL JDBC driver version layered into the local Iceberg REST image build."
+  - name: ICEBERG_REST_POSTGRES_JDBC_SHA512
+    default: "3759e7160591863e5100361298943df94488a6e4ee03936d20723638142fe8038c9a6a47fa8ee7e424f4ef09bb351edc89dfe2ae4acdfc0f92699a8b00196c5c"
+    description: "SHA-512 digest required for the PostgreSQL JDBC driver selected above. Update both values together."
   - name: ICEBERG_REST_SCALE
     auto_managed: true
   - name: ICEBERG_REST_INIT_SCALE

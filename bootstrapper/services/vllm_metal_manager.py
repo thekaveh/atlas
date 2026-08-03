@@ -342,7 +342,9 @@ class VllmMetalManager:
         with tempfile.TemporaryDirectory(prefix="atlas-vllm-metal-") as tmp:
             archive = Path(tmp) / "vllm.tar.gz"
             try:
-                urllib.request.urlretrieve(archive_url, archive)
+                with urllib.request.urlopen(archive_url, timeout=60) as response:
+                    with archive.open("wb") as destination:
+                        shutil.copyfileobj(response, destination)
             except (OSError, urllib.error.URLError) as exc:
                 raise VllmMetalError(
                     f"failed to download pinned vLLM core {self.core_version}"

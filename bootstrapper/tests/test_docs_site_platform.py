@@ -9,15 +9,15 @@ from PIL import Image
 import pytest
 import yaml
 
-from scripts.docs.build_docs import build
+from scripts.docs.build_docs import render_mkdocs_yml
 from scripts.docs.links import find_links, is_forbidden
 from scripts.docs.manifest import load_manifest
 from services.manifests import load_manifests
+from tests.three_surface_test_utils import PROJECTION_ROOT, ensure_generated_docs
 
 
 ROOT = Path(__file__).resolve().parents[2]
-MKDOCS = ROOT / "mkdocs.yml"
-GENERATED = ROOT / "generated"
+GENERATED = PROJECTION_ROOT
 DOCS_SITE = GENERATED / "site"
 WIKI_DIR = GENERATED / "wiki"
 DIAGRAMS_DIR = ROOT / "docs" / "architecture"
@@ -33,13 +33,7 @@ POSTER_VARIANT_SCRIPT = ROOT / "scripts" / "generate-atlas-poster-variants.py"
 
 @pytest.fixture(scope="module", autouse=True)
 def _generated_docs() -> None:
-    build(
-        ROOT / "docs" / "manifest.yaml",
-        ROOT,
-        site=True,
-        wiki=True,
-        check=True,
-    )
+    ensure_generated_docs()
 
 
 def _manifest():
@@ -47,7 +41,7 @@ def _manifest():
 
 
 def _mkdocs() -> dict:
-    return yaml.safe_load(MKDOCS.read_text(encoding="utf-8"))
+    return yaml.safe_load(render_mkdocs_yml(_manifest()))
 
 
 def _flatten_nav(items: list) -> dict[str, str]:
@@ -192,6 +186,8 @@ def test_architecture_pages_explain_the_views_without_publication_instructions()
         assert "## 4. Maintenance" not in text, page
         assert "architecture-diagram design system" not in text, page
         assert "dark slate background" not in text, page
+        assert "Open the full-size diagram" in text, page
+        assert "interactive diagram" not in text, page
         interactive = page.with_suffix(".html").read_text(encoding="utf-8")
         assert "How to read this view" in interactive, page
         assert "architecture-diagram design system" not in interactive, page
@@ -298,8 +294,16 @@ def test_docs_pages_workflow_is_main_only_pinned_and_uses_a_wiki_deploy_key() ->
     text = PAGES_WORKFLOW.read_text(encoding="utf-8")
     assert workflow[True]["push"]["branches"] == ["main"]
     assert workflow["permissions"]["contents"] == "read"
-    assert workflow["permissions"]["pages"] == "write"
+    assert "pages" not in workflow["permissions"]
+    assert "id-token" not in workflow["permissions"]
+    assert workflow["jobs"]["deploy"]["permissions"] == {
+        "contents": "read",
+        "pages": "write",
+        "id-token": "write",
+    }
     assert "WIKI_DEPLOY_KEY" in text
+    assert "WIKI_KNOWN_HOSTS" in text
+    assert "StrictHostKeyChecking=accept-new" not in text
     assert "GITHUB_TOKEN" not in text
     assert "make docs-check" in text
     assert "python -m scripts.docs.build_docs --wiki" in text
@@ -319,8 +323,8 @@ def test_services_lint_gates_main_and_develop_and_runs_three_surface_check() -> 
     assert workflow[True]["pull_request"]["branches"] == ["main", "develop"]
     assert "make docs-check" in text
     assert "Install Cairo" in text
-    assert workflow["jobs"]["notebook-reproducibility"]["name"] == "Notebook source hygiene"
-    assert "python -m scripts.notebook_reproducibility" in text
+    assert "notebook-reproducibility" not in workflow["jobs"]
+    assert text.count("python -m scripts.notebook_reproducibility") == 1
 
 
 def test_source_configuration_shell_examples_do_not_comment_after_continuations() -> None:

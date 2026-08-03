@@ -854,7 +854,7 @@ def architecture_pages(model: DocsModel) -> dict[Path, str]:
 
 ## 1. Diagram
 
-[Open the interactive diagram](./{slug}.html).
+[Open the full-size diagram](./{slug}.html).
 
 ## 2. Notes
 

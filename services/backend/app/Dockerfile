@@ -10,10 +10,11 @@ WORKDIR /app
 RUN pip install --no-cache-dir uv==0.11.19
 
 # Copy requirements first for better layer caching
-COPY ./app/requirements.txt .
+COPY ./app/requirements.txt ./app/requirements-locked.txt ./
 
 # Install dependencies using uv with --system flag
-RUN uv pip install --system --no-cache-dir -r requirements.txt
+RUN uv pip install --system --no-cache-dir \
+      -r requirements.txt -c requirements-locked.txt
 
 # Copy application code
 COPY ./app .

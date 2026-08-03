@@ -4,7 +4,7 @@ How start.sh flows through env loading, migrations, manifest synthesis, track fi
 
 ## 1. Diagram
 
-[Open the interactive diagram](./bootstrapper-lifecycle.html).
+[Open the full-size diagram](./bootstrapper-lifecycle.html).
 
 ## 2. Notes
 

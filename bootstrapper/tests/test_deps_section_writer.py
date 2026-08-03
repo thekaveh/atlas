@@ -70,3 +70,12 @@ def test_generated_section_does_not_expose_maintainer_instructions():
     text = render_section(graph, position=5)
     assert "Auto-generated section" not in text
     assert "bootstrapper.docs.regen" not in text
+
+
+def test_generated_section_uses_surface_neutral_diagram_wording():
+    from docs.deps_resolver import build_doc_graph
+    from docs.deps_section_writer import render_section
+
+    text = render_section(build_doc_graph("hermes", SERVICES_DIR))
+    assert "Open the full-size diagram" in text
+    assert "interactive HTML diagram" not in text

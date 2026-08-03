@@ -4,7 +4,7 @@ User entrypoints, Kong, apps, agents, LLM core, data stores, and cloud-provider 
 
 ## 1. Diagram
 
-[Open the interactive diagram](./platform-overview.html).
+[Open the full-size diagram](./platform-overview.html).
 
 ## 2. Notes
 

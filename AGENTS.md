@@ -42,12 +42,13 @@ For TUI/CLI visual work: after each change, describe exactly what changed visual
 - `Manifest lint + unit tests`
 - `Compose merge + byte-equivalence + source-permutation matrix`
 - `Docs drift + audit scripts`
+- `Build-validation (Dockerfile + requirements.txt installability)`
 
-`Build-validation (Dockerfile + requirements.txt installability)` is temporarily opt-in through the repository Actions variable `ENABLE_BUILD_VALIDATION=true` and is not a required check. Restore it to the `gitflow` ruleset when re-enabling it.
+Build validation is enabled on every workflow run and is a required check in the live `gitflow` ruleset.
 
-Strict mode is enabled, so the PR branch must be up to date with main before merge becomes available. Conversation-resolution is required.
+Strict mode is enabled, so each PR branch must be up to date with that PR's target branch before merge becomes available. Conversation-resolution is required.
 
-Integration flow: branch (typically a dedicated git worktree) → push the branch → `gh pr create --base main` → wait for the required checks → `gh pr merge --squash --delete-branch` (squash preserves the linear history the repo prefers). Never attempt `git push origin main` or `develop`. Inspect the live rule with `gh api repos/thekaveh/atlas/rulesets`.
+Gitflow integration uses two PRs: branch (typically a dedicated git worktree) → push → PR to `develop` → required checks → squash merge; then `develop` → PR to `main` → required checks → squash merge. Never attempt `git push origin main` or `develop`. Inspect the live rule with `gh api repos/thekaveh/atlas/rulesets`.
 
 ## Key Commands
 
@@ -144,7 +145,7 @@ Key modules:
 
 `start.sh` and `stop.sh` are thin wrappers that prefer `uv run` and fall back to system Python. The bootstrapper can also be invoked directly: `python bootstrapper/start.py [flags]` or `python bootstrapper/stop.py`. `--no-tui` bypasses the Textual TUI and runs the linear stdout flow (used by CI, non-TTY shells, and very narrow terminals).
 
-Dependencies managed via `uv` (falls back to pip). Config: `bootstrapper/pyproject.toml` — current deps are `pyyaml`, `rich`, `click`, `requests`, `urllib3`, `jsonschema`, `textual` (the TUI framework). Python `>=3.10`.
+Dependencies are managed via `uv` (with a pip fallback) and declared in `bootstrapper/pyproject.toml`, including the Python-version markers needed at the supported Python `>=3.10` floor. Treat that file and `bootstrapper/uv.lock` as the dependency source of truth rather than duplicating the inventory here.
 
 **Brand customization.** The wizard's brand panel and info box (brand name, tagline, version, author, author email, license, repo URL) is configurable via `BRAND_*` env vars in `.env`. Defaults are Atlas; forks can rebrand by setting these. See the `BRAND_*` block in `.env.example`.
 
@@ -234,8 +235,12 @@ uv run --project bootstrapper python scripts/check-kong-routes.py              #
 uv run --project bootstrapper python scripts/validate_research_schema.py --all # docs/research/ schema check
 uv run --project bootstrapper python scripts/check-track-membership.py         # track coverage audit
 (cd services/docling/provider/localhost && uv lock --locked)                   # docling localhost provider lock
+uv run --project bootstrapper python scripts/refresh-local-deep-researcher-lock.py --check  # Local Deep Researcher lock
+uv run --project bootstrapper python -m scripts.check_runtime_locks            # compiled service runtime locks
+uv tool install pip-audit==2.10.0                                               # pinned vulnerability-audit tool
+uv run --project bootstrapper python -m scripts.audit_runtime_locks            # runtime vulnerability audit
 ```
 
 ## Linting / Type-checking
 
-None configured. `bootstrapper/pyproject.toml` declares only pytest in its PEP 735 `[dependency-groups].dev`; there is no formatter, linter, or type-checker for the bootstrapper or the backend. Don't introduce one without being asked.
+No formatter, linter, or type-checker is configured for the bootstrapper or backend. The bootstrapper's PEP 735 `[dependency-groups].dev` in `bootstrapper/pyproject.toml` owns its test and documentation-build tooling; do not introduce additional quality tools without being asked.

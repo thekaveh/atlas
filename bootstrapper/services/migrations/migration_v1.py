@@ -19,12 +19,12 @@ changes again — author a sibling migration_v2.py with its own snapshot.
 
 from __future__ import annotations
 
-import os
 import re
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 from typing import Optional
+
+from utils.atomic_write import atomic_write_text, create_private_backup
 
 
 # Tolerant matcher for ``BOOTSTRAPPER_PORT_LAYOUT_VERSION=1`` lines.
@@ -105,15 +105,7 @@ def apply(
     # backup in the same chain (v1→v2→v3 all run sub-second; a shared
     # ``.env.backup.<ts>`` name at second precision let v3 overwrite v1's
     # pristine snapshot — the one that matters for rollback).
-    backup_path = env_path.with_name(
-        f"{env_path.name}.backup.v1.{datetime.now().strftime('%Y%m%dT%H%M%S')}"
-    )
-    # Clamp the backup to the source's mode BEFORE writing — by the time
-    # migrations run, .env holds generated secrets, and a user-chmod'd 0600 .env
-    # must not be backed up at the umask default (0644). (Mirrors migration_v3.)
-    backup_path.touch()
-    os.chmod(backup_path, os.stat(env_path).st_mode)
-    backup_path.write_text(env_path.read_text(encoding="utf-8"), encoding="utf-8")
+    backup_path = create_private_backup(env_path, version="v1")
 
     lines = env_path.read_text(encoding="utf-8").splitlines(keepends=True)
     rewritten: dict[str, tuple[str, str]] = {}
@@ -157,15 +149,7 @@ def apply(
                 preserved.append(key)
         out.append(line)
 
-    # Atomic write (tmp + replace), mirroring migration_v2/v3: a crash or
-    # disk-full mid-write must not truncate the user's .env (all their secrets).
-    # A version-stamped backup already exists above, but the live file should
-    # never be left half-written.
-    tmp = env_path.with_name(f"{env_path.name}.v1.tmp")
-    tmp.touch()
-    os.chmod(tmp, os.stat(env_path).st_mode)
-    tmp.write_text("".join(out), encoding="utf-8")
-    tmp.replace(env_path)
+    atomic_write_text(env_path, "".join(out), mode=0o600)
     return MigrationResult(rewritten, preserved, backup_path)
 
 
@@ -209,4 +193,4 @@ def stamp_version(env_path: Path, version: int = 1) -> None:
         if lines and not lines[-1].endswith("\n"):
             lines[-1] += "\n"
         lines.append(f"BOOTSTRAPPER_PORT_LAYOUT_VERSION={version}\n")
-    env_path.write_text("".join(lines), encoding="utf-8")
+    atomic_write_text(env_path, "".join(lines), mode=0o600)

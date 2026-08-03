@@ -2,7 +2,9 @@ import os
 import subprocess
 from pathlib import Path
 
-from scripts.docs.push_wiki import push_wiki, sync_wiki
+import pytest
+
+from scripts.docs.push_wiki import _git_env, push_wiki, sync_wiki
 
 
 def test_sync_wiki_preserves_git_and_removes_stale_files(tmp_path: Path) -> None:
@@ -19,6 +21,23 @@ def test_sync_wiki_preserves_git_and_removes_stale_files(tmp_path: Path) -> None
     assert (repo / ".git").is_dir()
     assert (repo / "Home.md").read_text(encoding="utf-8") == "# Home\n"
     assert not (repo / "stale.md").exists()
+
+
+def test_wiki_ssh_requires_and_uses_reviewed_known_hosts(
+    tmp_path: Path, monkeypatch
+) -> None:
+    key = tmp_path / "wiki key"
+    known_hosts = tmp_path / "github known hosts"
+    monkeypatch.delenv("WIKI_KNOWN_HOSTS", raising=False)
+    with pytest.raises(RuntimeError, match="WIKI_KNOWN_HOSTS"):
+        _git_env(key)
+
+    monkeypatch.setenv("WIKI_KNOWN_HOSTS", str(known_hosts))
+    command = _git_env(key)["GIT_SSH_COMMAND"]
+    assert "StrictHostKeyChecking=yes" in command
+    assert "accept-new" not in command
+    assert "UserKnownHostsFile=" in command
+    assert str(known_hosts) in command
 
 
 def test_push_wiki_uses_master_and_default_ci_identity(tmp_path: Path, monkeypatch) -> None:
