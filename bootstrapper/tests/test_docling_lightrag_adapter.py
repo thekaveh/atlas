@@ -1,0 +1,211 @@
+"""LightRAG's pinned Docling client contract is served by the adapter."""
+
+from __future__ import annotations
+
+import asyncio
+import functools
+import io
+import sys
+import zipfile
+from pathlib import Path
+
+import pytest
+from httpx2 import ASGITransport, AsyncClient
+from fastapi import FastAPI, File, Request, UploadFile
+from fastapi.responses import Response
+
+
+ROOT = Path(__file__).resolve().parents[2]
+PROVIDER_ROOT = ROOT / "services" / "docling" / "provider"
+
+
+def _run_async(function):
+    @functools.wraps(function)
+    def wrapper(*args, **kwargs):
+        return asyncio.run(function(*args, **kwargs))
+
+    return wrapper
+
+
+def _load_app_module(monkeypatch):
+    monkeypatch.syspath_prepend(str(PROVIDER_ROOT))
+    for name in list(sys.modules):
+        if name == "adapter" or name.startswith("adapter."):
+            monkeypatch.delitem(sys.modules, name, raising=False)
+    from adapter import app as adapter_app
+
+    return adapter_app
+
+
+def _bundle(stem: str = "report") -> bytes:
+    stream = io.BytesIO()
+    with zipfile.ZipFile(stream, "w") as archive:
+        archive.writestr(f"{stem}.json", '{"schema_name":"DoclingDocument"}')
+        archive.writestr(f"{stem}.md", "# Converted\n")
+    return stream.getvalue()
+
+
+class ControlledUpstream:
+    def __init__(self, result: bytes | None = None):
+        self.result = result or _bundle()
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+        self.calls: list[tuple[Path, str, int]] = []
+
+    async def convert(
+        self, upload_path: Path, upload_name: str, timeout_seconds: int
+    ) -> bytes:
+        self.calls.append((upload_path, upload_name, timeout_seconds))
+        self.started.set()
+        await self.release.wait()
+        return self.result
+
+
+async def _client(app):
+    return AsyncClient(
+        transport=ASGITransport(app=app, raise_app_exceptions=False),
+        base_url="http://adapter",
+    )
+
+
+@_run_async
+async def test_adapter_matches_pinned_lightrag_async_contract(monkeypatch, tmp_path):
+    adapter_app = _load_app_module(monkeypatch)
+    upstream = ControlledUpstream(_bundle("Quarterly_Report"))
+    app = adapter_app.create_app(
+        upstream=upstream,
+        spool_root=tmp_path,
+        max_jobs=2,
+        result_ttl_seconds=900,
+        upload_max_bytes=1024,
+        job_timeout_seconds=37,
+    )
+
+    async with await _client(app) as client:
+        response = await client.post(
+            "/v1/convert/file/async",
+            files={"files": ("Quarterly Report.pdf", b"document", "application/pdf")},
+            data={
+                "pipeline": "standard",
+                "target_type": "zip",
+                "image_export_mode": "referenced",
+                "to_formats": ["json", "md"],
+                "do_ocr": "true",
+            },
+        )
+        assert response.status_code == 202
+        task_id = response.json()["task_id"]
+        assert task_id
+
+        await asyncio.wait_for(upstream.started.wait(), timeout=1)
+        status = await client.get(f"/v1/status/poll/{task_id}", params={"wait": 1})
+        assert status.status_code == 200
+        assert status.json() == {"task_id": task_id, "task_status": "started"}
+
+        upload_path, upload_name, timeout_seconds = upstream.calls[0]
+        assert upload_name == "Quarterly Report.pdf"
+        assert upload_path.read_bytes() == b"document"
+        assert timeout_seconds == 37
+
+        upstream.release.set()
+        for _ in range(20):
+            status = await client.get(f"/v1/status/poll/{task_id}", params={"wait": 1})
+            if status.json()["task_status"] == "success":
+                break
+            await asyncio.sleep(0)
+        assert status.json() == {"task_id": task_id, "task_status": "success"}
+
+        result = await client.get(f"/v1/result/{task_id}")
+        assert result.status_code == 200
+        assert "zip" in result.headers["content-type"]
+        with zipfile.ZipFile(io.BytesIO(result.content)) as archive:
+            assert archive.namelist() == ["Quarterly_Report.json", "Quarterly_Report.md"]
+
+        assert (await client.get(f"/v1/status/poll/{task_id}")).status_code == 404
+    assert not list(tmp_path.iterdir())
+
+
+@_run_async
+async def test_adapter_failure_is_generic_and_releases_capacity(monkeypatch, tmp_path):
+    adapter_app = _load_app_module(monkeypatch)
+
+    class FailingUpstream:
+        async def convert(self, upload_path, upload_name, timeout_seconds):
+            raise RuntimeError("upstream leaked secret")
+
+    app = adapter_app.create_app(
+        upstream=FailingUpstream(),
+        spool_root=tmp_path,
+        max_jobs=1,
+        result_ttl_seconds=900,
+        upload_max_bytes=1024,
+        job_timeout_seconds=10,
+    )
+
+    async with await _client(app) as client:
+        first = await client.post(
+            "/v1/convert/file/async", files={"files": ("a.pdf", b"a")}
+        )
+        assert first.status_code == 202
+        first_id = first.json()["task_id"]
+        for _ in range(20):
+            failed = await client.get(f"/v1/status/poll/{first_id}")
+            if failed.json()["task_status"] == "failure":
+                break
+            await asyncio.sleep(0)
+        assert failed.json() == {"task_id": first_id, "task_status": "failure"}
+        assert "secret" not in failed.text
+
+        second = await client.post(
+            "/v1/convert/file/async", files={"files": ("b.pdf", b"b")}
+        )
+        assert second.status_code == 202
+    await asyncio.sleep(0)
+    assert not list(tmp_path.iterdir())
+
+
+@_run_async
+async def test_adapter_rejects_unsupported_sync_route(monkeypatch, tmp_path):
+    adapter_app = _load_app_module(monkeypatch)
+    app = adapter_app.create_app(
+        upstream=ControlledUpstream(), spool_root=tmp_path, max_jobs=1
+    )
+
+    async with await _client(app) as client:
+        response = await client.post(
+            "/v1/convert/file", files={"files": ("a.pdf", b"a")}
+        )
+
+    assert response.status_code == 404
+
+
+@_run_async
+async def test_upstream_authenticates_and_retries_capacity(monkeypatch, tmp_path):
+    adapter_app = _load_app_module(monkeypatch)
+    attempts = 0
+    upstream_app = FastAPI()
+
+    @upstream_app.post("/internal/lightrag/bundle")
+    async def bundle(request: Request, file: UploadFile = File(...)):
+        nonlocal attempts
+        attempts += 1
+        assert request.headers["authorization"] == "Bearer provider-token"
+        assert file.filename == "report.pdf"
+        assert await file.read() == b"document"
+        if attempts == 1:
+            return Response(status_code=429, headers={"Retry-After": "1"})
+        return Response(_bundle(), media_type="application/zip")
+
+    source = tmp_path / "upload.pdf"
+    source.write_bytes(b"document")
+    upstream = adapter_app.DoclingUpstream(
+        endpoint="http://docling.test",
+        token="provider-token",
+        transport=ASGITransport(app=upstream_app, raise_app_exceptions=False),
+        retry_delay_seconds=0,
+    )
+
+    result = await upstream.convert(source, "report.pdf", timeout_seconds=5)
+
+    assert result == _bundle()
+    assert attempts == 2

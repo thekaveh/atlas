@@ -303,6 +303,10 @@ def test_large_service_runtime_graphs_use_compiled_constraints() -> None:
             "services/docling/provider/gpu/requirements-locked.txt",
         ),
         (
+            "services/docling/provider/adapter/Dockerfile",
+            "services/docling/provider/adapter/requirements-locked.txt",
+        ),
+        (
             "services/mcp-servers/build/Dockerfile",
             "services/mcp-servers/runtime/requirements-locked.txt",
         ),

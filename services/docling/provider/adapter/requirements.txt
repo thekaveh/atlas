@@ -1,0 +1,4 @@
+fastapi==0.141.1
+httpx2==2.9.1
+python-multipart==0.0.32
+uvicorn==0.51.0
