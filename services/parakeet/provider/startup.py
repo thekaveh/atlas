@@ -73,4 +73,3 @@ class ModelStartup:
             )
         else:
             self._state = "healthy"
-

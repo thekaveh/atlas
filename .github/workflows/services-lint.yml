@@ -28,6 +28,7 @@ jobs:
   lint:
     name: Manifest lint + unit tests
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -138,6 +139,7 @@ jobs:
   compose-equivalence:
     name: Compose merge + byte-equivalence + source-permutation matrix
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -266,6 +268,7 @@ jobs:
   build-validation:
     name: Build-validation (Dockerfile + requirements.txt installability)
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     # Catches the Pass 12 / Pass 13 class of bug: unsatisfiable pip pins,
     # nonexistent packages, broken Dockerfile syntax. Compose-shape checks
     # never invoke `docker build`, so a broken requirements.txt sails

@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import argparse
 import re
-import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import unquote
+
+from scripts.bounded_subprocess import CommandLaunchError, CommandTimedOut, run_bounded
 
 from .build_docs import build
 from .canonical_references import sync_canonical_references
@@ -114,14 +115,15 @@ def _is_internal_doc(path: Path, docs_root: Path) -> bool:
 
 
 def _tracked_service_readmes(repo_root: Path) -> list[Path]:
-    result = subprocess.run(
-        ["git", "ls-files", "--", "services/**"],
-        cwd=repo_root,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if result.returncode != 0:
+    try:
+        result = run_bounded(
+            ["git", "ls-files", "--", "services/**"], cwd=repo_root
+        )
+    except CommandLaunchError:
+        result = None
+    except CommandTimedOut as exc:
+        raise RuntimeError("Tracked service documentation inventory timed out") from exc
+    if result is None or result.returncode != 0:
         services_root = repo_root / "services"
         return sorted(services_root.rglob("README.md")) if services_root.is_dir() else []
     relative_paths = result.stdout.splitlines()
@@ -140,14 +142,13 @@ def _tracked_docs(repo_root: Path) -> list[Path]:
     when git is unavailable, mirroring ``_tracked_service_readmes``.
     """
     docs_root = repo_root / "docs"
-    result = subprocess.run(
-        ["git", "ls-files", "--", "docs"],
-        cwd=repo_root,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if result.returncode != 0:
+    try:
+        result = run_bounded(["git", "ls-files", "--", "docs"], cwd=repo_root)
+    except CommandLaunchError:
+        result = None
+    except CommandTimedOut as exc:
+        raise RuntimeError("Tracked documentation inventory timed out") from exc
+    if result is None or result.returncode != 0:
         return sorted(docs_root.rglob("*.md")) if docs_root.is_dir() else []
     return sorted(
         repo_root / relative

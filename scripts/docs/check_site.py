@@ -2,11 +2,17 @@ from __future__ import annotations
 
 import argparse
 import os
-import subprocess
 import sys
 from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import urlparse
+
+from scripts.bounded_subprocess import (
+    CommandLaunchError,
+    CommandTimedOut,
+    redacted_failure,
+    run_bounded,
+)
 
 
 class LinkParser(HTMLParser):
@@ -18,6 +24,21 @@ class LinkParser(HTMLParser):
         for name, value in attrs:
             if name in {"href", "src"} and value:
                 self.links.append(value)
+
+
+def _run_check(command: list[str], *, label: str, cwd: Path, env=None) -> None:
+    try:
+        result = run_bounded(command, cwd=cwd, env=env)
+    except CommandTimedOut as exc:
+        raise SystemExit(f"{label} timed out") from exc
+    except CommandLaunchError as exc:
+        raise SystemExit(f"{label} could not start (details redacted)") from exc
+    if result.returncode != 0:
+        raise SystemExit(redacted_failure(label, result.returncode))
+    if result.stdout:
+        print(result.stdout, end="")
+    if result.stderr:
+        print(result.stderr, end="", file=sys.stderr)
 
 
 def _target_exists(site_dir: Path, source: Path, link: str) -> bool:
@@ -64,14 +85,18 @@ def main() -> int:
     args = parser.parse_args()
     root = Path.cwd()
     if not args.built_only:
-        subprocess.run([sys.executable, "-m", "scripts.docs.check_docs"], cwd=root, check=True)
+        _run_check(
+            [sys.executable, "-m", "scripts.docs.check_docs"],
+            label="docs contract check",
+            cwd=root,
+        )
         env = os.environ.copy()
         env["NO_MKDOCS_2_WARNING"] = "1"
-        subprocess.run(
+        _run_check(
             [sys.executable, "-m", "mkdocs", "build", "--strict"],
+            label="strict MkDocs build",
             cwd=root,
             env=env,
-            check=True,
         )
     missing = validate_built_site_links(root / "site")
     if missing:

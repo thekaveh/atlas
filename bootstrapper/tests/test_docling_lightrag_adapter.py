@@ -364,19 +364,19 @@ def test_adapter_rejects_storage_smaller_than_configured_working_set(
     monkeypatch, tmp_path
 ):
     adapter_app = _load_app_module(monkeypatch)
-    monkeypatch.setenv("DOCLING_ADAPTER_MAX_RESULT_BYTES", "100")
+    monkeypatch.setenv("DOCLING_ADAPTER_MAX_RESULT_BYTES", "1")
     monkeypatch.setattr(
         adapter_app.shutil,
         "disk_usage",
-        lambda _path: SimpleNamespace(free=64 * 1024 * 1024),
+        lambda _path: SimpleNamespace(free=300 * 1024 * 1024),
     )
 
     with pytest.raises(ValueError, match="temporary storage"):
         adapter_app.create_app(
             upstream=ControlledUpstream(),
             spool_root=tmp_path,
-            max_jobs=2,
-            upload_max_bytes=100,
+            max_jobs=1,
+            upload_max_bytes=200 * 1024 * 1024,
         )
 
 
@@ -502,6 +502,9 @@ async def test_one_shot_result_ignores_range_and_sends_complete_archive(
         if message["type"] == "http.response.body"
     )
     assert start["status"] == 200
+    assert not any(
+        name.lower() == b"accept-ranges" for name, _value in start["headers"]
+    )
     assert body == payload
     assert not result_path.exists()
 

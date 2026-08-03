@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import os
+import signal
 import subprocess
 from pathlib import Path
-from typing import Sequence
+from typing import Mapping, Sequence
 
 
 DEFAULT_TIMEOUT_SECONDS = 300
@@ -15,24 +17,55 @@ class CommandTimedOut(RuntimeError):
     """A bounded subprocess exceeded its deadline."""
 
 
+class CommandLaunchError(RuntimeError):
+    """A bounded subprocess could not be launched."""
+
+
+def _terminate_process_tree(process: subprocess.Popen[str]) -> None:
+    """Force-stop the bounded command and descendants without leaking output."""
+    if os.name == "posix":
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    else:  # pragma: no cover - Windows CI is not currently used
+        subprocess.run(
+            ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+            capture_output=True,
+            check=False,
+            timeout=5,
+        )
+        if process.poll() is None:
+            process.kill()
+
+
 def run_bounded(
     command: Sequence[str],
     *,
     cwd: Path | None = None,
-    timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+    env: Mapping[str, str] | None = None,
+    timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
 ) -> subprocess.CompletedProcess[str]:
-    """Capture output so credentials and private registry URLs stay private."""
+    """Run a process group with captured output and a finite deadline."""
     try:
-        return subprocess.run(
+        process = subprocess.Popen(
             command,
             cwd=cwd,
-            capture_output=True,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            check=False,
-            timeout=timeout_seconds,
+            start_new_session=os.name == "posix",
         )
+    except OSError as exc:
+        raise CommandLaunchError from exc
+    try:
+        stdout, stderr = process.communicate(timeout=timeout_seconds)
     except subprocess.TimeoutExpired as exc:
+        _terminate_process_tree(process)
+        process.communicate()
         raise CommandTimedOut from exc
+    return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
 
 
 def redacted_failure(label: str, returncode: int) -> str:
@@ -64,6 +97,9 @@ def main() -> int:
     except CommandTimedOut:
         print(f"{args.label} timed out after {args.timeout_seconds} seconds")
         return 124
+    except CommandLaunchError:
+        print(f"{args.label} could not start (subprocess details redacted)")
+        return 126
     if result.returncode != 0:
         print(redacted_failure(args.label, result.returncode))
         return result.returncode

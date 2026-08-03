@@ -94,8 +94,8 @@ services:
       - "host.docker.internal:${HOST_GATEWAY_IP}"
     read_only: true
     tmpfs:
-      # Startup verifies actual capacity against MAX_JOBS × (upload + result)
-      # plus 64 MiB staging headroom.
+      # Startup verifies capacity against MAX_JOBS × max(2 × upload,
+      # upload + result), plus 64 MiB staging headroom.
       - /tmp:size=${DOCLING_ADAPTER_TMPFS_SIZE:-512m},mode=1777
     cap_drop:
       - ALL

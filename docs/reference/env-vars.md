@@ -223,7 +223,7 @@
 | DOCLING_ADAPTER_MAX_RESULT_BYTES | docling | 104857600 | Maximum ZIP result bytes streamed from Docling to adapter storage before the job fails safely. |
 | DOCLING_ADAPTER_UPSTREAM_MAX_ATTEMPTS | docling | 3 | Total bounded Docling request attempts when the provider returns HTTP 429. |
 | DOCLING_ADAPTER_DOWNLOAD_TIMEOUT_SECONDS | docling | 300 | Positive maximum seconds for one result transmission; expiry deletes the artifact and releases its adapter slot. |
-| DOCLING_ADAPTER_TMPFS_SIZE | docling | 512m | Bounded adapter temporary-storage mount. Size must cover MAX_JOBS times the upload-plus-result limits, plus at least 64 MiB staging headroom; startup fails when actual capacity is smaller. |
+| DOCLING_ADAPTER_TMPFS_SIZE | docling | 512m | Bounded adapter temporary-storage mount. Size must cover MAX_JOBS times the larger of twice the upload limit or upload-plus-result limits, plus at least 64 MiB staging headroom; startup fails when actual capacity is smaller. |
 | DOCLING_ADAPTER_SCALE | docling |  | Derived adapter replica count; one only when both LightRAG and Docling are enabled. |
 | DOCLING_ADAPTER_UPSTREAM_ENDPOINT | docling |  | Authenticated internal bundle route selected for the adapter; never exposed to LightRAG. |
 | DOCLING_ENABLE_FORMULAS | docling | True | - |

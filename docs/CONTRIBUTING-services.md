@@ -590,10 +590,14 @@ uv run --project bootstrapper python scripts/check-compose-source-deps.py       
 uv run --project bootstrapper python scripts/check-kong-routes.py                 # job 3 kong audit
 uv run --project bootstrapper python scripts/validate_research_schema.py --all    # job 3 research schema
 uv run --project bootstrapper python scripts/check-track-membership.py            # job 3 track coverage
-(cd services/docling/provider/localhost && uv lock --locked)                      # job 3 docling lock
+uv run --project bootstrapper python -m scripts.bounded_subprocess \
+  --label "Docling localhost lock check" \
+  --cwd services/docling/provider/localhost -- uv lock --locked                  # job 3 docling lock
 uv run --project bootstrapper python scripts/refresh-local-deep-researcher-lock.py --check  # job 3 Local Deep Researcher lock
 uv run --project bootstrapper python -m scripts.check_runtime_locks               # job 3 compiled runtime locks
-uv tool install pip-audit==2.10.0                                                  # job 3 pinned vulnerability-audit tool
+uv run --project bootstrapper python -m scripts.bounded_subprocess \
+  --label "pip-audit tool installation" -- \
+  uv tool install pip-audit==2.10.0                                                # job 3 pinned vulnerability-audit tool
 uv run --project bootstrapper python -m scripts.audit_runtime_locks               # job 3 runtime vulnerability audit
 # job 4 (required Build-validation): docker buildx build over every local non-GPU
 # build context plus every services/*/init/Dockerfile. The full, current list

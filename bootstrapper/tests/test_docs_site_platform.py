@@ -433,9 +433,11 @@ def test_adapter_tmpfs_covers_default_concurrent_upload_and_result_budget() -> N
     size_mib = int(
         str(manifest_env["DOCLING_ADAPTER_TMPFS_SIZE"]["default"]).removesuffix("m")
     )
-    required_bytes = default_int("DOCLING_ADAPTER_MAX_JOBS") * (
-        default_int("DOCLING_MAX_FILE_SIZE")
-        + default_int("DOCLING_ADAPTER_MAX_RESULT_BYTES")
+    upload_bytes = default_int("DOCLING_MAX_FILE_SIZE")
+    result_bytes = default_int("DOCLING_ADAPTER_MAX_RESULT_BYTES")
+    required_bytes = default_int("DOCLING_ADAPTER_MAX_JOBS") * max(
+        2 * upload_bytes,
+        upload_bytes + result_bytes,
     )
     assert size_mib * 1024 * 1024 >= required_bytes + 64 * 1024 * 1024
     assert "shutil.disk_usage(root).free < required_storage" in (

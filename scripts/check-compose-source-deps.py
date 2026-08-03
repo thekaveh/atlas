@@ -19,6 +19,13 @@ from __future__ import annotations
 from pathlib import Path
 import sys
 
+from bounded_subprocess import (
+    CommandLaunchError,
+    CommandTimedOut,
+    redacted_failure,
+    run_bounded,
+)
+
 try:
     import yaml
 except ImportError:  # pragma: no cover - developer environment guard
@@ -140,8 +147,6 @@ def load_compose() -> dict:
     would emit spurious `missing required dependency` lines for every
     edge in REQUIRED_DEPENDS_ON.
     """
-    import subprocess  # local import — keeps script importable without docker
-
     env_file = ROOT / ".env"
     env_fallback = ROOT / ".env.example"
     args = ["docker", "compose"]
@@ -151,13 +156,15 @@ def load_compose() -> dict:
         args.extend(["--env-file", str(env_fallback)])
     args.extend(["-f", str(COMPOSE_FILE), "config"])
     try:
-        result = subprocess.run(args, capture_output=True, text=True, check=False,
-                                encoding="utf-8", errors="replace")
-    except FileNotFoundError:
+        result = run_bounded(args, cwd=ROOT)
+    except CommandLaunchError:
         # docker not on PATH — fall through to the raw parse so the script
         # is still importable / linter-runnable on machines without docker.
         with COMPOSE_FILE.open("r", encoding="utf-8") as handle:
             return yaml.safe_load(handle) or {}
+    except CommandTimedOut:
+        print("FAIL load_compose: docker compose config timed out", file=sys.stderr)
+        sys.exit(2)
     if result.returncode != 0:
         # docker is present but `compose config` failed — surface the
         # stderr instead of producing wrong-answer output.
@@ -166,8 +173,7 @@ def load_compose() -> dict:
             f"{result.returncode}",
             file=sys.stderr,
         )
-        if result.stderr.strip():
-            print(result.stderr.rstrip(), file=sys.stderr)
+        print(redacted_failure("docker compose config", result.returncode), file=sys.stderr)
         sys.exit(2)
     return yaml.safe_load(result.stdout) or {}
 

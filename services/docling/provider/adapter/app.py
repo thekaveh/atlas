@@ -32,6 +32,8 @@ class _EphemeralFileResponse(FileResponse):
         self._finish = finish
         self._timeout_seconds = timeout_seconds
         super().__init__(path, **kwargs)
+        if "accept-ranges" in self.headers:
+            del self.headers["accept-ranges"]
 
     async def __call__(self, scope, receive, send) -> None:
         # This endpoint is intentionally one-shot. Ignore Range so malformed,
@@ -121,7 +123,11 @@ def create_app(
         "DOCLING_ADAPTER_MAX_RESULT_BYTES", 104_857_600
     )
     root.mkdir(parents=True, exist_ok=True)
-    required_storage = configured_max_jobs * (maximum_upload + maximum_result)
+    per_slot_storage = max(
+        2 * maximum_upload,
+        maximum_upload + maximum_result,
+    )
+    required_storage = configured_max_jobs * per_slot_storage
     required_storage += 64 * 1024 * 1024
     if shutil.disk_usage(root).free < required_storage:
         raise ValueError(
