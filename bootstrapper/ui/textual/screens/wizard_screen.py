@@ -76,6 +76,15 @@ _COMPOSE_BUILD_TIMEOUT_SECONDS = 90 * 60.0
 _COMPOSE_UP_TIMEOUT_SECONDS = 30 * 60.0
 
 
+def _compose_timeout_seconds(args: list[str]) -> float | None:
+    """Return a deadline for finite Compose work; follow logs until cancelled."""
+    if args[:1] == ["build"]:
+        return _COMPOSE_BUILD_TIMEOUT_SECONDS
+    if args[:1] == ["logs"] and "-f" in args:
+        return None
+    return _COMPOSE_UP_TIMEOUT_SECONDS
+
+
 async def _stop_process_tree(
     proc: asyncio.subprocess.Process,
     *,
@@ -125,26 +134,52 @@ def _kill_remaining_process_group(proc: asyncio.subprocess.Process) -> None:
         pass
 
 
+async def _launch_process(
+    command: list[str],
+    *,
+    termination_grace_seconds: float = _PROCESS_TERMINATION_GRACE_SECONDS,
+    **kwargs,
+) -> asyncio.subprocess.Process:
+    """Launch without losing the process-group handle to caller cancellation."""
+    launch_task = asyncio.create_task(
+        asyncio.create_subprocess_exec(*command, **kwargs)
+    )
+    try:
+        return await asyncio.shield(launch_task)
+    except asyncio.CancelledError as cancellation:
+        try:
+            proc = await _await_uncancellable(launch_task)
+        except Exception:
+            raise cancellation
+        try:
+            await _stop_process_tree(
+                proc, termination_grace_seconds=termination_grace_seconds
+            )
+        finally:
+            raise cancellation
+
+
 async def _run_streamed_command(
     command: list[str],
     *,
     cwd: Path,
     env: dict[str, str],
     on_line: Callable[[str], None],
-    timeout_seconds: float,
+    timeout_seconds: float | None,
     termination_grace_seconds: float = _PROCESS_TERMINATION_GRACE_SECONDS,
 ) -> int:
     """Stream one isolated command with a total deadline and safe cleanup."""
-    if timeout_seconds <= 0:
+    if timeout_seconds is not None and timeout_seconds <= 0:
         raise ValueError("timeout_seconds must be positive")
-    proc = await asyncio.create_subprocess_exec(
-        *command,
+    proc = await _launch_process(
+        command,
         cwd=str(cwd),
         stdin=asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
         env=env,
         start_new_session=os.name == "posix",
+        termination_grace_seconds=termination_grace_seconds,
     )
 
     async def consume() -> int:
@@ -155,10 +190,16 @@ async def _run_streamed_command(
 
     stream_task = asyncio.create_task(consume())
     try:
-        returncode = await asyncio.wait_for(stream_task, timeout=timeout_seconds)
+        if timeout_seconds is None:
+            returncode = await stream_task
+        else:
+            returncode = await asyncio.wait_for(
+                stream_task, timeout=timeout_seconds
+            )
         _kill_remaining_process_group(proc)
         return returncode
     except asyncio.TimeoutError:
+        assert timeout_seconds is not None
         on_line(f"Command timed out after {timeout_seconds:.0f}s")
         await _stop_process_tree(
             proc, termination_grace_seconds=termination_grace_seconds
@@ -1397,8 +1438,8 @@ class WizardScreen(Screen):
         fh.write(f"# {' '.join(cmd)}\n\n")
         fh.flush()
         try:
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
+            proc = await _launch_process(
+                cmd,
                 cwd=str(self._starter.docker_manager.root_dir),
                 stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
@@ -2022,11 +2063,7 @@ class WizardScreen(Screen):
             source, level = _classify_compose_line(line)
             self._safe_log(line, source=source, level=level)
 
-        timeout_seconds = (
-            _COMPOSE_BUILD_TIMEOUT_SECONDS
-            if args[:1] == ["build"]
-            else _COMPOSE_UP_TIMEOUT_SECONDS
-        )
+        timeout_seconds = _compose_timeout_seconds(args)
         try:
             return await _run_streamed_command(
                 full_cmd,

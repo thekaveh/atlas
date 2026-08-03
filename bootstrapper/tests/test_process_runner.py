@@ -192,6 +192,7 @@ def test_failure_log_capture_is_bounded_and_process_grouped() -> None:
 
     assert "_FAILURE_LOG_TIMEOUT_SECONDS =" in source
     assert "start_new_session=os.name == \"posix\"" in source
+    assert source.count("proc = await _launch_process(") == 2
     assert "await _stop_process_tree(proc)" in source
     assert "except asyncio.CancelledError:" in source
 
@@ -214,6 +215,21 @@ def test_tui_owns_threaded_process_cleanup_and_compose_deadlines() -> None:
     assert "_COMPOSE_BUILD_TIMEOUT_SECONDS =" in wizard
     assert "_COMPOSE_UP_TIMEOUT_SECONDS =" in wizard
     assert "return await _run_streamed_command(" in wizard
+
+
+def test_compose_timeout_policy_keeps_follow_logs_cancellation_driven() -> None:
+    from ui.textual.screens.wizard_screen import (
+        _COMPOSE_BUILD_TIMEOUT_SECONDS,
+        _COMPOSE_UP_TIMEOUT_SECONDS,
+        _compose_timeout_seconds,
+    )
+
+    assert _compose_timeout_seconds(["build"]) == _COMPOSE_BUILD_TIMEOUT_SECONDS
+    assert _compose_timeout_seconds(["up", "-d"]) == _COMPOSE_UP_TIMEOUT_SECONDS
+    assert _compose_timeout_seconds(["logs", "--tail=20"]) == (
+        _COMPOSE_UP_TIMEOUT_SECONDS
+    )
+    assert _compose_timeout_seconds(["logs", "-f"]) is None
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX process-group contract")
@@ -315,7 +331,7 @@ def test_streamed_command_cancellation_kills_term_resistant_descendant(
                 cwd=tmp_path,
                 env=os.environ.copy(),
                 on_line=lambda _line: None,
-                timeout_seconds=10,
+                timeout_seconds=None,
                 termination_grace_seconds=0.05,
             )
         )
@@ -323,6 +339,59 @@ def test_streamed_command_cancellation_kills_term_resistant_descendant(
         while not ready.exists() and asyncio.get_running_loop().time() < deadline:
             await asyncio.sleep(0.01)
         assert ready.exists()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    asyncio.run(exercise())
+    time.sleep(0.6)
+    assert not marker.exists()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX process-group contract")
+def test_streamed_command_launch_cancellation_reaps_process_group(
+    monkeypatch, tmp_path: Path
+) -> None:
+    from ui.textual.screens import wizard_screen
+
+    marker = tmp_path / "streamed-launch-cancel-descendant"
+    descendant = (
+        "import pathlib,signal,time; "
+        "signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+        "time.sleep(0.4); "
+        f"pathlib.Path({str(marker)!r}).touch()"
+    )
+    leader = (
+        "import subprocess,sys,time; "
+        "subprocess.Popen([sys.executable, '-c', sys.argv[1]], "
+        "stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL); "
+        "time.sleep(1)"
+    )
+    launch_started = asyncio.Event()
+    real_create = asyncio.create_subprocess_exec
+
+    async def delayed_create(*args, **kwargs):
+        proc = await real_create(*args, **kwargs)
+        launch_started.set()
+        await asyncio.sleep(0.1)
+        return proc
+
+    monkeypatch.setattr(
+        wizard_screen.asyncio, "create_subprocess_exec", delayed_create
+    )
+
+    async def exercise() -> None:
+        task = asyncio.create_task(
+            wizard_screen._run_streamed_command(
+                [sys.executable, "-c", leader, descendant],
+                cwd=tmp_path,
+                env=os.environ.copy(),
+                on_line=lambda _line: None,
+                timeout_seconds=10,
+                termination_grace_seconds=0.05,
+            )
+        )
+        await asyncio.wait_for(launch_started.wait(), timeout=3)
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
