@@ -1,63 +1,102 @@
-"""
-Docling Document Processor - Localhost Server
-Standalone FastAPI server for native execution
-"""
+"""Authenticated Docling document-processing API for native execution."""
 
+import logging
 import os
 import sys
+import time
 from pathlib import Path
+from typing import Literal
 
-# Load .env from the REPO root (for port configuration with --base-port).
-# This file lives at services/docling/provider/localhost/, so the root is
-# five parents up — three only reached services/docling/ and the load
-# silently no-op'd.
 try:
     from dotenv import load_dotenv
-    env_file = Path(__file__).resolve().parents[4] / '.env'
+
+    env_file = Path(__file__).resolve().parents[4] / ".env"
     if env_file.exists():
         load_dotenv(env_file)
 except ImportError:
-    # python-dotenv not installed, will use os.environ directly
     pass
 
-# Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
-from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Response, status
-from fastapi.middleware.cors import CORSMiddleware
-import logging
-from typing import Literal
-
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from fastapi import FastAPI, File, Form, HTTPException, Response, UploadFile, status
+
 from bounded_upload import EmptyUploadError, UploadTooLargeError, spool_upload
+from lightrag_bundle import build_lightrag_bundle
+from processor import convert_document_once, processor_status, render_conversion
+from provider_boundary import (
+    ProviderDeadlineExceeded,
+    fatal_timeout_response,
+    install_provider_boundary,
+    load_boundary_settings,
+    run_with_deadline,
+)
 from shared.pipeline_config import resolve_chunk_defaults, validate_chunk_settings
 from utils import ChunkLimitError
 
+
 _CHUNK_DEFAULTS = resolve_chunk_defaults()
-
-# Import processor
-from processor import process_document, processor_status
-
-app = FastAPI(title="Docling Document Processor", version="1.0.0")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+app = FastAPI(title="Docling Document Processor", version="1.0.0")
+_BOUNDARY_SETTINGS = load_boundary_settings(
+    "DOCLING",
+    {"/v1/document/convert", "/internal/lightrag/bundle"},
+)
+install_provider_boundary(app, _BOUNDARY_SETTINGS)
+
+
+def _convert_and_render(
+    file_path: str,
+    *,
+    output_format: str,
+    use_ocr: str,
+    table_mode: str,
+    enable_chunking: bool,
+    chunk_size: int,
+    chunk_overlap: int,
+):
+    started_at = time.time()
+    result = convert_document_once(
+        file_path,
+        use_ocr=use_ocr,
+        table_mode=table_mode,
+    )
+    return render_conversion(
+        result,
+        file_path=file_path,
+        output_format=output_format,
+        enable_chunking=enable_chunking,
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+        started_at=started_at,
+    )
+
+
+def _convert_and_bundle(
+    file_path: str,
+    *,
+    upload_name: str,
+    use_ocr: str,
+    table_mode: str,
+) -> bytes:
+    result = convert_document_once(
+        file_path,
+        use_ocr=use_ocr,
+        table_mode=table_mode,
+    )
+    return build_lightrag_bundle(result, upload_name=upload_name)
+
 
 @app.get("/")
 async def root():
     return {
         "name": "Docling Document Processor API (Localhost)",
         "version": "1.0.0",
-        "backend": os.getenv("DOCLING_DEVICE", "cpu")
+        "backend": os.getenv("DOCLING_DEVICE", "cpu"),
     }
+
 
 @app.get("/health")
 async def health_check(response: Response):
@@ -68,8 +107,9 @@ async def health_check(response: Response):
     return {
         "status": readiness,
         "backend": os.getenv("DOCLING_DEVICE", "cpu"),
-        "device": os.getenv("DOCLING_DEVICE", "cpu")
+        "device": os.getenv("DOCLING_DEVICE", "cpu"),
     }
+
 
 @app.post("/v1/document/convert")
 async def convert_document(
@@ -85,59 +125,99 @@ async def convert_document(
     ),
     enable_chunking: bool = Form(default=False),
     chunk_size: int = Form(default=_CHUNK_DEFAULTS.size, gt=0),
-    chunk_overlap: int = Form(default=_CHUNK_DEFAULTS.overlap, ge=0)
+    chunk_overlap: int = Form(default=_CHUNK_DEFAULTS.overlap, ge=0),
 ):
-    """Convert documents to structured format"""
     try:
         validate_chunk_settings(chunk_size, chunk_overlap)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     tmp_path = None
     try:
-        logger.info("Processing uploaded document")
         max_bytes = int(os.getenv("DOCLING_MAX_FILE_SIZE", "52428800"))
         suffix = os.path.splitext(file.filename or "document.pdf")[1] or ".pdf"
-        tmp_path = await spool_upload(
-            file, max_bytes=max_bytes, suffix=suffix
+        tmp_path = await spool_upload(file, max_bytes=max_bytes, suffix=suffix)
+        return await run_with_deadline(
+            "DOCLING",
+            lambda: _convert_and_render(
+                str(tmp_path),
+                output_format=output_format,
+                use_ocr=use_ocr,
+                table_mode=table_mode,
+                enable_chunking=enable_chunking,
+                chunk_size=chunk_size,
+                chunk_overlap=chunk_overlap,
+            ),
         )
-
-        result = await process_document(
-            file_path=str(tmp_path),
-            output_format=output_format,
-            use_ocr=use_ocr,
-            table_mode=table_mode,
-            enable_chunking=enable_chunking,
-            chunk_size=chunk_size,
-            chunk_overlap=chunk_overlap
-        )
-
-        return result
-
-    except UploadTooLargeError as e:
-        raise HTTPException(status_code=413, detail=str(e)) from e
-    except EmptyUploadError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
-    except ChunkLimitError as e:
-        raise HTTPException(status_code=413, detail=str(e)) from e
+    except ProviderDeadlineExceeded:
+        return fatal_timeout_response("DOCLING")
+    except UploadTooLargeError as exc:
+        raise HTTPException(status_code=413, detail=str(exc)) from exc
+    except EmptyUploadError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except ChunkLimitError as exc:
+        raise HTTPException(status_code=413, detail=str(exc)) from exc
     except HTTPException:
         raise
     except Exception as exc:
-        logger.error(
-            "Document conversion failed (error_type=%s)",
-            type(exc).__name__,
-        )
+        logger.error("Document conversion failed (error_type=%s)", type(exc).__name__)
         raise HTTPException(status_code=500, detail="Document conversion failed") from exc
     finally:
         if tmp_path is not None:
             tmp_path.unlink(missing_ok=True)
 
+
+@app.post("/internal/lightrag/bundle")
+async def lightrag_bundle(
+    file: UploadFile = File(...),
+    use_ocr: Literal["auto", "always", "never"] = Form(
+        default=os.getenv("DOCLING_USE_OCR", "auto")
+    ),
+    table_mode: Literal["accurate", "fast"] = Form(
+        default=os.getenv("DOCLING_TABLE_MODE", "accurate")
+    ),
+):
+    tmp_path = None
+    try:
+        max_bytes = int(os.getenv("DOCLING_MAX_FILE_SIZE", "52428800"))
+        upload_name = file.filename or "document.pdf"
+        suffix = os.path.splitext(upload_name)[1] or ".pdf"
+        tmp_path = await spool_upload(file, max_bytes=max_bytes, suffix=suffix)
+        payload = await run_with_deadline(
+            "DOCLING",
+            lambda: _convert_and_bundle(
+                str(tmp_path),
+                upload_name=upload_name,
+                use_ocr=use_ocr,
+                table_mode=table_mode,
+            ),
+        )
+        return Response(
+            content=payload,
+            media_type="application/zip",
+            headers={"Content-Disposition": 'attachment; filename="docling-result.zip"'},
+        )
+    except ProviderDeadlineExceeded:
+        return fatal_timeout_response("DOCLING")
+    except UploadTooLargeError as exc:
+        raise HTTPException(status_code=413, detail=str(exc)) from exc
+    except EmptyUploadError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Document bundle failed (error_type=%s)", type(exc).__name__)
+        raise HTTPException(status_code=500, detail="Document bundle failed") from exc
+    finally:
+        if tmp_path is not None:
+            tmp_path.unlink(missing_ok=True)
+
+
 if __name__ == "__main__":
     import uvicorn
-    # DOCLING_LOCALHOST_PORT is the stack's localhost-mode contract (the
-    # var Kong / runtime_sc / localhost_validator all probe). The old
-    # DOC_PROCESSOR_PORT read is the CONTAINER-mode host-bind var — it
-    # only worked because the fallback happened to match the default.
+
     port = int(os.getenv("DOCLING_LOCALHOST_PORT") or 18159)
-    print(f"🚀 Starting Docling server on port {port}")
+    bind_host = os.getenv("DOCLING_LOCALHOST_BIND_HOST", "127.0.0.1")
+    print(f"🚀 Starting Docling server on {bind_host}:{port}")
     print(f"📄 Device: {os.getenv('DOCLING_DEVICE', 'cpu')}")
-    uvicorn.run("server:app", host="0.0.0.0", port=port, reload=False)
+    uvicorn.run("server:app", host=bind_host, port=port, reload=False)

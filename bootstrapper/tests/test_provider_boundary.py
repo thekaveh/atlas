@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import importlib.util
+import threading
 from pathlib import Path
 from types import ModuleType
 
@@ -382,7 +383,7 @@ def test_deadline_wrapper_raises_a_specific_generic_exception(monkeypatch):
     boundary = _load_boundary()
 
     async def force_timeout(awaitable, timeout):
-        awaitable.close()
+        awaitable.cancel()
         raise asyncio.TimeoutError
 
     monkeypatch.setattr(boundary.asyncio, "wait_for", force_timeout)
@@ -390,6 +391,74 @@ def test_deadline_wrapper_raises_a_specific_generic_exception(monkeypatch):
 
     with pytest.raises(boundary.ProviderDeadlineExceeded):
         asyncio.run(boundary.run_with_deadline("DOCLING", lambda: "never returned"))
+
+
+def test_deadline_wrapper_defers_cancellation_until_native_work_settles(monkeypatch):
+    boundary = _load_boundary()
+    started = threading.Event()
+    release = threading.Event()
+    monkeypatch.setattr(boundary, "parse_timeout_seconds", lambda prefix: 30)
+
+    def native_work():
+        started.set()
+        release.wait(timeout=5)
+        return "settled"
+
+    async def scenario():
+        task = asyncio.create_task(boundary.run_with_deadline("DOCLING", native_work))
+        while not started.is_set():
+            await asyncio.sleep(0)
+        task.cancel()
+        await asyncio.sleep(0.02)
+        cancelled_before_native_settled = task.done()
+        release.set()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+        return cancelled_before_native_settled
+
+    assert asyncio.run(scenario()) is False
+
+
+def test_cancelled_native_timeout_uses_direct_process_terminator(monkeypatch):
+    boundary = _load_boundary()
+    started = threading.Event()
+    release = threading.Event()
+    exits: list[int] = []
+    real_wait_for = asyncio.wait_for
+    wait_calls = 0
+    monkeypatch.setattr(boundary, "parse_timeout_seconds", lambda prefix: 30)
+
+    async def controlled_wait_for(awaitable, timeout):
+        nonlocal wait_calls
+        wait_calls += 1
+        if wait_calls == 1:
+            return await real_wait_for(awaitable, timeout)
+        awaitable.cancel()
+        raise asyncio.TimeoutError
+
+    monkeypatch.setattr(boundary.asyncio, "wait_for", controlled_wait_for)
+
+    def native_work():
+        started.set()
+        release.wait(timeout=5)
+
+    async def scenario():
+        task = asyncio.create_task(
+            boundary.run_with_deadline(
+                "DOCLING",
+                native_work,
+                terminate_on_cancel_timeout=lambda code: exits.append(code),
+            )
+        )
+        while not started.is_set():
+            await asyncio.sleep(0)
+        task.cancel()
+        with pytest.raises(boundary.ProviderDeadlineExceeded):
+            await task
+        release.set()
+
+    asyncio.run(scenario())
+    assert exits == [boundary.FATAL_TIMEOUT_EXIT_CODE]
 
 
 def test_fatal_timeout_response_terminates_only_after_response_is_sent():

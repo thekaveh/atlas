@@ -26,6 +26,7 @@ RUN pip install --no-cache-dir -r requirements.txt -c requirements-locked.txt \
 COPY shared/*.py /app/
 COPY bounded_upload.py /app/
 COPY provider_boundary.py /app/
+COPY lightrag_bundle.py /app/
 
 # Copy GPU processor
 COPY gpu/processor.py /app/

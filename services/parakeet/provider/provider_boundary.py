@@ -168,11 +168,33 @@ def parse_timeout_seconds(prefix: str, *, default: int = 900) -> int:
     return value
 
 
-async def run_with_deadline(prefix: str, operation: Callable[[], T]) -> T:
-    """Run blocking native work in a thread under the provider deadline."""
+async def run_with_deadline(
+    prefix: str,
+    operation: Callable[[], T],
+    terminate_on_cancel_timeout: Callable[[int], None] = os._exit,
+) -> T:
+    """Run native work without detaching it when the HTTP task is cancelled."""
     timeout = parse_timeout_seconds(prefix)
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    native_task = asyncio.create_task(asyncio.to_thread(operation))
     try:
-        return await asyncio.wait_for(asyncio.to_thread(operation), timeout=timeout)
+        return await asyncio.wait_for(asyncio.shield(native_task), timeout=timeout)
+    except asyncio.CancelledError as cancelled:
+        remaining = max(0.0, deadline - loop.time())
+        try:
+            await asyncio.wait_for(asyncio.shield(native_task), timeout=remaining)
+        except (asyncio.TimeoutError, TimeoutError) as exc:
+            logger.error(
+                "Cancelled provider request exceeded native deadline "
+                "(provider=%s)",
+                prefix,
+            )
+            terminate_on_cancel_timeout(FATAL_TIMEOUT_EXIT_CODE)
+            raise ProviderDeadlineExceeded from exc
+        except Exception:
+            pass
+        raise cancelled
     except (asyncio.TimeoutError, TimeoutError) as exc:
         raise ProviderDeadlineExceeded from exc
 
