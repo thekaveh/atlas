@@ -25,6 +25,9 @@ if "ray" not in sys.modules:
     sys.modules["ray.job_submission"] = _ray_job_stub
 
 
+TEST_DOCLING_TOKEN = "docling-test-token"
+
+
 class FakeResponse:
     def __init__(self, status_code: int, *, json_data=None, text: str = ""):
         self.status_code = status_code
@@ -99,6 +102,7 @@ def test_docling_success_does_not_call_tika() -> None:
     extractor = DocumentExtractor(
         DocumentExtractorConfig(
             docling_endpoint="http://docling-gpu:8000",
+            docling_api_token=TEST_DOCLING_TOKEN,
             tika_endpoint="http://tika:9998",
         ),
         http_client=client,
@@ -124,6 +128,63 @@ def test_docling_success_does_not_call_tika() -> None:
     ]
 
 
+def test_docling_request_uses_bearer_without_logging_token(caplog) -> None:
+    token = "provider-token-that-must-not-be-logged"
+    client = FakeAsyncClient(
+        [
+            FakeResponse(
+                200,
+                json_data={
+                    "content": "converted",
+                    "format": "markdown",
+                    "metadata": {},
+                    "chunks": [],
+                },
+            )
+        ]
+    )
+    extractor = DocumentExtractor(
+        DocumentExtractorConfig(
+            docling_endpoint="http://docling-gpu:8000",
+            docling_api_token=token,
+        ),
+        http_client=client,
+    )
+
+    _run(
+        extractor.extract(
+            content=b"document",
+            filename="paper.pdf",
+            content_type="application/pdf",
+        )
+    )
+
+    _, kwargs = client.calls[0]
+    assert kwargs["headers"] == {"Authorization": f"Bearer {token}"}
+    assert token not in caplog.text
+
+
+def test_docling_endpoint_without_token_fails_before_network() -> None:
+    client = FakeAsyncClient([])
+    extractor = DocumentExtractor(
+        DocumentExtractorConfig(
+            docling_endpoint="http://docling-gpu:8000",
+            docling_api_token="",
+        ),
+        http_client=client,
+    )
+
+    with pytest.raises(ExtractionUnavailableError, match="credential"):
+        _run(
+            extractor.extract(
+                content=b"document",
+                filename="paper.pdf",
+                content_type="application/pdf",
+            )
+        )
+    assert client.calls == []
+
+
 @pytest.mark.parametrize(
     "payload",
     (
@@ -137,7 +198,10 @@ def test_docling_success_does_not_call_tika() -> None:
 )
 def test_docling_malformed_success_body_is_rejected(payload) -> None:
     extractor = DocumentExtractor(
-        DocumentExtractorConfig(docling_endpoint="http://docling-gpu:8000"),
+        DocumentExtractorConfig(
+            docling_endpoint="http://docling-gpu:8000",
+            docling_api_token=TEST_DOCLING_TOKEN,
+        ),
         http_client=FakeAsyncClient([FakeResponse(200, json_data=payload)]),
     )
 
@@ -161,6 +225,7 @@ def test_docling_unsupported_falls_back_to_tika_with_provenance() -> None:
     extractor = DocumentExtractor(
         DocumentExtractorConfig(
             docling_endpoint="http://docling-gpu:8000",
+            docling_api_token=TEST_DOCLING_TOKEN,
             tika_endpoint="http://tika:9998",
         ),
         http_client=client,
@@ -196,6 +261,7 @@ def test_long_tail_extension_routes_to_tika_without_docling() -> None:
     extractor = DocumentExtractor(
         DocumentExtractorConfig(
             docling_endpoint="http://docling-gpu:8000",
+            docling_api_token=TEST_DOCLING_TOKEN,
             tika_endpoint="http://tika:9998",
         ),
         http_client=client,
@@ -220,6 +286,7 @@ def test_explicit_tika_selection_bypasses_docling() -> None:
     extractor = DocumentExtractor(
         DocumentExtractorConfig(
             docling_endpoint="http://docling-gpu:8000",
+            docling_api_token=TEST_DOCLING_TOKEN,
             tika_endpoint="http://tika:9998",
         ),
         http_client=client,
@@ -246,6 +313,7 @@ def test_explicit_docling_selection_does_not_hide_unsupported_response() -> None
     extractor = DocumentExtractor(
         DocumentExtractorConfig(
             docling_endpoint="http://docling-gpu:8000",
+            docling_api_token=TEST_DOCLING_TOKEN,
             tika_endpoint="http://tika:9998",
         ),
         http_client=client,
@@ -273,6 +341,7 @@ def test_disabled_tika_after_docling_unsupported_is_clear_error() -> None:
     extractor = DocumentExtractor(
         DocumentExtractorConfig(
             docling_endpoint="http://docling-gpu:8000",
+            docling_api_token=TEST_DOCLING_TOKEN,
             tika_endpoint="",
         ),
         http_client=client,
@@ -293,6 +362,7 @@ def test_size_guard_rejects_before_network_call() -> None:
     extractor = DocumentExtractor(
         DocumentExtractorConfig(
             docling_endpoint="http://docling-gpu:8000",
+            docling_api_token=TEST_DOCLING_TOKEN,
             tika_endpoint="http://tika:9998",
             max_file_size=4,
         ),
@@ -315,6 +385,7 @@ def test_docling_transport_error_is_mapped_to_extraction_error() -> None:
     extractor = DocumentExtractor(
         DocumentExtractorConfig(
             docling_endpoint="http://docling-gpu:8000",
+            docling_api_token=TEST_DOCLING_TOKEN,
             tika_endpoint="http://tika:9998",
             timeout_seconds=0.1,
         ),
@@ -337,6 +408,7 @@ def test_tika_transport_error_is_mapped_to_extraction_error() -> None:
     extractor = DocumentExtractor(
         DocumentExtractorConfig(
             docling_endpoint="http://docling-gpu:8000",
+            docling_api_token=TEST_DOCLING_TOKEN,
             tika_endpoint="http://tika:9998",
         ),
         http_client=client,
@@ -377,7 +449,10 @@ def test_extract_route_maps_document_extraction_error_to_502(
 
 def test_upstream_failure_body_is_not_exposed() -> None:
     extractor = DocumentExtractor(
-        DocumentExtractorConfig(docling_endpoint="http://docling-gpu:8000"),
+        DocumentExtractorConfig(
+            docling_endpoint="http://docling-gpu:8000",
+            docling_api_token=TEST_DOCLING_TOKEN,
+        ),
         http_client=FakeAsyncClient(
             [FakeResponse(500, text="postgresql://admin:secret@db/internal")]
         ),

@@ -1692,6 +1692,15 @@ class ServiceConfig:
         env_vars['OPEN_WEB_UI_STT_ENGINE'] = 'openai' if stt_source != 'disabled' else ''
         stt_endpoint = parent_vars.get('STT_ENDPOINT', '')
         env_vars['OPEN_WEB_UI_STT_API_URL'] = f'{stt_endpoint}/v1' if stt_endpoint else ''
+        provider_env = self.config_parser.parse_env_file()
+        if stt_source.startswith('parakeet-'):
+            stt_api_key = provider_env.get('PARAKEET_API_TOKEN', '')
+        elif stt_source != 'disabled':
+            stt_api_key = 'sk-unused'
+        else:
+            stt_api_key = ''
+        env_vars['OPEN_WEB_UI_STT_API_KEY'] = stt_api_key
+        env_vars['STT_INTERNAL_API_KEY'] = stt_api_key
         # Open WebUI's default TTS model — depends on which engine is active.
         # service_sources only carries ``*_SOURCE`` vars (see parse_service_sources),
         # so we read the model knob directly from .env with a hard-coded fallback.

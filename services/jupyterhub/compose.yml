@@ -43,6 +43,8 @@ services:
       STT_ENDPOINT: ${STT_ENDPOINT}
       TTS_ENDPOINT: ${TTS_ENDPOINT}
       DOCLING_ENDPOINT: ${DOCLING_ENDPOINT}
+      DOCLING_API_TOKEN: ${DOCLING_API_TOKEN}
+      PARAKEET_API_TOKEN: ${PARAKEET_API_TOKEN}
       # Ray — empty when RAY_SOURCE=disabled. Compose injection is the
       # real seam (runtime_adaptive writes .env only); notebook
       # 07_ray_cluster reads this to decide whether Ray is enabled.

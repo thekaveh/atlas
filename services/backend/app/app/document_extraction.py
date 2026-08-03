@@ -79,6 +79,7 @@ class ExtractionUnavailableError(DocumentExtractionError):
 @dataclass(frozen=True)
 class DocumentExtractorConfig:
     docling_endpoint: str = ""
+    docling_api_token: str = ""
     tika_endpoint: str = ""
     max_file_size: int = 50 * 1024 * 1024
     timeout_seconds: float = 30.0
@@ -87,6 +88,7 @@ class DocumentExtractorConfig:
     def from_env(cls) -> "DocumentExtractorConfig":
         return cls(
             docling_endpoint=os.getenv("DOCLING_ENDPOINT", ""),
+            docling_api_token=os.getenv("DOCLING_API_TOKEN", ""),
             tika_endpoint=os.getenv("TIKA_ENDPOINT", ""),
             max_file_size=int(os.getenv("TIKA_MAX_FILE_SIZE", str(50 * 1024 * 1024))),
             timeout_seconds=_timeout_from_env(),
@@ -152,6 +154,10 @@ class DocumentExtractor:
 
         if not self.config.docling_endpoint:
             raise ExtractionUnavailableError("Docling endpoint is disabled")
+        if not self.config.docling_api_token:
+            raise ExtractionUnavailableError(
+                "Docling provider credential is unavailable"
+            )
 
         response = await self._post_docling(content, filename, content_type)
         if response.status_code == 200:
@@ -192,7 +198,14 @@ class DocumentExtractor:
             "output_format": "markdown",
             "enable_chunking": "true",
         }
-        return await self._post(url, files=files, data=data)
+        return await self._post(
+            url,
+            files=files,
+            data=data,
+            headers={
+                "Authorization": f"Bearer {self.config.docling_api_token}"
+            },
+        )
 
     async def _extract_with_tika(
         self,
