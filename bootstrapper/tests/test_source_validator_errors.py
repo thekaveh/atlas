@@ -88,3 +88,19 @@ def test_cloud_key_auto_disable_write_failure_is_validation_error(tmp_path, monk
 
     assert validator._enforce_cloud_keys_present() is False
     assert any("Could not persist cloud-provider" in e for e in validator.validation_errors)
+
+
+def test_retired_source_cleanup_write_failure_stops_repair(tmp_path, monkeypatch):
+    import services.source_validator as source_validator_module
+
+    env = tmp_path / ".env"
+    env.write_text("XTTS_ENDPOINT=http://retired\n", encoding="utf-8")
+    validator = _validator(env)
+
+    def fail_write(*_args, **_kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(source_validator_module, "atomic_write_text", fail_write)
+
+    assert validator._migrate_legacy_tts_stt_sources() is False
+    assert any("retired TTS/STT" in e for e in validator.validation_errors)

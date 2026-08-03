@@ -94,7 +94,10 @@ install_custom_node() {
 }
 
 provisioning_start() {
+  # These ai-dock runtime files exist only in the published base image.
+  # shellcheck source=/dev/null
   [ -f /opt/ai-dock/etc/environment.sh ] && source /opt/ai-dock/etc/environment.sh
+  # shellcheck source=/dev/null
   [ -f /opt/ai-dock/bin/venv-set.sh ] && source /opt/ai-dock/bin/venv-set.sh comfyui
 
   echo "atlas-comfyui-provision: reading custom-node plan from $CUSTOM_NODES_TSV"

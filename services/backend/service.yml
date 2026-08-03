@@ -74,10 +74,10 @@ env:
     description: "Maximum decoded or conditioned image pixel count. Dimensions are checked before full Pillow conversion to bound decompression and canvas memory."
   - name: MEDIA_BUDGET_ENABLED
     default: false
-    description: "Enables the media-gateway spend ledger + budget enforcement (#342). Disabled by default: when off, the gateway records no ledger rows and enforces no caps."
+    description: "Enables media spend accounting + budget enforcement (#342). When off, ordinary operations record no spend rows and enforce no caps; ambiguous FAL submissions still create a recovery row."
   - name: MEDIA_BUDGET_STORE
     default: postgres
-    description: "Ledger store backend: 'postgres' (durable, media_spend_ledger table) or 'memory' (process-local, non-durable — testing/ephemeral). Only used when MEDIA_BUDGET_ENABLED=true."
+    description: "Ledger/recovery store: 'postgres' (durable, media_spend_ledger table) or 'memory' (process-local, non-durable — testing/ephemeral). Ambiguous FAL submissions use it for recovery even when budget enforcement is disabled."
   - name: MEDIA_BUDGET_CURRENCY
     default: USD
     description: "Currency label recorded on media spend ledger rows."

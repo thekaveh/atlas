@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
-import tomllib
+import sys
+
+if sys.version_info >= (3, 11):
+    import tomllib
+else:  # pragma: no cover - exercised by the Python 3.10 test environment
+    import tomli as tomllib
 
 import yaml
 

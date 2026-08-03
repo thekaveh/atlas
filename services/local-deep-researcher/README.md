@@ -93,7 +93,7 @@ To upgrade, update the three manifest pins, then run `uv run --project bootstrap
 
 ![local-deep-researcher architecture](./architecture.svg)
 
-[Open the interactive HTML diagram](./architecture.html) for a full-screen view.
+[Open the full-size diagram](./architecture.html) for a full-screen view.
 
 ### 5.4. Future — Missing pair integrations
 

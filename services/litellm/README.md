@@ -319,7 +319,7 @@ curl -sX POST http://localhost:${LITELLM_PORT}/v1/chat/completions \
 
 ![litellm architecture](./architecture.svg)
 
-[Open the interactive HTML diagram](./architecture.html) for a full-screen view.
+[Open the full-size diagram](./architecture.html) for a full-screen view.
 
 ### 14.4. Future — Missing pair integrations
 

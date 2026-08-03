@@ -4,7 +4,7 @@ Container, localhost, disabled, none, cloud-provider enablement, and adaptive-se
 
 ## 1. Diagram
 
-[Open the interactive diagram](./source-configuration-model.html).
+[Open the full-size diagram](./source-configuration-model.html).
 
 ## 2. Notes
 

@@ -153,6 +153,22 @@ def test_grafana_does_not_touch_prometheus_or_exporter_scales():
         )
 
 
+def test_cadvisor_uses_hardened_cgroup_only_metrics() -> None:
+    compose = yaml.safe_load(
+        (ROOT / "services/prometheus/compose.yml").read_text(encoding="utf-8")
+    )
+    cadvisor = compose["services"]["cadvisor"]
+    assert all("docker.sock" not in volume for volume in cadvisor["volumes"])
+    assert all("/rootfs" not in volume for volume in cadvisor["volumes"])
+    assert all("/var/lib/docker" not in volume for volume in cadvisor["volumes"])
+    assert cadvisor["read_only"] is True
+    assert cadvisor["cap_drop"] == ["ALL"]
+    assert "no-new-privileges:true" in cadvisor["security_opt"]
+    assert "--docker=unix:///var/run/atlas-docker-api-disabled.sock" in cadvisor["command"]
+    assert "--store_container_labels=false" in cadvisor["command"]
+    assert "cadvisor-docker-proxy" not in compose["services"]
+
+
 def test_prometheus_does_not_touch_grafana_scale_or_endpoint():
     """Symmetric — the Prom hook must not touch Grafana state."""
     sc = _service_config_instance()

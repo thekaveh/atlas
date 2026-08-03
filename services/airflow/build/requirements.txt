@@ -7,7 +7,7 @@
 # the pinned 4.1.2 client, which must match the apache/spark:4.1.2 cluster
 # (services/spark) and iceberg-spark-runtime-4.1. Lift the cap only when the
 # whole Spark family (cluster image + iceberg runtime + pyspark pin) moves.
-apache-airflow-providers-apache-spark>=5.4.0,<6
+apache-airflow-providers-apache-spark==5.6.0
 apache-airflow-providers-amazon>=9.29.0
 apache-airflow-providers-postgres>=6.7.0
 apache-airflow-providers-redis>=4.4.4

@@ -68,14 +68,22 @@ services:
     restart: unless-stopped
     deploy:
       replicas: ${CADVISOR_SCALE:-0}
+    command:
+      # Deliberately disable Docker API discovery. Raw cgroup metrics remain
+      # available without exposing cross-container files, commands, or env.
+      - --docker=unix:///var/run/atlas-docker-api-disabled.sock
+      - --store_container_labels=false
     ports:
       - "${HOST_BIND_IP:-}${CADVISOR_PORT}:8080"
     volumes:
-      - /:/rootfs:ro
-      - /var/run/docker.sock:/var/run/docker.sock:ro
       - /sys:/sys:ro
-      - /var/lib/docker/:/var/lib/docker:ro
-      - /dev/disk/:/dev/disk:ro
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp
     logging:
       driver: json-file
       options:

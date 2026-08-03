@@ -16,6 +16,7 @@ Atlas does not run a FAL container. The backend reads `FAL_SOURCE`, `FAL_API_KEY
 | Media gateway (image→3D) | `POST /media/generate` with `{"modality":"image_to_3d"}` | Submits a hosted image→3D operation through a verified Hunyuan3D, TRELLIS, Tripo, or Rodin endpoint and returns an operation id. |
 | Operation polling | `GET /media/operations/{operation_id}` | Polls provider status and returns normalized artifacts (the GLB is the primary `artifact_url`), cost, license, and provenance. |
 | Operation cancel | `POST /media/operations/{operation_id}/cancel` | Requests cancellation from FAL; budget stays reserved until polling confirms a terminal provider outcome. Idempotent. Status-code semantics are in the backend's `/docs` OpenAPI. |
+| Ambiguous submission reconciliation | `POST /media/operations/{operation_id}/reconcile` | An operator authenticated with `BACKEND_INTERNAL_API_TOKEN` records `outcome=commit|release` after checking provider billing. Missing provider ids are treated as ambiguous. The operation intent and recovery row do not expire before settlement, same-outcome retries are safe, and `recovery_ledger_ids` identifies cleanup candidates if operation persistence fails. The default Postgres store survives restarts; `memory` is ephemeral. |
 | Spend read | `GET /media/spend?consumer=<c>` | Scoped spend read (committed/reserved totals + rows for one consumer). Empty unless `MEDIA_BUDGET_ENABLED=true`. |
 | Compatibility route | `POST /comfyui/generate` | Uses FAL for simple image generation when `FAL_SOURCE=enabled`; otherwise preserves the existing ComfyUI path. |
 | Kong | No direct route | FAL is a server-side provider only. The API key stays in the backend environment. |
@@ -54,7 +55,7 @@ Atlas models FAL as a virtual media service:
 - Backend integration: `POST /media/generate` validates the complete selected-model schema before state, budget, storage, or provider work and then submits hosted image operations to FAL. `GET /media/operations/{operation_id}` polls provider status. `POST /media/operations/{operation_id}/cancel` records a nonterminal cancellation request and retains spend until polling confirms the provider's terminal outcome. `POST /comfyui/generate` chooses FAL first when `FAL_SOURCE=enabled` for the default `fal-ai/flux/dev` compatibility contract; custom endpoint schemas use `POST /media/generate` with explicit `input.provider_arguments` instead.
 - ComfyUI-specific routes: workflow execution, queue inspection, history lookup, cancellation, and image file proxying remain ComfyUI-specific.
 - Secret handling: `FAL_API_KEY` is server-side only. The backend maps it to `FAL_KEY` for the fal.ai Python client and never exposes it to browser clients.
-- Operation state: submitted metadata and terminal transitions are shared in Redis with a bounded TTL, so polling and cancellation survive Backend restarts and remain consistent across replicas. Owner scope is recorded at submission and enforced on reads and cancellation. The optional Postgres spend ledger and budget engine are described in §4.2.
+- Operation state: ordinary submitted and terminal metadata is shared in Redis with a bounded TTL, so polling and cancellation survive Backend restarts and remain consistent across replicas. An unresolved `submission_unknown` intent and a budget-tracked terminal transition remain unexpired until ledger settlement, after which the normal TTL resumes. Owner scope is recorded at submission and enforced on reads and cancellation. The Postgres recovery/spend ledger and optional budget enforcement are described in §4.2.
 
 ### 4.1. Image→3D modality
 
@@ -73,7 +74,7 @@ Pixal3D remains in the internal research registry as an unverified candidate and
 
 ### 4.2. Spend ledger & budgets
 
-Hosted media generation has no LiteLLM-style spend accounting of its own, so the media gateway carries its own cost ledger + budget engine — **disabled by default** (`MEDIA_BUDGET_ENABLED=false`), backend-owned, no new service SOURCE. When enabled, every generation reserves its estimated cost before the provider call and reconciles to the final cost on completion, recorded per operation in `public.media_spend_ledger`. Submissions over the configured cap (`MEDIA_BUDGET_DEFAULT_USD` and per-scope `MEDIA_BUDGET_CONSUMER_CAPS`) are rejected before any provider call or storage write, and `MEDIA_DISABLED_PROVIDERS` (CSV) can kill-switch a specific provider. `GET /media/spend?consumer=<c>[&project=<p>]` returns that consumer's totals + rows only. Cancellation acceptance is not settlement — spend stays reserved until a provider poll proves a terminal outcome. The full status-code, concurrency-safety, and unknown-cost-handling contract is documented at the backend's `/docs` OpenAPI endpoint.
+Hosted media generation has no LiteLLM-style spend accounting of its own, so the media gateway carries its own cost ledger + budget engine — **enforcement disabled by default** (`MEDIA_BUDGET_ENABLED=false`), backend-owned, no new service SOURCE. Even with enforcement off, an ambiguous FAL submission writes a minimal recovery row to `MEDIA_BUDGET_STORE`; keep the default `postgres` selection for cross-process and restart durability because `memory` is intentionally ephemeral. When enforcement is enabled, every generation reserves its estimated cost before the provider call and reconciles to the final cost on completion, recorded per operation in `public.media_spend_ledger`. Submissions over the configured cap (`MEDIA_BUDGET_DEFAULT_USD` and per-scope `MEDIA_BUDGET_CONSUMER_CAPS`) are rejected before any provider call or storage write, and `MEDIA_DISABLED_PROVIDERS` (CSV) can kill-switch a specific provider. `GET /media/spend?consumer=<c>[&project=<p>]` returns that consumer's totals + rows only. Cancellation acceptance is not settlement — spend stays reserved until a provider poll proves a terminal outcome. The full status-code, concurrency-safety, and unknown-cost-handling contract is documented at the backend's `/docs` OpenAPI endpoint.
 
 Attribution comes from the authenticated Backend principal plus optional request `consumer`/`project` fields or `X-Atlas-Consumer`/`X-Atlas-Project` headers (default `default`). Operation polling and cancellation are owner-scoped; spend reads require the same Backend application-auth boundary. `MEDIA_BUDGET_*` and `MEDIA_DISABLED_PROVIDERS` are declared on the backend service.
 
@@ -102,7 +103,7 @@ _No upstream calls._
 
 ![fal architecture](./architecture.svg)
 
-[Open the interactive HTML diagram](./architecture.html) for a full-screen view.
+[Open the full-size diagram](./architecture.html) for a full-screen view.
 
 ### 5.4. Future — Missing pair integrations
 

@@ -4,7 +4,7 @@ Supabase, Kong, service auth notes, API keys, local secrets, cloud keys, and int
 
 ## 1. Diagram
 
-[Open the interactive diagram](./security-auth-secrets-boundary.html).
+[Open the full-size diagram](./security-auth-secrets-boundary.html).
 
 ## 2. Notes
 

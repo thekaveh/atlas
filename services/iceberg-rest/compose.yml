@@ -6,6 +6,7 @@ services:
       args:
         BASE_IMAGE: ${ICEBERG_REST_IMAGE:-apache/iceberg-rest-fixture:1.10.1}
         POSTGRES_JDBC_VERSION: ${ICEBERG_REST_POSTGRES_JDBC_VERSION:-42.7.12}
+        POSTGRES_JDBC_SHA512: ${ICEBERG_REST_POSTGRES_JDBC_SHA512:-3759e7160591863e5100361298943df94488a6e4ee03936d20723638142fe8038c9a6a47fa8ee7e424f4ef09bb351edc89dfe2ae4acdfc0f92699a8b00196c5c}
     image: ${PROJECT_NAME}-iceberg-rest:local
     container_name: ${PROJECT_NAME}-iceberg-rest
     restart: unless-stopped

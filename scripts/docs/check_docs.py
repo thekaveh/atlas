@@ -16,6 +16,7 @@ from .manifest import Manifest, load_manifest
 _INTERNAL_DIRS = {"research", "strategy", "maintenance", "superpowers"}
 _PLACEHOLDER_RE = re.compile(r"\b(?:TODO|TBD|FIXME|XXX)\b")
 _SCHEME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*:")
+_MARKDOWN_ATTR_LIST_RE = re.compile(r"\{:\s+[^}\n]+\}")
 
 
 @dataclass(frozen=True)
@@ -61,10 +62,31 @@ def check_wiki_links(repo_root: Path, wiki_root: Path) -> list[Finding]:
     findings: list[Finding] = []
     resolved_root = wiki_root.resolve()
     for path in sorted(wiki_root.rglob("*.md")):
-        for link in find_links(path.read_text(encoding="utf-8")):
+        markdown = path.read_text(encoding="utf-8")
+        for line_number, line in enumerate(markdown.splitlines(), 1):
+            if _MARKDOWN_ATTR_LIST_RE.search(line):
+                findings.append(
+                    Finding(
+                        severity="error",
+                        path=path.relative_to(repo_root).as_posix(),
+                        message=f"residual MkDocs attribute list at line {line_number}",
+                        surface="wiki",
+                    )
+                )
+        for link in find_links(markdown):
             raw_target = link.target.strip("<>")
             target = unquote(raw_target.partition("#")[0])
             if not target or _SCHEME_RE.match(target) or target.startswith("//"):
+                continue
+            if not link.is_image and target.lower().endswith(".md"):
+                findings.append(
+                    Finding(
+                        severity="error",
+                        path=path.relative_to(repo_root).as_posix(),
+                        message=f"wiki page links must be extensionless: {raw_target}",
+                        surface="wiki",
+                    )
+                )
                 continue
             candidate = (path.parent / target).resolve()
             try:

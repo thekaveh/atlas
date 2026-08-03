@@ -223,43 +223,60 @@ def build(
     site: bool,
     wiki: bool,
     check: bool,
+    verify_png: bool = False,
 ) -> None:
     manifest = load_manifest(manifest_path, repo_root)
     generated = repo_root / "generated"
+    if check:
+        with tempfile.TemporaryDirectory(prefix="atlas-docs-check-") as temp:
+            root = Path(temp)
+            for destination in (root / "first", root / "second"):
+                if site:
+                    render_site(manifest, repo_root, destination / "site")
+                if wiki:
+                    render_wiki(manifest, repo_root, destination / "wiki")
+                if manifest.diagrams:
+                    render_all(
+                        manifest,
+                        repo_root,
+                        destination / "site" / "assets" / "img",
+                        repo_root / "docs" / "diagrams" / "img",
+                        destination / "wiki" / "img" if wiki else None,
+                        check_png=True,
+                    )
+            if site:
+                _assert_dirs_equal(root / "first" / "site", root / "second" / "site")
+            if wiki:
+                _assert_dirs_equal(root / "first" / "wiki", root / "second" / "wiki")
+            expected_mkdocs = render_mkdocs_yml(manifest)
+            mkdocs_path = repo_root / "mkdocs.yml"
+            if not mkdocs_path.is_file() or mkdocs_path.read_text(
+                encoding="utf-8"
+            ) != expected_mkdocs:
+                raise RuntimeError("Generated MkDocs configuration is stale: mkdocs.yml")
+        return
+
     if site:
         render_site(manifest, repo_root, generated / "site")
     if wiki:
         render_wiki(manifest, repo_root, generated / "wiki")
     if manifest.diagrams:
+        png_dir = repo_root / "docs" / "diagrams" / "img"
+        committed_pngs_exist = all(
+            (png_dir / f"{diagram.id}.png").is_file()
+            for diagram in manifest.diagrams
+        )
         render_all(
             manifest,
             repo_root,
             generated / "site" / "assets" / "img",
-            repo_root / "docs" / "diagrams" / "img",
+            png_dir,
             generated / "wiki" / "img" if wiki else None,
-            check_png=check,
+            check_png=verify_png or committed_pngs_exist,
         )
-    (repo_root / "mkdocs.yml").write_text(render_mkdocs_yml(manifest), encoding="utf-8")
-    if check:
-        with tempfile.TemporaryDirectory(prefix="atlas-docs-check-") as temp:
-            root = Path(temp)
-            if site:
-                render_site(manifest, repo_root, root / "site")
-            if wiki:
-                render_wiki(manifest, repo_root, root / "wiki")
-            if manifest.diagrams:
-                render_all(
-                    manifest,
-                    repo_root,
-                    root / "site" / "assets" / "img",
-                    repo_root / "docs" / "diagrams" / "img",
-                    root / "wiki" / "img" if wiki else None,
-                    check_png=True,
-                )
-            if site:
-                _assert_dirs_equal(generated / "site", root / "site")
-            if wiki:
-                _assert_dirs_equal(generated / "wiki", root / "wiki")
+    (repo_root / "mkdocs.yml").write_text(
+        render_mkdocs_yml(manifest), encoding="utf-8"
+    )
 
 
 def main() -> None:
@@ -268,11 +285,23 @@ def main() -> None:
     parser.add_argument("--site", action="store_true")
     parser.add_argument("--wiki", action="store_true")
     parser.add_argument("--check", action="store_true")
+    parser.add_argument(
+        "--verify-diagrams",
+        action="store_true",
+        help="Reject missing or stale committed diagram PNGs without regenerating them",
+    )
     args = parser.parse_args()
     root = Path.cwd()
     site = args.site or not args.wiki
     wiki = args.wiki or not args.site
-    build(root / args.manifest, root, site=site, wiki=wiki, check=args.check)
+    build(
+        root / args.manifest,
+        root,
+        site=site,
+        wiki=wiki,
+        check=args.check,
+        verify_png=args.verify_diagrams,
+    )
 
 
 if __name__ == "__main__":

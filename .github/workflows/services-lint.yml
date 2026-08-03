@@ -16,30 +16,6 @@ name: services-lint
 on:
   pull_request:
     branches: [main, develop]
-    # Every required-checks-eligible file must appear here, or a PR
-    # touching only that file deadlocks: no job runs ⇒ no status posts
-    # ⇒ required-check rule never satisfies. PR #48 hit exactly this on
-    # a .github/dependabot.yml-only change.
-    paths:
-      - "services/**"
-      - "docs/**"
-      - "assets/**"
-      - "scripts/**"
-      - "Makefile"
-      - "docker-compose.yml"
-      - "bootstrapper/**"
-      - ".env.example"
-      - ".gitignore"
-      - ".gitattributes"
-      - "README.md"
-      - "AGENTS.md"
-      - "SECURITY.md"
-      - "LICENSE"
-      - "start.sh"
-      - "stop.sh"
-      - ".github/workflows/services-lint.yml"
-      - ".github/workflows/docs-pages.yml"
-      - ".github/dependabot.yml"
   push:
     branches: [main, develop]
 
@@ -76,6 +52,19 @@ jobs:
         working-directory: bootstrapper
         run: uv sync --group dev --locked
 
+      - name: Install ShellCheck
+        run: |
+          curl -fsSL \
+            https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.xz \
+            -o "${RUNNER_TEMP}/shellcheck.tar.xz"
+          echo "8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198  ${RUNNER_TEMP}/shellcheck.tar.xz" \
+            | sha256sum -c -
+          tar -xJf "${RUNNER_TEMP}/shellcheck.tar.xz" -C "${RUNNER_TEMP}"
+          sudo install "${RUNNER_TEMP}/shellcheck-v0.11.0/shellcheck" /usr/local/bin/shellcheck
+
+      - name: Lint tracked shell scripts
+        run: git ls-files -z '*.sh' | xargs -0 shellcheck -x
+
       - name: Run unit tests (loader, validator, assembler, hooks, CLI)
         working-directory: bootstrapper
         run: uv run pytest tests/ -q --ignore=tests/test_fragment_equivalence.py --ignore=tests/test_source_permutations.py
@@ -88,21 +77,34 @@ jobs:
         working-directory: services/backend/app/app
         run: |
           BACKEND_TEST_VENV="${RUNNER_TEMP:-$PWD}/backend-ci-venv"
-          uv venv "$BACKEND_TEST_VENV"
+          uv venv --python 3.12 "$BACKEND_TEST_VENV"
           # Runtime and test requirements jointly own the tested import
           # closure. Both are repository-managed; no inline CI subset may
           # drift from the application or pytest plugin contracts.
           VIRTUAL_ENV="$BACKEND_TEST_VENV" uv pip install \
-            -r requirements.txt -r requirements-dev.txt
+            -r requirements.txt -r requirements-dev.txt -c requirements-locked.txt
           "$BACKEND_TEST_VENV/bin/python" -m pytest tests/ -q -W error
+
+      - name: MCP framework contract tests
+        run: |
+          MCP_TEST_VENV="${RUNNER_TEMP:-$PWD}/mcp-ci-venv"
+          uv venv --python 3.12 "$MCP_TEST_VENV"
+          VIRTUAL_ENV="$MCP_TEST_VENV" uv pip install \
+            -r services/mcp-servers/runtime/requirements.txt \
+            -c services/mcp-servers/runtime/requirements-locked.txt \
+            pytest
+          "$MCP_TEST_VENV/bin/python" -m pytest \
+            bootstrapper/tests/test_mcp_servers_framework.py -q -W error
 
       - name: Asset processor API tests
         run: |
           ASSET_TEST_VENV="${RUNNER_TEMP:-$PWD}/asset-ci-venv"
-          uv venv "$ASSET_TEST_VENV"
+          uv venv --python 3.12 "$ASSET_TEST_VENV"
           VIRTUAL_ENV="$ASSET_TEST_VENV" uv pip install \
             -r services/asset-worker/app/requirements.txt \
             -r services/asset-baker/app/requirements.txt \
+            -c services/asset-worker/app/requirements-locked.txt \
+            -c services/asset-baker/app/requirements-locked.txt \
             pytest httpx2
           (
             cd services/asset-worker/app
@@ -112,6 +114,19 @@ jobs:
             cd services/asset-baker/app
             "$ASSET_TEST_VENV/bin/python" -m pytest tests/ -q
           )
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.10"
+
+      - name: Run bootstrapper tests on Python 3.10
+        working-directory: bootstrapper
+        run: >-
+          uv run --python 3.10 --isolated --locked --group dev
+          pytest tests/ -q
+          --ignore=tests/test_fragment_equivalence.py
+          --ignore=tests/test_source_permutations.py
 
   compose-equivalence:
     name: Compose merge + byte-equivalence + source-permutation matrix
@@ -215,6 +230,9 @@ jobs:
       - name: Track-membership audit
         run: uv run --project bootstrapper python scripts/check-track-membership.py
 
+      - name: Notebook source hygiene
+        run: uv run --project bootstrapper python -m scripts.notebook_reproducibility
+
       - name: Docling localhost-provider lock check
         working-directory: services/docling/provider/localhost
         # Host-run provider (no Dockerfile), so build-validation can't
@@ -225,27 +243,16 @@ jobs:
       - name: Local Deep Researcher runtime lock check
         run: uv run --project bootstrapper python scripts/refresh-local-deep-researcher-lock.py --check
 
-  notebook-reproducibility:
-    name: Notebook source hygiene
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Compiled service runtime lock checks
+        run: uv run --project bootstrapper python -m scripts.check_runtime_locks
 
-      - name: Set up Python
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
-        with:
-          python-version: "3.12"
-
-      - name: Check committed notebook sources
-        run: python -m scripts.notebook_reproducibility
+      - name: Audit compiled service runtime locks
+        run: |
+          uv tool install pip-audit==2.10.0
+          uv run --project bootstrapper python -m scripts.audit_runtime_locks
 
   build-validation:
     name: Build-validation (Dockerfile + requirements.txt installability)
-    # Temporarily opt-in because this full image matrix adds 20+ minutes to
-    # every PR. Re-enable it by setting the repository Actions variable
-    # ENABLE_BUILD_VALIDATION=true and restoring this check in the gitflow
-    # ruleset's required-status-check list.
-    if: ${{ vars.ENABLE_BUILD_VALIDATION == 'true' }}
     runs-on: ubuntu-latest
     # Catches the Pass 12 / Pass 13 class of bug: unsatisfiable pip pins,
     # nonexistent packages, broken Dockerfile syntax. Compose-shape checks

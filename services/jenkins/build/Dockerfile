@@ -1,4 +1,4 @@
-ARG BASE_IMAGE=jenkins/jenkins:lts-jdk21
+ARG BASE_IMAGE=jenkins/jenkins:lts-jdk21@sha256:f4f65e6cd1405cd889b7f5ac33f9d5cdc2a099de6b87fe8a3933b9c5d53d1d02
 
 FROM ${BASE_IMAGE}
 

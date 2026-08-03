@@ -52,7 +52,7 @@ def render_section(graph: DepGraph, position: int = 5) -> str:
     lines.append("")
     lines.append(f"![{graph.focus} architecture](./architecture.svg)")
     lines.append("")
-    lines.append("[Open the interactive HTML diagram](./architecture.html) for a full-screen view.")
+    lines.append("[Open the full-size diagram](./architecture.html) for a full-screen view.")
     lines.append("")
 
     # Future-* placeholders

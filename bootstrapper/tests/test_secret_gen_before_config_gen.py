@@ -31,12 +31,14 @@ def _pos(text: str, needle: str) -> int:
 
 
 def test_linear_flow_generates_secrets_before_deriving_config():
-    src = (REPO / "bootstrapper" / "start.py").read_text(encoding="utf-8")
-    sup = _pos(src, "starter.validate_supabase_keys(cold_start=cold)")
-    enc = _pos(src, "starter.generate_encryption_keys(cold_start=cold)")
-    svc = _pos(src, "starter.generate_service_configuration()")
-    kong = _pos(src, "starter.generate_kong_configuration()")
-    litellm = _pos(src, "starter.generate_litellm_configuration()")
+    src = (
+        REPO / "bootstrapper" / "core" / "linear_startup.py"
+    ).read_text(encoding="utf-8")
+    sup = _pos(src, "starter.validate_supabase_keys(cold_start=options.cold)")
+    enc = _pos(src, "starter.generate_encryption_keys(cold_start=options.cold)")
+    svc = _pos(src, "starter.generate_service_configuration,")
+    kong = _pos(src, "starter.generate_kong_configuration,")
+    litellm = _pos(src, "starter.generate_litellm_configuration,")
     assert enc < svc, "generate_encryption_keys must precede generate_service_configuration (LIGHTRAG_PG_URI embeds the rotated password)"
     assert sup < svc, "validate_supabase_keys must precede generate_service_configuration"
     assert enc < kong and enc < litellm, "secrets must be finalized before Kong/LiteLLM config bake them in"

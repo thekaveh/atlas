@@ -1,16 +1,21 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import math
 import os
-import threading
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
+
+import httpx
 
 import media_registry
 
 
-_FAL_ENV_LOCK = threading.Lock()
+class FalSubmissionAmbiguousError(asyncio.TimeoutError):
+    """Atlas timed out before FAL returned the accepted request identifier."""
+
+
 _DEFAULT_IMAGE_MODEL = "fal-ai/flux/dev"
 _DEFAULT_IMAGE_TO_IMAGE_MODEL = "fal-ai/flux/dev/image-to-image"
 _FAL_OUTPUT_FORMATS = {"jpeg", "png"}
@@ -121,7 +126,7 @@ def validate_fal_config() -> None:
 
 
 class FalClient:
-    """Small async wrapper around the blocking fal-client SDK."""
+    """Small async wrapper around fal-client's cancellable async SDK."""
 
     # Media modalities this client can submit/poll through the fal queue.
     SUPPORTED_MODALITIES = ("image", "image_to_3d")
@@ -192,7 +197,7 @@ class FalClient:
             init_image=None,
         )
 
-        result = await self._call_blocking_with_timeout(
+        result = await self._call_async_with_timeout(
             self._subscribe, arguments
         )
         request_id = (
@@ -225,10 +230,10 @@ class FalClient:
             },
         }
 
-    def _subscribe(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
+    async def _subscribe(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
         import fal_client  # type: ignore[import-not-found]
 
-        return self._sdk_call(
+        return await self._sdk_call(
             fal_client, "subscribe", self.model, arguments=arguments
         )
 
@@ -247,9 +252,20 @@ class FalClient:
         selected_model, arguments = self._prepare_media_operation(
             modality=modality, input=input, model=model
         )
-        submitted = await self._call_blocking_with_timeout(
-            self._submit, selected_model, arguments
-        )
+        try:
+            submitted = await self._call_async_with_timeout(
+                self._submit, selected_model, arguments
+            )
+        except asyncio.TimeoutError as exc:
+            raise FalSubmissionAmbiguousError(
+                "FAL submission timed out before a provider request id was returned; "
+                "the provider may still have accepted the request"
+            ) from exc
+        except (httpx.TransportError, ConnectionError, OSError) as exc:
+            raise FalSubmissionAmbiguousError(
+                "FAL submission transport failed before a provider request id was "
+                "returned; the provider may still have accepted the request"
+            ) from exc
         operation_id = self._extract_request_id(submitted)
 
         return self._operation_payload(
@@ -308,13 +324,13 @@ class FalClient:
         if not self.api_key:
             raise ValueError("FAL_API_KEY is required when FAL_SOURCE=enabled")
 
-        status_payload = await self._call_blocking_with_timeout(
+        status_payload = await self._call_async_with_timeout(
             self._status, self.model, operation_id
         )
         normalized_status = self._normalize_status(status_payload)
         result_payload: Dict[str, Any] = {}
         if normalized_status == "succeeded":
-            result_payload = await self._call_blocking_with_timeout(
+            result_payload = await self._call_async_with_timeout(
                 self._result, self.model, operation_id
             )
 
@@ -500,17 +516,17 @@ class FalClient:
             )
         return arguments
 
-    def _submit(self, model: str, arguments: Dict[str, Any]) -> Any:
+    async def _submit(self, model: str, arguments: Dict[str, Any]) -> Any:
         import fal_client  # type: ignore[import-not-found]
 
-        return self._sdk_call(
+        return await self._sdk_call(
             fal_client, "submit", model, arguments=arguments
         )
 
-    def _status(self, model: str, operation_id: str) -> Any:
+    async def _status(self, model: str, operation_id: str) -> Any:
         import fal_client  # type: ignore[import-not-found]
 
-        return self._sdk_call(fal_client, "status", model, operation_id)
+        return await self._sdk_call(fal_client, "status", model, operation_id)
 
     async def cancel_media_operation(self, *, operation_id: str, modality: str) -> bool:
         """Best-effort provider-side cancel of an in-flight operation (#518).
@@ -525,56 +541,52 @@ class FalClient:
         if not self.api_key:
             raise ValueError("FAL_API_KEY is required when FAL_SOURCE=enabled")
         try:
-            await self._call_blocking_with_timeout(
+            await self._call_async_with_timeout(
                 self._cancel, self.model, operation_id
             )
             return True
         except Exception:  # noqa: BLE001 — best-effort by contract
             return False
 
-    def _cancel(self, model: str, operation_id: str) -> Any:
+    async def _cancel(self, model: str, operation_id: str) -> Any:
         import fal_client  # type: ignore[import-not-found]
 
-        # Older fal-client releases don't expose queue cancel — treat that as
-        # an undeliverable cancel (caller degrades to server-side-only).
-        cancel_fn = getattr(fal_client, "cancel", None)
-        if cancel_fn is None:
-            raise RuntimeError("fal_client.cancel is unavailable in this SDK version")
-        return self._sdk_call(fal_client, "cancel", model, operation_id)
+        return await self._sdk_call(fal_client, "cancel", model, operation_id)
 
-    def _result(self, model: str, operation_id: str) -> Dict[str, Any]:
+    async def _result(self, model: str, operation_id: str) -> Dict[str, Any]:
         import fal_client  # type: ignore[import-not-found]
 
-        return self._sdk_call(fal_client, "result", model, operation_id)
+        return await self._sdk_call(fal_client, "result", model, operation_id)
 
-    def _sdk_call(self, module, method: str, *args, **kwargs):
-        client_type = getattr(module, "SyncClient", None)
+    async def _sdk_call(self, module, method: str, *args, **kwargs):
+        client_type = getattr(module, "AsyncClient", None)
         if client_type is not None:
             client = client_type(
                 key=self.api_key,
                 default_timeout=float(self.timeout_seconds),
             )
-            return getattr(client, method)(*args, **kwargs)
-        return self._call_with_fal_key(
-            getattr(module, method), *args, **kwargs
-        )
+            if method == "submit":
+                kwargs.setdefault("start_timeout", self.timeout_seconds)
+            elif method == "subscribe":
+                native_timeout = max(0.001, self.timeout_seconds * 0.9)
+                kwargs.setdefault("start_timeout", native_timeout)
+                kwargs.setdefault("client_timeout", native_timeout)
+            return await getattr(client, method)(*args, **kwargs)
 
-    def _call_with_fal_key(self, func, *args, **kwargs):
-        with _FAL_ENV_LOCK:
-            previous = os.environ.get("FAL_KEY")
-            os.environ["FAL_KEY"] = self.api_key
-            try:
-                return func(*args, **kwargs)
-            finally:
-                if previous is None:
-                    os.environ.pop("FAL_KEY", None)
-                else:
-                    os.environ["FAL_KEY"] = previous
+        # Narrow test seam for async stubs. Shipped environments require
+        # fal-client>=1.0.0 and therefore always use AsyncClient.
+        function = getattr(module, method, None)
+        if function is None or not inspect.iscoroutinefunction(function):
+            raise RuntimeError(
+                "fal-client>=1.0.0 with AsyncClient support is required"
+            )
+        return await function(*args, **kwargs)
 
-    async def _call_blocking_with_timeout(self, func, *args):
-        return await asyncio.wait_for(
-            asyncio.to_thread(func, *args), timeout=self.timeout_seconds
-        )
+    async def _call_async_with_timeout(self, func, *args):
+        result = func(*args)
+        if not inspect.isawaitable(result):
+            raise RuntimeError("FAL SDK operation did not return an awaitable")
+        return await asyncio.wait_for(result, timeout=self.timeout_seconds)
 
     def _operation_payload(
         self,
@@ -626,7 +638,11 @@ class FalClient:
                 or getattr(payload, "requestId", None)
                 or getattr(payload, "id", None)
             )
-        return str(value or f"fal-{uuid.uuid4()}")
+        if not value:
+            raise FalSubmissionAmbiguousError(
+                "FAL submission response did not include a provider request ID"
+            )
+        return str(value)
 
     def _normalize_status(self, payload: Any) -> str:
         # fal-client's queue `status()` returns type-discriminated dataclasses

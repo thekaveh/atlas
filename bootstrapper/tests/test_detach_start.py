@@ -8,6 +8,7 @@ from tests.three_surface_test_utils import surface_text
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 START_PY = REPO_ROOT / "bootstrapper" / "start.py"
+LINEAR_STARTUP = REPO_ROOT / "bootstrapper" / "core" / "linear_startup.py"
 REUSING_ATLAS = REPO_ROOT / "docs" / "deployment" / "reusing-atlas.md"
 
 
@@ -21,18 +22,18 @@ def test_start_cli_declares_detach_no_follow_and_json_options() -> None:
 
 
 def test_linear_detach_path_skips_following_logs() -> None:
-    src = START_PY.read_text(encoding="utf-8")
+    src = LINEAR_STARTUP.read_text(encoding="utf-8")
 
-    detach_pos = src.find("if detach:")
-    status_pos = src.find("show_detached_status_summary(json_output=json_output)")
+    detach_pos = src.find("if options.detach:")
+    status_pos = src.find("show_detached_status_summary(\n            json_output=options.json_output")
     logs_pos = src.find("starter.show_container_logs()")
 
     assert detach_pos != -1, "linear start flow must branch on detach"
     assert status_pos != -1, "detach flow must print a terminal status summary"
     assert logs_pos != -1, "interactive/default flow should still follow logs"
     assert detach_pos < status_pos < logs_pos
-    assert "show_container_logs()" in src[status_pos:src.find("except click.ClickException")]
-    assert "assume_yes=detach or json_output" in src
+    assert "show_container_logs()" in src[status_pos:]
+    assert "assume_yes = options.detach or options.json_output" in src
 
 
 def test_docker_start_services_can_wait_for_health(monkeypatch) -> None:

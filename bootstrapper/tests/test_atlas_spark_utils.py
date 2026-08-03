@@ -34,6 +34,7 @@ _spec.loader.exec_module(_mod)
 confirm_driver_status_via_rest = _mod.confirm_driver_status_via_rest
 submit_and_confirm_via_rest = _mod.submit_and_confirm_via_rest
 _extract_driver_id_from_log = _mod._extract_driver_id_from_log
+RestConfirmingSparkHook = getattr(_mod, "RestConfirmingSparkHook", None)
 
 
 def _mock_response(payload: dict):
@@ -179,3 +180,36 @@ def test_submit_falls_back_to_hook_driver_id_if_log_misses():
         result = submit_and_confirm_via_rest(hook, "s3a://jars/app.jar")
     assert result == "driver-fallback-0000"
     assert "driver-fallback-0000" in m.call_args[0][0]
+
+
+def test_rest_confirming_hook_routes_submit_and_kill(monkeypatch):
+    assert RestConfirmingSparkHook is not None
+    inner = MagicMock()
+    monkeypatch.setattr(
+        _mod,
+        "submit_and_confirm_via_rest",
+        lambda hook, application, *, rest_host: (
+            hook,
+            application,
+            rest_host,
+        ),
+    )
+    wrapped = RestConfirmingSparkHook(inner, rest_host="spark-master")
+
+    assert wrapped.submit("s3a://jars/app.jar") == (
+        inner,
+        "s3a://jars/app.jar",
+        "spark-master",
+    )
+    wrapped.on_kill()
+    inner.on_kill.assert_called_once_with()
+
+
+def test_lakehouse_dag_uses_rest_confirming_operator():
+    dag_source = (
+        Path(__file__).resolve().parents[2]
+        / "services/airflow/dags/lakehouse_spark_submit_smoke.py"
+    ).read_text(encoding="utf-8")
+
+    assert "class AtlasSparkSubmitOperator(SparkSubmitOperator):" in dag_source
+    assert "submit_lakehouse_job = AtlasSparkSubmitOperator(" in dag_source

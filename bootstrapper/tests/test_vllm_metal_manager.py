@@ -245,12 +245,18 @@ def test_install_core_verifies_archive_and_build_contract(tmp_path, monkeypatch)
     expected_digest = hashlib.sha256(archive.read_bytes()).hexdigest()
     downloads = []
 
-    def fake_download(url, destination):
+    def fake_open(url, *, timeout):
         downloads.append(url)
-        Path(destination).write_bytes(archive.read_bytes())
+        assert timeout == 60
+        return io.BytesIO(archive.read_bytes())
 
     calls = []
-    monkeypatch.setattr(mod.urllib.request, "urlretrieve", fake_download)
+    monkeypatch.setattr(mod.urllib.request, "urlopen", fake_open)
+    monkeypatch.setattr(
+        mod.urllib.request,
+        "urlretrieve",
+        lambda *_args, **_kwargs: pytest.fail("urlretrieve has no timeout"),
+    )
     monkeypatch.setattr(mod, "_DEFAULT_CORE_SHA256", expected_digest)
     monkeypatch.setattr(mgr, "_run", lambda cmd, **kwargs: calls.append((cmd, kwargs)))
 
@@ -268,10 +274,16 @@ def test_install_core_verifies_archive_and_build_contract(tmp_path, monkeypatch)
 def test_install_core_rejects_checksum_mismatch(tmp_path, monkeypatch):
     mgr = _mgr(tmp_path)
 
-    def fake_download(url, destination):
-        Path(destination).write_bytes(b"not-the-pinned-archive")
+    def fake_open(_url, *, timeout):
+        assert timeout == 60
+        return io.BytesIO(b"not-the-pinned-archive")
 
-    monkeypatch.setattr(mod.urllib.request, "urlretrieve", fake_download)
+    monkeypatch.setattr(mod.urllib.request, "urlopen", fake_open)
+    monkeypatch.setattr(
+        mod.urllib.request,
+        "urlretrieve",
+        lambda *_args, **_kwargs: pytest.fail("urlretrieve has no timeout"),
+    )
 
     with pytest.raises(VllmMetalError, match="checksum mismatch"):
         mgr._install_core()

@@ -12,10 +12,10 @@ call to ``port_defaults_for`` is effectively free after the first.
 import os
 import socket
 import re
-import tempfile
 from typing import Optional, Dict, List
 from pathlib import Path
 from core.config_parser import ConfigParser, DEFAULT_BASE_PORT
+from utils.atomic_write import atomic_write_text
 
 
 class PortManager:
@@ -178,32 +178,7 @@ class PortManager:
                 replacement = rf'\g<1>{new_port}\g<3>'
                 updated_content = re.sub(pattern, replacement, updated_content, flags=re.MULTILINE)
 
-            # Write atomically: a crash/SIGKILL/OOM during an in-place
-            # open(...,'w') truncates the secrets-bearing .env (every MINIO
-            # secret, JWT, DB password). Mirror the atomic tmp+os.replace
-            # pattern used by source_override_manager / service_config /
-            # hosts_manager. chmod the tmp to the original's mode BEFORE
-            # writing so a user-chmod'd 0600 .env isn't briefly exposed via
-            # a umask-default tmp; the empty tmp between mkstemp and chmod
-            # holds no secrets.
-            try:
-                original_mode = env_file_path.stat().st_mode
-            except OSError:
-                original_mode = 0o600
-            fd, tmp = tempfile.mkstemp(
-                dir=str(env_file_path.parent), prefix=".env.", suffix=".tmp"
-            )
-            try:
-                os.chmod(tmp, original_mode)
-                with os.fdopen(fd, "w", encoding="utf-8") as f:
-                    f.write(updated_content)
-                os.replace(tmp, str(env_file_path))
-            except BaseException:
-                try:
-                    os.unlink(tmp)
-                except OSError:
-                    pass
-                raise
+            atomic_write_text(env_file_path, updated_content, mode=0o600)
 
             return True
 

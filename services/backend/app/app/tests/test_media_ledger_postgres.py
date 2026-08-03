@@ -4,7 +4,9 @@ import asyncio
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, patch
 
-from media_ledger import STATUS_RESERVED, LedgerRecord, _utcnow
+import pytest
+
+from media_ledger import STATUS_RESERVED, STATUS_SUBMITTED, LedgerRecord, _utcnow
 
 
 def _run(coro):
@@ -189,9 +191,97 @@ def test_rekey_updates_operation_id():
     assert conn.calls[0][2] == ("resv-1", "prov-1")
 
 
+def test_settle_if_reserved_uses_atomic_status_predicate():
+    from dataclasses import replace
+
+    candidate = replace(_record(), status="committed", final_cost_usd=0.04)
+    now = candidate.created_at
+    returned = {
+        **candidate.to_public_dict(),
+        "artifact_refs": "[]",
+        "pricing_source_ts": candidate.pricing_source_ts,
+        "created_at": now,
+        "updated_at": now,
+    }
+    conn = FakeConn(fetchrow_result=returned)
+    with _acquire_patch(conn):
+        winner = _run(_store(conn).settle_if_reserved(candidate))
+
+    sql = conn.calls[0][1]
+    assert "status = ANY($7::text[])" in sql
+    assert "RETURNING" in sql
+    assert winner.status == "committed"
+
+
 def test_prune_returns_deleted_count():
     conn = FakeConn(execute_result="DELETE 3")
     with _acquire_patch(conn):
         pruned = _run(_store(conn).prune(_utcnow()))
 
     assert pruned == 3
+
+
+def test_prune_exempts_explicitly_protected_unsettled_reservations():
+    conn = FakeConn(execute_result="DELETE 0")
+    with _acquire_patch(conn):
+        _run(_store(conn).prune(_utcnow()))
+
+    _, sql, args = conn.calls[0]
+    assert "status = ANY($2::text[])" in sql
+    assert "COALESCE(reason = ANY($3::text[]), FALSE)" in sql
+    assert args[1] == [STATUS_RESERVED, STATUS_SUBMITTED]
+    assert "ambiguous provider submission" in args[2][0]
+    assert "attachment pending" in args[2][1]
+
+
+def test_rekey_translates_unique_violation_to_domain_collision():
+    class UniqueViolationError(Exception):
+        pass
+
+    class CollisionConn(FakeConn):
+        async def execute(self, sql, *args):
+            raise UniqueViolationError("duplicate key")
+
+    from media_ledger import LedgerOperationCollisionError
+
+    with _acquire_patch(CollisionConn()):
+        with pytest.raises(LedgerOperationCollisionError):
+            _run(_store(None).rekey("reservation", "provider-op"))
+
+
+def test_clear_attach_protection_is_conditional_and_field_scoped():
+    conn = FakeConn(execute_result="UPDATE 1")
+    with _acquire_patch(conn):
+        _run(_store(conn).clear_attach_protection("provider-op"))
+
+    _, sql, args = conn.calls[0]
+    assert "SET reason = NULL" in sql
+    assert "status = ANY($3::text[])" in sql
+    assert "consumer =" not in sql
+    assert args[0] == "provider-op"
+
+
+def test_protect_reason_is_conditional_and_field_scoped():
+    conn = FakeConn(execute_result="UPDATE 1")
+    with _acquire_patch(conn):
+        protected = _run(
+            _store(conn).protect_reason_if_reserved("provider-op", "recovery")
+        )
+
+    _, sql, args = conn.calls[0]
+    assert protected is True
+    assert "SET reason = $2" in sql
+    assert "status = ANY($3::text[])" in sql
+    assert args[:2] == ("provider-op", "recovery")
+
+
+def test_attach_is_single_conditional_rekey_and_status_update():
+    conn = FakeConn(fetchrow_result=None)
+    with _acquire_patch(conn):
+        _run(_store(conn).attach_if_reserved("reservation", "provider-op"))
+
+    _, sql, args = conn.calls[0]
+    assert "SET operation_id = $2" in sql
+    assert "status = $3" in sql
+    assert "status = ANY($4::text[])" in sql
+    assert args[0:2] == ("reservation", "provider-op")

@@ -144,9 +144,9 @@ def test_gpu_torch_requirements_match_base_image_patch():
     dockerfile = (ROOT / "services/docling/provider/gpu/Dockerfile").read_text()
     requirements = (ROOT / "services/docling/provider/gpu/requirements.txt").read_text()
 
-    assert "pytorch/pytorch:2.12.1-" in dockerfile
-    assert "torch==2.12.1" in requirements
-    assert "torchvision==0.27.1" in requirements
+    assert "pytorch/pytorch:2.13.0-" in dockerfile
+    assert "torch==2.13.0" in requirements
+    assert "torchvision==0.28.0" in requirements
 
 
 def test_converter_readiness_is_nonblocking_and_truthful(monkeypatch):

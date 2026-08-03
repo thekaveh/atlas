@@ -11,9 +11,9 @@ and integration notes.
 
 ## 1. Engine quick reference
 
-- **Image (GPU):** `pytorch/pytorch:2.12.1-cuda12.6-cudnn9-runtime` (used as
+- **Image (GPU):** `pytorch/pytorch:2.13.0-cuda12.6-cudnn9-runtime` (digest-pinned; used as
   `BASE_IMAGE` in the GPU provider Dockerfile); the provider requirements keep
-  `torch==2.12.1` and its matching `torchvision==0.27.1` patch pair.
+  `torch==2.13.0` and its matching `torchvision==0.28.0` patch pair.
 - **License:** MIT (IBM)
 - **Activation:** `DOC_PROCESSOR_SOURCE=docling-container-gpu` (or
   `docling-localhost` for host-installed Docling)
@@ -50,7 +50,7 @@ _No upstream calls._
 
 ![docling architecture](./architecture.svg)
 
-[Open the interactive HTML diagram](./architecture.html) for a full-screen view.
+[Open the full-size diagram](./architecture.html) for a full-screen view.
 
 ### 2.4. Future — Missing pair integrations
 

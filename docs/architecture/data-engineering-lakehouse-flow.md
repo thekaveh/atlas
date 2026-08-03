@@ -4,7 +4,7 @@ MinIO, Iceberg REST, Spark, JupyterHub, Zeppelin, Airflow, Trino, and Redpanda.
 
 ## 1. Diagram
 
-[Open the interactive diagram](./data-engineering-lakehouse-flow.html).
+[Open the full-size diagram](./data-engineering-lakehouse-flow.html).
 
 ## 2. Notes
 

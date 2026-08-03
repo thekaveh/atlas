@@ -142,7 +142,12 @@ def _resolve_link_target(md: Path, file_part: str) -> Path:
         (REPO_ROOT / "docs" / "wiki").resolve(),
         (REPO_ROOT / "generated" / "wiki").resolve(),
     )
-    is_wiki_page = any(md.resolve().is_relative_to(root) for root in wiki_roots)
+    is_wiki_page = any(
+        md.resolve().is_relative_to(root) for root in wiki_roots
+    ) or any(
+        (parent / "_Sidebar.md").is_file()
+        for parent in (md.parent, *md.parents)
+    )
     if is_wiki_page and not file_part.lower().endswith(".md"):
         wiki_page = Path(f"{resolved}.md")
         if wiki_page.exists():

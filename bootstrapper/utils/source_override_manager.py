@@ -4,9 +4,9 @@ Handles runtime overrides of SERVICE SOURCE configurations.
 """
 
 from typing import Dict
-import os
 import re
-from pathlib import Path
+
+from utils.atomic_write import atomic_write_text
 
 class SourceOverrideManager:
     """Manages command-line SOURCE overrides for services."""
@@ -253,23 +253,7 @@ class SourceOverrideManager:
                     print(f"⚠️  {var_name} not found in .env, appending...")
                     updated_content += f'\n{replacement}'
             
-            # Write atomically (tmp + os.replace): a crash mid-write on
-            # an in-place open(..., 'w') truncates the user's .env.
-            # Preserve the original mode (a user-chmod'd 0600 .env must
-            # not come back umask-default), and never leave the
-            # secrets-bearing tmp file behind on failure.
-            tmp_path = Path(str(env_file_path) + '.tmp')
-            try:
-                original_mode = os.stat(env_file_path).st_mode
-                with open(tmp_path, 'w', encoding="utf-8") as f:
-                    # Clamp the mode BEFORE writing secrets — a
-                    # umask-default tmp next to a 0600 .env would
-                    # briefly expose the content otherwise.
-                    os.chmod(tmp_path, original_mode)
-                    f.write(updated_content)
-                os.replace(tmp_path, env_file_path)
-            finally:
-                tmp_path.unlink(missing_ok=True)
+            atomic_write_text(env_file_path, updated_content, mode=0o600)
             
             return True
             
