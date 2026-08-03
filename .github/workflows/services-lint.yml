@@ -67,7 +67,12 @@ jobs:
 
       - name: Run unit tests (loader, validator, assembler, hooks, CLI)
         working-directory: bootstrapper
-        run: uv run pytest tests/ -q --ignore=tests/test_fragment_equivalence.py --ignore=tests/test_source_permutations.py
+        run: >-
+          uv run pytest tests/ -q
+          --ignore=tests/test_fragment_equivalence.py
+          --ignore=tests/test_source_permutations.py
+          --cov=. --cov-config=pyproject.toml --cov-branch
+          --cov-report=term --cov-fail-under=69
 
       - name: Lint manifests
         working-directory: bootstrapper
@@ -83,7 +88,9 @@ jobs:
           # drift from the application or pytest plugin contracts.
           VIRTUAL_ENV="$BACKEND_TEST_VENV" uv pip install \
             -r requirements.txt -r requirements-dev.txt -c requirements-locked.txt
-          "$BACKEND_TEST_VENV/bin/python" -m pytest tests/ -q -W error
+          "$BACKEND_TEST_VENV/bin/python" -m pytest tests/ -q -W error \
+            --cov=. --cov-config=.coveragerc --cov-branch \
+            --cov-report=term --cov-fail-under=79
 
       - name: MCP framework contract tests
         run: |

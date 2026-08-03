@@ -1,5 +1,6 @@
 # Backend test runner and plugins. Production images install requirements.txt only.
 pytest>=9.1.1
 pytest-asyncio>=1.4.0
+pytest-cov>=7.1.0,<8
 # Compatibility transport used by the current FastAPI/Starlette TestClient suite.
 httpx2>=2.6.0
