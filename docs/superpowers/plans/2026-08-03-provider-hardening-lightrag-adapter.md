@@ -107,7 +107,7 @@ GET  /health                      -> public readiness
 
 ### 2.5 Configuration, consumers, and generated surfaces
 
-- `bootstrapper/utils/key_generator.py` and `bootstrapper/tests/test_key_generator.py`: stable provider-token generation.
+- `bootstrapper/utils/key_generator.py` and `bootstrapper/tests/test_provider_token_generation.py`: stable provider-token generation.
 - `services/docling/service.yml`, `services/docling/compose.yml`: provider and adapter vars, container, networks, source behavior, and data flow.
 - `services/parakeet/service.yml`, `services/parakeet/compose.yml`: provider vars and loopback bind.
 - `bootstrapper/services/service_config.py`: adapter scale/endpoint derivation and token propagation.
@@ -159,13 +159,13 @@ git commit -m "feat: add hardened provider request boundary"
 
 ## 4. Task 2 — Generate and Declare Stable Provider Credentials
 
-- [ ] Add failing tests in `bootstrapper/tests/test_key_generator.py` for `DOCLING_API_TOKEN` and `PARAKEET_API_TOKEN`: generated when absent, non-empty and URL-safe, different from each other, preserved on warm runs, never force-rotated, and written to a custom `ATLAS_ENV_FILE`.
+- [ ] Add failing tests in `bootstrapper/tests/test_provider_token_generation.py` for `DOCLING_API_TOKEN` and `PARAKEET_API_TOKEN`: generated when absent, non-empty and URL-safe, different from each other, preserved on warm runs, never force-rotated, and written to a custom `ATLAS_ENV_FILE`.
 - [ ] Add failing manifest/env-assembler assertions that both vars are `secret: true`, have empty `.env.example` placeholders, and never appear in diagnostic exports.
 - [ ] Run:
 
 ```bash
 uv run --project bootstrapper pytest \
-  bootstrapper/tests/test_key_generator.py \
+  bootstrapper/tests/test_provider_token_generation.py \
   bootstrapper/tests/test_env_assembler.py \
   bootstrapper/tests/test_manifests.py -q
 ```
@@ -196,7 +196,7 @@ Add the analogous Parakeet variables and adapter variables from the design.
 - [ ] Re-run the focused tests and commit:
 
 ```bash
-git add bootstrapper/utils/key_generator.py bootstrapper/tests/test_key_generator.py \
+git add bootstrapper/utils/key_generator.py bootstrapper/tests/test_provider_token_generation.py \
   bootstrapper/tests/test_env_assembler.py bootstrapper/tests/test_manifests.py \
   services/docling/service.yml services/parakeet/service.yml .env.example
 git commit -m "feat: generate provider API credentials"

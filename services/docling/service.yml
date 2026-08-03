@@ -43,6 +43,31 @@ env:
   - name: DOCLING_CONCURRENCY
     default: 1
     description: "Maximum concurrent Docling conversions per provider process. Default 1 prevents duplicate model loads and GPU memory contention."
+  - name: DOCLING_API_TOKEN
+    default: ""
+    secret: true
+    description: "Auto-generated bearer credential required by Docling routes except /health."
+  - name: DOCLING_AUTH_MODE
+    default: required
+    description: "Provider authentication mode: required (default) or disabled for an explicit emergency/local rollback."
+  - name: DOCLING_CORS_ORIGINS
+    default: ""
+    description: "Optional comma-separated browser origin allowlist. Empty disables CORS; wildcard is invalid while authentication is required."
+  - name: DOCLING_INFERENCE_TIMEOUT_SECONDS
+    default: 900
+    description: "Finite conversion and lazy-load deadline in seconds (1-3600). A timeout returns 504 and then exits the provider process for restart."
+  - name: DOCLING_LOCALHOST_BIND_HOST
+    default: 127.0.0.1
+    description: "Native Docling listen address. Set another interface explicitly only when remote access is intended."
+  - name: DOCLING_ADAPTER_MAX_JOBS
+    default: 2
+    description: "Maximum outstanding LightRAG adapter jobs, reserved before multipart parsing."
+  - name: DOCLING_ADAPTER_RESULT_TTL_SECONDS
+    default: 900
+    description: "Seconds a completed LightRAG adapter result may remain before its artifact and job slot are removed."
+  - name: DOCLING_ADAPTER_SCALE
+    auto_managed: true
+    description: "Derived adapter replica count; one only when both LightRAG and Docling are enabled."
   - name: DOCLING_ENABLE_FORMULAS
     default: true
   - name: DOCLING_ENABLE_CODE_BLOCKS

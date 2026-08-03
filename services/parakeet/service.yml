@@ -70,6 +70,22 @@ env:
   - name: PARAKEET_CONCURRENCY
     default: 1
     description: "Maximum concurrent Parakeet inference calls per provider process. Default 1 prevents model thread-safety and GPU memory contention."
+  - name: PARAKEET_API_TOKEN
+    default: ""
+    secret: true
+    description: "Auto-generated bearer credential required by Parakeet routes except /health."
+  - name: PARAKEET_AUTH_MODE
+    default: required
+    description: "Provider authentication mode: required (default) or disabled for an explicit emergency/local rollback."
+  - name: PARAKEET_CORS_ORIGINS
+    default: ""
+    description: "Optional comma-separated browser origin allowlist. Empty disables CORS; wildcard is invalid while authentication is required."
+  - name: PARAKEET_INFERENCE_TIMEOUT_SECONDS
+    default: 900
+    description: "Finite model-load and transcription deadline in seconds (1-3600). A timeout returns 504 and then exits the provider process for restart."
+  - name: PARAKEET_LOCALHOST_BIND_HOST
+    default: 127.0.0.1
+    description: "Native Parakeet listen address. Set another interface explicitly only when remote access is intended."
   - name: PARAKEET_LOCALHOST_PORT
     default: "63042"
     description: "Host port for the parakeet-localhost source variant. URL is derived at compose-render time as http://host.docker.internal:63042."
