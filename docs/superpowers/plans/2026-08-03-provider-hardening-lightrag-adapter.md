@@ -23,7 +23,7 @@
 
 ## 2. File and Responsibility Map
 
-### 2.1 New provider boundary modules
+### 2.1. New provider boundary modules
 
 - `services/docling/provider/provider_boundary.py`: Docling copy of the shared boundary contract, importable by both container and localhost applications.
 - `services/parakeet/provider/provider_boundary.py`: Parakeet copy of the same contract; the byte-equivalence test prevents drift across separate Docker build contexts.
@@ -51,7 +51,7 @@ async def run_with_deadline(prefix: str, operation: Callable[[], T]) -> T: ...
 
 `install_provider_boundary` owns a `threading.BoundedSemaphore(settings.capacity)`. For an expensive `POST`, it calls `acquire(blocking=False)` before the downstream ASGI application, returns 429 plus `Retry-After: 1` when full, and releases exactly once in `finally`. Authentication happens before admission. CORS is added only for the parsed explicit allowlist, with `allow_credentials=False`; wildcard is invalid in required mode.
 
-### 2.2 Docling conversion and bundle modules
+### 2.2. Docling conversion and bundle modules
 
 - `services/docling/provider/gpu/processor.py`: expose conversion and rendering separately so one `ConversionResult` can produce the existing response or a LightRAG bundle.
 - `services/docling/provider/localhost/processor.py`: mirror the same public processor interfaces for native mode.
@@ -72,7 +72,7 @@ def build_lightrag_bundle(result: Any, *, upload_name: str) -> bytes: ...
 
 The bundle route is `POST /internal/lightrag/bundle`. It is not exempt from provider authentication and is included in Docling's expensive paths. It converts once, exports `<canonical-stem>.json`, `<canonical-stem>.md`, and referenced assets, and returns `application/zip`.
 
-### 2.3 Parakeet lifecycle modules
+### 2.3. Parakeet lifecycle modules
 
 - `services/parakeet/provider/shared/api_server.py`: boundary, deadline, readiness, and non-blocking lifespan startup.
 - `services/parakeet/provider/gpu/transcribe.py`: remove import-time preload and expose an idempotent loader callable.
@@ -83,7 +83,7 @@ The bundle route is `POST /internal/lightrag/bundle`. It is not exempt from prov
 
 Required lifecycle states are `loading`, `healthy`, and `unhealthy`. Startup schedules loading without blocking socket startup; `/health` returns 503 until healthy. The watchdog uses the same validated inference timeout and calls the fatal terminator if loading does not settle.
 
-### 2.4 LightRAG adapter
+### 2.4. LightRAG adapter
 
 - `services/docling/provider/adapter/app.py`: FastAPI routes and application wiring.
 - `services/docling/provider/adapter/jobs.py`: bounded job registry, background execution, TTL cleanup, and artifact ownership.
@@ -105,7 +105,7 @@ GET  /health                      -> public readiness
 
 `JobRegistry.reserve()` must be callable before multipart parsing and non-blocking. Ownership transfers from the request middleware to a newly registered job only after successful spooling. Successful download, job failure, cancellation, and TTL expiry remove files and release the outstanding-job slot exactly once.
 
-### 2.5 Configuration, consumers, and generated surfaces
+### 2.5. Configuration, consumers, and generated surfaces
 
 - `bootstrapper/utils/key_generator.py` and `bootstrapper/tests/test_provider_token_generation.py`: stable provider-token generation.
 - `services/docling/service.yml`, `services/docling/compose.yml`: provider and adapter vars, container, networks, source behavior, and data flow.

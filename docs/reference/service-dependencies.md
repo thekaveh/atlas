@@ -18,6 +18,7 @@
 | crawl4ai | - | local-deep-researcher, n8n, backend, weaviate | - |
 | doc-processor | - | - | - |
 | docling | - | - | - |
+| docling-lightrag-adapter | - | - | docling |
 | fal | - | - | - |
 | globals | - | - | - |
 | grafana | prometheus, supabase, kong, ray | - | prometheus, tempo, loki |
@@ -28,7 +29,7 @@
 | kong | supabase, redis | - | backend, open-webui, jupyterhub, n8n, hermes, openclaw, local-deep-researcher, minio, supabase, weaviate, neo4j, comfyui, searxng, stt-provider, tts-provider, doc-processor, litellm, ollama, airflow, spark, lightrag, tei-reranker, verba, trino, redpanda, tika, crawl4ai, langfuse, mlflow, label-studio, jenkins, llm-graph-builder, mcp-servers, celery, asset-baker, asset-worker, grafana, prometheus, ray |
 | label-studio | supabase, minio | jupyterhub, mlflow | supabase, minio |
 | langfuse | supabase, redis, minio, litellm, kong, ray | - | supabase, redis, minio |
-| lightrag | litellm | supabase, neo4j, redis, docling | litellm, supabase, neo4j, redis, docling |
+| lightrag | litellm | supabase, neo4j, redis, docling | litellm, supabase, neo4j, redis, docling-lightrag-adapter |
 | litellm | supabase, redis | - | supabase, redis, ollama, cloud-providers, hermes, lightrag, vllm-metal, fal, tei-reranker, otel-collector, langfuse |
 | llm-graph-builder | neo4j, litellm, kong | minio, docling | neo4j, litellm |
 | local-deep-researcher | searxng, litellm | crawl4ai | litellm, searxng, crawl4ai |

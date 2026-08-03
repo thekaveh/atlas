@@ -22,7 +22,7 @@ failure mode.
 
 ## 2. Goals and non-goals
 
-### 2.1 Goals
+### 2.1. Goals
 
 - Require generated bearer credentials on all model-provider routes except
   health checks.
@@ -39,7 +39,7 @@ failure mode.
   Parakeet contract.
 - Keep generated secrets stable across subsequent bootstrapper runs.
 
-### 2.2 Non-goals
+### 2.2. Non-goals
 
 - Replacing Docling, Parakeet, LightRAG, or their pinned base images.
 - Adding a general-purpose job queue or external broker.
@@ -51,7 +51,7 @@ failure mode.
 
 ## 3. Selected architecture
 
-### 3.1 Authenticated provider boundary
+### 3.1. Authenticated provider boundary
 
 Docling and Parakeet each receive an independently generated secret:
 
@@ -75,7 +75,7 @@ comma-separated origin allowlist. Wildcard origins are rejected when
 authentication is required, and CORS credential mode remains disabled because
 bearer headers do not require browser cookie credentials.
 
-### 3.2 Admission before upload parsing
+### 3.2. Admission before upload parsing
 
 Each provider owns a non-blocking admission counter whose capacity equals its
 existing concurrency setting (`DOCLING_CONCURRENCY` or
@@ -91,7 +91,7 @@ exceptions. The inner processor semaphores remain as defense in depth during
 the migration but must use the same configured capacity so they cannot create
 an additional queue.
 
-### 3.3 Killable completion deadlines
+### 3.3. Killable completion deadlines
 
 `DOCLING_INFERENCE_TIMEOUT_SECONDS` and
 `PARAKEET_INFERENCE_TIMEOUT_SECONDS` default to 900 seconds and must be finite
@@ -118,7 +118,7 @@ by the same deadline. A watchdog terminates the process if loading hangs before
 the HTTP application becomes responsive. Readiness stays 503 until loading
 finishes.
 
-### 3.4 LightRAG–Docling adapter
+### 3.4. LightRAG–Docling adapter
 
 A lightweight `docling-lightrag-adapter` container implements only the pinned
 LightRAG v1.5.4 contract:
@@ -151,7 +151,7 @@ may remain until expiry so LightRAG can observe the failure without consuming a
 work slot. This bounds queued uploads and completed artifacts independently of
 Docling's single active conversion permit.
 
-### 3.5 Network isolation
+### 3.5. Network isolation
 
 The adapter has no published host port and is not attached to the shared
 `backend-network`. A dedicated project-scoped network connects only LightRAG,
@@ -176,7 +176,7 @@ remains required. Native servers separately use `DOCLING_LOCALHOST_BIND_HOST`
 and `PARAKEET_LOCALHOST_BIND_HOST`, both defaulting to `127.0.0.1`; binding a
 native server to another interface is likewise explicit.
 
-### 3.6 Secret generation and consumers
+### 3.6. Secret generation and consumers
 
 The bootstrapper generates both provider tokens when absent and preserves
 existing non-empty values. The tokens are declared as manifest-owned secrets,
@@ -200,7 +200,7 @@ default.
 
 ## 4. Data flow
 
-### 4.1 Backend document conversion
+### 4.1. Backend document conversion
 
 1. Backend authenticates its caller under the existing Backend identity policy.
 2. Backend sends the document and Docling bearer token to the synchronous
@@ -209,7 +209,7 @@ default.
 4. Docling spools within the existing byte limit, converts under the deadline,
    returns the existing response shape, and removes the temporary file.
 
-### 4.2 LightRAG document conversion
+### 4.2. LightRAG document conversion
 
 1. LightRAG submits a multipart document to the isolated adapter.
 2. The adapter reserves a job slot before parsing, stores the bounded upload,
@@ -222,7 +222,7 @@ default.
    and downloads it.
 6. The adapter deletes the upload and result and releases the job slot.
 
-### 4.3 Parakeet transcription
+### 4.3. Parakeet transcription
 
 1. Open WebUI, Hermes, n8n, a notebook, or another trusted server-side client
    sends an OpenAI-compatible request with the Parakeet bearer token.
@@ -308,29 +308,29 @@ hand.
 
 ## 9. Rejected alternatives
 
-### 9.1 Loopback-only without authentication
+### 9.1. Loopback-only without authentication
 
 This limits remote host exposure but leaves lateral access from every container
 on `backend-network` and does not meet the authenticated-provider goal.
 
-### 9.2 Mandatory authentication with LightRAG integration removed
+### 9.2. Mandatory authentication with LightRAG integration removed
 
 This is simpler but converts an advertised integration defect into a deliberate
 feature regression instead of repairing the pinned contract.
 
-### 9.3 Credentials embedded in the Docling endpoint URL
+### 9.3. Credentials embedded in the Docling endpoint URL
 
 HTTP Basic user-info might make the pinned client emit a credential, but it
 places a reusable secret in environment values, endpoint signatures, errors,
 and diagnostic output. It is rejected as an avoidable secret-leak risk.
 
-### 9.4 `asyncio.wait_for()` without process termination
+### 9.4. `asyncio.wait_for()` without process termination
 
 It returns control to the event loop but cannot stop a native inference thread.
 Releasing the permit afterward would admit overlapping work while the original
 model call still runs, so this does not provide a real completion bound.
 
-### 9.5 A model-loading adapter process
+### 9.5. A model-loading adapter process
 
 Loading Docling in both the provider and adapter duplicates model memory and
 GPU state. The selected adapter is lightweight and delegates the single real

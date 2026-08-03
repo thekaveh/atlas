@@ -48,6 +48,9 @@ NVIDIA SOTA (Parakeet):
 
 ```bash
 ./start.sh --stt-provider-source parakeet-container-gpu
+curl -X POST http://localhost:63055/v1/audio/transcriptions \
+  -H "Authorization: Bearer ${PARAKEET_API_TOKEN}" \
+  -F file=@sample.wav -F model=whisper-1
 ```
 
 macOS native — fastest path for Apple Silicon:
@@ -64,7 +67,7 @@ whisper-server --host 0.0.0.0 --port 63042 \
 
 # Option B: Parakeet-MLX (highest quality on EN/EU, MLX-native)
 pip install -r services/parakeet/provider/mlx/requirements.txt
-cd services/parakeet/provider && python -m uvicorn mlx.api_server:app --host 0.0.0.0 --port 63042 &
+cd services/parakeet/provider && python -m uvicorn mlx.api_server:app --host 127.0.0.1 --port 63042 &
 ./start.sh --stt-provider-source parakeet-localhost
 ```
 
@@ -85,6 +88,11 @@ for the whisper.cpp walkthrough and Linux build instructions, or
 | `PARAKEET_GPU_IMAGE` | `nvcr.io/nvidia/pytorch:26.06-py3` | Base for the Parakeet GPU Dockerfile. |
 | `PARAKEET_MAX_UPLOAD_BYTES` | `104857600` | Maximum audio upload size for Parakeet GPU and localhost APIs; larger requests return `413`. |
 | `PARAKEET_CONCURRENCY` | `1` | Maximum concurrent inference calls per Parakeet provider process. |
+| `PARAKEET_API_TOKEN` | generated | Auto-generated bearer required by Atlas-managed Parakeet routes except `/health`. |
+| `PARAKEET_AUTH_MODE` | `required` | Set `disabled` only for an explicit emergency/local rollback. |
+| `PARAKEET_CORS_ORIGINS` | (empty) | Comma-separated browser origin allowlist; wildcard is invalid with required authentication. |
+| `PARAKEET_INFERENCE_TIMEOUT_SECONDS` | `900` | Model-load and inference deadline; timeout returns `504` and terminates the process for restart. |
+| `PARAKEET_LOCALHOST_BIND_HOST` | `127.0.0.1` | Native Parakeet listen address. |
 | `PARAKEET_LOCALHOST_PORT` | `63042` | Host port where a host-side Parakeet server listens. URL is derived as `http://host.docker.internal:63042`. |
 | `WHISPER_CPP_LOCALHOST_PORT` | `63042` | Host port where a host-side whisper.cpp server listens (same freed slot as parakeet — the two modes are mutually exclusive). URL is derived as `http://host.docker.internal:63042`. |
 | `HUGGING_FACE_HUB_TOKEN` | (empty) | For gated models. |
@@ -122,17 +130,21 @@ most compatible value — Speaches aliases it to `Systran/faster-whisper-large-v
 
 Both Atlas-managed Parakeet providers accept exactly `json`, `text`, or `verbose_json`, stream request bodies to bounded temporary files, and offload model inference from the API event loop. Temporary files are removed after success, rejection, or inference failure. Subtitle formats such as `srt` and `vtt` are engine-specific and are not part of the Atlas Parakeet contract.
 
+For Atlas-managed Parakeet, `GET /health` is public and all other routes require `Authorization: Bearer ${PARAKEET_API_TOKEN}` by default. Capacity is reserved before multipart parsing, so saturation returns `429` without accepting a large body. Model startup and inference share the finite deadline above; a fatal timeout returns a generic `504` and then exits with status 70. Docker restarts the container. Native Parakeet must run under a restart-on-failure service manager rather than an unmonitored shell when recovery is required. Container mode publishes on loopback by default; set `HOST_BIND_IP=0.0.0.0:` only for deliberate, separately protected external access. Native mode requires an explicit non-loopback `PARAKEET_LOCALHOST_BIND_HOST` for remote clients. These authentication and lifecycle guarantees apply to Atlas Parakeet, not the upstream Speaches or whisper.cpp providers.
+
 ## 6. Open WebUI integration
 
 The bootstrapper writes:
 
 - `AUDIO_STT_ENGINE=openai`
 - `AUDIO_STT_OPENAI_API_BASE_URL=${STT_ENDPOINT}/v1`
-- `AUDIO_STT_OPENAI_API_KEY=sk-unused`
+- `AUDIO_STT_OPENAI_API_KEY=${OPEN_WEB_UI_STT_API_KEY}`
 - `AUDIO_STT_MODEL=whisper-1`
 
 Open WebUI's microphone button starts working as soon as the STT service is
 healthy.
+
+`OPEN_WEB_UI_STT_API_KEY` resolves to the Parakeet provider token only for a Parakeet source, to `sk-unused` for other enabled STT engines, and to an empty value when STT is disabled. The credential remains in the Open WebUI server process and is not exposed to browser code.
 
 For the managed Parakeet GPU source, healthy means the configured model is
 loaded: the container preloads it before starting the API and `/health` returns

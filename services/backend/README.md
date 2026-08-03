@@ -131,6 +131,7 @@ WEAVIATE_URL=http://weaviate:8080
 STT_ENDPOINT=...                  # resolved per STT_PROVIDER_SOURCE
 TTS_ENDPOINT=...                  # resolved per TTS_PROVIDER_SOURCE
 DOCLING_ENDPOINT=...              # resolved per DOC_PROCESSOR_SOURCE
+DOCLING_API_TOKEN=                # generated Docling bearer; server-side only
 HERMES_ENDPOINT=http://hermes:8642
 HERMES_API_KEY=${HERMES_API_KEY}
 NEO4J_URI=bolt://neo4j-graph-db:7687
@@ -147,6 +148,8 @@ RAG_INGESTION_EXECUTION_LEASE_SECONDS=30
 ```
 
 Adaptive listing comes from `runtime_adaptive.backend.adapts_to` in `services/backend/service.yml`.
+
+When Docling is enabled, the Backend authenticates every conversion request with `DOCLING_API_TOKEN` and refuses to send the request if the endpoint is configured without a token. The credential stays in the Backend process; clients calling Backend routes never receive it. Docling's own `/health` route remains public, while its conversion and discovery routes are protected.
 
 `POST /documents/extract` treats Docling and Tika as untrusted upstream boundaries: malformed success payloads fail validation rather than being indexed as empty documents, and the public route returns a stable generic error so provider details and document content never cross the API boundary. The exact required response shape is documented in the extraction route's code.
 

@@ -40,8 +40,10 @@ Adaptive env (auto-injected based on active SOURCE values):
 
 ```bash
 STT_ENDPOINT=...                    # resolved per STT_PROVIDER_SOURCE
+PARAKEET_API_TOKEN=                 # generated Parakeet bearer; server-side only
 TTS_ENDPOINT=...                    # resolved per TTS_PROVIDER_SOURCE
 DOCLING_ENDPOINT=...                # resolved per DOC_PROCESSOR_SOURCE
+DOCLING_API_TOKEN=                  # generated Docling bearer; server-side only
 ```
 
 Required Postgres/Redis env (built from the upstream services' creds):
@@ -64,6 +66,8 @@ executions run on the worker. The token is scoped to a limited set of Backend
 routes — the Backend's own docs define exactly which routes it can and cannot
 reach. Do not return it in webhook payloads, execution output, or browser-side
 code.
+
+The web and worker containers also receive the Docling and Parakeet provider tokens because either process may execute an HTTP Request node. Calls to `${DOCLING_ENDPOINT}/v1/document/convert` must attach `Authorization: Bearer {{$env.DOCLING_API_TOKEN}}`; calls to a Parakeet `${STT_ENDPOINT}/v1/audio/transcriptions` route must similarly use `{{$env.PARAKEET_API_TOKEN}}`. Speaches and whisper.cpp do not use the Parakeet token. Keep both credentials in server-side expressions and never include them in execution output, webhook responses, or browser JavaScript.
 
 **Required runtime dep:** `weaviate` (per `runtime_deps.n8n.requires`). With `WEAVIATE_SOURCE=disabled`, n8n is force-disabled with an error message — the stack design treats Weaviate-backed vector ops as load-bearing for the seeded AI workflows.
 
