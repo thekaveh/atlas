@@ -1,4 +1,4 @@
-# 5.2.35. Neo4j Graph Database
+# 5.2.36. Neo4j Graph Database
 
 Neo4j provides graph database capabilities for Atlas, enabling relationship modeling and graph-based queries.
 

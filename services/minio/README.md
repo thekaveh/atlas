@@ -1,4 +1,4 @@
-# 5.2.31. MinIO
+# 5.2.32. MinIO
 
 ## 1. Overview
 

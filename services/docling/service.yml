@@ -70,6 +70,12 @@ env:
   - name: DOCLING_ADAPTER_RESULT_TTL_SECONDS
     default: 900
     description: "Seconds a completed LightRAG adapter result may remain before its artifact and job slot are removed."
+  - name: DOCLING_ADAPTER_MAX_RESULT_BYTES
+    default: 104857600
+    description: "Maximum ZIP result bytes streamed from Docling to adapter storage before the job fails safely."
+  - name: DOCLING_ADAPTER_UPSTREAM_MAX_ATTEMPTS
+    default: 3
+    description: "Total bounded Docling request attempts when the provider returns HTTP 429."
   - name: DOCLING_ADAPTER_SCALE
     auto_managed: true
     description: "Derived adapter replica count; one only when both LightRAG and Docling are enabled."

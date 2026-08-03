@@ -1,4 +1,4 @@
-# 5.2.18. Hermes Agent
+# 5.2.19. Hermes Agent
 
 **Port:** 63072 (API), 63073 (dashboard)
 **SOURCE variable:** `HERMES_SOURCE`

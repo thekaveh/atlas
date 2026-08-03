@@ -1,4 +1,4 @@
-# 5.2.49. Supabase Ecosystem
+# 5.2.50. Supabase Ecosystem
 
 Supabase provides Postgres, Auth, Storage, Realtime, and a management dashboard that Atlas builds on.
 

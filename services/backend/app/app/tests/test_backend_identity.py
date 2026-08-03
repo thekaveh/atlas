@@ -313,6 +313,28 @@ def test_user_jwt_supplies_research_owner_when_body_omits_user_id(
     assert seen["user_id"] == user_id
 
 
+def test_research_capacity_returns_retryable_429(fastapi_client, monkeypatch) -> None:
+    import main
+    from research_service import ResearchCapacityError
+
+    monkeypatch.setenv("BACKEND_IDENTITY_AUTH", "required")
+    monkeypatch.setenv("BACKEND_INTERNAL_API_TOKEN", "internal-secret")
+
+    async def reject_research(**_kwargs):
+        raise ResearchCapacityError("Research capacity is full")
+
+    monkeypatch.setattr(main.research_service, "start_research", reject_research)
+    response = fastapi_client.post(
+        "/research/start",
+        json={"query": "Atlas capacity"},
+        headers={"Authorization": "Bearer internal-secret"},
+    )
+
+    assert response.status_code == 429
+    assert response.headers["retry-after"] == "1"
+    assert response.json() == {"detail": "Research capacity is full"}
+
+
 def test_research_reads_pass_jwt_owner_to_service(fastapi_client, monkeypatch) -> None:
     import main
 

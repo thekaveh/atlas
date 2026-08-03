@@ -1,4 +1,4 @@
-# 5.2.56. Verba
+# 5.2.57. Verba
 
 **Track: `gen-ai-rag`**  
 **Category: `apps`**  

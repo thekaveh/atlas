@@ -1,4 +1,4 @@
-# 5.2.16. Globals (project + branding)
+# 5.2.17. Globals (project + branding)
 
 ## 1. Overview
 

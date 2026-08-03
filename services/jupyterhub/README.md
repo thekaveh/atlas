@@ -1,4 +1,4 @@
-# 5.2.21. JupyterHub - Data Science IDE
+# 5.2.22. JupyterHub - Data Science IDE
 
 **Port:** 63094
 **Category:** Application Tier

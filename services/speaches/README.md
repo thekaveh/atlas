@@ -1,4 +1,4 @@
-# 5.2.47. Speaches (unified TTS + STT engine)
+# 5.2.48. Speaches (unified TTS + STT engine)
 
 Speaches is a dual-role engine — one container exposes both
 `/v1/audio/transcriptions` (STT, Faster-Whisper) and `/v1/audio/speech`

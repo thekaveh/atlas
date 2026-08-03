@@ -1,4 +1,4 @@
-# 5.2.51. TEI Reranker
+# 5.2.52. TEI Reranker
 
 > **Image:** `ghcr.io/huggingface/text-embeddings-inference` — CPU: `cpu-1.9` (amd64) / `cpu-arm64-latest` (arm64), GPU: `:1.9`
 > **Container port:** 80  · **Default host port:** allocated by `topology.py` slot allocator (LLM band 63040–63049)

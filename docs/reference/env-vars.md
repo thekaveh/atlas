@@ -71,6 +71,7 @@
 | RAG_INGESTION_CORPUS_ROOT | backend | /app/corpus | Container path under which operator-provided read-only RAG corpus mounts are resolved. Mount the same path into Backend and Celery worker when asynchronous ingestion is enabled. |
 | RAG_INGESTION_EXECUTION_LEASE_SECONDS | backend | 30 | Renewable execution-ownership lease for RAG ingestion workers. Must be an integer from 10 through 300; duplicate deliveries retry until the active owner completes or its lease expires. |
 | RESEARCH_SESSION_LEASE_SECONDS | backend | 300 | Maximum age in seconds for pending research work or a running session heartbeat before the Backend atomically marks the abandoned session failed. |
+| RESEARCH_MAX_CONCURRENT | backend | 4 | Maximum research sessions admitted concurrently per Backend process. Excess start requests fail before database work with HTTP 429. |
 | BACKEND_PG_POOL_MIN | backend | 1 | Minimum connections kept warm in the Backend's shared asyncpg pool (#804). Short-lived DB ops draw from this pool instead of paying a fresh connect handshake each time; long-hold paths (memory vector-reconcile) keep dedicated connections. |
 | BACKEND_PG_POOL_MAX | backend | 10 | Maximum connections the Backend's shared asyncpg pool (#804) opens per database URL. Concurrent short-lived DB ops beyond this queue for a free slot rather than over-subscribing Postgres. |
 | BACKEND_STORAGE_ALLOWED_BUCKETS | backend | default | Comma-separated Supabase Storage bucket allowlist accepted by /storage/upload. |
@@ -219,6 +220,8 @@
 | DOCLING_LOCALHOST_BIND_HOST | docling | 127.0.0.1 | Native Docling listen address. Set another interface explicitly only when remote access is intended. |
 | DOCLING_ADAPTER_MAX_JOBS | docling | 2 | Maximum outstanding LightRAG adapter jobs, reserved before multipart parsing. |
 | DOCLING_ADAPTER_RESULT_TTL_SECONDS | docling | 900 | Seconds a completed LightRAG adapter result may remain before its artifact and job slot are removed. |
+| DOCLING_ADAPTER_MAX_RESULT_BYTES | docling | 104857600 | Maximum ZIP result bytes streamed from Docling to adapter storage before the job fails safely. |
+| DOCLING_ADAPTER_UPSTREAM_MAX_ATTEMPTS | docling | 3 | Total bounded Docling request attempts when the provider returns HTTP 429. |
 | DOCLING_ADAPTER_SCALE | docling |  | Derived adapter replica count; one only when both LightRAG and Docling are enabled. |
 | DOCLING_ADAPTER_UPSTREAM_ENDPOINT | docling |  | Authenticated internal bundle route selected for the adapter; never exposed to LightRAG. |
 | DOCLING_ENABLE_FORMULAS | docling | True | - |
@@ -751,7 +754,7 @@
 | TIKA_PORT | tika |  | - |
 | TIKA_LOCALHOST_PORT | tika | 9998 | Host port for the tika-localhost source variant. |
 | TIKA_JAVA_TOOL_OPTIONS | tika | -Xmx768m | JVM memory cap for the Tika server container. |
-| TIKA_MAX_FILE_SIZE | tika | 52428800 | Backend maximum bytes accepted for Docling/Tika extraction. |
+| TIKA_MAX_FILE_SIZE | tika | 52428800 | Positive Backend maximum bytes accepted for Docling/Tika extraction; invalid values fail Backend startup. |
 | TIKA_TIMEOUT_SECONDS | tika | 30 | Finite Backend timeout in seconds for Tika fallback extraction calls. Must be greater than 0 and no greater than 3600; invalid values fail Backend startup. |
 | TIKA_SCALE | tika |  | - |
 | TIKA_ENDPOINT | tika |  | - |

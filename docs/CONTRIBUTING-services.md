@@ -558,11 +558,28 @@ All four are required status checks in the live `gitflow` ruleset:
 | **Docs drift + audit scripts** | `regen --all --check` + `make docs-check` + the remaining audits (`check_doc_links` — including `#anchor` fragment validation, `check-compose-source-deps`, `check-docs-drift`, `check-kong-routes`, `validate_research_schema`, `check-track-membership`) + lock verification for the Docling localhost provider, Local Deep Researcher, and compiled service runtimes + a vulnerability audit of compiled runtime locks. Catches: stale per-service docs, three-surface drift, cross-surface links, missing local assets, missing `REQUIRED_DEPENDS_ON` entries, Kong route default drift, broken links/anchors, research-schema violations, stale or unreproducible runtime locks, vulnerable runtime dependency closures, and track-membership omissions. |
 | **Build-validation** | `docker buildx build` for every local non-GPU Compose build context plus every `services/*/init/Dockerfile` context; GPU provider builds are intentionally excluded for runner size/time. Catches: unsatisfiable pip pins, broken Dockerfiles, and init-image drift. Runs on every workflow execution and is required. |
 
-Run the equivalent of the CI jobs locally before pushing:
+Run the same unit-test commands as CI locally before pushing (from the repository
+root unless a subshell changes directory):
 
 ```bash
-uv run --project bootstrapper pytest bootstrapper/tests -q                         # job 1 + 2 (minus byte-equivalence)
-(cd services/backend/app && uv run --python 3.12 --with-requirements app/requirements.txt --with-requirements app/requirements-dev.txt python -m pytest app/tests -q)  # job 1 backend tests
+(
+  cd bootstrapper
+  uv run pytest tests/ -q \
+    --ignore=tests/test_fragment_equivalence.py \
+    --ignore=tests/test_source_permutations.py \
+    --cov=. --cov-config=pyproject.toml --cov-branch \
+    --cov-report=term --cov-fail-under=69
+)                                                                                  # job 1 bootstrapper tests
+(
+  cd services/backend/app/app
+  BACKEND_TEST_VENV="${TMPDIR:-/tmp}/atlas-backend-ci-venv"
+  uv venv --python 3.12 "$BACKEND_TEST_VENV"
+  VIRTUAL_ENV="$BACKEND_TEST_VENV" uv pip install \
+    -r requirements.txt -r requirements-dev.txt -c requirements-locked.txt
+  "$BACKEND_TEST_VENV/bin/python" -m pytest tests/ -q -W error \
+    --cov=. --cov-config=.coveragerc --cov-branch \
+    --cov-report=term --cov-fail-under=79
+)                                                                                  # job 1 backend tests
 uv run --project bootstrapper python -m tools.validate_fragments                  # job 1 lint
 docker compose --env-file .env.example -f docker-compose.yml config -q            # job 2 merge check
 make docs-check                                                                    # job 3 three-surface contracts + strict build

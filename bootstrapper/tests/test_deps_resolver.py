@@ -130,7 +130,7 @@ def test_aggregate_member_downstream_includes_role_consumers():
     for member, expected in [
         ("parakeet", {"kong", "n8n", "open-webui", "hermes"}),
         ("chatterbox", {"kong", "n8n", "open-webui", "hermes"}),
-        ("docling", {"kong", "n8n", "lightrag"}),
+        ("docling", {"kong", "n8n", "docling-lightrag-adapter"}),
     ]:
         g = build_doc_graph(member, SERVICES_DIR)
         downstream = {e.other for e in g.downstream}
@@ -139,3 +139,13 @@ def test_aggregate_member_downstream_includes_role_consumers():
         )
         # The focus must never appear as its own consumer (self-loop guard).
         assert member not in downstream
+
+
+def test_lightrag_document_flow_traverses_the_isolated_adapter():
+    from docs.deps_resolver import build_graph
+
+    lightrag = build_graph("lightrag", SERVICES_DIR)
+    assert "docling-lightrag-adapter" in {edge.other for edge in lightrag.upstream}
+
+    adapter = build_graph("docling-lightrag-adapter", SERVICES_DIR)
+    assert "docling" in {edge.other for edge in adapter.upstream}

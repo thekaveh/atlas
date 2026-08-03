@@ -117,6 +117,12 @@ def test_service_catalog_and_manifest_cover_every_service_family() -> None:
         assert (DOCS_SITE / page.site_path).is_file()
         assert (WIKI_DIR / page.wiki_path).is_file()
 
+    adapter_row = next(
+        line for line in index.splitlines() if "docling-lightrag-adapter" in line
+    )
+    assert "| all |" in adapter_row
+    assert "gen-ai-rag" not in adapter_row
+
 
 def test_service_pages_project_full_canonical_readmes_without_cross_surface_links() -> None:
     for name in ("supabase", "open-webui", "litellm", "airflow", "spark"):

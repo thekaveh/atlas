@@ -89,7 +89,7 @@
 | [comfyui](../services/comfyui/README.md) | ComfyUI (image generation) | all, gen-ai-creative, gen-ai-eng | COMFYUI_SOURCE, COMFYUI_INIT_SOURCE | container-cpu, container | container-cpu, container-gpu, localhost, managed-localhost-mps, disabled, container | supabase, litellm, ollama |
 | [crawl4ai](../services/crawl4ai/README.md) | Crawl4AI (JS-capable web extraction) | all, gen-ai-rag | CRAWL4AI_SOURCE | disabled | container, disabled | - |
 | [docling](../services/docling/README.md) | Docling (document processor) | all | DOC_PROCESSOR_SOURCE | disabled | disabled, docling-localhost, docling-container-gpu | - |
-| [docling-lightrag-adapter](../services/docling-lightrag-adapter/README.md) | Docling LightRAG adapter | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | - | - | - | - |
+| [docling-lightrag-adapter](../services/docling-lightrag-adapter/README.md) | Docling LightRAG adapter | all | - | - | - | - |
 | [fal](../services/fal/README.md) | FAL Cloud Media | all, gen-ai-creative | FAL_SOURCE | disabled | enabled, disabled | - |
 | [parakeet](../services/parakeet/README.md) | Parakeet (NVIDIA STT engine) | all | STT_PROVIDER_SOURCE | speaches-container-cpu | speaches-container-cpu, speaches-container-gpu, parakeet-container-gpu, parakeet-localhost, whisper-cpp-localhost, disabled | litellm |
 | [searxng](../services/searxng/README.md) | SearXNG (privacy metasearch) | all, gen-ai-eng, gen-ai-rag | SEARXNG_SOURCE | container | container, disabled | redis |

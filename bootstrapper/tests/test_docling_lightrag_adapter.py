@@ -165,6 +165,37 @@ async def test_adapter_failure_is_generic_and_releases_capacity(monkeypatch, tmp
 
 
 @_run_async
+async def test_adapter_failure_logs_safe_operator_diagnostic(
+    monkeypatch, tmp_path, caplog
+):
+    adapter_app = _load_app_module(monkeypatch)
+
+    class FailingUpstream:
+        async def convert(self, upload_path, upload_name, timeout_seconds):
+            raise RuntimeError("document-content secret-token")
+
+    app = adapter_app.create_app(
+        upstream=FailingUpstream(), spool_root=tmp_path, max_jobs=1
+    )
+    async with await _client(app) as client:
+        submitted = await client.post(
+            "/v1/convert/file/async", files={"files": ("a.pdf", b"a")}
+        )
+        task_id = submitted.json()["task_id"]
+        for _ in range(20):
+            status = await client.get(f"/v1/status/poll/{task_id}")
+            if status.json()["task_status"] == "failure":
+                break
+            await asyncio.sleep(0)
+
+    assert "adapter job failed" in caplog.text
+    assert task_id in caplog.text
+    assert "RuntimeError" in caplog.text
+    assert "document-content" not in caplog.text
+    assert "secret-token" not in caplog.text
+
+
+@_run_async
 async def test_adapter_rejects_unsupported_sync_route(monkeypatch, tmp_path):
     adapter_app = _load_app_module(monkeypatch)
     app = adapter_app.create_app(
@@ -207,5 +238,112 @@ async def test_upstream_authenticates_and_retries_capacity(monkeypatch, tmp_path
 
     result = await upstream.convert(source, "report.pdf", timeout_seconds=5)
 
-    assert result == _bundle()
+    assert result.read_bytes() == _bundle()
+    result.unlink()
     assert attempts == 2
+
+
+@_run_async
+async def test_upstream_bounds_capacity_retries(monkeypatch, tmp_path):
+    adapter_app = _load_app_module(monkeypatch)
+    attempts = 0
+    upstream_app = FastAPI()
+
+    @upstream_app.post("/internal/lightrag/bundle")
+    async def bundle():
+        nonlocal attempts
+        attempts += 1
+        return Response(status_code=429)
+
+    source = tmp_path / "upload.pdf"
+    source.write_bytes(b"document")
+    upstream = adapter_app.DoclingUpstream(
+        endpoint="http://docling.test/internal/lightrag/bundle",
+        token="provider-token",
+        transport=ASGITransport(app=upstream_app, raise_app_exceptions=False),
+        retry_delay_seconds=0,
+        max_capacity_retries=2,
+        result_root=tmp_path,
+    )
+
+    with pytest.raises(adapter_app.UpstreamConversionError):
+        await upstream.convert(source, "report.pdf", timeout_seconds=5)
+
+    assert attempts == 3
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["upload.pdf"]
+
+
+@_run_async
+async def test_upstream_rejects_oversized_result_without_partial_file(
+    monkeypatch, tmp_path
+):
+    adapter_app = _load_app_module(monkeypatch)
+    upstream_app = FastAPI()
+
+    @upstream_app.post("/internal/lightrag/bundle")
+    async def bundle():
+        return Response(b"oversized", media_type="application/zip")
+
+    source = tmp_path / "upload.pdf"
+    source.write_bytes(b"document")
+    upstream = adapter_app.DoclingUpstream(
+        endpoint="http://docling.test/internal/lightrag/bundle",
+        token="provider-token",
+        transport=ASGITransport(app=upstream_app, raise_app_exceptions=False),
+        retry_delay_seconds=0,
+        result_root=tmp_path,
+        max_result_bytes=4,
+    )
+
+    with pytest.raises(adapter_app.UpstreamConversionError):
+        await upstream.convert(source, "report.pdf", timeout_seconds=5)
+
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["upload.pdf"]
+
+
+@_run_async
+async def test_upstream_rejects_malformed_content_length(monkeypatch, tmp_path):
+    adapter_app = _load_app_module(monkeypatch)
+    upstream_app = FastAPI()
+
+    @upstream_app.post("/internal/lightrag/bundle")
+    async def bundle():
+        return Response(
+            _bundle(),
+            media_type="application/zip",
+            headers={"Content-Length": "not-a-number"},
+        )
+
+    source = tmp_path / "upload.pdf"
+    source.write_bytes(b"document")
+    upstream = adapter_app.DoclingUpstream(
+        endpoint="http://docling.test/internal/lightrag/bundle",
+        token="provider-token",
+        transport=ASGITransport(app=upstream_app, raise_app_exceptions=False),
+        result_root=tmp_path,
+    )
+
+    with pytest.raises(adapter_app.UpstreamConversionError):
+        await upstream.convert(source, "report.pdf", timeout_seconds=5)
+
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["upload.pdf"]
+
+
+def test_adapter_docs_match_pinned_lightrag_route_contract():
+    expected_routes = (
+        "/v1/convert/file/async",
+        "/v1/status/poll/{task_id}",
+        "/v1/result/{task_id}",
+    )
+    doc_paths = (
+        ROOT / "services" / "lightrag" / "README.md",
+        ROOT / "services" / "doc-processor" / "README.md",
+        ROOT / "services" / "docling-lightrag-adapter" / "README.md",
+    )
+
+    for path in doc_paths:
+        text = path.read_text(encoding="utf-8")
+        for route in expected_routes:
+            assert route in text, f"{path} omits {route}"
+        assert "`files`" in text, f"{path} omits the multipart field name"
+        assert "/v1/documents/parse" not in text, f"{path} documents a stale route"

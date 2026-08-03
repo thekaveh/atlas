@@ -18,11 +18,11 @@ PROVIDER = ROOT / "services" / "docling" / "provider"
 SHARED = PROVIDER / "shared"
 
 
-def _load_named(name: str, path: Path):
+def _load_named(name: str, path: Path, monkeypatch):
     spec = importlib.util.spec_from_file_location(name, path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
+    monkeypatch.setitem(sys.modules, name, module)
     spec.loader.exec_module(module)
     return module
 
@@ -33,12 +33,12 @@ def test_docling_api_authenticates_and_converts_once_per_response(monkeypatch):
     monkeypatch.setenv("DOCLING_CONCURRENCY", "1")
     monkeypatch.setenv("DOCLING_CORS_ORIGINS", "")
 
-    models = _load_named("models", SHARED / "models.py")
-    _load_named("pipeline_config", SHARED / "pipeline_config.py")
-    _load_named("utils", SHARED / "utils.py")
-    _load_named("bounded_upload", PROVIDER / "bounded_upload.py")
-    _load_named("provider_boundary", PROVIDER / "provider_boundary.py")
-    _load_named("lightrag_bundle", PROVIDER / "lightrag_bundle.py")
+    models = _load_named("models", SHARED / "models.py", monkeypatch)
+    _load_named("pipeline_config", SHARED / "pipeline_config.py", monkeypatch)
+    _load_named("utils", SHARED / "utils.py", monkeypatch)
+    _load_named("bounded_upload", PROVIDER / "bounded_upload.py", monkeypatch)
+    _load_named("provider_boundary", PROVIDER / "provider_boundary.py", monkeypatch)
+    _load_named("lightrag_bundle", PROVIDER / "lightrag_bundle.py", monkeypatch)
 
     doc_module = types.ModuleType("docling_core.types.doc")
 
@@ -96,7 +96,9 @@ def test_docling_api_authenticates_and_converts_once_per_response(monkeypatch):
     processor.processor_status = processor_status
     monkeypatch.setitem(sys.modules, "processor", processor)
 
-    api = _load_named("docling_api_under_test", SHARED / "api_server.py")
+    api = _load_named(
+        "docling_api_under_test", SHARED / "api_server.py", monkeypatch
+    )
 
     async def scenario():
         async with AsyncClient(

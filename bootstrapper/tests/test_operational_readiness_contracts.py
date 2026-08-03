@@ -26,7 +26,13 @@ def test_container_healthchecks_use_real_readiness_contracts() -> None:
     parakeet = yaml.safe_load(_text("services/parakeet/compose.yml"))["services"][
         "parakeet-gpu"
     ]
-    assert parakeet["environment"]["PRELOAD_MODEL"] == "true"
+    assert "PRELOAD_MODEL" not in parakeet["environment"]
+    assert parakeet["healthcheck"]["test"] == [
+        "CMD",
+        "curl",
+        "-f",
+        "http://localhost:8000/health",
+    ]
 
 
 def test_provider_health_endpoints_check_runtime_dependencies() -> None:
@@ -40,5 +46,8 @@ def test_provider_health_endpoints_check_runtime_dependencies() -> None:
         "services/docling/provider/shared/api_server.py"
     )
     assert "model_is_loaded()" in _text(
+        "services/parakeet/provider/shared/api_server.py"
+    )
+    assert "_model_startup.start()" in _text(
         "services/parakeet/provider/shared/api_server.py"
     )

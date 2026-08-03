@@ -64,6 +64,17 @@ def _timeout_from_env() -> float:
     return value
 
 
+def _positive_int_from_env(name: str, default: int) -> int:
+    raw = os.getenv(name, str(default))
+    try:
+        value = int(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be a positive integer") from exc
+    if value <= 0:
+        raise ValueError(f"{name} must be a positive integer")
+    return value
+
+
 class DocumentExtractionError(RuntimeError):
     """Base error for document extraction failures."""
 
@@ -90,7 +101,9 @@ class DocumentExtractorConfig:
             docling_endpoint=os.getenv("DOCLING_ENDPOINT", ""),
             docling_api_token=os.getenv("DOCLING_API_TOKEN", ""),
             tika_endpoint=os.getenv("TIKA_ENDPOINT", ""),
-            max_file_size=int(os.getenv("TIKA_MAX_FILE_SIZE", str(50 * 1024 * 1024))),
+            max_file_size=_positive_int_from_env(
+                "TIKA_MAX_FILE_SIZE", 50 * 1024 * 1024
+            ),
             timeout_seconds=_timeout_from_env(),
         )
 

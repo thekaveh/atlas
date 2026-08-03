@@ -12,6 +12,7 @@ from research_client import (
     ResearchStatus,
 )
 from research_service import (
+    ResearchCapacityError,
     ResearchService,
     _PUBLIC_RESEARCH_FAILURE,
     _log_task_exception,
@@ -67,6 +68,45 @@ def test_research_session_creation_and_start_log_are_atomic():
     asyncio.run(scenario())
 
     assert conn.execute_calls == 2
+
+
+def test_research_admission_rejects_before_database_work():
+    service = object.__new__(ResearchService)
+    service.max_concurrent_research = 1
+    service._active_tasks = {"occupied": object()}
+    database_called = False
+
+    async def get_conn():
+        nonlocal database_called
+        database_called = True
+        raise AssertionError("capacity rejection must happen before database work")
+
+    service._get_db_connection = get_conn
+
+    async def scenario():
+        with pytest.raises(ResearchCapacityError):
+            await service.start_research("atlas")
+
+    asyncio.run(scenario())
+    assert database_called is False
+
+
+def test_failed_research_creation_releases_admission_slot():
+    service = object.__new__(ResearchService)
+    service.max_concurrent_research = 1
+    service._active_tasks = {}
+
+    async def get_conn():
+        raise RuntimeError("database unavailable")
+
+    service._get_db_connection = get_conn
+
+    async def scenario():
+        with pytest.raises(RuntimeError, match="database unavailable"):
+            await service.start_research("atlas")
+
+    asyncio.run(scenario())
+    assert service._active_tasks == {}
 
 
 def test_cancelled_background_task_records_terminal_failure():

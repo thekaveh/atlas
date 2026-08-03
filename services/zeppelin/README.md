@@ -1,4 +1,4 @@
-# 5.2.59. Apache Zeppelin (Spark-first notebook)
+# 5.2.60. Apache Zeppelin (Spark-first notebook)
 
 Zeppelin runs as a single container in the stack's `apps` band. The Spark interpreter is intended for the in-stack standalone Spark cluster (`spark://spark-master:7077`) plus MinIO S3A. `zeppelin-init` also seeds a Trino JDBC interpreter when `TRINO_SOURCE=container`; Supabase Postgres remains a manual JDBC profile. Notebooks live in `services/zeppelin/notebooks/`, bind-mounted into the container.
 

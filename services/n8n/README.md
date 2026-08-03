@@ -1,4 +1,4 @@
-# 5.2.34. n8n
+# 5.2.35. n8n
 
 Workflow automation engine. The stack runs n8n in **queue mode** by default — one `n8n` web/API container plus an `n8n-worker` container that consumes jobs from Redis. A short-lived `n8n-init` container handles first-run setup: installing community nodes (ComfyUI image-to-image). Seeded workflow templates (under `services/n8n/init/config/`) and PostgreSQL credentials are imported **manually** — `n8n-init` prints the next steps; it does not auto-import workflows or seed credentials (see the setup steps below). The result is a fully-wired automation surface that ties LLM (LiteLLM), media (ComfyUI/STT/TTS/Docling/SearXNG), and data (Supabase/Weaviate/MinIO) services together without writing code.
 

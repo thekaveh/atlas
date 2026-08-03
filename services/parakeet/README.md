@@ -1,4 +1,4 @@
-# 5.2.40. Parakeet (STT engine)
+# 5.2.41. Parakeet (STT engine)
 
 Parakeet is one of the STT engines selectable via `STT_PROVIDER_SOURCE`. It is
 documented under the **STT Provider** aggregator rather than as a standalone
@@ -17,8 +17,8 @@ user-facing description, source-variant table, and configuration reference.
 - **In-container port:** 8000
 - **Host port:** `${STT_PROVIDER_PORT}` (computed from `BASE_PORT` by the
   bootstrapper)
-- **Readiness:** the GPU container preloads its configured model before Uvicorn
-  starts. `GET /health` returns `503` until that model is loaded.
+- **Readiness:** Uvicorn starts while a deadline-bounded background task loads
+  the configured model. `GET /health` returns `503` until loading completes.
 
 This manifest also owns the broader `STT_PROVIDER_SOURCE` enum (every STT
 option across engines), which is why it lives here historically rather than

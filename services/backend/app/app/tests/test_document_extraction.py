@@ -77,6 +77,13 @@ def test_document_extractor_rejects_malformed_or_unbounded_timeout(
         DocumentExtractorConfig.from_env()
 
 
+@pytest.mark.parametrize("value", ("bad", "0", "-1"))
+def test_document_extractor_rejects_non_positive_size(monkeypatch, value) -> None:
+    monkeypatch.setenv("TIKA_MAX_FILE_SIZE", value)
+    with pytest.raises(ValueError, match="TIKA_MAX_FILE_SIZE"):
+        DocumentExtractorConfig.from_env()
+
+
 def test_docling_success_does_not_call_tika() -> None:
     client = FakeAsyncClient(
         [

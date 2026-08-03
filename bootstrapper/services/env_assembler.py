@@ -99,6 +99,11 @@ def assemble_env_example(
 
     parts: list[str] = [_HEADER]
     for m in ordered:
+        # Internal logical graph nodes can own dependency documentation without
+        # declaring any operator-facing configuration. Do not emit an empty
+        # banner for them in the generated environment template.
+        if m.virtual and m.sources is None and not m.images and not m.env:
+            continue
         parts.append(_render_manifest(m, port_defaults))
     text = "\n".join(parts).rstrip() + "\n"
 

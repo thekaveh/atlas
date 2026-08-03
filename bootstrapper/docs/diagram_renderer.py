@@ -48,6 +48,16 @@ WIDTH = LANE_W + LANE_GAP + FOCUS_W + LANE_GAP + LANE_W + SIDE_MARGIN * 2
 CATEGORY_ORDER = ("infra", "data", "llm", "media", "agents", "apps", "external")
 
 
+def _fit_font_size(
+    label: str, available_width: int, *, preferred: int, minimum: int
+) -> int:
+    """Choose a deterministic monospace size that keeps a label in its box."""
+    if not label:
+        return preferred
+    estimated = int(available_width / (len(label) * 0.62))
+    return max(minimum, min(preferred, estimated))
+
+
 def render_svg(graph: DepGraph) -> str:
     """Render the architecture SVG. Pure function of graph state."""
     up_clusters = _cluster_by_category(graph.upstream)
@@ -171,6 +181,8 @@ def _focus_box(x: int, y: int, w: int, h: int, graph: DepGraph) -> str:
     color = CATEGORY_COLORS.get(graph.category, "#94a3b8")
     fill = CATEGORY_FILLS.get(graph.category, "rgba(30, 41, 59, 0.5)")
     cx = x + w // 2
+    title = graph.focus.upper()
+    title_size = _fit_font_size(title, w - 16, preferred=15, minimum=10)
     # Two-rect pattern (per the architecture-diagram skill): opaque
     # slate-900 backdrop, then the category-themed semi-transparent fill on
     # top so any arrow drawn behind the box is fully masked.
@@ -179,8 +191,8 @@ def _focus_box(x: int, y: int, w: int, h: int, graph: DepGraph) -> str:
         f'  <rect x="{x}" y="{y}" width="{w}" height="{h}" rx="8" fill="#0f172a"/>'
         f'  <rect x="{x}" y="{y}" width="{w}" height="{h}" rx="8" '
         f'        fill="{fill}" stroke="{color}" stroke-width="1.5"/>'
-        f'  <text x="{cx}" y="{y + 28}" fill="white" font-size="15" font-weight="700" '
-        f'        text-anchor="middle">{html_mod.escape(graph.focus.upper())}</text>'
+        f'  <text x="{cx}" y="{y + 28}" fill="white" font-size="{title_size}" font-weight="700" '
+        f'        text-anchor="middle">{html_mod.escape(title)}</text>'
         f'  <text x="{cx}" y="{y + 48}" fill="#94a3b8" font-size="10" '
         f'        text-anchor="middle">{html_mod.escape(graph.category)} · {html_mod.escape(graph.source)}</text>'
         f'</g>'
@@ -232,11 +244,12 @@ def _pill(x: int, y: int, w: int, h: int, label: str, stroke: str, fill: str) ->
     fill matching the cluster's category, per the architecture-diagram
     skill's component-box pattern.
     """
+    font_size = _fit_font_size(label, w - 8, preferred=10, minimum=7)
     return (
         f'<g><rect x="{x}" y="{y}" width="{w}" height="{h}" rx="4" fill="#0f172a"/>'
         f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="4" '
         f'fill="{fill}" stroke="{stroke}" stroke-width="1"/>'
-        f'<text x="{x + w // 2}" y="{y + h // 2 + 4}" fill="white" font-size="10" '
+        f'<text x="{x + w // 2}" y="{y + h // 2 + 4}" fill="white" font-size="{font_size}" '
         f'text-anchor="middle">{html_mod.escape(label)}</text></g>'
     )
 

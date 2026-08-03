@@ -1,4 +1,4 @@
-# 5.2.25. LightRAG
+# 5.2.26. LightRAG
 
 > **Image:** `ghcr.io/hkuds/lightrag:v1.5.4`
 > **Container port:** 9621 (API + WebUI)  · **Default host port:** allocated by `topology.py` (agents band 63070–63089)
@@ -106,7 +106,7 @@ Query mode prefixes: `/hybrid`, `/local`, `/global`, `/naive`, `/mix`. Default i
 
 ### 4.3. Docling adapter protocol
 
-LightRAG v1.5.4 submits document parsing to `POST /v1/documents/parse`, polls `GET /v1/documents/parse/{job_id}`, downloads `GET /v1/documents/parse/{job_id}/result`, and probes `GET /health`. Atlas implements exactly those routes in `docling-lightrag-adapter`. The adapter, LightRAG, and `docling-gpu` share only `docling-lightrag-network`; the adapter has no published port and no backend-network membership. LightRAG receives only the adapter endpoint, while the adapter alone receives `DOCLING_API_TOKEN` for its upstream call.
+LightRAG v1.5.4 submits document parsing to `POST /v1/convert/file/async` (multipart field `files`), polls `GET /v1/status/poll/{task_id}`, downloads `GET /v1/result/{task_id}`, and probes `GET /health`. Atlas implements exactly those routes in `docling-lightrag-adapter`. The adapter, LightRAG, and `docling-gpu` share only `docling-lightrag-network`; the adapter has no published port and no backend-network membership. LightRAG receives only the adapter endpoint, while the adapter alone receives `DOCLING_API_TOKEN` for its upstream call.
 
 The adapter accepts at most two outstanding jobs by default and returns `429` before reading an upload when full. Result artifacts expire after 900 seconds by default and are deleted after download, failure, cancellation, or expiry. An expired job must be resubmitted. These values are controlled by `DOCLING_ADAPTER_MAX_JOBS` and `DOCLING_ADAPTER_RESULT_TTL_SECONDS` in the Docling manifest.
 

@@ -164,6 +164,22 @@ def test_renderer_docstring_describes_current_docs_tree():
     assert "retired afterwards" not in (diagram_renderer.__doc__ or "")
 
 
+def test_long_service_labels_shrink_to_fit_fixed_boxes():
+    from docs.deps_resolver import build_doc_graph
+    from docs.diagram_renderer import render_svg
+
+    adapter = render_svg(
+        build_doc_graph("docling-lightrag-adapter", SERVICES_DIR)
+    )
+    assert 'font-size="12" font-weight="700"' in adapter
+
+    lightrag = render_svg(build_doc_graph("lightrag", SERVICES_DIR))
+    assert (
+        'font-size="7" text-anchor="middle">docling-lightrag-adapter</text>'
+        in lightrag
+    )
+
+
 def test_svg_matches_golden_snapshot():
     """Hermes is the snapshot — must match committed fixture."""
     from docs.deps_resolver import build_doc_graph

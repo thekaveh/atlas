@@ -1,4 +1,4 @@
-# Docling LightRAG Adapter
+# 5.2.15. Docling LightRAG Adapter
 
 Logical documentation for the isolated compatibility container owned by `services/docling/compose.yml`.
 
@@ -16,16 +16,16 @@ The container is built from the pinned adapter lock, runs as a non-root user, an
 
 The adapter implements the exact LightRAG v1.5.4 parser routes:
 
-- `POST /v1/documents/parse` submits one multipart document.
-- `GET /v1/documents/parse/{job_id}` polls job state.
-- `GET /v1/documents/parse/{job_id}/result` downloads the completed artifact.
+- `POST /v1/convert/file/async` submits one document in multipart field `files`.
+- `GET /v1/status/poll/{task_id}` polls job state.
+- `GET /v1/result/{task_id}` downloads the completed artifact.
 - `GET /health` reports adapter readiness.
 
-It reserves one of `DOCLING_ADAPTER_MAX_JOBS` slots before multipart parsing, returning `429` before reading an upload when saturated. Upstream Docling `429` responses receive a bounded retry rather than an unbounded loop.
+It reserves one of `DOCLING_ADAPTER_MAX_JOBS` slots before multipart parsing, returning `429` before reading an upload when saturated. Upstream Docling `429` responses receive at most `DOCLING_ADAPTER_UPSTREAM_MAX_ATTEMPTS` total attempts (default `3`).
 
 ## 4. Artifact lifecycle
 
-Job identifiers are random and do not disclose filenames or sequence. Temporary uploads and results are removed after successful download, failure, cancellation, or expiration. Completed results expire after `DOCLING_ADAPTER_RESULT_TTL_SECONDS` (900 seconds by default); clients must resubmit after expiry. Public failures are generic and do not expose provider details or document content.
+Job identifiers are random and do not disclose filenames or sequence. Docling ZIP responses stream directly to temporary storage and fail if they exceed `DOCLING_ADAPTER_MAX_RESULT_BYTES` (100 MiB by default), avoiding an unbounded in-memory result. Downloads stream from disk without reading under the registry lock. Temporary uploads and results are removed after successful download, failure, cancellation, or expiration. Completed results expire after `DOCLING_ADAPTER_RESULT_TTL_SECONDS` (900 seconds by default); clients must resubmit after expiry. Public failures are generic and do not expose provider details or document content, while server logs retain only the task identifier and exception type.
 
 ## 5. Dependencies & Integrations
 

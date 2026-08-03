@@ -1,4 +1,4 @@
-# 5.2.55. TTS Provider
+# 5.2.56. TTS Provider
 
 Pluggable text-to-speech layer. All backends speak the OpenAI
 `/v1/audio/speech` protocol so Open WebUI, n8n, JupyterHub and the backend

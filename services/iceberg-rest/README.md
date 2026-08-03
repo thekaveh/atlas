@@ -1,4 +1,4 @@
-# 5.2.19. Apache Iceberg REST Catalog
+# 5.2.20. Apache Iceberg REST Catalog
 
 ## 1. Overview
 

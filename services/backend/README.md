@@ -226,6 +226,8 @@ When any optional service is `disabled`, the corresponding backend feature degra
 
 Research sessions use Supabase as their durable state boundary: session state and heartbeats are tracked atomically so a session past its `RESEARCH_SESSION_LEASE_SECONDS` lease is marked failed, and a cancelled or expired session cannot be revived by a late remote response, even across Backend replicas. The full heartbeat/lease/row-lock failover sequence is documented in `research_client.py`.
 
+Each Backend process admits at most `RESEARCH_MAX_CONCURRENT` research sessions (default `4`). A saturated `POST /research/start` returns `429` with `Retry-After: 1` before database work or background-task creation. This is a per-process bulkhead; deployments with multiple Backend replicas multiply the aggregate limit.
+
 **Internal network:** all upstream calls use Docker DNS names on `backend-network`. No host-port hops; nothing reaches the host filesystem outside the mounted `./services/backend/app/` source directory.
 
 **Init container:** none. The backend has no `backend-init`; one-time setup (DB migrations) is delegated to `supabase-db-init` which runs SQL scripts from `services/supabase/db/scripts/`.

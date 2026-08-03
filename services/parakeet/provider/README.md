@@ -65,9 +65,9 @@ Parakeet on NVIDIA GPU:
 ./start.sh --stt-provider-source parakeet-container-gpu
 ```
 
-The GPU container preloads the configured Parakeet model before starting the
-API. Its health endpoint returns `503` until the model is loaded, so dependent
-services cannot begin against an API process that is not yet inference-ready.
+The GPU API starts a deadline-bounded background load for the configured
+Parakeet model. Its health endpoint returns `503` until the model is loaded, so
+dependent services cannot begin against a process that is not yet inference-ready.
 
 Parakeet on macOS MLX:
 

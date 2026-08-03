@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +23,9 @@ class DoclingUpstream:
         token: str,
         transport: Any = None,
         retry_delay_seconds: float = 1.0,
+        max_capacity_retries: int = 2,
+        result_root: Path | None = None,
+        max_result_bytes: int = 104_857_600,
     ) -> None:
         bundle_path = "/internal/lightrag/bundle"
         endpoint = endpoint.rstrip("/")
@@ -28,10 +33,17 @@ class DoclingUpstream:
         self.token = token
         self.transport = transport
         self.retry_delay_seconds = retry_delay_seconds
+        self.max_capacity_retries = max_capacity_retries
+        self.result_root = result_root
+        self.max_result_bytes = max_result_bytes
+        if max_capacity_retries < 0:
+            raise ValueError("max_capacity_retries must be non-negative")
+        if max_result_bytes < 1:
+            raise ValueError("max_result_bytes must be positive")
 
     async def convert(
         self, upload_path: Path, upload_name: str, timeout_seconds: int
-    ) -> bytes:
+    ) -> Path:
         if not self.token:
             raise UpstreamConversionError("Docling provider credential is unavailable")
         try:
@@ -42,21 +54,66 @@ class DoclingUpstream:
         except (asyncio.TimeoutError, httpx.HTTPError) as exc:
             raise UpstreamConversionError("Docling conversion failed") from exc
 
-    async def _convert_with_retry(self, upload_path: Path, upload_name: str) -> bytes:
+    async def _convert_with_retry(self, upload_path: Path, upload_name: str) -> Path:
         headers = {"Authorization": f"Bearer {self.token}"}
         async with httpx.AsyncClient(transport=self.transport) as client:
-            while True:
+            for attempt in range(self.max_capacity_retries + 1):
                 with upload_path.open("rb") as stream:
-                    response = await client.post(
+                    async with client.stream(
+                        "POST",
                         self.endpoint,
                         headers=headers,
                         files={"file": (upload_name, stream, "application/octet-stream")},
-                    )
-                if response.status_code != 429:
-                    break
+                    ) as response:
+                        if response.status_code == 429:
+                            if attempt >= self.max_capacity_retries:
+                                raise UpstreamConversionError(
+                                    "Docling conversion capacity remained unavailable"
+                                )
+                        elif response.status_code != 200:
+                            raise UpstreamConversionError("Docling conversion failed")
+                        elif "zip" not in response.headers.get(
+                            "content-type", ""
+                        ).lower():
+                            raise UpstreamConversionError(
+                                "Docling conversion returned an invalid result"
+                            )
+                        else:
+                            content_length = response.headers.get("content-length")
+                            if content_length:
+                                try:
+                                    declared_size = int(content_length)
+                                except ValueError as exc:
+                                    raise UpstreamConversionError(
+                                        "Docling conversion returned invalid metadata"
+                                    ) from exc
+                                if declared_size < 0:
+                                    raise UpstreamConversionError(
+                                        "Docling conversion returned invalid metadata"
+                                    )
+                                if declared_size > self.max_result_bytes:
+                                    raise UpstreamConversionError(
+                                        "Docling conversion result is too large"
+                                    )
+                            return await self._stream_result(response)
                 await asyncio.sleep(self.retry_delay_seconds)
-        if response.status_code != 200:
-            raise UpstreamConversionError("Docling conversion failed")
-        if "zip" not in response.headers.get("content-type", "").lower():
-            raise UpstreamConversionError("Docling conversion returned an invalid result")
-        return response.content
+        raise UpstreamConversionError("Docling conversion failed")
+
+    async def _stream_result(self, response) -> Path:
+        fd, raw_path = tempfile.mkstemp(suffix=".zip", dir=self.result_root)
+        os.close(fd)
+        path = Path(raw_path)
+        size = 0
+        try:
+            with path.open("wb") as stream:
+                async for chunk in response.aiter_bytes():
+                    size += len(chunk)
+                    if size > self.max_result_bytes:
+                        raise UpstreamConversionError(
+                            "Docling conversion result is too large"
+                        )
+                    stream.write(chunk)
+            return path
+        except BaseException:
+            path.unlink(missing_ok=True)
+            raise

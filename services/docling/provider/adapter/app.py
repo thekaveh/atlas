@@ -11,12 +11,13 @@ from pathlib import Path
 from typing import Callable
 
 from fastapi import FastAPI, File, Request, UploadFile
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse
+from starlette.background import BackgroundTask
 
 from bounded_upload import EmptyUploadError, UploadTooLargeError, spool_upload
 
 from .jobs import JobRegistry
-from .upstream import DoclingUpstream
+from .upstream import DoclingUpstream, UpstreamConversionError
 
 
 SUBMIT_PATH = "/v1/convert/file/async"
@@ -101,6 +102,14 @@ def create_app(
             "http://docling-gpu:8000/internal/lightrag/bundle",
         ),
         token=os.getenv("DOCLING_API_TOKEN", ""),
+        result_root=root,
+        max_result_bytes=_positive_int(
+            "DOCLING_ADAPTER_MAX_RESULT_BYTES", 104_857_600
+        ),
+        max_capacity_retries=_positive_int(
+            "DOCLING_ADAPTER_UPSTREAM_MAX_ATTEMPTS", 3
+        )
+        - 1,
     )
 
     @asynccontextmanager
@@ -153,7 +162,7 @@ def create_app(
 
         upload_name = Path(files.filename or "upload.bin").name or "upload.bin"
 
-        async def convert(path: Path, name: str) -> bytes:
+        async def convert(path: Path, name: str) -> bytes | Path:
             return await provider.convert(path, name, timeout)
 
         try:
@@ -183,10 +192,14 @@ def create_app(
             return JSONResponse({"detail": "Task not found"}, status_code=404)
         if status != "success":
             return JSONResponse({"detail": "Task result is not ready"}, status_code=409)
-        payload = await registry.consume_result(task_id)
-        if payload is None:
+        result_path = await registry.claim_result(task_id)
+        if result_path is None:
             return JSONResponse({"detail": "Task not found"}, status_code=404)
-        return Response(payload, media_type="application/zip")
+        return FileResponse(
+            result_path,
+            media_type="application/zip",
+            background=BackgroundTask(result_path.unlink, missing_ok=True),
+        )
 
     app.add_middleware(_AdmissionMiddleware, registry=registry)
     app.state.job_registry = registry

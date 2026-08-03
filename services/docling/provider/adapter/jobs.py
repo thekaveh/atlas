@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import secrets
 import tempfile
@@ -13,6 +14,7 @@ from typing import Awaitable, Callable, Literal
 
 
 JobStatus = Literal["pending", "started", "success", "failure"]
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -76,7 +78,7 @@ class JobRegistry:
         *,
         upload_path: Path,
         upload_name: str,
-        worker: Callable[[Path, str], Awaitable[bytes]],
+        worker: Callable[[Path, str], Awaitable[bytes | Path]],
     ) -> str:
         async with self._lock:
             if reservation.released or reservation.claimed:
@@ -91,29 +93,44 @@ class JobRegistry:
     async def _run(
         self,
         job: Job,
-        worker: Callable[[Path, str], Awaitable[bytes]],
+        worker: Callable[[Path, str], Awaitable[bytes | Path]],
     ) -> None:
         job.status = "started"
+        result_path: Path | None = None
         try:
-            payload = await worker(job.upload_path, job.upload_name)
-            write_task = asyncio.create_task(asyncio.to_thread(self._write_result, payload))
-            try:
-                result_path = await asyncio.shield(write_task)
-            except asyncio.CancelledError:
-                result_path = await write_task
-                result_path.unlink(missing_ok=True)
-                raise
+            result = await worker(job.upload_path, job.upload_name)
+            if isinstance(result, Path):
+                result_path = result
+            else:
+                write_task = asyncio.create_task(
+                    asyncio.to_thread(self._write_result, result)
+                )
+                try:
+                    result_path = await asyncio.shield(write_task)
+                except asyncio.CancelledError:
+                    result_path = await write_task
+                    result_path.unlink(missing_ok=True)
+                    raise
             async with self._lock:
                 job.result_path = result_path
                 job.status = "success"
                 job.completed_at = self.clock()
         except asyncio.CancelledError:
+            if result_path is not None:
+                result_path.unlink(missing_ok=True)
             async with self._lock:
                 job.status = "failure"
                 job.completed_at = self.clock()
                 self._release_job_slot_locked(job)
             raise
-        except Exception:
+        except Exception as exc:
+            if result_path is not None:
+                result_path.unlink(missing_ok=True)
+            logger.error(
+                "adapter job failed (task_id=%s, error_type=%s)",
+                job.task_id,
+                type(exc).__name__,
+            )
             async with self._lock:
                 job.status = "failure"
                 job.completed_at = self.clock()
@@ -138,17 +155,18 @@ class JobRegistry:
             job = self._jobs.get(task_id)
             return job.status if job else None
 
-    async def consume_result(self, task_id: str) -> bytes | None:
+    async def claim_result(self, task_id: str) -> Path | None:
         async with self._lock:
             self._cleanup_expired_locked()
             job = self._jobs.get(task_id)
             if job is None or job.status != "success" or job.result_path is None:
                 return None
-            payload = job.result_path.read_bytes()
-            self._delete_job_files(job)
+            result_path = job.result_path
+            job.result_path = None
+            job.upload_path.unlink(missing_ok=True)
             self._release_job_slot_locked(job)
             del self._jobs[task_id]
-            return payload
+            return result_path
 
     async def cleanup_expired(self) -> None:
         async with self._lock:

@@ -1,4 +1,4 @@
-# 5.2.48. STT Provider
+# 5.2.49. STT Provider
 
 Pluggable speech-to-text layer. All backends speak the OpenAI
 `/v1/audio/transcriptions` protocol.
@@ -147,8 +147,8 @@ healthy.
 `OPEN_WEB_UI_STT_API_KEY` resolves to the Parakeet provider token only for a Parakeet source, to `sk-unused` for other enabled STT engines, and to an empty value when STT is disabled. The credential remains in the Open WebUI server process and is not exposed to browser code.
 
 For the managed Parakeet GPU source, healthy means the configured model is
-loaded: the container preloads it before starting the API and `/health` returns
-`503` until inference is available. Speaches retains its upstream process-level
+loaded: the API process starts a deadline-bounded background load and `/health`
+returns `503` until inference is available. Speaches retains its upstream process-level
 health semantics and may still download a model on first use.
 
 ## 7. Supported audio formats
