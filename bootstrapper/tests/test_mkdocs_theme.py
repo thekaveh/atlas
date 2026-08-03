@@ -12,9 +12,9 @@ def _cfg():
     return yaml.safe_load(render_mkdocs_yml(m))
 
 
-def test_palette_is_light_first():
+def test_palette_is_dark_first():
     schemes = [p["scheme"] for p in _cfg()["theme"]["palette"]]
-    assert schemes[0] == "default" and schemes[1] == "slate"
+    assert schemes[0] == "slate" and schemes[1] == "default"
 
 
 def test_theme_declares_font_logo_favicon():

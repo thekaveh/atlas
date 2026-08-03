@@ -161,16 +161,16 @@ def render_mkdocs_yml(manifest: Manifest) -> str:
             ],
             "palette": [
                 {
-                    "scheme": "default",
-                    "primary": "custom",
-                    "accent": "custom",
-                    "toggle": {"icon": "material/weather-night", "name": "Switch to dark mode"},
-                },
-                {
                     "scheme": "slate",
                     "primary": "custom",
                     "accent": "custom",
                     "toggle": {"icon": "material/weather-sunny", "name": "Switch to light mode"},
+                },
+                {
+                    "scheme": "default",
+                    "primary": "custom",
+                    "accent": "custom",
+                    "toggle": {"icon": "material/weather-night", "name": "Switch to dark mode"},
                 },
             ],
             "font": {"text": "Public Sans", "code": "JetBrains Mono"},

@@ -205,14 +205,13 @@
         <line x1="700" y1="160" x2="700" y2="208" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrow)"/>
         <line x1="950" y1="160" x2="790" y2="208" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrow)"/>
 
-        <!-- Kong to Apps (rose trunk + dashed tee fan-out, 5 stems) -->
+        <!-- Kong to Apps (rose trunk + dashed tee fan-out, 4 routed stems) -->
         <line x1="700" y1="258" x2="700" y2="295" stroke="#fb7185" stroke-width="2" marker-end="url(#arrow-rose)"/>
-        <line x1="200" y1="295" x2="1200" y2="295" stroke="#fb7185" stroke-width="1" stroke-dasharray="3,3" opacity="0.55"/>
+        <line x1="200" y1="295" x2="950" y2="295" stroke="#fb7185" stroke-width="1" stroke-dasharray="3,3" opacity="0.55"/>
         <line x1="200" y1="295" x2="200" y2="308" stroke="#fb7185" stroke-width="1" stroke-dasharray="3,3" opacity="0.55"/>
         <line x1="450" y1="295" x2="450" y2="308" stroke="#fb7185" stroke-width="1" stroke-dasharray="3,3" opacity="0.55"/>
         <line x1="700" y1="295" x2="700" y2="308" stroke="#fb7185" stroke-width="1" stroke-dasharray="3,3" opacity="0.55"/>
         <line x1="950" y1="295" x2="950" y2="308" stroke="#fb7185" stroke-width="1" stroke-dasharray="3,3" opacity="0.55"/>
-        <line x1="1200" y1="295" x2="1200" y2="308" stroke="#fb7185" stroke-width="1" stroke-dasharray="3,3" opacity="0.55"/>
 
         <!-- Kong to Agents (fan-out for Hermes, n8n, OpenClaw, LightRAG, Airflow that have Kong host-aliases) -->
         <line x1="450" y1="258" x2="450" y2="295" stroke="#fb7185" stroke-width="1" stroke-dasharray="3,3" opacity="0.4"/>
@@ -273,8 +272,8 @@
 
           <rect x="850" y="116" width="200" height="44" rx="6" fill="#0f172a"/>
           <rect x="850" y="116" width="200" height="44" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
-          <text x="950" y="135" fill="#e2e8f0" font-size="12" font-weight="600" text-anchor="middle">CLI</text>
-          <text x="950" y="151" fill="#94a3b8" font-size="9" text-anchor="middle">./start.sh wizard</text>
+          <text x="950" y="135" fill="#e2e8f0" font-size="12" font-weight="600" text-anchor="middle">CLI / automation</text>
+          <text x="950" y="151" fill="#94a3b8" font-size="9" text-anchor="middle">HTTP APIs via Kong</text>
         </g>
 
         <!-- ─────────────────  INFRA / KONG  ───────────────── -->
@@ -527,7 +526,7 @@
           <h3>The single entry point</h3>
         </div>
         <ul>
-          <li>Kong gateway fronts every browser-facing service</li>
+          <li>Kong fronts services that declare a browser-facing host alias</li>
           <li><code>*.localhost</code> aliases routed to <code>http://&lt;svc&gt;:&lt;internal-port&gt;</code></li>
           <li>Basic-auth + ACLs on admin surfaces</li>
           <li>Dynamic routes regenerated from <code>service.yml</code> on every <code>./start.sh</code></li>

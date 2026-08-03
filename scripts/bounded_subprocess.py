@@ -94,28 +94,26 @@ def run_bounded(
         raise CommandLaunchError(
             "bounded process-tree execution requires POSIX or Windows WSL"
         )
+    process: subprocess.Popen[bytes] | None = None
+    pending_sigterm: list[int] = []
     guard_sigterm = threading.current_thread() is threading.main_thread()
     previous_sigterm = None
-    previous_mask = None
-    mask_restored = True
     if guard_sigterm:
-        previous_mask = signal.pthread_sigmask(
-            signal.SIG_BLOCK, {signal.SIGTERM}
-        )
         previous_sigterm = signal.getsignal(signal.SIGTERM)
 
         def interrupt(signum, _frame):
-            raise _CommandInterrupted(signum)
+            if not pending_sigterm:
+                pending_sigterm.append(signum)
 
         signal.signal(signal.SIGTERM, interrupt)
-        mask_restored = False
 
-    process: subprocess.Popen[bytes] | None = None
     readers: list[threading.Thread] = []
     stdout_chunks: list[bytes] = []
     stderr_chunks: list[bytes] = []
     overflow = threading.Event()
     try:
+        if pending_sigterm:
+            raise _CommandInterrupted(pending_sigterm[0])
         try:
             process = subprocess.Popen(
                 command,
@@ -126,10 +124,11 @@ def run_bounded(
                 start_new_session=True,
             )
         except OSError as exc:
+            if pending_sigterm:
+                raise _CommandInterrupted(pending_sigterm[0]) from exc
             raise CommandLaunchError from exc
-        if guard_sigterm:
-            signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
-            mask_restored = True
+        if pending_sigterm:
+            raise _CommandInterrupted(pending_sigterm[0])
 
         assert process.stdout is not None
         assert process.stderr is not None
@@ -158,6 +157,8 @@ def run_bounded(
         while process.poll() is None or any(
             reader.is_alive() for reader in readers
         ):
+            if pending_sigterm:
+                raise _CommandInterrupted(pending_sigterm[0])
             if overflow.is_set():
                 raise CommandOutputTooLarge
             if time.monotonic() >= deadline:
@@ -166,22 +167,20 @@ def run_bounded(
         # A successful leader may have daemonized children after redirecting
         # inherited pipes. This helper never permits intentional daemonization.
         _terminate_process_tree(process)
+        if pending_sigterm:
+            raise _CommandInterrupted(pending_sigterm[0])
     except BaseException:
         if process is not None:
             _stop_and_reap(process)
         raise
     finally:
-        if previous_mask is not None and not mask_restored:
-            try:
-                signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
-            finally:
-                if previous_sigterm is not None:
-                    signal.signal(signal.SIGTERM, previous_sigterm)
-        elif previous_sigterm is not None:
+        if previous_sigterm is not None:
             signal.signal(signal.SIGTERM, previous_sigterm)
         for reader in readers:
             reader.join(timeout=5)
     assert process is not None
+    if pending_sigterm:
+        raise _CommandInterrupted(pending_sigterm[0])
     if overflow.is_set():
         raise CommandOutputTooLarge
     stdout = b"".join(stdout_chunks).decode("utf-8", errors="replace")

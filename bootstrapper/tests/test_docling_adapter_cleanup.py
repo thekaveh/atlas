@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import functools
 import sys
+import threading
 from pathlib import Path
 
 import pytest
@@ -42,6 +43,56 @@ class GateUpstream:
         self.started.set()
         await self.release.wait()
         return b"zip-result"
+
+
+@_run_async
+async def test_repeated_cancellation_cleans_late_result_file(monkeypatch, tmp_path):
+    adapter_app = _load_app_module(monkeypatch)
+    registry = adapter_app.JobRegistry(
+        root=tmp_path, max_jobs=1, result_ttl_seconds=900
+    )
+    upload = tmp_path / "upload.pdf"
+    upload.write_bytes(b"document")
+    reservation = await registry.reserve()
+    assert reservation is not None
+    writer_started = threading.Event()
+    release_writer = threading.Event()
+    writer_finished = threading.Event()
+    original_write = registry._write_result
+
+    def gated_write(payload):
+        writer_started.set()
+        release_writer.wait(timeout=1)
+        try:
+            return original_write(payload)
+        finally:
+            writer_finished.set()
+
+    monkeypatch.setattr(registry, "_write_result", gated_write)
+
+    async def worker(_path, _name):
+        return b"zip-result"
+
+    task_id = await registry.start(
+        reservation,
+        upload_path=upload,
+        upload_name=upload.name,
+        worker=worker,
+    )
+    job = registry._jobs[task_id]
+    assert job.task is not None
+    assert await asyncio.to_thread(writer_started.wait, 1)
+
+    job.task.cancel()
+    await asyncio.sleep(0)
+    job.task.cancel()
+    await asyncio.sleep(0)
+    release_writer.set()
+    assert await asyncio.to_thread(writer_finished.wait, 1)
+    with pytest.raises(asyncio.CancelledError):
+        await job.task
+
+    assert list(tmp_path.iterdir()) == []
 
 
 @_run_async
@@ -127,6 +178,7 @@ async def test_expired_success_result_is_deleted_and_releases_slot(
             "/v1/convert/file/async", files={"files": ("a.pdf", b"a")}
         )
         task_id = first.json()["task_id"]
+
         async def wait_for_success():
             while True:
                 status = await client.get(f"/v1/status/poll/{task_id}")
@@ -144,8 +196,8 @@ async def test_expired_success_result_is_deleted_and_releases_slot(
             "/v1/convert/file/async", files={"files": ("b.pdf", b"b")}
         )
         assert second.status_code == 202
-    await asyncio.sleep(0)
-    assert len(list(tmp_path.iterdir())) <= 1
+    await app.state.job_registry.close()
+    assert list(tmp_path.iterdir()) == []
 
 
 @_run_async

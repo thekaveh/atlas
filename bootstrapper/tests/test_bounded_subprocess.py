@@ -115,6 +115,35 @@ def test_run_bounded_handles_sigterm_before_popen_returns(monkeypatch, tmp_path)
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX signal contract")
+def test_run_bounded_preserves_sigterm_when_launch_also_fails(monkeypatch):
+    def interrupted_launch(*_args, **_kwargs):
+        os.kill(os.getpid(), signal.SIGTERM)
+        raise OSError("simulated launch failure")
+
+    monkeypatch.setattr(bounded_subprocess.subprocess, "Popen", interrupted_launch)
+
+    with pytest.raises(SystemExit) as raised:
+        bounded_subprocess.run_bounded(["tool"])
+
+    assert raised.value.code == 128 + signal.SIGTERM
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX signal-mask contract")
+def test_run_bounded_does_not_block_sigterm_in_child():
+    result = bounded_subprocess.run_bounded(
+        [
+            sys.executable,
+            "-c",
+            "import signal; "
+            "blocked = signal.pthread_sigmask(signal.SIG_BLOCK, set()); "
+            "print(signal.SIGTERM in blocked)",
+        ]
+    )
+
+    assert result.stdout == "False\n"
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX signal contract")
 def test_run_bounded_terminates_descendants_when_wrapper_is_interrupted(
     tmp_path: Path,
 ):

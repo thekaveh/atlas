@@ -280,11 +280,10 @@ def test_home_and_theme_preserve_the_atlas_clean_systems_visual_contract() -> No
     css = THEME_CSS.read_text(encoding="utf-8")
 
     assert config["theme"]["name"] == "material"
-    # Light-first "Clean Systems" palette order: default (light) before slate (dark).
-    assert config["theme"]["palette"][0]["scheme"] == "default"
-    assert config["theme"]["palette"][0]["toggle"]["name"] == "Switch to dark mode"
-    assert config["theme"]["palette"][1]["scheme"] == "slate"
-    assert config["theme"]["palette"][1]["toggle"]["name"] == "Switch to light mode"
+    assert config["theme"]["palette"][0]["scheme"] == "slate"
+    assert config["theme"]["palette"][0]["toggle"]["name"] == "Switch to light mode"
+    assert config["theme"]["palette"][1]["scheme"] == "default"
+    assert config["theme"]["palette"][1]["toggle"]["name"] == "Switch to dark mode"
     assert config["theme"]["logo"]
     assert config["theme"]["favicon"]
     assert config["theme"]["font"]["text"] == "Public Sans"

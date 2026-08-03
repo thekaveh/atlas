@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import logging
 import os
 import secrets
@@ -103,15 +104,29 @@ class JobRegistry:
             if isinstance(result, Path):
                 result_path = result
             else:
-                write_task = asyncio.create_task(
-                    asyncio.to_thread(self._write_result, result)
+                executor = concurrent.futures.ThreadPoolExecutor(
+                    max_workers=1,
+                    thread_name_prefix="docling-adapter-result",
                 )
+                concurrent_write = executor.submit(self._write_result, result)
+                write_future = asyncio.wrap_future(concurrent_write)
+                cancelled = False
                 try:
-                    result_path = await asyncio.shield(write_task)
-                except asyncio.CancelledError:
-                    result_path = await write_task
-                    result_path.unlink(missing_ok=True)
+                    while True:
+                        try:
+                            result_path = await asyncio.shield(write_future)
+                            break
+                        except asyncio.CancelledError:
+                            cancelled = True
+                except Exception:
+                    if cancelled:
+                        raise asyncio.CancelledError
                     raise
+                finally:
+                    executor.shutdown(wait=False)
+                if cancelled:
+                    result_path.unlink(missing_ok=True)
+                    raise asyncio.CancelledError
             async with self._lock:
                 job.result_path = result_path
                 job.status = "success"
