@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections import deque
 import os
 import signal
 import subprocess
@@ -192,8 +193,10 @@ def test_failure_log_capture_is_bounded_and_process_grouped() -> None:
 
     assert "_FAILURE_LOG_TIMEOUT_SECONDS =" in source
     assert "start_new_session=os.name == \"posix\"" in source
-    assert source.count("proc = await _launch_process(") == 2
-    assert "await _stop_process_tree(proc)" in source
+    assert source.count("proc = await _launch_process(") == 1
+    assert source.count("await _run_streamed_command(") == 2
+    assert "_FAILURE_HINT_BUFFER_BYTES =" in source
+    assert source.count("await _stop_process_tree(") >= 3
     assert "except asyncio.CancelledError:" in source
 
 
@@ -230,6 +233,26 @@ def test_compose_timeout_policy_keeps_follow_logs_cancellation_driven() -> None:
         _COMPOSE_UP_TIMEOUT_SECONDS
     )
     assert _compose_timeout_seconds(["logs", "-f"]) is None
+
+
+def test_failure_hint_buffer_has_a_byte_ceiling() -> None:
+    from ui.textual.screens.wizard_screen import (
+        _FAILURE_HINT_BUFFER_BYTES,
+        _append_bounded_hint,
+    )
+
+    captured: deque[tuple[str, int]] = deque()
+    captured_bytes = 0
+    for suffix in ("old", "middle", "latest"):
+        captured_bytes = _append_bounded_hint(
+            captured,
+            ("x" * _FAILURE_HINT_BUFFER_BYTES) + suffix,
+            captured_bytes,
+        )
+
+    assert captured_bytes <= _FAILURE_HINT_BUFFER_BYTES
+    assert sum(size for _line, size in captured) == captured_bytes
+    assert captured[-1][0].endswith("latest")
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX process-group contract")
@@ -395,6 +418,43 @@ def test_streamed_command_launch_cancellation_reaps_process_group(
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
+
+    asyncio.run(exercise())
+    time.sleep(0.6)
+    assert not marker.exists()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX process-group contract")
+def test_streamed_command_sink_failure_reaps_process_group(tmp_path: Path) -> None:
+    from ui.textual.screens.wizard_screen import _run_streamed_command
+
+    marker = tmp_path / "streamed-sink-failure-descendant"
+    descendant = (
+        "import pathlib,signal,time; "
+        "signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+        "time.sleep(0.4); "
+        f"pathlib.Path({str(marker)!r}).touch()"
+    )
+    leader = (
+        "import subprocess,sys,time; "
+        "subprocess.Popen([sys.executable, '-c', sys.argv[1]], "
+        "stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL); "
+        "print('trigger', flush=True); time.sleep(1)"
+    )
+
+    def fail_sink(_line: str) -> None:
+        raise RuntimeError("simulated log sink failure")
+
+    async def exercise() -> None:
+        with pytest.raises(RuntimeError, match="sink failure"):
+            await _run_streamed_command(
+                [sys.executable, "-c", leader, descendant],
+                cwd=tmp_path,
+                env=os.environ.copy(),
+                on_line=fail_sink,
+                timeout_seconds=10,
+                termination_grace_seconds=0.05,
+            )
 
     asyncio.run(exercise())
     time.sleep(0.6)

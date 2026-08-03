@@ -20,6 +20,7 @@ confirms launch.
 from __future__ import annotations
 
 import asyncio
+from collections import deque
 import contextlib
 import os
 import signal
@@ -71,6 +72,7 @@ _FAMILY_FLAG_STEM = {
 }
 
 _FAILURE_LOG_TIMEOUT_SECONDS = 60.0
+_FAILURE_HINT_BUFFER_BYTES = 64 * 1024
 _PROCESS_TERMINATION_GRACE_SECONDS = 2.0
 _COMPOSE_BUILD_TIMEOUT_SECONDS = 90 * 60.0
 _COMPOSE_UP_TIMEOUT_SECONDS = 30 * 60.0
@@ -83,6 +85,27 @@ def _compose_timeout_seconds(args: list[str]) -> float | None:
     if args[:1] == ["logs"] and "-f" in args:
         return None
     return _COMPOSE_UP_TIMEOUT_SECONDS
+
+
+def _append_bounded_hint(
+    captured: deque[tuple[str, int]], line: str, captured_bytes: int
+) -> int:
+    """Append a recent diagnostic line without exceeding the byte ceiling."""
+    encoded = line.encode("utf-8", errors="replace")
+    if len(encoded) > _FAILURE_HINT_BUFFER_BYTES:
+        encoded = encoded[-_FAILURE_HINT_BUFFER_BYTES :]
+        line = encoded.decode("utf-8", errors="ignore")
+        encoded = line.encode("utf-8")
+        captured.clear()
+        captured_bytes = 0
+    line_size = max(1, len(encoded))
+    while captured and (
+        captured_bytes + line_size > _FAILURE_HINT_BUFFER_BYTES
+    ):
+        _old_line, old_size = captured.popleft()
+        captured_bytes -= old_size
+    captured.append((line, line_size))
+    return captured_bytes + line_size
 
 
 async def _stop_process_tree(
@@ -159,6 +182,20 @@ async def _launch_process(
             raise cancellation
 
 
+async def _cancel_stream_and_stop(
+    stream_task: asyncio.Task[int],
+    proc: asyncio.subprocess.Process,
+    termination_grace_seconds: float,
+) -> None:
+    """Drain a failed stream task and stop its entire process group."""
+    stream_task.cancel()
+    with contextlib.suppress(BaseException):
+        await stream_task
+    await _stop_process_tree(
+        proc, termination_grace_seconds=termination_grace_seconds
+    )
+
+
 async def _run_streamed_command(
     command: list[str],
     *,
@@ -206,13 +243,41 @@ async def _run_streamed_command(
         )
         return 124
     except asyncio.CancelledError:
-        stream_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError, Exception):
-            await stream_task
-        await _stop_process_tree(
-            proc, termination_grace_seconds=termination_grace_seconds
+        await _cancel_stream_and_stop(
+            stream_task, proc, termination_grace_seconds
         )
         raise
+    except BaseException:
+        await _cancel_stream_and_stop(
+            stream_task, proc, termination_grace_seconds
+        )
+        raise
+
+
+async def _capture_bounded_process_output(
+    command: list[str],
+    *,
+    cwd: Path,
+    sink: Callable[[str], object],
+    timeout_seconds: float,
+) -> tuple[int, list[str]]:
+    """Capture process output to a sink and a bounded recent-hint buffer."""
+    captured: deque[tuple[str, int]] = deque()
+    captured_bytes = 0
+
+    def capture_line(line: str) -> None:
+        nonlocal captured_bytes
+        sink(line + "\n")
+        captured_bytes = _append_bounded_hint(captured, line, captured_bytes)
+
+    returncode = await _run_streamed_command(
+        command,
+        cwd=cwd,
+        env=os.environ.copy(),
+        on_line=capture_line,
+        timeout_seconds=timeout_seconds,
+    )
+    return returncode, [line for line, _size in captured]
 
 
 _SETUP_HINTS = [
@@ -1438,35 +1503,16 @@ class WizardScreen(Screen):
         fh.write(f"# {' '.join(cmd)}\n\n")
         fh.flush()
         try:
-            proc = await _launch_process(
+            returncode, captured = await _capture_bounded_process_output(
                 cmd,
-                cwd=str(self._starter.docker_manager.root_dir),
-                stdin=asyncio.subprocess.DEVNULL,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT,
-                start_new_session=os.name == "posix",
+                cwd=Path(self._starter.docker_manager.root_dir),
+                sink=fh.write,
+                timeout_seconds=_FAILURE_LOG_TIMEOUT_SECONDS,
             )
-            assert proc.stdout is not None
-            captured: list[str] = []
-            async def capture() -> None:
-                async for raw in proc.stdout:
-                    line = raw.decode(errors="replace").rstrip("\r\n")
-                    fh.write(line + "\n")
-                    captured.append(line)
-                await proc.wait()
-
-            try:
-                await asyncio.wait_for(
-                    capture(), timeout=_FAILURE_LOG_TIMEOUT_SECONDS
-                )
-            except asyncio.TimeoutError:
-                await _stop_process_tree(proc)
+            if returncode == 124:
                 fh.write(
                     f"# capture timed out after {_FAILURE_LOG_TIMEOUT_SECONDS:.0f}s\n"
                 )
-            except asyncio.CancelledError:
-                await _stop_process_tree(proc)
-                raise
             fh.flush()
             self._emit_failure_hints(captured)
         except Exception as exc:  # noqa: BLE001
