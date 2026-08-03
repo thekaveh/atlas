@@ -74,8 +74,14 @@ _FAILURE_LOG_TIMEOUT_SECONDS = 60.0
 _PROCESS_TERMINATION_GRACE_SECONDS = 2.0
 
 
-async def _stop_process_tree(proc: asyncio.subprocess.Process) -> None:
+async def _stop_process_tree(
+    proc: asyncio.subprocess.Process,
+    *,
+    termination_grace_seconds: float = _PROCESS_TERMINATION_GRACE_SECONDS,
+) -> None:
     """Stop an async subprocess and descendants, then reap the leader."""
+    if termination_grace_seconds <= 0:
+        raise ValueError("termination_grace_seconds must be positive")
     try:
         if os.name == "posix":
             os.killpg(proc.pid, signal.SIGTERM)
@@ -83,11 +89,10 @@ async def _stop_process_tree(proc: asyncio.subprocess.Process) -> None:
             proc.terminate()
     except ProcessLookupError:
         pass
-    try:
-        await asyncio.wait_for(proc.wait(), timeout=_PROCESS_TERMINATION_GRACE_SECONDS)
-        return
-    except asyncio.TimeoutError:
-        pass
+    # The leader can exit on TERM while a resistant child survives. Preserve
+    # the full grace period, even through cancellation, before escalation.
+    grace_task = asyncio.create_task(asyncio.sleep(termination_grace_seconds))
+    await _await_uncancellable(grace_task)
     try:
         if os.name == "posix":
             os.killpg(proc.pid, signal.SIGKILL)
@@ -95,7 +100,8 @@ async def _stop_process_tree(proc: asyncio.subprocess.Process) -> None:
             proc.kill()
     except ProcessLookupError:
         pass
-    await proc.wait()
+    wait_task = asyncio.create_task(proc.wait())
+    await _await_uncancellable(wait_task)
 
 
 async def _await_uncancellable(task: asyncio.Task):

@@ -153,6 +153,13 @@ def test_image_http_and_parser_security_floors() -> None:
     for relative, requirement in request_manifests.items():
         assert requirement in _text(relative), relative
 
+    assert "cryptography>=49.0.0,<50" in _text(
+        "services/jupyterhub/build/requirements.txt"
+    )
+    assert "\ncryptography==49.0.0\n" in (
+        "\n" + _text("services/jupyterhub/build/requirements-locked.txt")
+    )
+
     assert _locked_version("bootstrapper/uv.lock", "requests") == "2.34.2"
     assert _locked_version("bootstrapper/uv.lock", "click") == "8.4.2"
     assert _locked_version("bootstrapper/uv.lock", "pillow") == "12.3.0"

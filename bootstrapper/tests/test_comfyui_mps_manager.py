@@ -374,6 +374,15 @@ def test_run_translates_install_timeout(tmp_path, monkeypatch):
         _mgr(tmp_path)._run(["slow"])
 
 
+def test_run_translates_output_overflow(tmp_path, monkeypatch):
+    def overflow(_cmd, **_kwargs):
+        raise mod.CommandOutputTooLarge
+
+    monkeypatch.setattr(mod, "run_with_deadline", overflow)
+    with pytest.raises(ComfyUiMpsError, match="output limit"):
+        _mgr(tmp_path)._run(["noisy"])
+
+
 # ─────────────────────────── start / stop / status ───────────────────────────
 def _install_stub(mgr):
     """Pretend an install already happened (venv + repo + model paths)."""

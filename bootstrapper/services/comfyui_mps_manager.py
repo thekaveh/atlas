@@ -37,7 +37,7 @@ from typing import Optional
 
 import yaml
 
-from core.process_runner import run_with_deadline
+from core.process_runner import CommandOutputTooLarge, run_with_deadline
 
 try:  # Native Windows can import this module for a no-op disabled-source stop.
     import fcntl
@@ -647,6 +647,10 @@ class ComfyUiMpsManager:
             raise ComfyUiMpsError(
                 f"command timed out after {_INSTALL_COMMAND_TIMEOUT_SECONDS:.0f}s "
                 f"({' '.join(cmd[:3])}…)"
+            ) from exc
+        except CommandOutputTooLarge as exc:
+            raise ComfyUiMpsError(
+                f"command exceeded its output limit ({' '.join(cmd[:3])}…)"
             ) from exc
         if result.returncode != 0:
             raise ComfyUiMpsError(
