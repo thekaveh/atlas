@@ -8,6 +8,7 @@ import re
 try:
     from scripts.bounded_subprocess import (
         CommandLaunchError,
+        CommandOutputTooLarge,
         CommandTimedOut,
         redacted_failure,
         run_bounded,
@@ -15,6 +16,7 @@ try:
 except ModuleNotFoundError:  # Direct ``python scripts/...`` invocation.
     from bounded_subprocess import (  # type: ignore[no-redef]
         CommandLaunchError,
+        CommandOutputTooLarge,
         CommandTimedOut,
         redacted_failure,
         run_bounded,
@@ -49,6 +51,8 @@ def documentation_paths(repo_root: Path) -> list[Path]:
         raise RuntimeError("Markdown inventory timed out") from exc
     except CommandLaunchError as exc:
         raise RuntimeError("Markdown inventory could not start") from exc
+    except CommandOutputTooLarge as exc:
+        raise RuntimeError("Markdown inventory exceeded its output limit") from exc
     if result.returncode != 0:
         raise RuntimeError(redacted_failure("Markdown inventory", result.returncode))
     relative_paths = result.stdout.splitlines()

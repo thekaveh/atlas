@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 from scripts import audit_runtime_locks
 from scripts import check_runtime_locks
-from scripts.bounded_subprocess import CommandTimedOut
+from scripts.bounded_subprocess import CommandLaunchError, CommandTimedOut
 
 
 def test_audit_runtime_lock_accepts_exact_reviewed_advisories(
@@ -87,6 +87,25 @@ def test_audit_failure_redacts_subprocess_output(tmp_path: Path, monkeypatch) ->
         f"{lock}: pip-audit failed (exit 2; subprocess output redacted)"
     ]
     assert "secret-token" not in failures[0]
+
+
+def test_audit_launch_failure_is_stable_and_redacted(
+    tmp_path: Path, monkeypatch
+) -> None:
+    lock = tmp_path / "requirements-locked.txt"
+    lock.write_text("safe==1.0\n", encoding="utf-8")
+
+    def fail_to_launch(*_args, **_kwargs):
+        raise CommandLaunchError
+
+    monkeypatch.setattr(audit_runtime_locks, "run_bounded", fail_to_launch)
+    failures = audit_runtime_locks.audit_spec(
+        audit_runtime_locks.AuditSpec(str(lock)), root=Path("/")
+    )
+
+    assert failures == [
+        f"{lock}: pip-audit could not complete (subprocess details redacted)"
+    ]
 
 
 def test_audit_runtime_lock_rejects_unreviewed_local_versions(

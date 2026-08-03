@@ -21,6 +21,7 @@ import sys
 
 from bounded_subprocess import (
     CommandLaunchError,
+    CommandOutputTooLarge,
     CommandTimedOut,
     redacted_failure,
     run_bounded,
@@ -164,6 +165,12 @@ def load_compose() -> dict:
             return yaml.safe_load(handle) or {}
     except CommandTimedOut:
         print("FAIL load_compose: docker compose config timed out", file=sys.stderr)
+        sys.exit(2)
+    except CommandOutputTooLarge:
+        print(
+            "FAIL load_compose: docker compose config output exceeded its limit",
+            file=sys.stderr,
+        )
         sys.exit(2)
     if result.returncode != 0:
         # docker is present but `compose config` failed — surface the

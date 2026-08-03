@@ -1,5 +1,6 @@
 PYTHON ?= uv run --project bootstrapper python
-MKDOCS ?= NO_MKDOCS_2_WARNING=1 uv run --project bootstrapper mkdocs
+MKDOCS ?= uv run --project bootstrapper mkdocs
+BOUNDED ?= python3 -m scripts.bounded_subprocess
 
 .PHONY: help docs-build docs-check docs-serve docs-wiki
 
@@ -11,21 +12,21 @@ help:
 	  'docs-wiki   Build and validate the GitHub wiki export'
 
 docs-build:
-	$(PYTHON) -m scripts.docs.canonical_references
-	$(PYTHON) -m scripts.docs.build_docs --site
-	$(MKDOCS) build --strict
+	$(BOUNDED) --label "canonical docs references" -- $(PYTHON) -m scripts.docs.canonical_references
+	$(BOUNDED) --label "three-surface site generation" -- $(PYTHON) -m scripts.docs.build_docs --site
+	$(BOUNDED) --label "strict MkDocs build" -- env NO_MKDOCS_2_WARNING=1 $(MKDOCS) build --strict
 
 docs-check:
-	$(PYTHON) -m scripts.docs.build_docs --verify-diagrams
-	$(PYTHON) -m scripts.docs.check_docs
-	$(MKDOCS) build --strict
-	$(PYTHON) -m scripts.docs.check_site --built-only
-	$(PYTHON) -m scripts.docs.push_wiki --check
+	$(BOUNDED) --label "diagram verification" -- $(PYTHON) -m scripts.docs.build_docs --verify-diagrams
+	$(BOUNDED) --label "three-surface docs contracts" -- $(PYTHON) -m scripts.docs.check_docs
+	$(BOUNDED) --label "strict MkDocs build" -- env NO_MKDOCS_2_WARNING=1 $(MKDOCS) build --strict
+	$(BOUNDED) --label "built-site link check" -- $(PYTHON) -m scripts.docs.check_site --built-only
+	$(BOUNDED) --label "wiki dry run" -- $(PYTHON) -m scripts.docs.push_wiki --check
 
 docs-serve:
-	$(PYTHON) -m scripts.docs.build_docs --site
-	$(MKDOCS) serve
+	$(BOUNDED) --label "three-surface site generation" -- $(PYTHON) -m scripts.docs.build_docs --site
+	NO_MKDOCS_2_WARNING=1 $(MKDOCS) serve
 
 docs-wiki:
-	$(PYTHON) -m scripts.docs.build_docs --wiki
-	$(PYTHON) -m scripts.docs.push_wiki --check
+	$(BOUNDED) --label "three-surface wiki generation" -- $(PYTHON) -m scripts.docs.build_docs --wiki
+	$(BOUNDED) --label "wiki dry run" -- $(PYTHON) -m scripts.docs.push_wiki --check

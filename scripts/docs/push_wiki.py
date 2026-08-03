@@ -9,6 +9,7 @@ from pathlib import Path
 
 from scripts.bounded_subprocess import (
     CommandLaunchError,
+    CommandOutputTooLarge,
     CommandTimedOut,
     redacted_failure,
     run_bounded,
@@ -68,6 +69,8 @@ def _run_git(
         raise RuntimeError("wiki git operation timed out") from exc
     except CommandLaunchError as exc:
         raise RuntimeError("wiki git operation could not start") from exc
+    except CommandOutputTooLarge as exc:
+        raise RuntimeError("wiki git operation exceeded its output limit") from exc
     if check and result.returncode != 0:
         raise RuntimeError(redacted_failure("wiki git operation", result.returncode))
     return result

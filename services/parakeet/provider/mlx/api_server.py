@@ -12,7 +12,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from fastapi import FastAPI, File, Form, HTTPException, Response, UploadFile, status
 
-from bounded_upload import EmptyUploadError, UploadTooLargeError, spool_upload
+from bounded_upload import (
+    EmptyUploadError,
+    RequestBodyLimitMiddleware,
+    UploadTooLargeError,
+    multipart_body_limit,
+    spool_upload,
+)
 from provider_boundary import (
     ProviderDeadlineExceeded,
     fatal_timeout_response,
@@ -76,6 +82,11 @@ app = FastAPI(
     version="1.0.0",
     description="OpenAI-compatible Speech-to-Text API using Parakeet MLX",
     lifespan=lifespan,
+)
+app.add_middleware(
+    RequestBodyLimitMiddleware,
+    max_body_bytes=multipart_body_limit(_MAX_UPLOAD_BYTES),
+    paths={"/v1/audio/transcriptions", "/v1/audio/transcriptions/advanced"},
 )
 _BOUNDARY_SETTINGS = load_boundary_settings(
     "PARAKEET",

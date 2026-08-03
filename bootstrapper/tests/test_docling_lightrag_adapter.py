@@ -70,6 +70,80 @@ async def _client(app):
 
 
 @_run_async
+async def test_request_body_limit_stops_bytes_before_multipart_parsing(monkeypatch):
+    monkeypatch.syspath_prepend(str(PROVIDER_ROOT))
+    from bounded_upload import RequestBodyLimitMiddleware
+
+    delivered = bytearray()
+
+    async def downstream(_scope, receive, _send):
+        while True:
+            message = await receive()
+            delivered.extend(message.get("body", b""))
+            if not message.get("more_body", False):
+                return
+
+    middleware = RequestBodyLimitMiddleware(
+        downstream,
+        max_body_bytes=5,
+        paths={"/upload"},
+    )
+    incoming = iter(
+        [
+            {"type": "http.request", "body": b"123", "more_body": True},
+            {"type": "http.request", "body": b"456", "more_body": False},
+        ]
+    )
+    sent = []
+
+    async def receive():
+        return next(incoming)
+
+    async def send(message):
+        sent.append(message)
+
+    await middleware(
+        {"type": "http", "method": "POST", "path": "/upload", "headers": []},
+        receive,
+        send,
+    )
+
+    assert delivered == b"123"
+    start = next(message for message in sent if message["type"] == "http.response.start")
+    assert start["status"] == 413
+
+
+@_run_async
+async def test_adapter_rejects_oversized_body_before_upstream_work(
+    monkeypatch, tmp_path
+):
+    adapter_app = _load_app_module(monkeypatch)
+    upstream = ControlledUpstream()
+    app = adapter_app.create_app(
+        upstream=upstream,
+        spool_root=tmp_path,
+        max_jobs=1,
+        upload_max_bytes=4,
+    )
+
+    async with await _client(app) as client:
+        response = await client.post(
+            "/v1/convert/file/async",
+            files={
+                "files": (
+                    "oversized.pdf",
+                    b"x" * (1024 * 1024 + 5),
+                    "application/pdf",
+                )
+            },
+        )
+
+    assert response.status_code == 413
+    assert upstream.calls == []
+    assert not list(tmp_path.iterdir())
+
+
+@_run_async
 async def test_adapter_matches_pinned_lightrag_async_contract(monkeypatch, tmp_path):
     adapter_app = _load_app_module(monkeypatch)
     upstream = ControlledUpstream(_bundle("Quarterly_Report"))

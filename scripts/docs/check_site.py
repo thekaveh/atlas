@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 
 from scripts.bounded_subprocess import (
     CommandLaunchError,
+    CommandOutputTooLarge,
     CommandTimedOut,
     redacted_failure,
     run_bounded,
@@ -33,6 +34,8 @@ def _run_check(command: list[str], *, label: str, cwd: Path, env=None) -> None:
         raise SystemExit(f"{label} timed out") from exc
     except CommandLaunchError as exc:
         raise SystemExit(f"{label} could not start (details redacted)") from exc
+    except CommandOutputTooLarge as exc:
+        raise SystemExit(f"{label} exceeded its output limit") from exc
     if result.returncode != 0:
         raise SystemExit(redacted_failure(label, result.returncode))
     if result.stdout:

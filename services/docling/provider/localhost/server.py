@@ -21,7 +21,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from fastapi import FastAPI, File, Form, HTTPException, Response, UploadFile, status
 
-from bounded_upload import EmptyUploadError, UploadTooLargeError, spool_upload
+from bounded_upload import (
+    EmptyUploadError,
+    RequestBodyLimitMiddleware,
+    UploadTooLargeError,
+    multipart_body_limit,
+    spool_upload,
+)
 from lightrag_bundle import build_lightrag_bundle
 from processor import convert_document_once, processor_status, render_conversion
 from provider_boundary import (
@@ -42,6 +48,11 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Docling Document Processor", version="1.0.0")
+app.add_middleware(
+    RequestBodyLimitMiddleware,
+    max_body_bytes=multipart_body_limit(_MAX_UPLOAD_BYTES),
+    paths={"/v1/document/convert", "/internal/lightrag/bundle"},
+)
 _BOUNDARY_SETTINGS = load_boundary_settings(
     "DOCLING",
     {"/v1/document/convert", "/internal/lightrag/bundle"},

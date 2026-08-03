@@ -12,6 +12,27 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def test_provider_upload_boundaries_remain_byte_equivalent():
+    docling = ROOT / "services/docling/provider/bounded_upload.py"
+    parakeet = ROOT / "services/parakeet/provider/bounded_upload.py"
+    assert docling.read_bytes() == parakeet.read_bytes()
+
+
+@pytest.mark.parametrize(
+    "relative_path",
+    [
+        "services/docling/provider/shared/api_server.py",
+        "services/docling/provider/localhost/server.py",
+        "services/parakeet/provider/shared/api_server.py",
+        "services/parakeet/provider/mlx/api_server.py",
+    ],
+)
+def test_provider_apps_cap_request_bodies_before_multipart(relative_path):
+    source = (ROOT / relative_path).read_text(encoding="utf-8")
+    assert "RequestBodyLimitMiddleware" in source
+    assert "max_body_bytes=multipart_body_limit(_MAX_UPLOAD_BYTES)" in source
+
+
 class FakeUpload:
     def __init__(self, chunks: list[bytes]) -> None:
         self._chunks = iter(chunks)
@@ -71,6 +92,58 @@ def test_provider_upload_spool_removes_partial_file_when_limit_is_exceeded(
         )
 
     assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize(
+    "relative_path",
+    [
+        "services/docling/provider/bounded_upload.py",
+        "services/parakeet/provider/bounded_upload.py",
+    ],
+)
+def test_provider_request_body_limit_precedes_multipart_spooling(relative_path):
+    module = _load(ROOT / relative_path, relative_path.replace("/", "_") + "_body")
+    delivered = bytearray()
+    sent = []
+    incoming = iter(
+        [
+            {"type": "http.request", "body": b"123", "more_body": True},
+            {"type": "http.request", "body": b"456", "more_body": False},
+        ]
+    )
+
+    async def downstream(_scope, receive, _send):
+        while True:
+            message = await receive()
+            delivered.extend(message.get("body", b""))
+            if not message.get("more_body", False):
+                return
+
+    async def receive():
+        return next(incoming)
+
+    async def send(message):
+        sent.append(message)
+
+    middleware = module.RequestBodyLimitMiddleware(
+        downstream, max_body_bytes=5, paths={"/upload"}
+    )
+    asyncio.run(
+        middleware(
+            {
+                "type": "http",
+                "method": "POST",
+                "path": "/upload",
+                "headers": [],
+            },
+            receive,
+            send,
+        )
+    )
+
+    assert delivered == b"123"
+    start = next(message for message in sent if message["type"] == "http.response.start")
+    assert start["status"] == 413
 
 
 @pytest.mark.parametrize("variant", ["gpu", "localhost"])

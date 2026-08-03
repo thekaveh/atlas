@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from scripts.bounded_subprocess import (
+    CommandLaunchError,
+    CommandOutputTooLarge,
     CommandTimedOut,
     DEFAULT_TIMEOUT_SECONDS,
     redacted_failure,
@@ -114,6 +116,12 @@ def main() -> int:
                     failures.append(
                         f"{spec.lock} ({platform}): resolution timed out after "
                         f"{COMMAND_TIMEOUT_SECONDS} seconds"
+                    )
+                    continue
+                except (CommandLaunchError, CommandOutputTooLarge):
+                    failures.append(
+                        f"{spec.lock} ({platform}): resolution could not "
+                        "complete (subprocess details redacted)"
                     )
                     continue
                 if result.returncode != 0:

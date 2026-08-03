@@ -436,7 +436,7 @@ def test_adapter_tmpfs_covers_default_concurrent_upload_and_result_budget() -> N
     upload_bytes = default_int("DOCLING_MAX_FILE_SIZE")
     result_bytes = default_int("DOCLING_ADAPTER_MAX_RESULT_BYTES")
     required_bytes = default_int("DOCLING_ADAPTER_MAX_JOBS") * max(
-        2 * upload_bytes,
+        2 * upload_bytes + 1024 * 1024,
         upload_bytes + result_bytes,
     )
     assert size_mib * 1024 * 1024 >= required_bytes + 64 * 1024 * 1024

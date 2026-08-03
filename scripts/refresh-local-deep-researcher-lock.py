@@ -19,6 +19,8 @@ import yaml
 
 try:
     from scripts.bounded_subprocess import (
+        CommandLaunchError,
+        CommandOutputTooLarge,
         CommandTimedOut,
         DEFAULT_TIMEOUT_SECONDS,
         redacted_failure,
@@ -26,6 +28,8 @@ try:
     )
 except ModuleNotFoundError:  # Direct ``python scripts/...`` invocation.
     from bounded_subprocess import (  # type: ignore[no-redef]
+        CommandLaunchError,
+        CommandOutputTooLarge,
         CommandTimedOut,
         DEFAULT_TIMEOUT_SECONDS,
         redacted_failure,
@@ -62,6 +66,10 @@ def _run(*args: str, cwd: Path | None = None, quiet: bool = False) -> None:
     except CommandTimedOut as exc:
         raise SystemExit(
             f"{label} timed out after {DEFAULT_TIMEOUT_SECONDS} seconds"
+        ) from exc
+    except (CommandLaunchError, CommandOutputTooLarge) as exc:
+        raise SystemExit(
+            f"{label} could not complete (subprocess details redacted)"
         ) from exc
     if result.returncode != 0:
         raise SystemExit(redacted_failure(label, result.returncode))

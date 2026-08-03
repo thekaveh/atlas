@@ -6,7 +6,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import unquote
 
-from scripts.bounded_subprocess import CommandLaunchError, CommandTimedOut, run_bounded
+from scripts.bounded_subprocess import (
+    CommandLaunchError,
+    CommandOutputTooLarge,
+    CommandTimedOut,
+    run_bounded,
+)
 
 from .build_docs import build
 from .canonical_references import sync_canonical_references
@@ -123,6 +128,8 @@ def _tracked_service_readmes(repo_root: Path) -> list[Path]:
         result = None
     except CommandTimedOut as exc:
         raise RuntimeError("Tracked service documentation inventory timed out") from exc
+    except CommandOutputTooLarge as exc:
+        raise RuntimeError("Tracked service documentation inventory was too large") from exc
     if result is None or result.returncode != 0:
         services_root = repo_root / "services"
         return sorted(services_root.rglob("README.md")) if services_root.is_dir() else []
@@ -148,6 +155,8 @@ def _tracked_docs(repo_root: Path) -> list[Path]:
         result = None
     except CommandTimedOut as exc:
         raise RuntimeError("Tracked documentation inventory timed out") from exc
+    except CommandOutputTooLarge as exc:
+        raise RuntimeError("Tracked documentation inventory was too large") from exc
     if result is None or result.returncode != 0:
         return sorted(docs_root.rglob("*.md")) if docs_root.is_dir() else []
     return sorted(

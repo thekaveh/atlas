@@ -66,7 +66,7 @@ env:
     default: cuda
   - name: PARAKEET_MAX_UPLOAD_BYTES
     default: 104857600
-    description: "Positive maximum audio upload bytes for Parakeet GPU and localhost APIs. Invalid values fail provider startup; oversized requests return 413."
+    description: "Positive maximum audio upload bytes for Parakeet GPU and localhost APIs. Request bodies are capped before multipart parsing with 1 MiB framing overhead; invalid values fail startup and oversized requests return 413."
   - name: PARAKEET_CONCURRENCY
     default: 1
     description: "Maximum concurrent Parakeet inference calls per provider process. Default 1 prevents model thread-safety and GPU memory contention."

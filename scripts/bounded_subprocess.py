@@ -6,11 +6,15 @@ import argparse
 import os
 import signal
 import subprocess
+import sys
+import threading
+import time
 from pathlib import Path
-from typing import Mapping, Sequence
+from typing import BinaryIO, Mapping, Sequence
 
 
 DEFAULT_TIMEOUT_SECONDS = 300
+DEFAULT_MAX_OUTPUT_BYTES = 16 * 1024 * 1024
 
 
 class CommandTimedOut(RuntimeError):
@@ -21,7 +25,16 @@ class CommandLaunchError(RuntimeError):
     """A bounded subprocess could not be launched."""
 
 
-def _terminate_process_tree(process: subprocess.Popen[str]) -> None:
+class CommandOutputTooLarge(RuntimeError):
+    """A bounded subprocess exceeded its combined output allowance."""
+
+
+class _CommandInterrupted(BaseException):
+    def __init__(self, signum: int):
+        self.signum = signum
+
+
+def _terminate_process_tree(process: subprocess.Popen[bytes]) -> None:
     """Force-stop the bounded command and descendants without leaking output."""
     if os.name == "posix":
         try:
@@ -29,14 +42,51 @@ def _terminate_process_tree(process: subprocess.Popen[str]) -> None:
         except ProcessLookupError:
             pass
     else:  # pragma: no cover - Windows CI is not currently used
-        subprocess.run(
-            ["taskkill", "/PID", str(process.pid), "/T", "/F"],
-            capture_output=True,
-            check=False,
-            timeout=5,
-        )
+        try:
+            subprocess.run(
+                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                capture_output=True,
+                check=False,
+                timeout=5,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            pass
         if process.poll() is None:
             process.kill()
+
+
+def _capture_stream(
+    stream: BinaryIO,
+    chunks: list[bytes],
+    *,
+    state: list[int],
+    lock: threading.Lock,
+    overflow: threading.Event,
+    max_output_bytes: int,
+) -> None:
+    while not overflow.is_set():
+        chunk = stream.read(64 * 1024)
+        if not chunk:
+            return
+        with lock:
+            remaining = max_output_bytes - state[0]
+            if remaining <= 0:
+                overflow.set()
+                return
+            chunks.append(chunk[:remaining])
+            state[0] += min(len(chunk), remaining)
+            if len(chunk) > remaining:
+                overflow.set()
+                return
+
+
+def _stop_and_reap(process: subprocess.Popen[bytes]) -> None:
+    _terminate_process_tree(process)
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:  # pragma: no cover - defensive fallback
+        process.kill()
+        process.wait()
 
 
 def run_bounded(
@@ -45,8 +95,13 @@ def run_bounded(
     cwd: Path | None = None,
     env: Mapping[str, str] | None = None,
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
+    max_output_bytes: int = DEFAULT_MAX_OUTPUT_BYTES,
 ) -> subprocess.CompletedProcess[str]:
     """Run a process group with captured output and a finite deadline."""
+    if timeout_seconds <= 0:
+        raise ValueError("timeout_seconds must be positive")
+    if max_output_bytes <= 0:
+        raise ValueError("max_output_bytes must be positive")
     try:
         process = subprocess.Popen(
             command,
@@ -54,17 +109,57 @@ def run_bounded(
             env=env,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            text=True,
             start_new_session=os.name == "posix",
         )
     except OSError as exc:
         raise CommandLaunchError from exc
+    assert process.stdout is not None
+    assert process.stderr is not None
+    stdout_chunks: list[bytes] = []
+    stderr_chunks: list[bytes] = []
+    state = [0]
+    lock = threading.Lock()
+    overflow = threading.Event()
+    readers = [
+        threading.Thread(
+            target=_capture_stream,
+            args=(stream, chunks),
+            kwargs={
+                "state": state,
+                "lock": lock,
+                "overflow": overflow,
+                "max_output_bytes": max_output_bytes,
+            },
+            daemon=True,
+        )
+        for stream, chunks in (
+            (process.stdout, stdout_chunks),
+            (process.stderr, stderr_chunks),
+        )
+    ]
+    for reader in readers:
+        reader.start()
+    deadline = time.monotonic() + timeout_seconds
     try:
-        stdout, stderr = process.communicate(timeout=timeout_seconds)
-    except subprocess.TimeoutExpired as exc:
-        _terminate_process_tree(process)
-        process.communicate()
-        raise CommandTimedOut from exc
+        while process.poll() is None or any(
+            reader.is_alive() for reader in readers
+        ):
+            if overflow.is_set():
+                raise CommandOutputTooLarge
+            if time.monotonic() >= deadline:
+                raise CommandTimedOut
+            time.sleep(0.01)
+    except BaseException:
+        if process.poll() is None or any(reader.is_alive() for reader in readers):
+            _stop_and_reap(process)
+        raise
+    finally:
+        for reader in readers:
+            reader.join(timeout=5)
+    if overflow.is_set():
+        raise CommandOutputTooLarge
+    stdout = b"".join(stdout_chunks).decode("utf-8", errors="replace")
+    stderr = b"".join(stderr_chunks).decode("utf-8", errors="replace")
     return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
 
 
@@ -88,23 +183,43 @@ def main() -> int:
         parser.error("a command is required after --")
     if args.timeout_seconds < 1:
         parser.error("--timeout-seconds must be positive")
+    previous_sigterm = signal.getsignal(signal.SIGTERM)
+
+    def interrupt(signum, _frame):
+        raise _CommandInterrupted(signum)
+
+    signal.signal(signal.SIGTERM, interrupt)
     try:
-        result = run_bounded(
-            command,
-            cwd=args.cwd,
-            timeout_seconds=args.timeout_seconds,
-        )
-    except CommandTimedOut:
-        print(f"{args.label} timed out after {args.timeout_seconds} seconds")
-        return 124
-    except CommandLaunchError:
-        print(f"{args.label} could not start (subprocess details redacted)")
-        return 126
+        try:
+            result = run_bounded(
+                command,
+                cwd=args.cwd,
+                timeout_seconds=args.timeout_seconds,
+            )
+        except CommandTimedOut:
+            print(f"{args.label} timed out after {args.timeout_seconds} seconds")
+            return 124
+        except CommandLaunchError:
+            print(f"{args.label} could not start (subprocess details redacted)")
+            return 126
+        except CommandOutputTooLarge:
+            print(
+                f"{args.label} exceeded its output limit "
+                "(subprocess output redacted)"
+            )
+            return 125
+        except _CommandInterrupted as exc:
+            print(f"{args.label} interrupted (subprocess details redacted)")
+            return 128 + exc.signum
+    finally:
+        signal.signal(signal.SIGTERM, previous_sigterm)
     if result.returncode != 0:
         print(redacted_failure(args.label, result.returncode))
         return result.returncode
     if result.stdout:
         print(result.stdout, end="")
+    if result.stderr:
+        print(result.stderr, end="", file=sys.stderr)
     return 0
 
 

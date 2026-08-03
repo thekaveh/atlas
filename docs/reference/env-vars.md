@@ -211,7 +211,7 @@
 | DOCLING_OUTPUT_FORMAT | docling | markdown | - |
 | DOCLING_USE_OCR | docling | auto | - |
 | DOCLING_TABLE_MODE | docling | accurate | - |
-| DOCLING_MAX_FILE_SIZE | docling | 52428800 | Positive maximum upload bytes for Docling GPU, localhost, and adapter APIs. Invalid values fail provider startup; oversized requests return 413. |
+| DOCLING_MAX_FILE_SIZE | docling | 52428800 | Positive maximum upload bytes for Docling GPU, localhost, and adapter APIs. Request bodies are capped before multipart parsing with 1 MiB framing overhead; invalid values fail startup and oversized requests return 413. |
 | DOCLING_CONCURRENCY | docling | 1 | Maximum concurrent Docling conversions per provider process. Default 1 prevents duplicate model loads and GPU memory contention. |
 | DOCLING_API_TOKEN | docling |  | Auto-generated bearer credential required by Docling routes except /health. |
 | DOCLING_AUTH_MODE | docling | required | Provider authentication mode: required (default) or disabled for an explicit emergency/local rollback. |
@@ -223,7 +223,7 @@
 | DOCLING_ADAPTER_MAX_RESULT_BYTES | docling | 104857600 | Maximum ZIP result bytes streamed from Docling to adapter storage before the job fails safely. |
 | DOCLING_ADAPTER_UPSTREAM_MAX_ATTEMPTS | docling | 3 | Total bounded Docling request attempts when the provider returns HTTP 429. |
 | DOCLING_ADAPTER_DOWNLOAD_TIMEOUT_SECONDS | docling | 300 | Positive maximum seconds for one result transmission; expiry deletes the artifact and releases its adapter slot. |
-| DOCLING_ADAPTER_TMPFS_SIZE | docling | 512m | Bounded adapter temporary-storage mount. Size must cover MAX_JOBS times the larger of twice the upload limit or upload-plus-result limits, plus at least 64 MiB staging headroom; startup fails when actual capacity is smaller. |
+| DOCLING_ADAPTER_TMPFS_SIZE | docling | 512m | Bounded adapter temporary-storage mount. Size must cover MAX_JOBS times the larger of upload-plus-request-body (upload plus 1 MiB multipart overhead) or upload-plus-result limits, plus at least 64 MiB staging headroom; startup fails when actual capacity is smaller. |
 | DOCLING_ADAPTER_SCALE | docling |  | Derived adapter replica count; one only when both LightRAG and Docling are enabled. |
 | DOCLING_ADAPTER_UPSTREAM_ENDPOINT | docling |  | Authenticated internal bundle route selected for the adapter; never exposed to LightRAG. |
 | DOCLING_ENABLE_FORMULAS | docling | True | - |
@@ -621,7 +621,7 @@
 | STT_PROVIDER_SCALE | parakeet |  | Aggregate STT scale across all engines. Reserved for future use. |
 | PARAKEET_MODEL | parakeet | nvidia/parakeet-tdt-0.6b-v3 | - |
 | PARAKEET_GPU_DEVICE | parakeet | cuda | - |
-| PARAKEET_MAX_UPLOAD_BYTES | parakeet | 104857600 | Positive maximum audio upload bytes for Parakeet GPU and localhost APIs. Invalid values fail provider startup; oversized requests return 413. |
+| PARAKEET_MAX_UPLOAD_BYTES | parakeet | 104857600 | Positive maximum audio upload bytes for Parakeet GPU and localhost APIs. Request bodies are capped before multipart parsing with 1 MiB framing overhead; invalid values fail startup and oversized requests return 413. |
 | PARAKEET_CONCURRENCY | parakeet | 1 | Maximum concurrent Parakeet inference calls per provider process. Default 1 prevents model thread-safety and GPU memory contention. |
 | PARAKEET_API_TOKEN | parakeet |  | Auto-generated bearer credential required by Parakeet routes except /health. |
 | PARAKEET_AUTH_MODE | parakeet | required | Provider authentication mode: required (default) or disabled for an explicit emergency/local rollback. |

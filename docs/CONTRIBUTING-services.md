@@ -558,8 +558,10 @@ All four are required status checks in the live `gitflow` ruleset:
 | **Docs drift + audit scripts** | `regen --all --check` + `make docs-check` + the remaining audits (`check_doc_links` — including `#anchor` fragment validation, `check-compose-source-deps`, `check-docs-drift`, `check-kong-routes`, `validate_research_schema`, `check-track-membership`) + lock verification for the Docling localhost provider, Local Deep Researcher, and compiled service runtimes + a vulnerability audit of compiled runtime locks. Catches: stale per-service docs, three-surface drift, cross-surface links, missing local assets, missing `REQUIRED_DEPENDS_ON` entries, Kong route default drift, broken links/anchors, research-schema violations, stale or unreproducible runtime locks, vulnerable runtime dependency closures, and track-membership omissions. |
 | **Build-validation** | `docker buildx build` for every local non-GPU Compose build context plus every `services/*/init/Dockerfile` context; GPU provider builds are intentionally excluded for runner size/time. Catches: unsatisfiable pip pins, broken Dockerfiles, and init-image drift. Runs on every workflow execution and is required. |
 
-Run the same unit-test commands as CI locally before pushing (from the repository
-root unless a subshell changes directory):
+Run this representative local subset before pushing (from the repository root
+unless a subshell changes directory). The authoritative command list is
+`.github/workflows/services-lint.yml`, which also runs ShellCheck, isolated MCP
+and asset-service suites, and the bootstrapper suite under Python 3.10:
 
 ```bash
 (

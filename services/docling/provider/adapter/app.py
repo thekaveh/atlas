@@ -14,7 +14,13 @@ from typing import Callable
 from fastapi import FastAPI, File, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 
-from bounded_upload import EmptyUploadError, UploadTooLargeError, spool_upload
+from bounded_upload import (
+    EmptyUploadError,
+    RequestBodyLimitMiddleware,
+    UploadTooLargeError,
+    multipart_body_limit,
+    spool_upload,
+)
 
 from .jobs import JobRegistry
 from .upstream import DoclingUpstream, UpstreamConversionError
@@ -122,9 +128,10 @@ def create_app(
     maximum_result = _positive_int(
         "DOCLING_ADAPTER_MAX_RESULT_BYTES", 104_857_600
     )
+    maximum_request_body = multipart_body_limit(maximum_upload)
     root.mkdir(parents=True, exist_ok=True)
     per_slot_storage = max(
-        2 * maximum_upload,
+        maximum_upload + maximum_request_body,
         maximum_upload + maximum_result,
     )
     required_storage = configured_max_jobs * per_slot_storage
@@ -252,6 +259,11 @@ def create_app(
         )
 
     app.add_middleware(_AdmissionMiddleware, registry=registry)
+    app.add_middleware(
+        RequestBodyLimitMiddleware,
+        max_body_bytes=maximum_request_body,
+        paths={SUBMIT_PATH},
+    )
     app.state.job_registry = registry
     return app
 

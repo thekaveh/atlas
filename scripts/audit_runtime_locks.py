@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from scripts.bounded_subprocess import (
+    CommandLaunchError,
+    CommandOutputTooLarge,
     CommandTimedOut,
     DEFAULT_TIMEOUT_SECONDS,
     redacted_failure,
@@ -199,6 +201,11 @@ def audit_spec(spec: AuditSpec, *, root: Path = ROOT) -> list[str]:
                 f"{display_name}: pip-audit timed out after "
                 f"{COMMAND_TIMEOUT_SECONDS} seconds"
             ]
+        except (CommandLaunchError, CommandOutputTooLarge):
+            return [
+                f"{display_name}: pip-audit could not complete "
+                "(subprocess details redacted)"
+            ]
     if result.returncode not in {0, 1}:
         return [redacted_failure(f"{display_name}: pip-audit", result.returncode)]
     try:
@@ -240,6 +247,11 @@ def audit_source_spec(spec: SourceSpec, *, root: Path = ROOT) -> list[str]:
                 f"{spec.requirements}: uv compile timed out after "
                 f"{COMMAND_TIMEOUT_SECONDS} seconds"
             ]
+        except (CommandLaunchError, CommandOutputTooLarge):
+            return [
+                f"{spec.requirements}: uv compile could not complete "
+                "(subprocess details redacted)"
+            ]
         if result.returncode != 0:
             return [
                 redacted_failure(
@@ -272,6 +284,11 @@ def audit_uv_project(project: str, *, root: Path = ROOT) -> list[str]:
                 f"{project}: uv export timed out after "
                 f"{COMMAND_TIMEOUT_SECONDS} seconds"
             ]
+        except (CommandLaunchError, CommandOutputTooLarge):
+            return [
+                f"{project}: uv export could not complete "
+                "(subprocess details redacted)"
+            ]
         if result.returncode != 0:
             return [redacted_failure(f"{project}: uv export", result.returncode)]
         return audit_spec(
@@ -291,6 +308,11 @@ def audit_npm_project(project: str, *, root: Path = ROOT) -> list[str]:
         return [
             f"{project}: npm audit timed out after "
             f"{COMMAND_TIMEOUT_SECONDS} seconds"
+        ]
+    except (CommandLaunchError, CommandOutputTooLarge):
+        return [
+            f"{project}: npm audit could not complete "
+            "(subprocess details redacted)"
         ]
     try:
         payload = json.loads(result.stdout)

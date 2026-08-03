@@ -7,7 +7,13 @@ from typing import Literal
 
 from fastapi import FastAPI, File, Form, HTTPException, Response, UploadFile, status
 
-from bounded_upload import EmptyUploadError, UploadTooLargeError, spool_upload
+from bounded_upload import (
+    EmptyUploadError,
+    RequestBodyLimitMiddleware,
+    UploadTooLargeError,
+    multipart_body_limit,
+    spool_upload,
+)
 from lightrag_bundle import build_lightrag_bundle
 from models import ConversionResponse, HealthResponse
 from pipeline_config import resolve_chunk_defaults, validate_chunk_settings
@@ -32,6 +38,11 @@ app = FastAPI(
     title="Docling Document Processor API",
     version="1.0.0",
     description="AI-powered document processing using IBM Docling",
+)
+app.add_middleware(
+    RequestBodyLimitMiddleware,
+    max_body_bytes=multipart_body_limit(_MAX_UPLOAD_BYTES),
+    paths={"/v1/document/convert", "/internal/lightrag/bundle"},
 )
 _BOUNDARY_SETTINGS = load_boundary_settings(
     "DOCLING",
