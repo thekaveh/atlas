@@ -67,6 +67,9 @@ env:
   - name: PARAKEET_MAX_UPLOAD_BYTES
     default: 104857600
     description: "Positive maximum audio upload bytes for Parakeet GPU and localhost APIs. Request bodies are capped before multipart parsing with 1 MiB framing overhead; invalid values fail startup and oversized requests return 413."
+  - name: PARAKEET_UPLOAD_TIMEOUT_SECONDS
+    default: 120
+    description: "Positive total seconds allowed to receive one Parakeet upload body before a 408 response releases admission capacity."
   - name: PARAKEET_CONCURRENCY
     default: 1
     description: "Maximum concurrent Parakeet inference calls per provider process. Default 1 prevents model thread-safety and GPU memory contention."

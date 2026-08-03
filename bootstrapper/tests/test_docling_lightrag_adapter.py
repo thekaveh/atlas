@@ -86,6 +86,7 @@ async def test_request_body_limit_stops_bytes_before_multipart_parsing(monkeypat
     middleware = RequestBodyLimitMiddleware(
         downstream,
         max_body_bytes=5,
+        body_timeout_seconds=1,
         paths={"/upload"},
     )
     incoming = iter(
@@ -111,6 +112,104 @@ async def test_request_body_limit_stops_bytes_before_multipart_parsing(monkeypat
     assert delivered == b"123"
     start = next(message for message in sent if message["type"] == "http.response.start")
     assert start["status"] == 413
+
+
+@_run_async
+async def test_slow_body_timeout_releases_adapter_admission(monkeypatch, tmp_path):
+    adapter_app = _load_app_module(monkeypatch)
+    from bounded_upload import RequestBodyLimitMiddleware
+
+    registry = adapter_app.JobRegistry(
+        root=tmp_path, max_jobs=1, result_ttl_seconds=900
+    )
+
+    async def downstream(_scope, receive, _send):
+        await receive()
+        await receive()
+
+    limiter = RequestBodyLimitMiddleware(
+        downstream,
+        max_body_bytes=1024,
+        body_timeout_seconds=0.01,
+        paths={adapter_app.SUBMIT_PATH},
+    )
+    middleware = adapter_app._AdmissionMiddleware(limiter, registry=registry)
+    calls = 0
+    sent = []
+
+    async def receive():
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return {"type": "http.request", "body": b"123", "more_body": True}
+        await asyncio.Event().wait()
+
+    async def send(message):
+        sent.append(message)
+
+    await middleware(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": adapter_app.SUBMIT_PATH,
+            "headers": [],
+            "state": {},
+        },
+        receive,
+        send,
+    )
+
+    start = next(message for message in sent if message["type"] == "http.response.start")
+    assert start["status"] == 408
+    next_reservation = await registry.reserve()
+    assert next_reservation is not None
+    await registry.release_reservation(next_reservation)
+
+
+@_run_async
+async def test_saturated_admission_does_not_read_oversized_body(monkeypatch, tmp_path):
+    adapter_app = _load_app_module(monkeypatch)
+    from bounded_upload import RequestBodyLimitMiddleware
+
+    registry = adapter_app.JobRegistry(
+        root=tmp_path, max_jobs=1, result_ttl_seconds=900
+    )
+    occupied = await registry.reserve()
+    assert occupied is not None
+
+    async def downstream(_scope, _receive, _send):
+        raise AssertionError("saturated request reached body parser")
+
+    limiter = RequestBodyLimitMiddleware(
+        downstream,
+        max_body_bytes=5,
+        body_timeout_seconds=1,
+        paths={adapter_app.SUBMIT_PATH},
+    )
+    middleware = adapter_app._AdmissionMiddleware(limiter, registry=registry)
+    sent = []
+
+    async def receive():
+        raise AssertionError("saturated request body was inspected")
+
+    async def send(message):
+        sent.append(message)
+
+    await middleware(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": adapter_app.SUBMIT_PATH,
+            "headers": [(b"content-length", b"999")],
+            "state": {},
+        },
+        receive,
+        send,
+    )
+
+    start = next(message for message in sent if message["type"] == "http.response.start")
+    assert start["status"] == 429
+    await registry.release_reservation(occupied)
 
 
 @_run_async
@@ -141,6 +240,37 @@ async def test_adapter_rejects_oversized_body_before_upstream_work(
     assert response.status_code == 413
     assert upstream.calls == []
     assert not list(tmp_path.iterdir())
+
+
+@_run_async
+async def test_saturated_adapter_rejects_before_oversized_body_inspection(
+    monkeypatch, tmp_path
+):
+    adapter_app = _load_app_module(monkeypatch)
+    upstream = ControlledUpstream()
+    app = adapter_app.create_app(
+        upstream=upstream,
+        spool_root=tmp_path,
+        max_jobs=1,
+        upload_max_bytes=4,
+    )
+
+    async with await _client(app) as client:
+        first = await client.post(
+            "/v1/convert/file/async",
+            files={"files": ("first.pdf", b"1234", "application/pdf")},
+        )
+        assert first.status_code == 202
+        await asyncio.wait_for(upstream.started.wait(), timeout=1)
+
+        second = await client.post(
+            "/v1/convert/file/async",
+            content=b"",
+            headers={"Content-Length": str(2 * 1024 * 1024)},
+        )
+
+    assert second.status_code == 429
+    upstream.release.set()
 
 
 @_run_async

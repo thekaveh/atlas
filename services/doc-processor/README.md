@@ -104,7 +104,7 @@ curl -X POST http://localhost:63051/v1/document/convert \
 | `DOCLING_CHUNK_SIZE` | Default chunk size for RAG | `512` |
 | `DOCLING_CHUNK_OVERLAP` | Default chunk overlap | `50` |
 
-Request bodies are capped before multipart parsing at `DOCLING_MAX_FILE_SIZE` plus 1 MiB of framing/form overhead. Uploads then stream to bounded temporary files and are rejected (`413`/`400`) if they exceed the file limit or are empty, so a failed conversion is never indexed as document content downstream. `DOCLING_CHUNK_OVERLAP` must stay non-negative and no more than half of `DOCLING_CHUNK_SIZE`; a single conversion is capped at 10,000 chunks. Full validation and status-code behavior lives in the provider's shared `api_server.py` module.
+Request bodies are capped before multipart parsing at `DOCLING_MAX_FILE_SIZE` plus 1 MiB of framing/form overhead and must arrive within the total `DOCLING_UPLOAD_TIMEOUT_SECONDS` deadline (120 seconds by default). Uploads then stream to bounded temporary files and are rejected (`413`/`408`/`400`) if they exceed the file limit, time out, or are empty, so a failed conversion is never indexed as document content downstream. `DOCLING_CHUNK_OVERLAP` must stay non-negative and no more than half of `DOCLING_CHUNK_SIZE`; a single conversion is capped at 10,000 chunks. Full validation and status-code behavior lives in the provider's shared `api_server.py` module.
 
 ### 4.4. Localhost-Specific
 

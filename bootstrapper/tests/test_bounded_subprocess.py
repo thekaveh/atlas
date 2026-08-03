@@ -128,6 +128,58 @@ def test_cli_sigterm_terminates_command_tree(tmp_path: Path):
     assert not marker.exists()
 
 
+@pytest.mark.skipif(os.name != "posix", reason="POSIX signal contract")
+def test_direct_run_bounded_sigterm_terminates_command_tree(tmp_path: Path):
+    marker = tmp_path / "direct-sigterm-orphan-ran"
+    child = (
+        "import subprocess,sys,time; "
+        "subprocess.Popen([sys.executable, '-c', "
+        "'import pathlib,time; time.sleep(0.5); pathlib.Path(r\"%s\").touch()']); "
+        "time.sleep(10)"
+    ) % marker
+    wrapper = (
+        "from scripts.bounded_subprocess import run_bounded; "
+        f"run_bounded({[sys.executable, '-c', child]!r})"
+    )
+    process = subprocess.Popen([sys.executable, "-c", wrapper], cwd=ROOT)
+    time.sleep(0.1)
+    os.kill(process.pid, signal.SIGTERM)
+    process.wait(timeout=2)
+
+    time.sleep(0.7)
+    assert process.returncode == 128 + signal.SIGTERM
+    assert not marker.exists()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX signal contract")
+def test_cli_sigint_is_redacted_and_has_no_traceback():
+    process = subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "scripts.bounded_subprocess",
+            "--label",
+            "interrupt test",
+            "--",
+            sys.executable,
+            "-c",
+            "import time; time.sleep(10)",
+        ],
+        cwd=ROOT,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    time.sleep(0.1)
+    os.kill(process.pid, signal.SIGINT)
+    stdout, stderr = process.communicate(timeout=2)
+
+    assert process.returncode == 130
+    assert stdout == "interrupt test interrupted (subprocess details redacted)\n"
+    assert "Traceback" not in stderr
+    assert str(ROOT) not in stderr
+
+
 def test_run_bounded_rejects_excessive_combined_output():
     with pytest.raises(bounded_subprocess.CommandOutputTooLarge):
         bounded_subprocess.run_bounded(
@@ -141,28 +193,15 @@ def test_run_bounded_rejects_excessive_combined_output():
         )
 
 
-def test_windows_tree_cleanup_falls_back_when_taskkill_fails(monkeypatch):
-    class FakeProcess:
-        pid = 123
-        killed = False
-
-        def poll(self):
-            return None
-
-        def kill(self):
-            self.killed = True
-
-    process = FakeProcess()
+def test_native_windows_fails_closed_before_launch(monkeypatch):
     monkeypatch.setattr(bounded_subprocess.os, "name", "nt")
 
-    def taskkill_fails(*_args, **_kwargs):
-        raise subprocess.TimeoutExpired(["taskkill"], 5)
+    def unexpected_launch(*_args, **_kwargs):
+        raise AssertionError("native Windows must not launch an unbounded tree")
 
-    monkeypatch.setattr(bounded_subprocess.subprocess, "run", taskkill_fails)
-
-    bounded_subprocess._terminate_process_tree(process)
-
-    assert process.killed
+    monkeypatch.setattr(bounded_subprocess.subprocess, "Popen", unexpected_launch)
+    with pytest.raises(bounded_subprocess.CommandLaunchError):
+        bounded_subprocess.run_bounded(["tool"])
 
 
 def test_run_bounded_redacts_launch_failure(tmp_path: Path):
@@ -208,6 +247,39 @@ def test_main_preserves_success_output_and_cwd(monkeypatch, capsys, tmp_path):
         ],
     ) == 0
     assert capsys.readouterr().out == f"{tmp_path.name}\n"
+
+
+def test_main_suppresses_success_stderr_by_default(monkeypatch, capsys):
+    assert _call_main(
+        monkeypatch,
+        [
+            "--label",
+            "inventory",
+            "--",
+            sys.executable,
+            "-c",
+            "import sys; print('private-registry-token', file=sys.stderr)",
+        ],
+    ) == 0
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == ""
+
+
+def test_main_can_explicitly_forward_success_stderr(monkeypatch, capsys):
+    assert _call_main(
+        monkeypatch,
+        [
+            "--label",
+            "docs build",
+            "--forward-stderr",
+            "--",
+            sys.executable,
+            "-c",
+            "import sys; print('build progress', file=sys.stderr)",
+        ],
+    ) == 0
+    assert capsys.readouterr().err == "build progress\n"
 
 
 def test_main_redacts_nonzero_failure(monkeypatch, capsys):
@@ -272,6 +344,7 @@ def test_every_required_services_lint_job_has_a_deadline() -> None:
 def test_local_docs_build_and_check_commands_use_bounded_runner() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
     assert makefile.count("\t$(BOUNDED)") == 11
+    assert makefile.count("--forward-stderr") == 11
 
 
 def test_redacted_failure_omits_captured_output_and_command():

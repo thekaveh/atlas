@@ -129,6 +129,7 @@ def create_app(
         "DOCLING_ADAPTER_MAX_RESULT_BYTES", 104_857_600
     )
     maximum_request_body = multipart_body_limit(maximum_upload)
+    upload_timeout = _positive_int("DOCLING_UPLOAD_TIMEOUT_SECONDS", 120)
     root.mkdir(parents=True, exist_ok=True)
     per_slot_storage = max(
         maximum_upload + maximum_request_body,
@@ -258,12 +259,13 @@ def create_app(
             timeout_seconds=download_timeout,
         )
 
-    app.add_middleware(_AdmissionMiddleware, registry=registry)
     app.add_middleware(
         RequestBodyLimitMiddleware,
         max_body_bytes=maximum_request_body,
+        body_timeout_seconds=upload_timeout,
         paths={SUBMIT_PATH},
     )
+    app.add_middleware(_AdmissionMiddleware, registry=registry)
     app.state.job_registry = registry
     return app
 

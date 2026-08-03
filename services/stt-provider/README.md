@@ -87,6 +87,7 @@ for the whisper.cpp walkthrough and Linux build instructions, or
 | `PARAKEET_MODEL` | `nvidia/parakeet-tdt-0.6b-v3` | Or `…-v2` for English-only (slightly faster). |
 | `PARAKEET_GPU_IMAGE` | `nvcr.io/nvidia/pytorch:26.06-py3` | Base for the Parakeet GPU Dockerfile. |
 | `PARAKEET_MAX_UPLOAD_BYTES` | `104857600` | Positive maximum audio upload size for Parakeet GPU and localhost APIs; request bodies are capped before multipart parsing with 1 MiB framing overhead, invalid values fail startup, and larger requests return `413`. |
+| `PARAKEET_UPLOAD_TIMEOUT_SECONDS` | `120` | Positive total seconds allowed to receive an upload body before `408` releases provider admission capacity. |
 | `PARAKEET_CONCURRENCY` | `1` | Maximum concurrent inference calls per Parakeet provider process. |
 | `PARAKEET_API_TOKEN` | generated | Auto-generated bearer required by Atlas-managed Parakeet routes except `/health`. |
 | `PARAKEET_AUTH_MODE` | `required` | Set `disabled` only for an explicit emergency/local rollback. |

@@ -29,30 +29,18 @@ class CommandOutputTooLarge(RuntimeError):
     """A bounded subprocess exceeded its combined output allowance."""
 
 
-class _CommandInterrupted(BaseException):
+class _CommandInterrupted(SystemExit):
     def __init__(self, signum: int):
         self.signum = signum
+        super().__init__(128 + signum)
 
 
 def _terminate_process_tree(process: subprocess.Popen[bytes]) -> None:
     """Force-stop the bounded command and descendants without leaking output."""
-    if os.name == "posix":
-        try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-    else:  # pragma: no cover - Windows CI is not currently used
-        try:
-            subprocess.run(
-                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
-                capture_output=True,
-                check=False,
-                timeout=5,
-            )
-        except (OSError, subprocess.TimeoutExpired):
-            pass
-        if process.poll() is None:
-            process.kill()
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
 
 
 def _capture_stream(
@@ -102,6 +90,10 @@ def run_bounded(
         raise ValueError("timeout_seconds must be positive")
     if max_output_bytes <= 0:
         raise ValueError("max_output_bytes must be positive")
+    if os.name != "posix":
+        raise CommandLaunchError(
+            "bounded process-tree execution requires POSIX or Windows WSL"
+        )
     try:
         process = subprocess.Popen(
             command,
@@ -140,6 +132,14 @@ def run_bounded(
     for reader in readers:
         reader.start()
     deadline = time.monotonic() + timeout_seconds
+    previous_sigterm = None
+    if threading.current_thread() is threading.main_thread():
+        previous_sigterm = signal.getsignal(signal.SIGTERM)
+
+        def interrupt(signum, _frame):
+            raise _CommandInterrupted(signum)
+
+        signal.signal(signal.SIGTERM, interrupt)
     try:
         while process.poll() is None or any(
             reader.is_alive() for reader in readers
@@ -154,6 +154,8 @@ def run_bounded(
             _stop_and_reap(process)
         raise
     finally:
+        if previous_sigterm is not None:
+            signal.signal(signal.SIGTERM, previous_sigterm)
         for reader in readers:
             reader.join(timeout=5)
     if overflow.is_set():
@@ -176,6 +178,11 @@ def main() -> int:
     parser.add_argument(
         "--timeout-seconds", type=int, default=DEFAULT_TIMEOUT_SECONDS
     )
+    parser.add_argument(
+        "--forward-stderr",
+        action="store_true",
+        help="forward successful stderr (use only for non-secret build logs)",
+    )
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     command = args.command[1:] if args.command[:1] == ["--"] else args.command
@@ -183,42 +190,36 @@ def main() -> int:
         parser.error("a command is required after --")
     if args.timeout_seconds < 1:
         parser.error("--timeout-seconds must be positive")
-    previous_sigterm = signal.getsignal(signal.SIGTERM)
-
-    def interrupt(signum, _frame):
-        raise _CommandInterrupted(signum)
-
-    signal.signal(signal.SIGTERM, interrupt)
     try:
-        try:
-            result = run_bounded(
-                command,
-                cwd=args.cwd,
-                timeout_seconds=args.timeout_seconds,
-            )
-        except CommandTimedOut:
-            print(f"{args.label} timed out after {args.timeout_seconds} seconds")
-            return 124
-        except CommandLaunchError:
-            print(f"{args.label} could not start (subprocess details redacted)")
-            return 126
-        except CommandOutputTooLarge:
-            print(
-                f"{args.label} exceeded its output limit "
-                "(subprocess output redacted)"
-            )
-            return 125
-        except _CommandInterrupted as exc:
-            print(f"{args.label} interrupted (subprocess details redacted)")
-            return 128 + exc.signum
-    finally:
-        signal.signal(signal.SIGTERM, previous_sigterm)
+        result = run_bounded(
+            command,
+            cwd=args.cwd,
+            timeout_seconds=args.timeout_seconds,
+        )
+    except CommandTimedOut:
+        print(f"{args.label} timed out after {args.timeout_seconds} seconds")
+        return 124
+    except CommandLaunchError:
+        print(f"{args.label} could not start (subprocess details redacted)")
+        return 126
+    except CommandOutputTooLarge:
+        print(
+            f"{args.label} exceeded its output limit "
+            "(subprocess output redacted)"
+        )
+        return 125
+    except _CommandInterrupted as exc:
+        print(f"{args.label} interrupted (subprocess details redacted)")
+        return 128 + exc.signum
+    except KeyboardInterrupt:
+        print(f"{args.label} interrupted (subprocess details redacted)")
+        return 130
     if result.returncode != 0:
         print(redacted_failure(args.label, result.returncode))
         return result.returncode
     if result.stdout:
         print(result.stdout, end="")
-    if result.stderr:
+    if args.forward_stderr and result.stderr:
         print(result.stderr, end="", file=sys.stderr)
     return 0
 

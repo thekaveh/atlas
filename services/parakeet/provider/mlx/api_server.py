@@ -50,6 +50,9 @@ logger = logging.getLogger(__name__)
 _MAX_UPLOAD_BYTES = parse_positive_int(
     "PARAKEET_MAX_UPLOAD_BYTES", default=104_857_600
 )
+_UPLOAD_TIMEOUT_SECONDS = parse_positive_int(
+    "PARAKEET_UPLOAD_TIMEOUT_SECONDS", default=120
+)
 
 
 def _load_model():
@@ -86,6 +89,7 @@ app = FastAPI(
 app.add_middleware(
     RequestBodyLimitMiddleware,
     max_body_bytes=multipart_body_limit(_MAX_UPLOAD_BYTES),
+    body_timeout_seconds=_UPLOAD_TIMEOUT_SECONDS,
     paths={"/v1/audio/transcriptions", "/v1/audio/transcriptions/advanced"},
 )
 _BOUNDARY_SETTINGS = load_boundary_settings(

@@ -12,21 +12,21 @@ help:
 	  'docs-wiki   Build and validate the GitHub wiki export'
 
 docs-build:
-	$(BOUNDED) --label "canonical docs references" -- $(PYTHON) -m scripts.docs.canonical_references
-	$(BOUNDED) --label "three-surface site generation" -- $(PYTHON) -m scripts.docs.build_docs --site
-	$(BOUNDED) --label "strict MkDocs build" -- env NO_MKDOCS_2_WARNING=1 $(MKDOCS) build --strict
+	$(BOUNDED) --label "canonical docs references" --forward-stderr -- $(PYTHON) -m scripts.docs.canonical_references
+	$(BOUNDED) --label "three-surface site generation" --forward-stderr -- $(PYTHON) -m scripts.docs.build_docs --site
+	$(BOUNDED) --label "strict MkDocs build" --forward-stderr -- env NO_MKDOCS_2_WARNING=1 $(MKDOCS) build --strict
 
 docs-check:
-	$(BOUNDED) --label "diagram verification" -- $(PYTHON) -m scripts.docs.build_docs --verify-diagrams
-	$(BOUNDED) --label "three-surface docs contracts" -- $(PYTHON) -m scripts.docs.check_docs
-	$(BOUNDED) --label "strict MkDocs build" -- env NO_MKDOCS_2_WARNING=1 $(MKDOCS) build --strict
-	$(BOUNDED) --label "built-site link check" -- $(PYTHON) -m scripts.docs.check_site --built-only
-	$(BOUNDED) --label "wiki dry run" -- $(PYTHON) -m scripts.docs.push_wiki --check
+	$(BOUNDED) --label "diagram verification" --forward-stderr -- $(PYTHON) -m scripts.docs.build_docs --verify-diagrams
+	$(BOUNDED) --label "three-surface docs contracts" --forward-stderr -- $(PYTHON) -m scripts.docs.check_docs
+	$(BOUNDED) --label "strict MkDocs build" --forward-stderr -- env NO_MKDOCS_2_WARNING=1 $(MKDOCS) build --strict
+	$(BOUNDED) --label "built-site link check" --forward-stderr -- $(PYTHON) -m scripts.docs.check_site --built-only
+	$(BOUNDED) --label "wiki dry run" --forward-stderr -- $(PYTHON) -m scripts.docs.push_wiki --check
 
 docs-serve:
-	$(BOUNDED) --label "three-surface site generation" -- $(PYTHON) -m scripts.docs.build_docs --site
+	$(BOUNDED) --label "three-surface site generation" --forward-stderr -- $(PYTHON) -m scripts.docs.build_docs --site
 	NO_MKDOCS_2_WARNING=1 $(MKDOCS) serve
 
 docs-wiki:
-	$(BOUNDED) --label "three-surface wiki generation" -- $(PYTHON) -m scripts.docs.build_docs --wiki
-	$(BOUNDED) --label "wiki dry run" -- $(PYTHON) -m scripts.docs.push_wiki --check
+	$(BOUNDED) --label "three-surface wiki generation" --forward-stderr -- $(PYTHON) -m scripts.docs.build_docs --wiki
+	$(BOUNDED) --label "wiki dry run" --forward-stderr -- $(PYTHON) -m scripts.docs.push_wiki --check

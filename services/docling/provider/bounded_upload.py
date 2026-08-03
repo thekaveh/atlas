@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import tempfile
 from pathlib import Path
@@ -26,6 +27,10 @@ class _RequestBodyTooLarge(Exception):
     pass
 
 
+class _RequestBodyTimedOut(Exception):
+    pass
+
+
 def multipart_body_limit(max_upload_bytes: int) -> int:
     if max_upload_bytes <= 0:
         raise ValueError("max_upload_bytes must be positive")
@@ -33,13 +38,23 @@ def multipart_body_limit(max_upload_bytes: int) -> int:
 
 
 class RequestBodyLimitMiddleware:
-    """Reject oversized request bodies before multipart file spooling."""
+    """Bound request bytes and total read time before multipart spooling."""
 
-    def __init__(self, app, *, max_body_bytes: int, paths: Iterable[str]) -> None:
+    def __init__(
+        self,
+        app,
+        *,
+        max_body_bytes: int,
+        body_timeout_seconds: float,
+        paths: Iterable[str],
+    ) -> None:
         if max_body_bytes <= 0:
             raise ValueError("max_body_bytes must be positive")
+        if body_timeout_seconds <= 0:
+            raise ValueError("body_timeout_seconds must be positive")
         self.app = app
         self.max_body_bytes = max_body_bytes
+        self.body_timeout_seconds = body_timeout_seconds
         self.paths = frozenset(paths)
 
     async def __call__(self, scope, receive, send) -> None:
@@ -63,10 +78,17 @@ class RequestBodyLimitMiddleware:
                 return
 
         received = 0
+        deadline = asyncio.get_running_loop().time() + self.body_timeout_seconds
 
         async def limited_receive():
             nonlocal received
-            message = await receive()
+            remaining = deadline - asyncio.get_running_loop().time()
+            if remaining <= 0:
+                raise _RequestBodyTimedOut
+            try:
+                message = await asyncio.wait_for(receive(), timeout=remaining)
+            except asyncio.TimeoutError as exc:
+                raise _RequestBodyTimedOut from exc
             if message.get("type") == "http.request":
                 received += len(message.get("body", b""))
                 if received > self.max_body_bytes:
@@ -76,13 +98,16 @@ class RequestBodyLimitMiddleware:
         try:
             await self.app(scope, limited_receive, send)
         except _RequestBodyTooLarge:
-            await self._reject(scope, receive, send)
+            await self._reject(scope, receive, send, status_code=413)
+        except _RequestBodyTimedOut:
+            await self._reject(scope, receive, send, status_code=408)
 
     @staticmethod
-    async def _reject(scope, receive, send) -> None:
+    async def _reject(scope, receive, send, *, status_code: int = 413) -> None:
+        detail = "Upload timed out" if status_code == 408 else "Upload is too large"
         response = JSONResponse(
-            {"detail": "Upload is too large"},
-            status_code=413,
+            {"detail": detail},
+            status_code=status_code,
         )
         await response(scope, receive, send)
 

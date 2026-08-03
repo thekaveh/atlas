@@ -88,6 +88,9 @@ runs on the API event loop. Both Parakeet providers default advanced segment
 timestamps to disabled unless `return_timestamps=true` is supplied.
 `PARAKEET_MAX_UPLOAD_BYTES` is parsed as a positive integer during provider
 startup; malformed, zero, and negative values fail fast before the API serves.
+The complete request body must also arrive within the positive total
+`PARAKEET_UPLOAD_TIMEOUT_SECONDS` deadline (120 seconds by default), or the
+provider returns `408` and releases its admission slot.
 
 whisper.cpp on macOS (Metal + Core ML):
 

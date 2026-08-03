@@ -994,6 +994,7 @@ services:
       DOCLING_API_TOKEN: ''
       DOCLING_INFERENCE_TIMEOUT_SECONDS: '900'
       DOCLING_MAX_FILE_SIZE: '52428800'
+      DOCLING_UPLOAD_TIMEOUT_SECONDS: '120'
     extra_hosts:
     - host.docker.internal=
     healthcheck:

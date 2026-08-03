@@ -44,6 +44,9 @@ from utils import ChunkLimitError
 
 _CHUNK_DEFAULTS = resolve_chunk_defaults()
 _MAX_UPLOAD_BYTES = parse_positive_int("DOCLING_MAX_FILE_SIZE", default=52_428_800)
+_UPLOAD_TIMEOUT_SECONDS = parse_positive_int(
+    "DOCLING_UPLOAD_TIMEOUT_SECONDS", default=120
+)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -51,6 +54,7 @@ app = FastAPI(title="Docling Document Processor", version="1.0.0")
 app.add_middleware(
     RequestBodyLimitMiddleware,
     max_body_bytes=multipart_body_limit(_MAX_UPLOAD_BYTES),
+    body_timeout_seconds=_UPLOAD_TIMEOUT_SECONDS,
     paths={"/v1/document/convert", "/internal/lightrag/bundle"},
 )
 _BOUNDARY_SETTINGS = load_boundary_settings(
