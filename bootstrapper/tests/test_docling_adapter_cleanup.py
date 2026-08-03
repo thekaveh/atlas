@@ -127,11 +127,15 @@ async def test_expired_success_result_is_deleted_and_releases_slot(
             "/v1/convert/file/async", files={"files": ("a.pdf", b"a")}
         )
         task_id = first.json()["task_id"]
-        for _ in range(20):
-            status = await client.get(f"/v1/status/poll/{task_id}")
-            if status.json()["task_status"] == "success":
-                break
-            await asyncio.sleep(0)
+        async def wait_for_success():
+            while True:
+                status = await client.get(f"/v1/status/poll/{task_id}")
+                if status.json()["task_status"] == "success":
+                    return status
+                await asyncio.sleep(0)
+
+        status = await asyncio.wait_for(wait_for_success(), timeout=1)
+        assert status.json()["task_status"] == "success"
         assert list(tmp_path.iterdir())
 
         now[0] += 6

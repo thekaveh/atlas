@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from fastapi import FastAPI, File, Form, HTTPException, Response, UploadFile, status
 
 from bounded_upload import (
+    MAX_BODY_TIMEOUT_SECONDS,
     EmptyUploadError,
     RequestBodyLimitMiddleware,
     UploadTooLargeError,
@@ -45,7 +46,9 @@ from utils import ChunkLimitError
 _CHUNK_DEFAULTS = resolve_chunk_defaults()
 _MAX_UPLOAD_BYTES = parse_positive_int("DOCLING_MAX_FILE_SIZE", default=52_428_800)
 _UPLOAD_TIMEOUT_SECONDS = parse_positive_int(
-    "DOCLING_UPLOAD_TIMEOUT_SECONDS", default=120
+    "DOCLING_UPLOAD_TIMEOUT_SECONDS",
+    default=120,
+    maximum=MAX_BODY_TIMEOUT_SECONDS,
 )
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

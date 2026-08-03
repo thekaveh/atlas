@@ -43,9 +43,14 @@ def _positive_int(raw_value: str, variable: str) -> int:
     return value
 
 
-def parse_positive_int(variable: str, *, default: int) -> int:
+def parse_positive_int(
+    variable: str, *, default: int, maximum: int | None = None
+) -> int:
     """Read one positive integer setting during provider initialization."""
-    return _positive_int(os.getenv(variable, str(default)), variable)
+    value = _positive_int(os.getenv(variable, str(default)), variable)
+    if maximum is not None and value > maximum:
+        raise ValueError(f"{variable} must not exceed {maximum}")
+    return value
 
 
 def load_boundary_settings(

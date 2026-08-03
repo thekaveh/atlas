@@ -242,6 +242,25 @@ async def test_adapter_rejects_oversized_body_before_upstream_work(
     assert not list(tmp_path.iterdir())
 
 
+@pytest.mark.parametrize(
+    "value",
+    ["0", "invalid", "3601", "9" * 5000],
+)
+def test_adapter_rejects_invalid_upload_timeout_at_startup(
+    monkeypatch, tmp_path, value
+):
+    adapter_app = _load_app_module(monkeypatch)
+    monkeypatch.setenv("DOCLING_UPLOAD_TIMEOUT_SECONDS", value)
+
+    with pytest.raises(ValueError):
+        adapter_app.create_app(
+            upstream=ControlledUpstream(),
+            spool_root=tmp_path,
+            max_jobs=1,
+            upload_max_bytes=1024,
+        )
+
+
 @_run_async
 async def test_saturated_adapter_rejects_before_oversized_body_inspection(
     monkeypatch, tmp_path

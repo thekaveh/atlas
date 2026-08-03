@@ -16,6 +16,7 @@ from fastapi.responses import FileResponse, JSONResponse
 
 from bounded_upload import (
     EmptyUploadError,
+    MAX_BODY_TIMEOUT_SECONDS,
     RequestBodyLimitMiddleware,
     UploadTooLargeError,
     multipart_body_limit,
@@ -61,7 +62,9 @@ class _EphemeralFileResponse(FileResponse):
             await self._finish()
 
 
-def _positive_int(name: str, default: int) -> int:
+def _positive_int(
+    name: str, default: int, *, maximum: int | None = None
+) -> int:
     raw = os.getenv(name, str(default))
     try:
         value = int(raw)
@@ -69,6 +72,8 @@ def _positive_int(name: str, default: int) -> int:
         raise ValueError(f"{name} must be a positive integer") from exc
     if value < 1:
         raise ValueError(f"{name} must be a positive integer")
+    if maximum is not None and value > maximum:
+        raise ValueError(f"{name} must not exceed {maximum}")
     return value
 
 
@@ -129,7 +134,11 @@ def create_app(
         "DOCLING_ADAPTER_MAX_RESULT_BYTES", 104_857_600
     )
     maximum_request_body = multipart_body_limit(maximum_upload)
-    upload_timeout = _positive_int("DOCLING_UPLOAD_TIMEOUT_SECONDS", 120)
+    upload_timeout = _positive_int(
+        "DOCLING_UPLOAD_TIMEOUT_SECONDS",
+        120,
+        maximum=MAX_BODY_TIMEOUT_SECONDS,
+    )
     root.mkdir(parents=True, exist_ok=True)
     per_slot_storage = max(
         maximum_upload + maximum_request_body,

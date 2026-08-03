@@ -8,6 +8,7 @@ from typing import Literal, Optional
 from fastapi import FastAPI, File, Form, HTTPException, Response, UploadFile, status
 
 from bounded_upload import (
+    MAX_BODY_TIMEOUT_SECONDS,
     EmptyUploadError,
     RequestBodyLimitMiddleware,
     UploadTooLargeError,
@@ -41,7 +42,9 @@ _MAX_UPLOAD_BYTES = parse_positive_int(
     "PARAKEET_MAX_UPLOAD_BYTES", default=104_857_600
 )
 _UPLOAD_TIMEOUT_SECONDS = parse_positive_int(
-    "PARAKEET_UPLOAD_TIMEOUT_SECONDS", default=120
+    "PARAKEET_UPLOAD_TIMEOUT_SECONDS",
+    default=120,
+    maximum=MAX_BODY_TIMEOUT_SECONDS,
 )
 _model_startup = ModelStartup(
     "PARAKEET",

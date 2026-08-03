@@ -7,6 +7,8 @@ import types
 from pathlib import Path
 
 import pytest
+from fastapi import FastAPI, File, UploadFile
+from starlette import formparsers
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -200,6 +202,87 @@ def test_provider_request_body_limit_has_total_read_deadline(relative_path):
     assert delivered == b"123"
     start = next(message for message in sent if message["type"] == "http.response.start")
     assert start["status"] == 408
+
+
+def test_body_timeout_closes_starlette_multipart_tempfiles(monkeypatch):
+    module = _load(
+        ROOT / "services/docling/provider/bounded_upload.py",
+        "docling_bounded_upload_tempfile_cleanup",
+    )
+    created = []
+    original = formparsers.SpooledTemporaryFile
+
+    def tracking_tempfile(*args, **kwargs):
+        stream = original(*args, **kwargs)
+        created.append(stream)
+        return stream
+
+    monkeypatch.setattr(formparsers, "SpooledTemporaryFile", tracking_tempfile)
+    inner = FastAPI()
+
+    @inner.post("/upload")
+    async def upload(file: UploadFile = File(...)):
+        return {"filename": file.filename}
+
+    app = module.RequestBodyLimitMiddleware(
+        inner,
+        max_body_bytes=3 * 1024 * 1024,
+        body_timeout_seconds=0.01,
+        paths={"/upload"},
+    )
+    boundary = b"atlas-boundary"
+    first_chunk = (
+        b"--" + boundary + b"\r\n"
+        b'Content-Disposition: form-data; name="file"; filename="large.bin"\r\n'
+        b"Content-Type: application/octet-stream\r\n\r\n"
+        + b"x" * (1024 * 1024 + 1)
+    )
+    calls = 0
+    sent = []
+
+    async def receive():
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return {
+                "type": "http.request",
+                "body": first_chunk,
+                "more_body": True,
+            }
+        await asyncio.Event().wait()
+
+    async def send(message):
+        sent.append(message)
+
+    asyncio.run(
+        app(
+            {
+                "type": "http",
+                "asgi": {"version": "3.0"},
+                "http_version": "1.1",
+                "method": "POST",
+                "scheme": "http",
+                "path": "/upload",
+                "raw_path": b"/upload",
+                "query_string": b"",
+                "headers": [
+                    (
+                        b"content-type",
+                        b"multipart/form-data; boundary=" + boundary,
+                    )
+                ],
+                "client": ("127.0.0.1", 1),
+                "server": ("provider", 80),
+            },
+            receive,
+            send,
+        )
+    )
+
+    start = next(message for message in sent if message["type"] == "http.response.start")
+    assert start["status"] == 408
+    assert created
+    assert all(stream.closed for stream in created)
 
 
 @pytest.mark.parametrize("variant", ["gpu", "localhost"])

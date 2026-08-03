@@ -13,6 +13,7 @@ from starlette.responses import JSONResponse
 
 _CHUNK_BYTES = 1024 * 1024
 MULTIPART_OVERHEAD_BYTES = 1024 * 1024
+MAX_BODY_TIMEOUT_SECONDS = 3600
 
 
 class UploadTooLargeError(ValueError):
@@ -23,11 +24,11 @@ class EmptyUploadError(ValueError):
     pass
 
 
-class _RequestBodyTooLarge(Exception):
+class _RequestBodyTooLarge(OSError):
     pass
 
 
-class _RequestBodyTimedOut(Exception):
+class _RequestBodyTimedOut(OSError):
     pass
 
 
@@ -50,8 +51,11 @@ class RequestBodyLimitMiddleware:
     ) -> None:
         if max_body_bytes <= 0:
             raise ValueError("max_body_bytes must be positive")
-        if body_timeout_seconds <= 0:
-            raise ValueError("body_timeout_seconds must be positive")
+        if not 0 < body_timeout_seconds <= MAX_BODY_TIMEOUT_SECONDS:
+            raise ValueError(
+                "body_timeout_seconds must be between 1 and "
+                f"{MAX_BODY_TIMEOUT_SECONDS}"
+            )
         self.app = app
         self.max_body_bytes = max_body_bytes
         self.body_timeout_seconds = body_timeout_seconds
@@ -79,28 +83,47 @@ class RequestBodyLimitMiddleware:
 
         received = 0
         deadline = asyncio.get_running_loop().time() + self.body_timeout_seconds
+        abort_status: int | None = None
+        response_started = False
 
         async def limited_receive():
-            nonlocal received
+            nonlocal abort_status, received
             remaining = deadline - asyncio.get_running_loop().time()
             if remaining <= 0:
+                abort_status = 408
                 raise _RequestBodyTimedOut
             try:
                 message = await asyncio.wait_for(receive(), timeout=remaining)
             except asyncio.TimeoutError as exc:
+                abort_status = 408
                 raise _RequestBodyTimedOut from exc
             if message.get("type") == "http.request":
                 received += len(message.get("body", b""))
                 if received > self.max_body_bytes:
+                    abort_status = 413
                     raise _RequestBodyTooLarge
             return message
 
+        async def limited_send(message):
+            nonlocal response_started
+            if abort_status is not None:
+                return
+            if message.get("type") == "http.response.start":
+                response_started = True
+            await send(message)
+
         try:
-            await self.app(scope, limited_receive, send)
+            await self.app(scope, limited_receive, limited_send)
         except _RequestBodyTooLarge:
-            await self._reject(scope, receive, send, status_code=413)
+            abort_status = 413
         except _RequestBodyTimedOut:
-            await self._reject(scope, receive, send, status_code=408)
+            abort_status = 408
+        if abort_status is not None:
+            if response_started:
+                raise RuntimeError(
+                    "request body limit reached after the response started"
+                )
+            await self._reject(scope, receive, send, status_code=abort_status)
 
     @staticmethod
     async def _reject(scope, receive, send, *, status_code: int = 413) -> None:

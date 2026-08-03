@@ -71,6 +71,49 @@ def test_run_bounded_waits_for_inherited_output_pipes_after_parent_exits(tmp_pat
     assert not marker.exists()
 
 
+@pytest.mark.skipif(os.name != "posix", reason="POSIX process-group contract")
+def test_run_bounded_stops_descendant_after_successful_leader_exits(tmp_path):
+    marker = tmp_path / "successful-leader-orphan-ran"
+    child = (
+        "import subprocess,sys; "
+        "subprocess.Popen([sys.executable, '-c', "
+        "'import pathlib,time; time.sleep(0.4); pathlib.Path(r\"%s\").touch()'], "
+        "stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)"
+    ) % marker
+
+    result = bounded_subprocess.run_bounded([sys.executable, "-c", child])
+
+    assert result.returncode == 0
+    time.sleep(0.6)
+    assert not marker.exists()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX signal contract")
+def test_run_bounded_handles_sigterm_before_popen_returns(monkeypatch, tmp_path):
+    marker = tmp_path / "launch-race-orphan-ran"
+    real_popen = subprocess.Popen
+
+    def interrupted_launch(*args, **kwargs):
+        process = real_popen(*args, **kwargs)
+        os.kill(os.getpid(), signal.SIGTERM)
+        return process
+
+    monkeypatch.setattr(bounded_subprocess.subprocess, "Popen", interrupted_launch)
+    command = [
+        sys.executable,
+        "-c",
+        "import pathlib,time; time.sleep(0.4); "
+        f"pathlib.Path({str(marker)!r}).touch()",
+    ]
+
+    with pytest.raises(SystemExit) as raised:
+        bounded_subprocess.run_bounded(command)
+
+    assert raised.value.code == 128 + signal.SIGTERM
+    time.sleep(0.6)
+    assert not marker.exists()
+
+
 @pytest.mark.skipif(os.name != "posix", reason="POSIX signal contract")
 def test_run_bounded_terminates_descendants_when_wrapper_is_interrupted(
     tmp_path: Path,

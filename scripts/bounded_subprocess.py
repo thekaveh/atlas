@@ -94,53 +94,67 @@ def run_bounded(
         raise CommandLaunchError(
             "bounded process-tree execution requires POSIX or Windows WSL"
         )
-    try:
-        process = subprocess.Popen(
-            command,
-            cwd=cwd,
-            env=env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            start_new_session=os.name == "posix",
-        )
-    except OSError as exc:
-        raise CommandLaunchError from exc
-    assert process.stdout is not None
-    assert process.stderr is not None
-    stdout_chunks: list[bytes] = []
-    stderr_chunks: list[bytes] = []
-    state = [0]
-    lock = threading.Lock()
-    overflow = threading.Event()
-    readers = [
-        threading.Thread(
-            target=_capture_stream,
-            args=(stream, chunks),
-            kwargs={
-                "state": state,
-                "lock": lock,
-                "overflow": overflow,
-                "max_output_bytes": max_output_bytes,
-            },
-            daemon=True,
-        )
-        for stream, chunks in (
-            (process.stdout, stdout_chunks),
-            (process.stderr, stderr_chunks),
-        )
-    ]
-    for reader in readers:
-        reader.start()
-    deadline = time.monotonic() + timeout_seconds
+    guard_sigterm = threading.current_thread() is threading.main_thread()
     previous_sigterm = None
-    if threading.current_thread() is threading.main_thread():
+    previous_mask = None
+    mask_restored = True
+    if guard_sigterm:
+        previous_mask = signal.pthread_sigmask(
+            signal.SIG_BLOCK, {signal.SIGTERM}
+        )
         previous_sigterm = signal.getsignal(signal.SIGTERM)
 
         def interrupt(signum, _frame):
             raise _CommandInterrupted(signum)
 
         signal.signal(signal.SIGTERM, interrupt)
+        mask_restored = False
+
+    process: subprocess.Popen[bytes] | None = None
+    readers: list[threading.Thread] = []
+    stdout_chunks: list[bytes] = []
+    stderr_chunks: list[bytes] = []
+    overflow = threading.Event()
     try:
+        try:
+            process = subprocess.Popen(
+                command,
+                cwd=cwd,
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                start_new_session=True,
+            )
+        except OSError as exc:
+            raise CommandLaunchError from exc
+        if guard_sigterm:
+            signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
+            mask_restored = True
+
+        assert process.stdout is not None
+        assert process.stderr is not None
+        state = [0]
+        lock = threading.Lock()
+        readers = [
+            threading.Thread(
+                target=_capture_stream,
+                args=(stream, chunks),
+                kwargs={
+                    "state": state,
+                    "lock": lock,
+                    "overflow": overflow,
+                    "max_output_bytes": max_output_bytes,
+                },
+                daemon=True,
+            )
+            for stream, chunks in (
+                (process.stdout, stdout_chunks),
+                (process.stderr, stderr_chunks),
+            )
+        ]
+        for reader in readers:
+            reader.start()
+        deadline = time.monotonic() + timeout_seconds
         while process.poll() is None or any(
             reader.is_alive() for reader in readers
         ):
@@ -149,15 +163,25 @@ def run_bounded(
             if time.monotonic() >= deadline:
                 raise CommandTimedOut
             time.sleep(0.01)
+        # A successful leader may have daemonized children after redirecting
+        # inherited pipes. This helper never permits intentional daemonization.
+        _terminate_process_tree(process)
     except BaseException:
-        if process.poll() is None or any(reader.is_alive() for reader in readers):
+        if process is not None:
             _stop_and_reap(process)
         raise
     finally:
-        if previous_sigterm is not None:
+        if previous_mask is not None and not mask_restored:
+            try:
+                signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
+            finally:
+                if previous_sigterm is not None:
+                    signal.signal(signal.SIGTERM, previous_sigterm)
+        elif previous_sigterm is not None:
             signal.signal(signal.SIGTERM, previous_sigterm)
         for reader in readers:
             reader.join(timeout=5)
+    assert process is not None
     if overflow.is_set():
         raise CommandOutputTooLarge
     stdout = b"".join(stdout_chunks).decode("utf-8", errors="replace")

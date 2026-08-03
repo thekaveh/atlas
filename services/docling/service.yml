@@ -48,7 +48,7 @@ env:
     description: "Positive maximum upload bytes for Docling GPU, localhost, and adapter APIs. Request bodies are capped before multipart parsing with 1 MiB framing overhead; invalid values fail startup and oversized requests return 413."
   - name: DOCLING_UPLOAD_TIMEOUT_SECONDS
     default: 120
-    description: "Positive total seconds allowed to receive one Docling or adapter upload body before a 408 response releases admission capacity."
+    description: "Total seconds (1-3600) allowed to receive one Docling or adapter upload body before a 408 response releases admission capacity."
   - name: DOCLING_CONCURRENCY
     default: 1
     description: "Maximum concurrent Docling conversions per provider process. Default 1 prevents duplicate model loads and GPU memory contention."
