@@ -20,6 +20,7 @@ RUN pip install --no-cache-dir \
 COPY shared/api_server.py /app/
 COPY shared/utils.py /app/
 COPY bounded_upload.py /app/
+COPY provider_boundary.py /app/
 
 # Copy GPU-specific transcription logic
 COPY gpu/transcribe.py /app/

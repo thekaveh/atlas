@@ -32,8 +32,11 @@ packages = ["."]
 # CI invokes `uv sync --group dev`.
 dev = [
     "cairosvg>=2.7,<3",
+    "fastapi==0.141.1",
+    "httpx2>=2.6.0",
     "mkdocs>=1.6,<2",
     "mkdocs-material>=9.6,<10",
+    "python-multipart==0.0.32",
     "pytest>=7.0.0",
     "pytest-cov>=7.1,<8",
 ]
