@@ -39,6 +39,7 @@ dev = [
     "python-multipart==0.0.32",
     "pytest>=7.0.0",
     "pytest-cov>=7.1,<8",
+    "radon==6.0.1",         # Recomputes the committed maintenance complexity ceiling in CI.
 ]
 
 [tool.pytest.ini_options]

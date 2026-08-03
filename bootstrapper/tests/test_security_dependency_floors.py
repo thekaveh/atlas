@@ -194,6 +194,9 @@ def test_jupyter_binary_ml_stack_uses_supported_security_baseline() -> None:
     assert "torch==2.13.0 torchvision==0.28.0" in dockerfile
     assert "torchaudio" not in dockerfile
     assert "--index-url https://download.pytorch.org/whl/cpu" in dockerfile
+    changelog = _text("docs/CHANGELOG.md")
+    assert "PyTorch 2.13" in changelog
+    assert "PyG 0.8" in changelog
 
 
 def test_dependabot_torch_coordination_matches_current_compiled_family() -> None:

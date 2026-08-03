@@ -72,6 +72,8 @@ _FAMILY_FLAG_STEM = {
 
 _FAILURE_LOG_TIMEOUT_SECONDS = 60.0
 _PROCESS_TERMINATION_GRACE_SECONDS = 2.0
+_COMPOSE_BUILD_TIMEOUT_SECONDS = 90 * 60.0
+_COMPOSE_UP_TIMEOUT_SECONDS = 30 * 60.0
 
 
 async def _stop_process_tree(
@@ -112,6 +114,64 @@ async def _await_uncancellable(task: asyncio.Task):
         except asyncio.CancelledError:
             continue
     return task.result()
+
+
+def _kill_remaining_process_group(proc: asyncio.subprocess.Process) -> None:
+    if os.name != "posix":
+        return
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass
+
+
+async def _run_streamed_command(
+    command: list[str],
+    *,
+    cwd: Path,
+    env: dict[str, str],
+    on_line: Callable[[str], None],
+    timeout_seconds: float,
+    termination_grace_seconds: float = _PROCESS_TERMINATION_GRACE_SECONDS,
+) -> int:
+    """Stream one isolated command with a total deadline and safe cleanup."""
+    if timeout_seconds <= 0:
+        raise ValueError("timeout_seconds must be positive")
+    proc = await asyncio.create_subprocess_exec(
+        *command,
+        cwd=str(cwd),
+        stdin=asyncio.subprocess.DEVNULL,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+        env=env,
+        start_new_session=os.name == "posix",
+    )
+
+    async def consume() -> int:
+        assert proc.stdout is not None
+        async for raw in proc.stdout:
+            on_line(raw.decode(errors="replace").rstrip("\r\n"))
+        return await proc.wait()
+
+    stream_task = asyncio.create_task(consume())
+    try:
+        returncode = await asyncio.wait_for(stream_task, timeout=timeout_seconds)
+        _kill_remaining_process_group(proc)
+        return returncode
+    except asyncio.TimeoutError:
+        on_line(f"Command timed out after {timeout_seconds:.0f}s")
+        await _stop_process_tree(
+            proc, termination_grace_seconds=termination_grace_seconds
+        )
+        return 124
+    except asyncio.CancelledError:
+        stream_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await stream_task
+        await _stop_process_tree(
+            proc, termination_grace_seconds=termination_grace_seconds
+        )
+        raise
 
 
 _SETUP_HINTS = [
@@ -1957,14 +2017,23 @@ class WizardScreen(Screen):
         # _log_pane.write_* calls bypassed the tee — image-pull errors
         # from compose up never reached the file.
         self._safe_log("$ " + " ".join(full_cmd), source="docker", level="dim")
+
+        def log_line(line: str) -> None:
+            source, level = _classify_compose_line(line)
+            self._safe_log(line, source=source, level=level)
+
+        timeout_seconds = (
+            _COMPOSE_BUILD_TIMEOUT_SECONDS
+            if args[:1] == ["build"]
+            else _COMPOSE_UP_TIMEOUT_SECONDS
+        )
         try:
-            proc = await asyncio.create_subprocess_exec(
-                *full_cmd,
-                cwd=str(self._starter.docker_manager.root_dir),
-                stdin=asyncio.subprocess.DEVNULL,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT,
+            return await _run_streamed_command(
+                full_cmd,
+                cwd=Path(self._starter.docker_manager.root_dir),
                 env=env,
+                on_line=log_line,
+                timeout_seconds=timeout_seconds,
             )
         except (OSError, RuntimeError) as exc:
             # OSError covers PermissionError etc., not just a missing
@@ -1973,24 +2042,6 @@ class WizardScreen(Screen):
             # handler instead.)
             self._write_status(f"❌ {exc}", style="bold red", source="docker")
             return 1
-        try:
-            assert proc.stdout is not None
-            async for raw in proc.stdout:
-                line = raw.decode(errors="replace").rstrip("\r\n")
-                source, level = _classify_compose_line(line)
-                self._safe_log(line, source=source, level=level)
-            return await proc.wait()
-        except asyncio.CancelledError:
-            with contextlib.suppress(ProcessLookupError):
-                proc.send_signal(signal.SIGINT)
-            with contextlib.suppress(asyncio.TimeoutError):
-                await asyncio.wait_for(proc.wait(), timeout=3)
-            if proc.returncode is None:
-                with contextlib.suppress(ProcessLookupError):
-                    proc.kill()
-                with contextlib.suppress(Exception):
-                    await proc.wait()
-            raise
 
 
 # Module-level project prefix — set at launch transition via

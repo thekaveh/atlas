@@ -530,42 +530,6 @@ class DockerManager:
         except (subprocess.SubprocessError, OSError):
             return False
 
-    def prune_system(self, remove_volumes: bool = False) -> int:
-        """
-        Run docker system prune to clean up unused resources.
-
-        Args:
-            remove_volumes: Whether to also remove volumes (--volumes flag)
-
-        Returns:
-            int: Return code from the command
-        """
-        args = ['docker', 'system', 'prune', '-f']
-
-        if remove_volumes:
-            args.append('--volumes')
-
-        self._on_command(f"      Command: {' '.join(args)}")
-
-        try:
-            proc = subprocess.Popen(
-                args,
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                bufsize=1,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-            )
-            assert proc.stdout is not None
-            for line in proc.stdout:
-                self._on_command(line.rstrip("\n"))
-            return proc.wait()
-        except Exception as e:
-            self._on_command(f"❌ Error running docker system prune: {e}")
-            return 1
-    
     def get_compose_command_display(self) -> str:
         """
         Get the Docker compose command for display purposes.
