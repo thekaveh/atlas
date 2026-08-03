@@ -32,6 +32,12 @@ def _env_truthy(name: str) -> bool | None:
 # runtime without editing code, set ``ATLAS_SPLASH=1`` (truthy enables, falsey
 # disables). When enabled, the existing per-feature suppressors still apply on
 # top: ``--no-splash`` / ``ATLAS_NO_SPLASH``, terminal-width, artwork-present.
+SPLASH_FLAG_LIFECYCLE = {
+    "owner": "Atlas maintainers",
+    "introduced": "2026-06-17",
+    "review_by": "2026-09-01",
+    "decision": "Remove the flag or formalize it as a supported permanent setting.",
+}
 _SPLASH_DEFAULT = False
 
 

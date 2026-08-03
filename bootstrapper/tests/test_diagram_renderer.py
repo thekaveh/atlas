@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -132,6 +133,35 @@ def test_summary_cards_in_html():
     assert "Calls" in html
     assert "Consumers" in html
     assert "Categories" in html
+
+
+def test_every_service_svg_is_landscape():
+    from docs.deps_resolver import build_doc_graph
+    from docs.diagram_renderer import render_svg
+
+    for service_dir in sorted(SERVICES_DIR.iterdir()):
+        if not (service_dir / "README.md").is_file():
+            continue
+        svg = render_svg(build_doc_graph(service_dir.name, SERVICES_DIR))
+        match = re.search(r'viewBox="0 0 (\d+) (\d+)"', svg)
+        assert match is not None, service_dir.name
+        width, height = map(int, match.groups())
+        assert width > height, f"{service_dir.name}: {width}x{height} is not landscape"
+
+
+def test_public_html_omits_regeneration_instructions():
+    from docs.deps_resolver import build_doc_graph
+    from docs.diagram_renderer import render_html
+
+    html = render_html(build_doc_graph("hermes", SERVICES_DIR))
+    assert "Regenerate:" not in html
+    assert "bootstrapper.docs.regen" not in html
+
+
+def test_renderer_docstring_describes_current_docs_tree():
+    from docs import diagram_renderer
+
+    assert "retired afterwards" not in (diagram_renderer.__doc__ or "")
 
 
 def test_svg_matches_golden_snapshot():

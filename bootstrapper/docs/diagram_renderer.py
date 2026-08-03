@@ -1,7 +1,6 @@
 """DepGraph → HTML+SVG renderer — clustered-by-category layout.
 
-Visual design (see git log around 2026-05-22 for the design doc; the
-``docs/superpowers/`` tree was retired afterwards):
+Visual design (see the tracked design history under ``docs/superpowers/``):
 - 3-lane layout: upstream | focus | downstream.
 - Each non-focus lane groups services into category clusters.
 - One edge per cluster (not per pill).
@@ -43,7 +42,8 @@ LANE_HEADER_Y = 36
 LANE_TOP_Y = 64
 LEGEND_H = 28
 CARDS_H = 56
-WIDTH = LANE_W + LANE_GAP + FOCUS_W + LANE_GAP + LANE_W + 120  # 880
+SIDE_MARGIN = 120
+WIDTH = LANE_W + LANE_GAP + FOCUS_W + LANE_GAP + LANE_W + SIDE_MARGIN * 2
 
 CATEGORY_ORDER = ("infra", "data", "llm", "media", "agents", "apps", "external")
 
@@ -72,9 +72,9 @@ def render_svg(graph: DepGraph) -> str:
     parts.append(f'<rect width="{WIDTH}" height="{total_height}" fill="url(#grid)"/>')
 
     # Lane headers
-    parts.append(_text(60 + LANE_W // 2, LANE_HEADER_Y, "Upstream (calls)",
+    parts.append(_text(SIDE_MARGIN + LANE_W // 2, LANE_HEADER_Y, "Upstream (calls)",
                        size=10, color="#94a3b8", anchor="middle", weight=600, letter_spacing=0.08))
-    focus_x = 60 + LANE_W + LANE_GAP
+    focus_x = SIDE_MARGIN + LANE_W + LANE_GAP
     parts.append(_text(focus_x + FOCUS_W // 2, LANE_HEADER_Y, "Focus",
                        size=10, color="#94a3b8", anchor="middle", weight=600, letter_spacing=0.08))
     down_x = focus_x + FOCUS_W + LANE_GAP
@@ -85,7 +85,7 @@ def render_svg(graph: DepGraph) -> str:
     parts.extend(_edges(graph, up_clusters, down_clusters, body_height))
 
     # Clusters
-    parts.append(_render_lane(60, LANE_TOP_Y, LANE_W, up_clusters, "upstream"))
+    parts.append(_render_lane(SIDE_MARGIN, LANE_TOP_Y, LANE_W, up_clusters, "upstream"))
     parts.append(_render_lane(down_x, LANE_TOP_Y, LANE_W, down_clusters, "downstream"))
 
     # Focus box (centered vertically in body)
@@ -115,7 +115,6 @@ def render_html(graph: DepGraph) -> str:
         n_required=n_calls,         # "Calls" — template still uses these var names
         n_optional=n_consumers,     # "Consumers"
         n_consumers=n_categories,   # "Categories served"
-        footer=f"Regenerate: python -m bootstrapper.docs.regen {graph.focus}",
     )
 
 
@@ -246,7 +245,7 @@ def _edges(graph: DepGraph, up_clusters: "OrderedDict[str, list[DepEdge]]",
           down_clusters: "OrderedDict[str, list[DepEdge]]", body_height: int) -> list[str]:
     """One edge per cluster. Edge connects focus side to cluster header."""
     parts: list[str] = []
-    focus_x = 60 + LANE_W + LANE_GAP
+    focus_x = SIDE_MARGIN + LANE_W + LANE_GAP
     focus_y_center = LANE_TOP_Y + body_height // 2
 
     # Upstream: cluster → focus (arrow points right)
@@ -254,7 +253,7 @@ def _edges(graph: DepGraph, up_clusters: "OrderedDict[str, list[DepEdge]]",
     for cat, pills in up_clusters.items():
         ch = _cluster_height(pills)
         bidirectional = any(p.bidirectional for p in pills)
-        x1 = 60 + LANE_W
+        x1 = SIDE_MARGIN + LANE_W
         y1 = cy + CLUSTER_PADDING_Y + CLUSTER_HEADER_H // 2
         parts.append(
             f'<line x1="{x1}" y1="{y1}" x2="{focus_x}" y2="{focus_y_center}" '

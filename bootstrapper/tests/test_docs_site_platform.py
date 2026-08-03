@@ -208,6 +208,50 @@ def test_architecture_pages_explain_the_views_without_publication_instructions()
     assert 'data-source="Kong" data-target="Direct Ports"' not in network
 
 
+def test_architecture_edge_labels_do_not_share_coordinates() -> None:
+    from bootstrapper.docs.sitegen.pages import (
+        ARCHITECTURE_EDGES,
+        ARCHITECTURE_INTERPRETATIONS,
+        ARCHITECTURE_LAYOUTS,
+        ARCHITECTURE_PERSPECTIVES,
+        _architecture_diagram_html,
+    )
+
+    label_pattern = re.compile(
+        r'<text x="([\d.]+)" y="([\d.]+)" fill="#cbd5e1"[^>]*>([^<]+)</text>'
+    )
+    for slug, (title, description, nodes) in ARCHITECTURE_PERSPECTIVES.items():
+        rendered = _architecture_diagram_html(
+            title,
+            description,
+            ARCHITECTURE_INTERPRETATIONS[slug],
+            nodes,
+            ARCHITECTURE_EDGES[slug],
+            ARCHITECTURE_LAYOUTS[slug],
+        )
+        labels = label_pattern.findall(rendered)
+        coordinates = [(x, y) for x, y, _label in labels]
+        assert len(coordinates) == len(set(coordinates)), slug
+
+
+def test_architecture_interpretation_renders_safe_inline_markup() -> None:
+    from bootstrapper.docs.sitegen.pages import _architecture_diagram_html
+
+    rendered = _architecture_diagram_html(
+        "Contract view",
+        "A focused contract test.",
+        "Use `CATALOG_URI`; see [provider flow](./provider-flow.md).",
+        ["Source", "Target"],
+        [("Source", "Target", "calls")],
+        {"Source": (40, 80), "Target": (320, 80)},
+    )
+
+    assert "<code>CATALOG_URI</code>" in rendered
+    assert '<a href="./provider-flow.md">provider flow</a>' in rendered
+    assert "`CATALOG_URI`" not in rendered
+    assert "[provider flow]" not in rendered
+
+
 def test_wiki_contains_the_complete_manifest_page_set_and_navigation() -> None:
     manifest = _manifest()
     expected = {page.wiki_path.as_posix() for page in manifest.pages} | {"_Sidebar.md", "_Footer.md"}
