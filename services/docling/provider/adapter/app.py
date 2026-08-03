@@ -12,7 +12,6 @@ from typing import Callable
 
 from fastapi import FastAPI, File, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
-from starlette.background import BackgroundTask
 
 from bounded_upload import EmptyUploadError, UploadTooLargeError, spool_upload
 
@@ -21,6 +20,20 @@ from .upstream import DoclingUpstream, UpstreamConversionError
 
 
 SUBMIT_PATH = "/v1/convert/file/async"
+
+
+class _EphemeralFileResponse(FileResponse):
+    """Delete a claimed result even when response transmission is interrupted."""
+
+    def __init__(self, path: Path, **kwargs) -> None:
+        self._cleanup_path = path
+        super().__init__(path, **kwargs)
+
+    async def __call__(self, scope, receive, send) -> None:
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            self._cleanup_path.unlink(missing_ok=True)
 
 
 def _positive_int(name: str, default: int) -> int:
@@ -195,10 +208,9 @@ def create_app(
         result_path = await registry.claim_result(task_id)
         if result_path is None:
             return JSONResponse({"detail": "Task not found"}, status_code=404)
-        return FileResponse(
+        return _EphemeralFileResponse(
             result_path,
             media_type="application/zip",
-            background=BackgroundTask(result_path.unlink, missing_ok=True),
         )
 
     app.add_middleware(_AdmissionMiddleware, registry=registry)

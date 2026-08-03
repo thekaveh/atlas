@@ -43,6 +43,11 @@ def _positive_int(raw_value: str, variable: str) -> int:
     return value
 
 
+def parse_positive_int(variable: str, *, default: int) -> int:
+    """Read one positive integer setting during provider initialization."""
+    return _positive_int(os.getenv(variable, str(default)), variable)
+
+
 def load_boundary_settings(
     prefix: str, expensive_paths: Collection[str]
 ) -> BoundarySettings:

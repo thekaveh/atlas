@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -20,8 +21,9 @@ def test_audit_runtime_lock_accepts_exact_reviewed_advisories(
     )
     captured: dict[str, str] = {}
 
-    def fake_run(command, **_kwargs):
+    def fake_run(command, **kwargs):
         captured["command"] = " ".join(command)
+        captured["timeout"] = str(kwargs.get("timeout"))
         audit_input = Path(command[command.index("-r") + 1])
         captured["input"] = audit_input.read_text(encoding="utf-8")
         payload = {
@@ -40,6 +42,51 @@ def test_audit_runtime_lock_accepts_exact_reviewed_advisories(
     assert audit_runtime_locks.audit_spec(spec, root=Path("/")) == []
     assert "local-wheel" not in captured["input"]
     assert "--strict" in captured["command"]
+    assert captured["timeout"] == str(audit_runtime_locks.COMMAND_TIMEOUT_SECONDS)
+
+
+def test_audit_timeout_is_bounded_and_does_not_echo_subprocess_details(
+    tmp_path: Path, monkeypatch
+) -> None:
+    lock = tmp_path / "requirements-locked.txt"
+    lock.write_text("safe==1.0\n", encoding="utf-8")
+
+    def time_out(*_args, **_kwargs):
+        raise subprocess.TimeoutExpired(["pip-audit", "secret-argument"], 300)
+
+    monkeypatch.setattr(audit_runtime_locks.subprocess, "run", time_out)
+    failures = audit_runtime_locks.audit_spec(
+        audit_runtime_locks.AuditSpec(str(lock)), root=Path("/")
+    )
+
+    assert failures == [
+        f"{lock}: pip-audit timed out after "
+        f"{audit_runtime_locks.COMMAND_TIMEOUT_SECONDS} seconds"
+    ]
+    assert "secret-argument" not in failures[0]
+
+
+def test_audit_failure_redacts_subprocess_output(tmp_path: Path, monkeypatch) -> None:
+    lock = tmp_path / "requirements-locked.txt"
+    lock.write_text("safe==1.0\n", encoding="utf-8")
+    monkeypatch.setattr(
+        audit_runtime_locks.subprocess,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            returncode=2,
+            stdout="",
+            stderr="https://user:secret-token@private.example/simple",
+        ),
+    )
+
+    failures = audit_runtime_locks.audit_spec(
+        audit_runtime_locks.AuditSpec(str(lock)), root=Path("/")
+    )
+
+    assert failures == [
+        f"{lock}: pip-audit failed (exit 2; subprocess output redacted)"
+    ]
+    assert "secret-token" not in failures[0]
 
 
 def test_audit_runtime_lock_rejects_unreviewed_local_versions(
@@ -147,6 +194,15 @@ def test_all_unlocked_runtime_graphs_are_resolved_before_audit() -> None:
     )
 
 
+def test_every_networked_lock_and_audit_subprocess_has_a_deadline() -> None:
+    audit_source = Path(audit_runtime_locks.__file__).read_text(encoding="utf-8")
+    check_source = Path(check_runtime_locks.__file__).read_text(encoding="utf-8")
+    assert audit_source.count("timeout=COMMAND_TIMEOUT_SECONDS") == 4
+    assert check_source.count("timeout=COMMAND_TIMEOUT_SECONDS") == 1
+    assert audit_runtime_locks.COMMAND_TIMEOUT_SECONDS == 300
+    assert check_runtime_locks.COMMAND_TIMEOUT_SECONDS == 300
+
+
 def test_npm_audit_rejects_registry_error_json(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -171,7 +227,7 @@ def test_npm_audit_rejects_registry_error_json(
         str(project.relative_to(tmp_path)), root=tmp_path
     )
 
-    assert failures == ["n8n: npm audit failed: request to registry failed"]
+    assert failures == ["n8n: npm audit registry request failed (details redacted)"]
 
 
 def test_npm_audit_requires_vulnerability_totals(

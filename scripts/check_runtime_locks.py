@@ -9,6 +9,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+COMMAND_TIMEOUT_SECONDS = 300
 
 
 @dataclass(frozen=True)
@@ -80,34 +81,42 @@ def main() -> int:
             lock = ROOT / spec.lock
             for platform in spec.platforms:
                 candidate = temporary_dir / f"{index}-{platform}.lock"
-                result = subprocess.run(
-                    [
-                        "uv",
-                        "pip",
-                        "compile",
-                        str(requirements),
-                        "--constraint",
-                        str(lock),
-                        "--python-version",
-                        spec.python_version,
-                        "--python-platform",
-                        platform,
-                        "--output-file",
-                        str(candidate),
-                        "--no-emit-index-url",
-                        "--no-annotate",
-                        "--no-header",
-                        "--quiet",
-                    ],
-                    cwd=ROOT,
-                    text=True,
-                    capture_output=True,
-                    check=False,
-                )
+                try:
+                    result = subprocess.run(
+                        [
+                            "uv",
+                            "pip",
+                            "compile",
+                            str(requirements),
+                            "--constraint",
+                            str(lock),
+                            "--python-version",
+                            spec.python_version,
+                            "--python-platform",
+                            platform,
+                            "--output-file",
+                            str(candidate),
+                            "--no-emit-index-url",
+                            "--no-annotate",
+                            "--no-header",
+                            "--quiet",
+                        ],
+                        cwd=ROOT,
+                        text=True,
+                        capture_output=True,
+                        check=False,
+                        timeout=COMMAND_TIMEOUT_SECONDS,
+                    )
+                except subprocess.TimeoutExpired:
+                    failures.append(
+                        f"{spec.lock} ({platform}): resolution timed out after "
+                        f"{COMMAND_TIMEOUT_SECONDS} seconds"
+                    )
+                    continue
                 if result.returncode != 0:
                     failures.append(
-                        f"{spec.lock} ({platform}): resolution failed\n"
-                        f"{result.stderr.strip()}"
+                        f"{spec.lock} ({platform}): resolution failed "
+                        f"(uv exited {result.returncode}; subprocess output redacted)"
                     )
                     continue
                 if candidate.read_bytes() != lock.read_bytes():

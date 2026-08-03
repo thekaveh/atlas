@@ -103,7 +103,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 1.9. Fixed — 2026-07-13 — Synchronized three-surface documentation
 
-- **Canonical publication pipeline (#606 / #607)** — repository Markdown, the MkDocs `.io` site, and the native GitHub wiki now derive from one ordered manifest with strict drift, self-containment, local-link, diagram, and notebook-source checks. The public hierarchy covers 103 pages, 60 service guides, and 72 synchronized architecture diagrams.
+- **Canonical publication pipeline (#606 / #607)** — repository Markdown, the MkDocs `.io` site, and the native GitHub wiki now derive from one ordered manifest with strict drift, self-containment, local-link, diagram, and notebook-source checks. At this historical release point, the public hierarchy covered 102 pages, 59 service guides, and 71 synchronized architecture diagrams.
 - **Native wiki HTML links (#613)** — HTML hero actions are now rewritten to their manifest-derived numbered wiki pages while the MkDocs site retains its pretty URLs. The shared link model audits Markdown and HTML links and images, and the docs gate rejects missing wiki-local targets, including dotted hierarchical slugs.
 - **Promotion sync (#615)** — `develop` records the protected `main` documentation promotion as an ancestor before the wiki-link correction is promoted, preserving strict GitFlow ordering without changing the verified documentation content.
 

@@ -375,6 +375,7 @@ def test_services_lint_gates_main_and_develop_and_runs_three_surface_check() -> 
     assert "Install Cairo" in text
     assert "notebook-reproducibility" not in workflow["jobs"]
     assert text.count("python -m scripts.notebook_reproducibility") == 1
+    assert workflow["jobs"]["audit-scripts"]["timeout-minutes"] == 45
 
 
 def test_source_configuration_shell_examples_do_not_comment_after_continuations() -> None:
@@ -387,10 +388,16 @@ def test_source_configuration_shell_examples_do_not_comment_after_continuations(
 def test_services_lint_build_validation_covers_all_local_build_contexts() -> None:
     workflow = WORKFLOW.read_text(encoding="utf-8")
     expected = {
-        path.parent.relative_to(ROOT).as_posix()
+        (
+            path.parent.relative_to(ROOT).as_posix(),
+            "Dockerfile",
+        )
         for path in (ROOT / "services").glob("*/init/Dockerfile")
     }
-    excluded = {"services/docling/provider", "services/parakeet/provider"}
+    excluded_dockerfiles = {
+        "services/docling/provider/gpu/Dockerfile",
+        "services/parakeet/provider/gpu/Dockerfile",
+    }
     for compose in (ROOT / "services").glob("*/compose.yml"):
         data = yaml.safe_load(compose.read_text(encoding="utf-8")) or {}
         for spec in (data.get("services") or {}).values():
@@ -401,11 +408,31 @@ def test_services_lint_build_validation_covers_all_local_build_contexts() -> Non
             if context.startswith("http"):
                 continue
             relative = (compose.parent / context).resolve().relative_to(ROOT).as_posix()
-            if relative not in excluded:
-                expected.add(relative)
+            dockerfile = str(build_spec.get("dockerfile", "Dockerfile"))
+            dockerfile_path = (ROOT / relative / dockerfile).resolve().relative_to(ROOT)
+            if dockerfile_path.as_posix() not in excluded_dockerfiles:
+                expected.add((relative, dockerfile))
     assert expected
-    for context in expected:
-        assert context in workflow
+    for context, dockerfile in expected:
+        assert f'"{context}|{dockerfile}|' in workflow
+
+
+def test_adapter_tmpfs_covers_default_concurrent_upload_and_result_budget() -> None:
+    compose = yaml.safe_load((ROOT / "services/docling/compose.yml").read_text())
+    adapter = compose["services"]["docling-lightrag-adapter"]
+    environment = adapter["environment"]
+
+    def default_int(name: str) -> int:
+        value = environment[name]
+        return int(re.search(r":-(\d+)}$", value).group(1))
+
+    tmpfs = adapter["tmpfs"][0]
+    size_mib = int(re.search(r"size=(\d+)m", tmpfs).group(1))
+    required_bytes = default_int("DOCLING_ADAPTER_MAX_JOBS") * (
+        default_int("DOCLING_MAX_FILE_SIZE")
+        + default_int("DOCLING_ADAPTER_MAX_RESULT_BYTES")
+    )
+    assert size_mib * 1024 * 1024 >= required_bytes + 64 * 1024 * 1024
 
 
 def test_docs_do_not_reference_retired_required_check_counts() -> None:

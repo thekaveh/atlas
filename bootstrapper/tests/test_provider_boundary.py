@@ -214,6 +214,24 @@ def test_timeout_default_and_bounds(monkeypatch):
         assert boundary.parse_timeout_seconds("DOCLING") == int(value)
 
 
+@pytest.mark.parametrize("variable", ["DOCLING_MAX_FILE_SIZE", "PARAKEET_MAX_UPLOAD_BYTES"])
+@pytest.mark.parametrize("value", ["invalid", "0", "-1"])
+def test_provider_upload_limit_must_be_a_positive_integer(
+    monkeypatch, variable, value
+):
+    boundary = _load_boundary()
+    monkeypatch.setenv(variable, value)
+
+    with pytest.raises(ValueError, match=variable):
+        boundary.parse_positive_int(variable, default=1024)
+
+
+def test_provider_upload_limit_default(monkeypatch):
+    boundary = _load_boundary()
+    monkeypatch.delenv("DOCLING_MAX_FILE_SIZE", raising=False)
+    assert boundary.parse_positive_int("DOCLING_MAX_FILE_SIZE", default=1024) == 1024
+
+
 def test_full_capacity_returns_429_without_reading_second_request_body():
     boundary = _load_boundary()
     entered = asyncio.Event()

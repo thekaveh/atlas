@@ -112,7 +112,7 @@ class DoclingUpstream:
                         raise UpstreamConversionError(
                             "Docling conversion result is too large"
                         )
-                    stream.write(chunk)
+                    await asyncio.to_thread(stream.write, chunk)
             return path
         except BaseException:
             path.unlink(missing_ok=True)

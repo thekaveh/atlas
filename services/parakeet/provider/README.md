@@ -66,8 +66,9 @@ Parakeet on NVIDIA GPU:
 ```
 
 The GPU API starts a deadline-bounded background load for the configured
-Parakeet model. Its health endpoint returns `503` until the model is loaded, so
-dependent services cannot begin against a process that is not yet inference-ready.
+Parakeet model. Its health endpoint and transcription routes return `503` until
+the model is loaded, allowing health-aware callers and orchestration to wait for
+inference readiness even though consumers may start independently.
 
 Parakeet on macOS MLX:
 
@@ -81,10 +82,12 @@ cd services/parakeet/provider && python -m uvicorn mlx.api_server:app --host 0.0
 ```
 
 The MLX health endpoint starts one shared background model load and returns
-`503` with `status=starting` while that work is in progress. Concurrent health
+`503` with `status=loading` while that work is in progress. Concurrent health
 and transcription requests share the same load; model initialization never
 runs on the API event loop. Both Parakeet providers default advanced segment
 timestamps to disabled unless `return_timestamps=true` is supplied.
+`PARAKEET_MAX_UPLOAD_BYTES` is parsed as a positive integer during provider
+startup; malformed, zero, and negative values fail fast before the API serves.
 
 whisper.cpp on macOS (Metal + Core ML):
 

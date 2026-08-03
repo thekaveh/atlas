@@ -18,6 +18,7 @@ from provider_boundary import (
     fatal_timeout_response,
     install_provider_boundary,
     load_boundary_settings,
+    parse_positive_int,
     parse_timeout_seconds,
     run_with_deadline,
 )
@@ -40,6 +41,9 @@ except ImportError as exc:
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+_MAX_UPLOAD_BYTES = parse_positive_int(
+    "PARAKEET_MAX_UPLOAD_BYTES", default=104_857_600
+)
 
 
 def _load_model():
@@ -161,9 +165,8 @@ async def transcribe_audio(
     _require_ready()
     tmp_path = None
     try:
-        max_bytes = int(os.getenv("PARAKEET_MAX_UPLOAD_BYTES", "104857600"))
         suffix = os.path.splitext(file.filename or "audio.wav")[1] or ".wav"
-        tmp_path = await spool_upload(file, max_bytes=max_bytes, suffix=suffix)
+        tmp_path = await spool_upload(file, max_bytes=_MAX_UPLOAD_BYTES, suffix=suffix)
         return await run_with_deadline(
             "PARAKEET",
             lambda: _transcribe_standard(
@@ -197,9 +200,8 @@ async def transcribe_advanced(
     _require_ready()
     tmp_path = None
     try:
-        max_bytes = int(os.getenv("PARAKEET_MAX_UPLOAD_BYTES", "104857600"))
         suffix = os.path.splitext(file.filename or "audio.wav")[1] or ".wav"
-        tmp_path = await spool_upload(file, max_bytes=max_bytes, suffix=suffix)
+        tmp_path = await spool_upload(file, max_bytes=_MAX_UPLOAD_BYTES, suffix=suffix)
         return await run_with_deadline(
             "PARAKEET",
             lambda: _transcribe_advanced(

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-import subprocess
+from string import Template
 from pathlib import Path
 
 import pytest
@@ -106,14 +106,7 @@ def test_hermes_template_renders_server_side_stt_key(api_key):
             "LITELLM_MODELS_LIST": "[]",
         }
     )
-    rendered = subprocess.run(
-        ["envsubst"],
-        input=template.read_text(encoding="utf-8"),
-        capture_output=True,
-        text=True,
-        env=environment,
-        check=True,
-    ).stdout
+    rendered = Template(template.read_text(encoding="utf-8")).substitute(environment)
 
     config = yaml.safe_load(rendered)
     assert config["stt"]["api_key"] == api_key

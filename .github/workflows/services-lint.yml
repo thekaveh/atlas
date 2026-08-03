@@ -178,6 +178,7 @@ jobs:
   audit-scripts:
     name: Docs drift + audit scripts
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -281,6 +282,7 @@ jobs:
             "services/asset-worker/app|Dockerfile|" \
             "services/asset-baker/app|Dockerfile|" \
             "services/backend/app|Dockerfile|" \
+            "services/docling/provider|adapter/Dockerfile|" \
             "services/iceberg-rest/build|Dockerfile|" \
             "services/jenkins/build|Dockerfile|" \
             "services/jupyterhub/build|Dockerfile|" \

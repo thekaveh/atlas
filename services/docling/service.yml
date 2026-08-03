@@ -45,6 +45,7 @@ env:
     default: accurate
   - name: DOCLING_MAX_FILE_SIZE
     default: 52428800
+    description: "Positive maximum upload bytes for Docling GPU, localhost, and adapter APIs. Invalid values fail provider startup; oversized requests return 413."
   - name: DOCLING_CONCURRENCY
     default: 1
     description: "Maximum concurrent Docling conversions per provider process. Default 1 prevents duplicate model loads and GPU memory contention."

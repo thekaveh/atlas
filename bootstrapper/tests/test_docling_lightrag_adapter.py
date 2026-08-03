@@ -213,8 +213,17 @@ async def test_adapter_rejects_unsupported_sync_route(monkeypatch, tmp_path):
 @_run_async
 async def test_upstream_authenticates_and_retries_capacity(monkeypatch, tmp_path):
     adapter_app = _load_app_module(monkeypatch)
+    upstream_module = sys.modules["adapter.upstream"]
     attempts = 0
+    offloaded_writes = 0
     upstream_app = FastAPI()
+
+    async def to_thread(function, *args):
+        nonlocal offloaded_writes
+        offloaded_writes += 1
+        return function(*args)
+
+    monkeypatch.setattr(upstream_module.asyncio, "to_thread", to_thread)
 
     @upstream_app.post("/internal/lightrag/bundle")
     async def bundle(request: Request, file: UploadFile = File(...)):
@@ -241,6 +250,7 @@ async def test_upstream_authenticates_and_retries_capacity(monkeypatch, tmp_path
     assert result.read_bytes() == _bundle()
     result.unlink()
     assert attempts == 2
+    assert offloaded_writes >= 1
 
 
 @_run_async
@@ -347,3 +357,27 @@ def test_adapter_docs_match_pinned_lightrag_route_contract():
             assert route in text, f"{path} omits {route}"
         assert "`files`" in text, f"{path} omits the multipart field name"
         assert "/v1/documents/parse" not in text, f"{path} documents a stale route"
+
+
+@_run_async
+async def test_claimed_result_is_deleted_when_response_send_fails(
+    monkeypatch, tmp_path
+):
+    adapter_app = _load_app_module(monkeypatch)
+    result_path = tmp_path / "result.zip"
+    result_path.write_bytes(_bundle())
+    response = adapter_app._EphemeralFileResponse(
+        result_path, media_type="application/zip"
+    )
+
+    async def receive():
+        return {"type": "http.disconnect"}
+
+    async def send(_message):
+        raise RuntimeError("simulated client disconnect")
+
+    scope = {"type": "http", "method": "GET", "headers": []}
+    with pytest.raises(RuntimeError, match="client disconnect"):
+        await response(scope, receive, send)
+
+    assert not result_path.exists()

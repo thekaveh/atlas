@@ -17,12 +17,14 @@ from provider_boundary import (
     fatal_timeout_response,
     install_provider_boundary,
     load_boundary_settings,
+    parse_positive_int,
     run_with_deadline,
 )
 from utils import ChunkLimitError
 
 
 _CHUNK_DEFAULTS = resolve_chunk_defaults()
+_MAX_UPLOAD_BYTES = parse_positive_int("DOCLING_MAX_FILE_SIZE", default=52_428_800)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -127,9 +129,8 @@ async def convert_document(
 
     tmp_path = None
     try:
-        max_bytes = int(os.getenv("DOCLING_MAX_FILE_SIZE", "52428800"))
         suffix = os.path.splitext(file.filename or "document.pdf")[1] or ".pdf"
-        tmp_path = await spool_upload(file, max_bytes=max_bytes, suffix=suffix)
+        tmp_path = await spool_upload(file, max_bytes=_MAX_UPLOAD_BYTES, suffix=suffix)
         return await run_with_deadline(
             "DOCLING",
             lambda: _convert_and_render(
@@ -172,10 +173,9 @@ async def lightrag_bundle(
 ):
     tmp_path = None
     try:
-        max_bytes = int(os.getenv("DOCLING_MAX_FILE_SIZE", "52428800"))
         upload_name = file.filename or "document.pdf"
         suffix = os.path.splitext(upload_name)[1] or ".pdf"
-        tmp_path = await spool_upload(file, max_bytes=max_bytes, suffix=suffix)
+        tmp_path = await spool_upload(file, max_bytes=_MAX_UPLOAD_BYTES, suffix=suffix)
         payload = await run_with_deadline(
             "DOCLING",
             lambda: _convert_and_bundle(

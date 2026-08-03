@@ -211,7 +211,7 @@
 | DOCLING_OUTPUT_FORMAT | docling | markdown | - |
 | DOCLING_USE_OCR | docling | auto | - |
 | DOCLING_TABLE_MODE | docling | accurate | - |
-| DOCLING_MAX_FILE_SIZE | docling | 52428800 | - |
+| DOCLING_MAX_FILE_SIZE | docling | 52428800 | Positive maximum upload bytes for Docling GPU, localhost, and adapter APIs. Invalid values fail provider startup; oversized requests return 413. |
 | DOCLING_CONCURRENCY | docling | 1 | Maximum concurrent Docling conversions per provider process. Default 1 prevents duplicate model loads and GPU memory contention. |
 | DOCLING_API_TOKEN | docling |  | Auto-generated bearer credential required by Docling routes except /health. |
 | DOCLING_AUTH_MODE | docling | required | Provider authentication mode: required (default) or disabled for an explicit emergency/local rollback. |
@@ -619,7 +619,7 @@
 | STT_PROVIDER_SCALE | parakeet |  | Aggregate STT scale across all engines. Reserved for future use. |
 | PARAKEET_MODEL | parakeet | nvidia/parakeet-tdt-0.6b-v3 | - |
 | PARAKEET_GPU_DEVICE | parakeet | cuda | - |
-| PARAKEET_MAX_UPLOAD_BYTES | parakeet | 104857600 | Maximum accepted audio upload size in bytes for Parakeet GPU and localhost APIs. Uploads are streamed to temporary storage and rejected with 413 when exceeded. |
+| PARAKEET_MAX_UPLOAD_BYTES | parakeet | 104857600 | Positive maximum audio upload bytes for Parakeet GPU and localhost APIs. Invalid values fail provider startup; oversized requests return 413. |
 | PARAKEET_CONCURRENCY | parakeet | 1 | Maximum concurrent Parakeet inference calls per provider process. Default 1 prevents model thread-safety and GPU memory contention. |
 | PARAKEET_API_TOKEN | parakeet |  | Auto-generated bearer credential required by Parakeet routes except /health. |
 | PARAKEET_AUTH_MODE | parakeet | required | Provider authentication mode: required (default) or disabled for an explicit emergency/local rollback. |

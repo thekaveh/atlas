@@ -86,7 +86,7 @@ for the whisper.cpp walkthrough and Linux build instructions, or
 | `SPEACHES_STT_MODEL` | `Systran/faster-distil-whisper-large-v3` | HuggingFace repo of the model to preload. **Compatibility note:** Open WebUI hardcodes `AUDIO_STT_MODEL: whisper-1`, and Speaches aliases `whisper-1` → `Systran/faster-whisper-large-v3` (the non-distil build), so preload **that** id, not the distil one, to satisfy a `whisper-1` request. |
 | `PARAKEET_MODEL` | `nvidia/parakeet-tdt-0.6b-v3` | Or `…-v2` for English-only (slightly faster). |
 | `PARAKEET_GPU_IMAGE` | `nvcr.io/nvidia/pytorch:26.06-py3` | Base for the Parakeet GPU Dockerfile. |
-| `PARAKEET_MAX_UPLOAD_BYTES` | `104857600` | Maximum audio upload size for Parakeet GPU and localhost APIs; larger requests return `413`. |
+| `PARAKEET_MAX_UPLOAD_BYTES` | `104857600` | Positive maximum audio upload size for Parakeet GPU and localhost APIs; invalid values fail provider startup and larger requests return `413`. |
 | `PARAKEET_CONCURRENCY` | `1` | Maximum concurrent inference calls per Parakeet provider process. |
 | `PARAKEET_API_TOKEN` | generated | Auto-generated bearer required by Atlas-managed Parakeet routes except `/health`. |
 | `PARAKEET_AUTH_MODE` | `required` | Set `disabled` only for an explicit emergency/local rollback. |

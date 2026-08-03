@@ -51,3 +51,18 @@ def test_provider_health_endpoints_check_runtime_dependencies() -> None:
     assert "_model_startup.start()" in _text(
         "services/parakeet/provider/shared/api_server.py"
     )
+
+
+def test_provider_upload_limits_are_validated_once_during_import() -> None:
+    contracts = {
+        "services/docling/provider/shared/api_server.py": "DOCLING_MAX_FILE_SIZE",
+        "services/docling/provider/localhost/server.py": "DOCLING_MAX_FILE_SIZE",
+        "services/parakeet/provider/shared/api_server.py": "PARAKEET_MAX_UPLOAD_BYTES",
+        "services/parakeet/provider/mlx/api_server.py": "PARAKEET_MAX_UPLOAD_BYTES",
+    }
+    for relative, variable in contracts.items():
+        source = _text(relative)
+        compact = "".join(source.split())
+        assert f'_MAX_UPLOAD_BYTES=parse_positive_int("{variable}",' in compact
+        assert source.count(f'os.getenv("{variable}"') == 0
+        assert source.count("max_bytes=_MAX_UPLOAD_BYTES") == 2

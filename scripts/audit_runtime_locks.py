@@ -12,6 +12,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 _LOCAL_VERSION_RE = re.compile(r"^[A-Za-z0-9_.-]+==[^\s]+\+[^\s]+$")
+COMMAND_TIMEOUT_SECONDS = 300
 
 
 @dataclass(frozen=True)
@@ -178,15 +179,25 @@ def audit_spec(spec: AuditSpec, *, root: Path = ROOT) -> list[str]:
     with tempfile.TemporaryDirectory(prefix="atlas-pip-audit-") as raw_temp:
         audit_input = Path(raw_temp) / "requirements.txt"
         audit_input.write_text(public_requirements, encoding="utf-8")
-        result = subprocess.run(
-            [
-                "pip-audit", "-r", str(audit_input), "--no-deps", "--disable-pip",
-                "--strict", "--format", "json",
-            ],
-            cwd=root, capture_output=True, text=True, check=False,
-        )
+        try:
+            result = subprocess.run(
+                [
+                    "pip-audit", "-r", str(audit_input), "--no-deps", "--disable-pip",
+                    "--strict", "--format", "json",
+                ],
+                cwd=root, capture_output=True, text=True, check=False,
+                timeout=COMMAND_TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired:
+            return [
+                f"{display_name}: pip-audit timed out after "
+                f"{COMMAND_TIMEOUT_SECONDS} seconds"
+            ]
     if result.returncode not in {0, 1}:
-        return [f"{display_name}: pip-audit failed: {result.stderr.strip()}"]
+        return [
+            f"{display_name}: pip-audit failed (exit {result.returncode}; "
+            "subprocess output redacted)"
+        ]
     try:
         payload = json.loads(result.stdout)
     except json.JSONDecodeError as exc:
@@ -211,16 +222,26 @@ def audit_spec(spec: AuditSpec, *, root: Path = ROOT) -> list[str]:
 def audit_source_spec(spec: SourceSpec, *, root: Path = ROOT) -> list[str]:
     with tempfile.TemporaryDirectory(prefix="atlas-runtime-compile-") as raw_temp:
         lock = Path(raw_temp) / "requirements-locked.txt"
-        result = subprocess.run(
-            [
-                "uv", "pip", "compile", str(root / spec.requirements),
-                "--python-version", "3.12", "--python-platform", spec.python_platform,
-                "--no-header", "--output-file", str(lock),
-            ],
-            cwd=root, capture_output=True, text=True, check=False,
-        )
+        try:
+            result = subprocess.run(
+                [
+                    "uv", "pip", "compile", str(root / spec.requirements),
+                    "--python-version", "3.12", "--python-platform", spec.python_platform,
+                    "--no-header", "--output-file", str(lock),
+                ],
+                cwd=root, capture_output=True, text=True, check=False,
+                timeout=COMMAND_TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired:
+            return [
+                f"{spec.requirements}: uv compile timed out after "
+                f"{COMMAND_TIMEOUT_SECONDS} seconds"
+            ]
         if result.returncode != 0:
-            return [f"{spec.requirements}: uv compile failed: {result.stderr.strip()}"]
+            return [
+                f"{spec.requirements}: uv compile failed (exit {result.returncode}; "
+                "subprocess output redacted)"
+            ]
         return audit_spec(
             AuditSpec(
                 str(lock), spec.reviewed_advisories,
@@ -233,15 +254,25 @@ def audit_source_spec(spec: SourceSpec, *, root: Path = ROOT) -> list[str]:
 def audit_uv_project(project: str, *, root: Path = ROOT) -> list[str]:
     with tempfile.TemporaryDirectory(prefix="atlas-uv-export-") as raw_temp:
         lock = Path(raw_temp) / "requirements-locked.txt"
-        result = subprocess.run(
-            [
-                "uv", "export", "--project", str(root / project), "--locked",
-                "--no-hashes", "--no-emit-project", "--output-file", str(lock),
-            ],
-            cwd=root, capture_output=True, text=True, check=False,
-        )
+        try:
+            result = subprocess.run(
+                [
+                    "uv", "export", "--project", str(root / project), "--locked",
+                    "--no-hashes", "--no-emit-project", "--output-file", str(lock),
+                ],
+                cwd=root, capture_output=True, text=True, check=False,
+                timeout=COMMAND_TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired:
+            return [
+                f"{project}: uv export timed out after "
+                f"{COMMAND_TIMEOUT_SECONDS} seconds"
+            ]
         if result.returncode != 0:
-            return [f"{project}: uv export failed: {result.stderr.strip()}"]
+            return [
+                f"{project}: uv export failed (exit {result.returncode}; "
+                "subprocess output redacted)"
+            ]
         return audit_spec(
             AuditSpec(str(lock), display_name=f"{project}/uv.lock"),
             root=Path("/"),
@@ -249,19 +280,28 @@ def audit_uv_project(project: str, *, root: Path = ROOT) -> list[str]:
 
 
 def audit_npm_project(project: str, *, root: Path = ROOT) -> list[str]:
-    result = subprocess.run(
-        ["npm", "audit", "--package-lock-only", "--omit=dev", "--json"],
-        cwd=root / project, capture_output=True, text=True, check=False,
-    )
+    try:
+        result = subprocess.run(
+            ["npm", "audit", "--package-lock-only", "--omit=dev", "--json"],
+            cwd=root / project, capture_output=True, text=True, check=False,
+            timeout=COMMAND_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        return [
+            f"{project}: npm audit timed out after "
+            f"{COMMAND_TIMEOUT_SECONDS} seconds"
+        ]
     try:
         payload = json.loads(result.stdout)
     except json.JSONDecodeError as exc:
         return [f"{project}: invalid npm audit JSON: {exc}"]
     if result.returncode not in {0, 1}:
-        return [f"{project}: npm audit failed: {result.stderr.strip()}"]
+        return [
+            f"{project}: npm audit failed (exit {result.returncode}; "
+            "subprocess output redacted)"
+        ]
     if payload.get("error"):
-        message = payload.get("message") or payload["error"]
-        return [f"{project}: npm audit failed: {message}"]
+        return [f"{project}: npm audit registry request failed (details redacted)"]
     metadata = payload.get("metadata")
     vulnerabilities = metadata.get("vulnerabilities") if isinstance(metadata, dict) else None
     if not isinstance(vulnerabilities, dict) or not isinstance(
