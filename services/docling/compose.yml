@@ -28,6 +28,10 @@ services:
       DOCLING_TABLE_MODE: ${DOCLING_TABLE_MODE:-accurate}
       DOCLING_MAX_FILE_SIZE: ${DOCLING_MAX_FILE_SIZE:-52428800}
       DOCLING_CONCURRENCY: ${DOCLING_CONCURRENCY:-1}
+      DOCLING_API_TOKEN: ${DOCLING_API_TOKEN}
+      DOCLING_AUTH_MODE: ${DOCLING_AUTH_MODE:-required}
+      DOCLING_CORS_ORIGINS: ${DOCLING_CORS_ORIGINS:-}
+      DOCLING_INFERENCE_TIMEOUT_SECONDS: ${DOCLING_INFERENCE_TIMEOUT_SECONDS:-900}
       DOCLING_ENABLE_FORMULAS: ${DOCLING_ENABLE_FORMULAS:-true}
       DOCLING_ENABLE_CODE_BLOCKS: ${DOCLING_ENABLE_CODE_BLOCKS:-true}
       DOCLING_CHUNK_SIZE: ${DOCLING_CHUNK_SIZE:-512}
@@ -43,9 +47,10 @@ services:
       # (DOC_PROCESSOR_PORT=63051). Only exercised when a user has
       # hand-removed DOC_PROCESSOR_PORT from their .env — matches the
       # parakeet/speaches/chatterbox safety pattern.
-      - "${HOST_BIND_IP:-}${DOC_PROCESSOR_PORT:-63051}:8000"
+      - "${HOST_BIND_IP:-127.0.0.1:}${DOC_PROCESSOR_PORT:-63051}:8000"
     networks:
       - backend-network
+      - docling-lightrag-network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
@@ -62,6 +67,47 @@ services:
       - "com.${PROJECT_NAME}.category=ai"
       - "com.${PROJECT_NAME}.backend=cuda"
 
+  docling-lightrag-adapter:
+    build:
+      context: ./provider
+      dockerfile: adapter/Dockerfile
+      args:
+        BASE_IMAGE: ${DOCLING_ADAPTER_IMAGE:-python:3.12.13-slim}
+    image: ${PROJECT_NAME}-docling-lightrag-adapter:local
+    container_name: ${PROJECT_NAME}-docling-lightrag-adapter
+    restart: unless-stopped
+    deploy:
+      replicas: ${DOCLING_ADAPTER_SCALE:-0}
+    environment:
+      DOCLING_ADAPTER_UPSTREAM_ENDPOINT: ${DOCLING_ADAPTER_UPSTREAM_ENDPOINT:-}
+      DOCLING_API_TOKEN: ${DOCLING_API_TOKEN}
+      DOCLING_MAX_FILE_SIZE: ${DOCLING_MAX_FILE_SIZE:-52428800}
+      DOCLING_INFERENCE_TIMEOUT_SECONDS: ${DOCLING_INFERENCE_TIMEOUT_SECONDS:-900}
+      DOCLING_ADAPTER_MAX_JOBS: ${DOCLING_ADAPTER_MAX_JOBS:-2}
+      DOCLING_ADAPTER_RESULT_TTL_SECONDS: ${DOCLING_ADAPTER_RESULT_TTL_SECONDS:-900}
+    networks:
+      - docling-lightrag-network
+    extra_hosts:
+      - "host.docker.internal:${HOST_GATEWAY_IP}"
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "${LOG_MAX_SIZE:-10m}"
+        max-file: "${LOG_MAX_FILE:-3}"
+
 volumes:
   doc-processor-gpu-cache:
     name: ${PROJECT_NAME}-doc-gpu-cache
@@ -72,3 +118,8 @@ volumes:
   doc-processor-output:
     name: ${PROJECT_NAME}-doc-output
     driver: local
+
+networks:
+  docling-lightrag-network:
+    name: ${PROJECT_NAME}-docling-lightrag
+    driver: bridge

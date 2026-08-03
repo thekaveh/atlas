@@ -657,6 +657,25 @@ class ServiceConfig:
         else:  # disabled
             env_vars['DOCLING_GPU_SCALE'] = '0'
 
+        # The compatibility adapter is meaningful only for in-stack LightRAG:
+        # it has no published port and its dedicated network is intentionally
+        # unreachable from a host-managed LightRAG process.
+        lightrag_source = self.service_sources.get('LIGHTRAG_SOURCE', 'disabled')
+        adapter_enabled = (
+            source_value != 'disabled' and lightrag_source == 'container'
+        )
+        env_vars['DOCLING_ADAPTER_SCALE'] = '1' if adapter_enabled else '0'
+        if not adapter_enabled:
+            env_vars['DOCLING_ADAPTER_UPSTREAM_ENDPOINT'] = ''
+        elif source_value == 'docling-container-gpu':
+            env_vars['DOCLING_ADAPTER_UPSTREAM_ENDPOINT'] = (
+                'http://docling-gpu:8000/internal/lightrag/bundle'
+            )
+        else:  # docling-localhost
+            env_vars['DOCLING_ADAPTER_UPSTREAM_ENDPOINT'] = (
+                f'{env_vars["DOCLING_ENDPOINT"]}/internal/lightrag/bundle'
+            )
+
         return env_vars
 
     def _generate_hermes_config(self) -> Dict[str, str]:
@@ -1725,8 +1744,17 @@ class ServiceConfig:
                 env_vars['LIGHTRAG_RERANK_BINDING_HOST'] = ''
                 env_vars['LIGHTRAG_RERANK_BINDING'] = 'null'
 
-            # Docling — mirror DOCLING_ENDPOINT.
-            env_vars['LIGHTRAG_DOCLING_ENDPOINT'] = parent_vars.get('DOCLING_ENDPOINT', '')
+            # Docling — LightRAG speaks only to the isolated compatibility
+            # adapter and never receives the provider credential.
+            if (
+                lightrag_source == 'container'
+                and parent_vars.get('DOCLING_ADAPTER_SCALE') == '1'
+            ):
+                env_vars['LIGHTRAG_DOCLING_ENDPOINT'] = (
+                    'http://docling-lightrag-adapter:8000'
+                )
+            else:
+                env_vars['LIGHTRAG_DOCLING_ENDPOINT'] = ''
 
             # Supabase pgvector URI.
             supabase_source = sources.get('SUPABASE_SOURCE', 'container')

@@ -970,6 +970,51 @@ services:
     - /var/lib/redis
     - /var/lib/crawl4ai/outputs:mode=0700
     - /home/appuser/.cache
+  docling-lightrag-adapter:
+    build:
+      context: '{REPO_ROOT}/services/docling/provider'
+      dockerfile: adapter/Dockerfile
+      args:
+        BASE_IMAGE: python:3.12.13-slim
+    cap_drop:
+    - ALL
+    container_name: atlas-docling-lightrag-adapter
+    deploy:
+      replicas: 0
+    environment:
+      DOCLING_ADAPTER_MAX_JOBS: '2'
+      DOCLING_ADAPTER_RESULT_TTL_SECONDS: '900'
+      DOCLING_ADAPTER_UPSTREAM_ENDPOINT: ''
+      DOCLING_API_TOKEN: ''
+      DOCLING_INFERENCE_TIMEOUT_SECONDS: '900'
+      DOCLING_MAX_FILE_SIZE: '52428800'
+    extra_hosts:
+    - host.docker.internal=
+    healthcheck:
+      test:
+      - CMD
+      - python
+      - -c
+      - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health',
+        timeout=3)
+      timeout: 5s
+      interval: 30s
+      retries: 3
+      start_period: 10s
+    image: atlas-docling-lightrag-adapter:local
+    logging:
+      driver: json-file
+      options:
+        max-file: '3'
+        max-size: 10m
+    networks:
+      docling-lightrag-network: null
+    read_only: true
+    restart: unless-stopped
+    security_opt:
+    - no-new-privileges:true
+    tmpfs:
+    - /tmp:size=256m,mode=1777
   flower:
     command:
     - celery
@@ -1960,6 +2005,7 @@ services:
         max-size: 10m
     networks:
       backend-network: null
+      docling-lightrag-network: null
     ports:
     - mode: ingress
       target: 9621
@@ -4718,6 +4764,9 @@ services:
 networks:
   backend-network:
     name: atlas-network
+    driver: bridge
+  docling-lightrag-network:
+    name: atlas-docling-lightrag
     driver: bridge
 volumes:
   airflow-logs:

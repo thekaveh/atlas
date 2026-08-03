@@ -96,7 +96,10 @@ def create_app(
         "DOCLING_INFERENCE_TIMEOUT_SECONDS", 900
     )
     provider = upstream or DoclingUpstream(
-        endpoint=os.getenv("DOCLING_ENDPOINT", "http://docling-gpu:8000"),
+        endpoint=os.getenv(
+            "DOCLING_ADAPTER_UPSTREAM_ENDPOINT",
+            "http://docling-gpu:8000/internal/lightrag/bundle",
+        ),
         token=os.getenv("DOCLING_API_TOKEN", ""),
     )
 

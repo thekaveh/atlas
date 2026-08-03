@@ -22,7 +22,9 @@ class DoclingUpstream:
         transport: Any = None,
         retry_delay_seconds: float = 1.0,
     ) -> None:
-        self.endpoint = endpoint.rstrip("/") + "/internal/lightrag/bundle"
+        bundle_path = "/internal/lightrag/bundle"
+        endpoint = endpoint.rstrip("/")
+        self.endpoint = endpoint if endpoint.endswith(bundle_path) else endpoint + bundle_path
         self.token = token
         self.transport = transport
         self.retry_delay_seconds = retry_delay_seconds

@@ -6,12 +6,17 @@ docs: services/doc-processor/README.md  # docling is the docling-container-gpu /
 
 containers:
   - docling-gpu
+  - docling-lightrag-adapter
 
 images:
   - var: DOCLING_GPU_IMAGE
     default: "pytorch/pytorch:2.13.0-cuda12.6-cudnn9-runtime@sha256:6acf597eeb8e376a96580dde4952f37cc017fef732bb40bfc73f28f25e3f64b4"
     container: docling-gpu
     notes: "Used as BASE_IMAGE in doc-processor/gpu/Dockerfile."
+  - var: DOCLING_ADAPTER_IMAGE
+    default: "python:3.12.13-slim"
+    container: docling-lightrag-adapter
+    notes: "Minimal base image for the isolated LightRAG compatibility adapter."
 
 sources:
   var: DOC_PROCESSOR_SOURCE
@@ -68,6 +73,9 @@ env:
   - name: DOCLING_ADAPTER_SCALE
     auto_managed: true
     description: "Derived adapter replica count; one only when both LightRAG and Docling are enabled."
+  - name: DOCLING_ADAPTER_UPSTREAM_ENDPOINT
+    auto_managed: true
+    description: "Authenticated internal bundle route selected for the adapter; never exposed to LightRAG."
   - name: DOCLING_ENABLE_FORMULAS
     default: true
   - name: DOCLING_ENABLE_CODE_BLOCKS

@@ -199,7 +199,7 @@ async def test_upstream_authenticates_and_retries_capacity(monkeypatch, tmp_path
     source = tmp_path / "upload.pdf"
     source.write_bytes(b"document")
     upstream = adapter_app.DoclingUpstream(
-        endpoint="http://docling.test",
+        endpoint="http://docling.test/internal/lightrag/bundle",
         token="provider-token",
         transport=ASGITransport(app=upstream_app, raise_app_exceptions=False),
         retry_delay_seconds=0,
