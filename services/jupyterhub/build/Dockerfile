@@ -73,12 +73,13 @@ RUN pip install --no-cache-dir \
 # bundled separately from their respective pip packages (spacy / nltk) and are
 # required by ml-lab's text_classification-agnews + sentiment_classification-vader
 # Tier-A notebooks. ~14 MB total.
-RUN curl -fL \
+RUN SPACY_MODEL_WHEEL="/tmp/en_core_web_sm-${SPACY_MODEL_VERSION}-py3-none-any.whl" \
+ && curl -fL \
       "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-${SPACY_MODEL_VERSION}/en_core_web_sm-${SPACY_MODEL_VERSION}-py3-none-any.whl" \
-      -o /tmp/en_core_web_sm.whl \
- && echo "${SPACY_MODEL_SHA256}  /tmp/en_core_web_sm.whl" | sha256sum -c - \
- && pip install --no-cache-dir --no-deps /tmp/en_core_web_sm.whl \
- && rm /tmp/en_core_web_sm.whl \
+      -o "${SPACY_MODEL_WHEEL}" \
+ && echo "${SPACY_MODEL_SHA256}  ${SPACY_MODEL_WHEEL}" | sha256sum -c - \
+ && pip install --no-cache-dir --no-deps "${SPACY_MODEL_WHEEL}" \
+ && rm "${SPACY_MODEL_WHEEL}" \
  && mkdir -p /home/jovyan/nltk_data/sentiment \
  && curl -fL \
       "https://raw.githubusercontent.com/nltk/nltk_data/${NLTK_DATA_COMMIT}/packages/sentiment/vader_lexicon.zip" \
@@ -86,7 +87,7 @@ RUN curl -fL \
  && echo "${VADER_LEXICON_SHA256}  /home/jovyan/nltk_data/sentiment/vader_lexicon.zip" \
       | sha256sum -c -
 
-ENV PYTHONPATH=/home/jovyan:${PYTHONPATH}
+ENV PYTHONPATH=/home/jovyan
 
 # Install Almond Scala kernels for both Scala 2.13 and Scala 3. Each kernel
 # materialises ~150-200 MB of dependencies under ~/.cache/coursier; total

@@ -508,6 +508,10 @@ def test_jupyterhub_external_build_artifacts_are_digest_verified() -> None:
     assert dockerfile.count("sha256sum -c -") >= 3
     assert "python -m spacy download" not in dockerfile
     assert "nltk.download(" not in dockerfile
+    assert "/tmp/en_core_web_sm-${SPACY_MODEL_VERSION}-py3-none-any.whl" in dockerfile
+    assert "-o /tmp/en_core_web_sm.whl" not in dockerfile
+    assert "ENV PYTHONPATH=/home/jovyan\n" in dockerfile
+    assert "${PYTHONPATH}" not in dockerfile
     for argument in (
         "COURSIER_SHA256=",
         "SPACY_MODEL_SHA256=",
