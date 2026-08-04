@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 import signal
 import subprocess
@@ -249,12 +250,19 @@ def _validate_bounds(
     max_output_bytes: int,
     termination_grace_seconds: float,
 ) -> None:
-    if timeout_seconds <= 0:
-        raise ValueError("timeout_seconds must be positive")
-    if max_output_bytes <= 0:
-        raise ValueError("max_output_bytes must be positive")
-    if termination_grace_seconds <= 0:
-        raise ValueError("termination_grace_seconds must be positive")
+    if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
+        raise ValueError("timeout_seconds must be finite and positive")
+    if (
+        isinstance(max_output_bytes, bool)
+        or not isinstance(max_output_bytes, int)
+        or max_output_bytes <= 0
+    ):
+        raise ValueError("max_output_bytes must be a positive integer")
+    if (
+        not math.isfinite(termination_grace_seconds)
+        or termination_grace_seconds <= 0
+    ):
+        raise ValueError("termination_grace_seconds must be finite and positive")
     if os.name != "posix":
         raise CommandLaunchError(
             "bounded process-tree execution requires POSIX or Windows WSL"

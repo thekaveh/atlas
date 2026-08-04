@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 from collections import deque
 import contextlib
+import math
 import os
 import signal
 import sys
@@ -87,6 +88,21 @@ def _compose_timeout_seconds(args: list[str]) -> float | None:
     return _COMPOSE_UP_TIMEOUT_SECONDS
 
 
+def _require_positive_finite(name: str, value: float) -> None:
+    if not math.isfinite(value) or value <= 0:
+        raise ValueError(f"{name} must be finite and positive")
+
+
+def _validate_stream_bounds(
+    timeout_seconds: float | None, termination_grace_seconds: float
+) -> None:
+    if timeout_seconds is not None:
+        _require_positive_finite("timeout_seconds", timeout_seconds)
+    _require_positive_finite(
+        "termination_grace_seconds", termination_grace_seconds
+    )
+
+
 def _append_bounded_hint(
     captured: deque[tuple[str, int]], line: str, captured_bytes: int
 ) -> int:
@@ -114,8 +130,9 @@ async def _stop_process_tree(
     termination_grace_seconds: float = _PROCESS_TERMINATION_GRACE_SECONDS,
 ) -> None:
     """Stop an async subprocess and descendants, then reap the leader."""
-    if termination_grace_seconds <= 0:
-        raise ValueError("termination_grace_seconds must be positive")
+    _require_positive_finite(
+        "termination_grace_seconds", termination_grace_seconds
+    )
     try:
         if os.name == "posix":
             os.killpg(proc.pid, signal.SIGTERM)
@@ -206,10 +223,7 @@ async def _run_streamed_command(
     termination_grace_seconds: float = _PROCESS_TERMINATION_GRACE_SECONDS,
 ) -> int:
     """Stream one isolated command with a total deadline and safe cleanup."""
-    if timeout_seconds is not None and timeout_seconds <= 0:
-        raise ValueError("timeout_seconds must be positive")
-    if termination_grace_seconds <= 0:
-        raise ValueError("termination_grace_seconds must be positive")
+    _validate_stream_bounds(timeout_seconds, termination_grace_seconds)
     proc = await _launch_process(
         command,
         cwd=str(cwd),
@@ -220,7 +234,6 @@ async def _run_streamed_command(
         start_new_session=os.name == "posix",
         termination_grace_seconds=termination_grace_seconds,
     )
-
     async def consume() -> int:
         assert proc.stdout is not None
         async for raw in proc.stdout:
@@ -244,15 +257,21 @@ async def _run_streamed_command(
         )
         on_line(f"Command timed out after {timeout_seconds:.0f}s")
         return 124
-    except asyncio.CancelledError:
-        await _cancel_stream_and_stop(
-            stream_task, proc, termination_grace_seconds
-        )
+    except asyncio.CancelledError as cancellation:
+        try:
+            await _cancel_stream_and_stop(
+                stream_task, proc, termination_grace_seconds
+            )
+        except BaseException as cleanup_error:
+            raise cancellation from cleanup_error
         raise
-    except BaseException:
-        await _cancel_stream_and_stop(
-            stream_task, proc, termination_grace_seconds
-        )
+    except BaseException as primary_error:
+        try:
+            await _cancel_stream_and_stop(
+                stream_task, proc, termination_grace_seconds
+            )
+        except BaseException as cleanup_error:
+            raise primary_error from cleanup_error
         raise
 
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import deque
+import math
 import os
 import signal
 import subprocess
@@ -42,6 +43,38 @@ def test_run_with_deadline_rejects_unbounded_timeout() -> None:
 def test_run_with_deadline_rejects_unbounded_output_limit() -> None:
     with pytest.raises(ValueError, match="positive"):
         process_runner.run_with_deadline(["unused"], max_output_bytes=0)
+
+
+@pytest.mark.parametrize(
+    ("bound_name", "value"),
+    [
+        ("timeout_seconds", math.nan),
+        ("timeout_seconds", math.inf),
+        ("termination_grace_seconds", math.nan),
+        ("termination_grace_seconds", math.inf),
+    ],
+)
+def test_run_with_deadline_rejects_nonfinite_bounds_before_launch(
+    monkeypatch, bound_name: str, value: float
+) -> None:
+    def unexpected_launch(*_args, **_kwargs):
+        raise AssertionError("non-finite bounds must fail before launch")
+
+    monkeypatch.setattr(process_runner.subprocess, "Popen", unexpected_launch)
+    with pytest.raises(ValueError, match=bound_name):
+        process_runner.run_with_deadline(["unused"], **{bound_name: value})
+
+
+@pytest.mark.parametrize("value", [math.nan, math.inf, 1.5, True])
+def test_run_with_deadline_rejects_invalid_output_limit_before_launch(
+    monkeypatch, value
+) -> None:
+    def unexpected_launch(*_args, **_kwargs):
+        raise AssertionError("invalid output limits must fail before launch")
+
+    monkeypatch.setattr(process_runner.subprocess, "Popen", unexpected_launch)
+    with pytest.raises(ValueError, match="max_output_bytes"):
+        process_runner.run_with_deadline(["unused"], max_output_bytes=value)
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX process-group contract")
@@ -255,6 +288,148 @@ def test_streamed_command_rejects_invalid_grace_before_launch(
                 timeout_seconds=1,
                 termination_grace_seconds=0,
             )
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.parametrize(
+    ("bound_name", "value"),
+    [
+        ("timeout_seconds", math.nan),
+        ("timeout_seconds", math.inf),
+        ("termination_grace_seconds", math.nan),
+        ("termination_grace_seconds", math.inf),
+    ],
+)
+def test_streamed_command_rejects_nonfinite_bounds_before_launch(
+    monkeypatch, tmp_path: Path, bound_name: str, value: float
+) -> None:
+    from ui.textual.screens import wizard_screen
+
+    async def unexpected_launch(*_args, **_kwargs):
+        raise AssertionError("non-finite bounds must fail before launch")
+
+    monkeypatch.setattr(wizard_screen, "_launch_process", unexpected_launch)
+    kwargs = {
+        "timeout_seconds": 1.0,
+        "termination_grace_seconds": 0.05,
+        bound_name: value,
+    }
+
+    async def exercise() -> None:
+        with pytest.raises(ValueError, match=bound_name):
+            await wizard_screen._run_streamed_command(
+                ["unused"],
+                cwd=tmp_path,
+                env=os.environ.copy(),
+                on_line=lambda _line: None,
+                **kwargs,
+            )
+
+    asyncio.run(exercise())
+
+
+def test_streamed_cancellation_preserves_cancellation_when_cleanup_fails(
+    monkeypatch, tmp_path: Path
+) -> None:
+    from ui.textual.screens import wizard_screen
+
+    started = asyncio.Event()
+    never = asyncio.Event()
+
+    class WaitingStdout:
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            started.set()
+            await never.wait()
+            raise StopAsyncIteration
+
+    class FakeProcess:
+        stdout = WaitingStdout()
+
+        async def wait(self):
+            await never.wait()
+            return 0
+
+    async def fake_launch(*_args, **_kwargs):
+        return FakeProcess()
+
+    async def failed_cleanup(*_args, **_kwargs):
+        raise OSError("simulated cleanup failure")
+
+    monkeypatch.setattr(wizard_screen, "_launch_process", fake_launch)
+    monkeypatch.setattr(wizard_screen, "_stop_process_tree", failed_cleanup)
+
+    async def exercise() -> None:
+        task = asyncio.create_task(
+            wizard_screen._run_streamed_command(
+                ["unused"],
+                cwd=tmp_path,
+                env=os.environ.copy(),
+                on_line=lambda _line: None,
+                timeout_seconds=None,
+            )
+        )
+        await started.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError) as raised:
+            await task
+        # Python 3.10's Task boundary replaces CancelledError and drops its
+        # explicit cause; 3.11+ preserves the cleanup diagnostic.
+        if sys.version_info >= (3, 11):
+            assert isinstance(raised.value.__cause__, OSError)
+
+    asyncio.run(exercise())
+
+
+def test_streamed_sink_failure_remains_primary_when_cleanup_fails(
+    monkeypatch, tmp_path: Path
+) -> None:
+    from ui.textual.screens import wizard_screen
+
+    class OneLineStdout:
+        def __init__(self):
+            self.sent = False
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            if self.sent:
+                raise StopAsyncIteration
+            self.sent = True
+            return b"trigger\n"
+
+    class FakeProcess:
+        stdout = OneLineStdout()
+
+        async def wait(self):
+            return 0
+
+    async def fake_launch(*_args, **_kwargs):
+        return FakeProcess()
+
+    async def failed_cleanup(*_args, **_kwargs):
+        raise OSError("simulated cleanup failure")
+
+    def fail_sink(_line: str) -> None:
+        raise RuntimeError("simulated sink failure")
+
+    monkeypatch.setattr(wizard_screen, "_launch_process", fake_launch)
+    monkeypatch.setattr(wizard_screen, "_stop_process_tree", failed_cleanup)
+
+    async def exercise() -> None:
+        with pytest.raises(RuntimeError, match="sink failure") as raised:
+            await wizard_screen._run_streamed_command(
+                ["unused"],
+                cwd=tmp_path,
+                env=os.environ.copy(),
+                on_line=fail_sink,
+                timeout_seconds=1,
+            )
+        assert isinstance(raised.value.__cause__, OSError)
 
     asyncio.run(exercise())
 
