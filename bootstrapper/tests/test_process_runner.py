@@ -363,6 +363,30 @@ def test_run_with_deadline_preserves_sigterm_when_launch_fails(monkeypatch) -> N
     assert raised.value.code == 128 + signal.SIGTERM
 
 
+@pytest.mark.skipif(os.name != "posix", reason="POSIX signal contract")
+def test_run_with_deadline_preserves_sigterm_during_final_join(monkeypatch) -> None:
+    real_join = process_runner._Capture.join
+
+    def interrupted_join(capture):
+        real_join(capture)
+        os.kill(os.getpid(), signal.SIGTERM)
+
+    monkeypatch.setattr(process_runner._Capture, "join", interrupted_join)
+
+    with pytest.raises(SystemExit) as raised:
+        process_runner.run_with_deadline([sys.executable, "-c", "pass"])
+
+    assert raised.value.code == 128 + signal.SIGTERM
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX signal contract")
+def test_sigterm_guard_does_not_mask_active_exception() -> None:
+    with pytest.raises(RuntimeError, match="primary failure"):
+        with process_runner._SigtermGuard():
+            os.kill(os.getpid(), signal.SIGTERM)
+            raise RuntimeError("primary failure")
+
+
 def test_native_windows_fails_closed_before_launch(monkeypatch) -> None:
     monkeypatch.setattr(process_runner.os, "name", "nt")
 

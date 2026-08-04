@@ -150,9 +150,11 @@ class _SigtermGuard:
             signal.signal(signal.SIGTERM, self._interrupt)
         return self
 
-    def __exit__(self, *_exc_info) -> None:
+    def __exit__(self, exc_type, _exc, _traceback) -> None:
         if self.previous is not None:
             signal.signal(signal.SIGTERM, self.previous)
+        if self.pending and exc_type is None:
+            raise _CommandInterrupted(self.pending[0])
 
     def _interrupt(self, signum, _frame) -> None:
         if not self.pending:
