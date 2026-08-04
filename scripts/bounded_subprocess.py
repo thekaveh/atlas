@@ -113,9 +113,20 @@ def main() -> int:
     except KeyboardInterrupt:
         print(f"{args.label} interrupted (subprocess details redacted)")
         return 130
+    except Exception:
+        print(
+            f"{args.label} failed "
+            "(internal subprocess error; details redacted)"
+        )
+        return 1
     if result.returncode != 0:
-        print(redacted_failure(args.label, result.returncode))
-        return result.returncode
+        returncode = (
+            128 - result.returncode
+            if result.returncode < 0
+            else result.returncode
+        )
+        print(redacted_failure(args.label, returncode))
+        return returncode
     if result.stdout:
         print(result.stdout, end="")
     if args.forward_stderr and result.stderr:

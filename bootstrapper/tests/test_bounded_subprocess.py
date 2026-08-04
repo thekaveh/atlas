@@ -482,6 +482,43 @@ def test_main_redacts_nonzero_failure(monkeypatch, capsys):
     assert "secret-token" not in output
 
 
+def test_main_redacts_unexpected_runner_failure(monkeypatch, capsys):
+    def fail_safely(*_args, **_kwargs):
+        raise OSError("secret-token")
+
+    monkeypatch.setattr(bounded_subprocess, "run_bounded", fail_safely)
+
+    assert _call_main(
+        monkeypatch,
+        ["--label", "inventory", "--", "unused"],
+    ) == 1
+    captured = capsys.readouterr()
+    assert captured.out == (
+        "inventory failed (internal subprocess error; details redacted)\n"
+    )
+    assert captured.err == ""
+    assert "secret-token" not in captured.out
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX signal contract")
+def test_main_normalizes_signal_terminated_child_status(monkeypatch, capsys):
+    assert _call_main(
+        monkeypatch,
+        [
+            "--label",
+            "killed",
+            "--",
+            sys.executable,
+            "-c",
+            "import os,signal; os.kill(os.getpid(), signal.SIGKILL)",
+        ],
+    ) == 128 + signal.SIGKILL
+
+    assert capsys.readouterr().out == (
+        "killed failed (exit 137; subprocess output redacted)\n"
+    )
+
+
 def test_main_reports_timeout_without_command_details(monkeypatch, capsys):
     assert _call_main(
         monkeypatch,
