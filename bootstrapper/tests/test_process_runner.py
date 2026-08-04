@@ -161,6 +161,115 @@ def test_run_with_deadline_propagates_reader_failure_and_cleans_up(
         assert isinstance(raised.value.__cause__, RuntimeError)
 
 
+def test_run_with_deadline_preserves_second_reader_start_failure(
+    monkeypatch,
+) -> None:
+    cleanup_calls: list[object] = []
+    created_threads: list[object] = []
+
+    class FakeThread:
+        def __init__(self, **_kwargs):
+            self.number = len(created_threads) + 1
+            self.started = False
+            self.joined = False
+            created_threads.append(self)
+
+        def start(self):
+            if self.number == 2:
+                raise RuntimeError("simulated second reader start failure")
+            self.started = True
+
+        def join(self, **_kwargs):
+            if not self.started:
+                raise RuntimeError("cannot join thread before it is started")
+            self.joined = True
+
+        def is_alive(self):
+            return False
+
+    class FakeProcess:
+        pid = 12345
+        stdout = io.BytesIO()
+        stderr = io.BytesIO()
+        returncode = None
+
+    process = FakeProcess()
+
+    monkeypatch.setattr(
+        process_runner.subprocess, "Popen", lambda *_args, **_kwargs: process
+    )
+    monkeypatch.setattr(process_runner.threading, "Thread", FakeThread)
+
+    def fake_cleanup(stopped_process, **_kwargs):
+        cleanup_calls.append(stopped_process)
+        stopped_process.returncode = -signal.SIGKILL
+
+    monkeypatch.setattr(process_runner, "_stop_and_reap", fake_cleanup)
+
+    with pytest.raises(RuntimeError, match="second reader start failure"):
+        process_runner.run_with_deadline(["unused"])
+
+    assert cleanup_calls == [process]
+    assert len(created_threads) == 2
+    assert created_threads[0].joined is True
+    assert created_threads[1].joined is False
+
+
+def test_registered_cleanup_attempts_every_process_after_failure(
+    monkeypatch,
+) -> None:
+    attempts: list[int] = []
+
+    class FakeProcess:
+        def __init__(self, pid: int):
+            self.pid = pid
+
+    first = FakeProcess(1)
+    second = FakeProcess(2)
+    monkeypatch.setattr(
+        process_runner,
+        "_ACTIVE_PROCESSES",
+        {
+            first.pid: process_runner._ActiveProcess(first, 0.05),
+            second.pid: process_runner._ActiveProcess(second, 0.05),
+        },
+    )
+
+    def fake_cleanup(process, **_kwargs):
+        attempts.append(process.pid)
+        if process.pid == first.pid:
+            raise OSError("simulated first cleanup failure")
+
+    monkeypatch.setattr(process_runner, "_stop_and_reap", fake_cleanup)
+
+    errors = process_runner._stop_registered_processes()
+
+    assert attempts == [first.pid, second.pid]
+    assert len(errors) == 1
+    assert isinstance(errors[0], OSError)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX signal contract")
+def test_sigterm_cleanup_reports_failures_and_preserves_exit(monkeypatch) -> None:
+    cleanup_error = OSError("simulated registered cleanup failure")
+    reported: list[BaseException] = []
+    monkeypatch.setattr(
+        process_runner, "_stop_registered_processes", lambda: [cleanup_error]
+    )
+    monkeypatch.setattr(
+        process_runner,
+        "_report_registered_cleanup_failures",
+        lambda errors: reported.extend(errors),
+    )
+    with process_runner.cleanup_active_processes_on_sigterm():
+        handler = signal.getsignal(signal.SIGTERM)
+        with pytest.raises(SystemExit) as raised:
+            handler(signal.SIGTERM, None)
+
+    assert raised.value.code == 128 + signal.SIGTERM
+    assert reported == [cleanup_error]
+
+
 @pytest.mark.skipif(os.name != "posix", reason="POSIX process-group contract")
 def test_run_with_deadline_kills_term_resistant_descendant(tmp_path: Path) -> None:
     marker = tmp_path / "escaped-descendant"

@@ -67,14 +67,30 @@ def _stop_and_reap(
         process.wait()
 
 
-def _stop_registered_processes() -> None:
+def _stop_registered_processes() -> list[BaseException]:
     with _ACTIVE_PROCESSES_LOCK:
         active = tuple(_ACTIVE_PROCESSES.values())
+    errors: list[BaseException] = []
     for item in active:
-        _stop_and_reap(
-            item.process,
-            termination_grace_seconds=item.termination_grace_seconds,
-        )
+        try:
+            _stop_and_reap(
+                item.process,
+                termination_grace_seconds=item.termination_grace_seconds,
+            )
+        except BaseException as exc:
+            errors.append(exc)
+    return errors
+
+
+def _report_registered_cleanup_failures(errors: list[BaseException]) -> None:
+    for error in errors:
+        try:
+            print(
+                f"Process cleanup failed during SIGTERM: {error!r}",
+                file=sys.stderr,
+            )
+        except BaseException:
+            pass
 
 
 @contextmanager
@@ -88,7 +104,7 @@ def cleanup_active_processes_on_sigterm() -> Iterator[None]:
     previous = signal.getsignal(signal.SIGTERM)
 
     def cleanup(signum, frame):
-        _stop_registered_processes()
+        _report_registered_cleanup_failures(_stop_registered_processes())
         if callable(previous):
             previous(signum, frame)
             return
@@ -176,7 +192,7 @@ class _Capture:
         assert process.stderr is not None
         state = [0]
         lock = threading.Lock()
-        self.readers = [
+        readers = [
             threading.Thread(
                 target=_capture_stream,
                 args=(stream, chunks),
@@ -195,8 +211,10 @@ class _Capture:
                 (process.stderr, self.stderr_chunks),
             )
         ]
-        for reader in self.readers:
+        self.readers = []
+        for reader in readers:
             reader.start()
+            self.readers.append(reader)
 
     def join(self) -> None:
         for reader in self.readers:
