@@ -563,6 +563,32 @@ def test_sigterm_guard_serializes_signal_during_handler_replacement() -> None:
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX signal contract")
+def test_sigterm_guard_remembers_reentrant_owner_across_early_drains() -> None:
+    received: list[str] = []
+
+    def newer_handler(_signum, _frame):
+        received.append("newer")
+
+    def old_handler(_signum, _frame):
+        received.append("old")
+        os.kill(os.getpid(), signal.SIGTERM)
+        signal.signal(signal.SIGTERM, newer_handler)
+
+    previous = signal.signal(signal.SIGTERM, old_handler)
+    try:
+        with process_runner._SigtermGuard() as guard:
+            os.kill(os.getpid(), signal.SIGTERM)
+            guard.raise_if_pending()
+            os.kill(os.getpid(), signal.SIGTERM)
+            guard.raise_if_pending()
+
+        assert received == ["old", "newer", "newer"]
+        assert signal.getsignal(signal.SIGTERM) is newer_handler
+    finally:
+        signal.signal(signal.SIGTERM, previous)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX signal contract")
 def test_sigterm_guard_serializes_signal_during_early_owner_lookup(
     monkeypatch,
 ) -> None:

@@ -155,10 +155,12 @@ class _SigtermGuard:
         self.pending: list[tuple[int, FrameType | None]] = []
         self.previous = None
         self.installed = None
+        self.relay_target = None
 
     def __enter__(self) -> _SigtermGuard:
         if threading.current_thread() is threading.main_thread():
             self.previous = signal.getsignal(signal.SIGTERM)
+            self.relay_target = self.previous
             self.installed = self._interrupt
             signal.signal(signal.SIGTERM, self.installed)
         return self
@@ -192,17 +194,18 @@ class _SigtermGuard:
 
     def _drain_pending(self, *, finish: bool) -> None:
         started_as_owner = signal.getsignal(signal.SIGTERM) is self.installed
-        relay_target = self.previous
         errors: list[BaseException] = []
         while True:
             while self.pending:
                 if signal.getsignal(signal.SIGTERM) is not self.installed:
-                    relay_target = signal.signal(signal.SIGTERM, self.installed)
-                self._record_dispatch_error(relay_target, errors)
+                    self.relay_target = signal.signal(
+                        signal.SIGTERM, self.installed
+                    )
+                self._record_dispatch_error(self.relay_target, errors)
             if signal.getsignal(signal.SIGTERM) is self.installed and (
                 finish or not started_as_owner
             ):
-                signal.signal(signal.SIGTERM, relay_target)
+                signal.signal(signal.SIGTERM, self.relay_target)
             if not self.pending:
                 break
         for secondary_error in errors[1:]:
