@@ -235,6 +235,30 @@ def test_compose_timeout_policy_keeps_follow_logs_cancellation_driven() -> None:
     assert _compose_timeout_seconds(["logs", "-f"]) is None
 
 
+def test_streamed_command_rejects_invalid_grace_before_launch(
+    monkeypatch, tmp_path: Path
+) -> None:
+    from ui.textual.screens import wizard_screen
+
+    async def unexpected_launch(*_args, **_kwargs):
+        raise AssertionError("invalid cleanup bounds must fail before launch")
+
+    monkeypatch.setattr(wizard_screen, "_launch_process", unexpected_launch)
+
+    async def exercise() -> None:
+        with pytest.raises(ValueError, match="termination_grace_seconds"):
+            await wizard_screen._run_streamed_command(
+                ["unused"],
+                cwd=tmp_path,
+                env=os.environ.copy(),
+                on_line=lambda _line: None,
+                timeout_seconds=1,
+                termination_grace_seconds=0,
+            )
+
+    asyncio.run(exercise())
+
+
 def test_failure_hint_buffer_has_a_byte_ceiling() -> None:
     from ui.textual.screens.wizard_screen import (
         _FAILURE_HINT_BUFFER_BYTES,

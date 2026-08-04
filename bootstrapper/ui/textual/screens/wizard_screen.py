@@ -208,6 +208,8 @@ async def _run_streamed_command(
     """Stream one isolated command with a total deadline and safe cleanup."""
     if timeout_seconds is not None and timeout_seconds <= 0:
         raise ValueError("timeout_seconds must be positive")
+    if termination_grace_seconds <= 0:
+        raise ValueError("termination_grace_seconds must be positive")
     proc = await _launch_process(
         command,
         cwd=str(cwd),
