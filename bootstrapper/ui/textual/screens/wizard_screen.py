@@ -89,7 +89,7 @@ def _compose_timeout_seconds(args: list[str]) -> float | None:
 
 
 def _require_positive_finite(name: str, value: object) -> None:
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
+    if type(value) not in (int, float):
         raise ValueError(f"{name} must be a finite positive int or float")
     try:
         finite = math.isfinite(float(value))

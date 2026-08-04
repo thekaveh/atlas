@@ -5,6 +5,7 @@ from collections import deque
 from decimal import Decimal
 from fractions import Fraction
 import math
+import io
 import os
 import signal
 import subprocess
@@ -18,6 +19,14 @@ from core import process_runner
 
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+class _IntSubclass(int):
+    pass
+
+
+class _FloatSubclass(float):
+    pass
 
 
 def test_run_with_deadline_starts_isolated_session(monkeypatch) -> None:
@@ -58,6 +67,8 @@ def test_run_with_deadline_rejects_unbounded_output_limit() -> None:
         ("timeout_seconds", b"1"),
         ("timeout_seconds", 1 + 0j),
         ("timeout_seconds", Fraction(1, 1)),
+        ("timeout_seconds", _IntSubclass(1)),
+        ("timeout_seconds", _FloatSubclass(1.0)),
         pytest.param("timeout_seconds", 10**10000, id="timeout-huge-int"),
         ("termination_grace_seconds", math.nan),
         ("termination_grace_seconds", math.inf),
@@ -67,6 +78,8 @@ def test_run_with_deadline_rejects_unbounded_output_limit() -> None:
         ("termination_grace_seconds", b"1"),
         ("termination_grace_seconds", 1 + 0j),
         ("termination_grace_seconds", Fraction(1, 1)),
+        ("termination_grace_seconds", _IntSubclass(1)),
+        ("termination_grace_seconds", _FloatSubclass(1.0)),
         pytest.param(
             "termination_grace_seconds", 10**10000, id="grace-huge-int"
         ),
@@ -85,7 +98,14 @@ def test_run_with_deadline_rejects_nonfinite_bounds_before_launch(
 
 @pytest.mark.parametrize(
     "value",
-    [math.nan, math.inf, 1.5, True, pytest.param(10**10000, id="huge-int")],
+    [
+        math.nan,
+        math.inf,
+        1.5,
+        True,
+        _IntSubclass(1),
+        pytest.param(10**10000, id="huge-int"),
+    ],
 )
 def test_run_with_deadline_rejects_invalid_output_limit_before_launch(
     monkeypatch, value
@@ -96,6 +116,49 @@ def test_run_with_deadline_rejects_invalid_output_limit_before_launch(
     monkeypatch.setattr(process_runner.subprocess, "Popen", unexpected_launch)
     with pytest.raises(ValueError, match="max_output_bytes"):
         process_runner.run_with_deadline(["unused"], max_output_bytes=value)
+
+
+@pytest.mark.parametrize("cleanup_fails", [False, True])
+def test_run_with_deadline_propagates_reader_failure_and_cleans_up(
+    monkeypatch, cleanup_fails: bool
+) -> None:
+    cleanup_calls: list[object] = []
+
+    class FailingStream:
+        def read(self, _size: int) -> bytes:
+            raise OSError("simulated pipe read failure")
+
+    class FakeProcess:
+        pid = 12345
+        stdout = FailingStream()
+        stderr = io.BytesIO()
+        returncode = None
+
+        def poll(self):
+            return self.returncode
+
+    process = FakeProcess()
+
+    def fake_popen(*_args, **_kwargs):
+        return process
+
+    def fake_cleanup(stopped_process, **_kwargs):
+        cleanup_calls.append(stopped_process)
+        if cleanup_fails:
+            raise RuntimeError("simulated cleanup failure")
+        stopped_process.returncode = -signal.SIGKILL
+
+    monkeypatch.setattr(process_runner.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(process_runner, "_stop_and_reap", fake_cleanup)
+
+    with pytest.raises(OSError, match="pipe read failure") as raised:
+        process_runner.run_with_deadline(
+            ["unused"], timeout_seconds=0.05, termination_grace_seconds=0.05
+        )
+
+    assert cleanup_calls == [process]
+    if cleanup_fails:
+        assert isinstance(raised.value.__cause__, RuntimeError)
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX process-group contract")
@@ -324,6 +387,8 @@ def test_streamed_command_rejects_invalid_grace_before_launch(
         ("timeout_seconds", b"1"),
         ("timeout_seconds", 1 + 0j),
         ("timeout_seconds", Fraction(1, 1)),
+        ("timeout_seconds", _IntSubclass(1)),
+        ("timeout_seconds", _FloatSubclass(1.0)),
         pytest.param("timeout_seconds", 10**10000, id="timeout-huge-int"),
         ("termination_grace_seconds", math.nan),
         ("termination_grace_seconds", math.inf),
@@ -333,6 +398,8 @@ def test_streamed_command_rejects_invalid_grace_before_launch(
         ("termination_grace_seconds", b"1"),
         ("termination_grace_seconds", 1 + 0j),
         ("termination_grace_seconds", Fraction(1, 1)),
+        ("termination_grace_seconds", _IntSubclass(1)),
+        ("termination_grace_seconds", _FloatSubclass(1.0)),
         pytest.param(
             "termination_grace_seconds", 10**10000, id="grace-huge-int"
         ),
@@ -375,6 +442,8 @@ def test_streamed_command_rejects_nonfinite_bounds_before_launch(
         "1",
         b"1",
         1 + 0j,
+        _IntSubclass(1),
+        _FloatSubclass(1.0),
         pytest.param(10**10000, id="huge-int"),
     ],
 )

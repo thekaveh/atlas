@@ -137,22 +137,29 @@ def _capture_stream(
     state: list[int],
     lock: threading.Lock,
     overflow: threading.Event,
+    failure: threading.Event,
+    errors: list[BaseException],
     max_output_bytes: int,
 ) -> None:
-    while not overflow.is_set():
-        chunk = stream.read(64 * 1024)
-        if not chunk:
-            return
+    try:
+        while not overflow.is_set() and not failure.is_set():
+            chunk = stream.read(64 * 1024)
+            if not chunk:
+                return
+            with lock:
+                remaining = max_output_bytes - state[0]
+                if remaining <= 0:
+                    overflow.set()
+                    return
+                chunks.append(chunk[:remaining])
+                state[0] += min(len(chunk), remaining)
+                if len(chunk) > remaining:
+                    overflow.set()
+                    return
+    except BaseException as exc:
         with lock:
-            remaining = max_output_bytes - state[0]
-            if remaining <= 0:
-                overflow.set()
-                return
-            chunks.append(chunk[:remaining])
-            state[0] += min(len(chunk), remaining)
-            if len(chunk) > remaining:
-                overflow.set()
-                return
+            errors.append(exc)
+            failure.set()
 
 
 @dataclass
@@ -160,6 +167,8 @@ class _Capture:
     stdout_chunks: list[bytes] = field(default_factory=list)
     stderr_chunks: list[bytes] = field(default_factory=list)
     overflow: threading.Event = field(default_factory=threading.Event)
+    failure: threading.Event = field(default_factory=threading.Event)
+    errors: list[BaseException] = field(default_factory=list)
     readers: list[threading.Thread] = field(default_factory=list)
 
     def start(self, process: subprocess.Popen[bytes], max_output_bytes: int) -> None:
@@ -175,6 +184,8 @@ class _Capture:
                     "state": state,
                     "lock": lock,
                     "overflow": self.overflow,
+                    "failure": self.failure,
+                    "errors": self.errors,
                     "max_output_bytes": max_output_bytes,
                 },
                 daemon=True,
@@ -194,11 +205,16 @@ class _Capture:
     def completed(
         self, command: Sequence[str], returncode: int
     ) -> subprocess.CompletedProcess[str]:
+        self.raise_if_failed()
         if self.overflow.is_set():
             raise CommandOutputTooLarge
         stdout = b"".join(self.stdout_chunks).decode("utf-8", errors="replace")
         stderr = b"".join(self.stderr_chunks).decode("utf-8", errors="replace")
         return subprocess.CompletedProcess(command, returncode, stdout, stderr)
+
+    def raise_if_failed(self) -> None:
+        if self.failure.is_set():
+            raise self.errors[0]
 
 
 def _launch_registered(
@@ -239,6 +255,7 @@ def _wait_for_completion(
     deadline = time.monotonic() + timeout_seconds
     while process.poll() is None or any(reader.is_alive() for reader in capture.readers):
         guard.raise_if_pending()
+        capture.raise_if_failed()
         if capture.overflow.is_set():
             raise CommandOutputTooLarge
         if time.monotonic() >= deadline:
@@ -253,8 +270,7 @@ def _validate_bounds(
 ) -> None:
     _require_positive_finite_real("timeout_seconds", timeout_seconds)
     if (
-        isinstance(max_output_bytes, bool)
-        or not isinstance(max_output_bytes, int)
+        type(max_output_bytes) is not int
         or max_output_bytes <= 0
         or max_output_bytes >= sys.maxsize
     ):
@@ -265,7 +281,7 @@ def _validate_bounds(
 
 
 def _require_positive_finite_real(name: str, value: object) -> None:
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
+    if type(value) not in (int, float):
         raise ValueError(f"{name} must be a finite positive int or float")
     try:
         finite = math.isfinite(float(value))
@@ -310,12 +326,15 @@ def run_with_deadline(
             _wait_for_completion(process, capture, guard, command, timeout_seconds)
             _signal_process_tree(process, signal.SIGKILL)
             guard.raise_if_pending()
-        except BaseException:
+        except BaseException as primary_error:
             if process is not None:
-                _stop_and_reap(
-                    process,
-                    termination_grace_seconds=termination_grace_seconds,
-                )
+                try:
+                    _stop_and_reap(
+                        process,
+                        termination_grace_seconds=termination_grace_seconds,
+                    )
+                except BaseException as cleanup_error:
+                    raise primary_error from cleanup_error
             raise
         finally:
             if process is not None:
