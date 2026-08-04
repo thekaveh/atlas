@@ -104,6 +104,16 @@ def _report_capture_join_failure(error: BaseException) -> None:
         pass
 
 
+def _report_signal_dispatch_failure(error: BaseException) -> None:
+    try:
+        print(
+            f"Deferred SIGTERM dispatch failed: {error!r}",
+            file=sys.stderr,
+        )
+    except BaseException:
+        pass
+
+
 def _join_capture_after_failure(capture: _Capture) -> None:
     try:
         capture.join()
@@ -161,8 +171,8 @@ class _SigtermGuard:
             return
         try:
             self._dispatch_pending()
-        except BaseException:
-            pass
+        except BaseException as dispatch_error:
+            _report_signal_dispatch_failure(dispatch_error)
 
     def _interrupt(self, signum: int, frame: FrameType | None) -> None:
         if not self.pending:

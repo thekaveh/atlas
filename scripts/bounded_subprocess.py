@@ -4,17 +4,23 @@ from __future__ import annotations
 
 import argparse
 import os
-import signal
 import subprocess
 import sys
-import threading
-import time
 from pathlib import Path
-from typing import BinaryIO, Mapping, Sequence
+from typing import Mapping, Sequence
+
+try:
+    from bootstrapper.core import process_runner as _process_runner
+except ModuleNotFoundError as exc:
+    if exc.name != "bootstrapper":
+        raise
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from bootstrapper.core import process_runner as _process_runner
 
 
 DEFAULT_TIMEOUT_SECONDS = 300
 DEFAULT_MAX_OUTPUT_BYTES = 16 * 1024 * 1024
+TERMINATION_GRACE_SECONDS = 0.05
 
 
 class CommandTimedOut(RuntimeError):
@@ -29,52 +35,7 @@ class CommandOutputTooLarge(RuntimeError):
     """A bounded subprocess exceeded its combined output allowance."""
 
 
-class _CommandInterrupted(SystemExit):
-    def __init__(self, signum: int):
-        self.signum = signum
-        super().__init__(128 + signum)
-
-
-def _terminate_process_tree(process: subprocess.Popen[bytes]) -> None:
-    """Force-stop the bounded command and descendants without leaking output."""
-    try:
-        os.killpg(process.pid, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
-
-
-def _capture_stream(
-    stream: BinaryIO,
-    chunks: list[bytes],
-    *,
-    state: list[int],
-    lock: threading.Lock,
-    overflow: threading.Event,
-    max_output_bytes: int,
-) -> None:
-    while not overflow.is_set():
-        chunk = stream.read(64 * 1024)
-        if not chunk:
-            return
-        with lock:
-            remaining = max_output_bytes - state[0]
-            if remaining <= 0:
-                overflow.set()
-                return
-            chunks.append(chunk[:remaining])
-            state[0] += min(len(chunk), remaining)
-            if len(chunk) > remaining:
-                overflow.set()
-                return
-
-
-def _stop_and_reap(process: subprocess.Popen[bytes]) -> None:
-    _terminate_process_tree(process)
-    try:
-        process.wait(timeout=5)
-    except subprocess.TimeoutExpired:  # pragma: no cover - defensive fallback
-        process.kill()
-        process.wait()
+_CommandInterrupted = _process_runner._CommandInterrupted
 
 
 def run_bounded(
@@ -85,107 +46,22 @@ def run_bounded(
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
     max_output_bytes: int = DEFAULT_MAX_OUTPUT_BYTES,
 ) -> subprocess.CompletedProcess[str]:
-    """Run a process group with captured output and a finite deadline."""
-    if timeout_seconds <= 0:
-        raise ValueError("timeout_seconds must be positive")
-    if max_output_bytes <= 0:
-        raise ValueError("max_output_bytes must be positive")
-    if os.name != "posix":
-        raise CommandLaunchError(
-            "bounded process-tree execution requires POSIX or Windows WSL"
-        )
-    process: subprocess.Popen[bytes] | None = None
-    pending_sigterm: list[int] = []
-    guard_sigterm = threading.current_thread() is threading.main_thread()
-    previous_sigterm = None
-    if guard_sigterm:
-        previous_sigterm = signal.getsignal(signal.SIGTERM)
-
-        def interrupt(signum, _frame):
-            if not pending_sigterm:
-                pending_sigterm.append(signum)
-
-        signal.signal(signal.SIGTERM, interrupt)
-
-    readers: list[threading.Thread] = []
-    stdout_chunks: list[bytes] = []
-    stderr_chunks: list[bytes] = []
-    overflow = threading.Event()
+    """Run an audit command through the repository's bounded process policy."""
     try:
-        if pending_sigterm:
-            raise _CommandInterrupted(pending_sigterm[0])
-        try:
-            process = subprocess.Popen(
-                command,
-                cwd=cwd,
-                env=env,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                start_new_session=True,
-            )
-        except OSError as exc:
-            if pending_sigterm:
-                raise _CommandInterrupted(pending_sigterm[0]) from exc
-            raise CommandLaunchError from exc
-        if pending_sigterm:
-            raise _CommandInterrupted(pending_sigterm[0])
-
-        assert process.stdout is not None
-        assert process.stderr is not None
-        state = [0]
-        lock = threading.Lock()
-        readers = [
-            threading.Thread(
-                target=_capture_stream,
-                args=(stream, chunks),
-                kwargs={
-                    "state": state,
-                    "lock": lock,
-                    "overflow": overflow,
-                    "max_output_bytes": max_output_bytes,
-                },
-                daemon=True,
-            )
-            for stream, chunks in (
-                (process.stdout, stdout_chunks),
-                (process.stderr, stderr_chunks),
-            )
-        ]
-        for reader in readers:
-            reader.start()
-        deadline = time.monotonic() + timeout_seconds
-        while process.poll() is None or any(
-            reader.is_alive() for reader in readers
-        ):
-            if pending_sigterm:
-                raise _CommandInterrupted(pending_sigterm[0])
-            if overflow.is_set():
-                raise CommandOutputTooLarge
-            if time.monotonic() >= deadline:
-                raise CommandTimedOut
-            time.sleep(0.01)
-        # A successful leader may have daemonized children after redirecting
-        # inherited pipes. This helper never permits intentional daemonization.
-        _terminate_process_tree(process)
-        if pending_sigterm:
-            raise _CommandInterrupted(pending_sigterm[0])
-    except BaseException:
-        if process is not None:
-            _stop_and_reap(process)
-        raise
-    finally:
-        if previous_sigterm is not None:
-            signal.signal(signal.SIGTERM, previous_sigterm)
-        for reader in readers:
-            reader.join(timeout=5)
-    assert process is not None
-    if pending_sigterm:
-        raise _CommandInterrupted(pending_sigterm[0])
-    if overflow.is_set():
-        raise CommandOutputTooLarge
-    stdout = b"".join(stdout_chunks).decode("utf-8", errors="replace")
-    stderr = b"".join(stderr_chunks).decode("utf-8", errors="replace")
-    return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+        return _process_runner.run_with_deadline(
+            command,
+            cwd=cwd,
+            env=env,
+            timeout_seconds=timeout_seconds,
+            max_output_bytes=max_output_bytes,
+            termination_grace_seconds=TERMINATION_GRACE_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        raise CommandTimedOut from None
+    except _process_runner.CommandLaunchError:
+        raise CommandLaunchError from None
+    except _process_runner.CommandOutputTooLarge:
+        raise CommandOutputTooLarge from None
 
 
 def redacted_failure(label: str, returncode: int) -> str:

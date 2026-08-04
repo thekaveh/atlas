@@ -414,7 +414,7 @@ def test_sigterm_guard_replays_callable_handler() -> None:
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX signal contract")
-def test_sigterm_guard_replays_handler_without_masking_active_error() -> None:
+def test_sigterm_guard_replays_handler_without_masking_active_error(capsys) -> None:
     received: list[int] = []
 
     def failing_handler(signum, _frame):
@@ -431,6 +431,16 @@ def test_sigterm_guard_replays_handler_without_masking_active_error() -> None:
         signal.signal(signal.SIGTERM, previous)
 
     assert received == [signal.SIGTERM]
+    assert "handler failure" in capsys.readouterr().err
+
+
+def test_signal_dispatch_diagnostic_tolerates_broken_stderr(monkeypatch) -> None:
+    class BrokenStderr:
+        def write(self, _message):
+            raise OSError("stderr unavailable")
+
+    monkeypatch.setattr(process_runner.sys, "stderr", BrokenStderr())
+    process_runner._report_signal_dispatch_failure(OSError("handler failure"))
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX signal contract")

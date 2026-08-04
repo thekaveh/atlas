@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import io
+import math
 import os
 import signal
 import subprocess
@@ -126,6 +128,49 @@ def test_run_bounded_preserves_sigterm_when_launch_also_fails(monkeypatch):
         bounded_subprocess.run_bounded(["tool"])
 
     assert raised.value.code == 128 + signal.SIGTERM
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX signal contract")
+def test_run_bounded_honors_ignored_sigterm(monkeypatch):
+    real_popen = subprocess.Popen
+
+    def interrupted_launch(*args, **kwargs):
+        process = real_popen(*args, **kwargs)
+        os.kill(os.getpid(), signal.SIGTERM)
+        return process
+
+    monkeypatch.setattr(bounded_subprocess.subprocess, "Popen", interrupted_launch)
+    previous = signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    try:
+        result = bounded_subprocess.run_bounded([sys.executable, "-c", "pass"])
+    finally:
+        signal.signal(signal.SIGTERM, previous)
+
+    assert result.returncode == 0
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX signal contract")
+def test_run_bounded_replays_callable_sigterm_handler(monkeypatch):
+    received: list[int] = []
+    real_popen = subprocess.Popen
+
+    def interrupted_launch(*args, **kwargs):
+        process = real_popen(*args, **kwargs)
+        os.kill(os.getpid(), signal.SIGTERM)
+        return process
+
+    monkeypatch.setattr(bounded_subprocess.subprocess, "Popen", interrupted_launch)
+    previous = signal.signal(
+        signal.SIGTERM,
+        lambda signum, _frame: received.append(signum),
+    )
+    try:
+        result = bounded_subprocess.run_bounded([sys.executable, "-c", "pass"])
+    finally:
+        signal.signal(signal.SIGTERM, previous)
+
+    assert result.returncode == 0
+    assert received == [signal.SIGTERM]
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX signal-mask contract")
@@ -261,6 +306,72 @@ def test_run_bounded_rejects_excessive_combined_output():
                 "import sys; sys.stdout.write('x' * 700); "
                 "sys.stderr.write('y' * 700)",
             ],
+            max_output_bytes=1024,
+        )
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"timeout_seconds": math.nan}, "timeout_seconds"),
+        ({"timeout_seconds": math.inf}, "timeout_seconds"),
+        ({"timeout_seconds": True}, "timeout_seconds"),
+        ({"timeout_seconds": "1"}, "timeout_seconds"),
+        ({"max_output_bytes": 1.5}, "max_output_bytes"),
+        ({"max_output_bytes": True}, "max_output_bytes"),
+        ({"max_output_bytes": "1"}, "max_output_bytes"),
+    ],
+)
+def test_run_bounded_rejects_invalid_bounds_before_launch(
+    monkeypatch, kwargs, message
+):
+    monkeypatch.setattr(
+        bounded_subprocess.subprocess,
+        "Popen",
+        lambda *_args, **_kwargs: pytest.fail("invalid bounds launched a process"),
+    )
+
+    with pytest.raises(ValueError, match=message):
+        bounded_subprocess.run_bounded(["unused"], **kwargs)
+
+
+def test_run_bounded_propagates_reader_failure(monkeypatch):
+    class FailingStream:
+        def read(self, _size):
+            raise OSError("reader boom")
+
+    class FakeProcess:
+        pid = 12345
+        stdout = FailingStream()
+        stderr = io.BytesIO()
+        returncode = 0
+
+        def poll(self):
+            return self.returncode
+
+        def wait(self, **_kwargs):
+            return self.returncode
+
+    process = FakeProcess()
+    monkeypatch.setattr(
+        bounded_subprocess.subprocess,
+        "Popen",
+        lambda *_args, **_kwargs: process,
+    )
+    monkeypatch.setattr(bounded_subprocess.os, "killpg", lambda *_args: None)
+
+    with pytest.raises(OSError, match="reader boom"):
+        bounded_subprocess.run_bounded(["unused"])
+
+
+def test_run_bounded_preserves_output_error_when_kill_is_denied(monkeypatch):
+    def denied(*_args):
+        raise PermissionError("simulated signaling race")
+
+    monkeypatch.setattr(bounded_subprocess.os, "killpg", denied)
+    with pytest.raises(bounded_subprocess.CommandOutputTooLarge):
+        bounded_subprocess.run_bounded(
+            [sys.executable, "-c", "print('x' * 2048)"],
             max_output_bytes=1024,
         )
 
