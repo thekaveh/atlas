@@ -535,6 +535,86 @@ def test_sigterm_guard_dispatches_pending_signal_to_newer_owner(old_raises) -> N
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX signal contract")
+def test_sigterm_guard_serializes_signal_during_handler_restoration(
+    monkeypatch,
+) -> None:
+    received: list[str] = []
+    real_signal = signal.signal
+    triggered = False
+
+    def newer_handler(_signum, _frame):
+        received.append("newer")
+
+    def old_handler(_signum, _frame):
+        received.append("old")
+        real_signal(signal.SIGTERM, newer_handler)
+
+    previous = real_signal(signal.SIGTERM, old_handler)
+
+    def interrupted_restore(signum, handler):
+        nonlocal triggered
+        result = real_signal(signum, handler)
+        if signum == signal.SIGTERM and handler is old_handler and not triggered:
+            triggered = True
+            os.kill(os.getpid(), signal.SIGTERM)
+        return result
+
+    monkeypatch.setattr(process_runner.signal, "signal", interrupted_restore)
+    try:
+        with process_runner._SigtermGuard():
+            os.kill(os.getpid(), signal.SIGTERM)
+
+        deadline = time.monotonic() + 1
+        while len(received) < 2 and time.monotonic() < deadline:
+            time.sleep(0.001)
+        assert tuple(received) == ("old", "newer")
+        assert signal.getsignal(signal.SIGTERM) is newer_handler
+    finally:
+        real_signal(signal.SIGTERM, previous)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX signal contract")
+def test_sigterm_guard_serializes_signal_during_early_owner_lookup(
+    monkeypatch,
+) -> None:
+    received: list[str] = []
+    real_getsignal = signal.getsignal
+    triggered = False
+
+    def latest_handler(_signum, _frame):
+        received.append("latest")
+
+    def newer_handler(_signum, _frame):
+        received.append("newer")
+        signal.signal(signal.SIGTERM, latest_handler)
+
+    previous = signal.signal(signal.SIGTERM, signal.SIG_IGN)
+
+    def interrupted_lookup(signum):
+        nonlocal triggered
+        current = real_getsignal(signum)
+        if signum == signal.SIGTERM and current is newer_handler and not triggered:
+            triggered = True
+            os.kill(os.getpid(), signal.SIGTERM)
+        return current
+
+    monkeypatch.setattr(process_runner.signal, "getsignal", interrupted_lookup)
+    try:
+        with process_runner._SigtermGuard() as guard:
+            os.kill(os.getpid(), signal.SIGTERM)
+            signal.signal(signal.SIGTERM, newer_handler)
+            guard.raise_if_pending()
+
+        deadline = time.monotonic() + 1
+        while len(received) < 2 and time.monotonic() < deadline:
+            time.sleep(0.001)
+        assert tuple(received) == ("newer", "latest")
+        assert real_getsignal(signal.SIGTERM) is latest_handler
+    finally:
+        signal.signal(signal.SIGTERM, previous)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX signal contract")
 def test_sigterm_guard_replays_handler_without_masking_active_error(capsys) -> None:
     received: list[int] = []
 
