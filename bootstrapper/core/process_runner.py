@@ -170,12 +170,12 @@ class _SigtermGuard:
             signal.signal(signal.SIGTERM, self.previous)
         if not self.pending:
             return
-        preserve_handler = None if owns_handler else current
+        dispatch_handler = self.previous if owns_handler else current
         if exc_type is None:
-            self._dispatch_pending(preserve_handler)
+            self._dispatch_pending(dispatch_handler)
             return
         try:
-            self._dispatch_pending(preserve_handler)
+            self._dispatch_pending(dispatch_handler)
         except BaseException as dispatch_error:
             _report_signal_dispatch_failure(dispatch_error)
 
@@ -183,22 +183,18 @@ class _SigtermGuard:
         if not self.pending:
             self.pending.append((signum, frame))
 
-    def _dispatch_pending(self, preserve_handler=None) -> None:
+    def _dispatch_pending(self, handler) -> None:
         signum, frame = self.pending.pop(0)
-        try:
-            if callable(self.previous):
-                self.previous(signum, frame)
-            elif self.previous != signal.SIG_IGN:
-                raise _CommandInterrupted(signum)
-        finally:
-            if preserve_handler is not None:
-                signal.signal(signal.SIGTERM, preserve_handler)
+        if callable(handler):
+            handler(signum, frame)
+        elif handler != signal.SIG_IGN:
+            raise _CommandInterrupted(signum)
 
     def raise_if_pending(self) -> None:
         if self.pending:
             current = signal.getsignal(signal.SIGTERM)
-            preserve_handler = None if current is self.installed else current
-            self._dispatch_pending(preserve_handler)
+            dispatch_handler = self.previous if current is self.installed else current
+            self._dispatch_pending(dispatch_handler)
 
 
 def _capture_stream(

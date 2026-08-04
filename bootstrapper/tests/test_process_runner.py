@@ -440,14 +440,18 @@ def test_sigterm_guard_preserves_replayed_handler_replacement(
 def test_sigterm_guard_preserves_newer_external_handler(
     newer_kind, old_action
 ) -> None:
+    old_received: list[int] = []
+    newer_received: list[int] = []
+
     def old_handler(_signum, _frame):
+        old_received.append(_signum)
         if old_action == "replace":
             signal.signal(signal.SIGTERM, signal.SIG_IGN)
         elif old_action == "raise":
             raise OSError("old handler failure")
 
-    def newer_handler(_signum, _frame):
-        pass
+    def newer_handler(signum, _frame):
+        newer_received.append(signum)
 
     newer = {
         "callable": newer_handler,
@@ -456,16 +460,21 @@ def test_sigterm_guard_preserves_newer_external_handler(
     }[newer_kind]
     previous = signal.signal(signal.SIGTERM, old_handler)
     try:
-        try:
+        if newer_kind == "default":
+            with pytest.raises(SystemExit) as raised:
+                with process_runner._SigtermGuard():
+                    os.kill(os.getpid(), signal.SIGTERM)
+                    signal.signal(signal.SIGTERM, newer)
+            assert raised.value.code == 128 + signal.SIGTERM
+        else:
             with process_runner._SigtermGuard():
                 os.kill(os.getpid(), signal.SIGTERM)
                 signal.signal(signal.SIGTERM, newer)
-        except OSError as error:
-            assert old_action == "raise"
-            assert str(error) == "old handler failure"
-        else:
-            assert old_action != "raise"
 
+        assert old_received == []
+        assert newer_received == (
+            [signal.SIGTERM] if newer_kind == "callable" else []
+        )
         assert signal.getsignal(signal.SIGTERM) is newer
     finally:
         signal.signal(signal.SIGTERM, previous)
@@ -473,12 +482,14 @@ def test_sigterm_guard_preserves_newer_external_handler(
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX signal contract")
 def test_sigterm_guard_preserves_newer_handler_and_active_error(capsys) -> None:
+    newer_received: list[int] = []
+
     def old_handler(_signum, _frame):
         signal.signal(signal.SIGTERM, signal.SIG_IGN)
         raise OSError("old handler failure")
 
-    def newer_handler(_signum, _frame):
-        pass
+    def newer_handler(signum, _frame):
+        newer_received.append(signum)
 
     previous = signal.signal(signal.SIGTERM, old_handler)
     try:
@@ -489,10 +500,38 @@ def test_sigterm_guard_preserves_newer_handler_and_active_error(capsys) -> None:
                 raise RuntimeError("primary failure")
 
         assert signal.getsignal(signal.SIGTERM) is newer_handler
+        assert newer_received == [signal.SIGTERM]
     finally:
         signal.signal(signal.SIGTERM, previous)
 
-    assert "old handler failure" in capsys.readouterr().err
+    assert capsys.readouterr().err == ""
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX signal contract")
+@pytest.mark.parametrize("old_raises", [False, True])
+def test_sigterm_guard_dispatches_pending_signal_to_newer_owner(old_raises) -> None:
+    received: list[str] = []
+
+    def old_handler(_signum, _frame):
+        received.append("old")
+        os.kill(os.getpid(), signal.SIGTERM)
+        if old_raises:
+            raise OSError("old handler failure")
+
+    def newer_handler(_signum, _frame):
+        received.append("newer")
+        signal.signal(signal.SIGTERM, signal.SIG_DFL)
+
+    previous = signal.signal(signal.SIGTERM, old_handler)
+    try:
+        with process_runner._SigtermGuard():
+            os.kill(os.getpid(), signal.SIGTERM)
+            signal.signal(signal.SIGTERM, newer_handler)
+
+        assert received == ["newer"]
+        assert signal.getsignal(signal.SIGTERM) is signal.SIG_DFL
+    finally:
+        signal.signal(signal.SIGTERM, previous)
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX signal contract")
