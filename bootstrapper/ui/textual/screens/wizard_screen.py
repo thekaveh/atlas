@@ -88,9 +88,15 @@ def _compose_timeout_seconds(args: list[str]) -> float | None:
     return _COMPOSE_UP_TIMEOUT_SECONDS
 
 
-def _require_positive_finite(name: str, value: float) -> None:
-    if not math.isfinite(value) or value <= 0:
-        raise ValueError(f"{name} must be finite and positive")
+def _require_positive_finite(name: str, value: object) -> None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{name} must be a finite positive int or float")
+    try:
+        finite = math.isfinite(float(value))
+    except (OverflowError, ValueError):
+        finite = False
+    if not finite or value <= 0:
+        raise ValueError(f"{name} must be a finite positive int or float")
 
 
 def _validate_stream_bounds(
@@ -213,6 +219,18 @@ async def _cancel_stream_and_stop(
     )
 
 
+def _report_cancel_cleanup_failure(
+    cleanup_error: BaseException, stream_task: asyncio.Task[int]
+) -> None:
+    asyncio.get_running_loop().call_exception_handler(
+        {
+            "message": "Subprocess cleanup failed while preserving cancellation",
+            "exception": cleanup_error,
+            "task": stream_task,
+        }
+    )
+
+
 async def _run_streamed_command(
     command: list[str],
     *,
@@ -239,7 +257,6 @@ async def _run_streamed_command(
         async for raw in proc.stdout:
             on_line(raw.decode(errors="replace").rstrip("\r\n"))
         return await proc.wait()
-
     stream_task = asyncio.create_task(consume())
     try:
         if timeout_seconds is None:
@@ -263,6 +280,7 @@ async def _run_streamed_command(
                 stream_task, proc, termination_grace_seconds
             )
         except BaseException as cleanup_error:
+            _report_cancel_cleanup_failure(cleanup_error, stream_task)
             raise cancellation from cleanup_error
         raise
     except BaseException as primary_error:

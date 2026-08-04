@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 from collections import deque
+from decimal import Decimal
+from fractions import Fraction
 import math
 import os
 import signal
@@ -50,8 +52,24 @@ def test_run_with_deadline_rejects_unbounded_output_limit() -> None:
     [
         ("timeout_seconds", math.nan),
         ("timeout_seconds", math.inf),
+        ("timeout_seconds", Decimal("1")),
+        ("timeout_seconds", True),
+        ("timeout_seconds", "1"),
+        ("timeout_seconds", b"1"),
+        ("timeout_seconds", 1 + 0j),
+        ("timeout_seconds", Fraction(1, 1)),
+        pytest.param("timeout_seconds", 10**10000, id="timeout-huge-int"),
         ("termination_grace_seconds", math.nan),
         ("termination_grace_seconds", math.inf),
+        ("termination_grace_seconds", Decimal("1")),
+        ("termination_grace_seconds", True),
+        ("termination_grace_seconds", "1"),
+        ("termination_grace_seconds", b"1"),
+        ("termination_grace_seconds", 1 + 0j),
+        ("termination_grace_seconds", Fraction(1, 1)),
+        pytest.param(
+            "termination_grace_seconds", 10**10000, id="grace-huge-int"
+        ),
     ],
 )
 def test_run_with_deadline_rejects_nonfinite_bounds_before_launch(
@@ -65,7 +83,10 @@ def test_run_with_deadline_rejects_nonfinite_bounds_before_launch(
         process_runner.run_with_deadline(["unused"], **{bound_name: value})
 
 
-@pytest.mark.parametrize("value", [math.nan, math.inf, 1.5, True])
+@pytest.mark.parametrize(
+    "value",
+    [math.nan, math.inf, 1.5, True, pytest.param(10**10000, id="huge-int")],
+)
 def test_run_with_deadline_rejects_invalid_output_limit_before_launch(
     monkeypatch, value
 ) -> None:
@@ -297,8 +318,24 @@ def test_streamed_command_rejects_invalid_grace_before_launch(
     [
         ("timeout_seconds", math.nan),
         ("timeout_seconds", math.inf),
+        ("timeout_seconds", Decimal("1")),
+        ("timeout_seconds", True),
+        ("timeout_seconds", "1"),
+        ("timeout_seconds", b"1"),
+        ("timeout_seconds", 1 + 0j),
+        ("timeout_seconds", Fraction(1, 1)),
+        pytest.param("timeout_seconds", 10**10000, id="timeout-huge-int"),
         ("termination_grace_seconds", math.nan),
         ("termination_grace_seconds", math.inf),
+        ("termination_grace_seconds", Decimal("1")),
+        ("termination_grace_seconds", True),
+        ("termination_grace_seconds", "1"),
+        ("termination_grace_seconds", b"1"),
+        ("termination_grace_seconds", 1 + 0j),
+        ("termination_grace_seconds", Fraction(1, 1)),
+        pytest.param(
+            "termination_grace_seconds", 10**10000, id="grace-huge-int"
+        ),
     ],
 )
 def test_streamed_command_rejects_nonfinite_bounds_before_launch(
@@ -324,6 +361,40 @@ def test_streamed_command_rejects_nonfinite_bounds_before_launch(
                 env=os.environ.copy(),
                 on_line=lambda _line: None,
                 **kwargs,
+            )
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        Decimal("1"),
+        Fraction(1, 1),
+        True,
+        "1",
+        b"1",
+        1 + 0j,
+        pytest.param(10**10000, id="huge-int"),
+    ],
+)
+def test_async_stop_rejects_invalid_grace_before_signal(
+    monkeypatch, value
+) -> None:
+    from ui.textual.screens import wizard_screen
+
+    def unexpected_signal(*_args, **_kwargs):
+        raise AssertionError("invalid grace must fail before signaling")
+
+    class FakeProcess:
+        pid = 12345
+
+    monkeypatch.setattr(wizard_screen.os, "killpg", unexpected_signal)
+
+    async def exercise() -> None:
+        with pytest.raises(ValueError, match="termination_grace_seconds"):
+            await wizard_screen._stop_process_tree(
+                FakeProcess(), termination_grace_seconds=value
             )
 
     asyncio.run(exercise())
@@ -363,6 +434,10 @@ def test_streamed_cancellation_preserves_cancellation_when_cleanup_fails(
     monkeypatch.setattr(wizard_screen, "_stop_process_tree", failed_cleanup)
 
     async def exercise() -> None:
+        diagnostics: list[dict] = []
+        asyncio.get_running_loop().set_exception_handler(
+            lambda _loop, context: diagnostics.append(context)
+        )
         task = asyncio.create_task(
             wizard_screen._run_streamed_command(
                 ["unused"],
@@ -380,6 +455,9 @@ def test_streamed_cancellation_preserves_cancellation_when_cleanup_fails(
         # explicit cause; 3.11+ preserves the cleanup diagnostic.
         if sys.version_info >= (3, 11):
             assert isinstance(raised.value.__cause__, OSError)
+        assert len(diagnostics) == 1
+        assert isinstance(diagnostics[0]["exception"], OSError)
+        assert diagnostics[0]["task"] is not None
 
     asyncio.run(exercise())
 

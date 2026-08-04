@@ -6,6 +6,7 @@ import math
 import os
 import signal
 import subprocess
+import sys
 import threading
 import time
 from contextlib import contextmanager
@@ -250,19 +251,28 @@ def _validate_bounds(
     max_output_bytes: int,
     termination_grace_seconds: float,
 ) -> None:
-    if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
-        raise ValueError("timeout_seconds must be finite and positive")
+    _require_positive_finite_real("timeout_seconds", timeout_seconds)
     if (
         isinstance(max_output_bytes, bool)
         or not isinstance(max_output_bytes, int)
         or max_output_bytes <= 0
+        or max_output_bytes >= sys.maxsize
     ):
-        raise ValueError("max_output_bytes must be a positive integer")
-    if (
-        not math.isfinite(termination_grace_seconds)
-        or termination_grace_seconds <= 0
-    ):
-        raise ValueError("termination_grace_seconds must be finite and positive")
+        raise ValueError("max_output_bytes must be a platform-sized positive integer")
+    _require_positive_finite_real(
+        "termination_grace_seconds", termination_grace_seconds
+    )
+
+
+def _require_positive_finite_real(name: str, value: object) -> None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{name} must be a finite positive int or float")
+    try:
+        finite = math.isfinite(float(value))
+    except (OverflowError, ValueError):
+        finite = False
+    if not finite or value <= 0:
+        raise ValueError(f"{name} must be a finite positive int or float")
     if os.name != "posix":
         raise CommandLaunchError(
             "bounded process-tree execution requires POSIX or Windows WSL"
