@@ -154,15 +154,20 @@ class _SigtermGuard:
     def __init__(self) -> None:
         self.pending: list[tuple[int, FrameType | None]] = []
         self.previous = None
+        self.installed = None
 
     def __enter__(self) -> _SigtermGuard:
         if threading.current_thread() is threading.main_thread():
             self.previous = signal.getsignal(signal.SIGTERM)
-            signal.signal(signal.SIGTERM, self._interrupt)
+            self.installed = self._interrupt
+            signal.signal(signal.SIGTERM, self.installed)
         return self
 
     def __exit__(self, exc_type, _exc, _traceback) -> None:
-        if self.previous is not None:
+        if (
+            self.previous is not None
+            and signal.getsignal(signal.SIGTERM) is self.installed
+        ):
             signal.signal(signal.SIGTERM, self.previous)
         if not self.pending:
             return

@@ -414,6 +414,27 @@ def test_sigterm_guard_replays_callable_handler() -> None:
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX signal contract")
+@pytest.mark.parametrize("replacement", [signal.SIG_DFL, signal.SIG_IGN])
+@pytest.mark.parametrize("dispatch_before_exit", [False, True])
+def test_sigterm_guard_preserves_replayed_handler_replacement(
+    replacement, dispatch_before_exit
+) -> None:
+    def replacing_handler(_signum, _frame):
+        signal.signal(signal.SIGTERM, replacement)
+
+    previous = signal.signal(signal.SIGTERM, replacing_handler)
+    try:
+        with process_runner._SigtermGuard() as guard:
+            os.kill(os.getpid(), signal.SIGTERM)
+            if dispatch_before_exit:
+                guard.raise_if_pending()
+
+        assert signal.getsignal(signal.SIGTERM) is replacement
+    finally:
+        signal.signal(signal.SIGTERM, previous)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX signal contract")
 def test_sigterm_guard_replays_handler_without_masking_active_error(capsys) -> None:
     received: list[int] = []
 
