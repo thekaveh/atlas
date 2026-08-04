@@ -12,6 +12,7 @@ import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import FrameType
 from typing import BinaryIO, Iterator, Mapping, Sequence
 
 
@@ -141,7 +142,7 @@ class _SigtermGuard:
     """Preserve SIGTERM across the main-thread Popen launch window."""
 
     def __init__(self) -> None:
-        self.pending: list[int] = []
+        self.pending: list[tuple[int, FrameType | None]] = []
         self.previous = None
 
     def __enter__(self) -> _SigtermGuard:
@@ -153,16 +154,30 @@ class _SigtermGuard:
     def __exit__(self, exc_type, _exc, _traceback) -> None:
         if self.previous is not None:
             signal.signal(signal.SIGTERM, self.previous)
-        if self.pending and exc_type is None:
-            raise _CommandInterrupted(self.pending[0])
-
-    def _interrupt(self, signum, _frame) -> None:
         if not self.pending:
-            self.pending.append(signum)
+            return
+        if exc_type is None:
+            self._dispatch_pending()
+            return
+        try:
+            self._dispatch_pending()
+        except BaseException:
+            pass
+
+    def _interrupt(self, signum: int, frame: FrameType | None) -> None:
+        if not self.pending:
+            self.pending.append((signum, frame))
+
+    def _dispatch_pending(self) -> None:
+        signum, frame = self.pending.pop(0)
+        if callable(self.previous):
+            self.previous(signum, frame)
+        elif self.previous != signal.SIG_IGN:
+            raise _CommandInterrupted(signum)
 
     def raise_if_pending(self) -> None:
         if self.pending:
-            raise _CommandInterrupted(self.pending[0])
+            self._dispatch_pending()
 
 
 def _capture_stream(

@@ -387,6 +387,70 @@ def test_sigterm_guard_does_not_mask_active_exception() -> None:
             raise RuntimeError("primary failure")
 
 
+@pytest.mark.skipif(os.name != "posix", reason="POSIX signal contract")
+def test_sigterm_guard_honors_ignored_handler() -> None:
+    previous = signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    try:
+        with process_runner._SigtermGuard():
+            os.kill(os.getpid(), signal.SIGTERM)
+    finally:
+        signal.signal(signal.SIGTERM, previous)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX signal contract")
+def test_sigterm_guard_replays_callable_handler() -> None:
+    received: list[int] = []
+    previous = signal.signal(
+        signal.SIGTERM,
+        lambda signum, _frame: received.append(signum),
+    )
+    try:
+        with process_runner._SigtermGuard():
+            os.kill(os.getpid(), signal.SIGTERM)
+    finally:
+        signal.signal(signal.SIGTERM, previous)
+
+    assert received == [signal.SIGTERM]
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX signal contract")
+def test_sigterm_guard_replays_handler_without_masking_active_error() -> None:
+    received: list[int] = []
+
+    def failing_handler(signum, _frame):
+        received.append(signum)
+        raise OSError("handler failure")
+
+    previous = signal.signal(signal.SIGTERM, failing_handler)
+    try:
+        with pytest.raises(RuntimeError, match="primary failure"):
+            with process_runner._SigtermGuard():
+                os.kill(os.getpid(), signal.SIGTERM)
+                raise RuntimeError("primary failure")
+    finally:
+        signal.signal(signal.SIGTERM, previous)
+
+    assert received == [signal.SIGTERM]
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX signal contract")
+def test_sigterm_guard_replays_outer_cleanup_handler(monkeypatch) -> None:
+    cleanup_calls: list[bool] = []
+    monkeypatch.setattr(
+        process_runner,
+        "_stop_registered_processes",
+        lambda: cleanup_calls.append(True) or [],
+    )
+
+    with pytest.raises(SystemExit) as raised:
+        with process_runner.cleanup_active_processes_on_sigterm():
+            with process_runner._SigtermGuard():
+                os.kill(os.getpid(), signal.SIGTERM)
+
+    assert raised.value.code == 128 + signal.SIGTERM
+    assert cleanup_calls == [True]
+
+
 def test_native_windows_fails_closed_before_launch(monkeypatch) -> None:
     monkeypatch.setattr(process_runner.os, "name", "nt")
 
