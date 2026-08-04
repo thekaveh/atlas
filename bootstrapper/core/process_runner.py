@@ -164,21 +164,12 @@ class _SigtermGuard:
         return self
 
     def __exit__(self, exc_type, _exc, _traceback) -> None:
-        with _blocked_sigterm():
-            current = signal.getsignal(signal.SIGTERM)
-            owns_handler = self.previous is not None and current is self.installed
-            if owns_handler:
-                signal.signal(signal.SIGTERM, self.previous)
-            if not self.pending:
-                return
-            dispatch_handler = self.previous if owns_handler else current
+        try:
+            self._drain_pending(finish=True)
+        except BaseException as dispatch_error:
             if exc_type is None:
-                self._dispatch_pending(dispatch_handler)
-                return
-            try:
-                self._dispatch_pending(dispatch_handler)
-            except BaseException as dispatch_error:
-                _report_signal_dispatch_failure(dispatch_error)
+                raise
+            _report_signal_dispatch_failure(dispatch_error)
 
     def _interrupt(self, signum: int, frame: FrameType | None) -> None:
         if not self.pending:
@@ -191,23 +182,37 @@ class _SigtermGuard:
         elif handler != signal.SIG_IGN:
             raise _CommandInterrupted(signum)
 
+    def _record_dispatch_error(
+        self, handler, errors: list[BaseException]
+    ) -> None:
+        try:
+            self._dispatch_pending(handler)
+        except BaseException as error:
+            errors.append(error)
+
+    def _drain_pending(self, *, finish: bool) -> None:
+        started_as_owner = signal.getsignal(signal.SIGTERM) is self.installed
+        relay_target = self.previous
+        errors: list[BaseException] = []
+        while True:
+            while self.pending:
+                if signal.getsignal(signal.SIGTERM) is not self.installed:
+                    relay_target = signal.signal(signal.SIGTERM, self.installed)
+                self._record_dispatch_error(relay_target, errors)
+            if signal.getsignal(signal.SIGTERM) is self.installed and (
+                finish or not started_as_owner
+            ):
+                signal.signal(signal.SIGTERM, relay_target)
+            if not self.pending:
+                break
+        for secondary_error in errors[1:]:
+            _report_signal_dispatch_failure(secondary_error)
+        if errors:
+            raise errors[0]
+
     def raise_if_pending(self) -> None:
         if self.pending:
-            with _blocked_sigterm():
-                current = signal.getsignal(signal.SIGTERM)
-                dispatch_handler = (
-                    self.previous if current is self.installed else current
-                )
-                self._dispatch_pending(dispatch_handler)
-
-
-@contextmanager
-def _blocked_sigterm() -> Iterator[None]:
-    previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM})
-    try:
-        yield
-    finally:
-        signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
+            self._drain_pending(finish=False)
 
 
 def _capture_stream(

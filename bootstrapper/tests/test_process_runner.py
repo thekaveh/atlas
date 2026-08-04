@@ -10,6 +10,7 @@ import os
 import signal
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -535,31 +536,19 @@ def test_sigterm_guard_dispatches_pending_signal_to_newer_owner(old_raises) -> N
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX signal contract")
-def test_sigterm_guard_serializes_signal_during_handler_restoration(
-    monkeypatch,
-) -> None:
+def test_sigterm_guard_serializes_signal_during_handler_replacement() -> None:
     received: list[str] = []
-    real_signal = signal.signal
-    triggered = False
 
     def newer_handler(_signum, _frame):
         received.append("newer")
 
     def old_handler(_signum, _frame):
         received.append("old")
-        real_signal(signal.SIGTERM, newer_handler)
-
-    previous = real_signal(signal.SIGTERM, old_handler)
-
-    def interrupted_restore(signum, handler):
-        nonlocal triggered
-        result = real_signal(signum, handler)
-        if signum == signal.SIGTERM and handler is old_handler and not triggered:
-            triggered = True
+        if len(received) == 1:
             os.kill(os.getpid(), signal.SIGTERM)
-        return result
+            signal.signal(signal.SIGTERM, newer_handler)
 
-    monkeypatch.setattr(process_runner.signal, "signal", interrupted_restore)
+    previous = signal.signal(signal.SIGTERM, old_handler)
     try:
         with process_runner._SigtermGuard():
             os.kill(os.getpid(), signal.SIGTERM)
@@ -570,7 +559,7 @@ def test_sigterm_guard_serializes_signal_during_handler_restoration(
         assert tuple(received) == ("old", "newer")
         assert signal.getsignal(signal.SIGTERM) is newer_handler
     finally:
-        real_signal(signal.SIGTERM, previous)
+        signal.signal(signal.SIGTERM, previous)
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX signal contract")
@@ -612,6 +601,59 @@ def test_sigterm_guard_serializes_signal_during_early_owner_lookup(
         assert real_getsignal(signal.SIGTERM) is latest_handler
     finally:
         signal.signal(signal.SIGTERM, previous)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX signal contract")
+def test_sigterm_guard_callback_child_inherits_unblocked_sigterm() -> None:
+    child_observations: list[str] = []
+
+    def handler(_signum, _frame):
+        child_observations.append(
+            subprocess.check_output(
+                [
+                    sys.executable,
+                    "-c",
+                    "import signal; print(signal.SIGTERM in "
+                    "signal.pthread_sigmask(signal.SIG_BLOCK, set()))",
+                ],
+                text=True,
+            ).strip()
+        )
+
+    previous = signal.signal(signal.SIGTERM, handler)
+    try:
+        with process_runner._SigtermGuard() as guard:
+            os.kill(os.getpid(), signal.SIGTERM)
+            guard.raise_if_pending()
+    finally:
+        signal.signal(signal.SIGTERM, previous)
+
+    assert child_observations == ["False"]
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX signal contract")
+def test_sigterm_guard_callback_thread_inherits_unblocked_sigterm() -> None:
+    thread_observations: list[bool] = []
+
+    def handler(_signum, _frame):
+        worker = threading.Thread(
+            target=lambda: thread_observations.append(
+                signal.SIGTERM
+                in signal.pthread_sigmask(signal.SIG_BLOCK, set())
+            )
+        )
+        worker.start()
+        worker.join(timeout=1)
+
+    previous = signal.signal(signal.SIGTERM, handler)
+    try:
+        with process_runner._SigtermGuard() as guard:
+            os.kill(os.getpid(), signal.SIGTERM)
+            guard.raise_if_pending()
+    finally:
+        signal.signal(signal.SIGTERM, previous)
+
+    assert thread_observations == [False]
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX signal contract")
