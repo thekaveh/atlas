@@ -161,11 +161,13 @@ def test_run_with_deadline_propagates_reader_failure_and_cleans_up(
         assert isinstance(raised.value.__cause__, RuntimeError)
 
 
+@pytest.mark.parametrize("join_fails", [False, True])
 def test_run_with_deadline_preserves_second_reader_start_failure(
-    monkeypatch,
+    monkeypatch, join_fails
 ) -> None:
     cleanup_calls: list[object] = []
     created_threads: list[object] = []
+    reported_join_failures: list[BaseException] = []
 
     class FakeThread:
         def __init__(self, **_kwargs):
@@ -183,16 +185,15 @@ def test_run_with_deadline_preserves_second_reader_start_failure(
             if not self.started:
                 raise RuntimeError("cannot join thread before it is started")
             self.joined = True
-
+            if join_fails:
+                raise OSError("simulated reader join failure")
         def is_alive(self):
             return False
-
     class FakeProcess:
         pid = 12345
         stdout = io.BytesIO()
         stderr = io.BytesIO()
         returncode = None
-
     process = FakeProcess()
 
     monkeypatch.setattr(
@@ -205,6 +206,11 @@ def test_run_with_deadline_preserves_second_reader_start_failure(
         stopped_process.returncode = -signal.SIGKILL
 
     monkeypatch.setattr(process_runner, "_stop_and_reap", fake_cleanup)
+    monkeypatch.setattr(
+        process_runner,
+        "_report_capture_join_failure",
+        reported_join_failures.append,
+    )
 
     with pytest.raises(RuntimeError, match="second reader start failure"):
         process_runner.run_with_deadline(["unused"])
@@ -213,6 +219,9 @@ def test_run_with_deadline_preserves_second_reader_start_failure(
     assert len(created_threads) == 2
     assert created_threads[0].joined is True
     assert created_threads[1].joined is False
+    assert [str(error) for error in reported_join_failures] == (
+        ["simulated reader join failure"] if join_fails else []
+    )
 
 
 def test_registered_cleanup_attempts_every_process_after_failure(

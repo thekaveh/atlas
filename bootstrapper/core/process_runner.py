@@ -93,6 +93,23 @@ def _report_registered_cleanup_failures(errors: list[BaseException]) -> None:
             pass
 
 
+def _report_capture_join_failure(error: BaseException) -> None:
+    try:
+        print(
+            f"Process output reader cleanup failed: {error!r}",
+            file=sys.stderr,
+        )
+    except BaseException:
+        pass
+
+
+def _join_capture_after_failure(capture: _Capture) -> None:
+    try:
+        capture.join()
+    except BaseException as join_error:
+        _report_capture_join_failure(join_error)
+
+
 @contextmanager
 def cleanup_active_processes_on_sigterm() -> Iterator[None]:
     """Make a main-thread owner clean worker-launched groups on SIGTERM."""
@@ -328,36 +345,41 @@ def run_with_deadline(
     capture = _Capture()
     with _SigtermGuard() as guard:
         try:
-            guard.raise_if_pending()
             try:
-                process = _launch_registered(
-                    command,
-                    cwd=cwd,
-                    env=env,
-                    termination_grace_seconds=termination_grace_seconds,
-                )
-            except CommandLaunchError:
                 guard.raise_if_pending()
-                raise
-            guard.raise_if_pending()
-            capture.start(process, max_output_bytes)
-            _wait_for_completion(process, capture, guard, command, timeout_seconds)
-            _signal_process_tree(process, signal.SIGKILL)
-            guard.raise_if_pending()
-        except BaseException as primary_error:
-            if process is not None:
                 try:
-                    _stop_and_reap(
-                        process,
+                    process = _launch_registered(
+                        command,
+                        cwd=cwd,
+                        env=env,
                         termination_grace_seconds=termination_grace_seconds,
                     )
-                except BaseException as cleanup_error:
-                    raise primary_error from cleanup_error
+                except CommandLaunchError:
+                    guard.raise_if_pending()
+                    raise
+                guard.raise_if_pending()
+                capture.start(process, max_output_bytes)
+                _wait_for_completion(process, capture, guard, command, timeout_seconds)
+                _signal_process_tree(process, signal.SIGKILL)
+                guard.raise_if_pending()
+            except BaseException as primary_error:
+                if process is not None:
+                    try:
+                        _stop_and_reap(
+                            process,
+                            termination_grace_seconds=termination_grace_seconds,
+                        )
+                    except BaseException as cleanup_error:
+                        raise primary_error from cleanup_error
+                raise
+            finally:
+                if process is not None:
+                    with _ACTIVE_PROCESSES_LOCK:
+                        _ACTIVE_PROCESSES.pop(process.pid, None)
+        except BaseException:
+            _join_capture_after_failure(capture)
             raise
-        finally:
-            if process is not None:
-                with _ACTIVE_PROCESSES_LOCK:
-                    _ACTIVE_PROCESSES.pop(process.pid, None)
+        else:
             capture.join()
     assert process is not None
     return capture.completed(command, process.returncode)
