@@ -665,10 +665,12 @@ async def test_result_slot_remains_occupied_until_download_finishes(
         upload_name="upload.pdf",
         worker=worker,
     )
-    for _ in range(20):
-        if await registry.status(task_id) == "success":
-            break
-        await asyncio.sleep(0)
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + 5
+    while await registry.status(task_id) != "success":
+        if loop.time() >= deadline:
+            pytest.fail("adapter result did not become ready within 5 seconds")
+        await asyncio.sleep(0.01)
 
     result_path = await registry.claim_result(task_id)
     assert result_path is not None
