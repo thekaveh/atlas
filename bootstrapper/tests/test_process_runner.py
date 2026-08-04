@@ -435,6 +435,67 @@ def test_sigterm_guard_preserves_replayed_handler_replacement(
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX signal contract")
+@pytest.mark.parametrize("newer_kind", ["callable", "default", "ignore"])
+@pytest.mark.parametrize("old_action", ["return", "replace", "raise"])
+def test_sigterm_guard_preserves_newer_external_handler(
+    newer_kind, old_action
+) -> None:
+    def old_handler(_signum, _frame):
+        if old_action == "replace":
+            signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        elif old_action == "raise":
+            raise OSError("old handler failure")
+
+    def newer_handler(_signum, _frame):
+        pass
+
+    newer = {
+        "callable": newer_handler,
+        "default": signal.SIG_DFL,
+        "ignore": signal.SIG_IGN,
+    }[newer_kind]
+    previous = signal.signal(signal.SIGTERM, old_handler)
+    try:
+        try:
+            with process_runner._SigtermGuard():
+                os.kill(os.getpid(), signal.SIGTERM)
+                signal.signal(signal.SIGTERM, newer)
+        except OSError as error:
+            assert old_action == "raise"
+            assert str(error) == "old handler failure"
+        else:
+            assert old_action != "raise"
+
+        assert signal.getsignal(signal.SIGTERM) is newer
+    finally:
+        signal.signal(signal.SIGTERM, previous)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX signal contract")
+def test_sigterm_guard_preserves_newer_handler_and_active_error(capsys) -> None:
+    def old_handler(_signum, _frame):
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        raise OSError("old handler failure")
+
+    def newer_handler(_signum, _frame):
+        pass
+
+    previous = signal.signal(signal.SIGTERM, old_handler)
+    try:
+        with pytest.raises(RuntimeError, match="primary failure"):
+            with process_runner._SigtermGuard():
+                os.kill(os.getpid(), signal.SIGTERM)
+                signal.signal(signal.SIGTERM, newer_handler)
+                raise RuntimeError("primary failure")
+
+        assert signal.getsignal(signal.SIGTERM) is newer_handler
+    finally:
+        signal.signal(signal.SIGTERM, previous)
+
+    assert "old handler failure" in capsys.readouterr().err
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX signal contract")
 def test_sigterm_guard_replays_handler_without_masking_active_error(capsys) -> None:
     received: list[int] = []
 

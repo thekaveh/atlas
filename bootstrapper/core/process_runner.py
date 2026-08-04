@@ -164,18 +164,18 @@ class _SigtermGuard:
         return self
 
     def __exit__(self, exc_type, _exc, _traceback) -> None:
-        if (
-            self.previous is not None
-            and signal.getsignal(signal.SIGTERM) is self.installed
-        ):
+        current = signal.getsignal(signal.SIGTERM)
+        owns_handler = self.previous is not None and current is self.installed
+        if owns_handler:
             signal.signal(signal.SIGTERM, self.previous)
         if not self.pending:
             return
+        preserve_handler = None if owns_handler else current
         if exc_type is None:
-            self._dispatch_pending()
+            self._dispatch_pending(preserve_handler)
             return
         try:
-            self._dispatch_pending()
+            self._dispatch_pending(preserve_handler)
         except BaseException as dispatch_error:
             _report_signal_dispatch_failure(dispatch_error)
 
@@ -183,16 +183,22 @@ class _SigtermGuard:
         if not self.pending:
             self.pending.append((signum, frame))
 
-    def _dispatch_pending(self) -> None:
+    def _dispatch_pending(self, preserve_handler=None) -> None:
         signum, frame = self.pending.pop(0)
-        if callable(self.previous):
-            self.previous(signum, frame)
-        elif self.previous != signal.SIG_IGN:
-            raise _CommandInterrupted(signum)
+        try:
+            if callable(self.previous):
+                self.previous(signum, frame)
+            elif self.previous != signal.SIG_IGN:
+                raise _CommandInterrupted(signum)
+        finally:
+            if preserve_handler is not None:
+                signal.signal(signal.SIGTERM, preserve_handler)
 
     def raise_if_pending(self) -> None:
         if self.pending:
-            self._dispatch_pending()
+            current = signal.getsignal(signal.SIGTERM)
+            preserve_handler = None if current is self.installed else current
+            self._dispatch_pending(preserve_handler)
 
 
 def _capture_stream(
