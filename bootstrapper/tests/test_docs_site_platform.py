@@ -117,6 +117,12 @@ def test_service_catalog_and_manifest_cover_every_service_family() -> None:
         assert (DOCS_SITE / page.site_path).is_file()
         assert (WIKI_DIR / page.wiki_path).is_file()
 
+    adapter_row = next(
+        line for line in index.splitlines() if "docling-lightrag-adapter" in line
+    )
+    assert "| all |" in adapter_row
+    assert "gen-ai-rag" not in adapter_row
+
 
 def test_service_pages_project_full_canonical_readmes_without_cross_surface_links() -> None:
     for name in ("supabase", "open-webui", "litellm", "airflow", "spark"):
@@ -208,6 +214,50 @@ def test_architecture_pages_explain_the_views_without_publication_instructions()
     assert 'data-source="Kong" data-target="Direct Ports"' not in network
 
 
+def test_architecture_edge_labels_do_not_share_coordinates() -> None:
+    from bootstrapper.docs.sitegen.pages import (
+        ARCHITECTURE_EDGES,
+        ARCHITECTURE_INTERPRETATIONS,
+        ARCHITECTURE_LAYOUTS,
+        ARCHITECTURE_PERSPECTIVES,
+        _architecture_diagram_html,
+    )
+
+    label_pattern = re.compile(
+        r'<text x="([\d.]+)" y="([\d.]+)" fill="#cbd5e1"[^>]*>([^<]+)</text>'
+    )
+    for slug, (title, description, nodes) in ARCHITECTURE_PERSPECTIVES.items():
+        rendered = _architecture_diagram_html(
+            title,
+            description,
+            ARCHITECTURE_INTERPRETATIONS[slug],
+            nodes,
+            ARCHITECTURE_EDGES[slug],
+            ARCHITECTURE_LAYOUTS[slug],
+        )
+        labels = label_pattern.findall(rendered)
+        coordinates = [(x, y) for x, y, _label in labels]
+        assert len(coordinates) == len(set(coordinates)), slug
+
+
+def test_architecture_interpretation_renders_safe_inline_markup() -> None:
+    from bootstrapper.docs.sitegen.pages import _architecture_diagram_html
+
+    rendered = _architecture_diagram_html(
+        "Contract view",
+        "A focused contract test.",
+        "Use `CATALOG_URI`; see [provider flow](./provider-flow.md).",
+        ["Source", "Target"],
+        [("Source", "Target", "calls")],
+        {"Source": (40, 80), "Target": (320, 80)},
+    )
+
+    assert "<code>CATALOG_URI</code>" in rendered
+    assert '<a href="./provider-flow.md">provider flow</a>' in rendered
+    assert "`CATALOG_URI`" not in rendered
+    assert "[provider flow]" not in rendered
+
+
 def test_wiki_contains_the_complete_manifest_page_set_and_navigation() -> None:
     manifest = _manifest()
     expected = {page.wiki_path.as_posix() for page in manifest.pages} | {"_Sidebar.md", "_Footer.md"}
@@ -230,11 +280,10 @@ def test_home_and_theme_preserve_the_atlas_clean_systems_visual_contract() -> No
     css = THEME_CSS.read_text(encoding="utf-8")
 
     assert config["theme"]["name"] == "material"
-    # Light-first "Clean Systems" palette order: default (light) before slate (dark).
-    assert config["theme"]["palette"][0]["scheme"] == "default"
-    assert config["theme"]["palette"][0]["toggle"]["name"] == "Switch to dark mode"
-    assert config["theme"]["palette"][1]["scheme"] == "slate"
-    assert config["theme"]["palette"][1]["toggle"]["name"] == "Switch to light mode"
+    assert config["theme"]["palette"][0]["scheme"] == "slate"
+    assert config["theme"]["palette"][0]["toggle"]["name"] == "Switch to light mode"
+    assert config["theme"]["palette"][1]["scheme"] == "default"
+    assert config["theme"]["palette"][1]["toggle"]["name"] == "Switch to dark mode"
     assert config["theme"]["logo"]
     assert config["theme"]["favicon"]
     assert config["theme"]["font"]["text"] == "Public Sans"
@@ -325,6 +374,7 @@ def test_services_lint_gates_main_and_develop_and_runs_three_surface_check() -> 
     assert "Install Cairo" in text
     assert "notebook-reproducibility" not in workflow["jobs"]
     assert text.count("python -m scripts.notebook_reproducibility") == 1
+    assert workflow["jobs"]["audit-scripts"]["timeout-minutes"] == 45
 
 
 def test_source_configuration_shell_examples_do_not_comment_after_continuations() -> None:
@@ -337,10 +387,16 @@ def test_source_configuration_shell_examples_do_not_comment_after_continuations(
 def test_services_lint_build_validation_covers_all_local_build_contexts() -> None:
     workflow = WORKFLOW.read_text(encoding="utf-8")
     expected = {
-        path.parent.relative_to(ROOT).as_posix()
+        (
+            path.parent.relative_to(ROOT).as_posix(),
+            "Dockerfile",
+        )
         for path in (ROOT / "services").glob("*/init/Dockerfile")
     }
-    excluded = {"services/docling/provider", "services/parakeet/provider"}
+    excluded_dockerfiles = {
+        "services/docling/provider/gpu/Dockerfile",
+        "services/parakeet/provider/gpu/Dockerfile",
+    }
     for compose in (ROOT / "services").glob("*/compose.yml"):
         data = yaml.safe_load(compose.read_text(encoding="utf-8")) or {}
         for spec in (data.get("services") or {}).values():
@@ -351,11 +407,41 @@ def test_services_lint_build_validation_covers_all_local_build_contexts() -> Non
             if context.startswith("http"):
                 continue
             relative = (compose.parent / context).resolve().relative_to(ROOT).as_posix()
-            if relative not in excluded:
-                expected.add(relative)
+            dockerfile = str(build_spec.get("dockerfile", "Dockerfile"))
+            dockerfile_path = (ROOT / relative / dockerfile).resolve().relative_to(ROOT)
+            if dockerfile_path.as_posix() not in excluded_dockerfiles:
+                expected.add((relative, dockerfile))
     assert expected
-    for context in expected:
-        assert context in workflow
+    for context, dockerfile in expected:
+        assert f'"{context}|{dockerfile}|' in workflow
+
+
+def test_adapter_tmpfs_covers_default_concurrent_upload_and_result_budget() -> None:
+    compose = yaml.safe_load((ROOT / "services/docling/compose.yml").read_text())
+    manifest = yaml.safe_load((ROOT / "services/docling/service.yml").read_text())
+    adapter = compose["services"]["docling-lightrag-adapter"]
+    environment = adapter["environment"]
+    manifest_env = {entry["name"]: entry for entry in manifest["env"]}
+
+    def default_int(name: str) -> int:
+        value = environment[name]
+        return int(re.search(r":-(\d+)}$", value).group(1))
+
+    tmpfs = adapter["tmpfs"][0]
+    assert "${DOCLING_ADAPTER_TMPFS_SIZE:-512m}" in tmpfs
+    size_mib = int(
+        str(manifest_env["DOCLING_ADAPTER_TMPFS_SIZE"]["default"]).removesuffix("m")
+    )
+    upload_bytes = default_int("DOCLING_MAX_FILE_SIZE")
+    result_bytes = default_int("DOCLING_ADAPTER_MAX_RESULT_BYTES")
+    required_bytes = default_int("DOCLING_ADAPTER_MAX_JOBS") * max(
+        2 * upload_bytes + 1024 * 1024,
+        upload_bytes + result_bytes,
+    )
+    assert size_mib * 1024 * 1024 >= required_bytes + 64 * 1024 * 1024
+    assert "shutil.disk_usage(root).free < required_storage" in (
+        ROOT / "services/docling/provider/adapter/app.py"
+    ).read_text(encoding="utf-8")
 
 
 def test_docs_do_not_reference_retired_required_check_counts() -> None:

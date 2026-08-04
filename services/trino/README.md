@@ -1,4 +1,4 @@
-# 5.2.54. Trino
+# 5.2.55. Trino
 
 Trino is an optional, disabled-by-default SQL query engine for the Data Engineering track. Atlas wires Trino to the existing Iceberg REST catalog and MinIO-backed lakehouse buckets so notebooks, Zeppelin, Airflow tasks, and local tools can query the same tables through a SQL surface.
 

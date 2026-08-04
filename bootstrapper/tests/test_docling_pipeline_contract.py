@@ -178,6 +178,42 @@ def test_provider_health_uses_converter_status():
     assert 'models_loaded=["DocLayNet", "TableFormer"]' not in api_source
 
 
+def test_both_docling_processors_separate_conversion_from_rendering():
+    for relative in (
+        "services/docling/provider/gpu/processor.py",
+        "services/docling/provider/localhost/processor.py",
+    ):
+        source = (ROOT / relative).read_text(encoding="utf-8")
+        assert "def convert_document_once(" in source
+        assert "def render_conversion(" in source
+        assert "result = await asyncio.to_thread(" in source
+        assert "convert_document_once," in source
+        assert "return render_conversion(" in source
+
+
+def test_both_docling_apis_install_boundary_and_deadline_expensive_routes():
+    for relative in (
+        "services/docling/provider/shared/api_server.py",
+        "services/docling/provider/localhost/server.py",
+    ):
+        source = (ROOT / relative).read_text(encoding="utf-8")
+        assert "load_boundary_settings(" in source
+        assert '"/v1/document/convert"' in source
+        assert '"/internal/lightrag/bundle"' in source
+        assert "install_provider_boundary(app," in source
+        assert "run_with_deadline(" in source
+        assert "fatal_timeout_response(" in source
+        assert "CORSMiddleware" not in source
+
+
+def test_docling_gpu_image_copies_bundle_and_boundary_modules():
+    dockerfile = (ROOT / "services/docling/provider/gpu/Dockerfile").read_text(
+        encoding="utf-8"
+    )
+    assert "COPY provider_boundary.py /app/" in dockerfile
+    assert "COPY lightrag_bundle.py /app/" in dockerfile
+
+
 def test_converter_construction_is_single_flight_across_threads(monkeypatch):
     pipeline = _load_pipeline_module()
     settings = pipeline.resolve_pipeline_settings()

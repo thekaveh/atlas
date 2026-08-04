@@ -21,13 +21,7 @@ def test_cold_start_cleanup_uses_one_project_scoped_compose_down(tmp_path, monke
         "stream_compose",
         lambda args, **_kwargs: calls.append((args, manager.project_name_override)) or 0,
     )
-    monkeypatch.setattr(
-        manager,
-        "prune_system",
-        lambda **_kwargs: (_ for _ in ()).throw(
-            AssertionError("cold cleanup must not prune host-wide Docker resources")
-        ),
-    )
+    assert not hasattr(manager, "prune_system")
     monkeypatch.setattr(
         manager,
         "remove_project_networks",
@@ -57,13 +51,7 @@ def test_cold_stop_cleanup_does_not_prune_unrelated_projects(tmp_path, monkeypat
         "execute_compose_command",
         lambda args, project_name=None: calls.append((args, project_name)) or 0,
     )
-    monkeypatch.setattr(
-        manager,
-        "prune_system",
-        lambda **_kwargs: (_ for _ in ()).throw(
-            AssertionError("cold stop must not prune host-wide Docker resources")
-        ),
-    )
+    assert not hasattr(manager, "prune_system")
     monkeypatch.setattr(manager.config_parser, "get_project_name", lambda: "atlas")
 
     assert manager.perform_cold_stop_cleanup() is True

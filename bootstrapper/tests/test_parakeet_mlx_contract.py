@@ -96,11 +96,12 @@ def test_parakeet_does_not_advertise_unsupported_gpu_quantization():
     assert "PARAKEET_GPU_COMPUTE_TYPE" not in guide
 
 
-def test_cold_health_starts_loading_without_waiting_for_it():
+def test_lifespan_starts_loading_without_waiting_for_it():
     source = MLX_API.read_text(encoding="utf-8")
 
-    assert "task = _model_loader.start()" in source
-    assert '"status": "starting"' in source
+    assert "async def lifespan(" in source
+    assert "_model_startup.start()" in source
+    assert '"status": "healthy" if ready else _model_startup.state' in source
     assert "status_code=503" in source
 
 
@@ -109,5 +110,4 @@ def test_mlx_server_supports_package_and_direct_import_modes():
 
     assert "from .alignment import" in source
     assert "from alignment import" in source
-    assert "from .model_loader import" in source
-    assert "from model_loader import" in source
+    assert "from startup import ModelStartup" in source

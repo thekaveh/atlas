@@ -131,6 +131,17 @@ def _track_membership(
                 membership[service].add(track.key)
 
     for name, manifest in manifests.items():
+        if (
+            manifest.virtual
+            and manifest.sources is None
+            and not manifest.rows
+            and not manifest.env
+        ):
+            # Internal compatibility nodes are conditional graph structure,
+            # not wizard-selectable services. They belong to the unfiltered
+            # `all` view only; assigning every curated track would imply that
+            # each track enables them independently.
+            continue
         if manifest.sources is None or len(manifest.sources.options) <= 1:
             membership.setdefault(name, set()).update(curated_track_keys)
 

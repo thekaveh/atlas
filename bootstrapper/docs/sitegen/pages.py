@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import html
 import os
+import re
 from pathlib import Path
 
 from .model import DocsModel
@@ -764,6 +765,7 @@ def _architecture_diagram_html(
             f'<text x="{box_x + box_width / 2}" y="{y + 25}" fill="white" font-size="11" font-weight="600" text-anchor="middle">{html.escape(node)}</text>'
             f'<text x="{box_x + box_width / 2}" y="{y + 43}" fill="#94a3b8" font-size="9" text-anchor="middle">{role}</text>'
         )
+    occupied_labels: list[tuple[float, float, float, float]] = []
     for source, target, label in edges:
         source_x, source_y = positions[source]
         target_x, target_y = positions[target]
@@ -773,13 +775,32 @@ def _architecture_diagram_html(
             x1, x2 = source_x, target_x + box_width
         y1, y2 = source_y + 30, target_y + 30
         label_x = (x1 + x2) / 2
-        label_y = (y1 + y2) / 2 - 5
+        base_label_y = (y1 + y2) / 2 - 5
         arrows.append(
             f'<line data-source="{html.escape(source)}" data-target="{html.escape(target)}" '
             f'x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="#64748b" '
             f'stroke-width="1.5" marker-end="url(#arrowhead)"/>'
         )
         label_width = max(40, len(label) * 5 + 12)
+        label_y = base_label_y
+        for offset in (0, -18, 18, -36, 36, -54, 54):
+            candidate_y = base_label_y + offset
+            candidate = (
+                label_x - label_width / 2,
+                candidate_y - 10,
+                label_x + label_width / 2,
+                candidate_y + 4,
+            )
+            if not any(
+                candidate[0] < right + 2
+                and candidate[2] > left - 2
+                and candidate[1] < bottom + 2
+                and candidate[3] > top - 2
+                for left, top, right, bottom in occupied_labels
+            ):
+                label_y = candidate_y
+                occupied_labels.append(candidate)
+                break
         labels.append(
             f'<rect x="{label_x - label_width / 2}" y="{label_y - 10}" '
             f'width="{label_width}" height="14" rx="3" fill="#020617"/>'
@@ -827,11 +848,34 @@ def _architecture_diagram_html(
     </div>
     <section class="interpretation">
       <h2>How to read this view</h2>
-      <p>{html.escape(interpretation)}</p>
+      <p>{_render_architecture_interpretation(interpretation)}</p>
     </section>
   </main>
 </body>
 </html>"""
+
+
+_INTERPRETATION_TOKEN_RE = re.compile(
+    r"`(?P<code>[^`]+)`|\[(?P<label>[^\]]+)\]\((?P<href>\./[^)]+\.md)\)"
+)
+
+
+def _render_architecture_interpretation(value: str) -> str:
+    """Render the small inline-markup subset used by diagram notes safely."""
+    rendered: list[str] = []
+    cursor = 0
+    for match in _INTERPRETATION_TOKEN_RE.finditer(value):
+        rendered.append(html.escape(value[cursor:match.start()]))
+        if match.group("code") is not None:
+            rendered.append(f"<code>{html.escape(match.group('code'))}</code>")
+        else:
+            rendered.append(
+                f'<a href="{html.escape(match.group("href"), quote=True)}">'
+                f'{html.escape(match.group("label"))}</a>'
+            )
+        cursor = match.end()
+    rendered.append(html.escape(value[cursor:]))
+    return "".join(rendered)
 
 
 def architecture_pages(model: DocsModel) -> dict[Path, str]:

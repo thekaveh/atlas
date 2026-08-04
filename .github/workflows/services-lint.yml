@@ -27,7 +27,8 @@ permissions:
 jobs:
   lint:
     name: Manifest lint + unit tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -67,7 +68,12 @@ jobs:
 
       - name: Run unit tests (loader, validator, assembler, hooks, CLI)
         working-directory: bootstrapper
-        run: uv run pytest tests/ -q --ignore=tests/test_fragment_equivalence.py --ignore=tests/test_source_permutations.py
+        run: >-
+          uv run pytest tests/ -q
+          --ignore=tests/test_fragment_equivalence.py
+          --ignore=tests/test_source_permutations.py
+          --cov=. --cov-config=pyproject.toml --cov-branch
+          --cov-report=term --cov-fail-under=69
 
       - name: Lint manifests
         working-directory: bootstrapper
@@ -82,17 +88,18 @@ jobs:
           # closure. Both are repository-managed; no inline CI subset may
           # drift from the application or pytest plugin contracts.
           VIRTUAL_ENV="$BACKEND_TEST_VENV" uv pip install \
-            -r requirements.txt -r requirements-dev.txt -c requirements-locked.txt
-          "$BACKEND_TEST_VENV/bin/python" -m pytest tests/ -q -W error
+            -r requirements.txt -r requirements-dev.txt -c requirements-test-locked.txt
+          "$BACKEND_TEST_VENV/bin/python" -m pytest tests/ -q -W error \
+            --cov=. --cov-config=.coveragerc --cov-branch \
+            --cov-report=term --cov-fail-under=79
 
       - name: MCP framework contract tests
         run: |
           MCP_TEST_VENV="${RUNNER_TEMP:-$PWD}/mcp-ci-venv"
           uv venv --python 3.12 "$MCP_TEST_VENV"
           VIRTUAL_ENV="$MCP_TEST_VENV" uv pip install \
-            -r services/mcp-servers/runtime/requirements.txt \
-            -c services/mcp-servers/runtime/requirements-locked.txt \
-            pytest
+            -r services/mcp-servers/runtime/requirements-test.txt \
+            -c services/mcp-servers/runtime/requirements-test-locked.txt
           "$MCP_TEST_VENV/bin/python" -m pytest \
             bootstrapper/tests/test_mcp_servers_framework.py -q -W error
 
@@ -101,11 +108,8 @@ jobs:
           ASSET_TEST_VENV="${RUNNER_TEMP:-$PWD}/asset-ci-venv"
           uv venv --python 3.12 "$ASSET_TEST_VENV"
           VIRTUAL_ENV="$ASSET_TEST_VENV" uv pip install \
-            -r services/asset-worker/app/requirements.txt \
-            -r services/asset-baker/app/requirements.txt \
-            -c services/asset-worker/app/requirements-locked.txt \
-            -c services/asset-baker/app/requirements-locked.txt \
-            pytest httpx2
+            -r services/asset-worker/app/requirements-test.txt \
+            -c services/asset-worker/app/requirements-test-locked.txt
           (
             cd services/asset-worker/app
             "$ASSET_TEST_VENV/bin/python" -m pytest tests/ -q
@@ -130,7 +134,8 @@ jobs:
 
   compose-equivalence:
     name: Compose merge + byte-equivalence + source-permutation matrix
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -170,7 +175,8 @@ jobs:
 
   audit-scripts:
     name: Docs drift + audit scripts
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -234,11 +240,13 @@ jobs:
         run: uv run --project bootstrapper python -m scripts.notebook_reproducibility
 
       - name: Docling localhost-provider lock check
-        working-directory: services/docling/provider/localhost
         # Host-run provider (no Dockerfile), so build-validation can't
         # exercise its pins; this catches unsatisfiable bumps and a stale
         # uv.lock at PR time instead of on a user's machine.
-        run: uv lock --locked
+        run: >-
+          uv run --project bootstrapper python -m scripts.bounded_subprocess
+          --label "Docling localhost lock check"
+          --cwd services/docling/provider/localhost -- uv lock --locked
 
       - name: Local Deep Researcher runtime lock check
         run: uv run --project bootstrapper python scripts/refresh-local-deep-researcher-lock.py --check
@@ -246,14 +254,20 @@ jobs:
       - name: Compiled service runtime lock checks
         run: uv run --project bootstrapper python -m scripts.check_runtime_locks
 
+      - name: Compiled CI test lock checks
+        run: uv run --project bootstrapper python -m scripts.check_test_locks
+
       - name: Audit compiled service runtime locks
         run: |
-          uv tool install pip-audit==2.10.0
+          uv run --project bootstrapper python -m scripts.bounded_subprocess \
+            --label "pip-audit tool installation" -- \
+            uv tool install pip-audit==2.10.0
           uv run --project bootstrapper python -m scripts.audit_runtime_locks
 
   build-validation:
     name: Build-validation (Dockerfile + requirements.txt installability)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
     # Catches the Pass 12 / Pass 13 class of bug: unsatisfiable pip pins,
     # nonexistent packages, broken Dockerfile syntax. Compose-shape checks
     # never invoke `docker build`, so a broken requirements.txt sails
@@ -274,6 +288,7 @@ jobs:
             "services/asset-worker/app|Dockerfile|" \
             "services/asset-baker/app|Dockerfile|" \
             "services/backend/app|Dockerfile|" \
+            "services/docling/provider|adapter/Dockerfile|" \
             "services/iceberg-rest/build|Dockerfile|" \
             "services/jenkins/build|Dockerfile|" \
             "services/jupyterhub/build|Dockerfile|" \

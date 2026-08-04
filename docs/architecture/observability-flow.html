@@ -37,7 +37,7 @@
     </div>
     <section class="interpretation">
       <h2>How to read this view</h2>
-      <p>Langfuse is deliberately outside the OTel path: LiteLLM emits Langfuse traces via its own `success_callback`, not through the Collector, because Langfuse is the LLM-behavior layer while Prometheus/Grafana stay the infrastructure-metrics layer. Only backend and LiteLLM OTLP traces currently reach Tempo via the Collector; Loki log export isn&#x27;t wired up yet.</p>
+      <p>Langfuse is deliberately outside the OTel path: LiteLLM emits Langfuse traces via its own <code>success_callback</code>, not through the Collector, because Langfuse is the LLM-behavior layer while Prometheus/Grafana stay the infrastructure-metrics layer. Only backend and LiteLLM OTLP traces currently reach Tempo via the Collector; Loki log export isn&#x27;t wired up yet.</p>
     </section>
   </main>
 </body>

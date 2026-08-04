@@ -6,12 +6,17 @@ docs: services/doc-processor/README.md  # docling is the docling-container-gpu /
 
 containers:
   - docling-gpu
+  - docling-lightrag-adapter
 
 images:
   - var: DOCLING_GPU_IMAGE
     default: "pytorch/pytorch:2.13.0-cuda12.6-cudnn9-runtime@sha256:6acf597eeb8e376a96580dde4952f37cc017fef732bb40bfc73f28f25e3f64b4"
     container: docling-gpu
     notes: "Used as BASE_IMAGE in doc-processor/gpu/Dockerfile."
+  - var: DOCLING_ADAPTER_IMAGE
+    default: "python:3.12.13-slim"
+    container: docling-lightrag-adapter
+    notes: "Minimal base image for the isolated LightRAG compatibility adapter."
 
 sources:
   var: DOC_PROCESSOR_SOURCE
@@ -40,9 +45,53 @@ env:
     default: accurate
   - name: DOCLING_MAX_FILE_SIZE
     default: 52428800
+    description: "Positive maximum upload bytes for Docling GPU, localhost, and adapter APIs. Request bodies are capped before multipart parsing with 1 MiB framing overhead; invalid values fail startup and oversized requests return 413."
+  - name: DOCLING_UPLOAD_TIMEOUT_SECONDS
+    default: 120
+    description: "Total seconds (1-3600) allowed to receive one Docling or adapter upload body before a 408 response releases admission capacity."
   - name: DOCLING_CONCURRENCY
     default: 1
     description: "Maximum concurrent Docling conversions per provider process. Default 1 prevents duplicate model loads and GPU memory contention."
+  - name: DOCLING_API_TOKEN
+    default: ""
+    secret: true
+    description: "Auto-generated bearer credential required by Docling routes except /health."
+  - name: DOCLING_AUTH_MODE
+    default: required
+    description: "Provider authentication mode: required (default) or disabled for an explicit emergency/local rollback."
+  - name: DOCLING_CORS_ORIGINS
+    default: ""
+    description: "Optional comma-separated browser origin allowlist. Empty disables CORS; wildcard is invalid while authentication is required."
+  - name: DOCLING_INFERENCE_TIMEOUT_SECONDS
+    default: 900
+    description: "Finite conversion and lazy-load deadline in seconds (1-3600). A timeout returns 504 and then exits the provider process for restart."
+  - name: DOCLING_LOCALHOST_BIND_HOST
+    default: 127.0.0.1
+    description: "Native Docling listen address. Set another interface explicitly only when remote access is intended."
+  - name: DOCLING_ADAPTER_MAX_JOBS
+    default: 2
+    description: "Maximum outstanding LightRAG adapter jobs, reserved before multipart parsing."
+  - name: DOCLING_ADAPTER_RESULT_TTL_SECONDS
+    default: 900
+    description: "Seconds a completed LightRAG adapter result may remain before its artifact and job slot are removed."
+  - name: DOCLING_ADAPTER_MAX_RESULT_BYTES
+    default: 104857600
+    description: "Maximum ZIP result bytes streamed from Docling to adapter storage before the job fails safely."
+  - name: DOCLING_ADAPTER_UPSTREAM_MAX_ATTEMPTS
+    default: 3
+    description: "Total bounded Docling request attempts when the provider returns HTTP 429."
+  - name: DOCLING_ADAPTER_DOWNLOAD_TIMEOUT_SECONDS
+    default: 300
+    description: "Positive maximum seconds for one result transmission; expiry deletes the artifact and releases its adapter slot."
+  - name: DOCLING_ADAPTER_TMPFS_SIZE
+    default: 512m
+    description: "Bounded adapter temporary-storage mount. Size must cover MAX_JOBS times the larger of upload-plus-request-body (upload plus 1 MiB multipart overhead) or upload-plus-result limits, plus at least 64 MiB staging headroom; startup fails when actual capacity is smaller."
+  - name: DOCLING_ADAPTER_SCALE
+    auto_managed: true
+    description: "Derived adapter replica count; one only when both LightRAG and Docling are enabled."
+  - name: DOCLING_ADAPTER_UPSTREAM_ENDPOINT
+    auto_managed: true
+    description: "Authenticated internal bundle route selected for the adapter; never exposed to LightRAG."
   - name: DOCLING_ENABLE_FORMULAS
     default: true
   - name: DOCLING_ENABLE_CODE_BLOCKS

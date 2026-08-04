@@ -1,4 +1,4 @@
-# 5.2.24. Langfuse (LLM traces + evals)
+# 5.2.25. Langfuse (LLM traces + evals)
 
 ## 1. Overview
 

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -29,6 +30,7 @@ BREAKPOINTS = (160, 120, 100, 80, 60)
 # Reuse the canonical ATLAS-PLATFORM block-art rows + blue gradient so the
 # poster wordmark always matches the in-app title lockup (single dash, etc.).
 sys.path.insert(0, str(REPO / "bootstrapper"))
+from core.process_runner import CommandOutputTooLarge, run_with_deadline  # noqa: E402
 from ui.textual.widgets.block_logo import _LOGO_ROWS_FULL, _GRADIENT  # noqa: E402
 
 # Monospace fonts to try for the block-art wordmark (maintainer machine).
@@ -46,6 +48,7 @@ _SGR = re.compile(r"\x1b\[([0-9;?]*)m")
 _OTHER = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 _DEFAULT_FG = "#c0caf5"
 _DEFAULT_BG = "#0e0f18"
+_ARTIFACT_TOOL_TIMEOUT_SECONDS = 120.0
 
 
 def _hex(rgb: tuple[int, int, int]) -> str:
@@ -69,7 +72,16 @@ def _chafa(tmp_png: Path, cols: int, rows: int) -> str:
         "chafa", "-f", "symbols", "-c", "full", "--symbols", "block+space",
         "--fill", "block", "--dither", "none", "-s", f"{cols}x{rows}", str(tmp_png),
     ]
-    return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", check=True).stdout
+    try:
+        result = run_with_deadline(
+            cmd, timeout_seconds=_ARTIFACT_TOOL_TIMEOUT_SECONDS
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError("chafa timed out while generating logo data") from exc
+    except CommandOutputTooLarge as exc:
+        raise RuntimeError("chafa exceeded its output limit") from exc
+    result.check_returncode()
+    return result.stdout
 
 
 def _parse(ansi: str) -> list[list[list[str]]]:
@@ -245,14 +257,26 @@ def _optimize_png(path: Path, quality: str = "80-95") -> None:
     """Shrink a PNG below GitHub's 1MB avatar/social-preview limit via
     pngquant (palette quantization — preserves dimensions/aspect, near-lossless
     for this artwork). No-op with a note if pngquant is unavailable."""
-    import shutil as _sh
-    if _sh.which("pngquant") is None:
+    if shutil.which("pngquant") is None:
         print(f"  (pngquant not found; {path.name} left unoptimized — may exceed 1MB)")
         return
-    subprocess.run(
-        ["pngquant", "--force", "--quality", quality, "--output", str(path), str(path)],
-        check=False,
-    )
+    try:
+        run_with_deadline(
+            [
+                "pngquant",
+                "--force",
+                "--quality",
+                quality,
+                "--output",
+                str(path),
+                str(path),
+            ],
+            timeout_seconds=_ARTIFACT_TOOL_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError("pngquant timed out while optimizing artwork") from exc
+    except CommandOutputTooLarge as exc:
+        raise RuntimeError("pngquant exceeded its output limit") from exc
 
 
 if __name__ == "__main__":

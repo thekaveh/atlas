@@ -22,7 +22,7 @@ def test_ragas_dependency_is_limited_to_backend_and_jupyterhub_surfaces() -> Non
     assert "ragas==0.4.3" in jupyter_requirements
     assert "langchain-community>=0.3.0,<0.4" in backend_requirements
     assert "langchain-community>=0.3.0,<0.4" in jupyter_requirements
-    assert "-r requirements.txt -r requirements-dev.txt" in workflow
+    assert "requirements-test-locked.txt" in workflow
 
     for unexpected_path in (
         "services/docling/app/requirements.txt",

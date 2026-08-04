@@ -131,6 +131,7 @@ WEAVIATE_URL=http://weaviate:8080
 STT_ENDPOINT=...                  # resolved per STT_PROVIDER_SOURCE
 TTS_ENDPOINT=...                  # resolved per TTS_PROVIDER_SOURCE
 DOCLING_ENDPOINT=...              # resolved per DOC_PROCESSOR_SOURCE
+DOCLING_API_TOKEN=                # generated Docling bearer; server-side only
 HERMES_ENDPOINT=http://hermes:8642
 HERMES_API_KEY=${HERMES_API_KEY}
 NEO4J_URI=bolt://neo4j-graph-db:7687
@@ -147,6 +148,8 @@ RAG_INGESTION_EXECUTION_LEASE_SECONDS=30
 ```
 
 Adaptive listing comes from `runtime_adaptive.backend.adapts_to` in `services/backend/service.yml`.
+
+When Docling is enabled, the Backend authenticates every conversion request with `DOCLING_API_TOKEN` and refuses to send the request if the endpoint is configured without a token. The credential stays in the Backend process; clients calling Backend routes never receive it. Docling's own `/health` route remains public, while its conversion and discovery routes are protected.
 
 `POST /documents/extract` treats Docling and Tika as untrusted upstream boundaries: malformed success payloads fail validation rather than being indexed as empty documents, and the public route returns a stable generic error so provider details and document content never cross the API boundary. The exact required response shape is documented in the extraction route's code.
 
@@ -222,6 +225,8 @@ endpoint.
 When any optional service is `disabled`, the corresponding backend feature degrades gracefully — `/storage/upload` returns 503 if Supabase Storage is down, and `/research/start` persists sessions in Supabase while `research_client.py` creates LangGraph threads and runs them through `/threads/{id}/runs/stream` on the Local Deep Researcher service.
 
 Research sessions use Supabase as their durable state boundary: session state and heartbeats are tracked atomically so a session past its `RESEARCH_SESSION_LEASE_SECONDS` lease is marked failed, and a cancelled or expired session cannot be revived by a late remote response, even across Backend replicas. The full heartbeat/lease/row-lock failover sequence is documented in `research_client.py`.
+
+Each Backend process admits at most `RESEARCH_MAX_CONCURRENT` research sessions (default `4`). A saturated `POST /research/start` returns `429` with `Retry-After: 1` before database work or background-task creation. This is a per-process bulkhead; deployments with multiple Backend replicas multiply the aggregate limit.
 
 **Internal network:** all upstream calls use Docker DNS names on `backend-network`. No host-port hops; nothing reaches the host filesystem outside the mounted `./services/backend/app/` source directory.
 

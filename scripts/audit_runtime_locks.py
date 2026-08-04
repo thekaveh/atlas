@@ -4,14 +4,23 @@ from __future__ import annotations
 
 import json
 import re
-import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from scripts.bounded_subprocess import (
+    CommandLaunchError,
+    CommandOutputTooLarge,
+    CommandTimedOut,
+    DEFAULT_TIMEOUT_SECONDS,
+    redacted_failure,
+    run_bounded,
+)
+
 
 ROOT = Path(__file__).resolve().parents[1]
 _LOCAL_VERSION_RE = re.compile(r"^[A-Za-z0-9_.-]+==[^\s]+\+[^\s]+$")
+COMMAND_TIMEOUT_SECONDS = DEFAULT_TIMEOUT_SECONDS
 
 
 @dataclass(frozen=True)
@@ -37,7 +46,13 @@ AUDIT_SPECS = (
     AuditSpec("services/airflow/build/requirements-locked.txt"),
     AuditSpec(
         "services/jupyterhub/build/requirements-locked.txt",
-        frozenset({"PYSEC-2026-2447", "PYSEC-2026-3046"}),
+        # cryptography 50 fixes CVE-2026-69247, but current MLflow caps it
+        # below 50. Atlas exposes no PKCS#7 decrypt endpoint; retain this exact
+        # fail-closed exception only until MLflow relaxes the upstream cap.
+        # Atlas maintainers own re-review by 2026-09-01.
+        frozenset(
+            {"CVE-2026-69247", "PYSEC-2026-2447", "PYSEC-2026-3046"}
+        ),
         frozenset({"pyg-lib==0.8.0+pt213cpu"}),
     ),
     AuditSpec(
@@ -54,7 +69,14 @@ AUDIT_SPECS = (
     AuditSpec("services/asset-baker/app/requirements-locked.txt"),
     AuditSpec("services/asset-worker/app/requirements-locked.txt"),
     AuditSpec("services/docling/provider/gpu/requirements-locked.txt"),
+    AuditSpec("services/docling/provider/adapter/requirements-locked.txt"),
     AuditSpec("services/mcp-servers/runtime/requirements-locked.txt"),
+    AuditSpec(
+        "services/backend/app/app/requirements-test-locked.txt",
+        frozenset({"PYSEC-2026-2447", "PYSEC-2026-3046"}),
+    ),
+    AuditSpec("services/mcp-servers/runtime/requirements-test-locked.txt"),
+    AuditSpec("services/asset-worker/app/requirements-test-locked.txt"),
     AuditSpec("services/local-deep-researcher/build/config/runtime-requirements.lock"),
 )
 
@@ -90,14 +112,21 @@ AUDITED_RUNTIME_MANIFESTS = frozenset(
         "services/airflow/build/requirements-locked.txt",
         "services/asset-baker/app/requirements.txt",
         "services/asset-baker/app/requirements-locked.txt",
+        "services/asset-worker/app/requirements-test.txt",
+        "services/asset-worker/app/requirements-test-locked.txt",
         "services/asset-worker/app/package-lock.json",
         "services/asset-worker/app/package.json",
         "services/asset-worker/app/requirements.txt",
         "services/asset-worker/app/requirements-locked.txt",
         "services/backend/app/app/requirements.txt",
+        "services/backend/app/app/requirements-dev.txt",
         "services/backend/app/app/requirements-locked.txt",
+        "services/backend/app/app/requirements-test.txt",
+        "services/backend/app/app/requirements-test-locked.txt",
         "services/docling/provider/gpu/requirements.txt",
         "services/docling/provider/gpu/requirements-locked.txt",
+        "services/docling/provider/adapter/requirements.txt",
+        "services/docling/provider/adapter/requirements-locked.txt",
         "services/docling/provider/localhost/pyproject.toml",
         "services/docling/provider/localhost/uv.lock",
         "services/jupyterhub/build/requirements.txt",
@@ -107,6 +136,8 @@ AUDITED_RUNTIME_MANIFESTS = frozenset(
         "services/local-deep-researcher/locks/runtime.uv.lock",
         "services/mcp-servers/runtime/requirements.txt",
         "services/mcp-servers/runtime/requirements-locked.txt",
+        "services/mcp-servers/runtime/requirements-test.txt",
+        "services/mcp-servers/runtime/requirements-test-locked.txt",
         "services/n8n/init/config/package-lock.json",
         "services/n8n/init/config/package.json",
         "services/parakeet/provider/gpu/requirements.txt",
@@ -131,8 +162,6 @@ def discover_runtime_manifests(root: Path = ROOT) -> frozenset[str]:
                 path.name in {"pyproject.toml", "uv.lock", "package.json", "package-lock.json"}
                 or (path.name.startswith("requirements") and path.suffix == ".txt")
             ):
-                if path.name == "requirements-dev.txt":
-                    continue
                 found.add(relative.as_posix())
     nonstandard = {
         "services/local-deep-researcher/build/config/runtime-requirements.lock",
@@ -175,15 +204,27 @@ def audit_spec(spec: AuditSpec, *, root: Path = ROOT) -> list[str]:
     with tempfile.TemporaryDirectory(prefix="atlas-pip-audit-") as raw_temp:
         audit_input = Path(raw_temp) / "requirements.txt"
         audit_input.write_text(public_requirements, encoding="utf-8")
-        result = subprocess.run(
-            [
-                "pip-audit", "-r", str(audit_input), "--no-deps", "--disable-pip",
-                "--strict", "--format", "json",
-            ],
-            cwd=root, capture_output=True, text=True, check=False,
-        )
+        try:
+            result = run_bounded(
+                [
+                    "pip-audit", "-r", str(audit_input), "--no-deps", "--disable-pip",
+                    "--strict", "--format", "json",
+                ],
+                cwd=root,
+                timeout_seconds=COMMAND_TIMEOUT_SECONDS,
+            )
+        except CommandTimedOut:
+            return [
+                f"{display_name}: pip-audit timed out after "
+                f"{COMMAND_TIMEOUT_SECONDS} seconds"
+            ]
+        except (CommandLaunchError, CommandOutputTooLarge):
+            return [
+                f"{display_name}: pip-audit could not complete "
+                "(subprocess details redacted)"
+            ]
     if result.returncode not in {0, 1}:
-        return [f"{display_name}: pip-audit failed: {result.stderr.strip()}"]
+        return [redacted_failure(f"{display_name}: pip-audit", result.returncode)]
     try:
         payload = json.loads(result.stdout)
     except json.JSONDecodeError as exc:
@@ -208,16 +249,32 @@ def audit_spec(spec: AuditSpec, *, root: Path = ROOT) -> list[str]:
 def audit_source_spec(spec: SourceSpec, *, root: Path = ROOT) -> list[str]:
     with tempfile.TemporaryDirectory(prefix="atlas-runtime-compile-") as raw_temp:
         lock = Path(raw_temp) / "requirements-locked.txt"
-        result = subprocess.run(
-            [
-                "uv", "pip", "compile", str(root / spec.requirements),
-                "--python-version", "3.12", "--python-platform", spec.python_platform,
-                "--no-header", "--output-file", str(lock),
-            ],
-            cwd=root, capture_output=True, text=True, check=False,
-        )
+        try:
+            result = run_bounded(
+                [
+                    "uv", "pip", "compile", str(root / spec.requirements),
+                    "--python-version", "3.12", "--python-platform", spec.python_platform,
+                    "--no-header", "--output-file", str(lock),
+                ],
+                cwd=root,
+                timeout_seconds=COMMAND_TIMEOUT_SECONDS,
+            )
+        except CommandTimedOut:
+            return [
+                f"{spec.requirements}: uv compile timed out after "
+                f"{COMMAND_TIMEOUT_SECONDS} seconds"
+            ]
+        except (CommandLaunchError, CommandOutputTooLarge):
+            return [
+                f"{spec.requirements}: uv compile could not complete "
+                "(subprocess details redacted)"
+            ]
         if result.returncode != 0:
-            return [f"{spec.requirements}: uv compile failed: {result.stderr.strip()}"]
+            return [
+                redacted_failure(
+                    f"{spec.requirements}: uv compile", result.returncode
+                )
+            ]
         return audit_spec(
             AuditSpec(
                 str(lock), spec.reviewed_advisories,
@@ -230,15 +287,27 @@ def audit_source_spec(spec: SourceSpec, *, root: Path = ROOT) -> list[str]:
 def audit_uv_project(project: str, *, root: Path = ROOT) -> list[str]:
     with tempfile.TemporaryDirectory(prefix="atlas-uv-export-") as raw_temp:
         lock = Path(raw_temp) / "requirements-locked.txt"
-        result = subprocess.run(
-            [
-                "uv", "export", "--project", str(root / project), "--locked",
-                "--no-hashes", "--no-emit-project", "--output-file", str(lock),
-            ],
-            cwd=root, capture_output=True, text=True, check=False,
-        )
+        try:
+            result = run_bounded(
+                [
+                    "uv", "export", "--project", str(root / project), "--locked",
+                    "--no-hashes", "--no-emit-project", "--output-file", str(lock),
+                ],
+                cwd=root,
+                timeout_seconds=COMMAND_TIMEOUT_SECONDS,
+            )
+        except CommandTimedOut:
+            return [
+                f"{project}: uv export timed out after "
+                f"{COMMAND_TIMEOUT_SECONDS} seconds"
+            ]
+        except (CommandLaunchError, CommandOutputTooLarge):
+            return [
+                f"{project}: uv export could not complete "
+                "(subprocess details redacted)"
+            ]
         if result.returncode != 0:
-            return [f"{project}: uv export failed: {result.stderr.strip()}"]
+            return [redacted_failure(f"{project}: uv export", result.returncode)]
         return audit_spec(
             AuditSpec(str(lock), display_name=f"{project}/uv.lock"),
             root=Path("/"),
@@ -246,19 +315,30 @@ def audit_uv_project(project: str, *, root: Path = ROOT) -> list[str]:
 
 
 def audit_npm_project(project: str, *, root: Path = ROOT) -> list[str]:
-    result = subprocess.run(
-        ["npm", "audit", "--package-lock-only", "--omit=dev", "--json"],
-        cwd=root / project, capture_output=True, text=True, check=False,
-    )
+    try:
+        result = run_bounded(
+            ["npm", "audit", "--package-lock-only", "--omit=dev", "--json"],
+            cwd=root / project,
+            timeout_seconds=COMMAND_TIMEOUT_SECONDS,
+        )
+    except CommandTimedOut:
+        return [
+            f"{project}: npm audit timed out after "
+            f"{COMMAND_TIMEOUT_SECONDS} seconds"
+        ]
+    except (CommandLaunchError, CommandOutputTooLarge):
+        return [
+            f"{project}: npm audit could not complete "
+            "(subprocess details redacted)"
+        ]
     try:
         payload = json.loads(result.stdout)
     except json.JSONDecodeError as exc:
         return [f"{project}: invalid npm audit JSON: {exc}"]
     if result.returncode not in {0, 1}:
-        return [f"{project}: npm audit failed: {result.stderr.strip()}"]
+        return [redacted_failure(f"{project}: npm audit", result.returncode)]
     if payload.get("error"):
-        message = payload.get("message") or payload["error"]
-        return [f"{project}: npm audit failed: {message}"]
+        return [f"{project}: npm audit registry request failed (details redacted)"]
     metadata = payload.get("metadata")
     vulnerabilities = metadata.get("vulnerabilities") if isinstance(metadata, dict) else None
     if not isinstance(vulnerabilities, dict) or not isinstance(

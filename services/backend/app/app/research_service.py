@@ -20,6 +20,10 @@ logger = logging.getLogger(__name__)
 _PUBLIC_RESEARCH_FAILURE = "Research failed; inspect backend logs for details"
 
 
+class ResearchCapacityError(RuntimeError):
+    """Raised before persistence when this Backend has no research slot."""
+
+
 def _positive_env_int(name: str, default: int) -> int:
     raw = (os.getenv(name) or str(default)).strip()
     try:
@@ -63,6 +67,9 @@ class ResearchService:
         
         self.research_client = ResearchClient()
         self._active_tasks = {}  # Track background tasks
+        self.max_concurrent_research = _positive_env_int(
+            "RESEARCH_MAX_CONCURRENT", 4
+        )
         self.lease_seconds = _positive_env_int(
             "RESEARCH_SESSION_LEASE_SECONDS", 300
         )
@@ -108,38 +115,53 @@ class ResearchService:
     ) -> Dict[str, Any]:
         """Start a new research session with database tracking"""
         
-        # Create database record first
         session_id = str(uuid4())
-        conn = await self._get_db_connection()
-        
+        capacity = getattr(self, "max_concurrent_research", None)
+        if capacity is None:
+            capacity = _positive_env_int("RESEARCH_MAX_CONCURRENT", 4)
+        # The reservation is inserted before the first await, so concurrent
+        # request coroutines cannot all pass the capacity check and then block
+        # in database work. It is replaced by the background Task after the
+        # durable PENDING row has been committed.
+        if len(self._active_tasks) >= capacity:
+            raise ResearchCapacityError("Research capacity is full")
+        self._active_tasks[session_id] = None
+
         try:
-            async with conn.transaction():
-                await conn.execute("""
-                    INSERT INTO public.research_sessions
-                    (id, query, status, max_loops, search_api, user_id, started_at)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7)
-                """, session_id, query, ResearchStatus.PENDING.value, max_loops,
-                    search_api, UUID(user_id) if user_id else None,
-                    datetime.now(timezone.utc))
+            conn = await self._get_db_connection()
+            try:
+                async with conn.transaction():
+                    await conn.execute("""
+                        INSERT INTO public.research_sessions
+                        (id, query, status, max_loops, search_api, user_id, started_at)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7)
+                    """, session_id, query, ResearchStatus.PENDING.value, max_loops,
+                        search_api, UUID(user_id) if user_id else None,
+                        datetime.now(timezone.utc))
 
-                await conn.execute("""
-                    INSERT INTO public.research_logs
-                    (session_id, step_number, step_type, message)
-                    VALUES ($1, $2, $3, $4)
-                """, session_id, 1, "start",
-                    f"Research session started for query: {query}")
-        finally:
-            await self._release_db_connection(conn)
+                    await conn.execute("""
+                        INSERT INTO public.research_logs
+                        (session_id, step_number, step_type, message)
+                        VALUES ($1, $2, $3, $4)
+                    """, session_id, 1, "start",
+                        f"Research session started for query: {query}")
+            finally:
+                await self._release_db_connection(conn)
 
-        # Start background research task. add_done_callback surfaces any
-        # exception raised before _run_research_background's outer try
-        # block (e.g. asyncpg pool reset) which asyncio would otherwise
-        # swallow silently — the session would then sit in PENDING forever.
-        task = asyncio.create_task(
-            self._run_research_background(session_id, query, max_loops, search_api, user_id)
-        )
-        task.add_done_callback(_log_task_exception(session_id))
-        self._active_tasks[session_id] = task
+            # Start background research task. add_done_callback surfaces any
+            # exception raised before _run_research_background's outer try
+            # block (e.g. asyncpg pool reset) which asyncio would otherwise
+            # swallow silently — the session would then sit in PENDING forever.
+            task = asyncio.create_task(
+                self._run_research_background(
+                    session_id, query, max_loops, search_api, user_id
+                )
+            )
+            task.add_done_callback(_log_task_exception(session_id))
+            self._active_tasks[session_id] = task
+        except BaseException:
+            self._active_tasks.pop(session_id, None)
+            raise
 
         return {
             "session_id": session_id,
@@ -317,7 +339,7 @@ class ResearchService:
             self._maintenance_task = asyncio.create_task(self._maintenance_loop())
 
     async def aclose(self) -> None:
-        tasks = list(self._active_tasks.values())
+        tasks = [task for task in self._active_tasks.values() if task is not None]
         for task in tasks:
             task.cancel()
         if tasks:
@@ -600,7 +622,9 @@ class ResearchService:
             
             # Cancel background task if it exists
             if session_id in self._active_tasks:
-                self._active_tasks[session_id].cancel()
+                task = self._active_tasks[session_id]
+                if task is not None:
+                    task.cancel()
                 del self._active_tasks[session_id]
 
             await conn.execute("""

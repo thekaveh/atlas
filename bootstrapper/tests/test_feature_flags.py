@@ -1,4 +1,5 @@
 import feature_flags
+from datetime import date
 
 
 def test_splash_disabled_by_default(monkeypatch):
@@ -26,3 +27,12 @@ def test_default_constant_drives_unset_env(monkeypatch):
     assert feature_flags.splash_enabled() is True
     monkeypatch.setattr(feature_flags, "_SPLASH_DEFAULT", False)
     assert feature_flags.splash_enabled() is False
+
+
+def test_temporary_splash_flag_has_lifecycle_metadata():
+    lifecycle = feature_flags.SPLASH_FLAG_LIFECYCLE
+
+    assert lifecycle["owner"]
+    assert date.fromisoformat(lifecycle["introduced"])
+    assert date.fromisoformat(lifecycle["review_by"])
+    assert lifecycle["decision"]

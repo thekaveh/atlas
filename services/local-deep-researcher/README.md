@@ -1,4 +1,4 @@
-# 5.2.28. Local Deep Researcher
+# 5.2.29. Local Deep Researcher
 
 LangGraph-based multi-step research agent. The user submits a topic, LDR runs a search-summarize-reflect-search loop (default 3 iterations), and returns a Markdown report citing the sources it found. Upstream is [langchain-ai/local-deep-researcher](https://github.com/langchain-ai/local-deep-researcher); the stack runs it via the LangGraph dev server (`langgraph dev`) listening on port 2024 inside the container, exposed at `LOCAL_DEEP_RESEARCHER_PORT` on the host.
 
@@ -45,7 +45,7 @@ LITELLM_API_KEY=${LITELLM_MASTER_KEY}
 
 `LOCAL_DEEP_RESEARCHER_REF` must remain a full commit SHA. Its upstream `uv.lock` is verified against `LOCAL_DEEP_RESEARCHER_UPSTREAM_LOCK_SHA256`, while Atlas' committed `build/config/runtime-requirements.lock` combines that graph with the exact serving CLI and build-tool versions. The lock records all three manifest pins as provenance metadata, and startup rejects mismatches before replacing the prior source tree, synchronizing a private virtual environment with mandatory hashes, and installing the checked-out project without dependency resolution.
 
-To upgrade, update the three manifest pins, then run `uv run --project bootstrapper python scripts/refresh-local-deep-researcher-lock.py`. The refresh command checks out the exact revision, verifies its upstream lock digest, adds the exact CLI, build-tool, and security-floor pins without installing them, and commits both combined resolver inputs under `services/local-deep-researcher/locks/` plus the exported runtime lock. The current security floors keep Click, langchain-classic, LangSmith, and Soup Sieve on patched releases; the exported graph passes `pip-audit`. Run the same command with `--check` for the network-free byte-equivalence gate, then validate the LDR patches and backend contract in the same change.
+To upgrade, update the three manifest pins, then run `uv run --project bootstrapper python scripts/refresh-local-deep-researcher-lock.py`. The refresh command checks out the exact revision, verifies its upstream lock digest, adds the exact CLI, build-tool, and security-floor pins without installing them, and commits both combined resolver inputs under `services/local-deep-researcher/locks/` plus the exported runtime lock. The current security floors keep aiohttp, Click, langchain-classic, LangSmith, and Soup Sieve on patched releases; the exported graph passes `pip-audit`. Run the same command with `--check` for the network-free byte-equivalence gate, then validate the LDR patches and backend contract in the same change.
 
 **Optional adaptive** (`runtime_deps.local-deep-researcher.optional`): `neo4j-graph-db`, `n8n`, `weaviate`, the media providers. Wiring exists in the manifest but nothing in the LDR code consumes them today — these are forward-looking hooks.
 

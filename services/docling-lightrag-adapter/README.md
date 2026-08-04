@@ -1,0 +1,66 @@
+# 5.2.15. Docling LightRAG Adapter
+
+Logical documentation for the isolated compatibility container owned by `services/docling/compose.yml`.
+
+## 1. Overview
+
+LightRAG v1.5.4 expects an asynchronous submit, poll, and result-download document parser. Atlas Docling exposes a synchronous authenticated conversion API. `docling-lightrag-adapter` bridges those protocols without giving LightRAG the Docling provider credential.
+
+## 2. Runtime boundary
+
+The adapter runs only when `LIGHTRAG_SOURCE=container` and a Docling source is enabled. It, LightRAG, and `docling-gpu` share the dedicated `docling-lightrag-network`; the adapter has no published host port and does not join the backend network. LightRAG receives only the adapter URL. The adapter alone receives `DOCLING_API_TOKEN` and uses it for the protected upstream bundle request.
+
+The container is built from the pinned adapter lock, runs as a non-root user, and does not load document models. Container ownership, derived scale, and source permutations remain in the Docling manifest and compose fragment.
+
+## 3. API contract
+
+The adapter implements the exact LightRAG v1.5.4 parser routes:
+
+- `POST /v1/convert/file/async` submits one document in multipart field `files`.
+- `GET /v1/status/poll/{task_id}` polls job state.
+- `GET /v1/result/{task_id}` downloads the completed artifact.
+- `GET /health` reports adapter readiness.
+
+It reserves one of `DOCLING_ADAPTER_MAX_JOBS` slots before multipart parsing, returning `429` before reading an upload when saturated. Upstream Docling `429` responses receive at most `DOCLING_ADAPTER_UPSTREAM_MAX_ATTEMPTS` total attempts (default `3`).
+
+## 4. Artifact lifecycle
+
+Job identifiers are random and do not disclose filenames or sequence. Request bodies are capped before multipart parsing at the upload limit plus 1 MiB of framing/form overhead and must finish within the total `DOCLING_UPLOAD_TIMEOUT_SECONDS` deadline (120 seconds by default), so oversized or slow uploads cannot retain temporary storage or admission capacity indefinitely. Docling ZIP responses stream directly to temporary storage with disk writes offloaded from the API event loop and fail if they exceed `DOCLING_ADAPTER_MAX_RESULT_BYTES` (100 MiB by default), avoiding an unbounded in-memory result. Downloads ignore Range headers, do not advertise byte-range support, and send the full one-shot archive without reading under the registry lock; the job slot remains leased until transmission finishes or `DOCLING_ADAPTER_DOWNLOAD_TIMEOUT_SECONDS` elapses (300 seconds by default). Temporary uploads and results are removed after successful download, interrupted or timed-out response transmission, failure, cancellation, or expiration. `DOCLING_ADAPTER_TMPFS_SIZE` defaults to 512 MiB, covering two default jobs at their 50 MiB upload and 100 MiB result limits plus 64 MiB of staging headroom. When changing the limits, configure at least `MAX_JOBS × max(2 × MAX_FILE_SIZE + 1 MiB, MAX_FILE_SIZE + MAX_RESULT_BYTES) + 64 MiB`; startup checks the actual free temporary-filesystem capacity and fails when it is too small. Completed results expire after `DOCLING_ADAPTER_RESULT_TTL_SECONDS` (900 seconds by default); clients must resubmit after expiry. Public failures are generic and do not expose provider details or document content, while server logs retain only the task identifier and exception type.
+
+## 5. Dependencies & Integrations
+
+### 5.1. Current — Upstream (this service calls)
+
+| Service | Category |
+|---|---|
+| docling | media |
+
+### 5.2. Current — Downstream (services that call this)
+
+| Service | Category |
+|---|---|
+| lightrag | agents |
+
+### 5.3. Architecture diagram
+
+![docling-lightrag-adapter architecture](./architecture.svg)
+
+[Open the full-size diagram](./architecture.html) for a full-screen view.
+
+### 5.4. Future — Missing pair integrations
+
+None planned. This adapter is deliberately narrow.
+
+### 5.5. Future — Candidate new services
+
+None.
+
+### 5.6. Future — Unused features in this service
+
+None. Broader conversion behavior belongs in Docling, not this protocol adapter.
+
+## 6. Troubleshooting
+
+- A submit returning `429` means all adapter job slots are occupied. Retrieve any completed result, wait for an active result transmission to finish or time out, or wait for an unclaimed result's TTL; failed and cancelled jobs release their slots automatically.
+- A result returning expired/not found means the TTL elapsed or the artifact was already downloaded; submit the original document again.
+- An empty adapter endpoint is expected for localhost LightRAG and whenever either LightRAG or Docling is disabled.

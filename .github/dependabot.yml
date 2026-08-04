@@ -19,6 +19,7 @@ updates:
       - "/bootstrapper"
       - "/services/docling/provider/localhost"
       - "/services/docling/provider/gpu"
+      - "/services/docling/provider/adapter"
       - "/services/jupyterhub/build"
       - "/services/backend/app/app"
       - "/services/parakeet/provider/gpu"

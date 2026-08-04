@@ -1071,6 +1071,14 @@ def _selections_to_args(
 
 # ─── main entry ──────────────────────────────────────────────────────
 
+def _run_app_with_process_cleanup(app) -> None:
+    """Own SIGTERM cleanup for bounded commands launched by TUI workers."""
+    from core.process_runner import cleanup_active_processes_on_sigterm
+
+    with cleanup_active_processes_on_sigterm():
+        app.run()
+
+
 def run_setup_flow(
     config_parser, hosts_manager, *,
     starter=None,
@@ -1193,7 +1201,7 @@ def run_setup_flow(
             state_holder["exit_code"] = 130
             self.exit()
 
-    _SetupApp().run()
+    _run_app_with_process_cleanup(_SetupApp())
     return state_holder["exit_code"]
 
 
@@ -1381,5 +1389,5 @@ def run_launch_flow(
             state_holder["exit_code"] = 130
             self.exit()
 
-    _LaunchApp().run()
+    _run_app_with_process_cleanup(_LaunchApp())
     return state_holder["exit_code"]

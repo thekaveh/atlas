@@ -100,6 +100,7 @@ def test_compose_validate_cli_uses_user_overlays_and_reports_success(
         return Result()
 
     monkeypatch.setattr(start_module.subprocess, "run", fake_run)
+    monkeypatch.setattr("core.docker_manager.run_with_deadline", fake_run)
     monkeypatch.setattr(
         start_module.DockerManager,
         "detect_docker_compose_command",
@@ -135,7 +136,9 @@ def test_compose_validate_cli_names_missing_variable_and_service(tmp_path, monke
             "invalid compose project\\n"
         )
 
-    monkeypatch.setattr(start_module.subprocess, "run", lambda *_args, **_kwargs: Result())
+    fake_run = lambda *_args, **_kwargs: Result()
+    monkeypatch.setattr(start_module.subprocess, "run", fake_run)
+    monkeypatch.setattr("core.docker_manager.run_with_deadline", fake_run)
     monkeypatch.setattr(
         start_module.DockerManager,
         "detect_docker_compose_command",

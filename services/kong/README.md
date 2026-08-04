@@ -1,4 +1,4 @@
-# 5.2.22. Kong API Gateway
+# 5.2.23. Kong API Gateway
 
 Kong is Atlas's API gateway. It routes `*.localhost` requests to services using configuration generated at startup, and handles authentication and service management for those routes.
 

@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 from n8n_client import N8nClient
-from research_service import ResearchService
+from research_service import ResearchCapacityError, ResearchService
 from comfyui_client import ComfyUIClient
 from comfyui_media_client import ComfyUIMediaClient
 from fal_media_client import (
@@ -1043,6 +1043,12 @@ async def start_research(
             user_id=user_id
         )
         return ResearchResponse(**result)
+    except ResearchCapacityError as exc:
+        raise HTTPException(
+            status_code=429,
+            detail=str(exc),
+            headers={"Retry-After": "1"},
+        ) from exc
     except Exception as exc:
         raise _unexpected_error("Start research", exc)
 

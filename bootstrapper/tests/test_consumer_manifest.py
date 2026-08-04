@@ -243,6 +243,7 @@ def test_consumer_manifest_cli_option_reaches_compose_validate(
         return Result()
 
     monkeypatch.setattr(start_module.subprocess, "run", fake_run)
+    monkeypatch.setattr("core.docker_manager.run_with_deadline", fake_run)
 
     result = CliRunner().invoke(
         start_module.main,
@@ -447,6 +448,7 @@ def test_compose_validate_materializes_consumer_env(
         return Result()
 
     monkeypatch.setattr(start_module.subprocess, "run", fake_run)
+    monkeypatch.setattr("core.docker_manager.run_with_deadline", fake_run)
 
     result = CliRunner().invoke(
         start_module.main,

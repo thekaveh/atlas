@@ -71,10 +71,10 @@ def test_backend_ci_installs_the_owned_test_contract() -> None:
 
     assert "pytest" not in requirements
     assert "httpx2" not in requirements
-    assert "pytest>=9.1.1" in dev_requirements
-    assert "pytest-asyncio>=1.4.0" in dev_requirements
-    assert "httpx2>=2.6.0" in dev_requirements
-    assert '-r requirements.txt -r requirements-dev.txt' in workflow
+    assert "pytest==9.1.1" in dev_requirements
+    assert "pytest-asyncio==1.4.0" in dev_requirements
+    assert "httpx2==2.6.0" in dev_requirements
+    assert "requirements-test-locked.txt" in workflow
     assert "requirements-dev.txt" not in dockerfile
     assert "pytest-asyncio omitted intentionally" not in workflow
 
@@ -153,6 +153,13 @@ def test_image_http_and_parser_security_floors() -> None:
     for relative, requirement in request_manifests.items():
         assert requirement in _text(relative), relative
 
+    assert "cryptography>=49.0.0,<50" in _text(
+        "services/jupyterhub/build/requirements.txt"
+    )
+    assert "\ncryptography==49.0.0\n" in (
+        "\n" + _text("services/jupyterhub/build/requirements-locked.txt")
+    )
+
     assert _locked_version("bootstrapper/uv.lock", "requests") == "2.34.2"
     assert _locked_version("bootstrapper/uv.lock", "click") == "8.4.2"
     assert _locked_version("bootstrapper/uv.lock", "pillow") == "12.3.0"
@@ -187,6 +194,9 @@ def test_jupyter_binary_ml_stack_uses_supported_security_baseline() -> None:
     assert "torch==2.13.0 torchvision==0.28.0" in dockerfile
     assert "torchaudio" not in dockerfile
     assert "--index-url https://download.pytorch.org/whl/cpu" in dockerfile
+    changelog = _text("docs/CHANGELOG.md")
+    assert "PyTorch 2.13" in changelog
+    assert "PyG 0.8" in changelog
 
 
 def test_dependabot_torch_coordination_matches_current_compiled_family() -> None:
@@ -229,7 +239,7 @@ def test_n8n_does_not_publish_retired_noop_environment_knobs() -> None:
 def test_mcp_framework_contracts_run_with_runtime_dependencies_in_ci() -> None:
     workflow = _text(".github/workflows/services-lint.yml")
 
-    assert "services/mcp-servers/runtime/requirements.txt" in workflow
+    assert "services/mcp-servers/runtime/requirements-test.txt" in workflow
     assert "bootstrapper/tests/test_mcp_servers_framework.py" in workflow
 
 
@@ -301,6 +311,10 @@ def test_large_service_runtime_graphs_use_compiled_constraints() -> None:
         (
             "services/docling/provider/gpu/Dockerfile",
             "services/docling/provider/gpu/requirements-locked.txt",
+        ),
+        (
+            "services/docling/provider/adapter/Dockerfile",
+            "services/docling/provider/adapter/requirements-locked.txt",
         ),
         (
             "services/mcp-servers/build/Dockerfile",
@@ -381,11 +395,13 @@ def test_required_ci_exercises_tier_a_runtime_constraints() -> None:
     workflow = _text(".github/workflows/services-lint.yml")
 
     for constraint in (
-        "services/mcp-servers/runtime/requirements-locked.txt",
-        "services/asset-worker/app/requirements-locked.txt",
-        "services/asset-baker/app/requirements-locked.txt",
+        "services/mcp-servers/runtime/requirements-test-locked.txt",
+        "services/asset-worker/app/requirements-test-locked.txt",
     ):
         assert f"-c {constraint}" in workflow
+
+    assert "python -m scripts.check_test_locks" in workflow
+    assert "pytest httpx2" not in workflow
 
     for venv_var in (
         "BACKEND_TEST_VENV",

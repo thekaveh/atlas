@@ -1,4 +1,4 @@
-# 5.2.21. JupyterHub - Data Science IDE
+# 5.2.22. JupyterHub - Data Science IDE
 
 **Port:** 63094
 **Category:** Application Tier
@@ -54,6 +54,8 @@ JUPYTERHUB_IMAGE=quay.io/jupyter/datascience-notebook:python-3.11.10
 JUPYTERHUB_PORT=63094
 JUPYTERHUB_TOKEN=               # Optional: authentication token
 BACKEND_NOTEBOOK_API_TOKEN=     # Auto-generated; scoped Backend bearer
+DOCLING_API_TOKEN=              # Auto-generated Docling bearer; server-side only
+PARAKEET_API_TOKEN=             # Auto-generated Parakeet bearer; server-side only
 ```
 
 > **Performance Tip**: The pinned `python-3.11.10` tag keeps Docker layer caching stable (5-10 s rebuilds); a moving `:latest` tag would force a full 8-10 min rebuild on every start.
@@ -74,6 +76,8 @@ route-scoping contract. JupyterHub remains an operator-trusted engineering
 environment with direct database and service credentials; it is not a
 hostile multi-tenant sandbox. The unused Supabase service-role key is
 deliberately not injected.
+
+Direct notebook calls to Docling and Atlas-managed Parakeet must attach the matching bearer token from the server-side environment, for example `headers={"Authorization": f"Bearer {os.environ['DOCLING_API_TOKEN']}"}`. The environment-check notebook may verify presence but must never print a credential-bearing value, and notebooks must not persist these tokens in cell output. Speaches and whisper.cpp do not consume `PARAKEET_API_TOKEN`.
 
 ## 5. Sample Notebooks
 
@@ -104,6 +108,8 @@ requirements. Service-dependent execution remains an explicit live smoke test.
 ## 6. Service Integration Examples
 
 Every notebook talks to LiteLLM via the OpenAI-compatible API — never to Ollama directly. `startup.sh` writes `OPENAI_API_BASE` / `OPENAI_API_KEY` into the work-dir `/home/jovyan/work/.env`; since they aren't in the container's process env, load them with `load_dotenv()` before reading via `os.getenv`. Weaviate, Neo4j, and the Postgres/Supabase clients connect directly using the equivalent auto-injected `WEAVIATE_URL` / `NEO4J_URI` / `NEO4J_USER` / `NEO4J_PASSWORD` env vars. Spark Connect (`SPARK_REMOTE`, default `sc://spark-connect:15002`, requires `SPARK_SOURCE != disabled`) and the MinIO/Iceberg lakehouse clients (`boto3`, `pyiceberg`, `duckdb` against `AWS_ENDPOINT_URL_S3` / `ICEBERG_REST_URI` / `ICEBERG_WAREHOUSE`) work the same way — connection details are pre-wired, no credentials to hand-assemble.
+
+Docling and Parakeet are the exception to anonymous direct HTTP: their endpoint and token pairs are injected together so trusted notebooks can authenticate without hard-coding secrets. Use placeholder names in shared notebook prose and keep token reads out of rendered output.
 
 Working, runnable examples for each of these live in the sample notebooks (§5): `01_litellm_basics.ipynb`, `02_langchain_rag.ipynb`, `03_neo4j_graphs.ipynb`, and `09_spark_connect.ipynb`. For the advanced Iceberg/Spark lakehouse validation flow (`MERGE INTO`, `VERSION AS OF`, Structured Streaming, table maintenance), see `12_iceberg_advanced_sql.ipynb` or run it directly from the repository root with `scripts/smoke-iceberg-advanced-sql.sh spark-connect` — see [`docs/deployment/iceberg-advanced-smoke.md`](../../docs/deployment/iceberg-advanced-smoke.md) for the full smoke-test contract.
 

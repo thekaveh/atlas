@@ -32,6 +32,10 @@ sources:
 env:
   - name: OPEN_WEB_UI_SOURCE
     default: container
+  - name: OPEN_WEB_UI_STT_API_KEY
+    auto_managed: true
+    secret: true
+    description: "Parakeet bearer token when a Parakeet source is selected; a non-secret compatibility placeholder for other enabled STT engines."
   - name: OPEN_WEB_UI_PORT
     # default removed — computed by services/topology.py slot allocator
   - name: OPEN_WEB_UI_SECRET_KEY

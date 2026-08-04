@@ -467,6 +467,7 @@ services:
       COMFYUI_MAX_IMAGE_BYTES: '20971520'
       COMFYUI_SOURCE: container-cpu
       DATABASE_URL: postgresql://supabase_admin:password@supabase-db:5432/postgres
+      DOCLING_API_TOKEN: ''
       DOCLING_ENDPOINT: ''
       FAL_API_KEY: ''
       FAL_ENABLE_SAFETY_CHECKER: 'true'
@@ -526,6 +527,7 @@ services:
       OTEL_PYTHON_FASTAPI_EXCLUDED_URLS: /metrics,/health,/ready
       OTEL_SERVICE_NAME: backend
       OTEL_TRACES_EXPORTER: otlp
+      PARAKEET_API_TOKEN: ''
       PROJECT_NAME: atlas
       RAG_INGESTION_CORPUS_ROOT: /app/corpus
       RAG_INGESTION_EXECUTION_LEASE_SECONDS: '30'
@@ -538,6 +540,7 @@ services:
       RAY_DASHBOARD_URL: ''
       RAY_JOB_API_TOKEN: ''
       REDIS_URL: redis://:redis_password@redis:6379/0
+      RESEARCH_MAX_CONCURRENT: '4'
       RESEARCH_SESSION_LEASE_SECONDS: '300'
       STT_ENDPOINT: ''
       SUPABASE_ANON_KEY: ''
@@ -970,6 +973,55 @@ services:
     - /var/lib/redis
     - /var/lib/crawl4ai/outputs:mode=0700
     - /home/appuser/.cache
+  docling-lightrag-adapter:
+    build:
+      context: '{REPO_ROOT}/services/docling/provider'
+      dockerfile: adapter/Dockerfile
+      args:
+        BASE_IMAGE: python:3.12.13-slim
+    cap_drop:
+    - ALL
+    container_name: atlas-docling-lightrag-adapter
+    deploy:
+      replicas: 0
+    environment:
+      DOCLING_ADAPTER_DOWNLOAD_TIMEOUT_SECONDS: '300'
+      DOCLING_ADAPTER_MAX_JOBS: '2'
+      DOCLING_ADAPTER_MAX_RESULT_BYTES: '104857600'
+      DOCLING_ADAPTER_RESULT_TTL_SECONDS: '900'
+      DOCLING_ADAPTER_UPSTREAM_ENDPOINT: ''
+      DOCLING_ADAPTER_UPSTREAM_MAX_ATTEMPTS: '3'
+      DOCLING_API_TOKEN: ''
+      DOCLING_INFERENCE_TIMEOUT_SECONDS: '900'
+      DOCLING_MAX_FILE_SIZE: '52428800'
+      DOCLING_UPLOAD_TIMEOUT_SECONDS: '120'
+    extra_hosts:
+    - host.docker.internal=
+    healthcheck:
+      test:
+      - CMD
+      - python
+      - -c
+      - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health',
+        timeout=3)
+      timeout: 5s
+      interval: 30s
+      retries: 3
+      start_period: 10s
+    image: atlas-docling-lightrag-adapter:local
+    logging:
+      driver: json-file
+      options:
+        max-file: '3'
+        max-size: 10m
+    networks:
+      docling-lightrag-network: null
+    read_only: true
+    restart: unless-stopped
+    security_opt:
+    - no-new-privileges:true
+    tmpfs:
+    - /tmp:size=512m,mode=1777
   flower:
     command:
     - celery
@@ -1166,6 +1218,7 @@ services:
       LITELLM_BASE_URL: http://litellm:4000
       LITELLM_MASTER_KEY: ''
       SEARXNG_INTERNAL_URL: ''
+      STT_INTERNAL_API_KEY: ''
       STT_INTERNAL_URL: ''
       TTS_INTERNAL_URL: ''
     image: alpine:3.24.1
@@ -1366,6 +1419,7 @@ services:
       BACKEND_NOTEBOOK_API_TOKEN: ''
       COMFYUI_BASE_URL: http://comfyui:18188
       DATABASE_URL: postgresql://supabase_admin:password@supabase-db:5432/postgres
+      DOCLING_API_TOKEN: ''
       DOCLING_ENDPOINT: ''
       GRANT_SUDO: 'yes'
       HERMES_API_KEY: ''
@@ -1386,6 +1440,7 @@ services:
       NEO4J_PASSWORD: neo4j_password
       NEO4J_URI: bolt://neo4j-graph-db:7687
       NEO4J_USER: neo4j
+      PARAKEET_API_TOKEN: ''
       PYICEBERG_CATALOG__REST__S3__ACCESS_KEY_ID: ''
       PYICEBERG_CATALOG__REST__S3__ENDPOINT: http://minio:9000
       PYICEBERG_CATALOG__REST__S3__FORCE_VIRTUAL_ADDRESSING: 'false'
@@ -1960,6 +2015,7 @@ services:
         max-size: 10m
     networks:
       backend-network: null
+      docling-lightrag-network: null
     ports:
     - mode: ingress
       target: 9621
@@ -2702,6 +2758,7 @@ services:
       DB_POSTGRESDB_USER: supabase_admin
       DB_SCHEMA: n8n
       DB_TYPE: postgresdb
+      DOCLING_API_TOKEN: ''
       DOCLING_ENDPOINT: ''
       EXECUTIONS_MODE: queue
       GENERIC_TIMEZONE: UTC
@@ -2729,6 +2786,7 @@ services:
       NODE_ENV: development
       NODE_OPTIONS: --max_old_space_size=512
       OFFLOAD_MANUAL_EXECUTIONS_TO_WORKERS: 'true'
+      PARAKEET_API_TOKEN: ''
       QUEUE_BULL_REDIS_DB: '0'
       QUEUE_BULL_REDIS_HOST: redis
       QUEUE_BULL_REDIS_PASSWORD: redis_password
@@ -2830,6 +2888,7 @@ services:
       DB_POSTGRESDB_USER: supabase_admin
       DB_SCHEMA: n8n
       DB_TYPE: postgresdb
+      DOCLING_API_TOKEN: ''
       DOCLING_ENDPOINT: ''
       EXECUTIONS_MODE: queue
       GENERIC_TIMEZONE: UTC
@@ -2847,6 +2906,7 @@ services:
       N8N_METRICS_INCLUDE_WORKFLOW_ID_LABEL: 'true'
       N8N_METRICS_PREFIX: n8n_
       NODE_ENV: development
+      PARAKEET_API_TOKEN: ''
       QUEUE_BULL_REDIS_DB: '0'
       QUEUE_BULL_REDIS_HOST: redis
       QUEUE_BULL_REDIS_PASSWORD: redis_password
@@ -3042,7 +3102,7 @@ services:
       AUDIO_STT_ENGINE: ''
       AUDIO_STT_MODEL: whisper-1
       AUDIO_STT_OPENAI_API_BASE_URL: ''
-      AUDIO_STT_OPENAI_API_KEY: sk-unused
+      AUDIO_STT_OPENAI_API_KEY: ''
       AUDIO_TTS_ENGINE: ''
       AUDIO_TTS_MODEL: ''
       AUDIO_TTS_OPENAI_API_BASE_URL: ''
@@ -4718,6 +4778,9 @@ services:
 networks:
   backend-network:
     name: atlas-network
+    driver: bridge
+  docling-lightrag-network:
+    name: atlas-docling-lightrag
     driver: bridge
 volumes:
   airflow-logs:

@@ -48,6 +48,9 @@ env:
   - name: RESEARCH_SESSION_LEASE_SECONDS
     default: 300
     description: "Maximum age in seconds for pending research work or a running session heartbeat before the Backend atomically marks the abandoned session failed."
+  - name: RESEARCH_MAX_CONCURRENT
+    default: 4
+    description: "Maximum research sessions admitted concurrently per Backend process. Excess start requests fail before database work with HTTP 429."
   - name: BACKEND_PG_POOL_MIN
     default: 1
     description: "Minimum connections kept warm in the Backend's shared asyncpg pool (#804). Short-lived DB ops draw from this pool instead of paying a fresh connect handshake each time; long-hold paths (memory vector-reconcile) keep dedicated connections."
@@ -252,6 +255,8 @@ runtime_adaptive:
       STT_ENDPOINT: ${STT_ENDPOINT}
       TTS_ENDPOINT: ${TTS_ENDPOINT}
       DOCLING_ENDPOINT: ${DOCLING_ENDPOINT}
+      DOCLING_API_TOKEN: ${DOCLING_API_TOKEN}
+      PARAKEET_API_TOKEN: ${PARAKEET_API_TOKEN}
       TIKA_ENDPOINT: ${TIKA_ENDPOINT}
       RAY_ADDRESS: ${RAY_ADDRESS}
       RAGAS_EVALUATOR_MODEL: ${RAGAS_EVALUATOR_MODEL}

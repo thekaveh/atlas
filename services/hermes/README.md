@@ -1,4 +1,4 @@
-# 5.2.18. Hermes Agent
+# 5.2.19. Hermes Agent
 
 **Port:** 63072 (API), 63073 (dashboard)
 **SOURCE variable:** `HERMES_SOURCE`
@@ -68,7 +68,7 @@ environment. When the underlying service is enabled, Hermes gets:
 |---|---|---|
 | LLM reasoning | LiteLLM | `model.provider: custom`, `base_url: http://litellm:4000/v1` |
 | TTS (text-to-speech) | Speaches (Kokoro/Piper, default) / Chatterbox (voice cloning) | `tts.provider: openai`, `base_url: ${TTS_ENDPOINT}/v1` — auto-set from the active TTS engine (e.g. `http://speaches:8000/v1` or `http://chatterbox:4123/v1`) |
-| STT (speech-to-text) | Speaches (Faster-Whisper, default) / Parakeet (NVIDIA NeMo) / whisper.cpp (Apple Silicon) | `stt.provider: openai`, `base_url: ${STT_ENDPOINT}/v1` — auto-set from the active STT engine |
+| STT (speech-to-text) | Speaches (Faster-Whisper, default) / Parakeet (NVIDIA NeMo) / whisper.cpp (Apple Silicon) | `stt.provider: openai`, `base_url: ${STT_ENDPOINT}/v1`, `api_key: ${STT_INTERNAL_API_KEY}` — all derived from the active STT engine |
 | Web search | SearXNG | `search.provider: searxng`, `base_url: http://searxng:8080` |
 | Image generation | ComfyUI | Skill override at `/opt/data/skills/creative-comfyui-host-override.md` pinning the bundled `creative-comfyui` skill to `http://comfyui:18188` (Hermes's default is hardcoded to `127.0.0.1:8188`). |
 
@@ -88,6 +88,7 @@ HERMES_DASHBOARD_TUI=1              # 1 = embed Chat tab (PTY+WS); 0 = read-only
 HERMES_DEFAULT_MODEL=               # blank = hermes-init auto-picks from LiteLLM's model_list
 HERMES_CONTEXT_LENGTH=65536         # hard floor; leave alone
 HERMES_API_KEY=                     # auto-generated if empty
+STT_INTERNAL_API_KEY=               # Parakeet token, compatibility dummy, or blank; auto-derived
 HERMES_MEMORY_LIMIT=4g
 HERMES_CPU_LIMIT=2.0
 ```
@@ -109,6 +110,8 @@ dashboard. Reference: [upstream Web-Dashboard docs](https://hermes-agent.nousres
 
 Use `./start.sh` for the guided wizard, or pass `--hermes-source <option>`
 for scripted changes.
+
+`STT_INTERNAL_API_KEY` resolves to `PARAKEET_API_TOKEN` only for a Parakeet source, to `sk-unused` for other enabled STT engines, and to empty when STT is disabled. `hermes-init` writes it into the server-side provider configuration; it is not a browser credential and must not be emitted in tool output.
 
 ### 4.1. Containerize vs. localhost
 

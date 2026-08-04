@@ -71,6 +71,7 @@
 | RAG_INGESTION_CORPUS_ROOT | backend | /app/corpus | Container path under which operator-provided read-only RAG corpus mounts are resolved. Mount the same path into Backend and Celery worker when asynchronous ingestion is enabled. |
 | RAG_INGESTION_EXECUTION_LEASE_SECONDS | backend | 30 | Renewable execution-ownership lease for RAG ingestion workers. Must be an integer from 10 through 300; duplicate deliveries retry until the active owner completes or its lease expires. |
 | RESEARCH_SESSION_LEASE_SECONDS | backend | 300 | Maximum age in seconds for pending research work or a running session heartbeat before the Backend atomically marks the abandoned session failed. |
+| RESEARCH_MAX_CONCURRENT | backend | 4 | Maximum research sessions admitted concurrently per Backend process. Excess start requests fail before database work with HTTP 429. |
 | BACKEND_PG_POOL_MIN | backend | 1 | Minimum connections kept warm in the Backend's shared asyncpg pool (#804). Short-lived DB ops draw from this pool instead of paying a fresh connect handshake each time; long-hold paths (memory vector-reconcile) keep dedicated connections. |
 | BACKEND_PG_POOL_MAX | backend | 10 | Maximum connections the Backend's shared asyncpg pool (#804) opens per database URL. Concurrent short-lived DB ops beyond this queue for a free slot rather than over-subscribing Postgres. |
 | BACKEND_STORAGE_ALLOWED_BUCKETS | backend | default | Comma-separated Supabase Storage bucket allowlist accepted by /storage/upload. |
@@ -210,8 +211,22 @@
 | DOCLING_OUTPUT_FORMAT | docling | markdown | - |
 | DOCLING_USE_OCR | docling | auto | - |
 | DOCLING_TABLE_MODE | docling | accurate | - |
-| DOCLING_MAX_FILE_SIZE | docling | 52428800 | - |
+| DOCLING_MAX_FILE_SIZE | docling | 52428800 | Positive maximum upload bytes for Docling GPU, localhost, and adapter APIs. Request bodies are capped before multipart parsing with 1 MiB framing overhead; invalid values fail startup and oversized requests return 413. |
+| DOCLING_UPLOAD_TIMEOUT_SECONDS | docling | 120 | Total seconds (1-3600) allowed to receive one Docling or adapter upload body before a 408 response releases admission capacity. |
 | DOCLING_CONCURRENCY | docling | 1 | Maximum concurrent Docling conversions per provider process. Default 1 prevents duplicate model loads and GPU memory contention. |
+| DOCLING_API_TOKEN | docling |  | Auto-generated bearer credential required by Docling routes except /health. |
+| DOCLING_AUTH_MODE | docling | required | Provider authentication mode: required (default) or disabled for an explicit emergency/local rollback. |
+| DOCLING_CORS_ORIGINS | docling |  | Optional comma-separated browser origin allowlist. Empty disables CORS; wildcard is invalid while authentication is required. |
+| DOCLING_INFERENCE_TIMEOUT_SECONDS | docling | 900 | Finite conversion and lazy-load deadline in seconds (1-3600). A timeout returns 504 and then exits the provider process for restart. |
+| DOCLING_LOCALHOST_BIND_HOST | docling | 127.0.0.1 | Native Docling listen address. Set another interface explicitly only when remote access is intended. |
+| DOCLING_ADAPTER_MAX_JOBS | docling | 2 | Maximum outstanding LightRAG adapter jobs, reserved before multipart parsing. |
+| DOCLING_ADAPTER_RESULT_TTL_SECONDS | docling | 900 | Seconds a completed LightRAG adapter result may remain before its artifact and job slot are removed. |
+| DOCLING_ADAPTER_MAX_RESULT_BYTES | docling | 104857600 | Maximum ZIP result bytes streamed from Docling to adapter storage before the job fails safely. |
+| DOCLING_ADAPTER_UPSTREAM_MAX_ATTEMPTS | docling | 3 | Total bounded Docling request attempts when the provider returns HTTP 429. |
+| DOCLING_ADAPTER_DOWNLOAD_TIMEOUT_SECONDS | docling | 300 | Positive maximum seconds for one result transmission; expiry deletes the artifact and releases its adapter slot. |
+| DOCLING_ADAPTER_TMPFS_SIZE | docling | 512m | Bounded adapter temporary-storage mount. Size must cover MAX_JOBS times the larger of upload-plus-request-body (upload plus 1 MiB multipart overhead) or upload-plus-result limits, plus at least 64 MiB staging headroom; startup fails when actual capacity is smaller. |
+| DOCLING_ADAPTER_SCALE | docling |  | Derived adapter replica count; one only when both LightRAG and Docling are enabled. |
+| DOCLING_ADAPTER_UPSTREAM_ENDPOINT | docling |  | Authenticated internal bundle route selected for the adapter; never exposed to LightRAG. |
 | DOCLING_ENABLE_FORMULAS | docling | True | - |
 | DOCLING_ENABLE_CODE_BLOCKS | docling | True | - |
 | DOCLING_CHUNK_SIZE | docling | 512 | - |
@@ -279,6 +294,7 @@
 | HERMES_ENDPOINT | hermes |  | Resolved per HERMES_SOURCE. Consumed by n8n, jupyterhub, LiteLLM model_list; also env-pre-wired for backend + openclaw (not yet exercised). |
 | TTS_INTERNAL_URL | hermes |  | - |
 | STT_INTERNAL_URL | hermes |  | - |
+| STT_INTERNAL_API_KEY | hermes |  | Parakeet bearer token for the rendered server-side STT block; non-secret compatibility placeholder for other enabled STT engines. |
 | COMFYUI_INTERNAL_URL | hermes |  | - |
 | SEARXNG_INTERNAL_URL | hermes |  | - |
 | LIGHTRAG_INTERNAL_URL | hermes |  | - |
@@ -567,6 +583,7 @@
 | OLLAMA_NUM_PARALLEL | ollama | 8 | Ollama parallel request slots per model (OLLAMA_NUM_PARALLEL). Multi-agent consumers (8+ concurrent requests) need this >1; Ollama's default of 1 serializes them. Applied to the ollama container-* sources; for ollama-localhost the host daemon owns it (#849). |
 | OLLAMA_MAX_LOADED_MODELS | ollama | 2 | Max models Ollama keeps resident simultaneously (OLLAMA_MAX_LOADED_MODELS). Raise for workloads hot-swapping several models; lower to bound memory. Applied to ollama container-* sources; for ollama-localhost the host daemon owns it (#849). |
 | OPEN_WEB_UI_SOURCE | open-webui | container | - |
+| OPEN_WEB_UI_STT_API_KEY | open-webui |  | Parakeet bearer token when a Parakeet source is selected; a non-secret compatibility placeholder for other enabled STT engines. |
 | OPEN_WEB_UI_PORT | open-webui |  | - |
 | OPEN_WEB_UI_SECRET_KEY | open-webui | secret | Open WebUI session/signing secret; auto-generated by the bootstrapper when left as the placeholder. |
 | OPEN_WEB_UI_ADMIN_EMAIL | open-webui | admin@localhost | - |
@@ -605,8 +622,14 @@
 | STT_PROVIDER_SCALE | parakeet |  | Aggregate STT scale across all engines. Reserved for future use. |
 | PARAKEET_MODEL | parakeet | nvidia/parakeet-tdt-0.6b-v3 | - |
 | PARAKEET_GPU_DEVICE | parakeet | cuda | - |
-| PARAKEET_MAX_UPLOAD_BYTES | parakeet | 104857600 | Maximum accepted audio upload size in bytes for Parakeet GPU and localhost APIs. Uploads are streamed to temporary storage and rejected with 413 when exceeded. |
+| PARAKEET_MAX_UPLOAD_BYTES | parakeet | 104857600 | Positive maximum audio upload bytes for Parakeet GPU and localhost APIs. Request bodies are capped before multipart parsing with 1 MiB framing overhead; invalid values fail startup and oversized requests return 413. |
+| PARAKEET_UPLOAD_TIMEOUT_SECONDS | parakeet | 120 | Total seconds (1-3600) allowed to receive one Parakeet upload body before a 408 response releases admission capacity. |
 | PARAKEET_CONCURRENCY | parakeet | 1 | Maximum concurrent Parakeet inference calls per provider process. Default 1 prevents model thread-safety and GPU memory contention. |
+| PARAKEET_API_TOKEN | parakeet |  | Auto-generated bearer credential required by Parakeet routes except /health. |
+| PARAKEET_AUTH_MODE | parakeet | required | Provider authentication mode: required (default) or disabled for an explicit emergency/local rollback. |
+| PARAKEET_CORS_ORIGINS | parakeet |  | Optional comma-separated browser origin allowlist. Empty disables CORS; wildcard is invalid while authentication is required. |
+| PARAKEET_INFERENCE_TIMEOUT_SECONDS | parakeet | 900 | Finite model-load and transcription deadline in seconds (1-3600). A timeout returns 504 and then exits the provider process for restart. |
+| PARAKEET_LOCALHOST_BIND_HOST | parakeet | 127.0.0.1 | Native Parakeet listen address. Set another interface explicitly only when remote access is intended. |
 | PARAKEET_LOCALHOST_PORT | parakeet | 63042 | Host port for the parakeet-localhost source variant. URL is derived at compose-render time as http://host.docker.internal:63042. |
 | WHISPER_CPP_LOCALHOST_PORT | parakeet | 63042 | Host port for the whisper-cpp-localhost source variant, same as parakeet because the two modes are mutually exclusive. URL is derived at compose-render time as http://host.docker.internal:63042. |
 | HUGGING_FACE_HUB_TOKEN | parakeet |  | Shared by parakeet, speaches, chatterbox, docling for model downloads. Consumed by ${HUGGING_FACE_HUB_TOKEN} interpolation in those services' compose blocks; owned here as its historic home. |
@@ -735,7 +758,7 @@
 | TIKA_PORT | tika |  | - |
 | TIKA_LOCALHOST_PORT | tika | 9998 | Host port for the tika-localhost source variant. |
 | TIKA_JAVA_TOOL_OPTIONS | tika | -Xmx768m | JVM memory cap for the Tika server container. |
-| TIKA_MAX_FILE_SIZE | tika | 52428800 | Backend maximum bytes accepted for Docling/Tika extraction. |
+| TIKA_MAX_FILE_SIZE | tika | 52428800 | Positive Backend maximum bytes accepted for Docling/Tika extraction; invalid values fail Backend startup. |
 | TIKA_TIMEOUT_SECONDS | tika | 30 | Finite Backend timeout in seconds for Tika fallback extraction calls. Must be greater than 0 and no greater than 3600; invalid values fail Backend startup. |
 | TIKA_SCALE | tika |  | - |
 | TIKA_ENDPOINT | tika |  | - |

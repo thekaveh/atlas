@@ -1,4 +1,4 @@
-# 5.2.20. Jenkins (Maven Spark app builder)
+# 5.2.21. Jenkins (Maven Spark app builder)
 
 Jenkins is an optional `apps` service for building Maven-based Spark applications and publishing their JAR artifacts to the Atlas MinIO `jars` bucket.
 

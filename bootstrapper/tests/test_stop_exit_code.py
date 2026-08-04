@@ -186,14 +186,16 @@ def test_main_exits_nonzero_when_requested_hosts_cleanup_fails(monkeypatch):
 
 
 def test_privileged_hosts_cleanup_uses_bytecode_free_python_child(monkeypatch):
-    import utils.system
+    import importlib
+
+    system_utils = importlib.import_module("utils.system")
 
     calls = []
 
     class Result:
         returncode = 0
 
-    monkeypatch.setattr(utils.system, "is_elevated", lambda: False)
+    monkeypatch.setattr(system_utils, "is_elevated", lambda: False)
     monkeypatch.setattr(
         stop_module.subprocess,
         "run",

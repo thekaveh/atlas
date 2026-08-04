@@ -25,6 +25,20 @@ def test_empty_manifest_list_still_emits_header():
     # Even with no manifests, the file should be a valid env-file (zero declarations).
 
 
+def test_configless_virtual_graph_node_does_not_emit_empty_banner(
+    services_root, write_manifest, minimal_manifest_dict
+):
+    manifest = minimal_manifest_dict("internal-adapter")
+    manifest.update({"virtual": True, "env": []})
+    write_manifest("internal-adapter", manifest)
+
+    out = assemble_env_example(
+        load_manifests(services_root), services_root=services_root
+    )
+
+    assert "services/internal-adapter/service.yml" not in out
+
+
 def test_emits_env_var_with_default_and_description(
     services_root, write_manifest, minimal_manifest_dict
 ):

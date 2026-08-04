@@ -37,7 +37,7 @@ env:
     description: "JVM memory cap for the Tika server container."
   - name: TIKA_MAX_FILE_SIZE
     default: 52428800
-    description: "Backend maximum bytes accepted for Docling/Tika extraction."
+    description: "Positive Backend maximum bytes accepted for Docling/Tika extraction; invalid values fail Backend startup."
   - name: TIKA_TIMEOUT_SECONDS
     default: 30
     description: "Finite Backend timeout in seconds for Tika fallback extraction calls. Must be greater than 0 and no greater than 3600; invalid values fail Backend startup."
