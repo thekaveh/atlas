@@ -503,8 +503,17 @@ class DockerManager:
                 timeout_seconds=_COMPOSE_PROBE_TIMEOUT_SECONDS,
             )
             return result.returncode, result.stdout, result.stderr, cmd
-        except Exception as e:
-            return 1, "", f"Error executing docker compose config: {e}", cmd
+        except subprocess.TimeoutExpired:
+            # TimeoutExpired embeds the full command list (project name,
+            # --env-file path, every -f overlay); don't echo it into the message.
+            return (
+                1,
+                "",
+                "docker compose config timed out; subprocess output redacted",
+                cmd,
+            )
+        except Exception:
+            return 1, "", "Error executing docker compose config", cmd
     
     def remove_project_networks(self, project_name: str) -> bool:
         """
