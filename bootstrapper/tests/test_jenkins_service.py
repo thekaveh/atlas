@@ -144,7 +144,7 @@ def test_jenkins_compose_contract() -> None:
     service = _compose()["services"]["jenkins"]
 
     assert service["build"]["context"] == "./build"
-    assert service["build"]["args"]["BASE_IMAGE"] == "${JENKINS_IMAGE:-jenkins/jenkins:lts-jdk21}"
+    assert service["build"]["args"]["BASE_IMAGE"] == "${JENKINS_IMAGE:-jenkins/jenkins:lts-jdk21@sha256:f4f65e6cd1405cd889b7f5ac33f9d5cdc2a099de6b87fe8a3933b9c5d53d1d02}"
     assert service["image"] == "${PROJECT_NAME}-jenkins:local"
     assert service["ports"] == ["${HOST_BIND_IP:-}${JENKINS_PORT}:8080"]
     assert service["volumes"] == [

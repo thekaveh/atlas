@@ -94,7 +94,9 @@ def _strip_volatile_defaults(data):
     _TEI_IMAGE_SENTINEL = "__TEI_RERANKER_CPU_IMAGE__"
     _tei_image_variants = {
         "ghcr.io/huggingface/text-embeddings-inference:cpu-1.9",
+        "ghcr.io/huggingface/text-embeddings-inference:cpu-1.9@sha256:ad950d30878eceb72aaf32024d26fa2b1d04a75304fa0b4776b49aa1941fea07",
         "ghcr.io/huggingface/text-embeddings-inference:cpu-arm64-latest",
+        "ghcr.io/huggingface/text-embeddings-inference:cpu-arm64-latest@sha256:35c50d7494de22deecdb783b8f5b7e1d05765709bd90071b03469b9440d28656",
     }
 
     def _walk(node):

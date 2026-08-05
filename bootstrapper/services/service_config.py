@@ -732,15 +732,18 @@ class ServiceConfig:
         current_env = self.config_parser.parse_env_file()
         cpu_image = current_env.get(
             'TEI_RERANKER_CPU_IMAGE',
-            'ghcr.io/huggingface/text-embeddings-inference:cpu-1.9',
+            'ghcr.io/huggingface/text-embeddings-inference:cpu-1.9'
+            '@sha256:ad950d30878eceb72aaf32024d26fa2b1d04a75304fa0b4776b49aa1941fea07',
         )
         cpu_arm64_image = current_env.get(
             'TEI_RERANKER_CPU_ARM64_IMAGE',
-            'ghcr.io/huggingface/text-embeddings-inference:cpu-arm64-latest',
+            'ghcr.io/huggingface/text-embeddings-inference:cpu-arm64-latest'
+            '@sha256:35c50d7494de22deecdb783b8f5b7e1d05765709bd90071b03469b9440d28656',
         )
         gpu_image = current_env.get(
             'TEI_RERANKER_GPU_IMAGE',
-            'ghcr.io/huggingface/text-embeddings-inference:1.9',
+            'ghcr.io/huggingface/text-embeddings-inference:1.9'
+            '@sha256:536efce2a0dc0acd0336d683ef1b81fcf900f76c8fb850e25a6d48a54a97df91',
         )
         host_is_arm64 = _platform.machine().lower() in ('arm64', 'aarch64')
         container_cpu_image = cpu_arm64_image if host_is_arm64 else cpu_image
