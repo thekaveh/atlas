@@ -202,8 +202,16 @@ async def run_with_deadline(
             )
             terminate_on_cancel_timeout(FATAL_TIMEOUT_EXIT_CODE)
             raise ProviderDeadlineExceeded from exc
-        except Exception:
-            pass
+        except Exception as exc:
+            # The HTTP request was cancelled; surface the native op's failure
+            # (model crash on a specific audio shape, OOM, NaN) instead of
+            # swallowing it silently — the non-cancelled path logs the same.
+            logger.warning(
+                "Cancelled provider request native op failed (provider=%s, "
+                "error_type=%s)",
+                prefix,
+                type(exc).__name__,
+            )
         raise cancelled
     except (asyncio.TimeoutError, TimeoutError) as exc:
         raise ProviderDeadlineExceeded from exc

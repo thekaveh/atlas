@@ -38,6 +38,7 @@ except ImportError as exc:
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+_DEFAULT_MODEL = "nvidia/parakeet-tdt-0.6b-v3"
 _MAX_UPLOAD_BYTES = parse_positive_int(
     "PARAKEET_MAX_UPLOAD_BYTES", default=104_857_600
 )
@@ -97,7 +98,7 @@ async def root():
         "description": "OpenAI-compatible Speech-to-Text API",
         "backend": os.getenv("PARAKEET_BACKEND", "cuda"),
         "device": os.getenv("PARAKEET_DEVICE", "unknown"),
-        "model": os.getenv("PARAKEET_MODEL", "nvidia/parakeet-tdt-0.6b-v3"),
+        "model": os.getenv("PARAKEET_MODEL", _DEFAULT_MODEL),
     }
 
 
@@ -111,7 +112,7 @@ async def health_check(response: Response):
         "model_loaded": ready,
         "backend": os.getenv("PARAKEET_BACKEND", "cuda"),
         "device": os.getenv("PARAKEET_DEVICE", "unknown"),
-        "model": os.getenv("PARAKEET_MODEL", "unknown"),
+        "model": os.getenv("PARAKEET_MODEL", _DEFAULT_MODEL),
     }
 
 
