@@ -2619,6 +2619,10 @@ The cleanup PR documented at the top of this section deliberately defers three c
 
 - **Nullglob-safe sample-notebook copy** — the JupyterHub startup script copied `/home/jovyan/notebooks/*` into `work/examples/` under `set -e`. With bash's default `nullglob` off, a present-but-empty notebooks directory (a custom image or empty bind-mount) left the glob literal, so `cp` errored and aborted startup, crash-looping the container. The copy is now guarded with `compgen -G` so an empty directory is skipped instead of fatal. The default image, which bakes the sample notebooks in, was unaffected.
 
+### 1.149. Fixed — 2026-08-05 — Research-sources cascade-delete index
+
+- **Index on `research_sources.result_id`** — the `result_id` foreign key cascades on `research_results` deletion, but had no index, so deleting a research result (directly or via the `sessions -> results -> sources` cascade) forced a sequential scan of `research_sources` to locate orphaned children. An index on `result_id` lets Postgres find the children directly; the seed-schema golden was regenerated to match.
+
 ## 2. [3.0.0] - 2026-05-15 (Topology-Driven Ordering & Port Layout v1)
 
 **Visual:** every service row in the setup wizard now leads with a thin category-color bar; six categories (Infra, Data, LLM Core, Media, Agents & Workflows, Apps & UIs) explained in a legend below the grid. Unanswered configurable services show a yellow ◌ placeholder ("pending") instead of guessing their port/source/alias before you've picked them.

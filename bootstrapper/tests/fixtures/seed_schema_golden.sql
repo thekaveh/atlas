@@ -870,6 +870,8 @@ CREATE INDEX idx_research_sessions_status ON public.research_sessions USING btre
 
 CREATE INDEX idx_research_sessions_user_id ON public.research_sessions USING btree (user_id);
 
+CREATE INDEX idx_research_sources_result_id ON public.research_sources USING btree (result_id);
+
 CREATE INDEX idx_research_sources_session_id ON public.research_sources USING btree (session_id);
 
 CREATE INDEX bname ON storage.buckets USING btree (name);
