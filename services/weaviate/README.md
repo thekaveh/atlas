@@ -1,4 +1,4 @@
-# 5.2.58. Weaviate
+# 5.2.59. Weaviate
 
 **Port:** 63030 / 63031
 **SOURCE variable:** `WEAVIATE_SOURCE`

@@ -135,7 +135,7 @@ _Engine-only manifests (speaches, chatterbox) are not listed — they're selecte
 
 [![Atlas — topologically-ordered architecture diagram](./docs/diagrams/architecture.svg)](./docs/diagrams/architecture.svg)
 
-*How a request reaches a service: clients → Kong → apps/agents → shared LLM + data layers. Per-service diagrams under `services/<name>/architecture.svg` derive from each manifest's `data_flow.calls`.*
+*Kong routes services with declared host aliases; loopback-only interfaces such as Zeppelin bypass the gateway.*
 
 Full port + Kong-route detail: [docs/reference/ports-routes.md](docs/reference/ports-routes.md) and [docs/deployment/ports-and-routes.md](docs/deployment/ports-and-routes.md). Per-service documentation: [docs/services.md](docs/services.md).
 

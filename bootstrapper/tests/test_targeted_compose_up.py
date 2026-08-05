@@ -39,6 +39,7 @@ def _manager(monkeypatch, config_payload, config_rc=0):
         return Result(0, "")
 
     monkeypatch.setattr(dm_module.subprocess, "run", fake_run)
+    monkeypatch.setattr(dm_module, "run_with_deadline", fake_run)
     return manager, calls
 
 
@@ -62,6 +63,26 @@ def test_enabled_targets_derived_from_rendered_projection(monkeypatch):
     manager, _ = _manager(monkeypatch, _PROJECTION)
     targets = manager.enabled_service_targets()
     assert targets == ["backend", "comfyui", "kong-api-gateway"]
+
+
+def test_projection_probe_has_a_total_deadline(monkeypatch):
+    from core.docker_manager import DockerManager
+    import core.docker_manager as dm_module
+
+    manager = DockerManager(str(REPO_ROOT))
+    monkeypatch.setattr(
+        manager, "detect_docker_compose_command", lambda: "docker compose"
+    )
+    seen: dict[str, object] = {}
+
+    def fake_run(_cmd, **kwargs):
+        seen.update(kwargs)
+        return type("Result", (), {"returncode": 1, "stdout": "", "stderr": ""})()
+
+    monkeypatch.setattr(dm_module, "run_with_deadline", fake_run)
+
+    assert manager.enabled_service_targets() is None
+    assert seen["timeout_seconds"] == dm_module._COMPOSE_PROBE_TIMEOUT_SECONDS
 
 
 def test_start_services_passes_only_enabled_targets(monkeypatch):

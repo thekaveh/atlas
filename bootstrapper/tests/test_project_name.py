@@ -454,11 +454,7 @@ def test_cold_stop_uses_project_override_without_host_wide_cleanup(monkeypatch):
         "remove_project_networks",
         lambda project_name: pytest.fail("cold stop must not remove networks outside compose"),
     )
-    monkeypatch.setattr(
-        stopper.docker_manager,
-        "prune_system",
-        lambda **kwargs: pytest.fail("cold stop must not prune the Docker host"),
-    )
+    assert not hasattr(stopper.docker_manager, "prune_system")
 
     assert stopper.stop_services(cold_stop=True, project_name="myshowcase") is True
     assert calls == [(["down", "--volumes", "--remove-orphans"], "myshowcase")]

@@ -1,7 +1,7 @@
 import sys
 from pathlib import Path
 
-_REPO_ROOT = Path(__file__).resolve().parents[3]
+_REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
@@ -79,3 +79,9 @@ def test_multiple_duplicated_blocks_on_one_page_yield_one_finding():
     # Only one finding for p1, despite two duplicate blocks
     p1_findings = [f for f in findings if f[0] == "p1.md"]
     assert len(p1_findings) == 1
+
+
+def test_root_readme_does_not_leak_diagram_generation_mechanics():
+    readme = (_REPO_ROOT / "README.md").read_text(encoding="utf-8")
+
+    assert "data_flow.calls" not in readme

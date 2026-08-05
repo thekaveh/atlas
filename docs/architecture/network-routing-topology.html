@@ -37,7 +37,7 @@
     </div>
     <section class="interpretation">
       <h2>How to read this view</h2>
-      <p>The host-gateway address is runtime-dependent, not a fixed IP: Docker accepts the literal `host-gateway` value in `extra_hosts` and resolves it internally, but Podman has no such shortcut — it queries the default bridge network&#x27;s IPAM gateway IP directly (`resolve_host_gateway_ip()` in `bootstrapper/utils/system.py`), falling back to a throwaway container if that lookup fails.</p>
+      <p>The host-gateway address is runtime-dependent, not a fixed IP: Docker accepts the literal <code>host-gateway</code> value in <code>extra_hosts</code> and resolves it internally, but Podman has no such shortcut — it queries the default bridge network&#x27;s IPAM gateway IP directly (<code>resolve_host_gateway_ip()</code> in <code>bootstrapper/utils/system.py</code>), falling back to a throwaway container if that lookup fails.</p>
     </section>
   </main>
 </body>

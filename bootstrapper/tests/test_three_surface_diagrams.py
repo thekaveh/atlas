@@ -68,3 +68,29 @@ def test_platform_html_and_svg_masters_stay_synchronized() -> None:
     )
 
     assert extract_svg(html_master) == extract_svg(svg_master)
+
+
+def test_platform_diagram_keeps_control_plane_out_of_kong_request_paths() -> None:
+    svg = (ROOT / "docs" / "diagrams" / "architecture.svg").read_text(
+        encoding="utf-8"
+    )
+
+    assert "./start.sh wizard" not in svg
+    assert "HTTP APIs via Kong" in svg
+
+
+def test_platform_diagram_does_not_route_kong_to_loopback_only_zeppelin() -> None:
+    svg = (ROOT / "docs" / "diagrams" / "architecture.svg").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'x1="1200" y1="295" x2="1200" y2="308"' not in svg
+
+
+def test_platform_diagram_routes_kong_to_each_displayed_agent() -> None:
+    svg = (ROOT / "docs" / "diagrams" / "architecture.svg").read_text(
+        encoding="utf-8"
+    )
+
+    for x in (140, 390, 640, 890, 1140):
+        assert f'x1="{x}" y1="390" x2="{x}" y2="428"' in svg

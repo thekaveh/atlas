@@ -40,8 +40,8 @@ _No upstream calls._
 | Service | Category |
 |---|---|
 | kong | infra |
+| docling-lightrag-adapter | media |
 | celery | agents |
-| lightrag | agents |
 | n8n | agents |
 | backend | apps |
 | jupyterhub | apps |

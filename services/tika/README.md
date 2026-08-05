@@ -1,4 +1,4 @@
-# 5.2.53. Apache Tika
+# 5.2.54. Apache Tika
 
 ## 1. Overview
 Apache Tika is Atlas' disabled-by-default fallback extractor for long-tail document formats that Docling does not target well. It is a degraded plain-text path, not a replacement for Docling's structure-aware PDF, Office, image, table, OCR, and chunking pipeline.
@@ -19,7 +19,7 @@ Kong creates the `tika.localhost` route when `TIKA_SOURCE=container` or `TIKA_SO
 - `TIKA_PORT` is assigned by Atlas' media-category port slot allocator.
 - `TIKA_LOCALHOST_PORT=9998` points Kong and in-container consumers at a host-running Tika server.
 - `TIKA_ENDPOINT` is auto-managed for backend and n8n consumers.
-- `TIKA_MAX_FILE_SIZE=52428800` limits backend extraction payloads to 50 MiB by default.
+- `TIKA_MAX_FILE_SIZE=52428800` is a required positive integer and limits backend extraction payloads to 50 MiB by default; malformed, zero, and negative values fail Backend startup.
 - `TIKA_TIMEOUT_SECONDS=30` bounds backend fallback calls; it must be finite, greater than 0, and no greater than 3,600 seconds or Backend startup fails.
 - `TIKA_JAVA_TOOL_OPTIONS=-Xmx768m` caps the container JVM heap.
 

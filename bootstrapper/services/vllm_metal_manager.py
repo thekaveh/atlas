@@ -42,6 +42,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Optional
 
+from core.process_runner import CommandOutputTooLarge, run_with_deadline
+
 try:  # Native Windows can import this module for a no-op disabled-source stop.
     import fcntl
 except ImportError:  # pragma: no cover - exercised only by native Windows Python
@@ -59,6 +61,7 @@ _DEFAULT_CORE_SHA256 = "0862453adc1f3339f1a0c9dca1179c34d6ed6e118f87b6e5bddd120a
 _DEFAULT_PYTHON = "python3.12"
 _REQUIRED_PY = (3, 12)
 _LOCK_TIMEOUT_SECONDS = 30.0
+_INSTALL_COMMAND_TIMEOUT_SECONDS = 30 * 60.0
 
 # vLLM Metal serves BF16/FP16 cleanly; some aggressive quantizations are not yet
 # supported by the MLX backend and would fail at load. Warn (not fail) so an
@@ -672,7 +675,19 @@ class VllmMetalManager:
 
     # ── low-level host helpers (mockable) ────────────────────────────
     def _run(self, cmd: list[str], *, env: Optional[dict[str, str]] = None) -> None:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=False, env=env)
+        try:
+            result = run_with_deadline(
+                cmd, env=env, timeout_seconds=_INSTALL_COMMAND_TIMEOUT_SECONDS
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise VllmMetalError(
+                f"command timed out after {_INSTALL_COMMAND_TIMEOUT_SECONDS:.0f}s "
+                f"({' '.join(cmd[:3])}…)"
+            ) from exc
+        except CommandOutputTooLarge as exc:
+            raise VllmMetalError(
+                f"command exceeded its output limit ({' '.join(cmd[:3])}…)"
+            ) from exc
         if result.returncode != 0:
             raise VllmMetalError(
                 f"command failed ({' '.join(cmd[:3])}…): rc={result.returncode} "

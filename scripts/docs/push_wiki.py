@@ -4,9 +4,16 @@ import argparse
 import os
 import shlex
 import shutil
-import subprocess
 import tempfile
 from pathlib import Path
+
+from scripts.bounded_subprocess import (
+    CommandLaunchError,
+    CommandOutputTooLarge,
+    CommandTimedOut,
+    redacted_failure,
+    run_bounded,
+)
 
 
 DEFAULT_REMOTE = "git@github.com:thekaveh/atlas.wiki.git"
@@ -49,15 +56,24 @@ def sync_wiki(source: Path, repo_dir: Path) -> None:
             shutil.copy2(item, target)
 
 
-def _run_git(args: list[str], *, cwd: Path | None = None, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        ["git", *args],
-        cwd=cwd,
-        env=env,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
+def _run_git(
+    args: list[str],
+    *,
+    cwd: Path | None = None,
+    env: dict[str, str],
+    check: bool = True,
+):
+    try:
+        result = run_bounded(["git", *args], cwd=cwd, env=env)
+    except CommandTimedOut as exc:
+        raise RuntimeError("wiki git operation timed out") from exc
+    except CommandLaunchError as exc:
+        raise RuntimeError("wiki git operation could not start") from exc
+    except CommandOutputTooLarge as exc:
+        raise RuntimeError("wiki git operation exceeded its output limit") from exc
+    if check and result.returncode != 0:
+        raise RuntimeError(redacted_failure("wiki git operation", result.returncode))
+    return result
 
 
 def push_wiki(source: Path, remote: str, key_path: Path | None, *, push: bool) -> None:
@@ -73,8 +89,8 @@ def push_wiki(source: Path, remote: str, key_path: Path | None, *, push: bool) -
             _run_git(["init"], cwd=repo_dir, env=env)
         sync_wiki(source, repo_dir)
         _run_git(["add", "-A"], cwd=repo_dir, env=env)
-        diff = subprocess.run(
-            ["git", "diff", "--cached", "--quiet"], cwd=repo_dir, env=env, check=False
+        diff = _run_git(
+            ["diff", "--cached", "--quiet"], cwd=repo_dir, env=env, check=False
         )
         if diff.returncode == 0:
             return

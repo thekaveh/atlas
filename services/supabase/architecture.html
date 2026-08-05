@@ -14,14 +14,13 @@
     .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 24px; }
     .cards h3 { margin: 0 0 8px 0; font-size: 12px; color: #94a3b8; }
     .cards .num { font-size: 24px; font-weight: 700; }
-    footer { color: #475569; font-size: 10px; margin-top: 24px; text-align: center; }
   </style>
 </head>
 <body>
   <div class="wrap">
     <h1><span class="dot"></span> supabase — Architecture</h1>
     <div class="subtitle">category: data · source: single</div>
-    <div class="card"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 572" font-family="'JetBrains Mono', 'Fira Code', Menlo, Consolas, monospace">
+    <div class="card"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 572" font-family="'JetBrains Mono', 'Fira Code', Menlo, Consolas, monospace">
 <defs>
   <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
     <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/>
@@ -39,101 +38,101 @@
     </feMerge>
   </filter>
 </defs>
-<rect width="920" height="572" fill="#020617"/>
-<rect width="920" height="572" fill="url(#grid)"/>
-<text x="180" y="36" fill="#94a3b8" font-size="10" font-weight="600" text-anchor="middle" letter-spacing="0.08em">Upstream (calls)</text>
-<text x="460" y="36" fill="#94a3b8" font-size="10" font-weight="600" text-anchor="middle" letter-spacing="0.08em">Focus</text>
-<text x="740" y="36" fill="#94a3b8" font-size="10" font-weight="600" text-anchor="middle" letter-spacing="0.08em">Downstream (consumers)</text>
-<line x1="560" y1="294" x2="620" y2="80" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-<line x1="560" y1="294" x2="620" y2="174" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-<line x1="560" y1="294" x2="620" y2="242" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-<line x1="560" y1="294" x2="620" y2="310" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-<line x1="560" y1="294" x2="620" y2="430" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-<g><rect x="60" y="84" width="240" height="60" rx="6" fill="none" stroke="#1e293b" stroke-width="1" stroke-dasharray="3,3"/><text x="180" y="120" fill="#475569" font-size="10" font-style="italic" text-anchor="middle">— none —</text></g>
+<rect width="1040" height="572" fill="#020617"/>
+<rect width="1040" height="572" fill="url(#grid)"/>
+<text x="240" y="36" fill="#94a3b8" font-size="10" font-weight="600" text-anchor="middle" letter-spacing="0.08em">Upstream (calls)</text>
+<text x="520" y="36" fill="#94a3b8" font-size="10" font-weight="600" text-anchor="middle" letter-spacing="0.08em">Focus</text>
+<text x="800" y="36" fill="#94a3b8" font-size="10" font-weight="600" text-anchor="middle" letter-spacing="0.08em">Downstream (consumers)</text>
+<line x1="620" y1="294" x2="680" y2="80" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+<line x1="620" y1="294" x2="680" y2="174" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+<line x1="620" y1="294" x2="680" y2="242" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+<line x1="620" y1="294" x2="680" y2="310" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+<line x1="620" y1="294" x2="680" y2="430" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+<g><rect x="120" y="84" width="240" height="60" rx="6" fill="none" stroke="#1e293b" stroke-width="1" stroke-dasharray="3,3"/><text x="240" y="120" fill="#475569" font-size="10" font-style="italic" text-anchor="middle">— none —</text></g>
 <g>
 <g class="cluster">
-  <rect x="620" y="64" width="240" height="84" rx="8"
+  <rect x="680" y="64" width="240" height="84" rx="8"
         fill="rgba(30,41,59,0.35)"
         stroke="#fb7185" stroke-width="1" stroke-dasharray="4,4" stroke-opacity="0.4"/>
-  <text x="630" y="78" fill="#fb7185" font-size="9" font-weight="700"
+  <text x="690" y="78" fill="#fb7185" font-size="9" font-weight="700"
         text-anchor="start" style="letter-spacing:0.06em;text-transform:uppercase;">infra</text>
-  <text x="850" y="78" fill="#fb7185" font-size="9" font-weight="600"
+  <text x="910" y="78" fill="#fb7185" font-size="9" font-weight="600"
         text-anchor="end">4</text>
 </g>
 
-<g><rect x="628" y="88" width="108" height="22" rx="4" fill="#0f172a"/><rect x="628" y="88" width="108" height="22" rx="4" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1"/><text x="682" y="103" fill="white" font-size="10" text-anchor="middle">backup</text></g>
-<g><rect x="740" y="88" width="108" height="22" rx="4" fill="#0f172a"/><rect x="740" y="88" width="108" height="22" rx="4" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1"/><text x="794" y="103" fill="white" font-size="10" text-anchor="middle">kong</text></g>
-<g><rect x="628" y="114" width="108" height="22" rx="4" fill="#0f172a"/><rect x="628" y="114" width="108" height="22" rx="4" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1"/><text x="682" y="129" fill="white" font-size="10" text-anchor="middle">langfuse</text></g>
-<g><rect x="740" y="114" width="108" height="22" rx="4" fill="#0f172a"/><rect x="740" y="114" width="108" height="22" rx="4" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1"/><text x="794" y="129" fill="white" font-size="10" text-anchor="middle">prometheus</text></g>
+<g><rect x="688" y="88" width="108" height="22" rx="4" fill="#0f172a"/><rect x="688" y="88" width="108" height="22" rx="4" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1"/><text x="742" y="103" fill="white" font-size="10" text-anchor="middle">backup</text></g>
+<g><rect x="800" y="88" width="108" height="22" rx="4" fill="#0f172a"/><rect x="800" y="88" width="108" height="22" rx="4" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1"/><text x="854" y="103" fill="white" font-size="10" text-anchor="middle">kong</text></g>
+<g><rect x="688" y="114" width="108" height="22" rx="4" fill="#0f172a"/><rect x="688" y="114" width="108" height="22" rx="4" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1"/><text x="742" y="129" fill="white" font-size="10" text-anchor="middle">langfuse</text></g>
+<g><rect x="800" y="114" width="108" height="22" rx="4" fill="#0f172a"/><rect x="800" y="114" width="108" height="22" rx="4" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1"/><text x="854" y="129" fill="white" font-size="10" text-anchor="middle">prometheus</text></g>
 <g class="cluster">
-  <rect x="620" y="158" width="240" height="58" rx="8"
+  <rect x="680" y="158" width="240" height="58" rx="8"
         fill="rgba(30,41,59,0.35)"
         stroke="#a78bfa" stroke-width="1" stroke-dasharray="4,4" stroke-opacity="0.4"/>
-  <text x="630" y="172" fill="#a78bfa" font-size="9" font-weight="700"
+  <text x="690" y="172" fill="#a78bfa" font-size="9" font-weight="700"
         text-anchor="start" style="letter-spacing:0.06em;text-transform:uppercase;">data</text>
-  <text x="850" y="172" fill="#a78bfa" font-size="9" font-weight="600"
+  <text x="910" y="172" fill="#a78bfa" font-size="9" font-weight="600"
         text-anchor="end">2</text>
 </g>
 
-<g><rect x="628" y="182" width="108" height="22" rx="4" fill="#0f172a"/><rect x="628" y="182" width="108" height="22" rx="4" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1"/><text x="682" y="197" fill="white" font-size="10" text-anchor="middle">iceberg-rest</text></g>
-<g><rect x="740" y="182" width="108" height="22" rx="4" fill="#0f172a"/><rect x="740" y="182" width="108" height="22" rx="4" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1"/><text x="794" y="197" fill="white" font-size="10" text-anchor="middle">supavisor</text></g>
+<g><rect x="688" y="182" width="108" height="22" rx="4" fill="#0f172a"/><rect x="688" y="182" width="108" height="22" rx="4" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1"/><text x="742" y="197" fill="white" font-size="10" text-anchor="middle">iceberg-rest</text></g>
+<g><rect x="800" y="182" width="108" height="22" rx="4" fill="#0f172a"/><rect x="800" y="182" width="108" height="22" rx="4" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1"/><text x="854" y="197" fill="white" font-size="10" text-anchor="middle">supavisor</text></g>
 <g class="cluster">
-  <rect x="620" y="226" width="240" height="58" rx="8"
+  <rect x="680" y="226" width="240" height="58" rx="8"
         fill="rgba(30,41,59,0.35)"
         stroke="#fbbf24" stroke-width="1" stroke-dasharray="4,4" stroke-opacity="0.4"/>
-  <text x="630" y="240" fill="#fbbf24" font-size="9" font-weight="700"
+  <text x="690" y="240" fill="#fbbf24" font-size="9" font-weight="700"
         text-anchor="start" style="letter-spacing:0.06em;text-transform:uppercase;">llm</text>
-  <text x="850" y="240" fill="#fbbf24" font-size="9" font-weight="600"
+  <text x="910" y="240" fill="#fbbf24" font-size="9" font-weight="600"
         text-anchor="end">1</text>
 </g>
 
-<g><rect x="628" y="250" width="108" height="22" rx="4" fill="#0f172a"/><rect x="628" y="250" width="108" height="22" rx="4" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1"/><text x="682" y="265" fill="white" font-size="10" text-anchor="middle">litellm</text></g>
+<g><rect x="688" y="250" width="108" height="22" rx="4" fill="#0f172a"/><rect x="688" y="250" width="108" height="22" rx="4" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1"/><text x="742" y="265" fill="white" font-size="10" text-anchor="middle">litellm</text></g>
 <g class="cluster">
-  <rect x="620" y="294" width="240" height="110" rx="8"
+  <rect x="680" y="294" width="240" height="110" rx="8"
         fill="rgba(30,41,59,0.35)"
         stroke="#34d399" stroke-width="1" stroke-dasharray="4,4" stroke-opacity="0.4"/>
-  <text x="630" y="308" fill="#34d399" font-size="9" font-weight="700"
+  <text x="690" y="308" fill="#34d399" font-size="9" font-weight="700"
         text-anchor="start" style="letter-spacing:0.06em;text-transform:uppercase;">agents</text>
-  <text x="850" y="308" fill="#34d399" font-size="9" font-weight="600"
+  <text x="910" y="308" fill="#34d399" font-size="9" font-weight="600"
         text-anchor="end">5</text>
 </g>
 
-<g><rect x="628" y="318" width="108" height="22" rx="4" fill="#0f172a"/><rect x="628" y="318" width="108" height="22" rx="4" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1"/><text x="682" y="333" fill="white" font-size="10" text-anchor="middle">airflow</text></g>
-<g><rect x="740" y="318" width="108" height="22" rx="4" fill="#0f172a"/><rect x="740" y="318" width="108" height="22" rx="4" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1"/><text x="794" y="333" fill="white" font-size="10" text-anchor="middle">celery</text></g>
-<g><rect x="628" y="344" width="108" height="22" rx="4" fill="#0f172a"/><rect x="628" y="344" width="108" height="22" rx="4" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1"/><text x="682" y="359" fill="white" font-size="10" text-anchor="middle">lightrag</text></g>
-<g><rect x="740" y="344" width="108" height="22" rx="4" fill="#0f172a"/><rect x="740" y="344" width="108" height="22" rx="4" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1"/><text x="794" y="359" fill="white" font-size="10" text-anchor="middle">mcp-servers</text></g>
-<g><rect x="628" y="370" width="108" height="22" rx="4" fill="#0f172a"/><rect x="628" y="370" width="108" height="22" rx="4" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1"/><text x="682" y="385" fill="white" font-size="10" text-anchor="middle">n8n</text></g>
+<g><rect x="688" y="318" width="108" height="22" rx="4" fill="#0f172a"/><rect x="688" y="318" width="108" height="22" rx="4" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1"/><text x="742" y="333" fill="white" font-size="10" text-anchor="middle">airflow</text></g>
+<g><rect x="800" y="318" width="108" height="22" rx="4" fill="#0f172a"/><rect x="800" y="318" width="108" height="22" rx="4" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1"/><text x="854" y="333" fill="white" font-size="10" text-anchor="middle">celery</text></g>
+<g><rect x="688" y="344" width="108" height="22" rx="4" fill="#0f172a"/><rect x="688" y="344" width="108" height="22" rx="4" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1"/><text x="742" y="359" fill="white" font-size="10" text-anchor="middle">lightrag</text></g>
+<g><rect x="800" y="344" width="108" height="22" rx="4" fill="#0f172a"/><rect x="800" y="344" width="108" height="22" rx="4" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1"/><text x="854" y="359" fill="white" font-size="10" text-anchor="middle">mcp-servers</text></g>
+<g><rect x="688" y="370" width="108" height="22" rx="4" fill="#0f172a"/><rect x="688" y="370" width="108" height="22" rx="4" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1"/><text x="742" y="385" fill="white" font-size="10" text-anchor="middle">n8n</text></g>
 <g class="cluster">
-  <rect x="620" y="414" width="240" height="110" rx="8"
+  <rect x="680" y="414" width="240" height="110" rx="8"
         fill="rgba(30,41,59,0.35)"
         stroke="#22d3ee" stroke-width="1" stroke-dasharray="4,4" stroke-opacity="0.4"/>
-  <text x="630" y="428" fill="#22d3ee" font-size="9" font-weight="700"
+  <text x="690" y="428" fill="#22d3ee" font-size="9" font-weight="700"
         text-anchor="start" style="letter-spacing:0.06em;text-transform:uppercase;">apps</text>
-  <text x="850" y="428" fill="#22d3ee" font-size="9" font-weight="600"
+  <text x="910" y="428" fill="#22d3ee" font-size="9" font-weight="600"
         text-anchor="end">6</text>
 </g>
 
-<g><rect x="628" y="438" width="108" height="22" rx="4" fill="#0f172a"/><rect x="628" y="438" width="108" height="22" rx="4" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1"/><text x="682" y="453" fill="white" font-size="10" text-anchor="middle">backend</text></g>
-<g><rect x="740" y="438" width="108" height="22" rx="4" fill="#0f172a"/><rect x="740" y="438" width="108" height="22" rx="4" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1"/><text x="794" y="453" fill="white" font-size="10" text-anchor="middle">jupyterhub</text></g>
-<g><rect x="628" y="464" width="108" height="22" rx="4" fill="#0f172a"/><rect x="628" y="464" width="108" height="22" rx="4" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1"/><text x="682" y="479" fill="white" font-size="10" text-anchor="middle">label-studio</text></g>
-<g><rect x="740" y="464" width="108" height="22" rx="4" fill="#0f172a"/><rect x="740" y="464" width="108" height="22" rx="4" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1"/><text x="794" y="479" fill="white" font-size="10" text-anchor="middle">mlflow</text></g>
-<g><rect x="628" y="490" width="108" height="22" rx="4" fill="#0f172a"/><rect x="628" y="490" width="108" height="22" rx="4" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1"/><text x="682" y="505" fill="white" font-size="10" text-anchor="middle">open-webui</text></g>
-<g><rect x="740" y="490" width="108" height="22" rx="4" fill="#0f172a"/><rect x="740" y="490" width="108" height="22" rx="4" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1"/><text x="794" y="505" fill="white" font-size="10" text-anchor="middle">zeppelin</text></g>
+<g><rect x="688" y="438" width="108" height="22" rx="4" fill="#0f172a"/><rect x="688" y="438" width="108" height="22" rx="4" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1"/><text x="742" y="453" fill="white" font-size="10" text-anchor="middle">backend</text></g>
+<g><rect x="800" y="438" width="108" height="22" rx="4" fill="#0f172a"/><rect x="800" y="438" width="108" height="22" rx="4" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1"/><text x="854" y="453" fill="white" font-size="10" text-anchor="middle">jupyterhub</text></g>
+<g><rect x="688" y="464" width="108" height="22" rx="4" fill="#0f172a"/><rect x="688" y="464" width="108" height="22" rx="4" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1"/><text x="742" y="479" fill="white" font-size="10" text-anchor="middle">label-studio</text></g>
+<g><rect x="800" y="464" width="108" height="22" rx="4" fill="#0f172a"/><rect x="800" y="464" width="108" height="22" rx="4" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1"/><text x="854" y="479" fill="white" font-size="10" text-anchor="middle">mlflow</text></g>
+<g><rect x="688" y="490" width="108" height="22" rx="4" fill="#0f172a"/><rect x="688" y="490" width="108" height="22" rx="4" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1"/><text x="742" y="505" fill="white" font-size="10" text-anchor="middle">open-webui</text></g>
+<g><rect x="800" y="490" width="108" height="22" rx="4" fill="#0f172a"/><rect x="800" y="490" width="108" height="22" rx="4" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1"/><text x="854" y="505" fill="white" font-size="10" text-anchor="middle">zeppelin</text></g>
 </g>
-<g class="focus" filter="url(#focus-glow)">  <rect x="360" y="259" width="200" height="70" rx="8" fill="#0f172a"/>  <rect x="360" y="259" width="200" height="70" rx="8"         fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>  <text x="460" y="287" fill="white" font-size="15" font-weight="700"         text-anchor="middle">SUPABASE</text>  <text x="460" y="307" fill="#94a3b8" font-size="10"         text-anchor="middle">data · single</text></g>
-<g class="legend"><line x1="160" y1="530" x2="760" y2="530" stroke="#1e293b" stroke-width="1"/>
-<circle cx="226" cy="542" r="4" fill="#fb7185"/>
-<text x="236" y="545" fill="#94a3b8" font-size="9" font-weight="400" text-anchor="start">infra</text>
-<circle cx="306" cy="542" r="4" fill="#a78bfa"/>
-<text x="316" y="545" fill="#94a3b8" font-size="9" font-weight="400" text-anchor="start">data</text>
-<circle cx="386" cy="542" r="4" fill="#fbbf24"/>
-<text x="396" y="545" fill="#94a3b8" font-size="9" font-weight="400" text-anchor="start">llm</text>
-<circle cx="466" cy="542" r="4" fill="#fb923c"/>
-<text x="476" y="545" fill="#94a3b8" font-size="9" font-weight="400" text-anchor="start">media</text>
-<circle cx="546" cy="542" r="4" fill="#34d399"/>
-<text x="556" y="545" fill="#94a3b8" font-size="9" font-weight="400" text-anchor="start">agents</text>
-<circle cx="626" cy="542" r="4" fill="#22d3ee"/>
-<text x="636" y="545" fill="#94a3b8" font-size="9" font-weight="400" text-anchor="start">apps</text>
+<g class="focus" filter="url(#focus-glow)">  <rect x="420" y="259" width="200" height="70" rx="8" fill="#0f172a"/>  <rect x="420" y="259" width="200" height="70" rx="8"         fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>  <text x="520" y="287" fill="white" font-size="15" font-weight="700"         text-anchor="middle">SUPABASE</text>  <text x="520" y="307" fill="#94a3b8" font-size="10"         text-anchor="middle">data · single</text></g>
+<g class="legend"><line x1="220" y1="530" x2="820" y2="530" stroke="#1e293b" stroke-width="1"/>
+<circle cx="286" cy="542" r="4" fill="#fb7185"/>
+<text x="296" y="545" fill="#94a3b8" font-size="9" font-weight="400" text-anchor="start">infra</text>
+<circle cx="366" cy="542" r="4" fill="#a78bfa"/>
+<text x="376" y="545" fill="#94a3b8" font-size="9" font-weight="400" text-anchor="start">data</text>
+<circle cx="446" cy="542" r="4" fill="#fbbf24"/>
+<text x="456" y="545" fill="#94a3b8" font-size="9" font-weight="400" text-anchor="start">llm</text>
+<circle cx="526" cy="542" r="4" fill="#fb923c"/>
+<text x="536" y="545" fill="#94a3b8" font-size="9" font-weight="400" text-anchor="start">media</text>
+<circle cx="606" cy="542" r="4" fill="#34d399"/>
+<text x="616" y="545" fill="#94a3b8" font-size="9" font-weight="400" text-anchor="start">agents</text>
+<circle cx="686" cy="542" r="4" fill="#22d3ee"/>
+<text x="696" y="545" fill="#94a3b8" font-size="9" font-weight="400" text-anchor="start">apps</text>
 </g>
 </svg></div>
     <div class="cards">
@@ -141,7 +140,6 @@
       <div class="card"><h3>Consumers</h3><div class="num">18</div></div>
       <div class="card"><h3>Categories</h3><div class="num">5</div></div>
     </div>
-    <footer>Regenerate: python -m bootstrapper.docs.regen supabase</footer>
   </div>
 </body>
 </html>

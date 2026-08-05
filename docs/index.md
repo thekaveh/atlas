@@ -22,7 +22,7 @@
 
 ## 1. Capabilities
 
-Atlas organizes 59 service families into 7 tracks. Each track pre-selects a working subset of the platform for one class of workload; the setup wizard prompts for track-scoped services and force-disables the rest.
+Atlas organizes 60 service families into 7 tracks. Each track pre-selects a working subset of the platform for one class of workload; the setup wizard prompts for track-scoped services and force-disables the rest.
 
 <div class="atlas-home__grid" markdown="1">
 

@@ -238,7 +238,7 @@ runtime_adaptive:
       - neo4j
       - redis
     environment_adaptation:
-      LIGHTRAG_DOCLING_ENDPOINT: ${DOCLING_ENDPOINT}
+      LIGHTRAG_DOCLING_ENDPOINT: "http://docling-lightrag-adapter:8000"
       # Direct LightRAG->TEI rerank is intentionally disabled: LightRAG's
       # jina/cohere clients send `{query, documents}`, while TEI's /rerank
       # endpoint expects `{query, texts}`. Keep this blank until Atlas ships
@@ -278,4 +278,4 @@ data_flow:
     - supabase
     - neo4j
     - redis
-    - docling
+    - docling-lightrag-adapter

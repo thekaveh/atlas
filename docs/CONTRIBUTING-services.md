@@ -558,11 +558,30 @@ All four are required status checks in the live `gitflow` ruleset:
 | **Docs drift + audit scripts** | `regen --all --check` + `make docs-check` + the remaining audits (`check_doc_links` — including `#anchor` fragment validation, `check-compose-source-deps`, `check-docs-drift`, `check-kong-routes`, `validate_research_schema`, `check-track-membership`) + lock verification for the Docling localhost provider, Local Deep Researcher, and compiled service runtimes + a vulnerability audit of compiled runtime locks. Catches: stale per-service docs, three-surface drift, cross-surface links, missing local assets, missing `REQUIRED_DEPENDS_ON` entries, Kong route default drift, broken links/anchors, research-schema violations, stale or unreproducible runtime locks, vulnerable runtime dependency closures, and track-membership omissions. |
 | **Build-validation** | `docker buildx build` for every local non-GPU Compose build context plus every `services/*/init/Dockerfile` context; GPU provider builds are intentionally excluded for runner size/time. Catches: unsatisfiable pip pins, broken Dockerfiles, and init-image drift. Runs on every workflow execution and is required. |
 
-Run the equivalent of the CI jobs locally before pushing:
+Run this representative local subset before pushing (from the repository root
+unless a subshell changes directory). The authoritative command list is
+`.github/workflows/services-lint.yml`, which also runs ShellCheck, isolated MCP
+and asset-service suites, and the bootstrapper suite under Python 3.10:
 
 ```bash
-uv run --project bootstrapper pytest bootstrapper/tests -q                         # job 1 + 2 (minus byte-equivalence)
-(cd services/backend/app && uv run --python 3.12 --with-requirements app/requirements.txt --with-requirements app/requirements-dev.txt python -m pytest app/tests -q)  # job 1 backend tests
+(
+  cd bootstrapper
+  uv run pytest tests/ -q \
+    --ignore=tests/test_fragment_equivalence.py \
+    --ignore=tests/test_source_permutations.py \
+    --cov=. --cov-config=pyproject.toml --cov-branch \
+    --cov-report=term --cov-fail-under=69
+)                                                                                  # job 1 bootstrapper tests
+(
+  cd services/backend/app/app
+  BACKEND_TEST_VENV="${TMPDIR:-/tmp}/atlas-backend-ci-venv"
+  uv venv --python 3.12 "$BACKEND_TEST_VENV"
+  VIRTUAL_ENV="$BACKEND_TEST_VENV" uv pip install \
+    -r requirements.txt -r requirements-dev.txt -c requirements-locked.txt
+  "$BACKEND_TEST_VENV/bin/python" -m pytest tests/ -q -W error \
+    --cov=. --cov-config=.coveragerc --cov-branch \
+    --cov-report=term --cov-fail-under=79
+)                                                                                  # job 1 backend tests
 uv run --project bootstrapper python -m tools.validate_fragments                  # job 1 lint
 docker compose --env-file .env.example -f docker-compose.yml config -q            # job 2 merge check
 make docs-check                                                                    # job 3 three-surface contracts + strict build
@@ -573,10 +592,14 @@ uv run --project bootstrapper python scripts/check-compose-source-deps.py       
 uv run --project bootstrapper python scripts/check-kong-routes.py                 # job 3 kong audit
 uv run --project bootstrapper python scripts/validate_research_schema.py --all    # job 3 research schema
 uv run --project bootstrapper python scripts/check-track-membership.py            # job 3 track coverage
-(cd services/docling/provider/localhost && uv lock --locked)                      # job 3 docling lock
+uv run --project bootstrapper python -m scripts.bounded_subprocess \
+  --label "Docling localhost lock check" \
+  --cwd services/docling/provider/localhost -- uv lock --locked                  # job 3 docling lock
 uv run --project bootstrapper python scripts/refresh-local-deep-researcher-lock.py --check  # job 3 Local Deep Researcher lock
 uv run --project bootstrapper python -m scripts.check_runtime_locks               # job 3 compiled runtime locks
-uv tool install pip-audit==2.10.0                                                  # job 3 pinned vulnerability-audit tool
+uv run --project bootstrapper python -m scripts.bounded_subprocess \
+  --label "pip-audit tool installation" -- \
+  uv tool install pip-audit==2.10.0                                                # job 3 pinned vulnerability-audit tool
 uv run --project bootstrapper python -m scripts.audit_runtime_locks               # job 3 runtime vulnerability audit
 # job 4 (required Build-validation): docker buildx build over every local non-GPU
 # build context plus every services/*/init/Dockerfile. The full, current list

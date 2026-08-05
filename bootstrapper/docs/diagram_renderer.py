@@ -1,7 +1,6 @@
 """DepGraph → HTML+SVG renderer — clustered-by-category layout.
 
-Visual design (see git log around 2026-05-22 for the design doc; the
-``docs/superpowers/`` tree was retired afterwards):
+Visual design (see the tracked design history under ``docs/superpowers/``):
 - 3-lane layout: upstream | focus | downstream.
 - Each non-focus lane groups services into category clusters.
 - One edge per cluster (not per pill).
@@ -43,9 +42,20 @@ LANE_HEADER_Y = 36
 LANE_TOP_Y = 64
 LEGEND_H = 28
 CARDS_H = 56
-WIDTH = LANE_W + LANE_GAP + FOCUS_W + LANE_GAP + LANE_W + 120  # 880
+SIDE_MARGIN = 120
+WIDTH = LANE_W + LANE_GAP + FOCUS_W + LANE_GAP + LANE_W + SIDE_MARGIN * 2
 
 CATEGORY_ORDER = ("infra", "data", "llm", "media", "agents", "apps", "external")
+
+
+def _fit_font_size(
+    label: str, available_width: int, *, preferred: int, minimum: int
+) -> int:
+    """Choose a deterministic monospace size that keeps a label in its box."""
+    if not label:
+        return preferred
+    estimated = int(available_width / (len(label) * 0.62))
+    return max(minimum, min(preferred, estimated))
 
 
 def render_svg(graph: DepGraph) -> str:
@@ -72,9 +82,9 @@ def render_svg(graph: DepGraph) -> str:
     parts.append(f'<rect width="{WIDTH}" height="{total_height}" fill="url(#grid)"/>')
 
     # Lane headers
-    parts.append(_text(60 + LANE_W // 2, LANE_HEADER_Y, "Upstream (calls)",
+    parts.append(_text(SIDE_MARGIN + LANE_W // 2, LANE_HEADER_Y, "Upstream (calls)",
                        size=10, color="#94a3b8", anchor="middle", weight=600, letter_spacing=0.08))
-    focus_x = 60 + LANE_W + LANE_GAP
+    focus_x = SIDE_MARGIN + LANE_W + LANE_GAP
     parts.append(_text(focus_x + FOCUS_W // 2, LANE_HEADER_Y, "Focus",
                        size=10, color="#94a3b8", anchor="middle", weight=600, letter_spacing=0.08))
     down_x = focus_x + FOCUS_W + LANE_GAP
@@ -85,7 +95,7 @@ def render_svg(graph: DepGraph) -> str:
     parts.extend(_edges(graph, up_clusters, down_clusters, body_height))
 
     # Clusters
-    parts.append(_render_lane(60, LANE_TOP_Y, LANE_W, up_clusters, "upstream"))
+    parts.append(_render_lane(SIDE_MARGIN, LANE_TOP_Y, LANE_W, up_clusters, "upstream"))
     parts.append(_render_lane(down_x, LANE_TOP_Y, LANE_W, down_clusters, "downstream"))
 
     # Focus box (centered vertically in body)
@@ -115,7 +125,6 @@ def render_html(graph: DepGraph) -> str:
         n_required=n_calls,         # "Calls" — template still uses these var names
         n_optional=n_consumers,     # "Consumers"
         n_consumers=n_categories,   # "Categories served"
-        footer=f"Regenerate: python -m bootstrapper.docs.regen {graph.focus}",
     )
 
 
@@ -172,6 +181,8 @@ def _focus_box(x: int, y: int, w: int, h: int, graph: DepGraph) -> str:
     color = CATEGORY_COLORS.get(graph.category, "#94a3b8")
     fill = CATEGORY_FILLS.get(graph.category, "rgba(30, 41, 59, 0.5)")
     cx = x + w // 2
+    title = graph.focus.upper()
+    title_size = _fit_font_size(title, w - 16, preferred=15, minimum=10)
     # Two-rect pattern (per the architecture-diagram skill): opaque
     # slate-900 backdrop, then the category-themed semi-transparent fill on
     # top so any arrow drawn behind the box is fully masked.
@@ -180,8 +191,8 @@ def _focus_box(x: int, y: int, w: int, h: int, graph: DepGraph) -> str:
         f'  <rect x="{x}" y="{y}" width="{w}" height="{h}" rx="8" fill="#0f172a"/>'
         f'  <rect x="{x}" y="{y}" width="{w}" height="{h}" rx="8" '
         f'        fill="{fill}" stroke="{color}" stroke-width="1.5"/>'
-        f'  <text x="{cx}" y="{y + 28}" fill="white" font-size="15" font-weight="700" '
-        f'        text-anchor="middle">{html_mod.escape(graph.focus.upper())}</text>'
+        f'  <text x="{cx}" y="{y + 28}" fill="white" font-size="{title_size}" font-weight="700" '
+        f'        text-anchor="middle">{html_mod.escape(title)}</text>'
         f'  <text x="{cx}" y="{y + 48}" fill="#94a3b8" font-size="10" '
         f'        text-anchor="middle">{html_mod.escape(graph.category)} · {html_mod.escape(graph.source)}</text>'
         f'</g>'
@@ -233,11 +244,12 @@ def _pill(x: int, y: int, w: int, h: int, label: str, stroke: str, fill: str) ->
     fill matching the cluster's category, per the architecture-diagram
     skill's component-box pattern.
     """
+    font_size = _fit_font_size(label, w - 8, preferred=10, minimum=7)
     return (
         f'<g><rect x="{x}" y="{y}" width="{w}" height="{h}" rx="4" fill="#0f172a"/>'
         f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="4" '
         f'fill="{fill}" stroke="{stroke}" stroke-width="1"/>'
-        f'<text x="{x + w // 2}" y="{y + h // 2 + 4}" fill="white" font-size="10" '
+        f'<text x="{x + w // 2}" y="{y + h // 2 + 4}" fill="white" font-size="{font_size}" '
         f'text-anchor="middle">{html_mod.escape(label)}</text></g>'
     )
 
@@ -246,7 +258,7 @@ def _edges(graph: DepGraph, up_clusters: "OrderedDict[str, list[DepEdge]]",
           down_clusters: "OrderedDict[str, list[DepEdge]]", body_height: int) -> list[str]:
     """One edge per cluster. Edge connects focus side to cluster header."""
     parts: list[str] = []
-    focus_x = 60 + LANE_W + LANE_GAP
+    focus_x = SIDE_MARGIN + LANE_W + LANE_GAP
     focus_y_center = LANE_TOP_Y + body_height // 2
 
     # Upstream: cluster → focus (arrow points right)
@@ -254,7 +266,7 @@ def _edges(graph: DepGraph, up_clusters: "OrderedDict[str, list[DepEdge]]",
     for cat, pills in up_clusters.items():
         ch = _cluster_height(pills)
         bidirectional = any(p.bidirectional for p in pills)
-        x1 = 60 + LANE_W
+        x1 = SIDE_MARGIN + LANE_W
         y1 = cy + CLUSTER_PADDING_Y + CLUSTER_HEADER_H // 2
         parts.append(
             f'<line x1="{x1}" y1="{y1}" x2="{focus_x}" y2="{focus_y_center}" '

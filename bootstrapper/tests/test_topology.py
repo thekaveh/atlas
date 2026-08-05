@@ -24,7 +24,7 @@ def test_topology_is_frozen():
         t.canonical_order = []  # type: ignore[misc]
 
 
-from services.manifests import Manifest, DependsOn, Row as ManifestRow
+from services.manifests import DependsOn, Manifest
 
 
 def _manifest(name, category, requires=None, rows=None):

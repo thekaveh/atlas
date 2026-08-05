@@ -1,6 +1,6 @@
 # 5.2.13. Document Processor Service
 
-Document processing using IBM's Docling library, exposed through an OpenAI-compatible API.
+Document processing using IBM's Docling library, exposed through a bounded REST API.
 
 ## 1. Overview
 
@@ -11,7 +11,7 @@ The Document Processor service converts and extracts content from documents. It 
 - **GPU Acceleration**: 4.3x speedup for table extraction on NVIDIA GPUs
 - **Multiple Formats**: PDF, DOCX, PPTX, HTML, Images, and more
 - **RAG-Ready**: Structure-aware chunking for retrieval-augmented generation
-- **OpenAI-Compatible**: REST API with standard endpoints
+- **Hardened Provider Boundary**: bearer authentication, bounded admission, and finite conversion deadlines
 
 ## 2. Quick Start
 
@@ -62,6 +62,7 @@ DOC_PROCESSOR_SOURCE=disabled
 
 ```bash
 curl -X POST http://localhost:63051/v1/document/convert \
+  -H "Authorization: Bearer ${DOCLING_API_TOKEN}" \
   -F "file=@document.pdf" \
   -F "output_format=markdown" \
   -F "use_ocr=auto" \
@@ -79,13 +80,17 @@ curl -X POST http://localhost:63051/v1/document/convert \
 | `DOCLING_OUTPUT_FORMAT` | Output format (markdown, html, json, doctags) | `markdown` |
 | `DOCLING_USE_OCR` | OCR mode (auto, always, never) | `auto` |
 | `DOCLING_TABLE_MODE` | Table extraction (accurate, fast) | `accurate` |
+| `DOCLING_API_TOKEN` | Auto-generated bearer credential for every route except `/health` | generated |
+| `DOCLING_AUTH_MODE` | `required`, or `disabled` only as an explicit rollback | `required` |
+| `DOCLING_CORS_ORIGINS` | Comma-separated browser origin allowlist; empty disables CORS | empty |
+| `DOCLING_INFERENCE_TIMEOUT_SECONDS` | Conversion and lazy-load deadline; timeout returns `504` and terminates the process for restart | `900` |
 
 ### 4.2. GPU-Specific (NVIDIA Docker)
 
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `DOCLING_GPU_DEVICE` | Device type | `cuda` |
-| `DOCLING_GPU_IMAGE` | Docker base image | `pytorch/pytorch:2.12.1-cuda12.6-cudnn9-runtime` |
+| `DOCLING_GPU_IMAGE` | Digest-pinned Docker base image | `pytorch/pytorch:2.13.0-cuda12.6-cudnn9-runtime@sha256:…` |
 | `DOCLING_GPU_SCALE` | Container replicas (set by bootstrapper) | `0` |
 
 ### 4.3. Processing Options
@@ -99,17 +104,28 @@ curl -X POST http://localhost:63051/v1/document/convert \
 | `DOCLING_CHUNK_SIZE` | Default chunk size for RAG | `512` |
 | `DOCLING_CHUNK_OVERLAP` | Default chunk overlap | `50` |
 
-Uploads stream to bounded temporary files and are rejected (`413`/`400`) if they exceed `DOCLING_MAX_FILE_SIZE` or are empty, so a failed conversion is never indexed as document content downstream. `DOCLING_CHUNK_OVERLAP` must stay non-negative and no more than half of `DOCLING_CHUNK_SIZE`; a single conversion is capped at 10,000 chunks. Full validation and status-code behavior lives in the provider's shared `api_server.py` module.
+Request bodies are capped before multipart parsing at `DOCLING_MAX_FILE_SIZE` plus 1 MiB of framing/form overhead and must arrive within the total `DOCLING_UPLOAD_TIMEOUT_SECONDS` deadline (120 seconds by default). Uploads then stream to bounded temporary files and are rejected (`413`/`408`/`400`) if they exceed the file limit, time out, or are empty, so a failed conversion is never indexed as document content downstream. `DOCLING_CHUNK_OVERLAP` must stay non-negative and no more than half of `DOCLING_CHUNK_SIZE`; a single conversion is capped at 10,000 chunks. Full validation and status-code behavior lives in the provider's shared `api_server.py` module.
 
 ### 4.4. Localhost-Specific
 
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `DOCLING_LOCALHOST_PORT` | Local service port for the host-installed source variant. URL is derived as `http://host.docker.internal:${DOCLING_LOCALHOST_PORT}` at compose-render time. | `18159` |
+| `DOCLING_LOCALHOST_BIND_HOST` | Native provider listen address | `127.0.0.1` |
+
+Container mode publishes Docling on loopback by default. Set `HOST_BIND_IP=0.0.0.0:` only when deliberate external access is protected by a firewall or gateway. Native mode is also loopback-only by default; change `DOCLING_LOCALHOST_BIND_HOST` explicitly if remote clients must connect.
+
+### 4.5. Provider boundary and LightRAG adapter
+
+`GET /health` is public so Docker and service managers can probe readiness. Every other Docling route, including `/docs`, `/v1/models`, `POST /v1/document/convert`, and `POST /internal/lightrag/bundle`, requires `Authorization: Bearer ${DOCLING_API_TOKEN}` while `DOCLING_AUTH_MODE=required`. Atlas generates and preserves the token in `.env`; use a placeholder such as `<DOCLING_API_TOKEN>` in shared examples, never the generated value. Setting authentication to `disabled` is an explicit emergency/local rollback, not the normal operating mode. A wildcard CORS origin is rejected while authentication is required.
+
+Conversion capacity is reserved before multipart parsing, so overload is rejected with `429` before a large body is accepted. Conversion and lazy model loading have a finite 900-second default deadline. If the deadline expires, the provider returns a generic `504` response and then exits with status 70 so Docker can restart it. A native deployment must be run under a service manager such as systemd or launchd with restart-on-failure; a bare `uv run server.py` process will remain stopped after a fatal timeout.
+
+In-stack LightRAG does not receive the Docling provider token. Instead, `docling-lightrag-adapter` is placed only on the dedicated `docling-lightrag-network` with LightRAG and `docling-gpu`; it has no host port and does not join the backend network. The adapter authenticates upstream and implements LightRAG v1.5.4's exact four-route protocol: `POST /v1/convert/file/async` with multipart field `files`, `GET /v1/status/poll/{task_id}`, `GET /v1/result/{task_id}`, and `GET /health`. It reserves one of `DOCLING_ADAPTER_MAX_JOBS` slots before reading the upload, makes at most `DOCLING_ADAPTER_UPSTREAM_MAX_ATTEMPTS` upstream attempts after `429` responses, caps streamed ZIP results at `DOCLING_ADAPTER_MAX_RESULT_BYTES`, and removes artifacts on download, failure, cancellation, or after `DOCLING_ADAPTER_RESULT_TTL_SECONDS` (900 seconds by default). The adapter is enabled only for in-stack LightRAG plus an enabled Docling source; localhost LightRAG receives no isolated adapter endpoint.
 
 ## 5. API Reference
 
-The service exposes an OpenAI-compatible REST API: `POST /v1/document/convert` uploads a file and returns structured content (optionally chunked for RAG) with the request shown in §3; `GET /health` is the readiness probe, returning `200` only when the selected provider's document converter can be imported and `503` otherwise; `GET /v1/models` lists the available conversion model configuration. The full request/response schema, all `convert` parameters (`output_format`, `use_ocr`, `table_mode`, `enable_chunking`, `chunk_size`, `chunk_overlap`), and response fields are served live at the running instance's `/docs` (Swagger UI) endpoint.
+The service exposes a REST API: `POST /v1/document/convert` uploads a file and returns structured content (optionally chunked for RAG) with the request shown in §3; `GET /health` is the public readiness probe, returning `200` only when the selected provider's document converter can be imported and `503` otherwise; `GET /v1/models` lists the available conversion model configuration. The full request/response schema, all `convert` parameters (`output_format`, `use_ocr`, `table_mode`, `enable_chunking`, `chunk_size`, `chunk_overlap`), and response fields are served at `/docs` after bearer authentication.
 
 ## 6. Supported Formats
 
@@ -135,11 +151,12 @@ Use HTTP Request node:
 
 ```
 POST http://docling-gpu:8000/v1/document/convert
+Authorization: Bearer {{$env.DOCLING_API_TOKEN}}
 ```
 
 ### 8.3. JupyterHub Notebooks
 
-JupyterHub notebooks call the same `/v1/document/convert` endpoint with `requests`, passing `output_format`/`enable_chunking`/`chunk_size` as form data and reading `content` and `metadata` back from the JSON response — see §3 for the equivalent `curl` request.
+JupyterHub notebooks call the same `/v1/document/convert` endpoint with `requests`, passing `Authorization: Bearer ${DOCLING_API_TOKEN}` from the server-side notebook environment plus the conversion form fields. Do not print the token or persist it in notebook output.
 
 ### 8.4. Backend API
 
@@ -215,8 +232,8 @@ _No upstream calls._
 | Service | Category |
 |---|---|
 | kong | infra |
+| docling-lightrag-adapter | media |
 | celery | agents |
-| lightrag | agents |
 | n8n | agents |
 | backend | apps |
 | jupyterhub | apps |

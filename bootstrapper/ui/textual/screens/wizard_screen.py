@@ -20,7 +20,9 @@ confirms launch.
 from __future__ import annotations
 
 import asyncio
+from collections import deque
 import contextlib
+import math
 import os
 import signal
 import sys
@@ -70,6 +72,94 @@ _FAMILY_FLAG_STEM = {
     "celery-worker": "celery",
 }
 
+_FAILURE_LOG_TIMEOUT_SECONDS = 60.0
+_FAILURE_HINT_BUFFER_BYTES = 64 * 1024
+_PROCESS_TERMINATION_GRACE_SECONDS = 2.0
+_COMPOSE_BUILD_TIMEOUT_SECONDS = 90 * 60.0
+_COMPOSE_UP_TIMEOUT_SECONDS = 30 * 60.0
+
+
+def _compose_timeout_seconds(args: list[str]) -> float | None:
+    """Return a deadline for finite Compose work; follow logs until cancelled."""
+    if args[:1] == ["build"]:
+        return _COMPOSE_BUILD_TIMEOUT_SECONDS
+    if args[:1] == ["logs"] and "-f" in args:
+        return None
+    return _COMPOSE_UP_TIMEOUT_SECONDS
+
+
+def _require_positive_finite(name: str, value: object) -> None:
+    if type(value) not in (int, float):
+        raise ValueError(f"{name} must be a finite positive int or float")
+    try:
+        finite = math.isfinite(float(value))
+    except (OverflowError, ValueError):
+        finite = False
+    if not finite or value <= 0:
+        raise ValueError(f"{name} must be a finite positive int or float")
+
+
+def _validate_stream_bounds(
+    timeout_seconds: float | None, termination_grace_seconds: float
+) -> None:
+    if timeout_seconds is not None:
+        _require_positive_finite("timeout_seconds", timeout_seconds)
+    _require_positive_finite(
+        "termination_grace_seconds", termination_grace_seconds
+    )
+
+
+def _append_bounded_hint(
+    captured: deque[tuple[str, int]], line: str, captured_bytes: int
+) -> int:
+    """Append a recent diagnostic line without exceeding the byte ceiling."""
+    encoded = line.encode("utf-8", errors="replace")
+    if len(encoded) > _FAILURE_HINT_BUFFER_BYTES:
+        encoded = encoded[-_FAILURE_HINT_BUFFER_BYTES :]
+        line = encoded.decode("utf-8", errors="ignore")
+        encoded = line.encode("utf-8")
+        captured.clear()
+        captured_bytes = 0
+    line_size = max(1, len(encoded))
+    while captured and (
+        captured_bytes + line_size > _FAILURE_HINT_BUFFER_BYTES
+    ):
+        _old_line, old_size = captured.popleft()
+        captured_bytes -= old_size
+    captured.append((line, line_size))
+    return captured_bytes + line_size
+
+
+async def _stop_process_tree(
+    proc: asyncio.subprocess.Process,
+    *,
+    termination_grace_seconds: float = _PROCESS_TERMINATION_GRACE_SECONDS,
+) -> None:
+    """Stop an async subprocess and descendants, then reap the leader."""
+    _require_positive_finite(
+        "termination_grace_seconds", termination_grace_seconds
+    )
+    try:
+        if os.name == "posix":
+            os.killpg(proc.pid, signal.SIGTERM)
+        else:  # pragma: no cover - native Windows is not exercised in CI
+            proc.terminate()
+    except ProcessLookupError:
+        pass
+    # The leader can exit on TERM while a resistant child survives. Preserve
+    # the full grace period, even through cancellation, before escalation.
+    grace_task = asyncio.create_task(asyncio.sleep(termination_grace_seconds))
+    await _await_uncancellable(grace_task)
+    try:
+        if os.name == "posix":
+            os.killpg(proc.pid, signal.SIGKILL)
+        else:  # pragma: no cover
+            proc.kill()
+    except ProcessLookupError:
+        pass
+    wait_task = asyncio.create_task(proc.wait())
+    await _await_uncancellable(wait_task)
+
 
 async def _await_uncancellable(task: asyncio.Task):
     """Wait for a thread-backed task despite repeated cancellation requests."""
@@ -79,6 +169,154 @@ async def _await_uncancellable(task: asyncio.Task):
         except asyncio.CancelledError:
             continue
     return task.result()
+
+
+def _kill_remaining_process_group(proc: asyncio.subprocess.Process) -> None:
+    if os.name != "posix":
+        return
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass
+
+
+async def _launch_process(
+    command: list[str],
+    *,
+    termination_grace_seconds: float = _PROCESS_TERMINATION_GRACE_SECONDS,
+    **kwargs,
+) -> asyncio.subprocess.Process:
+    """Launch without losing the process-group handle to caller cancellation."""
+    launch_task = asyncio.create_task(
+        asyncio.create_subprocess_exec(*command, **kwargs)
+    )
+    try:
+        return await asyncio.shield(launch_task)
+    except asyncio.CancelledError as cancellation:
+        try:
+            proc = await _await_uncancellable(launch_task)
+        except Exception:
+            raise cancellation
+        try:
+            await _stop_process_tree(
+                proc, termination_grace_seconds=termination_grace_seconds
+            )
+        finally:
+            raise cancellation
+
+
+async def _cancel_stream_and_stop(
+    stream_task: asyncio.Task[int],
+    proc: asyncio.subprocess.Process,
+    termination_grace_seconds: float,
+) -> None:
+    """Drain a failed stream task and stop its entire process group."""
+    stream_task.cancel()
+    with contextlib.suppress(BaseException):
+        await stream_task
+    await _stop_process_tree(
+        proc, termination_grace_seconds=termination_grace_seconds
+    )
+
+
+def _report_cancel_cleanup_failure(
+    cleanup_error: BaseException, stream_task: asyncio.Task[int]
+) -> None:
+    asyncio.get_running_loop().call_exception_handler(
+        {
+            "message": "Subprocess cleanup failed while preserving cancellation",
+            "exception": cleanup_error,
+            "task": stream_task,
+        }
+    )
+
+
+async def _run_streamed_command(
+    command: list[str],
+    *,
+    cwd: Path,
+    env: dict[str, str],
+    on_line: Callable[[str], None],
+    timeout_seconds: float | None,
+    termination_grace_seconds: float = _PROCESS_TERMINATION_GRACE_SECONDS,
+) -> int:
+    """Stream one isolated command with a total deadline and safe cleanup."""
+    _validate_stream_bounds(timeout_seconds, termination_grace_seconds)
+    proc = await _launch_process(
+        command,
+        cwd=str(cwd),
+        stdin=asyncio.subprocess.DEVNULL,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+        env=env,
+        start_new_session=os.name == "posix",
+        termination_grace_seconds=termination_grace_seconds,
+    )
+    async def consume() -> int:
+        assert proc.stdout is not None
+        async for raw in proc.stdout:
+            on_line(raw.decode(errors="replace").rstrip("\r\n"))
+        return await proc.wait()
+    stream_task = asyncio.create_task(consume())
+    try:
+        if timeout_seconds is None:
+            returncode = await stream_task
+        else:
+            returncode = await asyncio.wait_for(
+                stream_task, timeout=timeout_seconds
+            )
+        _kill_remaining_process_group(proc)
+        return returncode
+    except asyncio.TimeoutError:
+        assert timeout_seconds is not None
+        await _stop_process_tree(
+            proc, termination_grace_seconds=termination_grace_seconds
+        )
+        on_line(f"Command timed out after {timeout_seconds:.0f}s")
+        return 124
+    except asyncio.CancelledError as cancellation:
+        try:
+            await _cancel_stream_and_stop(
+                stream_task, proc, termination_grace_seconds
+            )
+        except BaseException as cleanup_error:
+            _report_cancel_cleanup_failure(cleanup_error, stream_task)
+            raise cancellation from cleanup_error
+        raise
+    except BaseException as primary_error:
+        try:
+            await _cancel_stream_and_stop(
+                stream_task, proc, termination_grace_seconds
+            )
+        except BaseException as cleanup_error:
+            raise primary_error from cleanup_error
+        raise
+
+
+async def _capture_bounded_process_output(
+    command: list[str],
+    *,
+    cwd: Path,
+    sink: Callable[[str], object],
+    timeout_seconds: float,
+) -> tuple[int, list[str]]:
+    """Capture process output to a sink and a bounded recent-hint buffer."""
+    captured: deque[tuple[str, int]] = deque()
+    captured_bytes = 0
+
+    def capture_line(line: str) -> None:
+        nonlocal captured_bytes
+        sink(line + "\n")
+        captured_bytes = _append_bounded_hint(captured, line, captured_bytes)
+
+    returncode = await _run_streamed_command(
+        command,
+        cwd=cwd,
+        env=os.environ.copy(),
+        on_line=capture_line,
+        timeout_seconds=timeout_seconds,
+    )
+    return returncode, [line for line, _size in captured]
 
 
 _SETUP_HINTS = [
@@ -1304,20 +1542,16 @@ class WizardScreen(Screen):
         fh.write(f"# {' '.join(cmd)}\n\n")
         fh.flush()
         try:
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                cwd=str(self._starter.docker_manager.root_dir),
-                stdin=asyncio.subprocess.DEVNULL,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT,
+            returncode, captured = await _capture_bounded_process_output(
+                cmd,
+                cwd=Path(self._starter.docker_manager.root_dir),
+                sink=fh.write,
+                timeout_seconds=_FAILURE_LOG_TIMEOUT_SECONDS,
             )
-            assert proc.stdout is not None
-            captured: list[str] = []
-            async for raw in proc.stdout:
-                line = raw.decode(errors="replace").rstrip("\r\n")
-                fh.write(line + "\n")
-                captured.append(line)
-            await proc.wait()
+            if returncode == 124:
+                fh.write(
+                    f"# capture timed out after {_FAILURE_LOG_TIMEOUT_SECONDS:.0f}s\n"
+                )
             fh.flush()
             self._emit_failure_hints(captured)
         except Exception as exc:  # noqa: BLE001
@@ -1443,7 +1677,7 @@ class WizardScreen(Screen):
           • Pipeline-step callbacks invoked via ``asyncio.to_thread`` —
             they run in a worker thread; UI writes must marshal back
             to the main loop with ``call_from_thread``.
-          • ``_run_compose`` / ``_run_command`` — these are coroutines
+          • ``_run_compose`` — this is a coroutine
             on the main event loop; ``call_from_thread`` from the
             same thread silently mis-routes (no UI update). Use a
             direct call instead.
@@ -1889,50 +2123,6 @@ class WizardScreen(Screen):
             sys.stdout, sys.stderr = old_stdout, old_stderr
             self._close_launch_log_tee()
 
-    async def _run_command(
-        self, cmd: list[str], *, ignore_errors: bool = False,
-    ) -> int:
-        # Route through _safe_log so the launch-log tee picks up
-        # the command and its output. Direct _log_pane.write_* calls
-        # bypass the tee — that's the gap that left the user's first
-        # failure with only the bootstrapper pipeline in the file.
-        self._safe_log("$ " + " ".join(cmd), source="docker", level="dim")
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdin=asyncio.subprocess.DEVNULL,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT,
-            )
-        except (OSError, RuntimeError) as exc:
-            # OSError covers PermissionError etc., not just a missing
-            # binary. (Compose-detection RuntimeErrors raise BEFORE this
-            # try — they surface via the pipeline-level "launch crashed"
-            # handler instead.)
-            self._write_status(f"❌ {exc}", style="bold red", source="docker")
-            return 1
-        try:
-            assert proc.stdout is not None
-            async for raw in proc.stdout:
-                line = raw.decode(errors="replace").rstrip("\r\n")
-                self._safe_log(line, source="docker", level="info")
-            rc = await proc.wait()
-            if rc != 0 and not ignore_errors:
-                self._write_status(f"  ↳ exit {rc}", style="dim red",
-                                   source="docker")
-            return rc
-        except asyncio.CancelledError:
-            with contextlib.suppress(ProcessLookupError):
-                proc.send_signal(signal.SIGINT)
-            with contextlib.suppress(asyncio.TimeoutError):
-                await asyncio.wait_for(proc.wait(), timeout=3)
-            if proc.returncode is None:
-                with contextlib.suppress(ProcessLookupError):
-                    proc.kill()
-                with contextlib.suppress(Exception):
-                    await proc.wait()
-            raise
-
     async def _run_compose(self, args: list[str]) -> int:
         # IMPORTANT: stdout is a pipe (no TTY). Don't pass
         # --ansi=always — it tells compose "I have a TTY, use the
@@ -1953,14 +2143,19 @@ class WizardScreen(Screen):
         # _log_pane.write_* calls bypassed the tee — image-pull errors
         # from compose up never reached the file.
         self._safe_log("$ " + " ".join(full_cmd), source="docker", level="dim")
+
+        def log_line(line: str) -> None:
+            source, level = _classify_compose_line(line)
+            self._safe_log(line, source=source, level=level)
+
+        timeout_seconds = _compose_timeout_seconds(args)
         try:
-            proc = await asyncio.create_subprocess_exec(
-                *full_cmd,
-                cwd=str(self._starter.docker_manager.root_dir),
-                stdin=asyncio.subprocess.DEVNULL,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT,
+            return await _run_streamed_command(
+                full_cmd,
+                cwd=Path(self._starter.docker_manager.root_dir),
                 env=env,
+                on_line=log_line,
+                timeout_seconds=timeout_seconds,
             )
         except (OSError, RuntimeError) as exc:
             # OSError covers PermissionError etc., not just a missing
@@ -1969,24 +2164,6 @@ class WizardScreen(Screen):
             # handler instead.)
             self._write_status(f"❌ {exc}", style="bold red", source="docker")
             return 1
-        try:
-            assert proc.stdout is not None
-            async for raw in proc.stdout:
-                line = raw.decode(errors="replace").rstrip("\r\n")
-                source, level = _classify_compose_line(line)
-                self._safe_log(line, source=source, level=level)
-            return await proc.wait()
-        except asyncio.CancelledError:
-            with contextlib.suppress(ProcessLookupError):
-                proc.send_signal(signal.SIGINT)
-            with contextlib.suppress(asyncio.TimeoutError):
-                await asyncio.wait_for(proc.wait(), timeout=3)
-            if proc.returncode is None:
-                with contextlib.suppress(ProcessLookupError):
-                    proc.kill()
-                with contextlib.suppress(Exception):
-                    await proc.wait()
-            raise
 
 
 # Module-level project prefix — set at launch transition via

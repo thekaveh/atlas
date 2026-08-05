@@ -128,272 +128,278 @@ sections:
       source: services/docling/README.md
       diagrams:
       - service-docling
-    - id: service-fal
+    - id: service-docling-lightrag-adapter
       number: 5.2.15
+      title: docling-lightrag-adapter
+      source: services/docling-lightrag-adapter/README.md
+      diagrams:
+      - service-docling-lightrag-adapter
+    - id: service-fal
+      number: 5.2.16
       title: fal
       source: services/fal/README.md
       diagrams:
       - service-fal
     - id: service-globals
-      number: 5.2.16
+      number: 5.2.17
       title: globals
       source: services/globals/README.md
       diagrams:
       - service-globals
     - id: service-grafana
-      number: 5.2.17
+      number: 5.2.18
       title: grafana
       source: services/grafana/README.md
       diagrams:
       - service-grafana
     - id: service-hermes
-      number: 5.2.18
+      number: 5.2.19
       title: hermes
       source: services/hermes/README.md
       diagrams:
       - service-hermes
     - id: service-iceberg-rest
-      number: 5.2.19
+      number: 5.2.20
       title: iceberg-rest
       source: services/iceberg-rest/README.md
       diagrams:
       - service-iceberg-rest
     - id: service-jenkins
-      number: 5.2.20
+      number: 5.2.21
       title: jenkins
       source: services/jenkins/README.md
       diagrams:
       - service-jenkins
     - id: service-jupyterhub
-      number: 5.2.21
+      number: 5.2.22
       title: jupyterhub
       source: services/jupyterhub/README.md
       diagrams:
       - service-jupyterhub
     - id: service-kong
-      number: 5.2.22
+      number: 5.2.23
       title: kong
       source: services/kong/README.md
       diagrams:
       - service-kong
     - id: service-label-studio
-      number: 5.2.23
+      number: 5.2.24
       title: label-studio
       source: services/label-studio/README.md
       diagrams:
       - service-label-studio
     - id: service-langfuse
-      number: 5.2.24
+      number: 5.2.25
       title: langfuse
       source: services/langfuse/README.md
       diagrams:
       - service-langfuse
     - id: service-lightrag
-      number: 5.2.25
+      number: 5.2.26
       title: lightrag
       source: services/lightrag/README.md
       diagrams:
       - service-lightrag
     - id: service-litellm
-      number: 5.2.26
+      number: 5.2.27
       title: litellm
       source: services/litellm/README.md
       diagrams:
       - service-litellm
     - id: service-llm-graph-builder
-      number: 5.2.27
+      number: 5.2.28
       title: llm-graph-builder
       source: services/llm-graph-builder/README.md
       diagrams:
       - service-llm-graph-builder
     - id: service-local-deep-researcher
-      number: 5.2.28
+      number: 5.2.29
       title: local-deep-researcher
       source: services/local-deep-researcher/README.md
       diagrams:
       - service-local-deep-researcher
     - id: service-loki
-      number: 5.2.29
+      number: 5.2.30
       title: loki
       source: services/loki/README.md
       diagrams:
       - service-loki
     - id: service-mcp-servers
-      number: 5.2.30
+      number: 5.2.31
       title: mcp-servers
       source: services/mcp-servers/README.md
       diagrams:
       - service-mcp-servers
     - id: service-minio
-      number: 5.2.31
+      number: 5.2.32
       title: minio
       source: services/minio/README.md
       diagrams:
       - service-minio
     - id: service-mlflow
-      number: 5.2.32
+      number: 5.2.33
       title: mlflow
       source: services/mlflow/README.md
       diagrams:
       - service-mlflow
     - id: service-multi2vec-clip
-      number: 5.2.33
+      number: 5.2.34
       title: multi2vec-clip
       source: services/multi2vec-clip/README.md
       diagrams:
       - service-multi2vec-clip
     - id: service-n8n
-      number: 5.2.34
+      number: 5.2.35
       title: n8n
       source: services/n8n/README.md
       diagrams:
       - service-n8n
     - id: service-neo4j
-      number: 5.2.35
+      number: 5.2.36
       title: neo4j
       source: services/neo4j/README.md
       diagrams:
       - service-neo4j
     - id: service-ollama
-      number: 5.2.36
+      number: 5.2.37
       title: ollama
       source: services/ollama/README.md
       diagrams:
       - service-ollama
     - id: service-open-webui
-      number: 5.2.37
+      number: 5.2.38
       title: open-webui
       source: services/open-webui/README.md
       diagrams:
       - service-open-webui
     - id: service-openclaw
-      number: 5.2.38
+      number: 5.2.39
       title: openclaw
       source: services/openclaw/README.md
       diagrams:
       - service-openclaw
     - id: service-otel-collector
-      number: 5.2.39
+      number: 5.2.40
       title: otel-collector
       source: services/otel-collector/README.md
       diagrams:
       - service-otel-collector
     - id: service-parakeet
-      number: 5.2.40
+      number: 5.2.41
       title: parakeet
       source: services/parakeet/README.md
       diagrams:
       - service-parakeet
     - id: service-prometheus
-      number: 5.2.41
+      number: 5.2.42
       title: prometheus
       source: services/prometheus/README.md
       diagrams:
       - service-prometheus
     - id: service-ray
-      number: 5.2.42
+      number: 5.2.43
       title: ray
       source: services/ray/README.md
       diagrams:
       - service-ray
     - id: service-redis
-      number: 5.2.43
+      number: 5.2.44
       title: redis
       source: services/redis/README.md
       diagrams:
       - service-redis
     - id: service-redpanda
-      number: 5.2.44
+      number: 5.2.45
       title: redpanda
       source: services/redpanda/README.md
       diagrams:
       - service-redpanda
     - id: service-searxng
-      number: 5.2.45
+      number: 5.2.46
       title: searxng
       source: services/searxng/README.md
       diagrams:
       - service-searxng
     - id: service-spark
-      number: 5.2.46
+      number: 5.2.47
       title: spark
       source: services/spark/README.md
       diagrams:
       - service-spark
     - id: service-speaches
-      number: 5.2.47
+      number: 5.2.48
       title: speaches
       source: services/speaches/README.md
       diagrams:
       - service-speaches
     - id: service-stt-provider
-      number: 5.2.48
+      number: 5.2.49
       title: stt-provider
       source: services/stt-provider/README.md
       diagrams:
       - service-stt-provider
     - id: service-supabase
-      number: 5.2.49
+      number: 5.2.50
       title: supabase
       source: services/supabase/README.md
       diagrams:
       - service-supabase
     - id: service-supavisor
-      number: 5.2.50
+      number: 5.2.51
       title: supavisor
       source: services/supavisor/README.md
       diagrams:
       - service-supavisor
     - id: service-tei-reranker
-      number: 5.2.51
+      number: 5.2.52
       title: tei-reranker
       source: services/tei-reranker/README.md
       diagrams:
       - service-tei-reranker
     - id: service-tempo
-      number: 5.2.52
+      number: 5.2.53
       title: tempo
       source: services/tempo/README.md
       diagrams:
       - service-tempo
     - id: service-tika
-      number: 5.2.53
+      number: 5.2.54
       title: tika
       source: services/tika/README.md
       diagrams:
       - service-tika
     - id: service-trino
-      number: 5.2.54
+      number: 5.2.55
       title: trino
       source: services/trino/README.md
       diagrams:
       - service-trino
     - id: service-tts-provider
-      number: 5.2.55
+      number: 5.2.56
       title: tts-provider
       source: services/tts-provider/README.md
       diagrams:
       - service-tts-provider
     - id: service-verba
-      number: 5.2.56
+      number: 5.2.57
       title: verba
       source: services/verba/README.md
       diagrams:
       - service-verba
     - id: service-vllm-metal
-      number: 5.2.57
+      number: 5.2.58
       title: vllm-metal
       source: services/vllm-metal/README.md
       diagrams:
       - service-vllm-metal
     - id: service-weaviate
-      number: 5.2.58
+      number: 5.2.59
       title: weaviate
       source: services/weaviate/README.md
       diagrams:
       - service-weaviate
     - id: service-zeppelin
-      number: 5.2.59
+      number: 5.2.60
       title: zeppelin
       source: services/zeppelin/README.md
       diagrams:
@@ -675,6 +681,8 @@ diagrams:
   master: services/doc-processor/architecture.html
 - id: service-docling
   master: services/docling/architecture.html
+- id: service-docling-lightrag-adapter
+  master: services/docling-lightrag-adapter/architecture.html
 - id: service-fal
   master: services/fal/architecture.html
 - id: service-globals

@@ -37,6 +37,8 @@ from typing import Optional
 
 import yaml
 
+from core.process_runner import CommandOutputTooLarge, run_with_deadline
+
 try:  # Native Windows can import this module for a no-op disabled-source stop.
     import fcntl
 except ImportError:  # pragma: no cover - exercised only by native Windows Python
@@ -52,6 +54,7 @@ _WARN = "warn"
 _FAIL = "fail"
 _SKIPPED = "skipped"
 _LOCK_TIMEOUT_SECONDS = 30.0
+_INSTALL_COMMAND_TIMEOUT_SECONDS = 30 * 60.0
 
 # Standard ComfyUI model subdirs mapped onto the reused host models dir so a
 # managed process never re-downloads weights the user already has.
@@ -636,7 +639,19 @@ class ComfyUiMpsManager:
 
     # ── low-level host helpers (mockable) ────────────────────────────
     def _run(self, cmd: list[str]) -> None:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        try:
+            result = run_with_deadline(
+                cmd, timeout_seconds=_INSTALL_COMMAND_TIMEOUT_SECONDS
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise ComfyUiMpsError(
+                f"command timed out after {_INSTALL_COMMAND_TIMEOUT_SECONDS:.0f}s "
+                f"({' '.join(cmd[:3])}…)"
+            ) from exc
+        except CommandOutputTooLarge as exc:
+            raise ComfyUiMpsError(
+                f"command exceeded its output limit ({' '.join(cmd[:3])}…)"
+            ) from exc
         if result.returncode != 0:
             raise ComfyUiMpsError(
                 f"command failed ({' '.join(cmd[:3])}…): rc={result.returncode} "

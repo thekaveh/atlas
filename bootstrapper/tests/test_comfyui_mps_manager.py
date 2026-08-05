@@ -78,6 +78,7 @@ def _darwin_arm64(monkeypatch, *, memsize_gb=64):
         return _FakeCompleted(0)
 
     monkeypatch.setattr(mod.subprocess, "run", fake_run)
+    monkeypatch.setattr(mod, "run_with_deadline", fake_run)
     return fake_run
 
 
@@ -175,6 +176,7 @@ def test_preflight_probes_torch_mps_after_install(tmp_path, monkeypatch):
         return _FakeCompleted(0)
 
     monkeypatch.setattr(mod.subprocess, "run", fake_run)
+    monkeypatch.setattr(mod, "run_with_deadline", fake_run)
     result = mgr.preflight()
     mps = next(c for c in result.checks if c["name"] == "mps")
     assert mps["status"] == "ok"
@@ -196,6 +198,7 @@ def test_install_clones_and_builds_venv(tmp_path, monkeypatch):
         return _FakeCompleted(0)
 
     monkeypatch.setattr(mod.subprocess, "run", rec_run)
+    monkeypatch.setattr(mod, "run_with_deadline", rec_run)
     mgr = _mgr(tmp_path)  # fresh: repo_dir absent → clone path
     mgr.install()
 
@@ -233,6 +236,7 @@ def test_install_idempotent_skips_dependencies_when_fingerprint_matches(tmp_path
         return _FakeCompleted(0)
 
     monkeypatch.setattr(mod.subprocess, "run", rec_run)
+    monkeypatch.setattr(mod, "run_with_deadline", rec_run)
     mgr.install()  # not update — repo + venv already present
     joined = [" ".join(c) for c in calls]
     assert not any("git clone" in j for j in joined)  # no re-clone
@@ -260,6 +264,7 @@ def test_install_reconciles_changed_requirements_without_update_flag(tmp_path, m
         return _FakeCompleted(0)
 
     monkeypatch.setattr(mod.subprocess, "run", rec_run)
+    monkeypatch.setattr(mod, "run_with_deadline", rec_run)
     mgr.install()
     assert any(
         "pip install torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0" in " ".join(c)
@@ -299,6 +304,7 @@ def test_install_fetches_when_ref_missing_locally(tmp_path, monkeypatch):
         return _FakeCompleted(0)
 
     monkeypatch.setattr(mod.subprocess, "run", rec_run)
+    monkeypatch.setattr(mod, "run_with_deadline", rec_run)
     mgr.install(update=False)  # must NOT raise
     joined = [" ".join(c) for c in calls]
     assert state["fetched"], "expected a fetch fallback when the ref was missing"
@@ -324,6 +330,7 @@ def test_update_reinstalls_torch(tmp_path, monkeypatch):
         return _FakeCompleted(0)
 
     monkeypatch.setattr(mod.subprocess, "run", rec_run)
+    monkeypatch.setattr(mod, "run_with_deadline", rec_run)
     mgr.install(update=True)
     joined = [" ".join(c) for c in calls]
     # #648: update re-applies the exact pinned Torch stack (no --upgrade drift).
@@ -353,8 +360,27 @@ def test_run_raises_on_command_failure(tmp_path, monkeypatch):
         return _FakeCompleted(0)
 
     monkeypatch.setattr(mod.subprocess, "run", fail_run)
+    monkeypatch.setattr(mod, "run_with_deadline", fail_run)
     with pytest.raises(ComfyUiMpsError, match="command failed"):
         _mgr(tmp_path).install()
+
+
+def test_run_translates_install_timeout(tmp_path, monkeypatch):
+    def time_out(_cmd, **_kwargs):
+        raise subprocess.TimeoutExpired(["slow"], 1)
+
+    monkeypatch.setattr(mod, "run_with_deadline", time_out)
+    with pytest.raises(ComfyUiMpsError, match="timed out"):
+        _mgr(tmp_path)._run(["slow"])
+
+
+def test_run_translates_output_overflow(tmp_path, monkeypatch):
+    def overflow(_cmd, **_kwargs):
+        raise mod.CommandOutputTooLarge
+
+    monkeypatch.setattr(mod, "run_with_deadline", overflow)
+    with pytest.raises(ComfyUiMpsError, match="output limit"):
+        _mgr(tmp_path)._run(["noisy"])
 
 
 # ─────────────────────────── start / stop / status ───────────────────────────

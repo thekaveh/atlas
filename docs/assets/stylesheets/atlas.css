@@ -1,6 +1,6 @@
 /* =============================================================================
    Atlas docs — "Clean Systems" design system
-   Light-first, dual-theme via [data-md-color-scheme]. Airy layout, hairline
+   Dark-first, dual-theme via [data-md-color-scheme]. Airy layout, hairline
    borders, one calm blue accent. Semantic admonition colors (note/tip/
    warning/danger) are Material's own per-type hues and are left untouched —
    they stay separate from the accent by design.

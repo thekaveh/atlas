@@ -49,7 +49,7 @@ services:
       # STT integration (openai-compatible via parakeet)
       AUDIO_STT_ENGINE: ${OPEN_WEB_UI_STT_ENGINE:-}
       AUDIO_STT_OPENAI_API_BASE_URL: ${OPEN_WEB_UI_STT_API_URL:-}
-      AUDIO_STT_OPENAI_API_KEY: "sk-unused"
+      AUDIO_STT_OPENAI_API_KEY: ${OPEN_WEB_UI_STT_API_KEY:-}
       AUDIO_STT_MODEL: "whisper-1"
       # WebSocket Redis Integration (knobs are surfaced in .env.example so
       # users can disable websocket support, retarget the Redis DB index,

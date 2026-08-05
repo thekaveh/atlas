@@ -20,6 +20,9 @@ else:  # pragma: no cover
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PYPROJECT = REPO_ROOT / "bootstrapper" / "pyproject.toml"
 SERVICES_LINT = REPO_ROOT / ".github/workflows/services-lint.yml"
+BACKEND_DEV_REQUIREMENTS = (
+    REPO_ROOT / "services" / "backend" / "app" / "app" / "requirements-dev.txt"
+)
 
 
 def _load() -> dict:
@@ -47,6 +50,18 @@ def test_dev_group_contains_pytest() -> None:
     assert any(entry.startswith("pytest") for entry in dev), (
         "[dependency-groups].dev must list pytest (it's the only dev dep)."
     )
+
+
+def test_ci_enforces_measured_coverage_floors() -> None:
+    data = _load()
+    dev = data["dependency-groups"]["dev"]
+    workflow = SERVICES_LINT.read_text(encoding="utf-8")
+    backend_dev = BACKEND_DEV_REQUIREMENTS.read_text(encoding="utf-8")
+
+    assert any(entry.startswith("pytest-cov") for entry in dev)
+    assert "pytest-cov" in backend_dev
+    assert workflow.count("--cov-fail-under=") >= 2
+    assert "--cov-branch" in workflow
 
 
 def test_deprecated_tool_uv_dev_dependencies_absent() -> None:

@@ -1,0 +1,22 @@
+# Logical service manifest for the isolated LightRAG-to-Docling compatibility boundary.
+# The container remains owned by services/docling/compose.yml; this virtual node exists
+# so generated dependency documentation represents the real two-hop request path.
+name: docling-lightrag-adapter
+label: "Docling LightRAG adapter"
+category: media
+docs: services/docling-lightrag-adapter/README.md
+virtual: true
+containers: []
+
+env: []
+
+depends_on:
+  required: []
+  optional: []
+
+exports: []
+rows: []
+
+data_flow:
+  calls:
+    - docling

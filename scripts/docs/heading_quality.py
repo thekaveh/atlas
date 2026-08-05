@@ -4,7 +4,23 @@ from __future__ import annotations
 
 from pathlib import Path
 import re
-import subprocess
+
+try:
+    from scripts.bounded_subprocess import (
+        CommandLaunchError,
+        CommandOutputTooLarge,
+        CommandTimedOut,
+        redacted_failure,
+        run_bounded,
+    )
+except ModuleNotFoundError:  # Direct ``python scripts/...`` invocation.
+    from bounded_subprocess import (  # type: ignore[no-redef]
+        CommandLaunchError,
+        CommandOutputTooLarge,
+        CommandTimedOut,
+        redacted_failure,
+        run_bounded,
+    )
 
 
 _HEADING_RE = re.compile(r"^(#{2,6})[ \t]+(.+?)\s*$")
@@ -29,11 +45,17 @@ _EXCLUDED_FILES = {"AGENTS.md"}
 
 
 def documentation_paths(repo_root: Path) -> list[Path]:
-    relative_paths = subprocess.check_output(
-        ["git", "ls-files", "*.md"],
-        cwd=repo_root,
-        text=True,
-    ).splitlines()
+    try:
+        result = run_bounded(["git", "ls-files", "*.md"], cwd=repo_root)
+    except CommandTimedOut as exc:
+        raise RuntimeError("Markdown inventory timed out") from exc
+    except CommandLaunchError as exc:
+        raise RuntimeError("Markdown inventory could not start") from exc
+    except CommandOutputTooLarge as exc:
+        raise RuntimeError("Markdown inventory exceeded its output limit") from exc
+    if result.returncode != 0:
+        raise RuntimeError(redacted_failure("Markdown inventory", result.returncode))
+    relative_paths = result.stdout.splitlines()
     candidates = [
         repo_root / relative
         for relative in relative_paths

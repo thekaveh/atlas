@@ -197,6 +197,30 @@ class KeyGenerator:
         """Bearer credential limited to Open WebUI's Backend integration routes."""
         return f"sk-atlas-openwebui-{_cli_safe_token_urlsafe(40)}"
 
+    def generate_provider_api_token(self, provider: str) -> str:
+        """Generate a stable bearer credential for a model provider."""
+        normalized = provider.strip().upper()
+        if normalized not in {"DOCLING", "PARAKEET"}:
+            raise ValueError(f"unsupported provider token owner: {provider}")
+        return f"sk-atlas-{normalized.lower()}-{_cli_safe_token_urlsafe(40)}"
+
+    def _generate_and_update_provider_api_token(self, provider: str) -> bool:
+        normalized = provider.strip().upper()
+        variable = f"{normalized}_API_TOKEN"
+        if self.get_current_env_value(variable):
+            return True
+        return self.update_env_key(
+            variable, self.generate_provider_api_token(normalized)
+        )
+
+    def generate_and_update_docling_api_token(self) -> bool:
+        """Generate Docling's API token when absent; never rotate it implicitly."""
+        return self._generate_and_update_provider_api_token("DOCLING")
+
+    def generate_and_update_parakeet_api_token(self) -> bool:
+        """Generate Parakeet's API token when absent; never rotate it implicitly."""
+        return self._generate_and_update_provider_api_token("PARAKEET")
+
     def generate_minio_root_password(self) -> str:
         """MinIO root password — 32-char URL-safe random."""
         return _cli_safe_token_urlsafe(24)
@@ -1051,6 +1075,11 @@ class KeyGenerator:
         results["ASSET_BAKER_API_TOKEN"] = self.generate_and_update_asset_api_token(
             "ASSET_BAKER"
         )
+        # Model-provider bearer tokens are generated even while their sources
+        # are disabled, so enabling a provider later is fail-closed without a
+        # separate secret-management step. Cold starts never rotate them.
+        results["DOCLING_API_TOKEN"] = self.generate_and_update_docling_api_token()
+        results["PARAKEET_API_TOKEN"] = self.generate_and_update_parakeet_api_token()
 
         # Supavisor local pooler secrets — generated even when disabled so a
         # later SUPAVISOR_SOURCE=container flip has the required values.

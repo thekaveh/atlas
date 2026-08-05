@@ -31,6 +31,8 @@ ROWS_GOLDEN = FIXTURES / "seed_rows_golden.txt"
 DB_IMAGE = "supabase/postgres:17.6.1.139"
 DB_USER = "supabase_admin"
 DB_NAME = "postgres"
+IMAGE_PULL_ATTEMPTS = 3
+IMAGE_PULL_BACKOFF_SECONDS = 5
 
 # Deterministic seed data lives only in comfyui_workflows (seeded by 12-comfyui.sql).
 # Snapshot the columns the seed sets, ordered stably.
@@ -49,6 +51,38 @@ def docker_available() -> bool:
         return subprocess.run(["docker", "info"], capture_output=True).returncode == 0
     except OSError:
         return False
+
+
+def ensure_database_image() -> None:
+    """Ensure the pinned database image is local, retrying transient pulls.
+
+    Docker's implicit pull inside ``docker run`` is a single registry request.
+    CI occasionally loses that request to a registry timeout, so make the
+    prerequisite explicit and bounded while preserving the final Docker error.
+    """
+    inspect = subprocess.run(
+        ["docker", "image", "inspect", DB_IMAGE], capture_output=True
+    )
+    if inspect.returncode == 0:
+        return
+
+    final: subprocess.CompletedProcess[bytes] | None = None
+    for attempt in range(IMAGE_PULL_ATTEMPTS):
+        final = subprocess.run(
+            ["docker", "pull", DB_IMAGE], capture_output=True
+        )
+        if final.returncode == 0:
+            return
+        if attempt + 1 < IMAGE_PULL_ATTEMPTS:
+            time.sleep(IMAGE_PULL_BACKOFF_SECONDS)
+
+    assert final is not None
+    raise subprocess.CalledProcessError(
+        final.returncode,
+        ["docker", "pull", DB_IMAGE],
+        output=final.stdout,
+        stderr=final.stderr,
+    )
 
 
 def _normalize(dump: str) -> str:
@@ -77,6 +111,7 @@ def run_scripts_and_dump(
 ) -> tuple[str, str]:
     """Return (normalized_schema_dump, seed_rows). Raises CalledProcessError if
     any script exits non-zero (psql -v ON_ERROR_STOP=1)."""
+    ensure_database_image()
     name = f"atlas-seedtest-{uuid.uuid4().hex[:8]}"
     subprocess.run(
         [

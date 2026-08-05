@@ -2,13 +2,22 @@
 
 from __future__ import annotations
 
-import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from scripts.bounded_subprocess import (
+    CommandLaunchError,
+    CommandOutputTooLarge,
+    CommandTimedOut,
+    DEFAULT_TIMEOUT_SECONDS,
+    redacted_failure,
+    run_bounded,
+)
+
 
 ROOT = Path(__file__).resolve().parents[1]
+COMMAND_TIMEOUT_SECONDS = DEFAULT_TIMEOUT_SECONDS
 
 
 @dataclass(frozen=True)
@@ -58,6 +67,11 @@ RUNTIME_LOCKS = (
         "3.12",
     ),
     RuntimeLock(
+        "services/docling/provider/adapter/requirements.txt",
+        "services/docling/provider/adapter/requirements-locked.txt",
+        "3.12",
+    ),
+    RuntimeLock(
         "services/mcp-servers/runtime/requirements.txt",
         "services/mcp-servers/runtime/requirements-locked.txt",
         "3.12",
@@ -75,34 +89,47 @@ def main() -> int:
             lock = ROOT / spec.lock
             for platform in spec.platforms:
                 candidate = temporary_dir / f"{index}-{platform}.lock"
-                result = subprocess.run(
-                    [
-                        "uv",
-                        "pip",
-                        "compile",
-                        str(requirements),
-                        "--constraint",
-                        str(lock),
-                        "--python-version",
-                        spec.python_version,
-                        "--python-platform",
-                        platform,
-                        "--output-file",
-                        str(candidate),
-                        "--no-emit-index-url",
-                        "--no-annotate",
-                        "--no-header",
-                        "--quiet",
-                    ],
-                    cwd=ROOT,
-                    text=True,
-                    capture_output=True,
-                    check=False,
-                )
+                try:
+                    result = run_bounded(
+                        [
+                            "uv",
+                            "pip",
+                            "compile",
+                            str(requirements),
+                            "--constraint",
+                            str(lock),
+                            "--python-version",
+                            spec.python_version,
+                            "--python-platform",
+                            platform,
+                            "--output-file",
+                            str(candidate),
+                            "--no-emit-index-url",
+                            "--no-annotate",
+                            "--no-header",
+                            "--quiet",
+                        ],
+                        cwd=ROOT,
+                        timeout_seconds=COMMAND_TIMEOUT_SECONDS,
+                    )
+                except CommandTimedOut:
+                    failures.append(
+                        f"{spec.lock} ({platform}): resolution timed out after "
+                        f"{COMMAND_TIMEOUT_SECONDS} seconds"
+                    )
+                    continue
+                except (CommandLaunchError, CommandOutputTooLarge):
+                    failures.append(
+                        f"{spec.lock} ({platform}): resolution could not "
+                        "complete (subprocess details redacted)"
+                    )
+                    continue
                 if result.returncode != 0:
                     failures.append(
-                        f"{spec.lock} ({platform}): resolution failed\n"
-                        f"{result.stderr.strip()}"
+                        redacted_failure(
+                            f"{spec.lock} ({platform}): resolution",
+                            result.returncode,
+                        )
                     )
                     continue
                 if candidate.read_bytes() != lock.read_bytes():

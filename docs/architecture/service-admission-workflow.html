@@ -37,7 +37,7 @@
     </div>
     <section class="interpretation">
       <h2>How to read this view</h2>
-      <p>`manifest_validator.py`&#x27;s fragment check is what actually blocks a partial landing: `missing_fragment` for a non-virtual manifest with no `compose.yml`, `unexpected_fragment` for a virtual manifest that ships one anyway, and `fragment_container_drift` when the manifest&#x27;s `containers[]` disagrees with the compose file&#x27;s `services:` keys. `tools/validate_fragments.py` runs this in CI and separately checks `.env.example` drift and the README `TOPOLOGY` block.</p>
+      <p><code>manifest_validator.py</code>&#x27;s fragment check is what actually blocks a partial landing: <code>missing_fragment</code> for a non-virtual manifest with no <code>compose.yml</code>, <code>unexpected_fragment</code> for a virtual manifest that ships one anyway, and <code>fragment_container_drift</code> when the manifest&#x27;s <code>containers[]</code> disagrees with the compose file&#x27;s <code>services:</code> keys. <code>tools/validate_fragments.py</code> runs this in CI and separately checks <code>.env.example</code> drift and the README <code>TOPOLOGY</code> block.</p>
     </section>
   </main>
 </body>
