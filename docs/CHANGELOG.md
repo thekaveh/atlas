@@ -2615,6 +2615,10 @@ The cleanup PR documented at the top of this section deliberately defers three c
 - **Compose-config error redaction** — `validate_compose_config` no longer echoes the resolved compose command line (project name, `--env-file` path, and every `-f` overlay) into its error message on timeout, matching the redaction the rest of the bounded-subprocess wrapper already enforces.
 - **TEI reranker amd64/GPU and Jenkins image digest pins** — the TEI amd64 (`cpu-1.9`) and GPU (`1.9`) image defaults and the Jenkins compose build-arg fallback are now bound to an immutable index digest, matching the existing arm64 TEI pin; the moving `cpu-1.9` family tag and bare `1.9` minor tag were republished per patch. The channel-tag pin test now covers both TEI architectures.
 
+### 1.148. Fixed — 2026-08-05 — JupyterHub empty-notebook-dir crash-loop guard
+
+- **Nullglob-safe sample-notebook copy** — the JupyterHub startup script copied `/home/jovyan/notebooks/*` into `work/examples/` under `set -e`. With bash's default `nullglob` off, a present-but-empty notebooks directory (a custom image or empty bind-mount) left the glob literal, so `cp` errored and aborted startup, crash-looping the container. The copy is now guarded with `compgen -G` so an empty directory is skipped instead of fatal. The default image, which bakes the sample notebooks in, was unaffected.
+
 ## 2. [3.0.0] - 2026-05-15 (Topology-Driven Ordering & Port Layout v1)
 
 **Visual:** every service row in the setup wizard now leads with a thin category-color bar; six categories (Infra, Data, LLM Core, Media, Agents & Workflows, Apps & UIs) explained in a legend below the grid. Unanswered configurable services show a yellow ◌ placeholder ("pending") instead of guessing their port/source/alias before you've picked them.
