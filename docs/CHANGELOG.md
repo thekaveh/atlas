@@ -2631,6 +2631,10 @@ The cleanup PR documented at the top of this section deliberately defers three c
 - **Consolidation index coercion** — LLM-returned merge/supersede indices are now coerced to int before validation; a float index (e.g. `0.0`) previously raised `TypeError` and aborted consolidation for the current and all subsequent users.
 - **Research source url null-safety** — a source dict carrying `url: None` no longer trips the `research_sources.url` NOT NULL constraint and rolled back the entire result transaction; it coerces to `""`.
 
+### 1.151. Fixed — 2026-08-05 — Wizard Ctrl+Q detach after a launch failure
+
+- **Failed launches no longer lock the user in the TUI** — `_launch_detach_ready` was set only on the success path, so after *any* launch failure (build, init, profile validation, project-name persist) the user could not Ctrl+Q to detach and instead saw a misleading "Startup is still running; Ctrl+C cancels it" toast. `_mark_launch_failed` now flips the detach flag, so a failed launch frees Ctrl+Q while the failure stays visible in the log pane.
+
 ## 2. [3.0.0] - 2026-05-15 (Topology-Driven Ordering & Port Layout v1)
 
 **Visual:** every service row in the setup wizard now leads with a thin category-color bar; six categories (Infra, Data, LLM Core, Media, Agents & Workflows, Apps & UIs) explained in a legend below the grid. Unanswered configurable services show a yellow ◌ placeholder ("pending") instead of guessing their port/source/alias before you've picked them.
