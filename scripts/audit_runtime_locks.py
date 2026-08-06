@@ -46,12 +46,14 @@ AUDIT_SPECS = (
     AuditSpec("services/airflow/build/requirements-locked.txt"),
     AuditSpec(
         "services/jupyterhub/build/requirements-locked.txt",
-        # cryptography 50 fixes CVE-2026-69247, but current MLflow caps it
-        # below 50. Atlas exposes no PKCS#7 decrypt endpoint; retain this exact
-        # fail-closed exception only until MLflow relaxes the upstream cap.
+        # cryptography 50 fixes PYSEC-2026-3552 (the PKCS#7 EnvelopedData
+        # Bleichenbacher oracle; previously indexed as CVE-2026-69247, since
+        # withdrawn from the advisory DB), but current MLflow caps it below 50.
+        # Atlas exposes no PKCS#7 decrypt endpoint; retain this exact fail-closed
+        # exception only until MLflow relaxes the upstream cap.
         # Atlas maintainers own re-review by 2026-09-01.
         frozenset(
-            {"CVE-2026-69247", "PYSEC-2026-2447", "PYSEC-2026-3046"}
+            {"PYSEC-2026-3552", "PYSEC-2026-2447", "PYSEC-2026-3046"}
         ),
         frozenset({"pyg-lib==0.8.0+pt213cpu"}),
     ),
