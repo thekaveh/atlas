@@ -360,6 +360,8 @@ class MemoryStore:
             .replace("\n", "\\n")
             .replace("\r", "\\r")
             .replace("\t", "\\t")
+            .replace("\b", "\\b")
+            .replace("\f", "\\f")
         )
 
     async def _search_weaviate(

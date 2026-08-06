@@ -378,6 +378,60 @@ async def test_extract_facts_sets_weaviate_id_on_embedding_success(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_extract_facts_inserts_facts_pending_until_embedding_written(monkeypatch):
+    """Facts are inserted with vector_sync_pending=true so an interrupted
+    embedding-writeback loop (a transient DB blip on a later fact, before its
+    UPDATE runs) still leaves every un-embedded fact flagged for the reconciler.
+    Without this default, a mid-loop raise leaves facts at weaviate_id=NULL +
+    pending=false and they are permanently invisible to semantic recall."""
+    import memory_service
+    from datetime import datetime, timezone
+
+    inserts: list[str] = []
+    executed: list = []
+
+    class _RecordingConn(_FakeExtractionConnection):
+        def __init__(self):
+            super().__init__(executed)
+
+        async def fetchrow(self, sql, *_args):
+            inserts.append(sql)
+            now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+            return {"created_at": now, "updated_at": now}
+
+    monkeypatch.setenv("DATABASE_URL", "postgresql://atlas")
+    monkeypatch.setattr(
+        memory_service, "connect_postgres", AsyncMock(return_value=_RecordingConn())
+    )
+    _also_route_acquire(monkeypatch, memory_service, _RecordingConn)
+    service = memory_service.MemoryService()
+    service.enabled = True
+    monkeypatch.setattr(service, "_ensure_initialized", AsyncMock())
+    monkeypatch.setattr(service, "_get_extraction_model", AsyncMock(return_value="ollama/test"))
+    monkeypatch.setattr(
+        service,
+        "_litellm_complete",
+        AsyncMock(
+            return_value='[{"content": "user likes tea", "fact_type": "preference", '
+            '"confidence": 0.9}]'
+        ),
+    )
+    service.store = SimpleNamespace(store_embedding=AsyncMock(return_value="vector-1"))
+
+    result = await service.extract_facts(
+        user_id="00000000-0000-4000-8000-000000000002",
+        messages=[{"role": "user", "content": "I like tea"}],
+        conversation_id="00000000-0000-4000-8000-000000000003",
+    )
+
+    assert result["status"] == "completed"
+    assert inserts, "a fact must be inserted"
+    assert any(
+        "vector_sync_pending" in sql and "true" in sql for sql in inserts
+    ), "INSERT must default vector_sync_pending=true so an interrupted writeback is recoverable"
+
+
+@pytest.mark.asyncio
 async def test_deactivate_embedding_rejects_graphql_errors(monkeypatch):
     import memory_store
 

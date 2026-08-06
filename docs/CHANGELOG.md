@@ -2623,6 +2623,14 @@ The cleanup PR documented at the top of this section deliberately defers three c
 
 - **Index on `research_sources.result_id`** — the `result_id` foreign key cascades on `research_results` deletion, but had no index, so deleting a research result (directly or via the `sessions -> results -> sources` cascade) forced a sequential scan of `research_sources` to locate orphaned children. An index on `result_id` lets Postgres find the children directly; the seed-schema golden was regenerated to match.
 
+### 1.150. Fixed — 2026-08-05 — Backend memory/research resilience
+
+- **Memory facts default to vector-sync-pending until embedded** — facts were inserted with `vector_sync_pending=false`, and the per-fact embedding-writeback loop ran outside any guard, so a transient DB blip on a later fact left the un-reached facts at `weaviate_id=NULL` with `vector_sync_pending=false` — permanently invisible to Weaviate semantic recall (the reconciler only retries `pending=true`). Facts now insert `pending=true` and clear it only once the embedding is durably stored, so any interruption is recoverable. Covered by a new extraction-contract test.
+- **Research startup sweep is best-effort** — `start_maintenance`'s initial `recover_stale_sessions` ran unguarded at FastAPI lifespan startup, so a DB still initializing when the backend boots prevented startup. It is now best-effort (the maintenance loop recovers stale sessions on later sweeps), consistent with the lazy-pool philosophy.
+- **GraphQL string escaping covers backspace/form-feed** — `memory_store`'s GraphQL string escaper handled `\\`, `\"`, `\n`, `\r`, `\t` but omitted `\b` and `\f`, so a fact containing those bytes produced invalid GraphQL and failed the recall.
+- **Consolidation index coercion** — LLM-returned merge/supersede indices are now coerced to int before validation; a float index (e.g. `0.0`) previously raised `TypeError` and aborted consolidation for the current and all subsequent users.
+- **Research source url null-safety** — a source dict carrying `url: None` no longer trips the `research_sources.url` NOT NULL constraint and rolled back the entire result transaction; it coerces to `""`.
+
 ## 2. [3.0.0] - 2026-05-15 (Topology-Driven Ordering & Port Layout v1)
 
 **Visual:** every service row in the setup wizard now leads with a thin category-color bar; six categories (Infra, Data, LLM Core, Media, Agents & Workflows, Apps & UIs) explained in a legend below the grid. Unanswered configurable services show a yellow ◌ placeholder ("pending") instead of guessing their port/source/alias before you've picked them.

@@ -334,7 +334,17 @@ class ResearchService:
                 )
 
     async def start_maintenance(self) -> None:
-        await self.recover_stale_sessions()
+        # Best-effort at startup, mirroring the lazy-pool philosophy: if the DB
+        # is still initializing when the backend boots, don't prevent startup —
+        # the maintenance loop recovers stale sessions on later sweeps.
+        try:
+            await self.recover_stale_sessions()
+        except Exception as exc:
+            logger.warning(
+                "research startup sweep deferred (error_type=%s); maintenance "
+                "loop will retry",
+                type(exc).__name__,
+            )
         if self._maintenance_task is None or self._maintenance_task.done():
             self._maintenance_task = asyncio.create_task(self._maintenance_loop())
 
@@ -471,8 +481,8 @@ class ResearchService:
                         INSERT INTO public.research_sources
                         (session_id, result_id, url, title, relevance_score, metadata)
                         VALUES ($1, $2, $3, $4, $5, $6)
-                    """, session_id, result_id, source.get("url", ""),
-                        source.get("title", ""), source.get("relevance_score", 0.0),
+                    """, session_id, result_id, source.get("url") or "",
+                        source.get("title"), source.get("relevance_score", 0.0),
                         json.dumps(source.get("metadata", {})))
 
                 await conn.execute("""
