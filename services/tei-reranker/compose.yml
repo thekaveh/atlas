@@ -3,7 +3,7 @@
 # via TEI_RERANKER_IMAGE_RESOLVED (set by _generate_tei_reranker_config).
 services:
   tei-reranker:
-    image: ${TEI_RERANKER_IMAGE_RESOLVED:-ghcr.io/huggingface/text-embeddings-inference:cpu-1.9}
+    image: ${TEI_RERANKER_IMAGE_RESOLVED:-ghcr.io/huggingface/text-embeddings-inference:cpu-1.9@sha256:ad950d30878eceb72aaf32024d26fa2b1d04a75304fa0b4776b49aa1941fea07}
     # Bootstrapper picks the right image for the host arch:
     #   amd64 → cpu-1.9 (ORT backend, versioned)
     #   arm64 → cpu-arm64-latest (candle backend, loads safetensors)

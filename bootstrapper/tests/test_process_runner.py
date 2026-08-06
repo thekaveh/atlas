@@ -280,6 +280,35 @@ def test_sigterm_cleanup_reports_failures_and_preserves_exit(monkeypatch) -> Non
     assert reported == [cleanup_error]
 
 
+@pytest.mark.skipif(os.name != "posix", reason="SIGHUP is POSIX-only")
+def test_sighup_cleanup_installs_dispatches_and_restores(monkeypatch) -> None:
+    # SIGHUP (terminal close / SSH disconnect) must be cleaned up like SIGTERM,
+    # or start_new_session children are orphaned when the parent process is lost.
+    cleanup_error = OSError("simulated registered cleanup failure")
+    reported: list[BaseException] = []
+    monkeypatch.setattr(
+        process_runner, "_stop_registered_processes", lambda: [cleanup_error]
+    )
+    monkeypatch.setattr(
+        process_runner,
+        "_report_registered_cleanup_failures",
+        lambda errors: reported.extend(errors),
+    )
+    previous = signal.getsignal(signal.SIGHUP)
+    try:
+        with process_runner.cleanup_active_processes_on_sigterm():
+            handler = signal.getsignal(signal.SIGHUP)
+            assert callable(handler)
+            with pytest.raises(SystemExit) as raised:
+                handler(signal.SIGHUP, None)
+            assert raised.value.code == 128 + signal.SIGHUP
+        assert reported == [cleanup_error]
+        # Restored to the prior disposition on context exit.
+        assert signal.getsignal(signal.SIGHUP) is previous
+    finally:
+        signal.signal(signal.SIGHUP, previous)
+
+
 @pytest.mark.skipif(os.name != "posix", reason="POSIX process-group contract")
 def test_run_with_deadline_kills_term_resistant_descendant(tmp_path: Path) -> None:
     marker = tmp_path / "escaped-descendant"

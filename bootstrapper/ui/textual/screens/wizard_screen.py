@@ -681,6 +681,11 @@ class WizardScreen(Screen):
         """Record a nonzero CLI result while leaving the error visible in the TUI."""
         if self._on_launch_result is not None:
             self._on_launch_result(1)
+        # A failed launch is no longer running, so let the user detach with
+        # Ctrl+Q. Without this, every failure path leaves _launch_detach_ready
+        # False and action_quit_wizard blocks with a misleading "startup is
+        # still running" toast (the banner-swap early-return path included).
+        self._launch_detach_ready = True
 
     # ─── setup phase ─────────────────────────────────────────────────
 

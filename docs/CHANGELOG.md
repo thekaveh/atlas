@@ -2608,6 +2608,33 @@ The cleanup PR documented at the top of this section deliberately defers three c
 - Removed `InquirerPy` (replaced earlier in this `[Unreleased]` cycle).
 - Bumped `requires-python` from `>=3.8` to `>=3.10` (Textual minimum and current LTS floor; the intermediate `>=3.9` bump landed first then was tightened to `>=3.10` when the dependency upgrade pass below required it).
 
+### 1.147. Fixed — 2026-08-05 — Provider startup, bounded-subprocess, and supply-chain hardening
+
+- **Parakeet startup supervised-restart on transient loader failure** — `ModelStartup` now terminates the provider process on a *generic* load failure, not only on the startup deadline. Previously a transient HuggingFace rate-limit, network blip during weight download, or CUDA OOM left the container alive with `/health` returning `503` indefinitely, because Docker's `restart: unless-stopped` restarts on container exit, not on a failed healthcheck. Mirroring the deadline branch, any load exception now drives the process down for supervised restart; a deterministic misconfig (bad model name) crash-loops under Docker's restart backoff, which is visible and bounded.
+- **Bounded-subprocess deadline and parent-loss hardening** — the reaper's final `wait()` after `SIGKILL` is now bounded, so a leader wedged in uninterruptible sleep (frozen mount, NFS, kernel lock) can no longer block the deadline/`SIGTERM` path indefinitely; and the main-thread cleanup contextmanager now also intercepts `SIGHUP` (terminal close / SSH disconnect), the most common way a long-running bounded command loses its parent. Children launched with `start_new_session=True` do not inherit the parent's `SIGHUP`, so without the handler they were re-parented to init and kept running — the escaped-subprocess leak the subsystem exists to prevent.
+- **Compose-config error redaction** — `validate_compose_config` no longer echoes the resolved compose command line (project name, `--env-file` path, and every `-f` overlay) into its error message on timeout, matching the redaction the rest of the bounded-subprocess wrapper already enforces.
+- **TEI reranker amd64/GPU and Jenkins image digest pins** — the TEI amd64 (`cpu-1.9`) and GPU (`1.9`) image defaults and the Jenkins compose build-arg fallback are now bound to an immutable index digest, matching the existing arm64 TEI pin; the moving `cpu-1.9` family tag and bare `1.9` minor tag were republished per patch. The channel-tag pin test now covers both TEI architectures.
+
+### 1.148. Fixed — 2026-08-05 — JupyterHub empty-notebook-dir crash-loop guard
+
+- **Nullglob-safe sample-notebook copy** — the JupyterHub startup script copied `/home/jovyan/notebooks/*` into `work/examples/` under `set -e`. With bash's default `nullglob` off, a present-but-empty notebooks directory (a custom image or empty bind-mount) left the glob literal, so `cp` errored and aborted startup, crash-looping the container. The copy is now guarded with `compgen -G` so an empty directory is skipped instead of fatal. The default image, which bakes the sample notebooks in, was unaffected.
+
+### 1.149. Fixed — 2026-08-05 — Research-sources cascade-delete index
+
+- **Index on `research_sources.result_id`** — the `result_id` foreign key cascades on `research_results` deletion, but had no index, so deleting a research result (directly or via the `sessions -> results -> sources` cascade) forced a sequential scan of `research_sources` to locate orphaned children. An index on `result_id` lets Postgres find the children directly; the seed-schema golden was regenerated to match.
+
+### 1.150. Fixed — 2026-08-05 — Backend memory/research resilience
+
+- **Memory facts default to vector-sync-pending until embedded** — facts were inserted with `vector_sync_pending=false`, and the per-fact embedding-writeback loop ran outside any guard, so a transient DB blip on a later fact left the un-reached facts at `weaviate_id=NULL` with `vector_sync_pending=false` — permanently invisible to Weaviate semantic recall (the reconciler only retries `pending=true`). Facts now insert `pending=true` and clear it only once the embedding is durably stored, so any interruption is recoverable. Covered by a new extraction-contract test.
+- **Research startup sweep is best-effort** — `start_maintenance`'s initial `recover_stale_sessions` ran unguarded at FastAPI lifespan startup, so a DB still initializing when the backend boots prevented startup. It is now best-effort (the maintenance loop recovers stale sessions on later sweeps), consistent with the lazy-pool philosophy.
+- **GraphQL string escaping covers backspace/form-feed** — `memory_store`'s GraphQL string escaper handled `\\`, `\"`, `\n`, `\r`, `\t` but omitted `\b` and `\f`, so a fact containing those bytes produced invalid GraphQL and failed the recall.
+- **Consolidation index coercion** — LLM-returned merge/supersede indices are now coerced to int before validation; a float index (e.g. `0.0`) previously raised `TypeError` and aborted consolidation for the current and all subsequent users.
+- **Research source url null-safety** — a source dict carrying `url: None` no longer trips the `research_sources.url` NOT NULL constraint and rolled back the entire result transaction; it coerces to `""`.
+
+### 1.151. Fixed — 2026-08-05 — Wizard Ctrl+Q detach after a launch failure
+
+- **Failed launches no longer lock the user in the TUI** — `_launch_detach_ready` was set only on the success path, so after *any* launch failure (build, init, profile validation, project-name persist) the user could not Ctrl+Q to detach and instead saw a misleading "Startup is still running; Ctrl+C cancels it" toast. `_mark_launch_failed` now flips the detach flag, so a failed launch frees Ctrl+Q while the failure stays visible in the log pane.
+
 ## 2. [3.0.0] - 2026-05-15 (Topology-Driven Ordering & Port Layout v1)
 
 **Visual:** every service row in the setup wizard now leads with a thin category-color bar; six categories (Infra, Data, LLM Core, Media, Agents & Workflows, Apps & UIs) explained in a legend below the grid. Unanswered configurable services show a yellow ◌ placeholder ("pending") instead of guessing their port/source/alias before you've picked them.

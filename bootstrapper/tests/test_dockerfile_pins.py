@@ -115,6 +115,14 @@ def test_at_least_one_dockerfile_discovered() -> None:
             "services/tei-reranker/service.yml",
             "text-embeddings-inference:cpu-arm64-latest\"",
         ),
+        (
+            "services/tei-reranker/service.yml",
+            "text-embeddings-inference:cpu-1.9\"",
+        ),
+        (
+            "services/tei-reranker/service.yml",
+            "text-embeddings-inference:1.9\"",
+        ),
         ("services/jenkins/service.yml", "jenkins/jenkins:lts-jdk21\""),
         ("services/jenkins/build/Dockerfile", "jenkins/jenkins:lts-jdk21\n"),
         ("services/asset-worker/app/Dockerfile", "node:22-bookworm-slim\n"),

@@ -69,6 +69,10 @@ CREATE INDEX IF NOT EXISTS idx_research_sessions_created_at ON public.research_s
 CREATE INDEX IF NOT EXISTS idx_research_sessions_heartbeat ON public.research_sessions(status, heartbeat_at);
 CREATE INDEX IF NOT EXISTS idx_research_results_session_id ON public.research_results(session_id);
 CREATE INDEX IF NOT EXISTS idx_research_sources_session_id ON public.research_sources(session_id);
+-- result_id cascades on research_results deletion; without this index Postgres
+-- seq-scans research_sources to find orphaned children during a session/result
+-- delete chain (sessions -> results -> sources).
+CREATE INDEX IF NOT EXISTS idx_research_sources_result_id ON public.research_sources(result_id);
 CREATE INDEX IF NOT EXISTS idx_research_logs_session_id ON public.research_logs(session_id);
 
 -- updated_at trigger for research_sessions. Reuses update_updated_at_column()

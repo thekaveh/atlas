@@ -63,10 +63,17 @@ echo "Environment file created at /home/jovyan/work/.env"
 
 # Copy sample notebooks to work directory for easy access
 if [ -d /home/jovyan/notebooks ] && [ ! -d /home/jovyan/work/examples ]; then
-    echo "Copying sample notebooks to work/examples/..."
     mkdir -p /home/jovyan/work/examples
-    cp -r /home/jovyan/notebooks/* /home/jovyan/work/examples/
-    echo "Sample notebooks copied to /home/jovyan/work/examples/"
+    # nullglob-safe: an empty notebooks dir would leave the glob literal and
+    # make cp error under set -e, crash-looping the container on custom images
+    # or empty bind-mounts.
+    if compgen -G "/home/jovyan/notebooks/*" > /dev/null; then
+        echo "Copying sample notebooks to work/examples/..."
+        cp -r /home/jovyan/notebooks/* /home/jovyan/work/examples/
+        echo "Sample notebooks copied to /home/jovyan/work/examples/"
+    else
+        echo "No sample notebooks found to copy."
+    fi
 fi
 
 # Create a welcome README in the work directory

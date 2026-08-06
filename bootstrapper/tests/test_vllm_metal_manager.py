@@ -424,6 +424,10 @@ def test_start_idempotent_when_already_running(tmp_path, monkeypatch):
     mgr.state_dir.mkdir(parents=True, exist_ok=True)
     mgr.pid_file.write_text("4242")
     monkeypatch.setattr(mgr, "_pid_alive", lambda pid: True)
+    # status() also gates on _pid_is_stranger (a real `ps` probe), so stub it
+    # too — otherwise the test depends on the host having no live process at
+    # PID 4242 and fails non-deterministically on machines where one exists.
+    monkeypatch.setattr(mgr, "_pid_is_stranger", lambda pid: False)
     status = mgr.start()
     assert status.running
     assert status.pid == 4242
