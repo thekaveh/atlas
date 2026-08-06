@@ -84,15 +84,19 @@ def test_startup_deadline_marks_unhealthy_and_terminates_process():
     assert exits == [startup_module.FATAL_TIMEOUT_EXIT_CODE]
 
 
-def test_startup_loader_failure_is_generic_and_not_healthy():
+def test_startup_loader_failure_is_generic_unhealthy_and_terminates():
     startup_module = _load(STARTUP, "parakeet_startup_failure")
+    exits: list[int] = []
 
     def loader():
         raise RuntimeError("private model cache path")
 
     async def scenario():
         startup = startup_module.ModelStartup(
-            "PARAKEET", loader, timeout_seconds=1, terminate=lambda code: None
+            "PARAKEET",
+            loader,
+            timeout_seconds=1,
+            terminate=lambda code: exits.append(code),
         )
         await startup.start()
         return startup
@@ -100,6 +104,9 @@ def test_startup_loader_failure_is_generic_and_not_healthy():
     startup = asyncio.run(scenario())
     assert startup.state == "unhealthy"
     assert startup.model is None
+    # A generic load failure must terminate for supervised restart, mirroring the
+    # deadline branch — otherwise the container stays alive returning 503 forever.
+    assert exits == [startup_module.FATAL_TIMEOUT_EXIT_CODE]
 
 
 def test_gpu_module_never_loads_model_during_import(monkeypatch):

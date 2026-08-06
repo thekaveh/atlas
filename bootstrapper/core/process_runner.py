@@ -65,7 +65,14 @@ def _stop_and_reap(
         process.wait(timeout=5)
     except subprocess.TimeoutExpired:  # pragma: no cover - defensive fallback
         process.kill()
-        process.wait()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:  # pragma: no cover - D-state leader
+            # The leader is wedged in uninterruptible sleep (frozen mount, NFS,
+            # kernel lock); SIGKILL takes effect only once it leaves D-state.
+            # Don't block the deadline/SIGTERM path indefinitely — the OS reaps
+            # it when it wakes, and Popen.__del__ closes the pipes.
+            pass
 
 
 def _stop_registered_processes() -> list[BaseException]:
@@ -123,29 +130,38 @@ def _join_capture_after_failure(capture: _Capture) -> None:
 
 @contextmanager
 def cleanup_active_processes_on_sigterm() -> Iterator[None]:
-    """Make a main-thread owner clean worker-launched groups on SIGTERM."""
+    """Make a main-thread owner clean worker-launched groups on SIGTERM/SIGHUP."""
     if os.name != "posix":
         yield
         return
     if threading.current_thread() is not threading.main_thread():
         raise RuntimeError("SIGTERM process cleanup must be owned by the main thread")
-    previous = signal.getsignal(signal.SIGTERM)
+    # SIGHUP (terminal close / SSH disconnect) is the most common way a long
+    # running command loses its parent. Children launched with start_new_session
+    # do not receive the parent's SIGHUP, so without an explicit handler they are
+    # re-parented to init and keep running — exactly the leak this module exists
+    # to prevent. SIGKILL of the parent remains an unavoidable leak.
+    managed_signals = (signal.SIGTERM, signal.SIGHUP)
+    previous = {sig: signal.getsignal(sig) for sig in managed_signals}
 
     def cleanup(signum, frame):
         _report_registered_cleanup_failures(_stop_registered_processes())
-        if callable(previous):
-            previous(signum, frame)
+        prior = previous[signum]
+        if callable(prior):
+            prior(signum, frame)
             return
-        if previous == signal.SIG_IGN:
+        if prior == signal.SIG_IGN:
             return
         raise _CommandInterrupted(signum)
 
-    signal.signal(signal.SIGTERM, cleanup)
+    for sig in managed_signals:
+        signal.signal(sig, cleanup)
     try:
         yield
     finally:
-        if signal.getsignal(signal.SIGTERM) is cleanup:
-            signal.signal(signal.SIGTERM, previous)
+        for sig in managed_signals:
+            if signal.getsignal(sig) is cleanup:
+                signal.signal(sig, previous[sig])
 
 
 class _SigtermGuard:

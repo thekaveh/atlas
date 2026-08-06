@@ -272,8 +272,9 @@ Extract the facts as JSON:"""
                             """
                             INSERT INTO public.memory_facts
                                 (id, user_id, namespace, content, fact_type, confidence,
-                                 source_conversation_id, metadata, created_at, updated_at)
-                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), now())
+                                 source_conversation_id, metadata, vector_sync_pending,
+                                 created_at, updated_at)
+                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true, now(), now())
                             RETURNING created_at, updated_at
                             """,
                             fact_uuid,
@@ -338,7 +339,8 @@ Extract the facts as JSON:"""
             async with self._acquire() as conn:
                 if weaviate_id:
                     await conn.execute(
-                        "UPDATE public.memory_facts SET weaviate_id = $1 WHERE id = $2",
+                        "UPDATE public.memory_facts SET weaviate_id = $1, "
+                        "vector_sync_pending = false WHERE id = $2",
                         weaviate_id,
                         fact_uuid,
                     )
@@ -677,6 +679,15 @@ Extract the facts as JSON:"""
                     reason = action_data.get("reason", "")
 
                     if not source_indices or keep_index is None:
+                        continue
+
+                    # Coerce LLM-returned indices to int — they may arrive as
+                    # floats (e.g. 0.0), which would TypeError on list indexing
+                    # and abort this and every subsequent user's consolidation.
+                    try:
+                        source_indices = [int(i) for i in source_indices]
+                        keep_index = int(keep_index)
+                    except (TypeError, ValueError):
                         continue
 
                     # Validate indices

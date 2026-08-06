@@ -71,5 +71,13 @@ class ModelStartup:
                 self._provider,
                 type(exc).__name__,
             )
+            # Mirror the deadline branch: a failed load (transient HuggingFace
+            # rate-limit / CUDA OOM, or a deterministic misconfig) must take the
+            # process down for supervised restart. Docker restarts on exit, not on
+            # a failed healthcheck, so staying alive here leaves the provider
+            # returning 503 indefinitely. A deterministic misconfig crash-loops
+            # under Docker's restart backoff — visible and bounded, unlike a
+            # silently wedged container.
+            self._terminate(FATAL_TIMEOUT_EXIT_CODE)
         else:
             self._state = "healthy"
