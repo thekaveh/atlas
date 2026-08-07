@@ -903,6 +903,214 @@ class ComfyUiMpsManager:
                 missing.append(f"{key[0]}/{key[1]}")
         return not missing, missing
 
+    # ── custom-node provisioning (#905: parity with #754 for nodes) ────────
+    def provision_custom_nodes(self, nodes: list, *, log=None) -> ProvisionResult:
+        """Idempotently provision resolved custom nodes into the host ComfyUI.
+
+        Mirrors ``provision_models`` (#754): per-node failures are collected, not
+        raised — one bad node must not abort a stack launch. Idempotency is
+        ref-based (``git rev-parse HEAD == ref`` -> skip); no state sidecar is
+        needed (unlike models, where sha256 hashing is expensive). ``mps_unsafe``
+        nodes are skipped with a warning (CUDA/x86-only wheels that cannot build
+        on Apple Silicon). Accepts ``ComfyUICustomNode`` or plain dicts.
+        """
+        emit = log or (lambda message: None)
+        result = ProvisionResult()
+        if not self.repo_dir.exists():
+            result.failed.append("ComfyUI repo not installed — run `comfyui-mps install` first")
+            return result
+        seen: set[str] = set()
+        for node in nodes:
+            name, repo, ref, install_requirements, mps_unsafe = self._node_fields(node)
+            if not name or name in seen:
+                continue
+            seen.add(name)
+            if mps_unsafe:
+                result.warnings.append(f"{name}: mps_unsafe — skipped on managed-localhost-mps")
+                emit(f"↷ {name} skipped (mps_unsafe)")
+                continue
+            try:
+                outcome = self._provision_one_node(
+                    name=name,
+                    repo=repo,
+                    ref=ref,
+                    install_requirements=install_requirements,
+                    emit=emit,
+                    warnings=result.warnings,
+                )
+            except Exception as exc:  # noqa: BLE001 - per-node isolation
+                result.failed.append(f"{name}: {exc}")
+                emit(f"✗ {name} failed: {exc}")
+                continue
+            if outcome == "skipped":
+                result.skipped.append(name)
+                emit(f"✔ {name} (cached at {ref})")
+            else:
+                result.provisioned.append(name)
+                label = "updated" if outcome == "updated" else "cloned"
+                emit(f"✓ {name} {label} at {ref}")
+        return result
+
+    def _provision_one_node(
+        self,
+        *,
+        name: str,
+        repo: str,
+        ref: str,
+        install_requirements: bool,
+        emit,
+        warnings: list[str],
+    ) -> str:
+        """Clone/update one node at a pinned SHA. Returns skipped|updated|provisioned.
+
+        Mirrors ``provision_custom_nodes.sh:33-85``. Re-validates name/repo/ref
+        before touching git (defense-in-depth — the last gate before clone).
+        ``dest/.git`` + ``rev-parse HEAD == ref`` -> skip; HEAD drift ->
+        fetch+checkout --detach; absent -> clone-into-tmp + checkout --detach +
+        atomic mv (never replace a good node with a half-clone).
+        """
+        if not name or "/" in name or "\\" in name or name in {".", ".."}:
+            raise ComfyUiMpsError(f"unsafe custom node name {name!r}")
+        if not (repo.startswith("https://github.com/") and repo.endswith(".git")):
+            raise ComfyUiMpsError(f"custom node {name!r} must use a https://github.com/*.git repo")
+        if not (len(ref) == 40 and all(c in "0123456789abcdefABCDEF" for c in ref)):
+            raise ComfyUiMpsError(f"custom node {name!r} ref must be a full 40-character SHA")
+
+        nodes_root = self.repo_dir / "custom_nodes"
+        nodes_root.mkdir(parents=True, exist_ok=True)
+        dest = nodes_root / name
+        ref_l = ref.lower()
+
+        if (dest / ".git").exists():
+            if self._rev_parse(dest) == ref_l:
+                return "skipped"
+            emit(f"updating {name} to {ref_l}")
+            self._run(["git", "-C", str(dest), "fetch", "origin", ref_l])
+            self._run(["git", "-C", str(dest), "checkout", "--detach", ref_l])
+            outcome = "updated"
+        else:
+            tmp = dest.with_name(dest.name + ".tmp")
+            if tmp.exists():
+                shutil.rmtree(tmp)
+            emit(f"cloning {name} at {ref_l}")
+            self._run(["git", "clone", repo, str(tmp)])
+            self._run(["git", "-C", str(tmp), "checkout", "--detach", ref_l])
+            if dest.exists():
+                shutil.rmtree(dest)
+            tmp.rename(dest)
+            outcome = "provisioned"
+
+        if install_requirements:
+            req = dest / "requirements.txt"
+            if req.exists():
+                self._pip_install_node_requirements(req, name=name, emit=emit, warnings=warnings)
+        return outcome
+
+    def _pip_install_node_requirements(
+        self, requirements_txt: Path, *, name: str, emit, warnings: list[str]
+    ) -> None:
+        """pip-install a node's requirements into the shared host ComfyUI venv.
+
+        RISK: a node pinning an older torch would silently downgrade Metal-enabled
+        Torch and break MPS — the host venv has no disposable-image safety net
+        (unlike the container path). Guard with a ``pip freeze`` before/after
+        diff: warn LOUD on any torch/torchvision/torchaudio drift and point at
+        ``comfyui-mps install --update`` (which re-applies the pinned torch
+        stack). The install completes either way (parity with the container hook).
+        """
+        if not self.venv_python.exists():
+            raise ComfyUiMpsError("ComfyUI venv is not installed — run install first")
+        before = self._pip_freeze()
+        self._run(
+            [str(self.venv_python), "-m", "pip", "install", "--no-cache-dir", "-r", str(requirements_txt)]
+        )
+        after = self._pip_freeze()
+        drifted = [p for p in ("torch", "torchvision", "torchaudio") if before.get(p) != after.get(p)]
+        if drifted:
+            changes = ", ".join(f"{p}: {before.get(p)} -> {after.get(p)}" for p in drifted)
+            msg = (
+                f"⚠ {name} changed the MPS venv torch stack ({changes}) — this can "
+                f"break Metal/MPS. Repair with `./start.sh comfyui-mps install "
+                f"--update` (re-applies {' '.join(self.torch_pin)})."
+            )
+            emit(msg)
+            warnings.append(f"{name}: torch stack drifted ({changes}) — run comfyui-mps install --update")
+
+    def _pip_freeze(self) -> dict[str, str]:
+        """``{package: version}`` for the torch triple from ``pip freeze`` (empty on error)."""
+        try:
+            out = self._run_capture([str(self.venv_python), "-m", "pip", "freeze", "--local"])
+        except ComfyUiMpsError:
+            return {}
+        pinned = {"torch", "torchvision", "torchaudio"}
+        versions: dict[str, str] = {}
+        for line in out.splitlines():
+            if "==" in line:
+                pkg, _, ver = line.partition("==")
+                if pkg.lower().strip() in pinned:
+                    versions[pkg.lower().strip()] = ver.strip()
+        return versions
+
+    def _rev_parse(self, dest: Path) -> str:
+        return self._run_capture(["git", "-C", str(dest), "rev-parse", "HEAD"]).lower()
+
+    def _run_capture(self, cmd: list[str]) -> str:
+        """Run a bounded command and return stdout (git rev-parse / pip freeze)."""
+        try:
+            result = run_with_deadline(cmd, timeout_seconds=_INSTALL_COMMAND_TIMEOUT_SECONDS)
+        except subprocess.TimeoutExpired as exc:
+            raise ComfyUiMpsError(
+                f"command timed out after {_INSTALL_COMMAND_TIMEOUT_SECONDS:.0f}s "
+                f"({' '.join(cmd[:3])}…)"
+            ) from exc
+        except CommandOutputTooLarge as exc:
+            raise ComfyUiMpsError(
+                f"command exceeded its output limit ({' '.join(cmd[:3])}…)"
+            ) from exc
+        if result.returncode != 0:
+            raise ComfyUiMpsError(
+                f"command failed ({' '.join(cmd[:3])}…): rc={result.returncode} "
+                f"{(result.stderr or result.stdout or '').strip()[:400]}"
+            )
+        return (result.stdout or "").strip()
+
+    @staticmethod
+    def _node_fields(node) -> tuple[str, str, str, bool, bool]:
+        """Normalize a node (``ComfyUICustomNode`` or dict) to a uniform tuple."""
+        get = node.get if isinstance(node, dict) else lambda k: getattr(node, k, None)
+        return (
+            str(get("name") or "").strip(),
+            str(get("repo") or "").strip(),
+            str(get("ref") or "").strip(),
+            bool(get("install_requirements")),
+            bool(get("mps_unsafe")),
+        )
+
+    def nodes_satisfied(self, nodes: list) -> tuple[bool, list[str]]:
+        """Presence check for the doctor lint: (all present at ref, missing labels).
+
+        ``mps_unsafe`` nodes are excluded — the provisioner deliberately skips
+        them, so they must not keep the lint red forever."""
+        missing: list[str] = []
+        seen: set[str] = set()
+        for node in nodes:
+            name, _repo, ref, _ir, mps_unsafe = self._node_fields(node)
+            if not name or name in seen:
+                continue
+            seen.add(name)
+            if mps_unsafe:
+                continue
+            dest = self.repo_dir / "custom_nodes" / name
+            if not (dest / ".git").exists():
+                missing.append(name)
+                continue
+            try:
+                if self._rev_parse(dest) != (ref or "").lower():
+                    missing.append(f"{name} (wrong ref)")
+            except ComfyUiMpsError:
+                missing.append(f"{name} (rev-parse failed)")
+        return not missing, missing
+
     def _provision_dest(self, row: dict) -> Path:
         assert self.models_path is not None
         return self.models_path / str(row.get("target_dir") or "") / str(row.get("filename"))

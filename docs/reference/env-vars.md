@@ -190,7 +190,7 @@
 | COMFYUI_LOCAL_MODELS_PATH | comfyui | ~/Documents/ComfyUI/models | - |
 | COMFYUI_USER_MODELS | comfyui |  | Comma-separated catalog model names the user picked in the wizard (or via --comfyui-models). Read by services/comfyui/init/scripts/download_models.sh; and by the managed-MPS host provisioner (#754), which downloads the same resolved set into COMFYUI_MPS_MODELS_PATH. |
 | COMFYUI_CUSTOM_MODELS_FILE | comfyui | /custom-models.yaml | Path to the ComfyUI custom-models sidecar YAML (user-authored models not in the curated catalog). Read by comfyui_resolver when generating the download manifest, and by the wizard's model picker. |
-| COMFYUI_CUSTOM_NODES_FILE | comfyui | /custom-nodes.yaml | Path to the pinned ComfyUI custom-node allowlist. The bootstrapper maps selected models' requires_custom_node values through this file before writing active-custom-nodes.tsv. |
+| COMFYUI_CUSTOM_NODES_FILE | comfyui | /custom-nodes.yaml | Path (os.pathsep-joined list) to pinned ComfyUI custom-node allowlist files. The Atlas-shipped services/comfyui/custom-nodes.yaml is always present; consumer manifests (custom_nodes.comfyui in atlas.consumer.yml) append. Consumer-declared nodes are active unconditionally (not model-gated). The bootstrapper maps selected models' requires_custom_node values through this list before writing active-custom-nodes.tsv. |
 | COMFYUI_INIT_SCALE | comfyui |  | - |
 | COMFYUI_SCALE | comfyui |  | - |
 | COMFYUI_ENDPOINT | comfyui |  | Resolved per COMFYUI_SOURCE. Consumed by backend, open-webui, n8n, jupyterhub, and downstream overlays. Consumer pattern: MY_URL: ${MY_URL:-${COMFYUI_ENDPOINT:-http://comfyui:18188}} |

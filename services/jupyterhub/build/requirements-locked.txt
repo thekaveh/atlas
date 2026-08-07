@@ -103,7 +103,7 @@ grpcio==1.78.0
 grpcio-status==1.78.0
 gunicorn==26.0.0
 h11==0.16.0
-h2==4.4.0
+h2==4.4.1
 hf-xet==1.5.2
 hpack==4.2.0
 html5lib==1.1

@@ -2448,6 +2448,60 @@ class AtlasStarter:
                     "warning",
                 )
 
+        # #905: custom nodes live inside the ComfyUI checkout's custom_nodes/ and
+        # are scanned only at process STARTUP (unlike models, which load lazily),
+        # so they must be on disk before the process launches below.
+        node_rows = _resolved_comfyui_custom_nodes(env)
+        if node_rows and not manager.preflight().ok:
+            self.banner.show_status_message(
+                "  • Skipping custom-node provisioning — host preflight fails.",
+                "warning",
+            )
+            node_rows = []
+        if node_rows and not manager.repo_dir.exists():
+            # The checkout is cloned inside ensure_running_with_ownership on first
+            # run; clone it now so custom nodes have a home before provisioning.
+            try:
+                manager.install()
+            except ComfyUiMpsError as exc:
+                self.banner.show_status_message(
+                    f"  • Could not install ComfyUI for custom-node provisioning "
+                    f"({exc}); nodes skipped — the start below retries the install.",
+                    "warning",
+                )
+                node_rows = []
+        if node_rows:
+            already_running = manager.status().running
+            self.banner.show_status_message(
+                f"  • Provisioning {len(node_rows)} ComfyUI custom node(s) into "
+                f"{manager.repo_dir}/custom_nodes (idempotent; present skip)…",
+                "info",
+            )
+            node_provision = manager.provision_custom_nodes(
+                node_rows, log=lambda m: self.banner.show_status_message(f"    {m}", "info")
+            )
+            for warning in node_provision.warnings:
+                self.banner.show_status_message(f"    {warning}", "warning")
+            if not node_provision.ok:
+                for failure in node_provision.failed:
+                    self.banner.show_status_message(f"    ✗ {failure}", "warning")
+                self.banner.show_status_message(
+                    "  • Some ComfyUI custom nodes could not be provisioned — the "
+                    "host starts anyway; re-run `./start.sh comfyui-mps "
+                    "provision-nodes` after fixing the issue.",
+                    "warning",
+                )
+            elif node_provision.provisioned and already_running:
+                # Custom nodes load only at process startup; a process that was
+                # already running before this start does not rescan custom_nodes/.
+                self.banner.show_status_message(
+                    "  • Newly installed ComfyUI custom node(s) take effect only "
+                    "after a ComfyUI (MPS) restart — run `./start.sh comfyui-mps "
+                    "stop` then `./start.sh` (the nodes are cloned; a warm process "
+                    "does not reload them).",
+                    "warning",
+                )
+
         try:
             status, created = manager.ensure_running_with_ownership()
         except ComfyUiMpsError as exc:
@@ -3830,6 +3884,21 @@ def _resolved_comfyui_model_rows(env: dict) -> list[dict]:
         return []
 
 
+def _resolved_comfyui_custom_nodes(env: dict) -> list:
+    """The resolved ComfyUI custom-node set (#905).
+
+    One source of truth: the same ``active_custom_nodes`` output the container
+    TSV is built from, delivered to the managed-host provisioner. Returns []
+    when nothing is declared or the resolver cannot run."""
+    try:
+        from utils.comfyui_custom_nodes import active_custom_nodes
+        from utils.comfyui_resolver import active_comfyui_models
+
+        return list(active_custom_nodes(active_comfyui_models(env), env))
+    except Exception:  # noqa: BLE001 — resolver issues have their own surfaces
+        return []
+
+
 def _doctor_check_compose(starter: "AtlasStarter") -> dict:
     try:
         returncode, stdout, stderr, _cmd = starter.docker_manager.validate_compose_config()
@@ -4216,6 +4285,31 @@ def _doctor_check_unpullable_models(starter: "AtlasStarter") -> dict:
                 f"not for an unmanaged localhost install. Provision manually: "
                 f"place the weights in your host ComfyUI models directory."
             )
+
+    # #905: lint consumer-declared custom nodes for the managed host — independent
+    # of COMFYUI_USER_MODELS (a consumer may declare workflow nodes without any
+    # catalog models, e.g. an edit-workflow node). Uses load_custom_nodes (not
+    # active_custom_nodes) so the doctor does NOT resolve the full model catalog
+    # (which would fetch/print the live registry); model-required Atlas nodes are
+    # covered by the models doctor above when COMFYUI_USER_MODELS is declared.
+    if comfy_source == "managed-localhost-mps":
+        try:
+            from utils.comfyui_custom_nodes import load_custom_nodes as _load_nodes
+
+            declared_nodes = [n for n in _load_nodes(env) if n.from_consumer]
+            if declared_nodes:
+                from services.comfyui_mps_manager import manager_from_env as _node_mgr
+
+                n_ok, n_missing = _node_mgr(env).nodes_satisfied(declared_nodes)
+                if not n_ok:
+                    warnings.append(
+                        f"ComfyUI custom nodes are declared but missing on the "
+                        f"host: {', '.join(n_missing)}. Atlas provisions these "
+                        f"on the next `./start.sh` (or run `./start.sh "
+                        f"comfyui-mps provision-nodes` now)."
+                    )
+        except Exception:  # noqa: BLE001 - defensive
+            pass
 
     if warnings:
         return _doctor_result(
@@ -6358,6 +6452,39 @@ def comfyui_mps_provision(verify: bool) -> None:
         for failure in result.failed:
             print(f"✗ {failure}")
         sys.exit(1)
+
+
+@comfyui_mps_group.command("provision-nodes")
+def comfyui_mps_provision_nodes() -> None:
+    """Provision the declared ComfyUI custom-node set into the host tree (#905).
+
+    Clones the resolved custom nodes (Atlas-shipped + consumer-declared) into the
+    host ComfyUI custom_nodes/ dir at their pinned SHAs and pip-installs their
+    requirements into the host venv — idempotent, per-node non-fatal. Runs
+    automatically on a managed-localhost-mps start; this command is the manual
+    re-run for repair or pre-staging."""
+    starter = AtlasStarter()
+    env = starter.config_parser.parse_env_file()
+    from services.comfyui_mps_manager import manager_from_env
+
+    manager = manager_from_env(env)
+    nodes = _resolved_comfyui_custom_nodes(env)
+    if not nodes:
+        print("No ComfyUI custom nodes declared — nothing to do.")
+        return
+    print(f"Provisioning {len(nodes)} custom node(s) into {manager.repo_dir}/custom_nodes …")
+    result = manager.provision_custom_nodes(nodes, log=print)
+    for warning in result.warnings:
+        print(f"⚠ {warning}")
+    print(
+        f"provision-nodes summary: installed={len(result.provisioned)} "
+        f"skipped={len(result.skipped)} failed={len(result.failed)}"
+    )
+    if not result.ok:
+        for failure in result.failed:
+            print(f"✗ {failure}")
+        sys.exit(1)
+
 
 @main.group("blender-mcp")
 def blender_mcp_group() -> None:
