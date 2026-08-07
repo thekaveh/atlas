@@ -33,7 +33,7 @@ COMFYUI_STORAGE_BUCKET=comfyui-images
 COMFYUI_AUTO_UPDATE=true                    # AI-Dock startup updates ComfyUI to COMFYUI_REF
 COMFYUI_REF=v0.27.0                         # pinned upstream ComfyUI release tag or full commit SHA
 COMFYUI_MEMORY_LIMIT=40g                    # hard ceiling, not a reservation; supports large bundles such as Krea 2
-COMFYUI_CUSTOM_NODES_FILE=/custom-nodes.yaml # host-side fallback resolves to services/comfyui/custom-nodes.yaml
+COMFYUI_CUSTOM_NODES_FILE=/custom-nodes.yaml # os.pathsep-joined path-list: Atlas allowlist always present + consumer custom_nodes.comfyui paths
 ```
 
 Localhost overrides:
@@ -151,7 +151,9 @@ CLI alternative (works for all non-disabled sources):
 ```
 Unknown names log a warning at bootstrapper start but don't block startup.
 
-**Required custom_nodes.** Some models (Flux GGUF, AnimateDiff, IP-Adapter, InstantID, 3D-Pack, etc.) need specific ComfyUI custom_nodes installed before they will load. The wizard marks those rows with `required node: <node-name>`. For container sources, Atlas maps those names through `services/comfyui/custom-nodes.yaml` and writes `active-custom-nodes.tsv`; the AI-Dock provisioning hook clones only the allowlisted repos at their pinned commit refs and installs requirements when `install_requirements=true`. Unknown node names still warn and are not auto-cloned. When adding a new catalog requirement, add the node to `custom-nodes.yaml` with a GitHub HTTPS repo, a full 40-character commit SHA, and an explicit `install_requirements` flag.
+**Required custom_nodes.** Some models (Flux GGUF, AnimateDiff, IP-Adapter, InstantID, 3D-Pack, etc.) need specific ComfyUI custom_nodes installed before they will load. The wizard marks those rows with `required node: <node-name>`. For container sources, Atlas maps those names through `services/comfyui/custom-nodes.yaml` and writes `active-custom-nodes.tsv`; the AI-Dock provisioning hook clones only the allowlisted repos at their pinned commit refs and installs requirements when `install_requirements=true`. Unknown node names still warn and are not auto-cloned. When adding a new catalog requirement, add the node to `custom-nodes.yaml` with a GitHub HTTPS repo, a full 40-character commit SHA, and an explicit `install_requirements` flag. An optional `mps_unsafe: true` field pre-skips a node under `COMFYUI_SOURCE=managed-localhost-mps` (CUDA/x86-only native wheels that cannot build on Apple Silicon); it is ignored for container sources.
+
+**Consumer-declared custom nodes (#905).** A consumer manifest may contribute additional nodes via `custom_nodes.comfyui` in `atlas.consumer.yml` (a path or path-list to a consumer-authored file with the same `{name, repo, ref, install_requirements, mps_unsafe}` schema). The Atlas-shipped `custom-nodes.yaml` is always present in the merged allowlist and wins on name collision; consumer-declared nodes are active **unconditionally** (a model need not reference them — they are workflow nodes the consumer wires directly, e.g. an edit-workflow node). The same pinned-SHA + GitHub-HTTPS discipline is enforced at consumer-manifest load (fail-loud) and again at provision, so a consumer cannot bypass it. Under `managed-localhost-mps`, declared nodes are cloned into the host ComfyUI `custom_nodes/` and their requirements installed into the host venv at start — see §10.
 
 **Adding models not in the catalog.** Edit `services/comfyui/custom-models.yaml`. The wizard surfaces additions on the next run with a `[Custom]` family badge; the bootstrapper ingests them via `comfyui_resolver` at start and adds them to the download manifest. Single-file entries use `url`/`filename` directly. Multi-file entries use `files:` so one logical selection can stage, for example, diffusion weights, text encoders, and a VAE into distinct ComfyUI model directories. Per-file `target_dir` is authoritative and lets mesh/3D loaders place weights in `checkpoints` when required. Schema is documented in the file's header comment.
 
@@ -244,6 +246,7 @@ A normal `./start.sh` with this source runs preflight → install → start at t
 ./start.sh comfyui-mps install       # idempotent pinned checkout + venv + Metal Torch
 ./start.sh comfyui-mps install --update   # force a fresh dependency reconciliation
 ./start.sh comfyui-mps provision     # idempotent model provisioning into COMFYUI_MPS_MODELS_PATH (#754); --verify forces a full re-hash
+./start.sh comfyui-mps provision-nodes  # idempotent custom-node provisioning into <state>/ComfyUI/custom_nodes (#905)
 ./start.sh comfyui-mps start         # launch the host process (idempotent — one per host)
 ./start.sh comfyui-mps status        # running / pid / installed ref (JSON)
 ./start.sh comfyui-mps health        # probe /system_stats: reachability + compute device (mps/cpu)
@@ -251,7 +254,9 @@ A normal `./start.sh` with this source runs preflight → install → start at t
 ./start.sh comfyui-mps remove        # stop + delete the state dir (checkout, venv, logs)
 ```
 
-The same preflight also runs as a CI-safe doctor check: `./start.sh doctor` reports a `comfyui-mps` line — `skipped` when the source isn't selected, `fail` with an actionable message on an unsupported host, `pass`/`warn` on Apple Silicon.
+The same preflight also runs as a CI-safe doctor check: `./start.sh doctor` reports a `comfyui-mps` line — `skipped` when the source isn't selected, `fail` with an actionable message on an unsupported host, `pass`/`warn` on Apple Silicon. Under `managed-localhost-mps` the doctor also lints declared custom nodes (#905): a node whose repo is absent or not at its pinned ref is reported with a pointer to `./start.sh comfyui-mps provision-nodes`; `mps_unsafe` nodes are ignored.
+
+**Shared-venv pollution risk (managed-MPS custom nodes, #905).** Unlike the container path (whose ComfyUI venv is disposable — rebuild from the AI-Dock image and it's clean), the managed-MPS venv holds the **pinned Metal Torch stack** the user waited for on cold start, with no disposable-image safety net. A node whose `requirements.txt` pins an older `torch` would silently downgrade Metal-enabled Torch and break MPS. `provision-nodes` guards this: a `pip freeze` before/after warns loudly on any `torch`/`torchvision`/`torchaudio` drift and points at `./start.sh comfyui-mps install --update` (which re-applies the pin) — but the install completes either way (parity with the container hook). Prefer `mps_unsafe: true` for known CUDA-only nodes so they skip before pip touches the venv. End-to-end Apple-Silicon validation of `comfyui-krea2edit` (the driving tableau#318 use case) is deferred to a live run; the node is deps-free (no `requirements.txt`) and rides on the shipped BF16 Krea 2 weights, so it does not exercise this risk.
 
 ### 10.3. Preflight (the narrow MPS probe)
 
