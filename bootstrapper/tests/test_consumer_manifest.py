@@ -579,3 +579,148 @@ def test_env_values_conditional_malformed_raises(tmp_path: Path) -> None:
         manifest = _write_conditional_consumer(tmp_path, block, name=name)
         with pytest.raises(ConsumerManifestError):
             load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
+
+
+# ---- custom_nodes.comfyui (#905) --------------------------------------------
+#
+# Mirror of model_sidecars.comfyui: a consumer declares ComfyUI custom-node
+# files (same schema as services/comfyui/custom-nodes.yaml). Atlas strict-parses
+# them at load time, joins the resolved paths into COMFYUI_CUSTOM_NODES_FILE
+# (os.pathsep-joined, appended after the always-present Atlas allowlist), and
+# rejects names that collide with Atlas-shipped nodes or diverge across consumers.
+
+_VALID_CONSUMER_NODE_YAML = (
+    "custom_nodes:\n"
+    "  - name: ComfyUI-ConsumerDemo\n"
+    "    repo: https://github.com/consumer/ComfyUI-ConsumerDemo.git\n"
+    "    ref: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+)
+
+
+def _write_consumer_with_nodes(
+    root: Path,
+    name: str,
+    *,
+    nodes_yaml: str = _VALID_CONSUMER_NODE_YAML,
+    project_name: str = "showcase",
+    include_brand: bool = True,
+) -> Path:
+    """Write a consumer manifest that declares a ``custom_nodes.comfyui`` file.
+
+    The referenced ./nodes.yaml is materialized from ``nodes_yaml`` so the
+    resolver + strict parser have a real file to read (mirror of how
+    ``_write_consumer`` materializes ./models/custom-models.yaml for the
+    model_sidecars.comfyui block)."""
+    manifest = _write_consumer(
+        root,
+        name,
+        project_name=project_name,
+        include_brand=include_brand,
+        extra="custom_nodes:\n  comfyui:\n    - ./nodes.yaml\n",
+    )
+    (manifest.parent / "nodes.yaml").write_text(nodes_yaml, encoding="utf-8")
+    return manifest
+
+
+def test_custom_nodes_comfyui_sets_env_overrides_path(tmp_path: Path) -> None:
+    """A top-level ``custom_nodes.comfyui`` block resolves the listed file(s) and
+    joins them into env_overrides['COMFYUI_CUSTOM_NODES_FILE'] via os.pathsep —
+    mirroring how model_sidecars.comfyui populates COMFYUI_CUSTOM_MODELS_FILE."""
+    from core.consumer_manifest import load_consumer_config
+
+    _write_minimal_root(tmp_path)
+    manifest = _write_consumer_with_nodes(tmp_path, "rag-showcase")
+
+    config = load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
+
+    nodes_paths = config.env_overrides["COMFYUI_CUSTOM_NODES_FILE"].split(os.pathsep)
+    assert nodes_paths == [str(manifest.parent / "nodes.yaml")]
+
+
+def test_custom_nodes_missing_file_raises(tmp_path: Path) -> None:
+    """A ``custom_nodes.comfyui`` path that does not resolve to a real file fails
+    loud at load time via _resolve_existing_file (a dropped consumer node file
+    must never silently degrade into a missing workflow node at runtime)."""
+    from core.consumer_manifest import ConsumerManifestError, load_consumer_config
+
+    _write_minimal_root(tmp_path)
+    # Reuse the helper to write a valid manifest, then DELETE the referenced
+    # nodes.yaml so the resolver cannot find it on the next load.
+    manifest = _write_consumer_with_nodes(tmp_path, "missing")
+    (manifest.parent / "nodes.yaml").unlink()
+
+    with pytest.raises(ConsumerManifestError, match="does not exist or is not a file"):
+        load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
+
+
+def test_custom_node_name_collides_with_atlas_shipped_node(tmp_path: Path) -> None:
+    """A consumer node whose name matches an Atlas-shipped node (here
+    ComfyUI-GGUF from services/comfyui/custom-nodes.yaml) is rejected: Atlas
+    wins on name collision because catalog models reference its nodes via
+    requires_custom_node. load_custom_nodes({}) reads the real Atlas file."""
+    from core.consumer_manifest import ConsumerManifestError, load_consumer_config
+
+    _write_minimal_root(tmp_path)
+    collider_yaml = (
+        "custom_nodes:\n"
+        "  - name: ComfyUI-GGUF\n"
+        "    repo: https://github.com/consumer/ComfyUI-GGUF-fork.git\n"
+        "    ref: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n"
+    )
+    manifest = _write_consumer_with_nodes(tmp_path, "collider", nodes_yaml=collider_yaml)
+
+    with pytest.raises(ConsumerManifestError, match="collides with an Atlas-shipped"):
+        load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
+
+
+def test_custom_nodes_divergent_repo_ref_across_consumers_raises(tmp_path: Path) -> None:
+    """Two consumers declaring the same node name with DIVERGENT repo/ref raise;
+    identical repo+ref does NOT (benign multi-consumer reuse dedupes)."""
+    from core.consumer_manifest import ConsumerManifestError, load_consumer_config
+
+    _write_minimal_root(tmp_path)
+    sha_a = "a" * 40
+    sha_b = "b" * 40
+    same_yaml = (
+        "custom_nodes:\n"
+        "  - name: ComfyUI-SharedNode\n"
+        "    repo: https://github.com/consumer/ComfyUI-SharedNode.git\n"
+        f"    ref: {sha_a}\n"
+    )
+    divergent_yaml = (
+        "custom_nodes:\n"
+        "  - name: ComfyUI-SharedNode\n"
+        "    repo: https://github.com/consumer/ComfyUI-SharedNode.git\n"
+        f"    ref: {sha_b}\n"
+    )
+
+    one = _write_consumer_with_nodes(
+        tmp_path, "one", nodes_yaml=same_yaml, project_name="shared", include_brand=False
+    )
+    two_same = _write_consumer_with_nodes(
+        tmp_path, "two-same", nodes_yaml=same_yaml, project_name="shared", include_brand=False
+    )
+    # Identical repo+ref does NOT raise — both node files make it into the env join.
+    config = load_consumer_config(tmp_path, explicit_paths=[str(one), str(two_same)])
+    assert config.env_overrides["COMFYUI_CUSTOM_NODES_FILE"].count(os.pathsep) == 1
+
+    two_diff = _write_consumer_with_nodes(
+        tmp_path, "two-diff", nodes_yaml=divergent_yaml, project_name="shared", include_brand=False
+    )
+    with pytest.raises(ConsumerManifestError, match="divergent repo/ref"):
+        load_consumer_config(tmp_path, explicit_paths=[str(one), str(two_diff)])
+
+
+def test_consumer_record_carries_comfyui_custom_node_files(tmp_path: Path) -> None:
+    """ConsumerRecord.comfyui_custom_node_files holds the per-consumer resolved
+    paths (mirror of comfyui_sidecars on the same dataclass)."""
+    from core.consumer_manifest import load_consumer_config
+
+    _write_minimal_root(tmp_path)
+    manifest = _write_consumer_with_nodes(tmp_path, "record")
+
+    config = load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
+
+    assert config.consumers[0].comfyui_custom_node_files == (
+        manifest.parent / "nodes.yaml",
+    )

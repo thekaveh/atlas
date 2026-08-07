@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "reviewed_on": "2026-08-03",
+  "reviewed_on": "2026-08-06",
   "complexity": {
     "tool": "radon cc -s",
     "signal_thresholds": {
@@ -15,10 +15,10 @@
       "services/backend/app/app/**/*.py"
     ],
     "baseline_snapshot": {
-      "radon_grade_c_or_worse": 356,
+      "radon_grade_c_or_worse": 358,
       "radon_grade_e_or_worse": 20,
-      "functions_over_60_physical_lines": 188,
-      "functions_over_100_physical_lines": 69,
+      "functions_over_60_physical_lines": 189,
+      "functions_over_100_physical_lines": 70,
       "functions_over_4_parameters": 112,
       "modules_over_600_logical_lines": 13,
       "tracked_files": 1396,
@@ -39,6 +39,10 @@
       {
         "scope": "File-count growth since v0.1.0",
         "rationale": "The 109.3% increase is explained by the manifest-per-service migration, generated three-surface service diagrams, provider implementations, and their regression suites. Generated artifacts are drift-gated; future growth remains subject to the 20% release-over-release signal."
+      },
+      {
+        "scope": "ComfyUI custom-node resolver + managed-MPS node provisioner (#905)",
+        "rationale": "The added signals mirror the #754 model-provisioning patterns (provision_models, parse/resolver branches) and the consumer-manifest declaration surface: explicit per-node validation branches (pinned SHA + GitHub HTTPS + safe name) and idempotent git-clone/checkout/pip-install transitions. Behavior is protected by the custom-node resolver, consumer-manifest collision, MPS provisioner, manifest-generation, and doctor suites."
       }
     ],
     "accepted_signals": [

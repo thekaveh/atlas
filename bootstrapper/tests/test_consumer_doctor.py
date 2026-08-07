@@ -1090,3 +1090,109 @@ def test_doctor_unpullable_models_warns_on_localhost_sources(monkeypatch):
         "COMFYUI_SOURCE": "managed-localhost-mps",
     }))
     assert r["status"] == "pass"
+
+
+# ─── ComfyUI custom-node doctor lint (#905) ────────────────────────────
+
+
+def test_doctor_unpullable_models_warns_on_missing_custom_nodes(monkeypatch):
+    """#905: under ``managed-localhost-mps``, a consumer-declared custom node
+    whose ``dest/.git`` is absent surfaces a doctor warning naming the node +
+    ``comfyui-mps provision-nodes``. The doctor resolves consumer-declared nodes
+    via ``load_custom_nodes`` (from_consumer), independent of
+    COMFYUI_USER_MODELS — a workflow-only node (no catalog models) is still
+    linted. ``nodes_satisfied`` is stubbed (the real probe runs ``git
+    rev-parse``, a subprocess) to keep the test hermetic."""
+    import start as start_module
+    from services import comfyui_mps_manager as mps
+    from utils.comfyui_custom_nodes import ComfyUICustomNode
+
+    node = ComfyUICustomNode(
+        name="comfyui-krea2edit",
+        repo="https://github.com/krea-ai/krea2-comfyui.git",
+        ref="a" * 40,
+        from_consumer=True,
+    )
+    monkeypatch.setattr(
+        "utils.comfyui_custom_nodes.load_custom_nodes", lambda env: [node]
+    )
+    monkeypatch.setattr(
+        mps.ComfyUiMpsManager,
+        "nodes_satisfied",
+        lambda self, nodes: (False, ["comfyui-krea2edit"]),
+    )
+
+    class _CP:
+        def __init__(self, env):
+            self._env = env
+
+        def parse_env_file(self):
+            return dict(self._env)
+
+    class _Starter:
+        def __init__(self, env):
+            self.config_parser = _CP(env)
+
+    r = start_module._doctor_check_unpullable_models(
+        _Starter({"COMFYUI_SOURCE": "managed-localhost-mps"})
+    )
+    assert r["status"] == "warn"
+    joined = " ".join(r["details"]["warnings"])
+    assert "comfyui-krea2edit" in joined
+    assert "comfyui-mps provision-nodes" in joined
+
+
+def test_doctor_unpullable_models_skips_mps_unsafe_custom_nodes(monkeypatch, tmp_path):
+    """#905: ``mps_unsafe`` custom nodes are excluded from ``nodes_satisfied``
+    (the provisioner deliberately skips them — CUDA/x86-only wheels that
+    cannot build on Apple Silicon), so the doctor lint must not flag them even
+    when ``dest/.git`` is absent. Exercises the REAL ``nodes_satisfied``: the
+    mps_unsafe skip happens before any git rev-parse probe, so no subprocess
+    runs and tmp_path staying empty is sufficient."""
+    import start as start_module
+    from services import comfyui_mps_manager as mps
+
+    mps_unsafe_node = {
+        "name": "cuda-only-node",
+        "repo": "example/cuda-only",
+        "ref": "main",
+        "install_requirements": ["onnxruntime-gpu"],
+        "mps_unsafe": True,
+    }
+    monkeypatch.setattr(
+        start_module,
+        "_resolved_comfyui_custom_nodes",
+        lambda env: [mps_unsafe_node],
+    )
+
+    # Direct contract on the real method: an mps_unsafe node is excluded →
+    # (True, []) even though dest/.git does not exist under tmp_path.
+    manager = mps.manager_from_env(
+        {"COMFYUI_MPS_STATE_DIR": str(tmp_path / "mps")}
+    )
+    assert manager.nodes_satisfied([mps_unsafe_node]) == (True, [])
+
+    class _CP:
+        def __init__(self, env):
+            self._env = env
+
+        def parse_env_file(self):
+            return dict(self._env)
+
+    class _Starter:
+        def __init__(self, env):
+            self.config_parser = _CP(env)
+
+    r = start_module._doctor_check_unpullable_models(_Starter({
+        "COMFYUI_USER_MODELS": "krea2-turbo-bf16",
+        "COMFYUI_SOURCE": "managed-localhost-mps",
+        "COMFYUI_MPS_STATE_DIR": str(tmp_path / "mps"),
+    }))
+    # The node branch runs (COMFYUI_USER_MODELS set + managed-localhost-mps)
+    # but produces NO node warning — the sole declared node is mps_unsafe and
+    # is skipped by nodes_satisfied. (Any warning present comes from the
+    # orthogonal model branch, e.g. COMFYUI_MPS_MODELS_PATH guidance, and
+    # must never name the node or the provision-nodes command.)
+    joined = " ".join(r["details"].get("warnings", []))
+    assert "cuda-only-node" not in joined
+    assert "provision-nodes" not in joined

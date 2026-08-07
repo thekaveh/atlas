@@ -404,6 +404,9 @@ model_sidecars:
     - ./models/comfyui-custom-models.yaml
   ollama:
     - llama3.2:latest
+custom_nodes:                         # pin extra ComfyUI workflow nodes (#905); merged into COMFYUI_CUSTOM_NODES_FILE
+  comfyui:
+    - ./comfyui/comfyui-krea2edit.yaml
 litellm_models:                       # expose plugin routes as LiteLLM models (§6.3.2)
   version: 1
   models:
@@ -508,7 +511,7 @@ and `./start.sh … doctor` reports the `consumer-manifests` check as failed,
 instead of silently dropping the block and surfacing later as mysterious runtime
 404s. The allowed top-level keys are exactly those shown above: `name`,
 `project_name`, `profile`, `profile_overrides`, `brand`, `env`,
-`compose_overlays`, `backend_plugins`, `model_sidecars`, `storage`,
+`compose_overlays`, `backend_plugins`, `model_sidecars`, `custom_nodes`, `storage`,
 `litellm_models`, `n8n_workflows`, `rag_ingestion_profiles`, and
 `lightrag_query_profiles`.
 
@@ -699,7 +702,7 @@ path, including every `services/_user/<name>/compose.yml` overlay, and rewrites
 common missing-variable failures into a service and variable summary before
 printing Compose's raw stderr for debugging. Before validating, it materializes
 the consumer manifest's derived env (`BACKEND_PLUGINS_DIR`,
-`COMFYUI_CUSTOM_MODELS_FILE`, `OLLAMA_CUSTOM_MODELS`) into `.env` — the same
+`COMFYUI_CUSTOM_MODELS_FILE`, `COMFYUI_CUSTOM_NODES_FILE`, `OLLAMA_CUSTOM_MODELS`) into `.env` — the same
 values a full start writes — so an overlay that interpolates
 `${BACKEND_PLUGINS_DIR}` validates on a fresh checkout that has never started
 (no manual `export` workaround needed). `doctor` does the same before running
