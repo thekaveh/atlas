@@ -9,6 +9,19 @@ from typing import Any, Iterable, Mapping
 
 import yaml
 
+try:
+    from utils.comfyui_custom_nodes import (
+        ComfyUICustomNode,
+        load_custom_nodes,
+        parse_custom_nodes_strict,
+    )
+except ImportError:  # pragma: no cover - defensive loose-module fallback
+    from comfyui_custom_nodes import (  # type: ignore[no-redef]
+        ComfyUICustomNode,
+        load_custom_nodes,
+        parse_custom_nodes_strict,
+    )
+
 
 class ConsumerManifestError(ValueError):
     """Raised when one or more consumer manifests are invalid."""
@@ -426,6 +439,7 @@ class ConsumerRecord:
     compose_overlays: tuple[Path, ...] = ()
     backend_plugins: tuple[Path, ...] = ()
     comfyui_sidecars: tuple[Path, ...] = ()
+    comfyui_custom_node_files: tuple[Path, ...] = ()
     ollama_models: tuple[str, ...] = ()
     storage: tuple[StorageStore, ...] = ()
     litellm_models: tuple[LitellmModel, ...] = ()
@@ -1227,6 +1241,31 @@ def _validate_litellm_collisions(models: Iterable[LitellmModel]) -> None:
                 f"{model.consumer!r}"
             )
         owner[model.name] = model.consumer
+
+
+def _validate_custom_node_collisions(
+    nodes: Iterable[tuple[str, ComfyUICustomNode]], atlas_names: frozenset[str]
+) -> None:
+    """Reject consumer custom-node names that collide with Atlas-shipped nodes
+    or with another consumer's node under a divergent repo/ref. Identical
+    repo+ref across consumers dedupes benignly (benign multi-consumer reuse)."""
+    seen: dict[str, tuple[str, str, str]] = {}
+    for consumer, node in nodes:
+        if node.name in atlas_names:
+            raise ConsumerManifestError(
+                f"custom_nodes entry {node.name!r} collides with an Atlas-shipped "
+                f"node (declared by consumer {consumer!r})"
+            )
+        prior = seen.get(node.name)
+        if prior is not None:
+            prior_consumer, prior_repo, prior_ref = prior
+            if prior_repo != node.repo or prior_ref != node.ref:
+                raise ConsumerManifestError(
+                    f"custom_nodes entry {node.name!r} declared with divergent "
+                    f"repo/ref by consumers {prior_consumer!r} and {consumer!r}"
+                )
+        else:
+            seen[node.name] = (consumer, node.repo, node.ref)
 
 
 def compile_litellm_model_rows(models: Iterable[LitellmModel]) -> list[dict[str, Any]]:
@@ -2542,6 +2581,7 @@ _CONSUMER_ALLOWED_TOP_LEVEL_KEYS = frozenset(
         "compose_overlays",
         "backend_plugins",
         "model_sidecars",
+        "custom_nodes",
         "storage",
         "litellm_models",
         "n8n_workflows",
@@ -2578,9 +2618,11 @@ def load_consumer_config(
     compose_overlays: list[Path] = []
     backend_plugins: list[Path] = []
     comfyui_sidecars: list[Path] = []
+    comfyui_custom_node_files: list[Path] = []
     ollama_models: list[str] = []
     all_storage: list[StorageStore] = []
     all_litellm: list[LitellmModel] = []
+    all_custom_nodes: list[tuple[str, ComfyUICustomNode]] = []
     all_n8n: list[N8nWorkflow] = []
     all_rag: list[RagIngestionProfile] = []
     all_lightrag_profiles: list[LightragQueryProfile] = []
@@ -2714,6 +2756,29 @@ def load_consumer_config(
                 if model:
                     record_ollama.append(model)
 
+        custom_nodes_block = data.get("custom_nodes") or {}
+        record_custom_node_files: list[Path] = []
+        if custom_nodes_block:
+            if not isinstance(custom_nodes_block, Mapping):
+                raise ConsumerManifestError(
+                    f"custom_nodes must be a mapping in {manifest_path}"
+                )
+            for raw_node_file in _as_list(custom_nodes_block.get("comfyui")):
+                node_file = _resolve_existing_file(
+                    base_dir,
+                    str(raw_node_file),
+                    label="custom_nodes.comfyui entry",
+                )
+                if node_file not in comfyui_custom_node_files:
+                    comfyui_custom_node_files.append(node_file)
+                record_custom_node_files.append(node_file)
+                # Strict-parse at load time: a malformed consumer node (bad SHA,
+                # non-GitHub repo, unsafe name) fails loud here rather than
+                # surfacing as a missing workflow node at runtime — the same
+                # fail-loud discipline as every other consumer block.
+                for node in parse_custom_nodes_strict(node_file):
+                    all_custom_nodes.append((consumer_name, node))
+
         record_storage = _parse_storage_block(data, consumer_name, manifest_path)
         all_storage.extend(record_storage)
 
@@ -2771,6 +2836,7 @@ def load_consumer_config(
                 compose_overlays=tuple(record_overlays),
                 backend_plugins=tuple(record_plugins),
                 comfyui_sidecars=tuple(record_comfyui),
+                comfyui_custom_node_files=tuple(record_custom_node_files),
                 ollama_models=tuple(_ordered_union(record_ollama)),
                 storage=tuple(record_storage),
                 litellm_models=tuple(record_litellm),
@@ -2786,8 +2852,19 @@ def load_consumer_config(
         env_overrides["COMFYUI_CUSTOM_MODELS_FILE"] = os.pathsep.join(
             str(path) for path in comfyui_sidecars
         )
+    if comfyui_custom_node_files:
+        env_overrides["COMFYUI_CUSTOM_NODES_FILE"] = os.pathsep.join(
+            str(path) for path in comfyui_custom_node_files
+        )
     if ollama_models:
         env_overrides["OLLAMA_CUSTOM_MODELS"] = ",".join(_ordered_union(ollama_models))
+
+    if all_custom_nodes:
+        # Reject a consumer node whose name collides with an Atlas-shipped node
+        # or with another consumer's node under a divergent repo/ref. Identical
+        # repo+ref across consumers dedupes benignly.
+        atlas_node_names = frozenset(n.name for n in load_custom_nodes({}))
+        _validate_custom_node_collisions(all_custom_nodes, atlas_node_names)
 
     storage_overlay: StorageOverlay | None = None
     if all_storage:

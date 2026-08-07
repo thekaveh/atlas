@@ -26,6 +26,7 @@ _BOOTSTRAPPER = Path(__file__).resolve().parent.parent
 if str(_BOOTSTRAPPER) not in sys.path:
     sys.path.insert(0, str(_BOOTSTRAPPER))
 
+from utils.comfyui_custom_nodes import ComfyUICustomNode
 from utils.comfyui_library import ComfyUIModelFile, ComfyUILibraryEntry
 from utils.comfyui_manifest_generator import ComfyUIManifestGenerator
 
@@ -137,6 +138,33 @@ def _custom_nodes_manifest(path: Path) -> Path:
         ]),
         encoding="utf-8",
     )
+    return path
+
+
+# Full 40-char hex SHAs (valid refs). Shared with test_comfyui_custom_nodes.py.
+_NODE_SHA_GGUF = "6ea2651e7df66d7585f6ffee804b20e92fb38b8a"
+_NODE_SHA_IPADAPTER = "a0f451a5113cf9becb0847b92884cb10cbdec0ef"
+_NODE_SHA_KREA = "1111111111111111111111111111111111111111"
+_NODE_SHA_SHADOW = "2222222222222222222222222222222222222222"
+
+
+def _write_nodes_yaml(path: Path, nodes: list[dict]) -> Path:
+    """Flexible custom-nodes YAML writer (Atlas- or consumer-shaped).
+
+    Mirrors the ``_write_nodes`` helper in test_comfyui_custom_nodes.py so both
+    files stay in sync on the wire format. Each node dict needs name/repo/ref;
+    install_requirements and mps_unsafe default to false when omitted.
+    """
+    lines = ["custom_nodes:"]
+    for n in nodes:
+        lines.append(f"  - name: {n['name']}")
+        lines.append(f"    repo: {n['repo']}")
+        lines.append(f"    ref: {n['ref']}")
+        if n.get("install_requirements"):
+            lines.append("    install_requirements: true")
+        if n.get("mps_unsafe"):
+            lines.append("    mps_unsafe: true")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return path
 
 
@@ -298,6 +326,9 @@ class TestGeneratorWritesFiles:
 
         import utils.comfyui_resolver as resolver
         monkeypatch.setattr(resolver, "active_comfyui_models", lambda e, **kw: catalog)
+        # Isolate from the repo's real Atlas allowlist so the merged set is exactly
+        # this test's file (env-mode otherwise prepends services/comfyui/custom-nodes.yaml).
+        monkeypatch.setattr("utils.comfyui_custom_nodes._host_repo_custom_nodes", lambda: None)
 
         ComfyUIManifestGenerator(env).write(tmp_path)
 
@@ -436,6 +467,205 @@ class TestGeneratorSkipsWhenDisabled:
         result = gen.write(tmp_path)
         assert result is True
         assert not (tmp_path / "selected-models.yaml").exists()
+
+
+# ---------------------------------------------------------------------------
+# #905: consumer custom_nodes union semantics through _write_custom_nodes_tsv
+# ---------------------------------------------------------------------------
+
+class TestConsumerCustomNodesUnion:
+    """Integration coverage for the #905 union semantics as they surface through
+    ``_write_custom_nodes_tsv`` (the generator's ``active-custom-nodes.tsv``
+    output).
+
+    The resolver-level unit tests (``active_custom_nodes`` model-gating vs.
+    ``from_consumer`` unconditional) live in ``test_comfyui_custom_nodes.py``;
+    these tests verify the generator wires that union correctly into the
+    shell-consumable install TSV that ``provision_custom_nodes.sh`` reads.
+
+    Union contract (``utils.comfyui_custom_nodes``):
+      • Atlas-shipped nodes (``_host_repo_custom_nodes``) load first with
+        ``from_consumer=False`` → model-gated (active only when an entry's
+        ``requires_custom_node`` names them).
+      • Consumer-declared nodes (``COMFYUI_CUSTOM_NODES_FILE``, os.pathsep
+        -joined) append with ``from_consumer=True`` → active unconditionally
+        (a model need not reference them; e.g. comfyui-krea2edit is a workflow
+        node no catalog model declares).
+      • Duplicate names resolve first-wins (Atlas wins because it loads first).
+    """
+
+    def test_atlas_and_consumer_union_atlas_first_no_dupes(self, tmp_path, monkeypatch):
+        """Atlas allowlist + consumer file → rows from BOTH, Atlas-ordered first,
+        and the duplicate name collapses to a single Atlas row."""
+        atlas_file = _write_nodes_yaml(
+            tmp_path / "atlas-nodes.yaml",
+            [
+                {
+                    "name": "ComfyUI-GGUF",
+                    "repo": "https://github.com/city96/ComfyUI-GGUF.git",
+                    "ref": _NODE_SHA_GGUF,
+                    "install_requirements": True,
+                },
+                {
+                    "name": "ComfyUI_IPAdapter_plus",
+                    "repo": "https://github.com/cubiq/ComfyUI_IPAdapter_plus.git",
+                    "ref": _NODE_SHA_IPADAPTER,
+                    "install_requirements": True,
+                },
+            ],
+        )
+        consumer_file = _write_nodes_yaml(
+            tmp_path / "consumer-nodes.yaml",
+            [
+                # Same name as an Atlas node → Atlas first-wins; consumer ref shadowed.
+                {
+                    "name": "ComfyUI_IPAdapter_plus",
+                    "repo": "https://github.com/cubiq/ComfyUI_IPAdapter_plus.git",
+                    "ref": _NODE_SHA_SHADOW,
+                    "install_requirements": True,
+                },
+                # Consumer-only node (no model requires it; active via from_consumer).
+                {
+                    "name": "comfyui-krea2edit",
+                    "repo": "https://github.com/krea-ai/comfyui-krea2edit.git",
+                    "ref": _NODE_SHA_KREA,
+                },
+            ],
+        )
+
+        # Isolate from the real repo allowlist so the test does not depend on
+        # services/comfyui/custom-nodes.yaml contents at runtime.
+        import utils.comfyui_custom_nodes as ccn
+        monkeypatch.setattr(ccn, "_host_repo_custom_nodes", lambda: atlas_file)
+
+        catalog = [
+            _entry(
+                "FluxGGUF",
+                requires_custom_node=("ComfyUI-GGUF", "ComfyUI_IPAdapter_plus"),
+            ),
+        ]
+        env = {
+            "COMFYUI_SOURCE": "container",
+            "COMFYUI_USER_MODELS": "FluxGGUF",
+            "COMFYUI_CUSTOM_NODES_FILE": str(consumer_file),
+        }
+
+        import utils.comfyui_resolver as resolver
+        monkeypatch.setattr(resolver, "active_comfyui_models", lambda e, **kw: catalog)
+
+        ComfyUIManifestGenerator(env).write(tmp_path)
+
+        lines = (tmp_path / "active-custom-nodes.tsv").read_text(encoding="utf-8").splitlines()
+        names = [line.split("\t")[0] for line in lines]
+        # Atlas-ordered first (GGUF, IPAdapter), then the consumer-only node;
+        # the duplicate IPAdapter name appears exactly once.
+        assert names == ["ComfyUI-GGUF", "ComfyUI_IPAdapter_plus", "comfyui-krea2edit"]
+        # First-wins: TSV carries the Atlas IPAdapter ref, not the consumer shadow ref.
+        ipadapter_row = next(
+            line for line in lines if line.startswith("ComfyUI_IPAdapter_plus\t")
+        )
+        assert _NODE_SHA_IPADAPTER in ipadapter_row
+        assert _NODE_SHA_SHADOW not in ipadapter_row
+
+    def test_consumer_only_node_written_without_model_requirement(
+        self, tmp_path, monkeypatch
+    ):
+        """#905 fix: a from_consumer node NOT in any active model's
+        ``requires_custom_node`` is still written to the install TSV.
+
+        Pre-fix this was dropped by the model-gating predicate; the
+        ``or node.from_consumer`` clause in ``active_custom_nodes`` keeps it.
+        """
+        atlas_file = _write_nodes_yaml(
+            tmp_path / "atlas-nodes.yaml",
+            [
+                {
+                    "name": "ComfyUI-GGUF",
+                    "repo": "https://github.com/city96/ComfyUI-GGUF.git",
+                    "ref": _NODE_SHA_GGUF,
+                    "install_requirements": True,
+                },
+            ],
+        )
+        consumer_file = _write_nodes_yaml(
+            tmp_path / "consumer-nodes.yaml",
+            [
+                {
+                    "name": "comfyui-krea2edit",
+                    "repo": "https://github.com/krea-ai/comfyui-krea2edit.git",
+                    "ref": _NODE_SHA_KREA,
+                },
+            ],
+        )
+
+        import utils.comfyui_custom_nodes as ccn
+        monkeypatch.setattr(ccn, "_host_repo_custom_nodes", lambda: atlas_file)
+
+        # Active model requires NO custom nodes — the consumer node must still appear.
+        catalog = [_entry("PlainSDXL")]
+        env = {
+            "COMFYUI_SOURCE": "container",
+            "COMFYUI_USER_MODELS": "PlainSDXL",
+            "COMFYUI_CUSTOM_NODES_FILE": str(consumer_file),
+        }
+
+        import utils.comfyui_resolver as resolver
+        monkeypatch.setattr(resolver, "active_comfyui_models", lambda e, **kw: catalog)
+
+        ComfyUIManifestGenerator(env).write(tmp_path)
+
+        lines = (tmp_path / "active-custom-nodes.tsv").read_text(encoding="utf-8").splitlines()
+        names = [line.split("\t")[0] for line in lines]
+        assert "comfyui-krea2edit" in names, (
+            "Consumer-declared node was dropped — #905 regression: "
+            "from_consumer nodes must be active unconditionally."
+        )
+        # The Atlas node (model-gated, not required by PlainSDXL) is correctly absent,
+        # proving the unconditional clause only lifts consumer nodes, not Atlas ones.
+        assert "ComfyUI-GGUF" not in names
+
+    @pytest.mark.parametrize(
+        "field,value",
+        [
+            ("name", "Bad\tName"),
+            ("name", "Bad\nName"),
+            ("name", "Bad\rName"),
+            ("repo", "https://github.com/x/y.git\tinjected"),
+            ("repo", "https://github.com/x/y.git\ninjected"),
+            ("ref", "abc\tdef"),
+            ("ref", "abc\ndef"),
+        ],
+    )
+    def test_custom_node_tsv_rejects_unsafe_fields(
+        self, tmp_path, monkeypatch, field, value
+    ):
+        """#905 preserves the TSV field-escaping contract: a custom-node field
+        containing a tab / newline / carriage-return must raise rather than
+        shift TSV columns (mirrors ``test_tsv_rejects_unsafe_fields`` for the
+        custom-node install plan)."""
+        base: dict = {
+            "name": "SafeNode",
+            "repo": "https://github.com/foo/bar.git",
+            "ref": "a" * 40,
+            "install_requirements": False,
+        }
+        base[field] = value
+        bad_node = ComfyUICustomNode(**base)
+
+        # Bypass the loader (which would reject some of these) so we exercise
+        # the TSV-write guard in ``_safe_custom_node_field`` directly.
+        import utils.comfyui_custom_nodes as ccn
+        monkeypatch.setattr(
+            ccn, "active_custom_nodes", lambda entries, env=None: [bad_node]
+        )
+
+        catalog = [_entry("AnyModel", filename="any.safetensors")]
+        import utils.comfyui_resolver as resolver
+        monkeypatch.setattr(resolver, "active_comfyui_models", lambda e, **kw: catalog)
+
+        env = {"COMFYUI_SOURCE": "container", "COMFYUI_USER_MODELS": "AnyModel"}
+        with pytest.raises(ValueError):
+            ComfyUIManifestGenerator(env).write(tmp_path)
 
 
 # ---------------------------------------------------------------------------

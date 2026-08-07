@@ -9,6 +9,21 @@
 # dependency management. The AI-Dock provisioning hook clones the node
 # repositories into the comfyui-custom-nodes volume and installs requirements
 # through the ComfyUI runtime Python environment.
+#
+# `mps_unsafe: true` (optional) pre-skips a node under
+# COMFYUI_SOURCE=managed-localhost-mps — use for nodes shipping CUDA/x86-only
+# native wheels that cannot build on Apple Silicon. Naming mirrors
+# _MPS_UNSAFE_PRECISIONS in comfyui_mps_manager. Container-source installs are
+# unaffected (the field is MPS-only).
+#
+# Consumer manifests may contribute additional nodes via `custom_nodes.comfyui`
+# in atlas.consumer.yml (a path or path-list to a consumer-authored file with
+# the same schema). The Atlas-shipped file here is ALWAYS present in the merged
+# allowlist (catalog models reference its nodes), and Atlas wins on name
+# collision; consumer-declared nodes are active unconditionally (a model need
+# not reference them — e.g. an edit-workflow node). The same pinned-SHA +
+# GitHub HTTPS discipline is enforced at consumer-manifest load and at provision
+# time, so a consumer cannot bypass it.
 
 custom_nodes:
   - name: ComfyUI_IPAdapter_plus
