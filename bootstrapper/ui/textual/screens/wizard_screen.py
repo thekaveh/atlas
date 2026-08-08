@@ -447,6 +447,12 @@ class WizardScreen(Screen):
         Binding("w", "filter_warns", "Warns only", show=False, priority=True),
         Binding("i", "filter_info", "Info only", show=False, priority=True),
         Binding("s", "filter_sources", "Sources", show=False, priority=True),
+        # Tab switching: number keys jump directly, shift+tab cycles
+        # backward. ``tab`` (no shift) is already bound to
+        # toggle_search_focus and is left untouched.
+        Binding("1", "show_setup", "Setup tab", show=False, priority=True),
+        Binding("2", "show_logs", "Logs tab", show=False, priority=True),
+        Binding("shift+tab", "cycle_tab(-1)", "Prev tab", show=False, priority=True),
     ]
 
     DEFAULT_CSS = """
@@ -678,6 +684,31 @@ class WizardScreen(Screen):
         self._footer.update_hints(
             _STARTUP_HINTS if tab_id == BrandPanel.TAB_LOGS else _SETUP_HINTS
         )
+
+    def action_show_setup(self) -> None:
+        self.show_tab(BrandPanel.TAB_SETUP)
+
+    def action_show_logs(self) -> None:
+        self.show_tab(BrandPanel.TAB_LOGS)
+
+    def action_cycle_tab(self, delta: int) -> None:
+        if not self._logs_enabled:
+            return
+        order = [BrandPanel.TAB_SETUP, BrandPanel.TAB_LOGS]
+        idx = (order.index(self._active_tab) + delta) % len(order)
+        self.show_tab(order[idx])
+
+    def on_click(self, event) -> None:
+        """A click on the brand panel's bottom border row selects a tab."""
+        panel = self._brand_panel
+        if event.widget is not panel:
+            return
+        if event.y != panel.region.height - 1:
+            return
+        for tab_id, (start, end) in panel.tab_spans().items():
+            if start <= event.x <= end:
+                self.show_tab(tab_id)
+                return
 
     def on_mount(self) -> None:
         # Set the compose-line project prefix as EARLY as possible so
@@ -977,6 +1008,9 @@ class WizardScreen(Screen):
           typing.
         * ``toggle_search_focus`` — Tab toggles focus back to the
           option list (symmetric with the Tab-to-enter-search path).
+        * ``show_setup`` / ``show_logs`` / ``cycle_tab`` — ``1``/``2``/
+          shift+tab still switch tabs while searching; digits aren't
+          text the model-name search needs.
 
         Deliberately NOT in the whitelist:
         * ``confirm`` — Enter inside the focused Input emits Textual's
@@ -997,6 +1031,9 @@ class WizardScreen(Screen):
         ):
             _SEARCH_ALLOWED = {
                 "back", "quit_wizard", "move", "toggle_search_focus",
+                # Tab switching stays reachable while searching — digits
+                # aren't text the model-name search needs.
+                "show_setup", "show_logs", "cycle_tab",
             }
             if action not in _SEARCH_ALLOWED:
                 return False

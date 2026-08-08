@@ -159,3 +159,48 @@ def test_launch_phase_worker_error_writes_to_pane_not_toast():
     assert notifications == [], "launch-phase failure must not pop a toast"
     assert len(pane_writes) == 1
     assert "kaboom" in pane_writes[0]
+
+
+def test_number_keys_switch_tabs_once_logs_are_enabled():
+    scr = _screen()
+
+    async def scenario():
+        async with _App(scr).run_test(size=(140, 44)) as pilot:
+            await pilot.pause()
+            # Logs are gated before launch: "2" must be a no-op.
+            await pilot.press("2")
+            await pilot.pause()
+            before = scr.active_tab
+            scr._logs_enabled = True
+            await pilot.press("2")
+            await pilot.pause()
+            after = scr.active_tab
+            await pilot.press("1")
+            await pilot.pause()
+            return before, after, scr.active_tab
+
+    before, after, back = asyncio.run(scenario())
+
+    assert before == BrandPanel.TAB_SETUP, "Logs must be gated before launch"
+    assert after == BrandPanel.TAB_LOGS
+    assert back == BrandPanel.TAB_SETUP, "Setup stays reachable after launch"
+
+
+def test_clicking_a_tab_label_on_the_border_switches_tabs():
+    scr = _screen()
+
+    async def scenario():
+        async with _App(scr).run_test(size=(140, 44)) as pilot:
+            await pilot.pause()
+            scr._logs_enabled = True
+            scr._brand_panel.set_tabs(BrandPanel.TAB_SETUP, enabled=True)
+            await pilot.pause()
+            spans = scr._brand_panel.tab_spans()
+            start, end = spans[BrandPanel.TAB_LOGS]
+            panel = scr._brand_panel
+            y = panel.region.height - 1          # bottom border row
+            await pilot.click(BrandPanel, offset=((start + end) // 2, y))
+            await pilot.pause()
+            return scr.active_tab
+
+    assert asyncio.run(scenario()) == BrandPanel.TAB_LOGS
