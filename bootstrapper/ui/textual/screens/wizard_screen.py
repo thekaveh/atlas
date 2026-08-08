@@ -31,6 +31,7 @@ from collections import deque
 import contextlib
 import math
 import os
+import shlex
 import signal
 import sys
 import tempfile
@@ -82,19 +83,26 @@ _FAMILY_FLAG_STEM = {
 
 
 def _quote_csv(value: str) -> str:
-    """Shell-quote a command-summary flag VALUE so the line stays pasteable.
+    """Shell-quote a command-summary flag VALUE so the line stays pasteable
+    — and safe — when copied into a real shell.
 
     The summary advertises a copy-pasteable ``./start.sh`` invocation, so a
     value must be the literal the flag accepts — never a description like
-    ``3 selected (...)``, which Click parses as a positional argument. CSV
-    model lists are wrapped in double quotes because they contain commas (and
-    may contain shell-significant characters); embedded quotes are escaped.
+    ``3 selected (...)``, which Click parses as a positional argument.
+
+    Delegates to the stdlib ``shlex.quote`` rather than hand-rolling the
+    escaping. A prior hand-rolled version only escaped ``\\`` and ``"``
+    inside its own double quotes and left other shell-significant
+    characters (``$``, backtick, …) untouched — ``_quote_csv('a`echo
+    PWNED`')`` round-tripped through bash as ``a`echo PWNED``, actually
+    RUNNING the substitution when the summary line was pasted. Reachable
+    inputs are user-controlled: ``--ollama-custom-models`` is free-text,
+    and ``--openai/anthropic/openrouter-models`` values come from a live
+    remote ``/v1/models`` response. ``shlex.quote('')`` already renders a
+    valid empty-string shell literal (``''``), so the flag still gets
+    something it accepts with no special-casing needed here.
     """
-    if not value:
-        return '""'
-    if any(ch in value for ch in ' ,"\'$`\\;&|<>()*?[]{}#~!'):
-        return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
-    return value
+    return shlex.quote(value)
 
 _FAILURE_LOG_TIMEOUT_SECONDS = 60.0
 _FAILURE_HINT_BUFFER_BYTES = 64 * 1024

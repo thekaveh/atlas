@@ -82,13 +82,48 @@ def test_model_flag_values_are_pasteable_literals():
     quoted = _quote_csv(csv)
 
     assert "selected" not in quoted
-    assert quoted == f'"{csv}"', "CSV values must be quoted (they contain commas)"
     # A single bare token needs no quoting.
     assert _quote_csv("llama3.2") == "llama3.2"
-    # Empty renders as an explicit empty string, not a description.
-    assert _quote_csv("") == '""'
-    # Shell-significant characters are escaped, not passed through raw.
-    assert _quote_csv('a"b') == '"a\\"b"'
+
+
+def test_quote_csv_round_trips_through_a_real_shell():
+    """Regression: a prior hand-rolled ``_quote_csv`` only escaped ``\\``
+    and ``"`` inside its own double quotes, leaving other shell-significant
+    characters untouched. Reproduced live in bash:
+
+        _quote_csv('my$model')      -> "my$model"      -> bash yields  my
+        _quote_csv('a`echo PWNED`') -> "a`echo PWNED`"  -> bash yields  aPWNED
+                                                            (substitution RAN)
+
+    ``--ollama-custom-models`` is wizard free-text, and the
+    ``--openai/anthropic/openrouter-models`` values come from a live remote
+    ``/v1/models`` response — both reachable by an untrusted/unexpected
+    value. The fix delegates to the stdlib ``shlex.quote``, so the contract
+    to assert is round-tripping through a real shell tokenizer
+    (``shlex.split``), not pinning any particular implementation's quoting
+    style.
+    """
+    import shlex
+
+    from ui.textual.screens.wizard_screen import _quote_csv
+
+    values = [
+        "llama3.2",
+        "nomic-embed-text,qwen3-embedding:0.6b,qwen3.6:latest",
+        'a"b',
+        "my$model",
+        "a`echo PWNED`",
+        "it's a test",
+        "has space",
+        "has,comma",
+        "",
+    ]
+    for value in values:
+        quoted = _quote_csv(value)
+        assert shlex.split(quoted) == [value], (
+            f"_quote_csv({value!r}) -> {quoted!r} did not round-trip through "
+            "shlex.split back to the original value"
+        )
 
 
 def test_set_flags_updates_state_and_rebuilds_flat_text(monkeypatch):
