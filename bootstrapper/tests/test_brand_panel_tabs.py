@@ -135,5 +135,11 @@ def test_byline_renders_alone_before_set_tabs_called():
     assert "github.com/thekaveh/atlas" in row, "full repo URL must not be truncated"
     assert "…" not in row, "byline should not be ellipsized (no … character)"
 
-    # Border structure should start with ╰─ (left corner + border line).
+    # Border structure: should start with continuous dashes after corner (no space artifact).
+    # Old (correct): ╰───────...
+    # New (artifact): ╰─ ────... (stray space at index 2)
     assert row.startswith("╰─"), f"border should start with '╰─', got: {row[:4]}"
+    assert row[2] == "─", (
+        f"no gap artifact: index 2 should be dash (─), not space; "
+        f"got '{row[2]}' in row[:10]='{row[:10]}'"
+    )

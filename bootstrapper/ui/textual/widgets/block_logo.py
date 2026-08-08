@@ -220,28 +220,39 @@ class BrandPanel(Container):
     def _render_border(self) -> None:
         if self.tagline:
             self.border_title = f" {self.tagline} "
-        left = self._tab_segment()
-        right = self._byline()
-        # Available width for border content, accounting for:
-        # - 2 chars: left (╰) and right (╯) border corners
-        # - ~2 chars: Textual's implicit gap-padding around the border_subtitle
-        #   (depends on CSS: border: round; padding: 0; border-subtitle-align: left).
-        inner = max(0, self.size.width - 4)
-        pad = max(1, inner - len(left) - len(right))
-        self.border_subtitle = left + "─" * pad + right
 
-        # Adjust tab spans to account for the border rendering offset.
-        # Textual renders the border_subtitle on the bottom border as:
-        #   ╰─ [implicit-gap] border_subtitle_content [implicit-gap] ─╯
-        # The offset (3) = corner (╰) + line (─) + implicit-gap-left.
-        # This constant depends on CSS: border: round; padding: 0; border-subtitle-align: left.
-        # If CSS changes (border style, padding, alignment), this offset may need adjustment.
-        if self._tabs_enabled and self._tab_spans:
-            border_offset = 3
-            adjusted_spans = {}
-            for tab_id, (start, end) in self._tab_spans.items():
-                adjusted_spans[tab_id] = (start + border_offset, end + border_offset)
-            self._tab_spans = adjusted_spans
+        if not self._tabs_enabled:
+            # Byline-only path (original behavior): use right-alignment and let Textual fill dashes.
+            # This avoids the implicit-gap artifact that occurs when left-aligned padding starts
+            # with dashes (╰─ gap ───... would appear). Instead: ╰────── byline.
+            self.styles.border_subtitle_align = "right"
+            self.border_subtitle = self._byline()
+        else:
+            # Tabs-enabled path: left-aligned with manual padding to position tabs+byline.
+            # The implicit gap after the corner is unavoidable with left-alignment;
+            # tabs and their separator account for it via border_offset.
+            self.styles.border_subtitle_align = "left"
+            left = self._tab_segment()
+            right = self._byline()
+            # Available width for border content, accounting for:
+            # - 2 chars: left (╰) and right (╯) border corners
+            # - ~2 chars: Textual's implicit gap-padding around the border_subtitle
+            inner = max(0, self.size.width - 4)
+            pad = max(1, inner - len(left) - len(right))
+            self.border_subtitle = left + "─" * pad + right
+
+            # Adjust tab spans to account for the border rendering offset.
+            # Textual renders the border_subtitle on the bottom border as:
+            #   ╰─ [implicit-gap] border_subtitle_content ─╯
+            # The offset (3) = corner (╰) + line (─) + implicit-gap-left.
+            # This constant depends on CSS: border: round; padding: 0; border-subtitle-align: left.
+            # If CSS changes (border style, padding, alignment), this offset may need adjustment.
+            if self._tab_spans:
+                border_offset = 3
+                adjusted_spans = {}
+                for tab_id, (start, end) in self._tab_spans.items():
+                    adjusted_spans[tab_id] = (start + border_offset, end + border_offset)
+                self._tab_spans = adjusted_spans
 
     def on_mount(self) -> None:
         self._render_border()
