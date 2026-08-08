@@ -68,12 +68,14 @@ class CommandSummary(Container):
     CommandSummary {
         height: auto;
         max-height: 6;          /* MAX_BODY_ROWS + border (2) */
+        min-height: 3;          /* border + 1 row: yields on short terminals
+                                   rather than colliding with the footer */
         overflow-y: auto;
         overflow-x: hidden;
         border: round #2b2f4a;
         background: #0e0f18;
         padding: 0 1;
-        margin-top: 1;
+        margin-top: 1;   /* gutter between the prompt panel and this one */
         scrollbar-size-vertical: 1;
     }
     CommandSummary > Static {

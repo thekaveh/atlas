@@ -72,6 +72,22 @@ _FAMILY_FLAG_STEM = {
     "celery-worker": "celery",
 }
 
+
+def _quote_csv(value: str) -> str:
+    """Shell-quote a command-summary flag VALUE so the line stays pasteable.
+
+    The summary advertises a copy-pasteable ``./start.sh`` invocation, so a
+    value must be the literal the flag accepts — never a description like
+    ``3 selected (...)``, which Click parses as a positional argument. CSV
+    model lists are wrapped in double quotes because they contain commas (and
+    may contain shell-significant characters); embedded quotes are escaped.
+    """
+    if not value:
+        return '""'
+    if any(ch in value for ch in ' ,"\'$`\\;&|<>()*?[]{}#~!'):
+        return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+    return value
+
 _FAILURE_LOG_TIMEOUT_SECONDS = 60.0
 _FAILURE_HINT_BUFFER_BYTES = 64 * 1024
 _PROCESS_TERMINATION_GRACE_SECONDS = 2.0
@@ -435,11 +451,29 @@ class WizardScreen(Screen):
         height: 1fr;
         padding: 0 2;
     }
-    WizardScreen #info-section { width: 100%; height: auto; }
+    /* Panels are flush by default (margin: 0), so consecutive round borders
+       butt together and the stack reads as one fused block. A top margin on
+       each subsequent panel lets the screen background show through as a real
+       gutter between them. */
+    WizardScreen #info-section { width: 100%; height: auto; margin-top: 1; }
     WizardScreen #lower-pane {
         width: 100%;
+        /* Keeps absorbing the leftover height (so the footer stays pinned to
+           the bottom), but the slack must not land BETWEEN the prompt and the
+           command summary — that was the unseemly gap above the shortcuts bar.
+           The prompt takes the slack (1fr, below) and the summary is pushed
+           flush against the footer. */
         height: 1fr;
+        margin-top: 1;
+        /* On a short terminal the children can want more rows than the pane
+           has; clip inside the pane instead of letting the summary spill over
+           the footer. */
+        overflow: hidden;
     }
+    /* Prompt absorbs #lower-pane's spare height so the command summary sits
+       directly above the footer instead of leaving a void beneath it. */
+    WizardScreen #lower-pane > PromptPanel { height: 1fr; }
+    WizardScreen > #wizard-body > FooterBar { margin-top: 1; }
     WizardScreen AtlasSplash { layer: overlay; width: 100%; height: 100%; }
     """
 
@@ -1285,11 +1319,11 @@ class WizardScreen(Screen):
                     continue  # degraded fetch — selection kept, no flag
                 csv = (value or "").strip()
                 if csv == "":
-                    flags.append((f"--{provider}-models", "(none — provider disabled)"))
-                else:
-                    n = csv.count(",") + 1
-                    short = csv if len(csv) <= 60 else csv[:57] + "..."
-                    flags.append((f"--{provider}-models", f"{n} selected ({short})"))
+                    continue  # nothing selected — no flag to emit
+                # The summary is a COPY-PASTEABLE command: --X-models takes a
+                # comma-separated string, so emit the CSV itself (quoted — it
+                # contains commas), never a "N selected (...)" description.
+                flags.append((f"--{provider}-models", _quote_csv(csv)))
                 continue
 
             # Ollama models step (single unified [pulled]/[library] view).
@@ -1300,18 +1334,15 @@ class WizardScreen(Screen):
                 csv = (value or "").strip()
                 if csv == "":
                     continue
-                n = csv.count(",") + 1
-                short = csv if len(csv) <= 60 else csv[:57] + "..."
-                flags.append(("--ollama-models", f"{n} selected ({short})"))
+                flags.append(("--ollama-models", _quote_csv(csv)))
                 continue
             if step.title == OLLAMA_CUSTOM_TITLE:
                 if value in (SECRET_KEEP, "", None):
                     continue
                 if value == SECRET_CLEAR:
-                    flags.append(("--ollama-custom-models", "(cleared)"))
+                    flags.append(("--ollama-custom-models", '""'))  # explicit clear
                 else:
-                    short = value if len(value) <= 60 else value[:57] + "..."
-                    flags.append(("--ollama-custom-models", short))
+                    flags.append(("--ollama-custom-models", _quote_csv(value.strip())))
                 continue
 
             # Meta steps (cold, hosts) — only show when non-default.

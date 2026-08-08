@@ -69,6 +69,28 @@ def test_panel_height_is_bounded_and_scrollable():
     assert CommandSummary.MAX_BODY_ROWS > 0
 
 
+def test_model_flag_values_are_pasteable_literals():
+    """``--X-models`` takes a CSV, so the summary must emit the CSV itself.
+
+    It previously rendered ``--ollama-models 3 selected (a,b,c)``, which Click
+    parses as a flag value plus stray positional args — the panel advertises a
+    copy-pasteable command, so a human-readable description is a defect.
+    """
+    from ui.textual.screens.wizard_screen import _quote_csv
+
+    csv = "nomic-embed-text,qwen3-embedding:0.6b,qwen3.6:latest"
+    quoted = _quote_csv(csv)
+
+    assert "selected" not in quoted
+    assert quoted == f'"{csv}"', "CSV values must be quoted (they contain commas)"
+    # A single bare token needs no quoting.
+    assert _quote_csv("llama3.2") == "llama3.2"
+    # Empty renders as an explicit empty string, not a description.
+    assert _quote_csv("") == '""'
+    # Shell-significant characters are escaped, not passed through raw.
+    assert _quote_csv('a"b') == '"a\\"b"'
+
+
 def test_set_flags_updates_state_and_rebuilds_flat_text(monkeypatch):
     """``set_flags`` stores the new flags and re-renders them flat.
 
