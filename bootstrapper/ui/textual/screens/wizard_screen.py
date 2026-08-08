@@ -368,6 +368,7 @@ _LAUNCH_HINTS = [
     (("w",), "warns"),
     (("i",), "info"),
     (("s",), "sources"),
+    (("y",), "copy logs"),
     (("ctrl+q",), "detach"),
 ]
 
@@ -377,6 +378,7 @@ _STARTUP_HINTS = [
     (("w",), "warns"),
     (("i",), "info"),
     (("s",), "sources"),
+    (("y",), "copy logs"),
     (("ctrl+c",), "cancel"),
 ]
 
@@ -454,6 +456,8 @@ class WizardScreen(Screen):
         Binding("1", "show_setup", "Setup tab", show=False, priority=True),
         Binding("2", "show_logs", "Logs tab", show=False, priority=True),
         Binding("shift+tab", "cycle_tab(-1)", "Prev tab", show=False, priority=True),
+        Binding("y", "copy_logs", "Copy logs", show=False, priority=True),
+        Binding("Y", "copy_session_log", "Copy session log", show=False, priority=True),
     ]
 
     DEFAULT_CSS = """
@@ -1041,6 +1045,10 @@ class WizardScreen(Screen):
           ``filter_*`` (``a``/``e``/``w``/``i``), ``toggle`` (Space),
           ``focus_search`` (``/``) — all suppressed so the bound
           letters / Space / slash land in the Input as plain text.
+        * ``copy_logs``/``copy_session_log`` (``y``/``Y``) — likewise not
+          listed: both are printable characters, so Textual's upstream
+          filter already routes them into the Input before this method
+          ever sees them; a whitelist entry here would be dead code.
         """
         if (
             self._phase == "setup"
@@ -1787,6 +1795,30 @@ class WizardScreen(Screen):
     def action_filter_sources(self) -> None:
         if self._phase == "launch" and self._log_chips is not None:
             self._log_chips.toggle_source_picker()
+
+    def action_copy_logs(self) -> None:
+        if self._log_pane is None:
+            return
+        text = self._log_pane.visible_text()
+        if not text:
+            return
+        self.app.copy_to_clipboard(text)
+        self.notify("Log buffer copied to clipboard.", timeout=3)
+
+    def action_copy_session_log(self) -> None:
+        path = self._launch_log_path
+        if path is None:
+            self.notify("No session log yet.", severity="warning", timeout=3)
+            return
+        try:
+            self.app.copy_to_clipboard(Path(path).read_text(encoding="utf-8"))
+        except OSError as exc:
+            self.notify(
+                f"Could not read the session log: {type(exc).__name__}",
+                severity="error", timeout=5,
+            )
+            return
+        self.notify(f"Session log copied ({path}).", timeout=3)
 
     # ─── pipeline + docker compose runner ────────────────────────────
 
