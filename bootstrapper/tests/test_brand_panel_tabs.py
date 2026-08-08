@@ -80,6 +80,7 @@ def test_tab_labels_survive_a_narrow_terminal():
 
 
 def test_tab_spans_map_columns_for_click_routing():
+    """Spans must map to exact bracket positions in the rendered row."""
     panel = _panel()
 
     async def scenario():
@@ -92,7 +93,36 @@ def test_tab_spans_map_columns_for_click_routing():
     spans, row = asyncio.run(scenario())
 
     assert set(spans) == {BrandPanel.TAB_SETUP, BrandPanel.TAB_LOGS}
+
+    # Verify Setup bracket boundaries.
     setup_start, setup_end = spans[BrandPanel.TAB_SETUP]
     assert setup_start < setup_end
-    # The recorded span must actually cover the rendered label.
-    assert "Setup" in row[setup_start:setup_end + 2]
+    assert row[setup_start] == "[", f"Setup start should be '[', got '{row[setup_start]}'"
+    assert row[setup_end - 1] == "]", f"Setup end-1 should be ']', got '{row[setup_end - 1]}'"
+    assert "Setup" in row[setup_start:setup_end]
+
+    # Verify Logs bracket boundaries.
+    logs_start, logs_end = spans[BrandPanel.TAB_LOGS]
+    assert logs_start < logs_end
+    assert row[logs_start] == "[", f"Logs start should be '[', got '{row[logs_start]}'"
+    assert row[logs_end - 1] == "]", f"Logs end-1 should be ']', got '{row[logs_end - 1]}'"
+    assert "Logs" in row[logs_start:logs_end]
+
+
+def test_byline_renders_alone_before_set_tabs_called():
+    """Before set_tabs() is called, render byline only (no tab chrome)."""
+    panel = _panel()
+
+    async def scenario():
+        async with _App(panel).run_test(size=(140, 12)) as pilot:
+            await pilot.pause()
+            # Do NOT call set_tabs(); tabs should not appear
+            return _bottom_border(pilot.app)
+
+    row = asyncio.run(scenario())
+
+    # Tab labels should not appear before set_tabs() is called.
+    assert "Setup" not in row, "tabs should not render before set_tabs() is called"
+    assert "Logs" not in row
+    # Byline should still be present.
+    assert "Kaveh Razavi" in row

@@ -177,15 +177,35 @@ class BrandPanel(Container):
 
     def _tab_segment(self) -> str:
         """Left-hand tab labels. Brackets are ESCAPED: Textual consumes a bare
-        "[" in a border subtitle as console markup and the label vanishes."""
+        "[" in a border subtitle as console markup and the label vanishes.
+
+        Returns empty string if tabs are not enabled, preserving the original
+        byline-only mode when set_tabs() has not been called.
+        """
+        if not self._tabs_enabled:
+            self._tab_spans = {}
+            return ""
+
         out = " "
         self._tab_spans = {}
+        # Track position in rendered output (after escapes are resolved to displayed chars).
+        # Each \[ renders as [ (1 char), so rendered_pos grows by bracket_len + space.
+        rendered_pos = len(out)
+
         for tab_id, label in self._TAB_LABELS:
-            start = len(out)
             marker = "▸" if tab_id == self._active_tab else " "
+            # Measure just the bracket content (without the trailing space).
+            bracket_content_len = len(f"[{marker} {label} ]")
+
+            start = rendered_pos
+            end = rendered_pos + bracket_content_len
+            self._tab_spans[tab_id] = (start, end)
+
+            # Add the full tab string with trailing space to the raw output.
             out += rf"\[{marker} {label} ] "
-            # Span excludes the escape backslash so it matches rendered columns.
-            self._tab_spans[tab_id] = (start, len(out) - 1)
+            # Advance rendered position by bracket length + space.
+            rendered_pos += bracket_content_len + 1
+
         return out
 
     def tab_spans(self) -> dict[str, tuple[int, int]]:
@@ -205,6 +225,16 @@ class BrandPanel(Container):
         inner = max(0, self.size.width - 2)
         pad = max(1, inner - len(left) - len(right))
         self.border_subtitle = left + "─" * pad + right
+
+        # Adjust tab spans to account for the border rendering offset.
+        # The border structure is: ╰─  + border_subtitle_content + ...
+        # The offset (3) accounts for the left corner, border line, and spacing.
+        if self._tabs_enabled and self._tab_spans:
+            border_offset = 3
+            adjusted_spans = {}
+            for tab_id, (start, end) in self._tab_spans.items():
+                adjusted_spans[tab_id] = (start + border_offset, end + border_offset)
+            self._tab_spans = adjusted_spans
 
     def on_mount(self) -> None:
         self._render_border()
