@@ -444,6 +444,58 @@ def read_session_log_tail(path: Path, cap_bytes: int = SESSION_LOG_COPY_CAP_BYTE
     return f"… truncated, full log at {path}\n{tail}"
 
 
+# WizardScreen.check_action's search-focus whitelist — module-level so the
+# set is allocated once (not rebuilt on every keypress that reaches
+# check_action) and so this rationale, built up over two review rounds
+# plus a live Textual probe, lives in exactly one place.
+#
+# The wizard's keyboard model binds bare letters (``f``, ``a``, ``e``,
+# ``w``, ``i``, ``j``, ``k``) and ``space`` with ``priority=True``. That's
+# the right default while focus sits on the non-focusable option list, but
+# it makes the search box useless: typing ``"qwen"`` would hijack the
+# ``"w"`` to fire ``filter_warns``. The whitelist below names the actions
+# that STAY enabled while search is focused — every other action returns
+# ``False`` from ``check_action`` so the key flows through to the Input.
+#
+# Whitelist:
+# * ``back`` — Esc unfocuses the search (see ``action_back``).
+# * ``quit_wizard`` — Ctrl+Q stays a universal escape hatch.
+# * ``move`` — arrow keys still walk the option list. Textual ``Input``
+#   uses left/right for cursor movement, leaving up/down free to
+#   live-preview the narrowed results while typing.
+# * ``toggle_search_focus`` — Tab toggles focus back to the option list
+#   (symmetric with the Tab-to-enter-search path).
+# * ``cycle_tab`` — shift+tab still cycles tabs while searching.
+#   ``show_setup``/``show_logs`` (bound to ``1``/``2``) do NOT need an
+#   entry here: Textual's ``Screen._binding_chain`` already strips any
+#   *printable*-character priority binding — digits included — from every
+#   ancestor namespace once an ``Input`` has focus (``Input.check_
+#   consume_key`` returns True for any printable character), so ``1``/
+#   ``2`` never reach ``check_action`` while the search box is focused;
+#   they simply land in the Input as text. ``shift+tab`` is NOT a
+#   printable character, so it survives that upstream filter and still
+#   needs the explicit whitelist entry below.
+#
+# Deliberately NOT in the whitelist:
+# * ``confirm`` — Enter inside the focused Input emits Textual's
+#   ``Input.Submitted`` message, which ``PromptPanel.on_input_submitted``
+#   catches and routes to ``unfocus_search()``. The step's commit-Enter is
+#   reachable as soon as focus is back on the option list. The user picks
+#   the explicit "I'm done searching" moment instead of accidentally
+#   committing the whole multiselect while mid-keystroke.
+# * ``vim_move`` (``j``/``k``), ``cycle_filter`` (``f``), ``filter_*``
+#   (``a``/``e``/``w``/``i``), ``toggle`` (Space), ``focus_search``
+#   (``/``) — all suppressed so the bound letters / Space / slash land in
+#   the Input as plain text.
+# * ``copy_logs``/``copy_session_log`` (``y``/``Y``) — likewise not
+#   listed: both are printable characters, so Textual's upstream filter
+#   already routes them into the Input before this method ever sees them;
+#   a whitelist entry here would be dead code.
+_SEARCH_ALLOWED_ACTIONS = frozenset({
+    "back", "quit_wizard", "move", "toggle_search_focus", "cycle_tab",
+})
+
+
 class WizardScreen(Screen):
     """Setup wizard + in-place log streaming."""
 
@@ -1037,68 +1089,17 @@ class WizardScreen(Screen):
         """Suppress screen-level priority bindings while the search
         input has focus, so typed keys land in the Input as text.
 
-        The wizard's keyboard model binds bare letters (``f``, ``a``,
-        ``e``, ``w``, ``i``, ``j``, ``k``) and ``space`` with
-        ``priority=True``. That's the right default while focus sits
-        on the non-focusable option list, but it makes the search box
-        useless: typing ``"qwen"`` would hijack the ``"w"`` to fire
-        ``filter_warns``. The whitelist below names the actions that
-        STAY enabled while search is focused — every other action
-        returns ``False`` so the key flows through to the Input.
-
-        Whitelist:
-        * ``back`` — Esc unfocuses the search (see ``action_back``).
-        * ``quit_wizard`` — Ctrl+Q stays a universal escape hatch.
-        * ``move`` — arrow keys still walk the option list. Textual
-          ``Input`` uses left/right for cursor movement, leaving
-          up/down free to live-preview the narrowed results while
-          typing.
-        * ``toggle_search_focus`` — Tab toggles focus back to the
-          option list (symmetric with the Tab-to-enter-search path).
-        * ``cycle_tab`` — shift+tab still cycles tabs while searching.
-          ``show_setup``/``show_logs`` (bound to ``1``/``2``) do NOT need
-          an entry here: Textual's ``Screen._binding_chain`` already
-          strips any *printable*-character priority binding — digits
-          included — from every ancestor namespace once an ``Input`` has
-          focus (``Input.check_consume_key`` returns True for any
-          printable character), so ``1``/``2`` never reach
-          ``check_action`` while the search box is focused; they simply
-          land in the Input as text. ``shift+tab`` is NOT a printable
-          character, so it survives that upstream filter and still needs
-          the explicit whitelist entry below.
-
-        Deliberately NOT in the whitelist:
-        * ``confirm`` — Enter inside the focused Input emits Textual's
-          ``Input.Submitted`` message, which ``PromptPanel.on_input_
-          submitted`` catches and routes to ``unfocus_search()``. The
-          step's commit-Enter is reachable as soon as focus is back
-          on the option list. The user picks the explicit "I'm done
-          searching" moment instead of accidentally committing the
-          whole multiselect while mid-keystroke.
-        * ``vim_move`` (``j``/``k``), ``cycle_filter`` (``f``),
-          ``filter_*`` (``a``/``e``/``w``/``i``), ``toggle`` (Space),
-          ``focus_search`` (``/``) — all suppressed so the bound
-          letters / Space / slash land in the Input as plain text.
-        * ``copy_logs``/``copy_session_log`` (``y``/``Y``) — likewise not
-          listed: both are printable characters, so Textual's upstream
-          filter already routes them into the Input before this method
-          ever sees them; a whitelist entry here would be dead code.
+        See ``_SEARCH_ALLOWED_ACTIONS`` (module level, above this class)
+        for the full whitelist rationale, including the
+        ``Screen._binding_chain`` / ``Input.check_consume_key`` mechanism
+        that lets some printable-character bindings skip the whitelist
+        entirely.
         """
         if (
             self._phase == "setup"
             and self._prompt.has_search_focus()
         ):
-            _SEARCH_ALLOWED = {
-                "back", "quit_wizard", "move", "toggle_search_focus",
-                # shift+tab still cycles tabs while searching. show_setup/
-                # show_logs (1/2) need no entry here — Textual's upstream
-                # printable-key filter (Input.check_consume_key) already
-                # strips digit priority bindings before check_action ever
-                # runs; only non-printable shift+tab reaches this far. See
-                # the docstring above for the full mechanism.
-                "cycle_tab",
-            }
-            if action not in _SEARCH_ALLOWED:
+            if action not in _SEARCH_ALLOWED_ACTIONS:
                 return False
         return True
 
