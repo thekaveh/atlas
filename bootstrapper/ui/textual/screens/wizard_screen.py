@@ -2,19 +2,26 @@
 WizardScreen — single screen for the entire setup → launch → logs flow.
 
 Layout (top to bottom):
-    BrandPanel (contains BlockLogo)     7 cells
+    BrandPanel (contains BlockLogo)     7 cells — renders Setup/Logs tab
+                                         chrome on its bottom border once
+                                         set_tabs() is called (byline-only
+                                         before that)
     Vertical#wizard-body                1fr
-        Vertical#info-section: InfoPanel        (always visible, auto)
-        Vertical#lower-pane:
-            during setup:  PromptPanel + CommandSummary
-            during launch: LogFilterChips + LogPane
+        Vertical#tab-setup:  (always mounted; hidden once Logs is shown)
+            Vertical#info-section: InfoPanel        (always visible, auto)
+            Vertical#lower-pane: PromptPanel + CommandSummary
+        Vertical#tab-logs:   (always mounted; hidden until launch)
+            LogFilterChips + LogPane
     FooterBar                           3 cells (docked bottom)
 
-No tab bar, no status ribbon — the prompt panel's border carries its
-own title and step counter, so the chrome stays minimal. The service
-status box stays pinned at top, and the lower pane swaps from
-prompt+command-summary to filter-chips+log-pane when the user
-confirms launch.
+#tab-setup and #tab-logs are permanent sibling containers, both built and
+mounted in compose() — never torn down or rebuilt. WizardScreen.show_tab()
+toggles which one has ``display = True``; the other keeps running behind
+the scenes, so the stack overview keeps updating while the user reads
+logs, and the log stream keeps appending while the user is on Setup.
+show_tab() gates the Logs tab behind ``self._logs_enabled``, which only
+flips True in ``_transition_to_launch()`` — so Setup is the only reachable
+tab pre-launch, matching BrandPanel's byline-only chrome until then.
 """
 
 from __future__ import annotations
@@ -724,27 +731,34 @@ class WizardScreen(Screen):
         The auto-launch transition (CLI-flag mode) runs with
         exit_on_error=False; without this, any exception inside it left
         the worker in ERROR state and the user staring at a permanently
-        empty lower pane with no message anywhere.
+        empty Logs tab with no message anywhere. Setup-phase workers
+        (e.g. the cloud-provider options fetch) can fail too, but the
+        Logs tab isn't reachable yet at that point — see the ``_phase``
+        branch below.
         """
         if event.state is not WorkerState.ERROR:
             return
         self._mark_launch_failed()
         err = event.worker.error
         with contextlib.suppress(Exception):
-            if self._log_pane is not None:
-                self._write_status(
-                    f"❌ {event.worker.name or 'background task'} failed: {err}",
-                    style="bold red", source="pipeline",
-                )
-            else:
-                # Setup phase: no log pane exists yet, so _write_status
-                # would no-op and the failure vanished silently. Surface
-                # it as a toast instead.
+            if self._phase == "setup":
+                # The Logs tab is not reachable until launch (it's built
+                # eagerly but stays hidden — see show_tab()/_logs_enabled),
+                # so a setup-phase failure (e.g. the cloud-provider options
+                # fetch worker) must surface as a toast or it is invisible.
+                # ``self._log_pane`` is always non-None now (built eagerly
+                # in __init__), so it can no longer be used to detect
+                # "setup vs. launch" — gate on ``self._phase`` instead.
                 self.notify(
                     str(err),
                     title=f"{event.worker.name or 'Background task'} failed",
                     severity="error",
                     timeout=10,
+                )
+            else:
+                self._write_status(
+                    f"❌ {event.worker.name or 'background task'} failed: {err}",
+                    style="bold red", source="pipeline",
                 )
 
     def _mark_launch_failed(self) -> None:

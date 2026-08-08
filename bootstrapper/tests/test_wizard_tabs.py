@@ -13,6 +13,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "bootstrapper"))
 
 from textual.app import App, ComposeResult  # noqa: E402
+from textual.worker import Worker, WorkerState  # noqa: E402
 
 from ui.textual.screens.wizard_screen import WizardScreen  # noqa: E402
 from ui.textual.widgets.block_logo import BrandPanel  # noqa: E402
@@ -81,3 +82,80 @@ def test_show_tab_swaps_visibility_without_unmounting():
     assert logs_visible is True
     assert active == BrandPanel.TAB_LOGS
     assert still_mounted is True, "hidden body must NOT be unmounted"
+
+
+class _FakeWorker:
+    """Minimal stand-in for textual.worker.Worker — on_worker_state_changed
+    only reads ``.name`` and ``.error`` off the worker object."""
+
+    def __init__(self, name: str, error: Exception) -> None:
+        self.name = name
+        self.error = error
+
+
+def test_setup_phase_worker_error_surfaces_as_toast_not_pane_write():
+    """The Logs tab is unreachable until launch (show_tab() gates it behind
+    _logs_enabled), so a setup-phase worker failure — e.g. the cloud-provider
+    options-fetch worker — must show up as a toast, not a write into the
+    hidden pane the user cannot see. Regression test: _log_pane is built
+    eagerly now (never None), so on_worker_state_changed must branch on
+    self._phase, not on self._log_pane's now-meaningless None-ness.
+    """
+    scr = _screen()
+    notifications: list[tuple[str, str]] = []
+    pane_writes: list[str] = []
+
+    async def scenario():
+        async with _App(scr).run_test(size=(140, 44)) as pilot:
+            await pilot.pause()
+            assert scr._phase == "setup"
+            scr.notify = lambda msg, **kwargs: notifications.append(
+                (msg, kwargs.get("title", ""))
+            )
+            scr._write_status = lambda msg, **kwargs: pane_writes.append(msg)
+
+            event = Worker.StateChanged(
+                _FakeWorker("options-fetch", RuntimeError("boom")),
+                WorkerState.ERROR,
+            )
+            scr.on_worker_state_changed(event)
+            await pilot.pause()
+
+    asyncio.run(scenario())
+
+    assert pane_writes == [], "setup-phase failure must not write to the hidden pane"
+    assert len(notifications) == 1
+    msg, title = notifications[0]
+    assert "boom" in msg
+    assert "options-fetch" in title
+
+
+def test_launch_phase_worker_error_writes_to_pane_not_toast():
+    """Once launched, the Logs tab is visible, so a worker failure should
+    write into the live pane (as before), not pop a toast over it."""
+    scr = _screen()
+    notifications: list[tuple[str, str]] = []
+    pane_writes: list[str] = []
+
+    async def scenario():
+        async with _App(scr).run_test(size=(140, 44)) as pilot:
+            await pilot.pause()
+            scr._logs_enabled = True
+            scr._phase = "launch"
+            scr.notify = lambda msg, **kwargs: notifications.append(
+                (msg, kwargs.get("title", ""))
+            )
+            scr._write_status = lambda msg, **kwargs: pane_writes.append(msg)
+
+            event = Worker.StateChanged(
+                _FakeWorker("pipeline", RuntimeError("kaboom")),
+                WorkerState.ERROR,
+            )
+            scr.on_worker_state_changed(event)
+            await pilot.pause()
+
+    asyncio.run(scenario())
+
+    assert notifications == [], "launch-phase failure must not pop a toast"
+    assert len(pane_writes) == 1
+    assert "kaboom" in pane_writes[0]
