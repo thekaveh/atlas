@@ -189,11 +189,16 @@ class LogPane(RichLog):
                 self._write_record(rec)
 
     def visible_text(self) -> str:
-        """Plain text of the buffered records, for clipboard copy.
+        """Plain text of the records passing the ACTIVE level/source
+        filter, for clipboard copy.
 
-        RichLog is a scrolling container so Textual refuses to drag-select it;
-        this is the explicit copy path instead."""
-        return "\n".join(rec.raw for rec in self._records)
+        RichLog is a scrolling container so Textual refuses to drag-select
+        it; this is the explicit copy path instead. Filtered through
+        ``_passes_filter`` so the copy matches what's actually on screen —
+        not the full unfiltered buffer."""
+        return "\n".join(
+            rec.raw for rec in self._records if self._passes_filter(rec)
+        )
 
     def known_sources(self) -> list[str]:
         seen: list[str] = []

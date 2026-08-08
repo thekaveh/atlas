@@ -410,6 +410,40 @@ def prune_skip_hidden_selections(steps, selections: dict) -> dict:
     return pruned
 
 
+# The session-log tee (``_tee_to_log``) mirrors every streamed compose line
+# for the whole session — unlike LogPane's 10k-record in-memory cap, it has
+# no cap of its own and can grow large on a long multi-service launch. Cap
+# what ``Y`` copies to the clipboard so (a) the read stays fast and (b) the
+# payload stays under typical OSC-52 terminal-side clipboard size ceilings —
+# better to truncate deliberately and say so than let the terminal silently
+# drop an unbounded payload.
+SESSION_LOG_COPY_CAP_BYTES = 2 * 1024 * 1024  # 2 MB
+
+
+def read_session_log_tail(path: Path, cap_bytes: int = SESSION_LOG_COPY_CAP_BYTES) -> str:
+    """Read ``path``, capped to its last ``cap_bytes`` bytes.
+
+    Module-level (like ``prune_skip_hidden_selections`` above) so tests
+    bind to the production logic directly. When truncated, drops a
+    possibly-partial first line (from seeking mid-file) and prepends a
+    one-line marker so the clipboard contents are visibly incomplete
+    rather than silently cut off. Decoding uses ``errors="replace"`` — a
+    log tee is expected to be text, but a decode error here must not raise
+    and be mistaken for a real worker failure.
+    """
+    size = path.stat().st_size
+    if size <= cap_bytes:
+        return path.read_bytes().decode("utf-8", errors="replace")
+    with path.open("rb") as fh:
+        fh.seek(-cap_bytes, 2)
+        data = fh.read()
+    newline = data.find(b"\n")
+    if newline != -1:
+        data = data[newline + 1:]
+    tail = data.decode("utf-8", errors="replace")
+    return f"… truncated, full log at {path}\n{tail}"
+
+
 class WizardScreen(Screen):
     """Setup wizard + in-place log streaming."""
 
@@ -1810,14 +1844,27 @@ class WizardScreen(Screen):
         if path is None:
             self.notify("No session log yet.", severity="warning", timeout=3)
             return
+        # The session-log tee has no cap and can grow large on a long
+        # launch — read it off the UI thread in a worker so ``Y`` can't
+        # freeze the TUI for the duration of the read. A dedicated group
+        # keeps this from colliding with (and cancelling) unrelated
+        # exclusive=True workers — e.g. the pipeline/transition workers —
+        # that run in the default group.
+        self.run_worker(
+            self._copy_session_log_worker(Path(path)),
+            exclusive=True, exit_on_error=False, group="copy_session_log",
+        )
+
+    async def _copy_session_log_worker(self, path: Path) -> None:
         try:
-            self.app.copy_to_clipboard(Path(path).read_text(encoding="utf-8"))
+            text = await asyncio.to_thread(read_session_log_tail, path)
         except OSError as exc:
             self.notify(
                 f"Could not read the session log: {type(exc).__name__}",
                 severity="error", timeout=5,
             )
             return
+        self.app.copy_to_clipboard(text)
         self.notify(f"Session log copied ({path}).", timeout=3)
 
     # ─── pipeline + docker compose runner ────────────────────────────
