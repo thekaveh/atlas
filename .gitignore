@@ -162,3 +162,4 @@ services/_user/
 
 # Per-deployment marker: source commit at which local images were last built (#506)
 .atlas-build-state
+.superpowers/

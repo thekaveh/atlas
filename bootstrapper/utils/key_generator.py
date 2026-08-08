@@ -1169,10 +1169,20 @@ class KeyGenerator:
         # (it embeds the password: "neo4j/<password>"). Track its de-placeholdering
         # explicitly so a partial side-effect write surfaces here rather than only
         # tripping the prod placeholder gate later.
-        results['GRAPH_DB_AUTH'] = (
-            self.get_current_env_value('GRAPH_DB_AUTH')
-            != self.PLACEHOLDER_DEFAULTS.get('GRAPH_DB_AUTH')
-        )
+        #
+        # ...but ONLY when the rotator was actually allowed to run. When this
+        # project's Neo4j volume already exists the rotator deliberately warns
+        # and skips (the password is baked in at first boot and rewriting .env
+        # cannot change it), so GRAPH_DB_PASSWORD — and therefore the composite
+        # GRAPH_DB_AUTH — legitimately stays at the placeholder. Asserting
+        # de-placeholdering unconditionally turned that expected skip into
+        # "Generate encryption keys failed" on every warm start with an existing
+        # graph volume, even though every rotator had succeeded.
+        if force_regenerate or not self._neo4j_db_volume_exists():
+            results['GRAPH_DB_AUTH'] = (
+                self.get_current_env_value('GRAPH_DB_AUTH')
+                != self.PLACEHOLDER_DEFAULTS.get('GRAPH_DB_AUTH')
+            )
         results['REDIS_PASSWORD'] = self.generate_and_update_redis_password(force=False)
         results['DASHBOARD_PASSWORD'] = self.generate_and_update_kong_dashboard_password(force=False)
         results['BACKEND_KONG_API_KEY'] = self.generate_and_update_backend_kong_api_key(force=False)
