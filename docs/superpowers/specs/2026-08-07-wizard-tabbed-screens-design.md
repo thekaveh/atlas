@@ -54,11 +54,11 @@ Switching toggles `display` on `#tab-setup` / `#tab-logs`. Both bodies stay moun
 - the overview keeps updating live while Logs is visible;
 - no widget is unmounted, no worker restarts, no output is lost.
 
-### 4.1 Why not `TabbedContent`
+### 4.1. Why not `TabbedContent`
 
 Textual's `TabbedContent` ships its own tab-bar chrome (underline indicators, its own palette) that conflicts with the rounded-border language, and it consumes a row. The border-subtitle approach spends **zero rows** and is native by construction.
 
-### 4.2 Tab affordance
+### 4.2. Tab affordance
 
 Tabs render on the brand panel's **bottom border**, left-aligned; the existing `by <author> · <license> · v<version> · <repo>` byline stays on the same border, right-aligned. Implemented with one `border_subtitle` string:
 
@@ -98,7 +98,7 @@ No state moves; tabs only change visibility. New state on `WizardScreen`: `_acti
 | Log lines (`_write_status` / `_safe_log` → `LogPane.write_log`) | compose stream + pipeline | Keeps appending. `LogPane` is already bounded (`RichLog(max_lines=10_000)` + `_records` cap), so a long hidden run cannot grow unbounded. |
 | Filter chips (`add_source`) | `LogPane.set_on_new_source` | Unchanged; new sources register regardless of visibility. |
 
-**Side benefit.** Log widgets are created up front (hidden) rather than at transition time, so `_log_pane` is non-`None` during the wizard phase. Wizard-time warnings that currently fall back to a toast (see the `on_worker_state_changed` comment) will land in the log pane and be there when Logs is opened.
+**Consequence — corrected during implementation.** Log widgets are created up front (hidden) rather than at transition time, so `_log_pane` is non-`None` for the screen's whole life. An earlier draft of this spec claimed that as a side benefit ("wizard-time warnings will land in the log pane"). That was wrong, and the Task 2 review caught it: `on_worker_state_changed` used `_log_pane is None` as a sentinel for "still in setup", and its toast fallback became unreachable dead code. A setup-phase worker crash would have written into the hidden, not-yet-reachable Logs tab — invisible until the user finished the whole wizard. That branch must be gated on `self._phase` instead, so setup-phase failures still surface as a toast. Any other behavior keyed off `_log_pane`'s None-ness must be re-checked for the same reason.
 
 ## 7. Selectable / copyable content
 
@@ -106,7 +106,7 @@ Textual 6.2.1 already provides selection: `Widget.ALLOW_SELECT`, `Widget.allow_s
 
 The governing rule is `Widget.allow_select == ALLOW_SELECT and not is_container`, and `Widget.get_selection` extracts only from a `Text` / `Content` render.
 
-### 7.1 Measured behavior
+### 7.1. Measured behavior
 
 | Widget | `is_container` | `allow_select` | Result |
 |---|---|---|---|
@@ -119,14 +119,14 @@ The governing rule is `Widget.allow_select == ALLOW_SELECT and not is_container`
 Verified round-trip on the command summary: a drag selection extracted
 `'./start.sh --base-port 63000 --comfyui-source container-gpu'`, and `App.copy_to_clipboard(text)` emits OSC-52 (works over SSH).
 
-### 7.2 Decision
+### 7.2. Decision
 
 - **Command summary and stack overview:** already selectable. No code change. Confirm in a real terminal and document.
 - **Logs:** two complementary affordances —
   1. **Shift-drag**: terminal-native selection bypasses Textual's mouse capture (iTerm2, Terminal.app, most emulators). Document it in the shortcuts bar and README.
   2. **Copy shortcuts**: `y` copies the visible log buffer; `Y` copies the full session-log contents. Both route through `App.copy_to_clipboard`. Every line is already teed to `/tmp/atlas-launch-<ts>-<unique>.log`, so `Y` has a durable source.
 
-### 7.3 Rejected: replacing `RichLog`
+### 7.3. Rejected: replacing `RichLog`
 
 Swapping `RichLog` for a selectable widget would forfeit the bounded 10k-line buffer, per-source/level filtering, and streaming performance — significant work and regression risk for a capability Shift-drag already provides.
 

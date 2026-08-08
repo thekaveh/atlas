@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.10+, Textual 6.2.1, pytest (headless `App.run_test()`), `uv` for running.
 
-## Global Constraints
+## 1. Global Constraints
 
 - Textual is pinned `textual>=0.85`; installed version is **6.2.1**. Do not add or bump dependencies.
 - Layout only. Do not change the pipeline, compose streaming, service resolution, or any wizard-step logic.
@@ -21,7 +21,7 @@
 
 ---
 
-## File Structure
+## 2. File Structure
 
 | File | Responsibility | Change |
 |---|---|---|
@@ -36,7 +36,7 @@
 
 ---
 
-### Task 1: BrandPanel renders tabs on its bottom border
+### 2.1. Task 1: BrandPanel renders tabs on its bottom border
 
 **Files:**
 - Modify: `bootstrapper/ui/textual/widgets/block_logo.py:107-173`
@@ -329,7 +329,7 @@ git commit -m "feat(tui): render Setup/Logs tabs on the brand panel border"
 
 ---
 
-### Task 2: Split the screen body into two tab containers
+### 2.2. Task 2: Split the screen body into two tab containers
 
 **Files:**
 - Modify: `bootstrapper/ui/textual/screens/wizard_screen.py` — `DEFAULT_CSS` (~line 429), `compose()` (~line 630), `_transition_to_launch()` (~line 1421)
@@ -570,7 +570,7 @@ git commit -m "feat(tui): split wizard body into Setup/Logs tab containers"
 
 ---
 
-### Task 3: Tab switching by keyboard and mouse
+### 2.3. Task 3: Tab switching by keyboard and mouse
 
 **Files:**
 - Modify: `bootstrapper/ui/textual/screens/wizard_screen.py` — `BINDINGS` (~line 408), `check_action()` (~line 908), plus new actions
@@ -694,7 +694,7 @@ git commit -m "feat(tui): switch tabs with 1/2, shift+tab, and border clicks"
 
 ---
 
-### Task 4: Hidden bodies keep streaming, and the budget is reclaimed
+### 2.4. Task 4: Hidden bodies keep streaming, and the budget is reclaimed
 
 **Files:**
 - Test: `bootstrapper/tests/test_wizard_tabs.py` (extend)
@@ -765,7 +765,7 @@ git commit -m "test(tui): guard log streaming while hidden and the log-pane budg
 
 ---
 
-### Task 5: Copy shortcuts for the log pane
+### 2.5. Task 5: Copy shortcuts for the log pane
 
 **Files:**
 - Modify: `bootstrapper/ui/textual/widgets/log_pane.py` (add `visible_text()`)
@@ -904,7 +904,7 @@ git commit -m "feat(tui): add y/Y copy shortcuts for the log pane"
 
 ---
 
-### Task 6: Full validation and CHANGELOG
+### 2.6. Task 6: Full validation and CHANGELOG
 
 **Files:**
 - Modify: `docs/CHANGELOG.md`
@@ -954,7 +954,7 @@ git commit -m "docs(changelog): record the wizard Setup/Logs tab split"
 
 ---
 
-## Self-Review
+## 3. Self-Review
 
 **1. Spec coverage**
 
