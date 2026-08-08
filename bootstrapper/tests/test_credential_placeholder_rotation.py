@@ -102,6 +102,61 @@ def test_graph_db_rotation_skips_when_neo4j_volume_exists(tmp_path, monkeypatch)
     assert kg.get_current_env_value("GRAPH_DB_AUTH") == "neo4j/neo4j_password"
 
 
+def test_generate_missing_keys_succeeds_when_neo4j_volume_locks_rotation(
+    tmp_path, monkeypatch
+):
+    """A warm start with an existing graph volume must NOT fail the step.
+
+    Regression: the GRAPH_DB_AUTH entry asserted de-placeholdering
+    unconditionally, but the rotator that writes it deliberately skips when the
+    Neo4j volume exists (the password is baked in at first boot). So on every
+    warm start with an existing volume the composite legitimately stayed at its
+    placeholder, that lone False failed ``all(results.values())``, and the TUI
+    reported "Generate encryption keys failed" even though every rotator had
+    succeeded and only advisory warnings were printed.
+    """
+    _seed_env(
+        tmp_path,
+        """
+        PROJECT_NAME=atlas
+        GRAPH_DB_USER=neo4j
+        GRAPH_DB_PASSWORD=neo4j_password
+        GRAPH_DB_AUTH=neo4j/neo4j_password
+        """,
+    )
+    kg = KeyGenerator(str(tmp_path))
+    monkeypatch.setattr(kg, "_neo4j_db_volume_exists", lambda: True)
+    monkeypatch.setattr(kg, "_supabase_db_volume_exists", lambda: True)
+
+    results = kg.generate_missing_keys(force_regenerate=False)
+
+    # The locked composite is not asserted at all — rotation was skipped by design.
+    assert "GRAPH_DB_AUTH" not in results
+    # And the aggregate the caller gates on must be clean.
+    failed = [k for k, ok in results.items() if not ok]
+    assert not failed, f"warm start must not fail the step; failed: {failed}"
+
+
+def test_graph_db_auth_still_asserted_without_a_neo4j_volume(tmp_path, monkeypatch):
+    """The volume exemption must not weaken the genuine fresh-install check:
+    with no volume, a stale composite is still surfaced as a failure."""
+    _seed_env(
+        tmp_path,
+        """
+        PROJECT_NAME=atlas
+        GRAPH_DB_USER=neo4j
+        GRAPH_DB_PASSWORD=already-rotated-xyz
+        GRAPH_DB_AUTH=neo4j/neo4j_password
+        """,
+    )
+    kg = KeyGenerator(str(tmp_path))
+    monkeypatch.setattr(kg, "_neo4j_db_volume_exists", lambda: False)
+
+    results = kg.generate_missing_keys(force_regenerate=False)
+
+    assert results.get("GRAPH_DB_AUTH") is False
+
+
 def test_graph_db_rotation_proceeds_when_no_neo4j_volume(tmp_path, monkeypatch):
     _seed_env(
         tmp_path,

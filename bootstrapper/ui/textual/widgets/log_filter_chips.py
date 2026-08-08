@@ -311,6 +311,25 @@ class LogFilterChips(Container):
             return
         self._open_source_picker()
 
+    def close_source_picker_if_open(self) -> None:
+        """Dismiss the source-filter popup, if open — the same commit-on-
+        dismiss behavior as pressing Escape or clicking outside it.
+
+        The popup mounts on the SCREEN's ``popup`` layer (see
+        ``_open_source_picker``), not inside this pane's own tab
+        container, so a caller that hides the Logs tab (``display:
+        none``) can't rely on that to also hide an open popup — it would
+        otherwise keep rendering on top of whatever tab is now showing.
+        Note this does NOT leave the filter state untouched:
+        ``action_dismiss()`` commits whatever selection is currently
+        checked in the popup into ``self._disabled_svcs`` (its own
+        callback), exactly like a normal Escape/outside-click dismiss
+        would. What it does NOT do is *reset* filters back to defaults —
+        that's ``clear_filters()``'s job, not this one.
+        """
+        if self._open_popup is not None:
+            self._open_popup.action_dismiss()
+
     def _trigger_label(self) -> str:
         total = len(self._known_sources)
         visible = total - len(self._disabled_svcs)

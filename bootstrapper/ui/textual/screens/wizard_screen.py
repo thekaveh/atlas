@@ -2,19 +2,26 @@
 WizardScreen — single screen for the entire setup → launch → logs flow.
 
 Layout (top to bottom):
-    BrandPanel (contains BlockLogo)     7 cells
+    BrandPanel (contains BlockLogo)     7 cells — renders Setup/Logs tab
+                                         chrome on its bottom border once
+                                         set_tabs() is called (byline-only
+                                         before that)
     Vertical#wizard-body                1fr
-        Vertical#info-section: InfoPanel        (always visible, auto)
-        Vertical#lower-pane:
-            during setup:  PromptPanel + CommandSummary
-            during launch: LogFilterChips + LogPane
+        Vertical#tab-setup:  (always mounted; hidden once Logs is shown)
+            Vertical#info-section: InfoPanel        (always visible, auto)
+            Vertical#lower-pane: PromptPanel + CommandSummary
+        Vertical#tab-logs:   (always mounted; hidden until launch)
+            LogFilterChips + LogPane
     FooterBar                           3 cells (docked bottom)
 
-No tab bar, no status ribbon — the prompt panel's border carries its
-own title and step counter, so the chrome stays minimal. The service
-status box stays pinned at top, and the lower pane swaps from
-prompt+command-summary to filter-chips+log-pane when the user
-confirms launch.
+#tab-setup and #tab-logs are permanent sibling containers, both built and
+mounted in compose() — never torn down or rebuilt. WizardScreen.show_tab()
+toggles which one has ``display = True``; the other keeps running behind
+the scenes, so the stack overview keeps updating while the user reads
+logs, and the log stream keeps appending while the user is on Setup.
+show_tab() gates the Logs tab behind ``self._logs_enabled``, which only
+flips True in ``_transition_to_launch()`` — so Setup is the only reachable
+tab pre-launch, matching BrandPanel's byline-only chrome until then.
 """
 
 from __future__ import annotations
@@ -24,6 +31,7 @@ from collections import deque
 import contextlib
 import math
 import os
+import shlex
 import signal
 import sys
 import tempfile
@@ -31,6 +39,7 @@ from pathlib import Path
 from typing import Callable
 
 from rich.text import Text
+from textual import events
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
@@ -71,6 +80,29 @@ _FAMILY_FLAG_STEM = {
     "llm-graph-builder-frontend": "llm-graph-builder",
     "celery-worker": "celery",
 }
+
+
+def _quote_csv(value: str) -> str:
+    """Shell-quote a command-summary flag VALUE so the line stays pasteable
+    — and safe — when copied into a real shell.
+
+    The summary advertises a copy-pasteable ``./start.sh`` invocation, so a
+    value must be the literal the flag accepts — never a description like
+    ``3 selected (...)``, which Click parses as a positional argument.
+
+    Delegates to the stdlib ``shlex.quote`` rather than hand-rolling the
+    escaping. A prior hand-rolled version only escaped ``\\`` and ``"``
+    inside its own double quotes and left other shell-significant
+    characters (``$``, backtick, …) untouched — ``_quote_csv('a`echo
+    PWNED`')`` round-tripped through bash as ``a`echo PWNED``, actually
+    RUNNING the substitution when the summary line was pasted. Reachable
+    inputs are user-controlled: ``--ollama-custom-models`` is free-text,
+    and ``--openai/anthropic/openrouter-models`` values come from a live
+    remote ``/v1/models`` response. ``shlex.quote('')`` already renders a
+    valid empty-string shell literal (``''``), so the flag still gets
+    something it accepts with no special-casing needed here.
+    """
+    return shlex.quote(value)
 
 _FAILURE_LOG_TIMEOUT_SECONDS = 60.0
 _FAILURE_HINT_BUFFER_BYTES = 64 * 1024
@@ -344,6 +376,7 @@ _LAUNCH_HINTS = [
     (("w",), "warns"),
     (("i",), "info"),
     (("s",), "sources"),
+    (("y",), "copy logs"),
     (("ctrl+q",), "detach"),
 ]
 
@@ -353,9 +386,21 @@ _STARTUP_HINTS = [
     (("w",), "warns"),
     (("i",), "info"),
     (("s",), "sources"),
+    (("y",), "copy logs"),
     (("ctrl+c",), "cancel"),
 ]
 
+# Setup tab, mid-launch: action_move/toggle/confirm/focus_search/
+# toggle_search_focus/cycle_filter all early-return once _phase != "setup",
+# and action_back returns early too — so every _SETUP_HINTS shortcut except
+# ctrl+q is dead here. Only the cancel/detach escape hatch (same one
+# _STARTUP_HINTS / _LAUNCH_HINTS end with) is live.
+_LAUNCH_ON_SETUP_HINT_CANCEL = (("ctrl+c",), "cancel")
+_LAUNCH_ON_SETUP_HINT_DETACH = (("ctrl+q",), "detach")
+
+# Appended whenever the Logs tab is actually reachable (_logs_enabled) —
+# neither hint set above mentioned the branch's own tab navigation.
+_TAB_HINT = (("1", "2"), "tabs")
 
 
 def prune_skip_hidden_selections(steps, selections: dict) -> dict:
@@ -382,6 +427,92 @@ def prune_skip_hidden_selections(steps, selections: dict) -> dict:
         if hidden:
             pruned.pop(step.title, None)
     return pruned
+
+
+# The session-log tee (``_tee_to_log``) mirrors every streamed compose line
+# for the whole session — unlike LogPane's 10k-record in-memory cap, it has
+# no cap of its own and can grow large on a long multi-service launch. Cap
+# what ``Y`` copies to the clipboard so (a) the read stays fast and (b) the
+# payload stays under typical OSC-52 terminal-side clipboard size ceilings —
+# better to truncate deliberately and say so than let the terminal silently
+# drop an unbounded payload.
+SESSION_LOG_COPY_CAP_BYTES = 2 * 1024 * 1024  # 2 MB
+
+
+def read_session_log_tail(path: Path, cap_bytes: int = SESSION_LOG_COPY_CAP_BYTES) -> str:
+    """Read ``path``, capped to its last ``cap_bytes`` bytes.
+
+    Module-level (like ``prune_skip_hidden_selections`` above) so tests
+    bind to the production logic directly. When truncated, drops a
+    possibly-partial first line (from seeking mid-file) and prepends a
+    one-line marker so the clipboard contents are visibly incomplete
+    rather than silently cut off. Decoding uses ``errors="replace"`` — a
+    log tee is expected to be text, but a decode error here must not raise
+    and be mistaken for a real worker failure.
+    """
+    size = path.stat().st_size
+    if size <= cap_bytes:
+        return path.read_bytes().decode("utf-8", errors="replace")
+    with path.open("rb") as fh:
+        fh.seek(-cap_bytes, 2)
+        data = fh.read()
+    newline = data.find(b"\n")
+    if newline != -1:
+        data = data[newline + 1:]
+    tail = data.decode("utf-8", errors="replace")
+    return f"… truncated, full log at {path}\n{tail}"
+
+
+# WizardScreen.check_action's search-focus whitelist — module-level so the
+# set is allocated once (not rebuilt on every keypress that reaches
+# check_action) and so this rationale, built up over two review rounds
+# plus a live Textual probe, lives in exactly one place.
+#
+# The wizard's keyboard model binds bare letters (``f``, ``a``, ``e``,
+# ``w``, ``i``, ``j``, ``k``) and ``space`` with ``priority=True``. That's
+# the right default while focus sits on the non-focusable option list, but
+# it makes the search box useless: typing ``"qwen"`` would hijack the
+# ``"w"`` to fire ``filter_warns``. The whitelist below names the actions
+# that STAY enabled while search is focused — every other action returns
+# ``False`` from ``check_action`` so the key flows through to the Input.
+#
+# Whitelist:
+# * ``back`` — Esc unfocuses the search (see ``action_back``).
+# * ``quit_wizard`` — Ctrl+Q stays a universal escape hatch.
+# * ``move`` — arrow keys still walk the option list. Textual ``Input``
+#   uses left/right for cursor movement, leaving up/down free to
+#   live-preview the narrowed results while typing.
+# * ``toggle_search_focus`` — Tab toggles focus back to the option list
+#   (symmetric with the Tab-to-enter-search path).
+# * ``cycle_tab`` — shift+tab still cycles tabs while searching.
+#   ``show_setup``/``show_logs`` (bound to ``1``/``2``) do NOT need an
+#   entry here: Textual's ``Screen._binding_chain`` already strips any
+#   *printable*-character priority binding — digits included — from every
+#   ancestor namespace once an ``Input`` has focus (``Input.check_
+#   consume_key`` returns True for any printable character), so ``1``/
+#   ``2`` never reach ``check_action`` while the search box is focused;
+#   they simply land in the Input as text. ``shift+tab`` is NOT a
+#   printable character, so it survives that upstream filter and still
+#   needs the explicit whitelist entry below.
+#
+# Deliberately NOT in the whitelist:
+# * ``confirm`` — Enter inside the focused Input emits Textual's
+#   ``Input.Submitted`` message, which ``PromptPanel.on_input_submitted``
+#   catches and routes to ``unfocus_search()``. The step's commit-Enter is
+#   reachable as soon as focus is back on the option list. The user picks
+#   the explicit "I'm done searching" moment instead of accidentally
+#   committing the whole multiselect while mid-keystroke.
+# * ``vim_move`` (``j``/``k``), ``cycle_filter`` (``f``), ``filter_*``
+#   (``a``/``e``/``w``/``i``), ``toggle`` (Space), ``focus_search``
+#   (``/``) — all suppressed so the bound letters / Space / slash land in
+#   the Input as plain text.
+# * ``copy_logs``/``copy_session_log`` (``y``/``Y``) — likewise not
+#   listed: both are printable characters, so Textual's upstream filter
+#   already routes them into the Input before this method ever sees them;
+#   a whitelist entry here would be dead code.
+_SEARCH_ALLOWED_ACTIONS = frozenset({
+    "back", "quit_wizard", "move", "toggle_search_focus", "cycle_tab",
+})
 
 
 class WizardScreen(Screen):
@@ -424,6 +555,14 @@ class WizardScreen(Screen):
         Binding("w", "filter_warns", "Warns only", show=False, priority=True),
         Binding("i", "filter_info", "Info only", show=False, priority=True),
         Binding("s", "filter_sources", "Sources", show=False, priority=True),
+        # Tab switching: number keys jump directly, shift+tab cycles
+        # backward. ``tab`` (no shift) is already bound to
+        # toggle_search_focus and is left untouched.
+        Binding("1", "show_setup", "Setup tab", show=False, priority=True),
+        Binding("2", "show_logs", "Logs tab", show=False, priority=True),
+        Binding("shift+tab", "cycle_tab(-1)", "Prev tab", show=False, priority=True),
+        Binding("y", "copy_logs", "Copy logs", show=False, priority=True),
+        Binding("Y", "copy_session_log", "Copy session log", show=False, priority=True),
     ]
 
     DEFAULT_CSS = """
@@ -435,11 +574,31 @@ class WizardScreen(Screen):
         height: 1fr;
         padding: 0 2;
     }
-    WizardScreen #info-section { width: 100%; height: auto; }
+    /* Panels are flush by default (margin: 0), so consecutive round borders
+       butt together and the stack reads as one fused block. A top margin on
+       each subsequent panel lets the screen background show through as a real
+       gutter between them. */
+    WizardScreen #tab-setup { width: 100%; height: 1fr; }
+    WizardScreen #tab-logs  { width: 100%; height: 1fr; }
+    WizardScreen #info-section { width: 100%; height: auto; margin-top: 1; }
     WizardScreen #lower-pane {
         width: 100%;
+        /* Keeps absorbing the leftover height (so the footer stays pinned to
+           the bottom), but the slack must not land BETWEEN the prompt and the
+           command summary — that was the unseemly gap above the shortcuts bar.
+           The prompt takes the slack (1fr, below) and the summary is pushed
+           flush against the footer. */
         height: 1fr;
+        margin-top: 1;
+        /* On a short terminal the children can want more rows than the pane
+           has; clip inside the pane instead of letting the summary spill over
+           the footer. */
+        overflow: hidden;
     }
+    /* Prompt absorbs #lower-pane's spare height so the command summary sits
+       directly above the footer instead of leaving a void beneath it. */
+    WizardScreen #lower-pane > PromptPanel { height: 1fr; }
+    WizardScreen > #wizard-body > FooterBar { margin-top: 1; }
     WizardScreen AtlasSplash { layer: overlay; width: 100%; height: 100%; }
     """
 
@@ -555,12 +714,28 @@ class WizardScreen(Screen):
         self._prompt = PromptPanel()
         self._footer = FooterBar(hints=_SETUP_HINTS)
 
-        # Launch-phase widgets created lazily on transition.
-        # NOTE: ``_source_args`` and ``_stack_options`` may have been
-        # seeded above from prefilled_* arguments — DON'T overwrite
-        # them here.
-        self._log_chips: LogFilterChips | None = None
-        self._log_pane: LogPane | None = None
+        self._brand_panel = BrandPanel(
+            tagline=self._brand.tagline or "Self-hosted Engineering Platform",
+            author=self._brand.creator,
+            author_email=self._brand.creator_email,
+            license=self._brand.license,
+            version=self._brand.version,
+            repo=self._brand.repo,
+        )
+
+        # Log-tab widgets are built eagerly (not lazily on transition) so
+        # both the Setup and Logs tab bodies stay mounted from the start —
+        # the Logs tab is just hidden until launch. NOTE: ``_source_args``
+        # and ``_stack_options`` may have been seeded above from
+        # prefilled_* arguments — DON'T overwrite them here.
+        self._log_chips: LogFilterChips = LogFilterChips(on_change=self._on_log_filter_change)
+        self._log_pane: LogPane = LogPane(
+            title=" Stack startup · pipeline ",
+            subtitle=" ctrl+c to cancel ",
+        )
+        self._log_pane.set_on_new_source(self._log_chips.add_source)
+        self._active_tab = BrandPanel.TAB_SETUP
+        self._logs_enabled = False
 
         # Register a wizard-time warning sink so cloud /v1/models fetch
         # failures (and similar) land in the launch log + log pane.
@@ -589,20 +764,114 @@ class WizardScreen(Screen):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="wizard-body"):
-            yield BrandPanel(
-                tagline=self._brand.tagline or "Self-hosted Engineering Platform",
-                author=self._brand.creator,
-                author_email=self._brand.creator_email,
-                license=self._brand.license,
-                version=self._brand.version,
-                repo=self._brand.repo,
-            )
-            with Vertical(id="info-section"):
-                yield self._info_panel
-            with Vertical(id="lower-pane"):
-                yield self._prompt
-                yield self._command_summary
+            yield self._brand_panel
+            with Vertical(id="tab-setup"):
+                with Vertical(id="info-section"):
+                    yield self._info_panel
+                with Vertical(id="lower-pane"):
+                    yield self._prompt
+                    yield self._command_summary
+            with Vertical(id="tab-logs"):
+                yield self._log_chips
+                yield self._log_pane
             yield self._footer
+
+    # ─── tabs ────────────────────────────────────────────────────────
+
+    @property
+    def active_tab(self) -> str:
+        return self._active_tab
+
+    def _footer_hints(self) -> list:
+        """Compute the footer hint set for the current tab/phase state.
+
+        Centralizes what used to be two independent single-axis guesses —
+        ``show_tab`` picked a hint set from the active tab alone, and the
+        launch-complete transition picked one from ``_launch_detach_ready``
+        alone — which let real mismatches through:
+        * A ``1``→``2`` round-trip after a successful launch regressed the
+          Logs footer back to "ctrl+c cancel" even though LogPane's own
+          border subtitle already said "ctrl+q to detach".
+        * The Setup tab kept advertising ↑/↓/space/enter/esc/tab//f
+          mid-launch even though action_move/toggle/confirm/back/
+          focus_search/toggle_search_focus/cycle_filter all early-return
+          once ``_phase != "setup"``.
+        Also appends a ``1``/``2`` "tabs" hint whenever the Logs tab is
+        actually reachable — neither hint set advertised the tab
+        navigation itself before this.
+        """
+        if self._active_tab == BrandPanel.TAB_LOGS:
+            hints = list(_LAUNCH_HINTS if self._launch_detach_ready else _STARTUP_HINTS)
+        elif self._phase != "setup":
+            hints = [
+                _LAUNCH_ON_SETUP_HINT_DETACH if self._launch_detach_ready
+                else _LAUNCH_ON_SETUP_HINT_CANCEL
+            ]
+        else:
+            hints = list(_SETUP_HINTS)
+        if self._logs_enabled:
+            hints = hints + [_TAB_HINT]
+        return hints
+
+    def show_tab(self, tab_id: str) -> None:
+        """Toggle body visibility. Both bodies stay mounted so the overview and
+        the log stream keep updating while hidden."""
+        if tab_id == BrandPanel.TAB_LOGS and not self._logs_enabled:
+            return
+        if tab_id != BrandPanel.TAB_LOGS and self._log_chips is not None:
+            # The source-filter popup mounts on the SCREEN's ``popup``
+            # layer (outside #tab-logs — see LogFilterChips._open_source_
+            # picker), so toggling #tab-logs.display below can't hide it.
+            # Left open, it renders on top of whichever tab is now
+            # showing. Dismiss it before switching away.
+            self._log_chips.close_source_picker_if_open()
+        self._active_tab = tab_id
+        self.query_one("#tab-setup").display = tab_id == BrandPanel.TAB_SETUP
+        self.query_one("#tab-logs").display = tab_id == BrandPanel.TAB_LOGS
+        self._brand_panel.set_tabs(tab_id, enabled=self._logs_enabled)
+        if tab_id == BrandPanel.TAB_LOGS:
+            # RichLog bakes each line's wrap width in at write()-time from
+            # its region, which collapses to 0 while hidden — a line
+            # written during a hidden window can be baked at the wrong
+            # width (LogPane._mark_dirty_if_hidden) and never re-flow on
+            # its own. call_after_refresh (not a direct call) defers past
+            # the layout pass this reveal just triggered, so the pane's
+            # region is correct by the time reflow() runs.
+            self.call_after_refresh(self._log_pane.reflow)
+        self._footer.update_hints(self._footer_hints())
+
+    def action_show_setup(self) -> None:
+        self.show_tab(BrandPanel.TAB_SETUP)
+
+    def action_show_logs(self) -> None:
+        self.show_tab(BrandPanel.TAB_LOGS)
+
+    def action_cycle_tab(self, delta: int) -> None:
+        if not self._logs_enabled:
+            return
+        order = [BrandPanel.TAB_SETUP, BrandPanel.TAB_LOGS]
+        idx = (order.index(self._active_tab) + delta) % len(order)
+        self.show_tab(order[idx])
+
+    def on_click(self, event: events.Click) -> None:
+        """A click on the brand panel's bottom border row selects a tab."""
+        panel = self._brand_panel
+        if event.widget is not panel:
+            return
+        if event.y != panel.region.height - 1:
+            return
+        for tab_id, (start, end) in panel.tab_spans().items():
+            # tab_spans() is half-open (end == one past the ']'), so this
+            # inclusive comparison is one column wider than the label
+            # itself. That's safe BY CONSTRUCTION, not by luck: BrandPanel.
+            # _tab_segment() advances rendered_pos by bracket_content_len + 1
+            # per tab, so the next tab's start is always this tab's end + 1
+            # — spans never touch or overlap regardless of label length or
+            # tab count, so the extra column can only ever re-select the
+            # tab it trails, never bleed into the next one.
+            if start <= event.x <= end:
+                self.show_tab(tab_id)
+                return
 
     def on_mount(self) -> None:
         # Set the compose-line project prefix as EARLY as possible so
@@ -617,11 +886,13 @@ class WizardScreen(Screen):
                 set_project_prefix(self._starter.config_parser.get_project_name())
             except Exception:  # noqa: BLE001
                 pass
+        self.query_one("#tab-logs").display = False
+        self._brand_panel.set_tabs(BrandPanel.TAB_SETUP, enabled=False)
         if self._auto_launch:
             # CLI-flag mode: skip the wizard and jump straight to the
-            # launch phase. The prompt panel and command summary are
-            # composed in the tree but get removed by the transition's
-            # ``await lower.remove_children()`` step.
+            # launch phase. The Setup tab (prompt panel + command summary)
+            # stays mounted but hidden — the transition reveals the Logs
+            # tab instead of tearing anything down.
             #
             # The opening splash is intentionally NOT shown on this path:
             # a scripted ``--<svc>-source`` launch is non-interactive and
@@ -654,28 +925,49 @@ class WizardScreen(Screen):
         The auto-launch transition (CLI-flag mode) runs with
         exit_on_error=False; without this, any exception inside it left
         the worker in ERROR state and the user staring at a permanently
-        empty lower pane with no message anywhere.
+        empty Logs tab with no message anywhere. Setup-phase workers
+        (e.g. the cloud-provider options fetch) can fail too, but the
+        Logs tab isn't reachable yet at that point — see the ``_phase``
+        branch below.
         """
         if event.state is not WorkerState.ERROR:
             return
         self._mark_launch_failed()
         err = event.worker.error
         with contextlib.suppress(Exception):
-            if self._log_pane is not None:
-                self._write_status(
-                    f"❌ {event.worker.name or 'background task'} failed: {err}",
-                    style="bold red", source="pipeline",
-                )
-            else:
-                # Setup phase: no log pane exists yet, so _write_status
-                # would no-op and the failure vanished silently. Surface
-                # it as a toast instead.
+            if self._phase == "setup":
+                # The Logs tab is not reachable until launch (it's built
+                # eagerly but stays hidden — see show_tab()/_logs_enabled),
+                # so a setup-phase failure (e.g. the cloud-provider options
+                # fetch worker) must surface as a toast or it is invisible.
+                # ``self._log_pane`` is always non-None now (built eagerly
+                # in __init__), so it can no longer be used to detect
+                # "setup vs. launch" — gate on ``self._phase`` instead.
                 self.notify(
                     str(err),
                     title=f"{event.worker.name or 'Background task'} failed",
                     severity="error",
                     timeout=10,
                 )
+            else:
+                self._write_status(
+                    f"❌ {event.worker.name or 'background task'} failed: {err}",
+                    style="bold red", source="pipeline",
+                )
+                if self._active_tab == BrandPanel.TAB_SETUP:
+                    # The write above lands in the Logs pane, which is
+                    # hidden while Setup is active — without a toast too,
+                    # a launch failure here produces no visible signal at
+                    # all until the user happens to switch tabs. (The
+                    # spec once described a Logs-tab "activity marker" for
+                    # this; it was never built — see spec §5/§8's
+                    # correction notes. This toast is what ships.)
+                    self.notify(
+                        f"{event.worker.name or 'Launch'} failed — see the Logs tab.",
+                        title="Launch failed",
+                        severity="error",
+                        timeout=10,
+                    )
 
     def _mark_launch_failed(self) -> None:
         """Record a nonzero CLI result while leaving the error visible in the TUI."""
@@ -686,6 +978,11 @@ class WizardScreen(Screen):
         # False and action_quit_wizard blocks with a misleading "startup is
         # still running" toast (the banner-swap early-return path included).
         self._launch_detach_ready = True
+        # Refresh the footer so it reflects the ctrl+q-is-now-live change
+        # immediately, same as the launch-success transition — otherwise a
+        # failure while the user is on Setup leaves a stale "ctrl+c cancel"
+        # hint until the next tab switch happens to recompute it.
+        self._footer.update_hints(self._footer_hints())
 
     # ─── setup phase ─────────────────────────────────────────────────
 
@@ -875,46 +1172,17 @@ class WizardScreen(Screen):
         """Suppress screen-level priority bindings while the search
         input has focus, so typed keys land in the Input as text.
 
-        The wizard's keyboard model binds bare letters (``f``, ``a``,
-        ``e``, ``w``, ``i``, ``j``, ``k``) and ``space`` with
-        ``priority=True``. That's the right default while focus sits
-        on the non-focusable option list, but it makes the search box
-        useless: typing ``"qwen"`` would hijack the ``"w"`` to fire
-        ``filter_warns``. The whitelist below names the actions that
-        STAY enabled while search is focused — every other action
-        returns ``False`` so the key flows through to the Input.
-
-        Whitelist:
-        * ``back`` — Esc unfocuses the search (see ``action_back``).
-        * ``quit_wizard`` — Ctrl+Q stays a universal escape hatch.
-        * ``move`` — arrow keys still walk the option list. Textual
-          ``Input`` uses left/right for cursor movement, leaving
-          up/down free to live-preview the narrowed results while
-          typing.
-        * ``toggle_search_focus`` — Tab toggles focus back to the
-          option list (symmetric with the Tab-to-enter-search path).
-
-        Deliberately NOT in the whitelist:
-        * ``confirm`` — Enter inside the focused Input emits Textual's
-          ``Input.Submitted`` message, which ``PromptPanel.on_input_
-          submitted`` catches and routes to ``unfocus_search()``. The
-          step's commit-Enter is reachable as soon as focus is back
-          on the option list. The user picks the explicit "I'm done
-          searching" moment instead of accidentally committing the
-          whole multiselect while mid-keystroke.
-        * ``vim_move`` (``j``/``k``), ``cycle_filter`` (``f``),
-          ``filter_*`` (``a``/``e``/``w``/``i``), ``toggle`` (Space),
-          ``focus_search`` (``/``) — all suppressed so the bound
-          letters / Space / slash land in the Input as plain text.
+        See ``_SEARCH_ALLOWED_ACTIONS`` (module level, above this class)
+        for the full whitelist rationale, including the
+        ``Screen._binding_chain`` / ``Input.check_consume_key`` mechanism
+        that lets some printable-character bindings skip the whitelist
+        entirely.
         """
         if (
             self._phase == "setup"
             and self._prompt.has_search_focus()
         ):
-            _SEARCH_ALLOWED = {
-                "back", "quit_wizard", "move", "toggle_search_focus",
-            }
-            if action not in _SEARCH_ALLOWED:
+            if action not in _SEARCH_ALLOWED_ACTIONS:
                 return False
         return True
 
@@ -1285,11 +1553,11 @@ class WizardScreen(Screen):
                     continue  # degraded fetch — selection kept, no flag
                 csv = (value or "").strip()
                 if csv == "":
-                    flags.append((f"--{provider}-models", "(none — provider disabled)"))
-                else:
-                    n = csv.count(",") + 1
-                    short = csv if len(csv) <= 60 else csv[:57] + "..."
-                    flags.append((f"--{provider}-models", f"{n} selected ({short})"))
+                    continue  # nothing selected — no flag to emit
+                # The summary is a COPY-PASTEABLE command: --X-models takes a
+                # comma-separated string, so emit the CSV itself (quoted — it
+                # contains commas), never a "N selected (...)" description.
+                flags.append((f"--{provider}-models", _quote_csv(csv)))
                 continue
 
             # Ollama models step (single unified [pulled]/[library] view).
@@ -1300,18 +1568,15 @@ class WizardScreen(Screen):
                 csv = (value or "").strip()
                 if csv == "":
                     continue
-                n = csv.count(",") + 1
-                short = csv if len(csv) <= 60 else csv[:57] + "..."
-                flags.append(("--ollama-models", f"{n} selected ({short})"))
+                flags.append(("--ollama-models", _quote_csv(csv)))
                 continue
             if step.title == OLLAMA_CUSTOM_TITLE:
                 if value in (SECRET_KEEP, "", None):
                     continue
                 if value == SECRET_CLEAR:
-                    flags.append(("--ollama-custom-models", "(cleared)"))
+                    flags.append(("--ollama-custom-models", '""'))  # explicit clear
                 else:
-                    short = value if len(value) <= 60 else value[:57] + "..."
-                    flags.append(("--ollama-custom-models", short))
+                    flags.append(("--ollama-custom-models", _quote_csv(value.strip())))
                 continue
 
             # Meta steps (cold, hosts) — only show when non-default.
@@ -1415,19 +1680,10 @@ class WizardScreen(Screen):
         self._phase = "launch"
         self.set_focus(None)
 
-        lower = self.query_one("#lower-pane", Vertical)
-        await lower.remove_children()
-
-        self._log_chips = LogFilterChips(on_change=self._on_log_filter_change)
-        self._log_pane = LogPane(
-            title=" Stack startup · pipeline ",
-            subtitle=" ctrl+c to cancel ",
-        )
-        self._log_pane.set_on_new_source(self._log_chips.add_source)
-        await lower.mount(self._log_chips)
-        await lower.mount(self._log_pane)
-
-        self._footer.update_hints(_STARTUP_HINTS)
+        # Log widgets already exist (built in __init__, hidden). Reveal the tab
+        # instead of tearing the setup body down — the overview must stay live.
+        self._logs_enabled = True
+        self.show_tab(BrandPanel.TAB_LOGS)
 
         # The session log was opened in __init__ so it could capture
         # wizard-time warnings. Now that the log pane exists, surface
@@ -1655,8 +1911,79 @@ class WizardScreen(Screen):
             self._log_chips.set_level("info")
 
     def action_filter_sources(self) -> None:
-        if self._phase == "launch" and self._log_chips is not None:
+        # Also gated on the active tab (not just _phase): the popup this
+        # opens mounts on the screen's popup layer, outside #tab-logs, so
+        # opening it while Setup is showing would pop a dropdown over an
+        # invisible pane (see close_source_picker_if_open's docstring).
+        if (
+            self._phase == "launch"
+            and self._active_tab == BrandPanel.TAB_LOGS
+            and self._log_chips is not None
+        ):
             self._log_chips.toggle_source_picker()
+
+    def action_copy_logs(self) -> None:
+        # a/e/w/i/s all gate on _phase == "launch"; this is the same
+        # guard — without it, `y` mid-wizard is a plausible "yes"
+        # keystroke on the cold-start/hosts steps that would silently
+        # clobber the clipboard instead.
+        if self._phase != "launch" or self._log_pane is None:
+            return
+        text = self._log_pane.visible_text()
+        if not text:
+            return
+        self.app.copy_to_clipboard(text)
+        self.notify("Log buffer copied to clipboard.", timeout=3)
+
+    def action_copy_session_log(self) -> None:
+        # See action_copy_logs — same guard, same reason (`Y` mid-wizard
+        # would otherwise spawn a worker and clobber the clipboard).
+        if self._phase != "launch":
+            return
+        path = self._launch_log_path
+        if path is None:
+            self.notify("No session log yet.", severity="warning", timeout=3)
+            return
+        # The session-log tee has no cap and can grow large on a long
+        # launch — read it off the UI thread in a worker so ``Y`` can't
+        # freeze the TUI for the duration of the read. A dedicated group
+        # keeps this from colliding with (and cancelling) unrelated
+        # exclusive=True workers — e.g. the pipeline/transition workers —
+        # that run in the default group.
+        self.run_worker(
+            self._copy_session_log_worker(Path(path)),
+            exclusive=True, exit_on_error=False, group="copy_session_log",
+        )
+
+    async def _copy_session_log_worker(self, path: Path) -> None:
+        """Read + copy the session log, with every step contained.
+
+        ``on_worker_state_changed`` calls ``_mark_launch_failed()`` for
+        ANY worker that reaches ``WorkerState.ERROR`` — this worker's own
+        ``exit_on_error=False`` only stops the app from crashing, it does
+        NOT stop that handler from firing and setting a nonzero exit code.
+        A clipboard copy must never be able to make ``./start.sh`` exit
+        nonzero, so every branch below — the read AND the copy/notify —
+        is wrapped, not just the historically-expected OSError case.
+        """
+        try:
+            text = await asyncio.to_thread(read_session_log_tail, path)
+        except Exception as exc:  # noqa: BLE001 — must not fail the launch; see docstring
+            with contextlib.suppress(Exception):
+                self.notify(
+                    f"Could not read the session log: {type(exc).__name__}",
+                    severity="error", timeout=5,
+                )
+            return
+        try:
+            self.app.copy_to_clipboard(text)
+            self.notify(f"Session log copied ({path}).", timeout=3)
+        except Exception as exc:  # noqa: BLE001 — must not fail the launch; see docstring
+            with contextlib.suppress(Exception):
+                self.notify(
+                    f"Could not copy the session log: {type(exc).__name__}",
+                    severity="error", timeout=5,
+                )
 
     # ─── pipeline + docker compose runner ────────────────────────────
 
@@ -2054,7 +2381,11 @@ class WizardScreen(Screen):
                     " Live docker logs ",
                     subtitle=" ctrl+q to detach ",
                 )
-            self._footer.update_hints(_LAUNCH_HINTS)
+            # Routed through _footer_hints() (not a bare _LAUNCH_HINTS)
+            # so a launch completing while the user is still on Setup
+            # doesn't stamp Logs-tab hints over the tab that's actually
+            # showing.
+            self._footer.update_hints(self._footer_hints())
 
             # Kick off port verification + ComfyUI model check in the
             # background so the live log stream starts IMMEDIATELY rather

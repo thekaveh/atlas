@@ -109,7 +109,7 @@ class BrandPanel(Container):
     on the top + bottom borders.
 
     Top-left title: tagline (e.g. "Self-hosted Engineering Platform").
-    Bottom subtitle (right-aligned): "by <author> · <license> · v<version> · <repo>".
+    Bottom subtitle (left-aligned): Setup/Logs tabs and byline.
     """
 
     DEFAULT_CSS = """
@@ -120,7 +120,7 @@ class BrandPanel(Container):
         background: #0e0f18;
         padding: 0;
         border-title-align: left;
-        border-subtitle-align: right;
+        border-subtitle-align: left;
     }
     BrandPanel > BlockLogo {
         height: 7;
@@ -129,6 +129,10 @@ class BrandPanel(Container):
     """
 
     can_focus = False
+
+    TAB_SETUP = "setup"
+    TAB_LOGS = "logs"
+    _TAB_LABELS = ((TAB_SETUP, "Setup"), (TAB_LOGS, "Logs"))
 
     def __init__(
         self,
@@ -148,13 +152,14 @@ class BrandPanel(Container):
         self.license = license
         self.version = version
         self.repo = repo
+        self._active_tab = self.TAB_SETUP
+        self._tabs_enabled = False
+        self._tab_spans: dict[str, tuple[int, int]] = {}
 
     def compose(self) -> ComposeResult:
         yield BlockLogo()
 
-    def on_mount(self) -> None:
-        if self.tagline:
-            self.border_title = f" {self.tagline} "
+    def _byline(self) -> str:
         parts: list[str] = []
         if self.author:
             who = f"by {self.author}"
@@ -168,5 +173,98 @@ class BrandPanel(Container):
             parts.append(v)
         if self.repo:
             parts.append(self.repo)
-        if parts:
-            self.border_subtitle = " " + "  ·  ".join(parts) + " "
+        return " " + "  ·  ".join(parts) + " " if parts else ""
+
+    def _tab_segment(self) -> str:
+        """Left-hand tab labels. Brackets are ESCAPED: Textual consumes a bare
+        "[" in a border subtitle as console markup and the label vanishes.
+
+        Returns empty string if tabs are not enabled, preserving the original
+        byline-only mode when set_tabs() has not been called.
+        """
+        if not self._tabs_enabled:
+            self._tab_spans = {}
+            return ""
+
+        out = " "
+        self._tab_spans = {}
+        # Track position in rendered output (after escapes are resolved to displayed chars).
+        # Each \[ renders as [ (1 char), so rendered_pos grows by bracket_len + space.
+        rendered_pos = len(out)
+
+        for tab_id, label in self._TAB_LABELS:
+            marker = "▸" if tab_id == self._active_tab else " "
+            # Measure just the bracket content (without the trailing space).
+            bracket_content_len = len(f"[{marker} {label} ]")
+
+            start = rendered_pos
+            end = rendered_pos + bracket_content_len
+            self._tab_spans[tab_id] = (start, end)
+
+            # Add the full tab string with trailing space to the raw output.
+            out += rf"\[{marker} {label} ] "
+            # Advance rendered position by bracket length + space.
+            rendered_pos += bracket_content_len + 1
+
+        return out
+
+    def tab_spans(self) -> dict[str, tuple[int, int]]:
+        """Half-open column ranges of each tab label, for click routing."""
+        return dict(self._tab_spans)
+
+    def set_tabs(self, active: str, *, enabled: bool = True) -> None:
+        self._active_tab = active
+        self._tabs_enabled = enabled
+        self._render_border()
+
+    def _render_border(self) -> None:
+        if self.tagline:
+            self.border_title = f" {self.tagline} "
+
+        if not self._tabs_enabled:
+            # Byline-only path (original behavior): use right-alignment and let Textual fill dashes.
+            # This avoids the implicit-gap artifact that occurs when left-aligned padding starts
+            # with dashes (╰─ gap ───... would appear). Instead: ╰────── byline.
+            self.styles.border_subtitle_align = "right"
+            self.border_subtitle = self._byline()
+        else:
+            # Tabs-enabled path: left-aligned with manual padding to position tabs+byline.
+            # The implicit gap after the corner is unavoidable with left-alignment;
+            # tabs and their separator account for it via border_offset.
+            self.styles.border_subtitle_align = "left"
+            left = self._tab_segment()
+            right = self._byline()
+            # `left` carries Rich-markup-ESCAPED brackets (``\[``) so the tab
+            # labels aren't eaten as console markup (see _tab_segment's own
+            # docstring) — each ``\[`` is 2 raw characters but the backslash
+            # is consumed at render time, so it displays as 1. Measuring
+            # len(left) counts the raw (escaped) length, over-counting by one
+            # column per tab; at 2 tabs that pushed the byline 2 columns
+            # short of flush-right and made it ellipsize 2 characters early
+            # at 200 cols. Measure the RENDERED length instead.
+            left_rendered_len = len(left) - left.count("\\[")
+            # Available width for border content, accounting for:
+            # - 2 chars: left (╰) and right (╯) border corners
+            # - ~2 chars: Textual's implicit gap-padding around the border_subtitle
+            inner = max(0, self.size.width - 4)
+            pad = max(1, inner - left_rendered_len - len(right))
+            self.border_subtitle = left + "─" * pad + right
+
+            # Adjust tab spans to account for the border rendering offset.
+            # Textual renders the border_subtitle on the bottom border as:
+            #   ╰─ [implicit-gap] border_subtitle_content ─╯
+            # The offset (3) = corner (╰) + line (─) + implicit-gap-left.
+            # This constant depends on CSS: border: round; padding: 0; border-subtitle-align: left.
+            # If CSS changes (border style, padding, alignment), this offset may need adjustment.
+            if self._tab_spans:
+                border_offset = 3
+                adjusted_spans = {}
+                for tab_id, (start, end) in self._tab_spans.items():
+                    adjusted_spans[tab_id] = (start + border_offset, end + border_offset)
+                self._tab_spans = adjusted_spans
+
+    def on_mount(self) -> None:
+        self._render_border()
+
+    def on_resize(self) -> None:
+        self._render_border()
