@@ -109,7 +109,7 @@ class BrandPanel(Container):
     on the top + bottom borders.
 
     Top-left title: tagline (e.g. "Self-hosted Engineering Platform").
-    Bottom subtitle (right-aligned): "by <author> · <license> · v<version> · <repo>".
+    Bottom subtitle (left-aligned): Setup/Logs tabs and byline.
     """
 
     DEFAULT_CSS = """
@@ -120,7 +120,7 @@ class BrandPanel(Container):
         background: #0e0f18;
         padding: 0;
         border-title-align: left;
-        border-subtitle-align: right;
+        border-subtitle-align: left;
     }
     BrandPanel > BlockLogo {
         height: 7;
@@ -129,6 +129,10 @@ class BrandPanel(Container):
     """
 
     can_focus = False
+
+    TAB_SETUP = "setup"
+    TAB_LOGS = "logs"
+    _TAB_LABELS = ((TAB_SETUP, "Setup"), (TAB_LOGS, "Logs"))
 
     def __init__(
         self,
@@ -148,13 +152,14 @@ class BrandPanel(Container):
         self.license = license
         self.version = version
         self.repo = repo
+        self._active_tab = self.TAB_SETUP
+        self._tabs_enabled = False
+        self._tab_spans: dict[str, tuple[int, int]] = {}
 
     def compose(self) -> ComposeResult:
         yield BlockLogo()
 
-    def on_mount(self) -> None:
-        if self.tagline:
-            self.border_title = f" {self.tagline} "
+    def _byline(self) -> str:
         parts: list[str] = []
         if self.author:
             who = f"by {self.author}"
@@ -168,5 +173,41 @@ class BrandPanel(Container):
             parts.append(v)
         if self.repo:
             parts.append(self.repo)
-        if parts:
-            self.border_subtitle = " " + "  ·  ".join(parts) + " "
+        return " " + "  ·  ".join(parts) + " " if parts else ""
+
+    def _tab_segment(self) -> str:
+        """Left-hand tab labels. Brackets are ESCAPED: Textual consumes a bare
+        "[" in a border subtitle as console markup and the label vanishes."""
+        out = " "
+        self._tab_spans = {}
+        for tab_id, label in self._TAB_LABELS:
+            start = len(out)
+            marker = "▸" if tab_id == self._active_tab else " "
+            out += rf"\[{marker} {label} ] "
+            # Span excludes the escape backslash so it matches rendered columns.
+            self._tab_spans[tab_id] = (start, len(out) - 1)
+        return out
+
+    def tab_spans(self) -> dict[str, tuple[int, int]]:
+        """Half-open column ranges of each tab label, for click routing."""
+        return dict(self._tab_spans)
+
+    def set_tabs(self, active: str, *, enabled: bool = True) -> None:
+        self._active_tab = active
+        self._tabs_enabled = enabled
+        self._render_border()
+
+    def _render_border(self) -> None:
+        if self.tagline:
+            self.border_title = f" {self.tagline} "
+        left = self._tab_segment()
+        right = self._byline()
+        inner = max(0, self.size.width - 2)
+        pad = max(1, inner - len(left) - len(right))
+        self.border_subtitle = left + "─" * pad + right
+
+    def on_mount(self) -> None:
+        self._render_border()
+
+    def on_resize(self) -> None:
+        self._render_border()
