@@ -173,8 +173,17 @@ class LogPane(RichLog):
         after un-hiding its container) — see ``_mark_dirty_if_hidden``.
         No-op when nothing was written while hidden, so switching tabs
         doesn't jump the scroll position to the bottom on every reveal.
+
+        Retry-safe: the flag is only cleared once the region is confirmed
+        non-zero AND the re-render has actually happened at that width.
+        If this runs before layout has caught up (region still 0 — e.g.
+        called too early relative to the reveal), the flag stays set so a
+        later call can retry, instead of consuming the correction and
+        silently re-baking the lines wrong again.
         """
         if not self._wrap_dirty:
+            return
+        if self.scrollable_content_region.width <= 0:
             return
         self._wrap_dirty = False
         self._rerender()
@@ -223,6 +232,17 @@ class LogPane(RichLog):
         self._rerender()
 
     def _rerender(self) -> None:
+        # set_filter() reaches this directly (not through write_log/
+        # write_styled), so it needs its own dirty check: a level/source
+        # filter change made while this pane is hidden re-bakes the WHOLE
+        # buffer at the wrong width via _write_record's self.write() calls
+        # below, same as a single hidden write does — without this, the
+        # flag stays False and the next reveal's reflow() no-ops, leaving
+        # the mis-wrapped lines uncorrected. Safe to call unconditionally:
+        # when this is reached from reflow() itself (region already
+        # confirmed non-zero there), the width check below is False and
+        # nothing is (re-)marked.
+        self._mark_dirty_if_hidden()
         self.clear()
         for rec in self._records:
             if self._passes_filter(rec):

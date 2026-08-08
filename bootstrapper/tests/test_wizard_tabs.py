@@ -419,6 +419,68 @@ def test_log_lines_written_while_hidden_reflow_to_the_real_width_on_reveal():
     )
 
 
+def test_filter_change_while_hidden_reflows_to_the_real_width_on_reveal():
+    """R1 (I1 follow-up): ``LogPane.set_filter()`` -> ``_rerender()``
+    bypassed the dirty flag entirely — only ``write_log``/``write_styled``
+    marked it. A level-filter change made while the Logs tab is HIDDEN
+    re-bakes the WHOLE buffer at the wrong width (same
+    ``_write_record()``->``self.write()`` path a single hidden write
+    uses) via ``_rerender``, but left ``_wrap_dirty`` False — so the next
+    reveal's ``reflow()`` saw nothing to do and the lines stayed
+    hard-wrapped forever. Reachable today: ``a``/``e``/``w``/``i`` (level
+    filters) gate only on ``_phase == "launch"``, not the active tab —
+    only ``s`` (source picker) got the tab gate in the I2 fix.
+
+    Mirrors ``test_log_lines_written_while_hidden_reflow_to_the_real_
+    width_on_reveal``'s structure: an explicit ``min_width`` sentinel
+    makes the assertion independent of the real layout's chrome math.
+    """
+    scr = _screen()
+    line = "x" * 60  # > the 33 sentinel, so wrapping at 33 always splits it
+
+    async def scenario():
+        async with _App(scr).run_test(size=(140, 44)) as pilot:
+            await pilot.pause()
+            scr._logs_enabled = True
+            scr._phase = "launch"
+            pane = scr._log_pane
+            # First reveal (latches _size_known True), write the line
+            # while VISIBLE so it's already in the buffer, then hide.
+            scr.show_tab(BrandPanel.TAB_LOGS)
+            await pilot.pause()
+            pane.write_log(line, level="info", source="pipeline")
+            await pilot.pause()
+            scr.show_tab(BrandPanel.TAB_SETUP)
+            await pilot.pause()
+
+            pane.min_width = 33
+            # action_filter_all only gates on _phase == "launch" (no tab
+            # gate, unlike action_filter_sources after I2) — reachable
+            # from Setup mid-launch. level stays "all" so the line still
+            # passes the filter and gets re-baked (at the wrong width).
+            scr.action_filter_all()
+            await pilot.pause()
+            hidden_widths = [strip.cell_length for strip in pane.lines]
+
+            scr.show_tab(BrandPanel.TAB_LOGS)
+            await pilot.pause()
+            revealed_widths = [strip.cell_length for strip in pane.lines]
+
+            return hidden_widths, revealed_widths
+
+    hidden_widths, revealed_widths = asyncio.run(scenario())
+
+    assert len(hidden_widths) > 1 and max(hidden_widths) <= 33, (
+        f"a filter change while hidden must re-bake the line WRAPPED at "
+        f"the min_width(33) sentinel too — got {hidden_widths}"
+    )
+    assert revealed_widths == [60], (
+        f"show_tab's reveal must reflow to the real (much wider) region "
+        f"width after a hidden filter change, un-wrapping the 60-char "
+        f"line back to one strip — got {revealed_widths}"
+    )
+
+
 def test_logs_tab_reclaims_vertical_space():
     """The bug: 61 services + fixed chrome over-subscribed a 44-row terminal by
     6 rows and crushed the log pane. On the Logs tab the overview is hidden, so

@@ -970,7 +970,7 @@ git commit -m "docs(changelog): record the wizard Setup/Logs tab split"
 | §10 Migration path (5 steps) | Tasks 1-6 in the same order |
 
 Two deliberate deviations from the spec, both recorded here:
-- §5's "activity marker on the Logs label when errors arrive while on Setup" is **not** implemented. It needs a hook into the error path and would widen this layout-only change; the `y`/`Y` affordances and auto-switch-on-launch already cover the primary risk. Track separately.
+- §5's "activity marker on the Logs label when errors arrive while on Setup" was **not** implemented in this task set. It needed a hook into the error path and would have widened this layout-only change; the `y`/`Y` affordances and auto-switch-on-launch were judged to already cover the primary risk. **Update:** the gap this left (a launch failure while on Setup produced no toast, no marker, no auto-switch — silently dead until the user switched tabs) was caught by the whole-branch final review (finding M10) and fixed in the same branch: `on_worker_state_changed`'s launch-failure branch now pops a toast pointing at the Logs tab when `_active_tab == TAB_SETUP` — a toast, not a persistent label marker. Spec §5/§8 were corrected to match. See `final-review-fix-report.md` for the full writeup.
 - §8's "fix the pre-existing ≤30-row overlap" is not a discrete task because Task 2 replaces the `#lower-pane` sizing rules wholesale; Task 4's budget test is the guard. If the overlap survives at h≤30 after Task 2, file it separately rather than expanding scope here.
 
 **2. Placeholder scan:** No TBD/TODO. Every code step carries real code. No "similar to Task N" references.
