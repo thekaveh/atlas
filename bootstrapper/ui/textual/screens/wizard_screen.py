@@ -455,6 +455,8 @@ class WizardScreen(Screen):
        butt together and the stack reads as one fused block. A top margin on
        each subsequent panel lets the screen background show through as a real
        gutter between them. */
+    WizardScreen #tab-setup { width: 100%; height: 1fr; }
+    WizardScreen #tab-logs  { width: 100%; height: 1fr; }
     WizardScreen #info-section { width: 100%; height: auto; margin-top: 1; }
     WizardScreen #lower-pane {
         width: 100%;
@@ -589,12 +591,28 @@ class WizardScreen(Screen):
         self._prompt = PromptPanel()
         self._footer = FooterBar(hints=_SETUP_HINTS)
 
-        # Launch-phase widgets created lazily on transition.
-        # NOTE: ``_source_args`` and ``_stack_options`` may have been
-        # seeded above from prefilled_* arguments — DON'T overwrite
-        # them here.
-        self._log_chips: LogFilterChips | None = None
-        self._log_pane: LogPane | None = None
+        self._brand_panel = BrandPanel(
+            tagline=self._brand.tagline or "Self-hosted Engineering Platform",
+            author=self._brand.creator,
+            author_email=self._brand.creator_email,
+            license=self._brand.license,
+            version=self._brand.version,
+            repo=self._brand.repo,
+        )
+
+        # Log-tab widgets are built eagerly (not lazily on transition) so
+        # both the Setup and Logs tab bodies stay mounted from the start —
+        # the Logs tab is just hidden until launch. NOTE: ``_source_args``
+        # and ``_stack_options`` may have been seeded above from
+        # prefilled_* arguments — DON'T overwrite them here.
+        self._log_chips: LogFilterChips = LogFilterChips(on_change=self._on_log_filter_change)
+        self._log_pane: LogPane = LogPane(
+            title=" Stack startup · pipeline ",
+            subtitle=" ctrl+c to cancel ",
+        )
+        self._log_pane.set_on_new_source(self._log_chips.add_source)
+        self._active_tab = BrandPanel.TAB_SETUP
+        self._logs_enabled = False
 
         # Register a wizard-time warning sink so cloud /v1/models fetch
         # failures (and similar) land in the launch log + log pane.
@@ -623,20 +641,36 @@ class WizardScreen(Screen):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="wizard-body"):
-            yield BrandPanel(
-                tagline=self._brand.tagline or "Self-hosted Engineering Platform",
-                author=self._brand.creator,
-                author_email=self._brand.creator_email,
-                license=self._brand.license,
-                version=self._brand.version,
-                repo=self._brand.repo,
-            )
-            with Vertical(id="info-section"):
-                yield self._info_panel
-            with Vertical(id="lower-pane"):
-                yield self._prompt
-                yield self._command_summary
+            yield self._brand_panel
+            with Vertical(id="tab-setup"):
+                with Vertical(id="info-section"):
+                    yield self._info_panel
+                with Vertical(id="lower-pane"):
+                    yield self._prompt
+                    yield self._command_summary
+            with Vertical(id="tab-logs"):
+                yield self._log_chips
+                yield self._log_pane
             yield self._footer
+
+    # ─── tabs ────────────────────────────────────────────────────────
+
+    @property
+    def active_tab(self) -> str:
+        return self._active_tab
+
+    def show_tab(self, tab_id: str) -> None:
+        """Toggle body visibility. Both bodies stay mounted so the overview and
+        the log stream keep updating while hidden."""
+        if tab_id == BrandPanel.TAB_LOGS and not self._logs_enabled:
+            return
+        self._active_tab = tab_id
+        self.query_one("#tab-setup").display = tab_id == BrandPanel.TAB_SETUP
+        self.query_one("#tab-logs").display = tab_id == BrandPanel.TAB_LOGS
+        self._brand_panel.set_tabs(tab_id, enabled=self._logs_enabled)
+        self._footer.update_hints(
+            _STARTUP_HINTS if tab_id == BrandPanel.TAB_LOGS else _SETUP_HINTS
+        )
 
     def on_mount(self) -> None:
         # Set the compose-line project prefix as EARLY as possible so
@@ -651,11 +685,13 @@ class WizardScreen(Screen):
                 set_project_prefix(self._starter.config_parser.get_project_name())
             except Exception:  # noqa: BLE001
                 pass
+        self.query_one("#tab-logs").display = False
+        self._brand_panel.set_tabs(BrandPanel.TAB_SETUP, enabled=False)
         if self._auto_launch:
             # CLI-flag mode: skip the wizard and jump straight to the
-            # launch phase. The prompt panel and command summary are
-            # composed in the tree but get removed by the transition's
-            # ``await lower.remove_children()`` step.
+            # launch phase. The Setup tab (prompt panel + command summary)
+            # stays mounted but hidden — the transition reveals the Logs
+            # tab instead of tearing anything down.
             #
             # The opening splash is intentionally NOT shown on this path:
             # a scripted ``--<svc>-source`` launch is non-interactive and
@@ -1446,19 +1482,10 @@ class WizardScreen(Screen):
         self._phase = "launch"
         self.set_focus(None)
 
-        lower = self.query_one("#lower-pane", Vertical)
-        await lower.remove_children()
-
-        self._log_chips = LogFilterChips(on_change=self._on_log_filter_change)
-        self._log_pane = LogPane(
-            title=" Stack startup · pipeline ",
-            subtitle=" ctrl+c to cancel ",
-        )
-        self._log_pane.set_on_new_source(self._log_chips.add_source)
-        await lower.mount(self._log_chips)
-        await lower.mount(self._log_pane)
-
-        self._footer.update_hints(_STARTUP_HINTS)
+        # Log widgets already exist (built in __init__, hidden). Reveal the tab
+        # instead of tearing the setup body down — the overview must stay live.
+        self._logs_enabled = True
+        self.show_tab(BrandPanel.TAB_LOGS)
 
         # The session log was opened in __init__ so it could capture
         # wizard-time warnings. Now that the log pane exists, surface
