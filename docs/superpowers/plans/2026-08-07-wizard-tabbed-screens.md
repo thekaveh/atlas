@@ -145,10 +145,34 @@ def test_tab_spans_map_columns_for_click_routing():
     spans, row = asyncio.run(scenario())
 
     assert set(spans) == {BrandPanel.TAB_SETUP, BrandPanel.TAB_LOGS}
-    setup_start, setup_end = spans[BrandPanel.TAB_SETUP]
-    assert setup_start < setup_end
-    # The recorded span must actually cover the rendered label.
-    assert "Setup" in row[setup_start:setup_end + 2]
+    # Boundary-EXACT for BOTH tabs. A containment check like
+    # `"Setup" in row[start:end + 2]` passes even for a span that is off by a
+    # column or two, which is exactly the escape-drift bug this guards.
+    for tab_id, label in ((BrandPanel.TAB_SETUP, "Setup"), (BrandPanel.TAB_LOGS, "Logs")):
+        start, end = spans[tab_id]
+        assert row[start] == "[", f"{tab_id} span must start at the rendered '['"
+        assert row[end - 1] == "]", f"{tab_id} span must end at the rendered ']'"
+        assert label in row[start:end]
+
+
+def test_byline_renders_alone_before_set_tabs_called():
+    """Until set_tabs() is called the panel must look EXACTLY as it did before
+    tabs existed — the live wizard hits this path on every run. Asserting only
+    "labels absent" is not enough: a left-aligned padded string renders a stray
+    space after the corner (``╰─ ───``) while still containing no labels."""
+    panel = _panel()
+
+    async def scenario():
+        async with _App(panel).run_test(size=(140, 12)) as pilot:
+            await pilot.pause()          # no set_tabs() call
+            return _bottom_border(pilot.app)
+
+    row = asyncio.run(scenario())
+
+    assert "Setup" not in row and "Logs" not in row
+    assert row[2] != " ", f"stray gap artifact after the corner: {row[:10]!r}"
+    assert "…" not in row, "byline must not be ellipsized at 140 cols"
+    assert "github.com/thekaveh/atlas" in row
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -158,7 +182,7 @@ Expected: FAIL with `AttributeError: 'BrandPanel' object has no attribute 'set_t
 
 - [ ] **Step 3: Write minimal implementation**
 
-In `block_logo.py`, change the `BrandPanel` CSS `border-subtitle-align` from `right` to `left`, then add the tab machinery. Replace the class body's `__init__`/`on_mount` region with:
+In `block_logo.py`, set the `BrandPanel` CSS `border-subtitle-align` to `left` (the tabs path needs it; `_render_border` flips it back to `right` at runtime for the byline-only path), then add the tab machinery. Replace the class body's `__init__`/`on_mount` region with:
 
 ```python
     TAB_SETUP = "setup"
@@ -208,15 +232,30 @@ In `block_logo.py`, change the `BrandPanel` CSS `border-subtitle-align` from `ri
 
     def _tab_segment(self) -> str:
         """Left-hand tab labels. Brackets are ESCAPED: Textual consumes a bare
-        "[" in a border subtitle as console markup and the label vanishes."""
+        "[" in a border subtitle as console markup and the label vanishes.
+
+        Returns "" when tabs are not enabled, so the panel keeps its original
+        byline-only appearance until ``set_tabs()`` is called.
+
+        SPAN MATH: measure positions in RENDERED characters, never in the raw
+        escaped string. Each ``\\[`` occupies 2 source chars but renders as 1,
+        so indexing the source drifts by one column per preceding tab.
+        """
+        if not self._tabs_enabled:
+            self._tab_spans = {}
+            return ""
+
         out = " "
         self._tab_spans = {}
+        rendered_pos = len(out)
         for tab_id, label in self._TAB_LABELS:
-            start = len(out)
             marker = "▸" if tab_id == self._active_tab else " "
+            bracket_content_len = len(f"[{marker} {label} ]")
+            self._tab_spans[tab_id] = (
+                rendered_pos, rendered_pos + bracket_content_len,
+            )
             out += rf"\[{marker} {label} ] "
-            # Span excludes the escape backslash so it matches rendered columns.
-            self._tab_spans[tab_id] = (start, len(out) - 1)
+            rendered_pos += bracket_content_len + 1
         return out
 
     def tab_spans(self) -> dict[str, tuple[int, int]]:
@@ -229,13 +268,40 @@ In `block_logo.py`, change the `BrandPanel` CSS `border-subtitle-align` from `ri
         self._render_border()
 
     def _render_border(self) -> None:
+        """Two branches — do NOT collapse them into one padded string.
+
+        Textual inserts an implicit gap between the corner and the subtitle, so
+        a left-aligned string that STARTS with dashes renders as ``╰─ ───`` (a
+        stray space). The byline-only path therefore restores the original
+        right-aligned plain byline and lets Textual draw its own dash fill,
+        which is byte-identical to the pre-tabs rendering.
+        """
         if self.tagline:
             self.border_title = f" {self.tagline} "
+
+        if not self._tabs_enabled:
+            self.styles.border_subtitle_align = "right"
+            self.border_subtitle = self._byline()
+            return
+
+        self.styles.border_subtitle_align = "left"
         left = self._tab_segment()
         right = self._byline()
-        inner = max(0, self.size.width - 2)
+        # width - 4 = two corners + Textual's implicit gap either side of the
+        # subtitle. Using width - 2 overruns the budget and Textual ellipsizes.
+        inner = max(0, self.size.width - 4)
         pad = max(1, inner - len(left) - len(right))
         self.border_subtitle = left + "─" * pad + right
+
+        # Shift spans into panel-region columns. 3 = corner (╰) + line (─) +
+        # implicit gap. Assumes `border: round`, `padding: 0`,
+        # `border-subtitle-align: left`; the boundary-exact span tests fail
+        # loudly if that CSS changes.
+        if self._tab_spans:
+            self._tab_spans = {
+                tab_id: (start + 3, end + 3)
+                for tab_id, (start, end) in self._tab_spans.items()
+            }
 
     def on_mount(self) -> None:
         self._render_border()
