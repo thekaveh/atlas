@@ -362,6 +362,7 @@ from textual.app import App, ComposeResult  # noqa: E402
 
 from ui.textual.screens.wizard_screen import WizardScreen  # noqa: E402
 from ui.textual.widgets.block_logo import BrandPanel  # noqa: E402
+from ui.textual.widgets.prompt_panel import PromptOption, PromptStep  # noqa: E402
 
 
 class _App(App):
@@ -374,7 +375,21 @@ class _App(App):
 
 
 def _screen() -> WizardScreen:
-    return WizardScreen(steps=[], services=[], no_splash=True)
+    """A mountable setup-phase screen.
+
+    `steps=[]` is NOT usable here: `on_mount` -> `_load_current_step` indexes
+    `self._steps[self._step_index]` unconditionally, and the only production
+    site that passes an empty list also passes `auto_launch=True` (which would
+    immediately fire the launch transition and race these assertions). One
+    dummy step exercises the real setup path with no production change.
+    """
+    step = PromptStep(
+        title="Dummy", step_index=1, step_total=1,
+        heading="Dummy step", subtitle="",
+        options=[PromptOption(value="a", label="A"), PromptOption(value="b", label="B")],
+        default_value="a",
+    )
+    return WizardScreen(steps=[step], services=[], no_splash=True)
 
 
 def test_both_tab_bodies_are_mounted_and_only_one_is_visible():
