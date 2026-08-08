@@ -415,6 +415,11 @@ def test_show_tab_swaps_visibility_without_unmounting():
     async def scenario():
         async with _App(scr).run_test(size=(140, 44)) as pilot:
             await pilot.pause()
+            # show_tab() gates the Logs tab behind _logs_enabled, which only
+            # _transition_to_launch() flips. This test exercises the raw swap
+            # mechanism, so put the screen in the post-launch state first —
+            # the same thing every other tab test in this plan does.
+            scr._logs_enabled = True
             scr.show_tab(BrandPanel.TAB_LOGS)
             await pilot.pause()
             setup = scr.query_one("#tab-setup")
