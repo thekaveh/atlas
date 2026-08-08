@@ -260,3 +260,46 @@ def test_search_focused_digit_keys_land_in_the_input_not_a_tab_switch():
     assert tab_after_shift_tab == BrandPanel.TAB_LOGS, (
         "shift+tab still cycles tabs while the search box has focus"
     )
+
+
+def test_logs_written_while_setup_is_active_are_not_lost():
+    """The Logs body stays mounted, so a failure during launch is still in the
+    pane when the user switches over."""
+    scr = _screen()
+
+    async def scenario():
+        async with _App(scr).run_test(size=(140, 44)) as pilot:
+            await pilot.pause()
+            scr._logs_enabled = True
+            scr._log_pane.write_log(
+                "supabase-db ready", level="info", source="supabase-db"
+            )
+            scr._log_pane.write_log(
+                "comfyui failed", level="error", source="comfyui"
+            )
+            await pilot.pause()
+            scr.show_tab(BrandPanel.TAB_LOGS)
+            await pilot.pause()
+            return [r.raw for r in scr._log_pane._records]
+
+    lines = asyncio.run(scenario())
+
+    assert any("supabase-db ready" in t for t in lines)
+    assert any("comfyui failed" in t for t in lines)
+
+
+def test_logs_tab_reclaims_vertical_space():
+    """The bug: 61 services + fixed chrome over-subscribed a 44-row terminal by
+    6 rows and crushed the log pane. On the Logs tab the overview is hidden, so
+    the pane must get a usable share back."""
+    scr = _screen()
+
+    async def scenario():
+        async with _App(scr).run_test(size=(140, 44)) as pilot:
+            await pilot.pause()
+            scr._logs_enabled = True
+            scr.show_tab(BrandPanel.TAB_LOGS)
+            await pilot.pause()
+            return scr._log_pane.region.height
+
+    assert asyncio.run(scenario()) >= 20
