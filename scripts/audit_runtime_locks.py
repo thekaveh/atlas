@@ -59,12 +59,24 @@ AUDIT_SPECS = (
     ),
     AuditSpec(
         "services/parakeet/provider/gpu/requirements-locked.txt",
+        # PYSEC-2026-3624 (CVE-2026-58659) is RCE in PyTorch Lightning's
+        # _load_state, reached only through LightningModule.load_from_checkpoint
+        # on an attacker-supplied checkpoint. No released 2.x carries the fix:
+        # upstream fixed it in commit d710d68, and OSV's range reports "fixed in
+        # 2022.6.15" — a CalVer artifact of the pre-1.x line, so the range is
+        # unusable as an upgrade target. Atlas never calls load_from_checkpoint;
+        # lightning is transitive via nemo-toolkit, and the provider loads
+        # through nemo_asr.models.ASRModel.from_pretrained (transcribe.py:37) on
+        # the operator-pinned PARAKEET_MODEL repo, not on user-supplied files.
+        # Drop this exception once a lightning 2.x release ships d710d68.
+        # Atlas maintainers own re-review by 2026-09-01.
         frozenset(
             {
                 "PYSEC-2025-217",
                 "PYSEC-2026-2288",
                 "PYSEC-2026-2289",
                 "PYSEC-2026-2290",
+                "PYSEC-2026-3624",
             }
         ),
     ),
