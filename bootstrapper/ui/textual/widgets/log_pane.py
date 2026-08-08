@@ -81,6 +81,11 @@ class LogPane(RichLog):
         self._level_filter: str = "all"
         self._disabled_sources: set[str] = set()
         self._on_new_source = None
+        # See _mark_dirty_if_hidden / reflow: set when a line is written
+        # while this pane's region is collapsed (e.g. its container has
+        # ``display: none``), so the caller can correct the resulting
+        # mis-wrapped strips once the pane is visible again.
+        self._wrap_dirty = False
 
     def on_mount(self) -> None:
         if self._title:
@@ -117,6 +122,7 @@ class LogPane(RichLog):
         if len(self._records) > self._buffer_cap:
             del self._records[: len(self._records) - self._buffer_cap]
         if self._passes_filter(rec):
+            self._mark_dirty_if_hidden()
             self._write_record(rec)
 
     def write_styled(
@@ -137,7 +143,41 @@ class LogPane(RichLog):
         if len(self._records) > self._buffer_cap:
             del self._records[: len(self._records) - self._buffer_cap]
         if self._passes_filter(rec):
+            self._mark_dirty_if_hidden()
             self.write(text)
+
+    def _mark_dirty_if_hidden(self) -> None:
+        """Flag that the NEXT write will bake its wrap width wrong.
+
+        ``RichLog.write()`` (when no explicit ``width=`` is given) renders
+        at ``self.scrollable_content_region.width`` — which collapses to 0
+        while this pane is hidden (e.g. its container has ``display:
+        none``, as when the Setup tab is active). The write still renders
+        IMMEDIATELY rather than deferring: RichLog only defers writes
+        before its first-ever resize (tracked by ``self._size_known``,
+        inherited from RichLog); once that has happened once, every later
+        write renders now, baked at ``max(0, self.min_width)`` — 78 by
+        default, regardless of the real terminal width — and the strip
+        never re-flows on its own once revealed. ``reflow()`` uses this
+        flag to correct it, without paying for a rerender (and the
+        scroll-to-bottom jump that comes with one) on every reveal when
+        nothing was actually written while hidden.
+        """
+        if self._size_known and self.scrollable_content_region.width <= 0:
+            self._wrap_dirty = True
+
+    def reflow(self) -> None:
+        """Re-render buffered records if any were written while hidden.
+
+        Call this once this pane's region is known-good again (e.g. right
+        after un-hiding its container) — see ``_mark_dirty_if_hidden``.
+        No-op when nothing was written while hidden, so switching tabs
+        doesn't jump the scroll position to the bottom on every reveal.
+        """
+        if not self._wrap_dirty:
+            return
+        self._wrap_dirty = False
+        self._rerender()
 
     def _passes_filter(self, rec: _LogRecord) -> bool:
         if self._level_filter != "all" and rec.level != self._level_filter:

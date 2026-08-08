@@ -86,7 +86,9 @@ The padding is recomputed on resize. Verified rendering (90 cols):
 | On launch | Auto-switch to Logs. Setup remains reachable. |
 | Switching | `1` / `2`, `tab` / `shift+tab` cycling, or mouse click on the border row. |
 | Footer | Hint set swaps per tab via the existing `FooterBar.update_hints()`. |
-| Activity marker | While Setup is active during launch, the Logs label gains a subtle marker when new errors arrive, so failures are not missed behind a hidden tab. |
+| Failure toast | While Setup is active during launch, a worker failure surfaces as a toast pointing at the Logs tab — see the correction note below. |
+
+**Consequence — corrected during implementation.** The "Logs label gains a subtle marker" design above was never built: the original task set's self-review recorded it as a deliberate deviation (it needs a hook into the error path plus label-rendering changes, which would have widened Task 5 past a layout-only change; the `y`/`Y` copy affordances and auto-switch-on-launch were judged to already cover the primary risk). A later whole-branch review (finding M10) found the real gap this left — a launch failure while the user sits on Setup produced no toast, no marker, no auto-switch, so the run was silently dead until they happened to switch tabs — and required a minimal real fix instead of shipping the gap. What ships: `on_worker_state_changed`'s launch-failure branch checks `_active_tab` and, when the user is on Setup, calls `self.notify(...)` with error severity naming the Logs tab — a toast, not a persistent marker on the tab label itself.
 
 ## 6. State and data flow
 
@@ -133,7 +135,7 @@ Swapping `RichLog` for a selectable widget would forfeit the bounded 10k-line bu
 ## 8. Error handling
 
 - **Launch failure:** unchanged. `_mark_launch_failed()` still sets the exit code and frees Ctrl+Q; the failure is written to the log pane, which is the active tab by default after launch.
-- **Failure while on Setup:** the Logs activity marker (§5) surfaces it.
+- **Failure while on Setup:** a toast notification surfaces it, naming the Logs tab — not the activity marker originally described here; see §5's correction note.
 - **Tab switch during teardown:** switching only toggles `display`; it never touches workers or the process tree, so it is safe at any point, including mid-cancel.
 - **Short terminals:** the `is_tui_capable` floor (≥20 rows) still applies. Tabs improve this case since each tab holds roughly half of today's stacked content. The pre-existing ≤30-row overlap between the command summary and the footer is fixed as part of this work, since it lives in the same layout.
 

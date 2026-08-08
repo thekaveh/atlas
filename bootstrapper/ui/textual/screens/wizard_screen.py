@@ -390,6 +390,17 @@ _STARTUP_HINTS = [
     (("ctrl+c",), "cancel"),
 ]
 
+# Setup tab, mid-launch: action_move/toggle/confirm/focus_search/
+# toggle_search_focus/cycle_filter all early-return once _phase != "setup",
+# and action_back returns early too — so every _SETUP_HINTS shortcut except
+# ctrl+q is dead here. Only the cancel/detach escape hatch (same one
+# _STARTUP_HINTS / _LAUNCH_HINTS end with) is live.
+_LAUNCH_ON_SETUP_HINT_CANCEL = (("ctrl+c",), "cancel")
+_LAUNCH_ON_SETUP_HINT_DETACH = (("ctrl+q",), "detach")
+
+# Appended whenever the Logs tab is actually reachable (_logs_enabled) —
+# neither hint set above mentioned the branch's own tab navigation.
+_TAB_HINT = (("1", "2"), "tabs")
 
 
 def prune_skip_hidden_selections(steps, selections: dict) -> dict:
@@ -771,18 +782,63 @@ class WizardScreen(Screen):
     def active_tab(self) -> str:
         return self._active_tab
 
+    def _footer_hints(self) -> list:
+        """Compute the footer hint set for the current tab/phase state.
+
+        Centralizes what used to be two independent single-axis guesses —
+        ``show_tab`` picked a hint set from the active tab alone, and the
+        launch-complete transition picked one from ``_launch_detach_ready``
+        alone — which let real mismatches through:
+        * A ``1``→``2`` round-trip after a successful launch regressed the
+          Logs footer back to "ctrl+c cancel" even though LogPane's own
+          border subtitle already said "ctrl+q to detach".
+        * The Setup tab kept advertising ↑/↓/space/enter/esc/tab//f
+          mid-launch even though action_move/toggle/confirm/back/
+          focus_search/toggle_search_focus/cycle_filter all early-return
+          once ``_phase != "setup"``.
+        Also appends a ``1``/``2`` "tabs" hint whenever the Logs tab is
+        actually reachable — neither hint set advertised the tab
+        navigation itself before this.
+        """
+        if self._active_tab == BrandPanel.TAB_LOGS:
+            hints = list(_LAUNCH_HINTS if self._launch_detach_ready else _STARTUP_HINTS)
+        elif self._phase != "setup":
+            hints = [
+                _LAUNCH_ON_SETUP_HINT_DETACH if self._launch_detach_ready
+                else _LAUNCH_ON_SETUP_HINT_CANCEL
+            ]
+        else:
+            hints = list(_SETUP_HINTS)
+        if self._logs_enabled:
+            hints = hints + [_TAB_HINT]
+        return hints
+
     def show_tab(self, tab_id: str) -> None:
         """Toggle body visibility. Both bodies stay mounted so the overview and
         the log stream keep updating while hidden."""
         if tab_id == BrandPanel.TAB_LOGS and not self._logs_enabled:
             return
+        if tab_id != BrandPanel.TAB_LOGS and self._log_chips is not None:
+            # The source-filter popup mounts on the SCREEN's ``popup``
+            # layer (outside #tab-logs — see LogFilterChips._open_source_
+            # picker), so toggling #tab-logs.display below can't hide it.
+            # Left open, it renders on top of whichever tab is now
+            # showing. Dismiss it before switching away.
+            self._log_chips.close_source_picker_if_open()
         self._active_tab = tab_id
         self.query_one("#tab-setup").display = tab_id == BrandPanel.TAB_SETUP
         self.query_one("#tab-logs").display = tab_id == BrandPanel.TAB_LOGS
         self._brand_panel.set_tabs(tab_id, enabled=self._logs_enabled)
-        self._footer.update_hints(
-            _STARTUP_HINTS if tab_id == BrandPanel.TAB_LOGS else _SETUP_HINTS
-        )
+        if tab_id == BrandPanel.TAB_LOGS:
+            # RichLog bakes each line's wrap width in at write()-time from
+            # its region, which collapses to 0 while hidden — a line
+            # written during a hidden window can be baked at the wrong
+            # width (LogPane._mark_dirty_if_hidden) and never re-flow on
+            # its own. call_after_refresh (not a direct call) defers past
+            # the layout pass this reveal just triggered, so the pane's
+            # region is correct by the time reflow() runs.
+            self.call_after_refresh(self._log_pane.reflow)
+        self._footer.update_hints(self._footer_hints())
 
     def action_show_setup(self) -> None:
         self.show_tab(BrandPanel.TAB_SETUP)
@@ -898,6 +954,20 @@ class WizardScreen(Screen):
                     f"❌ {event.worker.name or 'background task'} failed: {err}",
                     style="bold red", source="pipeline",
                 )
+                if self._active_tab == BrandPanel.TAB_SETUP:
+                    # The write above lands in the Logs pane, which is
+                    # hidden while Setup is active — without a toast too,
+                    # a launch failure here produces no visible signal at
+                    # all until the user happens to switch tabs. (The
+                    # spec once described a Logs-tab "activity marker" for
+                    # this; it was never built — see spec §5/§8's
+                    # correction notes. This toast is what ships.)
+                    self.notify(
+                        f"{event.worker.name or 'Launch'} failed — see the Logs tab.",
+                        title="Launch failed",
+                        severity="error",
+                        timeout=10,
+                    )
 
     def _mark_launch_failed(self) -> None:
         """Record a nonzero CLI result while leaving the error visible in the TUI."""
@@ -908,6 +978,11 @@ class WizardScreen(Screen):
         # False and action_quit_wizard blocks with a misleading "startup is
         # still running" toast (the banner-swap early-return path included).
         self._launch_detach_ready = True
+        # Refresh the footer so it reflects the ctrl+q-is-now-live change
+        # immediately, same as the launch-success transition — otherwise a
+        # failure while the user is on Setup leaves a stale "ctrl+c cancel"
+        # hint until the next tab switch happens to recompute it.
+        self._footer.update_hints(self._footer_hints())
 
     # ─── setup phase ─────────────────────────────────────────────────
 
@@ -1836,11 +1911,23 @@ class WizardScreen(Screen):
             self._log_chips.set_level("info")
 
     def action_filter_sources(self) -> None:
-        if self._phase == "launch" and self._log_chips is not None:
+        # Also gated on the active tab (not just _phase): the popup this
+        # opens mounts on the screen's popup layer, outside #tab-logs, so
+        # opening it while Setup is showing would pop a dropdown over an
+        # invisible pane (see close_source_picker_if_open's docstring).
+        if (
+            self._phase == "launch"
+            and self._active_tab == BrandPanel.TAB_LOGS
+            and self._log_chips is not None
+        ):
             self._log_chips.toggle_source_picker()
 
     def action_copy_logs(self) -> None:
-        if self._log_pane is None:
+        # a/e/w/i/s all gate on _phase == "launch"; this is the same
+        # guard — without it, `y` mid-wizard is a plausible "yes"
+        # keystroke on the cold-start/hosts steps that would silently
+        # clobber the clipboard instead.
+        if self._phase != "launch" or self._log_pane is None:
             return
         text = self._log_pane.visible_text()
         if not text:
@@ -1849,6 +1936,10 @@ class WizardScreen(Screen):
         self.notify("Log buffer copied to clipboard.", timeout=3)
 
     def action_copy_session_log(self) -> None:
+        # See action_copy_logs — same guard, same reason (`Y` mid-wizard
+        # would otherwise spawn a worker and clobber the clipboard).
+        if self._phase != "launch":
+            return
         path = self._launch_log_path
         if path is None:
             self.notify("No session log yet.", severity="warning", timeout=3)
@@ -1865,16 +1956,34 @@ class WizardScreen(Screen):
         )
 
     async def _copy_session_log_worker(self, path: Path) -> None:
+        """Read + copy the session log, with every step contained.
+
+        ``on_worker_state_changed`` calls ``_mark_launch_failed()`` for
+        ANY worker that reaches ``WorkerState.ERROR`` — this worker's own
+        ``exit_on_error=False`` only stops the app from crashing, it does
+        NOT stop that handler from firing and setting a nonzero exit code.
+        A clipboard copy must never be able to make ``./start.sh`` exit
+        nonzero, so every branch below — the read AND the copy/notify —
+        is wrapped, not just the historically-expected OSError case.
+        """
         try:
             text = await asyncio.to_thread(read_session_log_tail, path)
-        except OSError as exc:
-            self.notify(
-                f"Could not read the session log: {type(exc).__name__}",
-                severity="error", timeout=5,
-            )
+        except Exception as exc:  # noqa: BLE001 — must not fail the launch; see docstring
+            with contextlib.suppress(Exception):
+                self.notify(
+                    f"Could not read the session log: {type(exc).__name__}",
+                    severity="error", timeout=5,
+                )
             return
-        self.app.copy_to_clipboard(text)
-        self.notify(f"Session log copied ({path}).", timeout=3)
+        try:
+            self.app.copy_to_clipboard(text)
+            self.notify(f"Session log copied ({path}).", timeout=3)
+        except Exception as exc:  # noqa: BLE001 — must not fail the launch; see docstring
+            with contextlib.suppress(Exception):
+                self.notify(
+                    f"Could not copy the session log: {type(exc).__name__}",
+                    severity="error", timeout=5,
+                )
 
     # ─── pipeline + docker compose runner ────────────────────────────
 
@@ -2272,7 +2381,11 @@ class WizardScreen(Screen):
                     " Live docker logs ",
                     subtitle=" ctrl+q to detach ",
                 )
-            self._footer.update_hints(_LAUNCH_HINTS)
+            # Routed through _footer_hints() (not a bare _LAUNCH_HINTS)
+            # so a launch completing while the user is still on Setup
+            # doesn't stamp Logs-tab hints over the tab that's actually
+            # showing.
+            self._footer.update_hints(self._footer_hints())
 
             # Kick off port verification + ComfyUI model check in the
             # background so the live log stream starts IMMEDIATELY rather
