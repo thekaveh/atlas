@@ -38,6 +38,7 @@ from pathlib import Path
 from typing import Callable
 
 from rich.text import Text
+from textual import events
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
@@ -698,7 +699,7 @@ class WizardScreen(Screen):
         idx = (order.index(self._active_tab) + delta) % len(order)
         self.show_tab(order[idx])
 
-    def on_click(self, event) -> None:
+    def on_click(self, event: events.Click) -> None:
         """A click on the brand panel's bottom border row selects a tab."""
         panel = self._brand_panel
         if event.widget is not panel:
@@ -706,6 +707,14 @@ class WizardScreen(Screen):
         if event.y != panel.region.height - 1:
             return
         for tab_id, (start, end) in panel.tab_spans().items():
+            # tab_spans() is half-open (end == one past the ']'), so this
+            # inclusive comparison is one column wider than the label
+            # itself. That's safe BY CONSTRUCTION, not by luck: BrandPanel.
+            # _tab_segment() advances rendered_pos by bracket_content_len + 1
+            # per tab, so the next tab's start is always this tab's end + 1
+            # — spans never touch or overlap regardless of label length or
+            # tab count, so the extra column can only ever re-select the
+            # tab it trails, never bleed into the next one.
             if start <= event.x <= end:
                 self.show_tab(tab_id)
                 return
@@ -1008,9 +1017,17 @@ class WizardScreen(Screen):
           typing.
         * ``toggle_search_focus`` — Tab toggles focus back to the
           option list (symmetric with the Tab-to-enter-search path).
-        * ``show_setup`` / ``show_logs`` / ``cycle_tab`` — ``1``/``2``/
-          shift+tab still switch tabs while searching; digits aren't
-          text the model-name search needs.
+        * ``cycle_tab`` — shift+tab still cycles tabs while searching.
+          ``show_setup``/``show_logs`` (bound to ``1``/``2``) do NOT need
+          an entry here: Textual's ``Screen._binding_chain`` already
+          strips any *printable*-character priority binding — digits
+          included — from every ancestor namespace once an ``Input`` has
+          focus (``Input.check_consume_key`` returns True for any
+          printable character), so ``1``/``2`` never reach
+          ``check_action`` while the search box is focused; they simply
+          land in the Input as text. ``shift+tab`` is NOT a printable
+          character, so it survives that upstream filter and still needs
+          the explicit whitelist entry below.
 
         Deliberately NOT in the whitelist:
         * ``confirm`` — Enter inside the focused Input emits Textual's
@@ -1031,9 +1048,13 @@ class WizardScreen(Screen):
         ):
             _SEARCH_ALLOWED = {
                 "back", "quit_wizard", "move", "toggle_search_focus",
-                # Tab switching stays reachable while searching — digits
-                # aren't text the model-name search needs.
-                "show_setup", "show_logs", "cycle_tab",
+                # shift+tab still cycles tabs while searching. show_setup/
+                # show_logs (1/2) need no entry here — Textual's upstream
+                # printable-key filter (Input.check_consume_key) already
+                # strips digit priority bindings before check_action ever
+                # runs; only non-printable shift+tab reaches this far. See
+                # the docstring above for the full mechanism.
+                "cycle_tab",
             }
             if action not in _SEARCH_ALLOWED:
                 return False

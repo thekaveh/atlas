@@ -204,3 +204,59 @@ def test_clicking_a_tab_label_on_the_border_switches_tabs():
             return scr.active_tab
 
     assert asyncio.run(scenario()) == BrandPanel.TAB_LOGS
+
+
+def _multiselect_screen() -> WizardScreen:
+    """A ``kind="multiselect"`` step with ``filter_tags`` set mounts the
+    real search ``Input`` (see ``PromptPanel._mount_search_input``) —
+    needed to drive the search-focus interaction through the actual
+    widget instead of stubbing ``has_search_focus()``.
+    """
+    step = PromptStep(
+        title="Models", step_index=1, step_total=1,
+        heading="Pick models", subtitle="",
+        kind="multiselect",
+        options=[PromptOption(value="a", label="A"), PromptOption(value="b", label="B")],
+        filter_tags=("all",),
+    )
+    return WizardScreen(steps=[step], services=[], no_splash=True)
+
+
+def test_search_focused_digit_keys_land_in_the_input_not_a_tab_switch():
+    """Regression for the review finding that the ``show_setup``/
+    ``show_logs`` whitelist entries were inert: Textual's own upstream
+    printable-key filter (``Input.check_consume_key``) already strips
+    digit priority bindings — ``1``/``2`` included — from the binding
+    chain before ``check_action`` is ever consulted, for any widget with
+    focus, not just this screen's search box. This test exercises that
+    real mechanism end-to-end through the actual search ``Input``
+    instead of asserting on the (removed) whitelist entries. It also
+    covers the one key that genuinely does need — and has — a whitelist
+    entry: ``shift+tab``, which is not a printable character and so
+    survives the upstream filter to reach ``check_action``.
+    """
+    scr = _multiselect_screen()
+
+    async def scenario():
+        async with _App(scr).run_test(size=(140, 44)) as pilot:
+            await pilot.pause()
+            scr._logs_enabled = True
+            scr._prompt.focus_search()
+            await pilot.pause()
+            assert scr._prompt.has_search_focus()
+            for ch in "qwen3.6":
+                await pilot.press(ch)
+            await pilot.pause()
+            typed = scr._prompt._search_input.value
+            tab_while_typing = scr.active_tab
+            await pilot.press("shift+tab")
+            await pilot.pause()
+            return typed, tab_while_typing, scr.active_tab
+
+    typed, tab_while_typing, tab_after_shift_tab = asyncio.run(scenario())
+
+    assert typed == "qwen3.6", "digits/dot must land in the search box untouched"
+    assert tab_while_typing == BrandPanel.TAB_SETUP, "typed digits must not switch tabs"
+    assert tab_after_shift_tab == BrandPanel.TAB_LOGS, (
+        "shift+tab still cycles tabs while the search box has focus"
+    )
