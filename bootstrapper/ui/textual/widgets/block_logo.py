@@ -222,13 +222,20 @@ class BrandPanel(Container):
             self.border_title = f" {self.tagline} "
         left = self._tab_segment()
         right = self._byline()
-        inner = max(0, self.size.width - 2)
+        # Available width for border content, accounting for:
+        # - 2 chars: left (╰) and right (╯) border corners
+        # - ~2 chars: Textual's implicit gap-padding around the border_subtitle
+        #   (depends on CSS: border: round; padding: 0; border-subtitle-align: left).
+        inner = max(0, self.size.width - 4)
         pad = max(1, inner - len(left) - len(right))
         self.border_subtitle = left + "─" * pad + right
 
         # Adjust tab spans to account for the border rendering offset.
-        # The border structure is: ╰─  + border_subtitle_content + ...
-        # The offset (3) accounts for the left corner, border line, and spacing.
+        # Textual renders the border_subtitle on the bottom border as:
+        #   ╰─ [implicit-gap] border_subtitle_content [implicit-gap] ─╯
+        # The offset (3) = corner (╰) + line (─) + implicit-gap-left.
+        # This constant depends on CSS: border: round; padding: 0; border-subtitle-align: left.
+        # If CSS changes (border style, padding, alignment), this offset may need adjustment.
         if self._tabs_enabled and self._tab_spans:
             border_offset = 3
             adjusted_spans = {}

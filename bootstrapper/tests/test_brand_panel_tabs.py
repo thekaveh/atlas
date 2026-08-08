@@ -110,11 +110,16 @@ def test_tab_spans_map_columns_for_click_routing():
 
 
 def test_byline_renders_alone_before_set_tabs_called():
-    """Before set_tabs() is called, render byline only (no tab chrome)."""
+    """Before set_tabs() is called, render byline only (no tab chrome).
+
+    Byte-exact check: at wide width, the full byline should render without
+    truncation or ellipsis, reproducing the old right-aligned output exactly.
+    """
     panel = _panel()
 
     async def scenario():
-        async with _App(panel).run_test(size=(140, 12)) as pilot:
+        # Use width=200 to ensure no legitimate space pressure on the byline.
+        async with _App(panel).run_test(size=(200, 12)) as pilot:
             await pilot.pause()
             # Do NOT call set_tabs(); tabs should not appear
             return _bottom_border(pilot.app)
@@ -123,6 +128,12 @@ def test_byline_renders_alone_before_set_tabs_called():
 
     # Tab labels should not appear before set_tabs() is called.
     assert "Setup" not in row, "tabs should not render before set_tabs() is called"
-    assert "Logs" not in row
-    # Byline should still be present.
+    assert "Logs" not in row, "tabs should not render before set_tabs() is called"
+
+    # Byline must render fully un-truncated, without ellipsis (.../…).
     assert "Kaveh Razavi" in row
+    assert "github.com/thekaveh/atlas" in row, "full repo URL must not be truncated"
+    assert "…" not in row, "byline should not be ellipsized (no … character)"
+
+    # Border structure should start with ╰─ (left corner + border line).
+    assert row.startswith("╰─"), f"border should start with '╰─', got: {row[:4]}"
