@@ -234,11 +234,20 @@ class BrandPanel(Container):
             self.styles.border_subtitle_align = "left"
             left = self._tab_segment()
             right = self._byline()
+            # `left` carries Rich-markup-ESCAPED brackets (``\[``) so the tab
+            # labels aren't eaten as console markup (see _tab_segment's own
+            # docstring) — each ``\[`` is 2 raw characters but the backslash
+            # is consumed at render time, so it displays as 1. Measuring
+            # len(left) counts the raw (escaped) length, over-counting by one
+            # column per tab; at 2 tabs that pushed the byline 2 columns
+            # short of flush-right and made it ellipsize 2 characters early
+            # at 200 cols. Measure the RENDERED length instead.
+            left_rendered_len = len(left) - left.count("\\[")
             # Available width for border content, accounting for:
             # - 2 chars: left (╰) and right (╯) border corners
             # - ~2 chars: Textual's implicit gap-padding around the border_subtitle
             inner = max(0, self.size.width - 4)
-            pad = max(1, inner - len(left) - len(right))
+            pad = max(1, inner - left_rendered_len - len(right))
             self.border_subtitle = left + "─" * pad + right
 
             # Adjust tab spans to account for the border rendering offset.

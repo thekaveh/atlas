@@ -143,3 +143,37 @@ def test_byline_renders_alone_before_set_tabs_called():
         f"no gap artifact: index 2 should be dash (─), not space; "
         f"got '{row[2]}' in row[:10]='{row[:10]}'"
     )
+
+
+def test_tabs_enabled_byline_stays_flush_right_at_wide_width():
+    """M1 regression: ``_render_border`` measured ``left`` (the tab segment)
+    at its RAW length, which includes the ``\\[`` escape backslashes needed
+    to stop Textual from eating a bare ``[`` as console markup (see
+    ``_tab_segment``'s docstring). Each escape is 2 raw characters but
+    renders as 1, so ``len(left)`` over-counted by one column per tab —
+    2 tabs pushed the byline 2 columns short of flush-right at wide
+    terminals. The byline-ONLY path (tabs disabled) has no escaped
+    brackets, so it was never affected — both paths must end with the
+    identical trailing filler once the byline content itself ends.
+    """
+    panel = _panel()
+
+    async def scenario():
+        async with _App(panel).run_test(size=(200, 12)) as pilot:
+            await pilot.pause()
+            byline_only_row = _bottom_border(pilot.app)
+            panel.set_tabs(BrandPanel.TAB_SETUP, enabled=True)
+            await pilot.pause()
+            tabs_row = _bottom_border(pilot.app)
+            return byline_only_row, tabs_row
+
+    byline_only_row, tabs_row = asyncio.run(scenario())
+
+    assert "…" not in tabs_row, "byline must not ellipsize 2 chars early at 200 cols"
+    byline_only_suffix = byline_only_row[byline_only_row.rindex("atlas") + len("atlas"):]
+    tabs_suffix = tabs_row[tabs_row.rindex("atlas") + len("atlas"):]
+    assert tabs_suffix == byline_only_suffix, (
+        "tabs-enabled path must end flush-right exactly like the byline-only "
+        f"path — got trailing {tabs_suffix!r} vs byline-only {byline_only_suffix!r} "
+        "(off-by-one-per-tab from measuring the escaped bracket's RAW length)"
+    )
