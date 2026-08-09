@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "_note": "Characterization snapshot of the complete curated catalog plus the bundled fallback catalog. Keep it exact when intentional catalog entries are added.",
-  "curated_count": 16,
+  "curated_count": 17,
   "fallback_count": 23,
   "entries": [
     {
@@ -383,6 +383,26 @@
       ]
     },
     {
+      "name": "krea2-identity-edit-v1-2",
+      "family": "Krea 2",
+      "category": "lora",
+      "size_gb": 1.828256432,
+      "url": "https://huggingface.co/conradlocke/krea2-identity-edit/resolve/89e9e7a09ee2e5c9331e952063d79b1b8a703280/krea2_identity_edit_v1_2.safetensors",
+      "sha256": "6adf9a69cc9502d286db7b69964d37da7e9cfe4b05b4d004bc275f087d3fd3cf",
+      "target_dir": "loras",
+      "min_vram_gb": 32.0,
+      "cpu_supported": false,
+      "requires_custom_node": [
+        "comfyui-krea2edit"
+      ],
+      "popularity": 60,
+      "source": "curated",
+      "pulled": false,
+      "cloud_only": false,
+      "notes": "Krea 2 Identity Edit LoRA v1.2 — required by the comfyui-krea2edit node pack. Trained on Krea 2 Raw; unofficial community fine-tune.",
+      "filename": "krea2_identity_edit_v1_2.safetensors"
+    },
+    {
       "name": "hunyuan3d-2",
       "family": "Hunyuan3D-2",
       "category": "mesh_model",
@@ -397,7 +417,7 @@
       "source": "curated",
       "pulled": false,
       "cloud_only": false,
-      "notes": "Native ComfyUI image\u21923D shape generation (Hunyuan3D-2 DiT). MPS-runnable; shape-only \u2014 texture/PBR is CUDA-bound and excluded.",
+      "notes": "Native ComfyUI image→3D shape generation (Hunyuan3D-2 DiT). MPS-runnable; shape-only — texture/PBR is CUDA-bound and excluded.",
       "filename": "hunyuan3d-dit-v2.safetensors",
       "essential": false,
       "precision": "fp16",
@@ -409,7 +429,7 @@
       "license_name": "Tencent Hunyuan Community License",
       "license_url": "https://huggingface.co/tencent/Hunyuan3D-2/blob/9cd649ba6913f7a852e3286bad86bfa9a2d83dcf/LICENSE.txt",
       "license_restrictions": [
-        "Territory-restricted \u2014 not licensed for use in the European Union, the United Kingdom, or South Korea.",
+        "Territory-restricted — not licensed for use in the European Union, the United Kingdom, or South Korea.",
         "Products or services with over 100 million monthly active users require a separate license from Tencent.",
         "Use is subject to the Tencent Hunyuan Community License Agreement and its Acceptable Use Policy."
       ]
