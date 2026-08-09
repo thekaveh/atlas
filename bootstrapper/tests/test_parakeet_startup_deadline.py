@@ -46,8 +46,12 @@ def test_startup_loading_returns_immediately_and_becomes_healthy():
         await asyncio.sleep(0)
         assert startup.state == "loading"
         assert not task.done()
+        deadline = asyncio.get_running_loop().time() + 5.0
         while not started.is_set():
-            await asyncio.sleep(0)
+            assert asyncio.get_running_loop().time() < deadline, (
+                "loader never signalled started"
+            )
+            await asyncio.sleep(0.01)
         release.set()
         await task
         return startup

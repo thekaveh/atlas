@@ -180,11 +180,17 @@ async def test_expired_success_result_is_deleted_and_releases_slot(
         task_id = first.json()["task_id"]
 
         async def wait_for_success():
-            while True:
+            deadline = asyncio.get_running_loop().time() + 10.0
+            status = None
+            while asyncio.get_running_loop().time() < deadline:
                 status = await client.get(f"/v1/status/poll/{task_id}")
                 if status.json()["task_status"] == "success":
                     return status
-                await asyncio.sleep(0)
+                await asyncio.sleep(0.01)
+            raise AssertionError(
+                "timed out waiting for task_status='success'; last response was "
+                f"{status.json() if status is not None else None!r}"
+            )
 
         status = await asyncio.wait_for(wait_for_success(), timeout=1)
         assert status.json()["task_status"] == "success"

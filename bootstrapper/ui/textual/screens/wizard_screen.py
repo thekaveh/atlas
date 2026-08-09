@@ -615,6 +615,15 @@ class WizardScreen(Screen):
     /* Prompt absorbs #lower-pane's spare height so the command summary sits
        directly above the footer instead of leaving a void beneath it. */
     WizardScreen #lower-pane > PromptPanel { height: 1fr; }
+    /* Dock the summary so it is placed BEFORE the prompt's 1fr claims the
+       remaining rows. Without this the prompt took the slack first and the
+       summary — despite its own min-height: 3 — was pushed past the pane's
+       overflow: hidden and rendered ZERO visible rows below ~32 terminal
+       rows, while its CSS comment claimed it "yields on short terminals"
+       (#912 item 2). Docking makes that claim true down to the point where
+       the pane itself has fewer than 3 rows, which is genuine space
+       exhaustion rather than a layout bug. */
+    WizardScreen #lower-pane > CommandSummary { dock: bottom; }
     WizardScreen > #wizard-body > FooterBar { margin-top: 1; }
     WizardScreen AtlasSplash { layer: overlay; width: 100%; height: 100%; }
     """
@@ -851,7 +860,7 @@ class WizardScreen(Screen):
         the log stream keep updating while hidden."""
         if tab_id == BrandPanel.TAB_LOGS and not self._logs_enabled:
             return
-        if tab_id != BrandPanel.TAB_LOGS and self._log_chips is not None:
+        if tab_id != BrandPanel.TAB_LOGS:
             # The source-filter popup mounts on the SCREEN's ``popup``
             # layer (outside #tab-logs — see LogFilterChips._open_source_
             # picker), so toggling #tab-logs.display below can't hide it.
@@ -882,7 +891,10 @@ class WizardScreen(Screen):
     def action_cycle_tab(self, delta: int) -> None:
         if not self._logs_enabled:
             return
-        order = [BrandPanel.TAB_SETUP, BrandPanel.TAB_LOGS]
+        # Derived from the panel's own tab registry rather than hard-coded:
+        # a duplicated list desyncs silently the day a third tab is added,
+        # cycling past it with no error (#912 item 6).
+        order = [tab_id for tab_id, _label in BrandPanel._TAB_LABELS]
         idx = (order.index(self._active_tab) + delta) % len(order)
         self.show_tab(order[idx])
 
@@ -1016,6 +1028,19 @@ class WizardScreen(Screen):
         # failure while the user is on Setup leaves a stale "ctrl+c cancel"
         # hint until the next tab switch happens to recompute it.
         self._footer.update_hints(self._footer_hints())
+        # The log pane's own border subtitle is set independently of the
+        # footer, and only the SUCCESS path updated it — so a failed launch
+        # showed "ctrl+q detach" in the footer while the pane directly above
+        # still read "ctrl+c to cancel". Both keys work, so nothing broke,
+        # but the two pieces of chrome contradicted each other (#912 item 1).
+        # Only touch it once a launch actually started: _mark_launch_failed
+        # also runs for setup-phase worker errors, where "cancel" is still
+        # the truthful hint.
+        if self._phase == "launch":
+            self._log_pane.set_title(
+                " Live docker logs ",
+                subtitle=" ctrl+q to detach ",
+            )
 
     # ─── setup phase ─────────────────────────────────────────────────
 
@@ -1601,7 +1626,15 @@ class WizardScreen(Screen):
                     continue  # degraded fetch — selection kept, no flag
                 csv = (value or "").strip()
                 if csv == "":
-                    continue  # nothing selected — no flag to emit
+                    # An empty selection DISABLES the provider at launch
+                    # (see the _cloud_models_commit branch above), so the
+                    # summary has to say so. Emitting nothing let a pasted
+                    # command fall back to whatever .env already had —
+                    # silently re-enabling a provider the user just cleared.
+                    # --ollama-custom-models already emits "" for exactly
+                    # this case; this brings cloud into line (#912 item 3).
+                    flags.append((f"--cloud-{provider}-source", "disabled"))
+                    continue
                 # The summary is a COPY-PASTEABLE command: --X-models takes a
                 # comma-separated string, so emit the CSV itself (quoted — it
                 # contains commas), never a "N selected (...)" description.
@@ -1653,10 +1686,7 @@ class WizardScreen(Screen):
             return
         # If a chip popup is open, escape closes it first instead of
         # rewinding the wizard step.
-        if (
-            self._log_chips is not None
-            and getattr(self._log_chips, "_open_popup", None) is not None
-        ):
+        if getattr(self._log_chips, "_open_popup", None) is not None:
             self._log_chips._open_popup.action_dismiss()
             return
         if self._phase != "setup":
@@ -1739,7 +1769,7 @@ class WizardScreen(Screen):
         # wizard-time warnings. Now that the log pane exists, surface
         # the path as the first user-visible line so the operator can
         # find it on disk.
-        if self._launch_log_path is not None and self._log_pane is not None:
+        if self._launch_log_path is not None:
             self._log_pane.write_log(
                 f"📝 session log: {self._launch_log_path}",
                 level="info", source="pipeline",
@@ -1785,7 +1815,7 @@ class WizardScreen(Screen):
             self._launch_log_fh = fh
             fh.write(f"# atlas session log — started {ts}\n")
             fh.flush()
-            if announce_in_pane and self._log_pane is not None:
+            if announce_in_pane:
                 self._log_pane.write_log(
                     f"📝 session log: {path}",
                     level="info", source="pipeline",
@@ -1799,8 +1829,7 @@ class WizardScreen(Screen):
                     path.unlink()
             self._launch_log_fh = None
             self._launch_log_path = None
-            if self._log_pane is not None:
-                self._log_pane.write_log(
+            self._log_pane.write_log(
                     f"⚠ could not open launch log file: {exc}",
                     level="warn", source="pipeline",
                 )
@@ -1941,23 +1970,22 @@ class WizardScreen(Screen):
             )
 
     def _on_log_filter_change(self, level: str, disabled: set[str]) -> None:
-        if self._log_pane is not None:
-            self._log_pane.set_filter(level, disabled)
+        self._log_pane.set_filter(level, disabled)
 
     def action_filter_all(self) -> None:
-        if self._phase == "launch" and self._log_chips is not None:
+        if self._phase == "launch":
             self._log_chips.clear_filters()
 
     def action_filter_errors(self) -> None:
-        if self._phase == "launch" and self._log_chips is not None:
+        if self._phase == "launch":
             self._log_chips.set_level("error")
 
     def action_filter_warns(self) -> None:
-        if self._phase == "launch" and self._log_chips is not None:
+        if self._phase == "launch":
             self._log_chips.set_level("warn")
 
     def action_filter_info(self) -> None:
-        if self._phase == "launch" and self._log_chips is not None:
+        if self._phase == "launch":
             self._log_chips.set_level("info")
 
     def action_filter_sources(self) -> None:
@@ -1968,7 +1996,6 @@ class WizardScreen(Screen):
         if (
             self._phase == "launch"
             and self._active_tab == BrandPanel.TAB_LOGS
-            and self._log_chips is not None
         ):
             self._log_chips.toggle_source_picker()
 
@@ -2092,7 +2119,7 @@ class WizardScreen(Screen):
         # guard — without it, `y` mid-wizard is a plausible "yes"
         # keystroke on the cold-start/hosts steps that would silently
         # clobber the clipboard instead.
-        if self._phase != "launch" or self._log_pane is None:
+        if self._phase != "launch":
             return
         text = self._log_pane.visible_text()
         if not text:
@@ -2149,12 +2176,20 @@ class WizardScreen(Screen):
                     f"Could not copy the session log: {type(exc).__name__}",
                     severity="error", timeout=5,
                 )
+            # Also land it in the pane + tee. A toast is transient and shows
+            # only the type name, so a programming error here (TypeError,
+            # AttributeError) was otherwise effectively silent — the price of
+            # catching broadly enough that a clipboard failure can never set
+            # the CLI exit code (#912 item 8).
+            with contextlib.suppress(Exception):
+                self._safe_log(
+                    f"session-log copy failed: {type(exc).__name__}: {exc}",
+                    level="error",
+                )
 
     # ─── pipeline + docker compose runner ────────────────────────────
 
     def _write_status(self, msg: str, *, style: str = "", source: str = "pipeline") -> None:
-        if self._log_pane is None:
-            return
         text = Text(msg)
         if style:
             text.stylize(style)
@@ -2183,8 +2218,6 @@ class WizardScreen(Screen):
         """
         import threading
         self._tee_to_log(msg, source=source, level=level)
-        if self._log_pane is None:
-            return
         on_main = threading.current_thread() is threading.main_thread()
         try:
             if on_main:
@@ -2542,11 +2575,10 @@ class WizardScreen(Screen):
             self._launch_detach_ready = True
             self._launch_succeeded = True
 
-            if self._log_pane is not None:
-                self._log_pane.set_title(
-                    " Live docker logs ",
-                    subtitle=" ctrl+q to detach ",
-                )
+            self._log_pane.set_title(
+                " Live docker logs ",
+                subtitle=" ctrl+q to detach ",
+            )
             # Routed through _footer_hints() (not a bare _LAUNCH_HINTS)
             # so a launch completing while the user is still on Setup
             # doesn't stamp Logs-tab hints over the tab that's actually
