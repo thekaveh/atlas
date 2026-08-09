@@ -1499,6 +1499,12 @@ class WizardScreen(Screen):
                     flags.append(("--base-port", value))
                 break
 
+        # --track / --profile. Both carry no service_name, so the loop
+        # below drops them; without this they never reached a summary
+        # that claims to be copy-pasteable.
+        from .. import integration as _int_meta
+        flags.extend(_int_meta.meta_flags_for(self._selections))
+
         # Build per-cloud title indexes once so we can match cloud
         # secret + multiselect steps without scanning the cloud list
         # for every step. Iterate the canonical CLOUD_PROVIDERS list so

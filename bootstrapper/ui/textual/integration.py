@@ -92,13 +92,43 @@ def _option_hint(opt: str) -> str:
 # _build_steps_and_rows WHEN the tracks.yml registry loads successfully;
 # when the registry is unloadable the picker is suppressed entirely.
 # Used as the selections-dict key by every downstream skip predicate.
-PICKER_STEP_TITLE = "Track  ·  pick your profile"
+# NOTE: this string is a selections-dict KEY, not just display text —
+# _make_track_skip, _selections_to_args and the prefill paths all look it
+# up. It deliberately no longer says "profile": Atlas configures tracks
+# (tracks.yml — which workload, hence which services get prompted for)
+# and profiles (profiles.yml — dev vs prod hardening) separately, and
+# having the track step ask "Which profile fits what you're building?"
+# one step before the real profile step made the latter read as missing.
+PICKER_STEP_TITLE = "Track  ·  pick your workload"
 
 # Stable title for the deployment-profile picker step. Added right after
 # the track-picker step (or at index 0 when the track registry failed).
 # Used as the selections-dict key by the profile-based option filter below
 # and by the TUI pipeline to set starter.profile before env overrides run.
 PROFILE_STEP_TITLE = "Profile  ·  deployment hardening"
+
+
+def meta_flags_for(selections: dict) -> list[tuple[str, str]]:
+    """``--track`` / ``--profile`` flags implied by ``selections``.
+
+    Both are real ``./start.sh`` flags, and neither used to reach the
+    command summary: the track and profile steps carry no
+    ``service_name``, so they fell through to the meta-step branch and
+    matched none of its cold/hosts cases. A summary that advertises
+    itself as copy-pasteable was therefore dropping the two flags that
+    decide which services run and how they are hardened.
+
+    Defaults are omitted so the summary keeps mirroring a bare
+    ``./start.sh`` rather than accreting no-op flags.
+    """
+    flags: list[tuple[str, str]] = []
+    track = (selections.get(PICKER_STEP_TITLE) or "").strip()
+    if track:
+        flags.append(("--track", track))
+    profile = (selections.get(PROFILE_STEP_TITLE) or "").strip()
+    if profile and profile != "default":
+        flags.append(("--profile", profile))
+    return flags
 
 
 def _resolve_auto_base_port(fallback: int) -> int:
@@ -354,7 +384,7 @@ def _build_steps_and_rows(
         steps.append(PromptStep(
             title=PICKER_STEP_TITLE,
             step_index=1, step_total=total,
-            heading="Which profile fits what you're building?",
+            heading="Which workload are you building?",
             subtitle=(
                 "Always-on for every track: LLM Engine + Prometheus + "
                 "Grafana + cloud-provider keys."
