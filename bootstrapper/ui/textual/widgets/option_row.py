@@ -52,6 +52,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from rich.console import Console
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.containers import Container
@@ -317,6 +318,37 @@ def _pad_to_column(line: Text, target_col: int, *, min_gap: int = 2) -> None:
     if needed < min_gap:
         needed = min_gap
     line.append(" " * needed)
+
+
+# Rich needs a console to resolve wrap options. Nothing about the wrap
+# depends on this console's own width (it is passed explicitly), so one
+# module-level instance is reused rather than built on every repaint.
+_WRAP_CONSOLE = Console()
+
+
+def _hanging_indent(body: Text, indent: int, width: int) -> Text:
+    """Wrap ``body`` and indent EVERY resulting visual line by ``indent``.
+
+    A single ``Text`` that merely *starts* with spaces is one logical
+    line to Rich: it indents the first visual row and lets every wrapped
+    continuation restart at column 0, so a long hint reads as though it
+    escaped its row. Pre-wrapping here and prefixing each line keeps the
+    whole block nested under the label. Because the returned lines
+    already fit, Rich does not re-wrap them downstream.
+
+    ``OptionRowWithInput`` gets this for free by giving its hint a real
+    ``Static`` with ``padding-left``; plain ``OptionRow`` renders to a
+    single ``Text``, so it has to do the wrapping itself.
+    """
+    available = max(1, width - indent)
+    pad = " " * indent
+    out = Text()
+    for i, line in enumerate(body.wrap(_WRAP_CONSOLE, available)):
+        if i:
+            out.append("\n")
+        out.append(pad)
+        out.append(line)
+    return out
 
 
 class OptionRow(Widget):
@@ -647,14 +679,14 @@ class OptionRow(Widget):
         if not has_sizes and not has_hint:
             return line1
 
-        line2 = Text()
-        line2.append(" " * label_col)
+        body = Text()
         if has_sizes:
-            line2.append(sizes_text)
+            body.append(sizes_text)
         if has_sizes and has_hint:
-            line2.append("  ·  ", style=P.TEXT_FAINT)
+            body.append("  ·  ", style=P.TEXT_FAINT)
         if has_hint:
-            line2.append(self.hint, style=P.TEXT_FAINT)
+            body.append(self.hint, style=P.TEXT_FAINT)
+        line2 = _hanging_indent(body, label_col, width)
 
         out = Text()
         out.append(line1)
