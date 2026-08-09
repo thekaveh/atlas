@@ -82,13 +82,15 @@ The padding is recomputed on resize. Verified rendering (90 cols):
 
 | Concern | Behavior |
 |---|---|
-| Before launch | Setup active. Logs visible but dimmed/disabled — discoverable, not activatable. |
+| Before launch | Setup active. **No tab strip is rendered at all** — see the correction note below. |
 | On launch | Auto-switch to Logs. Setup remains reachable. |
 | Switching | `1` / `2`, `tab` / `shift+tab` cycling, or mouse click on the border row. |
 | Footer | Hint set swaps per tab via the existing `FooterBar.update_hints()`. |
 | Failure toast | While Setup is active during launch, a worker failure surfaces as a toast pointing at the Logs tab — see the correction note below. |
 
-**Consequence — corrected during implementation.** The "Logs label gains a subtle marker" design above was never built: the original task set's self-review recorded it as a deliberate deviation (it needs a hook into the error path plus label-rendering changes, which would have widened Task 5 past a layout-only change; the `y`/`Y` copy affordances and auto-switch-on-launch were judged to already cover the primary risk). A later whole-branch review (finding M10) found the real gap this left — a launch failure while the user sits on Setup produced no toast, no marker, no auto-switch, so the run was silently dead until they happened to switch tabs — and required a minimal real fix instead of shipping the gap. What ships: `on_worker_state_changed`'s launch-failure branch checks `_active_tab` and, when the user is on Setup, calls `self.notify(...)` with error severity naming the Logs tab — a toast, not a persistent marker on the tab label itself.
+**Correction — the pre-launch tab strip.** This table originally read "Logs visible but dimmed/disabled — discoverable, not activatable". That is not what ships and, following a review of the live wizard, is not what will be built. `on_mount` calls `set_tabs(TAB_SETUP, enabled=False)` and only `_transition_to_launch` enables the strip, so the brand panel keeps its original byline-only bottom border for the whole wizard; the `1`/`2` footer hint is gated on `_logs_enabled` for the same reason, so there is no tab affordance during setup either. The repo owner confirmed this behavior deliberately: there is nothing to show on a Logs tab before a launch exists, and keeping tabs off pre-launch is what preserves the byline-only border byte-identically to its pre-feature rendering — a property that took three fix rounds to establish (a stray `╰─ ─` corner artifact and a byline that ellipsized two characters early). Discoverability is served instead by the strip appearing exactly when it becomes useful, at launch.
+
+**Correction — the activity marker.** The "Logs label gains a subtle marker" design above was never built: the original task set's self-review recorded it as a deliberate deviation (it needs a hook into the error path plus label-rendering changes, which would have widened Task 5 past a layout-only change; the `y`/`Y` copy affordances and auto-switch-on-launch were judged to already cover the primary risk). A later whole-branch review (finding M10) found the real gap this left — a launch failure while the user sits on Setup produced no toast, no marker, no auto-switch, so the run was silently dead until they happened to switch tabs — and required a minimal real fix instead of shipping the gap. What ships: `on_worker_state_changed`'s launch-failure branch checks `_active_tab` and, when the user is on Setup, calls `self.notify(...)` with error severity naming the Logs tab — a toast, not a persistent marker on the tab label itself.
 
 ## 6. State and data flow
 
@@ -137,6 +139,7 @@ Swapping `RichLog` for a selectable widget would forfeit the bounded 10k-line bu
 - **Launch failure:** unchanged. `_mark_launch_failed()` still sets the exit code and frees Ctrl+Q; the failure is written to the log pane, which is the active tab by default after launch.
 - **Failure while on Setup:** a toast notification surfaces it, naming the Logs tab — not the activity marker originally described here; see §5's correction note.
 - **Tab switch during teardown:** switching only toggles `display`; it never touches workers or the process tree, so it is safe at any point, including mid-cancel.
+- **Before a launch exists:** no tab strip is rendered, so none of the tab-switch paths above are reachable during the wizard; see §5's pre-launch correction note.
 - **Short terminals:** the `is_tui_capable` floor (≥20 rows) still applies. Tabs improve this case since each tab holds roughly half of today's stacked content. The pre-existing ≤30-row overlap between the command summary and the footer is fixed as part of this work, since it lives in the same layout.
 
 ## 9. Testing

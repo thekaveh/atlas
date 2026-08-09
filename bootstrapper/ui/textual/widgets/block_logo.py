@@ -25,11 +25,14 @@ import shutil
 from rich.align import Align
 from rich.console import Group, RenderableType
 from rich.text import Text
+from textual import events
 from textual.app import ComposeResult
 from textual.containers import Container
 from textual.widget import Widget
 
 from utils import brand_logo
+
+from .. import palette as P
 
 
 # The block-art rows + width threshold live in ``utils.brand_logo`` so this
@@ -154,6 +157,7 @@ class BrandPanel(Container):
         self.repo = repo
         self._active_tab = self.TAB_SETUP
         self._tabs_enabled = False
+        self._hovered_tab: str | None = None
         self._tab_spans: dict[str, tuple[int, int]] = {}
 
     def compose(self) -> ComposeResult:
@@ -175,38 +179,50 @@ class BrandPanel(Container):
             parts.append(self.repo)
         return " " + "  ·  ".join(parts) + " " if parts else ""
 
-    def _tab_segment(self) -> str:
-        """Left-hand tab labels. Brackets are ESCAPED: Textual consumes a bare
-        "[" in a border subtitle as console markup and the label vanishes.
+    def _tab_style(self, tab_id: str) -> str:
+        """Console-markup style for one tab.
 
-        Returns empty string if tabs are not enabled, preserving the original
-        byline-only mode when set_tabs() has not been called.
+        Active wins over hover: hovering the tab you are already on must
+        not demote it. Inactive tabs are muted rather than border-coloured
+        so "there is another tab" reads at a glance — before this, both
+        tabs inherited the border colour and the only cue that one was
+        selected was a ``▸`` marker.
+        """
+        if tab_id == self._active_tab:
+            return f"bold {P.ACCENT}"
+        if tab_id == self._hovered_tab:
+            return P.ACCENT_HOVER
+        return P.TEXT_MUTED
+
+    def _tab_segment(self) -> tuple[str, int]:
+        """Return ``(markup, rendered_width)`` for the tab strip.
+
+        Two strings are built in lockstep: the *markup* one that Textual
+        renders, and a *plain* one used for every measurement (the
+        padding budget and the click spans). Keeping them separate is the
+        point — style tags and the ``\\[`` escape both make the source
+        longer than what appears on screen, so measuring the markup would
+        silently drag the byline and the click targets out of position
+        every time the styling changed.
+
+        Empty when tabs are disabled, preserving the byline-only mode.
         """
         if not self._tabs_enabled:
             self._tab_spans = {}
-            return ""
+            return "", 0
 
-        out = " "
+        markup = " "
+        rendered_pos = 1  # the leading space above
         self._tab_spans = {}
-        # Track position in rendered output (after escapes are resolved to displayed chars).
-        # Each \[ renders as [ (1 char), so rendered_pos grows by bracket_len + space.
-        rendered_pos = len(out)
 
         for tab_id, label in self._TAB_LABELS:
             marker = "▸" if tab_id == self._active_tab else " "
-            # Measure just the bracket content (without the trailing space).
-            bracket_content_len = len(f"[{marker} {label} ]")
+            plain = f"[{marker} {label} ]"
+            self._tab_spans[tab_id] = (rendered_pos, rendered_pos + len(plain))
+            markup += rf"[{self._tab_style(tab_id)}]\[{marker} {label} ][/] "
+            rendered_pos += len(plain) + 1  # + the separating space
 
-            start = rendered_pos
-            end = rendered_pos + bracket_content_len
-            self._tab_spans[tab_id] = (start, end)
-
-            # Add the full tab string with trailing space to the raw output.
-            out += rf"\[{marker} {label} ] "
-            # Advance rendered position by bracket length + space.
-            rendered_pos += bracket_content_len + 1
-
-        return out
+        return markup, rendered_pos
 
     def tab_spans(self) -> dict[str, tuple[int, int]]:
         """Half-open column ranges of each tab label, for click routing."""
@@ -232,17 +248,13 @@ class BrandPanel(Container):
             # The implicit gap after the corner is unavoidable with left-alignment;
             # tabs and their separator account for it via border_offset.
             self.styles.border_subtitle_align = "left"
-            left = self._tab_segment()
+            # _tab_segment returns the markup to render AND the width it
+            # occupies on screen. Only the latter may be used for layout:
+            # the markup carries style tags and ``\[`` escapes that are
+            # consumed at render time, so measuring it would push the
+            # byline out of position by a column per tag.
+            left, left_rendered_len = self._tab_segment()
             right = self._byline()
-            # `left` carries Rich-markup-ESCAPED brackets (``\[``) so the tab
-            # labels aren't eaten as console markup (see _tab_segment's own
-            # docstring) — each ``\[`` is 2 raw characters but the backslash
-            # is consumed at render time, so it displays as 1. Measuring
-            # len(left) counts the raw (escaped) length, over-counting by one
-            # column per tab; at 2 tabs that pushed the byline 2 columns
-            # short of flush-right and made it ellipsize 2 characters early
-            # at 200 cols. Measure the RENDERED length instead.
-            left_rendered_len = len(left) - left.count("\\[")
             # Available width for border content, accounting for:
             # - 2 chars: left (╰) and right (╯) border corners
             # - ~2 chars: Textual's implicit gap-padding around the border_subtitle
@@ -262,6 +274,35 @@ class BrandPanel(Container):
                 for tab_id, (start, end) in self._tab_spans.items():
                     adjusted_spans[tab_id] = (start + border_offset, end + border_offset)
                 self._tab_spans = adjusted_spans
+
+    def set_hovered_tab(self, tab_id: str | None) -> None:
+        """Set which tab the pointer is over, repainting only on change.
+
+        The border is rebuilt from scratch on every call, so repainting
+        per mouse-move event would be wasteful — the guard makes hover
+        cost one repaint per boundary crossing instead of one per pixel.
+        """
+        if tab_id == self._hovered_tab:
+            return
+        self._hovered_tab = tab_id
+        self._render_border()
+
+    def _tab_at(self, x: int) -> str | None:
+        for tab_id, (start, end) in self._tab_spans.items():
+            if start <= x < end:
+                return tab_id
+        return None
+
+    def on_mouse_move(self, event: events.MouseMove) -> None:
+        # Only the bottom border row carries tabs; anywhere else clears
+        # the hover so it can't stick after the pointer leaves the strip.
+        if not self._tabs_enabled:
+            return
+        on_border_row = event.y == self.size.height + 1
+        self.set_hovered_tab(self._tab_at(event.x) if on_border_row else None)
+
+    def on_leave(self, _event: events.Leave) -> None:
+        self.set_hovered_tab(None)
 
     def on_mount(self) -> None:
         self._render_border()
