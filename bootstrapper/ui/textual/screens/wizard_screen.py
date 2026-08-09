@@ -398,6 +398,16 @@ _STARTUP_HINTS = [
 _LAUNCH_ON_SETUP_HINT_CANCEL = (("ctrl+c",), "cancel")
 _LAUNCH_ON_SETUP_HINT_DETACH = (("ctrl+q",), "detach")
 
+# Teardown. Appended once the stack is actually up (_launch_detach_ready):
+# before that, ctrl+c already cancels the in-flight startup, and offering
+# "stop" for a stack that is still coming up would be two answers to one
+# question. Detach leaves everything RUNNING, so without these the screen
+# advertised no way at all to stop what it had just started.
+_TEARDOWN_HINTS = [
+    (("ctrl+s",), "stop"),
+    (("ctrl+x",), "cold stop"),
+]
+
 # Appended whenever the Logs tab is actually reachable (_logs_enabled) —
 # neither hint set above mentioned the branch's own tab navigation.
 _TAB_HINT = (("1", "2"), "tabs")
@@ -563,6 +573,13 @@ class WizardScreen(Screen):
         Binding("shift+tab", "cycle_tab(-1)", "Prev tab", show=False, priority=True),
         Binding("y", "copy_logs", "Copy logs", show=False, priority=True),
         Binding("Y", "copy_session_log", "Copy session log", show=False, priority=True),
+        # Teardown. Deliberately ctrl-modified rather than bare letters:
+        # the launch screen binds bare letters for log filters, and a
+        # keystroke that removes containers must not sit one fat-finger
+        # away from one that changes a filter. Each ARMS on first press
+        # and only commits on a second press of the same key.
+        Binding("ctrl+s", "stop_stack", "Stop stack", show=False, priority=True),
+        Binding("ctrl+x", "stop_stack_cold", "Cold stop", show=False, priority=True),
     ]
 
     DEFAULT_CSS = """
@@ -684,6 +701,10 @@ class WizardScreen(Screen):
 
         self._phase: str = "setup"   # "setup" | "launch"
         self._launch_detach_ready = False
+        # Distinct from _launch_detach_ready, which is ALSO set by
+        # _mark_launch_failed so a failed run can still free Ctrl+Q.
+        # Teardown is only offered for a stack that actually came up.
+        self._launch_succeeded = False
 
         self._command_summary = CommandSummary()
         self._service_table = ServiceTable(services)
@@ -736,6 +757,11 @@ class WizardScreen(Screen):
         self._log_pane.set_on_new_source(self._log_chips.add_source)
         self._active_tab = BrandPanel.TAB_SETUP
         self._logs_enabled = False
+        # Armed teardown variant awaiting its confirming second press:
+        # None (nothing armed), False (stop), or True (cold stop). Kept as
+        # the variant rather than a bare bool so arming one and pressing
+        # the other re-arms instead of committing the wrong one.
+        self._pending_teardown: bool | None = None
 
         # Register a wizard-time warning sink so cloud /v1/models fetch
         # failures (and similar) land in the launch log + log pane.
@@ -809,6 +835,13 @@ class WizardScreen(Screen):
             ]
         else:
             hints = list(_SETUP_HINTS)
+        if self._launch_succeeded:
+            # Only once the stack is genuinely UP. Not _launch_detach_ready:
+            # that is also set by _mark_launch_failed, and offering
+            # "stop"/"cold stop" on a failed launch is a separate decision
+            # that was deliberately not taken here (tracked in #912).
+            # While the stack is still starting, ctrl+c already cancels.
+            hints = hints + _TEARDOWN_HINTS
         if self._logs_enabled:
             hints = hints + [_TAB_HINT]
         return hints
@@ -1695,20 +1728,7 @@ class WizardScreen(Screen):
         self._phase = "launch"
         self.set_focus(None)
 
-        # Retire the wizard's own widgets. Pre-tab-split this happened as a
-        # side effect of ``await lower.remove_children()``; the tab swap
-        # replaced that teardown, and without this the Setup tab kept
-        # rendering the LAST ANSWERED question (e.g. "67/67") and a
-        # now-immutable command summary under the stack overview.
-        #
-        # display=False rather than unmounting: action_back and the
-        # step-loading paths still hold references, and removing widgets
-        # other code dereferences is exactly the null-sentinel trap this
-        # screen already had to fix once. The overview (#info-section) is
-        # deliberately untouched — keeping it live is why the original
-        # teardown was dropped in the first place.
-        self._prompt.display = False
-        self._command_summary.display = False
+        self._retire_wizard_widgets()
 
         # Log widgets already exist (built in __init__, hidden). Reveal the tab
         # instead of tearing the setup body down — the overview must stay live.
@@ -1951,6 +1971,121 @@ class WizardScreen(Screen):
             and self._log_chips is not None
         ):
             self._log_chips.toggle_source_picker()
+
+    def _retire_wizard_widgets(self) -> None:
+        """Hide the prompt and command summary once the launch begins.
+
+        Pre-tab-split this happened as a side effect of ``await
+        lower.remove_children()``. The tab swap replaced that teardown so
+        the stack overview could stay live, and nothing assumed the
+        retiring job — so the Setup tab kept rendering the LAST ANSWERED
+        question (e.g. "67/67") and a now-immutable command summary under
+        the overview for the whole launch.
+
+        ``display = False`` rather than unmounting: ``action_back`` and the
+        step-loading paths still hold references, and removing widgets
+        other code dereferences is exactly the null-sentinel trap this
+        screen already had to fix once. ``#info-section`` is deliberately
+        untouched — keeping it live is why the teardown was dropped.
+        """
+        self._prompt.display = False
+        self._command_summary.display = False
+
+    # ─── teardown ────────────────────────────────────────────────────
+
+    def action_stop_stack(self) -> None:
+        """``ctrl+s`` — stop this project's containers, keeping volumes."""
+        self._arm_or_commit_teardown(cold=False)
+
+    def action_stop_stack_cold(self) -> None:
+        """``ctrl+x`` — stop AND remove this project's named volumes."""
+        self._arm_or_commit_teardown(cold=True)
+
+    def _arm_or_commit_teardown(self, *, cold: bool) -> None:
+        """Two-press confirmation for a destructive, irreversible action.
+
+        The first press arms and explains; only a second press of the SAME
+        variant commits. Arming a different variant re-arms rather than
+        committing, so ``ctrl+s`` followed by ``ctrl+x`` cannot delete
+        volumes without a cold confirmation of its own.
+        """
+        if self._phase != "launch":
+            return
+        if self._pending_teardown == cold:
+            self._pending_teardown = None
+            self.run_worker(
+                self._teardown_worker(cold=cold),
+                exclusive=True, exit_on_error=False,
+                # Own group: every pre-existing worker here runs in the
+                # default one, and exclusive=True cancels group-mates.
+                group="stack_teardown",
+            )
+            return
+        self._pending_teardown = cold
+        if cold:
+            self.notify(
+                "Cold stop removes this project's volumes — data will be "
+                "LOST. Press ctrl+x again to confirm.",
+                severity="error", timeout=8,
+            )
+        else:
+            self.notify(
+                "Stop the stack? Containers go down, volumes are kept. "
+                "Press ctrl+s again to confirm.",
+                severity="warning", timeout=8,
+            )
+
+    async def _teardown_worker(self, *, cold: bool) -> None:
+        """Run the teardown off the UI thread and report honestly."""
+        label = "Cold stop" if cold else "Stop"
+        self._write_status(f"{label}: tearing down containers…", style="yellow")
+        try:
+            stopper = self._stopper_factory()
+            # The stopper prints through a Rich banner, which would tear
+            # the Textual chrome apart — same substitution the pipeline
+            # makes for the starter.
+            stopper.banner = _NullBanner()
+            project = self._resolve_project_name()
+            ok = await asyncio.to_thread(stopper.stop_services, cold, project)
+            # Managed ComfyUI-MPS / vLLM-Metal runtimes are host-global
+            # singletons shared by every Atlas consumer, so a
+            # project-scoped stop deliberately leaves them running. Say
+            # so — otherwise "stopped" reads as false while a GPU-holding
+            # host process is still up.
+            await asyncio.to_thread(stopper.report_managed_hosts_left_running)
+        except Exception as exc:  # noqa: BLE001 - surfaced, never raised at the app
+            self._write_status(
+                f"{label} failed: {type(exc).__name__}", style="red",
+            )
+            self.notify(f"{label} failed: {type(exc).__name__}", severity="error")
+            return
+        if ok:
+            self._write_status(f"{label} complete.", style="green")
+            self.notify(
+                f"{label} complete. Managed host runtimes (if any) were left "
+                "running — stop them explicitly.",
+                timeout=6,
+            )
+        else:
+            self._write_status(f"{label} reported problems.", style="red")
+            self.notify(f"{label} reported problems; see the log.", severity="error")
+
+    def _stopper_factory(self):
+        """Build the real stopper. Overridden in tests so no test ever
+        tears down a real stack."""
+        from stop import AtlasStopper
+
+        return AtlasStopper()
+
+    def _resolve_project_name(self) -> str:
+        opts = self._stack_options or {}
+        name = (opts.get("project_name") or "").strip()
+        if name:
+            return name
+        try:
+            return self._starter.config_parser.get_project_name()
+        except Exception:  # noqa: BLE001
+            return "atlas"
 
     def action_copy_logs(self) -> None:
         # a/e/w/i/s all gate on _phase == "launch"; this is the same
@@ -2405,6 +2540,7 @@ class WizardScreen(Screen):
             self._write_status("✅ All services started",
                                style="bold green", source="pipeline")
             self._launch_detach_ready = True
+            self._launch_succeeded = True
 
             if self._log_pane is not None:
                 self._log_pane.set_title(
