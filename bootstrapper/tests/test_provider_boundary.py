@@ -436,8 +436,12 @@ def test_deadline_wrapper_defers_cancellation_until_native_work_settles(monkeypa
 
     async def scenario():
         task = asyncio.create_task(boundary.run_with_deadline("DOCLING", native_work))
+        deadline = asyncio.get_running_loop().time() + 5.0
         while not started.is_set():
-            await asyncio.sleep(0)
+            assert asyncio.get_running_loop().time() < deadline, (
+                "native work never signalled started"
+            )
+            await asyncio.sleep(0.01)
         task.cancel()
         await asyncio.sleep(0.02)
         cancelled_before_native_settled = task.done()
@@ -480,8 +484,12 @@ def test_cancelled_native_timeout_uses_direct_process_terminator(monkeypatch):
                 terminate_on_cancel_timeout=lambda code: exits.append(code),
             )
         )
+        deadline = asyncio.get_running_loop().time() + 5.0
         while not started.is_set():
-            await asyncio.sleep(0)
+            assert asyncio.get_running_loop().time() < deadline, (
+                "native work never signalled started"
+            )
+            await asyncio.sleep(0.01)
         task.cancel()
         with pytest.raises(boundary.ProviderDeadlineExceeded):
             await task
