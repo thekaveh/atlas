@@ -177,3 +177,174 @@ def test_tabs_enabled_byline_stays_flush_right_at_wide_width():
         f"path — got trailing {tabs_suffix!r} vs byline-only {byline_only_suffix!r} "
         "(off-by-one-per-tab from measuring the escaped bracket's RAW length)"
     )
+
+
+# ─── accent + hover styling ──────────────────────────────────────────
+
+
+def _bottom_segments(app: App):
+    """(text, style) for each segment of the panel's bottom border row."""
+    strips = list(app.screen._compositor.render_strips(app.screen.size))
+    panel = app.query_one(BrandPanel)
+    row = strips[panel.region.y + panel.region.height - 1]
+    return [(s.text, s.style) for s in row if s.text.strip()]
+
+
+def _style_of(app: App, label: str) -> str:
+    for text, style in _bottom_segments(app):
+        if label in text:
+            return str(style)
+    raise AssertionError(f"{label!r} not found on the border row")
+
+
+def test_the_active_tab_is_painted_in_the_theme_accent():
+    """The tabs shipped inheriting the border colour, so neither read as
+    selected — the only cue was a ▸ marker."""
+    from ui.textual import palette as P
+
+    panel = _panel()
+
+    async def scenario():
+        async with _App(panel).run_test(size=(140, 12)) as pilot:
+            await pilot.pause()
+            panel.set_tabs(BrandPanel.TAB_SETUP, enabled=True)
+            await pilot.pause()
+            return _style_of(pilot.app, "Setup"), _style_of(pilot.app, "Logs")
+
+    active, inactive = asyncio.run(scenario())
+
+    assert P.ACCENT.lower() in active.lower(), active
+    assert "bold" in active.lower(), active
+    assert P.ACCENT.lower() not in inactive.lower(), (
+        f"the inactive tab must not wear the accent: {inactive}"
+    )
+
+
+def test_the_active_accent_follows_the_active_tab():
+    from ui.textual import palette as P
+
+    panel = _panel()
+
+    async def scenario():
+        async with _App(panel).run_test(size=(140, 12)) as pilot:
+            await pilot.pause()
+            panel.set_tabs(BrandPanel.TAB_LOGS, enabled=True)
+            await pilot.pause()
+            return _style_of(pilot.app, "Setup"), _style_of(pilot.app, "Logs")
+
+    setup, logs = asyncio.run(scenario())
+    assert P.ACCENT.lower() in logs.lower(), logs
+    assert P.ACCENT.lower() not in setup.lower(), setup
+
+
+def test_hovering_an_inactive_tab_shows_it_is_selectable():
+    from ui.textual import palette as P
+
+    panel = _panel()
+
+    async def scenario():
+        async with _App(panel).run_test(size=(140, 12)) as pilot:
+            await pilot.pause()
+            panel.set_tabs(BrandPanel.TAB_SETUP, enabled=True)
+            await pilot.pause()
+            plain = _style_of(pilot.app, "Logs")
+            panel.set_hovered_tab(BrandPanel.TAB_LOGS)
+            await pilot.pause()
+            hovered = _style_of(pilot.app, "Logs")
+            return plain, hovered
+
+    plain, hovered = asyncio.run(scenario())
+    assert plain != hovered, "hover must be visually distinguishable"
+    assert P.ACCENT_HOVER.lower() in hovered.lower(), hovered
+
+
+def test_hovering_the_active_tab_leaves_it_accented():
+    """Hover must not demote the tab you are already on."""
+    from ui.textual import palette as P
+
+    panel = _panel()
+
+    async def scenario():
+        async with _App(panel).run_test(size=(140, 12)) as pilot:
+            await pilot.pause()
+            panel.set_tabs(BrandPanel.TAB_SETUP, enabled=True)
+            panel.set_hovered_tab(BrandPanel.TAB_SETUP)
+            await pilot.pause()
+            return _style_of(pilot.app, "Setup")
+
+    style = asyncio.run(scenario())
+    assert P.ACCENT.lower() in style.lower(), style
+
+
+def test_styling_does_not_move_the_click_targets():
+    """Spans are measured from PLAIN text; markup must not shift them."""
+    panel = _panel()
+
+    async def scenario():
+        async with _App(panel).run_test(size=(140, 12)) as pilot:
+            await pilot.pause()
+            panel.set_tabs(BrandPanel.TAB_SETUP, enabled=True)
+            await pilot.pause()
+            unhovered = panel.tab_spans()
+            panel.set_hovered_tab(BrandPanel.TAB_LOGS)
+            await pilot.pause()
+            hovered = panel.tab_spans()
+            row = _bottom_border(pilot.app)
+            return unhovered, hovered, row
+
+    unhovered, hovered, row = asyncio.run(scenario())
+    assert unhovered == hovered, f"hover shifted the click targets: {unhovered} vs {hovered}"
+    # And the spans must still point at the labels they claim to.
+    for tab_id, label in ((BrandPanel.TAB_SETUP, "Setup"), (BrandPanel.TAB_LOGS, "Logs")):
+        start, end = hovered[tab_id]
+        assert label in row[start:end], f"{tab_id} span {start}:{end} = {row[start:end]!r}"
+
+
+def test_the_byline_only_border_is_unchanged_at_every_width():
+    """The no-tabs path must stay byte-identical to its pre-tabs output —
+    a property that took three rounds to establish."""
+    async def render(width: int) -> str:
+        panel = _panel()
+        async with _App(panel).run_test(size=(width, 12)) as pilot:
+            await pilot.pause()
+            return _bottom_border(pilot.app)
+
+    async def scenario():
+        return {w: await render(w) for w in (60, 90, 140, 200)}
+
+    rows = asyncio.run(scenario())
+    for width, row in rows.items():
+        assert "Setup" not in row, f"tabs leaked into the byline-only path at {width}"
+        assert "Logs" not in row, f"tabs leaked into the byline-only path at {width}"
+        assert row.startswith("╰─"), f"corner artifact at {width}: {row[:12]!r}"
+        assert "Kaveh Razavi" in row or "…" in row, f"byline missing at {width}"
+
+
+def test_a_real_pointer_over_the_border_sets_the_hover():
+    """Drives the actual mouse path, not set_hovered_tab directly.
+
+    Without this the styling tests above would still pass with the
+    on_mouse_move handler unwired or looking at the wrong row.
+    """
+    panel = _panel()
+
+    async def scenario():
+        async with _App(panel).run_test(size=(140, 12)) as pilot:
+            await pilot.pause()
+            panel.set_tabs(BrandPanel.TAB_SETUP, enabled=True)
+            await pilot.pause()
+            spans = panel.tab_spans()
+            logs_start, logs_end = spans[BrandPanel.TAB_LOGS]
+            mid = (logs_start + logs_end) // 2
+            border_row = panel.size.height + 1
+            await pilot.hover(BrandPanel, offset=(mid, border_row))
+            await pilot.pause()
+            hovered = panel._hovered_tab
+            # Moving off the border row must clear it again.
+            await pilot.hover(BrandPanel, offset=(mid, 1))
+            await pilot.pause()
+            return hovered, panel._hovered_tab
+
+    hovered, cleared = asyncio.run(scenario())
+    assert hovered == BrandPanel.TAB_LOGS, f"pointer over Logs set {hovered!r}"
+    assert cleared is None, f"hover stuck after leaving the border row: {cleared!r}"

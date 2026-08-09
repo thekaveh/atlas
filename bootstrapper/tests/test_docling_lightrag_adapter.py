@@ -28,6 +28,34 @@ def _run_async(function):
     return wrapper
 
 
+async def _poll_until(client, url, want, *, params=None, timeout=10.0):
+    """Poll ``url`` until ``task_status == want``, or fail loudly.
+
+    These polls used to be ``for _ in range(20): ... await
+    asyncio.sleep(0)``. ``sleep(0)`` yields one event-loop turn and waits
+    no wall-clock time, so that was a spin bounded at 20 turns, not a
+    wait — it passed locally and failed on a loaded CI runner, where the
+    background task had not finished inside the budget and the assertion
+    reported the raw ``"started"``/``want`` mismatch with no hint that
+    the cause was timing.
+
+    A real deadline plus a real yield removes the race, and the timeout
+    message says what the status actually was.
+    """
+    deadline = asyncio.get_running_loop().time() + timeout
+    status = None
+    while asyncio.get_running_loop().time() < deadline:
+        status = await client.get(url, params=params or {})
+        if status.json()["task_status"] == want:
+            return status
+        await asyncio.sleep(0.01)
+    observed = status.json() if status is not None else None
+    raise AssertionError(
+        f"timed out after {timeout}s waiting for task_status={want!r}; "
+        f"last response was {observed!r}"
+    )
+
+
 def _load_app_module(monkeypatch):
     monkeypatch.syspath_prepend(str(PROVIDER_ROOT))
     for name in list(sys.modules):
@@ -332,11 +360,9 @@ async def test_adapter_matches_pinned_lightrag_async_contract(monkeypatch, tmp_p
         assert timeout_seconds == 37
 
         upstream.release.set()
-        for _ in range(20):
-            status = await client.get(f"/v1/status/poll/{task_id}", params={"wait": 1})
-            if status.json()["task_status"] == "success":
-                break
-            await asyncio.sleep(0)
+        status = await _poll_until(
+            client, f"/v1/status/poll/{task_id}", "success", params={"wait": 1},
+        )
         assert status.json() == {"task_id": task_id, "task_status": "success"}
 
         result = await client.get(f"/v1/result/{task_id}")
@@ -372,11 +398,9 @@ async def test_adapter_failure_is_generic_and_releases_capacity(monkeypatch, tmp
         )
         assert first.status_code == 202
         first_id = first.json()["task_id"]
-        for _ in range(20):
-            failed = await client.get(f"/v1/status/poll/{first_id}")
-            if failed.json()["task_status"] == "failure":
-                break
-            await asyncio.sleep(0)
+        failed = await _poll_until(
+            client, f"/v1/status/poll/{first_id}", "failure",
+        )
         assert failed.json() == {"task_id": first_id, "task_status": "failure"}
         assert "secret" not in failed.text
 
@@ -406,11 +430,9 @@ async def test_adapter_failure_logs_safe_operator_diagnostic(
             "/v1/convert/file/async", files={"files": ("a.pdf", b"a")}
         )
         task_id = submitted.json()["task_id"]
-        for _ in range(20):
-            status = await client.get(f"/v1/status/poll/{task_id}")
-            if status.json()["task_status"] == "failure":
-                break
-            await asyncio.sleep(0)
+        status = await _poll_until(
+            client, f"/v1/status/poll/{task_id}", "failure",
+        )
 
     assert "adapter job failed" in caplog.text
     assert task_id in caplog.text

@@ -309,6 +309,13 @@ class PromptStep:
     kind: str = "options"
     number_min: int = 1024
     number_max: int = 65000
+    # ``kind="number"`` opt-in: also accept the literal string "auto"
+    # alongside the numeric range. Only the base-port step sets this —
+    # "auto" is a real base-port value everywhere else in Atlas
+    # (``--base-port auto``, manifest ``BASE_PORT: auto``), and without
+    # this flag the numeric coercion below silently replaces it with
+    # ``default_value``. Every other number step stays strictly numeric.
+    accepts_auto: bool = False
     # Optional predicate the wizard screen calls before loading this
     # step. Receives the in-progress ``selections`` dict and returns
     # True if this step should be skipped. Used to skip cloud
@@ -337,6 +344,36 @@ def _progress_braille(step: int, total: int, width: int = 10) -> str:
     ratio = max(0.0, min(1.0, step / total))
     full = int(ratio * width)
     return P.PROGRESS_FILLED * full + P.PROGRESS_EMPTY * (width - full)
+
+
+AUTO_PORT = "auto"
+
+
+def normalize_number_entry(raw: str, step: "PromptStep") -> str:
+    """Validate a ``kind="number"`` entry into the value to commit.
+
+    Numbers clamp into ``[number_min, number_max]``; anything unparseable
+    falls back to the step's ``default_value``. When the step sets
+    ``accepts_auto``, the literal ``"auto"`` (any case, surrounding
+    whitespace ignored) is a valid answer and passes through unchanged —
+    without that opt-in the ``int()`` below would quietly swap it for the
+    default, which is exactly why the base-port step could not express a
+    value the CLI and consumer manifests both accept.
+
+    Extracted from ``PromptPanel.selected_option`` so the rule is
+    testable without mounting a widget.
+    """
+    text = (raw or "").strip()
+    if step.accepts_auto and text.lower() == AUTO_PORT:
+        return AUTO_PORT
+    try:
+        value = int(text) if text else int(step.default_value or 0)
+    except ValueError:
+        try:
+            value = int(step.default_value or 0)
+        except ValueError:
+            return str(step.default_value or "")
+    return str(max(step.number_min, min(step.number_max, value)))
 
 
 class PromptPanel(Container):
@@ -544,14 +581,19 @@ class PromptPanel(Container):
             self._option_list.remove_children()
             self._hide_secret_widgets()
             default = step.default_value or ""
+            # Only the opted-in step advertises "auto" — every other
+            # number step stays strictly numeric, so its hint must not
+            # promise a value it will reject.
+            auto_hint = " or auto" if step.accepts_auto else ""
             if default:
                 hint_text = (
-                    f"type a value in {step.number_min}–{step.number_max}, "
-                    f"or press Enter to keep {default}"
+                    f"type a value in {step.number_min}–{step.number_max}"
+                    f"{auto_hint}, or press Enter to keep {default}"
                 )
             else:
                 hint_text = (
                     f"type a value in {step.number_min}–{step.number_max}"
+                    f"{auto_hint}"
                 )
             if self._number_input is None:
                 self._number_input = Input(
@@ -1479,14 +1521,11 @@ class PromptPanel(Container):
         if self._step is None:
             return None
         if self._step.kind == "number":
-            # Build a synthetic option with the validated number value.
+            # Build a synthetic option with the validated number value
+            # (or the literal "auto" when the step opts in).
             raw = self._number_input.value if self._number_input else ""
-            try:
-                v = int(raw) if raw else int(self._step.default_value or 0)
-            except ValueError:
-                v = int(self._step.default_value or 0)
-            v = max(self._step.number_min, min(self._step.number_max, v))
-            return PromptOption(value=str(v), label=str(v))
+            value = normalize_number_entry(raw, self._step)
+            return PromptOption(value=value, label=value)
         if self._step.kind == "text":
             # Same keep-current/clear sentinels as ``kind="secret"`` so an
             # empty Enter on a step with an existing default_value doesn't
