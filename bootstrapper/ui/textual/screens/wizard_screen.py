@@ -1335,10 +1335,19 @@ class WizardScreen(Screen):
                 break
         # Base-port step: recompute every row's port from the new base.
         if "base port" in step.title.lower() and self._on_base_port_change is not None:
-            try:
-                new_base = int(opt.value)
-            except ValueError:
-                new_base = None
+            if str(opt.value).strip().lower() == "auto":
+                # Preview the block "auto" would actually take, so the
+                # overview doesn't keep showing the previous base port's
+                # numbers. Launch re-resolves independently — and should,
+                # since availability can change in between.
+                from ..integration import _resolve_auto_base_port
+                from core.config_parser import DEFAULT_BASE_PORT
+                new_base = _resolve_auto_base_port(DEFAULT_BASE_PORT)
+            else:
+                try:
+                    new_base = int(opt.value)
+                except ValueError:
+                    new_base = None
             if new_base is not None:
                 self._services = self._on_base_port_change(new_base, self._services)
                 self._service_table.set_rows(self._services)

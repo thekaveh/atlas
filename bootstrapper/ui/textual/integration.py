@@ -101,6 +101,27 @@ PICKER_STEP_TITLE = "Track  ·  pick your profile"
 PROFILE_STEP_TITLE = "Profile  ·  deployment hardening"
 
 
+def _resolve_auto_base_port(fallback: int) -> int:
+    """Resolve a wizard ``auto`` base-port answer to a concrete free block.
+
+    Delegates to the same ``PortManager.auto_base_port`` the ``--base-port
+    auto`` CLI flag uses, so both surfaces pick blocks by identical rules
+    (steps by the topology's full port span, scans below the ephemeral
+    range, never returns ``DEFAULT_BASE_PORT``).
+
+    Returns ``fallback`` when no free block is found or the probe fails:
+    a base port the user cannot see is not worth aborting a launch over,
+    and the pipeline's own port checks still run afterwards.
+    """
+    try:
+        from core.port_manager import PortManager
+
+        resolved = PortManager().auto_base_port()
+    except Exception:  # noqa: BLE001 - probing is best-effort
+        return fallback
+    return resolved if resolved else fallback
+
+
 def _resolve_track_display_name(track: str | None) -> str | None:
     """Look up a track's display_name from the registry; None if no
     track set or lookup fails. Used by both run_setup_flow and
@@ -389,13 +410,18 @@ def _build_steps_and_rows(
         title="Base port  ·  range", step_index=1, step_total=total,
         heading="Which base port range do you want?",
         subtitle="Every service port is computed as base_port + offset. "
-                 "Type a port (1024–65000), or press Enter to keep the current value.",
+                 "Type a port (1024–65000), type auto to pick a free block, "
+                 "or press Enter to keep the current value.",
         options=[],
         default_value=str(current_base_port),
         service_name="",
         kind="number",
         number_min=1024,
         number_max=65000,
+        # "auto" is a real base-port value on the CLI (--base-port auto)
+        # and in consumer manifests (BASE_PORT: auto); the wizard was the
+        # only surface that couldn't express it.
+        accepts_auto=True,
     ))
 
     # Project name (Docker Compose namespace). Persisted to .env as
@@ -1030,10 +1056,21 @@ def _selections_to_args(
         default_model_selections["LITELLM_VISION_MODEL"] = vision_v
 
     bp = selections.get("Base port  ·  range")
-    try:
-        base_port_val = int(bp) if bp else current_base_port
-    except ValueError:
-        base_port_val = current_base_port
+    # "auto" is resolved to a concrete free block HERE rather than being
+    # threaded downstream as a string. Three separate consumers int() this
+    # value (run_launch_flow's port preview, _run_pipeline_and_stream, and
+    # the .env write), and resolving up front also means the stack overview
+    # previews the ports the run will actually bind. The user's intent is
+    # kept in base_port_auto so the command summary still shows
+    # "--base-port auto", which is what reproduces the choice next time.
+    base_port_auto = str(bp or "").strip().lower() == "auto"
+    if base_port_auto:
+        base_port_val = _resolve_auto_base_port(current_base_port)
+    else:
+        try:
+            base_port_val = int(bp) if bp else current_base_port
+        except ValueError:
+            base_port_val = current_base_port
 
     # Project name → PROJECT_NAME. Normalize (lowercase + validate); on an
     # empty or invalid entry, fall back to the current .env value so a stray
@@ -1057,7 +1094,8 @@ def _selections_to_args(
     # Falls back to "default" when the step was never visited.
     resolved_profile = (selections.get(PROFILE_STEP_TITLE) or "default").strip()
     return source_args, {
-        "base_port": base_port_val, "project_name": project_name_val, "cold": cold,
+        "base_port": base_port_val, "base_port_auto": base_port_auto,
+        "project_name": project_name_val, "cold": cold,
         "setup_hosts": (hosts == "setup"), "skip_hosts": (hosts == "skip"),
         "launch_confirmed": launch,
         "cloud_api_keys": cloud_api_keys,
