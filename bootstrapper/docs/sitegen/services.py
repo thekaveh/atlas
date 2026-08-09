@@ -51,6 +51,26 @@ def _source_summary_values(service: ServicePage) -> str:
     )
 
 
+def _single_file_artifact(entry: dict) -> dict:
+    """Adapt a single-file catalog entry to the bundle-artifact shape.
+
+    Multi-file entries carry a ``files:`` list whose members each name their
+    own ``role``/``target_dir``; single-file entries put the same
+    information at the top level and let ``target_dir`` fall out of the
+    category. Normalising here keeps the table rendering identical for both.
+    """
+    from utils.comfyui_library import CATEGORY_TARGET_DIR
+
+    category = entry.get("category", "")
+    return {
+        "role": category or "model",
+        "target_dir": entry.get("target_dir") or CATEGORY_TARGET_DIR.get(category, ""),
+        "filename": entry.get("filename", ""),
+        "size_bytes": entry.get("size_bytes", 0),
+        "sha256": entry.get("sha256", ""),
+    }
+
+
 def _comfyui_krea2_section(model: DocsModel, section_number: int) -> str:
     catalog_path = model.root / "services" / "comfyui" / "models.yaml"
     catalog = yaml.safe_load(catalog_path.read_text(encoding="utf-8"))
@@ -73,7 +93,13 @@ def _comfyui_krea2_section(model: DocsModel, section_number: int) -> str:
                 f"{entry['min_vram_gb']:.0f} GB",
             ]
         )
-        for artifact in entry["files"]:
+        # Krea 2 entries are usually multi-file bundles, but not always: the
+        # Identity Edit LoRA (#909) is a single-file entry, and reading
+        # entry["files"] unconditionally crashed the whole docs build with a
+        # KeyError. Single-file entries carry the artifact fields at the top
+        # level, with target_dir derived from category the same way the
+        # catalog loader derives it.
+        for artifact in entry.get("files") or [_single_file_artifact(entry)]:
             artifact_rows.append(
                 [
                     label,

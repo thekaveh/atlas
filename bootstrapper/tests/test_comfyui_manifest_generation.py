@@ -527,7 +527,7 @@ class TestConsumerCustomNodesUnion:
                 # Consumer-only node (no model requires it; active via from_consumer).
                 {
                     "name": "comfyui-krea2edit",
-                    "repo": "https://github.com/krea-ai/comfyui-krea2edit.git",
+                    "repo": "https://github.com/lbouaraba/comfyui-krea2edit.git",
                     "ref": _NODE_SHA_KREA,
                 },
             ],
@@ -592,7 +592,7 @@ class TestConsumerCustomNodesUnion:
             [
                 {
                     "name": "comfyui-krea2edit",
-                    "repo": "https://github.com/krea-ai/comfyui-krea2edit.git",
+                    "repo": "https://github.com/lbouaraba/comfyui-krea2edit.git",
                     "ref": _NODE_SHA_KREA,
                 },
             ],
