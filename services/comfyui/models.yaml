@@ -310,6 +310,46 @@ models:
         target_dir: vae
         precision: bf16
 
+  # The node pack `comfyui-krea2edit` exists to run THIS LoRA — its own README
+  # lists it as a hard requirement alongside a Krea 2 model and the Qwen3-VL
+  # encoder. Without it a consumer gets the nodes registered and no edit
+  # behaviour, while provision-nodes reports success and doctor reports the
+  # node present: installed-but-inert, which is a worse failure shape than a
+  # clean error (#909).
+  #
+  # Licence adds NO new surface. HuggingFace has no SPDX entry for the Krea 2
+  # Community License, so `other` is what every Krea 2 artifact carries —
+  # including the base weights above. The LoRA's NOTICE states it is a
+  # Derivative Model of Krea 2 Raw under that same agreement, so selecting it
+  # accepts exactly what krea2-raw-bf16 / krea2-turbo-bf16 already accept.
+  # It is an unofficial community fine-tune and its NOTICE says so.
+  #
+  # base_model is Krea 2 RAW (confirmed against the HF model card). The node
+  # advertises both, but identity fidelity may differ on Turbo — worth knowing
+  # before paying for a 35 GB Raw download to find out.
+  - name: krea2-identity-edit-v1-2
+    family: Krea 2
+    category: lora
+    size_gb: 1.828256432
+    size_bytes: 1828256432
+    url: https://huggingface.co/conradlocke/krea2-identity-edit/resolve/89e9e7a09ee2e5c9331e952063d79b1b8a703280/krea2_identity_edit_v1_2.safetensors
+    filename: krea2_identity_edit_v1_2.safetensors
+    sha256: 6adf9a69cc9502d286db7b69964d37da7e9cfe4b05b4d004bc275f087d3fd3cf
+    min_vram_gb: 32.0
+    min_ram_gb: 32.0
+    cpu_supported: false
+    requires_custom_node:
+      - comfyui-krea2edit
+    popularity: 60
+    notes: Krea 2 Identity Edit LoRA v1.2 — required by the comfyui-krea2edit node pack. Trained on Krea 2 Raw; unofficial community fine-tune.
+    precision: bf16
+    variant: Identity Edit v1.2
+    license_name: Krea 2 Community License
+    license_url: https://huggingface.co/krea/Krea-2-Raw/blob/main/LICENSE.pdf
+    license_restrictions:
+      - Enterprise license required at or above $1,000,000 USD ($1M) annual revenue for commercial use.
+      - Reasonable and appropriate content filtering is required for deployments.
+
   # ── Hunyuan3D-2 (native ComfyUI image→3D, MPS-runnable) ────────────────
   # ComfyUI CORE natively supports Hunyuan3D-2 single-image shape generation
   # (pure torch DiT → MPS-runnable on Apple Silicon; no custom node, no CUDA
