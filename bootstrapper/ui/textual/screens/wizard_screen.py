@@ -1695,6 +1695,21 @@ class WizardScreen(Screen):
         self._phase = "launch"
         self.set_focus(None)
 
+        # Retire the wizard's own widgets. Pre-tab-split this happened as a
+        # side effect of ``await lower.remove_children()``; the tab swap
+        # replaced that teardown, and without this the Setup tab kept
+        # rendering the LAST ANSWERED question (e.g. "67/67") and a
+        # now-immutable command summary under the stack overview.
+        #
+        # display=False rather than unmounting: action_back and the
+        # step-loading paths still hold references, and removing widgets
+        # other code dereferences is exactly the null-sentinel trap this
+        # screen already had to fix once. The overview (#info-section) is
+        # deliberately untouched — keeping it live is why the original
+        # teardown was dropped in the first place.
+        self._prompt.display = False
+        self._command_summary.display = False
+
         # Log widgets already exist (built in __init__, hidden). Reveal the tab
         # instead of tearing the setup body down — the overview must stay live.
         self._logs_enabled = True

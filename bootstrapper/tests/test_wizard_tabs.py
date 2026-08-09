@@ -673,3 +673,57 @@ def test_footer_updates_immediately_when_a_launch_failure_frees_ctrl_q():
 
     assert before == {"cancel", "tabs"}
     assert after == {"detach", "tabs"}
+
+
+# ─── the answered prompt must not linger on the Setup tab ────────────
+
+
+def test_setup_tab_has_no_stale_prompt_after_launch():
+    """Regression: the launch transition must retire the answered prompt.
+
+    Before the tab split, ``_transition_to_launch`` called
+    ``await lower.remove_children()``, which took the prompt panel and the
+    command summary down with it — the old code comments say so outright.
+    The tab swap replaced that teardown and nothing assumed the job, so the
+    Setup tab kept rendering the LAST ANSWERED question (e.g. "67/67")
+    under the stack overview for the entire life of the launch.
+
+    The stack overview must survive: keeping both bodies mounted so it
+    stays live is the whole reason the teardown was dropped.
+    """
+    scr = _screen()
+
+    async def scenario():
+        async with _App(scr).run_test(size=(140, 44)) as pilot:
+            await pilot.pause()
+            await scr._transition_to_launch()
+            await pilot.pause()
+            scr.show_tab(BrandPanel.TAB_SETUP)
+            await pilot.pause()
+            return (
+                scr._prompt.display,
+                scr._command_summary.display,
+                scr.query_one("#info-section").display,
+                scr.query_one("#tab-setup").display,
+            )
+
+    prompt, summary, info, tab_setup = asyncio.run(scenario())
+
+    assert prompt is False, "the answered prompt is still visible on the Setup tab"
+    assert summary is False, "the command summary outlived the wizard"
+    assert info is True, "the stack overview must stay live during launch"
+    assert tab_setup is True, "the Setup tab itself must remain reachable"
+
+
+def test_the_prompt_is_visible_during_the_wizard():
+    """Guard the other direction — the retire must not fire early."""
+    scr = _screen()
+
+    async def scenario():
+        async with _App(scr).run_test(size=(140, 44)) as pilot:
+            await pilot.pause()
+            return scr._prompt.display, scr._command_summary.display
+
+    prompt, summary = asyncio.run(scenario())
+    assert prompt is True
+    assert summary is True
