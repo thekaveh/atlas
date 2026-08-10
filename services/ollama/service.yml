@@ -74,6 +74,9 @@ env:
   - name: OLLAMA_MAX_LOADED_MODELS
     default: "2"
     description: "Max models Ollama keeps resident simultaneously (OLLAMA_MAX_LOADED_MODELS). Raise for workloads hot-swapping several models; lower to bound memory. Applied to ollama container-* sources; for ollama-localhost the host daemon owns it (#849)."
+  - name: OLLAMA_PARALLEL_MIN
+    default: ""
+    description: "Concurrent-request floor a consumer needs from Ollama. Advisory only, and only meaningful for ollama-localhost, where Atlas cannot own the host daemon: ./start.sh doctor reads the daemon's OLLAMA_NUM_PARALLEL and warns when it is below this, with launchctl guidance. Empty (default) means no expectation is declared. Ollama's own default is 1 slot, which silently SERIALIZES a multi-agent consumer rather than failing, so an unnoticed default is what this exists to catch (#849)."
 
 depends_on:
   # `litellm` is listed here NOT because the ollama container calls
