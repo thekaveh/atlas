@@ -30,42 +30,42 @@ Atlas organizes 60 service families into 7 tracks. Each track pre-selects a work
 <p class="atlas-card__title">Generative AI · RAG</p>
 <p class="atlas-card__body">Retrieval-augmented generation — vectors, graph, reranker, doc ingest, web search, workflow automation.</p>
 
-[View track services →](reference/tracks.md){: .atlas-card__link}
+[View track services →](tracks.md){: .atlas-card__link}
 </div>
 
 <div class="atlas-card" markdown="1">
 <p class="atlas-card__title">Generative AI · Engineering</p>
 <p class="atlas-card__body">Agentic apps + workflows with voice, vision, and search.</p>
 
-[View track services →](reference/tracks.md){: .atlas-card__link}
+[View track services →](tracks.md){: .atlas-card__link}
 </div>
 
 <div class="atlas-card" markdown="1">
 <p class="atlas-card__title">Generative AI · Creative</p>
 <p class="atlas-card__body">Multimodal generation — image, voice, vision, doc.</p>
 
-[View track services →](reference/tracks.md){: .atlas-card__link}
+[View track services →](tracks.md){: .atlas-card__link}
 </div>
 
 <div class="atlas-card" markdown="1">
 <p class="atlas-card__title">ML Engineering</p>
 <p class="atlas-card__body">Distributed training/inference + notebooks + experiment storage.</p>
 
-[View track services →](reference/tracks.md){: .atlas-card__link}
+[View track services →](tracks.md){: .atlas-card__link}
 </div>
 
 <div class="atlas-card" markdown="1">
 <p class="atlas-card__title">Data Engineering</p>
 <p class="atlas-card__body">Batch + lakehouse + graph + vector with orchestration.</p>
 
-[View track services →](reference/tracks.md){: .atlas-card__link}
+[View track services →](tracks.md){: .atlas-card__link}
 </div>
 
 <div class="atlas-card" markdown="1">
 <p class="atlas-card__title">Trading / Financial Research</p>
 <p class="atlas-card__body">Read-only financial research and paper portfolios in notebooks; no live trading.</p>
 
-[View track services →](reference/tracks.md){: .atlas-card__link}
+[View track services →](tracks.md){: .atlas-card__link}
 </div>
 
 </div>
