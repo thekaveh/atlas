@@ -165,3 +165,97 @@ def pull_declared_models(env: Mapping[str, str], *, log=None) -> OllamaPullResul
         result.pulled.append(tag)
         emit(f"✓ {tag} pulled")
     return result
+
+
+# ─── host parallel-serving configuration (#849 part 2) ───────────────
+#
+# For ``ollama-localhost`` Atlas does not own the daemon (host-prereq
+# doctrine), so it cannot SET these — but it can read them back and say
+# when the host is provisioned below what a consumer declared it needs.
+# Ollama's default is ONE parallel slot, which silently serializes a
+# multi-agent consumer instead of failing, so an unnoticed default is the
+# expensive case this probe exists to catch.
+
+_PARALLEL_VARS = ("OLLAMA_NUM_PARALLEL", "OLLAMA_MAX_LOADED_MODELS")
+
+
+def host_parallel_config(
+    *, runner=None, platform_name: str | None = None
+) -> dict[str, int | None]:
+    """Best-effort read of the host daemon's parallel-serving settings.
+
+    Returns a dict keyed by env-var name; a value of ``None`` means "could
+    not determine", which is deliberately distinct from a real 0/1 — the
+    caller must not warn on an unknown.
+
+    macOS is the verified path: the daemon inherits ``launchctl setenv``,
+    and the reporter on #849 confirmed the round trip (server.log logs
+    ``OLLAMA_NUM_PARALLEL:8`` after a restart). Elsewhere the daemon's
+    environment depends on how it was started — systemd drop-in, shell
+    export, container — with no single readable source, so this returns
+    unknown rather than guessing wrong and emitting a false warning.
+
+    ``runner``/``platform_name`` are injected by tests; nothing here shells
+    out when a runner is supplied.
+    """
+    import platform as _platform
+    import subprocess
+
+    system = platform_name if platform_name is not None else _platform.system()
+    result: dict[str, int | None] = {name: None for name in _PARALLEL_VARS}
+    if system != "Darwin":
+        return result
+
+    def _default_runner(args: list[str]) -> str | None:
+        try:
+            proc = subprocess.run(
+                args, capture_output=True, text=True, timeout=5, check=False
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None
+        return proc.stdout if proc.returncode == 0 else None
+
+    run = runner or _default_runner
+    for name in _PARALLEL_VARS:
+        raw = run(["launchctl", "getenv", name])
+        if raw is None:
+            continue
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            result[name] = int(raw)
+        except ValueError:
+            # A non-numeric value is as good as unset for our purposes;
+            # the daemon would ignore it too.
+            continue
+    return result
+
+
+def parallel_shortfall(
+    declared_min: int, observed: dict[str, int | None]
+) -> tuple[bool, str]:
+    """Compare a declared minimum against the observed host config.
+
+    Returns ``(is_shortfall, explanation)``. Unknown observations never
+    report a shortfall — warning about a value we failed to read would
+    train people to ignore the check.
+    """
+    current = observed.get("OLLAMA_NUM_PARALLEL")
+    if current is None:
+        return False, (
+            "could not read the host daemon's OLLAMA_NUM_PARALLEL "
+            "(only macOS launchctl is supported); skipping the comparison"
+        )
+    if current >= declared_min:
+        return False, (
+            f"host OLLAMA_NUM_PARALLEL={current} meets the declared "
+            f"minimum of {declared_min}"
+        )
+    return True, (
+        f"host OLLAMA_NUM_PARALLEL={current} is below the declared minimum "
+        f"of {declared_min}; {declared_min} concurrent requests will be "
+        f"serialized. Fix with: launchctl setenv OLLAMA_NUM_PARALLEL "
+        f"{declared_min} && osascript -e 'quit app \"Ollama\"' "
+        "then relaunch Ollama."
+    )

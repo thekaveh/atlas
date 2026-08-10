@@ -582,6 +582,7 @@
 | OLLAMA_LOCALHOST_PORT | ollama | 11434 | Host port for the ollama-localhost source variant. URL is derived at compose-render time as http://host.docker.internal:11434. |
 | OLLAMA_NUM_PARALLEL | ollama | 8 | Ollama parallel request slots per model (OLLAMA_NUM_PARALLEL). Multi-agent consumers (8+ concurrent requests) need this >1; Ollama's default of 1 serializes them. Applied to the ollama container-* sources; for ollama-localhost the host daemon owns it (#849). |
 | OLLAMA_MAX_LOADED_MODELS | ollama | 2 | Max models Ollama keeps resident simultaneously (OLLAMA_MAX_LOADED_MODELS). Raise for workloads hot-swapping several models; lower to bound memory. Applied to ollama container-* sources; for ollama-localhost the host daemon owns it (#849). |
+| OLLAMA_PARALLEL_MIN | ollama |  | Concurrent-request floor a consumer needs from Ollama. Advisory only, and only meaningful for ollama-localhost, where Atlas cannot own the host daemon: ./start.sh doctor reads the daemon's OLLAMA_NUM_PARALLEL and warns when it is below this, with launchctl guidance. Empty (default) means no expectation is declared. Ollama's own default is 1 slot, which silently SERIALIZES a multi-agent consumer rather than failing, so an unnoticed default is what this exists to catch (#849). |
 | OPEN_WEB_UI_SOURCE | open-webui | container | - |
 | OPEN_WEB_UI_STT_API_KEY | open-webui |  | Parakeet bearer token when a Parakeet source is selected; a non-secret compatibility placeholder for other enabled STT engines. |
 | OPEN_WEB_UI_PORT | open-webui |  | - |

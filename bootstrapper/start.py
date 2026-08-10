@@ -4142,6 +4142,64 @@ def _doctor_check_plugin_manifests(starter: "AtlasStarter") -> dict:
     )
 
 
+def _doctor_check_ollama_parallel(starter: "AtlasStarter") -> dict:
+    """Warn when a host Ollama daemon is provisioned below the declared need.
+
+    Only meaningful for ``ollama-localhost``: on the container sources
+    Atlas sets ``OLLAMA_NUM_PARALLEL`` itself, but the host-prereq
+    doctrine means it cannot own a host daemon's environment. Ollama
+    defaults to ONE parallel slot and silently serializes concurrent
+    requests rather than rejecting them, so a consumer that needs 8 gets
+    correct-but-slow behaviour with no signal — which is exactly the
+    failure this check exists to surface (#849).
+
+    Advisory by construction: an unreadable host config reports ``skipped``,
+    never ``fail``. Warning about a value we could not read would train
+    people to ignore doctor output.
+    """
+    from services.ollama_localhost import host_parallel_config, parallel_shortfall
+
+    env_values = starter.config_parser.parse_env_file()
+    source = (env_values.get("LLM_PROVIDER_SOURCE", "") or "").strip()
+    if source != "ollama-localhost":
+        return _doctor_result(
+            "ollama-parallel",
+            "pass",
+            f"LLM_PROVIDER_SOURCE={source or '(unset)'} — Atlas owns the "
+            "parallel-serving env for container sources.",
+        )
+
+    raw_min = (env_values.get("OLLAMA_PARALLEL_MIN", "") or "").strip()
+    if not raw_min:
+        return _doctor_result(
+            "ollama-parallel",
+            "pass",
+            "No OLLAMA_PARALLEL_MIN declared — nothing to compare against.",
+        )
+    try:
+        declared_min = int(raw_min)
+    except ValueError:
+        return _doctor_result(
+            "ollama-parallel",
+            "fail",
+            f"OLLAMA_PARALLEL_MIN={raw_min!r} is not an integer.",
+        )
+    if declared_min <= 1:
+        return _doctor_result(
+            "ollama-parallel",
+            "pass",
+            f"OLLAMA_PARALLEL_MIN={declared_min} is within Ollama's default.",
+        )
+
+    observed = host_parallel_config()
+    shortfall, explanation = parallel_shortfall(declared_min, observed)
+    if shortfall:
+        return _doctor_result("ollama-parallel", "fail", explanation)
+    if observed.get("OLLAMA_NUM_PARALLEL") is None:
+        return _doctor_result("ollama-parallel", "skipped", explanation)
+    return _doctor_result("ollama-parallel", "pass", explanation)
+
+
 def _doctor_check_model_sidecars(starter: "AtlasStarter") -> dict:
     env_values = starter.config_parser.parse_env_file()
     raw_path = env_values.get("COMFYUI_CUSTOM_MODELS_FILE", "").strip()
@@ -5019,6 +5077,7 @@ DOCTOR_CHECKS = [
     _doctor_check_overlay_env,
     _doctor_check_plugins,
     _doctor_check_plugin_manifests,
+    _doctor_check_ollama_parallel,
     _doctor_check_model_sidecars,
     _doctor_check_unpullable_models,
     _doctor_check_litellm_models,

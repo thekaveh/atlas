@@ -39,7 +39,13 @@ OLLAMA_LOCALHOST_PORT=11434
 # For ollama-localhost the host daemon owns both (e.g. launchctl setenv on macOS).
 OLLAMA_NUM_PARALLEL=8
 OLLAMA_MAX_LOADED_MODELS=2
+# Advisory floor for ollama-localhost only (#849). Empty by default.
+OLLAMA_PARALLEL_MIN=
 ```
+
+**Declaring a concurrency floor for a host daemon.** On `ollama-localhost` Atlas cannot set the daemon's environment — the host-prereq doctrine means you own it. Ollama's default is **one** parallel slot, and it *silently serializes* concurrent requests rather than rejecting them, so a consumer that needs eight gets correct-but-slow behaviour with nothing in any log to explain it. Set `OLLAMA_PARALLEL_MIN` to what your workload needs and `./start.sh doctor` will read the daemon's actual `OLLAMA_NUM_PARALLEL` back and fail the check when the host is below it, with the exact `launchctl` command to fix it.
+
+The read is deliberately narrow: it works on macOS, where the daemon inherits `launchctl setenv`. Everywhere else a daemon's environment depends on how it was started (systemd drop-in, shell export, container) with no single readable source, so the check reports `skipped` rather than guessing — an unknown never warns.
 
 LiteLLM resolves the upstream URL from `LITELLM_OLLAMA_UPSTREAM` (set automatically by the bootstrapper based on `LLM_PROVIDER_SOURCE`). Consumers should never reference `LITELLM_OLLAMA_UPSTREAM` directly.
 
