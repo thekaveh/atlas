@@ -722,7 +722,7 @@ uv run --project bootstrapper python scripts/check-track-membership.py
 - [SOURCE values](source-values.md)
 - [Environment variables](env-vars.md)
 - [Ports and routes](ports-routes.md)
-- [Tracks](tracks.md)
+- [Tracks](../tracks.md)
 - [Service dependencies](service-dependencies.md)
 - [Manifest fields](manifest-fields.md)
 
@@ -976,8 +976,6 @@ def reference_pages(model: DocsModel) -> dict[Path, str]:
             ["Service", "Category", "Port Variables", "Kong Aliases", "Route Docs"],
             ports_rows,
         ),
-        ref / "tracks.md": "# Track Reference\n\n## 1. Generated Track Matrix\n\n"
-        + table(["Track", "Description", "Services"], track_rows),
         ref / "service-dependencies.md": "# Service Dependencies\n\n## 1. Generated Dependency Matrix\n\n"
         + table(["Service", "Required", "Optional", "Runtime Calls"], deps_rows),
         ref / "manifest-fields.md": "# Manifest Fields\n\n## 1. Manifest Schema Quick Reference\n\nGenerated manifest schema quick reference.\n\n"

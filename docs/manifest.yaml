@@ -616,16 +616,12 @@ sections:
     number: '10.4'
     title: Ports And Routes Reference
     source: docs/reference/ports-routes.md
-  - id: reference-tracks
-    number: '10.5'
-    title: Tracks Reference
-    source: docs/reference/tracks.md
   - id: service-dependencies
-    number: '10.6'
+    number: '10.5'
     title: Service Dependencies
     source: docs/reference/service-dependencies.md
   - id: manifest-fields
-    number: '10.7'
+    number: '10.6'
     title: Manifest Fields
     source: docs/reference/manifest-fields.md
 diagrams:

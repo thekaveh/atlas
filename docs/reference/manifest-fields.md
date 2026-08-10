@@ -1,4 +1,4 @@
-# 10.7. Manifest Fields
+# 10.6. Manifest Fields
 
 ## 1. Manifest Schema Quick Reference
 
