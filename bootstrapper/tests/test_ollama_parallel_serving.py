@@ -2,10 +2,13 @@
 OLLAMA_MAX_LOADED_MODELS so multi-agent consumers (8+ concurrent requests)
 get parallel serving instead of Ollama's default 1-sequential-slot behavior.
 
-Part 1 (container source) of #849. Part 2 (an ollama-localhost doctor lint +
-consumer-declared parallel_min) is deferred — it needs a cross-platform
-host-daemon-config read (only macOS `launchctl` verified) and live validation
-CI cannot provide.
+Part 1 (container source) of #849. Part 2 — the ollama-localhost doctor lint
+— now ships too; see test_ollama_parallel_doctor.py. The cross-platform
+concern recorded here was resolved by scope rather than by solving it: the
+probe reads the host config only where that is actually verifiable (macOS
+`launchctl`) and reports "unknown" everywhere else, and an unknown never
+warns. That keeps the check advisory and safe to ship without the live
+validation CI cannot provide.
 """
 from pathlib import Path
 
