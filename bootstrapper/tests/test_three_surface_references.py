@@ -25,7 +25,6 @@ def test_canonical_reference_projection_covers_dynamic_public_pages() -> None:
         "docs/reference/source-values.md",
         "docs/reference/env-vars.md",
         "docs/reference/ports-routes.md",
-        "docs/reference/tracks.md",
         "docs/reference/service-dependencies.md",
         "docs/reference/manifest-fields.md",
     } | architecture
@@ -35,3 +34,30 @@ def test_canonical_reference_projection_covers_dynamic_public_pages() -> None:
 
 def test_committed_canonical_references_match_the_live_service_model() -> None:
     assert sync_canonical_references(ROOT, check=True) == []
+
+
+def test_the_track_matrix_has_exactly_one_generated_home() -> None:
+    """#838: the matrix used to be rendered byte-identically at nav §4
+    (``docs/tracks.md``) and §10.5 (``docs/reference/tracks.md``).
+
+    Both were generated from the same ``model.tracks``, so they could never
+    drift — which is precisely why the duplication survived unnoticed. The
+    reference copy was collapsed into the nav page, which is the one users
+    actually browse. This guards the collapse rather than the symptom: a
+    second generated home would reintroduce it silently.
+    """
+    from bootstrapper.docs.sitegen.model import load_docs_model
+    from bootstrapper.docs.sitegen.pages import reference_pages, static_pages
+
+    model = load_docs_model(ROOT)
+    rendered = {**static_pages(model), **reference_pages(model)}
+    homes = [
+        path.relative_to(ROOT).as_posix()
+        for path, text in rendered.items()
+        if "| Track | Description | Services |" in text
+    ]
+    # static_pages() emits into the docs/site/ staging tree, which the build
+    # publishes as docs/tracks.md — the path differs, the count is the point.
+    assert homes == ["docs/site/tracks.md"], (
+        f"the track matrix should have exactly one generated home, found: {homes}"
+    )
