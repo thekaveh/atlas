@@ -148,7 +148,9 @@ def test_generated_reference_pages_cover_core_sources() -> None:
         "source-values.md",
         "env-vars.md",
         "ports-routes.md",
-        "tracks.md",
+        # tracks.md deliberately absent: the reference copy was byte-identical
+        # to the nav-section-4 page and was collapsed into it (#838). The
+        # surviving page is docs/tracks.md.
         "service-dependencies.md",
         "manifest-fields.md",
     ):

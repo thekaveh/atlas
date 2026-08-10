@@ -2690,6 +2690,12 @@ The cleanup PR documented at the top of this section deliberately defers three c
 - **Deliberately narrow, and advisory by construction.** The probe reads the host config only where that is genuinely verifiable — macOS, where the daemon inherits `launchctl setenv` — and reports *unknown* everywhere else, because a daemon's environment otherwise depends on how it was started (systemd drop-in, shell export, container) with no single readable source. An unknown reports `skipped` and never warns: a warning about a value that could not be read would train people to ignore doctor output. That scoping is what makes the check safe to ship without the live per-platform validation CI cannot provide, which is why part 2 of #849 had been deferred.
 - Part 1 of #849 (the `OLLAMA_NUM_PARALLEL` / `OLLAMA_MAX_LOADED_MODELS` compose env for the container sources) already shipped earlier; this completes the ticket.
 
+### 1.160. Changed — 2026-08-09 — Track matrix collapsed to one generated home (#838)
+
+- **The track matrix had two byte-identical generated homes** — nav §4 (`docs/tracks.md`) and §10.5 (`docs/reference/tracks.md`), both rendered from the same `model.tracks`. Because they were generated from one source they could never drift, which is exactly why the duplication survived unnoticed. The reference copy is removed and the nav-section page — the one users actually browse — survives; `docs/reference/index.md` and the six landing-page cards now point at it. The renumber ripple this deferral warned about turned out to be contained: §10.6 → §10.5 and §10.7 → §10.6, with no hand-authored page affected.
+- **Guarded against silent return** — a test asserts the matrix has exactly one generated home, rendering the real page set and matching on the table header rather than on a filename. Mutation-proven: restore the second generator and it fails.
+- Two of #838's three items remain open by decision, not oversight: the CHANGELOG/ROADMAP split is deferred until the current issue queue stops appending to them, and the nav reordering plus `docs/deployment/` rename is blocked on a target order that no document specifies.
+
 ## 2. [3.0.0] - 2026-05-15 (Topology-Driven Ordering & Port Layout v1)
 
 **Visual:** every service row in the setup wizard now leads with a thin category-color bar; six categories (Infra, Data, LLM Core, Media, Agents & Workflows, Apps & UIs) explained in a legend below the grid. Unanswered configurable services show a yellow ◌ placeholder ("pending") instead of guessing their port/source/alias before you've picked them.

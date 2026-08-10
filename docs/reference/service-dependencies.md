@@ -1,4 +1,4 @@
-# 10.6. Service Dependencies
+# 10.5. Service Dependencies
 
 ## 1. Generated Dependency Matrix
 
