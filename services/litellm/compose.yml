@@ -21,6 +21,11 @@ services:
       # would silently substitute the default for empty too, breaking
       # cloud-only setups. See .env.example LITELLM_OLLAMA_UPSTREAM.
       LITELLM_OLLAMA_UPSTREAM: ${LITELLM_OLLAMA_UPSTREAM-http://ollama:11434}
+      # Response-cache bounds, read by litellm_settings.base_settings at
+      # render time and baked into config.yaml as literals (ttl must be a
+      # number; the os.environ/... form resolves to a string).
+      LITELLM_CACHE_TTL: ${LITELLM_CACHE_TTL:-3600}
+      LITELLM_CACHE_NAMESPACE: ${LITELLM_CACHE_NAMESPACE:-litellm.cache}
       LITELLM_CONFIG_OUT: /litellm-config/config.yaml
       # Consumer-owned model rows (#411) — a bootstrapper-generated,
       # fully-resolved YAML file that init.py merges into config.yaml before
