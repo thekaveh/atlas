@@ -33,6 +33,12 @@ env:
   - name: LITELLM_UI_USERNAME
     default: admin
     description: "Admin-dashboard login username at http://litellm.localhost:${KONG_HTTP_PORT}/ui/. Password is LITELLM_MASTER_KEY."
+  - name: LITELLM_CACHE_TTL
+    default: "3600"
+    description: "Lifetime in seconds of a cached LiteLLM response. The gateway caches completions/embeddings in Redis; LiteLLM's own fallback is 60s, which is too short to pay off on anything but rapid-fire identical prompts. Raise for heavier reuse, lower if stale answers matter more than the saving. A non-numeric or non-positive value falls back to 3600 rather than failing the render."
+  - name: LITELLM_CACHE_NAMESPACE
+    default: litellm.cache
+    description: "Key prefix for LiteLLM's Redis response cache. Redis db 0 is shared with n8n's BullMQ queue, Kong's rate-limit counters, Langfuse's queue and the backend's media store, so a namespace keeps gateway cache keys scannable and separately droppable."
   - name: LITELLM_DB_NAME
     default: litellm
   - name: LITELLM_EMBEDDING_MODEL

@@ -2174,6 +2174,8 @@ services:
       LIGHTRAG_ENDPOINT: ''
       LIGHTRAG_SOURCE: disabled
       LITELLM_ANTHROPIC_ENABLED: 'false'
+      LITELLM_CACHE_NAMESPACE: litellm.cache
+      LITELLM_CACHE_TTL: '3600'
       LITELLM_CONFIG_OUT: /litellm-config/config.yaml
       LITELLM_CONSUMER_MODELS_FILE: /litellm-config/consumer-models.yaml
       LITELLM_DB_NAME: litellm
@@ -3036,6 +3038,8 @@ services:
       replicas: 1
     environment:
       NVIDIA_VISIBLE_DEVICES: all
+      OLLAMA_FLASH_ATTENTION: '1'
+      OLLAMA_KV_CACHE_TYPE: q8_0
       OLLAMA_MAX_LOADED_MODELS: '2'
       OLLAMA_NUM_PARALLEL: '8'
     image: ollama/ollama:0.30.11
@@ -3504,8 +3508,10 @@ services:
     - 'yes'
     - --requirepass
     - redis_password
+    - --maxmemory
+    - '0'
     - --maxmemory-policy
-    - noeviction
+    - volatile-lru
     container_name: atlas-redis
     healthcheck:
       test:

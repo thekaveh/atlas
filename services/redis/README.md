@@ -132,7 +132,9 @@ For general startup and routing issues, see [Troubleshooting](../../docs/quick-s
 
 **Cold-start vs warm-start.** `./stop.sh` (no flags) preserves the AOF and Redis replays it on next boot — n8n queue + sessions survive. `./stop.sh --cold` deletes the volume entirely.
 
-**Capacity rule of thumb.** With AOF and no `maxmemory`, the container OOMs at the Docker memory limit. The stack default is whatever Docker Desktop allocates (~2 GB). For production deployments, set `maxmemory` explicitly to ~75% of the container's memory budget and pick an eviction policy per workload.
+**Capacity rule of thumb.** `REDIS_MAXMEMORY` defaults to `0` (unlimited), so with AOF and no cap the container still OOMs at the Docker memory limit — which loses in-flight queue state rather than shedding anything. Set it (e.g. `REDIS_MAXMEMORY=512mb`) to ~75% of the container's memory budget and Redis will evict instead.
+
+**What gets evicted, and why it is safe.** `REDIS_MAXMEMORY_POLICY` defaults to `volatile-lru`, which evicts **only keys carrying a TTL**. On this stack that means LiteLLM's response cache (`litellm.cache:*`, TTL from `LITELLM_CACHE_TTL`). The things that must not vanish — n8n's BullMQ queue, Kong's rate-limit counters, Langfuse's queue, the backend's media store — are written without a TTL and are therefore never eviction candidates. The previous `noeviction` did the opposite: a full instance rejected *writes*, so an oversized cache would take the queue down with it. If nothing volatile remains, `volatile-lru` returns the same OOM error `noeviction` would, so the worst case is unchanged. The stack default is whatever Docker Desktop allocates (~2 GB). For production deployments, set `maxmemory` explicitly to ~75% of the container's memory budget and pick an eviction policy per workload.
 
 ## 9. Tuning
 

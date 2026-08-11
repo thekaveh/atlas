@@ -39,9 +39,18 @@ OLLAMA_LOCALHOST_PORT=11434
 # For ollama-localhost the host daemon owns both (e.g. launchctl setenv on macOS).
 OLLAMA_NUM_PARALLEL=8
 OLLAMA_MAX_LOADED_MODELS=2
+# KV-cache quantization — the other half of the memory budget.
+OLLAMA_KV_CACHE_TYPE=q8_0
+OLLAMA_FLASH_ATTENTION=1
 # Advisory floor for ollama-localhost only (#849). Empty by default.
 OLLAMA_PARALLEL_MIN=
 ```
+
+**KV-cache quantization.** The attention KV cache is the dominant per-slot memory cost, and `OLLAMA_NUM_PARALLEL` multiplies it: eight parallel slots hold eight KV caches. `OLLAMA_KV_CACHE_TYPE=q8_0` roughly halves that for a negligible quality cost (`f16` is Ollama's own default and full precision; `q4_0` quarters it with a measurable cost). On unified-memory hosts running several resident models this is the cheapest lever available.
+
+It only takes effect when flash attention is active, which is why `OLLAMA_FLASH_ATTENTION=1` is pinned alongside rather than left to autodetection — a silently-inactive memory setting is worse than an absent one, because it reads as configured. Both apply to the `ollama container-*` sources only; for `ollama-localhost` the host daemon owns them (`launchctl setenv` on macOS), same as the parallel-serving vars.
+
+Note that Redis cannot help here. The attention KV cache is per-sequence tensors touched on every generated token; Redis is a network hop. What Redis caches for LLM traffic is whole *responses*, and that happens one layer up at the LiteLLM gateway — see [LiteLLM](../litellm/README.md).
 
 **Declaring a concurrency floor for a host daemon.** On `ollama-localhost` Atlas cannot set the daemon's environment — the host-prereq doctrine means you own it. Ollama's default is **one** parallel slot, and it *silently serializes* concurrent requests rather than rejecting them, so a consumer that needs eight gets correct-but-slow behaviour with nothing in any log to explain it. Set `OLLAMA_PARALLEL_MIN` to what your workload needs and `./start.sh doctor` will read the daemon's actual `OLLAMA_NUM_PARALLEL` back and fail the check when the host is below it, with the exact `launchctl` command to fix it.
 

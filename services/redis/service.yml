@@ -34,6 +34,12 @@ env:
       Kept as an env entry (rather than a sources: block) so the wizard
       does not render a one-option dropdown. The legacy source validator
       still expects REDIS_SOURCE=container until Phase D.
+  - name: REDIS_MAXMEMORY
+    default: "0"
+    description: "Redis memory cap (redis-server --maxmemory), e.g. 512mb. 0 means unlimited, which is the historical behaviour: Redis grows until the CONTAINER is OOM-killed, losing in-flight queue state rather than shedding anything. Setting a cap lets REDIS_MAXMEMORY_POLICY shed recomputable data instead. Recommended for long-running or multi-consumer deployments; size it to roughly 75% of the container's memory budget."
+  - name: REDIS_MAXMEMORY_POLICY
+    default: volatile-lru
+    description: "Eviction policy once REDIS_MAXMEMORY is reached. volatile-lru evicts only keys carrying a TTL, which on this stack means LiteLLM's response cache — db 0 also holds n8n's BullMQ queue, Kong's counters, Langfuse's queue and the backend's media store, all written WITHOUT a TTL, so they survive. Under the previous noeviction a full instance rejected writes instead, letting an oversized cache take the queue down with it. With nothing volatile left, volatile-lru returns the same OOM error noeviction would."
   - name: REDIS_PORT
     # default removed — computed by services/topology.py slot allocator
     description: "Host port. Container port is always 6379."
