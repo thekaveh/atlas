@@ -15,6 +15,14 @@ services:
       # MAX_LOADED_MODELS bounds resident-model memory. Inert when this
       # container is scaled to 0 (ollama-localhost); the host daemon owns
       # both for that source.
+      # KV-cache quantization (#849 follow-up). The attention KV cache is
+      # the dominant per-slot memory cost, and NUM_PARALLEL multiplies it:
+      # q8_0 roughly halves it for a negligible quality cost. Only takes
+      # effect with flash attention, so that is pinned alongside rather
+      # than left to autodetection — a silently-inactive memory setting is
+      # worse than an absent one. Inert when scaled to 0 (ollama-localhost).
+      OLLAMA_FLASH_ATTENTION: ${OLLAMA_FLASH_ATTENTION:-1}
+      OLLAMA_KV_CACHE_TYPE: ${OLLAMA_KV_CACHE_TYPE:-q8_0}
       OLLAMA_NUM_PARALLEL: ${OLLAMA_NUM_PARALLEL:-8}
       OLLAMA_MAX_LOADED_MODELS: ${OLLAMA_MAX_LOADED_MODELS:-2}
     deploy:

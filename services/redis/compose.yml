@@ -7,7 +7,26 @@ services:
     image: ${REDIS_IMAGE}
     container_name: ${PROJECT_NAME}-redis
     restart: unless-stopped
-    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD} --maxmemory-policy noeviction
+    # maxmemory defaults to 0 (unlimited), preserving the historical
+    # behaviour: without a cap Redis grows until the CONTAINER is OOM-killed,
+    # which loses the in-flight queue rather than shedding anything. Set
+    # REDIS_MAXMEMORY (e.g. 512mb) to bound it — recommended for any
+    # long-running or multi-consumer deployment.
+    #
+    # The policy is volatile-lru, NOT noeviction: db 0 mixes LiteLLM's
+    # response cache with n8n's BullMQ queue, Kong's rate-limit counters,
+    # Langfuse's queue and the backend's media store. volatile-lru evicts
+    # only keys that carry a TTL — which is the cache — so memory pressure
+    # sheds recomputable data and leaves queue entries (written without a
+    # TTL) intact. Under noeviction a full instance instead rejects WRITES,
+    # so the cache would take the whole queue down with it.
+    #
+    # Worst case is unchanged: if nothing volatile remains, volatile-lru
+    # returns the same OOM error noeviction would have.
+    command: >-
+      redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
+      --maxmemory ${REDIS_MAXMEMORY:-0}
+      --maxmemory-policy ${REDIS_MAXMEMORY_POLICY:-volatile-lru}
     volumes:
       - redis-data:/data
     ports:
