@@ -72,6 +72,18 @@ services:
     ports:
       - "${HOST_BIND_IP:-}${LANGFUSE_PORT}:3000"
     environment: &langfuse-env
+      # Next.js standalone binds to process.env.HOSTNAME. Docker sets HOSTNAME
+      # to the container ID, so the server binds that container's eth0 IP ONLY
+      # — nothing listens on loopback, and the loopback healthcheck below can
+      # never pass. The app is fully functional the whole time, so langfuse-web
+      # sat at (unhealthy) forever and ./start.sh exited non-zero, which breaks
+      # scripted bring-up for any consumer that enables Langfuse (#928).
+      #
+      # Upstream's compose does not hit this because it ships NO healthcheck on
+      # langfuse-web at all; Atlas adds one, which is what exposes the bind.
+      # Pinning 0.0.0.0 is the standard Next.js-standalone-in-Docker fix and
+      # keeps any future in-container or sidecar probe working too.
+      HOSTNAME: "0.0.0.0"
       NEXTAUTH_URL: http://langfuse.localhost:${KONG_HTTP_PORT}
       NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET}
       DATABASE_URL: postgresql://${SUPABASE_DB_USER}:${SUPABASE_DB_PASSWORD}@supabase-db:5432/${LANGFUSE_DB_NAME:-langfuse}
