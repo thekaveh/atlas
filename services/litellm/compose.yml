@@ -162,6 +162,21 @@ services:
       # Langfuse gateway tracing — litellm-init adds success_callback:
       # ["langfuse"] only when LANGFUSE_SOURCE=container. These env vars are
       # harmless when the callback is absent.
+      # BOTH host vars are set on purpose — the name changed across SDK majors
+      # and the failure mode is SILENT (#929):
+      #   * langfuse-python v2 (what the pinned LiteLLM image ships, 2.57.13a0)
+      #     reads ONLY LANGFUSE_HOST, defaulting to https://cloud.langfuse.com
+      #     when unset — verified in the v2.57.13 source:
+      #       os.environ.get("LANGFUSE_HOST", "https://cloud.langfuse.com")
+      #     So with only LANGFUSE_BASE_URL set, traces were shipped to the
+      #     PUBLIC CLOUD with locally-generated keys, rejected there, and
+      #     dropped. LiteLLM still logged the callback as initialised and every
+      #     call still succeeded, so nothing surfaced locally at all.
+      #   * langfuse-python v4 prefers LANGFUSE_BASE_URL and keeps
+      #     LANGFUSE_HOST as a deprecated alias.
+      # Setting both keeps tracing working on the current pin AND after a
+      # future LiteLLM image bumps its bundled SDK.
+      LANGFUSE_HOST: ${LANGFUSE_ENDPOINT:-}
       LANGFUSE_BASE_URL: ${LANGFUSE_ENDPOINT:-}
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
       LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
