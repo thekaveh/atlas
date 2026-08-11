@@ -41,7 +41,26 @@ When enabled, the family starts:
 - `langfuse-web`: serves the UI and ingestion APIs.
 - `langfuse-worker`: processes queued ingestion work.
 
-LiteLLM receives `LANGFUSE_BASE_URL`, `LANGFUSE_PUBLIC_KEY`, and `LANGFUSE_SECRET_KEY`. The generated LiteLLM config adds `success_callback: ["langfuse"]` only while `LANGFUSE_SOURCE=container`; disabling Langfuse removes the callback on the next config render. Existing Prometheus callbacks stay in place.
+LiteLLM receives `LANGFUSE_HOST`, `LANGFUSE_BASE_URL`, `LANGFUSE_PUBLIC_KEY`, and `LANGFUSE_SECRET_KEY`. The generated LiteLLM config adds `success_callback: ["langfuse"]` only while `LANGFUSE_SOURCE=container`; disabling Langfuse removes the callback on the next config render. Existing Prometheus callbacks stay in place.
+
+### 4.1. Why two host variables
+
+Both `LANGFUSE_HOST` and `LANGFUSE_BASE_URL` are set to the same endpoint on purpose, because the name changed across SDK majors and getting it wrong **fails silently**:
+
+| SDK | Reads | If unset |
+|---|---|---|
+| langfuse-python **v2** (bundled in the pinned LiteLLM image) | `LANGFUSE_HOST` only | defaults to `https://cloud.langfuse.com` |
+| langfuse-python **v4** | `LANGFUSE_BASE_URL`, with `LANGFUSE_HOST` as a deprecated alias | defaults to `https://cloud.langfuse.com` |
+
+With only `LANGFUSE_BASE_URL` set, the v2 SDK sent every trace to the public cloud using locally-generated keys, where they were rejected and dropped — while LiteLLM logged `Initialized Success Callbacks - ['langfuse']` and every call succeeded. Nothing appeared locally and nothing errored (#929). Setting both keeps tracing correct on the current pin *and* after a future image bumps the bundled SDK.
+
+### 4.2. What is actually traced
+
+Coverage is **exactly what passes through the LiteLLM gateway**. That is the large majority of Atlas LLM traffic — Open WebUI (`OPENAI_API_BASE_URLS: http://litellm:4000/v1`), the backend, and LightRAG's default binding all route through it.
+
+The documented exception is LightRAG's **per-role binding overrides**. `LIGHTRAG_EXTRACT_LLM_BINDING_HOST`, `LIGHTRAG_KEYWORD_LLM_BINDING_HOST` and `LIGHTRAG_QUERY_LLM_BINDING_HOST` can point a role straight at a native provider (e.g. Ollama), bypassing LiteLLM entirely. Those calls produce **no Langfuse traces**, and nothing warns about it — if you have set any of them, expect a gap in coverage for that role.
+
+Direct ComfyUI traces, Hermes custom spans, backend custom spans, n8n step spans, and OpenTelemetry fan-out remain out of scope; LiteLLM's OTel export (`LITELLM_OTEL_V2`) is independent of the Langfuse callback.
 
 ## 5. Dependencies & Integrations
 
@@ -80,7 +99,8 @@ _No high-confidence opportunities identified._
 
 ## 6. Troubleshooting
 
-- **No traces appear:** confirm `LANGFUSE_SOURCE=container`, restart after the LiteLLM config regenerates, and check that `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` match the initial project keys.
+- **No traces appear, and nothing is erroring:** this failure mode is silent by design of the SDK, so check in this order. (1) Confirm `LANGFUSE_SOURCE=container` and that the LiteLLM config regenerated with the callback. (2) Verify the gateway container actually has the host var the SDK reads — `docker exec <project>-litellm printenv LANGFUSE_HOST` must print your local endpoint, **not** empty; an unset value means the SDK is shipping traces to `https://cloud.langfuse.com`, where your local keys are rejected and the data is dropped without a log line (#929). (3) Check `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` match the initial project keys. (4) Confirm the call actually went through LiteLLM — see §4.2; a LightRAG role bound to a native provider never reaches the gateway. A quick end-to-end probe: make one chat completion through LiteLLM, then `GET /api/public/traces` and check `meta.totalItems` moved.
+- **`langfuse-web` is `(unhealthy)` but the UI works:** fixed in #928 by pinning `HOSTNAME=0.0.0.0`. Next.js standalone binds `process.env.HOSTNAME`, and Docker sets that to the container ID, so the server listened on the container IP only while the healthcheck probed loopback. If it recurs, compare `docker exec <project>-langfuse-web printenv HOSTNAME` against what the probe targets.
 - **Langfuse fails to start with MinIO errors:** keep `MINIO_SOURCE=container`; Langfuse requires S3-compatible event storage in this Atlas slice.
 - **Rollback to direct LiteLLM behavior:** the rollback path is to set `LANGFUSE_SOURCE=disabled` and rerun `./start.sh`. The Langfuse containers scale to zero, Kong stops routing `langfuse.localhost`, and LiteLLM no longer emits the Langfuse `success_callback`.
 - **ClickHouse timezone or empty queries:** keep ClickHouse and Postgres on UTC. The compose fragment sets ClickHouse `TZ=UTC`.
