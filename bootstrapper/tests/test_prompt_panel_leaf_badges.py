@@ -6,8 +6,8 @@ Before the fix, ``_leaf_render_data`` ran inherited badges through
 ``_inherited_leaf_badges`` which strips status tags under the comment
 *"every leaf of a [library] parent is library; the user already sees
 that on the parent right above"*. That assumption is wrong: a family
-like ``qwen3.6`` whose host has ``qwen3.6:custom-quant``
-pulled but not ``qwen3.6:27b``/``35b``/etc. has mixed-status leaves.
+like ``qwen3.8`` whose host has ``qwen3.8:custom-quant``
+pulled but not ``qwen3.8:27b``/``35b``/etc. has mixed-status leaves.
 The fix added a per-leaf status computation that consults
 ``opt.pulled_variants`` directly.
 
@@ -51,7 +51,7 @@ def panel():
 
 
 def _qwen_parent_option(*, pulled_variants=frozenset()):
-    """Build the qwen3.6 family parent PromptOption as the wizard's
+    """Build the qwen3.8 family parent PromptOption as the wizard's
     options_provider would produce it for an ollama-localhost run.
     ``pulled_variants`` carries the per-tag host state."""
     badges = ["thinking", "tools"]
@@ -59,8 +59,8 @@ def _qwen_parent_option(*, pulled_variants=frozenset()):
         0, "pulled" if pulled_variants else "library",
     )
     return PromptOption(
-        value="qwen3.6",
-        label="qwen3.6",
+        value="qwen3.8",
+        label="qwen3.8",
         hint="frontier dense + MoE model — strong reasoning / coding",
         badges=badges,
         pulls=1_300_000,
@@ -72,7 +72,7 @@ def _qwen_parent_option(*, pulled_variants=frozenset()):
 def _leaf_row(tag):
     return _VisibleRow(
         kind="leaf", abs_idx=0,
-        parent_value="qwen3.6", variant=tag,
+        parent_value="qwen3.8", variant=tag,
     )
 
 
@@ -162,7 +162,7 @@ def test_leaf_carries_no_status_when_pulled_variants_is_empty(panel):
 # ────────────────────────────────────────────────────────────────────────────
 # _rebuild_visible — pulled tag must appear as a leaf row even when it's
 # absent from both the listing-page sizes and the detail-page variant
-# cache. Previously, ``qwen3.6:custom-quant`` was silently checked
+# cache. Previously, ``qwen3.8:custom-quant`` was silently checked
 # but invisible because the fallback loop iterated ``(_LATEST_TAG, *sizes)``
 # without consulting ``opt.pulled_variants``.
 # ────────────────────────────────────────────────────────────────────────────
@@ -197,7 +197,7 @@ def _fake_step(options):
 
 def test_rebuild_surfaces_pulled_tag_missing_from_listing_and_detail():
     """The original screenshot bug: a user pulled
-    ``qwen3.6:custom-quant`` (a community/custom build that is
+    ``qwen3.8:custom-quant`` (a community/custom build that is
     NOT on ollama.com's listing or detail page). With the parent
     expanded and the detail-page cache empty, the fallback path used
     to iterate only ``(latest, 27b, 35b)`` and silently drop the
@@ -207,7 +207,7 @@ def test_rebuild_surfaces_pulled_tag_missing_from_listing_and_detail():
     opt = _qwen_parent_option(
         pulled_variants=frozenset({"latest", "custom-quant"}),
     )
-    stub = _RebuildStub(_fake_step([opt]), expanded={"qwen3.6"})
+    stub = _RebuildStub(_fake_step([opt]), expanded={"qwen3.8"})
     rows = stub._rebuild_visible()
     leaves = [r.variant for r in rows if r.kind == "leaf"]
     assert "custom-quant" in leaves, (
@@ -222,10 +222,10 @@ def test_rebuild_surfaces_pulled_tag_missing_from_listing_and_detail():
 
 def test_rebuild_dedupes_pulled_tag_that_overlaps_listing():
     """When a pulled tag is also in the listing-page sizes (e.g. the
-    user pulled exactly ``qwen3.6:27b``), it must appear once, not
+    user pulled exactly ``qwen3.8:27b``), it must appear once, not
     twice, in the leaf list."""
     opt = _qwen_parent_option(pulled_variants=frozenset({"27b"}))
-    stub = _RebuildStub(_fake_step([opt]), expanded={"qwen3.6"})
+    stub = _RebuildStub(_fake_step([opt]), expanded={"qwen3.8"})
     rows = stub._rebuild_visible()
     leaves = [r.variant for r in rows if r.kind == "leaf"]
     assert leaves.count("27b") == 1, (
@@ -254,8 +254,8 @@ def test_rebuild_uses_detail_cache_then_appends_unlisted_pulled_tags():
     )
     stub = _RebuildStub(
         _fake_step([opt]),
-        expanded={"qwen3.6"},
-        cache={"qwen3.6": detail},
+        expanded={"qwen3.8"},
+        cache={"qwen3.8": detail},
     )
     rows = stub._rebuild_visible()
     leaves = [r.variant for r in rows if r.kind == "leaf"]

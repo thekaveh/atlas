@@ -113,10 +113,16 @@ if [[ -z "${HERMES_DEFAULT_MODEL}" ]]; then
   log "HERMES_DEFAULT_MODEL is unset — picking from the LiteLLM catalog"
   if [[ -n "${available_ids}" ]]; then
     # Priority order — pick the first one that's actually published.
-    # Ollama qwen3.6 is the curated default and clears the 64K floor
-    # at 256K. Cloud fallbacks listed by decreasing context window.
+    # Ollama qwen3.8 is the curated default (services/ollama/models.yaml)
+    # and clears the 64K floor at 256K. Cloud fallbacks listed by
+    # decreasing context window.
+    #
+    # NOTE: this literal is NOT derived from the catalog. If the curated
+    # default is renamed and this is not updated, the loop simply falls
+    # through to the next candidate — a CLOUD model — silently changing
+    # cost and locality with no error. Keep the two in step.
     for candidate in \
-        "ollama/qwen3.6:latest" \
+        "ollama/qwen3.8:latest" \
         "claude-sonnet-4-6" \
         "claude-opus-4-7" \
         "gpt-5" \

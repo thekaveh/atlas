@@ -69,7 +69,7 @@ The interactive wizard's per-provider multiselects persist as comma-separated en
 
 | Variable | Set by | Default | Notes |
 |---|---|---|---|
-| `OLLAMA_USER_MODELS` | Single unified Ollama models multiselect (source-aware; localhost rows are badged `[pulled]` / `[library]`). | Default-active baseline (qwen3.6:latest, qwen3-embedding:0.6b, nomic-embed-text). | Consumed by `model_resolver` for every Ollama source. Pulled by `ollama-pull` for container sources; for `ollama-localhost` the bootstrapper pulls the declared set onto the host daemon at start (#757). |
+| `OLLAMA_USER_MODELS` | Single unified Ollama models multiselect (source-aware; localhost rows are badged `[pulled]` / `[library]`). | Default-active baseline (qwen3.8:latest, qwen3-embedding:0.6b, nomic-embed-text). | Consumed by `model_resolver` for every Ollama source. Pulled by `ollama-pull` for container sources; for `ollama-localhost` the bootstrapper pulls the declared set onto the host daemon at start (#757). |
 | `OLLAMA_CUSTOM_MODELS` | Ollama "additional models to pull" free-text step. | Empty. | Comma-separated. Pulled by `ollama-pull` for container sources; for `ollama-localhost` the bootstrapper pulls them onto the host daemon at start (#757). |
 | `OPENAI_USER_MODELS` | OpenAI multiselect (live `/v1/models` fetch). | Curated default-active intersection (gpt-5, gpt-5-mini, text-embedding-3-large) when key valid. | Requires `OPENAI_API_KEY`. |
 | `ANTHROPIC_USER_MODELS` | Anthropic multiselect (live `/v1/models` fetch). | Curated default-active intersection (claude-opus-4-7, claude-sonnet-4-6) when key valid. | Requires `ANTHROPIC_API_KEY`. |
@@ -119,7 +119,7 @@ curl -fsSL https://ollama.com/install.sh | sh
 ollama serve &
 
 # Optional pre-warm — Atlas pulls the declared tags automatically at start (#757)
-ollama pull qwen3.6:latest
+ollama pull qwen3.8:latest
 ollama pull qwen3-embedding:0.6b
 ```
 
@@ -395,10 +395,10 @@ LightRAG runs out-of-process as either an in-stack container or a host-installed
 Role-specific LLM overrides are optional and preserve the single-model fallback when left empty:
 
 ```bash
-LIGHTRAG_LLM_MODEL=qwen3.6:latest
+LIGHTRAG_LLM_MODEL=qwen3.8:latest
 LIGHTRAG_EXTRACT_LLM_MODEL=mistral-small3.2:24b
 LIGHTRAG_KEYWORD_LLM_MODEL=mistral-small3.2:24b
-LIGHTRAG_QUERY_LLM_MODEL=qwen3.6:latest
+LIGHTRAG_QUERY_LLM_MODEL=qwen3.8:latest
 LIGHTRAG_QUERY_ENABLE_RERANK=false
 LIGHTRAG_QUERY_TOP_K=10
 LIGHTRAG_QUERY_CHUNK_TOP_K=5
