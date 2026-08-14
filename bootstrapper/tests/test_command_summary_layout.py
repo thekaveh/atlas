@@ -78,7 +78,7 @@ def test_model_flag_values_are_pasteable_literals():
     """
     from ui.textual.screens.wizard_screen import _quote_csv
 
-    csv = "nomic-embed-text,qwen3-embedding:0.6b,qwen3.6:latest"
+    csv = "nomic-embed-text,qwen3-embedding:0.6b,qwen3.8:latest"
     quoted = _quote_csv(csv)
 
     assert "selected" not in quoted
@@ -109,7 +109,7 @@ def test_quote_csv_round_trips_through_a_real_shell():
 
     values = [
         "llama3.2",
-        "nomic-embed-text,qwen3-embedding:0.6b,qwen3.6:latest",
+        "nomic-embed-text,qwen3-embedding:0.6b,qwen3.8:latest",
         'a"b',
         "my$model",
         "a`echo PWNED`",

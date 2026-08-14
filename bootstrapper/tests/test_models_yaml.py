@@ -122,7 +122,7 @@ def test_embedding_entries_declare_dim():
     assert by_name["text-embedding-3-small"].dim == 1536
 
     # Non-embedding (content/vision) entries declare no dim.
-    assert by_name["qwen3.6:latest"].dim is None
+    assert by_name["qwen3.8:latest"].dim is None
 
     # At least one curated embedding model satisfies the required dim.
     embed_dims = [e.dim for e in c.all_catalog_entries() if e.embeddings > 0]

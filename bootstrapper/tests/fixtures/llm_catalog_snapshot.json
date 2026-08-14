@@ -209,8 +209,8 @@
   },
   {
     "provider": "ollama",
-    "name": "qwen3.6:latest",
-    "description": "Qwen3.6 multimodal \u2014 strong content + vision, default content model",
+    "name": "qwen3.8:latest",
+    "description": "Qwen3.8 27B multimodal \u2014 image + video understanding, 256K context, default content model",
     "badges": [
       "default"
     ],

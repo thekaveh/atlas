@@ -313,7 +313,7 @@ def test_search_focused_digit_keys_land_in_the_input_not_a_tab_switch():
             scr._prompt.focus_search()
             await pilot.pause()
             assert scr._prompt.has_search_focus()
-            for ch in "qwen3.6":
+            for ch in "qwen3.8":
                 await pilot.press(ch)
             await pilot.pause()
             typed = scr._prompt._search_input.value
@@ -324,7 +324,7 @@ def test_search_focused_digit_keys_land_in_the_input_not_a_tab_switch():
 
     typed, tab_while_typing, tab_after_shift_tab = asyncio.run(scenario())
 
-    assert typed == "qwen3.6", "digits/dot must land in the search box untouched"
+    assert typed == "qwen3.8", "digits/dot must land in the search box untouched"
     assert tab_while_typing == BrandPanel.TAB_SETUP, "typed digits must not switch tabs"
     assert tab_after_shift_tab == BrandPanel.TAB_LOGS, (
         "shift+tab still cycles tabs while the search box has focus"
