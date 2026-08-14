@@ -8,14 +8,24 @@
 # Schema: bootstrapper/schemas/models.schema.json (flat-sections variant).
 # Sections: content | embeddings | vision
 content:
-  - name: qwen3.6:latest
+  - name: qwen3.8:latest
     default: true
-    description: "Qwen3.6 multimodal — strong content + vision, default content model"
+    description: "Qwen3.8 27B multimodal — image + video understanding, 256K context, default content model"
     badges: [default]
     metadata_version: 1
     kind: chat
     adapter: ollama_chat
     capabilities: {chat: true, tools: true, reasoning: true, structured_output: true}
+    # think:false is load-bearing here, more so than it was for qwen3.6.
+    # Qwen3.8 ships with THINKING MODE ON by default (disableable per
+    # request), so without this every extract/keyword call would pay for
+    # reasoning tokens it does not need and return prose around the answer.
+    # Roles that genuinely want deliberation can re-enable it per request.
+    #
+    # Upstream also exposes `reasoning_effort` (depth) and
+    # `preserve_thinking` (carry reasoning across turns). Neither is
+    # expressible here: models.schema.json pins request_defaults to
+    # `think` only. Adding them is a schema change, not a catalog edit.
     request_defaults: {think: false}
     recommended_roles: [extract, keyword, query, judge]
 # `dim:` is the model's output vector dimension. The wizard pre-selects the
@@ -56,7 +66,11 @@ embeddings:
     capabilities: {embedding: true}
     recommended_roles: [embedding]
 vision:
-  - name: qwen3.6:latest
+  # Same artifact as the content entry above — Qwen3.8 is natively
+  # multimodal (image AND video understanding, from STEM diagrams and
+  # documents through hour-scale video), so it is listed in both sections
+  # rather than pairing a separate vision model.
+  - name: qwen3.8:latest
     metadata_version: 1
     kind: chat
     adapter: ollama_chat

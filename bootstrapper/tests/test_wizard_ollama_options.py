@@ -5,8 +5,8 @@ Locks down the two bugs we hit when the wizard's option list didn't
 match what was actually on the host's Ollama:
 
   1. **Per-variant pulled/library status** — a library family with
-     mixed-status leaves (e.g. ``qwen3.6:custom-quant`` pulled
-     but ``qwen3.6:27b`` not) was rendering every variant as the
+     mixed-status leaves (e.g. ``qwen3.8:custom-quant`` pulled
+     but ``qwen3.8:27b`` not) was rendering every variant as the
      parent's status. After the fix, each ``PromptOption`` carries a
      ``pulled_variants: frozenset[str]`` so leaves can render their
      real status independently.
@@ -14,7 +14,7 @@ match what was actually on the host's Ollama:
   2. **Family parent status from /api/tags** — the parent's
      ``status="pulled" if entry.name in pulled_set else "library"``
      check failed because /api/tags returns *tagged* names like
-     ``qwen3.6:latest``, never the bare family name ``qwen3.6``. After
+     ``qwen3.8:latest``, never the bare family name ``qwen3.8``. After
      the fix, the family parent gets ``[pulled]`` whenever ANY tag
      belonging to it is in the host's /api/tags.
 
@@ -46,13 +46,13 @@ from wizard.llm_steps import build_ollama_steps, OLLAMA_MODELS_TITLE
 @pytest.fixture
 def library_qwen3_custom_chat():
     """A small library scrape returning two families with shared
-    structure: ``qwen3.6`` (multi-variant) and ``custom-chat`` (multi-variant).
+    structure: ``qwen3.8`` (multi-variant) and ``custom-chat`` (multi-variant).
     Mirrors the real listing-page output where families have coarse
     sizes (``27b``, ``35b``) but the detail page exposes finer tags
     like ``custom-quant``."""
     return [
         OllamaLibraryEntry(
-            name="qwen3.6",
+            name="qwen3.8",
             capabilities=frozenset({"thinking", "tools"}),
             sizes=("27b", "35b"),
             pulls=1_300_000,
@@ -110,15 +110,15 @@ def _get_options_provider(env_vars):
 def test_pulled_variants_captures_every_tagged_pull_for_each_family(
     monkeypatch, library_qwen3_custom_chat,
 ):
-    """``pulled_variants`` for the qwen3.6 PromptOption must include
-    every host-pulled tag of qwen3.6 — both the bare ``latest`` and
+    """``pulled_variants`` for the qwen3.8 PromptOption must include
+    every host-pulled tag of qwen3.8 — both the bare ``latest`` and
     the custom-quantized ``custom-quant`` that's not in the
     listing-page sizes tuple. This is the screenshot bug: previously
     ``custom-quant`` would inherit ``[library]`` from the
     parent because the listing page only knew about ``27b``/``35b``."""
     host_tags = [
-        "qwen3.6:latest",
-        "qwen3.6:custom-quant",
+        "qwen3.8:latest",
+        "qwen3.8:custom-quant",
         "custom-chat:31b",
     ]
     monkeypatch.setattr(
@@ -131,11 +131,11 @@ def test_pulled_variants_captures_every_tagged_pull_for_each_family(
     env = {"LLM_PROVIDER_SOURCE": "ollama-localhost"}
     opts = _get_options_provider(env)(_select_localhost())
 
-    qwen = next(o for o in opts if o.value == "qwen3.6")
+    qwen = next(o for o in opts if o.value == "qwen3.8")
     assert qwen.pulled_variants == frozenset(
         {"latest", "custom-quant"}
     ), (
-        f"qwen3.6 should carry both pulled tags as variants; "
+        f"qwen3.8 should carry both pulled tags as variants; "
         f"got {qwen.pulled_variants}"
     )
 
@@ -153,11 +153,11 @@ def test_family_parent_status_is_pulled_when_any_variant_is_pulled(
     """Family parent badges include ``pulled`` when any tag of the
     family appears on the host — even when the bare family name
     itself never does, which is always the case (/api/tags returns
-    tagged names like ``qwen3.6:latest`` only). This is the second
+    tagged names like ``qwen3.8:latest`` only). This is the second
     half of the screenshot bug."""
     monkeypatch.setattr(
         "wizard.llm_steps.list_pulled_models",
-        _stub_pulled(["qwen3.6:custom-quant"]),
+        _stub_pulled(["qwen3.8:custom-quant"]),
     )
     monkeypatch.setattr(
         "wizard.llm_steps.list_library_entries",
@@ -166,13 +166,13 @@ def test_family_parent_status_is_pulled_when_any_variant_is_pulled(
     env = {"LLM_PROVIDER_SOURCE": "ollama-localhost"}
     opts = _get_options_provider(env)(_select_localhost())
 
-    qwen = next(o for o in opts if o.value == "qwen3.6")
+    qwen = next(o for o in opts if o.value == "qwen3.8")
     assert "pulled" in qwen.badges, (
-        f"qwen3.6 parent should be tagged [pulled] (a variant is on "
+        f"qwen3.8 parent should be tagged [pulled] (a variant is on "
         f"the host); got badges={qwen.badges}"
     )
     assert "library" not in qwen.badges, (
-        f"qwen3.6 parent should NOT also carry [library]; "
+        f"qwen3.8 parent should NOT also carry [library]; "
         f"got badges={qwen.badges}"
     )
 
@@ -196,7 +196,7 @@ def test_family_parent_status_is_library_when_no_variants_pulled(
     env = {"LLM_PROVIDER_SOURCE": "ollama-localhost"}
     opts = _get_options_provider(env)(_select_localhost())
 
-    for fam in ("qwen3.6", "custom-chat", "custom-embed-large"):
+    for fam in ("qwen3.8", "custom-chat", "custom-embed-large"):
         parent = next(o for o in opts if o.value == fam)
         assert "library" in parent.badges
         assert "pulled" not in parent.badges
@@ -217,7 +217,7 @@ def test_pulled_not_in_library_appears_as_flat_top_level_option(
     name as the option value and ``[pulled]`` status."""
     host_tags = [
         "custom-local-fine-tune:v3",  # not in the library at all
-        "qwen3.6:latest",
+        "qwen3.8:latest",
     ]
     monkeypatch.setattr(
         "wizard.llm_steps.list_pulled_models", _stub_pulled(host_tags),
@@ -258,8 +258,8 @@ def test_options_carry_enough_info_for_pre_check_seeding(
     ``PromptPanel._load_step`` (see ``test_prompt_panel_leaf_badges``);
     this test guarantees the upstream payload it consumes."""
     host_tags = [
-        "qwen3.6:latest",
-        "qwen3.6:custom-quant",
+        "qwen3.8:latest",
+        "qwen3.8:custom-quant",
         "custom-chat:31b",
         "custom-embed-large:latest",
         "nomic-embed-text:latest",
@@ -299,12 +299,12 @@ def test_options_carry_enough_info_for_pre_check_seeding(
 def test_pulled_library_tag_does_not_duplicate_as_flat_row(
     monkeypatch, library_qwen3_custom_chat,
 ):
-    """A pulled TAG of a library family (qwen3.6:latest vs library key
-    qwen3.6) must merge into the family row, not also appear as a bogus
+    """A pulled TAG of a library family (qwen3.8:latest vs library key
+    qwen3.8) must merge into the family row, not also appear as a bogus
     flat '(local model, not in public library)' row. Regression: the
     bucket-1 filter compared the tagged name against bare family keys,
     so every normal pull duplicated."""
-    host_tags = ["qwen3.6:latest"]
+    host_tags = ["qwen3.8:latest"]
     monkeypatch.setattr(
         "wizard.llm_steps.list_pulled_models", _stub_pulled(host_tags),
     )
@@ -314,12 +314,12 @@ def test_pulled_library_tag_does_not_duplicate_as_flat_row(
     )
     env = {"LLM_PROVIDER_SOURCE": "ollama-localhost"}
     opts = _get_options_provider(env)(_select_localhost())
-    flat_dupes = [o for o in opts if o.value == "qwen3.6:latest"]
+    flat_dupes = [o for o in opts if o.value == "qwen3.8:latest"]
     assert flat_dupes == [], (
         f"tagged pull of a library family must not produce a flat row: "
         f"{[o.label for o in flat_dupes]}"
     )
-    assert any(o.value == "qwen3.6" for o in opts)
+    assert any(o.value == "qwen3.8" for o in opts)
 
 
 def test_wizard_upstream_honors_ollama_localhost_port(

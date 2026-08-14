@@ -46,8 +46,8 @@ class TestDefaultConfig:
     def test_active_models_includes_default_active_ollama(self):
         models = active_models({})
         names = _names(models)
-        # qwen3.6:latest is the default content+vision model
-        assert "qwen3.6:latest" in names
+        # qwen3.8:latest is the default content+vision model
+        assert "qwen3.8:latest" in names
 
     def test_active_models_includes_embedding_model(self):
         models = active_models({})
@@ -57,7 +57,7 @@ class TestDefaultConfig:
 
     def test_active_models_has_three_default_ollama_entries(self):
         # The catalog has 3 default_active ollama entries:
-        # qwen3.6:latest (content+vision), qwen3-embedding:0.6b (embeddings),
+        # qwen3.8:latest (content+vision), qwen3-embedding:0.6b (embeddings),
         # nomic-embed-text (embeddings)
         models = active_models({})
         ollama_models = [e for e in models if e.provider == "ollama"]
@@ -65,7 +65,7 @@ class TestDefaultConfig:
 
     def test_best_content_is_qwen(self):
         result = best("content", {})
-        assert result == "ollama/qwen3.6:latest"
+        assert result == "ollama/qwen3.8:latest"
 
     def test_best_embeddings_is_ollama(self):
         result = best("embeddings", {})
@@ -78,11 +78,11 @@ class TestDefaultConfig:
 
     def test_resolved_defaults_default_model_is_qwen(self):
         defaults = resolved_defaults({})
-        assert defaults["LITELLM_DEFAULT_MODEL"] == "ollama/qwen3.6:latest"
+        assert defaults["LITELLM_DEFAULT_MODEL"] == "ollama/qwen3.8:latest"
 
     def test_resolved_defaults_vision_model_is_qwen(self):
         defaults = resolved_defaults({})
-        assert defaults["LITELLM_VISION_MODEL"] == "ollama/qwen3.6:latest"
+        assert defaults["LITELLM_VISION_MODEL"] == "ollama/qwen3.8:latest"
 
     def test_explicit_ollama_container_cpu_same_as_empty(self):
         env = {"LLM_PROVIDER_SOURCE": "ollama-container-cpu"}
@@ -278,7 +278,7 @@ class TestCustomOllamaModels:
         models = active_models(env)
         names = _names(models)
         # Both catalog default and custom should be present
-        assert "qwen3.6:latest" in names
+        assert "qwen3.8:latest" in names
         assert "mymodel:7b" in names
 
     def test_custom_models_csv(self):
@@ -307,7 +307,7 @@ class TestOllamaTagsAutoImport:
         env = {"LLM_PROVIDER_SOURCE": "ollama-localhost"}
         models = active_models(env, ollama_tags=["extra:1b"])
         names = _names(models)
-        assert "qwen3.6:latest" in names
+        assert "qwen3.8:latest" in names
         assert "extra:1b" in names
 
     def test_tags_none_does_not_add_anything(self):
@@ -333,9 +333,9 @@ class TestOllamaTagsAutoImport:
 
     def test_tags_already_in_catalog_uses_catalog_entry(self):
         env = {"LLM_PROVIDER_SOURCE": "ollama-localhost"}
-        # qwen3.6:latest is already in the catalog with real capability values
-        models = active_models(env, ollama_tags=["qwen3.6:latest"])
-        qwen = next((e for e in models if e.name == "qwen3.6:latest"), None)
+        # qwen3.8:latest is already in the catalog with real capability values
+        models = active_models(env, ollama_tags=["qwen3.8:latest"])
+        qwen = next((e for e in models if e.name == "qwen3.8:latest"), None)
         assert qwen is not None
         # Should be the catalog entry, not a synthesized one (vision > 0 in catalog)
         assert qwen.content > 0
@@ -347,9 +347,9 @@ class TestBestVision:
     """best('vision') picks a vision-capable active model; None when none active."""
 
     def test_best_vision_default_config(self):
-        # qwen3.6:latest appears in the vision section of ollama/models.yaml
+        # qwen3.8:latest appears in the vision section of ollama/models.yaml
         result = best("vision", {})
-        assert result == "ollama/qwen3.6:latest"
+        assert result == "ollama/qwen3.8:latest"
 
     def test_best_vision_none_when_no_vision_capable_active(self):
         # Force ollama off and no cloud → no vision model
@@ -477,7 +477,7 @@ class TestEmbeddingDimensionSafety:
 
     def test_dim_none_for_non_embedding_or_unknown(self):
         # content/vision models declare no dim; unknown ids return None.
-        assert dim_for_model_id("ollama/qwen3.6:latest") is None
+        assert dim_for_model_id("ollama/qwen3.8:latest") is None
         assert dim_for_model_id("totally-unknown-model") is None
         assert dim_for_model_id("") is None
         assert dim_for_model_id(None) is None
@@ -504,7 +504,7 @@ class TestLooksLikeEmbedding:
             assert looks_like_embedding(n) is True, n
 
     def test_content_names_are_not_embedding(self):
-        for n in ("qwen3.6:latest", "gemma4:31b", "ollama/llama3.3", "gpt-4o", "deepseek-r1"):
+        for n in ("qwen3.8:latest", "gemma4:31b", "ollama/llama3.3", "gpt-4o", "deepseek-r1"):
             assert looks_like_embedding(n) is False, n
 
     def test_empty_and_none(self):

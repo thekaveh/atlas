@@ -501,7 +501,7 @@ services:
       LIGHTRAG_RERANK_ADAPTER_TOKEN: ''
       LITELLM_API_KEY: ''
       LITELLM_BASE_URL: http://litellm:4000
-      LITELLM_DEFAULT_MODEL: ollama/qwen3.6:latest
+      LITELLM_DEFAULT_MODEL: ollama/qwen3.8:latest
       LITELLM_EMBEDDING_MODEL: ollama/nomic-embed-text
       MAX_UPLOAD_BYTES: '104857600'
       MEDIA_BUDGET_ALLOW_UNKNOWN_COST: 'false'
@@ -721,7 +721,7 @@ services:
       LIGHTRAG_ENDPOINT: ''
       LITELLM_API_KEY: ''
       LITELLM_BASE_URL: http://litellm:4000
-      LITELLM_DEFAULT_MODEL: ollama/qwen3.6:latest
+      LITELLM_DEFAULT_MODEL: ollama/qwen3.8:latest
       LITELLM_EMBEDDING_MODEL: ollama/nomic-embed-text
       MINIO_ENDPOINT: ''
       N8N_BASE_URL: http://n8n:5678
@@ -2051,7 +2051,7 @@ services:
       LIGHTRAG_PG_URI: ''
       LIGHTRAG_REDIS_URI: ''
       LIGHTRAG_SOURCE: disabled
-      LITELLM_DEFAULT_MODEL: ollama/qwen3.6:latest
+      LITELLM_DEFAULT_MODEL: ollama/qwen3.8:latest
       LITELLM_EMBEDDING_MODEL: ollama/nomic-embed-text
       LITELLM_MASTER_KEY: ''
     image: alpine:3.24.1
@@ -2185,7 +2185,7 @@ services:
       LLM_PROVIDER_SOURCE: ollama-container-cpu
       OLLAMA_AUTO_IMPORT_LOCAL_MODELS: 'true'
       OLLAMA_CUSTOM_MODELS: ''
-      OLLAMA_USER_MODELS: qwen3.6:latest,nomic-embed-text,qwen3-embedding:0.6b
+      OLLAMA_USER_MODELS: qwen3.8:latest,nomic-embed-text,qwen3-embedding:0.6b
       OPENAI_API_KEY: ''
       OPENAI_USER_MODELS: ''
       OPENROUTER_API_KEY: ''
@@ -2385,7 +2385,7 @@ services:
       FETCH_FULL_PAGE: 'false'
       LITELLM_API_KEY: ''
       LITELLM_BASE_URL: http://litellm:4000
-      LITELLM_DEFAULT_MODEL: ollama/qwen3.6:latest
+      LITELLM_DEFAULT_MODEL: ollama/qwen3.8:latest
       LOCAL_DEEP_RESEARCHER_FULL_PAGE_MODE: disabled
       LOCAL_DEEP_RESEARCHER_LANGGRAPH_CLI_VERSION: 0.4.31
       LOCAL_DEEP_RESEARCHER_REF: 38f769f84380f2065de76021ac7c5215f88aa39e
@@ -2773,7 +2773,7 @@ services:
       LIGHTRAG_ENDPOINT: ''
       LITELLM_API_KEY: ''
       LITELLM_BASE_URL: http://litellm:4000
-      LITELLM_DEFAULT_MODEL: ollama/qwen3.6:latest
+      LITELLM_DEFAULT_MODEL: ollama/qwen3.8:latest
       N8N_EDITOR_BASE_URL: http://n8n.localhost:63000
       N8N_ENCRYPTION_KEY: your-random-encryption-key
       N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: 'true'
@@ -2903,7 +2903,7 @@ services:
       LIGHTRAG_ENDPOINT: ''
       LITELLM_API_KEY: ''
       LITELLM_BASE_URL: http://litellm:4000
-      LITELLM_DEFAULT_MODEL: ollama/qwen3.6:latest
+      LITELLM_DEFAULT_MODEL: ollama/qwen3.8:latest
       N8N_ENCRYPTION_KEY: your-random-encryption-key
       N8N_METRICS: 'true'
       N8N_METRICS_INCLUDE_DEFAULT_METRICS: 'true'
@@ -3072,7 +3072,7 @@ services:
     environment:
       OLLAMA_CUSTOM_MODELS: ''
       OLLAMA_HOST_URL: ''
-      OLLAMA_USER_MODELS: qwen3.6:latest,nomic-embed-text,qwen3-embedding:0.6b
+      OLLAMA_USER_MODELS: qwen3.8:latest,nomic-embed-text,qwen3-embedding:0.6b
     extra_hosts:
     - host.docker.internal=
     image: alpine:3.24.1

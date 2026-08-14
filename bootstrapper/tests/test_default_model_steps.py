@@ -16,7 +16,7 @@ def _default_env() -> dict:
     """Env that mimics a fresh stack with Ollama container-cpu enabled."""
     return {
         "LLM_PROVIDER_SOURCE": "ollama-container-cpu",
-        "OLLAMA_USER_MODELS": "qwen3.6:latest,nomic-embed-text",
+        "OLLAMA_USER_MODELS": "qwen3.8:latest,nomic-embed-text",
         "LITELLM_EMBEDDING_MODEL": "ollama/nomic-embed-text",
         # Cloud disabled
         "CLOUD_OPENAI_SOURCE": "disabled",
@@ -28,7 +28,7 @@ def _default_env() -> dict:
     }
 
 
-def _ollama_selections(models: str = "qwen3.6:latest,nomic-embed-text") -> dict:
+def _ollama_selections(models: str = "qwen3.8:latest,nomic-embed-text") -> dict:
     """Simulate wizard selections with Ollama active."""
     return {
         "LLM Engine  ·  source": "ollama-container-cpu",
@@ -55,7 +55,7 @@ def test_returns_three_steps_with_correct_titles_and_kind():
         assert s.kind == "options", f"Step {s.title!r} has kind={s.kind!r}; expected 'options'"
 
 
-# ── test 2: default config — content options include qwen3.6:latest ───────────
+# ── test 2: default config — content options include qwen3.8:latest ───────────
 
 def test_content_step_default_config():
     from wizard.llm_steps import build_default_model_steps, LLM_DEFAULT_CONTENT_TITLE
@@ -65,11 +65,11 @@ def test_content_step_default_config():
     content_step = next(s for s in steps if s.title == LLM_DEFAULT_CONTENT_TITLE)
     assert content_step.options_provider is not None, "content step must have options_provider"
 
-    selections = _ollama_selections("qwen3.6:latest,nomic-embed-text")
+    selections = _ollama_selections("qwen3.8:latest,nomic-embed-text")
     opts = content_step.options_provider(selections)
     values = [o.value for o in opts]
-    assert "ollama/qwen3.6:latest" in values, (
-        f"Expected 'ollama/qwen3.6:latest' in content options, got {values}"
+    assert "ollama/qwen3.8:latest" in values, (
+        f"Expected 'ollama/qwen3.8:latest' in content options, got {values}"
     )
 
 
@@ -93,7 +93,7 @@ def test_content_step_excludes_embedding_models():
     )
     models = (
         "custom-chat:31b,custom-embed-large:latest,nomic-embed-text:latest,"
-        "qwen3.6:custom-quant,qwen3.6:latest"
+        "qwen3.8:custom-quant,qwen3.8:latest"
     )
     env = _default_env()
     env["OLLAMA_USER_MODELS"] = models
@@ -104,8 +104,8 @@ def test_content_step_excludes_embedding_models():
     content_values = [o.value for o in content.options_provider(selections)]
     assert "ollama/custom-embed-large:latest" not in content_values, content_values
     assert "ollama/nomic-embed-text:latest" not in content_values, content_values
-    assert "ollama/qwen3.6:latest" in content_values
-    assert "ollama/qwen3.6:custom-quant" in content_values
+    assert "ollama/qwen3.8:latest" in content_values
+    assert "ollama/qwen3.8:custom-quant" in content_values
     assert "ollama/custom-chat:31b" in content_values
 
     embed = next(s for s in steps if s.title == LLM_DEFAULT_EMBED_TITLE)
@@ -177,7 +177,7 @@ def test_vision_step_always_has_none_option_first():
     vision_step = next(s for s in steps if s.title == LLM_DEFAULT_VISION_TITLE)
     assert vision_step.options_provider is not None
 
-    selections = _ollama_selections("qwen3.6:latest")
+    selections = _ollama_selections("qwen3.8:latest")
     opts = vision_step.options_provider(selections)
     assert opts, "Vision step must return at least the none/skip option"
     first = opts[0]
@@ -236,7 +236,7 @@ def test_cloud_only_config_content_options():
 def test_litellm_id_ollama():
     from wizard.llm_steps import _litellm_id
     assert _litellm_id("ollama", "x") == "ollama/x"
-    assert _litellm_id("ollama", "qwen3.6:latest") == "ollama/qwen3.6:latest"
+    assert _litellm_id("ollama", "qwen3.8:latest") == "ollama/qwen3.8:latest"
 
 
 def test_litellm_id_cloud():
@@ -273,7 +273,7 @@ def test_selections_to_args_default_model_selections():
     services_info = []  # empty — no source selections, just model defaults
 
     selections = {
-        LLM_DEFAULT_CONTENT_TITLE: "ollama/qwen3.6:latest",
+        LLM_DEFAULT_CONTENT_TITLE: "ollama/qwen3.8:latest",
         LLM_DEFAULT_EMBED_TITLE: "ollama/nomic-embed-text",
         LLM_DEFAULT_VISION_TITLE: "",   # explicit skip
         "Base port  ·  range": "",
@@ -285,7 +285,7 @@ def test_selections_to_args_default_model_selections():
         selections, services_info, current_base_port=63000, env_vars={},
     )
     dms = stack_options["default_model_selections"]
-    assert dms.get("LITELLM_DEFAULT_MODEL") == "ollama/qwen3.6:latest"
+    assert dms.get("LITELLM_DEFAULT_MODEL") == "ollama/qwen3.8:latest"
     assert dms.get("LITELLM_EMBEDDING_MODEL") == "ollama/nomic-embed-text"
     # vision "" is a valid explicit skip — must be persisted
     assert "LITELLM_VISION_MODEL" in dms
@@ -457,7 +457,7 @@ def test_load_current_step_dispatches_options_provider_for_kind_options():
         def _advance_past_skipped(self, direction):
             # content_step.skip_if_prev needs at least one LLM active to NOT skip;
             # inject ollama-active selection so the step isn't bypassed.
-            self._selections = _ollama_selections("qwen3.6:latest,nomic-embed-text")
+            self._selections = _ollama_selections("qwen3.8:latest,nomic-embed-text")
 
         def _render_step(self, original, *, options=None, is_loading=False):
             self._rendered_options = options
