@@ -42,6 +42,9 @@ OLLAMA_MAX_LOADED_MODELS=2
 # KV-cache quantization — the other half of the memory budget.
 OLLAMA_KV_CACHE_TYPE=q8_0
 OLLAMA_FLASH_ATTENTION=1
+# Residency — how long a model stays loaded, and how many fit at once.
+OLLAMA_KEEP_ALIVE=
+OLLAMA_MODELS_RESIDENT_MIN=
 # Advisory floor for ollama-localhost only (#849). Empty by default.
 OLLAMA_PARALLEL_MIN=
 ```
@@ -49,6 +52,17 @@ OLLAMA_PARALLEL_MIN=
 **KV-cache quantization.** The attention KV cache is the dominant per-slot memory cost, and `OLLAMA_NUM_PARALLEL` multiplies it: eight parallel slots hold eight KV caches. `OLLAMA_KV_CACHE_TYPE=q8_0` roughly halves that for a negligible quality cost (`f16` is Ollama's own default and full precision; `q4_0` quarters it with a measurable cost). On unified-memory hosts running several resident models this is the cheapest lever available.
 
 It only takes effect when flash attention is active, which is why `OLLAMA_FLASH_ATTENTION=1` is pinned alongside rather than left to autodetection — a silently-inactive memory setting is worse than an absent one, because it reads as configured. Both apply to the `ollama container-*` sources only; for `ollama-localhost` the host daemon owns them (`launchctl setenv` on macOS), same as the parallel-serving vars.
+
+**Model churn on multi-model runs.** A pipeline that touches several models in sequence — a LightRAG ingest using separate extract, embed and keyword models is the worked example — evicts its own working set when `OLLAMA_MAX_LOADED_MODELS` is below that count. Ollama unloads one model to load the next, then reloads it moments later. There is no error: the run just crawls, and `ollama ps` shows models cycling through `Stopping…`.
+
+Two levers, and they are different things:
+
+- `OLLAMA_MAX_LOADED_MODELS` — how many models fit resident at once. Set it to the number of distinct models one run touches.
+- `OLLAMA_KEEP_ALIVE` — how long each stays after its last use. Ollama's default is 5m, so even with enough slots a slow pipeline can still evict between calls. `-1` means forever.
+
+For `ollama-localhost` Atlas cannot set either (the host daemon owns them), so declare `OLLAMA_MODELS_RESIDENT_MIN` and `./start.sh doctor` will read the daemon's actual config and warn before a long run rather than after it.
+
+**`-1` is a footgun worth stating plainly.** It pins *every* loaded model in RAM until you revert it and restart Ollama. On a large model-set that is tens of GB held indefinitely. Prefer setting it for the duration of a run and reverting after — see [reusing Atlas](../../docs/deployment/reusing-atlas.md).
 
 Note that Redis cannot help here. The attention KV cache is per-sequence tensors touched on every generated token; Redis is a network hop. What Redis caches for LLM traffic is whole *responses*, and that happens one layer up at the LiteLLM gateway — see [LiteLLM](../litellm/README.md).
 
