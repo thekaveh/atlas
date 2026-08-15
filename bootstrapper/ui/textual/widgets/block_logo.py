@@ -137,6 +137,9 @@ class BrandPanel(Container):
     TAB_LOGS = "logs"
     _TAB_LABELS = ((TAB_SETUP, "Setup"), (TAB_LOGS, "Logs"))
 
+    #: Appended to a tab label that is holding unseen errors.
+    ALERT_GLYPH = "!"
+
     def __init__(
         self,
         *,
@@ -158,6 +161,11 @@ class BrandPanel(Container):
         self._active_tab = self.TAB_SETUP
         self._tabs_enabled = False
         self._hovered_tab: str | None = None
+        # Tabs holding unseen errors. A toast announces a failure once and
+        # then evaporates; if the operator is away from the keyboard the
+        # only trace is a log line behind a hidden tab. This marker persists
+        # until the tab is actually visited (#912 item 4).
+        self._alert_tabs: set[str] = set()
         self._tab_spans: dict[str, tuple[int, int]] = {}
 
     def compose(self) -> ComposeResult:
@@ -217,12 +225,37 @@ class BrandPanel(Container):
 
         for tab_id, label in self._TAB_LABELS:
             marker = "▸" if tab_id == self._active_tab else " "
-            plain = f"[{marker} {label} ]"
+            # The alert dot is part of the PLAIN string as well as the markup,
+            # so spans and padding account for the extra column. Measuring only
+            # the markup would drift the click targets the moment a tab alerts.
+            alert = self.ALERT_GLYPH if tab_id in self._alert_tabs else ""
+            plain = f"[{marker} {label}{alert} ]"
             self._tab_spans[tab_id] = (rendered_pos, rendered_pos + len(plain))
-            markup += rf"[{self._tab_style(tab_id)}]\[{marker} {label} ][/] "
+            alert_markup = f"[{P.ERR}]{alert}[/]" if alert else ""
+            markup += (
+                rf"[{self._tab_style(tab_id)}]\[{marker} {label}[/]"
+                + alert_markup
+                + rf"[{self._tab_style(tab_id)}] ][/] "
+            )
             rendered_pos += len(plain) + 1  # + the separating space
 
         return markup, rendered_pos
+
+    def set_tab_alert(self, tab_id: str, active: bool) -> None:
+        """Mark or clear a tab as holding unseen errors.
+
+        Repaints only on a real change: the log stream can write many error
+        lines in a burst, and re-rendering the border per line would be
+        wasted work for an identical result.
+        """
+        had = tab_id in self._alert_tabs
+        if active == had:
+            return
+        self._alert_tabs.add(tab_id) if active else self._alert_tabs.discard(tab_id)
+        self._render_border()
+
+    def has_tab_alert(self, tab_id: str) -> bool:
+        return tab_id in self._alert_tabs
 
     def tab_spans(self) -> dict[str, tuple[int, int]]:
         """Half-open column ranges of each tab label, for click routing."""
