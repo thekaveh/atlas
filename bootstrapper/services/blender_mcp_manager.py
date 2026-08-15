@@ -106,28 +106,18 @@ while True:
 '''
 
 
+# #795: the preflight verdict is shared with the generic managed-host
+# framework rather than copied a fourth time. ProcessStatus stays local
+# --- each manager reports different fields (device, served models,
+# port_open), so unifying it would mean a union type nobody reads.
+try:
+    from services.managed_host import PreflightResult
+except ImportError:  # pragma: no cover - defensive loose-module fallback
+    from managed_host import PreflightResult  # type: ignore[no-redef]
+
+
 class BlenderMcpError(RuntimeError):
     """Raised for managed blender-mcp lifecycle failures."""
-
-
-@dataclass
-class PreflightResult:
-    status: str = _OK
-    checks: list[dict] = field(default_factory=list)
-
-    @property
-    def ok(self) -> bool:
-        return self.status != _FAIL
-
-    def add(self, name: str, status: str, detail: str) -> None:
-        self.checks.append({"name": name, "status": status, "detail": detail})
-        if status == _FAIL:
-            self.status = _FAIL
-        elif status == _WARN and self.status == _OK:
-            self.status = _WARN
-
-    def to_dict(self) -> dict:
-        return {"status": self.status, "checks": list(self.checks)}
 
 
 @dataclass

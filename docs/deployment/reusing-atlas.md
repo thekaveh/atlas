@@ -1188,6 +1188,78 @@ model) stays allocated until you revert and restart the daemon. Size
 > directly. This section is only for `ollama-localhost`, where the host daemon
 > is a host-owned prerequisite Atlas does not manage (#798).
 
+### 6.7. Declaring your own managed host process (`managed_host_services`)
+
+A Metal/MLX-native service cannot be handed a GPU through a Linux container on
+macOS, which is why Atlas runs ComfyUI-MPS, vLLM-Metal and the Blender MCP
+bridge as *host processes* rather than containers. If your project needs one of
+its own — an MLX segmentation service, a Metal-only inference server — declare
+it in `atlas.consumer.yml` and Atlas manages its lifecycle generically (#795).
+No fork, and no hand-rolled pid files.
+
+```yaml
+# atlas.consumer.yml
+managed_host_services:
+  - name: sam3-segment            # [a-z0-9][a-z0-9-]* — owns ~/.atlas/<name>
+    workdir: services/sam3        # must resolve INSIDE your consumer root
+    command: python -m sam3_service   # argv; never run through a shell
+    port: 8799
+    venv:
+      python: "3.13"              # bare version → the `python3.13` binary
+      metal: true                 # preflight refuses off macOS
+      requirements: services/sam3/requirements.txt
+    health:
+      path: /health               # a declared path implies an HTTP probe
+      expect_json: { status: ok }
+```
+
+**Lifecycle**, mirroring the built-in host services:
+
+```bash
+./start.sh managed-host list                    # what is declared, and its endpoint var
+./start.sh managed-host preflight sam3-segment  # read-only: bind, venv, command, port
+./start.sh managed-host install   sam3-segment  # create the venv, install deps
+./start.sh managed-host start     sam3-segment  # spawn, wait for the port to open
+./start.sh managed-host status    sam3-segment  # pid / running / port-open
+./start.sh managed-host health    sam3-segment  # run the declared probe
+./start.sh managed-host stop      sam3-segment  # SIGTERM, then SIGKILL after a grace window
+./start.sh managed-host remove    sam3-segment  # stop + delete ~/.atlas/sam3-segment
+```
+
+`./start.sh doctor` reports a `managed-host-services` row that preflights every
+declared service, and the endpoint contract gains
+`ATLAS_SAM3_SEGMENT_HOST_ENDPOINT` (see [§6.5](#65-exporting-the-endpoint-contract-endpoints-export)).
+The scheme follows the probe: an `http` probe exports `http://`, a `tcp` probe
+exports `tcp://` — a raw-socket service advertised as `http://` would hand you a
+URL no HTTP client can use.
+
+**Field reference**
+
+| Field | Required | Notes |
+|-------|----------|-------|
+| `name` | yes | `[a-z0-9][a-z0-9-]*`. Becomes `~/.atlas/<name>` and `ATLAS_<NAME>_HOST_ENDPOINT`, so two consumers cannot share one. |
+| `command` | yes | String (POSIX-split) or list. Argv — **not** a shell line. |
+| `port` | yes | 1–65535. |
+| `workdir` | no | Defaults to the manifest's directory. Must resolve inside the consumer root. |
+| `bind` | no | Defaults to `127.0.0.1`. |
+| `env` | no | Extra environment for the process. |
+| `venv` | no | `python`, `metal`, `requirements`, `packages`. A leading `python`/`python3` in `command` is rewritten to the venv interpreter. |
+| `install` | no | Extra argv steps run after dependency install. |
+| `health` | no | `kind` (`tcp`/`http`), `path`, `expect_json`, `timeout`. Defaults to a TCP port knock. |
+| `allow_remote` | no | Required to bind anything other than loopback. |
+
+> **Three deliberate constraints.** (1) A declared command is argv handed
+> straight to `subprocess` — never a shell — so a semicolon in a value is a
+> string, not a second command. (2) A non-loopback `bind` is *refused* without
+> `allow_remote: true`, because these processes are unauthenticated by
+> construction. (3) `workdir` and `venv.requirements` must resolve inside your
+> consumer root; this block declares things Atlas executes, so a path that
+> reaches outside its own tree is an error rather than a warning.
+
+> **`metal: true` does not install a Metal wheel for you.** It is a preflight
+> guard that fails fast off macOS. The torch/MLX pin belongs in your own
+> `requirements` file, where it is visible and reviewable.
+
 ---
 
 ## 7. Consumer adoption runbook (the full journey)

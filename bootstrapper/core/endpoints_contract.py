@@ -25,7 +25,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Mapping
+from typing import Any, Mapping, Sequence
 
 
 @dataclass(frozen=True)
@@ -254,6 +254,7 @@ def build_export(
     env: Mapping[str, str],
     *,
     with_secrets: bool = False,
+    host_services: "Sequence[Any] | None" = None,
 ) -> list[ExportField]:
     """Project the resolved .env into the stable endpoint contract.
 
@@ -360,7 +361,25 @@ def build_export(
             )
         )
 
+    # #795: consumer-declared managed host processes. They never appear in
+    # compose, so nothing above can find them — the specs are passed in from
+    # the consumer manifest. Sorted by name so the export stays byte-stable
+    # regardless of manifest discovery order.
+    for spec in sorted(host_services or [], key=lambda s: s.name):
+        out.append(ExportField(spec.endpoint_var, _managed_host_endpoint(spec)))
+
     return out
+
+
+def _managed_host_endpoint(spec: Any) -> str:
+    """``http://`` only when the declared probe proves HTTP.
+
+    A raw-socket service exported as ``http://`` hands a consumer a URL no
+    HTTP client can use — the mistake ``ATLAS_BLENDER_MCP_HOST_ENDPOINT``
+    above exists to avoid.
+    """
+    scheme = "http" if getattr(spec.health, "kind", "tcp") == "http" else "tcp"
+    return f"{scheme}://localhost:{spec.port}"
 
 
 def _storage_fields(
