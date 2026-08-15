@@ -2726,7 +2726,14 @@ The cleanup PR documented at the top of this section deliberately defers three c
 - **Two levers, deliberately distinguished** in the docs, because conflating them is why this bites: `OLLAMA_MAX_LOADED_MODELS` is how many models fit resident; `OLLAMA_KEEP_ALIVE` is how long each stays after last use. Ollama's 5m default evicts even when there are enough slots.
 - `reusing-atlas.md` documents host sizing for multi-model ingest, including the full set-for-the-run-then-revert `launchctl` sequence and its RAM cost. `keep_alive` is read as a duration string (`5m`, `1h`, `-1`) through its own probe rather than the int-coercing parallel reader, which would have reported it as permanently unknown.
 
-### 1.165. Added — 2026-08-15 — Consumers can declare their own managed host process (#795)
+### 1.165. Added — 2026-08-14 — The Logs tab says when it is holding an error (#912)
+
+- **A toast is the wrong medium for a failure you were not there to see.** The launch-phase error toast announces itself once and evaporates. If the operator is on the Setup tab — or away from the keyboard entirely — the only remaining trace is a log line behind a hidden tab, and the run looks fine.
+- **The Logs tab label now carries a red `!`** — `[  Logs! ]` — from the moment an error is written while the tab is hidden until the tab is actually visited. Visiting it *is* the acknowledgement, so there is no dismiss key to learn.
+- **Errors only.** Warnings were deliberately excluded: a normal launch emits enough of them that the marker would be lit from the first minute onward, which conveys exactly as much as no marker at all.
+- The glyph is measured as part of the tab's plain-text width, not painted over it, so the click targets and border padding stay correct while it is lit — a regression test asserts the `Logs` label still falls inside its own recorded span after the marker appears.
+- The Setup/Logs tabs themselves are now documented in the wizard guide (tab semantics, `1`/`2`/`Shift+Tab` navigation, per-tab shortcut bar, and this marker), which the original §1.155 split never covered.
+### 1.166. Added — 2026-08-15 — Consumers can declare their own managed host process (#795)
 
 - **Three hand-built managers were converging on one shape.** ComfyUI-MPS, vLLM-Metal and Blender-MCP each implement `preflight → install → start → status → health → stop → remove` over a `~/.atlas/<name>` state dir. A consumer that needed a fourth — an MLX segmentation service, a Metal-only inference server — had to either land a bespoke manager upstream or hand-roll a lifecycle outside Atlas.
 - **`managed_host_services:` in `atlas.consumer.yml`** declares one: name, command, port, optional venv (with an optional `metal:` guard), install steps, and a health probe. `./start.sh managed-host list|preflight|install|start|stop|status|health|remove <name>` runs the same lifecycle the built-ins get, `doctor` reports a `managed-host-services` row, and the endpoint contract gains `ATLAS_<NAME>_HOST_ENDPOINT`.

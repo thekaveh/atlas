@@ -282,3 +282,115 @@ def test_clearing_a_cloud_provider_emits_a_disabling_flag():
 
     flags = asyncio.run(scenario())
     assert (f"--cloud-{provider.key}-source", "disabled") in flags, flags
+
+
+# ─── item 4: the activity marker ─────────────────────────────────────
+
+
+def test_an_error_while_on_setup_marks_the_logs_tab():
+    """The failure toast is transient by design; an operator who stepped
+    away sees nothing afterwards. The marker persists until the tab is
+    visited."""
+    scr = _screen()
+
+    async def scenario():
+        async with _App(scr).run_test(size=(140, 44)) as pilot:
+            await pilot.pause()
+            scr._phase = "launch"
+            scr._logs_enabled = True
+            scr.show_tab(BrandPanel.TAB_SETUP)
+            await pilot.pause()
+            before = scr._brand_panel.has_tab_alert(BrandPanel.TAB_LOGS)
+            scr._write_status("boom", style="red")
+            await pilot.pause()
+            return before, scr._brand_panel.has_tab_alert(BrandPanel.TAB_LOGS)
+
+    before, after = asyncio.run(scenario())
+    assert before is False
+    assert after is True
+
+
+def test_visiting_the_logs_tab_clears_the_marker():
+    scr = _screen()
+
+    async def scenario():
+        async with _App(scr).run_test(size=(140, 44)) as pilot:
+            await pilot.pause()
+            scr._phase = "launch"
+            scr._logs_enabled = True
+            scr.show_tab(BrandPanel.TAB_SETUP)
+            scr._write_status("boom", style="red")
+            await pilot.pause()
+            lit = scr._brand_panel.has_tab_alert(BrandPanel.TAB_LOGS)
+            scr.show_tab(BrandPanel.TAB_LOGS)
+            await pilot.pause()
+            return lit, scr._brand_panel.has_tab_alert(BrandPanel.TAB_LOGS)
+
+    lit, cleared = asyncio.run(scenario())
+    assert lit is True
+    assert cleared is False
+
+
+def test_warnings_do_not_light_the_marker():
+    """Flagging warnings would leave it permanently lit on a normal launch,
+    which is the same as having no marker."""
+    scr = _screen()
+
+    async def scenario():
+        async with _App(scr).run_test(size=(140, 44)) as pilot:
+            await pilot.pause()
+            scr._phase = "launch"
+            scr._logs_enabled = True
+            scr.show_tab(BrandPanel.TAB_SETUP)
+            scr._write_status("heads up", style="yellow")
+            await pilot.pause()
+            return scr._brand_panel.has_tab_alert(BrandPanel.TAB_LOGS)
+
+    assert asyncio.run(scenario()) is False
+
+
+def test_an_error_while_already_on_logs_does_not_mark():
+    """You are looking at it — a marker would be noise."""
+    scr = _screen()
+
+    async def scenario():
+        async with _App(scr).run_test(size=(140, 44)) as pilot:
+            await pilot.pause()
+            scr._phase = "launch"
+            scr._logs_enabled = True
+            scr.show_tab(BrandPanel.TAB_LOGS)
+            scr._write_status("boom", style="red")
+            await pilot.pause()
+            return scr._brand_panel.has_tab_alert(BrandPanel.TAB_LOGS)
+
+    assert asyncio.run(scenario()) is False
+
+
+def test_the_marker_renders_on_the_border_and_keeps_spans_honest():
+    """The glyph is part of the PLAIN measurement string, so lighting it
+    must not shift the click targets it sits inside."""
+    scr = _screen()
+
+    async def scenario():
+        async with _App(scr).run_test(size=(140, 44)) as pilot:
+            await pilot.pause()
+            scr._logs_enabled = True
+            scr.show_tab(BrandPanel.TAB_SETUP)
+            await pilot.pause()
+            panel = scr._brand_panel
+            strips = list(scr.app.screen._compositor.render_strips())
+            row_before = strips[panel.region.y + panel.region.height - 1].text
+            panel.set_tab_alert(BrandPanel.TAB_LOGS, True)
+            await pilot.pause()
+            strips = list(scr.app.screen._compositor.render_strips())
+            row_after = strips[panel.region.y + panel.region.height - 1].text
+            spans = panel.tab_spans()
+            return row_before, row_after, spans
+
+    before, after, spans = asyncio.run(scenario())
+    assert BrandPanel.ALERT_GLYPH not in before
+    assert BrandPanel.ALERT_GLYPH in after, f"marker not rendered: {after!r}"
+    start, end = spans[BrandPanel.TAB_LOGS]
+    assert "Logs" in after[start:end], (
+        f"span {start}:{end} no longer covers the label: {after[start:end]!r}"
+    )
