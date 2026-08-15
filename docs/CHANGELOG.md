@@ -2743,6 +2743,12 @@ The cleanup PR documented at the top of this section deliberately defers three c
 - **The three built-ins now share the framework's `PreflightResult`** instead of carrying three near-identical copies, so the count of duplicated verdict types went from three to zero rather than to four. `ProcessStatus` stays per-manager: each reports genuinely different fields (device, served model ids, port-open), and unifying it would produce a union type nobody reads.
 - **A zombie no longer reads as running.** The generic manager reaps its own exited children before probing liveness: a process that has exited but not been waited on still answers `kill(0)`, which would make `stop()` poll its whole grace window and then report failure for a process it had just killed.
 
+### 1.167. Fixed — 2026-08-15 — `blender-mcp stop` reported failure for a process it had just killed
+
+- **A zombie still answers `kill(0)`.** A child of the current process that has exited but has not been waited on stays in the process table until reaped. `blender_mcp_manager._pid_alive` probed liveness with `os.kill(pid, 0)` alone, so after SIGTERM actually killed the bridge, `stop()` kept polling for its full 10-second grace window, escalated to SIGKILL, polled again, then returned `False` — and, per its own "a failed stop keeps the pid file" rule, left a stale pid file behind.
+- **`comfyui_mps` and `vllm_metal` were never affected**: both already reap via a `_reap_child` helper. `blender_mcp` was the one manager missing it, and it now uses the same approach rather than a third variant.
+- Surfaced while building the generic managed-host framework (§1.166), whose tests spawn a **real** process instead of mocking `Popen`. A mocked process cannot exhibit this — the bug lives precisely in the interaction between `Popen` child ownership and `os.kill(pid, 0)` — so the regression test spawns a real one too and asserts all three symptoms: the return value, the elapsed time, and the stale pid file.
+
 ## 2. [3.0.0] - 2026-05-15 (Topology-Driven Ordering & Port Layout v1)
 
 **Visual:** every service row in the setup wizard now leads with a thin category-color bar; six categories (Infra, Data, LLM Core, Media, Agents & Workflows, Apps & UIs) explained in a legend below the grid. Unanswered configurable services show a yellow ◌ placeholder ("pending") instead of guessing their port/source/alias before you've picked them.
