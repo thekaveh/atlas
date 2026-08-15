@@ -4200,6 +4200,67 @@ def _doctor_check_ollama_parallel(starter: "AtlasStarter") -> dict:
     return _doctor_result("ollama-parallel", "pass", explanation)
 
 
+def _doctor_check_ollama_residency(starter: "AtlasStarter") -> dict:
+    """Warn when a host Ollama will evict its own working set mid-run.
+
+    A multi-model ingest (extract + embed + keyword) touches several models
+    in sequence. When OLLAMA_MAX_LOADED_MODELS is below that count, Ollama
+    unloads one to load the next and reloads it moments later — the run
+    crawls with no error anywhere, which is exactly the failure a lint
+    should surface (#798).
+
+    Advisory like its parallel-serving sibling: an unreadable host config
+    reports ``skipped``, never ``fail``.
+    """
+    from services.ollama_localhost import (
+        host_keep_alive,
+        host_parallel_config,
+        residency_shortfall,
+    )
+
+    env_values = starter.config_parser.parse_env_file()
+    source = (env_values.get("LLM_PROVIDER_SOURCE", "") or "").strip()
+    if source != "ollama-localhost":
+        return _doctor_result(
+            "ollama-residency",
+            "pass",
+            f"LLM_PROVIDER_SOURCE={source or '(unset)'} — Atlas owns "
+            "OLLAMA_KEEP_ALIVE / OLLAMA_MAX_LOADED_MODELS for container sources.",
+        )
+
+    raw_min = (env_values.get("OLLAMA_MODELS_RESIDENT_MIN", "") or "").strip()
+    if not raw_min:
+        return _doctor_result(
+            "ollama-residency",
+            "pass",
+            "No OLLAMA_MODELS_RESIDENT_MIN declared — nothing to compare against.",
+        )
+    try:
+        declared_min = int(raw_min)
+    except ValueError:
+        return _doctor_result(
+            "ollama-residency",
+            "fail",
+            f"OLLAMA_MODELS_RESIDENT_MIN={raw_min!r} is not an integer.",
+        )
+    if declared_min <= 1:
+        return _doctor_result(
+            "ollama-residency",
+            "pass",
+            f"OLLAMA_MODELS_RESIDENT_MIN={declared_min} is within Ollama's default.",
+        )
+
+    observed = host_parallel_config()
+    shortfall, explanation = residency_shortfall(
+        declared_min, observed, host_keep_alive()
+    )
+    if shortfall:
+        return _doctor_result("ollama-residency", "fail", explanation)
+    if observed.get("OLLAMA_MAX_LOADED_MODELS") is None:
+        return _doctor_result("ollama-residency", "skipped", explanation)
+    return _doctor_result("ollama-residency", "pass", explanation)
+
+
 def _doctor_check_model_sidecars(starter: "AtlasStarter") -> dict:
     env_values = starter.config_parser.parse_env_file()
     raw_path = env_values.get("COMFYUI_CUSTOM_MODELS_FILE", "").strip()
@@ -5078,6 +5139,7 @@ DOCTOR_CHECKS = [
     _doctor_check_plugins,
     _doctor_check_plugin_manifests,
     _doctor_check_ollama_parallel,
+    _doctor_check_ollama_residency,
     _doctor_check_model_sidecars,
     _doctor_check_unpullable_models,
     _doctor_check_litellm_models,
