@@ -291,6 +291,43 @@ and fail CI if the pinned Atlas is far behind `main` (pin-freshness).
   declared tags onto the host daemon (#757) — both idempotent, at every start.
   Only an **unmanaged** ComfyUI `localhost` install remains hands-off; `doctor`
   names anything declared-but-missing.
+- **Host-Ollama sizing for multi-model runs (#798).** A consumer pipeline that
+  touches several models in sequence — a LightRAG ingest with separate extract,
+  embed and keyword models is the worked case — will **evict its own working
+  set** when the host daemon's `OLLAMA_MAX_LOADED_MODELS` is below that count.
+  Ollama unloads one model to load the next and reloads it moments later. There
+  is no error; the run just crawls and `ollama ps` shows models cycling through
+  `Stopping…`. Ollama's default `keep_alive` of 5m evicts on its own too, so
+  even enough slots is not sufficient for a slow pipeline.
+
+  Atlas cannot fix this for `ollama-localhost` — the host-prereq doctrine means
+  you own the daemon. Declare what you need and let `doctor` check it:
+
+  ```bash
+  OLLAMA_MODELS_RESIDENT_MIN=3      # distinct models one ingest touches
+  ```
+
+  `./start.sh doctor` then reads the daemon's real `OLLAMA_MAX_LOADED_MODELS`
+  and `OLLAMA_KEEP_ALIVE` and fails the `ollama-residency` check *before* a long
+  run rather than after it, with the `launchctl` command to fix it.
+
+  **Set-for-the-run, then revert.** The host-side fix is:
+
+  ```bash
+  launchctl setenv OLLAMA_MAX_LOADED_MODELS 4
+  launchctl setenv OLLAMA_KEEP_ALIVE -1      # forever
+  osascript -e 'quit app "Ollama"' && open -a Ollama   # restart to pick it up
+  # …run the ingest…
+  launchctl unsetenv OLLAMA_KEEP_ALIVE
+  launchctl unsetenv OLLAMA_MAX_LOADED_MODELS
+  osascript -e 'quit app "Ollama"' && open -a Ollama
+  ```
+
+  **Know the RAM cost before you set it.** `-1` pins *every* loaded model in
+  memory until you revert and restart — with a large model-set that is tens of
+  gigabytes held indefinitely, on top of whatever else the stack has resident.
+  On a unified-memory host it competes directly with ComfyUI and vLLM-Metal.
+  Treat it as a per-run setting, not a permanent one.
 - **Committed-value clobber.** A value committed in the manifest re-applies every
   start and overwrites an operator's temporary `.env` edit — keep human-tuned
   values (e.g. model lists) host-local, and commit only identity (`project_name`,

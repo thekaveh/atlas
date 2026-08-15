@@ -80,6 +80,12 @@ env:
   - name: OLLAMA_FLASH_ATTENTION
     default: "1"
     description: "Enables Ollama's flash-attention path. Current Ollama versions turn this on automatically wherever the backend and device support it; it is pinned here because OLLAMA_KV_CACHE_TYPE quantization is a NO-OP without it, and a silently-inactive memory setting is worse than an absent one. Set 0 to force it off."
+  - name: OLLAMA_KEEP_ALIVE
+    default: ""
+    description: "How long Ollama keeps a model resident after its last use (e.g. 5m, 1h, or -1 for forever). Empty uses Ollama's own default of 5m. Applies to the ollama container-* sources; for ollama-localhost the host daemon owns it. Raising this stops a multi-model ingest evicting its own working set between calls, but -1 pins EVERY loaded model in RAM until reverted and the daemon is restarted -- on a large model-set that is tens of GB (#798)."
+  - name: OLLAMA_MODELS_RESIDENT_MIN
+    default: ""
+    description: "How many models a workload needs resident at once. Advisory only, and only meaningful for ollama-localhost, where Atlas cannot own the host daemon: ./start.sh doctor compares it against the daemon's OLLAMA_MAX_LOADED_MODELS and warns when a run would evict and reload its own models between calls. Empty (default) means no expectation is declared. Set it to the number of distinct models one ingest touches -- a LightRAG run using separate extract/embed/keyword models needs 3 (#798)."
   - name: OLLAMA_PARALLEL_MIN
     default: ""
     description: "Concurrent-request floor a consumer needs from Ollama. Advisory only, and only meaningful for ollama-localhost, where Atlas cannot own the host daemon: ./start.sh doctor reads the daemon's OLLAMA_NUM_PARALLEL and warns when it is below this, with launchctl guidance. Empty (default) means no expectation is declared. Ollama's own default is 1 slot, which silently SERIALIZES a multi-agent consumer rather than failing, so an unnoticed default is what this exists to catch (#849)."
