@@ -24,11 +24,11 @@ import services.ollama_localhost as ol  # noqa: E402
 
 def test_declared_models_union_order_dedup():
     env = {
-        "OLLAMA_USER_MODELS": "qwen3.6:latest, nomic-embed-text",
-        "OLLAMA_CUSTOM_MODELS": "ornith:35b,qwen3.6:latest, ,",
+        "OLLAMA_USER_MODELS": "qwen3.8:latest, nomic-embed-text",
+        "OLLAMA_CUSTOM_MODELS": "ornith:35b,qwen3.8:latest, ,",
     }
     assert ol.declared_models(env) == [
-        "qwen3.6:latest", "nomic-embed-text", "ornith:35b",
+        "qwen3.8:latest", "nomic-embed-text", "ornith:35b",
     ]
     assert ol.declared_models({}) == []
 

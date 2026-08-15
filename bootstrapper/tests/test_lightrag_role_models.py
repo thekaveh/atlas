@@ -168,7 +168,7 @@ def test_lightrag_role_models_render_into_container_environment(tmp_path: Path):
         "LIGHTRAG_INIT_SCALE": "1",
         "LIGHTRAG_EXTRACT_LLM_MODEL": "mistral-small3.2:24b",
         "LIGHTRAG_KEYWORD_LLM_MODEL": "mistral-small3.2:24b",
-        "LIGHTRAG_QUERY_LLM_MODEL": "qwen3.6:latest",
+        "LIGHTRAG_QUERY_LLM_MODEL": "qwen3.8:latest",
         "LIGHTRAG_EXTRACT_MAX_ASYNC_LLM": "1",
         "LIGHTRAG_QUERY_LLM_TIMEOUT": "900",
         "LIGHTRAG_QUERY_ENABLE_RERANK": "false",
@@ -216,7 +216,7 @@ def test_lightrag_role_models_render_into_container_environment(tmp_path: Path):
 
     assert env["EXTRACT_LLM_MODEL"] == "mistral-small3.2:24b"
     assert env["KEYWORD_LLM_MODEL"] == "mistral-small3.2:24b"
-    assert env["QUERY_LLM_MODEL"] == "qwen3.6:latest"
+    assert env["QUERY_LLM_MODEL"] == "qwen3.8:latest"
     assert env["EXTRACT_MAX_ASYNC_LLM"] == "1"
     assert env["QUERY_LLM_TIMEOUT"] == "900"
     assert env["KEYWORD_LLM_TIMEOUT"] == ""

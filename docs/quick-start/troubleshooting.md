@@ -100,7 +100,7 @@ docker logs ${PROJECT_NAME}-ollama -f
 
 # For localhost setup, pre-download on the host:
 ollama serve &
-ollama pull qwen3.6:latest
+ollama pull qwen3.8:latest
 ollama pull qwen3-embedding:0.6b
 ```
 

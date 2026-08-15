@@ -166,7 +166,7 @@ def test_python_and_scala_spark_examples_share_runtime_contracts():
         assert "SPARK_REMOTE" in text
         assert "s3a://spark-history/" in text
     assert "LITELLM_DEFAULT_MODEL" in scala_basics_code
-    assert '"ollama/qwen3.6:latest"' not in scala_basics_code
+    assert '"ollama/qwen3.8:latest"' not in scala_basics_code
 
 
 def test_jupyterhub_allow_origin_flag_uses_env_knob():

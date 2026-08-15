@@ -46,7 +46,7 @@ def test_empty_options_step_commits_keep_sentinel():
 def test_healthy_step_with_nothing_checked_still_commits_empty_csv():
     """Explicit deselect-all on a healthy list is a real user intent."""
     panel = _multiselect_panel([
-        PromptOption(value="qwen3.6:latest", label="qwen", hint="", badges=[]),
+        PromptOption(value="qwen3.8:latest", label="qwen", hint="", badges=[]),
     ])
     opt = panel.selected_option
     assert opt is not None and opt.value == ""

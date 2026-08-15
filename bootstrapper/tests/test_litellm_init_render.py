@@ -153,14 +153,14 @@ class TestDefaultOllamaConfig:
         providers = {row.provider for row in rows}
         names = {row.name for row in rows}
         assert "ollama" in providers
-        assert "qwen3.6:latest" in names
+        assert "qwen3.8:latest" in names
         # Embedding models should also be in the default active set
         assert any("embed" in name.lower() for name in names), (
             "Expected at least one embedding model in default active set"
         )
 
     def test_qwen3_registered_with_ollama_chat_adapter(self):
-        """qwen3.6:latest (a chat model) must get the ollama_chat/ adapter,
+        """qwen3.8:latest (a chat model) must get the ollama_chat/ adapter,
         not the ollama/ adapter (which would break thinking-capable models).
         """
         mod = _load_init_module({
@@ -169,21 +169,21 @@ class TestDefaultOllamaConfig:
         rows = mod.fetch_active_models()
         model_list = mod.render_model_list(rows)
 
-        # Find the bare-name entry for qwen3.6:latest
+        # Find the bare-name entry for qwen3.8:latest
         bare_entries = [
             e for e in model_list
-            if e["model_name"] == "qwen3.6:latest"
+            if e["model_name"] == "qwen3.8:latest"
         ]
-        assert bare_entries, "Expected bare 'qwen3.6:latest' entry in model_list"
+        assert bare_entries, "Expected bare 'qwen3.8:latest' entry in model_list"
         params = bare_entries[0]["litellm_params"]
-        assert params["model"] == "ollama_chat/qwen3.6:latest", (
+        assert params["model"] == "ollama_chat/qwen3.8:latest", (
             f"Chat model must use ollama_chat/ adapter, got: {params['model']}"
         )
         assert params.get("think") is False, "Chat model must have think=False"
 
     def test_qwen3_dual_registration(self):
-        """qwen3.6:latest must appear as BOTH 'ollama/qwen3.6:latest' AND bare
-        'qwen3.6:latest' in the model_list (dual-alias registration)."""
+        """qwen3.8:latest must appear as BOTH 'ollama/qwen3.8:latest' AND bare
+        'qwen3.8:latest' in the model_list (dual-alias registration)."""
         mod = _load_init_module({
             "LLM_PROVIDER_SOURCE": "ollama-container-cpu",
         })
@@ -191,8 +191,8 @@ class TestDefaultOllamaConfig:
         model_list = mod.render_model_list(rows)
 
         names = {e["model_name"] for e in model_list}
-        assert "qwen3.6:latest" in names, "Bare name must be in model_list"
-        assert "ollama/qwen3.6:latest" in names, "Prefixed name must be in model_list"
+        assert "qwen3.8:latest" in names, "Bare name must be in model_list"
+        assert "ollama/qwen3.8:latest" in names, "Prefixed name must be in model_list"
 
     def test_embedding_model_uses_ollama_adapter(self):
         """Embedding models (names containing 'embed') must use the ``ollama/``
@@ -355,7 +355,7 @@ class TestCapabilityMetadataRendering:
 
         qwen = next(
             row for row in mod.fetch_active_models()
-            if row.name == "qwen3.6:latest"
+            if row.name == "qwen3.8:latest"
         )
         qwen_bare = next(
             entry for entry in mod.render_model_list([qwen])

@@ -47,9 +47,9 @@ def test_apply_user_model_selections_warns_without_crashing_under_nullbanner():
     # line that used to crash runs.
     selections = {
         "LITELLM_EMBEDDING_MODEL": "ollama/qwen3-embedding:0.6b",
-        "OLLAMA_USER_MODELS": "qwen3.6:latest",
+        "OLLAMA_USER_MODELS": "qwen3.8:latest",
     }
     result = AtlasStarter.apply_user_model_selections(stub, selections)
     assert result is True
     # The selections were still persisted (warning is non-blocking).
-    assert captured.get("OLLAMA_USER_MODELS") == "qwen3.6:latest"
+    assert captured.get("OLLAMA_USER_MODELS") == "qwen3.8:latest"

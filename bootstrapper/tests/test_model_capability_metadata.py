@@ -205,7 +205,7 @@ def test_schema_rejects_capabilities_contradicting_implied_section_kind(
 
 
 def test_loader_merges_duplicate_multi_role_metadata() -> None:
-    qwen = next(entry for entry in llm_catalog.ollama_entries() if entry.name == "qwen3.6:latest")
+    qwen = next(entry for entry in llm_catalog.ollama_entries() if entry.name == "qwen3.8:latest")
     assert qwen.metadata_version == 1
     assert qwen.kind == "chat"
     assert qwen.adapter == "ollama_chat"
