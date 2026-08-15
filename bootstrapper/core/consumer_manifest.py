@@ -23,6 +23,26 @@ except ImportError:  # pragma: no cover - defensive loose-module fallback
     )
 
 
+try:
+    from services.managed_host import (
+        HealthProbe,
+        HostProcessSpec,
+        ManagedHostError,
+        NAME_RE as _HOST_NAME_RE,
+        VenvSpec,
+        split_command,
+    )
+except ImportError:  # pragma: no cover - defensive loose-module fallback
+    from managed_host import (  # type: ignore[no-redef]
+        HealthProbe,
+        HostProcessSpec,
+        ManagedHostError,
+        NAME_RE as _HOST_NAME_RE,
+        VenvSpec,
+        split_command,
+    )
+
+
 class ConsumerManifestError(ValueError):
     """Raised when one or more consumer manifests are invalid."""
 
@@ -446,6 +466,7 @@ class ConsumerRecord:
     n8n_workflows: tuple[N8nWorkflow, ...] = ()
     rag_ingestion_profiles: tuple[RagIngestionProfile, ...] = ()
     lightrag_query_profiles: tuple[LightragQueryProfile, ...] = ()
+    managed_host_services: tuple[HostProcessSpec, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -478,6 +499,9 @@ class ConsumerConfig:
     # a compose overlay that bind-mounts it + points LIGHTRAG_QUERY_PROFILES_FILE.
     lightrag_query_profiles_file: GeneratedArtifact | None = None
     lightrag_query_profiles_overlay: GeneratedArtifact | None = None
+    # #795: consumer-declared managed host processes. They run on the host, not
+    # in compose, so they produce no overlay — only lifecycle + an endpoint.
+    managed_host_services: tuple[HostProcessSpec, ...] = ()
 
     @property
     def is_empty(self) -> bool:
@@ -1826,6 +1850,229 @@ def _rag_int(raw: Any, *, field_name: str, profile: str, origin: str, minimum: i
     return int(raw)
 
 
+_HOST_ALLOWED_KEYS = frozenset(
+    {"name", "command", "port", "workdir", "bind", "env", "venv", "install",
+     "health", "allow_remote"}
+)
+_HOST_VENV_KEYS = frozenset({"python", "metal", "requirements", "packages"})
+_HOST_HEALTH_KEYS = frozenset({"kind", "path", "expect_json", "timeout"})
+_HOST_HEALTH_KINDS = frozenset({"tcp", "http"})
+
+
+def _contained_path(base_dir: Path, raw_path: str, *, label: str, must_be: str) -> Path:
+    """Resolve a declared path and refuse one that escapes the consumer root.
+
+    Stricter than the sibling ``_resolve_existing_*`` helpers on purpose: a
+    managed host service declares things Atlas *executes*, so a manifest that
+    reaches outside its own tree for a working directory or a requirements
+    file is a mistake worth failing on rather than resolving quietly.
+    """
+    path = Path(str(raw_path)).expanduser()
+    if not path.is_absolute():
+        path = base_dir / path
+    path = path.resolve()
+    root = base_dir.resolve()
+    if not path.is_relative_to(root):
+        raise ConsumerManifestError(
+            f"{label} resolves outside the consumer root ({path} not under {root}); "
+            f"a managed host service may only reference paths it owns"
+        )
+    if must_be == "dir" and not path.is_dir():
+        raise ConsumerManifestError(f"{label} does not exist or is not a directory: {path}")
+    if must_be == "file" and not path.is_file():
+        raise ConsumerManifestError(f"{label} does not exist or is not a file: {path}")
+    return path
+
+
+def _parse_host_venv(raw: Any, *, name: str, base_dir: Path, origin: str) -> VenvSpec | None:
+    if raw is None:
+        return None
+    raw = _host_mapping(
+        raw, _HOST_VENV_KEYS,
+        label=f"managed_host_services[{name!r}].venv", origin=origin,
+    )
+    requirements = raw.get("requirements")
+    resolved = (
+        _contained_path(
+            base_dir, str(requirements),
+            label=f"managed_host_services[{name!r}].venv.requirements", must_be="file",
+        )
+        if requirements is not None
+        else None
+    )
+    python = str(raw.get("python") or "python3").strip()
+    # `3.13` is the natural thing to write and means the `python3.13` binary.
+    if python and python[0].isdigit():
+        python = f"python{python}"
+    return VenvSpec(
+        python=python,
+        metal=bool(raw.get("metal", False)),
+        requirements=resolved,
+        packages=tuple(str(pkg) for pkg in _as_list(raw.get("packages"))),
+    )
+
+
+def _host_mapping(raw: Any, allowed: frozenset, *, label: str, origin: str) -> Mapping[str, Any]:
+    """Shared shape guard: must be a mapping, may only use known keys."""
+    if not isinstance(raw, Mapping):
+        raise ConsumerManifestError(f"{label} must be a mapping ({origin})")
+    unknown = {str(k) for k in raw.keys()} - allowed
+    if unknown:
+        raise ConsumerManifestError(
+            f"{label} has unknown field(s) {sorted(unknown)}; "
+            f"allowed: {sorted(allowed)} ({origin})"
+        )
+    return raw
+
+
+def _host_health_kind(raw: Mapping[str, Any], *, label: str, origin: str) -> str:
+    # A declared path implies an HTTP probe; requiring both is a trap that
+    # silently degrades a real health check into a bare port knock.
+    kind = str(raw.get("kind") or ("http" if raw.get("path") else "tcp")).strip().lower()
+    if kind not in _HOST_HEALTH_KINDS:
+        raise ConsumerManifestError(
+            f"{label}.kind {kind!r} must be one of {sorted(_HOST_HEALTH_KINDS)} ({origin})"
+        )
+    return kind
+
+
+def _parse_host_health(raw: Any, *, name: str, origin: str) -> HealthProbe:
+    if raw is None:
+        return HealthProbe()
+    label = f"managed_host_services[{name!r}].health"
+    block = _host_mapping(raw, _HOST_HEALTH_KEYS, label=label, origin=origin)
+    expect = block.get("expect_json") or {}
+    if not isinstance(expect, Mapping):
+        raise ConsumerManifestError(f"{label}.expect_json must be a mapping ({origin})")
+    try:
+        timeout = float(block.get("timeout", 5.0))
+    except (TypeError, ValueError):
+        raise ConsumerManifestError(f"{label}.timeout must be a number ({origin})") from None
+    return HealthProbe(
+        kind=_host_health_kind(block, label=label, origin=origin),
+        path=str(block.get("path") or "/"),
+        expect_json=dict(expect),
+        timeout=timeout,
+    )
+
+
+def _parse_host_port(raw: Any, *, name: str, origin: str) -> int:
+    try:
+        port = int(raw)
+    except (TypeError, ValueError):
+        raise ConsumerManifestError(
+            f"managed_host_services[{name!r}].port must be an integer ({origin})"
+        ) from None
+    if not 1 <= port <= 65535:
+        raise ConsumerManifestError(
+            f"managed_host_services[{name!r}].port {port} is out of range 1-65535 ({origin})"
+        )
+    return port
+
+
+def _host_service_name(raw: Mapping[str, Any], *, origin: str, seen: set[str]) -> str:
+    name = str(raw.get("name") or "").strip()
+    if not _HOST_NAME_RE.match(name):
+        raise ConsumerManifestError(
+            f"managed_host_services name {name!r} must match [a-z0-9][a-z0-9-]* — it "
+            f"becomes a state directory and an env-var name ({origin})"
+        )
+    if name in seen:
+        raise ConsumerManifestError(
+            f"duplicate managed_host_services name {name!r} ({origin})"
+        )
+    seen.add(name)
+    return name
+
+
+def _host_workdir(raw: Mapping[str, Any], *, name: str, base_dir: Path) -> Path:
+    """Defaults to the declaring manifest's own directory."""
+    workdir = raw.get("workdir")
+    if workdir is None:
+        return base_dir.resolve()
+    return _contained_path(
+        base_dir, str(workdir),
+        label=f"managed_host_services[{name!r}].workdir", must_be="dir",
+    )
+
+
+def _parse_host_service(
+    raw: Any, *, consumer_name: str, base_dir: Path, origin: str, seen: set[str]
+) -> HostProcessSpec:
+    raw = _host_mapping(
+        raw, _HOST_ALLOWED_KEYS, label="managed_host_services entry", origin=origin
+    )
+    name = _host_service_name(raw, origin=origin, seen=seen)
+    try:
+        command = split_command(
+            raw.get("command"), origin=origin,
+            field_name=f"managed_host_services[{name!r}].command",
+        )
+        install = tuple(
+            split_command(
+                step, origin=origin,
+                field_name=f"managed_host_services[{name!r}].install[{index}]",
+            )
+            for index, step in enumerate(_as_list(raw.get("install")))
+        )
+    except ManagedHostError as exc:
+        raise ConsumerManifestError(str(exc)) from exc
+    return HostProcessSpec(
+        name=name,
+        command=command,
+        port=_parse_host_port(raw.get("port"), name=name, origin=origin),
+        workdir=_host_workdir(raw, name=name, base_dir=base_dir),
+        bind=str(raw.get("bind") or "127.0.0.1").strip(),
+        env={str(k): str(v) for k, v in (raw.get("env") or {}).items()},
+        venv=_parse_host_venv(raw.get("venv"), name=name, base_dir=base_dir, origin=origin),
+        install=install,
+        health=_parse_host_health(raw.get("health"), name=name, origin=origin),
+        allow_remote=bool(raw.get("allow_remote", False)),
+        owner=consumer_name,
+    )
+
+
+def _validate_host_service_collisions(specs: list[HostProcessSpec]) -> None:
+    """Two consumers cannot claim one host service.
+
+    The name is the state directory (``~/.atlas/<name>``) AND the endpoint
+    env var, so a collision is not a merge — it is two lifecycles writing one
+    pid file. Unlike a duplicated model alias this cannot dedupe benignly,
+    because the commands behind the same name differ.
+    """
+    by_name: dict[str, str] = {}
+    for spec in specs:
+        prior = by_name.get(spec.name)
+        if prior is not None and prior != spec.owner:
+            raise ConsumerManifestError(
+                f"managed_host_services name {spec.name!r} is declared by both "
+                f"{prior!r} and {spec.owner!r}; the name owns ~/.atlas/{spec.name} "
+                f"and {spec.endpoint_var} and cannot be shared"
+            )
+        by_name[spec.name] = spec.owner
+
+
+def _parse_managed_host_services_block(
+    data: Mapping[str, Any], consumer_name: str, base_dir: Path, manifest_path: Path
+) -> list[HostProcessSpec]:
+    """Parse + validate a manifest ``managed_host_services:`` block (#795)."""
+    raw_block = data.get("managed_host_services")
+    if not raw_block:
+        return []
+    if not isinstance(raw_block, list):
+        raise ConsumerManifestError(
+            f"managed_host_services must be a list in {manifest_path}"
+        )
+    seen: set[str] = set()
+    return [
+        _parse_host_service(
+            raw, consumer_name=consumer_name, base_dir=base_dir,
+            origin=str(manifest_path), seen=seen,
+        )
+        for raw in raw_block
+    ]
+
+
 def _parse_rag_corpus(raw: Any, *, profile: str, origin: str) -> RagCorpus:
     if not isinstance(raw, Mapping):
         raise ConsumerManifestError(
@@ -2587,6 +2834,7 @@ _CONSUMER_ALLOWED_TOP_LEVEL_KEYS = frozenset(
         "n8n_workflows",
         "rag_ingestion_profiles",
         "lightrag_query_profiles",
+        "managed_host_services",
     }
 )
 
@@ -2626,6 +2874,7 @@ def load_consumer_config(
     all_n8n: list[N8nWorkflow] = []
     all_rag: list[RagIngestionProfile] = []
     all_lightrag_profiles: list[LightragQueryProfile] = []
+    all_host_services: list[HostProcessSpec] = []
 
     for manifest_path in manifest_paths:
         data = _load_manifest(manifest_path)
@@ -2815,6 +3064,11 @@ def load_consumer_config(
             adapter_enabled=effective_adapter_enabled,
         )
         all_lightrag_profiles.extend(record_lightrag_profiles)
+
+        record_host_services = _parse_managed_host_services_block(
+            data, consumer_name, base_dir, manifest_path
+        )
+        all_host_services.extend(record_host_services)
         # Optional #411 integration (opt-in, not coupled): a profile with a
         # litellm_alias becomes a consumer-owned LiteLLM row pointing at the
         # backend's profile-aware OpenAI route. Merge those rows into the litellm
@@ -2843,6 +3097,7 @@ def load_consumer_config(
                 n8n_workflows=tuple(record_n8n),
                 rag_ingestion_profiles=tuple(record_rag),
                 lightrag_query_profiles=tuple(record_lightrag_profiles),
+                managed_host_services=tuple(record_host_services),
             )
         )
 
@@ -2924,6 +3179,9 @@ def load_consumer_config(
 
     lightrag_query_profiles_file: GeneratedArtifact | None = None
     lightrag_query_profiles_overlay: GeneratedArtifact | None = None
+    if all_host_services:
+        _validate_host_service_collisions(all_host_services)
+
     if all_lightrag_profiles:
         # Profile names are globally unique across consumers (single registry).
         _validate_lightrag_query_profiles_collisions(all_lightrag_profiles)
@@ -2954,6 +3212,7 @@ def load_consumer_config(
         rag_ingestion_file=rag_ingestion_file,
         rag_ingestion_overlay=rag_ingestion_overlay,
         lightrag_query_profiles=tuple(all_lightrag_profiles),
+        managed_host_services=tuple(all_host_services),
         lightrag_query_profiles_file=lightrag_query_profiles_file,
         lightrag_query_profiles_overlay=lightrag_query_profiles_overlay,
     )
