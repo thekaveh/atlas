@@ -5129,6 +5129,46 @@ def _doctor_check_blender_mcp(starter: "AtlasStarter") -> dict:
     return _doctor_result("blender-mcp", status, summary, details=result.to_dict())
 
 
+def _doctor_check_managed_host_services(starter: "AtlasStarter") -> dict:
+    """Preflight every consumer-declared managed host process (#795).
+
+    Aggregated into one row rather than one row per service: the count is
+    consumer-controlled, and a doctor report that grows unboundedly with a
+    consumer's manifest stops being scannable.
+    """
+    try:
+        config = starter.config_parser.load_consumer_config()
+        specs = list(getattr(config, "managed_host_services", ()))
+    except Exception as exc:  # pragma: no cover - defensive
+        return _doctor_result(
+            "managed-host-services", "skipped", f"Could not load consumer manifests: {exc}"
+        )
+    if not specs:
+        return _doctor_result(
+            "managed-host-services", "pass", "No managed_host_services declared."
+        )
+    from services.managed_host import manager_for
+
+    env = starter.config_parser.parse_env_file()
+    rows, worst = [], "pass"
+    rank = {"pass": 0, "warn": 1, "fail": 2}
+    for spec in sorted(specs, key=lambda item: item.name):
+        try:
+            result = manager_for(spec, env).preflight()
+        except Exception as exc:  # pragma: no cover - defensive
+            rows.append({"name": spec.name, "status": "skipped", "detail": str(exc)})
+            continue
+        mapped = {"ok": "pass", "warn": "warn", "fail": "fail"}.get(result.status, "warn")
+        if rank[mapped] > rank[worst]:
+            worst = mapped
+        rows.append({"name": spec.name, "status": mapped, **result.to_dict()})
+    summary = "; ".join(f"{row['name']}: {row['status']}" for row in rows)
+    return _doctor_result(
+        "managed-host-services", worst,
+        f"{len(specs)} declared — {summary}", details={"services": rows},
+    )
+
+
 DOCTOR_CHECKS = [
     _doctor_check_consumer_manifests,
     _doctor_check_base_port,
@@ -5150,6 +5190,7 @@ DOCTOR_CHECKS = [
     _doctor_check_comfyui_mps,
     _doctor_check_vllm_metal,
     _doctor_check_blender_mcp,
+    _doctor_check_managed_host_services,
     _doctor_check_endpoints,
     _doctor_check_submodule_clean,
 ]
@@ -6374,7 +6415,12 @@ def endpoints_export_command(
 
     starter = AtlasStarter()
     env = starter.config_parser.parse_env_file()
-    fields = build_export(env, with_secrets=with_secrets)
+    consumer_config = starter.config_parser.load_consumer_config()
+    fields = build_export(
+        env,
+        with_secrets=with_secrets,
+        host_services=getattr(consumer_config, "managed_host_services", ()),
+    )
     text = render_json(fields) if output_format.lower() == "json" else render_env(fields)
 
     if output_path:
@@ -6420,7 +6466,21 @@ def endpoints_assert_command(required: str | None, output_format: str) -> None:
         env = starter.config_parser.parse_env_file()
     except Exception:  # pragma: no cover - defensive (no .env yet)
         env = {}
-    available = sorted({f.name for f in build_export(env, with_secrets=False)})
+    try:
+        host_services = starter.config_parser.load_consumer_config().managed_host_services
+    except Exception:  # pragma: no cover - defensive (no/!invalid consumer manifest)
+        # `endpoints assert` exists to tell a consumer which fields it can rely
+        # on. A manifest problem must not blank that answer for every OTHER
+        # field, so a failed load degrades to "no declared host services".
+        host_services = ()
+    available = sorted({
+        f.name
+        for f in build_export(
+            env,
+            with_secrets=False,
+            host_services=host_services,
+        )
+    })
 
     if required:
         want = [f for f in required.replace(",", " ").split() if f]
@@ -6792,6 +6852,122 @@ def vllm_metal_health_command() -> None:
 def vllm_metal_remove_command() -> None:
     """Stop the process and delete the Atlas-owned state directory."""
     manager = _vllm_metal_manager()
+    manager.remove()
+    click.echo(f"Removed {manager.state_dir}.")
+
+
+# ── consumer-declared managed host processes (#795) ──────────────────────────
+@main.group("managed-host")
+def managed_host_group() -> None:
+    """Manage a consumer-declared managed host process (#795).
+
+    A Metal/MLX-native service cannot be handed a GPU through a Linux
+    container on macOS, so it runs on the host. Declare one under
+    `managed_host_services:` in atlas.consumer.yml and this group gives it
+    the same lifecycle the built-in host services get. Loopback-bound unless
+    the declaration opts in with allow_remote."""
+
+
+def _managed_host_specs() -> dict:
+    starter = AtlasStarter()
+    config = starter.config_parser.load_consumer_config()
+    return {spec.name: spec for spec in getattr(config, "managed_host_services", ())}
+
+
+def _managed_host_manager(name: str):
+    from services.managed_host import manager_for
+
+    specs = _managed_host_specs()
+    spec = specs.get(name)
+    if spec is None:
+        known = ", ".join(sorted(specs)) or "(none declared)"
+        click.echo(
+            f"No managed host service named {name!r}. Declared: {known}", err=True
+        )
+        raise click.exceptions.Exit(2)
+    starter = AtlasStarter()
+    return manager_for(spec, starter.config_parser.parse_env_file())
+
+
+@managed_host_group.command("list")
+def managed_host_list_command() -> None:
+    """List the declared managed host services and their endpoints."""
+    specs = _managed_host_specs()
+    if not specs:
+        click.echo("No managed_host_services declared in any consumer manifest.")
+        return
+    rows = [
+        {
+            "name": spec.name,
+            "owner": spec.owner,
+            "port": spec.port,
+            "endpoint_var": spec.endpoint_var,
+        }
+        for spec in sorted(specs.values(), key=lambda s: s.name)
+    ]
+    click.echo(json.dumps(rows, indent=2))
+
+
+@managed_host_group.command("preflight")
+@click.argument("name")
+def managed_host_preflight_command(name: str) -> None:
+    """Read-only host probe (bind policy, venv, command, port)."""
+    result = _managed_host_manager(name).preflight()
+    click.echo(json.dumps(result.to_dict(), indent=2))
+    if not result.ok:
+        raise click.exceptions.Exit(1)
+
+
+@managed_host_group.command("install")
+@click.argument("name")
+@click.option("--update", is_flag=True, help="Recreate the venv and reinstall deps.")
+def managed_host_install_command(name: str, update: bool) -> None:
+    """Create the declared venv (if any), install deps, run install steps."""
+    manager = _managed_host_manager(name)
+    manager.install(update=update)
+    click.echo(f"Installed {name} into {manager.state_dir}.")
+
+
+@managed_host_group.command("start")
+@click.argument("name")
+def managed_host_start_command(name: str) -> None:
+    """Start the declared process and wait for its port to open."""
+    manager = _managed_host_manager(name)
+    status = manager.start()
+    click.echo(json.dumps(status.to_dict(), indent=2))
+
+
+@managed_host_group.command("stop")
+@click.argument("name")
+def managed_host_stop_command(name: str) -> None:
+    """Stop the managed process (SIGTERM, then SIGKILL after a grace window)."""
+    manager = _managed_host_manager(name)
+    click.echo("Stopped." if manager.stop() else "Could not stop the process.")
+
+
+@managed_host_group.command("status")
+@click.argument("name")
+def managed_host_status_command(name: str) -> None:
+    """Report pid / running / port-open for the managed process."""
+    click.echo(json.dumps(_managed_host_manager(name).status().to_dict(), indent=2))
+
+
+@managed_host_group.command("health")
+@click.argument("name")
+def managed_host_health_command(name: str) -> None:
+    """Run the declared health probe (tcp port knock, or http + expect_json)."""
+    health = _managed_host_manager(name).health()
+    click.echo(json.dumps(health, indent=2))
+    if not health.get("reachable") or not health.get("matched", True):
+        raise click.exceptions.Exit(1)
+
+
+@managed_host_group.command("remove")
+@click.argument("name")
+@click.confirmation_option(prompt="Stop the process and delete the managed state directory?")
+def managed_host_remove_command(name: str) -> None:
+    """Stop the process and delete the Atlas-owned state directory."""
+    manager = _managed_host_manager(name)
     manager.remove()
     click.echo(f"Removed {manager.state_dir}.")
 
