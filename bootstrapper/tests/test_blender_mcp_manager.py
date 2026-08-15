@@ -363,3 +363,39 @@ def test_endpoint_exported_for_managed_source():
     assert d["ATLAS_BLENDER_MCP_HOST_ENDPOINT"] == "tcp://localhost:9876"
     d = {f.name: f.value for f in build_export({"BLENDER_MCP_SOURCE": "disabled"})}
     assert "ATLAS_BLENDER_MCP_HOST_ENDPOINT" not in d
+
+
+def test_stop_reaps_its_own_child_instead_of_polling_a_zombie(tmp_path):
+    """A child of this process that has exited but not been waited on is a
+    zombie, and a zombie still answers kill(0). Without the reap, stop()
+    burned its full 10s grace window and then returned False for a process
+    it had just killed, leaving a stale pid file behind (#795 follow-up).
+
+    Spawns a real child on purpose: the bug lives in the interaction between
+    Popen ownership and os.kill(pid, 0), which a mocked process cannot show.
+    """
+    import subprocess
+    import sys
+    import time
+
+    manager = BlenderMcpManager(state_dir=tmp_path, port=59997)
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    child = subprocess.Popen(  # noqa: S603 - fixed argv, test-local
+        [sys.executable, "-c", "import time; time.sleep(300)"],
+        start_new_session=True,
+    )
+    manager.pid_file.write_text(str(child.pid), encoding="utf-8")
+    try:
+        assert manager.status().running is True
+        started = time.monotonic()
+        stopped = manager.stop()
+        elapsed = time.monotonic() - started
+
+        assert stopped is True, "stop() reported failure for a process it killed"
+        assert manager.pid_file.exists() is False, "stale pid file left behind"
+        assert elapsed < 5.0, f"stop() polled a zombie for {elapsed:.1f}s"
+    finally:
+        try:
+            child.kill()
+        except OSError:
+            pass

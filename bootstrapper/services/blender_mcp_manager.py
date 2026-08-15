@@ -406,7 +406,24 @@ class BlenderMcpManager:
             return None
 
     @staticmethod
+    def _reap_child(pid: int) -> None:
+        """Reap an exited child so it stops answering ``kill(0)``.
+
+        Mirrors the identically-named helper in comfyui_mps_manager and
+        vllm_metal_manager, which blender-mcp was missing.
+        """
+        try:
+            os.waitpid(pid, os.WNOHANG)
+        except (ChildProcessError, OSError):
+            pass  # not our child — the signal probe below is the answer
+
+    @staticmethod
     def _pid_alive(pid: int) -> bool:
+        # A child of THIS process that has exited but not been waited on is a
+        # zombie, and a zombie still answers kill(0). Without the reap, stop()
+        # polls its full 10s grace window and then reports failure for a
+        # process it just killed — leaving a stale pid file behind.
+        BlenderMcpManager._reap_child(pid)
         try:
             os.kill(pid, 0)
         except ProcessLookupError:
