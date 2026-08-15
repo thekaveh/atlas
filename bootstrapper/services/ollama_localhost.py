@@ -259,3 +259,83 @@ def parallel_shortfall(
         f"{declared_min} && osascript -e 'quit app \"Ollama\"' "
         "then relaunch Ollama."
     )
+
+
+# ─── host residency configuration (#798) ─────────────────────────────
+#
+# Separate from the parallel probe above because ``OLLAMA_KEEP_ALIVE`` is a
+# DURATION STRING ("5m", "1h", "-1" for forever), not an int — feeding it
+# through the int-coercing reader would silently report it as unknown.
+
+_KEEP_ALIVE_VAR = "OLLAMA_KEEP_ALIVE"
+
+
+def host_keep_alive(*, runner=None, platform_name: str | None = None) -> str | None:
+    """Best-effort read of the host daemon's ``OLLAMA_KEEP_ALIVE``.
+
+    Returns the raw string (e.g. ``"5m"``, ``"-1"``) or None when it cannot
+    be determined. Same macOS-only scoping and same unknown-never-warns rule
+    as :func:`host_parallel_config`; see its docstring for why.
+    """
+    import platform as _platform
+    import subprocess
+
+    system = platform_name if platform_name is not None else _platform.system()
+    if system != "Darwin":
+        return None
+
+    def _default_runner(args: list[str]) -> str | None:
+        try:
+            proc = subprocess.run(
+                args, capture_output=True, text=True, timeout=5, check=False
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None
+        return proc.stdout if proc.returncode == 0 else None
+
+    raw = (runner or _default_runner)(["launchctl", "getenv", _KEEP_ALIVE_VAR])
+    if raw is None:
+        return None
+    value = raw.strip()
+    return value or None
+
+
+def residency_shortfall(
+    declared_min: int, observed: dict[str, int | None], keep_alive: str | None
+) -> tuple[bool, str]:
+    """Compare a declared resident-model floor against the host's config.
+
+    A multi-model ingest (extract + embed + keyword, often different models)
+    evicts its own working set when ``OLLAMA_MAX_LOADED_MODELS`` is below the
+    number of models the run touches: Ollama unloads one to load the next and
+    reloads it moments later. The symptom is reload thrash, not an error —
+    the run just crawls, which is why it needs a check rather than a log line.
+
+    Unknown observations never report a shortfall, for the same reason as
+    :func:`parallel_shortfall`: warning about a value we failed to read
+    trains people to ignore the check.
+    """
+    max_loaded = observed.get("OLLAMA_MAX_LOADED_MODELS")
+    if max_loaded is None:
+        return False, (
+            "could not read the host daemon's OLLAMA_MAX_LOADED_MODELS "
+            "(only macOS launchctl is supported); skipping the comparison"
+        )
+    if max_loaded >= declared_min:
+        detail = (
+            f"host OLLAMA_MAX_LOADED_MODELS={max_loaded} meets the declared "
+            f"minimum of {declared_min}"
+        )
+        # keep_alive only matters once residency is otherwise sufficient:
+        # enough slots but a short TTL still evicts between calls.
+        if keep_alive is None:
+            return False, detail + "; OLLAMA_KEEP_ALIVE not set (Ollama default is 5m)"
+        return False, detail + f"; OLLAMA_KEEP_ALIVE={keep_alive}"
+    return True, (
+        f"host OLLAMA_MAX_LOADED_MODELS={max_loaded} is below the declared "
+        f"minimum of {declared_min}; a run touching {declared_min} models will "
+        "evict and reload between calls. Fix with: launchctl setenv "
+        f"OLLAMA_MAX_LOADED_MODELS {declared_min} (and consider "
+        "OLLAMA_KEEP_ALIVE=-1 for the duration of the run), then restart "
+        "Ollama. Note -1 pins every loaded model in RAM until reverted."
+    )

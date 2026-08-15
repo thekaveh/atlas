@@ -25,6 +25,11 @@ services:
       OLLAMA_KV_CACHE_TYPE: ${OLLAMA_KV_CACHE_TYPE:-q8_0}
       OLLAMA_NUM_PARALLEL: ${OLLAMA_NUM_PARALLEL:-8}
       OLLAMA_MAX_LOADED_MODELS: ${OLLAMA_MAX_LOADED_MODELS:-2}
+      # Residency TTL (#798). Empty = Ollama's own 5m default, which evicts a
+      # multi-model ingest's working set between calls. Deliberately NOT
+      # defaulted to -1: that pins every loaded model in RAM until reverted,
+      # which on a large model-set is tens of GB. Operator opt-in.
+      OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:-}
     deploy:
       replicas: ${OLLAMA_SCALE:-1}
     logging:
