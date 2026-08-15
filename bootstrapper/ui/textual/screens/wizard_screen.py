@@ -872,6 +872,10 @@ class WizardScreen(Screen):
         self.query_one("#tab-logs").display = tab_id == BrandPanel.TAB_LOGS
         self._brand_panel.set_tabs(tab_id, enabled=self._logs_enabled)
         if tab_id == BrandPanel.TAB_LOGS:
+            # Visiting the tab IS the acknowledgement — the marker exists to
+            # say "errors arrived while you were elsewhere", so reaching here
+            # makes it stale by definition.
+            self._brand_panel.set_tab_alert(BrandPanel.TAB_LOGS, False)
             # RichLog bakes each line's wrap width in at write()-time from
             # its region, which collapses to 0 while hidden — a line
             # written during a hidden window can be baked at the wrong
@@ -1999,6 +2003,23 @@ class WizardScreen(Screen):
         ):
             self._log_chips.toggle_source_picker()
 
+    def _flag_logs_alert(self, level: str) -> None:
+        """Mark the Logs tab when an error lands while it is hidden.
+
+        The failure toast is transient by design; an operator who stepped
+        away sees nothing afterwards. This persists until the tab is
+        visited (#912 item 4). Only errors qualify — flagging warnings
+        would leave the marker permanently lit on a normal launch, which
+        is the same as no marker at all.
+        """
+        if level != "error":
+            return
+        if not self._logs_enabled:
+            return
+        if self._active_tab == BrandPanel.TAB_LOGS:
+            return
+        self._brand_panel.set_tab_alert(BrandPanel.TAB_LOGS, True)
+
     def _retire_wizard_widgets(self) -> None:
         """Hide the prompt and command summary once the launch begins.
 
@@ -2201,6 +2222,7 @@ class WizardScreen(Screen):
         elif "dim" in style: level = "dim"
         self._log_pane.write_styled(text, level=level, source=source)
         self._tee_to_log(msg, source=source, level=level)
+        self._flag_logs_alert(level)
 
     def _safe_log(self, msg: str, *, source: str = "pipeline", level: str = "info") -> None:
         """Write a log line to the pane + tee file, from any thread.

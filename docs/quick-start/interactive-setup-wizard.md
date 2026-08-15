@@ -275,8 +275,12 @@ You confirm to launch (the **Launch the stack with this configuration?** step is
 
 After confirmation, the wizard transitions in-place from prompts to the launch phase:
 
-- The brand panel and pre-launch summary stay **pinned** at the top — they never move while logs flow.
-- Below them, a bordered **Logs** pane streams `docker compose` build / up / port-verify / `logs -f` output, line-by-line.
+- The brand panel stays **pinned** at the top — it never moves while logs flow.
+- The screen splits into two **tabs**, rendered on the brand panel's bottom border as `[▸ Setup ] [  Logs ]`. **Setup** holds the stack overview, the step prompts, and the command summary; **Logs** holds the filter chips and the log pane. The stack overview had grown tall enough that the log pane was down to a few visible lines — the tabs give each surface the full height instead of splitting it.
+- Switch with **`1`** / **`2`**, cycle with **`Shift+Tab`**, or click a tab directly (the labels are mouse targets and highlight on hover). The **Logs** tab only becomes reachable once the launch phase begins; before that it renders dimmed and its keys do nothing.
+- The bottom shortcuts bar re-renders per tab, so it advertises the keys that apply to what you're looking at rather than the union of both.
+- **Unseen-error marker:** if an error is logged while you're on the Setup tab, the Logs label picks up a red `!` — `[  Logs! ]`. The failure toast is transient; the marker is not. It clears the moment you visit the tab. Warnings never raise it (a normal launch emits enough of them that the marker would be permanently lit, which is the same as having no marker).
+- The **Logs** pane streams `docker compose` build / up / port-verify / `logs -f` output, line-by-line.
 - Per-service container names (e.g. `atlas-supabase-db`, `atlas-ollama-pull`) are **color-coded** based on `bootstrapper/ui/textual/palette.py::SOURCE_COLORS`. Unknown service names get a stable hue from a small md5-based palette so every service in the stack remains visually distinguishable.
 - The full launch-phase output is also tee'd to an owner-only `/tmp/atlas-launch-<timestamp>-<unique>.log` for post-mortem inspection. See [Troubleshooting](troubleshooting.md#2-session-log).
 - Press `Ctrl+Q` to detach cleanly from the wizard UI. `Ctrl+C` sends SIGINT — fine after services are up (already-detached compose containers keep running) but during the launch pipeline it may interrupt a compose step mid-flight, leaving the stack in a partial state. Either way, services that have finished starting keep running; resume log streaming with `docker compose logs -f <service>`.
@@ -289,6 +293,8 @@ After confirmation, the wizard transitions in-place from prompts to the launch p
 | `Space` | Toggle a row in a multiselect |
 | `Enter` | Confirm the current selection |
 | `Esc` | Return to the previous step (and from the first step, exit) |
+| `1` / `2` | Jump to the Setup / Logs tab (Logs only after launch begins) |
+| `Shift+Tab` | Cycle to the previous tab |
 | `Ctrl+Q` | Quit the wizard |
 
 ## 11. Progress Tracking
