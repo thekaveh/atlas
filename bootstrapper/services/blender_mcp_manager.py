@@ -312,6 +312,13 @@ class BlenderMcpManager:
         if pid is None or not self._pid_alive(pid):
             self.pid_file.unlink(missing_ok=True)
             return True
+        # PID-reuse guard, mirroring comfyui_mps_manager and vllm_metal_manager:
+        # a crashed bridge's pid can be recycled by the OS onto an unrelated
+        # process, and the pid file outlives the crash. Signalling blind would
+        # SIGTERM (then SIGKILL) a stranger. Drop the stale pid instead.
+        if self._pid_is_stranger(pid):
+            self.pid_file.unlink(missing_ok=True)
+            return True
         try:
             os.killpg(pid, signal.SIGTERM)
         except (ProcessLookupError, PermissionError, OSError):
@@ -404,6 +411,33 @@ class BlenderMcpManager:
             return int(self.pid_file.read_text(encoding="utf-8").strip())
         except (OSError, ValueError):
             return None
+
+    def _pid_is_stranger(self, pid: int) -> bool:
+        """Best-effort: True only when we can PROVE ``pid`` is NOT our bridge.
+
+        Reads the process command line via ``ps``. If it clearly belongs to
+        some other program (no Blender binary, launcher or state dir in the
+        argv) we refuse to signal it. When ``ps`` is unavailable or the output
+        is ambiguous we return False (proceed) — never block teardown on an
+        unknowable probe.
+        """
+        try:
+            out = subprocess.run(
+                # -ww: unlimited output width. Linux procps truncates to the
+                # terminal width (80 when there is no tty, i.e. in CI and under
+                # any daemon), which silently cuts long path markers off the end
+                # and makes our OWN process read as a stranger — so stop() would
+                # refuse to stop it. macOS ps accepts -ww as a no-op here.
+                ["ps", "-ww", "-p", str(pid), "-o", "command="],
+                capture_output=True, text=True, timeout=5, check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return False  # can't tell — proceed
+        cmdline = (out.stdout or "").strip()
+        if out.returncode != 0 or not cmdline:
+            return False  # can't tell — proceed
+        markers = ("blender", "Blender", str(self.launcher_path), str(self.state_dir))
+        return not any(marker in cmdline for marker in markers)
 
     @staticmethod
     def _reap_child(pid: int) -> None:
