@@ -380,12 +380,18 @@ def test_stop_reaps_its_own_child_instead_of_polling_a_zombie(tmp_path):
 
     manager = BlenderMcpManager(state_dir=tmp_path, port=59997)
     tmp_path.mkdir(parents=True, exist_ok=True)
+    # The argv carries the state dir so the PID-reuse guard recognises this
+    # child as OURS. Without that the guard short-circuits stop() and this
+    # test would pass without ever exercising the reap it exists to cover.
     child = subprocess.Popen(  # noqa: S603 - fixed argv, test-local
-        [sys.executable, "-c", "import time; time.sleep(300)"],
+        [sys.executable, "-c", f"import time; time.sleep(300)  # {tmp_path}"],
         start_new_session=True,
     )
     manager.pid_file.write_text(str(child.pid), encoding="utf-8")
     try:
+        assert manager._pid_is_stranger(child.pid) is False, (
+            "test setup: the child must read as ours, or the guard short-circuits"
+        )
         assert manager.status().running is True
         started = time.monotonic()
         stopped = manager.stop()
@@ -399,3 +405,106 @@ def test_stop_reaps_its_own_child_instead_of_polling_a_zombie(tmp_path):
             child.kill()
         except OSError:
             pass
+
+
+# ── PID-reuse guard (#795 follow-up) ─────────────────────────────────
+
+
+def test_stop_refuses_to_signal_a_recycled_pid_owned_by_a_stranger(tmp_path):
+    """A crashed bridge's pid can be recycled by the OS onto an unrelated
+    process while the pid file outlives the crash. Signalling blind would
+    SIGTERM (then SIGKILL) a stranger — someone else's editor or build.
+
+    Spawns a real long-lived process that is plainly NOT Blender, points the
+    pid file at it, and asserts stop() leaves it alone.
+    """
+    import subprocess
+    import sys
+
+    manager = BlenderMcpManager(state_dir=tmp_path, port=59996)
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    stranger = subprocess.Popen(  # noqa: S603 - fixed argv, test-local
+        [sys.executable, "-c", "import time; time.sleep(300)"],
+        start_new_session=True,
+    )
+    manager.pid_file.write_text(str(stranger.pid), encoding="utf-8")
+    try:
+        assert manager.stop() is True, "a stale pid should resolve, not fail"
+        assert stranger.poll() is None, "stop() killed an unrelated process"
+        assert manager.pid_file.exists() is False, "the stale pid should be dropped"
+    finally:
+        stranger.kill()
+        stranger.wait()
+
+
+def test_an_ambiguous_ps_probe_does_not_block_teardown(tmp_path, monkeypatch):
+    """Never block teardown on an unknowable probe: when `ps` is unavailable
+    or says nothing, proceed rather than refuse to stop our own process."""
+    manager = BlenderMcpManager(state_dir=tmp_path, port=59995)
+
+    def _boom(*_args, **_kwargs):
+        raise OSError("ps unavailable")
+
+    monkeypatch.setattr("services.blender_mcp_manager.subprocess.run", _boom)
+    assert manager._pid_is_stranger(4242) is False
+
+
+def test_a_blender_command_line_is_recognised_as_ours(tmp_path, monkeypatch):
+    manager = BlenderMcpManager(state_dir=tmp_path, port=59994)
+
+    class _Out:
+        returncode = 0
+        stdout = f"/Applications/Blender.app/Contents/MacOS/Blender --background --python {manager.launcher_path}"
+
+    monkeypatch.setattr(
+        "services.blender_mcp_manager.subprocess.run", lambda *a, **k: _Out()
+    )
+    assert manager._pid_is_stranger(4242) is False
+
+
+def test_the_ps_probe_asks_for_unlimited_width(tmp_path, monkeypatch):
+    """Linux procps truncates `ps` output to the terminal width — 80 columns
+    when there is no tty, which is every CI job and every daemon. A managed
+    bridge's real command line (binary + --python + launcher path) runs well
+    past that, so without -ww the path markers are cut off the end and our OWN
+    process reads as a stranger: stop() would then refuse to stop it. macOS ps
+    does not truncate, which is exactly why this passed locally and failed on
+    the Linux runner.
+    """
+    manager = BlenderMcpManager(state_dir=tmp_path, port=59993)
+    seen = {}
+
+    class _Out:
+        returncode = 0
+        stdout = "blender --background"
+
+    def _capture(argv, **_kwargs):
+        seen["argv"] = argv
+        return _Out()
+
+    monkeypatch.setattr("services.blender_mcp_manager.subprocess.run", _capture)
+    manager._pid_is_stranger(4242)
+    assert "-ww" in seen["argv"], (
+        f"the ps probe must request unlimited width, got {seen['argv']}"
+    )
+
+
+def test_a_long_command_line_still_resolves_as_ours(tmp_path):
+    """End-to-end version of the above: a real child whose marker sits far
+    past column 80 must still be recognised."""
+    import subprocess
+    import sys
+
+    manager = BlenderMcpManager(state_dir=tmp_path, port=59992)
+    padding = "x" * 200
+    child = subprocess.Popen(  # noqa: S603 - fixed argv, test-local
+        [sys.executable, "-c", f"import time; time.sleep(300)  # {padding} {tmp_path}"],
+        start_new_session=True,
+    )
+    try:
+        assert manager._pid_is_stranger(child.pid) is False, (
+            "a marker beyond column 80 was truncated away by ps"
+        )
+    finally:
+        child.kill()
+        child.wait()

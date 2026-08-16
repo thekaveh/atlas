@@ -224,6 +224,29 @@ jobs:
       - name: Docs-drift structural audit
         run: uv run --project bootstrapper python scripts/check-docs-drift.py
 
+      - name: Cache MkDocs privacy-plugin external assets
+        # `make docs-check` runs `mkdocs build --strict`, and the Material
+        # `privacy` plugin self-hosts external assets by DOWNLOADING them at
+        # build time (~20 files: Google Fonts + unpkg mermaid). `.cache` is
+        # gitignored, so without this the job refetched all of them on every
+        # run and a single transient failure became a hard `--strict` error --
+        # which is exactly how #934 and #941 failed on diffs that touched no
+        # external URL. Restoring the cache means the steady state performs no
+        # third-party fetches at all. Keyed on the files that decide WHICH
+        # assets are needed, so a font/theme change re-primes it.
+        uses: actions/cache@v4
+        with:
+          path: .cache
+          # Hash TRACKED sources that decide which assets get fetched:
+          # build_docs.py declares the theme fonts (and generates mkdocs.yml,
+          # which is itself untracked and absent at this point in the job), and
+          # the stylesheets can pull further external faces. Hashing the
+          # generated mkdocs.yml instead silently yields an EMPTY hash and a
+          # constant key that never re-primes.
+          key: mkdocs-privacy-${{ hashFiles('scripts/docs/build_docs.py', 'docs/assets/stylesheets/**') }}
+          restore-keys: |
+            mkdocs-privacy-
+
       - name: Three-surface docs contracts + strict build
         run: make docs-check
 
