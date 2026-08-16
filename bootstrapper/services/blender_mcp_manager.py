@@ -423,7 +423,12 @@ class BlenderMcpManager:
         """
         try:
             out = subprocess.run(
-                ["ps", "-p", str(pid), "-o", "command="],
+                # -ww: unlimited output width. Linux procps truncates to the
+                # terminal width (80 when there is no tty, i.e. in CI and under
+                # any daemon), which silently cuts long path markers off the end
+                # and makes our OWN process read as a stranger — so stop() would
+                # refuse to stop it. macOS ps accepts -ww as a no-op here.
+                ["ps", "-ww", "-p", str(pid), "-o", "command="],
                 capture_output=True, text=True, timeout=5, check=False,
             )
         except (OSError, subprocess.SubprocessError):

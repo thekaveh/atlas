@@ -460,3 +460,51 @@ def test_a_blender_command_line_is_recognised_as_ours(tmp_path, monkeypatch):
         "services.blender_mcp_manager.subprocess.run", lambda *a, **k: _Out()
     )
     assert manager._pid_is_stranger(4242) is False
+
+
+def test_the_ps_probe_asks_for_unlimited_width(tmp_path, monkeypatch):
+    """Linux procps truncates `ps` output to the terminal width — 80 columns
+    when there is no tty, which is every CI job and every daemon. A managed
+    bridge's real command line (binary + --python + launcher path) runs well
+    past that, so without -ww the path markers are cut off the end and our OWN
+    process reads as a stranger: stop() would then refuse to stop it. macOS ps
+    does not truncate, which is exactly why this passed locally and failed on
+    the Linux runner.
+    """
+    manager = BlenderMcpManager(state_dir=tmp_path, port=59993)
+    seen = {}
+
+    class _Out:
+        returncode = 0
+        stdout = "blender --background"
+
+    def _capture(argv, **_kwargs):
+        seen["argv"] = argv
+        return _Out()
+
+    monkeypatch.setattr("services.blender_mcp_manager.subprocess.run", _capture)
+    manager._pid_is_stranger(4242)
+    assert "-ww" in seen["argv"], (
+        f"the ps probe must request unlimited width, got {seen['argv']}"
+    )
+
+
+def test_a_long_command_line_still_resolves_as_ours(tmp_path):
+    """End-to-end version of the above: a real child whose marker sits far
+    past column 80 must still be recognised."""
+    import subprocess
+    import sys
+
+    manager = BlenderMcpManager(state_dir=tmp_path, port=59992)
+    padding = "x" * 200
+    child = subprocess.Popen(  # noqa: S603 - fixed argv, test-local
+        [sys.executable, "-c", f"import time; time.sleep(300)  # {padding} {tmp_path}"],
+        start_new_session=True,
+    )
+    try:
+        assert manager._pid_is_stranger(child.pid) is False, (
+            "a marker beyond column 80 was truncated away by ps"
+        )
+    finally:
+        child.kill()
+        child.wait()
