@@ -2749,6 +2749,12 @@ The cleanup PR documented at the top of this section deliberately defers three c
 - **`comfyui_mps` and `vllm_metal` were never affected**: both already reap via a `_reap_child` helper. `blender_mcp` was the one manager missing it, and it now uses the same approach rather than a third variant.
 - Surfaced while building the generic managed-host framework (§1.166), whose tests spawn a **real** process instead of mocking `Popen`. A mocked process cannot exhibit this — the bug lives precisely in the interaction between `Popen` child ownership and `os.kill(pid, 0)` — so the regression test spawns a real one too and asserts all three symptoms: the return value, the elapsed time, and the stale pid file.
 
+### 1.168. Fixed — 2026-08-15 — `blender-mcp stop` could SIGKILL an unrelated process
+
+- **A recycled pid is a stranger, and the pid file outlives the crash.** When the managed bridge dies without cleanup, its pid file remains; the OS is then free to hand that pid to something else entirely. `blender_mcp_manager.stop()` signalled it blind — SIGTERM, then SIGKILL — so a stale pid file could take out someone's editor or build. Confirmed by a test that spawns a real unrelated process and asserts it survives; without the guard, it does not.
+- **`_pid_is_stranger` now gates the signal**, the same guard `comfyui_mps_manager` and `vllm_metal_manager` have carried. It reads the process command line via `ps` and refuses to signal a pid whose argv shows no Blender binary, launcher, or state dir. An unavailable or ambiguous `ps` returns "not a stranger" and proceeds — teardown is never blocked on an unknowable probe.
+- **The §1.167 zombie-reap test was re-armed in the same change.** Adding this guard silently defanged it: its child also read as a stranger, so `stop()` short-circuited and the test passed without ever reaching the reap it exists to cover. The child's argv now carries the state dir so it registers as ours, with an explicit setup assertion, and removing the reap makes it fail again.
+
 ## 2. [3.0.0] - 2026-05-15 (Topology-Driven Ordering & Port Layout v1)
 
 **Visual:** every service row in the setup wizard now leads with a thin category-color bar; six categories (Infra, Data, LLM Core, Media, Agents & Workflows, Apps & UIs) explained in a legend below the grid. Unanswered configurable services show a yellow ◌ placeholder ("pending") instead of guessing their port/source/alias before you've picked them.
