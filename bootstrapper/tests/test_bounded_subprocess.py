@@ -580,3 +580,84 @@ def test_redacted_failure_omits_captured_output_and_command():
     message = bounded_subprocess.redacted_failure("runtime lock", 7)
     assert message == "runtime lock failed (exit 7; subprocess output redacted)"
     assert "secret" not in message
+
+
+def test_main_forwards_failure_output_when_explicitly_opted_in(monkeypatch, capsys):
+    """--forward-stderr is the caller asserting the output is non-secret build
+    logs. Honouring it only on success made it useless in the one case anyone
+    needs it: a strict MkDocs build that fails on a transient asset fetch
+    printed the redaction line and nothing else, so CI could never say WHICH
+    fetch died (#934, #941)."""
+    assert _call_main(
+        monkeypatch,
+        [
+            "--label",
+            "strict MkDocs build",
+            "--forward-stderr",
+            "--",
+            sys.executable,
+            "-c",
+            "import sys; print('to stdout'); "
+            "print('Could not fetch fonts.gstatic.com', file=sys.stderr); "
+            "sys.exit(1)",
+        ],
+    ) == 1
+    captured = capsys.readouterr()
+    assert "strict MkDocs build failed (exit 1); output follows:" in captured.out
+    assert "redacted" not in captured.out, (
+        "saying 'output redacted' while printing the output teaches readers "
+        "the detail below is not there"
+    )
+    assert "to stdout" in captured.out
+    assert "Could not fetch fonts.gstatic.com" in captured.err
+
+
+def test_a_step_that_does_not_opt_in_stays_fully_redacted_on_failure(monkeypatch, capsys):
+    """The opt-in is the whole safety boundary — without it, nothing leaks."""
+    assert _call_main(
+        monkeypatch,
+        [
+            "--label",
+            "inventory",
+            "--",
+            sys.executable,
+            "-c",
+            "import sys; print('secret-token'); "
+            "print('secret-token', file=sys.stderr); sys.exit(2)",
+        ],
+    ) == 2
+    captured = capsys.readouterr()
+    assert "secret-token" not in captured.out
+    assert "secret-token" not in captured.err
+    assert "subprocess output redacted" in captured.out
+
+
+def _services_lint_steps() -> list[dict]:
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/services-lint.yml").read_text(encoding="utf-8")
+    )
+    return [step for job in workflow["jobs"].values() for step in job.get("steps", [])]
+
+
+def _step_index(steps: list[dict], predicate) -> int:
+    matches = [i for i, step in enumerate(steps) if predicate(step)]
+    assert matches, "no workflow step matched"
+    return matches[0]
+
+
+def _is_privacy_cache(step: dict) -> bool:
+    return str(step.get("uses", "")).startswith("actions/cache") and (
+        step.get("with", {}).get("path") == ".cache"
+    )
+
+
+def test_the_docs_job_caches_the_mkdocs_privacy_assets():
+    """`mkdocs build --strict` + the Material privacy plugin downloads ~20
+    external assets at build time, and `.cache` is gitignored. Without a CI
+    cache the docs job refetches all of them every run, so one transient
+    failure is a hard --strict error on a diff that touched no external URL
+    (#934, #941)."""
+    steps = _services_lint_steps()
+    cache_at = _step_index(steps, _is_privacy_cache)
+    build_at = _step_index(steps, lambda s: "strict build" in s.get("name", ""))
+    assert cache_at < build_at, "the cache must be restored before the strict build"
