@@ -661,3 +661,44 @@ def test_the_docs_job_caches_the_mkdocs_privacy_assets():
     cache_at = _step_index(steps, _is_privacy_cache)
     build_at = _step_index(steps, lambda s: "strict build" in s.get("name", ""))
     assert cache_at < build_at, "the cache must be restored before the strict build"
+
+
+def test_the_privacy_cache_key_hashes_files_that_actually_exist():
+    """A `hashFiles()` pattern that matches nothing yields an EMPTY string, so
+    the key silently collapses to a constant and the cache never re-primes when
+    the fonts or stylesheets change. The first version of this step hashed
+    `mkdocs.yml` (generated, absent when the step runs) and
+    `docs/stylesheets/**` (wrong path — it is `docs/assets/stylesheets`), and CI
+    logged `Cache saved with key: mkdocs-privacy-` with no hash at all.
+    """
+    import re
+
+    steps = _services_lint_steps()
+    cache = steps[_step_index(steps, _is_privacy_cache)]
+    key = cache["with"]["key"]
+    patterns = re.findall(r"hashFiles\(([^)]*)\)", key)
+    assert patterns, f"the cache key must hash something: {key!r}"
+
+    globs = re.findall(r"'([^']+)'", patterns[0])
+    assert globs, f"no glob literals found in {patterns[0]!r}"
+    for pattern in globs:
+        # Actions' hashFiles treats a trailing `**` as "every file below";
+        # pathlib's `**` matches DIRECTORIES, so translate before comparing.
+        translated = pattern[:-1] + "*/*" if pattern.endswith("**") else pattern
+        matches = [path for path in ROOT.glob(translated) if path.is_file()]
+        assert matches, (
+            f"cache-key pattern {pattern!r} matches no file — hashFiles would "
+            f"return an empty string and the key would never change"
+        )
+        # …and they must be TRACKED. A generated file (mkdocs.yml) exists in a
+        # local checkout but not in CI at the point the cache step runs, so
+        # hashing it is empty there and green here — the worst combination.
+        tracked = subprocess.run(
+            ["git", "ls-files", "--error-unmatch", *[str(m) for m in matches]],
+            cwd=ROOT, capture_output=True, text=True,
+        )
+        assert tracked.returncode == 0, (
+            f"cache-key pattern {pattern!r} matches untracked/generated files; "
+            f"they may not exist when the step runs: {tracked.stderr.strip()}"
+        )
+

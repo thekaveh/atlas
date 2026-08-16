@@ -237,7 +237,13 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .cache
-          key: mkdocs-privacy-${{ hashFiles('mkdocs.yml', 'docs/stylesheets/**') }}
+          # Hash TRACKED sources that decide which assets get fetched:
+          # build_docs.py declares the theme fonts (and generates mkdocs.yml,
+          # which is itself untracked and absent at this point in the job), and
+          # the stylesheets can pull further external faces. Hashing the
+          # generated mkdocs.yml instead silently yields an EMPTY hash and a
+          # constant key that never re-primes.
+          key: mkdocs-privacy-${{ hashFiles('scripts/docs/build_docs.py', 'docs/assets/stylesheets/**') }}
           restore-keys: |
             mkdocs-privacy-
 
