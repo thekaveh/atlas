@@ -22,7 +22,7 @@
 
 ## 1. Capabilities
 
-Atlas organizes 60 service families into 7 tracks. Each track pre-selects a working subset of the platform for one class of workload; the setup wizard prompts for track-scoped services and force-disables the rest.
+Atlas organizes 57 service families into 7 tracks. Each track pre-selects a working subset of the platform for one class of workload; the setup wizard prompts for track-scoped services and force-disables the rest.
 
 <div class="atlas-home__grid" markdown="1">
 
@@ -64,6 +64,13 @@ Atlas organizes 60 service families into 7 tracks. Each track pre-selects a work
 <div class="atlas-card" markdown="1">
 <p class="atlas-card__title">Trading / Financial Research</p>
 <p class="atlas-card__body">Read-only financial research and paper portfolios in notebooks; no live trading.</p>
+
+[View track services →](tracks.md){: .atlas-card__link}
+</div>
+
+<div class="atlas-card" markdown="1">
+<p class="atlas-card__title">All / Custom</p>
+<p class="atlas-card__body">Every configurable service — full wizard, no filtering.</p>
 
 [View track services →](tracks.md){: .atlas-card__link}
 </div>
