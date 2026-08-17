@@ -15,10 +15,6 @@ ARG ALMOND_VERSION=0.14.5
 ARG ALMOND_SCALA_2_VERSION=2.13.16
 ARG ALMOND_SCALA_3_VERSION=3.4.3
 ARG COURSIER_SHA256=7aa975f12469726d6bb87852107afe0b8d6f3c82b12a49ef43cc6647c4e057ca
-ARG SPACY_MODEL_VERSION=3.8.0
-ARG SPACY_MODEL_SHA256=1932429db727d4bff3deed6b34cfc05df17794f4a52eeb26cf8928f7c1a0fb85
-ARG NLTK_DATA_COMMIT=010203a4c35cce2f11fcb3bcbe1aa410a5a2a227
-ARG VADER_LEXICON_SHA256=8adba4294eef3964d820bf655e37e61bdc3a341994356af59b74fb3b4a36ce5c
 
 # Switch to root to install system packages
 USER root
@@ -69,24 +65,17 @@ RUN pip install --no-cache-dir \
 RUN pip install --no-cache-dir \
       -r /tmp/requirements.txt -c /tmp/requirements-locked.txt
 
-# ml-lab NLP-task assets: spaCy language model + NLTK VADER lexicon. These are
-# bundled separately from their respective pip packages (spacy / nltk) and are
-# required by ml-lab's text_classification-agnews + sentiment_classification-vader
-# Tier-A notebooks. ~14 MB total.
-RUN SPACY_MODEL_WHEEL="/tmp/en_core_web_sm-${SPACY_MODEL_VERSION}-py3-none-any.whl" \
- && curl -fL \
-      "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-${SPACY_MODEL_VERSION}/en_core_web_sm-${SPACY_MODEL_VERSION}-py3-none-any.whl" \
-      -o "${SPACY_MODEL_WHEEL}" \
- && echo "${SPACY_MODEL_SHA256}  ${SPACY_MODEL_WHEEL}" | sha256sum -c - \
- && pip install --no-cache-dir --no-deps "${SPACY_MODEL_WHEEL}" \
- && rm "${SPACY_MODEL_WHEEL}" \
- && mkdir -p /home/jovyan/nltk_data/sentiment \
- && curl -fL \
-      "https://raw.githubusercontent.com/nltk/nltk_data/${NLTK_DATA_COMMIT}/packages/sentiment/vader_lexicon.zip" \
-      -o /home/jovyan/nltk_data/sentiment/vader_lexicon.zip \
- && echo "${VADER_LEXICON_SHA256}  /home/jovyan/nltk_data/sentiment/vader_lexicon.zip" \
-      | sha256sum -c -
+# ml-eng-lab NLP-task assets: the spaCy wheel and VADER ZIP are exact,
+# hash-required projections of the parent repository's current contract.
+COPY --chown=${NB_UID}:${NB_GID} nlp-model-requirements.txt /tmp/nlp-model-requirements.txt
+COPY --chown=${NB_UID}:${NB_GID} nlp-assets.toml /tmp/nlp-assets.toml
+COPY --chown=${NB_UID}:${NB_GID} install_nlp_assets.py /tmp/install_nlp_assets.py
+RUN python -m pip install --no-cache-dir --no-deps --require-hashes -r /tmp/nlp-model-requirements.txt \
+ && python /tmp/install_nlp_assets.py install --manifest /tmp/nlp-assets.toml --data-dir /home/jovyan/nltk_data \
+ && python /tmp/install_nlp_assets.py verify --manifest /tmp/nlp-assets.toml --data-dir /home/jovyan/nltk_data \
+ && rm -f /tmp/nlp-model-requirements.txt /tmp/nlp-assets.toml /tmp/install_nlp_assets.py
 
+ENV NLTK_DATA=/home/jovyan/nltk_data
 ENV PYTHONPATH=/home/jovyan
 
 # Install Almond Scala kernels for both Scala 2.13 and Scala 3. Each kernel
