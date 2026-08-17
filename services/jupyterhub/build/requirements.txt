@@ -111,8 +111,8 @@ pyspark-client==4.1.2
 # pulls language-model deps used by the ml-lab notebooks that `import nnx`.
 thekaveh-nnx[lm]==0.2.0
 python-louvain  # `community` module — community_detection-karate notebook
-nltk>=3.10.0  # SentimentIntensityAnalyzer — sentiment_classification-vader notebook (vader_lexicon downloaded in Dockerfile)
-spacy  # tokenizer + lemmatizer — text_classification-agnews + sentiment_classification-vader (en_core_web_sm downloaded in Dockerfile)
+nltk>=3.10.0  # SentimentIntensityAnalyzer; VADER is integrity-locked by nlp-assets.toml
+spacy  # tokenizer + lemmatizer; model integrity-locked by nlp-model-requirements.txt and nlp-assets.toml
 torchao>=0.17  # transitive via nnx.quantize_int8 + nnx.qat_train_step_factory — quantization-mnist notebook
 prettytable  # nnx Utils.print_table renderer — used by 14 of 29 notebooks
 fastmcp==3.4.4  # MCP client toolkit — matches services/mcp-servers runtime (#598, #600)
