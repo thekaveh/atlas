@@ -1,0 +1,9 @@
+schema_version = 1
+
+[vader_lexicon]
+url = "https://raw.githubusercontent.com/nltk/nltk_data/gh-pages/packages/sentiment/vader_lexicon.zip"
+sha256 = "8adba4294eef3964d820bf655e37e61bdc3a341994356af59b74fb3b4a36ce5c"
+size = 90486
+resource = "sentiment/vader_lexicon.zip"
+member = "vader_lexicon/vader_lexicon.txt"
+license = "MIT License"
