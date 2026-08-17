@@ -37,6 +37,36 @@ RUN python -m pip install --no-cache-dir --no-deps --require-hashes -r /tmp/nlp-
 ENV NLTK_DATA=/home/jovyan/nltk_data"""
 
 
+def _assert_docker_order(dockerfile: str) -> None:
+    positions = (
+        dockerfile.index(
+            "COPY --chown=${NB_UID}:${NB_GID} nlp-model-requirements.txt"
+        ),
+        dockerfile.index(
+            "python -m pip install --no-cache-dir --no-deps --require-hashes"
+        ),
+        dockerfile.index("install_nlp_assets.py install"),
+        dockerfile.index("install_nlp_assets.py verify"),
+        dockerfile.index("rm -f /tmp/nlp-model-requirements.txt"),
+    )
+    assert positions == tuple(sorted(positions))
+
+
+def _assert_no_legacy_downloaders(dockerfile: str) -> None:
+    forbidden = (
+        "SPACY_MODEL_VERSION",
+        "SPACY_MODEL_SHA256",
+        "NLTK_DATA_COMMIT",
+        "VADER_LEXICON_SHA256",
+        "nltk.download",
+        "nltk.downloader",
+        "vader_lexicon.zip /home",
+        "COPY vader_lexicon.zip",
+    )
+    for token in forbidden:
+        assert token not in dockerfile
+
+
 def _assert_contract(
     *,
     manifest: str,
@@ -50,24 +80,8 @@ def _assert_contract(
     assert hashlib.sha256(installer).hexdigest() == EXPECTED_INSTALLER_SHA256
     assert model == EXPECTED_MODEL
     assert dockerfile.count(EXPECTED_DOCKER_BLOCK) == 1
-    assert dockerfile.index(
-        "COPY --chown=${NB_UID}:${NB_GID} nlp-model-requirements.txt"
-    ) < dockerfile.index(
-        "python -m pip install --no-cache-dir --no-deps --require-hashes"
-    ) < dockerfile.index("install_nlp_assets.py install") < dockerfile.index(
-        "install_nlp_assets.py verify"
-    ) < dockerfile.index("rm -f /tmp/nlp-model-requirements.txt")
-    forbidden = (
-        "SPACY_MODEL_VERSION",
-        "SPACY_MODEL_SHA256",
-        "NLTK_DATA_COMMIT",
-        "VADER_LEXICON_SHA256",
-        "nltk.download",
-        "nltk.downloader",
-        "vader_lexicon.zip /home",
-        "COPY vader_lexicon.zip",
-    )
-    assert not any(token in dockerfile for token in forbidden)
+    _assert_docker_order(dockerfile)
+    _assert_no_legacy_downloaders(dockerfile)
     assert "integrity-locked by nlp-model-requirements.txt and nlp-assets.toml" in requirements
     assert "vader_lexicon downloaded in Dockerfile" not in requirements
     assert "Issue #64" in changelog

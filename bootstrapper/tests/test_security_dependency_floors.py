@@ -20,6 +20,19 @@ def _text(relative: str) -> str:
     return (ROOT / relative).read_text(encoding="utf-8")
 
 
+def _assert_jupyterhub_nlp_asset_integrity(dockerfile: str) -> None:
+    assert "--no-deps --require-hashes -r /tmp/nlp-model-requirements.txt" in dockerfile
+    assert "install_nlp_assets.py install" in dockerfile
+    assert "install_nlp_assets.py verify" in dockerfile
+    assert "ENV NLTK_DATA=/home/jovyan/nltk_data" in dockerfile
+    for retired in (
+        "SPACY_MODEL_SHA256=",
+        "NLTK_DATA_COMMIT=",
+        "VADER_LEXICON_SHA256=",
+    ):
+        assert retired not in dockerfile
+
+
 def _locked_version(relative: str, package: str) -> str:
     lock = tomllib.loads(_text(relative))
     return next(row["version"] for row in lock["package"] if row["name"] == package)
@@ -524,16 +537,7 @@ def test_jupyterhub_external_build_artifacts_are_digest_verified() -> None:
     assert dockerfile.count("sha256sum -c -") >= 1
     assert "python -m spacy download" not in dockerfile
     assert "nltk.download(" not in dockerfile
-    assert "--no-deps --require-hashes -r /tmp/nlp-model-requirements.txt" in dockerfile
-    assert "install_nlp_assets.py install" in dockerfile
-    assert "install_nlp_assets.py verify" in dockerfile
-    assert "ENV NLTK_DATA=/home/jovyan/nltk_data" in dockerfile
+    _assert_jupyterhub_nlp_asset_integrity(dockerfile)
     assert "ENV PYTHONPATH=/home/jovyan\n" in dockerfile
     assert "${PYTHONPATH}" not in dockerfile
     assert "COURSIER_SHA256=" in dockerfile
-    for retired in (
-        "SPACY_MODEL_SHA256=",
-        "NLTK_DATA_COMMIT=",
-        "VADER_LEXICON_SHA256=",
-    ):
-        assert retired not in dockerfile
