@@ -521,17 +521,19 @@ def test_backend_does_not_ship_unused_direct_groq_clients() -> None:
 
 def test_jupyterhub_external_build_artifacts_are_digest_verified() -> None:
     dockerfile = _text("services/jupyterhub/build/Dockerfile")
-    assert dockerfile.count("sha256sum -c -") >= 3
+    assert dockerfile.count("sha256sum -c -") >= 1
     assert "python -m spacy download" not in dockerfile
     assert "nltk.download(" not in dockerfile
-    assert "/tmp/en_core_web_sm-${SPACY_MODEL_VERSION}-py3-none-any.whl" in dockerfile
-    assert "-o /tmp/en_core_web_sm.whl" not in dockerfile
+    assert "--no-deps --require-hashes -r /tmp/nlp-model-requirements.txt" in dockerfile
+    assert "install_nlp_assets.py install" in dockerfile
+    assert "install_nlp_assets.py verify" in dockerfile
+    assert "ENV NLTK_DATA=/home/jovyan/nltk_data" in dockerfile
     assert "ENV PYTHONPATH=/home/jovyan\n" in dockerfile
     assert "${PYTHONPATH}" not in dockerfile
-    for argument in (
-        "COURSIER_SHA256=",
+    assert "COURSIER_SHA256=" in dockerfile
+    for retired in (
         "SPACY_MODEL_SHA256=",
         "NLTK_DATA_COMMIT=",
         "VADER_LEXICON_SHA256=",
     ):
-        assert argument in dockerfile
+        assert retired not in dockerfile
