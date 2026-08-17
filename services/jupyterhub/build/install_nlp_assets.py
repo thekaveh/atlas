@@ -303,6 +303,8 @@ def install_vader(
 
         try:
             os.link(temporary, target)
+            temporary.unlink()
+            temporary = None
         except FileExistsError:
             return verify_vader(asset, data_dir)
         except OSError:

@@ -24,7 +24,7 @@ EXPECTED_MODEL = (
     "--hash=sha256:1932429db727d4bff3deed6b34cfc05df17794f4a52eeb26cf8928f7c1a0fb85\n"
 )
 EXPECTED_INSTALLER_SHA256 = (
-    "812380895a1cf5cd1fc50aa9ef21ea818bfa35e6a18fa307f1755bde362a3ecd"
+    "303dad03a9fbf9c10d8488e09f0d603b7cb71e7d8ccfc48216e1844076e84bc3"
 )
 EXPECTED_DOCKER_BLOCK = """COPY --chown=${NB_UID}:${NB_GID} nlp-model-requirements.txt /tmp/nlp-model-requirements.txt
 COPY --chown=${NB_UID}:${NB_GID} nlp-assets.toml /tmp/nlp-assets.toml
