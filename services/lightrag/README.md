@@ -139,6 +139,7 @@ curl -sX POST http://localhost:${LITELLM_PORT}/v1/chat/completions \
 | supabase | data |
 | litellm ↔ | llm |
 | docling-lightrag-adapter | media |
+| backend ↔ | apps |
 
 ### 5.2. Current — Downstream (services that call this)
 
@@ -149,7 +150,7 @@ curl -sX POST http://localhost:${LITELLM_PORT}/v1/chat/completions \
 | celery | agents |
 | hermes | agents |
 | n8n | agents |
-| backend | apps |
+| backend ↔ | apps |
 
 ### 5.3. Architecture diagram
 
