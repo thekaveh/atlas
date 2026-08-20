@@ -54,9 +54,9 @@ def test_complexity_baseline_is_owned_and_reviewed() -> None:
     assert complexity["review_by"] >= "2026-09-01"
     assert "Do not increase" in complexity["regression_policy"]
     assert complexity["baseline_snapshot"]["radon_grade_e_or_worse"] == 20
-    assert complexity["baseline_snapshot"]["radon_grade_c_or_worse"] == 358
-    assert complexity["baseline_snapshot"]["functions_over_60_physical_lines"] == 189
-    assert complexity["baseline_snapshot"]["functions_over_100_physical_lines"] == 70
+    assert complexity["baseline_snapshot"]["radon_grade_c_or_worse"] == 357
+    assert complexity["baseline_snapshot"]["functions_over_60_physical_lines"] == 188
+    assert complexity["baseline_snapshot"]["functions_over_100_physical_lines"] == 69
 
 
 def test_complexity_baseline_is_recomputed_and_regression_bounded() -> None:

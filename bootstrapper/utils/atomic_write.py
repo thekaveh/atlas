@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import errno
+import glob as _glob
 import re
 import stat
 import tempfile
@@ -111,6 +112,10 @@ def _prune_old_backups(
     # rollback points those exist to provide. Requiring a timestamp immediately
     # after the prefix keeps each version's history disjoint: after
     # `.env.backup.` a versioned name has `v1.`, not a digit.
+    # The regex is escaped, so the glob must be too: ATLAS_ENV_FILE is
+    # operator-supplied, and a basename containing a bracket makes
+    # `glob(f"{prefix}*")` a character class that matches nothing — silently
+    # disabling retention entirely, which is the one failure this must not have.
     scoped = re.compile(re.escape(prefix) + r"\d{8}T\d{6}\.")
     # Compare by NAME, not by path object. `tempfile.mkstemp` always returns an
     # absolute path while `glob` yields paths in whatever form the caller passed
@@ -123,7 +128,7 @@ def _prune_old_backups(
     try:
         existing = [
             p
-            for p in source_path.parent.glob(f"{prefix}*")
+            for p in source_path.parent.glob(_glob.escape(prefix) + "*")
             if p.is_file() and p.name != protect_name and scoped.match(p.name)
         ]
     except OSError:

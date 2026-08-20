@@ -247,3 +247,22 @@ def test_retention_of_one_keeps_exactly_the_new_snapshot(tmp_path: Path, monkeyp
     assert len(kept) == 1, kept
     assert returned.exists()
     assert kept[0].name == returned.name
+
+
+def test_retention_survives_a_source_name_containing_glob_metacharacters(
+    tmp_path: Path,
+) -> None:
+    """`ATLAS_ENV_FILE` is operator-supplied, so the basename is not ours.
+
+    An unescaped `glob(f"{prefix}*")` turns `.env[dev].backup.*` into a
+    character class that matches nothing, so pruning silently never runs — the
+    one outcome this feature exists to prevent.
+    """
+    source = tmp_path / ".env[dev]"
+    source.write_text("SECRET=value\n", encoding="utf-8")
+
+    for _ in range(9):
+        atomic_write.create_private_backup(source, keep=5)
+
+    kept = list(tmp_path.glob("*.backup.*"))
+    assert len(kept) == 5, kept
