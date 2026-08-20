@@ -112,7 +112,7 @@ def assemble_env_example(
     # computed by model_resolver.resolved_defaults({}).  We pass an empty env
     # dict (= "no user overrides") so the output reflects the default-config
     # winner — the YAML default_active=True ollama model, which under the
-    # default stack is qwen3.6:latest for both content and vision.
+    # default stack is qwen3.8:latest for both content and vision.
     #
     # NOTE: LITELLM_EMBEDDING_MODEL is deliberately NOT overridden here.
     # Its static default (ollama/nomic-embed-text, 768-dim) must stay fixed

@@ -58,7 +58,7 @@ ORDERING = PRIORITY
 
 This order is used directly by ``best()``: the FIRST entry with the requested
 capability > 0 wins. With the default config (ollama-container-cpu, no cloud
-keys), this yields ``ollama/qwen3.6:latest`` for both content and vision.
+keys), this yields ``ollama/qwen3.8:latest`` for both content and vision.
 
 EMBEDDING CARVE-OUT
 -------------------

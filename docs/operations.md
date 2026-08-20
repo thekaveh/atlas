@@ -112,6 +112,12 @@ shared. Stopping them is therefore an explicit opt-in, not a default.
 
 `./stop.sh` reports which managed runtimes it left running and exits on the
 container teardown result alone. `./stop.sh --stop-managed-hosts` additionally
-tears down all three managed host runtimes from their state directories, and a
-native process still live after that attempt makes the command exit nonzero.
-`--cold` does not change this behavior.
+tears down the three built-in managed host runtimes — ComfyUI-MPS, vLLM-Metal
+and Blender-MCP — from their state directories, and a native process still live
+after that attempt makes the command exit nonzero. `--cold` does not change
+this behavior.
+
+A consumer-declared managed host process (`managed_host_services` in
+`atlas.consumer.yml`) is outside `./stop.sh`'s scope entirely: it is neither
+stopped by `--stop-managed-hosts` nor listed in the left-running advisory. Stop
+one explicitly with `./start.sh managed-host stop <name>`.

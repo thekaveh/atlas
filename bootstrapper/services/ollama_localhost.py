@@ -13,7 +13,7 @@ per-model philosophy (a typo'd tag never aborts a stack launch).
 
 Note on reproducibility: Ollama tags (``:latest``) are not checksum-pinned —
 provisioning converges every machine on the same *tags*, not byte-identical
-blobs. Pin exact tags (``qwen3.6:q4_K_M``-style) for tighter parity.
+blobs. Pin exact tags (``qwen3.8:q4_K_M``-style) for tighter parity.
 
 Everything network goes through thin stdlib urllib calls so the module is
 fully unit-testable with mocks on CI (no host daemon required).
