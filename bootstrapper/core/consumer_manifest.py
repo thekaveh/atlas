@@ -10,6 +10,8 @@ from typing import Any, Iterable, Mapping
 
 import yaml
 
+from utils.atomic_write import assert_safe_env_assignment
+
 try:
     from utils.comfyui_custom_nodes import (
         ComfyUICustomNode,
@@ -667,11 +669,6 @@ def _merge_profile_overrides_block(
                 bucket[fname] = vs
 
 
-#: A `.env` key is a shell-style identifier. Anything else — a newline, an
-#: `=`, a space — changes how the emitted `KEY=VALUE` line parses.
-_ENV_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-
-
 def _set_scalar(
     env: dict[str, str],
     origins: dict[str, str],
@@ -679,38 +676,19 @@ def _set_scalar(
     value: Any,
     origin: str,
 ) -> None:
-    # The value guard below is only half the job: the writer emits
-    # `f"{key}={value}"`, so a KEY carrying a newline injects a line just as
-    # effectively — `"HARMLESS\nSUPABASE_SERVICE_KEY"` lands a second
-    # assignment that wins on last-wins resolution. A key containing `=` is
-    # equally bad: it splits differently in `.env` than it does in this dict,
-    # so two manifests writing `FOO` and `FOO=b` collide in the file while the
-    # conflict check above sees two distinct keys.
-    if not _ENV_KEY_RE.match(key):
-        raise ConsumerManifestError(
-            f"{key!r} is not a valid environment variable name ({origin}); "
-            f"expected {_ENV_KEY_RE.pattern}"
-        )
-    rendered = str(value)
-    # `.env` is line-oriented and resolved last-wins, so a newline inside a
-    # value is not a formatting quirk — it appends further assignments. A YAML
-    # block scalar is the natural way to write one by accident:
-    #
-    #     brand:
-    #       tagline: |-
-    #         Atlas playground
-    #         SUPABASE_SERVICE_KEY=...
-    #
-    # which lands a second SUPABASE_SERVICE_KEY line below the generated one
-    # and wins. It is also permanent: the rewrite pattern `^KEY=.*$` is
-    # MULTILINE but not DOTALL, so later runs rewrite only the first line and
-    # step over the injected remainder. Refuse it at the parse boundary.
-    if "\n" in rendered or "\r" in rendered:
-        raise ConsumerManifestError(
-            f"{key} has a multi-line consumer manifest value ({origin}). "
-            f".env is line-oriented, so a newline in a value injects "
-            f"additional assignments; use a single-line value."
-        )
+    # Both the key and the value are attacker-controlled here: a consumer
+    # manifest can come from a third-party repo that vendors Atlas. `.env` is
+    # line-oriented and resolved last-wins, and entries are emitted as
+    # `KEY=VALUE`, so a newline on either side appends a further assignment
+    # that beats the real one — a YAML block scalar is the natural way to write
+    # one by accident. `assert_safe_env_assignment` is the single
+    # implementation of that check, shared with every `.env` writer so the
+    # parse boundary and the write boundaries cannot drift apart; it is
+    # re-raised here as a manifest error so the author gets the origin.
+    try:
+        rendered = assert_safe_env_assignment(key, value)
+    except ValueError as exc:
+        raise ConsumerManifestError(f"{exc} ({origin})") from exc
     if key in env and env[key] != rendered:
         raise ConsumerManifestError(
             f"{key} has conflicting consumer manifest values: "

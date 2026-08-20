@@ -6,7 +6,7 @@ Handles runtime overrides of SERVICE SOURCE configurations.
 from typing import Dict
 import re
 
-from utils.atomic_write import atomic_write_text
+from utils.atomic_write import assert_safe_env_assignment, atomic_write_text
 
 class SourceOverrideManager:
     """Manages command-line SOURCE overrides for services."""
@@ -234,7 +234,12 @@ class SourceOverrideManager:
             updated_content = content
             
             # Update each environment variable using regex
-            for var_name, var_value in overrides.items():
+            for var_name, raw_value in overrides.items():
+                # Shared guard: this writer serves the profile-apply path,
+                # cloud API keys, user model selections and the project name,
+                # so a consumer-supplied key or value reaches `.env` through
+                # here without ever passing the consumer parser.
+                var_value = assert_safe_env_assignment(var_name, raw_value)
                 pattern = rf'^{re.escape(var_name)}=.*$'
                 replacement = f'{var_name}={var_value}'
 

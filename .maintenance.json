@@ -38,7 +38,7 @@
       },
       {
         "scope": "File-count growth since v0.1.0",
-        "rationale": "The 109.3% increase is explained by the manifest-per-service migration, generated three-surface service diagrams, provider implementations, and their regression suites. Generated artifacts are drift-gated; future growth remains subject to the 20% release-over-release signal."
+        "rationale": "The 112.7% increase is explained by the manifest-per-service migration, generated three-surface service diagrams, provider implementations, and their regression suites. Generated artifacts are drift-gated; future growth remains subject to the 20% release-over-release signal."
       },
       {
         "scope": "ComfyUI custom-node resolver + managed-MPS node provisioner (#905)",

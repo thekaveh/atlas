@@ -266,3 +266,27 @@ def test_retention_survives_a_source_name_containing_glob_metacharacters(
 
     kept = list(tmp_path.glob("*.backup.*"))
     assert len(kept) == 5, kept
+
+
+def test_env_assignment_guard_rejects_a_key_with_a_trailing_newline() -> None:
+    """`re.match(r"...$")` accepts a trailing newline; `fullmatch` does not.
+
+    That single case is the one metacharacter the guard exists to reject, and
+    an anchored-with-`$` version let it through: `"KEY\\n"` was emitted as
+    `KEY\\n=value`, which puts a bare `KEY` line in `.env` (read by
+    docker-compose as "inherit from the host", i.e. unset) ahead of the real
+    assignment on last-wins resolution.
+    """
+    from utils.atomic_write import assert_safe_env_assignment
+
+    for bad_key in ("KEY\n", "\nKEY", "KEY\r", "A=B", "HAS SPACE", "9LEADING", ""):
+        with pytest.raises(ValueError, match="not a valid environment variable name"):
+            assert_safe_env_assignment(bad_key, "value")
+
+    for bad_value in ("a\nB=c", "a\r\nB=c", "a\rB=c"):
+        with pytest.raises(ValueError, match="multi-line"):
+            assert_safe_env_assignment("GOOD_KEY", bad_value)
+
+    # Valid assignments pass through, with the value coerced to str.
+    assert assert_safe_env_assignment("GOOD_KEY", "fine") == "fine"
+    assert assert_safe_env_assignment("_LEADING_UNDERSCORE", 63000) == "63000"

@@ -98,7 +98,7 @@ def _run_privileged_hosts_setup() -> bool:
 # Add the current directory to the path so we can import our modules
 sys.path.insert(0, str(Path(__file__).parent))
 
-from utils.atomic_write import atomic_write_text
+from utils.atomic_write import assert_safe_env_assignment, atomic_write_text
 from utils.banner import BannerDisplay
 from utils.hosts_manager import HostsManager
 from utils.key_generator import KeyGenerator
@@ -120,11 +120,6 @@ from utils.source_override_manager import SourceOverrideManager
 #: trio, and `ollama-pull` then downloaded several GB the user had just
 #: declined. Backfill exists to repair values that were never set, so it must
 #: not overwrite an intentional empty.
-#: A `.env` key is a shell-style identifier. Anything else — a newline, an
-#: `=`, a space — changes how the emitted `KEY=VALUE` line parses, which is
-#: an injection vector when the key comes from a consumer manifest.
-_ENV_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-
 _USER_OWNED_BLANKABLE: frozenset = frozenset({
     "OLLAMA_USER_MODELS",
     "OLLAMA_CUSTOM_MODELS",
@@ -803,17 +798,7 @@ class AtlasStarter:
             # the `^KEY=.*$` rewrite below is MULTILINE, not DOTALL, so a later
             # run rewrites only the first line and leaves the remainder in
             # place permanently.
-            if not _ENV_KEY_RE.match(str(var_name)):
-                raise ValueError(
-                    f"refusing to write {var_name!r}: not a valid environment "
-                    f"variable name"
-                )
-            var_value = str(raw_value)
-            if "\n" in var_value or "\r" in var_value:
-                raise ValueError(
-                    f"refusing to write a multi-line value for {var_name}: "
-                    f"a newline in a .env value injects further assignments"
-                )
+            var_value = assert_safe_env_assignment(var_name, raw_value)
             pattern = rf"^{re.escape(var_name)}=.*$"
             replacement = f"{var_name}={var_value}"
             if re.search(pattern, updated_content, re.MULTILINE):

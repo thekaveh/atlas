@@ -667,6 +667,18 @@ class ManagedHostManager:
         which is the pre-existing behavior and matches the built-in managers'
         rule that an unknowable probe must never block teardown.
 
+        KNOWN LIMITATION (Linux, unfixed): ``ps -o lstart=`` is computed there
+        as ``/proc/stat btime + starttime/Hz``, and ``btime`` derives from the
+        REALTIME clock — so an NTP step or a VM suspend/resume of a second or
+        more shifts a live process's rendered start time and this comparison
+        would call it a stranger, orphaning it. macOS is immune (``ki_start``
+        is an absolute timestamp frozen at fork). The robust Linux fix is to
+        read ``/proc/<pid>/stat`` field 22 directly, which is boot-relative and
+        clock-step immune. That is deliberately NOT done here: it needs a third
+        stamp format, and a format mismatch between stamp and probe is exactly
+        the shape that produced the earlier orphaning bugs. Under a steady
+        clock the value is stable (3000/3000 probes on procps-ng 4.0.2).
+
         On ``lstart`` granularity, since it invites the question: it resolves to
         one second, so two processes started back-to-back do share a value.
         That does not weaken this comparison. A pid is only recycled after the

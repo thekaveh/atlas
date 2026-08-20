@@ -8,7 +8,7 @@ import os
 import re
 from typing import Dict, Any, Optional
 from core.config_parser import ConfigParser
-from utils.atomic_write import atomic_write_text
+from utils.atomic_write import assert_safe_env_assignment, atomic_write_text
 from utils.system import get_localhost_host, resolve_host_gateway_ip
 
 
@@ -1953,7 +1953,12 @@ class ServiceConfig:
             updated_content = content
             
             # Update each environment variable
-            for var_name, var_value in env_vars.items():
+            for var_name, raw_value in env_vars.items():
+                # Shared guard — see assert_safe_env_assignment. Same reason as
+                # the sibling writer in source_override_manager: a value that
+                # originated in a consumer manifest can arrive here without
+                # having passed the consumer parser.
+                var_value = assert_safe_env_assignment(var_name, raw_value)
                 # Use regex to find and replace the variable assignment
                 pattern = rf'^{re.escape(var_name)}=.*$'
                 replacement = f'{var_name}={var_value}'

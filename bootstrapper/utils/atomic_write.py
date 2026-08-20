@@ -38,6 +38,47 @@ def _fsync_parent_directory(path: Path) -> None:
         os.close(directory_fd)
 
 
+#: A `.env` key is a shell-style identifier. Matched with `fullmatch`, never
+#: `match(... "$")`: Python's `$` also matches immediately BEFORE a trailing
+#: newline, so `^[A-Za-z_][A-Za-z0-9_]*$` accepts `"KEY\n"` — the single
+#: metacharacter this exists to reject.
+_ENV_KEY_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+
+def assert_safe_env_assignment(key: str, value: str) -> str:
+    """Reject anything that would emit more than one `.env` assignment.
+
+    Every writer that edits `.env` formats entries as ``KEY=VALUE`` into a
+    line-oriented file that ``parse_env_file`` resolves last-wins. A newline on
+    EITHER side therefore appends a further assignment that beats the real one
+    — and the rewrite patterns those writers use are ``^KEY=.*$`` with
+    MULTILINE but not DOTALL, so a later run rewrites only the first line and
+    steps over the injected remainder, making it permanent.
+
+    This is the single choke point for that check. It lives here, beside the
+    atomic writer every one of those paths already imports, because putting the
+    guard on one writer and not its siblings is exactly how the first attempt
+    at this fix left the hole open: `_merge_env_file_overrides` was hardened
+    while `SourceOverrideManager.update_env_file` — the writer the profile-apply
+    path actually uses — was not.
+
+    Returns the value coerced to ``str`` so callers can write the result
+    directly rather than re-coercing.
+    """
+    if not _ENV_KEY_RE.fullmatch(str(key)):
+        raise ValueError(
+            f"refusing to write {key!r} to .env: not a valid environment "
+            f"variable name"
+        )
+    rendered = str(value)
+    if "\n" in rendered or "\r" in rendered:
+        raise ValueError(
+            f"refusing to write a multi-line value for {key}: a newline in a "
+            f".env value injects further assignments"
+        )
+    return rendered
+
+
 def atomic_write_text(
     destination: str | Path,
     content: str,
