@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Iterable, Mapping
@@ -622,12 +623,21 @@ def _merge_profile_overrides_block(
     Two-level deep merge (profile -> field -> scalar|map). Differing scalar
     leaves from different manifests conflict loudly (mirrors ``_set_scalar``);
     ``sources``/``env`` maps merge per-key with the same conflict rule."""
+    # Local import: keeps this module's import surface small, matching the other
+    # profiles.py uses further down.
+    from services.profiles import canonical_profile
+
     for prof_name, fields_raw in new.items():
         if not isinstance(fields_raw, Mapping):
             raise ConsumerManifestError(
                 f"profile_overrides.{prof_name} must be a mapping ({origin})"
             )
-        bucket = acc.setdefault(str(prof_name), {})
+        # Bucket by the CANONICAL profile name. `dev` aliases `default` at apply
+        # time (services/profiles.py), so bucketing by the raw name puts a `dev:`
+        # block and a `default:` block in different buckets — the conflict
+        # detector below never fires, and which value survives is decided by YAML
+        # key order rather than by an error the author can see.
+        bucket = acc.setdefault(canonical_profile(str(prof_name)), {})
         for field_name, value in fields_raw.items():
             fname = str(field_name)
             if isinstance(value, Mapping):
@@ -657,6 +667,11 @@ def _merge_profile_overrides_block(
                 bucket[fname] = vs
 
 
+#: A `.env` key is a shell-style identifier. Anything else — a newline, an
+#: `=`, a space — changes how the emitted `KEY=VALUE` line parses.
+_ENV_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
 def _set_scalar(
     env: dict[str, str],
     origins: dict[str, str],
@@ -664,6 +679,18 @@ def _set_scalar(
     value: Any,
     origin: str,
 ) -> None:
+    # The value guard below is only half the job: the writer emits
+    # `f"{key}={value}"`, so a KEY carrying a newline injects a line just as
+    # effectively — `"HARMLESS\nSUPABASE_SERVICE_KEY"` lands a second
+    # assignment that wins on last-wins resolution. A key containing `=` is
+    # equally bad: it splits differently in `.env` than it does in this dict,
+    # so two manifests writing `FOO` and `FOO=b` collide in the file while the
+    # conflict check above sees two distinct keys.
+    if not _ENV_KEY_RE.match(key):
+        raise ConsumerManifestError(
+            f"{key!r} is not a valid environment variable name ({origin}); "
+            f"expected {_ENV_KEY_RE.pattern}"
+        )
     rendered = str(value)
     # `.env` is line-oriented and resolved last-wins, so a newline inside a
     # value is not a formatting quirk — it appends further assignments. A YAML
@@ -1517,7 +1544,20 @@ def _parse_n8n_workflows_block(
             base_dir, str(raw_path), label=f"n8n_workflows[{wid!r}].path"
         )
 
-        active = str(raw.get("active") or "fromJson").strip()
+        # `active: false` unquoted is a YAML boolean, and `False or "fromJson"`
+        # is "fromJson" — so the one value that means "keep this workflow OFF"
+        # silently became "do whatever the JSON says", which for a shipped
+        # workflow file usually means active: true and a live webhook. The
+        # asymmetry gives the bug away: `active: true` renders "True", which is
+        # not a policy and is loudly rejected two lines below. Map the booleans
+        # explicitly before falling back.
+        raw_active = raw.get("active")
+        if raw_active is True:
+            active = "true"
+        elif raw_active is False:
+            active = "false"
+        else:
+            active = str(raw_active or "fromJson").strip()
         if active not in _N8N_ACTIVE_POLICIES:
             raise ConsumerManifestError(
                 f"n8n_workflows entry {wid!r} active {active!r} must be one of "

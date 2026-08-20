@@ -414,7 +414,7 @@ class ManagedHostManager:
         than to a wrong answer.
         """
         started = self._process_start_time(pid)
-        body = str(pid) if started is None else f"{pid}\nstart={started}"
+        body = str(pid) if started is None else f"{pid}\nstart_utc={started}"
         self.pid_file.write_text(body + "\n", encoding="utf-8")
 
     def _spawn(self) -> subprocess.Popen:
@@ -452,8 +452,10 @@ class ManagedHostManager:
         if pid is None or not self._pid_alive(pid):
             self.pid_file.unlink(missing_ok=True)
             return True
-        # PID-reuse guard (#947), mirroring blender_mcp_manager,
-        # comfyui_mps_manager and vllm_metal_manager. A crashed process
+        # PID-reuse guard (#947). The three built-in managers solve the same
+        # problem by matching the process argv; this one compares the start
+        # time recorded at spawn, which is an identity rather than a guess
+        # (see _pid_is_stranger). A crashed process
         # leaves its pid file behind; the OS can then recycle that pid onto
         # an unrelated process owned by the same user — so `_pid_alive` says
         # yes and the PermissionError arm of it never fires. Signalling blind
@@ -499,8 +501,9 @@ class ManagedHostManager:
         # or crash another process can inherit the number, and kill-0 then
         # reports a dead service as running — so ensure_running_with_ownership
         # no-ops while nothing listens, and the later stop() signals the
-        # stranger. Also require that the PID is not provably a stranger, the
-        # same ownership check the built-in managers apply here (#647/#947).
+        # stranger. Also require that the PID is not provably a stranger —
+        # the built-in managers guard this same site for the same reason
+        # (#647/#947), though by a weaker argv test.
         running = (
             pid is not None
             and self._pid_alive(pid)
@@ -598,12 +601,23 @@ class ManagedHostManager:
 
     @staticmethod
     def _process_start_time(pid: int) -> Optional[str]:
-        """Absolute start time of ``pid`` per ``ps``, or None if unknowable."""
+        """Absolute start time of ``pid`` per ``ps``, or None if unknowable.
+
+        ``lstart`` renders through the ambient ``TZ`` and ``LC_TIME``, so the
+        SAME live process reads back differently depending on who asks — this
+        machine returns four distinct strings for one pid under local time,
+        ``TZ=UTC``, ``TZ=Asia/Tokyo`` and ``LC_ALL=de_DE``. That matters because
+        a service is typically started from an interactive shell and stopped
+        from launchd, cron or CI, which default to UTC: the comparison would
+        call our own process a stranger and orphan it. Pinning both makes the
+        rendered value a function of the process alone.
+        """
         try:
             out = subprocess.run(
                 ["ps", "-o", "lstart=", "-p", str(pid)],
                 capture_output=True, text=True, timeout=5, check=False,
                 encoding="utf-8", errors="replace",
+                env={**os.environ, "TZ": "UTC", "LC_ALL": "C", "LANG": "C"},
             )
         except (OSError, subprocess.SubprocessError):
             return None
@@ -618,8 +632,15 @@ class ManagedHostManager:
         except OSError:
             return None
         for line in body.splitlines()[1:]:
-            if line.startswith("start="):
-                return line[len("start="):].strip() or None
+            # Only the normalized key is trusted. A pid file stamped by the
+            # first version of this format used the ambient TZ/locale, so its
+            # value is not comparable against a UTC probe — reading it would
+            # make every already-running managed host look like a stranger
+            # exactly once, which is the failure this guard exists to prevent.
+            # An unrecognized stamp simply reads as absent, and the guard then
+            # degrades to proceed.
+            if line.startswith("start_utc="):
+                return line[len("start_utc="):].strip() or None
         return None
 
     def _pid_is_stranger(self, pid: int) -> bool:

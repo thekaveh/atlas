@@ -258,7 +258,13 @@ def test_manifest_profile_and_overrides_parse(tmp_path):
     )
     cfg = load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
     assert cfg.profile == "default"  # dev normalized to canonical
-    assert cfg.profile_overrides["dev"]["env"]["WEAVIATE_MEMORY_LIMIT"] == "4g"
+    # The override bucket is canonicalized the same way `profile` is. Keying it
+    # on the raw name instead let a `dev:` block and a `default:` block land in
+    # separate buckets, so the parse-time conflict check never fired and
+    # `merge_consumer_profile_overrides` — which canonicalizes anyway — applied
+    # both to one bundle with dict order silently deciding the winner.
+    assert "dev" not in cfg.profile_overrides
+    assert cfg.profile_overrides["default"]["env"]["WEAVIATE_MEMORY_LIMIT"] == "4g"
 
 
 def test_manifest_rejects_unknown_profile_and_override_names(tmp_path):

@@ -792,3 +792,129 @@ def test_env_override_writer_refuses_a_multi_line_value(tmp_path: Path) -> None:
     body = env_file.read_text(encoding="utf-8")
     assert body.count("SUPABASE_SERVICE_KEY=") == 1
     assert "attacker-key" not in body
+
+
+def test_n8n_workflow_active_false_is_honoured_not_turned_into_fromJson(
+    tmp_path: Path,
+) -> None:
+    """`active: false` is the one value that means "keep this workflow OFF".
+
+    Unquoted it is a YAML boolean, and `False or "fromJson"` is "fromJson" —
+    the policy that honours the workflow file's own `"active": true`, i.e. a
+    live webhook the manifest explicitly asked to keep disabled. The asymmetry
+    gives it away: `active: true` renders "True", which is not a policy and is
+    loudly rejected.
+    """
+    from core.consumer_manifest import load_consumer_config
+
+    _write_minimal_root(tmp_path)
+    manifest = _write_consumer(tmp_path, "flows")
+    workflow = tmp_path / "flows" / "wf.json"
+    workflow.write_text('{"name": "wf", "active": true, "nodes": [], "connections": {}}\n',
+                        encoding="utf-8")
+    manifest.write_text(
+        manifest.read_text(encoding="utf-8")
+        + "n8n_workflows:\n"
+          "  version: 1\n"
+          "  workflows:\n"
+          "    - id: wf\n"
+          "      path: ./wf.json\n"
+          "      active: false\n",
+        encoding="utf-8",
+    )
+
+    config = load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
+    entry = config.n8n_workflows[0]
+    assert entry.active == "false", (
+        "an explicit `active: false` must stay false, not become the "
+        "file-derived fromJson policy"
+    )
+
+
+def test_dev_and_default_profile_overrides_conflict_instead_of_racing(
+    tmp_path: Path,
+) -> None:
+    """`dev` aliases `default`, so blocks for both target one profile.
+
+    Bucketing by the raw name hid that from the conflict detector, leaving YAML
+    key order to decide which value won.
+    """
+    from core.consumer_manifest import ConsumerManifestError, load_consumer_config
+
+    _write_minimal_root(tmp_path)
+    manifest = _write_consumer(tmp_path, "profiles")
+    manifest.write_text(
+        manifest.read_text(encoding="utf-8")
+        + "profile_overrides:\n"
+          "  dev:\n"
+          "    env:\n"
+          "      LOG_MAX_SIZE: 1m\n"
+          "  default:\n"
+          "    env:\n"
+          "      LOG_MAX_SIZE: 99m\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConsumerManifestError, match="conflicting"):
+        load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
+
+
+def test_a_newline_in_an_env_KEY_is_rejected_too(tmp_path: Path) -> None:
+    """The value guard is only half the job.
+
+    The writer emits `KEY=VALUE`, so a newline in the KEY injects a second
+    assignment exactly as effectively as one in the value — and last-wins
+    makes it the effective value.
+    """
+    from core.consumer_manifest import ConsumerManifestError, load_consumer_config
+
+    _write_minimal_root(tmp_path)
+    manifest = _write_consumer(tmp_path, "keyinjector")
+    manifest.write_text(
+        manifest.read_text(encoding="utf-8").replace(
+            "    EXTRA_CONSUMER_VALUE: enabled\n",
+            '    "HARMLESS_LOOKING\\nSUPABASE_SERVICE_KEY": attacker-key\n',
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConsumerManifestError, match="not a valid environment variable name"):
+        load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
+
+
+def test_env_override_writer_refuses_a_malformed_key(tmp_path: Path) -> None:
+    from core.config_parser import ConfigParser
+    from start import AtlasStarter
+
+    env_file = tmp_path / ".env"
+    env_file.write_text("SUPABASE_SERVICE_KEY=generated-real-key\n", encoding="utf-8")
+    starter = AtlasStarter.__new__(AtlasStarter)
+    starter.config_parser = ConfigParser(str(tmp_path))
+    starter.config_parser.env_file_path = env_file
+
+    for bad in ("HARMLESS\nSUPABASE_SERVICE_KEY", "SUPABASE_SERVICE_KEY=x #", "HAS SPACE"):
+        with pytest.raises(ValueError, match="not a valid environment variable name"):
+            starter._merge_env_file_overrides({bad: "attacker-key"})
+
+    body = env_file.read_text(encoding="utf-8")
+    assert body.count("SUPABASE_SERVICE_KEY=") == 1
+    assert "attacker-key" not in body
+
+
+def test_env_override_writer_coerces_a_non_string_value(tmp_path: Path) -> None:
+    """An int override used to be coerced silently by the f-string.
+
+    Guarding the raw value directly would turn that into an unhandled
+    TypeError instead of a clean write.
+    """
+    from core.config_parser import ConfigParser
+    from start import AtlasStarter
+
+    env_file = tmp_path / ".env"
+    env_file.write_text("BASE_PORT=63000\n", encoding="utf-8")
+    starter = AtlasStarter.__new__(AtlasStarter)
+    starter.config_parser = ConfigParser(str(tmp_path))
+    starter.config_parser.env_file_path = env_file
+
+    starter._merge_env_file_overrides({"BASE_PORT": 64000})
+    assert "BASE_PORT=64000\n" in env_file.read_text(encoding="utf-8")

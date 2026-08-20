@@ -120,6 +120,11 @@ from utils.source_override_manager import SourceOverrideManager
 #: trio, and `ollama-pull` then downloaded several GB the user had just
 #: declined. Backfill exists to repair values that were never set, so it must
 #: not overwrite an intentional empty.
+#: A `.env` key is a shell-style identifier. Anything else — a newline, an
+#: `=`, a space — changes how the emitted `KEY=VALUE` line parses, which is
+#: an injection vector when the key comes from a consumer manifest.
+_ENV_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
 _USER_OWNED_BLANKABLE: frozenset = frozenset({
     "OLLAMA_USER_MODELS",
     "OLLAMA_CUSTOM_MODELS",
@@ -783,15 +788,27 @@ class AtlasStarter:
         content = env_file_path.read_text(encoding="utf-8")
         updated_content = content
 
-        for var_name, var_value in overrides.items():
+        for var_name, raw_value in overrides.items():
             # Belt-and-braces against `.env` line injection. `_set_scalar`
-            # rejects multi-line consumer values at the parse boundary, but not
-            # every override reaches this dict through it (derived keys and the
-            # brand/project paths build values directly). A newline here would
-            # append arbitrary assignments that `parse_env_file` resolves
-            # last-wins — and the `^KEY=.*$` rewrite below is MULTILINE, not
-            # DOTALL, so a later run would rewrite only the first line and leave
-            # the injected remainder in place permanently.
+            # rejects these at the parse boundary, but several paths build
+            # overrides without going through it — the env-user overlay,
+            # storage exports, auto-source and auto-BASE_PORT resolution, and
+            # the two profile-apply sites — so the writer must be safe whatever
+            # produced the entry.
+            #
+            # Both halves matter, because the emitted line is `KEY=VALUE`: a
+            # newline in the VALUE appends further assignments, and a newline
+            # or `=` in the KEY does exactly the same. `parse_env_file`
+            # resolves last-wins, so an injected line beats the real one — and
+            # the `^KEY=.*$` rewrite below is MULTILINE, not DOTALL, so a later
+            # run rewrites only the first line and leaves the remainder in
+            # place permanently.
+            if not _ENV_KEY_RE.match(str(var_name)):
+                raise ValueError(
+                    f"refusing to write {var_name!r}: not a valid environment "
+                    f"variable name"
+                )
+            var_value = str(raw_value)
             if "\n" in var_value or "\r" in var_value:
                 raise ValueError(
                     f"refusing to write a multi-line value for {var_name}: "

@@ -577,7 +577,7 @@ def test_a_recycled_pid_is_identified_as_a_stranger(tmp_path: Path) -> None:
         # Stamp the stranger's pid with a start time that is NOT its own —
         # exactly what a stale pid file looks like after pid reuse.
         manager.pid_file.write_text(
-            f"{stranger.pid}\nstart=Thu Jan  1 00:00:00 2020\n", encoding="utf-8"
+            f"{stranger.pid}\nstart_utc=Thu Jan  1 00:00:00 2020\n", encoding="utf-8"
         )
         assert manager._pid_is_stranger(stranger.pid) is True
         # ...so stop() must not signal it.
@@ -631,10 +631,53 @@ def test_pid_is_stranger_proceeds_when_ps_cannot_answer(
 ) -> None:
     manager = _manager(tmp_path, "identity", (sys.executable, "-c", "pass"))
     manager.state_dir.mkdir(parents=True, exist_ok=True)
-    manager.pid_file.write_text("4242\nstart=Thu Jan  1 00:00:00 2020\n", encoding="utf-8")
+    manager.pid_file.write_text("4242\nstart_utc=Thu Jan  1 00:00:00 2020\n", encoding="utf-8")
 
     def failing(argv, **kwargs):
         raise OSError("ps missing")
 
     monkeypatch.setattr(subprocess, "run", failing)
     assert manager._pid_is_stranger(4242) is False
+
+
+def test_a_pre_normalization_start_stamp_is_ignored_not_trusted(tmp_path: Path) -> None:
+    """The first version of this stamp used the ambient TZ and locale.
+
+    Comparing such a value against a UTC probe would call every
+    already-running managed host a stranger exactly once, so an unrecognized
+    stamp must read as absent and degrade to proceed.
+    """
+    manager = _manager(tmp_path, "identity", (sys.executable, "-c", "pass"))
+    manager.state_dir.mkdir(parents=True, exist_ok=True)
+    manager.pid_file.write_text("4242\nstart=Thu Aug 20 19:00:00 2026\n", encoding="utf-8")
+
+    assert manager._read_pid() == 4242
+    assert manager._recorded_start_time() is None
+    assert manager._pid_is_stranger(4242) is False
+
+
+def test_the_recorded_stamp_does_not_depend_on_ambient_timezone_or_locale(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """`lstart` renders through TZ/LC_TIME, so an unpinned probe is not an identity.
+
+    A service is typically started from an interactive shell and stopped from
+    launchd, cron or CI — all UTC. Without pinning, the stop would not match
+    its own record and would orphan the process it meant to stop.
+    """
+    manager = _manager(tmp_path, "identity", (sys.executable, "-c", "pass"))
+    manager.state_dir.mkdir(parents=True, exist_ok=True)
+    ours = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(30)"],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+    try:
+        manager._write_pid_file(ours.pid)
+        for tz in ("UTC", "Asia/Tokyo", "America/New_York"):
+            monkeypatch.setenv("TZ", tz)
+            assert manager._pid_is_stranger(ours.pid) is False, (
+                f"our own process read as a stranger under TZ={tz}"
+            )
+    finally:
+        ours.kill()
+        ours.wait()
