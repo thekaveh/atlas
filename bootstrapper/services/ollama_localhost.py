@@ -209,7 +209,7 @@ def host_parallel_config(
     def _default_runner(args: list[str]) -> str | None:
         try:
             proc = subprocess.run(
-                args, capture_output=True, text=True, timeout=5, check=False
+                args, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5, check=False
             )
         except (OSError, subprocess.SubprocessError):
             return None
@@ -287,7 +287,7 @@ def host_keep_alive(*, runner=None, platform_name: str | None = None) -> str | N
     def _default_runner(args: list[str]) -> str | None:
         try:
             proc = subprocess.run(
-                args, capture_output=True, text=True, timeout=5, check=False
+                args, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5, check=False
             )
         except (OSError, subprocess.SubprocessError):
             return None

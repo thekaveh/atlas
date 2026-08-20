@@ -236,7 +236,7 @@ class VllmMetalManager:
             out = subprocess.run(
                 [py_path, "-c",
                  "import sys;print('%d.%d.%d' % sys.version_info[:3])"],
-                capture_output=True, text=True, timeout=10, check=False,
+                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10, check=False,
             )
         except (OSError, subprocess.SubprocessError):
             return None
@@ -256,7 +256,7 @@ class VllmMetalManager:
         try:
             out = subprocess.run(
                 ["sysctl", "-n", "hw.memsize"],
-                capture_output=True, text=True, timeout=5, check=False,
+                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5, check=False,
             )
             if out.returncode == 0 and out.stdout.strip().isdigit():
                 return int(out.stdout.strip()) // (1024 ** 3)
@@ -281,7 +281,7 @@ class VllmMetalManager:
                         "print(m.version('vllm-metal')); print(m.version('vllm'))"
                     ),
                 ],
-                capture_output=True, text=True, timeout=60, check=False,
+                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60, check=False,
             )
         except (OSError, subprocess.SubprocessError):
             return None
@@ -745,7 +745,7 @@ class VllmMetalManager:
                 # and makes our OWN process read as a stranger — so stop() would
                 # refuse to stop it. macOS ps accepts -ww as a no-op here.
                 ["ps", "-ww", "-p", str(pid), "-o", "command="],
-                capture_output=True, text=True, timeout=5, check=False,
+                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5, check=False,
             )
         except (OSError, subprocess.SubprocessError):
             return False  # can't tell — proceed

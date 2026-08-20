@@ -267,7 +267,7 @@ class ComfyUiMpsManager:
         try:
             out = subprocess.run(
                 ["sysctl", "-n", "hw.memsize"],
-                capture_output=True, text=True, timeout=5, check=False,
+                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5, check=False,
             )
             if out.returncode == 0 and out.stdout.strip().isdigit():
                 return int(out.stdout.strip()) // (1024 ** 3)
@@ -280,7 +280,7 @@ class ComfyUiMpsManager:
             out = subprocess.run(
                 [str(self.venv_python), "-c",
                  "import torch,sys; sys.stdout.write('1' if torch.backends.mps.is_available() else '0')"],
-                capture_output=True, text=True, timeout=60, check=False,
+                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60, check=False,
             )
         except (OSError, subprocess.SubprocessError):
             return None
@@ -721,7 +721,7 @@ class ComfyUiMpsManager:
                 # and makes our OWN process read as a stranger — so stop() would
                 # refuse to stop it. macOS ps accepts -ww as a no-op here.
                 ["ps", "-ww", "-p", str(pid), "-o", "command="],
-                capture_output=True, text=True, timeout=5, check=False,
+                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5, check=False,
             )
         except (OSError, subprocess.SubprocessError):
             return False  # can't tell — proceed

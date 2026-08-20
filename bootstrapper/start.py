@@ -865,7 +865,7 @@ class AtlasStarter:
                     "docker", "ps", "-q",
                     "--filter", f"label=com.docker.compose.project={project}",
                 ],
-                capture_output=True, text=True, timeout=10, check=False,
+                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10, check=False,
             )
             if probe.returncode != 0:
                 return True  # docker unreachable → conservative keep

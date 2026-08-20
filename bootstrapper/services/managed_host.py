@@ -364,7 +364,7 @@ class ManagedHostManager:
                 cwd=str(self.spec.workdir) if self.spec.workdir else None,
                 env=self._child_env(),
                 capture_output=True,
-                text=True,
+                text=True, encoding="utf-8", errors="replace",
                 timeout=_INSTALL_TIMEOUT_SECONDS,
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
@@ -434,6 +434,17 @@ class ManagedHostManager:
         if pid is None or not self._pid_alive(pid):
             self.pid_file.unlink(missing_ok=True)
             return True
+        # PID-reuse guard (#947), mirroring blender_mcp_manager,
+        # comfyui_mps_manager and vllm_metal_manager. A crashed process
+        # leaves its pid file behind; the OS can then recycle that pid onto
+        # an unrelated process owned by the same user — so `_pid_alive` says
+        # yes and the PermissionError arm of it never fires. Signalling blind
+        # here is worse than in the built-in managers, because `_signal`
+        # escalates to `os.killpg`: it would take out the stranger's whole
+        # process group. Drop the stale pid instead.
+        if self._pid_is_stranger(pid):
+            self.pid_file.unlink(missing_ok=True)
+            return True
         if not self._signal(pid, signal.SIGTERM):
             return False
         if self._await_exit(pid):
@@ -466,7 +477,17 @@ class ManagedHostManager:
 
     def status(self) -> HostProcessStatus:
         pid = self._read_pid()
-        running = pid is not None and self._pid_alive(pid)
+        # A pidfile + kill-0 probe alone trusts a RECYCLED PID: after a reboot
+        # or crash another process can inherit the number, and kill-0 then
+        # reports a dead service as running — so ensure_running_with_ownership
+        # no-ops while nothing listens, and the later stop() signals the
+        # stranger. Also require that the PID is not provably a stranger, the
+        # same ownership check the built-in managers apply here (#647/#947).
+        running = (
+            pid is not None
+            and self._pid_alive(pid)
+            and not self._pid_is_stranger(pid)
+        )
         return HostProcessStatus(
             running=running, pid=pid if running else None, port_open=self._port_in_use()
         )
@@ -552,6 +573,41 @@ class ManagedHostManager:
             return int(self.pid_file.read_text(encoding="utf-8").strip())
         except (OSError, ValueError):
             return None
+
+    def _pid_is_stranger(self, pid: int) -> bool:
+        """Best-effort: True only when we can PROVE ``pid`` is NOT our process.
+
+        Reads the process command line via ``ps``. If it clearly belongs to
+        some other program (none of the argv or state-dir markers we launched
+        it with appear) we refuse to signal it. When ``ps`` is unavailable or
+        the output is ambiguous we return False (proceed) — never block
+        teardown on an unknowable probe.
+
+        Mirrors the identically-named guard in blender_mcp_manager,
+        comfyui_mps_manager and vllm_metal_manager. Unlike those three, the
+        markers here come from the consumer's declared spec rather than a
+        known binary name, because this manager runs whatever the manifest
+        declares.
+        """
+        try:
+            out = subprocess.run(
+                # -ww: unlimited output width. Linux procps truncates to the
+                # terminal width (80 when there is no tty, i.e. in CI and
+                # under any daemon), which cuts long path markers off the end
+                # and makes our OWN process read as a stranger — so stop()
+                # would refuse to stop it. macOS ps accepts -ww as a no-op.
+                ["ps", "-ww", "-p", str(pid), "-o", "command="],
+                capture_output=True, text=True, timeout=5, check=False,
+                encoding="utf-8", errors="replace",
+            )
+        except (OSError, subprocess.SubprocessError):
+            return False  # can't tell — proceed
+        cmdline = (out.stdout or "").strip()
+        if out.returncode != 0 or not cmdline:
+            return False  # can't tell — proceed
+        markers = {str(self.state_dir), self.spec.name}
+        markers.update(str(part) for part in self._resolved_command() if str(part))
+        return not any(marker and marker in cmdline for marker in markers)
 
     @staticmethod
     def _pid_alive(pid: int) -> bool:

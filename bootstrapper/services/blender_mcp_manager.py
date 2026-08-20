@@ -429,7 +429,7 @@ class BlenderMcpManager:
                 # and makes our OWN process read as a stranger — so stop() would
                 # refuse to stop it. macOS ps accepts -ww as a no-op here.
                 ["ps", "-ww", "-p", str(pid), "-o", "command="],
-                capture_output=True, text=True, timeout=5, check=False,
+                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5, check=False,
             )
         except (OSError, subprocess.SubprocessError):
             return False  # can't tell — proceed
