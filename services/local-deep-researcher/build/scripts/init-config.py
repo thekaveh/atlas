@@ -16,7 +16,7 @@ def initialize_config():
 
     Model resolution (in order):
       1. ``LITELLM_DEFAULT_MODEL`` env var (set in .env, injected via compose).
-         The value is already correctly formatted (e.g. ``ollama/qwen3.6:latest``
+         The value is already correctly formatted (e.g. ``ollama/qwen3.8:latest``
          or a bare cloud model id) — use it as-is without adding a provider prefix.
       2. If the env var is unset or empty: log an error and exit non-zero.
          This surfaces the misconfiguration at compose-up time before the
@@ -33,7 +33,7 @@ def initialize_config():
         print(
             "ERROR: LITELLM_DEFAULT_MODEL is unset or empty. "
             "Set LITELLM_DEFAULT_MODEL to a model id LiteLLM serves "
-            "(e.g. ollama/qwen3.6:latest) in .env and restart the stack."
+            "(e.g. ollama/qwen3.8:latest) in .env and restart the stack."
         )
         sys.exit(1)
 

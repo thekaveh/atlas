@@ -27,10 +27,10 @@ Spark Connect so it can confirm the cluster is reachable without launching a
 batch JAR. For the full `SparkSubmitOperator` + S3A + Iceberg validation path,
 trigger the manual `lakehouse_spark_submit_smoke` DAG.
 
-Model selection: the LLM step defaults to ``ollama/qwen3.6:latest``,
+Model selection: the LLM step defaults to ``ollama/qwen3.8:latest``,
 which assumes the stack's default Ollama-mode catalog. If you run with
 ``--llm-provider-source none`` + ``CLOUD_OPENAI_SOURCE=enabled`` (cloud-
-only mode), swap ``model="ollama/qwen3.6:latest"`` for a cloud model id
+only mode), swap ``model="ollama/qwen3.8:latest"`` for a cloud model id
 like ``gpt-4o-mini``. See services/litellm/README.md for the available
 model ids in each provider configuration.
 """
@@ -87,7 +87,7 @@ def summarize_via_litellm(**_ctx):
     response = client.chat.completions.create(
         # Default Ollama model that ships in the stack's LiteLLM catalog
         # (see bootstrapper/utils/llm_catalog.py + services/litellm/README.md).
-        model="ollama/qwen3.6:latest",
+        model="ollama/qwen3.8:latest",
         messages=[{"role": "user", "content": "Reply with the single word 'ok'."}],
     )
     print(f"litellm reply: {response.choices[0].message.content}")
@@ -150,11 +150,11 @@ with DAG(
 # def run_chain(**_ctx):
 #     llm = ChatOpenAI(
 #         # Use the SAME model id clients pass through the LiteLLM proxy:
-#         # `ollama/qwen3.6:latest` (registered by litellm-init). The
+#         # `ollama/qwen3.8:latest` (registered by litellm-init). The
 #         # `ollama_chat/` prefix mentioned above is LiteLLM's INTERNAL
 #         # adapter name (config.yaml litellm_params.model), NOT what
 #         # clients use to call /v1/chat/completions.
-#         model="ollama/qwen3.6:latest",
+#         model="ollama/qwen3.8:latest",
 #         base_url="http://litellm:4000/v1",
 #         api_key=os.environ["LITELLM_MASTER_KEY"],
 #     )

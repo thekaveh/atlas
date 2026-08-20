@@ -83,7 +83,7 @@ class MemoryService:
              env var / constructor arg).
           2. ``LITELLM_DEFAULT_MODEL`` env var (set in .env, injected by
              compose; value is already fully-qualified, e.g.
-             ``ollama/qwen3.6:latest`` or a bare cloud model id).
+             ``ollama/qwen3.8:latest`` or a bare cloud model id).
           3. Raise ``RuntimeError`` — surfaces the missing config at call time
              rather than sending requests to a non-existent LiteLLM route.
         """
@@ -95,7 +95,7 @@ class MemoryService:
         raise RuntimeError(
             "No content model available for memory extraction. Set "
             "LITELLM_DEFAULT_MODEL in .env to a model id LiteLLM serves "
-            "(e.g. ollama/qwen3.6:latest)."
+            "(e.g. ollama/qwen3.8:latest)."
         )
 
     async def _litellm_complete(
