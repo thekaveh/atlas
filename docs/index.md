@@ -136,7 +136,7 @@ Per-flow diagrams (data/RAG, LLM provider routing, observability, security bound
 
 <div class="atlas-card" markdown="1">
 <p class="atlas-card__title">Reference</p>
-<p class="atlas-card__body">Env vars, ports, manifest fields, and the 53 SOURCE-configurable service surfaces.</p>
+<p class="atlas-card__body">Env vars, ports, manifest fields, and the generated SOURCE matrix for every configurable service.</p>
 
 [Open reference →](reference/index.md){: .atlas-card__link}
 </div>

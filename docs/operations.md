@@ -15,9 +15,15 @@
 ./start.sh endpoints export --format json
 ./start.sh --no-tui --detach
 ./start.sh --no-tui --detach --json
+./start.sh managed-host list
+./start.sh managed-host preflight|install|start|stop|status|health|remove <name>
+./start.sh comfyui-mps preflight|install|provision|provision-nodes|start|stop|status|health|remove
+./start.sh vllm-metal preflight|install|start|stop|status|health|remove
+./start.sh blender-mcp preflight|install|start|stop|status|health|remove
 ./stop.sh
 ./stop.sh --cold
 ./stop.sh --clean-hosts
+./stop.sh --stop-managed-hosts
 ```
 
 ## 2. Automation
@@ -98,9 +104,14 @@ state-directory launch lock serializes concurrent launchers so exactly one can
 own a newly created process.
 
 After the stack converges, the native processes remain part of the running
-Atlas deployment. A normal `./stop.sh` discovers and stops them from their
-managed state directories even when their current SOURCE values are disabled
-or changed. Native cleanup still runs when Docker or Compose preflight fails;
-the command retains a nonzero status because container teardown could not run.
-A native process that remains live after the stop attempt also makes `stop.sh`
-exit nonzero.
+Atlas deployment — and a plain `./stop.sh` deliberately leaves them running.
+These runtimes are host-global: another consumer on the same machine may be
+using the same ComfyUI-MPS, vLLM-Metal or Blender-MCP process, and SOURCE
+cannot prove ownership because `.env` is mutable and the state directory is
+shared. Stopping them is therefore an explicit opt-in, not a default.
+
+`./stop.sh` reports which managed runtimes it left running and exits on the
+container teardown result alone. `./stop.sh --stop-managed-hosts` additionally
+tears down all three managed host runtimes from their state directories, and a
+native process still live after that attempt makes the command exit nonzero.
+`--cold` does not change this behavior.

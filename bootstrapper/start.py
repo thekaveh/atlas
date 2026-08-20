@@ -5437,7 +5437,7 @@ def _parse_base_port_option(ctx, param, value):
               help='Override SPARK_SOURCE — standalone Spark cluster (master + workers + history).')
 @click.option('--spark-workers', type=int, default=None,
               help='Override SPARK_WORKER_COUNT — number of spark-worker replicas '
-                   'when --spark-source is container. Range 1-8 (clamped). '
+                   'when --spark-source is container. Must be in 1-8. '
                    'Mirrors --ray-worker-count. Defaults to 2 in .env.example.')
 @click.option('--zeppelin-source',
               type=click.Choice(['container', 'disabled'], case_sensitive=False),
@@ -5923,8 +5923,11 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
                     "--prometheus-retention-days must be in 1-365"
                 )
             user_model_selections['PROMETHEUS_RETENTION_DAYS'] = str(prometheus_retention_days)
-        # Spark worker count — same pattern as Ray's worker count. Clamp 1-8
-        # to match the wizard's SecondaryNumberInput contract.
+        # Spark worker count — same pattern as Ray's worker count: reject an
+        # out-of-range value rather than silently clamping it, so a wrapper
+        # passing a host-derived core count fails loudly instead of running a
+        # different topology than it asked for. Range mirrors the wizard's
+        # SecondaryNumberInput contract.
         if spark_workers is not None:
             if not 1 <= spark_workers <= 8:
                 raise click.UsageError("--spark-workers must be in 1-8")
