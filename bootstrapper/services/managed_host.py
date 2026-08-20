@@ -396,8 +396,26 @@ class ManagedHostManager:
             return status
         self.state_dir.mkdir(parents=True, exist_ok=True)
         process = self._spawn()
-        self.pid_file.write_text(str(process.pid), encoding="utf-8")
+        self._write_pid_file(process.pid)
         return self._await_port(process, wait_timeout)
+
+    def _write_pid_file(self, pid: int) -> None:
+        """Record the pid together with the process start time.
+
+        A pid alone is not an identity: the OS recycles it, and the pid file
+        outlives a crash. ``(pid, start time)`` IS unique on POSIX, so recording
+        the start time at spawn lets a later stop prove whether the pid still
+        refers to the process we launched — without guessing from its argv,
+        which a wrapper script, ``exec``, ``setproctitle`` or a gunicorn/celery
+        master can rewrite at will.
+
+        Written as an optional second line so an older single-line pid file
+        still parses; that case degrades to the pre-existing behavior rather
+        than to a wrong answer.
+        """
+        started = self._process_start_time(pid)
+        body = str(pid) if started is None else f"{pid}\nstart={started}"
+        self.pid_file.write_text(body + "\n", encoding="utf-8")
 
     def _spawn(self) -> subprocess.Popen:
         argv = self._resolved_command()
@@ -569,95 +587,72 @@ class ManagedHostManager:
             return False
 
     def _read_pid(self) -> Optional[int]:
+        # The pid is the first line; `_write_pid_file` may append a `start=`
+        # line after it. Reading the first line keeps single-line pid files
+        # written by an earlier version parsing unchanged.
         try:
-            return int(self.pid_file.read_text(encoding="utf-8").strip())
-        except (OSError, ValueError):
+            first = self.pid_file.read_text(encoding="utf-8").splitlines()[0]
+            return int(first.strip())
+        except (OSError, ValueError, IndexError):
             return None
 
-    #: Interpreter names that identify no particular service on their own.
-    #: `python` matches most of a developer's process table.
-    _GENERIC_ARGV0 = frozenset({
-        "python", "python3", "node", "sh", "bash", "zsh", "env", "uv", "uvx",
-        "npx", "ruby", "perl", "java", "deno", "bun",
-    })
-
-    #: A marker shorter than this matches too much of an arbitrary command
-    #: line to prove ownership of a pid.
-    _MIN_MARKER_LEN = 6
-
-    def _ownership_markers(self) -> set[str]:
-        """Curated strings whose presence in a command line implies it is ours.
-
-        The built-in managers hardcode three or four of these (blender_mcp uses
-        ``("blender", "Blender", launcher_path, state_dir)``). This manager runs
-        whatever a consumer declares, so the set is derived — but it must be
-        derived *narrowly*. Seeding it with the whole argv is actively harmful:
-        a spec like ``python -m app.server --host 127.0.0.1 --port 8399``
-        contributes ``-m``, ``--host``, ``--port``, ``python``, ``127.0.0.1``
-        and ``8399``, each of which appears in a large fraction of any real
-        process table — so the guard would clear a stranger for signalling
-        rather than block it, which is the exact failure it exists to prevent.
-
-        Kept: paths that are unique to this managed host (state dir, venv), the
-        resolved executable when it is not a bare interpreter, and substantial
-        non-flag argv tokens. Dropped: flags, bare numbers, dotted-quad hosts,
-        bare interpreter names, and anything too short to be evidence.
-        """
-        markers: set[str] = {str(self.state_dir)}
-        if self.spec.venv:
-            markers.add(str(self.venv_dir))
-
-        argv = self._resolved_command()
-        for index, raw in enumerate(argv):
-            token = str(raw)
-            if not token or token.startswith("-"):
-                continue
-            # A bare interpreter identifies nothing; an absolute path to one
-            # inside our venv is already covered by the venv marker.
-            if index == 0 and Path(token).name in self._GENERIC_ARGV0:
-                continue
-            if token.replace(".", "").isdigit():      # 8399, 127.0.0.1
-                continue
-            if len(token) < self._MIN_MARKER_LEN:
-                continue
-            markers.add(token)
-
-        if len(self.spec.name) >= self._MIN_MARKER_LEN:
-            markers.add(self.spec.name)
-        return markers
-
-    def _pid_is_stranger(self, pid: int) -> bool:
-        """Best-effort: True only when we can PROVE ``pid`` is NOT our process.
-
-        Reads the process command line via ``ps`` and looks for the curated
-        ownership markers from :meth:`_ownership_markers`. When ``ps`` is
-        unavailable, the output is ambiguous, or no marker is distinctive
-        enough to be evidence, we return False (proceed) — never block teardown
-        on an unknowable probe, which is what the three built-in managers do.
-
-        Mirrors the identically-named guard in blender_mcp_manager,
-        comfyui_mps_manager and vllm_metal_manager.
-        """
+    @staticmethod
+    def _process_start_time(pid: int) -> Optional[str]:
+        """Absolute start time of ``pid`` per ``ps``, or None if unknowable."""
         try:
             out = subprocess.run(
-                # -ww: unlimited output width. Linux procps truncates to the
-                # terminal width (80 when there is no tty, i.e. in CI and
-                # under any daemon), which cuts long path markers off the end
-                # and makes our OWN process read as a stranger — so stop()
-                # would refuse to stop it. macOS ps accepts -ww as a no-op.
-                ["ps", "-ww", "-p", str(pid), "-o", "command="],
+                ["ps", "-o", "lstart=", "-p", str(pid)],
                 capture_output=True, text=True, timeout=5, check=False,
                 encoding="utf-8", errors="replace",
             )
         except (OSError, subprocess.SubprocessError):
+            return None
+        if out.returncode != 0:
+            return None
+        return (out.stdout or "").strip() or None
+
+    def _recorded_start_time(self) -> Optional[str]:
+        """The start time stamped into the pid file at spawn, if present."""
+        try:
+            body = self.pid_file.read_text(encoding="utf-8")
+        except OSError:
+            return None
+        for line in body.splitlines()[1:]:
+            if line.startswith("start="):
+                return line[len("start="):].strip() or None
+        return None
+
+    def _pid_is_stranger(self, pid: int) -> bool:
+        """True only when we can PROVE ``pid`` is NOT the process we launched.
+
+        A pid is not an identity — the OS recycles it, and a crashed service
+        leaves its pid file behind — but ``(pid, start time)`` is unique on
+        POSIX. `start()` stamps the start time into the pid file, so this
+        compares the recorded value against the live process and gets a
+        definitive answer.
+
+        Two earlier attempts matched the process argv instead, and each failed
+        in both directions: seeding markers from the whole argv cleared 87
+        unrelated processes on one developer machine (``-m``, ``127.0.0.1``,
+        the port number), while curating the markers meant a spec whose tokens
+        were all generic reduced to evidence that never appears in a command
+        line at all — disowning our own live process, so `stop()` deleted the
+        pid file and returned success while the service kept running. An argv
+        is simply not an identity: a wrapper script, ``exec``, ``setproctitle``
+        or a gunicorn/celery master rewrites it.
+
+        Falls back to False (proceed) when the answer is unknowable — a pid
+        file written before this format, or a ``ps`` that will not answer —
+        which is the pre-existing behavior and matches the built-in managers'
+        rule that an unknowable probe must never block teardown.
+        """
+        recorded = self._recorded_start_time()
+        if recorded is None:
+            return False  # legacy pid file — no better answer than before
+        current = self._process_start_time(pid)
+        if current is None:
             return False  # can't tell — proceed
-        cmdline = (out.stdout or "").strip()
-        if out.returncode != 0 or not cmdline:
-            return False  # can't tell — proceed
-        markers = self._ownership_markers()
-        if not markers:
-            return False  # nothing distinctive to match on — proceed
-        return not any(marker in cmdline for marker in markers)
+        return current != recorded
 
     @staticmethod
     def _pid_alive(pid: int) -> bool:

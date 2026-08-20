@@ -531,10 +531,11 @@ def test_a_killed_child_is_reaped_not_reported_alive(tmp_path):
 
 # ── PID-reuse ownership guard (#647/#947) ────────────────────────────────
 #
-# The guard exists so `stop()` never signals a process that merely inherited a
-# recycled pid — and `_signal` escalates through `os.killpg`, so a wrong verdict
-# takes out a stranger's whole process group. Its correctness lives entirely in
-# which markers count as proof of ownership, so that is what these pin.
+# `stop()` escalates to `os.killpg`, so a wrong verdict takes out a stranger's
+# whole process group; a wrong verdict the other way deletes the pid file while
+# our service keeps running, untracked. Identity is `(pid, start time)`, which
+# is unique on POSIX — NOT the argv, which a wrapper script, `exec`,
+# `setproctitle` or a gunicorn/celery master rewrites at will.
 
 
 def _manager(tmp_path: Path, name: str, command: tuple[str, ...]):
@@ -544,81 +545,96 @@ def _manager(tmp_path: Path, name: str, command: tuple[str, ...]):
     )
 
 
-def test_ownership_markers_exclude_tokens_that_match_arbitrary_processes(
+def test_start_records_the_process_start_time_alongside_the_pid(tmp_path: Path) -> None:
+    manager = _manager(tmp_path, "identity", (sys.executable, "-c", "import time; time.sleep(30)"))
+    manager.state_dir.mkdir(parents=True, exist_ok=True)
+    proc = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(30)"],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+    try:
+        manager._write_pid_file(proc.pid)
+        assert manager._read_pid() == proc.pid
+        recorded = manager._recorded_start_time()
+        assert recorded, "start time must be stamped so a recycled pid is detectable"
+        assert recorded == manager._process_start_time(proc.pid)
+        # The process we launched is never a stranger to itself.
+        assert manager._pid_is_stranger(proc.pid) is False
+    finally:
+        proc.kill()
+        proc.wait()
+
+
+def test_a_recycled_pid_is_identified_as_a_stranger(tmp_path: Path) -> None:
+    """A crashed service's pid file outlives it; the OS reuses the number."""
+    manager = _manager(tmp_path, "identity", (sys.executable, "-c", "pass"))
+    manager.state_dir.mkdir(parents=True, exist_ok=True)
+    stranger = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(30)"],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+    try:
+        # Stamp the stranger's pid with a start time that is NOT its own —
+        # exactly what a stale pid file looks like after pid reuse.
+        manager.pid_file.write_text(
+            f"{stranger.pid}\nstart=Thu Jan  1 00:00:00 2020\n", encoding="utf-8"
+        )
+        assert manager._pid_is_stranger(stranger.pid) is True
+        # ...so stop() must not signal it.
+        assert manager.stop() is True          # stale pid dropped, not signalled
+        assert stranger.poll() is None, "stop() signalled a process it did not own"
+    finally:
+        stranger.kill()
+        stranger.wait()
+
+
+def test_our_own_process_is_never_disowned_whatever_its_argv_looks_like(
     tmp_path: Path,
 ) -> None:
-    """Seeding markers with the whole argv inverts the guard.
+    """The argv-matching guard this replaced failed exactly here.
 
-    `-m`, `--host`, `--port`, `python`, `127.0.0.1` and `8399` each appear in a
-    large fraction of any real process table, so a guard that accepts them
-    clears strangers for signalling instead of blocking them.
+    A spec whose tokens are all generic (`api` running `python -m app`) left no
+    marker that appears in a command line, so the guard called our own live
+    process a stranger: `stop()` deleted the pid file and returned success
+    while the service kept running, untracked.
     """
-    manager = _manager(
-        tmp_path,
-        "sam3-segment",
-        ("python", "-m", "sam3.server", "--host", "127.0.0.1", "--port", "8399"),
+    manager = _manager(tmp_path, "api", ("python", "-m", "app"))
+    manager.state_dir.mkdir(parents=True, exist_ok=True)
+    ours = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(30)"],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
-    markers = manager._ownership_markers()
-
-    for junk in ("-m", "--host", "--port", "python", "127.0.0.1", "8399"):
-        assert junk not in markers, f"{junk!r} is not evidence of ownership"
-
-    # What remains is distinctive: the state dir, the module path, the name.
-    assert str(manager.state_dir) in markers
-    assert "sam3.server" in markers
-    assert "sam3-segment" in markers
+    try:
+        manager._write_pid_file(ours.pid)
+        assert manager._pid_is_stranger(ours.pid) is False
+        assert manager.status().running is True
+    finally:
+        ours.kill()
+        ours.wait()
 
 
-def test_short_service_name_is_not_used_as_an_ownership_marker(
+def test_a_legacy_single_line_pid_file_degrades_to_the_previous_behaviour(
     tmp_path: Path,
 ) -> None:
-    """A three-letter name would match as a substring of unrelated commands."""
-    manager = _manager(tmp_path, "api", ("python", "-m", "app"))
-    markers = manager._ownership_markers()
+    """No recorded start time means no better answer than before — proceed."""
+    manager = _manager(tmp_path, "identity", (sys.executable, "-c", "pass"))
+    manager.state_dir.mkdir(parents=True, exist_ok=True)
+    manager.pid_file.write_text("4242\n", encoding="utf-8")
 
-    assert "api" not in markers
-    assert "app" not in markers          # below the minimum marker length
-    assert markers == {str(manager.state_dir)}
-
-
-def test_pid_is_stranger_distinguishes_our_process_from_an_unrelated_one(
-    tmp_path: Path, monkeypatch
-) -> None:
-    manager = _manager(
-        tmp_path, "sam3-segment", ("python", "-m", "sam3.server", "--port", "8399")
-    )
-
-    def fake_ps(cmdline: str):
-        def _run(argv, **kwargs):
-            assert argv[0] == "ps"
-            return subprocess.CompletedProcess(argv, 0, stdout=cmdline, stderr="")
-        return _run
-
-    ours = f"python -m sam3.server --port 8399 --state {manager.state_dir}"
-    monkeypatch.setattr(subprocess, "run", fake_ps(ours))
+    assert manager._read_pid() == 4242
+    assert manager._recorded_start_time() is None
     assert manager._pid_is_stranger(4242) is False
 
-    # A real process from this machine's table that happens to share the
-    # loopback address and a port number — the case the naive guard cleared.
-    stranger = "/usr/libexec/containermanagerd --runmode=agent --host 127.0.0.1 --port 8399"
-    monkeypatch.setattr(subprocess, "run", fake_ps(stranger))
-    assert manager._pid_is_stranger(4242) is True
 
-
-def test_pid_is_stranger_proceeds_when_the_probe_is_unusable(
+def test_pid_is_stranger_proceeds_when_ps_cannot_answer(
     tmp_path: Path, monkeypatch
 ) -> None:
-    """An unknowable probe must never block teardown — matches the built-ins."""
-    manager = _manager(tmp_path, "sam3-segment", ("python", "-m", "sam3.server"))
+    manager = _manager(tmp_path, "identity", (sys.executable, "-c", "pass"))
+    manager.state_dir.mkdir(parents=True, exist_ok=True)
+    manager.pid_file.write_text("4242\nstart=Thu Jan  1 00:00:00 2020\n", encoding="utf-8")
 
     def failing(argv, **kwargs):
         raise OSError("ps missing")
 
     monkeypatch.setattr(subprocess, "run", failing)
-    assert manager._pid_is_stranger(4242) is False
-
-    def empty(argv, **kwargs):
-        return subprocess.CompletedProcess(argv, 1, stdout="", stderr="")
-
-    monkeypatch.setattr(subprocess, "run", empty)
     assert manager._pid_is_stranger(4242) is False
