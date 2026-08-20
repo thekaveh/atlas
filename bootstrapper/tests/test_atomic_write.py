@@ -213,3 +213,37 @@ def test_unversioned_pruning_never_evicts_versioned_migration_snapshots(
         if not p.name.startswith(".env.backup.v")
     ]
     assert len(plain) == 1, plain
+
+
+def test_retention_holds_for_a_relative_source_path(tmp_path: Path, monkeypatch) -> None:
+    """`mkstemp` returns an abspath; `glob` returns the caller's path form.
+
+    Comparing the two directly makes the just-written snapshot look like an old
+    one, so the cap silently retains one fewer than asked — and at `keep=1` it
+    deletes the very path being returned.
+    """
+    (tmp_path / "sub").mkdir()
+    monkeypatch.chdir(tmp_path)
+    relative = Path("sub/.env")
+    relative.write_text("SECRET=value\n", encoding="utf-8")
+
+    for _ in range(6):
+        returned = atomic_write.create_private_backup(relative, keep=5)
+
+    kept = list((tmp_path / "sub").glob(".env.backup.*"))
+    assert len(kept) == 5, kept
+    assert returned.exists(), "the returned snapshot must survive its own pruning"
+
+
+def test_retention_of_one_keeps_exactly_the_new_snapshot(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    relative = Path(".env")
+    relative.write_text("SECRET=value\n", encoding="utf-8")
+
+    for _ in range(4):
+        returned = atomic_write.create_private_backup(relative, keep=1)
+
+    kept = list(tmp_path.glob(".env.backup.*"))
+    assert len(kept) == 1, kept
+    assert returned.exists()
+    assert kept[0].name == returned.name

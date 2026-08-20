@@ -112,11 +112,19 @@ def _prune_old_backups(
     # after the prefix keeps each version's history disjoint: after
     # `.env.backup.` a versioned name has `v1.`, not a digit.
     scoped = re.compile(re.escape(prefix) + r"\d{8}T\d{6}\.")
+    # Compare by NAME, not by path object. `tempfile.mkstemp` always returns an
+    # absolute path while `glob` yields paths in whatever form the caller passed
+    # in, so `p != protect` is True for every candidate when `source` is
+    # relative (or contains `..`) — which puts the just-written snapshot back
+    # into the prune set and silently retains one fewer than asked, or at
+    # keep=1 deletes the file being returned. Both live in the same directory,
+    # so the basename is an exact identity here.
+    protect_name = protect.name if protect is not None else None
     try:
         existing = [
             p
             for p in source_path.parent.glob(f"{prefix}*")
-            if p.is_file() and p != protect and scoped.match(p.name)
+            if p.is_file() and p.name != protect_name and scoped.match(p.name)
         ]
     except OSError:
         return
