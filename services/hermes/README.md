@@ -166,7 +166,7 @@ for scripted changes.
   inside `ollama run <model>`
   or pick a cloud model.
 - **Open WebUI model-list cache** — Open WebUI caches the LiteLLM model list
-  for 5 minutes (`MODEL_LIST_CACHE_TTL=300`). After first start, `hermes-agent`
+  for 5 minutes (`MODELS_CACHE_TTL=300`). After first start, `hermes-agent`
   may take up to 5 minutes to appear in the dropdown. Set
   `OPEN_WEB_UI_MODEL_CACHE_TTL=0` to disable while developing.
 
