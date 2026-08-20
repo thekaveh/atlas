@@ -574,20 +574,69 @@ class ManagedHostManager:
         except (OSError, ValueError):
             return None
 
+    #: Interpreter names that identify no particular service on their own.
+    #: `python` matches most of a developer's process table.
+    _GENERIC_ARGV0 = frozenset({
+        "python", "python3", "node", "sh", "bash", "zsh", "env", "uv", "uvx",
+        "npx", "ruby", "perl", "java", "deno", "bun",
+    })
+
+    #: A marker shorter than this matches too much of an arbitrary command
+    #: line to prove ownership of a pid.
+    _MIN_MARKER_LEN = 6
+
+    def _ownership_markers(self) -> set[str]:
+        """Curated strings whose presence in a command line implies it is ours.
+
+        The built-in managers hardcode three or four of these (blender_mcp uses
+        ``("blender", "Blender", launcher_path, state_dir)``). This manager runs
+        whatever a consumer declares, so the set is derived — but it must be
+        derived *narrowly*. Seeding it with the whole argv is actively harmful:
+        a spec like ``python -m app.server --host 127.0.0.1 --port 8399``
+        contributes ``-m``, ``--host``, ``--port``, ``python``, ``127.0.0.1``
+        and ``8399``, each of which appears in a large fraction of any real
+        process table — so the guard would clear a stranger for signalling
+        rather than block it, which is the exact failure it exists to prevent.
+
+        Kept: paths that are unique to this managed host (state dir, venv), the
+        resolved executable when it is not a bare interpreter, and substantial
+        non-flag argv tokens. Dropped: flags, bare numbers, dotted-quad hosts,
+        bare interpreter names, and anything too short to be evidence.
+        """
+        markers: set[str] = {str(self.state_dir)}
+        if self.spec.venv:
+            markers.add(str(self.venv_dir))
+
+        argv = self._resolved_command()
+        for index, raw in enumerate(argv):
+            token = str(raw)
+            if not token or token.startswith("-"):
+                continue
+            # A bare interpreter identifies nothing; an absolute path to one
+            # inside our venv is already covered by the venv marker.
+            if index == 0 and Path(token).name in self._GENERIC_ARGV0:
+                continue
+            if token.replace(".", "").isdigit():      # 8399, 127.0.0.1
+                continue
+            if len(token) < self._MIN_MARKER_LEN:
+                continue
+            markers.add(token)
+
+        if len(self.spec.name) >= self._MIN_MARKER_LEN:
+            markers.add(self.spec.name)
+        return markers
+
     def _pid_is_stranger(self, pid: int) -> bool:
         """Best-effort: True only when we can PROVE ``pid`` is NOT our process.
 
-        Reads the process command line via ``ps``. If it clearly belongs to
-        some other program (none of the argv or state-dir markers we launched
-        it with appear) we refuse to signal it. When ``ps`` is unavailable or
-        the output is ambiguous we return False (proceed) — never block
-        teardown on an unknowable probe.
+        Reads the process command line via ``ps`` and looks for the curated
+        ownership markers from :meth:`_ownership_markers`. When ``ps`` is
+        unavailable, the output is ambiguous, or no marker is distinctive
+        enough to be evidence, we return False (proceed) — never block teardown
+        on an unknowable probe, which is what the three built-in managers do.
 
         Mirrors the identically-named guard in blender_mcp_manager,
-        comfyui_mps_manager and vllm_metal_manager. Unlike those three, the
-        markers here come from the consumer's declared spec rather than a
-        known binary name, because this manager runs whatever the manifest
-        declares.
+        comfyui_mps_manager and vllm_metal_manager.
         """
         try:
             out = subprocess.run(
@@ -605,9 +654,10 @@ class ManagedHostManager:
         cmdline = (out.stdout or "").strip()
         if out.returncode != 0 or not cmdline:
             return False  # can't tell — proceed
-        markers = {str(self.state_dir), self.spec.name}
-        markers.update(str(part) for part in self._resolved_command() if str(part))
-        return not any(marker and marker in cmdline for marker in markers)
+        markers = self._ownership_markers()
+        if not markers:
+            return False  # nothing distinctive to match on — proceed
+        return not any(marker in cmdline for marker in markers)
 
     @staticmethod
     def _pid_alive(pid: int) -> bool:
