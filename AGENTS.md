@@ -212,7 +212,7 @@ All ports are calculated as offsets from `BASE_PORT` (default 63000). Service po
 `bootstrapper/tests/` holds 3,600+ pytest tests covering manifest validation, env-example consistency, the docs-drift gate, the diagram renderer, the deps section writer, Kong config generation, and bootstrapper-internal data flow. Run from the repo root:
 
 ```bash
-uv run --project bootstrapper pytest bootstrapper/tests -q                          # full suite (~60 sec)
+uv run --project bootstrapper pytest bootstrapper/tests -q                          # full suite (~6-7 min)
 uv run --project bootstrapper pytest bootstrapper/tests/test_docs_drift.py          # drift gate alone
 uv run --project bootstrapper pytest bootstrapper/tests/test_manifests.py -v        # single file, verbose
 uv run --project bootstrapper pytest bootstrapper/tests -k weaviate                 # filter by name
