@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import errno
+import re
 import stat
 import tempfile
 from datetime import datetime
@@ -104,11 +105,18 @@ def _prune_old_backups(
     """
     if keep < 0:
         return
+    # The glob alone is not enough to scope a version. `.env.backup.*` also
+    # matches `.env.backup.v1.<ts>.<rand>`, so an UNVERSIONED rotation would
+    # treat the v1/v2/v3 migration snapshots as its own history and prune the
+    # rollback points those exist to provide. Requiring a timestamp immediately
+    # after the prefix keeps each version's history disjoint: after
+    # `.env.backup.` a versioned name has `v1.`, not a digit.
+    scoped = re.compile(re.escape(prefix) + r"\d{8}T\d{6}\.")
     try:
         existing = [
             p
             for p in source_path.parent.glob(f"{prefix}*")
-            if p.is_file() and p != protect
+            if p.is_file() and p != protect and scoped.match(p.name)
         ]
     except OSError:
         return

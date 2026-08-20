@@ -181,3 +181,35 @@ def test_private_backup_retention_can_be_disabled(tmp_path: Path) -> None:
         atomic_write.create_private_backup(source, keep=-1)
 
     assert len(list(tmp_path.glob(".env.backup.*"))) == 4
+
+
+def test_unversioned_pruning_never_evicts_versioned_migration_snapshots(
+    tmp_path: Path,
+) -> None:
+    """The v1/v2/v3 snapshots are env-migration rollback points.
+
+    `.env.backup.*` also globs `.env.backup.v1.<ts>.<rand>`, so without an
+    explicit version scope a plain rotation — a base-port change, a key
+    regeneration — would count those as its own history and delete them.
+    """
+    source = tmp_path / ".env"
+    source.write_text("SECRET=value\n", encoding="utf-8")
+
+    migrations = [
+        atomic_write.create_private_backup(source, version=v, keep=2)
+        for v in ("v1", "v2", "v3")
+    ]
+
+    # A plain rotation with a tight cap must not touch any of them.
+    for _ in range(4):
+        atomic_write.create_private_backup(source, keep=1)
+
+    for snapshot in migrations:
+        assert snapshot.exists(), f"migration rollback point {snapshot.name} was pruned"
+    assert len(list(tmp_path.glob(".env.backup.v*"))) == 3
+    # ...and the plain history is still capped.
+    plain = [
+        p for p in tmp_path.glob(".env.backup.*")
+        if not p.name.startswith(".env.backup.v")
+    ]
+    assert len(plain) == 1, plain
