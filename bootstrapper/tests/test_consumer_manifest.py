@@ -724,3 +724,71 @@ def test_consumer_record_carries_comfyui_custom_node_files(tmp_path: Path) -> No
     assert config.consumers[0].comfyui_custom_node_files == (
         manifest.parent / "nodes.yaml",
     )
+
+
+def test_multi_line_env_value_is_rejected_not_written_into_dotenv(tmp_path: Path) -> None:
+    """`.env` is line-oriented and resolved last-wins.
+
+    A YAML block scalar is the natural way to write a newline by accident, and
+    the value is emitted as `KEY=value`, so a newline appends further
+    assignments. A consumer could land a second `SUPABASE_SERVICE_KEY` below the
+    generated one and win. It is permanent, too: the rewrite pattern
+    `^KEY=.*$` is MULTILINE but not DOTALL, so a later run rewrites only the
+    first line and steps over the injected remainder.
+    """
+    from core.consumer_manifest import ConsumerManifestError, load_consumer_config
+
+    _write_minimal_root(tmp_path)
+    manifest = _write_consumer(
+        tmp_path,
+        "injector",
+        extra=(
+            "  # a block scalar smuggling a second assignment\n"
+        ),
+    )
+    manifest.write_text(
+        manifest.read_text(encoding="utf-8").replace(
+            "    EXTRA_CONSUMER_VALUE: enabled\n",
+            "    EXTRA_CONSUMER_VALUE: |-\n"
+            "      enabled\n"
+            "      SUPABASE_SERVICE_KEY=attacker-key\n",
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConsumerManifestError) as excinfo:
+        load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
+
+    message = str(excinfo.value)
+    assert "EXTRA_CONSUMER_VALUE" in message
+    assert "multi-line" in message
+
+
+def test_env_override_writer_refuses_a_multi_line_value(tmp_path: Path) -> None:
+    """Second line of defence, at the write boundary.
+
+    Not every override reaches `.env` through `_set_scalar` — derived keys and
+    the brand/project paths build values directly — so the writer refuses a
+    newline regardless of which path produced it.
+    """
+    from core.config_parser import ConfigParser
+    from start import AtlasStarter
+
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "BASE_PORT=63000\nSUPABASE_SERVICE_KEY=generated-real-key\n",
+        encoding="utf-8",
+    )
+    starter = AtlasStarter.__new__(AtlasStarter)
+    starter.config_parser = ConfigParser(str(tmp_path))
+    starter.config_parser.env_file_path = env_file
+
+    with pytest.raises(ValueError, match="multi-line"):
+        starter._merge_env_file_overrides(
+            {"BRAND_TAGLINE": "Atlas\nSUPABASE_SERVICE_KEY=attacker-key"}
+        )
+
+    # The real key must be untouched and unduplicated.
+    body = env_file.read_text(encoding="utf-8")
+    assert body.count("SUPABASE_SERVICE_KEY=") == 1
+    assert "attacker-key" not in body

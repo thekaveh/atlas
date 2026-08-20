@@ -665,6 +665,25 @@ def _set_scalar(
     origin: str,
 ) -> None:
     rendered = str(value)
+    # `.env` is line-oriented and resolved last-wins, so a newline inside a
+    # value is not a formatting quirk — it appends further assignments. A YAML
+    # block scalar is the natural way to write one by accident:
+    #
+    #     brand:
+    #       tagline: |-
+    #         Atlas playground
+    #         SUPABASE_SERVICE_KEY=...
+    #
+    # which lands a second SUPABASE_SERVICE_KEY line below the generated one
+    # and wins. It is also permanent: the rewrite pattern `^KEY=.*$` is
+    # MULTILINE but not DOTALL, so later runs rewrite only the first line and
+    # step over the injected remainder. Refuse it at the parse boundary.
+    if "\n" in rendered or "\r" in rendered:
+        raise ConsumerManifestError(
+            f"{key} has a multi-line consumer manifest value ({origin}). "
+            f".env is line-oriented, so a newline in a value injects "
+            f"additional assignments; use a single-line value."
+        )
     if key in env and env[key] != rendered:
         raise ConsumerManifestError(
             f"{key} has conflicting consumer manifest values: "

@@ -765,6 +765,19 @@ class AtlasStarter:
         updated_content = content
 
         for var_name, var_value in overrides.items():
+            # Belt-and-braces against `.env` line injection. `_set_scalar`
+            # rejects multi-line consumer values at the parse boundary, but not
+            # every override reaches this dict through it (derived keys and the
+            # brand/project paths build values directly). A newline here would
+            # append arbitrary assignments that `parse_env_file` resolves
+            # last-wins — and the `^KEY=.*$` rewrite below is MULTILINE, not
+            # DOTALL, so a later run would rewrite only the first line and leave
+            # the injected remainder in place permanently.
+            if "\n" in var_value or "\r" in var_value:
+                raise ValueError(
+                    f"refusing to write a multi-line value for {var_name}: "
+                    f"a newline in a .env value injects further assignments"
+                )
             pattern = rf"^{re.escape(var_name)}=.*$"
             replacement = f"{var_name}={var_value}"
             if re.search(pattern, updated_content, re.MULTILINE):
