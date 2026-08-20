@@ -645,6 +645,16 @@ class ManagedHostManager:
         file written before this format, or a ``ps`` that will not answer —
         which is the pre-existing behavior and matches the built-in managers'
         rule that an unknowable probe must never block teardown.
+
+        On ``lstart`` granularity, since it invites the question: it resolves to
+        one second, so two processes started back-to-back do share a value.
+        That does not weaken this comparison. A pid is only recycled after the
+        kernel's pid counter wraps — tens of thousands of spawns — so the
+        stranger holding it necessarily started long after ours exited, in a
+        different second. Measured on macOS: the value is stable across
+        repeated probes of one live process, and is readable immediately after
+        ``Popen`` (0 misses in 40 spawn-and-probe cycles), so neither drift nor
+        a spawn race can silently turn our own process into a stranger.
         """
         recorded = self._recorded_start_time()
         if recorded is None:

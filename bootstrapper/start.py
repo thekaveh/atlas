@@ -112,6 +112,25 @@ from services.service_config import ServiceConfig
 from services.dependency_manager import DependencyManager
 from utils.source_override_manager import SourceOverrideManager
 
+#: Multi-select lists the wizard writes, where BLANK is a deliberate answer —
+#: "I selected none" — not a missing value. `.env.example` ships a non-empty
+#: default for each, so the blank-backfill in backfill_missing_env_vars would
+#: otherwise re-seed them on the very run that cleared them: deselecting every
+#: Ollama model writes `OLLAMA_USER_MODELS=`, backfill restored the default
+#: trio, and `ollama-pull` then downloaded several GB the user had just
+#: declined. Backfill exists to repair values that were never set, so it must
+#: not overwrite an intentional empty.
+_USER_OWNED_BLANKABLE: frozenset = frozenset({
+    "OLLAMA_USER_MODELS",
+    "OLLAMA_CUSTOM_MODELS",
+    "OPENAI_USER_MODELS",
+    "ANTHROPIC_USER_MODELS",
+    "OPENROUTER_USER_MODELS",
+    "COMFYUI_USER_MODELS",
+    "WEAVIATE_ENABLE_MODULES",
+    "N8N_INIT_NODES",
+})
+
 
 def _detect_env_image_drift(
     existing_env: dict, env_example_path,
@@ -1264,7 +1283,9 @@ class AtlasStarter:
         blank_fills = {
             key: example_values[key]
             for key in blank_keys
-            if example_values.get(key) and key not in migration_owned
+            if example_values.get(key)
+            and key not in migration_owned
+            and key not in _USER_OWNED_BLANKABLE
         }
         if blank_fills:
             new_lines: list[str] = []
