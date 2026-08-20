@@ -126,3 +126,58 @@ def test_private_backups_are_exclusive_unique_and_mode_clamped(
     assert second.read_bytes() == source.read_bytes()
     assert os.stat(first).st_mode & 0o777 == 0o600
     assert os.stat(second).st_mode & 0o777 == 0o600
+
+
+def test_private_backups_are_pruned_to_the_retention_cap(tmp_path: Path) -> None:
+    """Every base-port change, key rotation and env migration snapshots `.env`.
+
+    Without a cap those accumulate without bound, each holding the Supabase JWT
+    signing keys, so a rotated secret stays readable on disk indefinitely.
+    """
+    source = tmp_path / ".env"
+    source.write_text("SECRET=value\n", encoding="utf-8")
+
+    made = [
+        atomic_write.create_private_backup(source, keep=3)
+        for _ in range(7)
+    ]
+
+    surviving = sorted(tmp_path.glob(".env.backup.*"))
+    assert len(surviving) == 3, surviving
+    # Every survivor is one of the snapshots actually created, and the newest
+    # one is always retained. (Snapshots written inside the same second share an
+    # mtime, so which of *those* survives is deliberately unspecified — only the
+    # count and the newest are contractual.)
+    assert set(surviving) <= set(made)
+    assert made[-1] in surviving
+    # Pruning never damages the source or the snapshot contents.
+    assert source.read_text(encoding="utf-8") == "SECRET=value\n"
+    for path in surviving:
+        assert path.read_text(encoding="utf-8") == "SECRET=value\n"
+        assert os.stat(path).st_mode & 0o777 == 0o600
+
+
+def test_private_backup_pruning_is_scoped_to_its_version_prefix(tmp_path: Path) -> None:
+    """A v1 migration snapshot must not evict the unversioned rotation history."""
+    source = tmp_path / ".env"
+    source.write_text("SECRET=value\n", encoding="utf-8")
+
+    plain = [atomic_write.create_private_backup(source, keep=2) for _ in range(2)]
+    versioned = [
+        atomic_write.create_private_backup(source, version="v1", keep=2)
+        for _ in range(3)
+    ]
+
+    assert all(p.exists() for p in plain)
+    assert len(list(tmp_path.glob(".env.backup.v1.*"))) == 2
+    assert len(versioned) == 3
+
+
+def test_private_backup_retention_can_be_disabled(tmp_path: Path) -> None:
+    source = tmp_path / ".env"
+    source.write_text("SECRET=value\n", encoding="utf-8")
+
+    for _ in range(4):
+        atomic_write.create_private_backup(source, keep=-1)
+
+    assert len(list(tmp_path.glob(".env.backup.*"))) == 4
