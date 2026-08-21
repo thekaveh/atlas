@@ -64,9 +64,26 @@ GRANT ALL ON storage.buckets TO service_role;
 GRANT ALL ON storage.objects TO service_role;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA storage TO service_role;
 
-GRANT SELECT ON storage.buckets TO anon, authenticated;
-GRANT SELECT ON storage.objects TO anon, authenticated;
+-- `anon` is deliberately EXCLUDED here. RLS is disabled on these tables (see
+-- above), so a GRANT is the only control — and PostgREST publishes `storage`
+-- (PGRST_DB_SCHEMA: "public,storage") on a port that binds 0.0.0.0 unless
+-- HOST_BIND_IP is set. Granting anon SELECT therefore made every object's
+-- path, owner and metadata, and every bucket row, readable by any
+-- unauthenticated network peer. Verified before this change: an
+-- unauthenticated request with `Accept-Profile: storage` returned
+-- `alice/private/tax-return-2025.pdf`.
+--
+-- Nothing reads these tables as anon: the Storage service has its own HTTP
+-- API and its own credentials, and no code in the tree queries them through
+-- PostgREST.
+GRANT SELECT ON storage.buckets TO authenticated;
+GRANT SELECT ON storage.objects TO authenticated;
 GRANT INSERT, UPDATE, DELETE ON storage.objects TO authenticated;
+
+-- Repair existing deployments: the grant above was previously issued to anon,
+-- and a GRANT already made is not undone by re-running the slice.
+REVOKE ALL ON storage.buckets FROM anon;
+REVOKE ALL ON storage.objects FROM anon;
 
 -- Create default storage bucket (safe to re-run)
 DO $$ BEGIN

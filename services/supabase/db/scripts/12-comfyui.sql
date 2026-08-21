@@ -57,3 +57,34 @@ DO $$ BEGIN
        'basic', true);
   END IF;
 END $$;
+
+-- ─────────────────────────────────────────────────────────────────────
+-- Row Level Security.
+--
+-- 06-permissions grants `anon` SELECT on every table in `public` (:15) and
+-- sets the same as a DEFAULT PRIVILEGE (:25), and the pinned
+-- supabase/postgres image ships default privileges granting anon full
+-- arwdDxtm. PostgREST publishes `public` (compose.yml PGRST_DB_SCHEMA) with
+-- PGRST_DB_ANON_ROLE=anon, and its port binds 0.0.0.0 unless HOST_BIND_IP is
+-- set. RLS is therefore the ONLY thing between an unauthenticated network
+-- peer and these tables.
+--
+-- Verified against a running stack before this was added: an unauthenticated
+-- GET returned every row of comfyui_workflows, and a DELETE removed them.
+-- comfyui_generations holds user prompts and output paths.
+--
+-- Scoped to the service_role claim exactly like the memory (14), research
+-- (13) and media-ledger (17) tables. The backend and GoTrue connect as
+-- supabase_admin, which OWNS these tables and so bypasses RLS — this does not
+-- affect them. Re-running the slice is idempotent, so existing deployments
+-- are repaired on their next start.
+ALTER TABLE public.comfyui_workflows ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.comfyui_generations ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Service role can access all comfyui workflows" ON public.comfyui_workflows;
+CREATE POLICY "Service role can access all comfyui workflows" ON public.comfyui_workflows
+    FOR ALL USING (auth.role() = 'service_role');
+
+DROP POLICY IF EXISTS "Service role can access all comfyui generations" ON public.comfyui_generations;
+CREATE POLICY "Service role can access all comfyui generations" ON public.comfyui_generations
+    FOR ALL USING (auth.role() = 'service_role');

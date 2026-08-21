@@ -62,8 +62,14 @@ SELECT
     ),
     COALESCE(created_at, now())
 FROM auth.users
-ON CONFLICT (id) DO UPDATE
-SET name = EXCLUDED.name;
+-- DO NOTHING, not DO UPDATE. This slice re-runs on every `docker compose up`,
+-- so overwriting `name` silently reverted every profile rename on the next
+-- restart — directly undoing the write the "Users can update own profile"
+-- policy below explicitly permits. This is a BACKFILL: it exists to create a
+-- profile row for an auth user that has none. Keeping an existing row is the
+-- whole point, and the `on_auth_user_sync` trigger above already propagates
+-- genuine auth-side changes as they happen.
+ON CONFLICT (id) DO NOTHING;
 
 ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
 
