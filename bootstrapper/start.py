@@ -120,6 +120,24 @@ from utils.source_override_manager import SourceOverrideManager
 #: trio, and `ollama-pull` then downloaded several GB the user had just
 #: declined. Backfill exists to repair values that were never set, so it must
 #: not overwrite an intentional empty.
+#: Split `.env` text the way the canonical reader does. `ConfigParser.parse_env_file`
+#: iterates the file object, so it splits on `\n`, `\r\n` and `\r` — and nothing else.
+#: `str.splitlines()` additionally splits on \x0b \x0c \x1c \x1d \x1e \x85 U+2028 and
+#: U+2029, so using it here made the writer disagree with the reader about what a line is:
+#: a value carrying one of those was stored as a single physical line, re-read as two, and
+#: rewritten with a REAL newline between them — promoting the remainder to a genuine
+#: assignment that wins last-wins resolution. Matching the reader removes that gadget.
+_ENV_LINE_SPLIT_RE = re.compile(r"\r\n|\r|\n")
+
+
+def _env_lines(text: str, *, keepends: bool = False) -> list[str]:
+    if not keepends:
+        return _ENV_LINE_SPLIT_RE.split(text)
+    parts = _ENV_LINE_SPLIT_RE.split(text)
+    ends = _ENV_LINE_SPLIT_RE.findall(text)
+    return [seg + (ends[i] if i < len(ends) else "") for i, seg in enumerate(parts)]
+
+
 _USER_OWNED_BLANKABLE: frozenset = frozenset({
     "OLLAMA_USER_MODELS",
     "OLLAMA_CUSTOM_MODELS",
@@ -1235,7 +1253,7 @@ class AtlasStarter:
 
         existing_keys: set[str] = set()
         blank_keys: set[str] = set()
-        for line in env_text.splitlines():
+        for line in _env_lines(env_text):
             stripped = line.strip()
             if not stripped or stripped.startswith("#"):
                 continue
@@ -1291,7 +1309,7 @@ class AtlasStarter:
         }
         if blank_fills:
             new_lines: list[str] = []
-            for line in env_text.splitlines(keepends=True):
+            for line in _env_lines(env_text, keepends=True):
                 stripped = line.strip()
                 if "=" in stripped and not stripped.startswith("#"):
                     key, _, raw_value = stripped.partition("=")

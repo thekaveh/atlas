@@ -55,12 +55,22 @@ def assert_safe_env_assignment(key: str, value: str) -> str:
     MULTILINE but not DOTALL, so a later run rewrites only the first line and
     steps over the injected remainder, making it permanent.
 
-    This is the single choke point for that check. It lives here, beside the
-    atomic writer every one of those paths already imports, because putting the
-    guard on one writer and not its siblings is exactly how the first attempt
-    at this fix left the hole open: `_merge_env_file_overrides` was hardened
-    while `SourceOverrideManager.update_env_file` — the writer the profile-apply
-    path actually uses — was not.
+    Scope, stated precisely because an earlier version of this docstring
+    overclaimed: this guards the four writers that can carry CONSUMER-SUPPLIED
+    data — `AtlasStarter._merge_env_file_overrides`,
+    `SourceOverrideManager.update_env_file`,
+    `ServiceConfigManager.update_env_file`, and `_set_scalar` at the manifest
+    parse boundary. It is NOT on every path that writes `.env`: the backfill
+    splice, `key_generator.update_env_key`, `supabase_keys`, `port_manager`, the
+    three env migrations and `scripts/reorg_user_env.py` all format their own
+    `KEY=VALUE` lines from internally-generated values. Route anything
+    externally-sourced through here rather than assuming those are covered.
+
+    It lives beside the atomic writer all four already import, because putting
+    the guard on one writer and not its siblings is exactly how the first
+    attempt left the hole open: `_merge_env_file_overrides` was hardened while
+    `SourceOverrideManager.update_env_file` — the writer the profile-apply path
+    actually uses — was not.
 
     Returns the value coerced to ``str`` so callers can write the result
     directly rather than re-coercing.
@@ -71,10 +81,21 @@ def assert_safe_env_assignment(key: str, value: str) -> str:
             f"variable name"
         )
     rendered = str(value)
-    if "\n" in rendered or "\r" in rendered:
+    # Test against Python's OWN notion of a line, not a `\n`/`\r` membership
+    # check. `str.splitlines()` also splits on \x0b \x0c \x1c \x1d \x1e \x85
+    # U+2028 and U+2029 — and the blank-fill in `backfill_missing_env_vars`
+    # reads `.env` with `splitlines()`. So a value carrying any of those is
+    # written as one physical line, then re-read as two, and the backfill
+    # rewrites the first segment terminated with a REAL newline — promoting the
+    # remainder to a genuine assignment that wins last-wins resolution. Eight
+    # separators bypassed the earlier membership test.
+    #
+    # The identity comparison also catches a TRAILING separator, which a
+    # membership test over a widened character set would still have missed.
+    if rendered.splitlines() != ([rendered] if rendered else []):
         raise ValueError(
-            f"refusing to write a multi-line value for {key}: a newline in a "
-            f".env value injects further assignments"
+            f"refusing to write a multi-line value for {key}: a line separator "
+            f"in a .env value injects further assignments"
         )
     return rendered
 

@@ -25,6 +25,7 @@ from core.endpoints_contract import build_export
 from services.managed_host import (
     HealthProbe,
     HostProcessSpec,
+    HostProcessStatus,
     ManagedHostError,
     ManagedHostManager,
     PreflightResult,
@@ -681,3 +682,35 @@ def test_the_recorded_stamp_does_not_depend_on_ambient_timezone_or_locale(
     finally:
         ours.kill()
         ours.wait()
+
+
+def test_remove_refuses_while_the_process_is_still_running(tmp_path: Path, monkeypatch) -> None:
+    """`stop()` KEEPS the pid file on failure so the process stays tracked.
+
+    `remove()` used to `rmtree` the state dir regardless, throwing that away and
+    orphaning a live process — the same outcome the PID-reuse work exists to
+    prevent, reached through a different door.
+    """
+    manager = _manager(tmp_path, "stubborn", (sys.executable, "-c", "pass"))
+    manager.state_dir.mkdir(parents=True, exist_ok=True)
+    manager.pid_file.write_text("4242\n", encoding="utf-8")
+
+    monkeypatch.setattr(manager, "stop", lambda: False)
+
+    with pytest.raises(ManagedHostError, match="still running"):
+        manager.remove()
+
+    assert manager.state_dir.exists(), "state dir deleted despite a failed stop"
+    assert manager.pid_file.exists(), "pid file deleted — the process is now untracked"
+
+
+def test_remove_deletes_state_once_the_process_is_gone(tmp_path: Path, monkeypatch) -> None:
+    manager = _manager(tmp_path, "gone", (sys.executable, "-c", "pass"))
+    manager.state_dir.mkdir(parents=True, exist_ok=True)
+    manager.pid_file.write_text("4242\n", encoding="utf-8")
+
+    monkeypatch.setattr(manager, "stop", lambda: True)
+    monkeypatch.setattr(manager, "status", lambda: HostProcessStatus(running=False))
+
+    manager.remove()
+    assert not manager.state_dir.exists()

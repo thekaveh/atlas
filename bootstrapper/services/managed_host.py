@@ -578,7 +578,20 @@ class ManagedHostManager:
         return self.start(), not already
 
     def remove(self) -> None:
-        self.stop()
+        """Stop the process and delete the Atlas-owned state directory.
+
+        Refuses to delete the state dir while the process is still alive.
+        `stop()` deliberately KEEPS the pid file when it fails, so the process
+        stays tracked rather than becoming an orphan — and `rmtree` would throw
+        that away, reaching the same orphan outcome the PID-reuse work exists to
+        prevent, just through a different door. Mirrors the contract
+        comfyui_mps_manager already enforces.
+        """
+        if not self.stop() or self.status().running:
+            raise ManagedHostError(
+                f"refusing to remove managed state for {self.spec.name!r} while "
+                f"its process is still running"
+            )
         shutil.rmtree(self.state_dir, ignore_errors=True)
 
     # ── helpers ──────────────────────────────────────────────────────
@@ -669,8 +682,10 @@ class ManagedHostManager:
 
         KNOWN LIMITATION (Linux, unfixed): ``ps -o lstart=`` is computed there
         as ``/proc/stat btime + starttime/Hz``, and ``btime`` derives from the
-        REALTIME clock — so an NTP step or a VM suspend/resume of a second or
-        more shifts a live process's rendered start time and this comparison
+        REALTIME clock — so ANY realtime adjustment that moves `btime`
+        across a second boundary — an NTP step, a VM suspend/resume, or
+        ordinary chrony/ntpd SLEW, which needs no step at all — shifts a live
+        process's rendered start time and this comparison
         would call it a stranger, orphaning it. macOS is immune (``ki_start``
         is an absolute timestamp frozen at fork). The robust Linux fix is to
         read ``/proc/<pid>/stat`` field 22 directly, which is boot-relative and
