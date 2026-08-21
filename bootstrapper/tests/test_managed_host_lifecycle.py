@@ -232,3 +232,43 @@ def test_uncancellable_cleanup_wait_survives_repeated_cancellation():
         return await waiter
 
     assert asyncio.run(scenario()) == "settled"
+
+
+def test_both_pipelines_run_the_same_post_up_steps():
+    """The TUI runs its own `up -d` and never calls `start_docker_services`.
+
+    `_reactivate_n8n_if_needed` lives inside that method, so the step was
+    unreachable on the DEFAULT path: a consumer-declared active n8n workflow
+    with no `N8N_API_KEY` left its production webhook 404 under `./start.sh`
+    while working under `./start.sh --no-tui`. Ordering matters too — the
+    restart must land after the init containers have seeded and before
+    ownership is committed.
+    """
+    import ast
+    import inspect
+    from pathlib import Path
+
+    steps = (
+        "verify_one_shot_init_containers",
+        "_reactivate_n8n_if_needed",
+        "commit_managed_host_processes",
+    )
+
+    linear = inspect.getsource(start_module.AtlasStarter.start_docker_services)
+    linear_order = [s for s in steps if s in linear]
+    assert linear_order == list(steps), linear_order
+
+    tui_src = (
+        Path(start_module.__file__).parent / "ui" / "textual" / "screens" / "wizard_screen.py"
+    ).read_text(encoding="utf-8")
+    tree = ast.parse(tui_src)
+    pipeline = next(
+        node for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name == "_run_pipeline_and_stream"
+    )
+    body = ast.get_source_segment(tui_src, pipeline) or ""
+    tui_order = [s for s in steps if s in body]
+    assert tui_order == list(steps), (
+        f"the Textual pipeline is missing or misordering a post-up step: {tui_order}"
+    )

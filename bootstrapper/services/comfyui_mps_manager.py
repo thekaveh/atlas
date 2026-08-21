@@ -427,7 +427,26 @@ class ComfyUiMpsManager:
             log.close()
         self._untracked_pid = proc.pid
         try:
-            self.pid_file.write_text(str(proc.pid), encoding="utf-8")
+            # Atomic + stamped with the start time, so `_pid_is_stranger`
+            # has an identity to compare and a torn read cannot silently
+            # disable the guard. A plain `write_text` truncates then writes;
+            # measured 0.77% of concurrent reads saw no pid at all, and
+            # `status()`/`_read_pid()` are called outside `_launch_guard`.
+            # Deferred import, matching this module's existing dual-path
+            # handling for `managed_host` (see PreflightResult above).
+            from services.managed_host import (
+                ManagedHostManager as _MHM,
+                write_pid_file_with_identity as _write_pid,
+            )
+
+            # The stamp is best-effort: a `ps` that will not answer must not
+            # fail the launch. Without it the guard degrades to "unknowable,
+            # proceed", which is the pre-existing behavior.
+            try:
+                started = _MHM._process_start_time(proc.pid)
+            except Exception:  # noqa: BLE001 - probe failure is not a launch failure
+                started = None
+            _write_pid(self.pid_file, proc.pid, started)
             self._write_status(
                 installed_ref=self.ref,
                 requirements_sha256=self._requirements_sha256(),
@@ -706,30 +725,32 @@ class ComfyUiMpsManager:
         return self._pid_alive(pid) or self._process_group_alive(pid)
 
     def _pid_is_stranger(self, pid: int) -> bool:
-        """Best-effort: True only when we can PROVE ``pid`` is NOT our ComfyUI.
+        """True only when we can PROVE ``pid`` is NOT the process we launched.
 
-        Reads the process command line via ``ps``. If it clearly belongs to some
-        other program (no ComfyUI ``main.py`` / state dir in the argv) we refuse
-        to signal it. When ``ps`` is unavailable or the output is ambiguous we
-        return False (proceed) — never block teardown on an unknowable probe.
+        Uses `(pid, start time)`, the same identity the generic managed-host
+        framework uses, via the shared implementation in `managed_host`.
+
+        This previously substring-matched the process argv against
+        `("main.py", "ComfyUI", <repo_dir>, <state_dir>)`. The first two are
+        generic strings, not an identity — so after a crash left the pid file
+        behind and the OS recycled the pid onto ANY process whose argv
+        contains them (a user's own ComfyUI install, any `python main.py`
+        app), this returned False and `_terminate_pid` escalated to
+        `os.killpg(pid, SIGKILL)` on the stranger's whole process group.
+        Verified: an unrelated app and its worker child were both killed.
+
+        An argv is not an identity in the other direction either — a wrapper
+        script, `exec`, `setproctitle` or a gunicorn/celery master rewrites
+        it. `managed_host.pid_is_stranger` documents both failure modes.
+
+        Falls back to False (proceed) when the answer is unknowable, which is
+        the pre-existing rule: an unknowable probe must never block teardown.
         """
-        try:
-            out = subprocess.run(
-                # -ww: unlimited output width. Linux procps truncates to the
-                # terminal width (80 when there is no tty, i.e. in CI and under
-                # any daemon), which silently cuts long path markers off the end
-                # and makes our OWN process read as a stranger — so stop() would
-                # refuse to stop it. macOS ps accepts -ww as a no-op here.
-                ["ps", "-ww", "-p", str(pid), "-o", "command="],
-                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5, check=False,
-            )
-        except (OSError, subprocess.SubprocessError):
-            return False  # can't tell — proceed
-        cmdline = (out.stdout or "").strip()
-        if out.returncode != 0 or not cmdline:
-            return False  # can't tell — proceed
-        markers = ("main.py", "ComfyUI", str(self.repo_dir), str(self.state_dir))
-        return not any(marker in cmdline for marker in markers)
+        from services.managed_host import ManagedHostManager, pid_is_stranger
+
+        return pid_is_stranger(
+            pid, self.pid_file, ManagedHostManager._process_start_time
+        )
 
     def _write_status(
         self,

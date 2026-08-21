@@ -2590,6 +2590,13 @@ class WizardScreen(Screen):
                 )
                 self._mark_launch_failed()
                 return
+            # Same position the linear path uses (start.py: verify ->
+            # reactivate -> commit). The TUI runs its own `up -d` and never
+            # calls `start_docker_services`, so this step was unreachable on
+            # the DEFAULT path: a consumer-declared active n8n workflow with
+            # no N8N_API_KEY left its production webhook 404 under
+            # `./start.sh` while working under `./start.sh --no-tui`.
+            await asyncio.to_thread(starter._reactivate_n8n_if_needed)
             starter.commit_managed_host_processes()
             managed_hosts_pending = False
             self._write_status("✅ All services started",

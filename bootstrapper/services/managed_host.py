@@ -221,6 +221,58 @@ def split_command(raw: Any, *, origin: str, field_name: str) -> tuple[str, ...]:
     return tuple(argv)
 
 
+def read_recorded_start_time(pid_file: Path) -> Optional[str]:
+    """The start time stamped into `pid_file` at spawn, if present.
+
+    Module-level so the older ComfyUI-MPS manager can share this exact
+    implementation instead of carrying its own (it matched the process argv,
+    which is not an identity — see `pid_is_stranger`).
+    """
+    try:
+        body = pid_file.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    for line in body.splitlines()[1:]:
+        # Only the normalized key is trusted. A pid file stamped by the first
+        # version of this format used the ambient TZ/locale, so its value is
+        # not comparable against a UTC probe — reading it would make every
+        # already-running managed host look like a stranger exactly once,
+        # which is the failure this guard exists to prevent. An unrecognized
+        # stamp simply reads as absent, and the guard degrades to proceed.
+        if line.startswith("start_utc="):
+            return line[len("start_utc="):].strip() or None
+    return None
+
+
+def write_pid_file_with_identity(pid_file: Path, pid: int, start_time: Optional[str]) -> None:
+    """Record `(pid, start time)` atomically.
+
+    Atomic because a torn read yields a pid with no stamp, which the guard
+    reads as "unknowable, proceed" — silently disabling the very reuse check
+    the stamp exists to feed.
+    """
+    body = str(pid) if start_time is None else f"{pid}\nstart_utc={start_time}"
+    atomic_write_text(pid_file, body + "\n")
+
+
+def pid_is_stranger(pid: int, pid_file: Path, probe) -> bool:
+    """True only when `pid` can be PROVEN not to be the recorded process.
+
+    `(pid, start time)` is unique on POSIX; an argv is not an identity, since
+    a wrapper script, `exec`, `setproctitle` or a gunicorn/celery master
+    rewrites it. Falls back to False (proceed) whenever the answer is
+    unknowable, matching the built-in managers' rule that an unknowable probe
+    must never block teardown.
+    """
+    recorded = read_recorded_start_time(pid_file)
+    if not recorded:
+        return False
+    live = probe(pid)
+    if not live:
+        return False
+    return live != recorded
+
+
 class ManagedHostManager:
     """Generic lifecycle for one :class:`HostProcessSpec`.
 
@@ -786,21 +838,7 @@ class ManagedHostManager:
 
     def _recorded_start_time(self) -> Optional[str]:
         """The start time stamped into the pid file at spawn, if present."""
-        try:
-            body = self.pid_file.read_text(encoding="utf-8")
-        except OSError:
-            return None
-        for line in body.splitlines()[1:]:
-            # Only the normalized key is trusted. A pid file stamped by the
-            # first version of this format used the ambient TZ/locale, so its
-            # value is not comparable against a UTC probe — reading it would
-            # make every already-running managed host look like a stranger
-            # exactly once, which is the failure this guard exists to prevent.
-            # An unrecognized stamp simply reads as absent, and the guard then
-            # degrades to proceed.
-            if line.startswith("start_utc="):
-                return line[len("start_utc="):].strip() or None
-        return None
+        return read_recorded_start_time(self.pid_file)
 
     def _pid_is_stranger(self, pid: int) -> bool:
         """True only when we can PROVE ``pid`` is NOT the process we launched.
