@@ -918,3 +918,47 @@ def test_env_override_writer_coerces_a_non_string_value(tmp_path: Path) -> None:
 
     starter._merge_env_file_overrides({"BASE_PORT": 64000})
     assert "BASE_PORT=64000\n" in env_file.read_text(encoding="utf-8")
+
+
+def test_env_overlay_parser_agrees_with_the_canonical_env_reader(tmp_path: Path) -> None:
+    """`env: {file: ...}` and `.env` must parse identically.
+
+    They are two readers of the same format, and `_read_env_overlay` runs
+    BEFORE the write guard — so any disagreement is a way to smuggle a value
+    past a check the other path applies. Line splitting was one such
+    disagreement: an overlay containing `A=x\\x0bSUPABASE_SERVICE_KEY=y` yielded
+    two keys through the overlay reader and one through `parse_env_file`.
+    """
+    from core.config_parser import ConfigParser
+    from core.consumer_manifest import _read_env_overlay
+
+    samples = [
+        "A=1\n",
+        'A="1"\n',
+        "A='1'\n",
+        "A=1 # note\n",
+        "  A=1\n",
+        "A = 1\n",
+        "A=\n",
+        "A=b=c\n",
+        "A=1\nA=2\n",
+        "A=p#ss\n",
+        "A=1   \n",
+        "A=1\nB=2",
+        "",
+        # the separators that split under `splitlines()` but not for the reader
+        "A=x\x0bSUPABASE_SERVICE_KEY=y\n",
+        "A=x\x0cB=y\n",
+        "A=x\x85B=y\n",
+        "A=x B=y\n",
+    ]
+    for text in samples:
+        overlay = tmp_path / "overlay.env"
+        overlay.write_text(text, encoding="utf-8")
+        env = tmp_path / ".env"
+        env.write_text(text, encoding="utf-8")
+
+        parser = ConfigParser(str(tmp_path))
+        parser.env_file_path = env
+
+        assert _read_env_overlay(overlay) == parser.parse_env_file(), repr(text)

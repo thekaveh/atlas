@@ -86,7 +86,7 @@ def env_lines(text: str, *, keepends: bool = False) -> list[str]:
     return [seg + (ends[i] if i < len(ends) else "") for i, seg in enumerate(parts)]
 
 
-#: Which writers `assert_safe_env_assignment` covers — kept out of the function
+# ENV-WRITER SCOPE — which writers `assert_safe_env_assignment` covers — kept out of the function
 #: docstring so the function stays readable, and stated precisely because an
 #: earlier version of it overclaimed.
 #:
@@ -95,10 +95,12 @@ def env_lines(text: str, *, keepends: bool = False) -> list[str]:
 #:   ServiceConfigManager.update_env_file, and _set_scalar at the manifest parse
 #:   boundary.
 #:
-#: UNGUARDED (seven, all writing internally-generated values):
-#:   key_generator.update_env_key, supabase_keys, port_manager, the three env
-#:   migrations' stamp_version (counted once), the backfill splice,
-#:   bootstrapper/scripts/reorg_user_env.py, and
+#: UNGUARDED (eleven writer functions, all writing internally-generated values):
+#:   key_generator.update_env_key, supabase_keys, port_manager,
+#:   source_validator._strip_lines_from_env, the backfill splice,
+#:   bootstrapper/scripts/reorg_user_env.py, each of the three migrations'
+#:   stamp_version AND its body (migration_v1's rewrite, migration_v2's append,
+#:   migration_v3's _replace_or_append), and
 #:   AtlasStarter._remove_env_keys_by_prefix — which only filters and rejoins
 #:   existing lines and formats no assignment at all.
 #:
@@ -109,8 +111,6 @@ def env_lines(text: str, *, keepends: bool = False) -> list[str]:
 #: (key_generator, supabase_keys, port_manager) never split at all — they
 #: `re.sub` over whole content, where `^`/`$` under re.MULTILINE anchor only at
 #: `\n` and `.` matches the exotic separators rather than terminating on them.
-ENV_WRITER_SCOPE = "see the comment above"
-
 
 def assert_safe_env_assignment(key: str, value: str) -> str:
     """Reject anything that would emit more than one `.env` assignment.
@@ -122,7 +122,8 @@ def assert_safe_env_assignment(key: str, value: str) -> str:
     MULTILINE but not DOTALL, so a later run rewrites only the first line and
     steps over the injected remainder, making it permanent.
 
-    See ENV_WRITER_SCOPE below for which writers this covers.
+    See the ENV-WRITER SCOPE comment above this function for the
+    guarded/unguarded split.
 
     Returns the value coerced to ``str`` so callers can write the result
     directly rather than re-coercing.

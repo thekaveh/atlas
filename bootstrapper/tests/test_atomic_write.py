@@ -341,16 +341,32 @@ def _bootstrapper_packages(root: Path) -> list[str]:
     return found or ["utils", "core", "services"]
 
 
+#: A sys.path bootstrap, matched as CODE. `text.find("sys.path.insert")` is a
+#: raw substring scan, so a comment that merely mentions the bootstrap — the
+#: natural `# NOTE: keep first-party imports below the sys.path.insert
+#: bootstrap.` — silences the check entirely. That false-passed this guard
+#: twice. Also covers the append/slice/site forms, since a bootstrap written
+#: any of those ways is just as load-bearing.
+_BOOTSTRAP_RE = re.compile(
+    r"^\s*(?:sys\.path\.(?:insert|append)\(|sys\.path\[|site\.addsitedir\()",
+    re.M,
+)
+
+
 def _first_party_imports_above_bootstrap(text: str, packages: list[str]) -> list[str]:
-    """First-party imports appearing before this file's `sys.path` bootstrap."""
-    bootstrap = text.find("sys.path.insert")
-    if bootstrap == -1:
-        return []
+    """First-party imports that run before this file's `sys.path` bootstrap.
+
+    Fails CLOSED: a script with first-party imports and no bootstrap at all has
+    every one of them flagged, rather than being skipped as vacuously fine.
+    """
     alternation = "|".join(re.escape(pkg) for pkg in packages)
-    pattern = rf"^(?:from|import) ({alternation})\b"
-    return [
-        m.group(0) for m in re.finditer(pattern, text, re.M) if m.start() < bootstrap
-    ]
+    imports = list(re.finditer(rf"^(?:from|import) ({alternation})\b", text, re.M))
+    if not imports:
+        return []
+    bootstrap = _BOOTSTRAP_RE.search(text)
+    if bootstrap is None:
+        return [m.group(0) for m in imports]
+    return [m.group(0) for m in imports if m.start() < bootstrap.start()]
 
 
 def test_scripts_do_not_import_first_party_above_their_sys_path_bootstrap() -> None:

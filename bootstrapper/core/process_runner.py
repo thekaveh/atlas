@@ -164,21 +164,31 @@ def cleanup_active_processes_on_sigterm() -> Iterator[None]:
                 signal.signal(sig, previous[sig])
 
 
+#: Signals deferred across the launch window. Must match the set
+#: `cleanup_active_processes_on_sigterm` manages: deferring SIGTERM but not
+#: SIGHUP left the exact leak this module exists to prevent — a SIGHUP landing
+#: between `Popen` and the registry insert ran cleanup against a registry that
+#: did not yet contain the just-forked group, so it killed nothing, raised, and
+#: the child group was re-parented to init.
+_GUARDED_SIGNALS = (signal.SIGTERM, signal.SIGHUP)
+
+
 class _SigtermGuard:
-    """Preserve SIGTERM across the main-thread Popen launch window."""
+    """Preserve the guarded signals across the main-thread Popen launch window."""
 
     def __init__(self) -> None:
         self.pending: list[tuple[int, FrameType | None]] = []
-        self.previous = None
+        self.previous: dict[int, object] = {}
         self.installed = None
-        self.relay_target = None
+        self.relay_target: dict[int, object] = {}
 
     def __enter__(self) -> _SigtermGuard:
         if threading.current_thread() is threading.main_thread():
-            self.previous = signal.getsignal(signal.SIGTERM)
-            self.relay_target = self.previous
             self.installed = self._interrupt
-            signal.signal(signal.SIGTERM, self.installed)
+            for sig in _GUARDED_SIGNALS:
+                self.previous[sig] = signal.getsignal(sig)
+                self.relay_target[sig] = self.previous[sig]
+                signal.signal(sig, self.installed)
         return self
 
     def __exit__(self, exc_type, _exc, _traceback) -> None:
@@ -208,20 +218,26 @@ class _SigtermGuard:
         except BaseException as error:
             errors.append(error)
 
+    def _restore_unowned(self, started_as_owner: dict, *, finish: bool) -> None:
+        """Hand each guarded signal back to whoever held it before us."""
+        for sig in _GUARDED_SIGNALS:
+            if signal.getsignal(sig) is self.installed and (
+                finish or not started_as_owner.get(sig, False)
+            ):
+                signal.signal(sig, self.relay_target.get(sig))
+
     def _drain_pending(self, *, finish: bool) -> None:
-        started_as_owner = signal.getsignal(signal.SIGTERM) is self.installed
+        started_as_owner = {
+            sig: signal.getsignal(sig) is self.installed for sig in _GUARDED_SIGNALS
+        }
         errors: list[BaseException] = []
         while True:
             while self.pending:
-                if signal.getsignal(signal.SIGTERM) is not self.installed:
-                    self.relay_target = signal.signal(
-                        signal.SIGTERM, self.installed
-                    )
-                self._record_dispatch_error(self.relay_target, errors)
-            if signal.getsignal(signal.SIGTERM) is self.installed and (
-                finish or not started_as_owner
-            ):
-                signal.signal(signal.SIGTERM, self.relay_target)
+                sig = self.pending[0][0]
+                if signal.getsignal(sig) is not self.installed:
+                    self.relay_target[sig] = signal.signal(sig, self.installed)
+                self._record_dispatch_error(self.relay_target.get(sig), errors)
+            self._restore_unowned(started_as_owner, finish=finish)
             if not self.pending:
                 break
         for secondary_error in errors[1:]:

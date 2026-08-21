@@ -1358,3 +1358,76 @@ def test_streamed_timeout_notice_sink_failure_reaps_process_group(
     asyncio.run(exercise())
     time.sleep(0.6)
     assert not marker.exists()
+
+
+#: Raises SIGHUP between `Popen` and the registry insert, so the guard is
+#: exercised at the exact window where a missed signal orphans the child.
+_SIGHUP_RACE_SCRIPT = """
+import os, signal, subprocess, sys, time
+sys.path.insert(0, {bootstrapper_dir!r})
+import core.process_runner as pr
+real = subprocess.Popen
+class Racing(real):
+    def __init__(self, *a, **k):
+        super().__init__(*a, **k)
+        open({marker!r}, "w").write(str(self.pid))
+        os.kill(os.getpid(), signal.SIGHUP)
+        time.sleep(0.05)
+subprocess.Popen = Racing
+pr.cleanup_active_processes_on_sigterm()
+try:
+    pr.run_with_deadline([sys.executable, "-c", "import time; time.sleep(20)"],
+                         timeout_seconds=5)
+except BaseException:
+    pass
+"""
+
+
+def test_sighup_in_the_launch_window_does_not_orphan_the_child(tmp_path):
+    """The guard must defer every signal `cleanup_...` manages, not just SIGTERM.
+
+    `cleanup_active_processes_on_sigterm` handles (SIGTERM, SIGHUP), but the
+    launch guard originally deferred only SIGTERM. A SIGHUP landing between
+    `Popen` and the registry insert therefore ran cleanup against a registry
+    that did not yet contain the just-forked group: it killed nothing, chained
+    to the default action, killed the parent, and left the child re-parented to
+    init — the exact leak this module's own comment says it exists to prevent.
+
+    Measured before the fix: parent killed by signal 1, child ORPHANED. After:
+    parent exits cleanly and the child is reaped.
+    """
+    import os
+    import signal
+    import subprocess
+    import sys
+    import time
+
+    marker = tmp_path / "child.pid"
+    _bootstrapper_dir = str(Path(__file__).resolve().parents[1])
+    inner = _SIGHUP_RACE_SCRIPT.format(
+        bootstrapper_dir=_bootstrapper_dir, marker=str(marker)
+    )
+    proc = subprocess.run(
+        [sys.executable, "-c", inner], capture_output=True, text=True,
+        encoding="utf-8", errors="replace",
+    )
+    time.sleep(0.4)
+
+    assert marker.exists(), "the racing Popen never ran"
+    child_pid = int(marker.read_text())
+    orphaned = True
+    try:
+        os.kill(child_pid, 0)
+    except OSError:
+        orphaned = False
+    if orphaned:  # never leave a stray process behind, even on failure
+        try:
+            os.killpg(child_pid, signal.SIGKILL)
+        except OSError:
+            try:
+                os.kill(child_pid, signal.SIGKILL)
+            except OSError:
+                pass
+
+    assert not orphaned, "SIGHUP in the launch window orphaned the child group"
+    assert proc.returncode >= 0, "parent was killed by the signal instead of deferring it"
