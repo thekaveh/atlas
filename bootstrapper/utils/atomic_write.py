@@ -86,6 +86,32 @@ def env_lines(text: str, *, keepends: bool = False) -> list[str]:
     return [seg + (ends[i] if i < len(ends) else "") for i, seg in enumerate(parts)]
 
 
+#: Which writers `assert_safe_env_assignment` covers — kept out of the function
+#: docstring so the function stays readable, and stated precisely because an
+#: earlier version of it overclaimed.
+#:
+#: GUARDED (the four that can carry consumer-supplied data):
+#:   AtlasStarter._merge_env_file_overrides, SourceOverrideManager.update_env_file,
+#:   ServiceConfigManager.update_env_file, and _set_scalar at the manifest parse
+#:   boundary.
+#:
+#: UNGUARDED (seven, all writing internally-generated values):
+#:   key_generator.update_env_key, supabase_keys, port_manager, the three env
+#:   migrations' stamp_version (counted once), the backfill splice,
+#:   bootstrapper/scripts/reorg_user_env.py, and
+#:   AtlasStarter._remove_env_keys_by_prefix — which only filters and rejoins
+#:   existing lines and formats no assignment at all.
+#:
+#: Route anything externally-sourced through the guard rather than assuming an
+#: unguarded writer is safe. None of the seven can PROMOTE an embedded separator
+#: into a real assignment, for two different reasons checked per call site:
+#: those that split `.env` do so with `env_lines`, and the three regex rewriters
+#: (key_generator, supabase_keys, port_manager) never split at all — they
+#: `re.sub` over whole content, where `^`/`$` under re.MULTILINE anchor only at
+#: `\n` and `.` matches the exotic separators rather than terminating on them.
+ENV_WRITER_SCOPE = "see the comment above"
+
+
 def assert_safe_env_assignment(key: str, value: str) -> str:
     """Reject anything that would emit more than one `.env` assignment.
 
@@ -96,29 +122,7 @@ def assert_safe_env_assignment(key: str, value: str) -> str:
     MULTILINE but not DOTALL, so a later run rewrites only the first line and
     steps over the injected remainder, making it permanent.
 
-    Scope, stated precisely because an earlier version of this docstring
-    overclaimed: this guards the four writers that can carry CONSUMER-SUPPLIED
-    data — `AtlasStarter._merge_env_file_overrides`,
-    `SourceOverrideManager.update_env_file`,
-    `ServiceConfigManager.update_env_file`, and `_set_scalar` at the manifest
-    parse boundary. It is NOT on every path that writes `.env`. These
-    seven format their own `KEY=VALUE` lines from internally-generated values
-    and are unguarded: `AtlasStarter._remove_env_keys_by_prefix`, the backfill
-    splice, `key_generator.update_env_key`, `supabase_keys`, `port_manager`,
-    the three env migrations' `stamp_version` (counted once), and
-    `bootstrapper/scripts/reorg_user_env.py`. Route anything
-    externally-sourced through here rather than assuming those are covered.
-
-    Every one of them does now SPLIT `.env` with `env_lines` above, so none can
-    promote an embedded separator into a real assignment — but that is a
-    separate property from validating what they write, and it was verified per
-    call site rather than assumed.
-
-    It lives beside the atomic writer all four already import, because putting
-    the guard on one writer and not its siblings is exactly how the first
-    attempt left the hole open: `_merge_env_file_overrides` was hardened while
-    `SourceOverrideManager.update_env_file` — the writer the profile-apply path
-    actually uses — was not.
+    See ENV_WRITER_SCOPE below for which writers this covers.
 
     Returns the value coerced to ``str`` so callers can write the result
     directly rather than re-coercing.

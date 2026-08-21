@@ -10,7 +10,7 @@ from typing import Any, Iterable, Mapping
 
 import yaml
 
-from utils.atomic_write import assert_safe_env_assignment
+from utils.atomic_write import assert_safe_env_assignment, env_lines
 
 try:
     from utils.comfyui_custom_nodes import (
@@ -564,7 +564,14 @@ def discover_consumer_manifest_paths(
 
 def _read_env_overlay(path: Path) -> dict[str, str]:
     env_vars: dict[str, str] = {}
-    for line in path.read_text(encoding="utf-8").splitlines():
+    # `env_lines`, not `splitlines()`. This is the one `.env`-format reader that
+    # ingests an externally-supplied file, and it runs BEFORE
+    # `assert_safe_env_assignment` — so splitting on the eight separators the
+    # canonical reader ignores let `env: {file: ...}` smuggle in an assignment
+    # that the byte-identical value under `env: {values: ...}` is rejected for.
+    # Same manifest, same bytes, opposite outcomes. It also silently truncated a
+    # legitimate secret containing one of them to its prefix.
+    for line in env_lines(path.read_text(encoding="utf-8")):
         stripped = line.strip()
         if not stripped or stripped.startswith("#") or "=" not in stripped:
             continue

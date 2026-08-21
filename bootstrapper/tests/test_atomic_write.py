@@ -326,53 +326,56 @@ def test_env_lines_does_not_split_on_the_separators_that_promote() -> None:
         assert env_lines(text) == [f"KEY=a{ch}SUPABASE_SERVICE_KEY=attacker"]
 
 
-def test_every_env_rewriting_module_imports_at_runtime() -> None:
+def _bootstrapper_packages(root: Path) -> list[str]:
+    """Importable top-level packages under `bootstrapper/`.
+
+    Derived, not hard-coded: the first version of the guard below listed only
+    utils/core/services and so gave a PROVEN false pass on `generate_logo.py`,
+    whose load-bearing `from ui.textual...` import it did not match.
+    """
+    found = sorted(
+        d.name
+        for d in root.iterdir()
+        if d.is_dir() and (d / "__init__.py").exists() and not d.name.startswith((".", "_"))
+    )
+    return found or ["utils", "core", "services"]
+
+
+def _first_party_imports_above_bootstrap(text: str, packages: list[str]) -> list[str]:
+    """First-party imports appearing before this file's `sys.path` bootstrap."""
+    bootstrap = text.find("sys.path.insert")
+    if bootstrap == -1:
+        return []
+    alternation = "|".join(re.escape(pkg) for pkg in packages)
+    pattern = rf"^(?:from|import) ({alternation})\b"
+    return [
+        m.group(0) for m in re.finditer(pattern, text, re.M) if m.start() < bootstrap
+    ]
+
+
+def test_scripts_do_not_import_first_party_above_their_sys_path_bootstrap() -> None:
     """`py_compile` does not execute imports.
 
     Adding `from utils.atomic_write import env_lines` to
     `bootstrapper/scripts/reorg_user_env.py` above its own `sys.path.insert`
     bootstrap left the script raising `ModuleNotFoundError` on every
-    invocation, and it compiled cleanly the whole time.
+    invocation, and it compiled cleanly the whole time. A subprocess check
+    cannot catch it either: `sys.executable` here is the uv venv, which has the
+    bootstrapper installed as a package, so the import resolves regardless of
+    ordering. Assert the ordering directly.
+
+    Scoped to `scripts/` deliberately: Python prepends the SCRIPT's own
+    directory to `sys.path`, so `start.py` — at the package root — resolves
+    `from services...` before its own (redundant) bootstrap. A script one level
+    down gets `scripts/` on the path instead, so its bootstrap is load-bearing.
     """
-    import os as _os
-    import subprocess
-    import sys as _sys
-    from pathlib import Path as _Path
-
-    root = _Path(__file__).resolve().parents[1]
-    for module in (
-        "services.migrations.migration_v1",
-        "services.migrations.migration_v2",
-        "services.migrations.migration_v3",
-        "services.source_validator",
-        "utils.atomic_write",
-    ):
-        proc = subprocess.run(
-            [_sys.executable, "-c", f"import {module}"],
-            cwd=str(root), capture_output=True, text=True,
-            encoding="utf-8", errors="replace",
-        )
-        assert proc.returncode == 0, f"{module} does not import: {proc.stderr.strip()[-300:]}"
-
-    # The standalone scripts bootstrap their own `sys.path` before importing
-    # from `utils`, so that they work under a bare system interpreter. A
-    # subprocess check cannot enforce that: `sys.executable` here is the uv
-    # venv, which has the bootstrapper installed as a package, so `utils`
-    # imports regardless of ordering and the check passes against a script that
-    # is broken for every other interpreter. Assert the ordering directly.
-    # Scoped to `scripts/` deliberately. Python prepends the SCRIPT's own
-    # directory to sys.path, so `start.py` — which sits at the package root —
-    # resolves `from services...` before its own (redundant) bootstrap runs.
-    # A script one level down in `scripts/` gets `scripts/` on the path
-    # instead, so its bootstrap is load-bearing and an import above it fails.
+    root = Path(__file__).resolve().parents[1]
+    packages = _bootstrapper_packages(root)
     for script in sorted((root / "scripts").glob("*.py")):
-        text = script.read_text(encoding="utf-8")
-        bootstrap = text.find("sys.path.insert")
-        if bootstrap == -1:
-            continue
-        for match in re.finditer(r"^from (utils|core|services)\b", text, re.M):
-            assert match.start() > bootstrap, (
-                f"{script.name}: `{match.group(0)}` at offset {match.start()} precedes "
-                f"the sys.path bootstrap at {bootstrap}, so the script raises "
-                f"ModuleNotFoundError under a bare interpreter"
-            )
+        offenders = _first_party_imports_above_bootstrap(
+            script.read_text(encoding="utf-8"), packages
+        )
+        assert not offenders, (
+            f"{script.name}: {offenders} precede the sys.path bootstrap, so the "
+            f"script raises ModuleNotFoundError under a bare interpreter"
+        )
