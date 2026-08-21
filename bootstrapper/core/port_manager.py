@@ -18,6 +18,23 @@ from core.config_parser import ConfigParser, DEFAULT_BASE_PORT
 from utils.atomic_write import atomic_write_text
 
 
+def _assignment_pattern(var: str) -> str:
+    """Match one `VAR=value` line, with an optional trailing comment.
+
+    Group 3 must swallow trailing whitespace even without a comment, or
+    `VAR=63002 ` (trailing space) silently no-ops.
+
+    `[^\\S\\n]`, NOT `\\s`, around the `=`. Under `re.MULTILINE` the `$`
+    matches before a newline, but `\\s` MATCHES that newline — so for a blank
+    `VAR=` the value group runs on into the NEXT line and swallows the whole
+    following assignment. No current caller reaches that state (`update_env_ports`
+    leaves a blank value alone), so this is a latent trap rather than a live
+    bug; the pattern now means what its name says regardless of who calls it.
+    """
+    horizontal = r'[^\S\n]*'
+    return rf'^({re.escape(var)}{horizontal}={horizontal})([^\s#]*)([ \t]*(?:#.*)?)$'
+
+
 class PortManager:
     """Manages port validation and assignment for Atlas services."""
 
@@ -107,8 +124,11 @@ class PortManager:
             list: List of ports that are in use
         """
         used_ports = []
+        skip = self._disabled_port_vars()
 
         for port_var, port in self.port_defaults_for(base_port).items():
+            if port_var in skip:
+                continue  # see _disabled_port_vars
             if not self.check_port_availability(port):
                 used_ports.append(port)
 
@@ -172,9 +192,7 @@ class PortManager:
             port_assignments = dict(port_assignments)
             port_assignments['BASE_PORT'] = base_port
             for port_var, new_port in port_assignments.items():
-                # Group 3 must swallow trailing whitespace even without a
-                # comment, or `VAR=63002 ` (trailing space) silently no-ops.
-                pattern = rf'^({re.escape(port_var)}\s*=\s*)([^\s#]*)([ \t]*(?:#.*)?)$'
+                pattern = _assignment_pattern(port_var)
                 replacement = rf'\g<1>{new_port}\g<3>'
                 updated_content = re.sub(pattern, replacement, updated_content, flags=re.MULTILINE)
 
@@ -198,12 +216,49 @@ class PortManager:
         """
         conflicts = {}
         port_assignments = self.calculate_port_assignments(base_port)
+        skip = self._disabled_port_vars()
 
         for port_var, port in port_assignments.items():
+            if port_var in skip:
+                continue
             if not self.check_port_availability(port):
                 conflicts[port_var] = port
 
         return conflicts
+
+    def _disabled_port_vars(self) -> set:
+        """Port vars owned by services this `.env` has set to `disabled`.
+
+        Nothing will ever bind them, so a foreign process sitting on one must
+        not block the launch. Roughly HALF the probed ports are in this set on
+        a default `.env` — Airflow, Grafana, Prometheus, Ray, Spark, Trino,
+        Jenkins, Zeppelin, Redpanda, Langfuse, MLflow and more all ship
+        disabled — and `handle_port_configuration` turns any hit into an abort.
+        The same list feeds `auto_base_port`, so a squatted slot on a disabled
+        service also shifted every port of a durable `BASE_PORT: auto`.
+
+        Fails OPEN: if sources cannot be read, nothing is skipped and the
+        previous over-broad behavior stands, which is the safe direction.
+        """
+        try:
+            sources = self.config_parser.parse_service_sources()
+        except Exception:  # noqa: BLE001 — unreadable .env: probe everything
+            return set()
+        if not sources:
+            return set()
+        try:
+            from services.topology import get_topology
+
+            rows = get_topology().rows
+        except Exception:  # noqa: BLE001
+            return set()
+        return {
+            row.port_var
+            for row in rows
+            if row.port_var
+            and row.source_var
+            and sources.get(row.source_var) == 'disabled'
+        }
 
     def suggest_available_base_port(self, start_from: int = 50000, max_attempts: int = 100) -> Optional[int]:
         """
