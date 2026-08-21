@@ -1431,3 +1431,27 @@ def test_sighup_in_the_launch_window_does_not_orphan_the_child(tmp_path):
 
     assert not orphaned, "SIGHUP in the launch window orphaned the child group"
     assert proc.returncode >= 0, "parent was killed by the signal instead of deferring it"
+
+
+def test_guarded_signals_survive_a_platform_without_sighup() -> None:
+    """`_GUARDED_SIGNALS` is a MODULE-level constant.
+
+    Naming `signal.SIGHUP` unconditionally there raises AttributeError at
+    import on Windows and takes the entire bootstrapper down with it —
+    `cleanup_active_processes_on_sigterm` can name it directly only because it
+    returns early on `os.name != "posix"` before reaching that line.
+    """
+    import importlib
+    import signal as signal_module
+
+    saved = signal_module.SIGHUP
+    del signal_module.SIGHUP
+    try:
+        reloaded = importlib.reload(process_runner)
+        names = [sig.name for sig in reloaded._GUARDED_SIGNALS]
+        assert names == ["SIGTERM"], names
+    finally:
+        signal_module.SIGHUP = saved
+        importlib.reload(process_runner)
+
+    assert [sig.name for sig in process_runner._GUARDED_SIGNALS] == ["SIGTERM", "SIGHUP"]

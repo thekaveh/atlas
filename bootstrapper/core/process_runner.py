@@ -170,7 +170,17 @@ def cleanup_active_processes_on_sigterm() -> Iterator[None]:
 #: between `Popen` and the registry insert ran cleanup against a registry that
 #: did not yet contain the just-forked group, so it killed nothing, raised, and
 #: the child group was re-parented to init.
-_GUARDED_SIGNALS = (signal.SIGTERM, signal.SIGHUP)
+#:
+#: Built defensively: `signal.SIGHUP` does not exist on Windows, and this is a
+#: MODULE-level constant, so naming it unconditionally would raise
+#: AttributeError at import and take the whole bootstrapper down on that
+#: platform. `cleanup_active_processes_on_sigterm` can name it directly because
+#: it returns early on `os.name != "posix"` before reaching that line.
+_GUARDED_SIGNALS = tuple(
+    sig
+    for sig in (getattr(signal, name, None) for name in ("SIGTERM", "SIGHUP"))
+    if sig is not None
+)
 
 
 class _SigtermGuard:
