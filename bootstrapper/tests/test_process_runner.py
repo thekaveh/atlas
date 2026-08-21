@@ -1610,3 +1610,127 @@ def test_cleanup_restore_falls_back_to_sig_dfl(monkeypatch) -> None:
 
     for sig in process_runner._GUARDED_SIGNALS:
         assert signal_module.getsignal(sig) == signal_module.SIG_DFL
+
+
+# ── pass 15: guard re-entry, launch window, grace period ─────────────
+
+
+def test_a_re_entered_guard_does_not_relay_to_itself() -> None:
+    """Re-entry made the guard its OWN relay target, and it spun forever.
+
+    `_dispatch_pending` popped an entry and called `self._interrupt`, which
+    re-appended it — the dedup sees an empty list, because the pop already
+    happened — so `while self.pending` never terminated. The spinning handler
+    stays installed throughout, so the process IGNORES SIGTERM while it spins:
+    `timeout 30` could not kill the repro, only SIGKILL could.
+
+    The screen must compare the OWNER, not the bound method: `self.installed =
+    self._interrupt` mints a new bound-method object on every `__enter__`, so
+    an `is self.installed` test does not recognise our own recorder.
+    """
+    import signal as signal_module
+
+    def original(_signum, _frame):
+        pass
+
+    previous = signal_module.signal(signal_module.SIGTERM, original)
+    try:
+        guard = process_runner._SigtermGuard()
+        with guard:
+            with guard:  # re-entry
+                # Assert the INVARIANT first, so a regression fails fast here
+                # rather than hanging the drain below. Note that comparing the
+                # bound method (`is guard.installed`) is NOT sufficient — that
+                # test passes even when the guard is self-relaying, which is
+                # exactly how this defect survived.
+                assert guard._may_relay_to(guard._interrupt) is False
+                assert guard.relay_target.get(signal_module.SIGTERM) is not guard.installed
+                guard._interrupt(signal_module.SIGTERM, None)
+                guard.raise_if_pending()  # must TERMINATE, and must not spin
+
+        final = signal_module.getsignal(signal_module.SIGTERM)
+        assert final is original, f"SIGTERM left on {final!r}"
+        assert not process_runner._is_guard_handler(final)
+    finally:
+        signal_module.signal(signal_module.SIGTERM, previous)
+
+
+def test_a_guard_never_relays_to_an_exited_guard() -> None:
+    """An exited guard's `pending` list is never drained again."""
+    import signal as signal_module
+
+    previous = signal_module.signal(signal_module.SIGTERM, signal_module.SIG_DFL)
+    try:
+        dead = process_runner._SigtermGuard()
+        with dead:
+            pass
+        assert dead.active is False
+
+        live = process_runner._SigtermGuard()
+        with live:
+            assert live.active is True
+            assert live._may_relay_to(dead._interrupt) is False
+            assert live._may_relay_to(live._interrupt) is False
+
+            inner = process_runner._SigtermGuard()
+            with inner:
+                # ordinary nesting: a guard still inside its block IS a valid
+                # relay target, and disarming it would reopen the window it is
+                # deliberately holding open
+                assert live._may_relay_to(inner._interrupt) is True
+    finally:
+        signal_module.signal(signal_module.SIGTERM, previous)
+
+
+def test_an_unregistered_child_is_terminated_not_orphaned(monkeypatch) -> None:
+    """SIGINT is not deferred by the launch lock.
+
+    A plain Ctrl-C can land between `Popen` returning and the registry insert
+    completing. The child is already forked with `start_new_session=True`, so
+    an unregistered child is re-parented to init and outlives us —
+    `run_with_deadline` cannot clean it up either, because its `process` local
+    is still None, so both the `except` and the `finally` arms skip it.
+    """
+    real_popen = subprocess.Popen
+    spawned: list[subprocess.Popen] = []
+
+    def tracking_popen(*args, **kwargs):
+        process = real_popen(*args, **kwargs)
+        spawned.append(process)
+        return process
+
+    class Exploding(dict):
+        def __setitem__(self, key, value):
+            raise KeyboardInterrupt("interrupted at the registry insert")
+
+    monkeypatch.setattr(subprocess, "Popen", tracking_popen)
+    monkeypatch.setattr(process_runner, "_ACTIVE_PROCESSES", Exploding())
+
+    with pytest.raises(KeyboardInterrupt):
+        process_runner._launch_registered(
+            ["/bin/sleep", "31"],
+            cwd=None,
+            env=None,
+            termination_grace_seconds=2.0,
+        )
+
+    assert spawned, "precondition: a child was actually forked"
+    child = spawned[0]
+    child.wait(timeout=10)
+    assert child.poll() is not None, "child was orphaned"
+
+
+def test_the_grace_period_is_a_maximum_not_a_fixed_delay() -> None:
+    """`_stop_registered_processes` runs INSIDE the SIGTERM handler.
+
+    Burning the full grace period per child blocked shutdown for N x grace
+    seconds, which under `docker stop` or systemd overruns the stop timeout and
+    earns a SIGKILL for the very cleanup being waited on.
+    """
+    process = subprocess.Popen(["/bin/sleep", "30"], start_new_session=True)
+    started = time.monotonic()
+    process_runner._stop_and_reap(process, termination_grace_seconds=8.0)
+    elapsed = time.monotonic() - started
+
+    assert process.poll() is not None
+    assert elapsed < 4.0, f"burned {elapsed:.1f}s of an 8s grace on a child that died at once"
