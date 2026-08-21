@@ -64,11 +64,25 @@ _ENV_LINE_SPLIT_RE = re.compile(r"\r\n|\r|\n")
 
 
 def env_lines(text: str, *, keepends: bool = False) -> list[str]:
-    """Line-split `.env` text with the canonical reader's semantics."""
+    """Line-split `.env` text with the canonical reader's separator set.
+
+    A drop-in for `str.splitlines()` — same output SHAPE, narrower separator
+    set. That equivalence is the point: every caller was written against
+    `splitlines()`, and `re.split` differs from it in a way that silently
+    changes rewrites. `"A=1\n".split` yields a trailing `""` while
+    `splitlines()` does not, so an append-at-end rewriter fed the raw split
+    emits an extra blank line — measured: all three migrations' `stamp_version`
+    grew one, churning every user's `.env` on upgrade. A trailing separator
+    therefore does not produce a final empty element here either.
+    """
+    if not text:
+        return []
     parts = _ENV_LINE_SPLIT_RE.split(text)
+    ends = _ENV_LINE_SPLIT_RE.findall(text)
+    if parts and parts[-1] == "":
+        parts = parts[:-1]          # mirror splitlines(): no phantom last line
     if not keepends:
         return parts
-    ends = _ENV_LINE_SPLIT_RE.findall(text)
     return [seg + (ends[i] if i < len(ends) else "") for i, seg in enumerate(parts)]
 
 

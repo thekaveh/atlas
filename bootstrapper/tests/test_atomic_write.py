@@ -290,3 +290,36 @@ def test_env_assignment_guard_rejects_a_key_with_a_trailing_newline() -> None:
     # Valid assignments pass through, with the value coerced to str.
     assert assert_safe_env_assignment("GOOD_KEY", "fine") == "fine"
     assert assert_safe_env_assignment("_LEADING_UNDERSCORE", 63000) == "63000"
+
+
+def test_env_lines_is_a_drop_in_for_splitlines_on_env_separators() -> None:
+    """Same output SHAPE as `str.splitlines()`, narrower separator set.
+
+    `re.split` differs from `splitlines()` by emitting a trailing `""` for text
+    ending in a separator. Feeding that to an append-at-end rewriter adds a
+    blank line — measured on all three migrations' `stamp_version`, which would
+    have churned every user's `.env` by one line on upgrade.
+    """
+    from utils.atomic_write import env_lines
+
+    for text in (
+        "A=1\nB=2\n", "A=1\nB=2", "", "\n\n", "A=1\r\nB=2\r\n", "A=1\rB=2",
+        "A=1", "\n", "\r\n",
+    ):
+        for keepends in (False, True):
+            assert env_lines(text, keepends=keepends) == text.splitlines(keepends=keepends), text
+        assert "".join(env_lines(text, keepends=True)) == text, text
+
+
+def test_env_lines_does_not_split_on_the_separators_that_promote() -> None:
+    """`splitlines()` splits on 8 separators the `.env` reader does not.
+
+    Splitting on them and re-emitting with a real newline is what promoted an
+    embedded fragment into a genuine assignment.
+    """
+    from utils.atomic_write import env_lines
+
+    for ch in ("\x0b", "\x0c", "\x1c", "\x1d", "\x1e", "\x85", " ", " "):
+        text = f"KEY=a{ch}SUPABASE_SERVICE_KEY=attacker\n"
+        assert len(text.splitlines()) == 2, "precondition: splitlines would split here"
+        assert env_lines(text) == [f"KEY=a{ch}SUPABASE_SERVICE_KEY=attacker"]
