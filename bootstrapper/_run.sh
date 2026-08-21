@@ -67,13 +67,24 @@ elif command -v python3 >/dev/null 2>&1; then
     fi
 
     if [ "$VENV_USABLE" = "0" ] || [ "$HAVE_STAMP" != "$WANT_STAMP" ]; then
-        # Create the venv only when it is genuinely absent. A refresh must NOT
-        # re-run the interpreter gate: the existing venv already has a
-        # supported Python, and gating on the SYSTEM python3 would refuse to
-        # apply a security floor on a host whose system interpreter has since
-        # aged out — turning a dependency refresh into a hard launch failure.
-        if [ ! -x "$VENV_PYTHON" ]; then
-            echo "Creating Atlas bootstrapper environment at $BOOTSTRAPPER_VENV..." >&2
+        # Create or REPAIR whenever the venv cannot satisfy the imports —
+        # absent, or present but broken. `python3 -m venv` on an existing
+        # directory re-runs ensurepip, which is what restores a missing pip in
+        # a `uv venv`-created environment; gating this on absence alone turned
+        # "pip-less venv plus a newly added dependency" from a self-repair into
+        # a hard launch failure.
+        #
+        # A pure stamp refresh (venv usable, declaration changed) skips this
+        # entirely and so does NOT re-run the interpreter gate: that venv
+        # already has a supported Python, and gating on the SYSTEM python3
+        # would refuse to apply a security floor on a host whose system
+        # interpreter has since aged out.
+        if [ "$VENV_USABLE" = "0" ]; then
+            if [ -x "$VENV_PYTHON" ]; then
+                echo "Repairing Atlas bootstrapper environment at $BOOTSTRAPPER_VENV..." >&2
+            else
+                echo "Creating Atlas bootstrapper environment at $BOOTSTRAPPER_VENV..." >&2
+            fi
             if ! python3 -c 'import sys; raise SystemExit(sys.version_info < (3, 10))'; then
                 echo "❌ Atlas requires Python 3.10 or newer." >&2
                 exit 1

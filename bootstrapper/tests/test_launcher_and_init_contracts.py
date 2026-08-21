@@ -62,8 +62,11 @@ def test_the_fallback_does_not_regate_python_version_on_a_refresh():
     """
     source = RUN_SH.read_text(encoding="utf-8")
     gate = source.index("Atlas requires Python 3.10 or newer")
-    guard = source.rindex('if [ ! -x "$VENV_PYTHON" ]; then', 0, gate)
-    assert guard < gate, "the version gate is not inside the venv-absent branch"
+    guard = source.rindex('if [ "$VENV_USABLE" = "0" ]; then', 0, gate)
+    assert guard < gate, "the version gate escaped the not-usable branch"
+    # A pure STAMP refresh (venv usable, declaration changed) must not reach it
+    refresh = source.index('echo "Refreshing Atlas bootstrapper dependencies')
+    assert gate < refresh, "the refresh path now re-runs the interpreter gate"
 
 
 def test_urllib3_is_import_checked():

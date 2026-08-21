@@ -1076,9 +1076,12 @@ def test_a_written_value_is_read_back_unchanged(value, tmp_path):
     reachable straight from a consumer manifest's `env.values`.
     """
     from core.config_parser import ConfigParser
-    from utils.atomic_write import assert_safe_env_assignment
+    from utils.atomic_write import render_env_assignment
 
-    rendered = assert_safe_env_assignment("SECRET", value)
+    # `render_env_assignment`, not `assert_safe_env_assignment`: the latter
+    # VALIDATES and returns the raw value (for parse boundaries that store it),
+    # while only a line WRITER renders. Conflating them rendered twice.
+    rendered = render_env_assignment("SECRET", value)
     (tmp_path / ".env").write_text(f"SECRET={rendered}\n", encoding="utf-8")
 
     parser = ConfigParser(str(tmp_path))
@@ -1089,9 +1092,9 @@ def test_a_written_value_is_read_back_unchanged(value, tmp_path):
 @pytest.mark.parametrize("value", ["plain", "a#b", "63000", ""])
 def test_a_value_needing_no_quoting_stays_bare(value):
     """Quote only what must be quoted — `.env` stays readable."""
-    from utils.atomic_write import assert_safe_env_assignment
+    from utils.atomic_write import render_env_assignment
 
-    assert assert_safe_env_assignment("K", value) == value
+    assert render_env_assignment("K", value) == value
 
 
 def test_a_value_no_encoding_can_carry_is_refused():

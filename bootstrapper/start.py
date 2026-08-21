@@ -98,7 +98,7 @@ def _run_privileged_hosts_setup() -> bool:
 # Add the current directory to the path so we can import our modules
 sys.path.insert(0, str(Path(__file__).parent))
 
-from utils.atomic_write import assert_safe_env_assignment, atomic_write_text, env_lines
+from utils.atomic_write import atomic_write_text, env_lines, render_env_assignment
 from utils.banner import BannerDisplay
 from utils.hosts_manager import HostsManager
 from utils.key_generator import KeyGenerator
@@ -127,7 +127,15 @@ _USER_OWNED_BLANKABLE: frozenset = frozenset({
     "ANTHROPIC_USER_MODELS",
     "OPENROUTER_USER_MODELS",
     "COMFYUI_USER_MODELS",
-    "WEAVIATE_ENABLE_MODULES",
+    # NOT WEAVIATE_ENABLE_MODULES: nothing in the wizard writes it, so it can
+    # only be blank by hand-edit or a legacy `.env` — precisely what backfill
+    # exists to repair. Exempting it meant the blank survived into
+    # `ServiceConfig`, where a present-but-empty key made `.get(key, default)`
+    # return `''` and collapse the module list to nothing, durably.
+    #
+    # N8N_INIT_NODES stays for symmetry with the other multi-select lists, but
+    # is belt-and-braces: `services/n8n/compose.yml` substitutes its defaults
+    # with `${N8N_INIT_NODES:-...}`, so a blank there is already harmless.
     "N8N_INIT_NODES",
 })
 
@@ -813,7 +821,7 @@ class AtlasStarter:
             # the `^KEY=.*$` rewrite below is MULTILINE, not DOTALL, so a later
             # run rewrites only the first line and leaves the remainder in
             # place permanently.
-            var_value = assert_safe_env_assignment(var_name, raw_value)
+            var_value = render_env_assignment(var_name, raw_value)
             pattern = rf"^{re.escape(var_name)}=.*$"
             replacement = f"{var_name}={var_value}"
             if re.search(pattern, updated_content, re.MULTILINE):

@@ -125,8 +125,20 @@ def assert_safe_env_assignment(key: str, value: str) -> str:
     See the ENV-WRITER SCOPE comment above this function for the
     guarded/unguarded split.
 
-    Returns the value coerced to ``str`` so callers can write the result
-    directly rather than re-coercing.
+    Returns the value coerced to ``str``, **unrendered**. Validation and
+    rendering are deliberately separate calls: this one runs at PARSE
+    boundaries (a consumer manifest storing into a dict), while
+    `render_env_assignment` runs at WRITE boundaries (formatting a `KEY=value`
+    line). Folding them together made a manifest value render TWICE —
+    `s3cr3t #1` was stored as `"s3cr3t #1"` and then written as
+    `'"s3cr3t #1"'`, so `.env` read back the quotes as part of the secret. It
+    also aborted startup outright for a value legitimately containing double
+    quotes: accepted at the manifest boundary, then rejected by the second
+    render, uncaught, straight into the catch-all as "Unexpected error during
+    startup".
+
+    Encodability IS still checked here, so an unencodable value fails at
+    manifest load with its origin rather than mid-launch with a traceback.
     """
     if not _ENV_KEY_RE.fullmatch(str(key)):
         raise ValueError(
@@ -152,7 +164,18 @@ def assert_safe_env_assignment(key: str, value: str) -> str:
             f"refusing to write a multi-line value for {key}: a line separator "
             f"in a .env value injects further assignments"
         )
-    return render_env_value(key, rendered)
+    render_env_value(key, rendered)  # raises if no encoding round-trips
+    return rendered
+
+
+def render_env_assignment(key: str, value: str) -> str:
+    """Validate `value` and render it for emission as ``KEY=<result>``.
+
+    The only entry point a `.env` LINE WRITER should use. Callers that merely
+    validate and store (the consumer-manifest parse boundary) must use
+    `assert_safe_env_assignment`, or the value renders twice.
+    """
+    return render_env_value(key, assert_safe_env_assignment(key, value))
 
 
 def decode_env_value(raw: str) -> str:

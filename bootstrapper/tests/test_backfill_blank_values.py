@@ -97,7 +97,13 @@ def test_backfill_does_not_undo_a_deliberate_deselect_all(tmp_path):
 
     body = (tmp_path / ".env").read_text()
     assert "OLLAMA_USER_MODELS=\n" in body, "deselect-all was silently reverted"
-    assert "WEAVIATE_ENABLE_MODULES=\n" in body
     assert "N8N_INIT_NODES=\n" in body
     # ...while a genuinely missing value is still repaired.
     assert "SUPABASE_DB_PASSWORD=password\n" in body
+    # WEAVIATE_ENABLE_MODULES is deliberately NOT exempt. Nothing in the
+    # wizard writes it, so it can only be blank by hand-edit or a legacy
+    # `.env` — exactly what backfill exists to repair. Exempting it let the
+    # blank reach `ServiceConfig`, where a present-but-empty key made
+    # `.get(key, default)` return `''` and collapse the module list to
+    # nothing, which was then written back durably.
+    assert "WEAVIATE_ENABLE_MODULES=text2vec-ollama,generative-ollama\n" in body
