@@ -728,9 +728,33 @@ def _is_path_rebinding(node: ast.AST, names: _PathNames) -> bool:
     )
 
 
+def _dynamic_import_name(node: ast.AST) -> str | None:
+    """The literal module name in `importlib.import_module(...)`/`__import__(...)`.
+
+    Only a constant string argument counts — a computed name is genuinely
+    undecidable here, and guessing would produce false failures.
+    """
+    if not isinstance(node, ast.Call) or not node.args:
+        return None
+    func = node.func
+    is_dynamic = (
+        (isinstance(func, ast.Name) and func.id == "__import__")
+        or (isinstance(func, ast.Attribute) and func.attr == "import_module")
+    )
+    if not is_dynamic:
+        return None
+    first = node.args[0]
+    return first.value if isinstance(first, ast.Constant) and isinstance(first.value, str) else None
+
+
 def _first_party_names(stmt: ast.AST, wanted: set) -> list[str]:
     found = []
     for node in ast.walk(stmt):
+        dynamic = _dynamic_import_name(node)
+        if dynamic and dynamic.split(".")[0] in wanted:
+            # `importlib.import_module("utils.a")` above a bootstrap fails
+            # exactly like the `from utils.a import ...` it stands in for.
+            found.append(f"import {dynamic}")
         if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
             if node.module.split(".")[0] in wanted:
                 found.append(f"from {node.module}")
@@ -825,8 +849,18 @@ _IMPORT_GUARD_CASES = [
     # bypass #2 — an indented bootstrap that never runs before module imports
     ("bootstrap inside def", "import sys\nfrom utils.a import b\n"
                              "def boot():\n    sys.path.insert(0,'x')\n", True),
-    ("bootstrap in __main__", "import sys\nfrom utils.a import b\n"
+    # NOT a `__main__` test — the guard has no notion of `__main__`. What it
+    # pins is that an import ABOVE a conditional bootstrap is flagged. The old
+    # label implied an understanding that does not exist, and the case passed
+    # for a different reason than it claimed.
+    ("import above a conditional bootstrap", "import sys\nfrom utils.a import b\n"
                               "if __name__ == '__main__':\n    sys.path.insert(0,'x')\n", True),
+    # The reversed shape, stated explicitly: a branch is treated as executed,
+    # so the bootstrap counts and the import below it is fine. That is the
+    # deliberate design (see `_executed_child_statements`), not an oversight.
+    ("conditional bootstrap above an import", "import sys\n"
+                              "if __name__ == '__main__':\n    sys.path.insert(0,'x')\n"
+                              "from utils.a import b\n", False),
     # bypass #3 — a try-wrapped import is not at column 0
     ("try-wrapped import above", "import sys\ntry:\n    from utils.a import b\n"
                                  "except ImportError:\n    b = None\nsys.path.insert(0,'x')\n", True),
