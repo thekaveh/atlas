@@ -39,9 +39,15 @@ import signal
 import socket
 import subprocess
 import sys
+
+try:  # POSIX advisory locking; absent on Windows
+    import fcntl
+except ImportError:  # pragma: no cover - non-POSIX
+    fcntl = None
 import time
 import urllib.error
 import urllib.request
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping, Optional
@@ -393,10 +399,38 @@ class ManagedHostManager:
                 f"refusing non-loopback bind {self.spec.bind} for {self.spec.name!r}; "
                 f"set allow_remote: true to override"
             )
+        self.state_dir.mkdir(parents=True, exist_ok=True)
+        with self._lifecycle_lock():
+            return self._start_locked(wait_timeout)
+
+    @contextmanager
+    def _lifecycle_lock(self):
+        """Serialize `start()` for this host across processes.
+
+        `start()` is check-then-spawn: two concurrent starts both saw
+        `status().running` as False and both spawned, leaving one process
+        untracked and holding the port. The dedicated ComfyUI manager already
+        took an flock here; the generic extraction did not.
+
+        Held only across `start()`. `stop()` and `remove()` deliberately do NOT
+        take it: `remove()` calls `stop()`, and flock is per open-file
+        description, so a second acquisition from the same process would
+        self-deadlock.
+        """
+        if fcntl is None:  # non-POSIX: no lock available, behave as before
+            yield
+            return
+        handle = open(self.state_dir / "lifecycle.lock", "w", encoding="utf-8")
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            yield
+        finally:
+            handle.close()  # closing releases the lock
+
+    def _start_locked(self, wait_timeout: float) -> HostProcessStatus:
         status = self.status()
         if status.running:
             return status
-        self.state_dir.mkdir(parents=True, exist_ok=True)
         process = self._spawn()
         try:
             self._write_pid_file(process.pid)
@@ -741,7 +775,14 @@ class ManagedHostManager:
             return None
         if out.returncode != 0:
             return None
-        return (out.stdout or "").strip() or None
+        # Exactly ONE line, or nothing. A `ps` answering rc=0 with two lines
+        # wrote extra pid-file lines, and `_recorded_start_time` reads only the
+        # first `start_utc=` line — so the recorded value could never match a
+        # later probe and our own live process was disowned as a stranger.
+        # Ambiguity degrades to "unknowable -> proceed", which is the
+        # documented behavior for a stamp that cannot be read.
+        lines = [line.strip() for line in (out.stdout or "").splitlines() if line.strip()]
+        return lines[0] if len(lines) == 1 else None
 
     def _recorded_start_time(self) -> Optional[str]:
         """The start time stamped into the pid file at spawn, if present."""

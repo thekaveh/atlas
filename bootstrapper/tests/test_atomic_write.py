@@ -582,8 +582,38 @@ def _walk_executed(node: ast.AST):
     if isinstance(node, (ast.Lambda, ast.GeneratorExp)):
         return
     yield node
-    for child in ast.iter_child_nodes(node):
+    for child in _reachable_children(node):
         yield from _walk_executed(child)
+
+
+def _reachable_children(node: ast.AST):
+    """Child nodes minus the ones a LITERAL constant makes unreachable.
+
+    `_ = False and sys.path.insert(0,'x')` contains a path mutation that never
+    runs, yet it counted as this file's bootstrap and short-circuited the
+    scan — so every offender below it went unreported. A FALSE PASS.
+
+    Deliberately narrow: only a literal constant guard is treated as decidable.
+    A real condition (`if cfg.dev: sys.path.insert(...)`) still counts as a
+    bootstrap, matching how compound statements are handled elsewhere here.
+    """
+    if isinstance(node, ast.IfExp) and isinstance(node.test, ast.Constant):
+        taken = node.body if node.test.value else node.orelse
+        return [node.test, taken]
+    if isinstance(node, ast.BoolOp):
+        return _reachable_operands(node)
+    return list(ast.iter_child_nodes(node))
+
+
+def _reachable_operands(node: ast.BoolOp) -> list:
+    """`and`/`or` operands up to the first literal that decides the result."""
+    short_circuits_on = isinstance(node.op, ast.Or)
+    reachable = []
+    for operand in node.values:
+        reachable.append(operand)
+        if isinstance(operand, ast.Constant) and bool(operand.value) is short_circuits_on:
+            break  # nothing after this can be evaluated
+    return reachable
 
 
 def _is_sys_path(node: ast.AST, names: _PathNames) -> bool:
@@ -946,6 +976,21 @@ _IMPORT_GUARD_CASES = [
     ("typing_extensions dotted",
      "import sys\nimport typing_extensions as te\nif te.TYPE_CHECKING:\n"
      "    from utils.a import b\nsys.path.insert(0,'x')\n", False),
+    # dead code is not a performed bootstrap — counting it short-circuited
+    # the scan and every offender below went unreported (a FALSE PASS)
+    ("dead: False and insert",
+     "import sys\n_ = False and sys.path.insert(0,'x')\nfrom utils.a import b\n", True),
+    ("dead: True or insert",
+     "import sys\n_ = True or sys.path.insert(0,'x')\nfrom utils.a import b\n", True),
+    ("dead: ifexp on a False literal",
+     "import sys\n_ = sys.path.insert(0,'x') if False else None\nfrom utils.a import b\n", True),
+    # ...but a REAL condition still counts, matching compound statements
+    ("live: real condition",
+     "import sys\n_ = cfg and sys.path.insert(0,'x')\nfrom utils.a import b\n", False),
+    ("live: ifexp on a real condition",
+     "import sys\n_ = sys.path.insert(0,'x') if cfg else None\nfrom utils.a import b\n", False),
+    ("live: True and insert",
+     "import sys\n_ = True and sys.path.insert(0,'x')\nfrom utils.a import b\n", False),
 ]
 
 

@@ -894,3 +894,63 @@ def test_a_live_or_unreadable_pid_is_never_swept():
     assert ManagedHostManager._group_survives(os.getpid()) is False
     # pid 1 exists and is not signalable by us — also never swept
     assert ManagedHostManager._group_survives(1) is False
+
+
+def test_an_ambiguous_start_time_probe_is_treated_as_unknowable(tmp_path, monkeypatch):
+    """A two-line `ps` answer wrote extra pid-file lines.
+
+    `_recorded_start_time` reads only the first `start_utc=` line, so a
+    multi-line stamp could never match a later probe — and our own live
+    process was disowned as a stranger.
+    """
+    class TwoLines:
+        returncode = 0
+        stdout = "Mon Jan  1 00:00:00 2024\nMon Jan  2 00:00:00 2024\n"
+
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: TwoLines())
+    assert ManagedHostManager._process_start_time(1234) is None
+
+    class OneLine:
+        returncode = 0
+        stdout = "  Mon Jan  1 00:00:00 2024  \n"
+
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: OneLine())
+    assert ManagedHostManager._process_start_time(1234) == "Mon Jan  1 00:00:00 2024"
+
+
+def test_start_is_serialized_across_processes(tmp_path):
+    """`start()` is check-then-spawn.
+
+    Two concurrent starts both saw `status().running` as False and both
+    spawned, leaving one process untracked and holding the port.
+    """
+    manager = ManagedHostManager(_spec(), tmp_path)
+    manager.state_dir.mkdir(parents=True, exist_ok=True)
+
+    script = textwrap.dedent(f"""
+        import pathlib, sys, time
+        sys.path.insert(0, {str(Path(__file__).resolve().parents[1])!r})
+        from services.managed_host import ManagedHostManager, HostProcessSpec
+        spec = HostProcessSpec(name="sam3-segment", command=("python3","-c","pass"), port=8799)
+        m = ManagedHostManager(spec, pathlib.Path({str(tmp_path)!r}))
+        start = time.monotonic()
+        with m._lifecycle_lock():
+            print(time.monotonic() - start)
+    """)
+    with manager._lifecycle_lock():
+        child = subprocess.Popen(
+            [sys.executable, "-c", script], stdout=subprocess.PIPE, text=True
+        )
+        time.sleep(1.0)
+    waited = float(child.communicate(timeout=30)[0].strip())
+    assert waited > 0.5, f"child was not blocked (waited {waited:.2f}s)"
+
+
+def test_remove_does_not_self_deadlock_on_the_lifecycle_lock(tmp_path):
+    """flock is per open-file description: a second acquisition would hang.
+
+    `remove()` calls `stop()`, so neither may take the lock that `start()` does.
+    """
+    manager = ManagedHostManager(_spec(), tmp_path)
+    manager.state_dir.mkdir(parents=True, exist_ok=True)
+    manager.remove()  # must return, not hang
