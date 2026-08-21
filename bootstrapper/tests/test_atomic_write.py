@@ -351,19 +351,40 @@ def _bootstrapper_packages(root: Path) -> list[str]:
 _MODULE_LEVEL_BODIES = (ast.If, ast.Try, ast.With, ast.For, ast.While)
 
 
+def _is_type_checking_block(stmt: ast.AST) -> bool:
+    """`if TYPE_CHECKING:` — its body never executes at runtime."""
+    if not isinstance(stmt, ast.If):
+        return False
+    test = ast.unparse(stmt.test)
+    return test in ("TYPE_CHECKING", "typing.TYPE_CHECKING")
+
+
 def _module_level_statements(body: list) -> list:
-    """Flatten to statements that actually execute when the module is imported."""
+    """Leaf statements that actually execute when the module is imported.
+
+    Yields LEAVES only — a compound statement is recursed into, never emitted
+    itself. Emitting both made every nested import count twice, since the
+    per-statement scans use `ast.walk`.
+
+    Never descends into `FunctionDef`/`AsyncFunctionDef`/`ClassDef` (their
+    bodies run on call, not on import) or into `if TYPE_CHECKING:` (which never
+    runs at all).
+    """
     flat = []
     for stmt in body:
-        flat.append(stmt)
-        if isinstance(stmt, _MODULE_LEVEL_BODIES):
-            for attr in ("body", "orelse", "finalbody", "handlers"):
-                nested = getattr(stmt, attr, None) or []
-                for item in nested:
-                    if isinstance(item, ast.ExceptHandler):
-                        flat.extend(_module_level_statements(item.body))
-                    else:
-                        flat.extend(_module_level_statements([item]))
+        if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            continue
+        if _is_type_checking_block(stmt):
+            continue
+        nested = []
+        for attr in ("body", "orelse", "finalbody"):
+            nested.extend(getattr(stmt, attr, None) or [])
+        for handler in getattr(stmt, "handlers", None) or []:
+            nested.extend(handler.body)
+        if nested:
+            flat.extend(_module_level_statements(nested))
+        else:
+            flat.append(stmt)
     return flat
 
 
@@ -417,10 +438,6 @@ def _first_party_imports_above_bootstrap(text: str, packages: list[str]) -> list
     wanted = set(packages)
     offenders: list[str] = []
     for stmt in _module_level_statements(tree.body):
-        # A `def` cannot bootstrap, but the import scan must also skip it: the
-        # imports inside it are lazy and run only when the function is called.
-        if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            continue
         if _is_bootstrap(stmt, packages):
             return offenders
         offenders.extend(_first_party_names(stmt, wanted))
@@ -499,6 +516,26 @@ _IMPORT_GUARD_CASES = [
                                       "sys.path.insert(0,'x')\nfrom utils.c import d\n", False),
     ("conditional bootstrap runs", "import sys\nif sys.platform != 'win32':\n"
                                    "    sys.path.insert(0,'x')\nfrom utils.a import b\n", False),
+    # bypass #5 candidates — a `def`/`class`/`lambda` nested INSIDE an executed
+    # block still cannot bootstrap, and `if TYPE_CHECKING:` never runs at all.
+    ("def-with-bootstrap inside if", "import sys\nfrom utils.a import b\n"
+                                     "if True:\n    def boot():\n        sys.path.insert(0,'x')\n", True),
+    ("class-with-bootstrap inside if", "import sys\nfrom utils.a import b\n"
+                                       "if True:\n    class C:\n        sys.path.insert(0,'x')\n", True),
+    ("lambda bootstrap", "import sys\nfrom utils.a import b\n"
+                         "boot = lambda: sys.path.insert(0,'x')\n", True),
+    ("TYPE_CHECKING import above", "import sys\nfrom typing import TYPE_CHECKING\n"
+                                   "if TYPE_CHECKING:\n    from utils.a import b\n"
+                                   "sys.path.insert(0,'x')\n", False),
+    ("try/finally bootstrap", "import sys\ntry:\n    pass\nfinally:\n"
+                              "    sys.path.insert(0,'x')\nfrom utils.a import b\n", False),
+    ("for-else bootstrap", "import sys\nfor _ in []:\n    pass\nelse:\n"
+                           "    sys.path.insert(0,'x')\nfrom utils.a import b\n", False),
+    ("nested if inside for", "import sys\nfor _ in [1]:\n    if True:\n"
+                             "        sys.path.insert(0,'x')\nfrom utils.a import b\n", False),
+    ("decorated def above bootstrap", "import sys\n@staticmethod\ndef h():\n"
+                                      "    from utils.a import b\nsys.path.insert(0,'x')\n"
+                                      "from utils.c import d\n", False),
 ]
 
 
