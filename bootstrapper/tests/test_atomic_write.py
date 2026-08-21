@@ -360,6 +360,11 @@ def test_every_env_rewriting_module_imports_at_runtime() -> None:
     # venv, which has the bootstrapper installed as a package, so `utils`
     # imports regardless of ordering and the check passes against a script that
     # is broken for every other interpreter. Assert the ordering directly.
+    # Scoped to `scripts/` deliberately. Python prepends the SCRIPT's own
+    # directory to sys.path, so `start.py` — which sits at the package root —
+    # resolves `from services...` before its own (redundant) bootstrap runs.
+    # A script one level down in `scripts/` gets `scripts/` on the path
+    # instead, so its bootstrap is load-bearing and an import above it fails.
     for script in sorted((root / "scripts").glob("*.py")):
         text = script.read_text(encoding="utf-8")
         bootstrap = text.find("sys.path.insert")
