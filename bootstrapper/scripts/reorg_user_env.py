@@ -19,6 +19,7 @@ Safety: refuses to run if .env.bak.* doesn't exist alongside .env.
 You did back up first — right?
 """
 from __future__ import annotations
+from utils.atomic_write import env_lines
 
 import argparse
 import os
@@ -62,7 +63,7 @@ def _parse_env(text: str) -> dict[str, str]:
     back verbatim — the user's hand-edits in their .env stay intact.
     """
     out: dict[str, str] = {}
-    for line in text.splitlines():
+    for line in env_lines(text):
         m = KEY_VALUE_RE.match(line.lstrip())
         if m:
             out[m.group(1)] = m.group(2)
@@ -81,7 +82,7 @@ def reorganize(example_text: str, user_env_text: str) -> tuple[str, list[str], l
     out_lines: list[str] = []
     taken: list[str] = []
 
-    for line in example_text.splitlines(keepends=True):
+    for line in env_lines(example_text, keepends=True):
         m = KEY_VALUE_RE.match(line.lstrip())
         if not m:
             out_lines.append(line)

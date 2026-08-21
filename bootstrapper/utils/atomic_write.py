@@ -45,6 +45,33 @@ def _fsync_parent_directory(path: Path) -> None:
 _ENV_KEY_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
+#: Split `.env` text the way its canonical reader does.
+#:
+#: `ConfigParser.parse_env_file` iterates the file object, so a line ends at
+#: `\n` (and at `\r\n`/`\r`, which universal-newline translation has already
+#: collapsed to `\n` before this regex sees them — the CR alternatives are kept
+#: only so this stays correct if a caller ever reads with `newline=""`).
+#:
+#: `str.splitlines()` additionally splits on \x0b \x0c \x1c \x1d \x1e \x85
+#: U+2028 and U+2029. Any `.env` rewriter that reads with `splitlines()` and
+#: re-emits a segment terminated with a real `\n` therefore PROMOTES text after
+#: one of those separators into a genuine assignment — which `parse_env_file`
+#: then resolves last-wins. That is a privilege-escalation primitive, not a
+#: formatting quirk: `stamp_version` runs unattended against every legacy `.env`
+#: at start. Use this everywhere `.env` is split, so writer and reader always
+#: agree on what a line is.
+_ENV_LINE_SPLIT_RE = re.compile(r"\r\n|\r|\n")
+
+
+def env_lines(text: str, *, keepends: bool = False) -> list[str]:
+    """Line-split `.env` text with the canonical reader's semantics."""
+    parts = _ENV_LINE_SPLIT_RE.split(text)
+    if not keepends:
+        return parts
+    ends = _ENV_LINE_SPLIT_RE.findall(text)
+    return [seg + (ends[i] if i < len(ends) else "") for i, seg in enumerate(parts)]
+
+
 def assert_safe_env_assignment(key: str, value: str) -> str:
     """Reject anything that would emit more than one `.env` assignment.
 
@@ -60,11 +87,16 @@ def assert_safe_env_assignment(key: str, value: str) -> str:
     data — `AtlasStarter._merge_env_file_overrides`,
     `SourceOverrideManager.update_env_file`,
     `ServiceConfigManager.update_env_file`, and `_set_scalar` at the manifest
-    parse boundary. It is NOT on every path that writes `.env`: the backfill
-    splice, `key_generator.update_env_key`, `supabase_keys`, `port_manager`, the
-    three env migrations and `scripts/reorg_user_env.py` all format their own
-    `KEY=VALUE` lines from internally-generated values. Route anything
-    externally-sourced through here rather than assuming those are covered.
+    parse boundary. It is NOT on every path that writes `.env`. These
+    eight format their own `KEY=VALUE` lines from internally-generated values
+    and are unguarded: `AtlasStarter._remove_env_keys_by_prefix`, the backfill
+    splice, `key_generator.update_env_key`, `supabase_keys`, `port_manager`,
+    the three env migrations' `stamp_version`, and
+    `bootstrapper/scripts/reorg_user_env.py`. Route anything externally-sourced
+    through here rather than assuming those are covered. (They all now SPLIT
+    `.env` with `env_lines` above, so none can promote an embedded separator
+    into a real assignment — a separate property from validating what they
+    write.)
 
     It lives beside the atomic writer all four already import, because putting
     the guard on one writer and not its siblings is exactly how the first

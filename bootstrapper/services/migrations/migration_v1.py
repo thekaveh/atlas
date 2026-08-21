@@ -18,6 +18,7 @@ changes again — author a sibling migration_v2.py with its own snapshot.
 """
 
 from __future__ import annotations
+from utils.atomic_write import env_lines
 
 import re
 from dataclasses import dataclass
@@ -107,7 +108,7 @@ def apply(
     # pristine snapshot — the one that matters for rollback).
     backup_path = create_private_backup(env_path, version="v1")
 
-    lines = env_path.read_text(encoding="utf-8").splitlines(keepends=True)
+    lines = env_lines(env_path.read_text(encoding="utf-8"), keepends=True)
     rewritten: dict[str, tuple[str, str]] = {}
     preserved: list[str] = []
     out: list[str] = []
@@ -163,7 +164,7 @@ def needs_migration(env_path: Path) -> bool:
     """
     if not env_path.is_file():
         return False  # fresh install — defaults already correct
-    for line in env_path.read_text(encoding="utf-8").splitlines():
+    for line in env_lines(env_path.read_text(encoding="utf-8")):
         m = _SENTINEL_RE.match(line)
         if m:
             try:
@@ -182,7 +183,7 @@ def stamp_version(env_path: Path, version: int = 1) -> None:
     """
     if not env_path.is_file():
         return
-    lines = env_path.read_text(encoding="utf-8").splitlines(keepends=True)
+    lines = env_lines(env_path.read_text(encoding="utf-8"), keepends=True)
     found = False
     for i, line in enumerate(lines):
         if _SENTINEL_RE.match(line):

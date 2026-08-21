@@ -15,6 +15,7 @@ the sentinel to 2.
 """
 
 from __future__ import annotations
+from utils.atomic_write import env_lines
 
 import re
 from pathlib import Path
@@ -58,7 +59,7 @@ def needs_migration(env_path: Path) -> bool:
     """True iff .env's BOOTSTRAPPER_PORT_LAYOUT_VERSION < 2 (or absent)."""
     if not env_path.is_file():
         return False  # fresh install — defaults already include PORT vars
-    for line in env_path.read_text(encoding="utf-8").splitlines():
+    for line in env_lines(env_path.read_text(encoding="utf-8")):
         m = _SENTINEL_RE.match(line)
         if m:
             try:
@@ -81,7 +82,7 @@ def apply(env_path: Path) -> None:
     if not env_path.is_file():
         return
 
-    lines = env_path.read_text(encoding="utf-8").splitlines(keepends=True)
+    lines = env_lines(env_path.read_text(encoding="utf-8"), keepends=True)
     existing_keys: set[str] = set()
     for line in lines:
         if not line.strip() or line.lstrip().startswith("#") or "=" not in line:
@@ -162,7 +163,7 @@ def stamp_version(env_path: Path, version: int = 2) -> None:
     """Append or update BOOTSTRAPPER_PORT_LAYOUT_VERSION in .env to 2."""
     if not env_path.is_file():
         return
-    lines = env_path.read_text(encoding="utf-8").splitlines(keepends=True)
+    lines = env_lines(env_path.read_text(encoding="utf-8"), keepends=True)
     found = False
     for i, line in enumerate(lines):
         if _SENTINEL_RE.match(line):

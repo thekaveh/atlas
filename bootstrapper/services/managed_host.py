@@ -585,9 +585,17 @@ class ManagedHostManager:
         stays tracked rather than becoming an orphan — and `rmtree` would throw
         that away, reaching the same orphan outcome the PID-reuse work exists to
         prevent, just through a different door. Mirrors the contract
-        comfyui_mps_manager already enforces.
+        comfyui_mps_manager enforces: attempt the stop, then refuse on LIVENESS,
+        not on the stop's return value.
         """
-        if not self.stop() or self.status().running:
+        # Gate on liveness ONLY, not on stop()'s return. A process that exits
+        # between `_pid_alive` and the signal makes `_signal` see
+        # ProcessLookupError from both killpg and kill — that is an OSError, so
+        # stop() reports False for a process that is already gone, and gating on
+        # it would refuse a removal that should succeed. comfyui_mps_manager
+        # checks only `status().running` for the same reason.
+        self.stop()
+        if self.status().running:
             raise ManagedHostError(
                 f"refusing to remove managed state for {self.spec.name!r} while "
                 f"its process is still running"

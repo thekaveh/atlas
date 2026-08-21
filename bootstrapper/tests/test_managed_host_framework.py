@@ -695,7 +695,13 @@ def test_remove_refuses_while_the_process_is_still_running(tmp_path: Path, monke
     manager.state_dir.mkdir(parents=True, exist_ok=True)
     manager.pid_file.write_text("4242\n", encoding="utf-8")
 
+    # Refusal is gated on LIVENESS, not on stop()'s return value: a process
+    # that exits mid-signal makes stop() report False while already being gone,
+    # and refusing on that would block a removal that should succeed.
     monkeypatch.setattr(manager, "stop", lambda: False)
+    monkeypatch.setattr(
+        manager, "status", lambda: HostProcessStatus(running=True, pid=4242)
+    )
 
     with pytest.raises(ManagedHostError, match="still running"):
         manager.remove()
@@ -710,6 +716,24 @@ def test_remove_deletes_state_once_the_process_is_gone(tmp_path: Path, monkeypat
     manager.pid_file.write_text("4242\n", encoding="utf-8")
 
     monkeypatch.setattr(manager, "stop", lambda: True)
+    monkeypatch.setattr(manager, "status", lambda: HostProcessStatus(running=False))
+
+    manager.remove()
+    assert not manager.state_dir.exists()
+
+
+def test_remove_succeeds_when_stop_reports_failure_for_an_already_dead_process(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """`_signal` sees ProcessLookupError from both killpg and kill when the
+    process exits mid-signal. That is an OSError, so `stop()` returns False for
+    a process that is already gone — gating removal on it would refuse a
+    teardown that should succeed, and `managed-host remove` has no handler."""
+    manager = _manager(tmp_path, "raced", (sys.executable, "-c", "pass"))
+    manager.state_dir.mkdir(parents=True, exist_ok=True)
+    manager.pid_file.write_text("4242\n", encoding="utf-8")
+
+    monkeypatch.setattr(manager, "stop", lambda: False)
     monkeypatch.setattr(manager, "status", lambda: HostProcessStatus(running=False))
 
     manager.remove()

@@ -98,7 +98,7 @@ def _run_privileged_hosts_setup() -> bool:
 # Add the current directory to the path so we can import our modules
 sys.path.insert(0, str(Path(__file__).parent))
 
-from utils.atomic_write import assert_safe_env_assignment, atomic_write_text
+from utils.atomic_write import assert_safe_env_assignment, atomic_write_text, env_lines
 from utils.banner import BannerDisplay
 from utils.hosts_manager import HostsManager
 from utils.key_generator import KeyGenerator
@@ -120,24 +120,6 @@ from utils.source_override_manager import SourceOverrideManager
 #: trio, and `ollama-pull` then downloaded several GB the user had just
 #: declined. Backfill exists to repair values that were never set, so it must
 #: not overwrite an intentional empty.
-#: Split `.env` text the way the canonical reader does. `ConfigParser.parse_env_file`
-#: iterates the file object, so it splits on `\n`, `\r\n` and `\r` — and nothing else.
-#: `str.splitlines()` additionally splits on \x0b \x0c \x1c \x1d \x1e \x85 U+2028 and
-#: U+2029, so using it here made the writer disagree with the reader about what a line is:
-#: a value carrying one of those was stored as a single physical line, re-read as two, and
-#: rewritten with a REAL newline between them — promoting the remainder to a genuine
-#: assignment that wins last-wins resolution. Matching the reader removes that gadget.
-_ENV_LINE_SPLIT_RE = re.compile(r"\r\n|\r|\n")
-
-
-def _env_lines(text: str, *, keepends: bool = False) -> list[str]:
-    if not keepends:
-        return _ENV_LINE_SPLIT_RE.split(text)
-    parts = _ENV_LINE_SPLIT_RE.split(text)
-    ends = _ENV_LINE_SPLIT_RE.findall(text)
-    return [seg + (ends[i] if i < len(ends) else "") for i, seg in enumerate(parts)]
-
-
 _USER_OWNED_BLANKABLE: frozenset = frozenset({
     "OLLAMA_USER_MODELS",
     "OLLAMA_CUSTOM_MODELS",
@@ -706,7 +688,22 @@ class AtlasStarter:
             self.banner.show_status_message(f"  • {overlay_path} has no env overrides", "info")
             return {}
 
-        self._merge_env_file_overrides(overrides)
+        try:
+            self._merge_env_file_overrides(overrides)
+        except ValueError as e:
+            # `assert_safe_env_assignment` rejects a key or value that would
+            # emit more than one `.env` assignment. An overlay is a hand- or
+            # tool-written file, so a stray form feed or NEL is a plausible
+            # accident rather than an attack — warn and skip with the file
+            # named, like every other failure mode here, instead of aborting
+            # the whole start with a traceback that does not say which overlay
+            # produced it.
+            self.banner.show_status_message(
+                f"{label} points to {overlay_path}, but one of its entries "
+                f"cannot be written safely ({e}); skipping the overlay",
+                "warning",
+            )
+            return {}
         self.banner.show_status_message(
             f"  • Applied {overlay_path} ({len(overrides)} override{'s' if len(overrides) != 1 else ''})",
             "info",
@@ -1058,7 +1055,7 @@ class AtlasStarter:
         content = env_file_path.read_text(encoding="utf-8")
         kept = [
             line
-            for line in content.splitlines(keepends=True)
+            for line in env_lines(content, keepends=True)
             if not line.lstrip().startswith(prefix)
         ]
         updated = "".join(kept)
@@ -1253,7 +1250,7 @@ class AtlasStarter:
 
         existing_keys: set[str] = set()
         blank_keys: set[str] = set()
-        for line in _env_lines(env_text):
+        for line in env_lines(env_text):
             stripped = line.strip()
             if not stripped or stripped.startswith("#"):
                 continue
@@ -1309,7 +1306,7 @@ class AtlasStarter:
         }
         if blank_fills:
             new_lines: list[str] = []
-            for line in _env_lines(env_text, keepends=True):
+            for line in env_lines(env_text, keepends=True):
                 stripped = line.strip()
                 if "=" in stripped and not stripped.startswith("#"):
                     key, _, raw_value = stripped.partition("=")
