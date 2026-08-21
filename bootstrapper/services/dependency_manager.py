@@ -189,7 +189,10 @@ class DependencyManager:
             raw = (env_vars.get(info.scale_var, "") or "").strip()
             if raw:
                 try:
-                    return int(raw)
+                    # Clamp: a hand-edited negative scale is `!= 0`, so it would read as
+                    # ENABLED for its own dependency check and as SATISFIED for anyone
+                    # requiring it, then reach `docker compose --scale svc=-1`.
+                    return max(0, int(raw))
                 except ValueError:
                     pass  # garbage → fall through to the source signal
 

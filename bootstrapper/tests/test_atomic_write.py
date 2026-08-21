@@ -342,16 +342,86 @@ def _bootstrapper_packages(root: Path) -> list[str]:
     return found or ["utils", "core", "services"]
 
 
-def _is_type_checking_test(test: ast.AST) -> bool:
-    """`TYPE_CHECKING` / `typing.TYPE_CHECKING` / an aliased `t.TYPE_CHECKING`."""
+def _sys_module_names(tree: ast.Module) -> set:
+    """Local names bound to the `sys` module (`import sys [as s]`)."""
+    names = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Import):
+            continue
+        for alias in node.names:
+            if alias.name == "sys":
+                names.add(alias.asname or "sys")
+    return names
+
+
+def _typing_module_names(tree: ast.Module) -> set:
+    """Local names bound to the `typing` module (`import typing [as t]`)."""
+    names = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Import):
+            continue
+        for alias in node.names:
+            if alias.name == "typing":
+                names.add(alias.asname or "typing")
+    return names
+
+
+def _type_checking_flag_names(tree: ast.Module) -> set:
+    """Local names bound to `typing.TYPE_CHECKING` (`from typing import ...`)."""
+    names = set()
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.ImportFrom) and node.module == "typing"):
+            continue
+        for alias in node.names:
+            if alias.name == "TYPE_CHECKING":
+                names.add(alias.asname or "TYPE_CHECKING")
+    return names
+
+
+def _typing_aliases(tree: ast.Module) -> tuple[set, set]:
+    """Names for the `typing` module and for `TYPE_CHECKING`, from this file.
+
+    Resolved from the file's own imports rather than pattern-matched, because
+    matching any `<expr>.TYPE_CHECKING` also exempted `if cfg.TYPE_CHECKING:` —
+    an unrelated object whose block DOES run at import.
+    """
+    return _typing_module_names(tree), _type_checking_flag_names(tree)
+
+
+def _is_type_checking_test(test: ast.AST, modules: set, flags: set) -> bool:
+    """Exactly `TYPE_CHECKING` from `typing` — bare, aliased, or dotted.
+
+    Deliberately narrow, and fails toward FLAGGING: anything it cannot prove is
+    typing's `TYPE_CHECKING` is treated as a block that runs. `if not
+    TYPE_CHECKING:` and `if TYPE_CHECKING or DEBUG:` are not exempt either —
+    both can execute.
+    """
     if isinstance(test, ast.Name):
-        return test.id == "TYPE_CHECKING"
-    if isinstance(test, ast.Attribute):
-        return test.attr == "TYPE_CHECKING"
+        return test.id in flags
+    if isinstance(test, ast.Attribute) and test.attr == "TYPE_CHECKING":
+        return isinstance(test.value, ast.Name) and test.value.id in modules
     return False
 
 
-def _executed_child_statements(stmt: ast.AST) -> list:
+def _type_checking_branch(stmt: ast.AST, typing_names: tuple):
+    """The one branch of an `if TYPE_CHECKING:` that runs, or None.
+
+    `if TYPE_CHECKING:` contributes only its `orelse`; `if not TYPE_CHECKING:`
+    contributes only its `body`. Anything else is not a TYPE_CHECKING guard and
+    both branches are treated normally by the caller.
+    """
+    if not isinstance(stmt, ast.If):
+        return None
+    test = stmt.test
+    if _is_type_checking_test(test, *typing_names):
+        return list(stmt.orelse)          # only the else branch runs
+    if isinstance(test, ast.UnaryOp) and isinstance(test.op, ast.Not):
+        if _is_type_checking_test(test.operand, *typing_names):
+            return list(stmt.body)        # `if not TYPE_CHECKING:` — body runs
+    return None
+
+
+def _executed_child_statements(stmt: ast.AST, typing_names: tuple) -> list:
     """Child statements of a compound statement that DO run at import time.
 
     In EXECUTION order — body, then except handlers, then `else`, then
@@ -365,8 +435,9 @@ def _executed_child_statements(stmt: ast.AST) -> list:
 
     `match` keeps its bodies under `cases`, not `body`.
     """
-    if isinstance(stmt, ast.If) and _is_type_checking_test(stmt.test):
-        return list(stmt.orelse)
+    branch = _type_checking_branch(stmt, typing_names)
+    if branch is not None:
+        return branch
     nested = list(getattr(stmt, "body", None) or [])
     for handler in getattr(stmt, "handlers", None) or []:
         nested.extend(handler.body)
@@ -377,7 +448,7 @@ def _executed_child_statements(stmt: ast.AST) -> list:
     return nested
 
 
-def _module_level_statements(body: list) -> list:
+def _module_level_statements(body: list, typing_names: tuple) -> list:
     """Leaf statements that actually execute when the module is imported.
 
     Yields LEAVES only — a compound statement is recursed into, never emitted
@@ -396,7 +467,9 @@ def _module_level_statements(body: list) -> list:
             # Recurse only. Appending the container too would double-count its
             # contents, and an `if TYPE_CHECKING:` with no `else` would leak its
             # body back in as a "leaf".
-            flat.extend(_module_level_statements(_executed_child_statements(stmt)))
+            flat.extend(_module_level_statements(
+                _executed_child_statements(stmt, typing_names), typing_names
+            ))
         else:
             flat.append(stmt)
     return flat
@@ -411,34 +484,72 @@ def _is_compound(stmt: ast.AST) -> bool:
 
 
 def _walk_executed(node: ast.AST):
-    """Walk `node`, pruning `Lambda` bodies — they run on call, not here."""
-    if isinstance(node, ast.Lambda):
+    """Walk `node`, pruning deferred scopes.
+
+    `Lambda` and `GeneratorExp` bodies do not run where they are written — a
+    genexp is only advanced when consumed. List/set/dict comprehensions DO
+    evaluate at that point, so they must stay.
+    """
+    if isinstance(node, (ast.Lambda, ast.GeneratorExp)):
         return
     yield node
     for child in ast.iter_child_nodes(node):
         yield from _walk_executed(child)
 
 
-def _is_bootstrap(stmt: ast.AST, packages: list[str]) -> bool:
-    """True when this statement performs a `sys.path` bootstrap itself."""
-    for node in _walk_executed(stmt):
-        if isinstance(node, ast.Call):
-            target = ast.unparse(node.func)
-            if target.endswith(("path.insert", "path.append", "addsitedir")):
-                return True
-        # `sys.path[0:0] = [...]`. Require an ASSIGNMENT of a SLICE: matching
-        # any `<expr>.path[...]` also matched a plain READ, so an innocent
-        # `ROOT = Path(sys.path[0])` short-circuited the scan and passed a
-        # genuinely broken script.
-        if (
-            isinstance(node, ast.Subscript)
-            and isinstance(node.ctx, ast.Store)
-            and isinstance(node.slice, ast.Slice)
-            and isinstance(node.value, ast.Attribute)
-            and node.value.attr == "path"
-        ):
-            return True
-    return False
+def _is_sys_path(node: ast.AST, sys_names: set) -> bool:
+    """True for `<sys-alias>.path` — not for any attribute merely named `path`."""
+    return (
+        isinstance(node, ast.Attribute)
+        and node.attr == "path"
+        and isinstance(node.value, ast.Name)
+        and node.value.id in sys_names
+    )
+
+
+def _is_bootstrap(stmt: ast.AST, sys_names: set) -> bool:
+    """True when this statement performs a `sys.path` bootstrap itself.
+
+    The callee is resolved against the file's own `sys` imports. A bare suffix
+    test on the unparsed callee matched any receiver ending in `.path`, so
+    `loader.search_path.append('x')` read as a bootstrap and short-circuited
+    the scan — the same defect class as the `sys.path[0]` read.
+    """
+    return any(
+        _is_path_mutating_call(node, sys_names) or _is_path_slice_assign(node, sys_names)
+        for node in _walk_executed(stmt)
+    )
+
+
+def _is_path_mutating_call(node: ast.AST, sys_names: set) -> bool:
+    """`sys.path.insert/append(...)` or `site.addsitedir(...)`.
+
+    The callee is resolved against the file's own `sys` imports. A bare suffix
+    test on the unparsed callee matched any receiver ending in `.path`, so
+    `loader.search_path.append('x')` read as a bootstrap and short-circuited
+    the scan — the same defect class as the `sys.path[0]` read.
+    """
+    if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+        return False
+    func = node.func
+    if func.attr == "addsitedir":
+        return True
+    return func.attr in ("insert", "append") and _is_sys_path(func.value, sys_names)
+
+
+def _is_path_slice_assign(node: ast.AST, sys_names: set) -> bool:
+    """`sys.path[0:0] = [...]`.
+
+    Requires an ASSIGNMENT of a SLICE: matching any `<expr>.path[...]` also
+    matched a plain READ, so an innocent `ROOT = Path(sys.path[0])`
+    short-circuited the scan and passed a genuinely broken script.
+    """
+    return (
+        isinstance(node, ast.Subscript)
+        and isinstance(node.ctx, ast.Store)
+        and isinstance(node.slice, ast.Slice)
+        and _is_sys_path(node.value, sys_names)
+    )
 
 
 def _first_party_names(stmt: ast.AST, wanted: set) -> list[str]:
@@ -474,8 +585,9 @@ def _first_party_imports_above_bootstrap(text: str, packages: list[str]) -> list
 
     wanted = set(packages)
     offenders: list[str] = []
-    for stmt in _module_level_statements(tree.body):
-        if _is_bootstrap(stmt, packages):
+    sys_names = _sys_module_names(tree)
+    for stmt in _module_level_statements(tree.body, _typing_aliases(tree)):
+        if _is_bootstrap(stmt, sys_names):
             return offenders
         offenders.extend(_first_party_names(stmt, wanted))
     return offenders
@@ -616,6 +728,41 @@ _IMPORT_GUARD_CASES = [
     ("except import before a finally bootstrap",
      "import sys\ntry:\n    import numpy\nexcept ImportError:\n"
      "    from utils.compat import numpy\nfinally:\n    sys.path.insert(0,'x')\n", True),
+    # TYPE_CHECKING is resolved from the file's own imports, not pattern-matched
+    ("cfg.TYPE_CHECKING is not typing's", "import sys\nif cfg.TYPE_CHECKING:\n"
+                                          "    from utils.a import b\nsys.path.insert(0,'x')\n", True),
+    ("TYPE_CHECKING name without the import", "import sys\nif TYPE_CHECKING:\n"
+                                              "    from utils.a import b\nsys.path.insert(0,'x')\n", True),
+    ("aliased flag TYPE_CHECKING as TC", "import sys\nfrom typing import TYPE_CHECKING as TC\n"
+                                         "if TC:\n    from utils.a import b\nsys.path.insert(0,'x')\n", False),
+    ("aliased module typing as t", "import sys\nimport typing as t\nif t.TYPE_CHECKING:\n"
+                                   "    from utils.a import b\nsys.path.insert(0,'x')\n", False),
+    ("not TYPE_CHECKING still runs", "import sys\nfrom typing import TYPE_CHECKING\n"
+                                     "if not TYPE_CHECKING:\n    from utils.a import b\n"
+                                     "sys.path.insert(0,'x')\n", True),
+    # comprehensions and genexps have their own scope but DO evaluate here
+    ("bootstrap in a comprehension", "import sys\nfrom utils.a import b\n"
+                                     "_ = [sys.path.insert(0,p) for p in ['x']]\n", True),
+    ("class nested in a def", "import sys\nfrom utils.a import b\ndef h():\n"
+                              "    class C:\n        sys.path.insert(0,'x')\n", True),
+    # a genexp body is deferred until consumed; a list comprehension is not
+    ("genexp bootstrap is deferred", "import sys\nfrom utils.a import b\n"
+                                     "g = (sys.path.insert(0,p) for p in ['x'])\n", True),
+    # the callee is resolved against this file's `sys` imports
+    ("unrelated .path.append", "import sys\nloader.search_path.append('x')\n"
+                               "from utils.a import b\nsys.path.insert(0,'y')\n", True),
+    ("aliased sys is recognised", "import sys as s\ns.path.insert(0,'x')\n"
+                                  "from utils.a import b\n", False),
+    ("aliased sys slice assign", "import sys as s\ns.path[0:0] = ['x']\n"
+                                 "from utils.a import b\n", False),
+    ("site.addsitedir", "import sys, site\nsite.addsitedir('x')\nfrom utils.a import b\n", False),
+    # `if not TYPE_CHECKING:` — the BODY is the branch that runs
+    ("not TYPE_CHECKING body runs", "import sys\nfrom typing import TYPE_CHECKING\n"
+                                    "if not TYPE_CHECKING:\n    from utils.a import b\n"
+                                    "sys.path.insert(0,'x')\n", True),
+    ("not TYPE_CHECKING else is typing-only",
+     "import sys\nfrom typing import TYPE_CHECKING\nif not TYPE_CHECKING:\n    pass\n"
+     "else:\n    from utils.a import b\nsys.path.insert(0,'x')\n", False),
 ]
 
 

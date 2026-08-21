@@ -257,7 +257,9 @@ class _SigtermGuard:
         except BaseException as error:
             errors.append(error)
 
-    def _restore_unowned(self, started_as_owner: dict, *, finish: bool) -> None:
+    def _restore_unowned(
+        self, started_as_owner: dict, *, finish: bool, borrowed_from: dict | None = None
+    ) -> None:
         """Hand each guarded signal back to whoever held it before us.
 
         Isolated per signal: `signal.signal(sig, None)` raises TypeError when
@@ -270,8 +272,11 @@ class _SigtermGuard:
             if signal.getsignal(sig) is self.installed and (
                 finish or not started_as_owner.get(sig, False)
             ):
+                # Give a borrowed signal back to the LIVE guard we took it from,
+                # not to our own pre-nesting original.
+                target = (borrowed_from or {}).get(sig, self.relay_target.get(sig))
                 try:
-                    signal.signal(sig, self.relay_target.get(sig))
+                    signal.signal(sig, target)
                 except (TypeError, ValueError, OSError) as restore_error:
                     # Swallowing here would be WORSE than failing: the signal
                     # stays bound to this dead guard's `_interrupt`, which
@@ -290,6 +295,7 @@ class _SigtermGuard:
             sig: signal.getsignal(sig) is self.installed for sig in _GUARDED_SIGNALS
         }
         errors: list[BaseException] = []
+        borrowed_from: dict = {}
         while True:
             while self.pending:
                 sig = self.pending[0][0]
@@ -305,10 +311,22 @@ class _SigtermGuard:
                     # drains. The process then stops responding to SIGTERM with
                     # no restore ever failing, so the SIG_DFL fallback never
                     # fires either.
-                    if not _is_guard_handler(displaced):
+                    if _is_guard_handler(displaced):
+                        # A LIVE inner guard owns this signal. Do not adopt its
+                        # handler as our relay target (restoring it later would
+                        # hand the signal to a guard that has exited), but do
+                        # give ownership BACK when this drain finishes —
+                        # otherwise the inner guard is silently disarmed for the
+                        # rest of its window and a signal landing between its
+                        # Popen and the registry insert is delivered instead of
+                        # deferred, which is the escaped-process-group leak the
+                        # guard exists to prevent.
+                        borrowed_from[sig] = displaced
+                    else:
                         self.relay_target[sig] = displaced
                 self._record_dispatch_error(self.relay_target.get(sig), errors)
-            self._restore_unowned(started_as_owner, finish=finish)
+            self._restore_unowned(started_as_owner, finish=finish,
+                                  borrowed_from=borrowed_from)
             if not self.pending:
                 break
         for secondary_error in errors[1:]:
