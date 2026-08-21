@@ -105,7 +105,7 @@ def env_lines(text: str, *, keepends: bool = False) -> list[str]:
 #:   existing lines and formats no assignment at all.
 #:
 #: Route anything externally-sourced through the guard rather than assuming an
-#: unguarded writer is safe. None of the seven can PROMOTE an embedded separator
+#: unguarded writer is safe. None of the eleven can PROMOTE an embedded separator
 #: into a real assignment, for two different reasons checked per call site:
 #: those that split `.env` do so with `env_lines`, and the three regex rewriters
 #: (key_generator, supabase_keys, port_manager) never split at all — they
@@ -136,12 +136,14 @@ def assert_safe_env_assignment(key: str, value: str) -> str:
     rendered = str(value)
     # Test against Python's OWN notion of a line, not a `\n`/`\r` membership
     # check. `str.splitlines()` also splits on \x0b \x0c \x1c \x1d \x1e \x85
-    # U+2028 and U+2029 — and the blank-fill in `backfill_missing_env_vars`
-    # reads `.env` with `splitlines()`. So a value carrying any of those is
-    # written as one physical line, then re-read as two, and the backfill
-    # rewrites the first segment terminated with a REAL newline — promoting the
-    # remainder to a genuine assignment that wins last-wins resolution. Eight
-    # separators bypassed the earlier membership test.
+    # U+2028 and U+2029. Any reader that splits with `splitlines()` therefore
+    # sees TWO lines where one was written, and a writer that then rewrites the
+    # first segment terminates it with a REAL newline — promoting the remainder
+    # to a genuine assignment that wins last-wins resolution. Eight separators
+    # bypassed the earlier membership test. The in-tree readers have since been
+    # moved onto `env_lines`, which closes that specific route; this check
+    # stays because it is the writers' own boundary and must not depend on
+    # every present and future reader having been converted.
     #
     # The identity comparison also catches a TRAILING separator, which a
     # membership test over a widened character set would still have missed.
@@ -150,7 +152,57 @@ def assert_safe_env_assignment(key: str, value: str) -> str:
             f"refusing to write a multi-line value for {key}: a line separator "
             f"in a .env value injects further assignments"
         )
-    return rendered
+    return render_env_value(key, rendered)
+
+
+def decode_env_value(raw: str) -> str:
+    """Decode the right-hand side of one `.env` line, as the reader does.
+
+    THE definition, shared by the reader and by every writer's round-trip
+    check. Duplicating it is how a writer came to accept values the reader
+    silently mangles.
+    """
+    value = raw.strip()
+    if value[:1] in ('"', "'"):
+        # Quoted value: take the quoted span verbatim — a `#` inside quotes is
+        # data, not a comment (PASSWORD="ab#cd" used to be read as `ab`).
+        quote = value[0]
+        end = value.find(quote, 1)
+        if end != -1:
+            return value[1:end]
+        return value.strip('"').strip("'")  # unterminated quote — legacy cleanup
+    # Unquoted: a comment starts only at a hash preceded by whitespace
+    # (`ab#cd` is a value; `abc  # note` carries a comment).
+    for index, char in enumerate(value):
+        if char == "#" and (index == 0 or value[index - 1] in " \t"):
+            value = value[:index]
+            break
+    return value.strip()
+
+
+def render_env_value(key: str, value: str) -> str:
+    """Render `value` so the reader decodes it back to exactly `value`.
+
+    Line-safety alone was not enough. A value the writer happily accepted could
+    still come back DIFFERENT, because the reader strips surrounding
+    whitespace, honours quotes, and treats ` #` as starting a comment. So a
+    password of `s3cr3t #1` was written verbatim and read back as `s3cr3t`, and
+    `"a" IGNORED=b` came back as `a` — silent corruption of a secret, reachable
+    straight from a consumer manifest's `env.values`.
+
+    Quoting is preferred over rejection: the value is legitimate, only its
+    encoding was wrong.
+    """
+    for candidate in (value, f'"{value}"', f"'{value}'"):
+        if decode_env_value(candidate) == value:
+            return candidate
+    # Contains both quote styles AND needs quoting — no encoding this reader
+    # accepts round-trips, so writing it at all would corrupt it.
+    raise ValueError(
+        f"refusing to write {key}: the value cannot be encoded so that .env "
+        f"reads it back unchanged (it mixes single and double quotes with "
+        f"whitespace or a comment marker)"
+    )
 
 
 def atomic_write_text(

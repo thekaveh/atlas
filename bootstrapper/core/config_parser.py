@@ -10,7 +10,7 @@ import sys
 from typing import Dict, Optional, Any
 from pathlib import Path
 
-from utils.atomic_write import create_private_backup
+from utils.atomic_write import create_private_backup, decode_env_value
 
 
 # Single source of truth for the default base port. Imported by start.py and
@@ -216,28 +216,9 @@ class ConfigParser:
                 # Split on first = only
                 if '=' in line:
                     key, value = line.split('=', 1)
-                    value = value.strip()
-                    if value[:1] in ('"', "'"):
-                        # Quoted value: take the quoted span verbatim —
-                        # a `#` inside quotes is data, not a comment
-                        # (PASSWORD="ab#cd" used to be read as `ab`).
-                        quote = value[0]
-                        end = value.find(quote, 1)
-                        if end != -1:
-                            value = value[1:end]
-                        else:
-                            # Unterminated quote — legacy cleanup.
-                            value = value.strip('"').strip("'")
-                    else:
-                        # Unquoted: a comment starts only at a hash
-                        # preceded by whitespace (`ab#cd` is a value;
-                        # `abc  # note` carries a comment).
-                        for i, ch in enumerate(value):
-                            if ch == '#' and (i == 0 or value[i - 1] in ' \t'):
-                                value = value[:i]
-                                break
-                        value = value.strip()
-                    env_vars[key.strip()] = value
+                    # ONE definition, shared with the writers' round-trip
+                    # check — a second copy here is how the two drifted apart.
+                    env_vars[key.strip()] = decode_env_value(value)
                     
         return env_vars
     

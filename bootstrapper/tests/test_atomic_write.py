@@ -964,3 +964,72 @@ def test_import_ordering_guard_classifies_known_shapes(label, source, flagged) -
 def test_import_ordering_guard_reports_an_unparseable_script() -> None:
     with pytest.raises(AssertionError, match="does not parse"):
         _first_party_imports_above_bootstrap("def broken(\n", ["utils"])
+
+
+# ── pass 15: writer/reader round-trip ────────────────────────────────
+
+
+_ROUND_TRIP_VALUES = [
+    "plain",
+    "",
+    "a#b",                 # a hash NOT preceded by whitespace is data
+    "s3cr3t #1",           # ` #` starts a comment -> was read back as "s3cr3t"
+    "s3cr3t\t#1",          # tab counts as whitespace too
+    '"a" IGNORED=b',       # quoted span -> was read back as "a"
+    '"abc"',
+    "'abc'",
+    "abc   ",              # the reader strips
+    "   abc",
+    "#notacomment",        # -> was read back as ""
+    "p@ss w0rd!",
+    "a=b=c",
+]
+
+
+@pytest.mark.parametrize("value", _ROUND_TRIP_VALUES, ids=lambda v: repr(v))
+def test_a_written_value_is_read_back_unchanged(value, tmp_path):
+    """Line-safety alone let the reader silently mangle a secret.
+
+    `assert_safe_env_assignment` only checked that a value could not add a
+    LINE. It could still come back DIFFERENT, because the reader strips
+    surrounding whitespace, honours quotes, and treats ` #` as a comment. A
+    password of `s3cr3t #1` was written verbatim and read back as `s3cr3t` —
+    reachable straight from a consumer manifest's `env.values`.
+    """
+    from core.config_parser import ConfigParser
+    from utils.atomic_write import assert_safe_env_assignment
+
+    rendered = assert_safe_env_assignment("SECRET", value)
+    (tmp_path / ".env").write_text(f"SECRET={rendered}\n", encoding="utf-8")
+
+    parser = ConfigParser(str(tmp_path))
+    parser.env_file_path = tmp_path / ".env"
+    assert parser.parse_env_file()["SECRET"] == value
+
+
+@pytest.mark.parametrize("value", ["plain", "a#b", "63000", ""])
+def test_a_value_needing_no_quoting_stays_bare(value):
+    """Quote only what must be quoted — `.env` stays readable."""
+    from utils.atomic_write import assert_safe_env_assignment
+
+    assert assert_safe_env_assignment("K", value) == value
+
+
+def test_a_value_no_encoding_can_carry_is_refused():
+    """Mixing both quote styles with a comment marker has no safe encoding."""
+    from utils.atomic_write import assert_safe_env_assignment
+
+    with pytest.raises(ValueError, match="reads it back unchanged"):
+        assert_safe_env_assignment("K", "a'b\"c #d")
+
+
+def test_the_reader_and_the_writer_share_one_decoder():
+    """A second copy of the decode rules is how the two drifted apart."""
+    import inspect
+
+    from core import config_parser
+
+    source = inspect.getsource(config_parser.ConfigParser.parse_env_file)
+    assert "decode_env_value" in source
+    # ...and no re-implementation of the quote/comment rules alongside it
+    assert "find(quote" not in source

@@ -962,3 +962,91 @@ def test_env_overlay_parser_agrees_with_the_canonical_env_reader(tmp_path: Path)
         parser.env_file_path = env
 
         assert _read_env_overlay(overlay) == parser.parse_env_file(), repr(text)
+
+
+# ── pass 15: malformed / null / falsy consumer input ─────────────────
+
+
+@pytest.mark.parametrize("shape", [
+    "    env: notamap\n",
+    "    sources: notamap\n",
+    "    env:\n      - FOO=1\n",
+    "    sources:\n      - FOO=1\n",
+])
+def test_a_malformed_profile_overrides_block_is_a_manifest_error(tmp_path, shape):
+    """It escaped as a raw AttributeError out of `./start.sh`.
+
+    `_parse_bundle` does `(raw.get("env") or {}).items()` with no type check,
+    and the `except ProfileConfigError` around the load-time validation is the
+    wrong net. That call exists precisely so a typo fails at manifest load
+    rather than at profile-apply time — an unhandled traceback is not that, and
+    `load_consumer_config` is unguarded at its call site.
+    """
+    from core.consumer_manifest import ConsumerManifestError, load_consumer_config
+
+    _write_minimal_root(tmp_path)
+    manifest = _write_consumer(tmp_path, "malformed")
+    manifest.write_text(
+        manifest.read_text(encoding="utf-8") + "profile_overrides:\n  prod:\n" + shape,
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConsumerManifestError, match="malformed|mapping"):
+        load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
+
+
+def test_a_non_utf8_env_file_is_a_manifest_error(tmp_path):
+    """Every neighbouring failure mode is a clean ConsumerManifestError."""
+    from core.consumer_manifest import ConsumerManifestError, load_consumer_config
+
+    _write_minimal_root(tmp_path)
+    manifest = _write_consumer(tmp_path, "latin1")
+    (tmp_path / "latin1" / "atlas.env.user").write_bytes(b"FOO=caf\xe9\n")
+
+    with pytest.raises(ConsumerManifestError, match="not valid UTF-8"):
+        load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
+
+
+def test_a_yaml_null_env_value_is_empty_not_the_string_None(tmp_path):
+    """`env.values: {FOO: null}` wrote the literal `FOO=None` into .env.
+
+    Both sibling paths already handled it — the `profile_overrides` scalar
+    branch and the `brand` block — so this was an inconsistency, not a policy.
+    """
+    from core.consumer_manifest import load_consumer_config
+
+    _write_minimal_root(tmp_path)
+    manifest = _write_consumer(tmp_path, "nulls")
+    # extend the template's existing `env.values` block
+    manifest.write_text(
+        manifest.read_text(encoding="utf-8").replace(
+            "    EXTRA_CONSUMER_VALUE: enabled\n",
+            "    EXTRA_CONSUMER_VALUE: enabled\n    NULLED: null\n    TRUTHY: true\n",
+            1,
+        ),
+        encoding="utf-8",
+    )
+
+    config = load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
+    assert config.env_overrides["NULLED"] == ""
+    assert config.env_overrides["TRUTHY"] == "True"
+
+
+def test_a_null_profile_override_leaf_is_empty_not_the_string_None(tmp_path):
+    """The accumulated block used `str(v)`; the raw block used `"" if None`.
+
+    The load-time validation path and the apply-time path therefore disagreed
+    about the same manifest.
+    """
+    from core.consumer_manifest import load_consumer_config
+
+    _write_minimal_root(tmp_path)
+    manifest = _write_consumer(tmp_path, "nullleaf")
+    manifest.write_text(
+        manifest.read_text(encoding="utf-8")
+        + "profile_overrides:\n  prod:\n    env:\n      NULLED: null\n",
+        encoding="utf-8",
+    )
+
+    config = load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
+    assert config.profile_overrides["prod"]["env"]["NULLED"] == ""
