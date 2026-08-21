@@ -193,7 +193,28 @@ PROJECT_NAME = os.getenv("PROJECT_NAME", "atlas")
 # Supabase Storage's default object cap; operators can override via env.
 # Without this guard `file.read()` will buffer arbitrarily large uploads
 # into memory and OOM the worker.
-MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(100 * 1024 * 1024)))
+def _positive_byte_cap(name: str, default: int) -> int:
+    """A byte cap from the environment, falling back loudly rather than dying.
+
+    A bare `int(os.getenv(...))` crashed the whole service at IMPORT time on a
+    typo, and accepted `0`, which rejects every upload — a cap that silently
+    means "nothing may be uploaded" is worse than no cap.
+    """
+    raw = (os.getenv(name) or "").strip()
+    if not raw:
+        return default
+    try:
+        parsed = int(raw)
+    except ValueError:
+        logger.warning("%s=%r is not an integer; using default %d", name, raw, default)
+        return default
+    if parsed <= 0:
+        logger.warning("%s=%d must be positive; using default %d", name, parsed, default)
+        return default
+    return parsed
+
+
+MAX_UPLOAD_BYTES = _positive_byte_cap("MAX_UPLOAD_BYTES", 100 * 1024 * 1024)
 
 
 def _parse_csv_env(value: str | None) -> List[str]:
@@ -3444,24 +3465,41 @@ def _inline_content_disposition(filename: str) -> str:
 _COMFY_VIEW_FOLDER_TYPES = frozenset({"output", "input", "temp"})
 
 
-def _validate_comfy_view_params(subfolder: str, folder_type: str) -> None:
-    """#801: `subfolder` + `folder_type` are forwarded straight to ComfyUI's
-    `/view` as query params. Reject an out-of-set folder_type and a
-    path-traversal subfolder with HTTP 400 so a caller cannot point the internal
-    ComfyUI at arbitrary folders. Callers MUST invoke this before any try/except
-    that would otherwise convert the 400 into a 500."""
+def _validate_comfy_view_params(
+    subfolder: str, folder_type: str, filename: str = ""
+) -> None:
+    """#801: `filename` + `subfolder` + `folder_type` are forwarded straight to
+    ComfyUI's `/view` as query params. Reject an out-of-set folder_type and a
+    path-traversal subfolder or filename with HTTP 400 so a caller cannot point
+    the internal ComfyUI at arbitrary folders. Callers MUST invoke this before
+    any try/except that would otherwise convert the 400 into a 500.
+
+    `filename` was originally left unchecked while its two siblings in the same
+    forwarded query string were validated. Starlette's path convertor already
+    excludes `/`, so this was not a working traversal — but the asymmetry is
+    the bug: `..`, backslashes and NUL still reached ComfyUI, and the guard
+    would silently stop holding if that route ever became a query param.
+    """
     if folder_type not in _COMFY_VIEW_FOLDER_TYPES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="folder_type must be one of: output, input, temp",
         )
-    if subfolder and (
-        ".." in subfolder or subfolder.startswith("/") or "\x00" in subfolder
-    ):
+    if subfolder and _is_traversal(subfolder):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="subfolder must be a relative path without '..' or a leading '/'",
         )
+    if filename and (_is_traversal(filename) or "/" in filename or "\\" in filename):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="filename must be a bare name without a path separator or '..'",
+        )
+
+
+def _is_traversal(value: str) -> bool:
+    """Shared rule, so the checked params cannot drift apart again."""
+    return ".." in value or value.startswith("/") or "\x00" in value or "\\" in value
 
 
 @app.get(
@@ -3472,7 +3510,7 @@ async def get_generated_image(filename: str, subfolder: str = "", folder_type: s
     """Get a generated image from ComfyUI"""
     # Validate BEFORE the try/except below (the catch-all would otherwise turn a
     # 400 into a 500).
-    _validate_comfy_view_params(subfolder, folder_type)
+    _validate_comfy_view_params(subfolder, folder_type, filename)
     try:
         async with ComfyUIClient() as client:
             image_data = await client.get_image_data(filename, subfolder, folder_type)

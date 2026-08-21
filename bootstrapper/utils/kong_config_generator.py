@@ -170,6 +170,8 @@ class KongConfigGenerator:
             }
         ]
 
+        consumers.extend(self._supabase_key_auth_consumers())
+
         if self._backend_uses_key_auth():
             backend_api_key = self.get_env_value('BACKEND_KONG_API_KEY', '')
             if not backend_api_key:
@@ -187,6 +189,48 @@ class KongConfigGenerator:
                     ],
                 }
             )
+        return consumers
+
+    #: Supabase consumers, mirroring upstream Supabase's own `kong.yml`.
+    _SUPABASE_KEY_CONSUMERS = (
+        ('anon', 'SUPABASE_ANON_KEY'),
+        ('service_role', 'SUPABASE_SERVICE_KEY'),
+    )
+
+    def _supabase_key_auth_consumers(self) -> List[Dict[str, Any]]:
+        """Consumers holding the Supabase API keys.
+
+        Without these, the whole Supabase surface is unreachable through Kong.
+        Five services here (`auth-v1`, `rest-v1`, `graphql-v1`,
+        `realtime-v1-rest`, `storage-v1`) enforce `key-auth` with no
+        `anonymous` fallthrough, and DB-less Kong has no admin API — so this
+        declarative file is the ONLY place a credential can come from. With
+        zero `keyauth_credentials`, every request to /rest/v1/, /auth/v1/,
+        /storage/v1/, /graphql/v1/ and /realtime/v1/api/ returned 401,
+        including one carrying the correct `SUPABASE_ANON_KEY`.
+
+        Verified against kong:3.9.3 — before: the correct key and a wrong key
+        were both `401 Unauthorized`, indistinguishable. After: the correct key
+        reaches the upstream, a wrong key is 401, and no key is
+        "No API key found in request".
+
+        Emitted only for keys that are actually set. A fresh `.env` has them
+        blank, but `generate_supabase_keys` fills them in before Kong's config
+        is regenerated, which happens on every start.
+        """
+        seen: set = set()
+        consumers: List[Dict[str, Any]] = []
+        for username, var in self._SUPABASE_KEY_CONSUMERS:
+            key = (self.get_env_value(var, '') or '').strip()
+            if not key or key in seen:
+                # A duplicate key would make Kong reject the whole
+                # declarative file, taking the entire gateway down.
+                continue
+            seen.add(key)
+            consumers.append({
+                'username': username,
+                'keyauth_credentials': [{'key': key}],
+            })
         return consumers
 
     def _backend_kong_auth_mode(self) -> str:
@@ -359,7 +403,23 @@ class KongConfigGenerator:
                 {
                     'name': 'atlas-root-dashboard-root',
                     'strip_path': False,
-                    'paths': ['/'],
+                    # EXACT root only. A prefix path of '/' combined with a
+                    # host gives this route two matching criteria, which
+                    # outranks the Supabase routes that match on path alone —
+                    # regardless of how much longer their prefix is. Every
+                    # /rest/v1/, /auth/v1/, /storage/v1/, /graphql/v1/ and
+                    # /pg/ request to host `localhost` was answered with 200
+                    # and this dashboard's HTML instead of being proxied.
+                    # Worse than a 404: clients saw a success status carrying
+                    # HTML.
+                    #
+                    # This file declares `_format_version: 2.1`, where the
+                    # Kong 3.x `~` regex prefix is NOT valid — Kong refuses to
+                    # boot on it ("should start with: / (fixed path)"). Under
+                    # 2.x semantics a path containing regex metacharacters is
+                    # itself the regex, matched ANCHORED at the start, so `/$`
+                    # means exactly the root and nothing below it.
+                    'paths': ['/$'],
                     'hosts': ['localhost'],
                     'plugins': [
                         {
