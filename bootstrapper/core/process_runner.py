@@ -197,6 +197,15 @@ _GUARDED_SIGNALS = tuple(
 )
 
 
+def _is_guard_handler(handler) -> bool:
+    """True when `handler` is some `_SigtermGuard`'s deferred-signal recorder.
+
+    Restoring one of these hands the signal to a guard that has already exited,
+    whose `pending` list nobody will ever drain.
+    """
+    return getattr(handler, "__func__", None) is _SigtermGuard._interrupt
+
+
 class _SigtermGuard:
     """Preserve the guarded signals across the main-thread Popen launch window."""
 
@@ -285,7 +294,19 @@ class _SigtermGuard:
             while self.pending:
                 sig = self.pending[0][0]
                 if signal.getsignal(sig) is not self.installed:
-                    self.relay_target[sig] = signal.signal(sig, self.installed)
+                    displaced = signal.signal(sig, self.installed)
+                    # Adopting the displaced handler is DELIBERATE — it is how
+                    # a newer external handler installed mid-window survives
+                    # (see test_sigterm_guard_preserves_newer_external_handler).
+                    # The one thing never to adopt is ANOTHER GUARD's
+                    # `_interrupt`: under nesting that makes the inner guard's
+                    # recorder the outer guard's "original", so the outer guard
+                    # later restores a dead closure whose `pending` list nobody
+                    # drains. The process then stops responding to SIGTERM with
+                    # no restore ever failing, so the SIG_DFL fallback never
+                    # fires either.
+                    if not _is_guard_handler(displaced):
+                        self.relay_target[sig] = displaced
                 self._record_dispatch_error(self.relay_target.get(sig), errors)
             self._restore_unowned(started_as_owner, finish=finish)
             if not self.pending:

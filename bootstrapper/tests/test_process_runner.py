@@ -1537,3 +1537,76 @@ def test_both_pending_signals_dispatch_even_when_the_first_handler_raises() -> N
     finally:
         signal_module.signal(signal_module.SIGHUP, previous_hup)
         signal_module.signal(signal_module.SIGTERM, previous_term)
+
+
+def test_nested_guards_do_not_leave_a_dead_guard_installed() -> None:
+    """An inner guard's `_interrupt` must never become the outer guard's relay.
+
+    Adopting a displaced handler is deliberate — it preserves a newer external
+    handler installed mid-window. But adopting ANOTHER GUARD's recorder makes
+    the outer guard restore a dead closure on exit, one that appends to a
+    `pending` list nobody drains. The process then ignores SIGTERM for the rest
+    of its life, with no restore ever failing, so the SIG_DFL fallback never
+    fires either.
+    """
+    import signal as signal_module
+
+    def original(_signum, _frame):
+        pass
+
+    previous = signal_module.signal(signal_module.SIGTERM, original)
+    try:
+        outer = process_runner._SigtermGuard()
+        with outer:
+            outer._interrupt(signal_module.SIGTERM, None)
+            inner = process_runner._SigtermGuard()
+            with inner:
+                try:
+                    outer.raise_if_pending()
+                except BaseException:
+                    pass
+
+        final = signal_module.getsignal(signal_module.SIGTERM)
+        assert final is original, f"SIGTERM left on {final!r}"
+        assert not process_runner._is_guard_handler(final)
+    finally:
+        signal_module.signal(signal_module.SIGTERM, previous)
+
+
+def test_guard_restore_falls_back_to_sig_dfl_when_the_relay_is_unrestorable() -> None:
+    """`signal.signal(sig, None)` raises when the prior handler came from C.
+
+    Swallowing that leaves the signal bound to a dead guard — strictly worse
+    than the default disposition.
+    """
+    import signal as signal_module
+
+    guard = process_runner._SigtermGuard()
+    with guard:
+        for sig in process_runner._GUARDED_SIGNALS:
+            guard.relay_target[sig] = None
+
+    for sig in process_runner._GUARDED_SIGNALS:
+        handler = signal_module.getsignal(sig)
+        assert handler == signal_module.SIG_DFL, (sig, handler)
+        assert not process_runner._is_guard_handler(handler)
+
+
+def test_cleanup_restore_falls_back_to_sig_dfl(monkeypatch) -> None:
+    """Same fallback on the OUTER guard, whose `finally` wraps the whole run."""
+    import signal as signal_module
+
+    real_getsignal = signal_module.getsignal
+    calls = {"n": 0}
+
+    def one_bad_getsignal(sig):
+        calls["n"] += 1
+        return None if calls["n"] <= len(process_runner._GUARDED_SIGNALS) else real_getsignal(sig)
+
+    monkeypatch.setattr(signal_module, "getsignal", one_bad_getsignal)
+    with process_runner.cleanup_active_processes_on_sigterm():
+        pass
+    monkeypatch.undo()
+
+    for sig in process_runner._GUARDED_SIGNALS:
+        assert signal_module.getsignal(sig) == signal_module.SIG_DFL

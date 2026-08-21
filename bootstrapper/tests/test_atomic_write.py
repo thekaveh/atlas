@@ -342,65 +342,102 @@ def _bootstrapper_packages(root: Path) -> list[str]:
     return found or ["utils", "core", "services"]
 
 
-#: Statements whose bodies still execute at module level, so a bootstrap or an
-#: import inside one is reached during import. Deliberately EXCLUDES
-#: FunctionDef/AsyncFunctionDef/ClassDef/Lambda: `ast.walk` descends into those,
-#: which made a `def _boot(): sys.path.insert(...)` count as a bootstrap even
-#: though it never runs, and made a lazy import inside a helper defined above
-#: the real bootstrap a false offender.
-_MODULE_LEVEL_BODIES = (ast.If, ast.Try, ast.With, ast.For, ast.While)
+def _is_type_checking_test(test: ast.AST) -> bool:
+    """`TYPE_CHECKING` / `typing.TYPE_CHECKING` / an aliased `t.TYPE_CHECKING`."""
+    if isinstance(test, ast.Name):
+        return test.id == "TYPE_CHECKING"
+    if isinstance(test, ast.Attribute):
+        return test.attr == "TYPE_CHECKING"
+    return False
 
 
-def _is_type_checking_block(stmt: ast.AST) -> bool:
-    """`if TYPE_CHECKING:` — its body never executes at runtime."""
-    if not isinstance(stmt, ast.If):
-        return False
-    test = ast.unparse(stmt.test)
-    return test in ("TYPE_CHECKING", "typing.TYPE_CHECKING")
+def _executed_child_statements(stmt: ast.AST) -> list:
+    """Child statements of a compound statement that DO run at import time.
+
+    In EXECUTION order — body, then except handlers, then `else`, then
+    `finally`. Appending handlers after `finalbody` reversed that, so a
+    `finally:` bootstrap appeared to precede an import in an `except:` branch
+    that really runs first.
+
+    `if TYPE_CHECKING:` contributes only its `orelse`: the body never runs, but
+    the `else` branch is exactly the one that does. Dropping the whole node
+    lost that branch.
+
+    `match` keeps its bodies under `cases`, not `body`.
+    """
+    if isinstance(stmt, ast.If) and _is_type_checking_test(stmt.test):
+        return list(stmt.orelse)
+    nested = list(getattr(stmt, "body", None) or [])
+    for handler in getattr(stmt, "handlers", None) or []:
+        nested.extend(handler.body)
+    nested.extend(getattr(stmt, "orelse", None) or [])
+    nested.extend(getattr(stmt, "finalbody", None) or [])
+    for case in getattr(stmt, "cases", None) or []:
+        nested.extend(case.body)
+    return nested
 
 
 def _module_level_statements(body: list) -> list:
     """Leaf statements that actually execute when the module is imported.
 
     Yields LEAVES only — a compound statement is recursed into, never emitted
-    itself. Emitting both made every nested import count twice, since the
-    per-statement scans use `ast.walk`.
+    itself, or every nested import would be counted twice by the `ast.walk`
+    scans below.
 
-    Never descends into `FunctionDef`/`AsyncFunctionDef`/`ClassDef` (their
-    bodies run on call, not on import) or into `if TYPE_CHECKING:` (which never
-    runs at all).
+    Skips `FunctionDef`/`AsyncFunctionDef` (their bodies run on call). Does NOT
+    skip `ClassDef`: a class body DOES execute at import, so an import inside
+    one really can fail, and a bootstrap inside one really does take effect.
     """
     flat = []
     for stmt in body:
-        if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+        if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
-        if _is_type_checking_block(stmt):
-            continue
-        nested = []
-        for attr in ("body", "orelse", "finalbody"):
-            nested.extend(getattr(stmt, attr, None) or [])
-        for handler in getattr(stmt, "handlers", None) or []:
-            nested.extend(handler.body)
-        if nested:
-            flat.extend(_module_level_statements(nested))
+        if _is_compound(stmt):
+            # Recurse only. Appending the container too would double-count its
+            # contents, and an `if TYPE_CHECKING:` with no `else` would leak its
+            # body back in as a "leaf".
+            flat.extend(_module_level_statements(_executed_child_statements(stmt)))
         else:
             flat.append(stmt)
     return flat
 
 
+def _is_compound(stmt: ast.AST) -> bool:
+    """True when this statement holds other statements."""
+    return any(
+        getattr(stmt, attr, None)
+        for attr in ("body", "handlers", "orelse", "finalbody", "cases")
+    )
+
+
+def _walk_executed(node: ast.AST):
+    """Walk `node`, pruning `Lambda` bodies — they run on call, not here."""
+    if isinstance(node, ast.Lambda):
+        return
+    yield node
+    for child in ast.iter_child_nodes(node):
+        yield from _walk_executed(child)
+
+
 def _is_bootstrap(stmt: ast.AST, packages: list[str]) -> bool:
     """True when this statement performs a `sys.path` bootstrap itself."""
-    for node in ast.walk(stmt):
+    for node in _walk_executed(stmt):
         if isinstance(node, ast.Call):
             target = ast.unparse(node.func)
             if target.endswith(("path.insert", "path.append", "addsitedir")):
                 return True
-        # `sys.path[0:0] = [...]` — match the SHAPE, not a substring: an
-        # innocent `first = search_paths[0]` must not read as a bootstrap.
-        if isinstance(node, ast.Subscript):
-            value = node.value
-            if isinstance(value, ast.Attribute) and value.attr == "path":
-                return True
+        # `sys.path[0:0] = [...]`. Require an ASSIGNMENT of a SLICE: matching
+        # any `<expr>.path[...]` also matched a plain READ, so an innocent
+        # `ROOT = Path(sys.path[0])` short-circuited the scan and passed a
+        # genuinely broken script.
+        if (
+            isinstance(node, ast.Subscript)
+            and isinstance(node.ctx, ast.Store)
+            and isinstance(node.slice, ast.Slice)
+            and isinstance(node.value, ast.Attribute)
+            and node.value.attr == "path"
+        ):
+            return True
     return False
 
 
@@ -481,8 +518,10 @@ def test_scripts_do_not_import_first_party_above_their_sys_path_bootstrap() -> N
             script.read_text(encoding="utf-8"), packages
         )
         assert not offenders, (
-            f"{script.name}: {offenders} precede the sys.path bootstrap, so the "
-            f"script raises ModuleNotFoundError under a bare interpreter"
+            f"{script.name}: {offenders} precede the sys.path bootstrap, so under "
+            f"a bare interpreter the script raises ModuleNotFoundError — or, if "
+            f"the import is `try:`-wrapped, silently takes its fallback branch, "
+            f"which inside bootstrapper/scripts/ is equally a bug"
         )
 
 
@@ -536,6 +575,47 @@ _IMPORT_GUARD_CASES = [
     ("decorated def above bootstrap", "import sys\n@staticmethod\ndef h():\n"
                                       "    from utils.a import b\nsys.path.insert(0,'x')\n"
                                       "from utils.c import d\n", False),
+    # `match` keeps its bodies under `cases`, not `body`.
+    ("bootstrap inside match", "import sys\nmatch sys.platform:\n    case _:\n"
+                               "        sys.path.insert(0,'x')\nfrom utils.a import b\n", False),
+    ("import above a match bootstrap", "import sys\nfrom utils.a import b\n"
+                                       "match sys.platform:\n    case _:\n"
+                                       "        sys.path.insert(0,'x')\n", True),
+    # every TYPE_CHECKING spelling, including an aliased module
+    ("typing.TYPE_CHECKING", "import sys, typing\nif typing.TYPE_CHECKING:\n"
+                             "    from utils.a import b\nsys.path.insert(0,'x')\n", False),
+    ("aliased t.TYPE_CHECKING", "import sys, typing as t\nif t.TYPE_CHECKING:\n"
+                                "    from utils.a import b\nsys.path.insert(0,'x')\n", False),
+    # ...but an ordinary runtime conditional is NOT exempt
+    ("if DEBUG is not type-checking", "import sys\nif DEBUG:\n    from utils.a import b\n"
+                                      "sys.path.insert(0,'x')\n", True),
+    # bypass #5 — a plain `sys.path[0]` READ is not a bootstrap
+    ("sys.path[0] read is not a bootstrap",
+     "import sys, pathlib\nROOT = pathlib.Path(sys.path[0]).resolve()\n"
+     "from utils.a import b\nsys.path.insert(0, str(ROOT))\n", True),
+    ("unrelated .path[0] read", "import sys\nx = cfg.path[0]\nfrom utils.a import b\n"
+                                "sys.path.insert(0,'y')\n", True),
+    ("sys.path slice ASSIGN is a bootstrap",
+     "import sys\nsys.path[0:0] = ['x']\nfrom utils.a import b\n", False),
+    # a class body DOES execute at import — unlike a function body
+    ("import in a class body", "import sys\nclass C:\n    from utils.a import b\n"
+                               "sys.path.insert(0,'x')\n", True),
+    ("bootstrap in a class body", "import sys\nclass C:\n    sys.path.insert(0,'x')\n"
+                                  "from utils.a import b\n", False),
+    # a lambda body never runs at import
+    ("lambda bootstrap before the import", "import sys\nboot = lambda: sys.path.insert(0,'x')\n"
+                                           "from utils.a import b\n", True),
+    # `if TYPE_CHECKING:` — the ELSE branch is the one that runs
+    ("import in the TYPE_CHECKING else",
+     "import sys\nfrom typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    pass\n"
+     "else:\n    from utils.a import b\nsys.path.insert(0,'x')\n", True),
+    ("bootstrap in the TYPE_CHECKING else",
+     "import sys\nfrom typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    pass\n"
+     "else:\n    sys.path.insert(0,'x')\nfrom utils.a import b\n", False),
+    # execution order: except handlers run before `finally`
+    ("except import before a finally bootstrap",
+     "import sys\ntry:\n    import numpy\nexcept ImportError:\n"
+     "    from utils.compat import numpy\nfinally:\n    sys.path.insert(0,'x')\n", True),
 ]
 
 
