@@ -1496,3 +1496,39 @@ def test_a_second_distinct_signal_is_not_swallowed_in_the_launch_window() -> Non
     guard._interrupt(signal_module.SIGHUP, None)
     guard._interrupt(signal_module.SIGTERM, None)
     assert [signum for signum, _ in guard.pending] == recorded
+
+
+def test_both_pending_signals_dispatch_even_when_the_first_handler_raises() -> None:
+    """Two distinct guarded signals means the queue can hold two entries.
+
+    The dispatch loop must run both, drain the queue, and hand BOTH signals
+    back to their prior handlers — including on the path where the first
+    handler raises and that error is re-raised out of `__exit__`.
+    """
+    import signal as signal_module
+
+    ran: list[str] = []
+
+    def failing_hup(_signum, _frame):
+        ran.append("HUP")
+        raise RuntimeError("handler failed")
+
+    def recording_term(_signum, _frame):
+        ran.append("TERM")
+
+    previous_hup = signal_module.signal(signal_module.SIGHUP, failing_hup)
+    previous_term = signal_module.signal(signal_module.SIGTERM, recording_term)
+    try:
+        guard = process_runner._SigtermGuard()
+        with pytest.raises(RuntimeError, match="handler failed"):
+            with guard:
+                guard._interrupt(signal_module.SIGHUP, None)
+                guard._interrupt(signal_module.SIGTERM, None)
+
+        assert ran == ["HUP", "TERM"], ran
+        assert not guard.pending, "queue not drained"
+        assert signal_module.getsignal(signal_module.SIGHUP) is failing_hup
+        assert signal_module.getsignal(signal_module.SIGTERM) is recording_term
+    finally:
+        signal_module.signal(signal_module.SIGHUP, previous_hup)
+        signal_module.signal(signal_module.SIGTERM, previous_term)

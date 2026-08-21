@@ -359,7 +359,12 @@ def _first_party_imports_above_bootstrap(text: str, packages: list[str]) -> list
     file with first-party imports and no module-level bootstrap has every one
     flagged rather than being skipped as vacuously fine.
     """
-    tree = ast.parse(text)
+    # A malformed script is a real failure, but it should say so rather than
+    # surfacing as an opaque SyntaxError from inside a guard about imports.
+    try:
+        tree = ast.parse(text)
+    except SyntaxError as exc:
+        raise AssertionError(f"script does not parse: {exc}") from exc
     wanted = set(packages)
 
     def _is_bootstrap(node: ast.AST) -> bool:
