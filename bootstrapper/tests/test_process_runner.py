@@ -1374,12 +1374,15 @@ class Racing(real):
         os.kill(os.getpid(), signal.SIGHUP)
         time.sleep(0.05)
 subprocess.Popen = Racing
-pr.cleanup_active_processes_on_sigterm()
-try:
-    pr.run_with_deadline([sys.executable, "-c", "import time; time.sleep(20)"],
-                         timeout_seconds=5)
-except BaseException:
-    pass
+# MUST be entered — a bare call returns the context manager without running
+# its body, so no handler is installed and the test would assert the orphan
+# property in the UNMANAGED configuration instead of the shipped one.
+with pr.cleanup_active_processes_on_sigterm():
+    try:
+        pr.run_with_deadline([sys.executable, "-c", "import time; time.sleep(20)"],
+                             timeout_seconds=5)
+    except BaseException:
+        pass
 """
 
 
@@ -1440,18 +1443,56 @@ def test_guarded_signals_survive_a_platform_without_sighup() -> None:
     import on Windows and takes the entire bootstrapper down with it —
     `cleanup_active_processes_on_sigterm` can name it directly only because it
     returns early on `os.name != "posix"` before reaching that line.
+
+    Checked in a SUBPROCESS rather than by reloading this module in-process:
+    reload rebinds `_CommandInterrupted`, `_ACTIVE_PROCESSES` and its lock, and
+    any module that captured them by value (`scripts/bounded_subprocess.py`
+    does) would keep a stale object, so `except <stale class>` would stop
+    catching the freshly-raised one.
     """
-    import importlib
+    import subprocess
+    import sys
+
+    probe = (
+        "import signal, sys\n"
+        "del signal.SIGHUP\n"
+        f"sys.path.insert(0, {str(Path(__file__).resolve().parents[1])!r})\n"
+        "import core.process_runner as pr\n"
+        "print(','.join(s.name for s in pr._GUARDED_SIGNALS))\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", probe],
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+    )
+    assert result.returncode == 0, (
+        f"process_runner does not import without signal.SIGHUP: "
+        f"{result.stderr.strip()[-300:]}"
+    )
+    assert result.stdout.strip() == "SIGTERM", result.stdout
+
+    # And both are guarded on this POSIX host.
+    assert [sig.name for sig in process_runner._GUARDED_SIGNALS] == ["SIGTERM", "SIGHUP"]
+
+
+def test_a_second_distinct_signal_is_not_swallowed_in_the_launch_window() -> None:
+    """The pending queue dedups per SIGNAL, not globally.
+
+    One shared slot was correct when only SIGTERM was guarded — it collapsed
+    repeat SIGTERMs. With two distinct guarded signals it made whichever
+    arrived first swallow the other: a terminal drop (SIGHUP) followed by
+    systemd's SIGTERM inside the launch window lost the SIGTERM entirely, and
+    the bootstrapper kept orchestrating after being told to stop.
+    """
     import signal as signal_module
 
-    saved = signal_module.SIGHUP
-    del signal_module.SIGHUP
-    try:
-        reloaded = importlib.reload(process_runner)
-        names = [sig.name for sig in reloaded._GUARDED_SIGNALS]
-        assert names == ["SIGTERM"], names
-    finally:
-        signal_module.SIGHUP = saved
-        importlib.reload(process_runner)
+    guard = process_runner._SigtermGuard()
+    guard._interrupt(signal_module.SIGHUP, None)
+    guard._interrupt(signal_module.SIGTERM, None)
 
-    assert [sig.name for sig in process_runner._GUARDED_SIGNALS] == ["SIGTERM", "SIGHUP"]
+    recorded = [signum for signum, _ in guard.pending]
+    assert recorded == [signal_module.SIGHUP, signal_module.SIGTERM], recorded
+
+    # ...while a REPEAT of an already-pending signal still collapses.
+    guard._interrupt(signal_module.SIGHUP, None)
+    guard._interrupt(signal_module.SIGTERM, None)
+    assert [signum for signum, _ in guard.pending] == recorded

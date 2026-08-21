@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import os
 import re
 from pathlib import Path
@@ -341,32 +342,59 @@ def _bootstrapper_packages(root: Path) -> list[str]:
     return found or ["utils", "core", "services"]
 
 
-#: A sys.path bootstrap, matched as CODE. `text.find("sys.path.insert")` is a
-#: raw substring scan, so a comment that merely mentions the bootstrap — the
-#: natural `# NOTE: keep first-party imports below the sys.path.insert
-#: bootstrap.` — silences the check entirely. That false-passed this guard
-#: twice. Also covers the append/slice/site forms, since a bootstrap written
-#: any of those ways is just as load-bearing.
-_BOOTSTRAP_RE = re.compile(
-    r"^\s*(?:sys\.path\.(?:insert|append)\(|sys\.path\[|site\.addsitedir\()",
-    re.M,
-)
-
-
 def _first_party_imports_above_bootstrap(text: str, packages: list[str]) -> list[str]:
-    """First-party imports that run before this file's `sys.path` bootstrap.
+    r"""First-party imports that run before this file's `sys.path` bootstrap.
 
-    Fails CLOSED: a script with first-party imports and no bootstrap at all has
-    every one of them flagged, rather than being skipped as vacuously fine.
+    Walks the AST and compares MODULE-LEVEL statement order. Two regex attempts
+    at this both false-passed, in mirror-image ways, and the second failure is
+    why this is structural now:
+
+      - anchoring the bootstrap with `^\s*` accepted one nested inside a `def`
+        or `if __name__ == "__main__":` — which never runs before module-level
+        imports, so it is not a bootstrap at all;
+      - anchoring imports at column 0 missed a module-level `try:`-wrapped
+        import, an idiom live in `scripts/bounded_subprocess.py`.
+
+    Only statements at module level count, in source order. Fails CLOSED: a
+    file with first-party imports and no module-level bootstrap has every one
+    flagged rather than being skipped as vacuously fine.
     """
-    alternation = "|".join(re.escape(pkg) for pkg in packages)
-    imports = list(re.finditer(rf"^(?:from|import) ({alternation})\b", text, re.M))
-    if not imports:
-        return []
-    bootstrap = _BOOTSTRAP_RE.search(text)
-    if bootstrap is None:
-        return [m.group(0) for m in imports]
-    return [m.group(0) for m in imports if m.start() < bootstrap.start()]
+    tree = ast.parse(text)
+    wanted = set(packages)
+
+    def _is_bootstrap(node: ast.AST) -> bool:
+        for call in ast.walk(node):
+            if not isinstance(call, ast.Call):
+                continue
+            target = ast.unparse(call.func) if hasattr(ast, "unparse") else ""
+            if target.endswith(("path.insert", "path.append", "addsitedir")):
+                return True
+        # `sys.path[0:0] = [...]` is a bootstrap too, and is not a Call.
+        for sub in ast.walk(node):
+            if isinstance(sub, ast.Subscript) and "path" in (
+                ast.unparse(sub.value) if hasattr(ast, "unparse") else ""
+            ):
+                return True
+        return False
+
+    def _first_party(node: ast.AST) -> list[str]:
+        found = []
+        for sub in ast.walk(node):
+            if isinstance(sub, ast.ImportFrom) and sub.level == 0 and sub.module:
+                if sub.module.split(".")[0] in wanted:
+                    found.append(f"from {sub.module}")
+            elif isinstance(sub, ast.Import):
+                for alias in sub.names:
+                    if alias.name.split(".")[0] in wanted:
+                        found.append(f"import {alias.name}")
+        return found
+
+    offenders: list[str] = []
+    for stmt in tree.body:                      # module level only
+        if _is_bootstrap(stmt):
+            return offenders                    # everything after it is fine
+        offenders.extend(_first_party(stmt))
+    return offenders
 
 
 def test_scripts_do_not_import_first_party_above_their_sys_path_bootstrap() -> None:

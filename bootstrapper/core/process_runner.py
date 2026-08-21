@@ -114,7 +114,7 @@ def _report_capture_join_failure(error: BaseException) -> None:
 def _report_signal_dispatch_failure(error: BaseException) -> None:
     try:
         print(
-            f"Deferred SIGTERM dispatch failed: {error!r}",
+            f"Deferred signal dispatch failed: {error!r}",
             file=sys.stderr,
         )
     except BaseException:
@@ -210,7 +210,13 @@ class _SigtermGuard:
             _report_signal_dispatch_failure(dispatch_error)
 
     def _interrupt(self, signum: int, frame: FrameType | None) -> None:
-        if not self.pending:
+        # Dedup per SIGNAL, not globally. A single shared slot was correct when
+        # only SIGTERM was guarded — it collapsed repeat SIGTERMs — but with two
+        # distinct guarded signals it makes whichever arrives first swallow the
+        # other. A terminal drop (SIGHUP) followed by systemd's SIGTERM inside
+        # the launch window would otherwise lose the SIGTERM entirely, and the
+        # bootstrapper would keep orchestrating after being told to stop.
+        if not any(pending_signum == signum for pending_signum, _ in self.pending):
             self.pending.append((signum, frame))
 
     def _dispatch_pending(self, handler) -> None:
@@ -229,12 +235,22 @@ class _SigtermGuard:
             errors.append(error)
 
     def _restore_unowned(self, started_as_owner: dict, *, finish: bool) -> None:
-        """Hand each guarded signal back to whoever held it before us."""
+        """Hand each guarded signal back to whoever held it before us.
+
+        Isolated per signal: `signal.signal(sig, None)` raises TypeError when
+        the prior handler was installed outside Python's `signal` module, so
+        `getsignal` returned None. With one guarded signal that could only fail
+        wholesale; with two, an unisolated loop would abort partway and leave
+        the other signal pointed at a dead guard's handler forever.
+        """
         for sig in _GUARDED_SIGNALS:
             if signal.getsignal(sig) is self.installed and (
                 finish or not started_as_owner.get(sig, False)
             ):
-                signal.signal(sig, self.relay_target.get(sig))
+                try:
+                    signal.signal(sig, self.relay_target.get(sig))
+                except (TypeError, ValueError, OSError) as restore_error:
+                    _report_signal_dispatch_failure(restore_error)
 
     def _drain_pending(self, *, finish: bool) -> None:
         started_as_owner = {
