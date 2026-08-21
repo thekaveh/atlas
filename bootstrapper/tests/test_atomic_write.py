@@ -4,6 +4,7 @@ import ast
 import os
 import re
 from pathlib import Path
+from typing import NamedTuple
 
 import pytest
 
@@ -334,24 +335,76 @@ def _bootstrapper_packages(root: Path) -> list[str]:
     utils/core/services and so gave a PROVEN false pass on `generate_logo.py`,
     whose load-bearing `from ui.textual...` import it did not match.
     """
-    found = sorted(
+    packages = {
         d.name
         for d in root.iterdir()
         if d.is_dir() and (d / "__init__.py").exists() and not d.name.startswith((".", "_"))
-    )
-    return found or ["utils", "core", "services"]
+    }
+    # Deriving only PACKAGES repeated the original mistake one level up:
+    # `start`, `stop`, `tracks` and `feature_flags` are top-level MODULES,
+    # imported by name in 15+ files (`from tracks import load_tracks`), and
+    # every one of them was invisible to the guard.
+    modules = {f.stem for f in root.glob("*.py") if not f.stem.startswith("_")}
+    return sorted(packages | modules) or ["utils", "core", "services"]
 
 
-def _sys_module_names(tree: ast.Module) -> set:
-    """Local names bound to the `sys` module (`import sys [as s]`)."""
+class _PathNames(NamedTuple):
+    """What the names in THIS file are bound to.
+
+    Every bypass this guard has shipped came from matching spellings instead of
+    resolving names — `loader.search_path.append` counted as a bootstrap,
+    `import sys as s` did not. Resolution happens once, here.
+    """
+
+    sys_mod: frozenset      # names bound to the `sys` MODULE
+    sys_path: frozenset     # names bound to the `sys.path` LIST itself
+    site_mod: frozenset     # names bound to the `site` MODULE
+    addsitedir: frozenset   # names bound directly to `site.addsitedir`
+
+
+def _imported_module_names(tree: ast.Module, module: str) -> set:
+    """Local names bound to `module` by `import module [as x]`."""
     names = set()
     for node in ast.walk(tree):
         if not isinstance(node, ast.Import):
             continue
         for alias in node.names:
-            if alias.name == "sys":
-                names.add(alias.asname or "sys")
+            if alias.name == module:
+                names.add(alias.asname or module)
     return names
+
+
+def _imported_member_names(tree: ast.Module, module: str, member: str) -> set:
+    """Local names bound by `from module import member [as x]`."""
+    names = set()
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.ImportFrom) and node.module == module):
+            continue
+        for alias in node.names:
+            if alias.name == member:
+                names.add(alias.asname or member)
+    return names
+
+
+def _path_names(tree: ast.Module) -> _PathNames:
+    return _PathNames(
+        sys_mod=frozenset(_imported_module_names(tree, "sys")),
+        # `from sys import path` binds the LIST — `path.insert(0, ...)` then
+        # bootstraps with no `sys` anywhere in the statement.
+        sys_path=frozenset(_imported_member_names(tree, "sys", "path")),
+        site_mod=frozenset(_imported_module_names(tree, "site")),
+        addsitedir=frozenset(_imported_member_names(tree, "site", "addsitedir")),
+    )
+
+
+def _sys_module_names(tree: ast.Module) -> set:
+    """Local names bound to the `sys` module (`import sys [as s]`)."""
+    return set(_imported_module_names(tree, "sys"))
+
+
+# `typing_extensions` is the standard spelling for anything supporting older
+# runtimes, and re-exports the identical flag.
+_TYPING_MODULES = ("typing", "typing_extensions")
 
 
 def _typing_module_names(tree: ast.Module) -> set:
@@ -361,8 +414,8 @@ def _typing_module_names(tree: ast.Module) -> set:
         if not isinstance(node, ast.Import):
             continue
         for alias in node.names:
-            if alias.name == "typing":
-                names.add(alias.asname or "typing")
+            if alias.name in _TYPING_MODULES:
+                names.add(alias.asname or alias.name)
     return names
 
 
@@ -370,7 +423,7 @@ def _type_checking_flag_names(tree: ast.Module) -> set:
     """Local names bound to `typing.TYPE_CHECKING` (`from typing import ...`)."""
     names = set()
     for node in ast.walk(tree):
-        if not (isinstance(node, ast.ImportFrom) and node.module == "typing"):
+        if not (isinstance(node, ast.ImportFrom) and node.module in _TYPING_MODULES):
             continue
         for alias in node.names:
             if alias.name == "TYPE_CHECKING":
@@ -461,6 +514,12 @@ def _module_level_statements(body: list, typing_names: tuple) -> list:
     """
     flat = []
     for stmt in body:
+        if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            # The BODY runs on call (or, for a class, below) — but the HEADER
+            # is evaluated right here. Dropping the whole node dropped the
+            # decorators, default arguments and base-class expressions with it,
+            # so a bootstrap written in a default argument read as absent.
+            flat.extend(_header_expressions(stmt))
         if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
         if _is_compound(stmt):
@@ -473,6 +532,36 @@ def _module_level_statements(body: list, typing_names: tuple) -> list:
         else:
             flat.append(stmt)
     return flat
+
+
+def _header_expressions(stmt: ast.AST) -> list:
+    """Def/class header expressions, which DO evaluate where they are written.
+
+    Annotations are deliberately excluded: under `from __future__ import
+    annotations` they are never evaluated at all.
+    """
+    exprs = _attr_list(stmt, "decorator_list")
+    exprs.extend(_default_expressions(getattr(stmt, "args", None)))
+    exprs.extend(_attr_list(stmt, "bases"))
+    exprs.extend(kw.value for kw in _attr_list(stmt, "keywords"))
+    return [ast.Expr(value=expr) for expr in exprs]
+
+
+def _attr_list(node: ast.AST, attr: str) -> list:
+    """`node.attr` as a list, tolerating both absent and None."""
+    return list(getattr(node, attr, None) or [])
+
+
+def _default_expressions(args) -> list:
+    """Default-argument expressions, which evaluate at `def` time.
+
+    `kw_defaults` is positional and holds None for keyword-only arguments that
+    have no default — those slots are gaps, not expressions.
+    """
+    if args is None:
+        return []
+    slots = _attr_list(args, "defaults") + _attr_list(args, "kw_defaults")
+    return [slot for slot in slots if slot is not None]
 
 
 def _is_compound(stmt: ast.AST) -> bool:
@@ -497,17 +586,25 @@ def _walk_executed(node: ast.AST):
         yield from _walk_executed(child)
 
 
-def _is_sys_path(node: ast.AST, sys_names: set) -> bool:
-    """True for `<sys-alias>.path` — not for any attribute merely named `path`."""
-    return (
-        isinstance(node, ast.Attribute)
-        and node.attr == "path"
-        and isinstance(node.value, ast.Name)
-        and node.value.id in sys_names
-    )
+def _is_sys_path(node: ast.AST, names: _PathNames) -> bool:
+    """True for anything that IS the `sys.path` list.
+
+    Three spellings reach the same list: `<sys-alias>.path`, a bare name bound
+    by `from sys import path`, and the `os.sys.path` re-export chain. Matching
+    only the first missed two working bootstraps; matching any attribute merely
+    NAMED `path` counted `loader.search_path` as one.
+    """
+    if isinstance(node, ast.Name):
+        return node.id in names.sys_path
+    if not (isinstance(node, ast.Attribute) and node.attr == "path"):
+        return False
+    base = node.value
+    if isinstance(base, ast.Name):
+        return base.id in names.sys_mod
+    return isinstance(base, ast.Attribute) and base.attr == "sys"
 
 
-def _is_bootstrap(stmt: ast.AST, sys_names: set) -> bool:
+def _is_bootstrap(stmt: ast.AST, names: _PathNames, helpers: frozenset) -> bool:
     """True when this statement performs a `sys.path` bootstrap itself.
 
     The callee is resolved against the file's own `sys` imports. A bare suffix
@@ -516,12 +613,48 @@ def _is_bootstrap(stmt: ast.AST, sys_names: set) -> bool:
     the scan — the same defect class as the `sys.path[0]` read.
     """
     return any(
-        _is_path_mutating_call(node, sys_names) or _is_path_slice_assign(node, sys_names)
+        _is_path_mutating_call(node, names)
+        or _is_path_rebinding(node, names)
+        or _is_local_bootstrap_call(node, helpers)
         for node in _walk_executed(stmt)
     )
 
 
-def _is_path_mutating_call(node: ast.AST, sys_names: set) -> bool:
+def _is_local_bootstrap_call(node: ast.AST, helpers: frozenset) -> bool:
+    """A call to a module-level function whose body bootstraps `sys.path`."""
+    return (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id in helpers
+    )
+
+
+def _bootstrapping_helpers(tree: ast.Module, names: _PathNames) -> frozenset:
+    """Module-level functions whose body performs a `sys.path` bootstrap.
+
+        def _boot(): sys.path.insert(0, str(ROOT))
+        _boot()
+        from utils.x import y
+
+    is a real and common idiom. Dropping every `FunctionDef` left the call site
+    looking inert, so the file below it was reported broken when it is not.
+    """
+    found = set()
+    for node in tree.body:
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if any(
+            _is_path_mutating_call(child, names) or _is_path_rebinding(child, names)
+            for child in ast.walk(node)
+        ):
+            found.add(node.name)
+    return frozenset(found)
+
+
+_PATH_MUTATORS = ("insert", "append", "extend")
+
+
+def _is_path_mutating_call(node: ast.AST, names: _PathNames) -> bool:
     """`sys.path.insert/append(...)` or `site.addsitedir(...)`.
 
     The callee is resolved against the file's own `sys` imports. A bare suffix
@@ -529,26 +662,39 @@ def _is_path_mutating_call(node: ast.AST, sys_names: set) -> bool:
     `loader.search_path.append('x')` read as a bootstrap and short-circuited
     the scan — the same defect class as the `sys.path[0]` read.
     """
-    if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+    if not isinstance(node, ast.Call):
         return False
     func = node.func
+    if isinstance(func, ast.Name):
+        return func.id in names.addsitedir          # `from site import addsitedir`
+    if not isinstance(func, ast.Attribute):
+        return False
     if func.attr == "addsitedir":
-        return True
-    return func.attr in ("insert", "append") and _is_sys_path(func.value, sys_names)
+        # The receiver is resolved here too. A bare `attr == "addsitedir"`
+        # test fired for ANY object, so `loader.addsitedir('x')` read as a
+        # bootstrap and short-circuited the scan — a FALSE PASS, and the same
+        # defect this function was written to fix for `.append`.
+        return isinstance(func.value, ast.Name) and func.value.id in names.site_mod
+    return func.attr in _PATH_MUTATORS and _is_sys_path(func.value, names)
 
 
-def _is_path_slice_assign(node: ast.AST, sys_names: set) -> bool:
-    """`sys.path[0:0] = [...]`.
+def _is_path_rebinding(node: ast.AST, names: _PathNames) -> bool:
+    """`sys.path = ...`, `sys.path += ...`, `sys.path[...] = ...`.
 
-    Requires an ASSIGNMENT of a SLICE: matching any `<expr>.path[...]` also
+    Requires a STORE context throughout: matching any `<expr>.path[...]` also
     matched a plain READ, so an innocent `ROOT = Path(sys.path[0])`
-    short-circuited the scan and passed a genuinely broken script.
+    short-circuited the scan and passed a genuinely broken script. Store alone
+    is a sharper filter than the old `isinstance(node.slice, ast.Slice)` test,
+    which missed the equally-real `sys.path[0] = x`.
     """
+    if isinstance(node, ast.AugAssign):
+        return _is_sys_path(node.target, names)
+    if isinstance(node, ast.Assign):
+        return any(_is_sys_path(target, names) for target in node.targets)
     return (
         isinstance(node, ast.Subscript)
         and isinstance(node.ctx, ast.Store)
-        and isinstance(node.slice, ast.Slice)
-        and _is_sys_path(node.value, sys_names)
+        and _is_sys_path(node.value, names)
     )
 
 
@@ -585,9 +731,10 @@ def _first_party_imports_above_bootstrap(text: str, packages: list[str]) -> list
 
     wanted = set(packages)
     offenders: list[str] = []
-    sys_names = _sys_module_names(tree)
+    names = _path_names(tree)
+    helpers = _bootstrapping_helpers(tree, names)
     for stmt in _module_level_statements(tree.body, _typing_aliases(tree)):
-        if _is_bootstrap(stmt, sys_names):
+        if _is_bootstrap(stmt, names, helpers):
             return offenders
         offenders.extend(_first_party_names(stmt, wanted))
     return offenders
@@ -763,13 +910,54 @@ _IMPORT_GUARD_CASES = [
     ("not TYPE_CHECKING else is typing-only",
      "import sys\nfrom typing import TYPE_CHECKING\nif not TYPE_CHECKING:\n    pass\n"
      "else:\n    from utils.a import b\nsys.path.insert(0,'x')\n", False),
+    # ── pass 15: name resolution, not spelling-matching ──────────────
+    # first-party TOP-LEVEL MODULES, not just packages
+    ("import start above bootstrap",
+     "import sys\nimport start\nsys.path.insert(0,'x')\n", True),
+    ("from tracks import above bootstrap",
+     "import sys\nfrom tracks import load_tracks\nsys.path.insert(0,'x')\n", True),
+    # addsitedir resolves its receiver like every other callee
+    ("unrelated .addsitedir",
+     "import sys\nloader.addsitedir('x')\nfrom utils.a import b\nsys.path.insert(0,'y')\n", True),
+    ("from site import addsitedir",
+     "import sys\nfrom site import addsitedir\naddsitedir('x')\nfrom utils.a import b\n", False),
+    # every spelling that really mutates sys.path
+    ("sys.path augmented assign", "import sys\nsys.path += ['x']\nfrom utils.a import b\n", False),
+    ("sys.path.extend", "import sys\nsys.path.extend(['x'])\nfrom utils.a import b\n", False),
+    ("sys.path rebound", "import sys\nsys.path = ['x']+sys.path\nfrom utils.a import b\n", False),
+    ("from sys import path", "from sys import path\npath.insert(0,'x')\nfrom utils.a import b\n", False),
+    ("os.sys.path chain", "import os\nos.sys.path.insert(0,'x')\nfrom utils.a import b\n", False),
+    ("sys.path index store", "import sys\nsys.path[0] = 'x'\nfrom utils.a import b\n", False),
+    # a def HEADER evaluates where it is written; its BODY does not
+    ("bootstrap via local helper",
+     "import sys\ndef _b(): sys.path.insert(0,'x')\n_b()\nfrom utils.a import b\n", False),
+    ("helper that does NOT bootstrap",
+     "import sys\ndef _b(): pass\n_b()\nfrom utils.a import b\n", True),
+    ("decorator expression",
+     "import sys\n@reg(sys.path.insert(0,'x'))\ndef h(): pass\nfrom utils.a import b\n", False),
+    ("default-argument expression",
+     "import sys\ndef h(_p=sys.path.insert(0,'x')): pass\nfrom utils.a import b\n", False),
+    ("class base expression",
+     "import sys\nclass C(reg(sys.path.insert(0,'x'))): pass\nfrom utils.a import b\n", False),
+    # typing_extensions re-exports the identical flag
+    ("typing_extensions TYPE_CHECKING",
+     "import sys\nfrom typing_extensions import TYPE_CHECKING\nif TYPE_CHECKING:\n"
+     "    from utils.a import b\nsys.path.insert(0,'x')\n", False),
+    ("typing_extensions dotted",
+     "import sys\nimport typing_extensions as te\nif te.TYPE_CHECKING:\n"
+     "    from utils.a import b\nsys.path.insert(0,'x')\n", False),
 ]
 
 
 @pytest.mark.parametrize("label,source,flagged", _IMPORT_GUARD_CASES,
                          ids=[c[0] for c in _IMPORT_GUARD_CASES])
 def test_import_ordering_guard_classifies_known_shapes(label, source, flagged) -> None:
-    offenders = _first_party_imports_above_bootstrap(source, ["utils", "core", "services", "ui"])
+    # Includes top-level MODULES (`start`, `tracks`) alongside packages —
+    # `_bootstrapper_packages` derives both, and a package-only fixture here
+    # would let a module-name regression pass unnoticed.
+    offenders = _first_party_imports_above_bootstrap(
+        source, ["utils", "core", "services", "ui", "start", "tracks"]
+    )
     assert bool(offenders) is flagged, f"{label}: got {offenders}"
 
 

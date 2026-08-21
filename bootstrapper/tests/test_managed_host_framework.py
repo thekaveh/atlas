@@ -11,6 +11,8 @@ running on this host.
 from __future__ import annotations
 
 import json
+import os
+import signal
 import socket
 import subprocess
 import sys
@@ -738,3 +740,101 @@ def test_remove_succeeds_when_stop_reports_failure_for_an_already_dead_process(
 
     manager.remove()
     assert not manager.state_dir.exists()
+
+
+# ── pid-file integrity (pass 15) ─────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "recorded",
+    ["0", "-1", "  0  ", "+0", "-99999", "0\nstart_utc=Thu Jan  1 00:00:00 1970"],
+)
+def test_a_non_positive_recorded_pid_is_refused(tmp_path, recorded):
+    """`_signal` escalates to `os.killpg`, where 0 and -1 are WILDCARDS.
+
+    `killpg(0, sig)` signals the CALLER's process group — `stop()` would
+    SIGTERM and then SIGKILL the bootstrapper itself — and `os.kill(-1, sig)`
+    broadcasts to every process this uid may signal. Neither is caught
+    downstream: `_pid_alive(0)` returns True, because `kill(0, 0)` succeeds
+    against our own group.
+    """
+    manager = ManagedHostManager(_spec(), tmp_path)
+    manager.pid_file.parent.mkdir(parents=True, exist_ok=True)
+    manager.pid_file.write_text(recorded + "\n", encoding="utf-8")
+
+    assert manager._read_pid() is None
+    # ...and a pid that cannot be read is reported not-running, not signalled.
+    assert manager.status().running is False
+
+
+def test_a_positive_recorded_pid_still_parses(tmp_path):
+    manager = ManagedHostManager(_spec(), tmp_path)
+    manager.pid_file.parent.mkdir(parents=True, exist_ok=True)
+    manager.pid_file.write_text("12345\nstart_utc=x\n", encoding="utf-8")
+    assert manager._read_pid() == 12345
+
+
+def test_the_pid_file_is_written_atomically(tmp_path, monkeypatch):
+    """A torn write silently disables the PID-reuse guard.
+
+    `write_text` truncates and then writes, and `start_utc=` lands after the
+    pid in the same call — so a reader arriving mid-write sees a pid with no
+    stamp. `_recorded_start_time` returns None, `_pid_is_stranger` reads that
+    as "unknowable, proceed", and a recycled pid is signalled after all.
+    """
+    manager = ManagedHostManager(_spec(), tmp_path)
+    manager.pid_file.parent.mkdir(parents=True, exist_ok=True)
+    manager.pid_file.write_text("stale\n", encoding="utf-8")
+
+    seen: list[str] = []
+    real_replace = os.replace
+
+    def spy(src, dst, *args, **kwargs):
+        seen.append(str(dst))
+        return real_replace(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr(os, "replace", spy)
+    monkeypatch.setattr(ManagedHostManager, "_process_start_time", staticmethod(lambda pid: "STAMP"))
+    manager._write_pid_file(4242)
+
+    # The visible file is never a partial state: it is swapped in by rename.
+    assert str(manager.pid_file) in seen
+    body = manager.pid_file.read_text(encoding="utf-8")
+    assert body.splitlines() == ["4242", "start_utc=STAMP"]
+
+
+def test_a_failed_pid_file_write_does_not_orphan_the_child(tmp_path, monkeypatch):
+    """Otherwise the child runs on, untracked, still holding the port."""
+    manager = ManagedHostManager(_spec(command=("sleep", "300")), tmp_path)
+
+    class FakeProcess:
+        pid = 999_999
+        signalled: list[int] = []
+
+        def poll(self):
+            return None if not self.signalled else 0
+
+        def send_signal(self, sig):
+            self.signalled.append(sig)
+
+        def wait(self, timeout=None):
+            if not self.signalled:
+                raise subprocess.TimeoutExpired("cmd", timeout)
+            return 0
+
+    fake = FakeProcess()
+    monkeypatch.setattr(ManagedHostManager, "_spawn", lambda self: fake)
+    monkeypatch.setattr(
+        ManagedHostManager,
+        "_write_pid_file",
+        lambda self, pid: (_ for _ in ()).throw(OSError("read-only state dir")),
+    )
+    killed: list[tuple[int, int]] = []
+    monkeypatch.setattr(os, "killpg", lambda pid, sig: killed.append((pid, sig)))
+
+    with pytest.raises(ManagedHostError) as excinfo:
+        manager.start(wait_timeout=1.0)
+
+    assert "pid file" in str(excinfo.value)
+    assert "terminated" in str(excinfo.value).lower()
+    assert killed and killed[0] == (fake.pid, signal.SIGTERM)

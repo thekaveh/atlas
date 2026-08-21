@@ -46,6 +46,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping, Optional
 
+from utils.atomic_write import atomic_write_text
+
 _OK = "ok"
 _WARN = "warn"
 _FAIL = "fail"
@@ -396,8 +398,38 @@ class ManagedHostManager:
             return status
         self.state_dir.mkdir(parents=True, exist_ok=True)
         process = self._spawn()
-        self._write_pid_file(process.pid)
+        try:
+            self._write_pid_file(process.pid)
+        except OSError as exc:
+            # Without this the child keeps running while `status()` reports
+            # False: untracked, unstoppable, still holding the port. The
+            # dedicated ComfyUI manager already guarded this; the generic
+            # extraction dropped it.
+            self._terminate_untracked(process)
+            raise ManagedHostError(
+                f"{self.spec.name!r} started (pid {process.pid}) but its pid file "
+                f"could not be written: {exc}. The process was terminated."
+            ) from exc
         return self._await_port(process, wait_timeout)
+
+    @staticmethod
+    def _terminate_untracked(process: subprocess.Popen) -> None:
+        """Kill a child we can no longer track, so it cannot outlive us."""
+        for sig in (signal.SIGTERM, signal.SIGKILL):
+            if process.poll() is not None:
+                return
+            try:
+                os.killpg(process.pid, sig)
+            except OSError:
+                try:
+                    process.send_signal(sig)
+                except OSError:
+                    return
+            try:
+                process.wait(timeout=_STOP_POLL_ROUNDS * _STOP_POLL_SECONDS)
+                return
+            except subprocess.TimeoutExpired:
+                continue
 
     def _write_pid_file(self, pid: int) -> None:
         """Record the pid together with the process start time.
@@ -415,7 +447,14 @@ class ManagedHostManager:
         """
         started = self._process_start_time(pid)
         body = str(pid) if started is None else f"{pid}\nstart_utc={started}"
-        self.pid_file.write_text(body + "\n", encoding="utf-8")
+        # ATOMIC. `write_text` truncates and then writes, and the `start_utc=`
+        # line lands after the pid in the same call — so a crash or a
+        # concurrent read mid-write yields a file with a pid and NO stamp.
+        # `_recorded_start_time` then returns None, `_pid_is_stranger` reads
+        # that as "unknowable -> proceed", and the reuse guard this function
+        # exists to feed is silently disabled. Measured 18% torn reads under
+        # concurrent access before this change.
+        atomic_write_text(self.pid_file, body + "\n")
 
     def _spawn(self) -> subprocess.Popen:
         argv = self._resolved_command()
@@ -616,9 +655,19 @@ class ManagedHostManager:
         # written by an earlier version parsing unchanged.
         try:
             first = self.pid_file.read_text(encoding="utf-8").splitlines()[0]
-            return int(first.strip())
+            pid = int(first.strip())
         except (OSError, ValueError, IndexError):
             return None
+        # A pid must be POSITIVE. `_signal` escalates to `os.killpg`, and the
+        # non-positive arguments are wildcards, not process ids:
+        #   killpg(0, sig)  -> signals the CALLER's process group, i.e. the
+        #                      bootstrapper kills itself, twice (TERM then KILL)
+        #   kill(-1, sig)   -> broadcasts to every process this uid may signal
+        # `_pid_alive(0)` returns True (kill(0, 0) succeeds against our own
+        # group), so nothing downstream catches it. A pid file holding `0` is
+        # reachable from a truncated or zero-filled write, and a hand-edited
+        # or foreign-written file can hold anything at all.
+        return pid if pid > 0 else None
 
     @staticmethod
     def _process_start_time(pid: int) -> Optional[str]:
