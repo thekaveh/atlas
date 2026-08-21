@@ -94,7 +94,7 @@ def _report_registered_cleanup_failures(errors: list[BaseException]) -> None:
     for error in errors:
         try:
             print(
-                f"Process cleanup failed during SIGTERM: {error!r}",
+                f"Process cleanup failed during signal handling: {error!r}",
                 file=sys.stderr,
             )
         except BaseException:
@@ -159,9 +159,23 @@ def cleanup_active_processes_on_sigterm() -> Iterator[None]:
     try:
         yield
     finally:
+        # Isolated per signal, with a SIG_DFL fallback. This is the OUTERMOST
+        # guard — it wraps the whole run — and an unguarded restore here is
+        # doubly bad: a TypeError raised inside a `finally` REPLACES whatever
+        # the body was raising (a real `_CommandInterrupted`, a genuine error),
+        # and it skips the remaining signals, stranding them on this dead
+        # closure. `previous[sig]` is None when the prior handler came from
+        # outside Python's signal module.
         for sig in managed_signals:
-            if signal.getsignal(sig) is cleanup:
+            if signal.getsignal(sig) is not cleanup:
+                continue
+            try:
                 signal.signal(sig, previous[sig])
+            except (TypeError, ValueError, OSError) as restore_error:
+                try:
+                    signal.signal(sig, signal.SIG_DFL)
+                except (TypeError, ValueError, OSError):
+                    _report_signal_dispatch_failure(restore_error)
 
 
 #: Signals deferred across the launch window. Must match the set
@@ -250,7 +264,17 @@ class _SigtermGuard:
                 try:
                     signal.signal(sig, self.relay_target.get(sig))
                 except (TypeError, ValueError, OSError) as restore_error:
-                    _report_signal_dispatch_failure(restore_error)
+                    # Swallowing here would be WORSE than failing: the signal
+                    # stays bound to this dead guard's `_interrupt`, which
+                    # appends to a `pending` list nobody will ever drain, so the
+                    # process silently stops responding to SIGTERM/SIGHUP for
+                    # the rest of its life — `docker stop` would do nothing
+                    # until the SIGKILL. Default disposition is always safer
+                    # than a dead guard.
+                    try:
+                        signal.signal(sig, signal.SIG_DFL)
+                    except (TypeError, ValueError, OSError):
+                        _report_signal_dispatch_failure(restore_error)
 
     def _drain_pending(self, *, finish: bool) -> None:
         started_as_owner = {

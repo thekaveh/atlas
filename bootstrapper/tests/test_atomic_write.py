@@ -342,63 +342,88 @@ def _bootstrapper_packages(root: Path) -> list[str]:
     return found or ["utils", "core", "services"]
 
 
+#: Statements whose bodies still execute at module level, so a bootstrap or an
+#: import inside one is reached during import. Deliberately EXCLUDES
+#: FunctionDef/AsyncFunctionDef/ClassDef/Lambda: `ast.walk` descends into those,
+#: which made a `def _boot(): sys.path.insert(...)` count as a bootstrap even
+#: though it never runs, and made a lazy import inside a helper defined above
+#: the real bootstrap a false offender.
+_MODULE_LEVEL_BODIES = (ast.If, ast.Try, ast.With, ast.For, ast.While)
+
+
+def _module_level_statements(body: list) -> list:
+    """Flatten to statements that actually execute when the module is imported."""
+    flat = []
+    for stmt in body:
+        flat.append(stmt)
+        if isinstance(stmt, _MODULE_LEVEL_BODIES):
+            for attr in ("body", "orelse", "finalbody", "handlers"):
+                nested = getattr(stmt, attr, None) or []
+                for item in nested:
+                    if isinstance(item, ast.ExceptHandler):
+                        flat.extend(_module_level_statements(item.body))
+                    else:
+                        flat.extend(_module_level_statements([item]))
+    return flat
+
+
+def _is_bootstrap(stmt: ast.AST, packages: list[str]) -> bool:
+    """True when this statement performs a `sys.path` bootstrap itself."""
+    for node in ast.walk(stmt):
+        if isinstance(node, ast.Call):
+            target = ast.unparse(node.func)
+            if target.endswith(("path.insert", "path.append", "addsitedir")):
+                return True
+        # `sys.path[0:0] = [...]` — match the SHAPE, not a substring: an
+        # innocent `first = search_paths[0]` must not read as a bootstrap.
+        if isinstance(node, ast.Subscript):
+            value = node.value
+            if isinstance(value, ast.Attribute) and value.attr == "path":
+                return True
+    return False
+
+
+def _first_party_names(stmt: ast.AST, wanted: set) -> list[str]:
+    found = []
+    for node in ast.walk(stmt):
+        if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            if node.module.split(".")[0] in wanted:
+                found.append(f"from {node.module}")
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name.split(".")[0] in wanted:
+                    found.append(f"import {alias.name}")
+    return found
+
+
 def _first_party_imports_above_bootstrap(text: str, packages: list[str]) -> list[str]:
-    r"""First-party imports that run before this file's `sys.path` bootstrap.
+    """First-party imports that run before this file's `sys.path` bootstrap.
 
-    Walks the AST and compares MODULE-LEVEL statement order. Two regex attempts
-    at this both false-passed, in mirror-image ways, and the second failure is
-    why this is structural now:
+    Four attempts at this guard have false-passed. Three were regex-based; the
+    fourth walked the AST but used `ast.walk`, which descends into function and
+    class bodies — so a `def _boot(): sys.path.insert(...)` counted as a
+    bootstrap it never performs, and a lazy import inside a helper counted as an
+    offender it is not. Only statements that actually execute at import time are
+    considered now, in source order.
 
-      - anchoring the bootstrap with `^\s*` accepted one nested inside a `def`
-        or `if __name__ == "__main__":` — which never runs before module-level
-        imports, so it is not a bootstrap at all;
-      - anchoring imports at column 0 missed a module-level `try:`-wrapped
-        import, an idiom live in `scripts/bounded_subprocess.py`.
-
-    Only statements at module level count, in source order. Fails CLOSED: a
-    file with first-party imports and no module-level bootstrap has every one
-    flagged rather than being skipped as vacuously fine.
+    Fails CLOSED: a file with first-party imports and no module-level bootstrap
+    has every one flagged rather than being skipped as vacuously fine.
     """
-    # A malformed script is a real failure, but it should say so rather than
-    # surfacing as an opaque SyntaxError from inside a guard about imports.
     try:
         tree = ast.parse(text)
     except SyntaxError as exc:
         raise AssertionError(f"script does not parse: {exc}") from exc
+
     wanted = set(packages)
-
-    def _is_bootstrap(node: ast.AST) -> bool:
-        for call in ast.walk(node):
-            if not isinstance(call, ast.Call):
-                continue
-            target = ast.unparse(call.func) if hasattr(ast, "unparse") else ""
-            if target.endswith(("path.insert", "path.append", "addsitedir")):
-                return True
-        # `sys.path[0:0] = [...]` is a bootstrap too, and is not a Call.
-        for sub in ast.walk(node):
-            if isinstance(sub, ast.Subscript) and "path" in (
-                ast.unparse(sub.value) if hasattr(ast, "unparse") else ""
-            ):
-                return True
-        return False
-
-    def _first_party(node: ast.AST) -> list[str]:
-        found = []
-        for sub in ast.walk(node):
-            if isinstance(sub, ast.ImportFrom) and sub.level == 0 and sub.module:
-                if sub.module.split(".")[0] in wanted:
-                    found.append(f"from {sub.module}")
-            elif isinstance(sub, ast.Import):
-                for alias in sub.names:
-                    if alias.name.split(".")[0] in wanted:
-                        found.append(f"import {alias.name}")
-        return found
-
     offenders: list[str] = []
-    for stmt in tree.body:                      # module level only
-        if _is_bootstrap(stmt):
-            return offenders                    # everything after it is fine
-        offenders.extend(_first_party(stmt))
+    for stmt in _module_level_statements(tree.body):
+        # A `def` cannot bootstrap, but the import scan must also skip it: the
+        # imports inside it are lazy and run only when the function is called.
+        if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            continue
+        if _is_bootstrap(stmt, packages):
+            return offenders
+        offenders.extend(_first_party_names(stmt, wanted))
     return offenders
 
 
@@ -413,14 +438,28 @@ def test_scripts_do_not_import_first_party_above_their_sys_path_bootstrap() -> N
     bootstrapper installed as a package, so the import resolves regardless of
     ordering. Assert the ordering directly.
 
-    Scoped to `scripts/` deliberately: Python prepends the SCRIPT's own
-    directory to `sys.path`, so `start.py` — at the package root — resolves
-    `from services...` before its own (redundant) bootstrap. A script one level
-    down gets `scripts/` on the path instead, so its bootstrap is load-bearing.
+    Scoped to `bootstrapper/scripts/` deliberately, for two reasons.
+
+    Python prepends the SCRIPT's own directory to `sys.path`, so `start.py` —
+    at the package root — resolves `from services...` before its own
+    (redundant) bootstrap. A script one level down gets `scripts/` on the path
+    instead, so its bootstrap is load-bearing.
+
+    And the repo-root `scripts/` tree must NOT be added: `docs` is a package
+    name in both `bootstrapper/` and `scripts/`, and `check-docs-drift.py` and
+    `number-markdown-headings.py` legitimately do
+    `try: from scripts.docs... except ModuleNotFoundError: from docs...`.
+    Their fallback branch names a package this guard treats as first-party, so
+    widening the scope false-fails two scripts that work correctly — verified
+    by running them.
     """
     root = Path(__file__).resolve().parents[1]
     packages = _bootstrapper_packages(root)
-    for script in sorted((root / "scripts").glob("*.py")):
+    scripts = sorted((root / "scripts").glob("*.py"))
+    # `Path.glob` on a missing directory yields nothing without erroring, so
+    # without this the test would go green while checking nothing.
+    assert scripts, "the import-ordering guard found no scripts to check"
+    for script in scripts:
         offenders = _first_party_imports_above_bootstrap(
             script.read_text(encoding="utf-8"), packages
         )
@@ -428,3 +467,48 @@ def test_scripts_do_not_import_first_party_above_their_sys_path_bootstrap() -> N
             f"{script.name}: {offenders} precede the sys.path bootstrap, so the "
             f"script raises ModuleNotFoundError under a bare interpreter"
         )
+
+
+#: (label, source, should_be_flagged). Every historical bypass of this guard is
+#: pinned here — four earlier versions each passed a case in this table.
+_IMPORT_GUARD_CASES = [
+    ("import below bootstrap", "import sys\nsys.path.insert(0,'x')\nfrom utils.a import b\n", False),
+    ("import above bootstrap", "import sys\nfrom utils.a import b\nsys.path.insert(0,'x')\n", True),
+    # bypass #1 — a comment mentioning the bootstrap fooled the substring scan
+    ("decoy comment", "import sys\n# keep imports below the sys.path.insert bootstrap\n"
+                      "from utils.a import b\nsys.path.insert(0,'x')\n", True),
+    # bypass #2 — an indented bootstrap that never runs before module imports
+    ("bootstrap inside def", "import sys\nfrom utils.a import b\n"
+                             "def boot():\n    sys.path.insert(0,'x')\n", True),
+    ("bootstrap in __main__", "import sys\nfrom utils.a import b\n"
+                              "if __name__ == '__main__':\n    sys.path.insert(0,'x')\n", True),
+    # bypass #3 — a try-wrapped import is not at column 0
+    ("try-wrapped import above", "import sys\ntry:\n    from utils.a import b\n"
+                                 "except ImportError:\n    b = None\nsys.path.insert(0,'x')\n", True),
+    ("no bootstrap at all", "from utils.a import b\n", True),
+    ("star import above", "import sys\nfrom utils import *\nsys.path.insert(0,'x')\n", True),
+    ("plain import form", "import sys\nimport utils\nsys.path.insert(0,'x')\n", True),
+    # must NOT flag:
+    ("sys.path slice form", "import sys\nsys.path[0:0] = ['x']\nfrom utils.a import b\n", False),
+    ("aliased sys", "import sys as s\ns.path.insert(0,'x')\nfrom utils.a import b\n", False),
+    ("no first-party imports", "import os\nimport json\n", False),
+    ("__future__ above", "from __future__ import annotations\nimport sys\n"
+                         "sys.path.insert(0,'x')\nfrom utils.a import b\n", False),
+    # bypass #4 — `ast.walk` descended into bodies, both directions
+    ("lazy import in a helper above", "import sys\ndef load():\n    from utils.a import b\n"
+                                      "sys.path.insert(0,'x')\nfrom utils.c import d\n", False),
+    ("conditional bootstrap runs", "import sys\nif sys.platform != 'win32':\n"
+                                   "    sys.path.insert(0,'x')\nfrom utils.a import b\n", False),
+]
+
+
+@pytest.mark.parametrize("label,source,flagged", _IMPORT_GUARD_CASES,
+                         ids=[c[0] for c in _IMPORT_GUARD_CASES])
+def test_import_ordering_guard_classifies_known_shapes(label, source, flagged) -> None:
+    offenders = _first_party_imports_above_bootstrap(source, ["utils", "core", "services", "ui"])
+    assert bool(offenders) is flagged, f"{label}: got {offenders}"
+
+
+def test_import_ordering_guard_reports_an_unparseable_script() -> None:
+    with pytest.raises(AssertionError, match="does not parse"):
+        _first_party_imports_above_bootstrap("def broken(\n", ["utils"])

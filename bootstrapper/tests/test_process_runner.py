@@ -1413,6 +1413,10 @@ def test_sighup_in_the_launch_window_does_not_orphan_the_child(tmp_path):
     proc = subprocess.run(
         [sys.executable, "-c", inner], capture_output=True, text=True,
         encoding="utf-8", errors="replace",
+        # Without this, a regression that stops the deferred signal dispatching
+        # hangs CI forever instead of failing — in the test file for the module
+        # whose entire purpose is bounding subprocesses.
+        timeout=60,
     )
     time.sleep(0.4)
 
@@ -1463,6 +1467,7 @@ def test_guarded_signals_survive_a_platform_without_sighup() -> None:
     result = subprocess.run(
         [sys.executable, "-c", probe],
         capture_output=True, text=True, encoding="utf-8", errors="replace",
+        timeout=60,
     )
     assert result.returncode == 0, (
         f"process_runner does not import without signal.SIGHUP: "
