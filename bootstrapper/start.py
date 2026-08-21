@@ -2835,13 +2835,23 @@ class AtlasStarter:
                 self.banner.console.print(f"   ⚠️  {violation['error_message']}")
 
             disabled_services = self.dependency_manager.auto_resolve_dependency_violations()
-            if disabled_services:
-                for service in disabled_services:
-                    self.banner.show_status_message(f"Auto-disabled {service} due to missing dependencies", "warning")
-                return True
-            else:
+            if not disabled_services:
                 self.banner.show_status_message("Could not auto-resolve dependency violations", "error")
                 return False
+            for service in disabled_services:
+                self.banner.show_status_message(f"Auto-disabled {service} due to missing dependencies", "warning")
+            # RE-CHECK. A non-empty list only says SOMETHING was disabled — not
+            # that every violation is resolved. If four of five writes failed,
+            # startup proceeded with the rest unresolved; and because the
+            # original check ran against the pre-write env, a service requiring
+            # one just auto-disabled was never re-evaluated (no such 2-hop
+            # chain exists in today's graph, but nothing prevents one).
+            if self.dependency_manager.check_service_dependencies():
+                return True
+            self.banner.show_status_message(
+                "Dependency violations remain after auto-resolution", "error"
+            )
+            return False
 
         return True
         

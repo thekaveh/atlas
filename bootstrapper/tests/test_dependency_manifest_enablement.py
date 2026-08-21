@@ -207,3 +207,51 @@ def test_a_malformed_scale_falls_through_to_the_source_signal(tmp_path, capsys):
     assert dm.get_service_scale("trino") == 0
     # ...and it says so, rather than silently guessing
     assert "not a replica count" in capsys.readouterr().out
+
+
+# ── pass 15: an empty lookup is not an answer ────────────────────────
+
+
+def test_an_empty_services_dir_does_not_short_circuit_the_fallback(tmp_path):
+    """Verbatim the #503 regression this module exists to prevent.
+
+    A `services/` directory that EXISTS but yields zero manifests cached `{}`
+    and returned it, so the packaged-tree fallback never ran and every service
+    fell through to "assume enabled" — a disabled n8n reported scale 1.
+    """
+    import services.dependency_manager as dependency_manager
+    from core.config_parser import ConfigParser
+    from services.dependency_manager import DependencyManager
+
+    (tmp_path / "services").mkdir()
+    (tmp_path / ".env").write_text("N8N_SOURCE=disabled\nN8N_SCALE=\n")
+    parser = ConfigParser(str(tmp_path))
+    parser.env_file_path = tmp_path / ".env"
+
+    dependency_manager._ENABLEMENT_CACHE.clear()
+    try:
+        dm = DependencyManager(parser)
+        assert dm.get_service_scale("n8n") == 0
+        assert dm._enablement_lookup(), "fell back to an empty lookup"
+    finally:
+        dependency_manager._ENABLEMENT_CACHE.clear()
+
+
+def test_auto_resolve_disables_each_service_once(tmp_path):
+    """Violations are per (service, requirement), not per service.
+
+    A service missing two dependencies was resolved twice: `.env` was
+    atomically rewritten a second time with identical content, and the caller
+    printed "Auto-disabled trino..." twice.
+    """
+    dm = _make_dm(
+        tmp_path,
+        "TRINO_SCALE=1\nTRINO_SOURCE=container\n"
+        "MINIO_SOURCE=disabled\nICEBERG_REST_SOURCE=disabled\n",
+    )
+    dm.check_service_dependencies()
+    offenders = [v["service"] for v in dm.dependency_violations]
+    assert offenders.count("trino") >= 2, "precondition: two violations for one service"
+
+    disabled = dm.auto_resolve_dependency_violations()
+    assert disabled.count("trino") == 1, f"resolved more than once: {disabled}"

@@ -489,6 +489,8 @@ class ManagedHostManager:
     def stop(self) -> bool:
         pid = self._read_pid()
         if pid is None or not self._pid_alive(pid):
+            if pid is not None:
+                self._sweep_orphaned_group(pid)
             self.pid_file.unlink(missing_ok=True)
             return True
         # PID-reuse guard (#947). The three built-in managers solve the same
@@ -513,6 +515,52 @@ class ManagedHostManager:
             return True
         # a failed stop KEEPS the pid file so the process is not orphan-tracked
         return False
+
+    def _sweep_orphaned_group(self, pid: int) -> None:
+        """Kill the process group when its LEADER died but members did not.
+
+        `_spawn` passes `start_new_session=True` precisely so the whole tree is
+        killable as one group, but `stop()` short-circuited on the leader being
+        dead and never signalled it. A double-forking command, or a crashed
+        gunicorn/uvicorn master whose workers survive, therefore left the port
+        held forever: `status()` reports not-running, `stop()` reports success,
+        and every later `start()` fails to bind. Verified as a permanent wedge.
+        """
+        if not self._group_survives(pid):
+            return
+        for sig in (signal.SIGTERM, signal.SIGKILL):
+            try:
+                os.killpg(pid, sig)
+            except OSError:
+                return
+            for _ in range(_STOP_POLL_ROUNDS):
+                if not self._group_survives(pid):
+                    return
+                time.sleep(_STOP_POLL_SECONDS)
+
+    @staticmethod
+    def _group_survives(pid: int) -> bool:
+        """True only for a LEADERLESS group still bearing `pid` as its gid.
+
+        Signalling a group whose leader is merely unreadable would hit a
+        stranger, so this proves the leader is genuinely GONE first. That makes
+        the group ours: POSIX keeps a pid allocated while it is still
+        referenced as a pgid, so the kernel cannot have handed that number to
+        an unrelated process while members of the group remain.
+        """
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            pass          # the leader is genuinely gone — the good case
+        except OSError:
+            return False  # cannot prove anything; never signal on a guess
+        else:
+            return False  # the pid EXISTS: recycled or alive, not a remnant
+        try:
+            os.killpg(pid, 0)
+        except OSError:
+            return False
+        return True
 
     @staticmethod
     def _signal(pid: int, sig: int) -> bool:

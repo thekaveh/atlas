@@ -15,6 +15,7 @@ import os
 import signal
 import socket
 import subprocess
+import time
 import sys
 import textwrap
 from pathlib import Path
@@ -838,3 +839,58 @@ def test_a_failed_pid_file_write_does_not_orphan_the_child(tmp_path, monkeypatch
     assert "pid file" in str(excinfo.value)
     assert "terminated" in str(excinfo.value).lower()
     assert killed and killed[0] == (fake.pid, signal.SIGTERM)
+
+
+# ── pass 15: a leader can die while its group lives ──────────────────
+
+
+def test_stop_sweeps_a_group_whose_leader_died(tmp_path):
+    """`_spawn` uses `start_new_session=True` so the TREE is killable.
+
+    `stop()` short-circuited on the leader being dead and never signalled the
+    group, so a double-forking command — or a crashed gunicorn/uvicorn master
+    whose workers survive — left the port held forever: `status()` reports
+    not-running, `stop()` reports success, and every later `start()` fails to
+    bind. A permanent wedge.
+    """
+    leader = subprocess.Popen(
+        [sys.executable, "-c",
+         "import os,sys,time\n"
+         "if os.fork()==0:\n"
+         "    time.sleep(120)\n"
+         "sys.exit(0)\n"],
+        start_new_session=True,
+    )
+    gid = leader.pid
+    leader.wait()
+    time.sleep(0.5)
+
+    try:
+        assert ManagedHostManager._pid_alive(gid) is False, "precondition: leader is dead"
+        assert ManagedHostManager._group_survives(gid) is True, "precondition: group lives"
+
+        manager = ManagedHostManager(_spec(), tmp_path)
+        manager.pid_file.parent.mkdir(parents=True, exist_ok=True)
+        manager.pid_file.write_text(f"{gid}\n", encoding="utf-8")
+
+        assert manager.stop() is True
+        assert ManagedHostManager._group_survives(gid) is False, "group not swept"
+    finally:
+        try:
+            os.killpg(gid, signal.SIGKILL)
+        except OSError:
+            pass
+
+
+def test_a_live_or_unreadable_pid_is_never_swept():
+    """Signalling a group whose leader is merely UNREADABLE hits a stranger.
+
+    The sweep is safe only because it proves the leader is genuinely gone
+    first: POSIX keeps a pid allocated while it is still referenced as a pgid,
+    so the kernel cannot have handed that number to an unrelated process while
+    members of the group remain.
+    """
+    # our own pid exists, so it is never treated as a leaderless remnant
+    assert ManagedHostManager._group_survives(os.getpid()) is False
+    # pid 1 exists and is not signalable by us — also never swept
+    assert ManagedHostManager._group_survives(1) is False

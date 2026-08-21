@@ -217,13 +217,29 @@ class DependencyManager:
                 from services.manifests import load_manifests
 
                 manifests = load_manifests(services_dir)
-            except Exception:  # noqa: BLE001 — fall through to next candidate
+            except Exception as exc:  # noqa: BLE001 — fall through to next candidate
+                # Say so. A single malformed service.yml makes load_manifests
+                # raise for the WHOLE consumer tree, and the manager then
+                # answers silently from the packaged Atlas tree — describing a
+                # topology the user is not running.
+                print(
+                    f"  ⚠️  could not load manifests from {services_dir}: {exc}; "
+                    f"trying the next candidate"
+                )
                 continue
 
             lookup: Dict[str, _ServiceEnablementInfo] = {}
             for m in manifests:
                 for name, info in _manifest_enablement(m).items():
                     lookup.setdefault(name, info)
+            if not lookup:
+                # An EMPTY result is not an answer. Caching and returning it
+                # short-circuits the packaged-tree fallback, and every service
+                # then falls through to "assume enabled" — verbatim the #503
+                # regression this module exists to prevent. Verified: a
+                # `services/` dir that exists but holds no manifests made a
+                # `N8N_SOURCE=disabled` n8n report scale 1.
+                continue
             _ENABLEMENT_CACHE[key] = lookup
             return lookup
         return {}
@@ -340,8 +356,16 @@ class DependencyManager:
         """
         disabled_services = []
 
+        # De-duplicate by service. Violations are per (service, requirement),
+        # so a service missing two dependencies was resolved twice: `.env` was
+        # atomically rewritten a second time with identical content, and the
+        # caller printed "Auto-disabled trino..." twice.
+        seen: set = set()
         for violation in self.dependency_violations:
             service_name = violation['service']
+            if service_name in seen:
+                continue
+            seen.add(service_name)
 
             # Manifest-derived (#503): zero EVERY *_SCALE var the violating
             # service's manifest declares, so a disabled family takes its
