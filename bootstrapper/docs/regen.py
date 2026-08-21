@@ -103,11 +103,18 @@ def _slice_deps_section(readme_text: str) -> tuple[int, int] | None:
     The slice runs from the `##` header to (exclusive of) the next `##`
     header or end-of-file.
     """
-    m = DEPS_HEADER_RE.search(readme_text)
+    # The START search must be fence-aware too. Every END search already was,
+    # but this one was not — so a README that DOCUMENTS the deps header inside
+    # a ```markdown fence had the generated tables spliced INSIDE that fence,
+    # leaving a duplicate header; the next regen pass then treated the fenced
+    # copy as the real section and deleted everything from it to the following
+    # `##` — taking the genuine Dependencies section, Troubleshooting and
+    # References with it. Regen stopped being idempotent at that point.
+    spans = _fenced_spans(readme_text)
+    m = _search_outside_fences(DEPS_HEADER_RE, readme_text, 0, spans)
     if not m:
         return None
     start = m.start()
-    spans = _fenced_spans(readme_text)
     nxt = _search_outside_fences(NEXT_TOP_HEADER_RE, readme_text, m.end(), spans)
     end = nxt.start() if nxt else len(readme_text)
     return (start, end)
@@ -156,7 +163,9 @@ def _extract_future_blocks(deps_text: str) -> dict[str, str]:
 def _detect_position(readme_text: str) -> int:
     """Detect the section number of the existing Dependencies & Integrations
     heading. Defaults to 5 (canonical slot) if absent or unnumbered."""
-    m = DEPS_HEADER_RE.search(readme_text)
+    # Fence-aware, matching `_slice_deps_section`. A fenced EXAMPLE of the
+    # header would otherwise dictate the subsection numbering of the real one.
+    m = _search_outside_fences(DEPS_HEADER_RE, readme_text, 0, _fenced_spans(readme_text))
     if m and m.group(1):
         return int(m.group(1))
     return 5

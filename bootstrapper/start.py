@@ -3634,16 +3634,16 @@ class AtlasStarter:
                 break
         if row is None:
             return "-"
-        if row.localhost_endpoint_var:
-            endpoint = env_vars.get(row.localhost_endpoint_var, '')
-            match = re.search(r':(\d+)', endpoint)
-            if match:
-                return f":{match.group(1)}"
-        if row.localhost_port_var:
-            port = env_vars.get(row.localhost_port_var, '').strip()
-            if port:
-                return f":{port}"
-        return "-"
+        # ONE definition, shared with the Textual ServiceTable. The local copy
+        # parsed the endpoint with a bare `:(\d+)`, which cannot match the
+        # stored literal `http://host:${COMFYUI_MPS_LOCALHOST_PORT:-8188}` —
+        # the `:` is followed by `$` — so it fell through to the wrong var and
+        # reported ComfyUI-MPS on 8000 instead of 8188, then raised a phantom
+        # collision against vLLM Metal.
+        from ui.state_builder import resolve_localhost_port
+
+        port = resolve_localhost_port(row, env_vars)
+        return f":{port}" if port else "-"
 
     @staticmethod
     def _get_service_status(source: str, scale: str) -> tuple:

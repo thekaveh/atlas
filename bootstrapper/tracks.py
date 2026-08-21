@@ -344,13 +344,26 @@ def synthesize_track_source_args(
         if is_in_track(track, svc_key, always_on=registry.always_on):
             continue
         explicit_value = source_args.get(cli_key)
+        # NORMALIZE before recording. Every consumer looks this set up through
+        # `normalize_service_key` — `_make_track_skip` does
+        # `_norm(service_key) in overridden`, and the off-track dimming does
+        # the same — so an un-normalized key never matches for the two aliases
+        # whose CLI stem diverges from the folder name: `open_web_ui_source`
+        # yields `open-web-ui` (folder `open-webui`) and `neo4j_graph_db_source`
+        # yields `neo4j-graph-db` (folder `neo4j`). For those two, a consumer
+        # manifest declaration or an explicit `--<svc>-source` flag was
+        # silently force-disabled anyway — the #783 contract, and the one
+        # `_make_track_skip`'s own docstring states. `ray`, `spark`, `minio`
+        # and the rest were unaffected because their stem already equals the
+        # folder name, which is also why the existing tests missed it.
+        recorded_key = normalize_service_key(svc_key)
         if explicit_value is not None and explicit_value != "disabled":
-            overridden_services.add(svc_key)
+            overridden_services.add(recorded_key)
         elif explicit_value is None and cli_key in consumer_declared:
             # Consumer-manifest-declared source: leave untouched so the
             # env.values declaration lands in .env unclobbered; record it as
             # an override for the advisory line.
-            overridden_services.add(svc_key)
+            overridden_services.add(recorded_key)
         elif explicit_value is None and force_disable:
             source_args[cli_key] = "disabled"
     return overridden_services
