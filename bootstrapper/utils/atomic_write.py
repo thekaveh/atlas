@@ -102,15 +102,17 @@ def assert_safe_env_assignment(key: str, value: str) -> str:
     `SourceOverrideManager.update_env_file`,
     `ServiceConfigManager.update_env_file`, and `_set_scalar` at the manifest
     parse boundary. It is NOT on every path that writes `.env`. These
-    eight format their own `KEY=VALUE` lines from internally-generated values
+    seven format their own `KEY=VALUE` lines from internally-generated values
     and are unguarded: `AtlasStarter._remove_env_keys_by_prefix`, the backfill
     splice, `key_generator.update_env_key`, `supabase_keys`, `port_manager`,
-    the three env migrations' `stamp_version`, and
-    `bootstrapper/scripts/reorg_user_env.py`. Route anything externally-sourced
-    through here rather than assuming those are covered. (They all now SPLIT
-    `.env` with `env_lines` above, so none can promote an embedded separator
-    into a real assignment — a separate property from validating what they
-    write.)
+    the three env migrations' `stamp_version` (counted once), and
+    `bootstrapper/scripts/reorg_user_env.py`. Route anything
+    externally-sourced through here rather than assuming those are covered.
+
+    Every one of them does now SPLIT `.env` with `env_lines` above, so none can
+    promote an embedded separator into a real assignment — but that is a
+    separate property from validating what they write, and it was verified per
+    call site rather than assumed.
 
     It lives beside the atomic writer all four already import, because putting
     the guard on one writer and not its siblings is exactly how the first

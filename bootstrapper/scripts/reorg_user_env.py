@@ -19,7 +19,6 @@ Safety: refuses to run if .env.bak.* doesn't exist alongside .env.
 You did back up first — right?
 """
 from __future__ import annotations
-from utils.atomic_write import env_lines
 
 import argparse
 import os
@@ -29,7 +28,7 @@ from datetime import date
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from utils.atomic_write import atomic_write_text
+from utils.atomic_write import atomic_write_text, env_lines
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 # Honor ATLAS_ENV_FILE (deprecated alias: GENAI_ENV_FILE) like every

@@ -1405,7 +1405,7 @@ class AtlasStarter:
         ``.env`` files.
         """
         bar_re = re.compile(r"^#\s*[=─]{3,}\s*$")
-        lines = env_text.splitlines(keepends=True)
+        lines = env_lines(env_text, keepends=True)
         n = len(lines)
         # Walk env_text and record [(section_name, start_idx, end_idx)]
         # — start_idx is the line AFTER the closing bar of the banner

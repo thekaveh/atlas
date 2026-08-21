@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
 import pytest
@@ -323,3 +324,50 @@ def test_env_lines_does_not_split_on_the_separators_that_promote() -> None:
         text = f"KEY=a{ch}SUPABASE_SERVICE_KEY=attacker\n"
         assert len(text.splitlines()) == 2, "precondition: splitlines would split here"
         assert env_lines(text) == [f"KEY=a{ch}SUPABASE_SERVICE_KEY=attacker"]
+
+
+def test_every_env_rewriting_module_imports_at_runtime() -> None:
+    """`py_compile` does not execute imports.
+
+    Adding `from utils.atomic_write import env_lines` to
+    `bootstrapper/scripts/reorg_user_env.py` above its own `sys.path.insert`
+    bootstrap left the script raising `ModuleNotFoundError` on every
+    invocation, and it compiled cleanly the whole time.
+    """
+    import os as _os
+    import subprocess
+    import sys as _sys
+    from pathlib import Path as _Path
+
+    root = _Path(__file__).resolve().parents[1]
+    for module in (
+        "services.migrations.migration_v1",
+        "services.migrations.migration_v2",
+        "services.migrations.migration_v3",
+        "services.source_validator",
+        "utils.atomic_write",
+    ):
+        proc = subprocess.run(
+            [_sys.executable, "-c", f"import {module}"],
+            cwd=str(root), capture_output=True, text=True,
+            encoding="utf-8", errors="replace",
+        )
+        assert proc.returncode == 0, f"{module} does not import: {proc.stderr.strip()[-300:]}"
+
+    # The standalone scripts bootstrap their own `sys.path` before importing
+    # from `utils`, so that they work under a bare system interpreter. A
+    # subprocess check cannot enforce that: `sys.executable` here is the uv
+    # venv, which has the bootstrapper installed as a package, so `utils`
+    # imports regardless of ordering and the check passes against a script that
+    # is broken for every other interpreter. Assert the ordering directly.
+    for script in sorted((root / "scripts").glob("*.py")):
+        text = script.read_text(encoding="utf-8")
+        bootstrap = text.find("sys.path.insert")
+        if bootstrap == -1:
+            continue
+        for match in re.finditer(r"^from (utils|core|services)\b", text, re.M):
+            assert match.start() > bootstrap, (
+                f"{script.name}: `{match.group(0)}` at offset {match.start()} precedes "
+                f"the sys.path bootstrap at {bootstrap}, so the script raises "
+                f"ModuleNotFoundError under a bare interpreter"
+            )
