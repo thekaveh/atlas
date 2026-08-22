@@ -279,3 +279,4 @@ data_flow:
     - neo4j
     - redis
     - docling-lightrag-adapter
+    - backend

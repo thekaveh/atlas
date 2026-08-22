@@ -10,7 +10,7 @@ import sys
 from typing import Dict, Optional, Any
 from pathlib import Path
 
-from utils.atomic_write import create_private_backup
+from utils.atomic_write import create_private_backup, decode_env_value
 
 
 # Single source of truth for the default base port. Imported by start.py and
@@ -92,6 +92,8 @@ class ConfigParser:
             root_dir: Root directory containing .env and config files.
                      If None, uses the parent of the bootstrapper directory.
         """
+        #: Keyed on the .env file's own stat identity; see parse_env_file.
+        self._env_cache: dict = {}
         if root_dir is None:
             # Default to parent directory of bootstrapper
             self.root_dir = Path(__file__).resolve().parent.parent.parent
@@ -206,7 +208,18 @@ class ConfigParser:
         
         if not self.env_file_path.exists():
             return env_vars
-            
+
+        # Memoized on the file's own identity. One `check_service_dependencies()`
+        # re-read `.env` 77 times and re-parsed SOURCE vars 65 more — and since
+        # each was a fresh open, a `.env` edited mid-check yielded an
+        # internally INCONSISTENT view. Keying on (mtime_ns, size, inode) means
+        # any write invalidates it automatically, so no caller has to remember
+        # to flush: `auto_resolve` rewrites `.env` and the next read sees it.
+        stamp = self._env_file_stamp()
+        cached = self._env_cache.get(stamp)
+        if cached is not None:
+            return dict(cached)
+
         with open(self.env_file_path, 'r', encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
@@ -216,30 +229,20 @@ class ConfigParser:
                 # Split on first = only
                 if '=' in line:
                     key, value = line.split('=', 1)
-                    value = value.strip()
-                    if value[:1] in ('"', "'"):
-                        # Quoted value: take the quoted span verbatim —
-                        # a `#` inside quotes is data, not a comment
-                        # (PASSWORD="ab#cd" used to be read as `ab`).
-                        quote = value[0]
-                        end = value.find(quote, 1)
-                        if end != -1:
-                            value = value[1:end]
-                        else:
-                            # Unterminated quote — legacy cleanup.
-                            value = value.strip('"').strip("'")
-                    else:
-                        # Unquoted: a comment starts only at a hash
-                        # preceded by whitespace (`ab#cd` is a value;
-                        # `abc  # note` carries a comment).
-                        for i, ch in enumerate(value):
-                            if ch == '#' and (i == 0 or value[i - 1] in ' \t'):
-                                value = value[:i]
-                                break
-                        value = value.strip()
-                    env_vars[key.strip()] = value
-                    
+                    # ONE definition, shared with the writers' round-trip
+                    # check — a second copy here is how the two drifted apart.
+                    env_vars[key.strip()] = decode_env_value(value)
+
+        self._env_cache = {stamp: dict(env_vars)}  # single entry: only the current file
         return env_vars
+
+    def _env_file_stamp(self):
+        """Identity of the `.env` file as it is right now, or None if unreadable."""
+        try:
+            info = self.env_file_path.stat()
+        except OSError:
+            return None
+        return (info.st_mtime_ns, info.st_size, info.st_ino)
     
     def parse_service_sources(self) -> Dict[str, str]:
         """

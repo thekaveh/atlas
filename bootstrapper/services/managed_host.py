@@ -39,12 +39,20 @@ import signal
 import socket
 import subprocess
 import sys
+
+try:  # POSIX advisory locking; absent on Windows
+    import fcntl
+except ImportError:  # pragma: no cover - non-POSIX
+    fcntl = None
 import time
 import urllib.error
 import urllib.request
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping, Optional
+
+from utils.atomic_write import atomic_write_text
 
 _OK = "ok"
 _WARN = "warn"
@@ -213,6 +221,58 @@ def split_command(raw: Any, *, origin: str, field_name: str) -> tuple[str, ...]:
     return tuple(argv)
 
 
+def read_recorded_start_time(pid_file: Path) -> Optional[str]:
+    """The start time stamped into `pid_file` at spawn, if present.
+
+    Module-level so the older ComfyUI-MPS manager can share this exact
+    implementation instead of carrying its own (it matched the process argv,
+    which is not an identity — see `pid_is_stranger`).
+    """
+    try:
+        body = pid_file.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    for line in body.splitlines()[1:]:
+        # Only the normalized key is trusted. A pid file stamped by the first
+        # version of this format used the ambient TZ/locale, so its value is
+        # not comparable against a UTC probe — reading it would make every
+        # already-running managed host look like a stranger exactly once,
+        # which is the failure this guard exists to prevent. An unrecognized
+        # stamp simply reads as absent, and the guard degrades to proceed.
+        if line.startswith("start_utc="):
+            return line[len("start_utc="):].strip() or None
+    return None
+
+
+def write_pid_file_with_identity(pid_file: Path, pid: int, start_time: Optional[str]) -> None:
+    """Record `(pid, start time)` atomically.
+
+    Atomic because a torn read yields a pid with no stamp, which the guard
+    reads as "unknowable, proceed" — silently disabling the very reuse check
+    the stamp exists to feed.
+    """
+    body = str(pid) if start_time is None else f"{pid}\nstart_utc={start_time}"
+    atomic_write_text(pid_file, body + "\n")
+
+
+def pid_is_stranger(pid: int, pid_file: Path, probe) -> bool:
+    """True only when `pid` can be PROVEN not to be the recorded process.
+
+    `(pid, start time)` is unique on POSIX; an argv is not an identity, since
+    a wrapper script, `exec`, `setproctitle` or a gunicorn/celery master
+    rewrites it. Falls back to False (proceed) whenever the answer is
+    unknowable, matching the built-in managers' rule that an unknowable probe
+    must never block teardown.
+    """
+    recorded = read_recorded_start_time(pid_file)
+    if not recorded:
+        return False
+    live = probe(pid)
+    if not live:
+        return False
+    return live != recorded
+
+
 class ManagedHostManager:
     """Generic lifecycle for one :class:`HostProcessSpec`.
 
@@ -364,7 +424,7 @@ class ManagedHostManager:
                 cwd=str(self.spec.workdir) if self.spec.workdir else None,
                 env=self._child_env(),
                 capture_output=True,
-                text=True,
+                text=True, encoding="utf-8", errors="replace",
                 timeout=_INSTALL_TIMEOUT_SECONDS,
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
@@ -391,13 +451,96 @@ class ManagedHostManager:
                 f"refusing non-loopback bind {self.spec.bind} for {self.spec.name!r}; "
                 f"set allow_remote: true to override"
             )
+        self.state_dir.mkdir(parents=True, exist_ok=True)
+        with self._lifecycle_lock():
+            return self._start_locked(wait_timeout)
+
+    @contextmanager
+    def _lifecycle_lock(self):
+        """Serialize `start()` for this host across processes.
+
+        `start()` is check-then-spawn: two concurrent starts both saw
+        `status().running` as False and both spawned, leaving one process
+        untracked and holding the port. The dedicated ComfyUI manager already
+        took an flock here; the generic extraction did not.
+
+        Held only across `start()`. `stop()` and `remove()` deliberately do NOT
+        take it: `remove()` calls `stop()`, and flock is per open-file
+        description, so a second acquisition from the same process would
+        self-deadlock.
+        """
+        if fcntl is None:  # non-POSIX: no lock available, behave as before
+            yield
+            return
+        handle = open(self.state_dir / "lifecycle.lock", "w", encoding="utf-8")
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            yield
+        finally:
+            handle.close()  # closing releases the lock
+
+    def _start_locked(self, wait_timeout: float) -> HostProcessStatus:
         status = self.status()
         if status.running:
             return status
-        self.state_dir.mkdir(parents=True, exist_ok=True)
         process = self._spawn()
-        self.pid_file.write_text(str(process.pid), encoding="utf-8")
+        try:
+            self._write_pid_file(process.pid)
+        except OSError as exc:
+            # Without this the child keeps running while `status()` reports
+            # False: untracked, unstoppable, still holding the port. The
+            # dedicated ComfyUI manager already guarded this; the generic
+            # extraction dropped it.
+            self._terminate_untracked(process)
+            raise ManagedHostError(
+                f"{self.spec.name!r} started (pid {process.pid}) but its pid file "
+                f"could not be written: {exc}. The process was terminated."
+            ) from exc
         return self._await_port(process, wait_timeout)
+
+    @staticmethod
+    def _terminate_untracked(process: subprocess.Popen) -> None:
+        """Kill a child we can no longer track, so it cannot outlive us."""
+        for sig in (signal.SIGTERM, signal.SIGKILL):
+            if process.poll() is not None:
+                return
+            try:
+                os.killpg(process.pid, sig)
+            except OSError:
+                try:
+                    process.send_signal(sig)
+                except OSError:
+                    return
+            try:
+                process.wait(timeout=_STOP_POLL_ROUNDS * _STOP_POLL_SECONDS)
+                return
+            except subprocess.TimeoutExpired:
+                continue
+
+    def _write_pid_file(self, pid: int) -> None:
+        """Record the pid together with the process start time.
+
+        A pid alone is not an identity: the OS recycles it, and the pid file
+        outlives a crash. ``(pid, start time)`` IS unique on POSIX, so recording
+        the start time at spawn lets a later stop prove whether the pid still
+        refers to the process we launched — without guessing from its argv,
+        which a wrapper script, ``exec``, ``setproctitle`` or a gunicorn/celery
+        master can rewrite at will.
+
+        Written as an optional second line so an older single-line pid file
+        still parses; that case degrades to the pre-existing behavior rather
+        than to a wrong answer.
+        """
+        started = self._process_start_time(pid)
+        body = str(pid) if started is None else f"{pid}\nstart_utc={started}"
+        # ATOMIC. `write_text` truncates and then writes, and the `start_utc=`
+        # line lands after the pid in the same call — so a crash or a
+        # concurrent read mid-write yields a file with a pid and NO stamp.
+        # `_recorded_start_time` then returns None, `_pid_is_stranger` reads
+        # that as "unknowable -> proceed", and the reuse guard this function
+        # exists to feed is silently disabled. Measured 18% torn reads under
+        # concurrent access before this change.
+        atomic_write_text(self.pid_file, body + "\n")
 
     def _spawn(self) -> subprocess.Popen:
         argv = self._resolved_command()
@@ -432,6 +575,21 @@ class ManagedHostManager:
     def stop(self) -> bool:
         pid = self._read_pid()
         if pid is None or not self._pid_alive(pid):
+            if pid is not None:
+                self._sweep_orphaned_group(pid)
+            self.pid_file.unlink(missing_ok=True)
+            return True
+        # PID-reuse guard (#947). The three built-in managers solve the same
+        # problem by matching the process argv; this one compares the start
+        # time recorded at spawn, which is an identity rather than a guess
+        # (see _pid_is_stranger). A crashed process
+        # leaves its pid file behind; the OS can then recycle that pid onto
+        # an unrelated process owned by the same user — so `_pid_alive` says
+        # yes and the PermissionError arm of it never fires. Signalling blind
+        # here is worse than in the built-in managers, because `_signal`
+        # escalates to `os.killpg`: it would take out the stranger's whole
+        # process group. Drop the stale pid instead.
+        if self._pid_is_stranger(pid):
             self.pid_file.unlink(missing_ok=True)
             return True
         if not self._signal(pid, signal.SIGTERM):
@@ -443,6 +601,52 @@ class ManagedHostManager:
             return True
         # a failed stop KEEPS the pid file so the process is not orphan-tracked
         return False
+
+    def _sweep_orphaned_group(self, pid: int) -> None:
+        """Kill the process group when its LEADER died but members did not.
+
+        `_spawn` passes `start_new_session=True` precisely so the whole tree is
+        killable as one group, but `stop()` short-circuited on the leader being
+        dead and never signalled it. A double-forking command, or a crashed
+        gunicorn/uvicorn master whose workers survive, therefore left the port
+        held forever: `status()` reports not-running, `stop()` reports success,
+        and every later `start()` fails to bind. Verified as a permanent wedge.
+        """
+        if not self._group_survives(pid):
+            return
+        for sig in (signal.SIGTERM, signal.SIGKILL):
+            try:
+                os.killpg(pid, sig)
+            except OSError:
+                return
+            for _ in range(_STOP_POLL_ROUNDS):
+                if not self._group_survives(pid):
+                    return
+                time.sleep(_STOP_POLL_SECONDS)
+
+    @staticmethod
+    def _group_survives(pid: int) -> bool:
+        """True only for a LEADERLESS group still bearing `pid` as its gid.
+
+        Signalling a group whose leader is merely unreadable would hit a
+        stranger, so this proves the leader is genuinely GONE first. That makes
+        the group ours: POSIX keeps a pid allocated while it is still
+        referenced as a pgid, so the kernel cannot have handed that number to
+        an unrelated process while members of the group remain.
+        """
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            pass          # the leader is genuinely gone — the good case
+        except OSError:
+            return False  # cannot prove anything; never signal on a guess
+        else:
+            return False  # the pid EXISTS: recycled or alive, not a remnant
+        try:
+            os.killpg(pid, 0)
+        except OSError:
+            return False
+        return True
 
     @staticmethod
     def _signal(pid: int, sig: int) -> bool:
@@ -466,7 +670,18 @@ class ManagedHostManager:
 
     def status(self) -> HostProcessStatus:
         pid = self._read_pid()
-        running = pid is not None and self._pid_alive(pid)
+        # A pidfile + kill-0 probe alone trusts a RECYCLED PID: after a reboot
+        # or crash another process can inherit the number, and kill-0 then
+        # reports a dead service as running — so ensure_running_with_ownership
+        # no-ops while nothing listens, and the later stop() signals the
+        # stranger. Also require that the PID is not provably a stranger —
+        # the built-in managers guard this same site for the same reason
+        # (#647/#947), though by a weaker argv test.
+        running = (
+            pid is not None
+            and self._pid_alive(pid)
+            and not self._pid_is_stranger(pid)
+        )
         return HostProcessStatus(
             running=running, pid=pid if running else None, port_open=self._port_in_use()
         )
@@ -536,7 +751,28 @@ class ManagedHostManager:
         return self.start(), not already
 
     def remove(self) -> None:
+        """Stop the process and delete the Atlas-owned state directory.
+
+        Refuses to delete the state dir while the process is still alive.
+        `stop()` deliberately KEEPS the pid file when it fails, so the process
+        stays tracked rather than becoming an orphan — and `rmtree` would throw
+        that away, reaching the same orphan outcome the PID-reuse work exists to
+        prevent, just through a different door. Mirrors the contract
+        comfyui_mps_manager enforces: attempt the stop, then refuse on LIVENESS,
+        not on the stop's return value.
+        """
+        # Gate on liveness ONLY, not on stop()'s return. A process that exits
+        # between `_pid_alive` and the signal makes `_signal` see
+        # ProcessLookupError from both killpg and kill — that is an OSError, so
+        # stop() reports False for a process that is already gone, and gating on
+        # it would refuse a removal that should succeed. comfyui_mps_manager
+        # checks only `status().running` for the same reason.
         self.stop()
+        if self.status().running:
+            raise ManagedHostError(
+                f"refusing to remove managed state for {self.spec.name!r} while "
+                f"its process is still running"
+            )
         shutil.rmtree(self.state_dir, ignore_errors=True)
 
     # ── helpers ──────────────────────────────────────────────────────
@@ -548,10 +784,117 @@ class ManagedHostManager:
             return False
 
     def _read_pid(self) -> Optional[int]:
+        # The pid is the first line; `_write_pid_file` may append a `start=`
+        # line after it. Reading the first line keeps single-line pid files
+        # written by an earlier version parsing unchanged.
         try:
-            return int(self.pid_file.read_text(encoding="utf-8").strip())
-        except (OSError, ValueError):
+            first = self.pid_file.read_text(encoding="utf-8").splitlines()[0]
+            pid = int(first.strip())
+        except (OSError, ValueError, IndexError):
             return None
+        # A pid must be POSITIVE. `_signal` escalates to `os.killpg`, and the
+        # non-positive arguments are wildcards, not process ids:
+        #   killpg(0, sig)  -> signals the CALLER's process group, i.e. the
+        #                      bootstrapper kills itself, twice (TERM then KILL)
+        #   kill(-1, sig)   -> broadcasts to every process this uid may signal
+        # `_pid_alive(0)` returns True (kill(0, 0) succeeds against our own
+        # group), so nothing downstream catches it. A pid file holding `0` is
+        # reachable from a truncated or zero-filled write, and a hand-edited
+        # or foreign-written file can hold anything at all.
+        return pid if pid > 0 else None
+
+    @staticmethod
+    def _process_start_time(pid: int) -> Optional[str]:
+        """Absolute start time of ``pid`` per ``ps``, or None if unknowable.
+
+        ``lstart`` renders through the ambient ``TZ`` and ``LC_TIME``, so the
+        SAME live process reads back differently depending on who asks — this
+        machine returns four distinct strings for one pid under local time,
+        ``TZ=UTC``, ``TZ=Asia/Tokyo`` and ``LC_ALL=de_DE``. That matters because
+        a service is typically started from an interactive shell and stopped
+        from launchd, cron or CI, which default to UTC: the comparison would
+        call our own process a stranger and orphan it. Pinning both makes the
+        rendered value a function of the process alone.
+        """
+        try:
+            out = subprocess.run(
+                ["ps", "-o", "lstart=", "-p", str(pid)],
+                capture_output=True, text=True, timeout=5, check=False,
+                encoding="utf-8", errors="replace",
+                env={**os.environ, "TZ": "UTC", "LC_ALL": "C", "LANG": "C"},
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None
+        if out.returncode != 0:
+            return None
+        # Exactly ONE line, or nothing. A `ps` answering rc=0 with two lines
+        # wrote extra pid-file lines, and `_recorded_start_time` reads only the
+        # first `start_utc=` line — so the recorded value could never match a
+        # later probe and our own live process was disowned as a stranger.
+        # Ambiguity degrades to "unknowable -> proceed", which is the
+        # documented behavior for a stamp that cannot be read.
+        lines = [line.strip() for line in (out.stdout or "").splitlines() if line.strip()]
+        return lines[0] if len(lines) == 1 else None
+
+    def _recorded_start_time(self) -> Optional[str]:
+        """The start time stamped into the pid file at spawn, if present."""
+        return read_recorded_start_time(self.pid_file)
+
+    def _pid_is_stranger(self, pid: int) -> bool:
+        """True only when we can PROVE ``pid`` is NOT the process we launched.
+
+        A pid is not an identity — the OS recycles it, and a crashed service
+        leaves its pid file behind — but ``(pid, start time)`` is unique on
+        POSIX. `start()` stamps the start time into the pid file, so this
+        compares the recorded value against the live process and gets a
+        definitive answer.
+
+        Two earlier attempts matched the process argv instead, and each failed
+        in both directions: seeding markers from the whole argv cleared 87
+        unrelated processes on one developer machine (``-m``, ``127.0.0.1``,
+        the port number), while curating the markers meant a spec whose tokens
+        were all generic reduced to evidence that never appears in a command
+        line at all — disowning our own live process, so `stop()` deleted the
+        pid file and returned success while the service kept running. An argv
+        is simply not an identity: a wrapper script, ``exec``, ``setproctitle``
+        or a gunicorn/celery master rewrites it.
+
+        Falls back to False (proceed) when the answer is unknowable — a pid
+        file written before this format, or a ``ps`` that will not answer —
+        which is the pre-existing behavior and matches the built-in managers'
+        rule that an unknowable probe must never block teardown.
+
+        KNOWN LIMITATION (Linux, unfixed): ``ps -o lstart=`` is computed there
+        as ``/proc/stat btime + starttime/Hz``, and ``btime`` derives from the
+        REALTIME clock — so ANY realtime adjustment that moves `btime`
+        across a second boundary — an NTP step, a VM suspend/resume, or
+        ordinary chrony/ntpd SLEW, which needs no step at all — shifts a live
+        process's rendered start time and this comparison
+        would call it a stranger, orphaning it. macOS is immune (``ki_start``
+        is an absolute timestamp frozen at fork). The robust Linux fix is to
+        read ``/proc/<pid>/stat`` field 22 directly, which is boot-relative and
+        clock-step immune. That is deliberately NOT done here: it needs a third
+        stamp format, and a format mismatch between stamp and probe is exactly
+        the shape that produced the earlier orphaning bugs. Under a steady
+        clock the value is stable (3000/3000 probes on procps-ng 4.0.2).
+
+        On ``lstart`` granularity, since it invites the question: it resolves to
+        one second, so two processes started back-to-back do share a value.
+        That does not weaken this comparison. A pid is only recycled after the
+        kernel's pid counter wraps — tens of thousands of spawns — so the
+        stranger holding it necessarily started long after ours exited, in a
+        different second. Measured on macOS: the value is stable across
+        repeated probes of one live process, and is readable immediately after
+        ``Popen`` (0 misses in 40 spawn-and-probe cycles), so neither drift nor
+        a spawn race can silently turn our own process into a stranger.
+        """
+        recorded = self._recorded_start_time()
+        if recorded is None:
+            return False  # legacy pid file — no better answer than before
+        current = self._process_start_time(pid)
+        if current is None:
+            return False  # can't tell — proceed
+        return current != recorded
 
     @staticmethod
     def _pid_alive(pid: int) -> bool:

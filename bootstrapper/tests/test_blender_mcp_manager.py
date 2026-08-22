@@ -167,6 +167,9 @@ def test_start_spawns_and_waits_for_port(tmp_path, monkeypatch):
             return None
 
     def fake_popen(argv, **kw):
+        # Ignore the `ps` identity probe that stamps the pid file.
+        if argv and argv[0] == "ps":
+            return SimpleNamespace(pid=0, returncode=0, stdout="", stderr="")
         spawned["argv"] = argv
         return _FakeProc()
 
@@ -462,32 +465,38 @@ def test_a_blender_command_line_is_recognised_as_ours(tmp_path, monkeypatch):
     assert manager._pid_is_stranger(4242) is False
 
 
-def test_the_ps_probe_asks_for_unlimited_width(tmp_path, monkeypatch):
-    """Linux procps truncates `ps` output to the terminal width — 80 columns
-    when there is no tty, which is every CI job and every daemon. A managed
-    bridge's real command line (binary + --python + launcher path) runs well
-    past that, so without -ww the path markers are cut off the end and our OWN
-    process reads as a stranger: stop() would then refuse to stop it. macOS ps
-    does not truncate, which is exactly why this passed locally and failed on
-    the Linux runner.
+def test_ownership_uses_start_time_not_the_command_line(tmp_path, monkeypatch):
+    """Replaces a test that pinned `-ww` on the old argv probe.
+
+    That probe is gone. It substring-matched the command line against
+    `("blender", "Blender", <launcher>, <state_dir>)` — generic strings, not
+    an identity — so a recycled pid landing on any Blender process was
+    signalled, and `os.killpg(pid, SIGKILL)` took out its whole group. The
+    `-ww` flag existed because Linux procps truncates the command line to 80
+    columns without a tty, which made our OWN process read as a stranger; that
+    whole failure mode disappears with a fixed-width `ps -o lstart=` probe.
+
+    `(pid, start time)` is unique on POSIX. The locale/TZ concern that
+    replaces truncation is handled once, in `managed_host._process_start_time`
+    (it pins TZ=UTC and LC_ALL=C), and is tested there.
     """
+    from services.managed_host import write_pid_file_with_identity
+
     manager = BlenderMcpManager(state_dir=tmp_path, port=59993)
-    seen = {}
+    manager.state_dir.mkdir(parents=True, exist_ok=True)
 
-    class _Out:
-        returncode = 0
-        stdout = "blender --background"
-
-    def _capture(argv, **_kwargs):
-        seen["argv"] = argv
-        return _Out()
-
-    monkeypatch.setattr("services.blender_mcp_manager.subprocess.run", _capture)
-    manager._pid_is_stranger(4242)
-    assert "-ww" in seen["argv"], (
-        f"the ps probe must request unlimited width, got {seen['argv']}"
+    write_pid_file_with_identity(manager.pid_file, 4242, "Mon Jan  1 00:00:00 2024")
+    monkeypatch.setattr(
+        "services.managed_host.ManagedHostManager._process_start_time",
+        staticmethod(lambda pid: "Tue Feb  2 02:02:02 2027"),
     )
+    assert manager._pid_is_stranger(4242) is True, "a recycled pid would be signalled"
 
+    monkeypatch.setattr(
+        "services.managed_host.ManagedHostManager._process_start_time",
+        staticmethod(lambda pid: "Mon Jan  1 00:00:00 2024"),
+    )
+    assert manager._pid_is_stranger(4242) is False
 
 def test_a_long_command_line_still_resolves_as_ours(tmp_path):
     """End-to-end version of the above: a real child whose marker sits far
@@ -508,3 +517,33 @@ def test_a_long_command_line_still_resolves_as_ours(tmp_path):
     finally:
         child.kill()
         child.wait()
+
+
+def test_the_pid_file_round_trips_through_its_own_reader(tmp_path):
+    """The writer and the reader must agree.
+
+    `write_pid_file_with_identity` emits `pid\nstart_utc=...`; a reader that
+    parses the WHOLE file with `int()` raises ValueError and returns None on
+    every host where `ps` answers, inverting the lifecycle — status reports
+    not-running while it runs, stop deletes the record and leaves it alive.
+
+    This exact defect shipped in the ComfyUI-MPS manager and was invisible to a
+    full green suite, because every test there stubbed `ps` so the two-line
+    file never existed. That is why this pins the PAIR directly rather than
+    going through a stubbed start path.
+    """
+    from services.managed_host import write_pid_file_with_identity
+
+    mgr = BlenderMcpManager(state_dir=tmp_path, port=59991)
+    mgr.state_dir.mkdir(parents=True, exist_ok=True)
+
+    write_pid_file_with_identity(mgr.pid_file, 55163, "Fri Aug 21 22:53:12 2026")
+    assert mgr.pid_file.read_text(encoding="utf-8").count("\n") == 2
+    assert mgr._read_pid() == 55163, "the writer's own output is unreadable"
+
+    mgr.pid_file.write_text("4242\n", encoding="utf-8")
+    assert mgr._read_pid() == 4242, "a legacy single-line file must still parse"
+
+    for bad in ("0\n", "-1\n", "garbage\n", ""):
+        mgr.pid_file.write_text(bad, encoding="utf-8")
+        assert mgr._read_pid() is None, bad

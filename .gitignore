@@ -32,6 +32,14 @@ MANIFEST
 .env
 # transient atomic-write sibling (SourceOverrideManager)
 .env.tmp
+# `atomic_write_text` writes `.<name>.<random>.tmp` via mkstemp before the
+# os.replace, so the literal `.env.tmp` above never matches a real temp file.
+# A crash (or SIGKILL) between create and replace strands a FULL COPY of .env —
+# Supabase JWT keys, DB password, cloud provider keys — which `git add -A`
+# would happily stage. Cover the mkstemp shape, and the same shape for every
+# other file that writer is used on.
+.env.*.tmp
+.*.tmp
 .venv
 env/
 venv/

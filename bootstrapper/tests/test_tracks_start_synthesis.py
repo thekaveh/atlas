@@ -189,3 +189,72 @@ def test_consumer_declared_in_track_service_is_noop():
 
     assert source_args["weaviate_source"] is None
     assert overridden == set()
+
+
+# ── pass 19: the recorded override key must be NORMALIZED ────────────
+
+
+def test_overridden_keys_are_recorded_in_normalized_form():
+    """#783 regression, invisible to every prior test.
+
+    `synthesize_track_source_args` recorded `cli_key.removesuffix("_source")
+    .replace("_","-")`, but every consumer looks the set up through
+    `normalize_service_key` — `_make_track_skip` does `_norm(service_key) in
+    overridden`, and the off-track dimming does the same. For the two aliases
+    whose CLI stem diverges from the folder name the sets never intersected:
+
+        open_web_ui_source    -> "open-web-ui"    (folder "open-webui")
+        neo4j_graph_db_source -> "neo4j-graph-db" (folder "neo4j")
+
+    so a consumer manifest declaration or an explicit `--<svc>-source` flag was
+    force-disabled anyway. `ray`, `spark`, `minio` and the rest were unaffected
+    because their stem already equals the folder name — which is precisely why
+    the existing cases here (minio, weaviate) could not catch it.
+    """
+    from tracks import load_tracks, normalize_service_key, synthesize_track_source_args
+
+    registry = load_tracks()
+    divergent = ["open_web_ui_source", "neo4j_graph_db_source", "ray_source"]
+    args = {key: None for key in divergent}
+
+    overridden = synthesize_track_source_args(
+        args,
+        registry=registry,
+        track_key="trading",
+        consumer_declared=set(divergent),
+        force_disable=True,
+    )
+
+    assert overridden, "precondition: these are all out-of-track for `trading`"
+    assert all(key == normalize_service_key(key) for key in overridden), (
+        f"un-normalized keys recorded: {sorted(overridden)}"
+    )
+    assert {"open-webui", "neo4j", "ray"} <= set(overridden)
+    # ...and nothing was force-disabled
+    assert all(value is None for value in args.values()), args
+
+
+def test_a_declared_divergent_service_keeps_its_wizard_prompt():
+    """Drive the real consumer, not just the recorded set."""
+    from tracks import load_tracks, synthesize_track_source_args
+    from ui.textual.integration import PICKER_STEP_TITLE, _make_track_skip
+
+    registry = load_tracks()
+    declared = {"open_web_ui_source", "neo4j_graph_db_source", "ray_source"}
+    args = {key: None for key in declared}
+    overridden = frozenset(
+        synthesize_track_source_args(
+            args, registry=registry, track_key="trading",
+            consumer_declared=declared, force_disable=True,
+        )
+    )
+
+    selections = {PICKER_STEP_TITLE: "trading"}
+    for service_key in ("open-web-ui", "neo4j-graph-db", "ray-head"):
+        skip = _make_track_skip(
+            service_key,
+            always_on=registry.always_on,
+            overridden=overridden,
+            registry=registry,
+        )
+        assert skip(selections) is False, f"{service_key} was skipped despite being declared"

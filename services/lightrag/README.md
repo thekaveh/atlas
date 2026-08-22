@@ -60,10 +60,10 @@ Atlas also exposes LightRAG's query defaults as `LIGHTRAG_QUERY_ENABLE_RERANK`, 
 For local Ollama graph RAG, use a fast non-reasoning model for `EXTRACT` and `KEYWORD`, and reserve the stronger answer model for `QUERY`:
 
 ```env
-LIGHTRAG_LLM_MODEL=qwen3.6:latest
+LIGHTRAG_LLM_MODEL=qwen3.8:latest
 LIGHTRAG_EXTRACT_LLM_MODEL=mistral-small3.2:24b
 LIGHTRAG_KEYWORD_LLM_MODEL=mistral-small3.2:24b
-LIGHTRAG_QUERY_LLM_MODEL=qwen3.6:latest
+LIGHTRAG_QUERY_LLM_MODEL=qwen3.8:latest
 ```
 
 Atlas intentionally does not ship those model names as defaults; deployments that do not set role variables keep the existing single-model behavior.
@@ -139,6 +139,7 @@ curl -sX POST http://localhost:${LITELLM_PORT}/v1/chat/completions \
 | supabase | data |
 | litellm ↔ | llm |
 | docling-lightrag-adapter | media |
+| backend ↔ | apps |
 
 ### 5.2. Current — Downstream (services that call this)
 
@@ -149,7 +150,7 @@ curl -sX POST http://localhost:${LITELLM_PORT}/v1/chat/completions \
 | celery | agents |
 | hermes | agents |
 | n8n | agents |
-| backend | apps |
+| backend ↔ | apps |
 
 ### 5.3. Architecture diagram
 

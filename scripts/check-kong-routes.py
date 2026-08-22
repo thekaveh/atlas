@@ -180,6 +180,15 @@ def main() -> int:
         if actual_url != expected_url:
             issues.append(f"  {host}: expected {expected_url}, got {actual_url or 'MISSING'}")
 
+    # ...and the other direction. Checking only that each EXPECTED host is
+    # present meant an ADDED route passed silently — a regression that
+    # publishes a new upstream through the gateway is exactly what this audit
+    # should catch, and it could not see one. Verified by injecting a rogue
+    # `admin.localhost -> supabase-db:5432` route: the gate printed PASS.
+    unexpected = sorted(set(hosts) - set(EXPECTED_HOST_ROUTES))
+    for host in unexpected:
+        issues.append(f"  {host}: UNEXPECTED route -> {hosts[host]} (not in EXPECTED_HOST_ROUTES)")
+
     if issues:
         print("FAIL default_host_routes")
         for line in issues:

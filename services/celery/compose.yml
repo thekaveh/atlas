@@ -56,6 +56,13 @@ services:
       RAG_INGESTION_MAX_FILES: ${RAG_INGESTION_MAX_FILES:-10000}
       RAG_INGESTION_EXECUTION_LEASE_SECONDS: ${RAG_INGESTION_EXECUTION_LEASE_SECONDS:-30}
       DOCLING_ENDPOINT: ${DOCLING_ENDPOINT:-}
+      # The endpoint alone is not enough: DocumentExtractor.extract() raises
+      # ExtractionUnavailableError("Docling provider credential is unavailable")
+      # on an empty token, so the worker would silently fall through to the
+      # next parser in parser_order and return degraded text for PDFs that the
+      # in-process backend path parses correctly. Paired the same way
+      # LIGHTRAG_ENDPOINT/LIGHTRAG_API_KEY are below.
+      DOCLING_API_TOKEN: ${DOCLING_API_TOKEN:-}
       TIKA_ENDPOINT: ${TIKA_ENDPOINT:-}
       TIKA_MAX_FILE_SIZE: ${TIKA_MAX_FILE_SIZE:-52428800}
       TIKA_TIMEOUT_SECONDS: ${TIKA_TIMEOUT_SECONDS:-30}

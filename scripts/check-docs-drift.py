@@ -157,8 +157,17 @@ def check_source_matrix():
         # Empty-match guard: zero *_SOURCE vars means the pattern or the
         # file is broken, not that the matrix is in sync.
         return ['.env.example: no *_SOURCE= variables matched — check pattern/file']
+    def _documented(var: str, text: str) -> bool:
+        """Word-boundary match, not substring containment.
+
+        `var in text` meant any new var that is a SUFFIX-SUBSTRING of a
+        documented one was undetectable: an undocumented `RERANKER_SOURCE`
+        passed because the documented `TEI_RERANKER_SOURCE` contains it.
+        """
+        return re.search(rf'\b{re.escape(var)}\b', text) is not None
+
     for var in source_vars:
-        if var not in reference and var not in guide:
+        if not _documented(var, reference) and not _documented(var, guide):
             missing.append(
                 f'{var}: undocumented in both docs/reference/source-values.md and '
                 'docs/deployment/source-configuration.md'

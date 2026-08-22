@@ -934,6 +934,10 @@ ALTER TABLE ONLY storage.objects
 ALTER TABLE ONLY storage.objects
     ADD CONSTRAINT objects_owner_fkey FOREIGN KEY (owner) REFERENCES auth.users(id);
 
+CREATE POLICY "Service role can access all comfyui generations" ON public.comfyui_generations USING ((auth.role() = 'service_role'::text));
+
+CREATE POLICY "Service role can access all comfyui workflows" ON public.comfyui_workflows USING ((auth.role() = 'service_role'::text));
+
 CREATE POLICY "Service role can access all consolidation logs" ON public.memory_consolidation_log USING ((auth.role() = 'service_role'::text));
 
 CREATE POLICY "Service role can access all media spend ledger" ON public.media_spend_ledger USING ((auth.role() = 'service_role'::text));
@@ -951,6 +955,8 @@ CREATE POLICY "Service role can access all research sessions" ON public.research
 CREATE POLICY "Service role can access all research sources" ON public.research_sources USING ((auth.role() = 'service_role'::text));
 
 CREATE POLICY "Service role can access all user profiles" ON public.users USING ((auth.role() = 'service_role'::text)) WITH CHECK ((auth.role() = 'service_role'::text));
+
+CREATE POLICY "Service role can access the gotrue migration tracker" ON public.schema_migrations USING ((auth.role() = 'service_role'::text));
 
 CREATE POLICY "Users can read own profile" ON public.users FOR SELECT USING ((auth.uid() = id));
 
@@ -970,6 +976,10 @@ CREATE POLICY "Users can view sources for their sessions" ON public.research_sou
 
 CREATE POLICY "Users can view their own research sessions" ON public.research_sessions FOR SELECT USING ((auth.uid() = user_id));
 
+ALTER TABLE public.comfyui_generations ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE public.comfyui_workflows ENABLE ROW LEVEL SECURITY;
+
 ALTER TABLE public.media_spend_ledger ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE public.memory_consolidation_log ENABLE ROW LEVEL SECURITY;
@@ -985,6 +995,8 @@ ALTER TABLE public.research_results ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.research_sessions ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE public.research_sources ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE public.schema_migrations ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
 
@@ -5612,11 +5624,9 @@ GRANT ALL ON TABLE public.users TO authenticated;
 GRANT ALL ON TABLE public.users TO service_role;
 
 GRANT ALL ON TABLE storage.buckets TO service_role;
-GRANT SELECT ON TABLE storage.buckets TO anon;
 GRANT SELECT ON TABLE storage.buckets TO authenticated;
 
 GRANT ALL ON TABLE storage.objects TO service_role;
-GRANT SELECT ON TABLE storage.objects TO anon;
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE storage.objects TO authenticated;
 
 GRANT SELECT,REFERENCES,DELETE,TRUNCATE ON TABLE vault.secrets TO postgres WITH GRANT OPTION;
@@ -5735,7 +5745,6 @@ ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA storage GRANT ALL ON TABLES
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA storage GRANT ALL ON TABLES TO authenticated;
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA storage GRANT ALL ON TABLES TO service_role;
 
-ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA storage GRANT SELECT ON TABLES TO anon;
 ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA storage GRANT SELECT ON TABLES TO authenticated;
 ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA storage GRANT ALL ON TABLES TO service_role;
 

@@ -11,6 +11,8 @@ picks a new SOURCE for a service.
 
 from __future__ import annotations
 
+import re
+
 from functools import lru_cache
 from pathlib import Path
 from typing import Callable, Optional
@@ -69,11 +71,33 @@ def _service_extras_map() -> dict:
 
     out: dict = {}
     for m in load_manifests(_SERVICES_ROOT):
-        opts = [o.id for o in m.sources.options] if m.sources else []
+        manifest_opts = [o.id for o in m.sources.options] if m.sources else []
+        manifest_var = m.sources.var if m.sources else None
         deps = list(m.depends_on.required) + list(m.depends_on.optional)
         for r in m.rows:
+            opts = manifest_opts
+            if r.source_var and r.source_var != manifest_var:
+                opts = _row_source_options(m, r) or manifest_opts
             out[r.display_name] = {"options": opts, "depends": deps}
     return out
+
+
+def _row_source_options(manifest, row) -> list:
+    """Source options for a row whose SOURCE var is not the manifest's own.
+
+    `weaviate` carries two rows — WEAVIATE_SOURCE and MULTI2VEC_CLIP_SOURCE —
+    so stamping the manifest-level options onto every row advertised
+    Weaviate's `container / localhost / disabled` on the Multi2Vec CLIP hover
+    card. Every one of those was wrong: CLIP's real options are
+    `container-cpu / container-gpu / disabled`, `localhost` is not offered for
+    it at all, and both real container variants were missing.
+
+    The `runtime_sc` slice keyed by the row's own stem is the authority — it is
+    what the wizard itself reads to build the prompt.
+    """
+    stem = row.source_var.removesuffix("_SOURCE").lower().replace("_", "-")
+    variants = (manifest.runtime_sc or {}).get(stem)
+    return list(variants.keys()) if isinstance(variants, dict) else []
 
 
 def service_extras(name: str) -> dict:
@@ -81,12 +105,101 @@ def service_extras(name: str) -> dict:
     return _service_extras_map().get(name, {"options": [], "depends": []})
 
 
+#: (service display name, source option) -> (env var, well-known default).
+#: THE source-specific port mapping, shared by the wizard's inline port input
+#: and by `resolve_localhost_port`. It lived inside `_build_steps_and_rows`,
+#: so the port resolvers could not consult it and had to guess from the row's
+#: single `localhost_port_var` — which cannot distinguish `localhost` from
+#: `managed-localhost-mps`.
+LOCALHOST_PORT_WIRING: dict[tuple[str, str], tuple[str, int]] = {
+    ("ComfyUI",            "localhost"):             ("COMFYUI_LOCALHOST_PORT", 8000),
+    ("ComfyUI",            "managed-localhost-mps"): ("COMFYUI_MPS_LOCALHOST_PORT", 8188),
+    ("Document Processor", "docling-localhost"):     ("DOCLING_LOCALHOST_PORT", 18159),
+    ("Apache Tika",        "tika-localhost"):        ("TIKA_LOCALHOST_PORT", 9998),
+    ("Hermes Agent",       "localhost"):             ("HERMES_LOCALHOST_PORT", 8642),
+    ("OpenClaw",           "localhost"):             ("OPENCLAW_LOCALHOST_PORT", 63065),
+    ("LLM Engine",         "ollama-localhost"):      ("OLLAMA_LOCALHOST_PORT", 11434),
+    ("Neo4j Graph DB",     "localhost"):             ("NEO4J_LOCALHOST_BOLT_PORT", 7687),
+    ("Weaviate",           "localhost"):             ("WEAVIATE_LOCALHOST_PORT", 8080),
+    ("STT Provider",       "parakeet-localhost"):    ("PARAKEET_LOCALHOST_PORT", 63042),
+    ("STT Provider",       "whisper-cpp-localhost"): ("WHISPER_CPP_LOCALHOST_PORT", 63042),
+    ("TTS Provider",       "chatterbox-localhost"):  ("CHATTERBOX_LOCALHOST_PORT", 63044),
+    ("LightRAG",           "localhost"):             ("LIGHTRAG_LOCALHOST_PORT", 63068),
+    ("TEI Reranker",       "localhost"):             ("TEI_RERANKER_LOCALHOST_PORT", 63049),
+}
+
+#: `http://host:8188`, `http://host:${VAR}` and `http://host:${VAR:-8188}`.
+_ENDPOINT_PORT_RE = re.compile(r":(?:(\d+)|\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-(\d+))?\})(?:/|$)")
+
+
+def resolve_localhost_port(row, env: dict, source: str = "") -> str:
+    r"""The host port a localhost/managed-localhost row actually binds.
+
+    THE definition, shared by the Textual `ServiceTable` and the `--no-tui`
+    pre-launch summary. Two separate implementations had drifted apart:
+
+    * This one consulted only `localhost_port_var`, so `vllm-metal` — which
+      declares `localhost_endpoint_var` and no `localhost_port_var` — rendered
+      an empty PORT cell while `--no-tui` printed `:8000`.
+    * The other preferred the endpoint var but parsed it with a bare
+      `:(\d+)`, which cannot match the stored literal
+      `http://host.docker.internal:${COMFYUI_MPS_LOCALHOST_PORT:-8188}` —
+      the `:` is followed by `$`. It fell through to `COMFYUI_LOCALHOST_PORT`
+      (8000) even though the managed MPS process binds 8188, and the resulting
+      phantom 8000-vs-8000 clash produced a FALSE port-collision warning
+      against vLLM Metal.
+
+    The endpoint var wins because it encodes the ACTIVE source variant's port;
+    `localhost_port_var` is the fallback for rows that declare only a number.
+    """
+    # SOURCE-SPECIFIC var first. The endpoint var is written by
+    # `generate_service_configuration`, which runs AFTER the wizard renders —
+    # so during the wizard it still describes the PREVIOUS run's source, and
+    # preferring it showed the container-internal `:18188` for every ComfyUI
+    # localhost variant. This table is keyed by (service, source), so it
+    # answers correctly before any config generation has happened.
+    wiring = LOCALHOST_PORT_WIRING.get((getattr(row, "display_name", ""), source or ""))
+    if wiring:
+        # Authoritative when present — do NOT fall through to the endpoint,
+        # which would reintroduce the stale-value problem. An UNSET var
+        # returns "" rather than the table's default: the caller renders that
+        # as a blank pending cell, and `.env.example` backfill supplies the
+        # real default before the next read. Substituting the default here
+        # would show a port the user has not actually got yet.
+        return (env.get(wiring[0], "") or "").strip()
+
+    endpoint_var = getattr(row, "localhost_endpoint_var", None)
+    if endpoint_var:
+        port = _port_from_endpoint(env.get(endpoint_var, "") or "", env)
+        if port:
+            return port
+    port_var = getattr(row, "localhost_port_var", None)
+    if port_var:
+        return (env.get(port_var, "") or "").strip()
+    return ""
+
+
+def _port_from_endpoint(endpoint: str, env: dict) -> str:
+    """Port from an endpoint URL, resolving `${VAR}` / `${VAR:-default}`."""
+    match = _ENDPOINT_PORT_RE.search(endpoint)
+    if not match:
+        return ""
+    literal, var_name, fallback = match.groups()
+    if literal:
+        return literal
+    resolved = (env.get(var_name, "") or "").strip()
+    return resolved or (fallback or "")
+
+
 def resolve_port(name: str, source: str, port_var: Optional[str], env: dict) -> Optional[str]:
     """Compute the displayed port for a service given its current SOURCE, its
     port env var, and the parsed .env.
 
-    For localhost sources, the port is the value of the row's
-    ``localhost_port_var`` in env (the new override pattern from T5+T6+T7).
+    For localhost sources the port comes from `resolve_localhost_port`, which
+    prefers the row's ``localhost_endpoint_var`` (it encodes the ACTIVE source
+    variant's port) and falls back to ``localhost_port_var``. Consulting only
+    the latter reported ComfyUI-MPS on its plain-localhost port and left
+    vLLM (Metal) — which declares no ``localhost_port_var`` — blank.
     Returns None when the var is unset or empty — the wizard's pending row
     state then surfaces the manifest default via .env.example backfill
     before the next read.
@@ -95,8 +208,8 @@ def resolve_port(name: str, source: str, port_var: Optional[str], env: dict) -> 
         return None
     if "localhost" in source:
         for r in _get_topology().rows:
-            if r.display_name == name and r.localhost_port_var:
-                port = env.get(r.localhost_port_var, "").strip()
+            if r.display_name == name:
+                port = resolve_localhost_port(r, env, source)
                 return f":{port}" if port else None
         return None
     if port_var:

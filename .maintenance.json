@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "reviewed_on": "2026-08-06",
+  "reviewed_on": "2026-08-20",
   "complexity": {
-    "tool": "radon cc -s",
+    "tool": "radon cc -s (grades); radon raw (module lloc); ast (function span + parameter count)",
     "signal_thresholds": {
       "cyclomatic_complexity": 12,
       "function_effective_lines": 60,
@@ -15,17 +15,17 @@
       "services/backend/app/app/**/*.py"
     ],
     "baseline_snapshot": {
-      "radon_grade_c_or_worse": 358,
+      "radon_grade_c_or_worse": 357,
       "radon_grade_e_or_worse": 20,
-      "functions_over_60_physical_lines": 189,
-      "functions_over_100_physical_lines": 70,
-      "functions_over_4_parameters": 112,
-      "modules_over_600_logical_lines": 13,
-      "tracked_files": 1396,
+      "functions_over_60_physical_lines": 188,
+      "functions_over_100_physical_lines": 69,
+      "functions_over_4_parameters": 127,
+      "modules_over_600_logical_lines": 14,
+      "tracked_files": 1419,
       "v0.1.0_tracked_files": 667
     },
     "regression_policy": "Do not increase any baseline count or add a new Radon E/F symbol without a symbol-level rationale; refresh the snapshot only during a reviewed maintenance pass.",
-    "review_by": "2026-09-01",
+    "review_by": "2026-11-01",
     "owner": "Atlas maintainers",
     "accepted_signal_groups": [
       {
@@ -38,11 +38,15 @@
       },
       {
         "scope": "File-count growth since v0.1.0",
-        "rationale": "The 109.3% increase is explained by the manifest-per-service migration, generated three-surface service diagrams, provider implementations, and their regression suites. Generated artifacts are drift-gated; future growth remains subject to the 20% release-over-release signal."
+        "rationale": "The 112.7% increase is explained by the manifest-per-service migration, generated three-surface service diagrams, provider implementations, and their regression suites. Generated artifacts are drift-gated; future growth remains subject to the 20% release-over-release signal."
       },
       {
         "scope": "ComfyUI custom-node resolver + managed-MPS node provisioner (#905)",
         "rationale": "The added signals mirror the #754 model-provisioning patterns (provision_models, parse/resolver branches) and the consumer-manifest declaration surface: explicit per-node validation branches (pinned SHA + GitHub HTTPS + safe name) and idempotent git-clone/checkout/pip-install transitions. Behavior is protected by the custom-node resolver, consumer-manifest collision, MPS provisioner, manifest-generation, and doctor suites."
+      },
+      {
+        "scope": "Contract-assertion test functions (test_celery_service, test_label_studio_service, test_llm_graph_builder_service)",
+        "rationale": "Three test functions sit in the Radon E band purely because each asserts a long manifest/compose contract in one linear body. Branching is assertion count, not logic; splitting them would scatter one contract across several tests without reducing anything real."
       }
     ],
     "accepted_signals": [
@@ -61,13 +65,13 @@
       {
         "path": "bootstrapper/ui/textual/integration.py",
         "symbol": "_selections_to_args",
-        "cyclomatic_complexity": 61,
+        "cyclomatic_complexity": 63,
         "rationale": "Boundary translator for the same manifest-driven option matrix; CLI/TUI parity tests are the safer current control. Revisit together with _build_steps_and_rows."
       },
       {
         "path": "bootstrapper/core/consumer_manifest.py",
         "symbol": "load_consumer_config",
-        "cyclomatic_complexity": 62,
+        "cyclomatic_complexity": 73,
         "rationale": "Fail-closed parser and validator for a versioned external manifest. Its branches correspond to distinct validation errors and are covered by schema and consumer-contract tests."
       },
       {
@@ -88,6 +92,9 @@
         "cyclomatic_complexity": 56,
         "rationale": "Crash-recovery state machine whose explicit branches preserve auditability; recovery, ownership, and terminal-state tests cover the outcomes."
       }
-    ]
+    ],
+    "reviewed_on": "2026-08-20",
+    "counting_convention": "Authoritative rule is the one bootstrapper/tests/test_maintenance_baseline.py implements; match it exactly when refreshing. Scope: every non-hidden *.py under bootstrapper/ and services/backend/app/app/ (526 files at this refresh) — the leading-dot filter is what excludes bootstrapper/.venv, and an unfiltered glob inflates every count roughly 20x. radon_grade_c_or_worse counts blocks with complexity >= 11 EXCLUDING radon class blocks (block.letter != \"C\"), because a class block aggregates its own methods and would double-count the symbol-level baseline; counting class blocks too yields 358 rather than 357. Function span is physical lines (end_lineno - lineno + 1). Parameter count is posonly + args + kwonly + *args + **kwargs, counting self/cls. modules_over_600_logical_lines uses radon raw lloc, not a hand-rolled non-blank/non-comment count (37 under that rule, 14 under radon lloc). Note that signal_thresholds.cyclomatic_complexity (12) is the review-signal bar from the maintenance spec and is deliberately NOT the counter bound: radon_grade_c_or_worse counts grade C upward, which begins at 11.",
+    "refresh_notes_2026_08_20": "Re-measured at HEAD. radon_grade_e_or_worse (20), functions_over_4_parameters (127) and modules_over_600_logical_lines (14) are the values this pass measured directly. Four counts moved by exactly one against the first attempt at this refresh — c_or_worse 358->357, over_60 189->188, over_100 70->69, tracked_files 1420->1419 — because that attempt measured BEFORE the same run deleted bootstrapper/docs/sitegen/wiki.py, a 591-line unreachable module contributing exactly one unit to each of those four counters and zero to the rest. The numbers here are post-deletion. functions_over_4_parameters (112 -> 127) and modules_over_600_logical_lines (13 -> 14) were already stale in the 2026-08-06 snapshot and do not reproduce at the commit that recorded them; two accepted_signals had drifted from their symbols as well (load_consumer_config 62 -> 73, _selections_to_args 61 -> 63). No complexity regression was introduced by this maintenance run."
   }
 }

@@ -144,7 +144,7 @@ These bypass LiteLLM and let OpenClaw call providers directly — useful when yo
 OpenClaw inherits LLM access from the always-on LiteLLM gateway (the variables
 themselves are documented in §4.2–§4.3):
 
-- **Default path (LiteLLM)**: OpenClaw is configured as an OpenAI-compatible client against `LITELLM_BASE_URL` with `LITELLM_API_KEY`. Whatever Ollama / OpenAI / Anthropic / OpenRouter upstreams you've enabled in the stack are routed transparently through LiteLLM. To pick a model, use the model IDs registered in `volumes/litellm/config.yaml` (e.g. `ollama/qwen3.6:latest`, `gpt-4o`, `claude-sonnet-4-6`).
+- **Default path (LiteLLM)**: OpenClaw is configured as an OpenAI-compatible client against `LITELLM_BASE_URL` with `LITELLM_API_KEY`. Whatever Ollama / OpenAI / Anthropic / OpenRouter upstreams you've enabled in the stack are routed transparently through LiteLLM. To pick a model, use the model IDs registered in `volumes/litellm/config.yaml` (e.g. `ollama/qwen3.8:latest`, `gpt-4o`, `claude-sonnet-4-6`).
 - **Anthropic override**: Set `OPENCLAW_ANTHROPIC_API_KEY` in `.env` to make OpenClaw call Anthropic directly, bypassing LiteLLM. When unset, OpenClaw uses any stack-wide Anthropic key only through LiteLLM.
 - **OpenAI override**: Set `OPENCLAW_OPENAI_API_KEY` in `.env` to bypass LiteLLM for OpenAI traffic. When unset, OpenClaw stays on the LiteLLM gateway path and does not inherit the stack-wide `OPENAI_API_KEY`.
 

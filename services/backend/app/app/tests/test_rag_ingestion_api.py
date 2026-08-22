@@ -51,7 +51,9 @@ class _FakeWeaviate:
     async def write_objects(self, class_name, objects):
         return len(objects)
 
-    async def reconcile_objects(self, class_name, profile_name, desired_ids):
+    async def reconcile_objects(
+        self, class_name, profile_name, desired_ids, preserve_sources=None
+    ):
         return 0
 
 

@@ -724,3 +724,329 @@ def test_consumer_record_carries_comfyui_custom_node_files(tmp_path: Path) -> No
     assert config.consumers[0].comfyui_custom_node_files == (
         manifest.parent / "nodes.yaml",
     )
+
+
+def test_multi_line_env_value_is_rejected_not_written_into_dotenv(tmp_path: Path) -> None:
+    """`.env` is line-oriented and resolved last-wins.
+
+    A YAML block scalar is the natural way to write a newline by accident, and
+    the value is emitted as `KEY=value`, so a newline appends further
+    assignments. A consumer could land a second `SUPABASE_SERVICE_KEY` below the
+    generated one and win. It is permanent, too: the rewrite pattern
+    `^KEY=.*$` is MULTILINE but not DOTALL, so a later run rewrites only the
+    first line and steps over the injected remainder.
+    """
+    from core.consumer_manifest import ConsumerManifestError, load_consumer_config
+
+    _write_minimal_root(tmp_path)
+    manifest = _write_consumer(
+        tmp_path,
+        "injector",
+        extra=(
+            "  # a block scalar smuggling a second assignment\n"
+        ),
+    )
+    manifest.write_text(
+        manifest.read_text(encoding="utf-8").replace(
+            "    EXTRA_CONSUMER_VALUE: enabled\n",
+            "    EXTRA_CONSUMER_VALUE: |-\n"
+            "      enabled\n"
+            "      SUPABASE_SERVICE_KEY=attacker-key\n",
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConsumerManifestError) as excinfo:
+        load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
+
+    message = str(excinfo.value)
+    assert "EXTRA_CONSUMER_VALUE" in message
+    assert "multi-line" in message
+
+
+def test_env_override_writer_refuses_a_multi_line_value(tmp_path: Path) -> None:
+    """Second line of defence, at the write boundary.
+
+    Not every override reaches `.env` through `_set_scalar` — derived keys and
+    the brand/project paths build values directly — so the writer refuses a
+    newline regardless of which path produced it.
+    """
+    from core.config_parser import ConfigParser
+    from start import AtlasStarter
+
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "BASE_PORT=63000\nSUPABASE_SERVICE_KEY=generated-real-key\n",
+        encoding="utf-8",
+    )
+    starter = AtlasStarter.__new__(AtlasStarter)
+    starter.config_parser = ConfigParser(str(tmp_path))
+    starter.config_parser.env_file_path = env_file
+
+    with pytest.raises(ValueError, match="multi-line"):
+        starter._merge_env_file_overrides(
+            {"BRAND_TAGLINE": "Atlas\nSUPABASE_SERVICE_KEY=attacker-key"}
+        )
+
+    # The real key must be untouched and unduplicated.
+    body = env_file.read_text(encoding="utf-8")
+    assert body.count("SUPABASE_SERVICE_KEY=") == 1
+    assert "attacker-key" not in body
+
+
+def test_n8n_workflow_active_false_is_honoured_not_turned_into_fromJson(
+    tmp_path: Path,
+) -> None:
+    """`active: false` is the one value that means "keep this workflow OFF".
+
+    Unquoted it is a YAML boolean, and `False or "fromJson"` is "fromJson" —
+    the policy that honours the workflow file's own `"active": true`, i.e. a
+    live webhook the manifest explicitly asked to keep disabled. The asymmetry
+    gives it away: `active: true` renders "True", which is not a policy and is
+    loudly rejected.
+    """
+    from core.consumer_manifest import load_consumer_config
+
+    _write_minimal_root(tmp_path)
+    manifest = _write_consumer(tmp_path, "flows")
+    workflow = tmp_path / "flows" / "wf.json"
+    workflow.write_text('{"name": "wf", "active": true, "nodes": [], "connections": {}}\n',
+                        encoding="utf-8")
+    manifest.write_text(
+        manifest.read_text(encoding="utf-8")
+        + "n8n_workflows:\n"
+          "  version: 1\n"
+          "  workflows:\n"
+          "    - id: wf\n"
+          "      path: ./wf.json\n"
+          "      active: false\n",
+        encoding="utf-8",
+    )
+
+    config = load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
+    entry = config.n8n_workflows[0]
+    assert entry.active == "false", (
+        "an explicit `active: false` must stay false, not become the "
+        "file-derived fromJson policy"
+    )
+
+
+def test_dev_and_default_profile_overrides_conflict_instead_of_racing(
+    tmp_path: Path,
+) -> None:
+    """`dev` aliases `default`, so blocks for both target one profile.
+
+    Bucketing by the raw name hid that from the conflict detector, leaving YAML
+    key order to decide which value won.
+    """
+    from core.consumer_manifest import ConsumerManifestError, load_consumer_config
+
+    _write_minimal_root(tmp_path)
+    manifest = _write_consumer(tmp_path, "profiles")
+    manifest.write_text(
+        manifest.read_text(encoding="utf-8")
+        + "profile_overrides:\n"
+          "  dev:\n"
+          "    env:\n"
+          "      LOG_MAX_SIZE: 1m\n"
+          "  default:\n"
+          "    env:\n"
+          "      LOG_MAX_SIZE: 99m\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConsumerManifestError, match="conflicting"):
+        load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
+
+
+def test_a_newline_in_an_env_KEY_is_rejected_too(tmp_path: Path) -> None:
+    """The value guard is only half the job.
+
+    The writer emits `KEY=VALUE`, so a newline in the KEY injects a second
+    assignment exactly as effectively as one in the value — and last-wins
+    makes it the effective value.
+    """
+    from core.consumer_manifest import ConsumerManifestError, load_consumer_config
+
+    _write_minimal_root(tmp_path)
+    manifest = _write_consumer(tmp_path, "keyinjector")
+    manifest.write_text(
+        manifest.read_text(encoding="utf-8").replace(
+            "    EXTRA_CONSUMER_VALUE: enabled\n",
+            '    "HARMLESS_LOOKING\\nSUPABASE_SERVICE_KEY": attacker-key\n',
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConsumerManifestError, match="not a valid environment variable name"):
+        load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
+
+
+def test_env_override_writer_refuses_a_malformed_key(tmp_path: Path) -> None:
+    from core.config_parser import ConfigParser
+    from start import AtlasStarter
+
+    env_file = tmp_path / ".env"
+    env_file.write_text("SUPABASE_SERVICE_KEY=generated-real-key\n", encoding="utf-8")
+    starter = AtlasStarter.__new__(AtlasStarter)
+    starter.config_parser = ConfigParser(str(tmp_path))
+    starter.config_parser.env_file_path = env_file
+
+    for bad in ("HARMLESS\nSUPABASE_SERVICE_KEY", "SUPABASE_SERVICE_KEY=x #", "HAS SPACE"):
+        with pytest.raises(ValueError, match="not a valid environment variable name"):
+            starter._merge_env_file_overrides({bad: "attacker-key"})
+
+    body = env_file.read_text(encoding="utf-8")
+    assert body.count("SUPABASE_SERVICE_KEY=") == 1
+    assert "attacker-key" not in body
+
+
+def test_env_override_writer_coerces_a_non_string_value(tmp_path: Path) -> None:
+    """An int override used to be coerced silently by the f-string.
+
+    Guarding the raw value directly would turn that into an unhandled
+    TypeError instead of a clean write.
+    """
+    from core.config_parser import ConfigParser
+    from start import AtlasStarter
+
+    env_file = tmp_path / ".env"
+    env_file.write_text("BASE_PORT=63000\n", encoding="utf-8")
+    starter = AtlasStarter.__new__(AtlasStarter)
+    starter.config_parser = ConfigParser(str(tmp_path))
+    starter.config_parser.env_file_path = env_file
+
+    starter._merge_env_file_overrides({"BASE_PORT": 64000})
+    assert "BASE_PORT=64000\n" in env_file.read_text(encoding="utf-8")
+
+
+def test_env_overlay_parser_agrees_with_the_canonical_env_reader(tmp_path: Path) -> None:
+    """`env: {file: ...}` and `.env` must parse identically.
+
+    They are two readers of the same format, and `_read_env_overlay` runs
+    BEFORE the write guard — so any disagreement is a way to smuggle a value
+    past a check the other path applies. Line splitting was one such
+    disagreement: an overlay containing `A=x\\x0bSUPABASE_SERVICE_KEY=y` yielded
+    two keys through the overlay reader and one through `parse_env_file`.
+    """
+    from core.config_parser import ConfigParser
+    from core.consumer_manifest import _read_env_overlay
+
+    samples = [
+        "A=1\n",
+        'A="1"\n',
+        "A='1'\n",
+        "A=1 # note\n",
+        "  A=1\n",
+        "A = 1\n",
+        "A=\n",
+        "A=b=c\n",
+        "A=1\nA=2\n",
+        "A=p#ss\n",
+        "A=1   \n",
+        "A=1\nB=2",
+        "",
+        # the separators that split under `splitlines()` but not for the reader
+        "A=x\x0bSUPABASE_SERVICE_KEY=y\n",
+        "A=x\x0cB=y\n",
+        "A=x\x85B=y\n",
+        "A=x B=y\n",
+    ]
+    for text in samples:
+        overlay = tmp_path / "overlay.env"
+        overlay.write_text(text, encoding="utf-8")
+        env = tmp_path / ".env"
+        env.write_text(text, encoding="utf-8")
+
+        parser = ConfigParser(str(tmp_path))
+        parser.env_file_path = env
+
+        assert _read_env_overlay(overlay) == parser.parse_env_file(), repr(text)
+
+
+# ── pass 15: malformed / null / falsy consumer input ─────────────────
+
+
+@pytest.mark.parametrize("shape", [
+    "    env: notamap\n",
+    "    sources: notamap\n",
+    "    env:\n      - FOO=1\n",
+    "    sources:\n      - FOO=1\n",
+])
+def test_a_malformed_profile_overrides_block_is_a_manifest_error(tmp_path, shape):
+    """It escaped as a raw AttributeError out of `./start.sh`.
+
+    `_parse_bundle` does `(raw.get("env") or {}).items()` with no type check,
+    and the `except ProfileConfigError` around the load-time validation is the
+    wrong net. That call exists precisely so a typo fails at manifest load
+    rather than at profile-apply time — an unhandled traceback is not that, and
+    `load_consumer_config` is unguarded at its call site.
+    """
+    from core.consumer_manifest import ConsumerManifestError, load_consumer_config
+
+    _write_minimal_root(tmp_path)
+    manifest = _write_consumer(tmp_path, "malformed")
+    manifest.write_text(
+        manifest.read_text(encoding="utf-8") + "profile_overrides:\n  prod:\n" + shape,
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConsumerManifestError, match="malformed|mapping"):
+        load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
+
+
+def test_a_non_utf8_env_file_is_a_manifest_error(tmp_path):
+    """Every neighbouring failure mode is a clean ConsumerManifestError."""
+    from core.consumer_manifest import ConsumerManifestError, load_consumer_config
+
+    _write_minimal_root(tmp_path)
+    manifest = _write_consumer(tmp_path, "latin1")
+    (tmp_path / "latin1" / "atlas.env.user").write_bytes(b"FOO=caf\xe9\n")
+
+    with pytest.raises(ConsumerManifestError, match="not valid UTF-8"):
+        load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
+
+
+def test_a_yaml_null_env_value_is_empty_not_the_string_None(tmp_path):
+    """`env.values: {FOO: null}` wrote the literal `FOO=None` into .env.
+
+    Both sibling paths already handled it — the `profile_overrides` scalar
+    branch and the `brand` block — so this was an inconsistency, not a policy.
+    """
+    from core.consumer_manifest import load_consumer_config
+
+    _write_minimal_root(tmp_path)
+    manifest = _write_consumer(tmp_path, "nulls")
+    # extend the template's existing `env.values` block
+    manifest.write_text(
+        manifest.read_text(encoding="utf-8").replace(
+            "    EXTRA_CONSUMER_VALUE: enabled\n",
+            "    EXTRA_CONSUMER_VALUE: enabled\n    NULLED: null\n    TRUTHY: true\n",
+            1,
+        ),
+        encoding="utf-8",
+    )
+
+    config = load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
+    assert config.env_overrides["NULLED"] == ""
+    assert config.env_overrides["TRUTHY"] == "True"
+
+
+def test_a_null_profile_override_leaf_is_empty_not_the_string_None(tmp_path):
+    """The accumulated block used `str(v)`; the raw block used `"" if None`.
+
+    The load-time validation path and the apply-time path therefore disagreed
+    about the same manifest.
+    """
+    from core.consumer_manifest import load_consumer_config
+
+    _write_minimal_root(tmp_path)
+    manifest = _write_consumer(tmp_path, "nullleaf")
+    manifest.write_text(
+        manifest.read_text(encoding="utf-8")
+        + "profile_overrides:\n  prod:\n    env:\n      NULLED: null\n",
+        encoding="utf-8",
+    )
+
+    config = load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
+    assert config.profile_overrides["prod"]["env"]["NULLED"] == ""

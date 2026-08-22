@@ -78,7 +78,13 @@ def test_atlas_root_dashboard_owns_bare_localhost_route():
     svc = next(s for s in config["services"] if s["name"] == "atlas-root-dashboard")
     route = svc["routes"][0]
     assert route["hosts"] == ["localhost"]
-    assert route["paths"] == ["/"]
+    # EXACT root, not the prefix `/`. Host + a `/` prefix is two matching
+    # criteria, which outranks every Supabase route's single path criterion
+    # regardless of prefix length — so `/rest/v1/...` on host `localhost` was
+    # answered 200 with this dashboard's HTML instead of being proxied. Under
+    # this file's `_format_version: 2.1`, a path containing regex
+    # metacharacters IS the regex, matched anchored at the start.
+    assert route["paths"] == ["/$"]
     route_plugins = route.get("plugins", [])
     assert any(p["name"] == "pre-function" for p in route_plugins)
     access_code = "\n".join(

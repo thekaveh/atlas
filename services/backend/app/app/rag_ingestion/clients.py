@@ -545,52 +545,80 @@ class WeaviateClient:
                     resp.raise_for_status()
         return written
 
+    async def _fetch_reconcilable_ids(
+        self, client, class_name: str, safe_profile: str, keep_sources: set
+    ) -> set:
+        """Object ids for this profile, EXCLUDING preserved sources.
+
+        A preserved source is one this run could not process; its objects are
+        absent from `desired_ids` for a reason that is not staleness.
+        """
+        existing_ids = set()
+        page_size = 1000
+        offset = 0
+        while True:
+            response = await client.post(
+                f"{self._url}/v1/graphql",
+                json={
+                    "query": f"""{{
+                        Get {{
+                            {class_name}(
+                                where: {{path: [\"profile\"], operator: Equal,
+                                        valueText: \"{safe_profile}\"}}
+                                limit: {page_size}
+                                offset: {offset}
+                            ) {{ source _additional {{ id }} }}
+                        }}
+                    }}"""
+                },
+            )
+            response.raise_for_status()
+            payload = response.json()
+            if payload.get("errors"):
+                raise RuntimeError(
+                    "Weaviate profile reconciliation lookup failed"
+                )
+            page = (
+                payload.get("data", {})
+                .get("Get", {})
+                .get(class_name, [])
+            )
+            for obj in page:
+                object_id = obj.get("_additional", {}).get("id")
+                if object_id is None:
+                    continue
+                if obj.get("source") in keep_sources:
+                    continue  # this run could not produce it; not stale
+                existing_ids.add(object_id)
+            if len(page) < page_size:
+                break
+            offset += page_size
+        return existing_ids
+
     async def reconcile_objects(
-        self, class_name: str, profile_name: str, desired_ids: List[str]
+        self,
+        class_name: str,
+        profile_name: str,
+        desired_ids: List[str],
+        preserve_sources: Optional[List[str]] = None,
     ) -> int:
-        """Delete objects from older corpus generations for this profile."""
+        """Delete objects from older corpus generations for this profile.
+
+        `preserve_sources` names documents this run could NOT process. Their
+        objects are absent from `desired_ids` for a reason that is not
+        staleness, so deleting them would destroy good data on a transient
+        parser blip.
+        """
         import httpx
 
         safe_profile = (
             profile_name.replace("\\", "\\\\").replace('"', '\\"')
         )
+        keep_sources = set(preserve_sources or ())
         async with httpx.AsyncClient(timeout=60.0) as client:
-            existing_ids = set()
-            page_size = 1000
-            offset = 0
-            while True:
-                response = await client.post(
-                    f"{self._url}/v1/graphql",
-                    json={
-                        "query": f"""{{
-                            Get {{
-                                {class_name}(
-                                    where: {{path: [\"profile\"], operator: Equal,
-                                            valueText: \"{safe_profile}\"}}
-                                    limit: {page_size}
-                                    offset: {offset}
-                                ) {{ _additional {{ id }} }}
-                            }}
-                        }}"""
-                    },
-                )
-                response.raise_for_status()
-                payload = response.json()
-                if payload.get("errors"):
-                    raise RuntimeError(
-                        "Weaviate profile reconciliation lookup failed"
-                    )
-                page = (
-                    payload.get("data", {})
-                    .get("Get", {})
-                    .get(class_name, [])
-                )
-                existing_ids.update(
-                    obj.get("_additional", {}).get("id") for obj in page
-                )
-                if len(page) < page_size:
-                    break
-                offset += page_size
+            existing_ids = await self._fetch_reconcilable_ids(
+                client, class_name, safe_profile, keep_sources
+            )
             stale_ids = existing_ids - set(desired_ids) - {None}
             for object_id in sorted(stale_ids):
                 deleted = await client.delete(

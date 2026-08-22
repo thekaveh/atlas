@@ -95,7 +95,7 @@ HERMES_CPU_LIMIT=2.0
 
 **Auto-default model.** When `HERMES_DEFAULT_MODEL` is blank, `hermes-init`
 queries `http://litellm:4000/v1/models` at startup and picks the first
-match from a priority list (`ollama/qwen3.6:latest` → `claude-sonnet-4-6`
+match from a priority list (`ollama/qwen3.8:latest` → `claude-sonnet-4-6`
 → `claude-opus-4-7` → `gpt-5` → `gpt-5-codex` → `gpt-5-mini` → first
 available non-hermes-agent model). Cheapest-local-first, big-context-
 cloud-second. Operator-supplied values are never overridden.
@@ -166,7 +166,7 @@ for scripted changes.
   inside `ollama run <model>`
   or pick a cloud model.
 - **Open WebUI model-list cache** — Open WebUI caches the LiteLLM model list
-  for 5 minutes (`MODEL_LIST_CACHE_TTL=300`). After first start, `hermes-agent`
+  for 5 minutes (`MODELS_CACHE_TTL=300`). After first start, `hermes-agent`
   may take up to 5 minutes to appear in the dropdown. Set
   `OPEN_WEB_UI_MODEL_CACHE_TTL=0` to disable while developing.
 

@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 import yaml
+
+from utils.atomic_write import assert_safe_env_assignment, env_lines
 
 try:
     from utils.comfyui_custom_nodes import (
@@ -561,7 +564,22 @@ def discover_consumer_manifest_paths(
 
 def _read_env_overlay(path: Path) -> dict[str, str]:
     env_vars: dict[str, str] = {}
-    for line in path.read_text(encoding="utf-8").splitlines():
+    # `env_lines`, not `splitlines()`. This is the one `.env`-format reader that
+    # ingests an externally-supplied file, and it runs BEFORE
+    # `assert_safe_env_assignment` — so splitting on the eight separators the
+    # canonical reader ignores let `env: {file: ...}` smuggle in an assignment
+    # that the byte-identical value under `env: {values: ...}` is rejected for.
+    # Same manifest, same bytes, opposite outcomes. It also silently truncated a
+    # legitimate secret containing one of them to its prefix.
+    try:
+        text = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        # Every neighbouring failure mode here is a clean ConsumerManifestError;
+        # this one escaped as a raw traceback out of `./start.sh`.
+        raise ConsumerManifestError(
+            f"env.file {path} is not valid UTF-8 ({exc})"
+        ) from exc
+    for line in env_lines(text):
         stripped = line.strip()
         if not stripped or stripped.startswith("#") or "=" not in stripped:
             continue
@@ -622,12 +640,21 @@ def _merge_profile_overrides_block(
     Two-level deep merge (profile -> field -> scalar|map). Differing scalar
     leaves from different manifests conflict loudly (mirrors ``_set_scalar``);
     ``sources``/``env`` maps merge per-key with the same conflict rule."""
+    # Local import: keeps this module's import surface small, matching the other
+    # profiles.py uses further down.
+    from services.profiles import canonical_profile
+
     for prof_name, fields_raw in new.items():
         if not isinstance(fields_raw, Mapping):
             raise ConsumerManifestError(
                 f"profile_overrides.{prof_name} must be a mapping ({origin})"
             )
-        bucket = acc.setdefault(str(prof_name), {})
+        # Bucket by the CANONICAL profile name. `dev` aliases `default` at apply
+        # time (services/profiles.py), so bucketing by the raw name puts a `dev:`
+        # block and a `default:` block in different buckets — the conflict
+        # detector below never fires, and which value survives is decided by YAML
+        # key order rather than by an error the author can see.
+        bucket = acc.setdefault(canonical_profile(str(prof_name)), {})
         for field_name, value in fields_raw.items():
             fname = str(field_name)
             if isinstance(value, Mapping):
@@ -638,7 +665,11 @@ def _merge_profile_overrides_block(
                         f"shapes across consumer manifests ({origin})"
                     )
                 for k, v in value.items():
-                    ks, vs = str(k), str(v)
+                    # `"" if v is None` matches the scalar branch below and
+                    # `services/profiles.py`; `str(None)` produced the literal
+                    # string "None", so the load-time validation path and the
+                    # apply-time path disagreed about the same manifest.
+                    ks, vs = str(k), ("" if v is None else str(v))
                     if ks in sub and sub[ks] != vs:
                         raise ConsumerManifestError(
                             f"profile_overrides.{prof_name}.{fname}.{ks} has "
@@ -664,7 +695,19 @@ def _set_scalar(
     value: Any,
     origin: str,
 ) -> None:
-    rendered = str(value)
+    # Both the key and the value are attacker-controlled here: a consumer
+    # manifest can come from a third-party repo that vendors Atlas. `.env` is
+    # line-oriented and resolved last-wins, and entries are emitted as
+    # `KEY=VALUE`, so a newline on either side appends a further assignment
+    # that beats the real one — a YAML block scalar is the natural way to write
+    # one by accident. `assert_safe_env_assignment` is the single
+    # implementation of that check, shared with every `.env` writer so the
+    # parse boundary and the write boundaries cannot drift apart; it is
+    # re-raised here as a manifest error so the author gets the origin.
+    try:
+        rendered = assert_safe_env_assignment(key, value)
+    except ValueError as exc:
+        raise ConsumerManifestError(f"{exc} ({origin})") from exc
     if key in env and env[key] != rendered:
         raise ConsumerManifestError(
             f"{key} has conflicting consumer manifest values: "
@@ -1498,7 +1541,25 @@ def _parse_n8n_workflows_block(
             base_dir, str(raw_path), label=f"n8n_workflows[{wid!r}].path"
         )
 
-        active = str(raw.get("active") or "fromJson").strip()
+        # `active: false` unquoted is a YAML boolean, and `False or "fromJson"`
+        # is "fromJson" — so the one value that means "keep this workflow OFF"
+        # silently became "do whatever the JSON says", which for a shipped
+        # workflow file usually means active: true and a live webhook. The
+        # asymmetry gives the bug away: `active: true` renders "True", which is
+        # not a policy and is loudly rejected two lines below. Map the booleans
+        # explicitly before falling back.
+        raw_active = raw.get("active")
+        if isinstance(raw_active, bool):
+            active = "true" if raw_active else "false"
+        elif raw_active is None:
+            active = "fromJson"
+        else:
+            # Anything else is rendered and validated below. The previous
+            # `raw_active or "fromJson"` covered only `False`, so `0`, `""`,
+            # `[]` and `{}` all fell through to "do whatever the JSON says" —
+            # which for a shipped workflow usually means active: true and a
+            # live webhook — while the mirror-image `1` was loudly rejected.
+            active = str(raw_active).strip()
         if active not in _N8N_ACTIVE_POLICIES:
             raise ConsumerManifestError(
                 f"n8n_workflows entry {wid!r} active {active!r} must be one of "
@@ -2932,6 +2993,17 @@ def load_consumer_config(
                     {str(k): v for k, v in profile_overrides_block.items()},
                     origin=origin,
                 )
+            except (AttributeError, TypeError) as exc:
+                # `_parse_bundle` does `(raw.get("env") or {}).items()` with no
+                # type check, so `env: notamap` or `sources: [FOO=1]` escapes
+                # as a bare AttributeError. This call exists precisely so a
+                # typo fails at manifest load rather than at profile-apply
+                # time — an unhandled traceback out of `./start.sh` is not
+                # that. `load_consumer_config` is unguarded at its call site.
+                raise ConsumerManifestError(
+                    f"profile_overrides in {origin} is malformed: each profile "
+                    f"must map 'env' and 'sources' to mappings ({exc})"
+                ) from exc
             except ProfileConfigError as exc:
                 raise ConsumerManifestError(str(exc)) from exc
             _merge_profile_overrides_block(
@@ -2964,7 +3036,13 @@ def load_consumer_config(
                 if not isinstance(values, Mapping):
                     raise ConsumerManifestError(f"env.values must be a mapping in {manifest_path}")
                 for key, value in values.items():
-                    resolved = _resolve_env_value(str(key), value, manifest_path)
+                    # A YAML `null` means "empty", not the string "None" —
+                    # matching the `profile_overrides` scalar branch and the
+                    # `brand` block, both of which already handle it.
+                    resolved = (
+                        "" if value is None
+                        else _resolve_env_value(str(key), value, manifest_path)
+                    )
                     _set_scalar(env_overrides, env_origins, str(key), resolved, origin)
 
         record_overlays: list[Path] = []

@@ -1086,12 +1086,19 @@ class PromptPanel(Container):
                     # community / custom builds the model-maker hasn't
                     # listed) — surface them so the user can see what's
                     # on their host, not just what's on ollama.com.
-                    for tag in sorted(opt.pulled_variants):
-                        if tag in seen:
+                    # NOT `tag` — that name holds the active filter chip, read
+                    # by the badge test at the top of this loop for EVERY later
+                    # option. Rebinding it here meant the first expanded family
+                    # with host-pulled variants left `tag` holding a variant
+                    # string (e.g. "8b"), so every remaining option failed the
+                    # badge match and vanished — while the chip row still read
+                    # ALL, giving no cue anything had been filtered.
+                    for pulled_tag in sorted(opt.pulled_variants):
+                        if pulled_tag in seen:
                             continue
                         out.append(_VisibleRow(
                             kind="leaf", abs_idx=i,
-                            parent_value=opt.value, variant=tag,
+                            parent_value=opt.value, variant=pulled_tag,
                         ))
                 elif opt.value in self._variant_loading:
                     # Fetch in flight — splash placeholder.
@@ -1120,12 +1127,19 @@ class PromptPanel(Container):
                             kind="leaf", abs_idx=i,
                             parent_value=opt.value, variant=v,
                         ))
-                    for tag in sorted(opt.pulled_variants):
-                        if tag in seen:
+                    # NOT `tag` — that name holds the active filter chip, read
+                    # by the badge test at the top of this loop for EVERY later
+                    # option. Rebinding it here meant the first expanded family
+                    # with host-pulled variants left `tag` holding a variant
+                    # string (e.g. "8b"), so every remaining option failed the
+                    # badge match and vanished — while the chip row still read
+                    # ALL, giving no cue anything had been filtered.
+                    for pulled_tag in sorted(opt.pulled_variants):
+                        if pulled_tag in seen:
                             continue
                         out.append(_VisibleRow(
                             kind="leaf", abs_idx=i,
-                            parent_value=opt.value, variant=tag,
+                            parent_value=opt.value, variant=pulled_tag,
                         ))
         return out
 

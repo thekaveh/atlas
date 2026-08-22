@@ -179,8 +179,12 @@ def test_localhost_port_default_literals_agree_across_seams():
     mismatches: list[str] = []
 
     # Seam 1: wizard wiring table (function-local dict — read source).
+    # The wiring table moved to the framework-agnostic layer so both port
+    # resolvers can consult it (it is keyed by (service, SOURCE), which a
+    # row's single `localhost_port_var` cannot express). This test guards the
+    # literals in it, so it follows the table rather than the file.
     integration_src = (
-        repo / "bootstrapper" / "ui" / "textual" / "integration.py"
+        repo / "bootstrapper" / "ui" / "state_builder.py"
     ).read_text(encoding="utf-8")
     wiring_pairs = re.findall(
         r'\("([A-Z_]*LOCALHOST[A-Z_]*PORT)",\s*(\d+)\)', integration_src

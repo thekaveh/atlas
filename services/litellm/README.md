@@ -204,7 +204,7 @@ per-request:
 ```bash
 curl -s -X POST http://localhost:63040/v1/chat/completions \
   -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
-  -d '{"model":"qwen3.6:latest","messages":[...],"think":true}'
+  -d '{"model":"qwen3.8:latest","messages":[...],"think":true}'
 ```
 
 `think: false` is **not** added to embedding entries (they use the
@@ -246,7 +246,7 @@ curl -s http://localhost:63040/health/liveliness
 # Chat completion (Ollama upstream)
 curl -s -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
   -X POST http://localhost:63040/v1/chat/completions \
-  -d '{"model":"ollama/qwen3.6:latest","messages":[{"role":"user","content":"hi"}]}'
+  -d '{"model":"ollama/qwen3.8:latest","messages":[{"role":"user","content":"hi"}]}'
 
 # Embeddings (Ollama upstream — Weaviate uses this path)
 curl -s -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
@@ -338,4 +338,4 @@ _No high-confidence opportunities identified._
 - **Virtual keys + team budgets** — *Why pursue:* the master key is the only credential; consumers all share it. Per-service virtual keys with spend caps would give n8n / jupyterhub / open-webui isolated budgets and revocable creds. *Effort:* small.
 - **Semantic caching + per-key cache controls** — *Why pursue:* basic Redis response caching is already enabled stack-wide; LiteLLM's embedding-similarity semantic cache and per-virtual-key TTL/namespace controls remain unused. *Effort:* small.
 - **`/v1/audio/transcriptions` + `/v1/audio/speech` routing** — *Why pursue:* see pair-integrations above. *Effort:* medium.
-- **Fallback model chains** — *Why pursue:* declare `fallbacks: [{"gpt-5": ["claude-opus", "ollama/qwen3.6"]}]` so a cloud outage degrades gracefully to local Ollama. *Effort:* small.
+- **Fallback model chains** — *Why pursue:* declare `fallbacks: [{"gpt-5": ["claude-opus", "ollama/qwen3.8"]}]` so a cloud outage degrades gracefully to local Ollama. *Effort:* small.
