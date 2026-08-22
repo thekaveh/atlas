@@ -21,6 +21,41 @@ from memory_store import MemoryStore, _to_uuid
 logger = logging.getLogger("memory_service")
 
 
+#: Exceptions that mean the SYNC TARGET is unhealthy, as opposed to this one
+#: row being bad. Only these count toward the halt streak.
+_TARGET_TRANSIENT = (
+    TimeoutError,
+    ConnectionError,
+    httpx.TimeoutException,
+    httpx.NetworkError,
+    httpx.RemoteProtocolError,
+)
+
+#: HTTP statuses that indicate the target, not the payload. 401 belongs here
+#: (a bad master key affects every row); 408/429 are explicit back-pressure.
+_TARGET_HEALTH_STATUSES = frozenset({401, 408, 429})
+
+
+def _is_target_health_signal(exc: BaseException) -> bool:
+    """True when `exc` says the TARGET is unhealthy, not that a row is bad.
+
+    `httpx.HTTPStatusError` cannot be classified by type alone: every
+    `raise_for_status()` in the store raises it, for 4xx as well as 5xx. Adding
+    the bare type to the transient set made permanent PER-ROW failures — a 400
+    from LiteLLM when a fact exceeds the embedding context, a 422 from a
+    schema-violating property — count toward the halt streak. Three such rows
+    are adjacent by construction after a bulk import, and because failing rows
+    keep their `updated_at` they sort first on every later pass, so the stall
+    was PERMANENT and user-deleted memories stopped propagating.
+    """
+    if isinstance(exc, _TARGET_TRANSIENT):
+        return True
+    if isinstance(exc, httpx.HTTPStatusError):
+        status = exc.response.status_code
+        return status >= 500 or status in _TARGET_HEALTH_STATUSES
+    return False
+
+
 #: How many CONSECUTIVE transient failures mean the sync target itself is down
 #: rather than one bad row.
 #:
@@ -569,22 +604,9 @@ Extract the facts as JSON:"""
                 new_weaviate_id = None
                 try:
                     new_weaviate_id = await self._sync_one_row(row)
-                except (
-                    TimeoutError,
-                    ConnectionError,
-                    httpx.TimeoutException,
-                    httpx.NetworkError,
-                    # `_store_weaviate` / `_store_pgvector` end in
-                    # `raise_for_status()`, so a Weaviate 5xx or a LiteLLM 429
-                    # arrives as HTTPStatusError — the MOST likely "target
-                    # unhealthy" shape. Without it here those fell through to
-                    # the generic handler below and paid 100 round-trips on
-                    # every recall, which is exactly what the cap exists to
-                    # stop. RemoteProtocolError is the same class of signal.
-                    httpx.HTTPStatusError,
-                    httpx.RemoteProtocolError,
-                ) as exc:
-                    if retry_transient:
+                except Exception as exc:
+                    target_signal = _is_target_health_signal(exc)
+                    if retry_transient and target_signal:
                         raise
                     # Log EVERY deferral — a row that could not be reconciled
                     # must stay observable, not just the eventual halt.
@@ -592,22 +614,16 @@ Extract the facts as JSON:"""
                         "Memory vector reconciliation deferred (error_type=%s)",
                         type(exc).__name__,
                     )
+                    if not target_signal:
+                        # A row-specific failure says nothing about the
+                        # target's health, so it must not COUNT toward the
+                        # streak — but it does break the run, so reset it.
+                        consecutive_transient = 0
+                        continue
                     consecutive_transient += 1
                     if consecutive_transient >= _RECONCILE_TRANSIENT_STREAK:
                         self._log_reconcile_halt(reconciled, exc)
                         break
-                    continue
-                except Exception as exc:
-                    logger.warning(
-                        "Memory vector reconciliation deferred (error_type=%s)",
-                        type(exc).__name__,
-                    )
-                    # A row-specific failure says nothing about the target's
-                    # health, so it must not COUNT toward the streak — but it
-                    # does break the run of transient failures, so reset it.
-                    # Otherwise transient, transient, non-transient, transient
-                    # halted the pass on a streak that was never consecutive.
-                    consecutive_transient = 0
                     continue
                 # Optimistic guard on updated_at (the same discipline the
                 # consolidate state transitions use): if a concurrent

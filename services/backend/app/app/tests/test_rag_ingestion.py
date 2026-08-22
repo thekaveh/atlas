@@ -1811,3 +1811,56 @@ def test_a_retry_does_not_inherit_the_previous_attempt_s_failures(tmp_path, monk
         f"a clean retry inherited the previous attempt's failures: "
         f"{weaviate.preserved[-1]}"
     )
+
+
+@pytest.mark.parametrize("content,preserve", [
+    (b"beta content", True),    # real bytes that parsed to whitespace = parser FAULT
+    (b"", False),               # the operator emptied it
+    (b"   \n \t ", False),      # ...likewise
+    (None, False),
+])
+def test_an_emptied_file_is_distinguished_from_a_parser_fault(content, preserve):
+    """Both reach the chunk phase with no text, and they want OPPOSITE outcomes.
+
+    An emptied file must LOSE its vectors — that is the reconcile doing its job,
+    and the contract stated in `test_a_failed_document_keeps_its_previously_
+    ingested_vectors`. A real document a parser turned into whitespace must KEEP
+    them, because deleting on a parser blip is the data loss the preserve-set
+    exists to prevent.
+
+    Preserving unconditionally meant an emptied file's stale content stayed
+    searchable forever, with the run reporting completed and zero errors.
+    """
+    import types
+
+    from rag_ingestion.service import RagIngestionService
+
+    state = {"files": [types.SimpleNamespace(name="a.txt", content=content)]}
+    assert RagIngestionService._source_had_content(state, "a.txt") is preserve
+
+
+def test_an_emptied_file_loses_its_vectors(tmp_path, monkeypatch):
+    """End-to-end for the operator-emptied half."""
+    root = _corpus(tmp_path, monkeypatch, {"keep.txt": "alpha content", "subject.txt": "beta content"})
+    profile_path = _profiles_file(tmp_path)
+    weaviate = FakeWeaviate()
+    service = _service(
+        tmp_path,
+        Deps(embedder=FakeEmbedder(), weaviate=weaviate,
+             lightrag=FakeLightrag(available=False), poll_interval=0.01),
+        profile_path,
+    )
+    first, _ = service.submit("showcase-default")
+    assert asyncio.run(service.run(first.id)).status == "completed"
+    assert any("subject" in (weaviate.source_of.get(o) or "") for o in weaviate.object_ids)
+
+    (root / "docs" / "subject.txt").write_text("   \n ", encoding="utf-8")
+    for _ in range(3):
+        nxt, _ = service.submit("showcase-default")
+        asyncio.run(service.run(nxt.id))
+
+    sources = {weaviate.source_of.get(o) for o in weaviate.object_ids}
+    assert not any("subject" in (s or "") for s in sources), (
+        "an emptied file's stale vectors survived — they can never be cleaned up"
+    )
+    assert any("keep" in (s or "") for s in sources)

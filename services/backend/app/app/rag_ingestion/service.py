@@ -540,6 +540,48 @@ class RagIngestionService:
         record.counts["documents_parsed"] = parsed_ok
         record.phase("parse").counts = {"parsed": parsed_ok, "failed": len(state["files"]) - parsed_ok}
 
+    @classmethod
+    def _note_empty_parse(cls, record, state, name: str) -> None:
+        """Handle a document that produced no text.
+
+        An OPERATOR-EMPTIED file and a PARSER FAULT both arrive here with no
+        text and want OPPOSITE outcomes: the emptied file must lose its
+        vectors (the reconcile doing its job, and the contract this module's
+        tests state), while a real document a parser turned into whitespace
+        must keep them — deleting on a parser blip is the data loss the
+        preserve-set exists to prevent.
+
+        The source bytes settle it: `state["files"]` holds what was actually on
+        disk. Preserving unconditionally meant an emptied file's stale content
+        stayed searchable FOREVER, with the run reporting completed and zero
+        errors.
+        """
+        if not cls._source_had_content(state, name):
+            return
+        state.setdefault("failed_sources", set()).add(name)
+        record.add_error(
+            IngestionError(
+                phase="chunk",
+                file=name,
+                message=(
+                    "parsed to whitespace despite non-empty source — "
+                    "existing vectors preserved"
+                ),
+            )
+        )
+
+    @staticmethod
+    def _source_had_content(state, name: str) -> bool:
+        """True when the file on disk was non-empty.
+
+        A parser that returns whitespace for real bytes has FAILED; a file the
+        operator emptied has not.
+        """
+        for file in state.get("files", ()):
+            if file.name == name:
+                return bool((file.content or b"").strip())
+        return False
+
     async def _phase_chunk(self, record, profile, corpus, state):
         from pydantic import ValidationError
 
@@ -558,13 +600,7 @@ class RagIngestionService:
         chunked_ok = 0
         for doc in state["docs"]:
             if not doc.text.strip():
-                # Produced no text, so it contributes no chunks — which the
-                # reconcile would read as "stale" and delete its EXISTING
-                # vectors. That is the same conflation the preserve-set exists
-                # to prevent, and it is reachable through docling/tika:
-                # `clients.py` accepts any truthy text, so a whitespace
-                # response becomes a valid ParsedDocument with no error.
-                state.setdefault("failed_sources", set()).add(doc.name)
+                self._note_empty_parse(record, state, doc.name)
                 continue
             try:
                 resp = await asyncio.to_thread(

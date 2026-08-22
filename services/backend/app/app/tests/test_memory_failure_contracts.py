@@ -698,3 +698,86 @@ async def test_one_poison_row_does_not_halt_the_whole_backlog(monkeypatch):
 
     assert attempted["n"] == 10, "the pass stopped early on one bad row"
     assert reconciled == 9, f"only {reconciled} of 9 healthy rows drained"
+
+
+@pytest.mark.parametrize("status,is_target", [
+    (400, False),   # LiteLLM rejects an over-long fact — PER ROW
+    (422, False),   # a schema-violating property — PER ROW
+    (404, False),   # per row
+    (401, True),    # a bad master key affects every row
+    (408, True),    # explicit back-pressure
+    (429, True),
+    (500, True),
+    (503, True),
+])
+def test_http_errors_are_classified_by_status_not_by_type(status, is_target):
+    """`httpx.HTTPStatusError` cannot be classified by type alone.
+
+    Every `raise_for_status()` in the store raises it, for 4xx as well as 5xx.
+    Adding the bare type to the transient set made PERMANENT per-row failures
+    count toward the halt streak — and because failing rows keep their
+    `updated_at` they sort first on every later pass, so three adjacent
+    oversize facts stalled the backlog forever and user-deleted memories
+    stopped propagating.
+    """
+    import httpx
+
+    from memory_service import _is_target_health_signal
+
+    request = httpx.Request("GET", "http://x")
+    exc = httpx.HTTPStatusError(
+        "x", request=request, response=httpx.Response(status, request=request)
+    )
+    assert _is_target_health_signal(exc) is is_target
+
+
+@pytest.mark.asyncio
+async def test_a_per_row_http_400_does_not_halt_the_backlog(monkeypatch):
+    """Three adjacent poison rows must not block the seven healthy ones."""
+    import httpx
+
+    import memory_service as mod
+
+    request = httpx.Request("GET", "http://x")
+    attempted = {"n": 0}
+
+    class Store:
+        backend = "weaviate"
+
+        async def initialize(self):
+            return None
+
+        async def update_embedding(self, fact_id=None, **kwargs):
+            attempted["n"] += 1
+            if int(str(fact_id)[-3:]) < 3:
+                raise httpx.HTTPStatusError(
+                    "bad", request=request,
+                    response=httpx.Response(400, request=request),
+                )
+            return "wid"
+
+        async def deactivate_embedding(self, *a, **k):
+            return None
+
+    rows = _pending_rows(10)
+
+    class FakeConn:
+        async def fetch(self, *_a, **_k):
+            return rows
+
+        async def execute(self, *_a, **_k):
+            return "UPDATE 1"
+
+        async def close(self):
+            return None
+
+    svc = mod.MemoryService.__new__(mod.MemoryService)
+    svc.store = Store()
+    svc.database_url = "postgresql://x"
+    monkeypatch.setattr(mod, "connect_postgres", AsyncMock(return_value=FakeConn()))
+    _also_route_acquire(monkeypatch, mod, FakeConn)
+
+    reconciled = await svc._reconcile_pending_vectors()
+
+    assert attempted["n"] == 10, "a per-row 400 halted the pass"
+    assert reconciled == 7
