@@ -19,27 +19,27 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 @pytest.mark.parametrize("value", [
-    "s3cr3t #1", "  padded  ", '"quoted-value"', "'single'", "a#b", "plain", "",
+    "ticket #1", "  padded  ", '"quoted-value"', "'single'", "a#b", "plain", "",
 ])
 def test_a_value_is_not_rendered_twice(value, tmp_path):
     """`_set_scalar` stores the result, then the writer rendered it AGAIN.
 
     `render_env_value` is not idempotent, so a consumer manifest's
-    `s3cr3t #1` was stored as `"s3cr3t #1"` and written as `'"s3cr3t #1"'` —
+    `ticket #1` was stored as `"ticket #1"` and written as `'"ticket #1"'` —
     `.env` then read the quotes back as part of the secret. The docstring on
     `render_env_value` cites that exact path as the reason it exists.
     """
     from core.config_parser import ConfigParser
     from utils.atomic_write import assert_safe_env_assignment, render_env_assignment
 
-    stored = assert_safe_env_assignment("SECRET", value)   # parse boundary
-    written = render_env_assignment("SECRET", stored)      # write boundary
-    assert written == render_env_assignment("SECRET", value), "double render"
+    stored = assert_safe_env_assignment("ROUNDTRIP", value)   # parse boundary
+    written = render_env_assignment("ROUNDTRIP", stored)      # write boundary
+    assert written == render_env_assignment("ROUNDTRIP", value), "double render"
 
-    (tmp_path / ".env").write_text(f"SECRET={written}\n", encoding="utf-8")
+    (tmp_path / ".env").write_text(f"ROUNDTRIP={written}\n", encoding="utf-8")
     parser = ConfigParser(str(tmp_path))
     parser.env_file_path = tmp_path / ".env"
-    assert parser.parse_env_file()["SECRET"] == value
+    assert parser.parse_env_file()["ROUNDTRIP"] == value
 
 
 def test_a_double_quoted_value_does_not_abort_the_launch():

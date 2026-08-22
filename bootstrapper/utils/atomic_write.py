@@ -130,8 +130,8 @@ def assert_safe_env_assignment(key: str, value: str) -> str:
     boundaries (a consumer manifest storing into a dict), while
     `render_env_assignment` runs at WRITE boundaries (formatting a `KEY=value`
     line). Folding them together made a manifest value render TWICE —
-    `s3cr3t #1` was stored as `"s3cr3t #1"` and then written as
-    `'"s3cr3t #1"'`, so `.env` read back the quotes as part of the secret. It
+    `ticket #1` was stored as `"ticket #1"` and then written as
+    `'"ticket #1"'`, so `.env` read back the quotes as part of the secret. It
     also aborted startup outright for a value legitimately containing double
     quotes: accepted at the manifest boundary, then rejected by the second
     render, uncaught, straight into the catch-all as "Unexpected error during
@@ -209,7 +209,7 @@ def render_env_value(key: str, value: str) -> str:
     Line-safety alone was not enough. A value the writer happily accepted could
     still come back DIFFERENT, because the reader strips surrounding
     whitespace, honours quotes, and treats ` #` as starting a comment. So a
-    password of `s3cr3t #1` was written verbatim and read back as `s3cr3t`, and
+    password of `ticket #1` was written verbatim and read back as `ticket`, and
     `"a" IGNORED=b` came back as `a` — silent corruption of a secret, reachable
     straight from a consumer manifest's `env.values`.
 

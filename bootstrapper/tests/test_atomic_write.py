@@ -16,7 +16,7 @@ def test_atomic_write_replace_failure_preserves_original_and_cleans_secret_tmp(
     monkeypatch,
 ) -> None:
     destination = tmp_path / ".env"
-    destination.write_text("SECRET=old\n", encoding="utf-8")
+    destination.write_text("ROUNDTRIP=old\n", encoding="utf-8")
     os.chmod(destination, 0o600)
 
     monkeypatch.setattr(
@@ -26,9 +26,9 @@ def test_atomic_write_replace_failure_preserves_original_and_cleans_secret_tmp(
     )
 
     with pytest.raises(OSError, match="replace failed"):
-        atomic_write.atomic_write_text(destination, "SECRET=new\n")
+        atomic_write.atomic_write_text(destination, "ROUNDTRIP=new\n")
 
-    assert destination.read_text(encoding="utf-8") == "SECRET=old\n"
+    assert destination.read_text(encoding="utf-8") == "ROUNDTRIP=old\n"
     assert os.stat(destination).st_mode & 0o777 == 0o600
     assert list(tmp_path.iterdir()) == [destination]
 
@@ -37,12 +37,12 @@ def test_atomic_write_preserves_mode_and_replaces_complete_content(
     tmp_path: Path,
 ) -> None:
     destination = tmp_path / ".env"
-    destination.write_text("SECRET=old\n", encoding="utf-8")
+    destination.write_text("ROUNDTRIP=old\n", encoding="utf-8")
     os.chmod(destination, 0o600)
 
-    atomic_write.atomic_write_text(destination, "SECRET=new\n")
+    atomic_write.atomic_write_text(destination, "ROUNDTRIP=new\n")
 
-    assert destination.read_text(encoding="utf-8") == "SECRET=new\n"
+    assert destination.read_text(encoding="utf-8") == "ROUNDTRIP=new\n"
     assert os.stat(destination).st_mode & 0o777 == 0o600
 
 
@@ -63,9 +63,9 @@ def test_atomic_write_falls_back_when_fchmod_is_unavailable(
     destination = tmp_path / ".env"
     monkeypatch.delattr(atomic_write.os, "fchmod")
 
-    atomic_write.atomic_write_text(destination, "SECRET=new\n", mode=0o600)
+    atomic_write.atomic_write_text(destination, "ROUNDTRIP=new\n", mode=0o600)
 
-    assert destination.read_text(encoding="utf-8") == "SECRET=new\n"
+    assert destination.read_text(encoding="utf-8") == "ROUNDTRIP=new\n"
     assert os.stat(destination).st_mode & 0o777 == 0o600
 
 
@@ -82,7 +82,7 @@ def test_atomic_write_fsyncs_file_and_parent_directory(
 
     monkeypatch.setattr(atomic_write.os, "fsync", recording_fsync)
 
-    atomic_write.atomic_write_text(tmp_path / ".env", "SECRET=new\n")
+    atomic_write.atomic_write_text(tmp_path / ".env", "ROUNDTRIP=new\n")
 
     assert len(calls) == 2
 
@@ -106,9 +106,9 @@ def test_atomic_write_tolerates_unsupported_directory_fsync(
     monkeypatch.setattr(atomic_write.os, "fsync", unsupported_directory_fsync)
     destination = tmp_path / ".env"
 
-    atomic_write.atomic_write_text(destination, "SECRET=new\n")
+    atomic_write.atomic_write_text(destination, "ROUNDTRIP=new\n")
 
-    assert destination.read_text(encoding="utf-8") == "SECRET=new\n"
+    assert destination.read_text(encoding="utf-8") == "ROUNDTRIP=new\n"
     assert calls == 2
 
 
@@ -116,7 +116,7 @@ def test_private_backups_are_exclusive_unique_and_mode_clamped(
     tmp_path: Path,
 ) -> None:
     source = tmp_path / ".env"
-    source.write_bytes(b"SECRET=value\r\nSECOND=line\r\n")
+    source.write_bytes(b"ROUNDTRIP=value\r\nSECOND=line\r\n")
     os.chmod(source, 0o644)
 
     first = atomic_write.create_private_backup(source, version="v2")
@@ -138,7 +138,7 @@ def test_private_backups_are_pruned_to_the_retention_cap(tmp_path: Path) -> None
     signing keys, so a rotated secret stays readable on disk indefinitely.
     """
     source = tmp_path / ".env"
-    source.write_text("SECRET=value\n", encoding="utf-8")
+    source.write_text("ROUNDTRIP=value\n", encoding="utf-8")
 
     made = [
         atomic_write.create_private_backup(source, keep=3)
@@ -154,16 +154,16 @@ def test_private_backups_are_pruned_to_the_retention_cap(tmp_path: Path) -> None
     assert set(surviving) <= set(made)
     assert made[-1] in surviving
     # Pruning never damages the source or the snapshot contents.
-    assert source.read_text(encoding="utf-8") == "SECRET=value\n"
+    assert source.read_text(encoding="utf-8") == "ROUNDTRIP=value\n"
     for path in surviving:
-        assert path.read_text(encoding="utf-8") == "SECRET=value\n"
+        assert path.read_text(encoding="utf-8") == "ROUNDTRIP=value\n"
         assert os.stat(path).st_mode & 0o777 == 0o600
 
 
 def test_private_backup_pruning_is_scoped_to_its_version_prefix(tmp_path: Path) -> None:
     """A v1 migration snapshot must not evict the unversioned rotation history."""
     source = tmp_path / ".env"
-    source.write_text("SECRET=value\n", encoding="utf-8")
+    source.write_text("ROUNDTRIP=value\n", encoding="utf-8")
 
     plain = [atomic_write.create_private_backup(source, keep=2) for _ in range(2)]
     versioned = [
@@ -178,7 +178,7 @@ def test_private_backup_pruning_is_scoped_to_its_version_prefix(tmp_path: Path) 
 
 def test_private_backup_retention_can_be_disabled(tmp_path: Path) -> None:
     source = tmp_path / ".env"
-    source.write_text("SECRET=value\n", encoding="utf-8")
+    source.write_text("ROUNDTRIP=value\n", encoding="utf-8")
 
     for _ in range(4):
         atomic_write.create_private_backup(source, keep=-1)
@@ -196,7 +196,7 @@ def test_unversioned_pruning_never_evicts_versioned_migration_snapshots(
     regeneration — would count those as its own history and delete them.
     """
     source = tmp_path / ".env"
-    source.write_text("SECRET=value\n", encoding="utf-8")
+    source.write_text("ROUNDTRIP=value\n", encoding="utf-8")
 
     migrations = [
         atomic_write.create_private_backup(source, version=v, keep=2)
@@ -228,7 +228,7 @@ def test_retention_holds_for_a_relative_source_path(tmp_path: Path, monkeypatch)
     (tmp_path / "sub").mkdir()
     monkeypatch.chdir(tmp_path)
     relative = Path("sub/.env")
-    relative.write_text("SECRET=value\n", encoding="utf-8")
+    relative.write_text("ROUNDTRIP=value\n", encoding="utf-8")
 
     for _ in range(6):
         returned = atomic_write.create_private_backup(relative, keep=5)
@@ -241,7 +241,7 @@ def test_retention_holds_for_a_relative_source_path(tmp_path: Path, monkeypatch)
 def test_retention_of_one_keeps_exactly_the_new_snapshot(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     relative = Path(".env")
-    relative.write_text("SECRET=value\n", encoding="utf-8")
+    relative.write_text("ROUNDTRIP=value\n", encoding="utf-8")
 
     for _ in range(4):
         returned = atomic_write.create_private_backup(relative, keep=1)
@@ -262,7 +262,7 @@ def test_retention_survives_a_source_name_containing_glob_metacharacters(
     one outcome this feature exists to prevent.
     """
     source = tmp_path / ".env[dev]"
-    source.write_text("SECRET=value\n", encoding="utf-8")
+    source.write_text("ROUNDTRIP=value\n", encoding="utf-8")
 
     for _ in range(9):
         atomic_write.create_private_backup(source, keep=5)
@@ -1052,8 +1052,8 @@ _ROUND_TRIP_VALUES = [
     "plain",
     "",
     "a#b",                 # a hash NOT preceded by whitespace is data
-    "s3cr3t #1",           # ` #` starts a comment -> was read back as "s3cr3t"
-    "s3cr3t\t#1",          # tab counts as whitespace too
+    "ticket #1",           # ` #` starts a comment -> was read back as "ticket"
+    "ticket\t#1",          # tab counts as whitespace too
     '"a" IGNORED=b',       # quoted span -> was read back as "a"
     '"abc"',
     "'abc'",
@@ -1072,7 +1072,7 @@ def test_a_written_value_is_read_back_unchanged(value, tmp_path):
     `assert_safe_env_assignment` only checked that a value could not add a
     LINE. It could still come back DIFFERENT, because the reader strips
     surrounding whitespace, honours quotes, and treats ` #` as a comment. A
-    password of `s3cr3t #1` was written verbatim and read back as `s3cr3t` —
+    password of `ticket #1` was written verbatim and read back as `ticket` —
     reachable straight from a consumer manifest's `env.values`.
     """
     from core.config_parser import ConfigParser
@@ -1081,12 +1081,12 @@ def test_a_written_value_is_read_back_unchanged(value, tmp_path):
     # `render_env_assignment`, not `assert_safe_env_assignment`: the latter
     # VALIDATES and returns the raw value (for parse boundaries that store it),
     # while only a line WRITER renders. Conflating them rendered twice.
-    rendered = render_env_assignment("SECRET", value)
-    (tmp_path / ".env").write_text(f"SECRET={rendered}\n", encoding="utf-8")
+    rendered = render_env_assignment("ROUNDTRIP", value)
+    (tmp_path / ".env").write_text(f"ROUNDTRIP={rendered}\n", encoding="utf-8")
 
     parser = ConfigParser(str(tmp_path))
     parser.env_file_path = tmp_path / ".env"
-    assert parser.parse_env_file()["SECRET"] == value
+    assert parser.parse_env_file()["ROUNDTRIP"] == value
 
 
 @pytest.mark.parametrize("value", ["plain", "a#b", "63000", ""])
