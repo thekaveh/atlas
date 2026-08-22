@@ -3,7 +3,7 @@ services:
     build:
       context: ./build
       args:
-        BASE_IMAGE: ${AIRFLOW_IMAGE:-apache/airflow:3.3.0}
+        BASE_IMAGE: ${AIRFLOW_IMAGE:-apache/airflow:3.3.1}
     image: ${PROJECT_NAME}-airflow:local
     container_name: ${PROJECT_NAME}-airflow-webserver
     restart: unless-stopped
@@ -66,7 +66,7 @@ services:
       # sub-statuses. `/health` still 404s under the new api-server
       # router, so the prior healthcheck always marked the container
       # unhealthy and Docker emitted the orange dot in TUI / `docker ps`.
-      # Verified on 3.3.0: `curl localhost:8080/api/v2/monitor/health` →
+      # Verified on 3.3.1: `curl localhost:8080/api/v2/monitor/health` →
       # 200 with `{"metadatabase":{"status":"healthy"},...}`.
       test: ["CMD", "curl", "-fsS", "http://localhost:8080/api/v2/monitor/health"]
       interval: 30s
@@ -91,7 +91,7 @@ services:
     build:
       context: ./build
       args:
-        BASE_IMAGE: ${AIRFLOW_IMAGE:-apache/airflow:3.3.0}
+        BASE_IMAGE: ${AIRFLOW_IMAGE:-apache/airflow:3.3.1}
     image: ${PROJECT_NAME}-airflow:local
     container_name: ${PROJECT_NAME}-airflow-scheduler
     restart: unless-stopped
@@ -103,7 +103,7 @@ services:
           cpus: "${AIRFLOW_SCHEDULER_CPU_LIMIT:-1.0}"
     environment:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
-      # Airflow 3.3.0's Task-SDK supervisor resolves the Execution API per task
+      # Airflow 3.3.1's Task-SDK supervisor resolves the Execution API per task
       # via get_execution_api_server_url(), which falls back to
       # http://localhost:8080/execution/ when unset — but `airflow api-server`
       # runs in the separate airflow-webserver container, so localhost is
@@ -176,13 +176,13 @@ services:
   # DAG runs schedule. Confirmed against the Airflow 3 upgrade guide
   # ("The Dag processor must now be started independently, even for
   # local or development setups") and upstream's reference compose at
-  # and the 3.3.0 reference deployment, which ships an
+  # and the 3.3.1 reference deployment, which ships an
   # `airflow-dag-processor` service.
   airflow-dag-processor:
     build:
       context: ./build
       args:
-        BASE_IMAGE: ${AIRFLOW_IMAGE:-apache/airflow:3.3.0}
+        BASE_IMAGE: ${AIRFLOW_IMAGE:-apache/airflow:3.3.1}
     image: ${PROJECT_NAME}-airflow:local
     container_name: ${PROJECT_NAME}-airflow-dag-processor
     restart: unless-stopped
@@ -246,7 +246,7 @@ services:
     build:
       context: ./build
       args:
-        BASE_IMAGE: ${AIRFLOW_IMAGE:-apache/airflow:3.3.0}
+        BASE_IMAGE: ${AIRFLOW_IMAGE:-apache/airflow:3.3.1}
     image: ${PROJECT_NAME}-airflow:local
     container_name: ${PROJECT_NAME}-airflow-init
     deploy:
@@ -315,7 +315,7 @@ services:
     volumes:
       - ./dags:/opt/airflow/dags
       - ./init/scripts:/scripts:ro
-    # CRITICAL: apache/airflow:3.3.0's ENTRYPOINT is /entrypoint
+    # CRITICAL: apache/airflow:3.3.1's ENTRYPOINT is /entrypoint
     # (entrypoint_prod.sh) which treats the first arg as an `airflow`
     # subcommand and exec's `airflow "$@"`. A bare `["/scripts/init-airflow.sh"]`
     # becomes `exec airflow /scripts/init-airflow.sh` → invalid

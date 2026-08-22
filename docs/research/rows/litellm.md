@@ -73,4 +73,4 @@ _No high-confidence pair identified for **neo4j** — LiteLLM does not natively 
 - **Virtual keys + team budgets** — Why pursue: the master key is the only credential; consumers all share it. Per-service virtual keys with spend caps would give n8n / jupyterhub / open-webui isolated budgets and revocable creds. Effort: small.
 - **Prompt caching** — Why pursue: LiteLLM can transparently cache prompts in Redis (already deployed) keyed by content hash, slashing cost on repeated tool-call chains common in hermes/n8n flows. Effort: small.
 - **`/v1/audio/transcriptions` + `/v1/audio/speech` routing** — Why pursue: see pair-integrations above. Effort: medium.
-- **Fallback model chains** — Why pursue: declare `fallbacks: [{ "gpt-5": ["claude-opus", "ollama/qwen3.6"] }]` so a cloud outage degrades gracefully to local Ollama. Effort: small.
+- **Fallback model chains** — Why pursue: declare `fallbacks: [{ "gpt-5": ["claude-opus", "ollama/qwen3.8"] }]` so a cloud outage degrades gracefully to local Ollama. Effort: small.

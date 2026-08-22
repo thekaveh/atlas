@@ -181,3 +181,61 @@ def test_litellm_localhost_is_in_both_surfaces():
     but kept as a focused regression guard."""
     assert "litellm.localhost" in HostsManager._atlas_hosts_from_topology()
     assert alias_for("LiteLLM") == "litellm.localhost"
+
+
+# ── pass 17: /etc/hosts cleanup must remove only what Atlas wrote ────
+
+
+def test_cleanup_removes_only_lines_atlas_itself_wrote(tmp_path):
+    """It deleted the operator's IPv4 `localhost` mapping.
+
+    Removal matched any `127.0.0.1` line CONTAINING an Atlas alias, and
+    several aliases are generic enough to share a line with an operator's own
+    entries — `api.localhost`, `chat.localhost`, `search.localhost`,
+    `graph.localhost`, `mcp.localhost`. The canonical first entry on macOS and
+    Linux is `127.0.0.1\tlocalhost`, so appending one alias to it meant
+    `stop.sh --clean-hosts` removed the whole line: a system-wide
+    name-resolution break, with the summary reporting only Atlas's own aliases
+    as removed.
+    """
+    from utils.hosts_manager import HostsManager
+
+    manager = HostsManager()
+    hosts = tmp_path / "hosts"
+    hosts.write_text(
+        "##\n# Host Database\n##\n"
+        "127.0.0.1\tlocalhost api.localhost my-dev-box\n"
+        "127.0.0.1 chat.localhost   # my own reverse proxy\n"
+        "255.255.255.255\tbroadcasthost\n"
+        "::1             localhost\n"
+        "127.0.0.1 unrelated.test\n"
+        "# Atlas subdomains (added by start.py)\n"
+        "127.0.0.1 n8n.localhost\n"
+        "127.0.0.1 api.localhost\n",
+        encoding="utf-8",
+    )
+
+    assert manager.remove_hosts_entries_silent(str(hosts)) is True
+    result = hosts.read_text(encoding="utf-8")
+
+    # operator-owned lines survive untouched, comments and all
+    assert "127.0.0.1\tlocalhost api.localhost my-dev-box\n" in result
+    assert "my own reverse proxy" in result
+    assert "broadcasthost" in result
+    assert "::1             localhost\n" in result
+    assert "127.0.0.1 unrelated.test\n" in result
+    # ...and Atlas's own block is gone
+    assert "# Atlas subdomains" not in result
+    assert "127.0.0.1 n8n.localhost" not in result
+
+
+def test_cleanup_is_idempotent_on_operator_lines(tmp_path):
+    from utils.hosts_manager import HostsManager
+
+    manager = HostsManager()
+    hosts = tmp_path / "hosts"
+    original = "127.0.0.1\tlocalhost api.localhost\n::1 localhost\n"
+    hosts.write_text(original, encoding="utf-8")
+    for _ in range(3):
+        manager.remove_hosts_entries_silent(str(hosts))
+    assert hosts.read_text(encoding="utf-8") == original

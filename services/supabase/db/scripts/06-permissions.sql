@@ -41,13 +41,25 @@ DO $$ BEGIN
 
     -- Grant access to the storage schema (assuming base image created necessary tables/functions)
     GRANT ALL ON SCHEMA storage TO service_role; -- service_role needs full access
-    GRANT SELECT ON ALL TABLES IN SCHEMA storage TO anon, authenticated;
+    -- `anon` EXCLUDED for storage. Unlike `public`, RLS is DISABLED on
+    -- storage.buckets/objects (04-storage.sql, "managing access through
+    -- GRANTs instead"), so this grant is the ONLY control — and PostgREST
+    -- publishes `storage` (PGRST_DB_SCHEMA: "public,storage") on a port that
+    -- binds 0.0.0.0 unless HOST_BIND_IP is set. Granting anon here made every
+    -- object path, owner and bucket row readable by any unauthenticated
+    -- network peer. (For `public` the grant below is fine: RLS is enabled on
+    -- every table there and is the intended gate.)
+    GRANT SELECT ON ALL TABLES IN SCHEMA storage TO authenticated;
+    -- Repair existing deployments — a GRANT already made is not undone by
+    -- simply omitting it on a later run.
+    REVOKE ALL ON ALL TABLES IN SCHEMA storage FROM anon;
     -- Explicit grants for storage.buckets table
     GRANT ALL PRIVILEGES ON storage.buckets TO service_role;
     GRANT ALL PRIVILEGES ON storage.objects TO service_role;
     GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA storage TO service_role;
     ALTER DEFAULT PRIVILEGES IN SCHEMA storage GRANT ALL ON TABLES TO service_role;
-    ALTER DEFAULT PRIVILEGES IN SCHEMA storage GRANT SELECT ON TABLES TO anon, authenticated;
+    ALTER DEFAULT PRIVILEGES IN SCHEMA storage GRANT SELECT ON TABLES TO authenticated;
+    ALTER DEFAULT PRIVILEGES IN SCHEMA storage REVOKE SELECT ON TABLES FROM anon;
     -- Note: Specific function grants might be needed depending on base image setup
 
   ELSE

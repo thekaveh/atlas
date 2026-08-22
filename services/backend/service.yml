@@ -301,3 +301,5 @@ data_flow:
     - minio
     - redis
     - otel-collector
+    - kong
+    - neo4j

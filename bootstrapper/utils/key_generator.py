@@ -547,7 +547,7 @@ class KeyGenerator:
             import subprocess  # local import: keep module import surface small
             result = subprocess.run(
                 ["docker", "volume", "ls", "--format", "{{.Name}}"],
-                capture_output=True, text=True, timeout=10, check=False,
+                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10, check=False,
             )
             if result.returncode != 0:
                 return False

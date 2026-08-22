@@ -1358,3 +1358,379 @@ def test_streamed_timeout_notice_sink_failure_reaps_process_group(
     asyncio.run(exercise())
     time.sleep(0.6)
     assert not marker.exists()
+
+
+#: Raises SIGHUP between `Popen` and the registry insert, so the guard is
+#: exercised at the exact window where a missed signal orphans the child.
+_SIGHUP_RACE_SCRIPT = """
+import os, signal, subprocess, sys, time
+sys.path.insert(0, {bootstrapper_dir!r})
+import core.process_runner as pr
+real = subprocess.Popen
+class Racing(real):
+    def __init__(self, *a, **k):
+        super().__init__(*a, **k)
+        open({marker!r}, "w").write(str(self.pid))
+        os.kill(os.getpid(), signal.SIGHUP)
+        time.sleep(0.05)
+subprocess.Popen = Racing
+# MUST be entered — a bare call returns the context manager without running
+# its body, so no handler is installed and the test would assert the orphan
+# property in the UNMANAGED configuration instead of the shipped one.
+with pr.cleanup_active_processes_on_sigterm():
+    try:
+        pr.run_with_deadline([sys.executable, "-c", "import time; time.sleep(20)"],
+                             timeout_seconds=5)
+    except BaseException:
+        pass
+"""
+
+
+def test_sighup_in_the_launch_window_does_not_orphan_the_child(tmp_path):
+    """The guard must defer every signal `cleanup_...` manages, not just SIGTERM.
+
+    `cleanup_active_processes_on_sigterm` handles (SIGTERM, SIGHUP), but the
+    launch guard originally deferred only SIGTERM. A SIGHUP landing between
+    `Popen` and the registry insert therefore ran cleanup against a registry
+    that did not yet contain the just-forked group: it killed nothing, chained
+    to the default action, killed the parent, and left the child re-parented to
+    init — the exact leak this module's own comment says it exists to prevent.
+
+    Measured before the fix: parent killed by signal 1, child ORPHANED. After:
+    parent exits cleanly and the child is reaped.
+    """
+    import os
+    import signal
+    import subprocess
+    import sys
+    import time
+
+    marker = tmp_path / "child.pid"
+    _bootstrapper_dir = str(Path(__file__).resolve().parents[1])
+    inner = _SIGHUP_RACE_SCRIPT.format(
+        bootstrapper_dir=_bootstrapper_dir, marker=str(marker)
+    )
+    proc = subprocess.run(
+        [sys.executable, "-c", inner], capture_output=True, text=True,
+        encoding="utf-8", errors="replace",
+        # Without this, a regression that stops the deferred signal dispatching
+        # hangs CI forever instead of failing — in the test file for the module
+        # whose entire purpose is bounding subprocesses.
+        timeout=60,
+    )
+    time.sleep(0.4)
+
+    assert marker.exists(), "the racing Popen never ran"
+    child_pid = int(marker.read_text())
+    orphaned = True
+    try:
+        os.kill(child_pid, 0)
+    except OSError:
+        orphaned = False
+    if orphaned:  # never leave a stray process behind, even on failure
+        try:
+            os.killpg(child_pid, signal.SIGKILL)
+        except OSError:
+            try:
+                os.kill(child_pid, signal.SIGKILL)
+            except OSError:
+                pass
+
+    assert not orphaned, "SIGHUP in the launch window orphaned the child group"
+    assert proc.returncode >= 0, "parent was killed by the signal instead of deferring it"
+
+
+def test_guarded_signals_survive_a_platform_without_sighup() -> None:
+    """`_GUARDED_SIGNALS` is a MODULE-level constant.
+
+    Naming `signal.SIGHUP` unconditionally there raises AttributeError at
+    import on Windows and takes the entire bootstrapper down with it —
+    `cleanup_active_processes_on_sigterm` can name it directly only because it
+    returns early on `os.name != "posix"` before reaching that line.
+
+    Checked in a SUBPROCESS rather than by reloading this module in-process:
+    reload rebinds `_CommandInterrupted`, `_ACTIVE_PROCESSES` and its lock, and
+    any module that captured them by value (`scripts/bounded_subprocess.py`
+    does) would keep a stale object, so `except <stale class>` would stop
+    catching the freshly-raised one.
+    """
+    import subprocess
+    import sys
+
+    probe = (
+        "import signal, sys\n"
+        "del signal.SIGHUP\n"
+        f"sys.path.insert(0, {str(Path(__file__).resolve().parents[1])!r})\n"
+        "import core.process_runner as pr\n"
+        "print(','.join(s.name for s in pr._GUARDED_SIGNALS))\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", probe],
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        timeout=60,
+    )
+    assert result.returncode == 0, (
+        f"process_runner does not import without signal.SIGHUP: "
+        f"{result.stderr.strip()[-300:]}"
+    )
+    assert result.stdout.strip() == "SIGTERM", result.stdout
+
+    # And both are guarded on this POSIX host.
+    assert [sig.name for sig in process_runner._GUARDED_SIGNALS] == ["SIGTERM", "SIGHUP"]
+
+
+def test_a_second_distinct_signal_is_not_swallowed_in_the_launch_window() -> None:
+    """The pending queue dedups per SIGNAL, not globally.
+
+    One shared slot was correct when only SIGTERM was guarded — it collapsed
+    repeat SIGTERMs. With two distinct guarded signals it made whichever
+    arrived first swallow the other: a terminal drop (SIGHUP) followed by
+    systemd's SIGTERM inside the launch window lost the SIGTERM entirely, and
+    the bootstrapper kept orchestrating after being told to stop.
+    """
+    import signal as signal_module
+
+    guard = process_runner._SigtermGuard()
+    guard._interrupt(signal_module.SIGHUP, None)
+    guard._interrupt(signal_module.SIGTERM, None)
+
+    recorded = [signum for signum, _ in guard.pending]
+    assert recorded == [signal_module.SIGHUP, signal_module.SIGTERM], recorded
+
+    # ...while a REPEAT of an already-pending signal still collapses.
+    guard._interrupt(signal_module.SIGHUP, None)
+    guard._interrupt(signal_module.SIGTERM, None)
+    assert [signum for signum, _ in guard.pending] == recorded
+
+
+def test_both_pending_signals_dispatch_even_when_the_first_handler_raises() -> None:
+    """Two distinct guarded signals means the queue can hold two entries.
+
+    The dispatch loop must run both, drain the queue, and hand BOTH signals
+    back to their prior handlers — including on the path where the first
+    handler raises and that error is re-raised out of `__exit__`.
+    """
+    import signal as signal_module
+
+    ran: list[str] = []
+
+    def failing_hup(_signum, _frame):
+        ran.append("HUP")
+        raise RuntimeError("handler failed")
+
+    def recording_term(_signum, _frame):
+        ran.append("TERM")
+
+    previous_hup = signal_module.signal(signal_module.SIGHUP, failing_hup)
+    previous_term = signal_module.signal(signal_module.SIGTERM, recording_term)
+    try:
+        guard = process_runner._SigtermGuard()
+        with pytest.raises(RuntimeError, match="handler failed"):
+            with guard:
+                guard._interrupt(signal_module.SIGHUP, None)
+                guard._interrupt(signal_module.SIGTERM, None)
+
+        assert ran == ["HUP", "TERM"], ran
+        assert not guard.pending, "queue not drained"
+        assert signal_module.getsignal(signal_module.SIGHUP) is failing_hup
+        assert signal_module.getsignal(signal_module.SIGTERM) is recording_term
+    finally:
+        signal_module.signal(signal_module.SIGHUP, previous_hup)
+        signal_module.signal(signal_module.SIGTERM, previous_term)
+
+
+def test_nested_guards_do_not_leave_a_dead_guard_installed() -> None:
+    """An inner guard's `_interrupt` must never become the outer guard's relay.
+
+    Adopting a displaced handler is deliberate — it preserves a newer external
+    handler installed mid-window. But adopting ANOTHER GUARD's recorder makes
+    the outer guard restore a dead closure on exit, one that appends to a
+    `pending` list nobody drains. The process then ignores SIGTERM for the rest
+    of its life, with no restore ever failing, so the SIG_DFL fallback never
+    fires either.
+    """
+    import signal as signal_module
+
+    def original(_signum, _frame):
+        pass
+
+    previous = signal_module.signal(signal_module.SIGTERM, original)
+    try:
+        outer = process_runner._SigtermGuard()
+        with outer:
+            outer._interrupt(signal_module.SIGTERM, None)
+            inner = process_runner._SigtermGuard()
+            with inner:
+                try:
+                    outer.raise_if_pending()
+                except BaseException:
+                    pass
+
+        final = signal_module.getsignal(signal_module.SIGTERM)
+        assert final is original, f"SIGTERM left on {final!r}"
+        assert not process_runner._is_guard_handler(final)
+    finally:
+        signal_module.signal(signal_module.SIGTERM, previous)
+
+
+def test_guard_restore_falls_back_to_sig_dfl_when_the_relay_is_unrestorable() -> None:
+    """`signal.signal(sig, None)` raises when the prior handler came from C.
+
+    Swallowing that leaves the signal bound to a dead guard — strictly worse
+    than the default disposition.
+    """
+    import signal as signal_module
+
+    guard = process_runner._SigtermGuard()
+    with guard:
+        for sig in process_runner._GUARDED_SIGNALS:
+            guard.relay_target[sig] = None
+
+    for sig in process_runner._GUARDED_SIGNALS:
+        handler = signal_module.getsignal(sig)
+        assert handler == signal_module.SIG_DFL, (sig, handler)
+        assert not process_runner._is_guard_handler(handler)
+
+
+def test_cleanup_restore_falls_back_to_sig_dfl(monkeypatch) -> None:
+    """Same fallback on the OUTER guard, whose `finally` wraps the whole run."""
+    import signal as signal_module
+
+    real_getsignal = signal_module.getsignal
+    calls = {"n": 0}
+
+    def one_bad_getsignal(sig):
+        calls["n"] += 1
+        return None if calls["n"] <= len(process_runner._GUARDED_SIGNALS) else real_getsignal(sig)
+
+    monkeypatch.setattr(signal_module, "getsignal", one_bad_getsignal)
+    with process_runner.cleanup_active_processes_on_sigterm():
+        pass
+    monkeypatch.undo()
+
+    for sig in process_runner._GUARDED_SIGNALS:
+        assert signal_module.getsignal(sig) == signal_module.SIG_DFL
+
+
+# ── pass 15: guard re-entry, launch window, grace period ─────────────
+
+
+def test_a_re_entered_guard_does_not_relay_to_itself() -> None:
+    """Re-entry made the guard its OWN relay target, and it spun forever.
+
+    `_dispatch_pending` popped an entry and called `self._interrupt`, which
+    re-appended it — the dedup sees an empty list, because the pop already
+    happened — so `while self.pending` never terminated. The spinning handler
+    stays installed throughout, so the process IGNORES SIGTERM while it spins:
+    `timeout 30` could not kill the repro, only SIGKILL could.
+
+    The screen must compare the OWNER, not the bound method: `self.installed =
+    self._interrupt` mints a new bound-method object on every `__enter__`, so
+    an `is self.installed` test does not recognise our own recorder.
+    """
+    import signal as signal_module
+
+    def original(_signum, _frame):
+        pass
+
+    previous = signal_module.signal(signal_module.SIGTERM, original)
+    try:
+        guard = process_runner._SigtermGuard()
+        with guard:
+            with guard:  # re-entry
+                # Assert the INVARIANT first, so a regression fails fast here
+                # rather than hanging the drain below. Note that comparing the
+                # bound method (`is guard.installed`) is NOT sufficient — that
+                # test passes even when the guard is self-relaying, which is
+                # exactly how this defect survived.
+                assert guard._may_relay_to(guard._interrupt) is False
+                assert guard.relay_target.get(signal_module.SIGTERM) is not guard.installed
+                guard._interrupt(signal_module.SIGTERM, None)
+                guard.raise_if_pending()  # must TERMINATE, and must not spin
+
+        final = signal_module.getsignal(signal_module.SIGTERM)
+        assert final is original, f"SIGTERM left on {final!r}"
+        assert not process_runner._is_guard_handler(final)
+    finally:
+        signal_module.signal(signal_module.SIGTERM, previous)
+
+
+def test_a_guard_never_relays_to_an_exited_guard() -> None:
+    """An exited guard's `pending` list is never drained again."""
+    import signal as signal_module
+
+    previous = signal_module.signal(signal_module.SIGTERM, signal_module.SIG_DFL)
+    try:
+        dead = process_runner._SigtermGuard()
+        with dead:
+            pass
+        assert dead.active is False
+
+        live = process_runner._SigtermGuard()
+        with live:
+            assert live.active is True
+            assert live._may_relay_to(dead._interrupt) is False
+            assert live._may_relay_to(live._interrupt) is False
+
+            inner = process_runner._SigtermGuard()
+            with inner:
+                # ordinary nesting: a guard still inside its block IS a valid
+                # relay target, and disarming it would reopen the window it is
+                # deliberately holding open
+                assert live._may_relay_to(inner._interrupt) is True
+    finally:
+        signal_module.signal(signal_module.SIGTERM, previous)
+
+
+def test_an_unregistered_child_is_terminated_not_orphaned(monkeypatch) -> None:
+    """SIGINT is not deferred by the launch lock.
+
+    A plain Ctrl-C can land between `Popen` returning and the registry insert
+    completing. The child is already forked with `start_new_session=True`, so
+    an unregistered child is re-parented to init and outlives us —
+    `run_with_deadline` cannot clean it up either, because its `process` local
+    is still None, so both the `except` and the `finally` arms skip it.
+    """
+    real_popen = subprocess.Popen
+    spawned: list[subprocess.Popen] = []
+
+    def tracking_popen(*args, **kwargs):
+        process = real_popen(*args, **kwargs)
+        spawned.append(process)
+        return process
+
+    class Exploding(dict):
+        def __setitem__(self, key, value):
+            raise KeyboardInterrupt("interrupted at the registry insert")
+
+    monkeypatch.setattr(subprocess, "Popen", tracking_popen)
+    monkeypatch.setattr(process_runner, "_ACTIVE_PROCESSES", Exploding())
+
+    with pytest.raises(KeyboardInterrupt):
+        process_runner._launch_registered(
+            ["/bin/sleep", "31"],
+            cwd=None,
+            env=None,
+            termination_grace_seconds=2.0,
+        )
+
+    assert spawned, "precondition: a child was actually forked"
+    child = spawned[0]
+    child.wait(timeout=10)
+    assert child.poll() is not None, "child was orphaned"
+
+
+def test_the_grace_period_is_a_maximum_not_a_fixed_delay() -> None:
+    """`_stop_registered_processes` runs INSIDE the SIGTERM handler.
+
+    Burning the full grace period per child blocked shutdown for N x grace
+    seconds, which under `docker stop` or systemd overruns the stop timeout and
+    earns a SIGKILL for the very cleanup being waited on.
+    """
+    process = subprocess.Popen(["/bin/sleep", "30"], start_new_session=True)
+    started = time.monotonic()
+    process_runner._stop_and_reap(process, termination_grace_seconds=8.0)
+    elapsed = time.monotonic() - started
+
+    assert process.poll() is not None
+    assert elapsed < 4.0, f"burned {elapsed:.1f}s of an 8s grace on a child that died at once"

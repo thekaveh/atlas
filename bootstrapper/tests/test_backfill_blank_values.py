@@ -70,3 +70,40 @@ def test_backfill_handles_inline_comments(tmp_path):
     out = (tmp_path / ".env").read_text()
     # Value is now `password` — the prior blank-with-comment was a blank.
     assert "SUPABASE_DB_PASSWORD=password" in out
+
+
+def test_backfill_does_not_undo_a_deliberate_deselect_all(tmp_path):
+    """A blank multi-select is an answer, not a missing value.
+
+    Deselecting every Ollama model in the wizard writes
+    `OLLAMA_USER_MODELS=`. `.env.example` ships a non-empty default, so the
+    blank-backfill would restore it on the same run — and `ollama-pull` would
+    then download several GB the user had just declined.
+    """
+    env_body = (
+        "OLLAMA_USER_MODELS=\n"
+        "WEAVIATE_ENABLE_MODULES=\n"
+        "N8N_INIT_NODES=\n"
+        "SUPABASE_DB_PASSWORD=\n"
+    )
+    example_body = (
+        "OLLAMA_USER_MODELS=qwen3.8:latest,nomic-embed-text\n"
+        "WEAVIATE_ENABLE_MODULES=text2vec-ollama,generative-ollama\n"
+        "N8N_INIT_NODES=n8n-nodes-comfyui@0.0.9\n"
+        "SUPABASE_DB_PASSWORD=password\n"
+    )
+    starter = _make_starter(tmp_path, env_body, example_body)
+    assert starter.backfill_missing_env_vars()
+
+    body = (tmp_path / ".env").read_text()
+    assert "OLLAMA_USER_MODELS=\n" in body, "deselect-all was silently reverted"
+    assert "N8N_INIT_NODES=\n" in body
+    # ...while a genuinely missing value is still repaired.
+    assert "SUPABASE_DB_PASSWORD=password\n" in body
+    # WEAVIATE_ENABLE_MODULES is deliberately NOT exempt. Nothing in the
+    # wizard writes it, so it can only be blank by hand-edit or a legacy
+    # `.env` — exactly what backfill exists to repair. Exempting it let the
+    # blank reach `ServiceConfig`, where a present-but-empty key made
+    # `.get(key, default)` return `''` and collapse the module list to
+    # nothing, which was then written back durably.
+    assert "WEAVIATE_ENABLE_MODULES=text2vec-ollama,generative-ollama\n" in body

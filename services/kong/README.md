@@ -269,7 +269,7 @@ For more information on Kong's role in the overall architecture, see the system 
 | mcp-servers | agents |
 | n8n | agents |
 | openclaw | agents |
-| backend | apps |
+| backend ↔ | apps |
 | jenkins | apps |
 | jupyterhub | apps |
 | label-studio | apps |
@@ -285,6 +285,7 @@ For more information on Kong's role in the overall architecture, see the system 
 |---|---|
 | cloudflared | infra |
 | prometheus ↔ | infra |
+| backend ↔ | apps |
 
 ### 13.3. Architecture diagram
 

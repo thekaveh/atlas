@@ -1,4 +1,4 @@
-ARG BASE_IMAGE=apache/airflow:3.3.0
+ARG BASE_IMAGE=apache/airflow:3.3.1
 FROM ${BASE_IMAGE}
 
 USER root

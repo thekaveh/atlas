@@ -479,3 +479,85 @@ def test_doc_only_folders_are_skipped_by_real_manifest_load():
             f"in load_manifests() output, but it did. Check that "
             f"_is_service_dir still gates on service.yml existence."
         )
+
+
+# ── pass 17: the typo check must not be disabled by a typo ───────────
+
+
+def _synthetic_family(tmp_path, runtime_sc_block: str):
+    import textwrap
+
+    root = tmp_path / "services"
+    (root / "gamma").mkdir(parents=True)
+    (root / "gamma" / "service.yml").write_text(
+        textwrap.dedent(f"""
+            name: gamma
+            label: Gamma
+            category: apps
+            containers: [gamma, gamma-worker]
+            sources:
+              var: GAMMA_SOURCE
+              default: container-cpu
+              options:
+                - id: container-cpu
+                  label: CPU
+                - id: container-gpu
+                  label: GPU
+                - id: disabled
+                  label: Disabled
+            env:
+              - name: GAMMA_SOURCE
+                default: container-cpu
+            runtime_sc:
+            {runtime_sc_block}
+        """),
+        encoding="utf-8",
+    )
+    (root / "gamma" / "compose.yml").write_text(
+        "services:\n  gamma:\n    image: alpine\n", encoding="utf-8"
+    )
+    return root
+
+
+_GOOD = """  gamma-worker:
+                container-cpu: {scale: 1}
+                container-gpu: {scale: 1}"""
+
+_TYPO = """  gamma-worker:
+                container-cpu: {scale: 1}
+                containr-gpu: {scale: 1}"""
+
+
+def test_a_typod_variant_key_does_not_disable_the_coverage_check(tmp_path):
+    """`set(d) <= opts` selected slices by SUBSET.
+
+    One typo'd variant key made that test false, so the whole slice dropped out
+    of the target list and its genuinely missing variants went unreported — the
+    check that exists to catch the typo was disabled BY the typo. Six families
+    take this fallback path (airflow, celery, langfuse, llm-graph-builder, ray,
+    spark) and the schema constrains variant key names not at all.
+    """
+    from services.manifest_validator import validate_manifests
+    from services.manifests import load_manifests
+
+    issues = validate_manifests(load_manifests(_synthetic_family(tmp_path, _TYPO)))
+    kinds = [i.kind for i in issues if "runtime_sc" in i.kind]
+
+    # the typo is named outright...
+    assert "runtime_sc_unknown_variant" in kinds
+    # ...and coverage is still evaluated rather than silently skipped
+    missing = [
+        i.message for i in issues if i.kind == "runtime_sc_missing_variant"
+    ]
+    assert any("'disabled'" in m for m in missing)
+    assert any("'container-gpu'" in m for m in missing)
+
+
+def test_a_clean_slice_reports_only_its_missing_variants(tmp_path):
+    from services.manifest_validator import validate_manifests
+    from services.manifests import load_manifests
+
+    issues = validate_manifests(load_manifests(_synthetic_family(tmp_path, _GOOD)))
+    relevant = [i for i in issues if "runtime_sc" in i.kind]
+    assert [i.kind for i in relevant] == ["runtime_sc_missing_variant"]
+    assert "'disabled'" in relevant[0].message

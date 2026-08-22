@@ -24,3 +24,19 @@ INSERT INTO public.schema_migrations (version, inserted_at) VALUES
     (20221215195800, NOW()),
     (20221215195900, NOW())
 ON CONFLICT DO NOTHING;
+
+-- Row Level Security. Without it, PostgREST exposes this table to `anon`
+-- (see the note in 12-comfyui.sql for the full grant chain), and a single
+-- unauthenticated DELETE empties it. That is not a data leak — it is an
+-- availability kill: the four rows above exist precisely so GoTrue skips
+-- migration 20221208132122, whose uuid=text comparison was removed in
+-- PostgreSQL 17. Emptying the table returns GoTrue to the crash-loop this
+-- slice exists to prevent.
+--
+-- GoTrue connects as supabase_admin (GOTRUE_DB_DATABASE_URL uses
+-- SUPABASE_DB_USER), which owns this table and so bypasses RLS.
+ALTER TABLE public.schema_migrations ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Service role can access the gotrue migration tracker" ON public.schema_migrations;
+CREATE POLICY "Service role can access the gotrue migration tracker" ON public.schema_migrations
+    FOR ALL USING (auth.role() = 'service_role');

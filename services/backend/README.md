@@ -282,9 +282,11 @@ curl -X POST http://localhost:${BACKEND_PORT}/lightrag/rerank \
 
 | Service | Category |
 |---|---|
+| kong ↔ | infra |
 | otel-collector | infra |
 | ray | infra |
 | minio | data |
+| neo4j | data |
 | redis | data |
 | supabase | data |
 | supavisor | data |
@@ -296,7 +298,7 @@ curl -X POST http://localhost:${BACKEND_PORT}/lightrag/rerank \
 | fal | media |
 | tika | media |
 | celery | agents |
-| lightrag | agents |
+| lightrag ↔ | agents |
 | n8n ↔ | agents |
 | local-deep-researcher | apps |
 
@@ -304,8 +306,9 @@ curl -X POST http://localhost:${BACKEND_PORT}/lightrag/rerank \
 
 | Service | Category |
 |---|---|
-| kong | infra |
+| kong ↔ | infra |
 | prometheus | infra |
+| lightrag ↔ | agents |
 | n8n ↔ | agents |
 | jupyterhub | apps |
 | open-webui | apps |

@@ -8,8 +8,20 @@ import os
 import re
 from typing import Dict, Any, Optional
 from core.config_parser import ConfigParser
-from utils.atomic_write import atomic_write_text
+from utils.atomic_write import atomic_write_text, render_env_assignment
 from utils.system import get_localhost_host, resolve_host_gateway_ip
+
+
+def _configured_weaviate_modules(env_file_vars: dict, default_modules: str) -> str:
+    """The declared Weaviate module list, falling back on a BLANK value.
+
+    `or`, not a `.get` default: the key is PRESENT and empty in a hand-edited
+    or legacy `.env`, so `.get(key, default)` returns `''` and every module —
+    text2vec-openai, text2vec-ollama, generative-* — is dropped and then
+    written back durably. Weaviate with no vectorizer modules is never what
+    anyone meant, and nothing in the wizard can express it.
+    """
+    return env_file_vars.get('WEAVIATE_ENABLE_MODULES') or default_modules
 
 
 class ServiceConfig:
@@ -412,7 +424,7 @@ class ServiceConfig:
             'text2vec-openai,text2vec-ollama,multi2vec-clip,'
             'generative-openai,generative-ollama'
         )
-        configured_modules = env_file_vars.get('WEAVIATE_ENABLE_MODULES', default_modules)
+        configured_modules = _configured_weaviate_modules(env_file_vars, default_modules)
         weaviate_modules = [
             module.strip()
             for module in configured_modules.split(',')
@@ -1953,7 +1965,12 @@ class ServiceConfig:
             updated_content = content
             
             # Update each environment variable
-            for var_name, var_value in env_vars.items():
+            for var_name, raw_value in env_vars.items():
+                # Shared guard — see assert_safe_env_assignment. Same reason as
+                # the sibling writer in source_override_manager: a value that
+                # originated in a consumer manifest can arrive here without
+                # having passed the consumer parser.
+                var_value = render_env_assignment(var_name, raw_value)
                 # Use regex to find and replace the variable assignment
                 pattern = rf'^{re.escape(var_name)}=.*$'
                 replacement = f'{var_name}={var_value}'

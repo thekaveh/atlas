@@ -491,21 +491,8 @@ def _build_steps_and_rows(
     # the widget doesn't know about ports; this table is the only
     # place that does. Adding a new localhost-capable service is one
     # row here + a manifest entry per Task 7.
-    LOCALHOST_PORT_WIRING: dict[tuple[str, str], tuple[str, int]] = {
-        ("ComfyUI",            "localhost"):             ("COMFYUI_LOCALHOST_PORT", 8000),
-        ("Document Processor", "docling-localhost"):     ("DOCLING_LOCALHOST_PORT", 18159),
-        ("Apache Tika",        "tika-localhost"):        ("TIKA_LOCALHOST_PORT", 9998),
-        ("Hermes Agent",       "localhost"):             ("HERMES_LOCALHOST_PORT", 8642),
-        ("OpenClaw",           "localhost"):             ("OPENCLAW_LOCALHOST_PORT", 63065),
-        ("LLM Engine",         "ollama-localhost"):      ("OLLAMA_LOCALHOST_PORT", 11434),
-        ("Neo4j Graph DB",     "localhost"):             ("NEO4J_LOCALHOST_BOLT_PORT", 7687),
-        ("Weaviate",           "localhost"):             ("WEAVIATE_LOCALHOST_PORT", 8080),
-        ("STT Provider",       "parakeet-localhost"):    ("PARAKEET_LOCALHOST_PORT", 63042),
-        ("STT Provider",       "whisper-cpp-localhost"): ("WHISPER_CPP_LOCALHOST_PORT", 63042),
-        ("TTS Provider",       "chatterbox-localhost"):  ("CHATTERBOX_LOCALHOST_PORT", 63044),
-        ("LightRAG",           "localhost"):             ("LIGHTRAG_LOCALHOST_PORT", 63068),
-        ("TEI Reranker",       "localhost"):             ("TEI_RERANKER_LOCALHOST_PORT", 63049),
-    }
+
+    from ui.state_builder import LOCALHOST_PORT_WIRING
 
     def _localhost_port_config(display: str, opt_value: str) -> "SecondaryNumberInput | None":
         """Build the per-option SecondaryNumberInput for a localhost row,

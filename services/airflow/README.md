@@ -4,7 +4,7 @@ Airflow runs as a 4-container family in the stack's `agents` band: `airflow-webs
 
 ## 1. Overview
 
-Image: `apache/airflow:3.3.0` (Apache 2.0), wrapped by a local `services/airflow/build/Dockerfile` that adds the 9-provider bundle needed for the cross-stack integrations (apache-spark, amazon, postgres, redis, common-sql, weaviate, neo4j, openai, fab) plus `pyspark[connect]==4.1.2` (the `[connect]` extra pulls grpcio + companions; the Spark Connect smoke step in the sample DAG needs it). The image also installs Java 17, exposes PySpark's `spark-submit` on `PATH`, bakes the matching S3A/Iceberg jars into PySpark's jars directory, and builds `/opt/airflow/atlas-jars/atlas-lakehouse-smoke.jar` from source for the manual SparkSubmit lakehouse smoke. LocalExecutor is the only supported executor in v1 — tasks run in the scheduler's process pool. Metadata DB lives in a new `airflow` database on Supabase Postgres, created by `airflow-init` on first start.
+Image: `apache/airflow:3.3.1` (Apache 2.0), wrapped by a local `services/airflow/build/Dockerfile` that adds the 9-provider bundle needed for the cross-stack integrations (apache-spark, amazon, postgres, redis, common-sql, weaviate, neo4j, openai, fab) plus `pyspark[connect]==4.1.2` (the `[connect]` extra pulls grpcio + companions; the Spark Connect smoke step in the sample DAG needs it). The image also installs Java 17, exposes PySpark's `spark-submit` on `PATH`, bakes the matching S3A/Iceberg jars into PySpark's jars directory, and builds `/opt/airflow/atlas-jars/atlas-lakehouse-smoke.jar` from source for the manual SparkSubmit lakehouse smoke. LocalExecutor is the only supported executor in v1 — tasks run in the scheduler's process pool. Metadata DB lives in a new `airflow` database on Supabase Postgres, created by `airflow-init` on first start.
 
 ## 2. Access
 
@@ -20,7 +20,7 @@ Image: `apache/airflow:3.3.0` (Apache 2.0), wrapped by a local `services/airflow
 
 ```bash
 AIRFLOW_SOURCE=disabled              # container | disabled
-AIRFLOW_IMAGE=apache/airflow:3.3.0
+AIRFLOW_IMAGE=apache/airflow:3.3.1
 AIRFLOW_PORT=                        # auto-assigned (agents band)
 AIRFLOW_DB_USER=airflow              # role on Supabase Postgres
 AIRFLOW_DB_PASSWORD=                 # auto-generated
@@ -32,7 +32,7 @@ AIRFLOW_ADMIN_PASSWORD=              # auto-generated (admin login)
 
 Auto-managed (resolved by the bootstrapper from `AIRFLOW_SOURCE`; do not hand-edit): `AIRFLOW_WEBSERVER_SCALE`, `AIRFLOW_SCHEDULER_SCALE`, `AIRFLOW_DAG_PROCESSOR_SCALE`, `AIRFLOW_INIT_SCALE`.
 
-**Execution API routing across the container split.** `airflow-scheduler` and `airflow-dag-processor` hard-set `AIRFLOW__CORE__EXECUTION_API_SERVER_URL=http://airflow-webserver:8080/execution/` in `compose.yml`. Airflow 3.3.0's Task-SDK supervisor resolves the Execution API **per task** via `get_execution_api_server_url()`, which otherwise falls back to `http://localhost:8080/execution/`. Because `airflow api-server` runs only in the separate `airflow-webserver` container, that fallback is unreachable from the task-side processes and every DAG task dies at Pre-Execute (`httpcore.ConnectError` → supervisor `SIGKILL`). The value uses the webserver's compose **DNS name** (not `localhost`, not a project-prefixed container name), so it resolves under any `PROJECT_NAME`. The webserver itself serves `/execution/` locally and is intentionally left without this override. A routing fix alone is not sufficient: the Execution API authenticates task JWTs, so the same three processes must also share one `AIRFLOW__API_AUTH__JWT_SECRET` (#850) — without it a task JWT issued by one process fails signature verification in the webserver and the Execution API returns `403 InvalidSignatureError` rather than the `httpcore.ConnectError` above.
+**Execution API routing across the container split.** `airflow-scheduler` and `airflow-dag-processor` hard-set `AIRFLOW__CORE__EXECUTION_API_SERVER_URL=http://airflow-webserver:8080/execution/` in `compose.yml`. Airflow 3.3.1's Task-SDK supervisor resolves the Execution API **per task** via `get_execution_api_server_url()`, which otherwise falls back to `http://localhost:8080/execution/`. Because `airflow api-server` runs only in the separate `airflow-webserver` container, that fallback is unreachable from the task-side processes and every DAG task dies at Pre-Execute (`httpcore.ConnectError` → supervisor `SIGKILL`). The value uses the webserver's compose **DNS name** (not `localhost`, not a project-prefixed container name), so it resolves under any `PROJECT_NAME`. The webserver itself serves `/execution/` locally and is intentionally left without this override. A routing fix alone is not sufficient: the Execution API authenticates task JWTs, so the same three processes must also share one `AIRFLOW__API_AUTH__JWT_SECRET` (#850) — without it a task JWT issued by one process fails signature verification in the webserver and the Execution API returns `403 InvalidSignatureError` rather than the `httpcore.ConnectError` above.
 
 ## 4. Seeded Connections
 
@@ -78,7 +78,7 @@ so provider behavior, masking, and task-context semantics stay intact.
 `services/airflow/dags/example_etl_with_llm.py` ships pre-loaded. Three `PythonOperator` steps that smoke-test each Connection:
 
 1. `spark_smoke` invokes Spark Connect at `sc://spark-connect:15002` via `pyspark[connect]`. Smoke-tests the Spark cluster's reachability via the Connect sidecar. Note: this does NOT exercise the seeded `spark_default` Connection — that one points at `spark://spark-master:7077` for user DAGs using `SparkSubmitOperator`. See the DAG docstring.
-2. `summarize_via_litellm` calls LiteLLM's chat-completions endpoint via `OpenAIHook.get_conn()`. There is no `OpenAIOperator` class in `apache-airflow-providers-openai` (only `OpenAIEmbeddingOperator` and `OpenAITriggerBatchOperator`); the Hook is the right surface for chat. Defaults to `ollama/qwen3.6:latest` (Ollama-mode); swap to `gpt-4o-mini` or similar if running with `--llm-provider-source none` + `CLOUD_OPENAI_SOURCE=enabled`.
+2. `summarize_via_litellm` calls LiteLLM's chat-completions endpoint via `OpenAIHook.get_conn()`. There is no `OpenAIOperator` class in `apache-airflow-providers-openai` (only `OpenAIEmbeddingOperator` and `OpenAITriggerBatchOperator`); the Hook is the right surface for chat. Defaults to `ollama/qwen3.8:latest` (Ollama-mode); swap to `gpt-4o-mini` or similar if running with `--llm-provider-source none` + `CLOUD_OPENAI_SOURCE=enabled`.
 3. `list_minio_buckets` calls `S3Hook.list_buckets()` against `minio_default`.
 
 A commented LangChain block at the bottom of the file shows the recommended pattern for chain-based LLM steps via `PythonOperator` (Apache has no published `apache-airflow-providers-langchain` package — wrap chains in a Python callable instead).

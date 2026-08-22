@@ -17,6 +17,7 @@ comments.
 Per project_env_write_semantics.md: new vars are appended to the bottom.
 """
 from __future__ import annotations
+from utils.atomic_write import env_lines
 
 import re
 import sys
@@ -68,7 +69,7 @@ def _translate_model_set(value: str) -> str:
 def _parse_env(text: str) -> dict[str, str]:
     """Plain k=v parser; handles CRLF, ignores blank/comment lines."""
     result: dict[str, str] = {}
-    for line in text.splitlines():
+    for line in env_lines(text):
         line = line.rstrip("\r\n").strip()
         if not line or line.startswith("#"):
             continue
@@ -85,7 +86,7 @@ def _parse_env(text: str) -> dict[str, str]:
 
 def _strip_old_var_lines(text: str, var: str) -> str:
     """Remove ``VAR=...`` lines + any preceding consecutive comment block."""
-    lines = text.splitlines(keepends=True)
+    lines = env_lines(text, keepends=True)
     out: list[str] = []
     i = 0
     while i < len(lines):
@@ -118,7 +119,7 @@ def _replace_or_append(text: str, key: str, value: str) -> str:
     """Find a ``KEY=...`` line and replace it; otherwise append at end."""
     new_lines: list[str] = []
     replaced = False
-    for raw in text.splitlines(keepends=True):
+    for raw in env_lines(text, keepends=True):
         stripped = raw.lstrip()
         if stripped.startswith(f"{key}="):
             # Preserve any leading indent the user may have.
@@ -138,7 +139,7 @@ def needs_migration(env_path: Path) -> bool:
     """True iff .env's BOOTSTRAPPER_PORT_LAYOUT_VERSION < 3 (or absent)."""
     if not env_path.is_file():
         return False  # fresh install — schema already current
-    for line in env_path.read_text(encoding="utf-8").splitlines():
+    for line in env_lines(env_path.read_text(encoding="utf-8")):
         m = _SENTINEL_RE.match(line)
         if m:
             try:
@@ -211,7 +212,7 @@ def stamp_version(env_path: Path, version: int = 3) -> None:
     """Append or update BOOTSTRAPPER_PORT_LAYOUT_VERSION in .env to 3."""
     if not env_path.is_file():
         return
-    lines = env_path.read_text(encoding="utf-8").splitlines(keepends=True)
+    lines = env_lines(env_path.read_text(encoding="utf-8"), keepends=True)
     found = False
     for i, line in enumerate(lines):
         if _SENTINEL_RE.match(line):

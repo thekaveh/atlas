@@ -15,6 +15,7 @@ local dicts and fell through to "assume enabled" — a disabled Trino then
 failed startup with a false "trino requires minio" violation.
 """
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -51,6 +52,102 @@ class _ServiceEnablementInfo:
 # Cache of services-dir → {name: _ServiceEnablementInfo}. Manifest loading
 # walks the services tree; dependency checks run several times per start.
 _ENABLEMENT_CACHE: Dict[str, Dict[str, _ServiceEnablementInfo]] = {}
+
+
+#: A replica count is a plain non-negative integer. Deliberately stricter than
+#: `int()`, which accepts `1_0` (→10), `+2` and surrounding whitespace —
+#: spellings `docker compose --scale` itself rejects, so accepting them made
+#: the manager's belief and the launched topology disagree.
+_SCALE_RE = re.compile(r"^\d+$")
+
+#: Spellings that unambiguously mean "off". Without these, `SVC_SCALE=false`
+#: fails to parse and falls through to "assume enabled" — a disabled service
+#: masquerading as enabled.
+_FALSY_SCALES = frozenset({"false", "off", "no", "none", "disabled", "0.0"})
+
+
+def _parse_scale(raw: str) -> Optional[int]:
+    """A replica count from a raw env value, or None when unreadable."""
+    if _SCALE_RE.match(raw):
+        return int(raw)
+    return 0 if raw.strip().lower() in _FALSY_SCALES else None
+
+
+def _compose_replica_vars(manifest) -> Dict[str, str]:
+    """container name → the `*_SCALE` var its compose fragment scales it by.
+
+    Read from `deploy.replicas: ${VAR:-0}` in the family's `compose.yml`,
+    which is the only place that mapping is actually stated. Returns an empty
+    map for virtual manifests and on any read/parse failure; the caller then
+    falls back to deriving from the name.
+    """
+    source_path = getattr(manifest, "source_path", None)
+    if source_path is None:
+        return {}
+    fragment = Path(source_path).parent / "compose.yml"
+    try:
+        import yaml
+
+        parsed = yaml.safe_load(fragment.read_text(encoding="utf-8")) or {}
+    except Exception:  # noqa: BLE001 — absent/unreadable fragment → derive
+        return {}
+    found: Dict[str, str] = {}
+    for name, body in (parsed.get("services") or {}).items():
+        scale_var = _replica_scale_var(body)
+        if scale_var:
+            found[str(name)] = scale_var
+    return found
+
+
+def _replica_scale_var(body) -> Optional[str]:
+    """The `*_SCALE` var interpolated into one service's `deploy.replicas`."""
+    if not isinstance(body, dict):
+        return None
+    deploy = body.get("deploy")
+    if not isinstance(deploy, dict):
+        return None
+    match = re.search(r"\$\{([A-Z0-9_]+)", str(deploy.get("replicas") or ""))
+    if match and match.group(1).endswith("_SCALE"):
+        return match.group(1)
+    return None
+
+
+def _manifest_source_var(manifest) -> Optional[str]:
+    """The canonical SOURCE var for a manifest, or None when ambiguous."""
+    if manifest.sources is not None:
+        return manifest.sources.var
+    # Manifests without a sources: block (backend) still carry a canonical
+    # per-row source var — use it only when every row agrees (supabase's rows
+    # diverge → ambiguous → None).
+    row_vars = {r.source_var for r in manifest.rows if r.source_var}
+    return row_vars.pop() if len(row_vars) == 1 else None
+
+
+def _manifest_enablement(manifest) -> Dict[str, "_ServiceEnablementInfo"]:
+    """name → enablement info for a manifest and each of its containers."""
+    source_var = _manifest_source_var(manifest)
+    all_scales = tuple(e.name for e in manifest.env if e.name.endswith("_SCALE"))
+    primary_scale = next((r.scale_var for r in manifest.rows if r.scale_var), None)
+    declared = _compose_replica_vars(manifest)
+
+    out: Dict[str, _ServiceEnablementInfo] = {}
+    for name in [manifest.name, *[str(c) for c in manifest.containers]]:
+        # The compose fragment states which var scales which container;
+        # consult it before falling back to guessing from the name.
+        # `docling-lightrag-adapter` is scaled by DOCLING_ADAPTER_SCALE, but
+        # the name-derived DOCLING_LIGHTRAG_ADAPTER_SCALE does not exist, so
+        # the guess silently fell through to the family's DOCLING_GPU_SCALE
+        # and answered for the WRONG container.
+        scale_var = declared.get(name)
+        if scale_var is None:
+            derived = name.upper().replace("-", "_") + "_SCALE"
+            scale_var = derived if derived in all_scales else primary_scale
+        out[name] = _ServiceEnablementInfo(
+            source_var=source_var,
+            scale_var=scale_var,
+            all_scale_vars=all_scales,
+        )
+    return out
 
 
 class DependencyManager:
@@ -120,42 +217,29 @@ class DependencyManager:
                 from services.manifests import load_manifests
 
                 manifests = load_manifests(services_dir)
-            except Exception:  # noqa: BLE001 — fall through to next candidate
+            except Exception as exc:  # noqa: BLE001 — fall through to next candidate
+                # Say so. A single malformed service.yml makes load_manifests
+                # raise for the WHOLE consumer tree, and the manager then
+                # answers silently from the packaged Atlas tree — describing a
+                # topology the user is not running.
+                print(
+                    f"  ⚠️  could not load manifests from {services_dir}: {exc}; "
+                    f"trying the next candidate"
+                )
                 continue
 
             lookup: Dict[str, _ServiceEnablementInfo] = {}
             for m in manifests:
-                if m.sources is not None:
-                    source_var: Optional[str] = m.sources.var
-                else:
-                    # Manifests without a sources: block (backend) still carry
-                    # a canonical per-row source var — use it only when every
-                    # row agrees (supabase's rows diverge → ambiguous → None).
-                    row_vars = {r.source_var for r in m.rows if r.source_var}
-                    source_var = row_vars.pop() if len(row_vars) == 1 else None
-
-                all_scales = tuple(
-                    e.name for e in m.env if e.name.endswith("_SCALE")
-                )
-                primary_scale = next(
-                    (r.scale_var for r in m.rows if r.scale_var), None
-                )
-
-                for name in [m.name, *[str(c) for c in m.containers]]:
-                    derived = name.upper().replace("-", "_") + "_SCALE"
-                    scale_var = (
-                        derived
-                        if derived in all_scales
-                        else primary_scale
-                    )
-                    lookup.setdefault(
-                        name,
-                        _ServiceEnablementInfo(
-                            source_var=source_var,
-                            scale_var=scale_var,
-                            all_scale_vars=all_scales,
-                        ),
-                    )
+                for name, info in _manifest_enablement(m).items():
+                    lookup.setdefault(name, info)
+            if not lookup:
+                # An EMPTY result is not an answer. Caching and returning it
+                # short-circuits the packaged-tree fallback, and every service
+                # then falls through to "assume enabled" — verbatim the #503
+                # regression this module exists to prevent. Verified: a
+                # `services/` dir that exists but holds no manifests made a
+                # `N8N_SOURCE=disabled` n8n report scale 1.
+                continue
             _ENABLEMENT_CACHE[key] = lookup
             return lookup
         return {}
@@ -188,10 +272,16 @@ class DependencyManager:
         if info and info.scale_var:
             raw = (env_vars.get(info.scale_var, "") or "").strip()
             if raw:
-                try:
-                    return int(raw)
-                except ValueError:
-                    pass  # garbage → fall through to the source signal
+                scale = _parse_scale(raw)
+                if scale is not None:
+                    return scale
+                # Unreadable → fall through to the SOURCE signal, but say so.
+                # Silence here is how `SVC_SCALE=0.0` came to read as ENABLED,
+                # which is precisely what #503 forbids.
+                print(
+                    f"  ⚠️  {info.scale_var}={raw!r} is not a replica count; "
+                    f"falling back to {info.source_var or 'the default'}"
+                )
 
         if info and info.source_var:
             source_vars = self.config_parser.parse_service_sources()
@@ -266,8 +356,16 @@ class DependencyManager:
         """
         disabled_services = []
 
+        # De-duplicate by service. Violations are per (service, requirement),
+        # so a service missing two dependencies was resolved twice: `.env` was
+        # atomically rewritten a second time with identical content, and the
+        # caller printed "Auto-disabled trino..." twice.
+        seen: set = set()
         for violation in self.dependency_violations:
             service_name = violation['service']
+            if service_name in seen:
+                continue
+            seen.add(service_name)
 
             # Manifest-derived (#503): zero EVERY *_SCALE var the violating
             # service's manifest declares, so a disabled family takes its

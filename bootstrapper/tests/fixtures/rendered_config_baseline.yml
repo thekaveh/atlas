@@ -5,7 +5,7 @@ services:
       context: '{REPO_ROOT}/services/airflow/build'
       dockerfile: Dockerfile
       args:
-        BASE_IMAGE: apache/airflow:3.3.0
+        BASE_IMAGE: apache/airflow:3.3.1
     command:
     - airflow
     - dag-processor
@@ -76,7 +76,7 @@ services:
       context: '{REPO_ROOT}/services/airflow/build'
       dockerfile: Dockerfile
       args:
-        BASE_IMAGE: apache/airflow:3.3.0
+        BASE_IMAGE: apache/airflow:3.3.1
     command:
     - bash
     - /scripts/init-airflow.sh
@@ -132,7 +132,7 @@ services:
       context: '{REPO_ROOT}/services/airflow/build'
       dockerfile: Dockerfile
       args:
-        BASE_IMAGE: apache/airflow:3.3.0
+        BASE_IMAGE: apache/airflow:3.3.1
     command:
     - airflow
     - scheduler
@@ -203,7 +203,7 @@ services:
       context: '{REPO_ROOT}/services/airflow/build'
       dockerfile: Dockerfile
       args:
-        BASE_IMAGE: apache/airflow:3.3.0
+        BASE_IMAGE: apache/airflow:3.3.1
     command:
     - airflow
     - api-server
@@ -711,6 +711,7 @@ services:
       CELERY_WORKER_PREFETCH_MULTIPLIER: '1'
       COMFYUI_BASE_URL: http://comfyui:18188
       DATABASE_URL: postgresql://supabase_admin:password@supabase-db:5432/postgres
+      DOCLING_API_TOKEN: ''
       DOCLING_ENDPOINT: ''
       LANGMEM_EMBEDDING_MODEL: ''
       LANGMEM_ENABLED: 'true'
@@ -3125,7 +3126,7 @@ services:
       ENABLE_OPENAI_API: 'true'
       ENABLE_WEBSOCKET_SUPPORT: 'true'
       IMAGE_GENERATION_ENGINE: comfyui
-      MODEL_LIST_CACHE_TTL: '300'
+      MODELS_CACHE_TTL: '300'
       OPENAI_API_BASE_URLS: http://litellm:4000/v1
       OPENAI_API_KEYS: ''
       REDIS_KEY_PREFIX: openwebui

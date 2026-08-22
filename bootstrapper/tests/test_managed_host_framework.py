@@ -11,7 +11,11 @@ running on this host.
 from __future__ import annotations
 
 import json
+import os
+import signal
 import socket
+import subprocess
+import time
 import sys
 import textwrap
 from pathlib import Path
@@ -24,6 +28,7 @@ from core.endpoints_contract import build_export
 from services.managed_host import (
     HealthProbe,
     HostProcessSpec,
+    HostProcessStatus,
     ManagedHostError,
     ManagedHostManager,
     PreflightResult,
@@ -526,3 +531,426 @@ def test_a_killed_child_is_reaped_not_reported_alive(tmp_path):
     assert manager.status().running is True
     assert manager.stop() is True
     assert manager.status().running is False
+
+
+# ── PID-reuse ownership guard (#647/#947) ────────────────────────────────
+#
+# `stop()` escalates to `os.killpg`, so a wrong verdict takes out a stranger's
+# whole process group; a wrong verdict the other way deletes the pid file while
+# our service keeps running, untracked. Identity is `(pid, start time)`, which
+# is unique on POSIX — NOT the argv, which a wrapper script, `exec`,
+# `setproctitle` or a gunicorn/celery master rewrites at will.
+
+
+def _manager(tmp_path: Path, name: str, command: tuple[str, ...]):
+    return ManagedHostManager(
+        HostProcessSpec(name=name, command=command, port=8399),
+        state_dir=tmp_path / name,
+    )
+
+
+def test_start_records_the_process_start_time_alongside_the_pid(tmp_path: Path) -> None:
+    manager = _manager(tmp_path, "identity", (sys.executable, "-c", "import time; time.sleep(30)"))
+    manager.state_dir.mkdir(parents=True, exist_ok=True)
+    proc = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(30)"],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+    try:
+        manager._write_pid_file(proc.pid)
+        assert manager._read_pid() == proc.pid
+        recorded = manager._recorded_start_time()
+        assert recorded, "start time must be stamped so a recycled pid is detectable"
+        assert recorded == manager._process_start_time(proc.pid)
+        # The process we launched is never a stranger to itself.
+        assert manager._pid_is_stranger(proc.pid) is False
+    finally:
+        proc.kill()
+        proc.wait()
+
+
+def test_a_recycled_pid_is_identified_as_a_stranger(tmp_path: Path) -> None:
+    """A crashed service's pid file outlives it; the OS reuses the number."""
+    manager = _manager(tmp_path, "identity", (sys.executable, "-c", "pass"))
+    manager.state_dir.mkdir(parents=True, exist_ok=True)
+    stranger = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(30)"],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+    try:
+        # Stamp the stranger's pid with a start time that is NOT its own —
+        # exactly what a stale pid file looks like after pid reuse.
+        manager.pid_file.write_text(
+            f"{stranger.pid}\nstart_utc=Thu Jan  1 00:00:00 2020\n", encoding="utf-8"
+        )
+        assert manager._pid_is_stranger(stranger.pid) is True
+        # ...so stop() must not signal it.
+        assert manager.stop() is True          # stale pid dropped, not signalled
+        assert stranger.poll() is None, "stop() signalled a process it did not own"
+    finally:
+        stranger.kill()
+        stranger.wait()
+
+
+def test_our_own_process_is_never_disowned_whatever_its_argv_looks_like(
+    tmp_path: Path,
+) -> None:
+    """The argv-matching guard this replaced failed exactly here.
+
+    A spec whose tokens are all generic (`api` running `python -m app`) left no
+    marker that appears in a command line, so the guard called our own live
+    process a stranger: `stop()` deleted the pid file and returned success
+    while the service kept running, untracked.
+    """
+    manager = _manager(tmp_path, "api", ("python", "-m", "app"))
+    manager.state_dir.mkdir(parents=True, exist_ok=True)
+    ours = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(30)"],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+    try:
+        manager._write_pid_file(ours.pid)
+        assert manager._pid_is_stranger(ours.pid) is False
+        assert manager.status().running is True
+    finally:
+        ours.kill()
+        ours.wait()
+
+
+def test_a_legacy_single_line_pid_file_degrades_to_the_previous_behaviour(
+    tmp_path: Path,
+) -> None:
+    """No recorded start time means no better answer than before — proceed."""
+    manager = _manager(tmp_path, "identity", (sys.executable, "-c", "pass"))
+    manager.state_dir.mkdir(parents=True, exist_ok=True)
+    manager.pid_file.write_text("4242\n", encoding="utf-8")
+
+    assert manager._read_pid() == 4242
+    assert manager._recorded_start_time() is None
+    assert manager._pid_is_stranger(4242) is False
+
+
+def test_pid_is_stranger_proceeds_when_ps_cannot_answer(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = _manager(tmp_path, "identity", (sys.executable, "-c", "pass"))
+    manager.state_dir.mkdir(parents=True, exist_ok=True)
+    manager.pid_file.write_text("4242\nstart_utc=Thu Jan  1 00:00:00 2020\n", encoding="utf-8")
+
+    def failing(argv, **kwargs):
+        raise OSError("ps missing")
+
+    monkeypatch.setattr(subprocess, "run", failing)
+    assert manager._pid_is_stranger(4242) is False
+
+
+def test_a_pre_normalization_start_stamp_is_ignored_not_trusted(tmp_path: Path) -> None:
+    """The first version of this stamp used the ambient TZ and locale.
+
+    Comparing such a value against a UTC probe would call every
+    already-running managed host a stranger exactly once, so an unrecognized
+    stamp must read as absent and degrade to proceed.
+    """
+    manager = _manager(tmp_path, "identity", (sys.executable, "-c", "pass"))
+    manager.state_dir.mkdir(parents=True, exist_ok=True)
+    manager.pid_file.write_text("4242\nstart=Thu Aug 20 19:00:00 2026\n", encoding="utf-8")
+
+    assert manager._read_pid() == 4242
+    assert manager._recorded_start_time() is None
+    assert manager._pid_is_stranger(4242) is False
+
+
+def test_the_recorded_stamp_does_not_depend_on_ambient_timezone_or_locale(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """`lstart` renders through TZ/LC_TIME, so an unpinned probe is not an identity.
+
+    A service is typically started from an interactive shell and stopped from
+    launchd, cron or CI — all UTC. Without pinning, the stop would not match
+    its own record and would orphan the process it meant to stop.
+    """
+    manager = _manager(tmp_path, "identity", (sys.executable, "-c", "pass"))
+    manager.state_dir.mkdir(parents=True, exist_ok=True)
+    ours = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(30)"],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+    try:
+        manager._write_pid_file(ours.pid)
+        for tz in ("UTC", "Asia/Tokyo", "America/New_York"):
+            monkeypatch.setenv("TZ", tz)
+            assert manager._pid_is_stranger(ours.pid) is False, (
+                f"our own process read as a stranger under TZ={tz}"
+            )
+    finally:
+        ours.kill()
+        ours.wait()
+
+
+def test_remove_refuses_while_the_process_is_still_running(tmp_path: Path, monkeypatch) -> None:
+    """`stop()` KEEPS the pid file on failure so the process stays tracked.
+
+    `remove()` used to `rmtree` the state dir regardless, throwing that away and
+    orphaning a live process — the same outcome the PID-reuse work exists to
+    prevent, reached through a different door.
+    """
+    manager = _manager(tmp_path, "stubborn", (sys.executable, "-c", "pass"))
+    manager.state_dir.mkdir(parents=True, exist_ok=True)
+    manager.pid_file.write_text("4242\n", encoding="utf-8")
+
+    # Refusal is gated on LIVENESS, not on stop()'s return value: a process
+    # that exits mid-signal makes stop() report False while already being gone,
+    # and refusing on that would block a removal that should succeed.
+    monkeypatch.setattr(manager, "stop", lambda: False)
+    monkeypatch.setattr(
+        manager, "status", lambda: HostProcessStatus(running=True, pid=4242)
+    )
+
+    with pytest.raises(ManagedHostError, match="still running"):
+        manager.remove()
+
+    assert manager.state_dir.exists(), "state dir deleted despite a failed stop"
+    assert manager.pid_file.exists(), "pid file deleted — the process is now untracked"
+
+
+def test_remove_deletes_state_once_the_process_is_gone(tmp_path: Path, monkeypatch) -> None:
+    manager = _manager(tmp_path, "gone", (sys.executable, "-c", "pass"))
+    manager.state_dir.mkdir(parents=True, exist_ok=True)
+    manager.pid_file.write_text("4242\n", encoding="utf-8")
+
+    monkeypatch.setattr(manager, "stop", lambda: True)
+    monkeypatch.setattr(manager, "status", lambda: HostProcessStatus(running=False))
+
+    manager.remove()
+    assert not manager.state_dir.exists()
+
+
+def test_remove_succeeds_when_stop_reports_failure_for_an_already_dead_process(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """`_signal` sees ProcessLookupError from both killpg and kill when the
+    process exits mid-signal. That is an OSError, so `stop()` returns False for
+    a process that is already gone — gating removal on it would refuse a
+    teardown that should succeed, and `managed-host remove` has no handler."""
+    manager = _manager(tmp_path, "raced", (sys.executable, "-c", "pass"))
+    manager.state_dir.mkdir(parents=True, exist_ok=True)
+    manager.pid_file.write_text("4242\n", encoding="utf-8")
+
+    monkeypatch.setattr(manager, "stop", lambda: False)
+    monkeypatch.setattr(manager, "status", lambda: HostProcessStatus(running=False))
+
+    manager.remove()
+    assert not manager.state_dir.exists()
+
+
+# ── pid-file integrity (pass 15) ─────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "recorded",
+    ["0", "-1", "  0  ", "+0", "-99999", "0\nstart_utc=Thu Jan  1 00:00:00 1970"],
+)
+def test_a_non_positive_recorded_pid_is_refused(tmp_path, recorded):
+    """`_signal` escalates to `os.killpg`, where 0 and -1 are WILDCARDS.
+
+    `killpg(0, sig)` signals the CALLER's process group — `stop()` would
+    SIGTERM and then SIGKILL the bootstrapper itself — and `os.kill(-1, sig)`
+    broadcasts to every process this uid may signal. Neither is caught
+    downstream: `_pid_alive(0)` returns True, because `kill(0, 0)` succeeds
+    against our own group.
+    """
+    manager = ManagedHostManager(_spec(), tmp_path)
+    manager.pid_file.parent.mkdir(parents=True, exist_ok=True)
+    manager.pid_file.write_text(recorded + "\n", encoding="utf-8")
+
+    assert manager._read_pid() is None
+    # ...and a pid that cannot be read is reported not-running, not signalled.
+    assert manager.status().running is False
+
+
+def test_a_positive_recorded_pid_still_parses(tmp_path):
+    manager = ManagedHostManager(_spec(), tmp_path)
+    manager.pid_file.parent.mkdir(parents=True, exist_ok=True)
+    manager.pid_file.write_text("12345\nstart_utc=x\n", encoding="utf-8")
+    assert manager._read_pid() == 12345
+
+
+def test_the_pid_file_is_written_atomically(tmp_path, monkeypatch):
+    """A torn write silently disables the PID-reuse guard.
+
+    `write_text` truncates and then writes, and `start_utc=` lands after the
+    pid in the same call — so a reader arriving mid-write sees a pid with no
+    stamp. `_recorded_start_time` returns None, `_pid_is_stranger` reads that
+    as "unknowable, proceed", and a recycled pid is signalled after all.
+    """
+    manager = ManagedHostManager(_spec(), tmp_path)
+    manager.pid_file.parent.mkdir(parents=True, exist_ok=True)
+    manager.pid_file.write_text("stale\n", encoding="utf-8")
+
+    seen: list[str] = []
+    real_replace = os.replace
+
+    def spy(src, dst, *args, **kwargs):
+        seen.append(str(dst))
+        return real_replace(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr(os, "replace", spy)
+    monkeypatch.setattr(ManagedHostManager, "_process_start_time", staticmethod(lambda pid: "STAMP"))
+    manager._write_pid_file(4242)
+
+    # The visible file is never a partial state: it is swapped in by rename.
+    assert str(manager.pid_file) in seen
+    body = manager.pid_file.read_text(encoding="utf-8")
+    assert body.splitlines() == ["4242", "start_utc=STAMP"]
+
+
+def test_a_failed_pid_file_write_does_not_orphan_the_child(tmp_path, monkeypatch):
+    """Otherwise the child runs on, untracked, still holding the port."""
+    manager = ManagedHostManager(_spec(command=("sleep", "300")), tmp_path)
+
+    class FakeProcess:
+        pid = 999_999
+        signalled: list[int] = []
+
+        def poll(self):
+            return None if not self.signalled else 0
+
+        def send_signal(self, sig):
+            self.signalled.append(sig)
+
+        def wait(self, timeout=None):
+            if not self.signalled:
+                raise subprocess.TimeoutExpired("cmd", timeout)
+            return 0
+
+    fake = FakeProcess()
+    monkeypatch.setattr(ManagedHostManager, "_spawn", lambda self: fake)
+    monkeypatch.setattr(
+        ManagedHostManager,
+        "_write_pid_file",
+        lambda self, pid: (_ for _ in ()).throw(OSError("read-only state dir")),
+    )
+    killed: list[tuple[int, int]] = []
+    monkeypatch.setattr(os, "killpg", lambda pid, sig: killed.append((pid, sig)))
+
+    with pytest.raises(ManagedHostError) as excinfo:
+        manager.start(wait_timeout=1.0)
+
+    assert "pid file" in str(excinfo.value)
+    assert "terminated" in str(excinfo.value).lower()
+    assert killed and killed[0] == (fake.pid, signal.SIGTERM)
+
+
+# ── pass 15: a leader can die while its group lives ──────────────────
+
+
+def test_stop_sweeps_a_group_whose_leader_died(tmp_path):
+    """`_spawn` uses `start_new_session=True` so the TREE is killable.
+
+    `stop()` short-circuited on the leader being dead and never signalled the
+    group, so a double-forking command — or a crashed gunicorn/uvicorn master
+    whose workers survive — left the port held forever: `status()` reports
+    not-running, `stop()` reports success, and every later `start()` fails to
+    bind. A permanent wedge.
+    """
+    leader = subprocess.Popen(
+        [sys.executable, "-c",
+         "import os,sys,time\n"
+         "if os.fork()==0:\n"
+         "    time.sleep(120)\n"
+         "sys.exit(0)\n"],
+        start_new_session=True,
+    )
+    gid = leader.pid
+    leader.wait()
+    time.sleep(0.5)
+
+    try:
+        assert ManagedHostManager._pid_alive(gid) is False, "precondition: leader is dead"
+        assert ManagedHostManager._group_survives(gid) is True, "precondition: group lives"
+
+        manager = ManagedHostManager(_spec(), tmp_path)
+        manager.pid_file.parent.mkdir(parents=True, exist_ok=True)
+        manager.pid_file.write_text(f"{gid}\n", encoding="utf-8")
+
+        assert manager.stop() is True
+        assert ManagedHostManager._group_survives(gid) is False, "group not swept"
+    finally:
+        try:
+            os.killpg(gid, signal.SIGKILL)
+        except OSError:
+            pass
+
+
+def test_a_live_or_unreadable_pid_is_never_swept():
+    """Signalling a group whose leader is merely UNREADABLE hits a stranger.
+
+    The sweep is safe only because it proves the leader is genuinely gone
+    first: POSIX keeps a pid allocated while it is still referenced as a pgid,
+    so the kernel cannot have handed that number to an unrelated process while
+    members of the group remain.
+    """
+    # our own pid exists, so it is never treated as a leaderless remnant
+    assert ManagedHostManager._group_survives(os.getpid()) is False
+    # pid 1 exists and is not signalable by us — also never swept
+    assert ManagedHostManager._group_survives(1) is False
+
+
+def test_an_ambiguous_start_time_probe_is_treated_as_unknowable(tmp_path, monkeypatch):
+    """A two-line `ps` answer wrote extra pid-file lines.
+
+    `_recorded_start_time` reads only the first `start_utc=` line, so a
+    multi-line stamp could never match a later probe — and our own live
+    process was disowned as a stranger.
+    """
+    class TwoLines:
+        returncode = 0
+        stdout = "Mon Jan  1 00:00:00 2024\nMon Jan  2 00:00:00 2024\n"
+
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: TwoLines())
+    assert ManagedHostManager._process_start_time(1234) is None
+
+    class OneLine:
+        returncode = 0
+        stdout = "  Mon Jan  1 00:00:00 2024  \n"
+
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: OneLine())
+    assert ManagedHostManager._process_start_time(1234) == "Mon Jan  1 00:00:00 2024"
+
+
+def test_start_is_serialized_across_processes(tmp_path):
+    """`start()` is check-then-spawn.
+
+    Two concurrent starts both saw `status().running` as False and both
+    spawned, leaving one process untracked and holding the port.
+    """
+    manager = ManagedHostManager(_spec(), tmp_path)
+    manager.state_dir.mkdir(parents=True, exist_ok=True)
+
+    script = textwrap.dedent(f"""
+        import pathlib, sys, time
+        sys.path.insert(0, {str(Path(__file__).resolve().parents[1])!r})
+        from services.managed_host import ManagedHostManager, HostProcessSpec
+        spec = HostProcessSpec(name="sam3-segment", command=("python3","-c","pass"), port=8799)
+        m = ManagedHostManager(spec, pathlib.Path({str(tmp_path)!r}))
+        start = time.monotonic()
+        with m._lifecycle_lock():
+            print(time.monotonic() - start)
+    """)
+    with manager._lifecycle_lock():
+        child = subprocess.Popen(
+            [sys.executable, "-c", script], stdout=subprocess.PIPE, text=True
+        )
+        time.sleep(1.0)
+    waited = float(child.communicate(timeout=30)[0].strip())
+    assert waited > 0.5, f"child was not blocked (waited {waited:.2f}s)"
+
+
+def test_remove_does_not_self_deadlock_on_the_lifecycle_lock(tmp_path):
+    """flock is per open-file description: a second acquisition would hang.
+
+    `remove()` calls `stop()`, so neither may take the lock that `start()` does.
+    """
+    manager = ManagedHostManager(_spec(), tmp_path)
+    manager.state_dir.mkdir(parents=True, exist_ok=True)
+    manager.remove()  # must return, not hang

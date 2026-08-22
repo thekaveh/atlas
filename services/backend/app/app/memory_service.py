@@ -21,6 +21,69 @@ from memory_store import MemoryStore, _to_uuid
 logger = logging.getLogger("memory_service")
 
 
+#: Exceptions that mean the SYNC TARGET is unhealthy, as opposed to this one
+#: row being bad. Only these count toward the halt streak.
+_TARGET_TRANSIENT = (
+    TimeoutError,
+    ConnectionError,
+    httpx.TimeoutException,
+    httpx.NetworkError,
+    httpx.RemoteProtocolError,
+)
+
+#: HTTP statuses that indicate the target, not the payload. 401 belongs here
+#: (a bad master key affects every row); 408/429 are explicit back-pressure.
+_TARGET_HEALTH_STATUSES = frozenset({401, 408, 429})
+
+
+def _is_target_health_signal(exc: BaseException) -> bool:
+    """True when `exc` says the TARGET is unhealthy, not that a row is bad.
+
+    `httpx.HTTPStatusError` cannot be classified by type alone: every
+    `raise_for_status()` in the store raises it, for 4xx as well as 5xx. Adding
+    the bare type to the transient set made permanent PER-ROW failures — a 400
+    from LiteLLM when a fact exceeds the embedding context, a 422 from a
+    schema-violating property — count toward the halt streak. Three such rows
+    are adjacent by construction after a bulk import, and because failing rows
+    keep their `updated_at` they sort first on every later pass, so the stall
+    was PERMANENT and user-deleted memories stopped propagating.
+    """
+    if isinstance(exc, _TARGET_TRANSIENT):
+        return True
+    if isinstance(exc, httpx.HTTPStatusError):
+        # `getattr`, not `exc.response`: this runs INSIDE the loop's
+        # `except Exception` handler, so an AttributeError here would escape
+        # `_reconcile_pending_vectors` entirely instead of deferring the row.
+        # httpx requires `response` today, but a subclass need not.
+        response = getattr(exc, "response", None)
+        status = getattr(response, "status_code", None)
+        if status is None:
+            return False
+        return status >= 500 or status in _TARGET_HEALTH_STATUSES
+    return False
+
+
+#: How many TARGET-HEALTH failures since the last successful row mean the
+#: sync target itself is down
+#: rather than one bad row.
+#:
+#: A bare `break` on the first failure was strictly worse than the `continue`
+#: it replaced: these exception types are PER-REQUEST, and rows come back
+#: `ORDER BY updated_at LIMIT 100`, so one poison row is always first — it
+#: halted every pass and the backlog could never drain (measured 0/10 rows
+#: against 9/10 with `continue`). Because `is_active = false` rows are
+#: RETIREMENTS, that also stopped memory deletions propagating to the vector
+#: store.
+#:
+#: Small enough to stop a genuine outage paying 100 round-trips per recall,
+#: large enough that a single poison row cannot head-of-line-block the
+#: backlog. KNOWN LIMIT: three or more ADJACENT poison rows still stall it —
+#: failing rows keep their `updated_at` and so sort first forever. Fixing that
+#: needs a `vector_sync_next_at` column or a target-health probe; see
+#: D-24.1 in the maintenance audit.
+_RECONCILE_TRANSIENT_STREAK = 3
+
+
 class MemoryService:
     """LangMem-inspired persistent memory service."""
 
@@ -83,7 +146,7 @@ class MemoryService:
              env var / constructor arg).
           2. ``LITELLM_DEFAULT_MODEL`` env var (set in .env, injected by
              compose; value is already fully-qualified, e.g.
-             ``ollama/qwen3.6:latest`` or a bare cloud model id).
+             ``ollama/qwen3.8:latest`` or a bare cloud model id).
           3. Raise ``RuntimeError`` — surfaces the missing config at call time
              rather than sending requests to a non-existent LiteLLM route.
         """
@@ -95,7 +158,7 @@ class MemoryService:
         raise RuntimeError(
             "No content model available for memory extraction. Set "
             "LITELLM_DEFAULT_MODEL in .env to a model id LiteLLM serves "
-            "(e.g. ollama/qwen3.6:latest)."
+            "(e.g. ollama/qwen3.8:latest)."
         )
 
     async def _litellm_complete(
@@ -461,6 +524,62 @@ Extract the facts as JSON:"""
 
         return {"memories": memories, "context_summary": context_summary}
 
+    @staticmethod
+    def _log_reconcile_halt(reconciled: int, exc: BaseException) -> None:
+        """Explain why the reconcile stopped rather than retrying the backlog."""
+        logger.warning(
+            "Memory vector reconciliation deferred after %d row(s) (error_type=%s); "
+            "the sync target is unavailable, so the remaining rows would fail "
+            "identically",
+            reconciled,
+            type(exc).__name__,
+        )
+
+    @staticmethod
+    async def _clear_pending_flag(conn, row, new_weaviate_id) -> None:
+        """Clear vector_sync_pending, guarded on the updated_at we read.
+
+        If a concurrent update_memory changed this fact after we read it — and
+        re-flagged it for the NEW content — an unguarded clear would wipe that
+        flag against our now-stale vector write, stranding the newer content
+        unreconciled with the flag false (permanent divergence). Guarding makes
+        the clear a no-op in that case, so a later pass picks it up.
+        """
+        await conn.execute(
+            """
+            UPDATE public.memory_facts
+            SET vector_sync_pending = false,
+                weaviate_id = COALESCE($2, weaviate_id),
+                updated_at = now()
+            WHERE id = $1 AND vector_sync_pending = true
+              AND updated_at = $3
+            """,
+            row["id"],
+            new_weaviate_id,
+            row["updated_at"],
+        )
+
+    async def _sync_one_row(self, row):
+        """Push one fact's vector, or retire it. Returns the new weaviate id.
+
+        `is_active = false` rows are RETIREMENTS — a memory the user deleted —
+        so they go through `deactivate_embedding`, not a write.
+        """
+        if not row["is_active"]:
+            await self.store.deactivate_embedding(
+                str(row["id"]), row.get("weaviate_id")
+            )
+            return None
+        return await self.store.update_embedding(
+            fact_id=str(row["id"]),
+            content=row["content"],
+            user_id=str(row["user_id"]),
+            namespace=row["namespace"],
+            fact_type=row["fact_type"],
+            confidence=row["confidence"],
+            weaviate_id=row.get("weaviate_id"),
+        )
+
     async def _reconcile_pending_vectors(
         self,
         conn=None,
@@ -477,6 +596,7 @@ Extract the facts as JSON:"""
             # shared pool (would pin a bounded slot across slow I/O).
             conn = await connect_postgres(self.database_url)
         reconciled = 0
+        target_failures_since_progress = 0
         try:
             rows = await conn.fetch(
                 """
@@ -491,38 +611,31 @@ Extract the facts as JSON:"""
             for row in rows:
                 new_weaviate_id = None
                 try:
-                    if row["is_active"]:
-                        new_weaviate_id = await self.store.update_embedding(
-                            fact_id=str(row["id"]),
-                            content=row["content"],
-                            user_id=str(row["user_id"]),
-                            namespace=row["namespace"],
-                            fact_type=row["fact_type"],
-                            confidence=row["confidence"],
-                            weaviate_id=row.get("weaviate_id"),
-                        )
-                    else:
-                        await self.store.deactivate_embedding(
-                            str(row["id"]), row.get("weaviate_id")
-                        )
-                except (
-                    TimeoutError,
-                    ConnectionError,
-                    httpx.TimeoutException,
-                    httpx.NetworkError,
-                ) as exc:
-                    if retry_transient:
-                        raise
-                    logger.warning(
-                        "Memory vector reconciliation deferred (error_type=%s)",
-                        type(exc).__name__,
-                    )
-                    continue
+                    new_weaviate_id = await self._sync_one_row(row)
                 except Exception as exc:
+                    target_signal = _is_target_health_signal(exc)
+                    if retry_transient and target_signal:
+                        raise
+                    # Log EVERY deferral — a row that could not be reconciled
+                    # must stay observable, not just the eventual halt.
                     logger.warning(
                         "Memory vector reconciliation deferred (error_type=%s)",
                         type(exc).__name__,
                     )
+                    if not target_signal:
+                        # A row-specific failure says nothing about the
+                        # target's health, so it must not COUNT toward the
+                        # streak — and it must not RESET it either. Resetting
+                        # let interleaved shapes defeat the cap entirely:
+                        # `503,503,400` repeating, or `429,400` repeating,
+                        # ran all 100 rows and never halted. Only PROGRESS
+                        # proves the target is reachable, so only progress
+                        # clears the counter.
+                        continue
+                    target_failures_since_progress += 1
+                    if target_failures_since_progress >= _RECONCILE_TRANSIENT_STREAK:
+                        self._log_reconcile_halt(reconciled, exc)
+                        break
                     continue
                 # Optimistic guard on updated_at (the same discipline the
                 # consolidate state transitions use): if a concurrent
@@ -533,20 +646,9 @@ Extract the facts as JSON:"""
                 # (permanent divergence). Guarding on the read updated_at makes
                 # this clear a no-op in that case, so the fact stays pending and
                 # a later pass reconciles the current content.
-                await conn.execute(
-                    """
-                    UPDATE public.memory_facts
-                    SET vector_sync_pending = false,
-                        weaviate_id = COALESCE($2, weaviate_id),
-                        updated_at = now()
-                    WHERE id = $1 AND vector_sync_pending = true
-                      AND updated_at = $3
-                    """,
-                    row["id"],
-                    new_weaviate_id,
-                    row["updated_at"],
-                )
+                await self._clear_pending_flag(conn, row, new_weaviate_id)
                 reconciled += 1
+                target_failures_since_progress = 0  # progress: the target is reachable
         finally:
             if owns_connection:
                 await conn.close()

@@ -81,3 +81,5 @@ Every localhost-source service exposes a `<SVC>_LOCALHOST_PORT` integer env var.
 ## 5. Advanced overrides
 
 `BASE_PORT` is the preferred mechanism for moving the whole stack. Individual `*_PORT` variables are advanced overrides; if you change one, the wizard / Kong / dependent services need a `./start.sh` to re-emit `kong-dynamic.yml` and pick up the new value. The port migration framework (`bootstrapper/services/migrations/`) handles cross-version layout shifts; on a bump like topology v1, your `.env` is auto-rewritten with the new defaults (a backup is taken to `.env.backup.<timestamp>`; user-customized values are preserved). Pass `--no-port-migrate` to opt out.
+
+Every operation that rewrites `.env` — a base-port change, Supabase key generation, an env migration — snapshots the file first, mode `0600`. Atlas keeps the five most recent snapshots per migration version and prunes older ones, so a rotated secret does not stay readable on disk indefinitely. `.env.backup.*` is gitignored and never committed.

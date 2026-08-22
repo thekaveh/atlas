@@ -59,7 +59,12 @@ services:
       WEBSOCKET_MANAGER: "redis"
       WEBSOCKET_REDIS_URL: "redis://:${REDIS_PASSWORD}@redis:6379/${OPEN_WEB_UI_REDIS_DB:-2}"
       REDIS_KEY_PREFIX: "openwebui"
-      MODEL_LIST_CACHE_TTL: ${OPEN_WEB_UI_MODEL_CACHE_TTL:-300}
+      # Open WebUI renamed this knob; v0.6.32 reads MODELS_CACHE_TTL and has no
+      # MODEL_LIST_CACHE_TTL at all, so the old key was inert and the effective
+      # TTL was the 1-second default — Open WebUI refetched the LiteLLM model
+      # list on essentially every request. The operator-facing variable name is
+      # unchanged.
+      MODELS_CACHE_TTL: ${OPEN_WEB_UI_MODEL_CACHE_TTL:-300}
       # Trusted server-side bearer used by bundled backend tools/functions.
       # Never expose this value to browser JavaScript.
       BACKEND_OPEN_WEBUI_API_TOKEN: ${BACKEND_OPEN_WEBUI_API_TOKEN}

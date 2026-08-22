@@ -556,27 +556,52 @@ def _check_runtime_sc_source_coverage(
         main_names = {stem, stem.replace("_", "-"), m.name}
         targets = [n for n in m.runtime_sc if n in main_names]
         if not targets:
+            # OVERLAP, not subset. `set(d) <= opts` meant a single typo'd
+            # variant key made the subset test false, dropping the WHOLE slice
+            # out of `targets` — so the check that exists to catch exactly that
+            # typo was disabled by it. Six families take this fallback path
+            # (airflow, celery, langfuse, llm-graph-builder, ray, spark) and
+            # the schema puts no constraint on variant key names.
             targets = [
                 n
                 for n, d in m.runtime_sc.items()
-                if isinstance(d, dict) and set(d) and set(d) & opts and set(d) <= opts
+                if isinstance(d, dict) and set(d) & opts
             ]
         for n in targets:
             d = m.runtime_sc.get(n)
-            if not isinstance(d, dict):
-                continue
-            for opt in sorted(opts - set(d.keys())):
-                issues.append(
-                    ValidationIssue(
-                        kind="runtime_sc_missing_variant",
-                        manifest=m.name,
-                        message=(
-                            f"runtime_sc['{n}'] has no entry for source "
-                            f"option '{opt}' — get_service_config() would "
-                            f"silently return {{}} for that variant"
-                        ),
-                    )
-                )
+            if isinstance(d, dict):
+                issues.extend(_runtime_sc_variant_issues(m, n, set(d.keys()), opts))
+    return issues
+
+
+def _runtime_sc_variant_issues(
+    m: Manifest, slice_name: str, declared: set, opts: set
+) -> list[ValidationIssue]:
+    """Unknown and missing source variants for one `runtime_sc` slice."""
+    issues = [
+        ValidationIssue(
+            kind="runtime_sc_unknown_variant",
+            manifest=m.name,
+            message=(
+                f"runtime_sc['{slice_name}'] declares '{unknown}', which is "
+                f"not a source option of {m.sources.var} — "
+                f"get_service_config() would never read it"
+            ),
+        )
+        for unknown in sorted(declared - opts)
+    ]
+    issues.extend(
+        ValidationIssue(
+            kind="runtime_sc_missing_variant",
+            manifest=m.name,
+            message=(
+                f"runtime_sc['{slice_name}'] has no entry for source "
+                f"option '{opt}' — get_service_config() would "
+                f"silently return {{}} for that variant"
+            ),
+        )
+        for opt in sorted(opts - declared)
+    )
     return issues
 
 

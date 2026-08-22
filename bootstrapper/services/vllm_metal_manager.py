@@ -236,7 +236,7 @@ class VllmMetalManager:
             out = subprocess.run(
                 [py_path, "-c",
                  "import sys;print('%d.%d.%d' % sys.version_info[:3])"],
-                capture_output=True, text=True, timeout=10, check=False,
+                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10, check=False,
             )
         except (OSError, subprocess.SubprocessError):
             return None
@@ -256,7 +256,7 @@ class VllmMetalManager:
         try:
             out = subprocess.run(
                 ["sysctl", "-n", "hw.memsize"],
-                capture_output=True, text=True, timeout=5, check=False,
+                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5, check=False,
             )
             if out.returncode == 0 and out.stdout.strip().isdigit():
                 return int(out.stdout.strip()) // (1024 ** 3)
@@ -281,7 +281,7 @@ class VllmMetalManager:
                         "print(m.version('vllm-metal')); print(m.version('vllm'))"
                     ),
                 ],
-                capture_output=True, text=True, timeout=60, check=False,
+                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60, check=False,
             )
         except (OSError, subprocess.SubprocessError):
             return None
@@ -458,7 +458,18 @@ class VllmMetalManager:
             log.close()
         self._untracked_pid = proc.pid
         try:
-            self.pid_file.write_text(str(proc.pid), encoding="utf-8")
+            # Atomic + stamped with the start time, so the ownership guard has
+            # an identity to compare and a torn read cannot silently disable it.
+            from services.managed_host import (
+                ManagedHostManager as _MHM,
+                write_pid_file_with_identity as _write_pid,
+            )
+
+            try:
+                _started = _MHM._process_start_time(proc.pid)
+            except Exception:  # noqa: BLE001 - a probe failure is not a launch failure
+                _started = None
+            _write_pid(self.pid_file, proc.pid, _started)
             self._write_status(
                 installed_version=self.plugin_version,
                 installed_core_version=self.core_version,
@@ -693,9 +704,18 @@ class VllmMetalManager:
         if not self.pid_file.exists():
             return None
         try:
-            return int(self.pid_file.read_text(encoding="utf-8").strip())
-        except (OSError, ValueError):
+            # FIRST LINE only — `write_pid_file_with_identity` appends
+            # `start_utc=<ps lstart>` after the pid. Parsing the whole file
+            # makes `int()` raise on every launch where `ps` answers, which
+            # inverts the entire lifecycle (status says not-running while it
+            # runs, stop deletes the record and leaves the process alive).
+            first = self.pid_file.read_text(encoding="utf-8").splitlines()[0]
+            pid = int(first.strip())
+        except (OSError, ValueError, IndexError):
             return None
+        # A pid must be POSITIVE: termination escalates to `os.killpg`, where
+        # 0 means the CALLER's process group and -1 is a broadcast.
+        return pid if pid > 0 else None
 
     def _clear_pid(self) -> None:
         try:
@@ -730,28 +750,52 @@ class VllmMetalManager:
         return self._pid_alive(pid) or self._process_group_alive(pid)
 
     def _pid_is_stranger(self, pid: int) -> bool:
-        """Best-effort: True only when we can PROVE ``pid`` is NOT our vLLM.
+        """True only when we can PROVE ``pid`` is NOT the process we launched.
 
-        Reads the process command line via ``ps``. If it clearly belongs to some
-        other program (no vLLM api_server / state dir in the argv) we refuse to
-        signal it. When ``ps`` is unavailable or the output is ambiguous we
-        return False (proceed) — never block teardown on an unknowable probe.
+        Uses `(pid, start time)` — the identity the generic managed-host
+        framework settled on — via its shared implementation.
+
+        This previously substring-matched the process argv. Those markers are
+        generic strings, not an identity, so after a crash left the pid file
+        behind and the OS recycled the pid onto any process whose argv
+        contains one, termination escalated to `os.killpg(pid, SIGKILL)` on
+        the stranger's whole process group. An argv fails in the other
+        direction too — a wrapper script, `exec`, `setproctitle` or a
+        gunicorn/celery master rewrites it.
+
+        Falls back to False (proceed) when unknowable: an unknowable probe
+        must never block teardown.
         """
+        from services.managed_host import (
+            ManagedHostManager as _MHM,
+            read_recorded_start_time,
+            pid_is_stranger,
+        )
+
+        if read_recorded_start_time(self.pid_file):
+            # Stamped by this version: `(pid, start time)` is an identity and
+            # gives a definitive answer.
+            return pid_is_stranger(pid, self.pid_file, _MHM._process_start_time)
+        # UNSTAMPED (a pid file written before the stamp existed). The identity
+        # check degrades to "proceed", which would signal a recycled pid — so
+        # keep the old argv heuristic for that transitional window. It is weak
+        # in one direction only: generic markers make it UNDER-refuse, never
+        # over-refuse, so as a fallback it can only add protection.
+        return self._argv_is_stranger(pid)
+
+    def _argv_is_stranger(self, pid: int) -> bool:
+        """Legacy command-line heuristic. Only for pid files with no stamp."""
         try:
             out = subprocess.run(
-                # -ww: unlimited output width. Linux procps truncates to the
-                # terminal width (80 when there is no tty, i.e. in CI and under
-                # any daemon), which silently cuts long path markers off the end
-                # and makes our OWN process read as a stranger — so stop() would
-                # refuse to stop it. macOS ps accepts -ww as a no-op here.
                 ["ps", "-ww", "-p", str(pid), "-o", "command="],
-                capture_output=True, text=True, timeout=5, check=False,
+                capture_output=True, text=True, encoding="utf-8",
+                errors="replace", timeout=5, check=False,
             )
         except (OSError, subprocess.SubprocessError):
-            return False  # can't tell — proceed
+            return False
         cmdline = (out.stdout or "").strip()
         if out.returncode != 0 or not cmdline:
-            return False  # can't tell — proceed
+            return False
         markers = ("vllm.entrypoints", "vllm", str(self.venv_dir), str(self.state_dir))
         return not any(marker in cmdline for marker in markers)
 

@@ -54,9 +54,61 @@ def consumers(tmp_path: Path) -> list[dict]:
     return gen.get_consumers()
 
 
-def test_consumers_block_has_a_single_dashboard_user(consumers):
-    assert len(consumers) == 1
-    assert consumers[0]["username"] == "dashboard_user"
+def test_consumers_block_has_a_dashboard_user(consumers):
+    """The stub .env declares no Supabase keys, so only the dashboard user.
+
+    This previously asserted `len(consumers) == 1` unconditionally, which
+    pinned a CRITICAL defect as correct: with no `keyauth_credentials`
+    anywhere, the five Supabase services that enforce `key-auth` rejected
+    every request — see `test_kong_key_auth_is_satisfiable.py`.
+    """
+    assert [c["username"] for c in consumers] == ["dashboard_user"]
+
+
+def test_supabase_consumers_appear_once_the_keys_exist(tmp_path):
+    """The keys are blank in a fresh .env and filled in before Kong starts."""
+    env_path = tmp_path / ".env"
+    env_path.write_text(
+        "DASHBOARD_USERNAME=alice_admin\n"
+        "DASHBOARD_PASSWORD=s3cret-p@ss\n"
+        "SUPABASE_ANON_KEY=anon-key-value\n"
+        "SUPABASE_SERVICE_KEY=service-key-value\n",
+        encoding="utf-8",
+    )
+    cp = ConfigParser(str(tmp_path))
+    cp.env_file_path = env_path
+    cp.parse_env_file()
+    gen = KongConfigGenerator(cp)
+    gen.load_environment_variables()
+
+    by_name = {c["username"]: c for c in gen.get_consumers()}
+    assert set(by_name) == {"dashboard_user", "anon", "service_role"}
+    assert by_name["anon"]["keyauth_credentials"] == [{"key": "anon-key-value"}]
+    assert by_name["service_role"]["keyauth_credentials"] == [{"key": "service-key-value"}]
+
+
+def test_identical_supabase_keys_do_not_emit_a_duplicate_credential(tmp_path):
+    """Kong rejects the WHOLE declarative file on a duplicate key.
+
+    That takes the entire gateway down, so a misconfigured pair of identical
+    keys must degrade to one consumer rather than to no gateway at all.
+    """
+    env_path = tmp_path / ".env"
+    env_path.write_text(
+        "SUPABASE_ANON_KEY=same\nSUPABASE_SERVICE_KEY=same\n", encoding="utf-8"
+    )
+    cp = ConfigParser(str(tmp_path))
+    cp.env_file_path = env_path
+    cp.parse_env_file()
+    gen = KongConfigGenerator(cp)
+    gen.load_environment_variables()
+
+    keys = [
+        cred["key"]
+        for c in gen.get_consumers()
+        for cred in c.get("keyauth_credentials", [])
+    ]
+    assert keys == ["same"]
 
 
 def test_basic_auth_credentials_are_resolved_from_env(consumers):

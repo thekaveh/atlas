@@ -143,6 +143,38 @@ class HostsManager:
             
         return missing
     
+    def _is_atlas_written_line(self, line: str) -> bool:
+        """True only for a line in the EXACT form `add_hosts_entries` writes.
+
+        That is `127.0.0.1 <one-alias>` — one address, one Atlas alias, no
+        other tokens and no trailing comment.
+
+        Matching any line that merely CONTAINS an Atlas alias deleted entries
+        the operator owns, because several aliases are generic enough to share
+        a line with them (`api.localhost`, `chat.localhost`, `search.localhost`,
+        `graph.localhost`, `mcp.localhost`). The canonical first entry on macOS
+        and Linux is
+
+            127.0.0.1\tlocalhost
+
+        so an operator who appended one alias to it lost their IPv4 `localhost`
+        mapping to `stop.sh --clean-hosts` — a system-wide name-resolution
+        break — along with every other alias on that line, and the summary
+        reported only Atlas's own aliases as removed.
+
+        Removing exactly what we wrote leaves a user's line untouched. The
+        alias on it still resolves to 127.0.0.1, which is where it pointed
+        anyway, so nothing is stranded.
+        """
+        if "#" in line:
+            return False  # we never write a comment on an entry line
+        fields = line.split()
+        return (
+            len(fields) == 2
+            and fields[0] == "127.0.0.1"
+            and fields[1] in set(self.get_atlas_hosts())
+        )
+
     def remove_hosts_entries_silent(self, hosts_file_path: str) -> bool:
         """
         Remove Atlas hosts entries without creating backup.
@@ -169,18 +201,7 @@ class HostsManager:
                 # comparison — a substring check deleted the user's own
                 # entries like `127.0.0.1 my-n8n.localhost` because they
                 # CONTAIN a stack alias.
-                should_skip = False
-                # Comment-stripped, address-anchored tokens — mirrors the
-                # presence check; a commented-out user line mentioning a
-                # stack alias must not be deleted.
-                effective = line.split("#", 1)[0].split()
-                line_tokens = effective[1:] if effective[:1] == ["127.0.0.1"] else []
-                for host in self.get_atlas_hosts():
-                    if host in line_tokens:
-                        should_skip = True
-                        break
-                        
-                if not should_skip:
+                if not self._is_atlas_written_line(line):
                     filtered_lines.append(line)
             
             # Write back atomically: a truncate-write here would empty

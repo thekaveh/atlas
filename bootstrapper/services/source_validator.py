@@ -7,6 +7,7 @@ module asserts that every *_SOURCE value in .env matches one of those options.
 Python implementation of the validate_source_values() function from start.sh.
 """
 
+from utils.atomic_write import env_lines
 import json
 import os
 from pathlib import Path
@@ -428,7 +429,7 @@ class SourceValidator:
         env_file = self.config_parser.env_file_path
         if not env_file.exists():
             return
-        lines = env_file.read_text(encoding="utf-8").splitlines(keepends=True)
+        lines = env_lines(env_file.read_text(encoding="utf-8"), keepends=True)
         keep = []
         stripped_any = False
         for line in lines:

@@ -28,7 +28,7 @@ from datetime import date
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from utils.atomic_write import atomic_write_text
+from utils.atomic_write import atomic_write_text, env_lines
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 # Honor ATLAS_ENV_FILE (deprecated alias: GENAI_ENV_FILE) like every
@@ -62,7 +62,7 @@ def _parse_env(text: str) -> dict[str, str]:
     back verbatim — the user's hand-edits in their .env stay intact.
     """
     out: dict[str, str] = {}
-    for line in text.splitlines():
+    for line in env_lines(text):
         m = KEY_VALUE_RE.match(line.lstrip())
         if m:
             out[m.group(1)] = m.group(2)
@@ -81,7 +81,7 @@ def reorganize(example_text: str, user_env_text: str) -> tuple[str, list[str], l
     out_lines: list[str] = []
     taken: list[str] = []
 
-    for line in example_text.splitlines(keepends=True):
+    for line in env_lines(example_text, keepends=True):
         m = KEY_VALUE_RE.match(line.lstrip())
         if not m:
             out_lines.append(line)

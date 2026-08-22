@@ -527,6 +527,7 @@ class RagIngestionService:
                 parsed_ok += 1
             except ParserError as exc:
                 # Per-file failure is recorded + isolated; other files still parse.
+                state.setdefault("failed_sources", set()).add(file.name)
                 record.add_error(
                     IngestionError(
                         phase="parse", file=file.name, message=str(exc),
@@ -538,6 +539,48 @@ class RagIngestionService:
         state["docs"] = docs
         record.counts["documents_parsed"] = parsed_ok
         record.phase("parse").counts = {"parsed": parsed_ok, "failed": len(state["files"]) - parsed_ok}
+
+    @classmethod
+    def _note_empty_parse(cls, record, state, name: str) -> None:
+        """Handle a document that produced no text.
+
+        An OPERATOR-EMPTIED file and a PARSER FAULT both arrive here with no
+        text and want OPPOSITE outcomes: the emptied file must lose its
+        vectors (the reconcile doing its job, and the contract this module's
+        tests state), while a real document a parser turned into whitespace
+        must keep them — deleting on a parser blip is the data loss the
+        preserve-set exists to prevent.
+
+        The source bytes settle it: `state["files"]` holds what was actually on
+        disk. Preserving unconditionally meant an emptied file's stale content
+        stayed searchable FOREVER, with the run reporting completed and zero
+        errors.
+        """
+        if not cls._source_had_content(state, name):
+            return
+        state.setdefault("failed_sources", set()).add(name)
+        record.add_error(
+            IngestionError(
+                phase="chunk",
+                file=name,
+                message=(
+                    "parsed to whitespace despite non-empty source — "
+                    "existing vectors preserved"
+                ),
+            )
+        )
+
+    @staticmethod
+    def _source_had_content(state, name: str) -> bool:
+        """True when the file on disk was non-empty.
+
+        A parser that returns whitespace for real bytes has FAILED; a file the
+        operator emptied has not.
+        """
+        for file in state.get("files", ()):
+            if file.name == name:
+                return bool((file.content or b"").strip())
+        return False
 
     async def _phase_chunk(self, record, profile, corpus, state):
         from pydantic import ValidationError
@@ -557,6 +600,7 @@ class RagIngestionService:
         chunked_ok = 0
         for doc in state["docs"]:
             if not doc.text.strip():
+                self._note_empty_parse(record, state, doc.name)
                 continue
             try:
                 resp = await asyncio.to_thread(
@@ -576,6 +620,7 @@ class RagIngestionService:
                 # Per-document failure — e.g. doc.text over ChunkRequest's length
                 # cap, or a chonkie chunking error. Isolate it and continue like
                 # _phase_parse does, instead of aborting the whole corpus.
+                state.setdefault("failed_sources", set()).add(doc.name)
                 record.add_error(
                     IngestionError(phase="chunk", file=doc.name, message=str(exc))
                 )
@@ -624,6 +669,71 @@ class RagIngestionService:
         p.status = "skipped"
         p.note = f"{backend} skipped (on_unavailable=skip): {service} disabled"
 
+    @staticmethod
+    def _refuse_destructive_reconcile(record) -> None:
+        """Fail the run instead of wiping the previous generation.
+
+        The phase status alone is NOT enough. Terminal status is
+        `FAILED if record.errors and _has_fatal_phase(record)`, so with an
+        empty `errors` list the `and` short-circuits to COMPLETED — and the
+        whitespace-parse case records no per-document errors at all. The run
+        then reported success while having produced nothing, which is exactly
+        the signal a consumer polls on. Record an error too, so both halves of
+        that condition hold.
+        """
+        discovered = record.counts["files_discovered"]
+        message = (
+            f"{discovered} file(s) discovered but no chunks survived parse/chunk — "
+            f"refusing to reconcile, which would delete the previous generation"
+        )
+        record.phase("vector_write").status = "failed"
+        record.phase("vector_write").note = message
+        record.counts["vectors_written"] = 0
+        record.add_error(IngestionError(phase="vector_write", message=message))
+
+    @staticmethod
+    def _weaviate_objects(class_name: str, profile, chunks) -> list:
+        """Weaviate payloads for this run's chunks.
+
+        The id is `uuid5(class|source|index)`, so re-running the same corpus
+        overwrites rather than duplicating — and `source` is carried as a
+        property so the reconcile can preserve per-document.
+        """
+        return [
+            {
+                "id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"{class_name}|{c['source']}|{c['index']}")),
+                "properties": {
+                    "content": c["content"], "source": c["source"],
+                    "profile": profile.name, "chunkIndex": c["index"],
+                },
+                "vector": c["vector"],
+            }
+            for c in chunks
+        ]
+
+    async def _reconcile_kept_sources(
+        self, record, profile, state, class_name, objects
+    ) -> None:
+        """Delete stale objects, preserving sources that failed THIS attempt.
+
+        `failed_sources` comes from `state`, not `record.errors`: that list is
+        reloaded with the record and carries entries from earlier attempts, so
+        a clean Celery retry would otherwise still skip the cleanup.
+        """
+        failed_sources = sorted(state.get("failed_sources", set()))
+        await self.deps.weaviate.reconcile_objects(
+            class_name,
+            profile.name,
+            [obj["id"] for obj in objects],
+            preserve_sources=failed_sources,
+        )
+        if failed_sources:
+            record.phase("vector_write").note = (
+                f"wrote {len(objects)} object(s); preserved existing vectors for "
+                f"{len(failed_sources)} source(s) that failed this run "
+                f"({', '.join(failed_sources[:5])})"
+            )
+
     async def _phase_vector_write(self, record, profile, corpus, state):
         targets = profile.vector_targets
         if not targets:
@@ -631,6 +741,24 @@ class RagIngestionService:
             record.phase("vector_write").note = "no vector_targets"
             return
         if not state["chunks"]:
+            # An EMPTY CORPUS and a TOTALLY FAILED RUN are not the same thing.
+            # `reconcile_objects(cls, profile, [])` deletes every object for
+            # this profile, so reaching here after files WERE discovered wipes
+            # the entire previous generation — and the job still reported
+            # `status: "completed"`. Reproduced three ways: every file 5xx from
+            # docling, `overlap >= chunk_size`, and documents that parse to
+            # whitespace (that last one recorded ZERO errors, so a consumer
+            # polling for "completed" could not tell it from success).
+            if record.counts.get("files_discovered"):
+                # Only when the target is actually reachable. With
+                # `on_unavailable: skip` and the backend down, nothing could
+                # have been reconciled, so reporting "refusing to reconcile,
+                # which would delete the previous generation" misattributes an
+                # unreachable target as a corpus failure — and the contract
+                # above says a skip does NOT land in errors[].
+                if any(self.deps.weaviate.available() for _ in targets[:1]):
+                    self._refuse_destructive_reconcile(record)
+                    return
             for target in targets:
                 if not self.deps.weaviate.available():
                     self._target_unavailable(
@@ -669,22 +797,26 @@ class RagIngestionService:
             class_name = weaviate_class_name(target['collection_prefix'], profile.name)
             try:
                 await self.deps.weaviate.ensure_class(class_name)
-                objects = [
-                    {
-                        "id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"{class_name}|{c['source']}|{c['index']}")),
-                        "properties": {
-                            "content": c["content"], "source": c["source"],
-                            "profile": profile.name, "chunkIndex": c["index"],
-                        },
-                        "vector": c["vector"],
-                    }
-                    for c in state["chunks"]
-                ]
+                objects = self._weaviate_objects(class_name, profile, state["chunks"])
                 total += await self.deps.weaviate.write_objects(class_name, objects)
-                await self.deps.weaviate.reconcile_objects(
-                    class_name,
-                    profile.name,
-                    [obj["id"] for obj in objects],
+                # Reconcile PER SOURCE. The deletion pass treats "not in this
+                # run's output" as "stale", which conflates it with "this run
+                # could not produce it" — so a document that FAILED had its
+                # previously ingested vectors deleted.
+                #
+                # Skipping the whole reconcile when anything failed was the
+                # wrong correction: one permanently-broken file (a corrupt PDF,
+                # an oversize doc) then disabled stale cleanup FOREVER, so
+                # vectors of documents the operator DELETED stayed searchable
+                # indefinitely. Preserve exactly the sources that failed, and
+                # clean up everything else.
+                #
+                # `failed_sources` is collected in `state` during this ATTEMPT,
+                # not derived from `record.errors` — that list is reloaded with
+                # the record and carries entries from earlier attempts, so a
+                # clean Celery retry would otherwise still skip the cleanup.
+                await self._reconcile_kept_sources(
+                    record, profile, state, class_name, objects
                 )
             except PhaseFatal:
                 raise

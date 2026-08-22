@@ -104,9 +104,9 @@ def test_airflow_uses_supported_core_and_unfrozen_provider_security_fixes() -> N
     dockerfile = _text("services/airflow/build/Dockerfile")
     requirements = _text("services/airflow/build/requirements.txt")
 
-    assert 'default: "apache/airflow:3.3.0"' in manifest
-    assert "apache/airflow:3.3.0" in compose
-    assert "ARG BASE_IMAGE=apache/airflow:3.3.0" in dockerfile
+    assert 'default: "apache/airflow:3.3.1"' in manifest
+    assert "apache/airflow:3.3.1" in compose
+    assert "ARG BASE_IMAGE=apache/airflow:3.3.1" in dockerfile
     assert "--constraint" not in dockerfile
     assert "setuptools>=83.0.0" in requirements
     # #782: the 6.x spark provider swapped its dep to pyspark-client, whose
@@ -123,7 +123,7 @@ def test_airflow_build_validation_uses_runtime_core_release() -> None:
     contributor_docs = _text("docs/CONTRIBUTING-services.md")
     dependabot = _text(".github/dependabot.yml")
 
-    assert "--build-arg BASE_IMAGE=apache/airflow:3.3.0" in workflow
+    assert "--build-arg BASE_IMAGE=apache/airflow:3.3.1" in workflow
     assert "--build-arg BASE_IMAGE=apache/airflow:3.2.2" not in workflow
     for context in ("services/asset-worker/app", "services/asset-baker/app"):
         assert context in workflow

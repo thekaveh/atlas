@@ -21,6 +21,8 @@ import subprocess
 import tarfile
 from pathlib import Path
 
+from types import SimpleNamespace
+
 import pytest
 
 from services import vllm_metal_manager as mod
@@ -475,6 +477,9 @@ def test_start_launches_and_writes_pid(tmp_path, monkeypatch):
         pid = 9911
 
     def fake_popen(args, **kwargs):
+        # Ignore the `ps` identity probe that stamps the pid file.
+        if args and args[0] == "ps":
+            return SimpleNamespace(pid=0, returncode=0, stdout="", stderr="")
         captured["args"] = args
         captured["env"] = kwargs.get("env")
         return _FakeProc()
@@ -483,7 +488,7 @@ def test_start_launches_and_writes_pid(tmp_path, monkeypatch):
     status, created = mgr.start_with_ownership()
     assert status.running and status.pid == 9911
     assert created is True
-    assert mgr.pid_file.read_text().strip() == "9911"
+    assert mgr.pid_file.read_text(encoding="utf-8").splitlines()[0] == "9911"
     # Correct entrypoint + model wiring.
     assert "vllm.entrypoints.openai.api_server" in captured["args"]
     assert "--model" in captured["args"]
@@ -531,8 +536,15 @@ def test_start_sets_hf_home_when_cache_dir(tmp_path, monkeypatch):
     class _FakeProc:
         pid = 7
 
-    monkeypatch.setattr(mod.subprocess, "Popen",
-                        lambda args, **kw: (captured.update(env=kw.get("env")), _FakeProc())[1])
+    def _popen(args, **kw):
+        # Ignore the `ps` identity probe that stamps the pid file — it would
+        # otherwise overwrite the launch env this test is asserting on.
+        if args and args[0] == "ps":
+            return SimpleNamespace(pid=0, returncode=0, stdout="", stderr="")
+        captured.update(env=kw.get("env"))
+        return _FakeProc()
+
+    monkeypatch.setattr(mod.subprocess, "Popen", _popen)
     mgr.start()
     assert captured["env"]["HF_HOME"] == str(cache)
 
@@ -848,3 +860,33 @@ def test_live_managed_host_serves_model():
     health = mgr.health()
     assert health["reachable"], health
     assert health["models"], "expected at least one served model id"
+
+
+def test_the_pid_file_round_trips_through_its_own_reader(tmp_path):
+    """The writer and the reader must agree.
+
+    `write_pid_file_with_identity` emits `pid\nstart_utc=...`; a reader that
+    parses the WHOLE file with `int()` raises ValueError and returns None on
+    every host where `ps` answers, inverting the lifecycle — status reports
+    not-running while it runs, stop deletes the record and leaves it alive.
+
+    This exact defect shipped in the ComfyUI-MPS manager and was invisible to a
+    full green suite, because every test there stubbed `ps` so the two-line
+    file never existed. That is why this pins the PAIR directly rather than
+    going through a stubbed start path.
+    """
+    from services.managed_host import write_pid_file_with_identity
+
+    mgr = _mgr(tmp_path)
+    mgr.state_dir.mkdir(parents=True, exist_ok=True)
+
+    write_pid_file_with_identity(mgr.pid_file, 55163, "Fri Aug 21 22:53:12 2026")
+    assert mgr.pid_file.read_text(encoding="utf-8").count("\n") == 2
+    assert mgr._read_pid() == 55163, "the writer's own output is unreadable"
+
+    mgr.pid_file.write_text("4242\n", encoding="utf-8")
+    assert mgr._read_pid() == 4242, "a legacy single-line file must still parse"
+
+    for bad in ("0\n", "-1\n", "garbage\n", ""):
+        mgr.pid_file.write_text(bad, encoding="utf-8")
+        assert mgr._read_pid() is None, bad

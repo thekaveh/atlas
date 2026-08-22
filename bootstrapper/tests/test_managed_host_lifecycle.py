@@ -232,3 +232,50 @@ def test_uncancellable_cleanup_wait_survives_repeated_cancellation():
         return await waiter
 
     assert asyncio.run(scenario()) == "settled"
+
+
+def test_both_pipelines_run_the_same_post_up_steps():
+    """The TUI runs its own `up -d` and never calls `start_docker_services`.
+
+    `_reactivate_n8n_if_needed` lives inside that method, so the step was
+    unreachable on the DEFAULT path: a consumer-declared active n8n workflow
+    with no `N8N_API_KEY` left its production webhook 404 under `./start.sh`
+    while working under `./start.sh --no-tui`. Ordering matters too — the
+    restart must land after the init containers have seeded and before
+    ownership is committed.
+    """
+    import ast
+    import inspect
+    from pathlib import Path
+
+    steps = (
+        "verify_one_shot_init_containers",
+        "_reactivate_n8n_if_needed",
+        "commit_managed_host_processes",
+    )
+
+    # Order by POSITION IN THE SOURCE, not by iterating `steps` — a
+    # comprehension over `steps` yields them in `steps` order no matter what
+    # the source says, so the original assertion could only ever detect a
+    # MISSING step. Verified against a deliberately reversed body: it passed.
+    linear = inspect.getsource(start_module.AtlasStarter.start_docker_services)
+    assert all(s in linear for s in steps), [s for s in steps if s not in linear]
+    linear_order = sorted(steps, key=linear.index)
+    assert linear_order == list(steps), linear_order
+
+    tui_src = (
+        Path(start_module.__file__).parent / "ui" / "textual" / "screens" / "wizard_screen.py"
+    ).read_text(encoding="utf-8")
+    tree = ast.parse(tui_src)
+    pipeline = next(
+        node for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name == "_run_pipeline_and_stream"
+    )
+    body = ast.get_source_segment(tui_src, pipeline) or ""
+    missing = [s for s in steps if s not in body]
+    assert not missing, f"the Textual pipeline is missing a post-up step: {missing}"
+    tui_order = sorted(steps, key=body.index)
+    assert tui_order == list(steps), (
+        f"the Textual pipeline misorders its post-up steps: {tui_order}"
+    )

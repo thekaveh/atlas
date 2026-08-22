@@ -55,7 +55,13 @@ class ServiceEndpoints:
     container_var: str | None = None      # canonical in-network URL var
     container_secret: bool = False        # value embeds a secret (e.g. REDIS_URL)
     public_var: str | None = None         # browser-facing public base var
-    host_port_var: str | None = None      # → http://localhost:${port}
+    host_port_var: str | None = None      # → <host_scheme>://localhost:${port}
+    #: Scheme for the HOST endpoint. `_managed_host_endpoint` already states
+    #: the rule this exists to keep: "A raw-socket service exported as
+    #: `http://` hands a consumer a URL no HTTP client can use." REDIS
+    #: advertised `redis://…` for its container endpoint and `http://…` for
+    #: its host endpoint — the same service disagreeing with itself.
+    host_scheme: str = "http"
     # source value → host port for host-process sources (overrides host_port_var)
     host_port_overrides: Mapping[str, HostPortOverride] = field(default_factory=dict)
     kong_alias: str | None = None         # → http://<alias>:${KONG_HTTP_PORT}
@@ -128,6 +134,14 @@ CONSUMER_SERVICES: tuple[ServiceEndpoints, ...] = (
         source_var="WEAVIATE_SOURCE",
         container_var="WEAVIATE_URL",
         host_port_var="WEAVIATE_PORT",
+        # Under `localhost` the container is `scale: 0` (see the manifest's
+        # runtime_sc), so the compose-published WEAVIATE_PORT is dead and the
+        # host process serves on WEAVIATE_LOCALHOST_PORT — exactly the signal
+        # HostPortOverride exists to consume. Without this the export handed
+        # consumers a port nothing listens on.
+        host_port_overrides={
+            "localhost": HostPortOverride("WEAVIATE_LOCALHOST_PORT", "8080"),
+        },
         kong_alias="weaviate.localhost",
     ),
     ServiceEndpoints(
@@ -148,6 +162,7 @@ CONSUMER_SERVICES: tuple[ServiceEndpoints, ...] = (
         container_var="REDIS_URL",
         container_secret=True,
         host_port_var="REDIS_PORT",
+        host_scheme="redis",
     ),
     ServiceEndpoints(
         service="SUPABASE",
@@ -235,12 +250,15 @@ def _expand_interpolation(value: str, env: Mapping[str, str]) -> str:
 
 
 def _host_url(
-    env: Mapping[str, str], port_var: str, default: str | None = None
+    env: Mapping[str, str],
+    port_var: str,
+    default: str | None = None,
+    scheme: str = "http",
 ) -> str | None:
     port = env.get(port_var, "").strip() or (default or "")
     if not port:
         return None
-    return f"http://localhost:{port}"
+    return f"{scheme}://localhost:{port}"
 
 
 def _kong_url(env: Mapping[str, str], alias: str) -> str | None:
@@ -315,7 +333,7 @@ def build_export(
             host_port_var = override.port_var
             host_port_default = override.default
         if host_port_var:
-            host = _host_url(env, host_port_var, host_port_default)
+            host = _host_url(env, host_port_var, host_port_default, svc.host_scheme)
             if host:
                 out.append(ExportField(f"{prefix}_HOST_ENDPOINT", host))
         if svc.kong_alias:

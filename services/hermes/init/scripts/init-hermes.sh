@@ -154,7 +154,27 @@ if [[ -z "${HERMES_DEFAULT_MODEL}" ]]; then
     fi
   fi
   if [[ -z "${HERMES_DEFAULT_MODEL}" ]]; then
-    log "⚠ could not auto-select a default model — config.yaml will have model.default empty; set HERMES_DEFAULT_MODEL in .env explicitly"
+    # FAIL, per this file's header contract: "Exits non-zero on any unexpected
+    # condition so docker compose surfaces the failure instead of letting
+    # hermes start with a broken config."
+    #
+    # Warning-and-continuing produced exactly the state the contract exists to
+    # prevent, and the comment above already spells it out: `default: null`
+    # means every Hermes request 500s and Open WebUI's `hermes-agent` route
+    # returns errors. Worse, hermes's own healthcheck hits `/v1/models` and
+    # passes regardless, so the container reports HEALTHY while nothing works —
+    # indistinguishable from "Hermes can't see any models".
+    #
+    # Contained: nothing declares a `depends_on` for `hermes`, so this blocks
+    # only hermes itself and the rest of the stack comes up normally.
+    log "✖ could not resolve a default model for Hermes."
+    log "  Hermes is single-default-model: without one, every request returns 500"
+    log "  while the container still reports healthy."
+    log "  LiteLLM catalog seen: ${available_ids:-<empty>}"
+    log "  Fix: set HERMES_DEFAULT_MODEL in .env to a chat model LiteLLM serves,"
+    log "       or make one available (a stack with only an embedding model"
+    log "       pulled has no chat model to select)."
+    exit 1
   fi
   export HERMES_DEFAULT_MODEL
 fi

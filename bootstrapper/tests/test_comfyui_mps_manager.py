@@ -402,6 +402,11 @@ def test_start_launches_and_records_pid(tmp_path, monkeypatch):
     launched = {}
 
     def fake_popen(args, **kwargs):
+        # The manager also shells out to `ps` to stamp the pid file with the
+        # process start time — its identity, replacing the old argv-substring
+        # guess. Record only the real launch.
+        if args and args[0] == "ps":
+            return SimpleNamespace(pid=0, returncode=0, stdout="", stderr="")
         launched["args"] = args
         launched["kwargs"] = kwargs
         return SimpleNamespace(pid=4242)
@@ -410,7 +415,7 @@ def test_start_launches_and_records_pid(tmp_path, monkeypatch):
     status, created = mgr.start_with_ownership()
     assert status.running and status.pid == 4242 and status.port == 8188
     assert created is True
-    assert mgr.pid_file.read_text().strip() == "4242"
+    assert mgr.pid_file.read_text().splitlines()[0] == "4242"
     # launched with the pinned port, loopback bind, and reused model paths
     assert "--port" in launched["args"] and "8188" in launched["args"]
     assert "--listen" in launched["args"] and "127.0.0.1" in launched["args"]
@@ -668,6 +673,9 @@ def test_start_clears_stale_stranger_pidfile_and_launches(tmp_path, monkeypatch)
     launched: list[int] = []
 
     def fake_popen(*_args, **_kwargs):
+        # Ignore the `ps` identity probe that stamps the pid file.
+        if _args and _args[0] and _args[0][0] == "ps":
+            return SimpleNamespace(pid=0, returncode=0, stdout="", stderr="")
         launched.append(7777)
         return SimpleNamespace(pid=7777)
 
@@ -676,8 +684,9 @@ def test_start_clears_stale_stranger_pidfile_and_launches(tmp_path, monkeypatch)
     status = mgr.start()
     assert launched == [7777]  # it relaunched, did not no-op
     assert status.pid == 7777
-    # The stale pointer was replaced by the freshly launched PID.
-    assert mgr.pid_file.read_text(encoding="utf-8").strip() == "7777"
+    # The stale pointer was replaced by the freshly launched PID. The file is
+    # now `pid\nstart_utc=...` — the pid is the first line (see `_read_pid`).
+    assert mgr.pid_file.read_text(encoding="utf-8").splitlines()[0] == "7777"
 
 
 # ─────────────────────────── health ───────────────────────────
@@ -771,6 +780,9 @@ def test_concurrent_starts_assign_ownership_to_one_launcher(tmp_path, monkeypatc
     launches: list[int] = []
 
     def fake_popen(*_args, **_kwargs):
+        # Ignore the `ps` identity probe that stamps the pid file.
+        if _args and _args[0] and _args[0][0] == "ps":
+            return SimpleNamespace(pid=0, returncode=0, stdout="", stderr="")
         launches.append(4242)
         time.sleep(0.05)
         return SimpleNamespace(pid=4242)
@@ -1069,6 +1081,9 @@ def test_listen_flows_to_comfyui_launch_argv(tmp_path, monkeypatch):
     captured = {}
 
     def fake_popen(args, *a, **k):
+        # Ignore the `ps` identity probe that stamps the pid file.
+        if args and args[0] == "ps":
+            return SimpleNamespace(pid=0, returncode=0, stdout="", stderr="")
         captured["args"] = list(args)
         return SimpleNamespace(pid=4242)
 
@@ -1078,3 +1093,125 @@ def test_listen_flows_to_comfyui_launch_argv(tmp_path, monkeypatch):
     args = captured["args"]
     assert "--listen" in args
     assert args[args.index("--listen") + 1] == "0.0.0.0"  # binds all interfaces
+
+
+# ── pass 21: (pid, start time) identity, shared with managed_host ────
+
+
+def test_pid_ownership_uses_start_time_not_argv(tmp_path, monkeypatch):
+    """`markers = ("main.py", "ComfyUI", repo_dir, state_dir)` is not an identity.
+
+    The first two are generic substrings. After a crash left the pid file
+    behind and the OS recycled the pid onto ANY process whose argv contains
+    them — a user's own ComfyUI install, any `python main.py` app — this
+    returned False and `_terminate_pid` escalated to `os.killpg(pid, SIGKILL)`
+    on the stranger's whole process group. Verified before the fix: an
+    unrelated app and its worker child were both killed.
+
+    `(pid, start time)` is unique on POSIX, which is what
+    `managed_host.pid_is_stranger` compares. An argv is rewritten by a wrapper
+    script, `exec`, `setproctitle` or a gunicorn/celery master.
+    """
+    from services.managed_host import write_pid_file_with_identity
+
+    mgr = _mgr(tmp_path)
+    mgr.state_dir.mkdir(parents=True, exist_ok=True)
+
+    # A recycled pid: the file's stamp does not match the live process.
+    write_pid_file_with_identity(mgr.pid_file, 4242, "Mon Jan  1 00:00:00 2024")
+    monkeypatch.setattr(
+        "services.managed_host.ManagedHostManager._process_start_time",
+        staticmethod(lambda pid: "Tue Feb  2 02:02:02 2027"),
+    )
+    assert mgr._pid_is_stranger(4242) is True, "a recycled pid would be killed"
+
+    # ...and the same pid when the stamp matches is ours.
+    monkeypatch.setattr(
+        "services.managed_host.ManagedHostManager._process_start_time",
+        staticmethod(lambda pid: "Mon Jan  1 00:00:00 2024"),
+    )
+    assert mgr._pid_is_stranger(4242) is False
+
+
+def test_a_legacy_unstamped_pid_file_degrades_to_proceed(tmp_path, monkeypatch):
+    """An unknowable probe must never block teardown — the pre-existing rule."""
+    mgr = _mgr(tmp_path)
+    mgr.state_dir.mkdir(parents=True, exist_ok=True)
+    mgr.pid_file.write_text("4242\n", encoding="utf-8")
+    monkeypatch.setattr(
+        "services.managed_host.ManagedHostManager._process_start_time",
+        staticmethod(lambda pid: "Tue Feb  2 02:02:02 2027"),
+    )
+    assert mgr._pid_is_stranger(4242) is False
+
+
+def test_the_pid_file_round_trips_through_its_own_reader(tmp_path):
+    """The writer and the reader must agree — they did not.
+
+    `write_pid_file_with_identity` emits `pid\nstart_utc=...`, but `_read_pid`
+    parsed the WHOLE file with `int()`, so it raised ValueError and returned
+    None on every launch where `ps` answers — i.e. every macOS host, the only
+    platform MPS supports. The whole lifecycle inverted: `status` reported
+    not-running while it ran, `stop` deleted the pid file and returned False
+    with the process alive, `remove` rmtree'd the install out from under it,
+    the next `start` failed with "port already in use", and rollback printed
+    success.
+
+    This replaces an `inspect.getsource` string grep, which could not see the
+    defect because it never exercised the pair. Every existing test stubs
+    `ps`, so the two-line file never appeared in any of them — and the
+    pre-existing assertion had been WEAKENED to `.splitlines()[0]`, encoding
+    the new format in the test while production still parsed the whole file.
+    """
+    from services.managed_host import write_pid_file_with_identity
+
+    mgr = _mgr(tmp_path)
+    mgr.state_dir.mkdir(parents=True, exist_ok=True)
+
+    write_pid_file_with_identity(mgr.pid_file, 55163, "Fri Aug 21 22:53:12 2026")
+    assert mgr.pid_file.read_text(encoding="utf-8").count("\n") == 2
+    assert mgr._read_pid() == 55163, "the writer's own output is unreadable"
+
+    # a single-line file from an earlier version still parses
+    mgr.pid_file.write_text("4242\n", encoding="utf-8")
+    assert mgr._read_pid() == 4242
+
+    # and a non-positive pid is refused — `_terminate_pid` escalates to
+    # os.killpg, where 0 is the CALLER's group and -1 is a broadcast
+    for bad in ("0\n", "-1\n", "garbage\n", ""):
+        mgr.pid_file.write_text(bad, encoding="utf-8")
+        assert mgr._read_pid() is None, bad
+
+
+def test_a_real_spawn_is_reported_running(tmp_path, monkeypatch):
+    """A REAL child, a REAL `ps` probe, and NO stdlib patching.
+
+    The previous version patched `mod.subprocess.Popen` — the stdlib module
+    object — which intercepted `managed_host._process_start_time`'s own
+    `subprocess.run(["ps", ...])`. That returned None, the pid file was written
+    SINGLE-line, and the two-line format the test claimed to exercise never
+    existed: re-installing the pre-fix reader left it passing.
+
+    So this patches NOTHING in subprocess. It spawns a real process, runs the
+    real identity probe against it, writes the real two-line pid file, and
+    asserts the reader/ownership/status trio agrees — which is the pairing the
+    regression broke. Mutation-checked: it fails with the pre-fix reader.
+    """
+    child = subprocess.Popen(["/bin/sleep", "30"], start_new_session=True)
+
+    mgr = _mgr(tmp_path)
+    monkeypatch.setattr(ComfyUiMpsManager, "_port_in_use", lambda self: False)
+    try:
+        from services.managed_host import ManagedHostManager, write_pid_file_with_identity
+
+        stamp = ManagedHostManager._process_start_time(child.pid)
+        assert stamp, "the real ps probe returned nothing — cannot exercise the pair"
+        mgr.state_dir.mkdir(parents=True, exist_ok=True)
+        write_pid_file_with_identity(mgr.pid_file, child.pid, stamp)
+
+        assert mgr._read_pid() == child.pid, "the real two-line pid file is unreadable"
+        assert mgr._pid_is_stranger(child.pid) is False, "our own process read as a stranger"
+        assert mgr.status().running is True, "a live process reported not-running"
+    finally:
+        child.kill()
+        child.wait()

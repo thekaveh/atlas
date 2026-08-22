@@ -54,6 +54,8 @@ class FakeWeaviate:
         self.classes = []
         self.object_ids = set()
         self.reconciled = []
+        self.preserved = []
+        self.source_of = {}
     def available(self):
         return self._available
     async def ensure_class(self, class_name):
@@ -61,10 +63,21 @@ class FakeWeaviate:
     async def write_objects(self, class_name, objects):
         self.written.extend(objects)
         self.object_ids.update(obj["id"] for obj in objects)
+        # Track each object's source so the fake can model per-source
+        # preservation the way the real client does.
+        for obj in objects:
+            self.source_of[obj["id"]] = obj.get("properties", {}).get("source")
         return len(objects)
-    async def reconcile_objects(self, class_name, profile_name, desired_ids):
+    async def reconcile_objects(
+        self, class_name, profile_name, desired_ids, preserve_sources=None
+    ):
+        keep_sources = set(preserve_sources or ())
         self.reconciled.append((class_name, profile_name, list(desired_ids)))
-        self.object_ids.intersection_update(desired_ids)
+        self.preserved.append(sorted(keep_sources))
+        survivors = set(desired_ids) | {
+            oid for oid in self.object_ids if self.source_of.get(oid) in keep_sources
+        }
+        self.object_ids.intersection_update(survivors)
         return 0
 
 
@@ -1576,3 +1589,278 @@ def test_weaviate_class_name_sanitizes_profile_name():
     assert _re.match(r"^[A-Z][_0-9A-Za-z]*$", name)
     # dots are sanitized too
     assert weaviate_class_name("Docs", "v1.2-beta") == "Docs_v1_2_beta"
+
+
+# ── a failed run must never be mistaken for an empty corpus ──────────
+
+
+def test_a_run_where_every_document_fails_does_not_wipe_the_corpus(tmp_path, monkeypatch):
+    """`reconcile_objects(cls, profile, [])` deletes EVERY object for a profile.
+
+    Reaching that branch after files were discovered wiped the entire previous
+    generation — and the job still reported `status: "completed"`, so a
+    consumer polling for completion could not tell it from success.
+    Reproducible three ways: every file 5xx from the parser, an
+    `overlap >= chunk_size` profile, and documents that parse to whitespace
+    (that last one records ZERO errors).
+    """
+    root = _corpus(tmp_path, monkeypatch, {"a.txt": "content", "b.txt": "more"})
+    profile_path = _profiles_file(tmp_path)
+    weaviate = FakeWeaviate()
+    service = _service(
+        tmp_path,
+        Deps(
+            embedder=FakeEmbedder(),
+            weaviate=weaviate,
+            lightrag=FakeLightrag(available=False),
+            poll_interval=0.01,
+        ),
+        profile_path,
+    )
+    first, _ = service.submit("showcase-default")
+    assert asyncio.run(service.run(first.id)).status == "completed"
+    seeded = set(weaviate.object_ids)
+    assert seeded, "precondition: a previous generation exists"
+
+    # Every document now parses to whitespace — files ARE discovered, but no
+    # chunk survives.
+    for name in ("a.txt", "b.txt"):
+        (root / "docs" / name).write_text("   \n  ", encoding="utf-8")
+
+    second, _ = service.submit("showcase-default")
+    final = asyncio.run(service.run(second.id))
+
+    assert final.counts.get("files_discovered") == 2
+    assert final.counts.get("chunks", 0) == 0
+    # ...and it must REPORT the failure. Terminal status is
+    # `FAILED if record.errors and _has_fatal_phase(...)`, so setting only the
+    # phase status short-circuited to COMPLETED — the run said success while
+    # having produced nothing. This assertion was missing from the original.
+    assert final.status == "failed", f"a total-failure run reported {final.status!r}"
+    assert final.errors, "the failure was not recorded"
+    # the previous generation survives, and nothing was reconciled away
+    assert weaviate.object_ids == seeded, "the corpus was deleted"
+    assert weaviate.reconciled[-1] != (
+        "RagShowcase_showcase_default", "showcase-default", [],
+    ), "a total-failure run reconciled against an empty desired set"
+
+
+def test_a_failed_document_keeps_its_previously_ingested_vectors(tmp_path, monkeypatch):
+    """The reconcile treats "not in this run's output" as "stale".
+
+    That conflates it with "this run could not produce it", so a document that
+    FAILED had its previously ingested vectors deleted while the job reported
+    completed — a transient parser blip destroying good data.
+
+    Note the distinction this test is careful about: a file the operator
+    EMPTIED should lose its vectors (that is the reconcile doing its job).
+    Only a recorded failure is protected, which is why the trigger here is an
+    oversize document that lands in `errors[]`.
+    """
+    files = {"a.txt": "alpha content here", "big.txt": "the quick brown fox"}
+    root = _corpus(tmp_path, monkeypatch, files)
+    profile_path = _profiles_file(tmp_path)
+    weaviate = FakeWeaviate()
+    service = _service(
+        tmp_path,
+        Deps(
+            embedder=FakeEmbedder(),
+            weaviate=weaviate,
+            lightrag=FakeLightrag(available=False),
+            poll_interval=0.01,
+        ),
+        profile_path,
+    )
+    first, _ = service.submit("showcase-default")
+    assert asyncio.run(service.run(first.id)).status == "completed"
+    both = set(weaviate.object_ids)
+    assert len(both) >= 2, "precondition: both files ingested"
+
+    # big.txt now exceeds ChunkRequest's 1M-char cap -> a recorded chunk-phase
+    # error, while a.txt is unchanged.
+    (root / "docs" / "big.txt").write_text("x " * 600_000, encoding="utf-8")
+    second, _ = service.submit("showcase-default")
+    final = asyncio.run(service.run(second.id))
+
+    assert final.errors, "precondition: the oversize document was recorded as an error"
+    assert final.counts.get("chunks", 0) > 0, "a.txt should still ingest"
+    assert both <= weaviate.object_ids, (
+        "the failed document's previously ingested vectors were deleted"
+    )
+
+
+def test_a_genuinely_empty_corpus_still_reconciles(tmp_path, monkeypatch):
+    """The guard must not break the legitimate empty-corpus wipe."""
+    root = _corpus(tmp_path, monkeypatch, {"a.txt": "content"})
+    profile_path = _profiles_file(tmp_path)
+    weaviate = FakeWeaviate()
+    service = _service(
+        tmp_path,
+        Deps(
+            embedder=FakeEmbedder(),
+            weaviate=weaviate,
+            lightrag=FakeLightrag(available=False),
+            poll_interval=0.01,
+        ),
+        profile_path,
+    )
+    first, _ = service.submit("showcase-default")
+    assert asyncio.run(service.run(first.id)).status == "completed"
+
+    (root / "docs" / "a.txt").unlink()
+    second, _ = service.submit("showcase-default")
+    final = asyncio.run(service.run(second.id))
+
+    assert final.status == "completed", final.errors
+    assert final.counts.get("files_discovered", 0) == 0
+    assert weaviate.object_ids == set()
+
+
+def test_a_permanently_failing_document_does_not_block_stale_cleanup(tmp_path, monkeypatch):
+    """Skipping the whole reconcile on any error was the wrong correction.
+
+    One permanently-broken file — a corrupt PDF, an oversize document — then
+    disabled stale-object cleanup FOREVER, so vectors of documents the operator
+    DELETED stayed searchable indefinitely while the job reported completed.
+    Reconcile is per SOURCE: preserve exactly what failed, clean up the rest.
+    """
+    root = _corpus(tmp_path, monkeypatch, {
+        "good.txt": "alpha content", "bad.txt": "beta content", "gone.txt": "gamma content",
+    })
+    profile_path = _profiles_file(tmp_path)
+    weaviate = FakeWeaviate()
+    service = _service(
+        tmp_path,
+        Deps(embedder=FakeEmbedder(), weaviate=weaviate,
+             lightrag=FakeLightrag(available=False), poll_interval=0.01),
+        profile_path,
+    )
+    first, _ = service.submit("showcase-default")
+    assert asyncio.run(service.run(first.id)).status == "completed"
+
+    (root / "docs" / "bad.txt").write_text("x " * 600_000, encoding="utf-8")  # always fails
+    (root / "docs" / "gone.txt").unlink()                                     # operator deleted
+
+    for _ in range(3):
+        nxt, _ = service.submit("showcase-default")
+        asyncio.run(service.run(nxt.id))
+
+    sources = {weaviate.source_of.get(oid) for oid in weaviate.object_ids}
+    assert any("bad.txt" in (s or "") for s in sources), (
+        "the permanently-failing document's vectors were deleted"
+    )
+    assert not any("gone.txt" in (s or "") for s in sources), (
+        "a deleted document's vectors leaked because cleanup was disabled"
+    )
+    assert weaviate.preserved[-1] and "bad.txt" in weaviate.preserved[-1][0]
+
+
+def test_a_retry_does_not_inherit_the_previous_attempt_s_failures(tmp_path, monkeypatch):
+    """`record.errors` is reloaded with the record and SPANS attempts.
+
+    Deriving the preserved set from it meant a clean Celery retry still skipped
+    cleanup, reporting a note claiming documents had failed when none had this
+    run. `state["failed_sources"]` is per-attempt by construction.
+
+    The previous version of this test did ONE clean run — with no prior attempt
+    there is nothing to inherit, so both implementations produced
+    `preserved == []` and reverting the fix left the file green. This drives
+    the real retry path: attempt 1 records a per-document failure and then dies
+    on a transient, attempt 2 sees a healthy corpus.
+    """
+    root = _corpus(tmp_path, monkeypatch, {"good.txt": "alpha content", "flaky.txt": "beta content"})
+    profile_path = _profiles_file(tmp_path)
+    weaviate = FakeWeaviate()
+    service = _service(
+        tmp_path,
+        Deps(embedder=FakeEmbedder(), weaviate=weaviate,
+             lightrag=FakeLightrag(available=False), poll_interval=0.01),
+        profile_path,
+    )
+
+    # Attempt 1: flaky.txt fails to chunk (lands in errors[]), then the run
+    # dies on a TRANSIENT so the SAME record is left retryable — this is the
+    # Celery retry path, not a fresh submission. A new `submit()` would create
+    # a new record with an empty errors[], which is why the earlier version of
+    # this test could not tell the two implementations apart.
+    (root / "docs" / "flaky.txt").write_text("x " * 600_000, encoding="utf-8")
+    record, _ = service.submit("showcase-default")
+
+    boom = {"raise": True}
+    real_reconcile = weaviate.reconcile_objects
+
+    async def flaky_reconcile(*args, **kwargs):
+        if boom["raise"]:
+            boom["raise"] = False
+            raise ConnectionError("transient upstream blip")
+        return await real_reconcile(*args, **kwargs)
+
+    weaviate.reconcile_objects = flaky_reconcile
+    with pytest.raises(ConnectionError):
+        asyncio.run(service.run(record.id, retry_transient=True))
+
+    reloaded = service.store.get(record.id)
+    assert reloaded.errors, "precondition: attempt 1's document failure persisted"
+
+    # Attempt 2 of the SAME record: the corpus is healthy again. `record.errors`
+    # still carries attempt 1's entry; `failed_sources` must not.
+    (root / "docs" / "flaky.txt").write_text("beta content restored", encoding="utf-8")
+    asyncio.run(service.run(record.id, retry_transient=True))
+
+    assert weaviate.preserved[-1] == [], (
+        f"a clean retry inherited the previous attempt's failures: "
+        f"{weaviate.preserved[-1]}"
+    )
+
+
+@pytest.mark.parametrize("content,preserve", [
+    (b"beta content", True),    # real bytes that parsed to whitespace = parser FAULT
+    (b"", False),               # the operator emptied it
+    (b"   \n \t ", False),      # ...likewise
+    (None, False),
+])
+def test_an_emptied_file_is_distinguished_from_a_parser_fault(content, preserve):
+    """Both reach the chunk phase with no text, and they want OPPOSITE outcomes.
+
+    An emptied file must LOSE its vectors — that is the reconcile doing its job,
+    and the contract stated in `test_a_failed_document_keeps_its_previously_
+    ingested_vectors`. A real document a parser turned into whitespace must KEEP
+    them, because deleting on a parser blip is the data loss the preserve-set
+    exists to prevent.
+
+    Preserving unconditionally meant an emptied file's stale content stayed
+    searchable forever, with the run reporting completed and zero errors.
+    """
+    import types
+
+    from rag_ingestion.service import RagIngestionService
+
+    state = {"files": [types.SimpleNamespace(name="a.txt", content=content)]}
+    assert RagIngestionService._source_had_content(state, "a.txt") is preserve
+
+
+def test_an_emptied_file_loses_its_vectors(tmp_path, monkeypatch):
+    """End-to-end for the operator-emptied half."""
+    root = _corpus(tmp_path, monkeypatch, {"keep.txt": "alpha content", "subject.txt": "beta content"})
+    profile_path = _profiles_file(tmp_path)
+    weaviate = FakeWeaviate()
+    service = _service(
+        tmp_path,
+        Deps(embedder=FakeEmbedder(), weaviate=weaviate,
+             lightrag=FakeLightrag(available=False), poll_interval=0.01),
+        profile_path,
+    )
+    first, _ = service.submit("showcase-default")
+    assert asyncio.run(service.run(first.id)).status == "completed"
+    assert any("subject" in (weaviate.source_of.get(o) or "") for o in weaviate.object_ids)
+
+    (root / "docs" / "subject.txt").write_text("   \n ", encoding="utf-8")
+    for _ in range(3):
+        nxt, _ = service.submit("showcase-default")
+        asyncio.run(service.run(nxt.id))
+
+    sources = {weaviate.source_of.get(o) for o in weaviate.object_ids}
+    assert not any("subject" in (s or "") for s in sources), (
+        "an emptied file's stale vectors survived — they can never be cleaned up"
+    )
+    assert any("keep" in (s or "") for s in sources)

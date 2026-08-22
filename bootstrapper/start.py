@@ -98,7 +98,7 @@ def _run_privileged_hosts_setup() -> bool:
 # Add the current directory to the path so we can import our modules
 sys.path.insert(0, str(Path(__file__).parent))
 
-from utils.atomic_write import atomic_write_text
+from utils.atomic_write import atomic_write_text, env_lines, render_env_assignment
 from utils.banner import BannerDisplay
 from utils.hosts_manager import HostsManager
 from utils.key_generator import KeyGenerator
@@ -111,6 +111,33 @@ from services.source_validator import SourceValidator
 from services.service_config import ServiceConfig
 from services.dependency_manager import DependencyManager
 from utils.source_override_manager import SourceOverrideManager
+
+#: Multi-select lists the wizard writes, where BLANK is a deliberate answer —
+#: "I selected none" — not a missing value. `.env.example` ships a non-empty
+#: default for each, so the blank-backfill in backfill_missing_env_vars would
+#: otherwise re-seed them on the very run that cleared them: deselecting every
+#: Ollama model writes `OLLAMA_USER_MODELS=`, backfill restored the default
+#: trio, and `ollama-pull` then downloaded several GB the user had just
+#: declined. Backfill exists to repair values that were never set, so it must
+#: not overwrite an intentional empty.
+_USER_OWNED_BLANKABLE: frozenset = frozenset({
+    "OLLAMA_USER_MODELS",
+    "OLLAMA_CUSTOM_MODELS",
+    "OPENAI_USER_MODELS",
+    "ANTHROPIC_USER_MODELS",
+    "OPENROUTER_USER_MODELS",
+    "COMFYUI_USER_MODELS",
+    # NOT WEAVIATE_ENABLE_MODULES: nothing in the wizard writes it, so it can
+    # only be blank by hand-edit or a legacy `.env` — precisely what backfill
+    # exists to repair. Exempting it meant the blank survived into
+    # `ServiceConfig`, where a present-but-empty key made `.get(key, default)`
+    # return `''` and collapse the module list to nothing, durably.
+    #
+    # N8N_INIT_NODES stays for symmetry with the other multi-select lists, but
+    # is belt-and-braces: `services/n8n/compose.yml` substitutes its defaults
+    # with `${N8N_INIT_NODES:-...}`, so a blank there is already harmless.
+    "N8N_INIT_NODES",
+})
 
 
 def _detect_env_image_drift(
@@ -669,7 +696,22 @@ class AtlasStarter:
             self.banner.show_status_message(f"  • {overlay_path} has no env overrides", "info")
             return {}
 
-        self._merge_env_file_overrides(overrides)
+        try:
+            self._merge_env_file_overrides(overrides)
+        except ValueError as e:
+            # `assert_safe_env_assignment` rejects a key or value that would
+            # emit more than one `.env` assignment. An overlay is a hand- or
+            # tool-written file, so a stray form feed or NEL is a plausible
+            # accident rather than an attack — warn and skip with the file
+            # named, like every other failure mode here, instead of aborting
+            # the whole start with a traceback that does not say which overlay
+            # produced it.
+            self.banner.show_status_message(
+                f"{label} points to {overlay_path}, but one of its entries "
+                f"cannot be written safely ({e}); skipping the overlay",
+                "warning",
+            )
+            return {}
         self.banner.show_status_message(
             f"  • Applied {overlay_path} ({len(overrides)} override{'s' if len(overrides) != 1 else ''})",
             "info",
@@ -764,7 +806,22 @@ class AtlasStarter:
         content = env_file_path.read_text(encoding="utf-8")
         updated_content = content
 
-        for var_name, var_value in overrides.items():
+        for var_name, raw_value in overrides.items():
+            # Belt-and-braces against `.env` line injection. `_set_scalar`
+            # rejects these at the parse boundary, but several paths build
+            # overrides without going through it — the env-user overlay,
+            # storage exports, auto-source and auto-BASE_PORT resolution, and
+            # the two profile-apply sites — so the writer must be safe whatever
+            # produced the entry.
+            #
+            # Both halves matter, because the emitted line is `KEY=VALUE`: a
+            # newline in the VALUE appends further assignments, and a newline
+            # or `=` in the KEY does exactly the same. `parse_env_file`
+            # resolves last-wins, so an injected line beats the real one — and
+            # the `^KEY=.*$` rewrite below is MULTILINE, not DOTALL, so a later
+            # run rewrites only the first line and leaves the remainder in
+            # place permanently.
+            var_value = render_env_assignment(var_name, raw_value)
             pattern = rf"^{re.escape(var_name)}=.*$"
             replacement = f"{var_name}={var_value}"
             if re.search(pattern, updated_content, re.MULTILINE):
@@ -865,7 +922,7 @@ class AtlasStarter:
                     "docker", "ps", "-q",
                     "--filter", f"label=com.docker.compose.project={project}",
                 ],
-                capture_output=True, text=True, timeout=10, check=False,
+                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10, check=False,
             )
             if probe.returncode != 0:
                 return True  # docker unreachable → conservative keep
@@ -1006,7 +1063,7 @@ class AtlasStarter:
         content = env_file_path.read_text(encoding="utf-8")
         kept = [
             line
-            for line in content.splitlines(keepends=True)
+            for line in env_lines(content, keepends=True)
             if not line.lstrip().startswith(prefix)
         ]
         updated = "".join(kept)
@@ -1201,7 +1258,7 @@ class AtlasStarter:
 
         existing_keys: set[str] = set()
         blank_keys: set[str] = set()
-        for line in env_text.splitlines():
+        for line in env_lines(env_text):
             stripped = line.strip()
             if not stripped or stripped.startswith("#"):
                 continue
@@ -1251,11 +1308,13 @@ class AtlasStarter:
         blank_fills = {
             key: example_values[key]
             for key in blank_keys
-            if example_values.get(key) and key not in migration_owned
+            if example_values.get(key)
+            and key not in migration_owned
+            and key not in _USER_OWNED_BLANKABLE
         }
         if blank_fills:
             new_lines: list[str] = []
-            for line in env_text.splitlines(keepends=True):
+            for line in env_lines(env_text, keepends=True):
                 stripped = line.strip()
                 if "=" in stripped and not stripped.startswith("#"):
                     key, _, raw_value = stripped.partition("=")
@@ -1354,7 +1413,7 @@ class AtlasStarter:
         ``.env`` files.
         """
         bar_re = re.compile(r"^#\s*[=─]{3,}\s*$")
-        lines = env_text.splitlines(keepends=True)
+        lines = env_lines(env_text, keepends=True)
         n = len(lines)
         # Walk env_text and record [(section_name, start_idx, end_idx)]
         # — start_idx is the line AFTER the closing bar of the banner
@@ -2784,13 +2843,23 @@ class AtlasStarter:
                 self.banner.console.print(f"   ⚠️  {violation['error_message']}")
 
             disabled_services = self.dependency_manager.auto_resolve_dependency_violations()
-            if disabled_services:
-                for service in disabled_services:
-                    self.banner.show_status_message(f"Auto-disabled {service} due to missing dependencies", "warning")
-                return True
-            else:
+            if not disabled_services:
                 self.banner.show_status_message("Could not auto-resolve dependency violations", "error")
                 return False
+            for service in disabled_services:
+                self.banner.show_status_message(f"Auto-disabled {service} due to missing dependencies", "warning")
+            # RE-CHECK. A non-empty list only says SOMETHING was disabled — not
+            # that every violation is resolved. If four of five writes failed,
+            # startup proceeded with the rest unresolved; and because the
+            # original check ran against the pre-write env, a service requiring
+            # one just auto-disabled was never re-evaluated (no such 2-hop
+            # chain exists in today's graph, but nothing prevents one).
+            if self.dependency_manager.check_service_dependencies():
+                return True
+            self.banner.show_status_message(
+                "Dependency violations remain after auto-resolution", "error"
+            )
+            return False
 
         return True
         
@@ -3573,16 +3642,16 @@ class AtlasStarter:
                 break
         if row is None:
             return "-"
-        if row.localhost_endpoint_var:
-            endpoint = env_vars.get(row.localhost_endpoint_var, '')
-            match = re.search(r':(\d+)', endpoint)
-            if match:
-                return f":{match.group(1)}"
-        if row.localhost_port_var:
-            port = env_vars.get(row.localhost_port_var, '').strip()
-            if port:
-                return f":{port}"
-        return "-"
+        # ONE definition, shared with the Textual ServiceTable. The local copy
+        # parsed the endpoint with a bare `:(\d+)`, which cannot match the
+        # stored literal `http://host:${COMFYUI_MPS_LOCALHOST_PORT:-8188}` —
+        # the `:` is followed by `$` — so it fell through to the wrong var and
+        # reported ComfyUI-MPS on 8000 instead of 8188, then raised a phantom
+        # collision against vLLM Metal.
+        from ui.state_builder import resolve_localhost_port
+
+        port = resolve_localhost_port(row, env_vars)
+        return f":{port}" if port else "-"
 
     @staticmethod
     def _get_service_status(source: str, scale: str) -> tuple:
@@ -5437,7 +5506,7 @@ def _parse_base_port_option(ctx, param, value):
               help='Override SPARK_SOURCE — standalone Spark cluster (master + workers + history).')
 @click.option('--spark-workers', type=int, default=None,
               help='Override SPARK_WORKER_COUNT — number of spark-worker replicas '
-                   'when --spark-source is container. Range 1-8 (clamped). '
+                   'when --spark-source is container. Must be in 1-8. '
                    'Mirrors --ray-worker-count. Defaults to 2 in .env.example.')
 @click.option('--zeppelin-source',
               type=click.Choice(['container', 'disabled'], case_sensitive=False),
@@ -5923,8 +5992,11 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
                     "--prometheus-retention-days must be in 1-365"
                 )
             user_model_selections['PROMETHEUS_RETENTION_DAYS'] = str(prometheus_retention_days)
-        # Spark worker count — same pattern as Ray's worker count. Clamp 1-8
-        # to match the wizard's SecondaryNumberInput contract.
+        # Spark worker count — same pattern as Ray's worker count: reject an
+        # out-of-range value rather than silently clamping it, so a wrapper
+        # passing a host-derived core count fails loudly instead of running a
+        # different topology than it asked for. Range mirrors the wizard's
+        # SecondaryNumberInput contract.
         if spark_workers is not None:
             if not 1 <= spark_workers <= 8:
                 raise click.UsageError("--spark-workers must be in 1-8")
