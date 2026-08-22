@@ -18,18 +18,30 @@ REPO_ROOT = __import__("pathlib").Path(__file__).resolve().parents[2]
 
 
 @pytest.fixture(scope="module")
-def kong_config() -> dict:
+def kong_config(tmp_path_factory) -> dict:
+    """Generate against a `.env` that HAS the Supabase keys.
+
+    They must be written to the file, not poked into `generator.env_vars`:
+    `generate_kong_config()` calls `load_environment_variables()` itself, which
+    re-reads `.env` and discards any post-hoc mutation. An earlier version of
+    this fixture did exactly that and passed only on a developer machine whose
+    `.env` had been through key generation — in CI, where `.env` is
+    materialized from `.env.example` with the keys blank, it failed. A test
+    that depends on the author's local secrets is not a test.
+    """
+    env_path = tmp_path_factory.mktemp("kong") / ".env"
+    source = (REPO_ROOT / ".env").read_text(encoding="utf-8") if (REPO_ROOT / ".env").exists() \
+        else (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+    lines = [
+        line for line in source.splitlines()
+        if not line.startswith(("SUPABASE_ANON_KEY=", "SUPABASE_SERVICE_KEY="))
+    ]
+    lines += ["SUPABASE_ANON_KEY=test-anon-key", "SUPABASE_SERVICE_KEY=test-service-key"]
+    env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
     parser = ConfigParser(str(REPO_ROOT))
+    parser.env_file_path = env_path
     generator = KongConfigGenerator(parser)
-    generator.load_environment_variables()
-    # Populate the keys so the Supabase consumers are exercised even when the
-    # developer's own .env has not been through key generation yet.
-    generator.env_vars.setdefault("SUPABASE_ANON_KEY", "test-anon-key")
-    generator.env_vars.setdefault("SUPABASE_SERVICE_KEY", "test-service-key")
-    if not generator.env_vars.get("SUPABASE_ANON_KEY"):
-        generator.env_vars["SUPABASE_ANON_KEY"] = "test-anon-key"
-    if not generator.env_vars.get("SUPABASE_SERVICE_KEY"):
-        generator.env_vars["SUPABASE_SERVICE_KEY"] = "test-service-key"
     raw = generator.generate_kong_config()
     return yaml.safe_load(raw) if isinstance(raw, str) else raw
 
