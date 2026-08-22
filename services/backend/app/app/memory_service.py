@@ -51,12 +51,20 @@ def _is_target_health_signal(exc: BaseException) -> bool:
     if isinstance(exc, _TARGET_TRANSIENT):
         return True
     if isinstance(exc, httpx.HTTPStatusError):
-        status = exc.response.status_code
+        # `getattr`, not `exc.response`: this runs INSIDE the loop's
+        # `except Exception` handler, so an AttributeError here would escape
+        # `_reconcile_pending_vectors` entirely instead of deferring the row.
+        # httpx requires `response` today, but a subclass need not.
+        response = getattr(exc, "response", None)
+        status = getattr(response, "status_code", None)
+        if status is None:
+            return False
         return status >= 500 or status in _TARGET_HEALTH_STATUSES
     return False
 
 
-#: How many CONSECUTIVE transient failures mean the sync target itself is down
+#: How many TARGET-HEALTH failures since the last successful row mean the
+#: sync target itself is down
 #: rather than one bad row.
 #:
 #: A bare `break` on the first failure was strictly worse than the `continue`
@@ -588,7 +596,7 @@ Extract the facts as JSON:"""
             # shared pool (would pin a bounded slot across slow I/O).
             conn = await connect_postgres(self.database_url)
         reconciled = 0
-        consecutive_transient = 0
+        target_failures_since_progress = 0
         try:
             rows = await conn.fetch(
                 """
@@ -617,11 +625,15 @@ Extract the facts as JSON:"""
                     if not target_signal:
                         # A row-specific failure says nothing about the
                         # target's health, so it must not COUNT toward the
-                        # streak — but it does break the run, so reset it.
-                        consecutive_transient = 0
+                        # streak — and it must not RESET it either. Resetting
+                        # let interleaved shapes defeat the cap entirely:
+                        # `503,503,400` repeating, or `429,400` repeating,
+                        # ran all 100 rows and never halted. Only PROGRESS
+                        # proves the target is reachable, so only progress
+                        # clears the counter.
                         continue
-                    consecutive_transient += 1
-                    if consecutive_transient >= _RECONCILE_TRANSIENT_STREAK:
+                    target_failures_since_progress += 1
+                    if target_failures_since_progress >= _RECONCILE_TRANSIENT_STREAK:
                         self._log_reconcile_halt(reconciled, exc)
                         break
                     continue
@@ -636,7 +648,7 @@ Extract the facts as JSON:"""
                 # a later pass reconciles the current content.
                 await self._clear_pending_flag(conn, row, new_weaviate_id)
                 reconciled += 1
-                consecutive_transient = 0  # progress: the target is reachable
+                target_failures_since_progress = 0  # progress: the target is reachable
         finally:
             if owns_connection:
                 await conn.close()
