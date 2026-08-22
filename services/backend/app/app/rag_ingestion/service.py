@@ -527,6 +527,7 @@ class RagIngestionService:
                 parsed_ok += 1
             except ParserError as exc:
                 # Per-file failure is recorded + isolated; other files still parse.
+                state.setdefault("failed_sources", set()).add(file.name)
                 record.add_error(
                     IngestionError(
                         phase="parse", file=file.name, message=str(exc),
@@ -576,6 +577,7 @@ class RagIngestionService:
                 # Per-document failure — e.g. doc.text over ChunkRequest's length
                 # cap, or a chonkie chunking error. Isolate it and continue like
                 # _phase_parse does, instead of aborting the whole corpus.
+                state.setdefault("failed_sources", set()).add(doc.name)
                 record.add_error(
                     IngestionError(phase="chunk", file=doc.name, message=str(exc))
                 )
@@ -626,14 +628,48 @@ class RagIngestionService:
 
     @staticmethod
     def _refuse_destructive_reconcile(record) -> None:
-        """Mark the run failed instead of wiping the previous generation."""
-        record.phase("vector_write").status = "failed"
-        record.phase("vector_write").note = (
-            f"{record.counts['files_discovered']} file(s) discovered but no chunks "
-            f"survived parse/chunk — refusing to reconcile, which would delete "
-            f"the previous generation"
+        """Fail the run instead of wiping the previous generation.
+
+        The phase status alone is NOT enough. Terminal status is
+        `FAILED if record.errors and _has_fatal_phase(record)`, so with an
+        empty `errors` list the `and` short-circuits to COMPLETED — and the
+        whitespace-parse case records no per-document errors at all. The run
+        then reported success while having produced nothing, which is exactly
+        the signal a consumer polls on. Record an error too, so both halves of
+        that condition hold.
+        """
+        discovered = record.counts["files_discovered"]
+        message = (
+            f"{discovered} file(s) discovered but no chunks survived parse/chunk — "
+            f"refusing to reconcile, which would delete the previous generation"
         )
+        record.phase("vector_write").status = "failed"
+        record.phase("vector_write").note = message
         record.counts["vectors_written"] = 0
+        record.add_error(IngestionError(phase="vector_write", message=message))
+
+    async def _reconcile_kept_sources(
+        self, record, profile, state, class_name, objects
+    ) -> None:
+        """Delete stale objects, preserving sources that failed THIS attempt.
+
+        `failed_sources` comes from `state`, not `record.errors`: that list is
+        reloaded with the record and carries entries from earlier attempts, so
+        a clean Celery retry would otherwise still skip the cleanup.
+        """
+        failed_sources = sorted(state.get("failed_sources", set()))
+        await self.deps.weaviate.reconcile_objects(
+            class_name,
+            profile.name,
+            [obj["id"] for obj in objects],
+            preserve_sources=failed_sources,
+        )
+        if failed_sources:
+            record.phase("vector_write").note = (
+                f"wrote {len(objects)} object(s); preserved existing vectors for "
+                f"{len(failed_sources)} source(s) that failed this run "
+                f"({', '.join(failed_sources[:5])})"
+            )
 
     async def _phase_vector_write(self, record, profile, corpus, state):
         targets = profile.vector_targets
@@ -703,24 +739,25 @@ class RagIngestionService:
                     for c in state["chunks"]
                 ]
                 total += await self.deps.weaviate.write_objects(class_name, objects)
-                # Reconcile ONLY when this run saw the whole corpus. The
-                # deletion pass treats "not in this run's output" as "stale",
-                # which conflates it with "this run could not produce it" — so
-                # one file failing to parse deleted THAT FILE'S previously
-                # ingested vectors, while the job still reported completed. A
-                # transient parser blip must not destroy good data.
-                if record.errors:
-                    record.phase("vector_write").note = (
-                        f"wrote {len(objects)} object(s); skipped stale-object "
-                        f"reconcile because {len(record.errors)} document(s) failed "
-                        f"this run — their existing vectors are preserved"
-                    )
-                else:
-                    await self.deps.weaviate.reconcile_objects(
-                        class_name,
-                        profile.name,
-                        [obj["id"] for obj in objects],
-                    )
+                # Reconcile PER SOURCE. The deletion pass treats "not in this
+                # run's output" as "stale", which conflates it with "this run
+                # could not produce it" — so a document that FAILED had its
+                # previously ingested vectors deleted.
+                #
+                # Skipping the whole reconcile when anything failed was the
+                # wrong correction: one permanently-broken file (a corrupt PDF,
+                # an oversize doc) then disabled stale cleanup FOREVER, so
+                # vectors of documents the operator DELETED stayed searchable
+                # indefinitely. Preserve exactly the sources that failed, and
+                # clean up everything else.
+                #
+                # `failed_sources` is collected in `state` during this ATTEMPT,
+                # not derived from `record.errors` — that list is reloaded with
+                # the record and carries entries from earlier attempts, so a
+                # clean Celery retry would otherwise still skip the cleanup.
+                await self._reconcile_kept_sources(
+                    record, profile, state, class_name, objects
+                )
             except PhaseFatal:
                 raise
             except TRANSIENT_EXCEPTIONS:

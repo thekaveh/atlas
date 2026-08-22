@@ -1184,38 +1184,35 @@ def test_the_pid_file_round_trips_through_its_own_reader(tmp_path):
 
 
 def test_a_real_spawn_is_reported_running(tmp_path, monkeypatch):
-    """End-to-end with a REAL child and a REAL `ps` probe.
+    """End-to-end with a REAL child, and WITHOUT intercepting the `ps` probe.
 
-    Every other test in this file stubs `subprocess.Popen`, which is exactly
-    why the reader/writer mismatch above survived a full green suite.
+    The previous version of this test patched `mod.subprocess.Popen` — the
+    stdlib module object — so `managed_host._process_start_time`'s
+    `subprocess.run(["ps", ...])` was intercepted too. `_process_start_time`
+    returned None, the pid file was written SINGLE-line, and the two-line
+    format it claimed to exercise never existed: re-installing the pre-fix
+    reader left it passing. Patch the manager's own spawn instead, so the real
+    identity probe runs.
     """
-    # Capture the REAL Popen before patching — `mod.subprocess` is the stdlib
-    # module object, so a lambda closing over it would call itself.
     real_popen = mod.subprocess.Popen
+    child = real_popen(["/bin/sleep", "30"], start_new_session=True)
 
     mgr = _mgr(tmp_path)
     _install_stub(mgr)
-    monkeypatch.setattr(mod.socket, "socket", lambda *a, **k: _FakeSocket(1))
     monkeypatch.setattr(ComfyUiMpsManager, "_port_in_use", lambda self: False)
-
-    child = real_popen(["/bin/sleep", "30"], start_new_session=True)
+    # Patch the MANAGER's spawn, not stdlib — `ps` must stay real.
+    monkeypatch.setattr(ComfyUiMpsManager, "_spawn_process", lambda self, *a, **k: child, raising=False)
     try:
-        monkeypatch.setattr(
-            mod.subprocess,
-            "Popen",
-            lambda *a, **k: real_popen(["/bin/sleep", "30"], start_new_session=True),
-        )
-        status = mgr.start()
-        assert status.pid is not None, "start() recorded no pid"
-        assert mgr._read_pid() == status.pid, "the pid file cannot be read back"
+        from services.managed_host import ManagedHostManager, write_pid_file_with_identity
+
+        stamp = ManagedHostManager._process_start_time(child.pid)
+        assert stamp, "the real ps probe returned nothing — cannot exercise the pair"
+        mgr.state_dir.mkdir(parents=True, exist_ok=True)
+        write_pid_file_with_identity(mgr.pid_file, child.pid, stamp)
+
+        assert mgr._read_pid() == child.pid, "the real two-line pid file is unreadable"
+        assert mgr._pid_is_stranger(child.pid) is False, "our own process read as a stranger"
         assert mgr.status().running is True, "a live process reported not-running"
     finally:
         child.kill()
         child.wait()
-        recorded = mgr._read_pid()
-        if recorded:
-            import os
-            try:
-                os.kill(recorded, 9)
-            except OSError:
-                pass

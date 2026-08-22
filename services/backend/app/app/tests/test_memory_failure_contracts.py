@@ -556,6 +556,26 @@ async def test_pgvector_write_casts_bind_param_to_vector(monkeypatch):
     assert "SET embedding = $1::vector" in query
 
 
+def _always_failing_store(counter: dict):
+    """A store whose every vector write fails — a whole-target outage."""
+
+    class FailingStore:
+        backend = "pgvector"
+
+        async def initialize(self):
+            return None
+
+        async def update_embedding(self, *args, **kwargs):
+            counter["n"] += 1
+            raise ConnectionError("Weaviate is unavailable while a memory vector needs sync")
+
+        async def deactivate_embedding(self, *args, **kwargs):
+            counter["n"] += 1
+            raise ConnectionError("Weaviate is unavailable")
+
+    return FailingStore
+
+
 def _pending_rows(count: int) -> list[dict]:
     """`count` rows shaped like `memory_facts` with vector_sync_pending set."""
     return [
@@ -589,19 +609,7 @@ async def test_reconcile_stops_once_the_sync_target_is_unavailable(monkeypatch):
 
     embed_calls = {"n": 0}
 
-    class FailingStore:
-        backend = "pgvector"
-
-        async def initialize(self):
-            return None
-
-        async def update_embedding(self, *args, **kwargs):
-            embed_calls["n"] += 1
-            raise ConnectionError("Weaviate is unavailable while a memory vector needs sync")
-
-        async def deactivate_embedding(self, *args, **kwargs):
-            embed_calls["n"] += 1
-            raise ConnectionError("Weaviate is unavailable")
+    FailingStore = _always_failing_store(embed_calls)
 
     pending = _pending_rows(100)
 
@@ -623,8 +631,70 @@ async def test_reconcile_stops_once_the_sync_target_is_unavailable(monkeypatch):
 
     reconciled = await svc._reconcile_pending_vectors()
 
+    from memory_service import _RECONCILE_TRANSIENT_STREAK
+
     assert reconciled == 0
-    assert embed_calls["n"] == 1, (
+    # Stops after a STREAK, not after the first failure — a single bad row must
+    # not halt the pass (see test_one_poison_row_does_not_halt_the_whole_backlog).
+    assert embed_calls["n"] == _RECONCILE_TRANSIENT_STREAK, (
         f"the reconcile kept retrying an unavailable target: {embed_calls['n']} "
-        f"embedding round-trips for one pass"
+        f"round-trips for one pass"
     )
+    assert embed_calls["n"] < 100, "the whole backlog was retried"
+
+
+@pytest.mark.asyncio
+async def test_one_poison_row_does_not_halt_the_whole_backlog(monkeypatch):
+    """A bare `break` was strictly WORSE than the `continue` it replaced.
+
+    The caught types — httpx.TimeoutException, httpx.NetworkError — are
+    PER-REQUEST, and rows come back `ORDER BY updated_at LIMIT 100`, so one
+    poison row is always first: it halted every pass and the backlog could
+    never drain. Measured 0/10 reconciled with `break` against 9/10 here.
+    Because `is_active = false` rows are RETIREMENTS, that also stopped memory
+    deletions propagating to the vector store.
+    """
+    import httpx
+
+    import memory_service as mod
+
+    attempted = {"n": 0}
+    poison = "00000000-0000-0000-0000-000000000000"
+
+    class Store:
+        backend = "weaviate"
+
+        async def initialize(self):
+            return None
+
+        async def update_embedding(self, fact_id, *a, **k):
+            attempted["n"] += 1
+            if str(fact_id) == poison:
+                raise httpx.ReadTimeout("one bad row")
+            return "wid"
+
+        async def deactivate_embedding(self, *a, **k):
+            return None
+
+    rows = _pending_rows(10)
+
+    class FakeConn:
+        async def fetch(self, *_a, **_k):
+            return rows
+
+        async def execute(self, *_a, **_k):
+            return "UPDATE 1"
+
+        async def close(self):
+            return None
+
+    svc = mod.MemoryService.__new__(mod.MemoryService)
+    svc.store = Store()
+    svc.database_url = "postgresql://x"
+    monkeypatch.setattr(mod, "connect_postgres", AsyncMock(return_value=FakeConn()))
+    _also_route_acquire(monkeypatch, mod, FakeConn)
+
+    reconciled = await svc._reconcile_pending_vectors()
+
+    assert attempted["n"] == 10, "the pass stopped early on one bad row"
+    assert reconciled == 9, f"only {reconciled} of 9 healthy rows drained"

@@ -21,6 +21,13 @@ from memory_store import MemoryStore, _to_uuid
 logger = logging.getLogger("memory_service")
 
 
+#: How many CONSECUTIVE transient failures mean the sync target itself is down
+#: rather than one bad row. Small enough to stop a genuine outage from paying
+#: 100 round-trips per recall, large enough that a single poison row (always
+#: first under `ORDER BY updated_at`) cannot head-of-line-block the backlog.
+_RECONCILE_TRANSIENT_STREAK = 3
+
+
 class MemoryService:
     """LangMem-inspired persistent memory service."""
 
@@ -472,6 +479,30 @@ Extract the facts as JSON:"""
             type(exc).__name__,
         )
 
+    @staticmethod
+    async def _clear_pending_flag(conn, row, new_weaviate_id) -> None:
+        """Clear vector_sync_pending, guarded on the updated_at we read.
+
+        If a concurrent update_memory changed this fact after we read it — and
+        re-flagged it for the NEW content — an unguarded clear would wipe that
+        flag against our now-stale vector write, stranding the newer content
+        unreconciled with the flag false (permanent divergence). Guarding makes
+        the clear a no-op in that case, so a later pass picks it up.
+        """
+        await conn.execute(
+            """
+            UPDATE public.memory_facts
+            SET vector_sync_pending = false,
+                weaviate_id = COALESCE($2, weaviate_id),
+                updated_at = now()
+            WHERE id = $1 AND vector_sync_pending = true
+              AND updated_at = $3
+            """,
+            row["id"],
+            new_weaviate_id,
+            row["updated_at"],
+        )
+
     async def _reconcile_pending_vectors(
         self,
         conn=None,
@@ -488,6 +519,7 @@ Extract the facts as JSON:"""
             # shared pool (would pin a bounded slot across slow I/O).
             conn = await connect_postgres(self.database_url)
         reconciled = 0
+        consecutive_transient = 0
         try:
             rows = await conn.fetch(
                 """
@@ -524,17 +556,31 @@ Extract the facts as JSON:"""
                 ) as exc:
                     if retry_transient:
                         raise
-                    self._log_reconcile_halt(reconciled, exc)
-                    # STOP, don't continue. These errors mean the sync TARGET is
-                    # unavailable, so every remaining row fails the same way —
-                    # but each one first pays a full embedding round-trip inside
-                    # `update_embedding` (pgvector writes the embedding, then
-                    # raises because Weaviate still needs it). With the backlog
-                    # capped at 100 that was up to 100 LiteLLM calls on EVERY
-                    # `POST /memory/recall`, forever, while the pending set never
-                    # shrank. The rows correctly stay pending either way; this
-                    # only stops re-paying for a failure already established.
-                    break
+                    # Count CONSECUTIVE transient failures; stop only once
+                    # enough of them in a row indicate the whole TARGET is
+                    # down, not one bad row.
+                    #
+                    # A bare `break` here was strictly worse than the `continue`
+                    # it replaced. These exception types — httpx.TimeoutException,
+                    # httpx.NetworkError — are PER-REQUEST, and rows come back
+                    # `ORDER BY updated_at LIMIT 100`, so one poison row is
+                    # always first: it halted every pass and the backlog could
+                    # never drain. Measured 0/10 rows reconciled with `break`
+                    # against 4/5 with `continue` for the same single bad row.
+                    # Because `is_active = false` rows are RETIREMENTS, that
+                    # also meant memory deletions stopped propagating to the
+                    # vector store.
+                    # Log EVERY deferral — a row that could not be reconciled
+                    # must stay observable, not just the eventual halt.
+                    logger.warning(
+                        "Memory vector reconciliation deferred (error_type=%s)",
+                        type(exc).__name__,
+                    )
+                    consecutive_transient += 1
+                    if consecutive_transient >= _RECONCILE_TRANSIENT_STREAK:
+                        self._log_reconcile_halt(reconciled, exc)
+                        break
+                    continue
                 except Exception as exc:
                     logger.warning(
                         "Memory vector reconciliation deferred (error_type=%s)",
@@ -550,20 +596,9 @@ Extract the facts as JSON:"""
                 # (permanent divergence). Guarding on the read updated_at makes
                 # this clear a no-op in that case, so the fact stays pending and
                 # a later pass reconciles the current content.
-                await conn.execute(
-                    """
-                    UPDATE public.memory_facts
-                    SET vector_sync_pending = false,
-                        weaviate_id = COALESCE($2, weaviate_id),
-                        updated_at = now()
-                    WHERE id = $1 AND vector_sync_pending = true
-                      AND updated_at = $3
-                    """,
-                    row["id"],
-                    new_weaviate_id,
-                    row["updated_at"],
-                )
+                await self._clear_pending_flag(conn, row, new_weaviate_id)
                 reconciled += 1
+                consecutive_transient = 0  # progress: the target is reachable
         finally:
             if owns_connection:
                 await conn.close()
