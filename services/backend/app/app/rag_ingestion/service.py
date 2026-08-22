@@ -558,6 +558,13 @@ class RagIngestionService:
         chunked_ok = 0
         for doc in state["docs"]:
             if not doc.text.strip():
+                # Produced no text, so it contributes no chunks — which the
+                # reconcile would read as "stale" and delete its EXISTING
+                # vectors. That is the same conflation the preserve-set exists
+                # to prevent, and it is reachable through docling/tika:
+                # `clients.py` accepts any truthy text, so a whitespace
+                # response becomes a valid ParsedDocument with no error.
+                state.setdefault("failed_sources", set()).add(doc.name)
                 continue
             try:
                 resp = await asyncio.to_thread(
@@ -648,6 +655,26 @@ class RagIngestionService:
         record.counts["vectors_written"] = 0
         record.add_error(IngestionError(phase="vector_write", message=message))
 
+    @staticmethod
+    def _weaviate_objects(class_name: str, profile, chunks) -> list:
+        """Weaviate payloads for this run's chunks.
+
+        The id is `uuid5(class|source|index)`, so re-running the same corpus
+        overwrites rather than duplicating — and `source` is carried as a
+        property so the reconcile can preserve per-document.
+        """
+        return [
+            {
+                "id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"{class_name}|{c['source']}|{c['index']}")),
+                "properties": {
+                    "content": c["content"], "source": c["source"],
+                    "profile": profile.name, "chunkIndex": c["index"],
+                },
+                "vector": c["vector"],
+            }
+            for c in chunks
+        ]
+
     async def _reconcile_kept_sources(
         self, record, profile, state, class_name, objects
     ) -> None:
@@ -687,8 +714,15 @@ class RagIngestionService:
             # whitespace (that last one recorded ZERO errors, so a consumer
             # polling for "completed" could not tell it from success).
             if record.counts.get("files_discovered"):
-                self._refuse_destructive_reconcile(record)
-                return
+                # Only when the target is actually reachable. With
+                # `on_unavailable: skip` and the backend down, nothing could
+                # have been reconciled, so reporting "refusing to reconcile,
+                # which would delete the previous generation" misattributes an
+                # unreachable target as a corpus failure — and the contract
+                # above says a skip does NOT land in errors[].
+                if any(self.deps.weaviate.available() for _ in targets[:1]):
+                    self._refuse_destructive_reconcile(record)
+                    return
             for target in targets:
                 if not self.deps.weaviate.available():
                     self._target_unavailable(
@@ -727,17 +761,7 @@ class RagIngestionService:
             class_name = weaviate_class_name(target['collection_prefix'], profile.name)
             try:
                 await self.deps.weaviate.ensure_class(class_name)
-                objects = [
-                    {
-                        "id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"{class_name}|{c['source']}|{c['index']}")),
-                        "properties": {
-                            "content": c["content"], "source": c["source"],
-                            "profile": profile.name, "chunkIndex": c["index"],
-                        },
-                        "vector": c["vector"],
-                    }
-                    for c in state["chunks"]
-                ]
+                objects = self._weaviate_objects(class_name, profile, state["chunks"])
                 total += await self.deps.weaviate.write_objects(class_name, objects)
                 # Reconcile PER SOURCE. The deletion pass treats "not in this
                 # run's output" as "stale", which conflates it with "this run

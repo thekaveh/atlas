@@ -1756,12 +1756,19 @@ def test_a_permanently_failing_document_does_not_block_stale_cleanup(tmp_path, m
 
 
 def test_a_retry_does_not_inherit_the_previous_attempt_s_failures(tmp_path, monkeypatch):
-    """`record.errors` is reloaded with the record and spans attempts.
+    """`record.errors` is reloaded with the record and SPANS attempts.
 
-    Deriving the preserved set from it meant a clean retry still skipped
-    cleanup. The set is collected in `state` during THIS attempt instead.
+    Deriving the preserved set from it meant a clean Celery retry still skipped
+    cleanup, reporting a note claiming documents had failed when none had this
+    run. `state["failed_sources"]` is per-attempt by construction.
+
+    The previous version of this test did ONE clean run — with no prior attempt
+    there is nothing to inherit, so both implementations produced
+    `preserved == []` and reverting the fix left the file green. This drives
+    the real retry path: attempt 1 records a per-document failure and then dies
+    on a transient, attempt 2 sees a healthy corpus.
     """
-    _corpus(tmp_path, monkeypatch, {"a.txt": "alpha content"})
+    root = _corpus(tmp_path, monkeypatch, {"good.txt": "alpha content", "flaky.txt": "beta content"})
     profile_path = _profiles_file(tmp_path)
     weaviate = FakeWeaviate()
     service = _service(
@@ -1770,8 +1777,37 @@ def test_a_retry_does_not_inherit_the_previous_attempt_s_failures(tmp_path, monk
              lightrag=FakeLightrag(available=False), poll_interval=0.01),
         profile_path,
     )
+
+    # Attempt 1: flaky.txt fails to chunk (lands in errors[]), then the run
+    # dies on a TRANSIENT so the SAME record is left retryable — this is the
+    # Celery retry path, not a fresh submission. A new `submit()` would create
+    # a new record with an empty errors[], which is why the earlier version of
+    # this test could not tell the two implementations apart.
+    (root / "docs" / "flaky.txt").write_text("x " * 600_000, encoding="utf-8")
     record, _ = service.submit("showcase-default")
-    final = asyncio.run(service.run(record.id))
-    assert final.status == "completed"
-    # a clean run preserves nothing, so cleanup is fully enabled
-    assert weaviate.preserved[-1] == []
+
+    boom = {"raise": True}
+    real_reconcile = weaviate.reconcile_objects
+
+    async def flaky_reconcile(*args, **kwargs):
+        if boom["raise"]:
+            boom["raise"] = False
+            raise ConnectionError("transient upstream blip")
+        return await real_reconcile(*args, **kwargs)
+
+    weaviate.reconcile_objects = flaky_reconcile
+    with pytest.raises(ConnectionError):
+        asyncio.run(service.run(record.id, retry_transient=True))
+
+    reloaded = service.store.get(record.id)
+    assert reloaded.errors, "precondition: attempt 1's document failure persisted"
+
+    # Attempt 2 of the SAME record: the corpus is healthy again. `record.errors`
+    # still carries attempt 1's entry; `failed_sources` must not.
+    (root / "docs" / "flaky.txt").write_text("beta content restored", encoding="utf-8")
+    asyncio.run(service.run(record.id, retry_transient=True))
+
+    assert weaviate.preserved[-1] == [], (
+        f"a clean retry inherited the previous attempt's failures: "
+        f"{weaviate.preserved[-1]}"
+    )

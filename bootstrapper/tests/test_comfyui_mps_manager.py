@@ -1184,24 +1184,23 @@ def test_the_pid_file_round_trips_through_its_own_reader(tmp_path):
 
 
 def test_a_real_spawn_is_reported_running(tmp_path, monkeypatch):
-    """End-to-end with a REAL child, and WITHOUT intercepting the `ps` probe.
+    """A REAL child, a REAL `ps` probe, and NO stdlib patching.
 
-    The previous version of this test patched `mod.subprocess.Popen` — the
-    stdlib module object — so `managed_host._process_start_time`'s
-    `subprocess.run(["ps", ...])` was intercepted too. `_process_start_time`
-    returned None, the pid file was written SINGLE-line, and the two-line
-    format it claimed to exercise never existed: re-installing the pre-fix
-    reader left it passing. Patch the manager's own spawn instead, so the real
-    identity probe runs.
+    The previous version patched `mod.subprocess.Popen` — the stdlib module
+    object — which intercepted `managed_host._process_start_time`'s own
+    `subprocess.run(["ps", ...])`. That returned None, the pid file was written
+    SINGLE-line, and the two-line format the test claimed to exercise never
+    existed: re-installing the pre-fix reader left it passing.
+
+    So this patches NOTHING in subprocess. It spawns a real process, runs the
+    real identity probe against it, writes the real two-line pid file, and
+    asserts the reader/ownership/status trio agrees — which is the pairing the
+    regression broke. Mutation-checked: it fails with the pre-fix reader.
     """
-    real_popen = mod.subprocess.Popen
-    child = real_popen(["/bin/sleep", "30"], start_new_session=True)
+    child = subprocess.Popen(["/bin/sleep", "30"], start_new_session=True)
 
     mgr = _mgr(tmp_path)
-    _install_stub(mgr)
     monkeypatch.setattr(ComfyUiMpsManager, "_port_in_use", lambda self: False)
-    # Patch the MANAGER's spawn, not stdlib — `ps` must stay real.
-    monkeypatch.setattr(ComfyUiMpsManager, "_spawn_process", lambda self, *a, **k: child, raising=False)
     try:
         from services.managed_host import ManagedHostManager, write_pid_file_with_identity
 

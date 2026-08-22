@@ -22,9 +22,22 @@ logger = logging.getLogger("memory_service")
 
 
 #: How many CONSECUTIVE transient failures mean the sync target itself is down
-#: rather than one bad row. Small enough to stop a genuine outage from paying
-#: 100 round-trips per recall, large enough that a single poison row (always
-#: first under `ORDER BY updated_at`) cannot head-of-line-block the backlog.
+#: rather than one bad row.
+#:
+#: A bare `break` on the first failure was strictly worse than the `continue`
+#: it replaced: these exception types are PER-REQUEST, and rows come back
+#: `ORDER BY updated_at LIMIT 100`, so one poison row is always first — it
+#: halted every pass and the backlog could never drain (measured 0/10 rows
+#: against 9/10 with `continue`). Because `is_active = false` rows are
+#: RETIREMENTS, that also stopped memory deletions propagating to the vector
+#: store.
+#:
+#: Small enough to stop a genuine outage paying 100 round-trips per recall,
+#: large enough that a single poison row cannot head-of-line-block the
+#: backlog. KNOWN LIMIT: three or more ADJACENT poison rows still stall it —
+#: failing rows keep their `updated_at` and so sort first forever. Fixing that
+#: needs a `vector_sync_next_at` column or a target-health probe; see
+#: D-24.1 in the maintenance audit.
 _RECONCILE_TRANSIENT_STREAK = 3
 
 
@@ -503,6 +516,27 @@ Extract the facts as JSON:"""
             row["updated_at"],
         )
 
+    async def _sync_one_row(self, row):
+        """Push one fact's vector, or retire it. Returns the new weaviate id.
+
+        `is_active = false` rows are RETIREMENTS — a memory the user deleted —
+        so they go through `deactivate_embedding`, not a write.
+        """
+        if not row["is_active"]:
+            await self.store.deactivate_embedding(
+                str(row["id"]), row.get("weaviate_id")
+            )
+            return None
+        return await self.store.update_embedding(
+            fact_id=str(row["id"]),
+            content=row["content"],
+            user_id=str(row["user_id"]),
+            namespace=row["namespace"],
+            fact_type=row["fact_type"],
+            confidence=row["confidence"],
+            weaviate_id=row.get("weaviate_id"),
+        )
+
     async def _reconcile_pending_vectors(
         self,
         conn=None,
@@ -534,42 +568,24 @@ Extract the facts as JSON:"""
             for row in rows:
                 new_weaviate_id = None
                 try:
-                    if row["is_active"]:
-                        new_weaviate_id = await self.store.update_embedding(
-                            fact_id=str(row["id"]),
-                            content=row["content"],
-                            user_id=str(row["user_id"]),
-                            namespace=row["namespace"],
-                            fact_type=row["fact_type"],
-                            confidence=row["confidence"],
-                            weaviate_id=row.get("weaviate_id"),
-                        )
-                    else:
-                        await self.store.deactivate_embedding(
-                            str(row["id"]), row.get("weaviate_id")
-                        )
+                    new_weaviate_id = await self._sync_one_row(row)
                 except (
                     TimeoutError,
                     ConnectionError,
                     httpx.TimeoutException,
                     httpx.NetworkError,
+                    # `_store_weaviate` / `_store_pgvector` end in
+                    # `raise_for_status()`, so a Weaviate 5xx or a LiteLLM 429
+                    # arrives as HTTPStatusError — the MOST likely "target
+                    # unhealthy" shape. Without it here those fell through to
+                    # the generic handler below and paid 100 round-trips on
+                    # every recall, which is exactly what the cap exists to
+                    # stop. RemoteProtocolError is the same class of signal.
+                    httpx.HTTPStatusError,
+                    httpx.RemoteProtocolError,
                 ) as exc:
                     if retry_transient:
                         raise
-                    # Count CONSECUTIVE transient failures; stop only once
-                    # enough of them in a row indicate the whole TARGET is
-                    # down, not one bad row.
-                    #
-                    # A bare `break` here was strictly worse than the `continue`
-                    # it replaced. These exception types — httpx.TimeoutException,
-                    # httpx.NetworkError — are PER-REQUEST, and rows come back
-                    # `ORDER BY updated_at LIMIT 100`, so one poison row is
-                    # always first: it halted every pass and the backlog could
-                    # never drain. Measured 0/10 rows reconciled with `break`
-                    # against 4/5 with `continue` for the same single bad row.
-                    # Because `is_active = false` rows are RETIREMENTS, that
-                    # also meant memory deletions stopped propagating to the
-                    # vector store.
                     # Log EVERY deferral — a row that could not be reconciled
                     # must stay observable, not just the eventual halt.
                     logger.warning(
@@ -586,6 +602,12 @@ Extract the facts as JSON:"""
                         "Memory vector reconciliation deferred (error_type=%s)",
                         type(exc).__name__,
                     )
+                    # A row-specific failure says nothing about the target's
+                    # health, so it must not COUNT toward the streak — but it
+                    # does break the run of transient failures, so reset it.
+                    # Otherwise transient, transient, non-transient, transient
+                    # halted the pass on a streak that was never consecutive.
+                    consecutive_transient = 0
                     continue
                 # Optimistic guard on updated_at (the same discipline the
                 # consolidate state transitions use): if a concurrent
