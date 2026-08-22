@@ -554,3 +554,77 @@ async def test_pgvector_write_casts_bind_param_to_vector(monkeypatch):
     assert executed, "pgvector write must execute an UPDATE"
     query, _params = executed[0]
     assert "SET embedding = $1::vector" in query
+
+
+def _pending_rows(count: int) -> list[dict]:
+    """`count` rows shaped like `memory_facts` with vector_sync_pending set."""
+    return [
+        {
+            "id": f"00000000-0000-0000-0000-{i:012d}",
+            "content": f"fact {i}",
+            "user_id": "u", "namespace": "default", "fact_type": "t",
+            "confidence": 0.9, "weaviate_id": None, "is_active": True,
+            "updated_at": "2026-01-01",
+        }
+        for i in range(count)
+    ]
+
+
+@pytest.mark.asyncio
+async def test_reconcile_stops_once_the_sync_target_is_unavailable(monkeypatch):
+    """A pending backlog must not re-embed every row on every recall.
+
+    When `MemoryStore` latched `backend="pgvector"` (the Weaviate readiness
+    probe failed once — the backend's `depends_on` does not include weaviate,
+    so a cold start reaches this easily) but `WEAVIATE_URL` is set (it always
+    is; compose defaults it), `update_embedding` writes the pgvector embedding
+    and THEN raises ConnectionError because Weaviate still needs the vector.
+
+    The loop used to `continue`, so all 100 pending rows were retried — each
+    paying a full LiteLLM embedding round-trip first — on EVERY
+    `POST /memory/recall`, forever, while the pending set never shrank. The
+    rows correctly stay pending; the storm is the defect.
+    """
+    import memory_service as mod
+
+    embed_calls = {"n": 0}
+
+    class FailingStore:
+        backend = "pgvector"
+
+        async def initialize(self):
+            return None
+
+        async def update_embedding(self, *args, **kwargs):
+            embed_calls["n"] += 1
+            raise ConnectionError("Weaviate is unavailable while a memory vector needs sync")
+
+        async def deactivate_embedding(self, *args, **kwargs):
+            embed_calls["n"] += 1
+            raise ConnectionError("Weaviate is unavailable")
+
+    pending = _pending_rows(100)
+
+    class FakeConn:
+        async def fetch(self, *_a, **_k):
+            return pending
+
+        async def execute(self, *_a, **_k):
+            return "UPDATE 1"
+
+        async def close(self):
+            return None
+
+    svc = mod.MemoryService.__new__(mod.MemoryService)
+    svc.store = FailingStore()
+    svc.database_url = "postgresql://x"
+    monkeypatch.setattr(mod, "connect_postgres", AsyncMock(return_value=FakeConn()))
+    _also_route_acquire(monkeypatch, mod, FakeConn)
+
+    reconciled = await svc._reconcile_pending_vectors()
+
+    assert reconciled == 0
+    assert embed_calls["n"] == 1, (
+        f"the reconcile kept retrying an unavailable target: {embed_calls['n']} "
+        f"embedding round-trips for one pass"
+    )

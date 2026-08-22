@@ -461,6 +461,17 @@ Extract the facts as JSON:"""
 
         return {"memories": memories, "context_summary": context_summary}
 
+    @staticmethod
+    def _log_reconcile_halt(reconciled: int, exc: BaseException) -> None:
+        """Explain why the reconcile stopped rather than retrying the backlog."""
+        logger.warning(
+            "Memory vector reconciliation deferred after %d row(s) (error_type=%s); "
+            "the sync target is unavailable, so the remaining rows would fail "
+            "identically",
+            reconciled,
+            type(exc).__name__,
+        )
+
     async def _reconcile_pending_vectors(
         self,
         conn=None,
@@ -513,11 +524,17 @@ Extract the facts as JSON:"""
                 ) as exc:
                     if retry_transient:
                         raise
-                    logger.warning(
-                        "Memory vector reconciliation deferred (error_type=%s)",
-                        type(exc).__name__,
-                    )
-                    continue
+                    self._log_reconcile_halt(reconciled, exc)
+                    # STOP, don't continue. These errors mean the sync TARGET is
+                    # unavailable, so every remaining row fails the same way —
+                    # but each one first pays a full embedding round-trip inside
+                    # `update_embedding` (pgvector writes the embedding, then
+                    # raises because Weaviate still needs it). With the backlog
+                    # capped at 100 that was up to 100 LiteLLM calls on EVERY
+                    # `POST /memory/recall`, forever, while the pending set never
+                    # shrank. The rows correctly stay pending either way; this
+                    # only stops re-paying for a failure already established.
+                    break
                 except Exception as exc:
                     logger.warning(
                         "Memory vector reconciliation deferred (error_type=%s)",

@@ -29,9 +29,19 @@ SCRIPTS_DIR = (
     Path(__file__).resolve().parents[2] / "services" / "supabase" / "db" / "scripts"
 )
 
+#: `public.` is OPTIONAL — an unqualified `CREATE TABLE secrets_vault (...)`
+#: lands in `public` too (it is first on the default search_path) and was
+#: invisible to a pattern that required the prefix. The `(?!\s*\.)` keeps a
+#: table in ANOTHER schema out: without it, `CREATE TABLE storage.buckets`
+#: captured `storage` as if it were a public table name.
 _CREATE_PUBLIC_TABLE = re.compile(
-    r"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?public\.(\w+)", re.IGNORECASE
+    r"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:public\.)?(\w+)(?!\s*\.)\s*\(",
+    re.IGNORECASE,
 )
+
+#: `--` line comments, stripped before matching so prose describing a
+#: `CREATE TABLE` is not mistaken for one.
+_SQL_LINE_COMMENT = re.compile(r"--[^\n]*")
 _ENABLE_RLS = re.compile(
     r"ALTER\s+TABLE\s+public\.(\w+)\s+ENABLE\s+ROW\s+LEVEL\s+SECURITY", re.IGNORECASE
 )
@@ -41,9 +51,10 @@ _DROPPED = re.compile(
 
 
 def _all_sql() -> str:
-    return "\n".join(
+    joined = "\n".join(
         p.read_text(encoding="utf-8") for p in sorted(SCRIPTS_DIR.glob("*.sql"))
     )
+    return _SQL_LINE_COMMENT.sub("", joined)
 
 
 def test_the_scan_finds_the_tables():
@@ -86,8 +97,13 @@ def test_storage_tables_are_not_granted_to_anon(table):
     unauthenticated peer.
     """
     sql = _all_sql()
+    # `ON TABLE storage.x` and `ON storage.x` are both valid; the original
+    # required the second spelling exactly, so `GRANT SELECT ON TABLE
+    # storage.objects TO anon;` slipped past.
     for match in re.finditer(
-        rf"GRANT\s+[^;]*?\s+ON\s+storage\.{table}\s+TO\s+([^;]+);", sql, re.IGNORECASE
+        rf"GRANT\s+[^;]*?\s+ON\s+(?:TABLE\s+)?storage\.{table}\s+TO\s+([^;]+);",
+        sql,
+        re.IGNORECASE,
     ):
         assert "anon" not in match.group(1), (
             f"storage.{table} is granted to anon: {match.group(0).strip()}"
@@ -99,6 +115,16 @@ def test_storage_tables_are_not_granted_to_anon(table):
     ):
         assert "anon" not in match.group(1), (
             f"schema-wide storage grant includes anon: {match.group(0).strip()}"
+        )
+    # ...and the DEFAULT PRIVILEGE, which grants anon on every FUTURE table
+    # and was not checked at all.
+    for match in re.finditer(
+        r"ALTER\s+DEFAULT\s+PRIVILEGES[^;]*?IN\s+SCHEMA\s+storage\s+GRANT[^;]*?TO\s+([^;]+);",
+        sql,
+        re.IGNORECASE,
+    ):
+        assert "anon" not in match.group(1), (
+            f"storage default privilege includes anon: {match.group(0).strip()}"
         )
 
 

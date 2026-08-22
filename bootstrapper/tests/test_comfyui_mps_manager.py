@@ -1145,17 +1145,77 @@ def test_a_legacy_unstamped_pid_file_degrades_to_proceed(tmp_path, monkeypatch):
     assert mgr._pid_is_stranger(4242) is False
 
 
-def test_the_pid_file_is_written_atomically(tmp_path, monkeypatch):
-    """A torn read yields a pid with no stamp, silently disabling the guard.
+def test_the_pid_file_round_trips_through_its_own_reader(tmp_path):
+    """The writer and the reader must agree — they did not.
 
-    `Path.write_text` truncates then writes; measured 0.77% of concurrent
-    reads saw no pid at all, and `status()`/`_read_pid()` run outside
-    `_launch_guard`. There is no orphan sweep here, so a lost pid is
-    unrecoverable: `start` refuses (port in use), `stop` reports nothing to
-    stop, and `remove` deletes the state dir leaving the process running.
+    `write_pid_file_with_identity` emits `pid\nstart_utc=...`, but `_read_pid`
+    parsed the WHOLE file with `int()`, so it raised ValueError and returned
+    None on every launch where `ps` answers — i.e. every macOS host, the only
+    platform MPS supports. The whole lifecycle inverted: `status` reported
+    not-running while it ran, `stop` deleted the pid file and returned False
+    with the process alive, `remove` rmtree'd the install out from under it,
+    the next `start` failed with "port already in use", and rollback printed
+    success.
+
+    This replaces an `inspect.getsource` string grep, which could not see the
+    defect because it never exercised the pair. Every existing test stubs
+    `ps`, so the two-line file never appeared in any of them — and the
+    pre-existing assertion had been WEAKENED to `.splitlines()[0]`, encoding
+    the new format in the test while production still parsed the whole file.
     """
-    import inspect
+    from services.managed_host import write_pid_file_with_identity
 
-    source = inspect.getsource(mod.ComfyUiMpsManager)
-    assert "self.pid_file.write_text(str(proc.pid)" not in source
-    assert "_write_pid(self.pid_file" in source
+    mgr = _mgr(tmp_path)
+    mgr.state_dir.mkdir(parents=True, exist_ok=True)
+
+    write_pid_file_with_identity(mgr.pid_file, 55163, "Fri Aug 21 22:53:12 2026")
+    assert mgr.pid_file.read_text(encoding="utf-8").count("\n") == 2
+    assert mgr._read_pid() == 55163, "the writer's own output is unreadable"
+
+    # a single-line file from an earlier version still parses
+    mgr.pid_file.write_text("4242\n", encoding="utf-8")
+    assert mgr._read_pid() == 4242
+
+    # and a non-positive pid is refused — `_terminate_pid` escalates to
+    # os.killpg, where 0 is the CALLER's group and -1 is a broadcast
+    for bad in ("0\n", "-1\n", "garbage\n", ""):
+        mgr.pid_file.write_text(bad, encoding="utf-8")
+        assert mgr._read_pid() is None, bad
+
+
+def test_a_real_spawn_is_reported_running(tmp_path, monkeypatch):
+    """End-to-end with a REAL child and a REAL `ps` probe.
+
+    Every other test in this file stubs `subprocess.Popen`, which is exactly
+    why the reader/writer mismatch above survived a full green suite.
+    """
+    # Capture the REAL Popen before patching — `mod.subprocess` is the stdlib
+    # module object, so a lambda closing over it would call itself.
+    real_popen = mod.subprocess.Popen
+
+    mgr = _mgr(tmp_path)
+    _install_stub(mgr)
+    monkeypatch.setattr(mod.socket, "socket", lambda *a, **k: _FakeSocket(1))
+    monkeypatch.setattr(ComfyUiMpsManager, "_port_in_use", lambda self: False)
+
+    child = real_popen(["/bin/sleep", "30"], start_new_session=True)
+    try:
+        monkeypatch.setattr(
+            mod.subprocess,
+            "Popen",
+            lambda *a, **k: real_popen(["/bin/sleep", "30"], start_new_session=True),
+        )
+        status = mgr.start()
+        assert status.pid is not None, "start() recorded no pid"
+        assert mgr._read_pid() == status.pid, "the pid file cannot be read back"
+        assert mgr.status().running is True, "a live process reported not-running"
+    finally:
+        child.kill()
+        child.wait()
+        recorded = mgr._read_pid()
+        if recorded:
+            import os
+            try:
+                os.kill(recorded, 9)
+            except OSError:
+                pass

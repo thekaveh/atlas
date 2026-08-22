@@ -624,6 +624,17 @@ class RagIngestionService:
         p.status = "skipped"
         p.note = f"{backend} skipped (on_unavailable=skip): {service} disabled"
 
+    @staticmethod
+    def _refuse_destructive_reconcile(record) -> None:
+        """Mark the run failed instead of wiping the previous generation."""
+        record.phase("vector_write").status = "failed"
+        record.phase("vector_write").note = (
+            f"{record.counts['files_discovered']} file(s) discovered but no chunks "
+            f"survived parse/chunk — refusing to reconcile, which would delete "
+            f"the previous generation"
+        )
+        record.counts["vectors_written"] = 0
+
     async def _phase_vector_write(self, record, profile, corpus, state):
         targets = profile.vector_targets
         if not targets:
@@ -631,6 +642,17 @@ class RagIngestionService:
             record.phase("vector_write").note = "no vector_targets"
             return
         if not state["chunks"]:
+            # An EMPTY CORPUS and a TOTALLY FAILED RUN are not the same thing.
+            # `reconcile_objects(cls, profile, [])` deletes every object for
+            # this profile, so reaching here after files WERE discovered wipes
+            # the entire previous generation — and the job still reported
+            # `status: "completed"`. Reproduced three ways: every file 5xx from
+            # docling, `overlap >= chunk_size`, and documents that parse to
+            # whitespace (that last one recorded ZERO errors, so a consumer
+            # polling for "completed" could not tell it from success).
+            if record.counts.get("files_discovered"):
+                self._refuse_destructive_reconcile(record)
+                return
             for target in targets:
                 if not self.deps.weaviate.available():
                     self._target_unavailable(
@@ -681,11 +703,24 @@ class RagIngestionService:
                     for c in state["chunks"]
                 ]
                 total += await self.deps.weaviate.write_objects(class_name, objects)
-                await self.deps.weaviate.reconcile_objects(
-                    class_name,
-                    profile.name,
-                    [obj["id"] for obj in objects],
-                )
+                # Reconcile ONLY when this run saw the whole corpus. The
+                # deletion pass treats "not in this run's output" as "stale",
+                # which conflates it with "this run could not produce it" — so
+                # one file failing to parse deleted THAT FILE'S previously
+                # ingested vectors, while the job still reported completed. A
+                # transient parser blip must not destroy good data.
+                if record.errors:
+                    record.phase("vector_write").note = (
+                        f"wrote {len(objects)} object(s); skipped stale-object "
+                        f"reconcile because {len(record.errors)} document(s) failed "
+                        f"this run — their existing vectors are preserved"
+                    )
+                else:
+                    await self.deps.weaviate.reconcile_objects(
+                        class_name,
+                        profile.name,
+                        [obj["id"] for obj in objects],
+                    )
             except PhaseFatal:
                 raise
             except TRANSIENT_EXCEPTIONS:

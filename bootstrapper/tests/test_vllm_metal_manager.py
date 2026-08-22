@@ -21,6 +21,8 @@ import subprocess
 import tarfile
 from pathlib import Path
 
+from types import SimpleNamespace
+
 import pytest
 
 from services import vllm_metal_manager as mod
@@ -475,6 +477,9 @@ def test_start_launches_and_writes_pid(tmp_path, monkeypatch):
         pid = 9911
 
     def fake_popen(args, **kwargs):
+        # Ignore the `ps` identity probe that stamps the pid file.
+        if args and args[0] == "ps":
+            return SimpleNamespace(pid=0, returncode=0, stdout="", stderr="")
         captured["args"] = args
         captured["env"] = kwargs.get("env")
         return _FakeProc()
@@ -483,7 +488,7 @@ def test_start_launches_and_writes_pid(tmp_path, monkeypatch):
     status, created = mgr.start_with_ownership()
     assert status.running and status.pid == 9911
     assert created is True
-    assert mgr.pid_file.read_text().strip() == "9911"
+    assert mgr.pid_file.read_text(encoding="utf-8").splitlines()[0] == "9911"
     # Correct entrypoint + model wiring.
     assert "vllm.entrypoints.openai.api_server" in captured["args"]
     assert "--model" in captured["args"]
@@ -531,8 +536,15 @@ def test_start_sets_hf_home_when_cache_dir(tmp_path, monkeypatch):
     class _FakeProc:
         pid = 7
 
-    monkeypatch.setattr(mod.subprocess, "Popen",
-                        lambda args, **kw: (captured.update(env=kw.get("env")), _FakeProc())[1])
+    def _popen(args, **kw):
+        # Ignore the `ps` identity probe that stamps the pid file — it would
+        # otherwise overwrite the launch env this test is asserting on.
+        if args and args[0] == "ps":
+            return SimpleNamespace(pid=0, returncode=0, stdout="", stderr="")
+        captured.update(env=kw.get("env"))
+        return _FakeProc()
+
+    monkeypatch.setattr(mod.subprocess, "Popen", _popen)
     mgr.start()
     assert captured["env"]["HF_HOME"] == str(cache)
 

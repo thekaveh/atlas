@@ -1576,3 +1576,122 @@ def test_weaviate_class_name_sanitizes_profile_name():
     assert _re.match(r"^[A-Z][_0-9A-Za-z]*$", name)
     # dots are sanitized too
     assert weaviate_class_name("Docs", "v1.2-beta") == "Docs_v1_2_beta"
+
+
+# ── a failed run must never be mistaken for an empty corpus ──────────
+
+
+def test_a_run_where_every_document_fails_does_not_wipe_the_corpus(tmp_path, monkeypatch):
+    """`reconcile_objects(cls, profile, [])` deletes EVERY object for a profile.
+
+    Reaching that branch after files were discovered wiped the entire previous
+    generation — and the job still reported `status: "completed"`, so a
+    consumer polling for completion could not tell it from success.
+    Reproducible three ways: every file 5xx from the parser, an
+    `overlap >= chunk_size` profile, and documents that parse to whitespace
+    (that last one records ZERO errors).
+    """
+    root = _corpus(tmp_path, monkeypatch, {"a.txt": "content", "b.txt": "more"})
+    profile_path = _profiles_file(tmp_path)
+    weaviate = FakeWeaviate()
+    service = _service(
+        tmp_path,
+        Deps(
+            embedder=FakeEmbedder(),
+            weaviate=weaviate,
+            lightrag=FakeLightrag(available=False),
+            poll_interval=0.01,
+        ),
+        profile_path,
+    )
+    first, _ = service.submit("showcase-default")
+    assert asyncio.run(service.run(first.id)).status == "completed"
+    seeded = set(weaviate.object_ids)
+    assert seeded, "precondition: a previous generation exists"
+
+    # Every document now parses to whitespace — files ARE discovered, but no
+    # chunk survives.
+    for name in ("a.txt", "b.txt"):
+        (root / "docs" / name).write_text("   \n  ", encoding="utf-8")
+
+    second, _ = service.submit("showcase-default")
+    final = asyncio.run(service.run(second.id))
+
+    assert final.counts.get("files_discovered") == 2
+    assert final.counts.get("chunks", 0) == 0
+    # the previous generation survives, and nothing was reconciled away
+    assert weaviate.object_ids == seeded, "the corpus was deleted"
+    assert weaviate.reconciled[-1] != (
+        "RagShowcase_showcase_default", "showcase-default", [],
+    ), "a total-failure run reconciled against an empty desired set"
+
+
+def test_a_failed_document_keeps_its_previously_ingested_vectors(tmp_path, monkeypatch):
+    """The reconcile treats "not in this run's output" as "stale".
+
+    That conflates it with "this run could not produce it", so a document that
+    FAILED had its previously ingested vectors deleted while the job reported
+    completed — a transient parser blip destroying good data.
+
+    Note the distinction this test is careful about: a file the operator
+    EMPTIED should lose its vectors (that is the reconcile doing its job).
+    Only a recorded failure is protected, which is why the trigger here is an
+    oversize document that lands in `errors[]`.
+    """
+    files = {"a.txt": "alpha content here", "big.txt": "the quick brown fox"}
+    root = _corpus(tmp_path, monkeypatch, files)
+    profile_path = _profiles_file(tmp_path)
+    weaviate = FakeWeaviate()
+    service = _service(
+        tmp_path,
+        Deps(
+            embedder=FakeEmbedder(),
+            weaviate=weaviate,
+            lightrag=FakeLightrag(available=False),
+            poll_interval=0.01,
+        ),
+        profile_path,
+    )
+    first, _ = service.submit("showcase-default")
+    assert asyncio.run(service.run(first.id)).status == "completed"
+    both = set(weaviate.object_ids)
+    assert len(both) >= 2, "precondition: both files ingested"
+
+    # big.txt now exceeds ChunkRequest's 1M-char cap -> a recorded chunk-phase
+    # error, while a.txt is unchanged.
+    (root / "docs" / "big.txt").write_text("x " * 600_000, encoding="utf-8")
+    second, _ = service.submit("showcase-default")
+    final = asyncio.run(service.run(second.id))
+
+    assert final.errors, "precondition: the oversize document was recorded as an error"
+    assert final.counts.get("chunks", 0) > 0, "a.txt should still ingest"
+    assert both <= weaviate.object_ids, (
+        "the failed document's previously ingested vectors were deleted"
+    )
+
+
+def test_a_genuinely_empty_corpus_still_reconciles(tmp_path, monkeypatch):
+    """The guard must not break the legitimate empty-corpus wipe."""
+    root = _corpus(tmp_path, monkeypatch, {"a.txt": "content"})
+    profile_path = _profiles_file(tmp_path)
+    weaviate = FakeWeaviate()
+    service = _service(
+        tmp_path,
+        Deps(
+            embedder=FakeEmbedder(),
+            weaviate=weaviate,
+            lightrag=FakeLightrag(available=False),
+            poll_interval=0.01,
+        ),
+        profile_path,
+    )
+    first, _ = service.submit("showcase-default")
+    assert asyncio.run(service.run(first.id)).status == "completed"
+
+    (root / "docs" / "a.txt").unlink()
+    second, _ = service.submit("showcase-default")
+    final = asyncio.run(service.run(second.id))
+
+    assert final.status == "completed", final.errors
+    assert final.counts.get("files_discovered", 0) == 0
+    assert weaviate.object_ids == set()

@@ -254,8 +254,13 @@ def test_both_pipelines_run_the_same_post_up_steps():
         "commit_managed_host_processes",
     )
 
+    # Order by POSITION IN THE SOURCE, not by iterating `steps` — a
+    # comprehension over `steps` yields them in `steps` order no matter what
+    # the source says, so the original assertion could only ever detect a
+    # MISSING step. Verified against a deliberately reversed body: it passed.
     linear = inspect.getsource(start_module.AtlasStarter.start_docker_services)
-    linear_order = [s for s in steps if s in linear]
+    assert all(s in linear for s in steps), [s for s in steps if s not in linear]
+    linear_order = sorted(steps, key=linear.index)
     assert linear_order == list(steps), linear_order
 
     tui_src = (
@@ -268,7 +273,9 @@ def test_both_pipelines_run_the_same_post_up_steps():
         and node.name == "_run_pipeline_and_stream"
     )
     body = ast.get_source_segment(tui_src, pipeline) or ""
-    tui_order = [s for s in steps if s in body]
+    missing = [s for s in steps if s not in body]
+    assert not missing, f"the Textual pipeline is missing a post-up step: {missing}"
+    tui_order = sorted(steps, key=body.index)
     assert tui_order == list(steps), (
-        f"the Textual pipeline is missing or misordering a post-up step: {tui_order}"
+        f"the Textual pipeline misorders its post-up steps: {tui_order}"
     )

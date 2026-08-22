@@ -688,9 +688,23 @@ class ComfyUiMpsManager:
         if not self.pid_file.exists():
             return None
         try:
-            return int(self.pid_file.read_text(encoding="utf-8").strip())
-        except (OSError, ValueError):
+            # FIRST LINE only. `write_pid_file_with_identity` appends
+            # `start_utc=<ps lstart>` after the pid, so parsing the whole file
+            # made `int()` raise on every launch where `ps` answers — i.e.
+            # every macOS host, the only platform MPS supports. `_read_pid`
+            # then returned None and the entire lifecycle inverted: `status`
+            # reported not-running while it ran, `stop` deleted the pid file
+            # and returned False leaving the process alive, `remove` rmtree'd
+            # the install out from under it, the next `start` failed with
+            # "port already in use", and rollback printed success. Single-line
+            # files from an earlier version still parse.
+            first = self.pid_file.read_text(encoding="utf-8").splitlines()[0]
+            pid = int(first.strip())
+        except (OSError, ValueError, IndexError):
             return None
+        # A pid must be POSITIVE: `_terminate_pid` escalates to `os.killpg`,
+        # where 0 means the CALLER's process group and -1 is a broadcast.
+        return pid if pid > 0 else None
 
     def _clear_pid(self) -> None:
         try:
@@ -746,11 +760,38 @@ class ComfyUiMpsManager:
         Falls back to False (proceed) when the answer is unknowable, which is
         the pre-existing rule: an unknowable probe must never block teardown.
         """
-        from services.managed_host import ManagedHostManager, pid_is_stranger
-
-        return pid_is_stranger(
-            pid, self.pid_file, ManagedHostManager._process_start_time
+        from services.managed_host import (
+            ManagedHostManager as _MHM,
+            read_recorded_start_time,
+            pid_is_stranger,
         )
+
+        if read_recorded_start_time(self.pid_file):
+            # Stamped by this version: `(pid, start time)` is an identity and
+            # gives a definitive answer.
+            return pid_is_stranger(pid, self.pid_file, _MHM._process_start_time)
+        # UNSTAMPED (a pid file written before the stamp existed). The identity
+        # check degrades to "proceed", which would signal a recycled pid — so
+        # keep the old argv heuristic for that transitional window. It is weak
+        # in one direction only: generic markers make it UNDER-refuse, never
+        # over-refuse, so as a fallback it can only add protection.
+        return self._argv_is_stranger(pid)
+
+    def _argv_is_stranger(self, pid: int) -> bool:
+        """Legacy command-line heuristic. Only for pid files with no stamp."""
+        try:
+            out = subprocess.run(
+                ["ps", "-ww", "-p", str(pid), "-o", "command="],
+                capture_output=True, text=True, encoding="utf-8",
+                errors="replace", timeout=5, check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return False
+        cmdline = (out.stdout or "").strip()
+        if out.returncode != 0 or not cmdline:
+            return False
+        markers = ("main.py", "ComfyUI", str(self.repo_dir), str(self.state_dir))
+        return not any(marker in cmdline for marker in markers)
 
     def _write_status(
         self,
