@@ -215,10 +215,41 @@ def check(repo_root: Path, manifest_path: Path) -> list[Finding]:
         )
         for path in sync_canonical_references(repo_root, check=True)
     ]
+    # Render the surfaces HERE and validate what we just produced.
+    #
+    # `build(..., check=True)` renders into its own TemporaryDirectory and
+    # returns without writing `generated/` — which is gitignored. Pointing the
+    # two surface checks at `repo_root/"generated"` therefore validated
+    # whatever happened to be lying there: on a clean checkout that is nothing
+    # at all, so both globbed zero files and the gate printed PASS having
+    # checked neither surface. When a stale tree from an earlier branch was
+    # present, it validated the OLD output. CI only escaped this because the
+    # Makefile happens to run a full `build_docs` immediately before — an
+    # ordering dependency expressed nowhere in this file, and one that
+    # `check_site.py` does not honour.
+    # PRODUCE the tree we are about to validate. `build(..., check=True)`
+    # above renders into its own TemporaryDirectory (that call is the
+    # determinism check) and returns without writing `generated/`, so pointing
+    # the surface checks at `generated/` validated whatever happened to be
+    # lying there — nothing at all on a clean checkout, which made both globs
+    # match zero files and the gate print PASS having checked neither surface.
+    # CI only escaped it because the Makefile happens to run a full
+    # `build_docs` first, an ordering dependency expressed nowhere here and
+    # not honoured by `check_site.py`.
+    #
+    # `build` (not bare render_site/render_wiki) because the surfaces also
+    # need their diagram assets — without those, the wiki-link check reports
+    # every embedded image as a missing target.
+    build(manifest_path, repo_root, site=True, wiki=True, check=False)
+    rendered = repo_root / "generated"
+    surface_findings = [
+        *check_self_containment(repo_root, rendered),
+        *check_wiki_links(repo_root, rendered / "wiki"),
+    ]
+
     return [
         *canonical_drift,
-        *check_self_containment(repo_root, repo_root / "generated"),
-        *check_wiki_links(repo_root, repo_root / "generated" / "wiki"),
+        *surface_findings,
         *check_completeness(manifest, repo_root),
         *check_placeholders(repo_root),
     ]
