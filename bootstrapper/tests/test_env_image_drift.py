@@ -74,7 +74,7 @@ def test_multi_drift_reports_all(tmp_path: Path):
         tmp_path,
         "SPARK_IMAGE=apache/spark:4.1.2\n"
         "ZEPPELIN_IMAGE=apache/zeppelin:0.12.0\n"
-        "AIRFLOW_IMAGE=apache/airflow:3.3.0\n",
+        "AIRFLOW_IMAGE=apache/airflow:3.3.1\n",
     )
     user_env = {
         "SPARK_IMAGE": "bitnami/spark:4.1.2",         # stale

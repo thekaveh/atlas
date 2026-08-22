@@ -69,6 +69,18 @@ AUDIT_SPECS = (
         # through nemo_asr.models.ASRModel.from_pretrained (transcribe.py:37) on
         # the operator-pinned PARAKEET_MODEL repo, not on user-supplied files.
         # Drop this exception once a lightning 2.x release ships d710d68.
+        #
+        # CVE-2026-68508 is RCE in hydra-core, via hydra.utils.instantiate()
+        # resolving a `_target_` import path out of a config the caller does not
+        # control. hydra-core 1.3.4 ships the fix, but nemo-toolkit caps
+        # hydra-core<=1.3.2 in every extra this lock pulls -- including the
+        # newest 3.0.0 -- so `--upgrade-package hydra-core` resolves to a
+        # zero-line diff and there is no reachable upgrade target. Atlas never
+        # imports hydra: the provider's only NeMo entry point is
+        # nemo_asr.models.ASRModel.from_pretrained (transcribe.py:37) on the
+        # operator-pinned PARAKEET_MODEL repo, and request payloads cannot
+        # select that model. Drop this exception once nemo-toolkit relaxes the
+        # upstream cap to admit 1.3.4.
         # Atlas maintainers own re-review by 2026-09-01.
         frozenset(
             {
@@ -77,6 +89,7 @@ AUDIT_SPECS = (
                 "PYSEC-2026-2289",
                 "PYSEC-2026-2290",
                 "PYSEC-2026-3624",
+                "CVE-2026-68508",
             }
         ),
     ),

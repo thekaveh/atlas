@@ -5,7 +5,7 @@ services:
       context: '{REPO_ROOT}/services/airflow/build'
       dockerfile: Dockerfile
       args:
-        BASE_IMAGE: apache/airflow:3.3.0
+        BASE_IMAGE: apache/airflow:3.3.1
     command:
     - airflow
     - dag-processor
@@ -76,7 +76,7 @@ services:
       context: '{REPO_ROOT}/services/airflow/build'
       dockerfile: Dockerfile
       args:
-        BASE_IMAGE: apache/airflow:3.3.0
+        BASE_IMAGE: apache/airflow:3.3.1
     command:
     - bash
     - /scripts/init-airflow.sh
@@ -132,7 +132,7 @@ services:
       context: '{REPO_ROOT}/services/airflow/build'
       dockerfile: Dockerfile
       args:
-        BASE_IMAGE: apache/airflow:3.3.0
+        BASE_IMAGE: apache/airflow:3.3.1
     command:
     - airflow
     - scheduler
@@ -203,7 +203,7 @@ services:
       context: '{REPO_ROOT}/services/airflow/build'
       dockerfile: Dockerfile
       args:
-        BASE_IMAGE: apache/airflow:3.3.0
+        BASE_IMAGE: apache/airflow:3.3.1
     command:
     - airflow
     - api-server
