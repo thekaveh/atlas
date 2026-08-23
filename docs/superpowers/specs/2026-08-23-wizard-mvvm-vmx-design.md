@@ -65,14 +65,41 @@ bootstrapper/
   wizard/
     model/                VMx-free, Textual-free.
                           <- ui/state.py, ui/state_builder.py,
-                             wizard/service_discovery.py, + extracted rules
+                             wizard/service_discovery.py,
+                             the Model half of wizard/llm_steps.py,
+                             + rules extracted from integration.py
     viewmodel/            imports vmx + model. NEVER imports textual.
+                          <- wizard/llm_steps.py (step builders),
+                             wizard/comfyui_steps.py, wizard/ray_steps.py,
+                             + _build_steps_and_rows
     view/                 imports textual + viewmodel. NEVER imports model.
                           <- ui/textual/*
   ui/term_caps.py         Stays put. Host-environment detection consumed by
                           start.py before any wizard exists; it belongs to no
                           wizard layer.
 ```
+
+**`wizard/` is not empty today.** It already holds 1,810 lines that must be
+classified rather than left in place:
+
+| Existing file | LOC | Lands in |
+|---|---|---|
+| `wizard/llm_steps.py` | 1,064 | **split** — see below |
+| `wizard/comfyui_steps.py` | 515 | `viewmodel/` (step builders) |
+| `wizard/service_discovery.py` | 207 | `model/` (`ServiceInfo`, `ServiceDiscovery`, `CLOUD_PROVIDER_KEYS`) |
+| `wizard/ray_steps.py` | 23 | `viewmodel/` (step builder) |
+
+`llm_steps.py` straddles the boundary and is the one file that must be split,
+not moved:
+
+- **Model half** — `_csv` (CSV parsing), `_is_localhost_or_external`,
+  `_is_container_ollama`, `_selected_llm_source`. Domain predicates the CLI
+  path honours too.
+- **ViewModel half** — step-title constants (`LLM_ENGINE_TITLE`,
+  `OLLAMA_MODELS_TITLE`, `cloud_secret_title`, `cloud_models_title`,
+  `fal_secret_title`), `build_ollama_steps`, `_build_library_options`,
+  `_merge_badges`, `_compose_hint`, `_is_legacy`, `_sort_key`,
+  `_make_cloud_options_provider`, `_make_cloud_skip_predicate`.
 
 ### 3.2 Enforced import direction
 
@@ -261,6 +288,8 @@ Baseline at `bf2e8403`:
 | `prompt_panel.py` | 1,885 |
 | `option_row.py` | 922 |
 | `ui/state.py` + `state_builder.py` | 431 |
+| `wizard/` (llm_steps 1,064 + comfyui_steps 515 + service_discovery 207 + ray_steps 23) | 1,810 |
+| **Total migration surface** | **12,384** |
 
 Reported per pass, split three ways — **relocated** (Pass 1 moves), **eliminated**
 (Passes 3–4 deletions), **added** (VM layer + tests). Conflating these would
