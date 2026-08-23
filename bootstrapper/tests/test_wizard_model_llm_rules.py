@@ -82,9 +82,27 @@ def test_selected_llm_source_falls_back_to_env():
 
 
 def test_llm_rules_module_is_framework_free():
-    """Belt-and-braces alongside the layer lint: this module in
-    particular is imported by the --no-tui path."""
+    """Cheap file-local smoke check — NOT the authoritative guard.
+
+    This scans llm_rules.py's own source for import/from lines naming
+    vmx or textual, so a regression here fails fast and close to the
+    module under test. It is intentionally source-based, not an AST
+    parse (that is the layer lint's job) — it only matches lines that
+    actually start with ``import``/``from`` so it can't be tripped by
+    the module's own docstring prose mentioning those words.
+
+    The authoritative, repo-wide guard is
+    ``tests/test_wizard_layer_boundaries.py::test_model_layer_imports_no_framework``,
+    which AST-parses every file under wizard/model/ and catches both
+    ``import textual`` and ``from textual.widgets import Button`` forms
+    plus submodules. Treat that test as the real enforcement; this one
+    is a belt, not a second matching brace.
+    """
+    import re
+
     import wizard.model.llm_rules as mod
+
     source = open(mod.__file__, encoding="utf-8").read()
-    assert "import vmx" not in source
-    assert "import textual" not in source
+    banned = re.compile(r"^\s*(?:import|from)\s+(?:vmx|textual)\b", re.MULTILINE)
+    match = banned.search(source)
+    assert match is None, f"found banned import line: {match.group(0)!r}"
