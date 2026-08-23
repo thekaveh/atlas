@@ -923,17 +923,43 @@ def _selections_to_args(
         existing_key = (env_vars.get(api_key_var, '') or '').strip()
 
         # Multiselect intent (renders only when the provider is enabled
-        # — otherwise skip_if_prev hides the step). None/SECRET_KEEP
-        # means the step produced no real answer this session (never
-        # visited, or a degraded fetch) — resolve_cloud_provider treats
-        # that as a third "no verdict" state via selected_models=None,
-        # so a "never visited" step can't be conflated with the user
-        # genuinely unchecking every model (selected_models=[]).
+        # — otherwise skip_if_prev hides the step). Three-way, exactly
+        # mirroring the original's own checks:
+        #   None/SECRET_KEEP     → no real answer this session (never
+        #                          visited, or a degraded fetch) →
+        #                          selected_models=None, a "no verdict"
+        #                          state resolve_cloud_provider must not
+        #                          let override anything.
+        #   stripped-empty CSV   → the original tested the WHOLE string
+        #                          (``models_v.strip() == ""``), not the
+        #                          parsed segment list — a comma-only or
+        #                          whitespace-junk CSV ("," / " , , ")
+        #                          has non-empty split segments even
+        #                          though the user selected nothing, so
+        #                          this must key off the same raw-string
+        #                          check the original used, not off
+        #                          whether any split segment survives.
+        #   otherwise            → real, non-empty selections. Split
+        #                          WITHOUT dropping blank segments: for
+        #                          any string that is non-blank after
+        #                          stripping, ``str.split(",")`` always
+        #                          returns at least one element (even a
+        #                          single-blank string like "" splits to
+        #                          [""], never []), so this can never
+        #                          collapse back to an empty list here --
+        #                          filtering blanks was exactly the bug
+        #                          (a comma-only "," parses to ["", ""],
+        #                          which filtering would empty out and
+        #                          incorrectly re-trigger the override
+        #                          this branch exists to avoid).
         models_v = selections.get(cloud_models_title(name))
         models_visited = models_v not in (None, SECRET_KEEP)
-        selected_models = (
-            [m for m in models_v.split(",") if m.strip()] if models_visited else None
-        )
+        if not models_visited:
+            selected_models = None
+        elif models_v.strip() == "":
+            selected_models = []
+        else:
+            selected_models = [m.strip() for m in models_v.split(",")]
 
         resolution = resolve_cloud_provider(
             provider_key=provider.key,
