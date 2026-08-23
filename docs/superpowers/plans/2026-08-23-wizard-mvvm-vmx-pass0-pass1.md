@@ -10,7 +10,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-23-wizard-mvvm-vmx-design.md`
 
-## Global Constraints
+## 1. Global Constraints
 
 - **Branch:** `feat/535-rebuild-setup-wizard-tui-mvvm-vmx`, cut from `develop`. Pass 0 is a **separate PR into `develop`**; Pass 1 lands on the feature branch.
 - **Integration target is `develop`, not `main`.** `main` and `develop` are both protected by the `gitflow` ruleset — PR required, strict mode, no direct push.
@@ -25,7 +25,7 @@
 
 ---
 
-## File Structure
+## 2. File Structure
 
 **Pass 0 — modified only:**
 - `bootstrapper/pyproject.toml` — Textual pin
@@ -55,7 +55,7 @@
 
 ---
 
-## Task 1: Upgrade Textual 6.2.1 → 8.2.8 (Pass 0 — separate PR)
+## 3. Task 1: Upgrade Textual 6.2.1 → 8.2.8 (Pass 0 — separate PR)
 
 **Files:**
 - Modify: `bootstrapper/pyproject.toml:15`
@@ -210,7 +210,7 @@ Wait for the three required `services-lint` checks before merging.
 
 ---
 
-## Task 2: Layer-boundary lint (Pass 1 — the guardrail, built first)
+## 4. Task 2: Layer-boundary lint (Pass 1 — the guardrail, built first)
 
 **Files:**
 - Create: `bootstrapper/tests/test_wizard_layer_boundaries.py`
@@ -381,7 +381,7 @@ Refs #535"
 
 ---
 
-## Task 3: Create `wizard/model/` and move the state layer
+## 5. Task 3: Create `wizard/model/` and move the state layer
 
 **Files:**
 - Create: `bootstrapper/wizard/model/__init__.py`
@@ -545,7 +545,7 @@ Refs #535"
 
 ---
 
-## Task 4: Move `service_discovery.py` into the Model layer
+## 6. Task 4: Move `service_discovery.py` into the Model layer
 
 **Files:**
 - Create: `bootstrapper/wizard/model/service_discovery.py` (git-mv of `bootstrapper/wizard/service_discovery.py`, 207 lines)
@@ -630,7 +630,7 @@ Refs #535"
 
 ---
 
-## Task 5: Extract the LLM Model predicates out of `llm_steps.py`
+## 7. Task 5: Extract the LLM Model predicates out of `llm_steps.py`
 
 **Files:**
 - Create: `bootstrapper/wizard/model/llm_rules.py`
@@ -852,7 +852,7 @@ Refs #535"
 
 ---
 
-## Task 6: Extract the track force-disable rule
+## 8. Task 6: Extract the track force-disable rule
 
 **Files:**
 - Create: `bootstrapper/wizard/model/track_rules.py`
@@ -1103,7 +1103,7 @@ Refs #535"
 
 ---
 
-## Task 7: Extract the cloud-provider promotion rules
+## 9. Task 7: Extract the cloud-provider promotion rules
 
 **Files:**
 - Create: `bootstrapper/wizard/model/cloud_rules.py`
@@ -1329,7 +1329,7 @@ Refs #535"
 
 ---
 
-## Task 8: Wire `_selections_to_args` to the extracted rules
+## 10. Task 8: Wire `_selections_to_args` to the extracted rules
 
 **Files:**
 - Modify: `bootstrapper/ui/textual/integration.py:852-1128`
@@ -1425,7 +1425,7 @@ Refs #535"
 
 ---
 
-## Task 9: LOC and complexity report script
+## 11. Task 9: LOC and complexity report script
 
 **Files:**
 - Create: `bootstrapper/scripts/loc_report.py`
@@ -1601,7 +1601,7 @@ Refs #535"
 
 ---
 
-## Task 10: Update `AGENTS.md` for the new package layout
+## 12. Task 10: Update `AGENTS.md` for the new package layout
 
 **Files:**
 - Modify: `AGENTS.md` (repo root)
@@ -1688,7 +1688,7 @@ Refs #535"
 
 ---
 
-## Self-Review
+## 13. Self-Review
 
 **Spec coverage:**
 
@@ -1717,7 +1717,7 @@ Refs #535"
 
 ---
 
-## Passes 2–4 — separate plans
+## 14. Passes 2–4 — separate plans
 
 Each produces working, testable software on its own and gets its own plan once its predecessor lands:
 

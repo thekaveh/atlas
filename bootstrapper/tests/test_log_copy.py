@@ -1,9 +1,12 @@
 """Copy affordances for the log pane.
 
-LogPane subclasses RichLog, a scrolling container, and Textual's rule is
-`allow_select = ALLOW_SELECT and not is_container` — so it can never
-drag-select. Users get terminal-native Shift-drag plus these explicit copy
-actions; the command summary and stack overview are already selectable via
+LogPane subclasses RichLog, a scrolling container. Under Textual 6.x,
+`allow_select = ALLOW_SELECT and not is_container` meant a scrolling
+container could never drag-select; Textual 8.x dropped that gate, so the
+log pane is now selectable by design — the originating request for the
+Textual 8.x upgrade. These explicit copy actions remain because the buffer
+can run longer than the viewport and OSC-52 clipboard writes have a size
+cap; the command summary and stack overview are separately selectable via
 their inner Static widgets.
 
 Round 2 additions (post-review): ``visible_text()`` must respect the active
@@ -73,13 +76,18 @@ def test_visible_text_respects_the_active_level_filter():
     )
 
 
-def test_log_pane_is_not_drag_selectable_by_design():
-    """Documents the constraint so nobody 'fixes' it by subclassing."""
+def test_log_pane_is_drag_selectable_since_textual_8():
+    """Textual 6.x refused to drag-select scrolling containers
+    (`allow_select = ALLOW_SELECT and not is_container`); Textual 8.x
+    dropped that gate, so the log pane is drag-selectable like any other
+    widget. Enabling drag-select on the live log pane was the originating
+    request for the Textual 8.x upgrade, so this is the desired outcome,
+    not a regression."""
     async def scenario():
         async with _App().run_test(size=(100, 20)) as pilot:
             return pilot.app.query_one(LogPane).allow_select
 
-    assert asyncio.run(scenario()) is False
+    assert asyncio.run(scenario()) is True
 
 
 def test_reflow_is_a_no_op_when_nothing_was_written_while_hidden():

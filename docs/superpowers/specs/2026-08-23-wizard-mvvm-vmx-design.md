@@ -15,7 +15,7 @@ phase — on a clean MVVM architecture using [VMx](https://github.com/thekaveh/V
 The success bar is behavioural, not stylistic: **zero domain logic left in the
 Textual layer**, enforced by a test rather than by review.
 
-### 1.1 Non-goals
+### 1.1. Non-goals
 
 - No layout revamp. Phase C of the original ticket shipped via #911/#917.
 - No hero art work. Phase D predates the ticket (`b8787bb8`).
@@ -56,7 +56,7 @@ not everything currently tangled into the View is Model either.
 | `_build_steps_and_rows` — step ordering, skip predicates, option labels/hints/badges | **ViewModel** | 589 lines, zero non-TUI consumers. Nothing in the domain knows what a "step" is. |
 | `_selections_to_args` | **both** | The rules it applies are Model; walking a selections map and sequencing them is ViewModel. |
 
-### 3.1 Package structure
+### 3.1. Package structure
 
 ```
 bootstrapper/
@@ -101,7 +101,7 @@ not moved:
   `_merge_badges`, `_compose_hint`, `_is_legacy`, `_sort_key`,
   `_make_cloud_options_provider`, `_make_cloud_skip_predicate`.
 
-### 3.2 Enforced import direction
+### 3.2. Enforced import direction
 
 A test asserts, by AST import analysis:
 
@@ -119,7 +119,7 @@ The governing principle: **prefer a VMx primitive over hand-written wiring.**
 Where an alternative was plausible, the rejection is recorded — a mapping that
 only lists what was chosen hides whether anything better was considered.
 
-### 4.1 Setup phase
+### 4.1. Setup phase
 
 | # | Case (today) | VMx abstraction | Why this, not the alternative |
 |---|---|---|---|
@@ -144,7 +144,7 @@ only lists what was chosen hides whether anything better was considered.
 | 16 | bulk row replacement (`set_rows`) | `CompositeVM.BatchUpdate()` | Suppresses intermediate `CollectionChanged`, emits a single `Reset`. |
 | 17 | the `_selections` map | `ObservableDictionary` | Multi-key observable dictionary; today a plain dict with manual refresh calls after every write. |
 
-### 4.2 Launch phase
+### 4.2. Launch phase
 
 | # | Case | VMx abstraction | Why |
 |---|---|---|---|
@@ -160,7 +160,7 @@ only lists what was chosen hides whether anything better was considered.
 | 26 | "a clipboard copy must never make `./start.sh` exit non-zero" | `DecoratorCommand` | A single error-containing decorator applied to commands, rather than repeated try/except in handlers. |
 | 27 | footer hints, failure hints, status line | `DerivedProperty` (`from_two` … `from_many`) off tab + phase + launch state | |
 
-### 4.3 Deliberate rejections
+### 4.3. Deliberate rejections
 
 Recorded so the spec shows these were considered, not missed:
 
@@ -184,20 +184,20 @@ Recorded so the spec shows these were considered, not missed:
 
 ## 5. Data flow and binding contract
 
-### 5.1 Output — ViewModel to View
+### 5.1. Output — ViewModel to View
 
 One `BoundWidget` base in `wizard/view/binding.py` holds a VM reference,
 subscribes via `when_property_changed` / `subscribe_value`, and calls
 `refresh()`. Subscriptions dispose on `on_unmount`. Widgets read VM properties
 only, never `wizard.model`.
 
-### 5.2 Input — View to ViewModel
+### 5.2. Input — View to ViewModel
 
 Widget events forward to commands and do nothing else. The existing
 `post_message` / `FilterChanged` pattern in `multiselect_filter_chips.py` is the
 precedent; it becomes the general rule.
 
-### 5.3 Threading
+### 5.3. Threading
 
 ```
 docker_manager.stream_compose      [worker thread — unchanged Model]
@@ -213,12 +213,12 @@ no global dispatcher, which is what makes this testable.
 
 This is the highest-risk seam in the work and the subject of the Pass 2 spike.
 
-### 5.4 Lifecycle ownership
+### 5.4. Lifecycle ownership
 
 `run_setup_flow` / `run_launch_flow` construct the root VM, hand it to the App,
 and `dispose()` depth-first on exit.
 
-### 5.5 Error handling
+### 5.5. Error handling
 
 VMx requires command predicates never raise, so every `canExecute` must be
 total. Async failures land as VM *state* (`AsyncResourceVM.Error`, launch error
@@ -276,7 +276,7 @@ all.
 
 ## 8. Success metrics
 
-### 8.1 Lines of code
+### 8.1. Lines of code
 
 Baseline at `bf2e8403`:
 
@@ -298,7 +298,7 @@ flatter the result. A committed `scripts/loc_report.py` makes it reproducible.
 LOC is a weak proxy and is tracked because it was asked for, not because it is
 the primary signal.
 
-### 8.2 Complexity — the primary signal, already CI-gated
+### 8.2. Complexity — the primary signal, already CI-gated
 
 `.maintenance.json` + `bootstrapper/tests/test_maintenance_baseline.py` enforce a
 complexity ledger. It already lists two of this work's targets as accepted
