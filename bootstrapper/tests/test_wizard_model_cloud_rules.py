@@ -254,3 +254,47 @@ def test_existing_source_is_required():
             selected_models=["gpt-4o"],
             existing_key_set=True,
         )
+
+
+# ── Fix round 3: selected_models=None is a third "no verdict" state ──
+#
+# The models-step override only fires when the multiselect was
+# genuinely visited THIS session and produced an explicit empty
+# answer. A plain ``Sequence[str]`` can't express "no answer this
+# session" -- an empty sequence is indistinguishable from "the user
+# visited and unchecked everything". These two tests pin the
+# distinction directly: None never overrides, [] always does (when
+# nothing else about the input changes).
+
+
+def test_no_answer_this_session_does_not_trigger_zero_models_override():
+    """selected_models=None means the multiselect step produced no real
+    answer this session (never visited, or a degraded SECRET_KEEP
+    commit whose options never loaded) -- not "zero selected". The
+    override must not fire, and the secret step's own decision (a
+    fresh key, here) must stand untouched."""
+    r = resolve_cloud_provider(
+        provider_key="openai",
+        secret_value="sk-test",
+        selected_models=None,
+        existing_key_set=False,
+        existing_source="disabled",
+    )
+    assert r.source == "enabled"
+    assert r.api_key == "sk-test"
+
+
+def test_explicit_empty_selection_still_triggers_zero_models_override():
+    """The counterpart to the test above, with everything else held
+    equal: an actual empty sequence -- the step rendered and the user
+    unchecked every model -- still disables and wipes the key. This is
+    what distinguishes None (no answer) from [] (an explicit zero)."""
+    r = resolve_cloud_provider(
+        provider_key="openai",
+        secret_value="sk-test",
+        selected_models=[],
+        existing_key_set=False,
+        existing_source="disabled",
+    )
+    assert r.source == "disabled"
+    assert r.api_key == "", "explicit zero models must wipe the key, not keep it"

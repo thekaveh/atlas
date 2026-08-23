@@ -33,6 +33,23 @@ already-enabled, already-keyed provider any time its secret step
 simply isn't visited this run (narrower track, CLI-flag mode,
 non-interactive run). That is silent destruction of a working
 configuration, so it does not happen here.
+
+Fix-round-3 note (#535 Pass 1, Task 8 review): ``selected_models`` has
+the SAME "no verdict" defect ``source`` had in fix-round-1. The
+original's models-step override only fires when the multiselect was
+genuinely visited THIS session and produced an explicit empty CSV --
+never when the step wasn't visited or a degraded SECRET_KEEP commit
+left the saved CSV untouched. A plain ``Sequence[str]`` cannot express
+"no answer this session" -- an empty sequence is indistinguishable
+from a real "the user unchecked everything". The first cut of this
+fix-round pushed that distinction into the CALLER (a magic non-empty
+placeholder list fed in just to suppress the override), which forked
+the rule across two layers and would have made every future caller
+(the Pass 2/3 ViewModels included) reproduce the same hack. Making
+``selected_models`` accept ``None`` -- a third "no verdict" state,
+symmetric with ``source``/``api_key`` -- keeps the whole rule in one
+place: ``None`` never overrides, only a real (possibly empty)
+sequence can.
 """
 
 from __future__ import annotations
@@ -66,6 +83,13 @@ class CloudResolution:
     rewrite the stored key" (a KEEP with nothing to promote, or the
     secret step was never visited); ``""`` means "actively blank it"
     (CLEAR, an empty secret, or the zero-models disable override).
+
+    ``models`` echoes whatever sequence the caller passed as
+    ``selected_models`` (``[]`` when the caller passed ``None`` --
+    there is nothing to echo). It is NOT authoritative for what a
+    caller should persist as the models CSV: the original writes the
+    RAW multiselect string verbatim, not a re-parsed/rejoined form, so
+    that bookkeeping stays with the caller.
     """
 
     source: str | None  # "enabled" | "disabled" | None (no verdict -- leave .env alone)
@@ -77,7 +101,7 @@ def resolve_cloud_provider(
     *,
     provider_key: str,
     secret_value: str | None,
-    selected_models: Sequence[str],
+    selected_models: Sequence[str] | None,
     existing_key_set: bool,
     existing_source: str,
 ) -> CloudResolution:
@@ -103,11 +127,32 @@ def resolve_cloud_provider(
     and force-disable a working configuration. Omitting it is now a
     ``TypeError`` at the call site instead of a silent .env
     corruption.
+
+    ``selected_models`` carries a THIRD "no verdict" state alongside
+    ``source``/``api_key`` (fix-round-3, #535 Pass 1 Task 8 review):
+
+      * ``None``       -> the multiselect step produced no real answer
+                          THIS session (never visited, or a degraded
+                          SECRET_KEEP commit whose options never
+                          loaded). The zero-models override below MUST
+                          NOT fire -- whatever the secret step decided
+                          stands untouched. This is not the same as
+                          "zero selected"; conflating the two would
+                          force-disable a provider merely because its
+                          multiselect step wasn't reached this run
+                          (narrower track, an already-enabled provider
+                          whose secret step -- and therefore its
+                          gating multiselect -- was skipped, etc).
+      * ``[]``          -> the step WAS visited and the user explicitly
+                          unchecked every model. This is a real,
+                          unconditional override and wins over
+                          everything the secret step decided.
+      * non-empty       -> real selections; no override.
     """
     if provider_key not in _PROVIDER_KEYS:
         raise ValueError(f"Unknown cloud provider key: {provider_key!r}")
 
-    models = list(selected_models)
+    models, zero_models_override = _classify_selected_models(selected_models)
     source: str | None
     api_key: str | None
 
@@ -147,14 +192,37 @@ def resolve_cloud_provider(
         api_key = secret_value
 
     # ─── Models-step override ──────────────────────────────────────
-    # Zero selected models is an explicit disable that wins over
-    # whatever the secret step decided above -- including a freshly
-    # entered key, a KEEP promotion, or even a no-verdict None. This
-    # mirrors the original: the multiselect block is a separate,
-    # unconditional statement that runs regardless of what the secret
-    # block did (or didn't do).
-    if not models:
+    # ``zero_models_override`` is true only when the multiselect was
+    # genuinely visited THIS session and produced an explicit empty
+    # answer (see the docstring's fix-round-3 note above and
+    # ``_classify_selected_models`` below). It is the explicit disable
+    # that wins over whatever the secret step decided above --
+    # including a freshly entered key, a KEEP promotion, or even a
+    # no-verdict None. This mirrors the original: the multiselect
+    # block is a separate, unconditional statement that runs
+    # regardless of what the secret block did (or didn't do) -- but
+    # ONLY when it actually ran.
+    if zero_models_override:
         source = "disabled"
         api_key = ""
 
     return CloudResolution(source=source, api_key=api_key, models=models)
+
+
+def _classify_selected_models(
+    selected_models: Sequence[str] | None,
+) -> tuple[list[str], bool]:
+    """Split ``selected_models`` into ``(models, zero_models_override)``.
+
+    Kept as its own tiny function (rather than inlined into
+    ``resolve_cloud_provider``) so the "no answer this session" vs.
+    "explicit empty answer" distinction is expressed as a single,
+    readable classification step instead of two separate ``is not
+    None`` checks scattered across the caller -- see the fix-round-3
+    note on ``resolve_cloud_provider``'s docstring for why the
+    distinction exists at all.
+    """
+    if selected_models is None:
+        return [], False
+    models = list(selected_models)
+    return models, not models

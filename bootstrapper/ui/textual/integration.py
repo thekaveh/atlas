@@ -900,11 +900,14 @@ def _selections_to_args(
     #   • Secret step  → API key (or SECRET_KEEP / SECRET_CLEAR sentinel)
     #   • Multiselect  → comma-separated active model names
     #
-    # Single pass over the canonical (name, source_var, api_key_var)
-    # tuple lets us keep the per-provider decisions adjacent: the
-    # secret step's enable/disable and the multiselect's
-    # "0 selected → disable" override are reconciled below before we
-    # move on to the next provider.
+    # Enable/disable + key resolution is delegated to
+    # wizard/model/cloud_rules.resolve_cloud_provider (#535 Pass 1) —
+    # see there for why ``existing_source`` is threaded through
+    # explicitly and why ``source is None`` must be left unwritten
+    # rather than coerced to "disabled". The models-CSV write stays
+    # here: it persists the raw multiselect string verbatim (not a
+    # re-parsed/rejoined form of the resolution's echoed ``.models``),
+    # which is env-var-name bookkeeping, not a promotion rule.
     cloud_api_keys: dict = {}
     cloud_user_models: dict = {}
     for provider in CLOUD_PROVIDERS:
@@ -916,53 +919,44 @@ def _selections_to_args(
         models_var = provider.user_models_var
 
         secret_v = selections.get(cloud_secret_title(name))
-        # Secret-step intent.
-        #   None              → step never visited; leave .env as-is.
-        #   SECRET_KEEP       → user pressed Enter past existing key.
-        #                       Auto-promote source to ``enabled`` IF the
-        #                       .env source was disabled but a key is
-        #                       already present — matches the wizard's
-        #                       skip predicate, which only forwards to
-        #                       the multiselect when it intends to enable.
-        #                       Otherwise leave alone.
-        #   SECRET_CLEAR / "" → disable + wipe key + wipe models.
-        #   real key string   → enable + persist key.
-        if secret_v is None:
-            pass
-        elif secret_v == SECRET_KEEP:
-            existing_source = (env_vars.get(source_var, 'disabled') or '').strip().lower()
-            existing_key = (env_vars.get(api_key_var, '') or '').strip()
-            if existing_source != 'enabled' and existing_key:
-                # Auto-promote: user proceeded past a disabled-with-key
-                # provider, the multiselect rendered → they want it on.
-                source_args[cli_arg] = "enabled"
-        elif secret_v == SECRET_CLEAR or secret_v == "":
-            # User cleared the key → disable provider, wipe key, and
-            # empty the model list so .env doesn't accumulate stale
-            # CSV that's now functionally inert.
-            source_args[cli_arg] = "disabled"
-            cloud_api_keys[api_key_var] = ""
-            cloud_user_models[models_var] = ""
-        else:
-            source_args[cli_arg] = "enabled"
-            cloud_api_keys[api_key_var] = secret_v
+        existing_source = (env_vars.get(source_var, 'disabled') or '').strip().lower()
+        existing_key = (env_vars.get(api_key_var, '') or '').strip()
 
-        # Multiselect intent (renders only when the provider is
-        # enabled — otherwise skip_if_prev hides the step).
+        # Multiselect intent (renders only when the provider is enabled
+        # — otherwise skip_if_prev hides the step). None/SECRET_KEEP
+        # means the step produced no real answer this session (never
+        # visited, or a degraded fetch) — resolve_cloud_provider treats
+        # that as a third "no verdict" state via selected_models=None,
+        # so a "never visited" step can't be conflated with the user
+        # genuinely unchecking every model (selected_models=[]).
         models_v = selections.get(cloud_models_title(name))
-        if models_v is None or models_v == SECRET_KEEP:
-            # SECRET_KEEP = degraded multiselect commit (options never
-            # loaded) — leave the saved CSV untouched.
-            continue
-        cloud_user_models[models_var] = models_v
-        # Explicit "0 selected" → user walked through the list and
-        # unchecked everything. Treat as "I don't want this provider":
-        # disable the source AND wipe the key for symmetry with
-        # SECRET_CLEAR (otherwise .env would keep a stale key for a
-        # disabled provider, which is misleading).
-        if models_v.strip() == "":
-            source_args[cli_arg] = "disabled"
-            cloud_api_keys[api_key_var] = ""
+        models_visited = models_v not in (None, SECRET_KEEP)
+        selected_models = (
+            [m for m in models_v.split(",") if m.strip()] if models_visited else None
+        )
+
+        resolution = resolve_cloud_provider(
+            provider_key=provider.key,
+            secret_value=secret_v,
+            selected_models=selected_models,
+            existing_key_set=bool(existing_key),
+            existing_source=existing_source,
+        )
+        if resolution.source is not None:
+            source_args[cli_arg] = resolution.source
+        if resolution.api_key is not None:
+            cloud_api_keys[api_key_var] = resolution.api_key
+
+        # Models-CSV bookkeeping — mirrors the original's two write
+        # sites in order: a SECRET_CLEAR/"" secret blanks it
+        # unconditionally, then a visited multiselect (if any)
+        # overwrites with the raw CSV — so a visited-but-empty commit
+        # still lands as "" and a visited-non-empty commit wins over an
+        # unrelated clear.
+        if secret_v in (SECRET_CLEAR, ""):
+            cloud_user_models[models_var] = ""
+        if models_visited:
+            cloud_user_models[models_var] = models_v
 
     # ─── FAL media-provider secret (#517) ────────────────────────────
     # FAL's plain enabled/disabled source step is replaced by a masked
