@@ -856,8 +856,8 @@ Refs #535"
 
 **Files:**
 - Create: `bootstrapper/wizard/model/track_rules.py`
-- Modify: `bootstrapper/ui/textual/integration.py:884-910`
 - Test: `bootstrapper/tests/test_wizard_model_track_rules.py` (create)
+- **Does NOT modify `integration.py`** — the rule lands with its tests first; Task 8 wires it in. A reviewer should expect no `integration.py` diff from this task.
 
 **Interfaces:**
 - Consumes: `ServiceInfo` from `wizard.model.service_discovery` (Task 4).
@@ -968,13 +968,17 @@ def test_explicit_override_is_never_clobbered():
 
 
 def test_hyphenated_service_key_becomes_underscored_cli_key():
-    """CLI keys use underscores; service keys may use hyphens."""
+    """CLI keys use underscores; service keys may use hyphens.
+
+    label-studio is verified out-of-track for gen-ai-rag and not
+    always-on, so it force-disables and the key must be rewritten.
+    """
     result = track_force_disabled_sources(
         track_key="gen-ai-rag",
-        services_info=[_Svc("doc-processor")],
+        services_info=[_Svc("label-studio")],
         already_set={},
     )
-    assert list(result) == ["doc_processor_source"] or result == {}
+    assert result == {"label_studio_source": "disabled"}
 
 
 def test_registry_failure_never_blocks_the_wizard(monkeypatch):
@@ -1103,8 +1107,9 @@ Refs #535"
 
 **Files:**
 - Create: `bootstrapper/wizard/model/cloud_rules.py`
-- Modify: `bootstrapper/ui/textual/integration.py:912-1128`
+- Modify: `bootstrapper/ui/textual/widgets/prompt_panel.py` (sentinels move out, re-imported)
 - Test: `bootstrapper/tests/test_wizard_model_cloud_rules.py` (create)
+- **Does NOT modify `integration.py`** — Task 8 wires it in. A reviewer should expect no `integration.py` diff from this task.
 
 **Interfaces:**
 - Consumes: `CLOUD_PROVIDERS` from `utils.cloud_providers`.
@@ -1331,7 +1336,7 @@ Refs #535"
 - Test: existing `bootstrapper/tests/` parity suites (no new test file)
 
 **Interfaces:**
-- Consumes: `track_force_disabled_sources` (Task 6), `resolve_cloud_provider` (Task 7), `parse_csv` (Task 5).
+- Consumes: `track_force_disabled_sources` (Task 6), `resolve_cloud_provider` + `SECRET_KEEP` + `SECRET_CLEAR` (Task 7). **Not** `parse_csv` — that is consumed by `llm_steps.py`, which Task 5 already repointed.
 - Produces: `_selections_to_args` with an unchanged signature and unchanged output. This is the task that moves the complexity number.
 
 **Context:** `_selections_to_args` is CC 63 and is one of two symbols named in `.maintenance.json` as an accepted signal, with the rationale *"Boundary translator for the same manifest-driven option matrix; CLI/TUI parity tests are the safer current control. Revisit together with `_build_steps_and_rows`."* This task is that revisit.
