@@ -55,6 +55,11 @@ def format_report(bootstrapper_root: Path) -> str:
             f"| {layer} | {stats['files']} | {stats['lines']} "
             f"| {stats['max_complexity']} |"
         )
+    rows.append(
+        "\nNote: rows overlap, they do not sum to a whole. `wizard` "
+        "includes everything under `wizard/model` (and `wizard/viewmodel` "
+        "once it exists), so summing the table double-counts those files."
+    )
     return "\n".join(rows)
 
 
