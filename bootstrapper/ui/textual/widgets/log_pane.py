@@ -253,11 +253,13 @@ class LogPane(RichLog):
         filter, for clipboard copy.
 
         Textual 8.x makes RichLog drag-selectable like any other widget,
-        but this explicit copy path still earns its place: the buffer can
-        run longer than the viewport, and OSC-52 clipboard writes have a
-        size cap a raw drag-select doesn't respect. Filtered through
-        ``_passes_filter`` so the copy matches what's actually on screen —
-        not the full unfiltered buffer."""
+        but this explicit copy path still earns its place: it is
+        filter-aware (matches whichever level/source chips are active,
+        which a drag-select has no notion of), it captures the whole
+        scrollback rather than only what you can physically drag over on
+        screen, and it's keyboard-driven. Filtered through
+        ``_passes_filter`` so the copy matches the active filter — not
+        the full unfiltered buffer."""
         return "\n".join(
             rec.raw for rec in self._records if self._passes_filter(rec)
         )

@@ -4,10 +4,12 @@ LogPane subclasses RichLog, a scrolling container. Under Textual 6.x,
 `allow_select = ALLOW_SELECT and not is_container` meant a scrolling
 container could never drag-select; Textual 8.x dropped that gate, so the
 log pane is now selectable by design — the originating request for the
-Textual 8.x upgrade. These explicit copy actions remain because the buffer
-can run longer than the viewport and OSC-52 clipboard writes have a size
-cap; the command summary and stack overview are separately selectable via
-their inner Static widgets.
+Textual 8.x upgrade. These explicit copy actions remain because they are
+filter-aware (they match whichever level/source chips are active, which
+a drag-select can't know about), they capture the whole scrollback
+rather than only whatever you can physically drag over, and they're
+keyboard-driven; the command summary and stack overview are separately
+selectable via their inner Static widgets.
 
 Round 2 additions (post-review): ``visible_text()`` must respect the active
 level/source filter (Important 2), ``action_copy_session_log`` must offload
