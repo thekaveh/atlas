@@ -76,7 +76,7 @@ class BrandInfo:
     # BrandInfo() directly without explicitly providing values gets a
     # visibly unbranded panel (rather than silently falling back to
     # Atlas defaults). The canonical defaults live in
-    # ``ui/state.py::AppState`` and are layered in by
+    # ``wizard/model/state.py::AppState`` and are layered in by
     # ``state_builder.build_app_state`` from BRAND_* env vars + fallbacks.
     name: str = ""
     tagline: str = ""

@@ -1,4 +1,4 @@
-"""Unit tests for ui.state_builder.resolve_port — focuses on the
+"""Unit tests for wizard.model.state_builder.resolve_port — focuses on the
 localhost path which now reads PORT vars directly instead of regex-
 extracting from a URL var (the URL vars are gone)."""
 

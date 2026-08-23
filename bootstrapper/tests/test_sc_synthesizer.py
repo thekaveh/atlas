@@ -3,7 +3,7 @@
 synthesize_legacy() concatenates each manifest's runtime_sc / runtime_adaptive /
 runtime_deps / runtime_dependency_tiers slices into the legacy service-config dict
 consumed by service_config.py, source_validator.py, dependency_manager.py,
-ui/state_builder.py, and wizard/llm_steps.py. It raises ValueError on four
+wizard/model/state_builder.py, and wizard/llm_steps.py. It raises ValueError on four
 duplicate-key conditions that would otherwise silently let a later manifest
 overwrite an earlier one (silent data corruption).
 
