@@ -48,13 +48,12 @@ from ui.textual.widgets.prompt_panel import (
     PromptOption,
     PromptStep,
 )
-
-
-def _csv(val: str | None) -> list[str]:
-    """Split a comma-separated string into a list of non-empty stripped tokens."""
-    if not val:
-        return []
-    return [s.strip() for s in val.split(",") if s.strip()]
+from wizard.model.llm_rules import (
+    is_container_ollama as _is_container_ollama,
+    is_localhost_or_external as _is_localhost_or_external,
+    parse_csv as _csv,
+    selected_llm_source as _selected_llm_source,
+)
 
 
 LLM_ENGINE_TITLE = "LLM Engine  ·  source"
@@ -93,24 +92,6 @@ def fal_secret_title() -> str:
     The apply side in integration._selections_to_args matches this exact title.
     """
     return "FAL Cloud Media  ·  API key"
-
-
-# ─── helpers ───────────────────────────────────────────────────────────
-
-
-def _selected_llm_source(env_vars: Dict[str, str], selections: dict) -> str:
-    v = selections.get(LLM_ENGINE_TITLE)
-    if v:
-        return v.strip().lower()
-    return (env_vars.get("LLM_PROVIDER_SOURCE", "ollama-container-cpu") or "").strip().lower()
-
-
-def _is_localhost_or_external(src: str) -> bool:
-    return "localhost" in src or "external" in src
-
-
-def _is_container_ollama(src: str) -> bool:
-    return src.startswith("ollama-container-")
 
 
 # ─── Ollama steps ──────────────────────────────────────────────────────
