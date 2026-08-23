@@ -1,8 +1,11 @@
 """Track force-disable rule (#535 Pass 1).
 
-Extracted from ui/textual/integration.py::_selections_to_args. Domain
-truth: the CLI flag path honours the same track semantics, so this
-must be reachable without importing the wizard's Textual layer.
+Extracted from ui/textual/integration.py::_selections_to_args. This is
+domain truth about track semantics, placed in wizard/model so the
+`--no-tui` path can adopt it in a later pass without importing the
+wizard's Textual layer. Today `integration.py` (the Textual path) is
+its only caller — `--no-tui` still runs its own, separate
+`tracks.synthesize_track_source_args`.
 
 Returns additions instead of mutating a caller dict — that is what
 makes the rule unit-testable.

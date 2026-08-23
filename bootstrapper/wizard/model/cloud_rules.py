@@ -12,8 +12,10 @@ independent wizard signals are reconciled here for each provider in
     entered key or a KEEP promotion.
 
 This is the subtlest rule in the wizard and the one most likely to
-regress silently. The CLI flag path honours the same semantics, so it
-must be reachable without importing the wizard's Textual layer.
+regress silently. It is domain truth, placed in wizard/model so the
+`--no-tui` path can adopt the same semantics in a later pass without
+importing the wizard's Textual layer. Today `integration.py` (the
+Textual path) is its only caller.
 
 SECRET_KEEP / SECRET_CLEAR sentinels move here from
 ``ui/textual/widgets/prompt_panel.py``: they are values in a domain
@@ -164,12 +166,21 @@ def resolve_cloud_provider(
     #                           forcing one would be destructive).
     #                           Not already enabled and a key exists
     #                           to keep -> promote to enabled. Not
-    #                           already enabled and no key -> the
-    #                           definite "disabled" it already was
-    #                           (this is what
+    #                           already enabled and no key -> resolves
+    #                           to "disabled" here (this is what
     #                           ``test_secret_keep_without_existing_key_does_not_enable``
-    #                           pins down). The key itself is never
-    #                           rewritten (api_key stays None).
+    #                           pins down) -- but this is a KNOWN,
+    #                           DELIBERATELY CARRIED divergence from
+    #                           the original, which writes nothing to
+    #                           source_args on this branch at all. It
+    #                           is unreachable on the live path today:
+    #                           ``PromptPanel`` only ever emits
+    #                           SECRET_KEEP when a key already exists,
+    #                           so `existing_key_set` is always True
+    #                           whenever this branch's sibling
+    #                           (`existing_key_set` false) could fire.
+    #                           The key itself is never rewritten
+    #                           (api_key stays None).
     #   SECRET_CLEAR / ""    -> disable + blank the key.
     #   a real key string    -> enable + persist the key.
     if secret_value is None:

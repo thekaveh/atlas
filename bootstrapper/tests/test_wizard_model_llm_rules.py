@@ -1,7 +1,8 @@
 """Model-layer LLM predicates extracted from wizard/llm_steps.py (#535).
 
-These are domain rules — the CLI flag path honours them too — so they
-live in wizard/model and must stay importable without vmx or textual.
+These are domain rules, placed in wizard/model so the --no-tui path can
+adopt them in a later pass without importing vmx or textual at module
+scope. Today the Textual wizard is their only caller.
 """
 
 from __future__ import annotations
@@ -81,22 +82,30 @@ def test_selected_llm_source_falls_back_to_env():
     assert selected_llm_source(env, {}) == "ollama-container-gpu"
 
 
-def test_llm_rules_module_is_framework_free():
-    """Cheap file-local smoke check — NOT the authoritative guard.
+def test_llm_rules_has_no_module_scope_framework_imports():
+    """Cheap file-local smoke check — NOT proof the module is framework-free
+    at runtime.
 
     This scans llm_rules.py's own source for import/from lines naming
     vmx or textual, so a regression here fails fast and close to the
-    module under test. It is intentionally source-based, not an AST
-    parse (that is the layer lint's job) — it only matches lines that
-    actually start with ``import``/``from`` so it can't be tripped by
-    the module's own docstring prose mentioning those words.
+    module under test. It only catches MODULE-SCOPE imports (lines that
+    literally start with ``import``/``from``); it does NOT prove the
+    module never touches ``textual`` when called — ``selected_llm_source``
+    does a deferred, function-scope import of ``wizard.llm_steps``, which
+    pulls ``textual`` into ``sys.modules`` transitively the first time it
+    runs. See this module's docstring and ``wizard/model/__init__.py`` for
+    that documented exception. This check is intentionally source-based,
+    not an AST parse (that is the layer lint's job) — it only matches
+    lines that actually start with ``import``/``from`` so it can't be
+    tripped by the module's own docstring prose mentioning those words.
 
     The authoritative, repo-wide guard is
     ``tests/test_wizard_layer_boundaries.py::test_model_layer_imports_no_framework``,
     which AST-parses every file under wizard/model/ and catches both
     ``import textual`` and ``from textual.widgets import Button`` forms
-    plus submodules. Treat that test as the real enforcement; this one
-    is a belt, not a second matching brace.
+    plus submodules — but it is also a static, module-scope-only check
+    and cannot see the deferred import either. Treat both as belts on
+    module-scope imports, not a runtime guarantee.
     """
     import re
 

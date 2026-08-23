@@ -1,8 +1,17 @@
-"""Wizard Model layer — VMx-free, Textual-free (#535).
+"""Wizard Model layer — no module-scope vmx or textual imports (#535).
 
 Everything here is consumed by BOTH the Textual wizard and the --no-tui
-linear flow. Nothing in this package may import ``vmx`` or ``textual``;
-``tests/test_wizard_layer_boundaries.py`` enforces that.
+linear flow. Nothing in this package may import ``vmx`` or ``textual`` at
+module scope; ``tests/test_wizard_layer_boundaries.py`` enforces that via
+a static AST scan.
+
+One documented exception: ``llm_rules.selected_llm_source`` does a
+deferred, function-scope import of ``wizard.llm_steps`` (a ViewModel
+module) to reach the ``LLM_ENGINE_TITLE`` constant. That import runs at
+call time, not at package-import time, so the static layer check does not
+see it — but calling ``selected_llm_source`` pulls ``textual`` into
+``sys.modules`` transitively. This is deliberate for now; moving the
+constant into the Model layer is Pass 3 work.
 """
 
 from __future__ import annotations

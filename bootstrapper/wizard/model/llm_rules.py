@@ -1,10 +1,10 @@
 """LLM domain predicates (#535 Pass 1).
 
 Extracted verbatim from wizard/llm_steps.py. These are Model, not
-ViewModel: the CLI flag path honours the same rules, so they must be
-reachable without importing the wizard's step builders.
-
-Made public on extraction — a Model boundary is a published surface.
+ViewModel: they are domain rules, kept here so the `--no-tui` path can
+adopt them in a later pass without importing the wizard's step
+builders. Today they are called only from the Textual wizard path
+(``wizard/llm_steps.py``).
 """
 
 from __future__ import annotations

@@ -27,8 +27,17 @@ ROOT = Path(__file__).resolve().parents[1]  # bootstrapper/
 def _imported_modules(path: Path) -> set[str]:
     """Every absolute module name imported by one Python file.
 
-    Relative imports (``from .x import y``) are skipped: they cannot
-    cross a package boundary, so they can never violate a layer rule.
+    Relative imports (``from .x import y``) are skipped.
+
+    Known limitation, not a proven safety property: a relative import
+    CAN cross a layer boundary and this checker will not see it. For
+    example, ``wizard/model/x.py`` doing ``from ..llm_steps import Y``
+    reaches from Model into ViewModel exactly like an absolute
+    ``from wizard.llm_steps import Y`` would, but because it's spelled
+    with a leading dot it never appears in this function's output.
+    Widening the checker to resolve relative imports is out of scope
+    here (Pass 2 work); this docstring exists so the gap is documented
+    rather than silently assumed away.
     """
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     found: set[str] = set()
@@ -113,7 +122,10 @@ def test_lint_allows_unrelated_imports(tmp_path: Path):
 
 
 def test_lint_ignores_relative_imports(tmp_path: Path):
-    """A relative import cannot cross a package boundary."""
+    """Known limitation, not a safety property — see `_imported_modules`'s
+    docstring: a relative import (e.g. `from ..llm_steps import Y` inside
+    wizard/model) CAN cross a layer boundary and this checker won't catch
+    it. This test pins the current (unresolved) behavior, not a guarantee."""
     (tmp_path / "rel.py").write_text("from .sibling import thing\n", encoding="utf-8")
     assert layer_violations(tmp_path, ("vmx", "textual")) == []
 

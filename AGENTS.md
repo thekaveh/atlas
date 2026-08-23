@@ -140,8 +140,12 @@ Key modules:
 - `ui/term_caps.py` — `is_tui_capable(no_tui_flag)` helper used by `start.py` to decide between the Textual app and the linear flow
 - `wizard/model/` — Wizard Model layer: `state.py`, `state_builder.py`,
   `service_discovery.py`, plus the extracted domain rules (`track_rules.py`,
-  `cloud_rules.py`, `llm_rules.py`). VMx-free and Textual-free; consumed by
-  BOTH the Textual wizard and the `--no-tui` linear flow. `state_builder.all_services()`
+  `cloud_rules.py`, `llm_rules.py`). No module-scope `vmx` or `textual`
+  imports (one documented exception: `llm_rules.selected_llm_source` does a
+  deferred, function-scope import of `wizard.llm_steps` to reach a
+  ViewModel-owned constant, pending a Pass 3 move — see the package
+  docstring). Consumed by BOTH the Textual wizard and the `--no-tui` linear
+  flow. `state_builder.all_services()`
   is the single source of truth for service definitions, consumed by both the
   Textual `ServiceTable` and the `--no-tui` `build_pre_launch_summary_table`;
   `service_discovery.py` supplies the metadata (display name, description,
