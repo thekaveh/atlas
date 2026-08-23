@@ -79,7 +79,7 @@ def resolve_cloud_provider(
     secret_value: str | None,
     selected_models: Sequence[str],
     existing_key_set: bool,
-    existing_source: str = "",
+    existing_source: str,
 ) -> CloudResolution:
     """Reconcile the secret step and the models step for one provider.
 
@@ -91,9 +91,18 @@ def resolve_cloud_provider(
     the ``SECRET_KEEP`` branch, to reproduce the original's
     auto-promote guard exactly: when the provider is already enabled,
     SECRET_KEEP is a no-op (``source=None``), not a promotion and not
-    a demotion. It defaults to ``""`` (normalizes the same as
-    "disabled") so callers that never pass it -- i.e. every call site
-    outside the KEEP branch -- are unaffected.
+    a demotion.
+
+    Fix-round-2 note (#535 Pass 1, Task 7 review): this parameter is
+    REQUIRED, deliberately with no default. A default of ``""``
+    (normalizing to "disabled") would make it easy to *silently*
+    reproduce the exact class of bug fix-round-1 eliminated -- a
+    caller that simply forgets to pass it would get "the provider is
+    not enabled" for free, and a SECRET_KEEP against an
+    already-enabled, keyless provider would then read as "disabled"
+    and force-disable a working configuration. Omitting it is now a
+    ``TypeError`` at the call site instead of a silent .env
+    corruption.
     """
     if provider_key not in _PROVIDER_KEYS:
         raise ValueError(f"Unknown cloud provider key: {provider_key!r}")

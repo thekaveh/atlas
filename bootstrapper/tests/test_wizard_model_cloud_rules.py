@@ -9,6 +9,8 @@ This is the subtlest rule in the wizard; these tests are the contract.
 
 from __future__ import annotations
 
+import pytest
+
 from wizard.model.cloud_rules import (
     SECRET_CLEAR,
     SECRET_KEEP,
@@ -22,6 +24,8 @@ def test_new_key_with_models_enables():
         secret_value="sk-test",
         selected_models=["gpt-4o"],
         existing_key_set=False,
+        existing_source="disabled",  # not-KEEP branch: existing_source is unread; models a
+                                      # provider that had never been enabled before this key
     )
     assert r.source == "enabled"
     assert r.api_key == "sk-test"
@@ -40,51 +44,72 @@ def test_zero_models_disables_even_with_a_valid_key():
         secret_value="sk-test",
         selected_models=[],
         existing_key_set=False,
+        existing_source="disabled",  # not-KEEP branch: existing_source is unread
     )
     assert r.source == "disabled"
     assert r.api_key == "", "zero models must wipe the key, not keep it"
 
 
 def test_secret_keep_with_existing_key_promotes_to_enabled():
-    """User pressed Enter past an existing key: keep it, and enable."""
+    """User pressed Enter past an existing key: keep it, and enable.
+
+    Models a provider that is NOT currently enabled -- that's what
+    lets the original's auto-promote guard
+    (``existing_source != 'enabled' and existing_key``) fire.
+    """
     r = resolve_cloud_provider(
         provider_key="openai",
         secret_value=SECRET_KEEP,
         selected_models=["gpt-4o"],
         existing_key_set=True,
+        existing_source="disabled",
     )
     assert r.source == "enabled"
     assert r.api_key is None, "KEEP must not rewrite the stored key"
 
 
 def test_secret_keep_without_existing_key_does_not_enable():
-    """Nothing to keep means nothing to enable."""
+    """Nothing to keep means nothing to enable.
+
+    ``existing_source="disabled"`` matches the original's own default
+    fill (``env_vars.get(source_var, 'disabled')``) for a provider
+    that was never enabled and never had a key -- the guard's
+    ``existing_key`` half is False, so it stays at the "disabled" it
+    already was.
+    """
     r = resolve_cloud_provider(
         provider_key="openai",
         secret_value=SECRET_KEEP,
         selected_models=["gpt-4o"],
         existing_key_set=False,
+        existing_source="disabled",
     )
     assert r.source == "disabled"
 
 
 def test_secret_clear_disables_and_blanks_the_key():
+    """Not-KEEP branch: existing_source is unread. Models a provider
+    that was previously enabled with a key, now being cleared."""
     r = resolve_cloud_provider(
         provider_key="openai",
         secret_value=SECRET_CLEAR,
         selected_models=["gpt-4o"],
         existing_key_set=True,
+        existing_source="enabled",
     )
     assert r.source == "disabled"
     assert r.api_key == ""
 
 
 def test_empty_secret_with_no_existing_key_disables():
+    """Not-KEEP branch: existing_source is unread. Models a provider
+    that never had a key and was never enabled."""
     r = resolve_cloud_provider(
         provider_key="anthropic",
         secret_value="",
         selected_models=[],
         existing_key_set=False,
+        existing_source="disabled",
     )
     assert r.source == "disabled"
 
@@ -99,6 +124,7 @@ def test_resolution_is_frozen():
         secret_value="sk-test",
         selected_models=["gpt-4o"],
         existing_key_set=False,
+        existing_source="disabled",  # not-KEEP branch: existing_source is unread
     )
     assert dataclasses.is_dataclass(r)
     try:
@@ -118,6 +144,7 @@ def test_every_declared_provider_resolves():
             secret_value="sk-test",
             selected_models=["m"],
             existing_key_set=False,
+            existing_source="disabled",  # not-KEEP branch: existing_source is unread
         )
         assert r.source in {"enabled", "disabled"}
 
@@ -138,12 +165,22 @@ def test_every_declared_provider_resolves():
 def test_secret_step_never_visited_leaves_no_verdict():
     """Critical regression: ``secret_value=None`` must not be coerced
     to "disabled" -- that would force-disable an already-enabled
-    provider whenever its secret step isn't visited this run."""
+    provider whenever its secret step isn't visited this run.
+
+    ``existing_source="enabled"`` here is deliberate, not incidental:
+    the whole point of this regression is an ALREADY-ENABLED provider
+    whose step just wasn't visited this run -- coercion would be
+    destructive precisely because it silently overwrites a working
+    "enabled" state. (The ``secret_value is None`` branch doesn't
+    actually read ``existing_source``; it's set to make the scenario
+    concrete for the reader.)
+    """
     r = resolve_cloud_provider(
         provider_key="openai",
         secret_value=None,
         selected_models=["gpt-4o"],
         existing_key_set=True,
+        existing_source="enabled",
     )
     assert r.source is None, "no verdict -- caller must leave .env alone"
     assert r.api_key is None, "no verdict -- must not rewrite the key either"
@@ -158,6 +195,7 @@ def test_secret_step_never_visited_with_zero_models_still_disables():
         secret_value=None,
         selected_models=[],
         existing_key_set=False,
+        existing_source="disabled",  # None branch: existing_source is unread
     )
     assert r.source == "disabled"
     assert r.api_key == ""
@@ -173,6 +211,7 @@ def test_explicit_empty_secret_disables_and_blanks_even_with_models_selected():
         secret_value="",
         selected_models=["gpt-4o"],
         existing_key_set=True,
+        existing_source="enabled",  # not-KEEP branch: existing_source is unread
     )
     assert r.source == "disabled"
     assert r.api_key == "", '"" must blank the key like SECRET_CLEAR, not leave it like None'
@@ -192,3 +231,26 @@ def test_secret_keep_is_a_noop_when_already_enabled_without_a_key():
     )
     assert r.source is None, "already enabled -- forcing a verdict would be destructive"
     assert r.api_key is None
+
+
+# ── Fix round 2: existing_source is required, not defaulted ─────────
+#
+# A default of "" (normalizing to "disabled") made it easy to
+# *silently* reproduce the exact class of bug fix round 1 eliminated:
+# a caller that forgets the parameter gets "not enabled" for free, so
+# a SECRET_KEEP against an already-enabled, keyless provider would
+# read as "disabled" and force-disable a working configuration.
+# Removing the default converts that into an immediate TypeError.
+
+
+def test_existing_source_is_required():
+    """Regression guard for the footgun itself: omitting
+    ``existing_source`` must fail loudly (TypeError) rather than
+    silently defaulting to "not enabled"."""
+    with pytest.raises(TypeError):
+        resolve_cloud_provider(
+            provider_key="openai",
+            secret_value=SECRET_KEEP,
+            selected_models=["gpt-4o"],
+            existing_key_set=True,
+        )
