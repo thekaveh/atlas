@@ -5,14 +5,15 @@ Task 8 review, fix round 1/5).
 The original ``_selections_to_args`` classified "zero selected models" by
 testing the WHOLE multiselect commit string (``models_v.strip() == ""``),
 not by whether any comma-split segment survives. A comma-only CSV like
-``","`` has non-empty split segments (``["", ""]`` before filtering, which
-filters down to an EMPTY list either way -- but the point is the raw string
-itself is non-empty/non-blank) even though it represents no real
+``","`` produces a non-empty split LIST (``["", ""]``) -- the raw string
+itself is non-empty/non-blank -- even though filtering out the blank
+segments collapses that same list down to an EMPTY list of real
 selections. The wiring in ``ui/textual/integration.py`` must key its
 ``selected_models`` classification off the same raw-string check the
-original used, not off the parsed segment list, or a comma-only /
-whitespace-junk commit gets misclassified as "user unchecked everything"
-and wrongly disables an otherwise-enabled provider.
+original used, not off the parsed (filtered) segment list, or a
+comma-only / whitespace-junk commit gets misclassified as "user
+unchecked everything" and wrongly disables an otherwise-enabled
+provider.
 
 ``PromptPanel.selected_option`` never actually emits a bare-comma string
 today (it always joins real catalog names), so this is currently
