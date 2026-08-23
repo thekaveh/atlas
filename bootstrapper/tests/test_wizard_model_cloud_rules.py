@@ -29,7 +29,12 @@ def test_new_key_with_models_enables():
 
 
 def test_zero_models_disables_even_with_a_valid_key():
-    """Selecting no models is an explicit override, not an omission."""
+    """Selecting no models is an explicit override, not an omission.
+
+    It also wipes the just-entered key -- "for symmetry with
+    SECRET_CLEAR (otherwise .env would keep a stale key for a
+    disabled provider, which is misleading)", per the original.
+    """
     r = resolve_cloud_provider(
         provider_key="openai",
         secret_value="sk-test",
@@ -37,6 +42,7 @@ def test_zero_models_disables_even_with_a_valid_key():
         existing_key_set=False,
     )
     assert r.source == "disabled"
+    assert r.api_key == "", "zero models must wipe the key, not keep it"
 
 
 def test_secret_keep_with_existing_key_promotes_to_enabled():
@@ -114,3 +120,75 @@ def test_every_declared_provider_resolves():
             existing_key_set=False,
         )
         assert r.source in {"enabled", "disabled"}
+
+
+# ── Fix round 1: regression tests for the Critical + Minor findings ──
+#
+# The original ``_selections_to_args`` has TWO "leave .env alone"
+# paths that never write ``source_args[cli_arg]`` at all: a bare
+# ``secret_v is None`` (step never visited), and a SECRET_KEEP whose
+# auto-promote guard doesn't fire because the provider is already
+# enabled. Both must resolve to ``source is None`` ("no verdict"), not
+# a coerced "disabled" -- coercing either one would silently
+# force-disable an already-enabled, already-keyed provider whenever
+# its secret step isn't visited this run (narrower track, CLI-flag
+# mode, non-interactive run).
+
+
+def test_secret_step_never_visited_leaves_no_verdict():
+    """Critical regression: ``secret_value=None`` must not be coerced
+    to "disabled" -- that would force-disable an already-enabled
+    provider whenever its secret step isn't visited this run."""
+    r = resolve_cloud_provider(
+        provider_key="openai",
+        secret_value=None,
+        selected_models=["gpt-4o"],
+        existing_key_set=True,
+    )
+    assert r.source is None, "no verdict -- caller must leave .env alone"
+    assert r.api_key is None, "no verdict -- must not rewrite the key either"
+
+
+def test_secret_step_never_visited_with_zero_models_still_disables():
+    """The models-step override is a separate, unconditional block in
+    the original -- it fires even when the secret step (a different
+    selections-dict entry) was never visited."""
+    r = resolve_cloud_provider(
+        provider_key="openai",
+        secret_value=None,
+        selected_models=[],
+        existing_key_set=False,
+    )
+    assert r.source == "disabled"
+    assert r.api_key == ""
+
+
+def test_explicit_empty_secret_disables_and_blanks_even_with_models_selected():
+    """An explicit "" secret takes the SECRET_CLEAR branch (blanks the
+    key) -- unlike ``None`` (never visited, which leaves the key
+    untouched). Zero-model tests alone can't distinguish these two,
+    since the models override would blank the key either way."""
+    r = resolve_cloud_provider(
+        provider_key="openai",
+        secret_value="",
+        selected_models=["gpt-4o"],
+        existing_key_set=True,
+    )
+    assert r.source == "disabled"
+    assert r.api_key == "", '"" must blank the key like SECRET_CLEAR, not leave it like None'
+
+
+def test_secret_keep_is_a_noop_when_already_enabled_without_a_key():
+    """Minor regression: the original's auto-promote guard is
+    ``existing_source != 'enabled' and existing_key``. When the
+    provider is already enabled, SECRET_KEEP is a no-op regardless of
+    whether a key is on file -- not a computed "disabled"."""
+    r = resolve_cloud_provider(
+        provider_key="openai",
+        secret_value=SECRET_KEEP,
+        selected_models=["gpt-4o"],
+        existing_key_set=False,
+        existing_source="enabled",
+    )
+    assert r.source is None, "already enabled -- forcing a verdict would be destructive"
+    assert r.api_key is None
