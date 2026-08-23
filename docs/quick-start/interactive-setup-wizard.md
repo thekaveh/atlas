@@ -343,7 +343,7 @@ BRAND_REPO_URL=https://github.com/thekaveh/atlas
 BRAND_LOGO_FILE=
 ```
 
-Empty values fall back to the canonical defaults (encoded in `bootstrapper/ui/state.py::AppState`). See `.env.example` for the latest documented block.
+Empty values fall back to the canonical defaults (encoded in `bootstrapper/wizard/model/state.py::AppState`). See `.env.example` for the latest documented block.
 
 ### 15.1. Block-art logo (`BRAND_LOGO_FILE`)
 

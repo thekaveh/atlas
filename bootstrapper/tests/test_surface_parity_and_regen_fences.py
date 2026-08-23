@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from services.topology import get_topology
-from ui.state_builder import (
+from wizard.model.state_builder import (
     _port_from_endpoint,
     resolve_localhost_port,
     resolve_port,

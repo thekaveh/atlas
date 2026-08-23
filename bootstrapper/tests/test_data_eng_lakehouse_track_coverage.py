@@ -8,7 +8,7 @@ from core.config_parser import ConfigParser
 from services.topology import get_topology, invalidate_cache
 from tracks import is_in_track, load_tracks, synthesize_track_source_args
 from utils.source_override_manager import SourceOverrideManager
-from wizard.service_discovery import ServiceDiscovery
+from wizard.model.service_discovery import ServiceDiscovery
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]

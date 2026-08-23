@@ -8,11 +8,14 @@ description = "Atlas bootstrapper - cross-platform startup and management script
 requires-python = ">=3.10"
 dependencies = [
     "pyyaml>=6.0",           # YAML parsing (replaces yq)
-    "rich>=13.0.0",          # Terminal colors, tables, formatting
+    "rich>=14.2.0",          # Terminal colors, tables, formatting; Textual 8.x depends on
+                             # rich>=14.2.0, so uv resolves this floor upward regardless (#535 Pass 0).
     "click>=8.3.3",          # CLI argument parsing; clears click.edit command injection advisory
     "requests>=2.33.0",      # HF + civitai catalog HTTP scraping
     "urllib3>=2.7.0",        # Explicit floor (transitive via requests) — clears CVE-2026-44431/44432
-    "textual>=0.85",         # TUI framework — owns the wizard, launch, and streaming-logs flows
+    "textual>=8.2.8",        # TUI framework — owns the wizard, launch, and streaming-logs flows.
+                             # Floor raised from 0.85 for selection auto-scroll, cross-container
+                             # selection, and the TextSelected event (#535 Pass 0).
     "jsonschema>=4.0.0",     # Validates services/<name>/service.yml against bootstrapper/schemas/*
     "textual-image>=0.12,<0.13",  # Smooth splash poster via the terminal's image protocol (Kitty/Sixel/iTerm); <0.13 keeps Python 3.10 support. Block-art fallback where unsupported.
     "pillow>=12.3.0",        # Explicit floor for textual-image; clears the 12.2 font/image allocation advisories
@@ -36,6 +39,8 @@ dev = [
     "httpx2>=2.6.0",
     "mkdocs>=1.6,<2",
     "mkdocs-material>=9.6,<10",
+    "packaging>=23.0",      # Version parsing for tests/test_textual_floor.py; only ever
+                             # resolved transitively (via pytest) before, declare it directly.
     "python-multipart==0.0.32",
     "pytest>=7.0.0",
     "pytest-cov>=7.1,<8",

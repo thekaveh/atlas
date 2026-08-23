@@ -137,11 +137,30 @@ Key modules:
 - `ui/textual/screens/wizard_screen.py` — `WizardScreen` hosts the wizard prompts, then transitions in-place to the launch phase (service-table + log pane + filter chips)
 - `ui/textual/widgets/` — Textual widgets composed by `WizardScreen` (prompt panel, service table, info / brand panels, log pane + filter chips, command summary, footer bar)
 - `ui/textual/palette.py`, `ui/textual/theme.css` — colors and Textual CSS for the app
-- `ui/state.py`, `ui/state_builder.py` — framework-agnostic data model + builder; `state_builder.all_services()` is the single source of truth for service definitions, consumed by both the Textual `ServiceTable` and the `--no-tui` `build_pre_launch_summary_table`
 - `ui/term_caps.py` — `is_tui_capable(no_tui_flag)` helper used by `start.py` to decide between the Textual app and the linear flow
-- `wizard/service_discovery.py` — service metadata (display name, description, options) consumed by `ui/textual/integration.py` to build the wizard prompt steps
+- `wizard/model/` — Wizard Model layer: `state.py`, `state_builder.py`,
+  `service_discovery.py`, plus the extracted domain rules (`track_rules.py`,
+  `cloud_rules.py`, `llm_rules.py`). No module-scope `vmx` or `textual`
+  imports (one documented exception: `llm_rules.selected_llm_source` does a
+  deferred, function-scope import of `wizard.llm_steps` to reach a
+  ViewModel-owned constant, pending a Pass 3 move — see the package
+  docstring). Consumed by BOTH the Textual wizard and the `--no-tui` linear
+  flow. `state_builder.all_services()`
+  is the single source of truth for service definitions, consumed by both the
+  Textual `ServiceTable` and the `--no-tui` `build_pre_launch_summary_table`;
+  `service_discovery.py` supplies the metadata (display name, description,
+  options) `ui/textual/integration.py` uses to build the wizard prompt steps.
+- `wizard/viewmodel/` — VMx ViewModels (arrives in Pass 2 of #535). May import
+  `vmx` and `wizard.model`; may never import `textual`.
+- `wizard/view/` — Textual screens and widgets. May never import
+  `wizard.model` directly; it reads ViewModel state.
 - `utils/kong_config_generator.py` — dynamic Kong route generation (the `kong-dynamic.yml` it emits is regenerated at every startup; do NOT edit by hand)
 - `generate_supabase_keys.py` (and `.sh` sibling) — auto-runs at startup, generates Supabase JWT keys into `.env`
+
+The layer direction (`view -> viewmodel -> model`) is enforced by
+`bootstrapper/tests/test_wizard_layer_boundaries.py`, which also asserts that
+`core/linear_startup.py` never imports `vmx` — that is what makes the
+`--no-tui` path structurally VMx-free rather than VMx-free by convention.
 
 `start.sh` and `stop.sh` are thin wrappers that prefer `uv run` and fall back to system Python. The bootstrapper can also be invoked directly: `python bootstrapper/start.py [flags]` or `python bootstrapper/stop.py`. `--no-tui` bypasses the Textual TUI and runs the linear stdout flow (used by CI, non-TTY shells, and very narrow terminals).
 

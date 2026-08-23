@@ -9,7 +9,7 @@ globals manifest owns the `runtime_dependency_tiers:` block).
 
 `synthesize_legacy(manifests)` concatenates those slices into the exact same
 dict shape consumers (`service_config.py`, `source_validator.py`,
-`dependency_manager.py`, `ui/state_builder.py`, `wizard/llm_steps.py`) expect.
+`dependency_manager.py`, `wizard/model/state_builder.py`, `wizard/llm_steps.py`) expect.
 The legacy YAML file is now deleted; this function is the operational source.
 
 `runtime_sc` is the single source of truth for per-source runtime data

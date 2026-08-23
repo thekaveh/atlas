@@ -21,7 +21,7 @@ sys.path.insert(0, str(REPO_ROOT / "bootstrapper"))
 def main() -> int:
     from tracks import load_tracks, normalize_service_key
     from core.config_parser import ConfigParser
-    from wizard.service_discovery import ServiceDiscovery
+    from wizard.model.service_discovery import ServiceDiscovery
 
     try:
         reg = load_tracks()

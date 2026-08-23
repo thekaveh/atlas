@@ -3420,7 +3420,7 @@ class AtlasStarter:
         from rich.table import Table
         from rich.text import Text
         from rich.box import HEAVY_HEAD
-        from ui.state_builder import all_services, all_cloud_apis, alias_for, cloud_api_status_text
+        from wizard.model.state_builder import all_services, all_cloud_apis, alias_for, cloud_api_status_text
         from services.topology import get_topology
         from ui.textual.palette import style_for_category
 
@@ -3648,7 +3648,7 @@ class AtlasStarter:
         # the `:` is followed by `$` — so it fell through to the wrong var and
         # reported ComfyUI-MPS on 8000 instead of 8188, then raised a phantom
         # collision against vLLM Metal.
-        from ui.state_builder import resolve_localhost_port
+        from wizard.model.state_builder import resolve_localhost_port
 
         port = resolve_localhost_port(row, env_vars)
         return f":{port}" if port else "-"

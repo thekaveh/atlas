@@ -27,6 +27,8 @@ _THEME_PATH = Path(__file__).parent / "theme.css"
 # loop (selections.get(COMFYUI_MODELS_TITLE)) aligned with what the step
 # registers without duplicating the string literal.
 from wizard.comfyui_steps import COMFYUI_MODELS_TITLE
+from wizard.model.cloud_rules import resolve_cloud_provider
+from wizard.model.track_rules import track_force_disabled_sources
 
 
 # Module-level sink for wizard-time diagnostic warnings (cloud /v1/models
@@ -226,7 +228,7 @@ def recompute_ports_for_base(
     from the live .env so localhost sources still resolve to the host
     machine's port.
     """
-    from ui.state_builder import lookup_service_meta, resolve_port as _resolve_port
+    from wizard.model.state_builder import lookup_service_meta, resolve_port as _resolve_port
     from .widgets.service_table import ServiceRow as _SR
 
     live_env = config_parser.parse_env_file()
@@ -269,8 +271,8 @@ def _build_steps_and_rows(
     profile: str | None = None,
 ):
     """Build the wizard steps + service rows from real config."""
-    from wizard.service_discovery import ServiceDiscovery
-    from ui.state_builder import build_app_state
+    from wizard.model.service_discovery import ServiceDiscovery
+    from wizard.model.state_builder import build_app_state
     from core.config_parser import DEFAULT_BASE_PORT, DEFAULT_PROJECT_NAME
     from .widgets.prompt_panel import PromptOption, PromptStep
     from .widgets.service_table import ServiceRow
@@ -492,7 +494,7 @@ def _build_steps_and_rows(
     # place that does. Adding a new localhost-capable service is one
     # row here + a manifest entry per Task 7.
 
-    from ui.state_builder import LOCALHOST_PORT_WIRING
+    from wizard.model.state_builder import LOCALHOST_PORT_WIRING
 
     def _localhost_port_config(display: str, opt_value: str) -> "SecondaryNumberInput | None":
         """Build the per-option SecondaryNumberInput for a localhost row,
@@ -820,7 +822,7 @@ def _build_steps_and_rows(
     # so external s3 clients can discover them from the services pane.
     _minio_port = (env_vars.get("MINIO_PORT", "") or "63020").strip()
 
-    from ui.state_builder import service_extras
+    from wizard.model.state_builder import service_extras
 
     def _tooltip_extra_for(svc) -> list[tuple[str, str]]:
         if svc.name == "MinIO Console":
@@ -882,43 +884,30 @@ def _selections_to_args(
         source_args[svc.key.replace("-", "_") + "_source"] = v
 
     # ─── Force-disable off-track services ────────────────────────────
-    # When a track is selected, every source-configurable service that
-    # is out-of-track AND not explicitly overridden gets *_SOURCE=disabled
-    # force-written here. Their wizard step was skipped (track skip
-    # predicate hid it), so the inner loop above didn't touch source_args
-    # for them. Without this pass, .env would silently retain the user's
-    # prior choice for an off-track service — defeating the track's
-    # "force-disable" semantic.
-    track_key = selections.get(PICKER_STEP_TITLE)
-    if track_key:
-        try:
-            from tracks import load_tracks, is_in_track
-            _reg = load_tracks()
-            _track = _reg.by_key.get(track_key)
-            if _track is not None and _track.services is not None:
-                # "all" track → _track.services is None → no force-disable.
-                for svc in services_info:
-                    if is_in_track(_track, svc.key, always_on=_reg.always_on):
-                        continue
-                    cli_key = svc.key.replace("-", "_") + "_source"
-                    # Only synthesize if the user didn't visit the step
-                    # (override path stays untouched).
-                    if cli_key not in source_args:
-                        source_args[cli_key] = "disabled"
-        except Exception:  # noqa: BLE001
-            # Track-registry load failure must not block the wizard.
-            pass
+    # Rule lives in wizard/model/track_rules.py (#535 Pass 1); see there
+    # for why an 'all' track disables nothing and why a registry load
+    # failure degrades silently.
+    source_args.update(
+        track_force_disabled_sources(
+            track_key=selections.get(PICKER_STEP_TITLE),
+            services_info=services_info,
+            already_set=source_args,
+        )
+    )
 
     # ─── Cloud-provider selections ───────────────────────────────────
     # Each provider has up to two wizard outputs:
     #   • Secret step  → API key (or SECRET_KEEP / SECRET_CLEAR sentinel)
     #   • Multiselect  → comma-separated active model names
     #
-    # Single pass over the canonical (name, source_var, api_key_var)
-    # tuple lets us keep the per-provider decisions adjacent: the
-    # secret step's enable/disable and the multiselect's
-    # "0 selected → disable" override are reconciled below before we
-    # move on to the next provider.
+    # Enable/disable + key resolution is delegated to
+    # wizard/model/cloud_rules.resolve_cloud_provider (#535 Pass 1) —
+    # see there for why ``existing_source`` is threaded through
+    # explicitly and why ``source is None`` must be left unwritten
+    # rather than coerced to "disabled". The models-CSV write stays
+    # here: it persists the raw multiselect string verbatim (not a
+    # re-parsed/rejoined form of the resolution's echoed ``.models``),
+    # which is env-var-name bookkeeping, not a promotion rule.
     cloud_api_keys: dict = {}
     cloud_user_models: dict = {}
     for provider in CLOUD_PROVIDERS:
@@ -930,53 +919,70 @@ def _selections_to_args(
         models_var = provider.user_models_var
 
         secret_v = selections.get(cloud_secret_title(name))
-        # Secret-step intent.
-        #   None              → step never visited; leave .env as-is.
-        #   SECRET_KEEP       → user pressed Enter past existing key.
-        #                       Auto-promote source to ``enabled`` IF the
-        #                       .env source was disabled but a key is
-        #                       already present — matches the wizard's
-        #                       skip predicate, which only forwards to
-        #                       the multiselect when it intends to enable.
-        #                       Otherwise leave alone.
-        #   SECRET_CLEAR / "" → disable + wipe key + wipe models.
-        #   real key string   → enable + persist key.
-        if secret_v is None:
-            pass
-        elif secret_v == SECRET_KEEP:
-            existing_source = (env_vars.get(source_var, 'disabled') or '').strip().lower()
-            existing_key = (env_vars.get(api_key_var, '') or '').strip()
-            if existing_source != 'enabled' and existing_key:
-                # Auto-promote: user proceeded past a disabled-with-key
-                # provider, the multiselect rendered → they want it on.
-                source_args[cli_arg] = "enabled"
-        elif secret_v == SECRET_CLEAR or secret_v == "":
-            # User cleared the key → disable provider, wipe key, and
-            # empty the model list so .env doesn't accumulate stale
-            # CSV that's now functionally inert.
-            source_args[cli_arg] = "disabled"
-            cloud_api_keys[api_key_var] = ""
-            cloud_user_models[models_var] = ""
-        else:
-            source_args[cli_arg] = "enabled"
-            cloud_api_keys[api_key_var] = secret_v
+        existing_source = (env_vars.get(source_var, 'disabled') or '').strip().lower()
+        existing_key = (env_vars.get(api_key_var, '') or '').strip()
 
-        # Multiselect intent (renders only when the provider is
-        # enabled — otherwise skip_if_prev hides the step).
+        # Multiselect intent (renders only when the provider is enabled
+        # — otherwise skip_if_prev hides the step). Three-way, exactly
+        # mirroring the original's own checks:
+        #   None/SECRET_KEEP     → no real answer this session (never
+        #                          visited, or a degraded fetch) →
+        #                          selected_models=None, a "no verdict"
+        #                          state resolve_cloud_provider must not
+        #                          let override anything.
+        #   stripped-empty CSV   → the original tested the WHOLE string
+        #                          (``models_v.strip() == ""``), not the
+        #                          parsed segment list — a comma-only or
+        #                          whitespace-junk CSV ("," / " , , ")
+        #                          has non-empty split segments even
+        #                          though the user selected nothing, so
+        #                          this must key off the same raw-string
+        #                          check the original used, not off
+        #                          whether any split segment survives.
+        #   otherwise            → real, non-empty selections. Split
+        #                          WITHOUT dropping blank segments: for
+        #                          any string that is non-blank after
+        #                          stripping, ``str.split(",")`` always
+        #                          returns at least one element (even a
+        #                          single-blank string like "" splits to
+        #                          [""], never []), so this can never
+        #                          collapse back to an empty list here --
+        #                          filtering blanks was exactly the bug
+        #                          (a comma-only "," parses to ["", ""],
+        #                          which filtering would empty out and
+        #                          incorrectly re-trigger the override
+        #                          this branch exists to avoid).
         models_v = selections.get(cloud_models_title(name))
-        if models_v is None or models_v == SECRET_KEEP:
-            # SECRET_KEEP = degraded multiselect commit (options never
-            # loaded) — leave the saved CSV untouched.
-            continue
-        cloud_user_models[models_var] = models_v
-        # Explicit "0 selected" → user walked through the list and
-        # unchecked everything. Treat as "I don't want this provider":
-        # disable the source AND wipe the key for symmetry with
-        # SECRET_CLEAR (otherwise .env would keep a stale key for a
-        # disabled provider, which is misleading).
-        if models_v.strip() == "":
-            source_args[cli_arg] = "disabled"
-            cloud_api_keys[api_key_var] = ""
+        models_visited = models_v not in (None, SECRET_KEEP)
+        if not models_visited:
+            selected_models = None
+        elif models_v.strip() == "":
+            selected_models = []
+        else:
+            selected_models = [m.strip() for m in models_v.split(",")]
+
+        resolution = resolve_cloud_provider(
+            provider_key=provider.key,
+            secret_value=secret_v,
+            selected_models=selected_models,
+            existing_key_set=bool(existing_key),
+            existing_source=existing_source,
+        )
+        if resolution.source is not None:
+            source_args[cli_arg] = resolution.source
+        if resolution.api_key is not None:
+            cloud_api_keys[api_key_var] = resolution.api_key
+
+        # Models-CSV bookkeeping — mirrors the original's two write
+        # sites in order: a SECRET_CLEAR/"" secret blanks it
+        # unconditionally, then a visited multiselect (if any)
+        # overwrites with the raw CSV — so a visited-but-empty commit
+        # still lands as "" and a visited-non-empty commit wins over an
+        # unrelated clear.
+        if secret_v in (SECRET_CLEAR, ""):
+            cloud_user_models[models_var] = ""
+        if models_visited:
+            cloud_user_models[models_var] = models_v
 
     # ─── FAL media-provider secret (#517) ────────────────────────────
     # FAL's plain enabled/disabled source step is replaced by a masked
@@ -1204,7 +1210,7 @@ def run_setup_flow(
     # (LITELLM_BASE_URL, COMFYUI_ENDPOINT, etc.) for localhost sources
     # and falls back to the container port var otherwise.
     from core.port_manager import PortManager
-    from ui.state_builder import lookup_service_meta, resolve_port as _resolve_port
+    from wizard.model.state_builder import lookup_service_meta, resolve_port as _resolve_port
     port_offsets = PortManager(str(config_parser.root_dir)).port_offsets()
 
     def _resolve_port_for_service(name: str, source: str) -> str:
@@ -1285,7 +1291,7 @@ def run_launch_flow(
     from .widgets import BrandInfo
     from .screens.wizard_screen import WizardScreen
     from core.port_manager import PortManager
-    from ui.state_builder import lookup_service_meta, resolve_port as _resolve_port
+    from wizard.model.state_builder import lookup_service_meta, resolve_port as _resolve_port
 
     # Port-layout v0 → v1 migration runs BEFORE the launch overview reads
     # .env so the displayed ports match the post-migration topology.

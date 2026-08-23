@@ -94,7 +94,7 @@ def test_the_wizard_shows_the_port_for_the_source_being_chosen():
     container-internal `:18188` — for every ComfyUI localhost variant.
     """
     from services.topology import get_topology
-    from ui.state_builder import resolve_port
+    from wizard.model.state_builder import resolve_port
 
     rows = {r.display_name: r for r in get_topology().rows}
     stale = {
@@ -110,7 +110,7 @@ def test_the_wizard_shows_the_port_for_the_source_being_chosen():
 
 def test_the_port_wiring_table_covers_the_mps_variant():
     """It had no row, so neither the resolver nor the inline input knew it."""
-    from ui.state_builder import LOCALHOST_PORT_WIRING
+    from wizard.model.state_builder import LOCALHOST_PORT_WIRING
 
     assert ("ComfyUI", "managed-localhost-mps") in LOCALHOST_PORT_WIRING
     assert LOCALHOST_PORT_WIRING[("ComfyUI", "managed-localhost-mps")] == (
