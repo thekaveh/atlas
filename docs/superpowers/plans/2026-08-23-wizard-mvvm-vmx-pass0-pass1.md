@@ -1270,11 +1270,28 @@ Create `bootstrapper/wizard/model/cloud_rules.py` with the `CloudResolution` fro
 | `secret_value` | `existing_key_set` | `selected_models` | → `source` | → `api_key` |
 |---|---|---|---|---|
 | a real key | any | non-empty | `enabled` | the key |
-| a real key | any | empty | `disabled` | the key |
+| a real key | any | **empty** | `disabled` | **`""` — the key is WIPED** |
 | `SECRET_KEEP` | `True` | non-empty | `enabled` | `None` (do not rewrite) |
 | `SECRET_KEEP` | `False` | any | `disabled` | `None` |
 | `SECRET_CLEAR` | any | any | `disabled` | `""` |
-| `""` / `None` | `False` | any | `disabled` | `None` |
+| **`""` (explicitly cleared)** | `False` | any | `disabled` | **`""`** |
+| **`None` (step never visited)** | any | any | unchanged | `None` (leave `.env` as-is) |
+
+> **Two cells of this table were wrong in the first draft and were corrected against
+> the real implementation during execution.** Verify against
+> `git show c065b9fc:bootstrapper/ui/textual/integration.py`, the cloud block:
+>
+> 1. **A real key with ZERO selected models wipes the key**, it does not keep it.
+>    The code does `source_args[cli_arg] = "disabled"; cloud_api_keys[api_key_var] = ""`
+>    with the comment *"disable the source AND wipe the key for symmetry with
+>    SECRET_CLEAR (otherwise .env would keep a stale key for a disabled provider,
+>    which is misleading)."*
+> 2. **`secret_value=""` behaves as `SECRET_CLEAR`** (`api_key=""`), not as "leave
+>    alone". Only `secret_value is None` — the step never being visited — leaves
+>    the stored key untouched.
+>
+> Where this table and the shipped behaviour disagree, **the shipped behaviour wins**:
+> parity is the invariant of this whole plan.
 
 - [ ] **Step 4: Run the test to verify it passes**
 
