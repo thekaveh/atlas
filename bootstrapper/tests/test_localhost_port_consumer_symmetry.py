@@ -184,7 +184,7 @@ def test_localhost_port_default_literals_agree_across_seams():
     # row's single `localhost_port_var` cannot express). This test guards the
     # literals in it, so it follows the table rather than the file.
     integration_src = (
-        repo / "bootstrapper" / "ui" / "state_builder.py"
+        repo / "bootstrapper" / "wizard" / "model" / "state_builder.py"
     ).read_text(encoding="utf-8")
     wiring_pairs = re.findall(
         r'\("([A-Z_]*LOCALHOST[A-Z_]*PORT)",\s*(\d+)\)', integration_src

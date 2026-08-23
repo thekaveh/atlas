@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "reviewed_on": "2026-08-20",
+  "reviewed_on": "2026-08-23",
   "complexity": {
     "tool": "radon cc -s (grades); radon raw (module lloc); ast (function span + parameter count)",
     "signal_thresholds": {
@@ -17,8 +17,8 @@
     "baseline_snapshot": {
       "radon_grade_c_or_worse": 357,
       "radon_grade_e_or_worse": 20,
-      "functions_over_60_physical_lines": 188,
-      "functions_over_100_physical_lines": 69,
+      "functions_over_60_physical_lines": 189,
+      "functions_over_100_physical_lines": 70,
       "functions_over_4_parameters": 127,
       "modules_over_600_logical_lines": 14,
       "tracked_files": 1419,
@@ -91,10 +91,17 @@
         "symbol": "reconcile_unknown_media_submission",
         "cyclomatic_complexity": 56,
         "rationale": "Crash-recovery state machine whose explicit branches preserve auditability; recovery, ownership, and terminal-state tests cover the outcomes."
+      },
+      {
+        "path": "bootstrapper/wizard/model/cloud_rules.py",
+        "symbol": "resolve_cloud_provider",
+        "function_effective_lines": 110,
+        "rationale": "Physical-line signal only (cyclomatic complexity is low). The 110-line span is ~29 lines of actual code wrapped in ~72 lines of deliberately demanded documentation (docstring + inline comments), expanded across two review rounds (#535 Pass 1 Tasks 7-8). The documentation encodes three distinct \"no verdict\" states — the secret step's source=None, its api_key=None, and the models step's selected_models=None — whose prior conflation caused a Critical config-destroying bug (an already-enabled, keyless provider getting force-disabled because a SECRET_KEEP no-op was misread as an explicit \"disabled\"). Splitting the function would fragment one cohesive resolution decision across call sites without reducing any real branching; the documentation is the fix, not incidental prose. Revisit only if the decision itself grows new branches."
       }
     ],
-    "reviewed_on": "2026-08-20",
+    "reviewed_on": "2026-08-23",
     "counting_convention": "Authoritative rule is the one bootstrapper/tests/test_maintenance_baseline.py implements; match it exactly when refreshing. Scope: every non-hidden *.py under bootstrapper/ and services/backend/app/app/ (526 files at this refresh) — the leading-dot filter is what excludes bootstrapper/.venv, and an unfiltered glob inflates every count roughly 20x. radon_grade_c_or_worse counts blocks with complexity >= 11 EXCLUDING radon class blocks (block.letter != \"C\"), because a class block aggregates its own methods and would double-count the symbol-level baseline; counting class blocks too yields 358 rather than 357. Function span is physical lines (end_lineno - lineno + 1). Parameter count is posonly + args + kwonly + *args + **kwargs, counting self/cls. modules_over_600_logical_lines uses radon raw lloc, not a hand-rolled non-blank/non-comment count (37 under that rule, 14 under radon lloc). Note that signal_thresholds.cyclomatic_complexity (12) is the review-signal bar from the maintenance spec and is deliberately NOT the counter bound: radon_grade_c_or_worse counts grade C upward, which begins at 11.",
-    "refresh_notes_2026_08_20": "Re-measured at HEAD. radon_grade_e_or_worse (20), functions_over_4_parameters (127) and modules_over_600_logical_lines (14) are the values this pass measured directly. Four counts moved by exactly one against the first attempt at this refresh — c_or_worse 358->357, over_60 189->188, over_100 70->69, tracked_files 1420->1419 — because that attempt measured BEFORE the same run deleted bootstrapper/docs/sitegen/wiki.py, a 591-line unreachable module contributing exactly one unit to each of those four counters and zero to the rest. The numbers here are post-deletion. functions_over_4_parameters (112 -> 127) and modules_over_600_logical_lines (13 -> 14) were already stale in the 2026-08-06 snapshot and do not reproduce at the commit that recorded them; two accepted_signals had drifted from their symbols as well (load_consumer_config 62 -> 73, _selections_to_args 61 -> 63). No complexity regression was introduced by this maintenance run."
+    "refresh_notes_2026_08_20": "Re-measured at HEAD. radon_grade_e_or_worse (20), functions_over_4_parameters (127) and modules_over_600_logical_lines (14) are the values this pass measured directly. Four counts moved by exactly one against the first attempt at this refresh — c_or_worse 358->357, over_60 189->188, over_100 70->69, tracked_files 1420->1419 — because that attempt measured BEFORE the same run deleted bootstrapper/docs/sitegen/wiki.py, a 591-line unreachable module contributing exactly one unit to each of those four counters and zero to the rest. The numbers here are post-deletion. functions_over_4_parameters (112 -> 127) and modules_over_600_logical_lines (13 -> 14) were already stale in the 2026-08-06 snapshot and do not reproduce at the commit that recorded them; two accepted_signals had drifted from their symbols as well (load_consumer_config 62 -> 73, _selections_to_args 61 -> 63). No complexity regression was introduced by this maintenance run.",
+    "refresh_notes_2026_08_23": "Re-measured at HEAD on feat/535-rebuild-setup-wizard-tui-mvvm-vmx (#535 Pass 1, Tasks 3-8: wizard model-layer extraction). functions_over_60_physical_lines moved 188->189 and functions_over_100_physical_lines moved 69->70 — both driven by the SAME single new symbol, bootstrapper/wizard/model/cloud_rules.py::resolve_cloud_provider (110 physical lines), which crosses both counters at once; see its accepted_signals entry above. Confirmed via AST diff of every >60-physical-line function against the branch base (bf2e8403) that this is the only genuine addition: two other functions that appear new at HEAD — wizard/model/state_builder.py::build_app_state and wizard/model/service_discovery.py::discover — are files Tasks 3-4 relocated verbatim from ui/state_builder.py and wizard/service_discovery.py, so their disappearance from the old paths and appearance at the new ones is net zero, not new signal. radon_grade_c_or_worse (357) and radon_grade_e_or_worse (20) were reverified unchanged at HEAD, matching the committed snapshot exactly. functions_over_4_parameters and tracked_files are NOT covered by any assertion in test_maintenance_baseline.py (only c_or_worse/over_60/over_100/e_or_worse are recomputed and bounded there); independently reverifying them anyway found both had ALSO drifted from their last-recorded values — functions_over_4_parameters measures 133 at HEAD against a recorded 127, and `git ls-files | wc -l` measures 1439 against a recorded tracked_files of 1419. Neither is touched by this pass: per regression_policy a snapshot refresh happens only during a reviewed pass with a symbol-level rationale, and this pass's reviewed scope is the cloud_rules.py addition, not an unrelated re-baseline of untested counters. Flagged here for the next maintenance pass rather than silently bumped."
   }
 }
