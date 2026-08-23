@@ -24,12 +24,20 @@ from wizard.model.state_builder import (
     resolve_port,
     service_extras,
 )
+from wizard.model.service_discovery import (
+    CLOUD_PROVIDER_KEYS,
+    ServiceDiscovery,
+    ServiceInfo,
+)
 
 __all__ = [
     "AppState",
+    "CLOUD_PROVIDER_KEYS",
     "CloudApiEntry",
     "ConsumerEntry",
+    "ServiceDiscovery",
     "ServiceEntry",
+    "ServiceInfo",
     "alias_for",
     "all_cloud_apis",
     "all_services",

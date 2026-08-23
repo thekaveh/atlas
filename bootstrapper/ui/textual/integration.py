@@ -269,7 +269,7 @@ def _build_steps_and_rows(
     profile: str | None = None,
 ):
     """Build the wizard steps + service rows from real config."""
-    from wizard.service_discovery import ServiceDiscovery
+    from wizard.model.service_discovery import ServiceDiscovery
     from wizard.model.state_builder import build_app_state
     from core.config_parser import DEFAULT_BASE_PORT, DEFAULT_PROJECT_NAME
     from .widgets.prompt_panel import PromptOption, PromptStep

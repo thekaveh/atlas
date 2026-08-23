@@ -24,7 +24,7 @@ from pathlib import Path
 import pytest
 
 from core.config_parser import ConfigParser
-from wizard.service_discovery import ServiceDiscovery
+from wizard.model.service_discovery import ServiceDiscovery
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
