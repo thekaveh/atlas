@@ -12,7 +12,9 @@ dependencies = [
     "click>=8.3.3",          # CLI argument parsing; clears click.edit command injection advisory
     "requests>=2.33.0",      # HF + civitai catalog HTTP scraping
     "urllib3>=2.7.0",        # Explicit floor (transitive via requests) — clears CVE-2026-44431/44432
-    "textual>=0.85",         # TUI framework — owns the wizard, launch, and streaming-logs flows
+    "textual>=8.2.8",        # TUI framework — owns the wizard, launch, and streaming-logs flows.
+                             # Floor raised from 0.85 for selection auto-scroll, cross-container
+                             # selection, and the TextSelected event (#535 Pass 0).
     "jsonschema>=4.0.0",     # Validates services/<name>/service.yml against bootstrapper/schemas/*
     "textual-image>=0.12,<0.13",  # Smooth splash poster via the terminal's image protocol (Kitty/Sixel/iTerm); <0.13 keeps Python 3.10 support. Block-art fallback where unsupported.
     "pillow>=12.3.0",        # Explicit floor for textual-image; clears the 12.2 font/image allocation advisories
