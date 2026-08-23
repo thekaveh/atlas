@@ -323,7 +323,7 @@ def test_app_state_lists_registered_consumers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from core.config_parser import ConfigParser
-    from ui.state_builder import build_app_state
+    from wizard.model.state_builder import build_app_state
 
     _write_minimal_root(tmp_path)
     manifest = _write_consumer(tmp_path, "daydreams")

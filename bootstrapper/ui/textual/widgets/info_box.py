@@ -31,7 +31,7 @@ from textual.widgets import Static
 from .. import palette as P
 # state_builder doesn't import from widgets, so this top-level import is
 # circular-safe. Keeps render() free of deferred imports.
-from ...state_builder import cloud_api_status_text
+from wizard.model.state_builder import cloud_api_status_text
 
 
 @dataclass
@@ -76,7 +76,7 @@ class BrandInfo:
     # BrandInfo() directly without explicitly providing values gets a
     # visibly unbranded panel (rather than silently falling back to
     # Atlas defaults). The canonical defaults live in
-    # ``ui/state.py::AppState`` and are layered in by
+    # ``wizard/model/state.py::AppState`` and are layered in by
     # ``state_builder.build_app_state`` from BRAND_* env vars + fallbacks.
     name: str = ""
     tagline: str = ""

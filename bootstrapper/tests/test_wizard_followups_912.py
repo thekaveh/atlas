@@ -184,8 +184,10 @@ def test_the_summary_height_cap_matches_its_declared_row_budget() -> None:
 
 
 def test_the_command_summary_content_is_selectable() -> None:
-    """The panel is a container (never selectable); its inner Static is what
-    a drag actually selects. The CHANGELOG ships this claim untested."""
+    """Textual 8.x dropped the `and not is_container` gate on
+    Widget.allow_select, so the panel (a container) is selectable like any
+    other widget now; its inner Static is what a drag actually grabs text
+    from either way. The CHANGELOG ships this claim untested."""
     from textual.widgets import Static
 
     scr = _screen()
@@ -201,7 +203,10 @@ def test_the_command_summary_content_is_selectable() -> None:
             return summary.allow_select, [w.allow_select for w in inner]
 
     panel_selectable, inner_selectable = asyncio.run(scenario())
-    assert panel_selectable is False, "a container is never drag-selectable"
+    assert panel_selectable is True, (
+        "containers are selectable since Textual 8.x dropped the "
+        "and-not-is_container gate on Widget.allow_select"
+    )
     assert inner_selectable and all(inner_selectable), (
         "the summary's inner Static must be selectable — that is what the "
         "documented drag-to-copy actually grabs"

@@ -133,7 +133,7 @@ class Row:
     description: str = ""
     localhost_endpoint_var: str = ""
     # Env var holding the user-overridable host port for the localhost
-    # source variant. Read by ui.state_builder.resolve_port to show the
+    # source variant. Read by wizard.model.state_builder.resolve_port to show the
     # port column on localhost rows; written by the wizard via the
     # inline SecondaryNumberInput widget. Empty string means the
     # service has no overridable localhost port (mostly: services with

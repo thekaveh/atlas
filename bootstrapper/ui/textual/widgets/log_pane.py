@@ -252,10 +252,14 @@ class LogPane(RichLog):
         """Plain text of the records passing the ACTIVE level/source
         filter, for clipboard copy.
 
-        RichLog is a scrolling container so Textual refuses to drag-select
-        it; this is the explicit copy path instead. Filtered through
-        ``_passes_filter`` so the copy matches what's actually on screen —
-        not the full unfiltered buffer."""
+        Textual 8.x makes RichLog drag-selectable like any other widget,
+        but this explicit copy path still earns its place: it is
+        filter-aware (matches whichever level/source chips are active,
+        which a drag-select has no notion of), it captures the whole
+        scrollback rather than only what you can physically drag over on
+        screen, and it's keyboard-driven. Filtered through
+        ``_passes_filter`` so the copy matches the active filter — not
+        the full unfiltered buffer."""
         return "\n".join(
             rec.raw for rec in self._records if self._passes_filter(rec)
         )

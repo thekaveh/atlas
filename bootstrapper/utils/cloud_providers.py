@@ -8,7 +8,7 @@ Three pieces of state every consumer needs:
     ``service_config.py`` for the LiteLLM proxy + model_resolver.
 
 Callers that previously held their own list:
-  • ``bootstrapper/ui/state_builder.py`` — overview rendering.
+  • ``bootstrapper/wizard/model/state_builder.py`` — overview rendering.
   • ``bootstrapper/services/source_validator.py`` — auto-disable
     on missing key.
   • ``bootstrapper/services/service_config.py`` — emit LITELLM_*_ENABLED.
