@@ -54,6 +54,7 @@ from textual.containers import Container, VerticalScroll
 from textual.widgets import Input, Static
 
 from .. import palette as P
+from wizard.model.cloud_rules import SECRET_CLEAR, SECRET_KEEP  # noqa: F401
 from .dependency_conflict import ConflictAction, DependencyConflict
 from .multiselect_filter_chips import (
     ALL_KEY as FILTER_ALL_KEY,
@@ -185,13 +186,6 @@ def _row_variants(row_value: str, checked: set[str]) -> frozenset[str]:
         if v.startswith(prefix):
             out.add(v[len(prefix):])
     return frozenset(out)
-
-
-# Sentinel return values for secret-input steps. Real API keys never
-# match these strings, so downstream consumers can branch on intent
-# without exposing the actual key.
-SECRET_KEEP = "<KEEP>"
-SECRET_CLEAR = "<CLEAR>"
 
 
 def _mask_secret(value: str) -> str:
