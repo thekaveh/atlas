@@ -1114,10 +1114,27 @@ Refs #535"
 **Interfaces:**
 - Consumes: `CLOUD_PROVIDERS` from `utils.cloud_providers`.
 - Produces:
-  - `resolve_cloud_provider(*, provider_key: str, secret_value: str | None, selected_models: Sequence[str], existing_key_set: bool) -> CloudResolution`
-  - `@dataclass(frozen=True) class CloudResolution: source: str; api_key: str | None; models: list[str]`
+  - `resolve_cloud_provider(*, provider_key: str, secret_value: str | None, selected_models: Sequence[str], existing_key_set: bool, existing_source: str) -> CloudResolution`
+  - `@dataclass(frozen=True) class CloudResolution: source: str | None; api_key: str | None; models: list[str]`
 
   Task 8 calls `resolve_cloud_provider` once per provider in `CLOUD_PROVIDERS`.
+
+> **This signature was corrected twice during execution. Both corrections are
+> load-bearing for Task 8 — read them before wiring anything.**
+>
+> 1. **`source` is `str | None`, not `str`.** `None` means **"no verdict — leave
+>    `.env` alone"**, exactly symmetric with `api_key=None`. The first draft typed
+>    it `str`, which gave the no-verdict state nowhere to live; the original's
+>    `if secret_v is None: pass` then silently became `source="disabled"`, which
+>    would have force-disabled an already-enabled provider whenever its secret
+>    step was not visited. **Task 8 MUST treat `source is None` by omitting the
+>    key from `source_args` entirely** — writing `"disabled"` is not equivalent.
+> 2. **`existing_source` is REQUIRED and keyword-only — it deliberately has no
+>    default.** A default of `""` normalises to `"disabled"`, so a caller who
+>    merely forgets the parameter force-disables an enabled-but-keyless provider
+>    on the `SECRET_KEEP` path. A parameter whose omission silently corrupts
+>    `.env` must not be omissible; omitting it now raises `TypeError`, and a test
+>    pins that.
 
 **Context:** This is the subtlest rule in the wizard and the one most likely to regress silently. Two independent signals must be reconciled:
 
