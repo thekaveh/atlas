@@ -28,7 +28,7 @@ import pytest
 # fails the test collection step with a clear traceback.
 from utils.hosts_manager import HostsManager
 from utils.kong_config_generator import KongConfigGenerator
-from ui.state_builder import alias_for, _get_topology
+from wizard.model.state_builder import alias_for, _get_topology
 
 
 # ────────────────────────────────────────────────────────────────────────────

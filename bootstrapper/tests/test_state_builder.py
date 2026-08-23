@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import pytest
 
-from ui.state_builder import resolve_port
+from wizard.model.state_builder import resolve_port
 
 
 @pytest.mark.parametrize("display_name,source,port_env_var,port_value", [
@@ -63,7 +63,7 @@ def test_appstate_brand_defaults_match_globals_manifest():
 
     import yaml
 
-    from ui.state import AppState
+    from wizard.model.state import AppState
 
     repo_root = Path(__file__).resolve().parent.parent.parent
     globals_manifest = repo_root / "services" / "globals" / "service.yml"

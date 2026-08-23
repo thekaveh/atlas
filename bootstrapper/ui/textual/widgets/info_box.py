@@ -31,7 +31,7 @@ from textual.widgets import Static
 from .. import palette as P
 # state_builder doesn't import from widgets, so this top-level import is
 # circular-safe. Keeps render() free of deferred imports.
-from ...state_builder import cloud_api_status_text
+from wizard.model.state_builder import cloud_api_status_text
 
 
 @dataclass

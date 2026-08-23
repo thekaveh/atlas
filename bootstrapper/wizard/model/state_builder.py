@@ -18,11 +18,11 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from core.config_parser import ConfigParser
-from ui.state import AppState, CloudApiEntry, ConsumerEntry, ServiceEntry
+from wizard.model.state import AppState, CloudApiEntry, ConsumerEntry, ServiceEntry
 from services.topology import get_topology, Topology
 
 
-_SERVICES_ROOT = Path(__file__).resolve().parent.parent.parent / "services"
+_SERVICES_ROOT = Path(__file__).resolve().parent.parent.parent.parent / "services"
 
 
 def _get_topology() -> Topology:

@@ -226,7 +226,7 @@ def recompute_ports_for_base(
     from the live .env so localhost sources still resolve to the host
     machine's port.
     """
-    from ui.state_builder import lookup_service_meta, resolve_port as _resolve_port
+    from wizard.model.state_builder import lookup_service_meta, resolve_port as _resolve_port
     from .widgets.service_table import ServiceRow as _SR
 
     live_env = config_parser.parse_env_file()
@@ -270,7 +270,7 @@ def _build_steps_and_rows(
 ):
     """Build the wizard steps + service rows from real config."""
     from wizard.service_discovery import ServiceDiscovery
-    from ui.state_builder import build_app_state
+    from wizard.model.state_builder import build_app_state
     from core.config_parser import DEFAULT_BASE_PORT, DEFAULT_PROJECT_NAME
     from .widgets.prompt_panel import PromptOption, PromptStep
     from .widgets.service_table import ServiceRow
@@ -492,7 +492,7 @@ def _build_steps_and_rows(
     # place that does. Adding a new localhost-capable service is one
     # row here + a manifest entry per Task 7.
 
-    from ui.state_builder import LOCALHOST_PORT_WIRING
+    from wizard.model.state_builder import LOCALHOST_PORT_WIRING
 
     def _localhost_port_config(display: str, opt_value: str) -> "SecondaryNumberInput | None":
         """Build the per-option SecondaryNumberInput for a localhost row,
@@ -820,7 +820,7 @@ def _build_steps_and_rows(
     # so external s3 clients can discover them from the services pane.
     _minio_port = (env_vars.get("MINIO_PORT", "") or "63020").strip()
 
-    from ui.state_builder import service_extras
+    from wizard.model.state_builder import service_extras
 
     def _tooltip_extra_for(svc) -> list[tuple[str, str]]:
         if svc.name == "MinIO Console":
@@ -1204,7 +1204,7 @@ def run_setup_flow(
     # (LITELLM_BASE_URL, COMFYUI_ENDPOINT, etc.) for localhost sources
     # and falls back to the container port var otherwise.
     from core.port_manager import PortManager
-    from ui.state_builder import lookup_service_meta, resolve_port as _resolve_port
+    from wizard.model.state_builder import lookup_service_meta, resolve_port as _resolve_port
     port_offsets = PortManager(str(config_parser.root_dir)).port_offsets()
 
     def _resolve_port_for_service(name: str, source: str) -> str:
@@ -1285,7 +1285,7 @@ def run_launch_flow(
     from .widgets import BrandInfo
     from .screens.wizard_screen import WizardScreen
     from core.port_manager import PortManager
-    from ui.state_builder import lookup_service_meta, resolve_port as _resolve_port
+    from wizard.model.state_builder import lookup_service_meta, resolve_port as _resolve_port
 
     # Port-layout v0 → v1 migration runs BEFORE the launch overview reads
     # .env so the displayed ports match the post-migration topology.
