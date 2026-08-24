@@ -875,13 +875,26 @@ def _selections_to_args(
     selections: dict,
     services_info,
     current_base_port: int,
-    env_vars: dict | None = None,
+    env_vars: dict,
 ):
     """Map wizard selections back to (source_args, stack_options).
 
     ``env_vars`` is the resolved .env snapshot at wizard-build time;
     used to auto-promote SECRET_KEEP+disabled+key-already-set into
     ``--cloud-X-source enabled`` so the multiselect picks aren't inert.
+
+    Fix-round note (#535 Pass 1 followups review, finding C1): this
+    parameter is REQUIRED, deliberately with no default. It used to
+    default to ``None`` and get normalized to ``{}`` here, which made
+    ``existing_key_set`` False for EVERY cloud provider on every call
+    that omitted it -- silently force-disabling every already-keyed
+    provider in .env via ``resolve_cloud_provider``'s SECRET_KEEP
+    branch. That is the exact class of bug ``resolve_cloud_provider``'s
+    own ``existing_source`` parameter was already made required to
+    prevent (see ``wizard/model/cloud_rules.py``'s fix-round-2 note);
+    this call site had simply re-opened the same trap one layer up.
+    Omitting it is now a ``TypeError`` at the call site instead of a
+    silent .env corruption.
     """
     from .widgets.prompt_panel import SECRET_KEEP, SECRET_CLEAR
     from utils.cloud_providers import CLOUD_PROVIDERS
@@ -895,7 +908,6 @@ def _selections_to_args(
         cloud_secret_title,
         fal_secret_title,
     )
-    env_vars = env_vars or {}
 
     source_args: dict = {}
     for svc in services_info:

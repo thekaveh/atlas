@@ -60,6 +60,7 @@ def test_selections_to_args_skips_keep_sentinel_for_model_buckets():
         },
         services_info=[],
         current_base_port=63000,
+        env_vars={},
     )
     # Outer dict shape: source_args + stack_options buckets.
     blob = repr(result)
@@ -73,6 +74,7 @@ def test_selections_to_args_still_persists_real_csv():
         selections={OLLAMA_MODELS_TITLE: "b-model,a-model"},
         services_info=[],
         current_base_port=63000,
+        env_vars={},
     )
     blob = repr(result)
     assert "'OLLAMA_USER_MODELS': 'a-model,b-model'" in blob
@@ -98,7 +100,7 @@ def test_launch_prune_drops_skip_hidden_step_commits():
     }
     from ui.textual.screens.wizard_screen import prune_skip_hidden_selections
     pruned = prune_skip_hidden_selections([picker], selections)
-    result = _selections_to_args(pruned, [], 63000)
+    result = _selections_to_args(pruned, [], 63000, env_vars={})
     assert "COMFYUI_USER_MODELS" not in repr(result)
 
 
