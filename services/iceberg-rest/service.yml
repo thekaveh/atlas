@@ -4,6 +4,20 @@ label: "Apache Iceberg REST Catalog"
 category: data
 docs: services/iceberg-rest/README.md
 
+capabilities:
+  - name: "Persistent Iceberg REST catalog"
+    status: supported
+    verification: tested
+    note: "Atlas layers the PostgreSQL JDBC driver into the catalog image and persists catalog metadata in Supabase with warehouse objects in MinIO."
+  - name: "Advanced Iceberg table operations"
+    status: partial
+    verification: untested
+    note: "Atlas provides opt-in smoke scripts for merge, time travel, branching, evolution, streaming, and maintenance, but CI does not execute those operations against a live catalog."
+  - name: "External catalog and warehouse sources"
+    status: not-supported
+    verification: documented
+    note: "The stock manifest supports only the in-stack container and requires Atlas Supabase plus MinIO rather than selectable external catalog or object-store modes."
+
 containers:
   - iceberg-rest
   - iceberg-rest-init

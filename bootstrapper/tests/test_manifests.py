@@ -743,6 +743,45 @@ def test_pilot_manifest_capability_contracts(service, expected):
     ] == expected
 
 
+def test_infra_and_data_manifests_have_meaningful_capability_contracts():
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    manifests = [
+        manifest
+        for manifest in load_manifests(repo_root / "services")
+        if manifest.category in {"infra", "data"}
+    ]
+
+    missing = sorted(manifest.name for manifest in manifests if not manifest.capabilities)
+    assert missing == [], f"infra/data manifests missing capabilities: {missing}"
+
+    duplicate_names: dict[str, list[str]] = {}
+    weak_entries: dict[str, list[str]] = {}
+    for manifest in manifests:
+        names = [capability.name for capability in manifest.capabilities]
+        duplicates = sorted({name for name in names if names.count(name) > 1})
+        if duplicates:
+            duplicate_names[manifest.name] = duplicates
+
+        weak = [
+            capability.name
+            for capability in manifest.capabilities
+            if len(capability.name.split()) < 2
+            or len(capability.note.split()) < 5
+            or capability.note.casefold() == capability.name.casefold()
+        ]
+        if weak:
+            weak_entries[manifest.name] = weak
+
+    assert duplicate_names == {}, (
+        f"infra/data manifests have duplicate capability names: {duplicate_names}"
+    )
+    assert weak_entries == {}, (
+        f"infra/data manifests have non-meaningful capability names or notes: {weak_entries}"
+    )
+
+
 def test_lightrag_manifest_header_does_not_claim_automatic_file_fallbacks():
     from pathlib import Path
 

@@ -4,6 +4,24 @@ label: "Weaviate (vector database)"
 category: data
 docs: services/weaviate/README.md
 
+capabilities:
+  - name: "Persistent semantic vector storage"
+    status: supported
+    verification: tested
+    note: "Atlas configures persistent Weaviate REST and gRPC storage and wires backend consumers through container or operator-run localhost sources."
+  - name: "LiteLLM and CLIP vectorization"
+    status: partial
+    verification: tested
+    note: "Text vectorization routes through LiteLLM and optional CLIP supports multimodal embeddings, but enabling SigLIP changes dimensions and requires collection revectorization."
+  - name: "Authenticated multi-tenant isolation"
+    status: not-supported
+    verification: documented
+    note: "The stock container enables anonymous access and Atlas does not provision tenant boundaries or per-consumer authorization policies."
+  - name: "Automated vector database backups"
+    status: not-supported
+    verification: documented
+    note: "Atlas mounts persistent Weaviate data but ships no scheduled native backup or restore workflow for the vector database."
+
 containers:
   - weaviate
   - weaviate-init

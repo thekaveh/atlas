@@ -4,6 +4,20 @@ label: "Langfuse (LLM traces + evals)"
 category: infra
 docs: services/langfuse/README.md
 
+capabilities:
+  - name: "Self-hosted LLM observability stack"
+    status: supported
+    verification: tested
+    note: "Atlas configures the Langfuse web, worker, ClickHouse, Postgres, Redis, and MinIO dependencies as one optional self-hosted deployment."
+  - name: "Automatic LiteLLM trace capture"
+    status: partial
+    verification: tested
+    note: "LiteLLM success callbacks emit traces when Langfuse is enabled, but calls that bypass LiteLLM or use native provider bindings are not captured automatically."
+  - name: "Highly available Langfuse deployment"
+    status: not-supported
+    verification: documented
+    note: "The stock topology is a local low-scale deployment without replicated Langfuse, ClickHouse, or supporting data-store services."
+
 containers:
   - langfuse-init
   - langfuse-web

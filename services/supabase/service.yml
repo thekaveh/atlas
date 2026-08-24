@@ -11,6 +11,24 @@ label: "Supabase (db, auth, api, storage, realtime, studio, meta)"
 category: data
 docs: services/supabase/README.md
 
+capabilities:
+  - name: "Integrated Postgres application platform"
+    status: supported
+    verification: tested
+    note: "Atlas runs PostgreSQL with Auth, PostgREST, Storage, Realtime, Meta, Studio, database initialization, and optional metrics export as one required family."
+  - name: "Idempotent schema and RLS initialization"
+    status: supported
+    verification: tested
+    note: "Ordered Atlas and downstream SQL runners initialize extensions, service schemas, grants, identity synchronization, and row-level-security policies with failure gating."
+  - name: "Least-privilege application database role"
+    status: stubbed
+    verification: documented
+    note: "SUPABASE_APP_USER and SUPABASE_APP_PASSWORD are reserved variables, but Atlas does not create or grant that role and core consumers continue using administrative credentials."
+  - name: "Production email authentication"
+    status: partial
+    verification: documented
+    note: "GoTrue issues and validates JWTs, but the stock local-development defaults auto-confirm email and point SMTP at localhost rather than a configured delivery service."
+
 containers:
   - supabase-db
   - supabase-db-init

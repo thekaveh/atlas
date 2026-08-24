@@ -4,6 +4,20 @@ label: "OpenTelemetry Collector (telemetry ingest)"
 category: infra
 docs: services/otel-collector/README.md
 
+capabilities:
+  - name: "OTLP trace ingestion and Tempo export"
+    status: supported
+    verification: tested
+    note: "Atlas accepts internal OTLP over gRPC and HTTP, batches traces, and exports them to the required Tempo service."
+  - name: "Log export to Loki"
+    status: stubbed
+    verification: tested
+    note: "The logs pipeline terminates at the debug exporter; Loki may be enabled as an optional sibling but is not an OpenTelemetry log destination."
+  - name: "Public telemetry ingestion"
+    status: not-supported
+    verification: tested
+    note: "Collector receivers are backend-network only with no published host port or Kong route in the stock deployment."
+
 containers:
   - otel-collector
 

@@ -9,6 +9,20 @@ label: "Backup / restore (Postgres + volumes -> S3)"
 category: infra
 docs: services/backup/README.md
 
+capabilities:
+  - name: "On-demand Postgres and volume backup export"
+    status: supported
+    verification: tested
+    note: "The one-shot runner creates a PostgreSQL custom-format dump plus read-only Supabase Storage, Neo4j, and Weaviate archives and uploads them to the configured S3 bucket."
+  - name: "Postgres restore workflow"
+    status: partial
+    verification: tested
+    note: "The restore script validates and restores PostgreSQL dumps, but restoring the exported volume archives remains a manual operator procedure."
+  - name: "Scheduled retention and backup verification"
+    status: not-supported
+    verification: documented
+    note: "Atlas ships no scheduler, retention pruning, or post-upload restore verification; operators must provide those controls externally."
+
 containers:
   - backup
 

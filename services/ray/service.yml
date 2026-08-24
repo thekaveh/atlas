@@ -3,6 +3,24 @@ label: "Ray (distributed compute substrate)"
 category: infra
 docs: services/ray/README.md
 
+capabilities:
+  - name: "Containerized CPU distributed compute"
+    status: supported
+    verification: tested
+    note: "Atlas configures a Ray head plus a bounded operator-selected worker count and supplies the backend with the resulting cluster address."
+  - name: "NVIDIA GPU worker execution"
+    status: partial
+    verification: tested
+    note: "The GPU source selects CUDA images and NVIDIA reservations, but successful execution still depends on an operator-provided NVIDIA container runtime and compatible hardware."
+  - name: "Remote Ray surface security"
+    status: partial
+    verification: tested
+    note: "Kong protects the dashboard and the backend API uses bearer authentication, while native client and GCS ports remain unauthenticated loopback bindings."
+  - name: "Persistent Ray session state"
+    status: not-supported
+    verification: documented
+    note: "The stock Ray cluster has no named volume for session state, so jobs and cluster metadata do not survive container replacement."
+
 containers:
   - ray-head
   - ray-worker

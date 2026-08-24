@@ -8,6 +8,21 @@ name: globals
 label: "Globals (project + branding)"
 category: infra
 docs: docs/CONTRIBUTING-services.md  # virtual; nearest reference doc is the architecture / manifest convention guide
+
+capabilities:
+  - name: "Project namespace and base-port ownership"
+    status: supported
+    verification: tested
+    note: "This virtual manifest owns the Compose project namespace, bind and gateway settings, and the base port from which service ports are derived; it launches no container of its own."
+  - name: "Branding and launch defaults"
+    status: supported
+    verification: tested
+    note: "Atlas assembles the brand metadata, Compose profiles, GPU reservation flags, and shared logging defaults declared here into the generated environment."
+  - name: "Generic production resource limits"
+    status: partial
+    verification: documented
+    note: "The PROD_ENV limit variables are reserved shared configuration, but most service compose fragments do not yet consume them as generic runtime caps."
+
 virtual: true
 containers: []
 

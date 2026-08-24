@@ -4,6 +4,20 @@ label: "Redpanda (Kafka API streaming)"
 category: data
 docs: services/redpanda/README.md
 
+capabilities:
+  - name: "Single-node Kafka-compatible streaming"
+    status: supported
+    verification: tested
+    note: "Atlas runs a Redpanda broker in single-node development mode and exposes its Kafka API to in-stack and host clients."
+  - name: "Topic bootstrap and broker console"
+    status: supported
+    verification: tested
+    note: "An idempotent init container creates the declared Atlas topics and the bundled Console provides browser-based broker inspection."
+  - name: "Production broker security and clustering"
+    status: not-supported
+    verification: documented
+    note: "The stock deployment has one broker and configures no SASL, TLS, Schema Registry, Kafka Connect, or multi-broker replication."
+
 containers:
   - redpanda
   - redpanda-init

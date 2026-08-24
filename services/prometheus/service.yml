@@ -5,6 +5,20 @@ label: "Prometheus (metrics scraper + TSDB)"
 category: infra
 docs: services/prometheus/README.md
 
+capabilities:
+  - name: "Stack metrics scraping and local TSDB"
+    status: supported
+    verification: tested
+    note: "Atlas ships a static fifteen-target scrape inventory, exporter lifecycle wiring, and configurable local Prometheus retention."
+  - name: "Host and container resource metrics"
+    status: partial
+    verification: tested
+    note: "node-exporter and hardened cAdvisor provide resource series, but cAdvisor omits Docker labels and host collectors are best-effort under Docker Desktop."
+  - name: "Alert routing and long-term metrics storage"
+    status: not-supported
+    verification: documented
+    note: "Atlas configures neither Alertmanager nor remote-write storage, and the shipped recording-rule file remains an empty placeholder."
+
 containers:
   - prometheus
   - node-exporter
