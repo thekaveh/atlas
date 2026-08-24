@@ -11,7 +11,7 @@ capabilities:
     note: "Atlas provisions a single local Loki store and a Grafana datasource for querying logs that an operator sends to its internal endpoint."
   - name: "Automatic Atlas application log collection"
     status: not-supported
-    verification: tested
+    verification: documented
     note: "No Promtail, Docker logging driver, or OpenTelemetry-to-Loki exporter is wired, so stock Atlas application logs are not ingested automatically."
   - name: "Highly available long-term log retention"
     status: not-supported

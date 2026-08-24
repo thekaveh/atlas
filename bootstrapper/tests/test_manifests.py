@@ -743,7 +743,7 @@ def test_pilot_manifest_capability_contracts(service, expected):
     ] == expected
 
 
-def test_infra_and_data_manifests_have_meaningful_capability_contracts():
+def test_infra_and_data_manifests_meet_structural_capability_quality_floor():
     from pathlib import Path
 
     repo_root = Path(__file__).resolve().parent.parent.parent
@@ -757,29 +757,101 @@ def test_infra_and_data_manifests_have_meaningful_capability_contracts():
     assert missing == [], f"infra/data manifests missing capabilities: {missing}"
 
     duplicate_names: dict[str, list[str]] = {}
-    weak_entries: dict[str, list[str]] = {}
+    below_quality_floor: dict[str, list[str]] = {}
     for manifest in manifests:
         names = [capability.name for capability in manifest.capabilities]
         duplicates = sorted({name for name in names if names.count(name) > 1})
         if duplicates:
             duplicate_names[manifest.name] = duplicates
 
-        weak = [
+        # This is deliberately a structural regression floor, not a claim that
+        # word counts prove semantic quality. Every row still requires manual
+        # claim-to-evidence review against its implementation and limitations.
+        structurally_weak = [
             capability.name
             for capability in manifest.capabilities
             if len(capability.name.split()) < 2
             or len(capability.note.split()) < 5
             or capability.note.casefold() == capability.name.casefold()
         ]
-        if weak:
-            weak_entries[manifest.name] = weak
+        if structurally_weak:
+            below_quality_floor[manifest.name] = structurally_weak
 
     assert duplicate_names == {}, (
         f"infra/data manifests have duplicate capability names: {duplicate_names}"
     )
-    assert weak_entries == {}, (
-        f"infra/data manifests have non-meaningful capability names or notes: {weak_entries}"
+    assert below_quality_floor == {}, (
+        "infra/data manifests have entries below the structural capability "
+        f"quality floor: {below_quality_floor}"
     )
+
+
+@pytest.mark.parametrize(
+    ("service", "capability_name"),
+    [
+        ("backup", "On-demand Postgres and volume backup export"),
+        ("loki", "Automatic Atlas application log collection"),
+        ("otel-collector", "Log export to Loki"),
+    ],
+)
+def test_reviewed_capability_verification_matches_direct_coverage(
+    service, capability_name
+):
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    manifest = next(
+        m for m in load_manifests(repo_root / "services") if m.name == service
+    )
+    capability = next(cap for cap in manifest.capabilities if cap.name == capability_name)
+
+    assert capability.verification == "documented"
+
+
+def test_supabase_app_role_capability_names_manifest_owned_variables():
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    manifest = next(
+        m for m in load_manifests(repo_root / "services") if m.name == "supabase"
+    )
+    capability = next(
+        cap
+        for cap in manifest.capabilities
+        if cap.name == "Least-privilege application database role"
+    )
+
+    assert "SUPABASE_DB_APP_USER" in capability.note
+    assert "SUPABASE_DB_APP_PASSWORD" in capability.note
+    assert "SUPABASE_APP_USER" not in capability.note
+    assert "SUPABASE_APP_PASSWORD" not in capability.note
+
+
+def test_supabase_contract_exposes_pg_meta_admin_boundary_and_mitigation():
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    manifest = next(
+        m for m in load_manifests(repo_root / "services") if m.name == "supabase"
+    )
+    capability = next(
+        (
+            cap
+            for cap in manifest.capabilities
+            if cap.name == "Authenticated pg-meta administration"
+        ),
+        None,
+    )
+
+    assert capability is not None
+    assert (capability.status, capability.verification) == (
+        "not-supported",
+        "documented",
+    )
+    for boundary in ("host-published", "no authentication", "supabase_admin"):
+        assert boundary in capability.note
+    assert "firewall SUPABASE_META_PORT" in capability.note
+    assert "remove its ports: publish" in capability.note
 
 
 def test_lightrag_manifest_header_does_not_claim_automatic_file_fallbacks():

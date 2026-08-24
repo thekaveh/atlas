@@ -23,11 +23,15 @@ capabilities:
   - name: "Least-privilege application database role"
     status: stubbed
     verification: documented
-    note: "SUPABASE_APP_USER and SUPABASE_APP_PASSWORD are reserved variables, but Atlas does not create or grant that role and core consumers continue using administrative credentials."
+    note: "SUPABASE_DB_APP_USER and SUPABASE_DB_APP_PASSWORD are reserved variables, but Atlas does not create or grant that role and core consumers continue using administrative credentials."
   - name: "Production email authentication"
     status: partial
     verification: documented
     note: "GoTrue issues and validates JWTs, but the stock local-development defaults auto-confirm email and point SMTP at localhost rather than a configured delivery service."
+  - name: "Authenticated pg-meta administration"
+    status: not-supported
+    verification: documented
+    note: "The host-published pg-meta API has no authentication and executes SQL as supabase_admin; shared-network operators must firewall SUPABASE_META_PORT or remove its ports: publish."
 
 containers:
   - supabase-db

@@ -11,7 +11,7 @@ capabilities:
     note: "Atlas accepts internal OTLP over gRPC and HTTP, batches traces, and exports them to the required Tempo service."
   - name: "Log export to Loki"
     status: stubbed
-    verification: tested
+    verification: documented
     note: "The logs pipeline terminates at the debug exporter; Loki may be enabled as an optional sibling but is not an OpenTelemetry log destination."
   - name: "Public telemetry ingestion"
     status: not-supported

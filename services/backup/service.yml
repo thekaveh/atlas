@@ -12,7 +12,7 @@ docs: services/backup/README.md
 capabilities:
   - name: "On-demand Postgres and volume backup export"
     status: supported
-    verification: tested
+    verification: documented
     note: "The one-shot runner creates a PostgreSQL custom-format dump plus read-only Supabase Storage, Neo4j, and Weaviate archives and uploads them to the configured S3 bucket."
   - name: "Postgres restore workflow"
     status: partial
