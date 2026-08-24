@@ -6,7 +6,9 @@ import argparse
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import http.client
 import json
+import math
 from pathlib import Path
 import socket
 import subprocess
@@ -24,6 +26,9 @@ _REPORT_MARKER = "<!-- atlas-upstream-drift-watch -->"
 _USER_AGENT = "Atlas upstream-drift-watch/1.0"
 _DEFAULT_OLLAMA_TAGS_URL = "http://127.0.0.1:11434/api/tags"
 _DEFAULT_REPORT_FILE = Path("upstream-drift-report.md")
+# The watch only resolves registry manifests, but it still keeps this small so
+# a caller cannot turn one nightly check into an unbounded registry fan-out.
+_MAX_IMAGE_WORKERS = 8
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,7 +103,12 @@ def load_manifest_image_refs(services_dir: Path) -> tuple[str, ...]:
                 raise ValueError(
                     f"{manifest_path}: images[{index}].default must be a non-empty string"
                 )
-            refs.append(default.strip())
+            reference = default.strip()
+            if "$" in reference:
+                raise ValueError(
+                    f"{manifest_path}: images[{index}].default must be a literal image reference"
+                )
+            refs.append(reference)
     return _sorted_unique(refs)
 
 
@@ -156,6 +166,39 @@ def _http_failure_detail(exc: BaseException) -> str:
     return f"request failed: {exc}"
 
 
+def _valid_timeout(timeout: object) -> bool:
+    return (
+        isinstance(timeout, (int, float))
+        and not isinstance(timeout, bool)
+        and math.isfinite(timeout)
+        and timeout > 0
+    )
+
+
+def _valid_image_workers(workers: object) -> bool:
+    return isinstance(workers, int) and not isinstance(workers, bool) and 1 <= workers <= _MAX_IMAGE_WORKERS
+
+
+def _timeout_argument(value: str) -> float:
+    try:
+        timeout = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be a positive finite number") from exc
+    if not _valid_timeout(timeout):
+        raise argparse.ArgumentTypeError("must be a positive finite number")
+    return timeout
+
+
+def _image_workers_argument(value: str) -> int:
+    try:
+        workers = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"must be an integer from 1 to {_MAX_IMAGE_WORKERS}") from exc
+    if not _valid_image_workers(workers):
+        raise argparse.ArgumentTypeError(f"must be an integer from 1 to {_MAX_IMAGE_WORKERS}")
+    return workers
+
+
 def probe_ollama_library() -> ProbeResult:
     """Check that the live Ollama library remains plausibly populated."""
 
@@ -174,17 +217,26 @@ def probe_ollama_library() -> ProbeResult:
 def probe_ollama_tags(url: str, *, timeout: float) -> ProbeResult:
     """Validate the bounded ``/api/tags`` response contract."""
 
-    request = urllib.request.Request(
-        url,
-        headers={"User-Agent": _USER_AGENT, "Accept": "application/json"},
-    )
+    if not _valid_timeout(timeout):
+        return ProbeResult("ollama tags", False, "timeout must be a positive finite number")
     try:
+        request = urllib.request.Request(
+            url,
+            headers={"User-Agent": _USER_AGENT, "Accept": "application/json"},
+        )
         with urllib.request.urlopen(request, timeout=timeout) as response:
             status = _response_status(response)
             if not 200 <= status < 300:
                 return ProbeResult("ollama tags", False, f"HTTP {status}")
             payload = response.read()
-    except (urllib.error.URLError, socket.timeout, ConnectionError, OSError) as exc:
+    except (
+        urllib.error.URLError,
+        http.client.HTTPException,
+        socket.timeout,
+        ConnectionError,
+        OSError,
+        ValueError,
+    ) as exc:
         return ProbeResult("ollama tags", False, _http_failure_detail(exc))
 
     try:
@@ -212,20 +264,29 @@ def probe_ollama_tags(url: str, *, timeout: float) -> ProbeResult:
 def probe_curated_models(models: Sequence[str], *, timeout: float) -> ProbeResult:
     """Check that every curated model family still has a public library page."""
 
+    if not _valid_timeout(timeout):
+        return ProbeResult("curated Ollama models", False, "timeout must be a positive finite number")
     failures: list[str] = []
     for model in models:
         family = model.split(":", 1)[0]
         encoded_family = urllib.parse.quote(family, safe="-._")
-        request = urllib.request.Request(
-            f"https://ollama.com/library/{encoded_family}",
-            headers={"User-Agent": _USER_AGENT, "Accept": "text/html"},
-        )
         try:
+            request = urllib.request.Request(
+                f"https://ollama.com/library/{encoded_family}",
+                headers={"User-Agent": _USER_AGENT, "Accept": "text/html"},
+            )
             with urllib.request.urlopen(request, timeout=timeout) as response:
                 status = _response_status(response)
                 if not 200 <= status < 300:
                     failures.append(f"{model} (HTTP {status})")
-        except (urllib.error.URLError, socket.timeout, ConnectionError, OSError) as exc:
+        except (
+            urllib.error.URLError,
+            http.client.HTTPException,
+            socket.timeout,
+            ConnectionError,
+            OSError,
+            ValueError,
+        ) as exc:
             failures.append(f"{model} ({_http_failure_detail(exc)})")
     if failures:
         return ProbeResult("curated Ollama models", False, _bounded_detail("; ".join(failures)))
@@ -257,8 +318,14 @@ def probe_manifest_images(
 ) -> ProbeResult:
     """Resolve manifest-owned images without downloading their layers."""
 
-    if workers < 1:
-        return ProbeResult("manifest images", False, "workers must be at least 1")
+    if not _valid_timeout(timeout):
+        return ProbeResult("manifest images", False, "timeout must be a positive finite number")
+    if not _valid_image_workers(workers):
+        return ProbeResult(
+            "manifest images",
+            False,
+            f"workers must be an integer from 1 to {_MAX_IMAGE_WORKERS}",
+        )
     with ThreadPoolExecutor(max_workers=workers) as executor:
         failures = [
             failure
@@ -281,13 +348,23 @@ def run_watch(
 ) -> tuple[ProbeResult, ...]:
     """Run every independent probe and retain all result details."""
 
-    models = load_curated_ollama_models(ollama_models)
-    refs = load_manifest_image_refs(services_dir)
+    try:
+        models = load_curated_ollama_models(ollama_models)
+    except ValueError as exc:
+        curated_result = ProbeResult("curated Ollama models", False, f"discovery failed: {exc}")
+    else:
+        curated_result = probe_curated_models(models, timeout=http_timeout)
+    try:
+        refs = load_manifest_image_refs(services_dir)
+    except ValueError as exc:
+        images_result = ProbeResult("manifest images", False, f"discovery failed: {exc}")
+    else:
+        images_result = probe_manifest_images(refs, timeout=image_timeout, workers=image_workers)
     return (
         probe_ollama_library(),
         probe_ollama_tags(ollama_tags_url, timeout=http_timeout),
-        probe_curated_models(models, timeout=http_timeout),
-        probe_manifest_images(refs, timeout=image_timeout, workers=image_workers),
+        curated_result,
+        images_result,
     )
 
 
@@ -299,9 +376,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--services-dir", type=Path, default=Path("services"))
     parser.add_argument("--ollama-models", type=Path, default=Path("services/ollama/models.yaml"))
     parser.add_argument("--report-file", type=Path, default=_DEFAULT_REPORT_FILE)
-    parser.add_argument("--http-timeout", type=float, default=5.0)
-    parser.add_argument("--image-timeout", type=float, default=15.0)
-    parser.add_argument("--image-workers", type=int, default=4)
+    parser.add_argument("--http-timeout", type=_timeout_argument, default=5.0)
+    parser.add_argument("--image-timeout", type=_timeout_argument, default=15.0)
+    parser.add_argument("--image-workers", type=_image_workers_argument, default=4)
     args = parser.parse_args(argv)
 
     results = run_watch(

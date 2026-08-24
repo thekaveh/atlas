@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import http.client
 from pathlib import Path
 import subprocess
 import urllib.error
@@ -96,6 +97,17 @@ def test_load_manifest_image_refs_rejects_malformed_declared_rows(tmp_path, imag
         watch.load_manifest_image_refs(services)
 
 
+def test_load_manifest_image_refs_rejects_interpolated_defaults(tmp_path):
+    services = tmp_path / "services"
+    service = services / "demo"
+    service.mkdir(parents=True)
+    (service / "service.yml").write_text(
+        "images:\n  - var: IMAGE\n    default: '${IMAGE_REF}'\n"
+    )
+    with pytest.raises(ValueError, match="literal"):
+        watch.load_manifest_image_refs(services)
+
+
 def test_discovery_allows_absent_optional_sections(tmp_path):
     models = tmp_path / "models.yaml"
     models.write_text("content:\n  - name: qwen:latest\n")
@@ -171,6 +183,56 @@ def test_probe_ollama_tags_accepts_model_alias_when_name_is_empty(monkeypatch):
     assert watch.probe_ollama_tags("http://ollama.invalid/api/tags", timeout=1.0).ok
 
 
+@pytest.mark.parametrize("timeout", [0, -1, float("inf"), float("nan")])
+@pytest.mark.parametrize(
+    "probe, args",
+    [
+        (watch.probe_ollama_tags, ("http://ollama.invalid/api/tags",)),
+        (watch.probe_curated_models, (("qwen:latest",),)),
+    ],
+)
+def test_http_probes_reject_non_positive_or_non_finite_timeouts(monkeypatch, probe, args, timeout):
+    monkeypatch.setattr(watch.urllib.request, "urlopen", lambda *_a, **_k: pytest.fail("request made"))
+    result = probe(*args, timeout=timeout)
+    assert result.ok is False
+    assert "timeout" in result.detail
+
+
+@pytest.mark.parametrize(
+    "probe, args",
+    [
+        (watch.probe_ollama_tags, ("http://ollama.invalid/api/tags",)),
+        (watch.probe_curated_models, (("qwen:latest",),)),
+    ],
+)
+@pytest.mark.parametrize("error", [http.client.BadStatusLine("broken"), http.client.IncompleteRead(b"", 4)])
+def test_http_probes_convert_protocol_failures_to_results(monkeypatch, probe, args, error):
+    monkeypatch.setattr(
+        watch.urllib.request,
+        "urlopen",
+        lambda *_a, **_k: (_ for _ in ()).throw(error),
+    )
+    assert probe(*args, timeout=1.0).ok is False
+
+
+@pytest.mark.parametrize(
+    "probe, args",
+    [
+        (watch.probe_ollama_tags, ("not a URL",)),
+        (watch.probe_curated_models, (("qwen:latest",),)),
+    ],
+)
+def test_http_probes_convert_malformed_urls_to_results(monkeypatch, probe, args):
+    monkeypatch.setattr(
+        watch.urllib.request,
+        "Request",
+        lambda *_a, **_k: (_ for _ in ()).throw(ValueError("malformed URL")),
+    )
+    result = probe(*args, timeout=1.0)
+    assert result.ok is False
+    assert "malformed URL" in result.detail
+
+
 def test_probe_curated_models_reports_each_non_success_catalog_entry(monkeypatch):
     def _open(request, *, timeout):
         assert timeout == 1.5
@@ -232,6 +294,74 @@ def test_probe_manifest_images_passes_explicit_bounded_subprocess_options(monkey
         "capture_output": True,
         "text": True,
     }
+
+
+@pytest.mark.parametrize("timeout", [0, -1, float("inf"), float("nan")])
+def test_probe_manifest_images_rejects_non_positive_or_non_finite_timeouts(monkeypatch, timeout):
+    monkeypatch.setattr(watch.subprocess, "run", lambda *_a, **_k: pytest.fail("subprocess started"))
+    result = watch.probe_manifest_images(("example/image:1",), timeout=timeout, workers=1)
+    assert result.ok is False
+    assert "timeout" in result.detail
+
+
+@pytest.mark.parametrize("workers", [0, -1, 9])
+def test_probe_manifest_images_rejects_worker_counts_outside_fixed_cap(monkeypatch, workers):
+    monkeypatch.setattr(watch.subprocess, "run", lambda *_a, **_k: pytest.fail("subprocess started"))
+    result = watch.probe_manifest_images(("example/image:1",), timeout=1.0, workers=workers)
+    assert result.ok is False
+    assert "workers" in result.detail
+
+
+@pytest.mark.parametrize(
+    "option, value",
+    [
+        ("--http-timeout", "0"),
+        ("--http-timeout", "nan"),
+        ("--image-timeout", "-1"),
+        ("--image-timeout", "inf"),
+        ("--image-workers", "0"),
+        ("--image-workers", "9"),
+    ],
+)
+def test_main_rejects_unbounded_timeout_and_worker_values(monkeypatch, option, value, tmp_path):
+    monkeypatch.setattr(watch, "run_watch", lambda **_kwargs: pytest.fail("watch ran"))
+    with pytest.raises(SystemExit, match="2"):
+        watch.main([option, value, "--report-file", str(tmp_path / "report.md")])
+
+
+def test_main_reports_discovery_failures_and_runs_independent_probes(monkeypatch, tmp_path):
+    models = tmp_path / "models.yaml"
+    models.write_text("content: [\n", encoding="utf-8")
+    services = tmp_path / "services"
+    service = services / "demo"
+    service.mkdir(parents=True)
+    (service / "service.yml").write_text("images: [\n", encoding="utf-8")
+    report_path = tmp_path / "report.md"
+    calls = []
+    monkeypatch.setattr(
+        watch,
+        "probe_ollama_library",
+        lambda: calls.append("library") or watch.ProbeResult("library", True, "ok"),
+    )
+    monkeypatch.setattr(
+        watch,
+        "probe_ollama_tags",
+        lambda *_a, **_k: calls.append("tags") or watch.ProbeResult("tags", True, "ok"),
+    )
+    monkeypatch.setattr(watch, "probe_curated_models", lambda *_a, **_k: pytest.fail("curated probe ran"))
+    monkeypatch.setattr(watch, "probe_manifest_images", lambda *_a, **_k: pytest.fail("image probe ran"))
+
+    exit_code = watch.main([
+        "--ollama-models", str(models),
+        "--services-dir", str(services),
+        "--report-file", str(report_path),
+    ])
+    report = report_path.read_text(encoding="utf-8")
+    assert exit_code == 1
+    assert calls == ["library", "tags"]
+    assert "curated Ollama models" in report
+    assert "manifest images" in report
+    assert "could not read YAML source" in report
 
 
 def test_run_watch_aggregates_results_in_probe_order(monkeypatch, tmp_path):
