@@ -17,6 +17,9 @@ _ROW = CapabilityRow(
     notes="Atlas exercises the configured generation path.",
 )
 
+_PYTHON_ONLY_LINE_SEPARATORS = ["\v", "\f", "\u0085", "\u2028", "\u2029"]
+_PYTHON_ONLY_LINE_SEPARATOR_IDS = ["VT", "FF", "NEL", "LS", "PS"]
+
 
 def test_capability_section_exception_set_is_closed_and_repository_grounded():
     from docs.capabilities_resolver import (
@@ -312,6 +315,106 @@ def test_regen_and_capability_writer_share_the_same_fence_scanner():
 
     assert capabilities_section_writer._fenced_spans is fenced_code_spans
     assert regen._fenced_spans is fenced_code_spans
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r", "\r\n"], ids=["LF", "CR", "CRLF"])
+def test_fence_spans_preserve_commonmark_newline_widths(newline):
+    from docs.markdown_blocks import fenced_code_spans
+
+    text = f"lead{newline}```{newline}inside{newline}```{newline}tail"
+    start = text.index("```")
+    closing = text.index("```", start + 3)
+    end = closing + 3 + len(newline)
+
+    assert fenced_code_spans(text) == [(start, end)]
+
+
+@pytest.mark.parametrize(
+    "separator",
+    _PYTHON_ONLY_LINE_SEPARATORS,
+    ids=_PYTHON_ONLY_LINE_SEPARATOR_IDS,
+)
+def test_fence_spans_do_not_treat_python_only_separators_as_newlines(separator):
+    from docs.markdown_blocks import fenced_code_spans
+
+    prefix = f"lead{separator}lead{separator}lead{separator}\n"
+    fence = (
+        "```markdown\n"
+        "## 4. Capabilities & limitations\n"
+        f"EXAMPLE{separator}ONLY\n"
+        "```\n"
+    )
+    text = prefix + fence + "tail\n"
+
+    assert fenced_code_spans(text) == [
+        (len(prefix), len(prefix) + len(fence)),
+    ]
+
+
+@pytest.mark.parametrize(
+    "separator",
+    _PYTHON_ONLY_LINE_SEPARATORS,
+    ids=_PYTHON_ONLY_LINE_SEPARATOR_IDS,
+)
+def test_python_only_separators_cannot_expose_fenced_capability_heading(separator):
+    from docs.capabilities_section_writer import render_capabilities_section
+    from docs.capabilities_section_writer import upsert_capabilities_section
+
+    fenced_prefix = (
+        f"# Service\n\nprose{separator}before{separator}fence{separator}here\n\n"
+        "```markdown\n"
+        "## 4. Capabilities & limitations\n"
+        f"EXAMPLE{separator}ONLY\n"
+        "```\n\n"
+    )
+    tail = "## 6. Troubleshooting\n\nKEEP THIS BODY\n"
+    readme = (
+        fenced_prefix
+        + "## 5. Capabilities & limitations\n\nREAL STALE\n\n"
+        + tail
+    )
+
+    updated = upsert_capabilities_section(readme, (_ROW,), aggregate=False)
+
+    assert updated == (
+        fenced_prefix
+        + render_capabilities_section((_ROW,), position=5, aggregate=False).rstrip()
+        + "\n\n"
+        + tail
+    )
+
+
+@pytest.mark.parametrize(
+    "separator",
+    _PYTHON_ONLY_LINE_SEPARATORS,
+    ids=_PYTHON_ONLY_LINE_SEPARATOR_IDS,
+)
+def test_python_only_separators_cannot_expose_fenced_dependency_heading(separator):
+    from docs.regen import _slice_deps_section, _upsert_section
+
+    fenced_prefix = (
+        f"# Service\n\nprose{separator}before{separator}fence{separator}here\n\n"
+        "```markdown\n"
+        "## 4. Dependencies & Integrations\n"
+        f"EXAMPLE{separator}ONLY\n"
+        "```\n\n"
+    )
+    real_section = "## 5. Dependencies & Integrations\n\nREAL STALE\n\n"
+    tail = "## 6. Troubleshooting\n\nKEEP THIS BODY\n"
+    readme = fenced_prefix + real_section + tail
+
+    section_slice = _slice_deps_section(readme)
+
+    assert section_slice is not None
+    start, end = section_slice
+    assert readme[:start] == fenced_prefix
+    assert readme[start:end] == real_section
+    assert readme[end:] == tail
+
+    replacement = "## 5. Dependencies & Integrations\n\nREPLACED\n"
+    assert _upsert_section(readme, replacement) == (
+        fenced_prefix + replacement.rstrip() + "\n\n" + tail
+    )
 
 
 def test_second_upsert_is_byte_identical():

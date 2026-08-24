@@ -2,10 +2,29 @@
 
 from __future__ import annotations
 
+import re
+
 from markdown_it import MarkdownIt
 
 
 _MARKDOWN = MarkdownIt("commonmark")
+_COMMONMARK_LINE_ENDING_RE = re.compile(r"\r\n|\r|\n")
+
+
+def _commonmark_line_offsets(text: str) -> list[int]:
+    """Translate Markdown-it line maps to character offsets.
+
+    CommonMark recognizes only CRLF, CR, and LF as line endings. Python's
+    ``str.splitlines()`` recognizes additional Unicode separators, so using it
+    here can shift Markdown-it's token line numbers away from the source text.
+    """
+    offsets = [0]
+    offsets.extend(
+        match.end() for match in _COMMONMARK_LINE_ENDING_RE.finditer(text)
+    )
+    if offsets[-1] != len(text):
+        offsets.append(len(text))
+    return offsets
 
 
 def fenced_code_spans(text: str) -> list[tuple[int, int]]:
@@ -16,9 +35,7 @@ def fenced_code_spans(text: str) -> list[tuple[int, int]]:
     code, and fences nested in list items are recognized relative to the list
     content indentation.
     """
-    line_offsets = [0]
-    for line in text.splitlines(keepends=True):
-        line_offsets.append(line_offsets[-1] + len(line))
+    line_offsets = _commonmark_line_offsets(text)
 
     spans: list[tuple[int, int]] = []
     for token in _MARKDOWN.parse(text):
