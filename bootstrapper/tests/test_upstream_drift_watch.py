@@ -183,7 +183,7 @@ def test_probe_ollama_tags_accepts_model_alias_when_name_is_empty(monkeypatch):
     assert watch.probe_ollama_tags("http://ollama.invalid/api/tags", timeout=1.0).ok
 
 
-@pytest.mark.parametrize("timeout", [0, -1, float("inf"), float("nan")])
+@pytest.mark.parametrize("timeout", [0, -1, float("inf"), float("nan"), 61.0, 1e300])
 @pytest.mark.parametrize(
     "probe, args",
     [
@@ -191,7 +191,7 @@ def test_probe_ollama_tags_accepts_model_alias_when_name_is_empty(monkeypatch):
         (watch.probe_curated_models, (("qwen:latest",),)),
     ],
 )
-def test_http_probes_reject_non_positive_or_non_finite_timeouts(monkeypatch, probe, args, timeout):
+def test_http_probes_reject_invalid_or_excessive_timeouts(monkeypatch, probe, args, timeout):
     monkeypatch.setattr(watch.urllib.request, "urlopen", lambda *_a, **_k: pytest.fail("request made"))
     result = probe(*args, timeout=timeout)
     assert result.ok is False
@@ -296,8 +296,8 @@ def test_probe_manifest_images_passes_explicit_bounded_subprocess_options(monkey
     }
 
 
-@pytest.mark.parametrize("timeout", [0, -1, float("inf"), float("nan")])
-def test_probe_manifest_images_rejects_non_positive_or_non_finite_timeouts(monkeypatch, timeout):
+@pytest.mark.parametrize("timeout", [0, -1, float("inf"), float("nan"), 61.0, 1e300])
+def test_probe_manifest_images_rejects_invalid_or_excessive_timeouts(monkeypatch, timeout):
     monkeypatch.setattr(watch.subprocess, "run", lambda *_a, **_k: pytest.fail("subprocess started"))
     result = watch.probe_manifest_images(("example/image:1",), timeout=timeout, workers=1)
     assert result.ok is False
@@ -317,8 +317,12 @@ def test_probe_manifest_images_rejects_worker_counts_outside_fixed_cap(monkeypat
     [
         ("--http-timeout", "0"),
         ("--http-timeout", "nan"),
+        ("--http-timeout", "61"),
+        ("--http-timeout", "1e10000"),
         ("--image-timeout", "-1"),
         ("--image-timeout", "inf"),
+        ("--image-timeout", "61"),
+        ("--image-timeout", "1e10000"),
         ("--image-workers", "0"),
         ("--image-workers", "9"),
     ],

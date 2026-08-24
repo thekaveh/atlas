@@ -29,6 +29,9 @@ _DEFAULT_REPORT_FILE = Path("upstream-drift-report.md")
 # The watch only resolves registry manifests, but it still keeps this small so
 # a caller cannot turn one nightly check into an unbounded registry fan-out.
 _MAX_IMAGE_WORKERS = 8
+# Both HTTP and image requests use this practical ceiling; it is well above
+# the 5s/15s defaults while remaining representable by their wait APIs.
+_MAX_TIMEOUT_SECONDS = 60.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -172,6 +175,7 @@ def _valid_timeout(timeout: object) -> bool:
         and not isinstance(timeout, bool)
         and math.isfinite(timeout)
         and timeout > 0
+        and timeout <= _MAX_TIMEOUT_SECONDS
     )
 
 
@@ -182,7 +186,7 @@ def _valid_image_workers(workers: object) -> bool:
 def _timeout_argument(value: str) -> float:
     try:
         timeout = float(value)
-    except ValueError as exc:
+    except (ValueError, OverflowError) as exc:
         raise argparse.ArgumentTypeError("must be a positive finite number") from exc
     if not _valid_timeout(timeout):
         raise argparse.ArgumentTypeError("must be a positive finite number")
