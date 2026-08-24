@@ -302,6 +302,21 @@ def _build_steps_and_rows(
     except ValueError:
         current_base_port = DEFAULT_BASE_PORT
 
+    # What the base-port step's Enter-to-accept default should DISPLAY
+    # (independent of ``current_base_port`` above, which stays the
+    # concrete fallback int other call sites int()-coerce). "auto" is a
+    # first-class value (``--base-port auto`` / ``BASE_PORT: auto``,
+    # #751) and the maintainer-expected default — you only pin a
+    # concrete base port by deliberately choosing one. So: default to
+    # "auto" when BASE_PORT is unset/absent in .env OR already "auto";
+    # keep showing the persisted number only when the user has actually
+    # pinned one — silently defaulting an existing, working stack's
+    # explicit BASE_PORT to "auto" would move it to a different port
+    # block on a bare Enter, which is exactly the surprise this must
+    # avoid.
+    _base_port_was_pinned = bool(_raw) and _raw.lower() != "auto"
+    _base_port_default = str(current_base_port) if _base_port_was_pinned else "auto"
+
     # Current Docker Compose project name (container-family namespace). The
     # wizard's project-name step pre-fills with this so an existing PROJECT_NAME
     # (e.g. a submodule consumer's) isn't reset to the default on a bare Enter.
@@ -441,11 +456,16 @@ def _build_steps_and_rows(
     steps.append(PromptStep(
         title="Base port  ·  range", step_index=1, step_total=total,
         heading="Which base port range do you want?",
-        subtitle="Every service port is computed as base_port + offset. "
-                 "Type a port (1024–65000), type auto to pick a free block, "
-                 "or press Enter to keep the current value.",
+        subtitle=(
+            "Every service port is computed as base_port + offset. "
+            "Type a port (1024–65000), type auto to pick a free block, "
+            "or press Enter to keep the current value ("
+            + ("auto — resolves a free block at launch" if not _base_port_was_pinned
+               else f"pinned to {current_base_port}")
+            + ")."
+        ),
         options=[],
-        default_value=str(current_base_port),
+        default_value=_base_port_default,
         service_name="",
         kind="number",
         number_min=1024,

@@ -119,3 +119,53 @@ def test_auto_resolution_falls_back_rather_than_raising() -> None:
         assert I._resolve_auto_base_port(63000) == 63000
     finally:
         pm.PortManager = original
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# The step's DEFAULT should be "auto", not a number (bug: the step let
+# the user TYPE "auto" via accepts_auto, but always pre-filled a
+# concrete port — the maintainer expects a bare Enter to resolve a
+# free block unless they deliberately pinned one).
+# ────────────────────────────────────────────────────────────────────────────
+
+
+def _step_from_fake_root(tmp_path, env_body: str | None):
+    """Build the real base-port step against a throwaway root_dir so
+    the test doesn't depend on (or mutate) the repo's own .env. Only
+    ``services/`` and ``.env.example`` are needed for manifest
+    discovery; both are symlinked in from the real tree."""
+    import os
+    from pathlib import Path
+    from core.config_parser import ConfigParser
+    from ui.textual import integration as I
+
+    repo_root = Path(__file__).resolve().parents[2]
+    for name in ("services", ".env.example"):
+        os.symlink(repo_root / name, tmp_path / name)
+    if env_body is not None:
+        (tmp_path / ".env").write_text(env_body)
+
+    class _HM:
+        def __getattr__(self, _n):
+            return lambda *a, **k: False
+
+    steps, *_ = I._build_steps_and_rows(ConfigParser(root_dir=str(tmp_path)), _HM())
+    return next(s for s in steps if s.title.startswith("Base port"))
+
+
+def test_default_is_auto_when_base_port_is_unset(tmp_path) -> None:
+    step = _step_from_fake_root(tmp_path, env_body=None)
+    assert step.default_value == "auto"
+
+
+def test_default_is_auto_when_base_port_is_already_auto(tmp_path) -> None:
+    step = _step_from_fake_root(tmp_path, env_body="BASE_PORT=auto\n")
+    assert step.default_value == "auto"
+
+
+def test_default_stays_pinned_number_when_explicitly_set(tmp_path) -> None:
+    """A deliberately-pinned BASE_PORT must NOT be silently swapped for
+    "auto" — that would move an existing, working stack to a different
+    port block on a bare Enter."""
+    step = _step_from_fake_root(tmp_path, env_body="BASE_PORT=64000\n")
+    assert step.default_value == "64000"
