@@ -53,15 +53,16 @@ def load_curated_ollama_models(path: Path) -> tuple[str, ...]:
 
     document = _read_yaml_mapping(path)
     names: list[str] = []
-    for section in document.values():
+    for section_name, section in document.items():
         if not isinstance(section, list):
-            continue
-        for entry in section:
+            raise ValueError(f"{path}: {section_name} must be a list")
+        for index, entry in enumerate(section):
             if not isinstance(entry, dict):
-                continue
+                raise ValueError(f"{path}: {section_name}[{index}] must be a mapping")
             name = entry.get("name")
-            if isinstance(name, str) and name.strip():
-                names.append(name.strip())
+            if not isinstance(name, str) or not name.strip():
+                raise ValueError(f"{path}: {section_name}[{index}].name must be a non-empty string")
+            names.append(name.strip())
     return _sorted_unique(names)
 
 
@@ -81,12 +82,15 @@ def load_manifest_image_refs(services_dir: Path) -> tuple[str, ...]:
             continue
         if not isinstance(images, list):
             raise ValueError(f"manifest {manifest_path} images must be a list")
-        for image in images:
+        for index, image in enumerate(images):
             if not isinstance(image, dict):
-                continue
+                raise ValueError(f"{manifest_path}: images[{index}] must be a mapping")
             default = image.get("default")
-            if isinstance(default, str) and default.strip():
-                refs.append(default.strip())
+            if not isinstance(default, str) or not default.strip():
+                raise ValueError(
+                    f"{manifest_path}: images[{index}].default must be a non-empty string"
+                )
+            refs.append(default.strip())
     return _sorted_unique(refs)
 
 
