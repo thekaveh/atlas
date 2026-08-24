@@ -266,7 +266,7 @@
 | PROD_ENV_COMFYUI_MEM_LIMIT | globals | 4g | - |
 | LOG_MAX_SIZE | globals | 10m | Per-container json-file log max size (Docker logging option). |
 | LOG_MAX_FILE | globals | 3 | Per-container json-file log file count (Docker logging option). |
-| BOOTSTRAPPER_PORT_LAYOUT_VERSION | globals | 3 | Sentinel updated by bootstrapper/services/migrations. Missing or <N triggers the chained env migrations up to N (v1 port-layout, v2 URL>PORT, v3 COMFYUI model-set). Fresh .env files are already v3-shaped. |
+| BOOTSTRAPPER_PORT_LAYOUT_VERSION | globals | 4 | Sentinel updated by bootstrapper/services/migrations. Missing or <N triggers the chained env migrations up to N (v1 port-layout, v2 URL>PORT, v3 COMFYUI model-set, v4 stale curated Ollama model reference cleanup). Fresh .env files are already v4-shaped. |
 | GRAFANA_SOURCE | grafana | disabled | - |
 | GRAFANA_PORT | grafana |  | Host port for Grafana's HTTP server (in-container 3000). |
 | GRAFANA_ADMIN_USERNAME | grafana | admin | Grafana admin login. Override in .env if needed. |

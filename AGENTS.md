@@ -139,28 +139,55 @@ Key modules:
 - `ui/textual/palette.py`, `ui/textual/theme.css` — colors and Textual CSS for the app
 - `ui/term_caps.py` — `is_tui_capable(no_tui_flag)` helper used by `start.py` to decide between the Textual app and the linear flow
 - `wizard/model/` — Wizard Model layer: `state.py`, `state_builder.py`,
-  `service_discovery.py`, plus the extracted domain rules (`track_rules.py`,
-  `cloud_rules.py`, `llm_rules.py`). No module-scope `vmx` or `textual`
-  imports (one documented exception: `llm_rules.selected_llm_source` does a
-  deferred, function-scope import of `wizard.llm_steps` to reach a
-  ViewModel-owned constant, pending a Pass 3 move — see the package
-  docstring). Consumed by BOTH the Textual wizard and the `--no-tui` linear
+  `service_discovery.py`, plus the extracted domain rules (`cloud_rules.py`,
+  `llm_rules.py`). The track force-disable rule lives in `tracks.py`
+  (`synthesize_track_source_args`) — a former second copy of it,
+  `wizard/model/track_rules.py`, was deleted in the #535 followups review
+  (finding R1) once it was shown to have already drifted from the one
+  `--no-tui` uses; the wizard now calls `tracks.synthesize_track_source_args`
+  directly via a local, guarded import in `_selections_to_args`. No
+  module-scope `vmx` or `textual` imports — and, as of the #535 followups
+  review (finding R5), no deferred ones either: `llm_rules.selected_llm_source`
+  used to reach a ViewModel-owned `LLM_ENGINE_TITLE` constant via a
+  function-scope import of `wizard.llm_steps`, invisible to the static
+  layer check but real at runtime (calling it pulled ~139 `textual.*`
+  submodules into `sys.modules`); the constant moved into `llm_rules.py`
+  itself, which was its natural home all along. Consumed by BOTH the
+  Textual wizard and the `--no-tui` linear
   flow. `state_builder.all_services()`
   is the single source of truth for service definitions, consumed by both the
   Textual `ServiceTable` and the `--no-tui` `build_pre_launch_summary_table`;
   `service_discovery.py` supplies the metadata (display name, description,
   options) `ui/textual/integration.py` uses to build the wizard prompt steps.
-- `wizard/viewmodel/` — VMx ViewModels (arrives in Pass 2 of #535). May import
-  `vmx` and `wizard.model`; may never import `textual`.
-- `wizard/view/` — Textual screens and widgets. May never import
-  `wizard.model` directly; it reads ViewModel state.
+- `wizard/viewmodel/` — VMx ViewModels (arrives in Pass 2 of #535). Will import
+  `vmx` and `wizard.model`; may never import `textual`. Doesn't exist yet.
+- `wizard/view/` — where `ui/textual/*` MOVES TO in Pass 3, not a second copy
+  of it (see `docs/superpowers/specs/2026-08-23-wizard-mvvm-vmx-design.md`).
+  Once it exists, it may never import `wizard.model` directly; it reads
+  ViewModel state instead. Doesn't exist yet — **today**, `ui/textual/` (the
+  real, current view) legitimately imports `wizard.model` directly at six
+  known sites, because no ViewModel layer exists yet for those imports to go
+  through. That is deliberate, tracked Pass-1 debt, not a lint gap. (The
+  #535 followups review kept the count at six while changing its makeup:
+  finding R1 removed `wizard.model.track_rules`; finding R6 added
+  `screens/wizard_screen.py` reading `SECRET_KEEP`/`SECRET_CLEAR` straight
+  from `wizard.model.cloud_rules` instead of through
+  `widgets/prompt_panel.py`'s re-export.)
 - `utils/kong_config_generator.py` — dynamic Kong route generation (the `kong-dynamic.yml` it emits is regenerated at every startup; do NOT edit by hand)
 - `generate_supabase_keys.py` (and `.sh` sibling) — auto-runs at startup, generates Supabase JWT keys into `.env`
 
 The layer direction (`view -> viewmodel -> model`) is enforced by
-`bootstrapper/tests/test_wizard_layer_boundaries.py`, which also asserts that
-`core/linear_startup.py` never imports `vmx` — that is what makes the
-`--no-tui` path structurally VMx-free rather than VMx-free by convention.
+`bootstrapper/tests/test_wizard_layer_boundaries.py`, to the extent each layer
+currently exists in a form worth linting: `wizard/model/**` is checked for
+real (`vmx`/`textual`-free) today; `wizard/viewmodel/` doesn't exist yet, so
+its check is an explicit skip (Pass 2) rather than a vacuous pass; and the
+`view -> model` direction is checked against `ui/textual/` — the view's real,
+current location — pinned against a closed six-site allowlist of the known
+Pass-1 debt described above, with a separate tripwire test that fails the
+moment `wizard/view/` is created so the check gets re-pointed there instead
+of silently going stale. The suite also asserts that `core/linear_startup.py`
+never imports `vmx` — that is what makes the `--no-tui` path structurally
+VMx-free rather than VMx-free by convention.
 
 `start.sh` and `stop.sh` are thin wrappers that prefer `uv run` and fall back to system Python. The bootstrapper can also be invoked directly: `python bootstrapper/start.py [flags]` or `python bootstrapper/stop.py`. `--no-tui` bypasses the Textual TUI and runs the linear stdout flow (used by CI, non-TTY shells, and very narrow terminals).
 

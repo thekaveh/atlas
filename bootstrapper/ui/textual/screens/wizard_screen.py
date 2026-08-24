@@ -1467,7 +1467,7 @@ class WizardScreen(Screen):
             SECRET_KEEP+disabled+key path; without this, the overview
             would lag the launch state).
         """
-        from ..widgets.prompt_panel import SECRET_KEEP
+        from wizard.model.cloud_rules import SECRET_KEEP
         from wizard.llm_steps import cloud_models_title
         title = step.title or ""
         target: CloudApiSummary | None = None
@@ -1505,7 +1505,7 @@ class WizardScreen(Screen):
         value, and refreshes the row + footer count line.
         """
         # Local imports avoid a hard dependency at module load time.
-        from ..widgets.prompt_panel import SECRET_KEEP, SECRET_CLEAR
+        from wizard.model.cloud_rules import SECRET_KEEP, SECRET_CLEAR
         from wizard.llm_steps import cloud_secret_title
 
         # Exact title match via the same helper that built the step
@@ -1539,7 +1539,7 @@ class WizardScreen(Screen):
         self._refresh_info_panel()
 
     def _refresh_command_summary(self) -> None:
-        from ..widgets.prompt_panel import SECRET_KEEP, SECRET_CLEAR
+        from wizard.model.cloud_rules import SECRET_KEEP, SECRET_CLEAR
         from wizard.llm_steps import (
             OLLAMA_CUSTOM_TITLE,
             OLLAMA_MODELS_TITLE,

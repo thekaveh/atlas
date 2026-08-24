@@ -15,26 +15,45 @@ stays unchanged.
 Why scrape?
   Ollama's registry (``registry.ollama.ai/v2/_catalog``) returns 404,
   no public JSON API exists for the library, and ollamadb.dev returns
-  empty. The library web page is server-rendered with stable Alpine.js
-  ``x-test-*`` attributes on every model card — they're literally test
-  hooks, far more stable than CSS classes. We anchor the parser on
-  those attributes.
+  empty. The library web page is server-rendered, so we regex-parse
+  the HTML.
+
+  ``x-test-*`` markup drift (2026-08):
+  The page used to carry Alpine.js ``x-test-*`` test-hook attributes
+  (``x-test-model``, ``x-test-capability``, …) on every model card —
+  deliberately stable, since ollama.com's own QA pinned selectors on
+  them. Ollama has since dropped those attributes entirely (confirmed
+  live: 0 ``x-test-*`` hits, 235 ``href="/library/…"`` links still on
+  the page). The parser below is re-anchored on the current plain
+  Tailwind markup instead — each card is an ``<li class="flex
+  items-baseline border-b border-neutral-200 py-6">…</li>`` containing
+  one ``<a href="/library/{name}" …>``. This is inherently less stable
+  than a test-hook attribute (Tailwind utility classes churn on
+  redesigns), which is exactly why ``tests/test_ollama_library.py``
+  pins a trimmed real-HTML fixture — a future markup change will fail
+  that test immediately instead of silently degrading to the curated
+  fallback again.
 
   Per model the page exposes:
-    • capability tag(s)  →  ``<span x-test-capability …>VAL</span>``
+    • capability tag(s)  →  ``<span class="… bg-indigo-50 …">VAL</span>``
                            VAL ∈ {tools, thinking, embedding, vision, audio, …}
-    • size variant(s)    →  ``<span x-test-size …>VAL</span>``
+    • size variant(s)    →  ``<span class="… bg-[#ddf4ff] …">VAL</span>``
                            VAL like ``8b``, ``70b``, ``0.6b``
-    • pull count         →  ``<span x-test-pull-count>114.2M</span>``
-    • last update        →  ``<span x-test-updated>1 year ago</span>``
+    • pull count         →  ``<span>114.2M</span><span …>&nbsp;Pulls</span>``
+    • last update         → ``<span …>Updated&nbsp;</span><span>1 year ago</span>``
+    • Ollama Cloud chip   →  ``<span class="… bg-cyan-50 …">cloud</span>``
+                           (unchanged by the redesign)
 
   We fetch ``?sort=popular`` so the HTML order is already pull-count
   descending; we still apply our own numeric sort downstream as defence
   against the query-param being removed or renamed upstream.
 
-Failure mode: any network / parse error returns an empty list, and the
-caller falls back to the curated ``OLLAMA_DEFAULT_CATALOG``. No exceptions
-escape this module.
+Failure mode: any network / parse error, or a parse that yields
+implausibly few entries (see ``MIN_PLAUSIBLE_ENTRIES``), returns an
+empty list and the caller falls back to the curated
+``OLLAMA_DEFAULT_CATALOG`` — and now says so where the user can see it
+(the wizard step surfaces a fallback notice; see ``llm_steps.py``). No
+exceptions escape this module.
 """
 
 from __future__ import annotations
@@ -48,31 +67,52 @@ from dataclasses import dataclass
 
 _LIBRARY_URL = "https://ollama.com/library?sort=popular"
 
-# Anchor regexes for the structured parser. All target Alpine.js test
-# attributes (``x-test-*``) which are deliberately stable — they exist
-# specifically so ollama.com's own QA can pin selectors.
+# Minimum entry count for a parse to be considered "the real library"
+# rather than a broken-parser artifact. Live library has 200+ models;
+# the curated fallback (``OLLAMA_DEFAULT_CATALOG``) has ~5. Picked well
+# below the former and comfortably above the latter so an upstream
+# markup change that breaks the parser (yielding a near-empty result)
+# is detected instead of silently masquerading as "Ollama only has a
+# handful of models". Consumed by ``wizard/llm_steps.py`` to decide
+# whether to surface a degraded-catalog notice to the user.
+MIN_PLAUSIBLE_ENTRIES = 20
+
+# Anchor regexes for the structured parser. Re-anchored 2026-08 on the
+# current plain-Tailwind markup after ollama.com dropped the
+# ``x-test-*`` test-hook attributes the parser previously relied on
+# (see the module docstring). Each model card is one
+# ``<li class="flex items-baseline border-b border-neutral-200 py-6">``
+# containing a ``<a href="/library/{name}" …>`` plus capability / size
+# chips and a Pulls/Updated summary line.
 _CARD_RE = re.compile(
-    r"<li[^>]*\bx-test-model\b.*?</li>",
+    r'<li\s+class="flex items-baseline border-b border-neutral-200 py-6">'
+    r".*?</li>",
     flags=re.DOTALL,
 )
 _NAME_RE = re.compile(r'href="/library/([a-z0-9._-]+)"')
+# Capability chips ("tools", "thinking", "embedding", "vision", "audio")
+# render as indigo pills; size chips ("8b", "70b", …) render as blue
+# pills with an arbitrary-value background (``bg-[#ddf4ff]``) — the two
+# span classes are the only thing distinguishing them, since both hold
+# terse lowercase-ish text.
 _CAPABILITY_RE = re.compile(
-    r"<span[^>]*\bx-test-capability\b[^>]*>\s*([a-z0-9_-]+)\s*</span>",
+    r"bg-indigo-50[^>]*>\s*([a-z0-9_-]+)\s*</span>",
 )
 _SIZE_RE = re.compile(
-    r"<span[^>]*\bx-test-size\b[^>]*>\s*([0-9][a-z0-9.]*)\s*</span>",
+    r"bg-\[#ddf4ff\][^>]*>\s*([0-9][a-z0-9.]*)\s*</span>",
 )
 _PULL_COUNT_RE = re.compile(
-    r"<span[^>]*\bx-test-pull-count\b[^>]*>\s*([^<]+?)\s*</span>",
+    r"<span\s*>\s*([^<]+?)\s*</span>\s*<span[^>]*>&nbsp;Pulls</span>",
 )
 _UPDATED_RE = re.compile(
-    r"<span[^>]*\bx-test-updated\b[^>]*>\s*([^<]+?)\s*</span>",
+    r"Updated&nbsp;</span>\s*<span\s*>\s*([^<]+?)\s*</span>",
 )
 # Ollama Cloud chip — appears next to the model name as a small cyan
 # pill. Marks the model as available on Ollama's hosted inference
-# service. When the card ALSO has ``x-test-size`` entries the model is
-# hybrid (cloud + pullable local variants); when there are no sizes,
-# the model is cloud-exclusive and cannot be ``ollama pull``-ed.
+# service. When the card ALSO has size chips (``_SIZE_RE`` matches)
+# the model is hybrid (cloud + pullable local variants); when there
+# are no sizes, the model is cloud-exclusive and cannot be
+# ``ollama pull``-ed.
 _CLOUD_BADGE_RE = re.compile(
     r'<span[^>]*\bbg-cyan-50\b[^>]*>\s*cloud\s*</span>',
     re.IGNORECASE,
@@ -105,11 +145,11 @@ class OllamaLibraryEntry:
     # (better than mis-labelling a future Ollama release as legacy).
     age_days: int | None = None
     # True when the listing card carries the ``cloud`` chip AND has no
-    # ``x-test-size`` entries — the model is hosted-only on Ollama
-    # Cloud and ``ollama pull`` will fail for every tag. The wizard
-    # filters these out of the multiselect. Hybrid models (cloud chip
-    # *plus* pullable sizes) have ``cloud_only=False`` and stay in
-    # the list with their local variants intact.
+    # size chips — the model is hosted-only on Ollama Cloud and
+    # ``ollama pull`` will fail for every tag. The wizard filters
+    # these out of the multiselect. Hybrid models (cloud chip *plus*
+    # pullable sizes) have ``cloud_only=False`` and stay in the list
+    # with their local variants intact.
     cloud_only: bool = False
 
 

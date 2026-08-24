@@ -91,14 +91,34 @@ from typing import Optional
 #      In that context `from utils import llm_catalog` raises ImportError
 #      because there is no `utils` package on sys.path — only the bare
 #      `/catalog` directory. The fallback branch handles this case.
+#
+# `_csv` follows the same split, but for a different reason (#535
+# followups review, finding R2): `bootstrapper/wizard/` — home of the
+# canonical `parse_csv` (`wizard.model.llm_rules.parse_csv`) — is never
+# bind-mounted into litellm-init at all (only `bootstrapper/utils/` is,
+# as `/catalog`; see services/litellm/compose.yml). So the container
+# branch below cannot reach it under EITHER import spelling, unlike
+# `llm_catalog`/`cloud_providers`, which are the same source file on
+# both sides of the mount. It keeps its own small inlined copy instead.
 try:                                   # bootstrapper venv (package context)
     from utils import llm_catalog
     from utils.llm_catalog import CatalogEntry
     from utils.cloud_providers import CLOUD_PROVIDERS
+    from wizard.model.llm_rules import parse_csv as _csv
 except ImportError:                    # container /catalog (loose modules)
     import llm_catalog  # type: ignore[no-redef]
     from llm_catalog import CatalogEntry  # type: ignore[no-redef]
     from cloud_providers import CLOUD_PROVIDERS  # type: ignore[no-redef]
+
+    def _csv(val: str | None) -> list[str]:  # type: ignore[no-redef]
+        """Split a comma-separated string into a list of non-empty
+        stripped tokens. Byte-identical to
+        ``wizard.model.llm_rules.parse_csv`` — inlined rather than
+        imported because this branch runs inside litellm-init, which
+        cannot reach ``bootstrapper/wizard/`` (see the note above)."""
+        if not val:
+            return []
+        return [s.strip() for s in val.split(",") if s.strip()]
 
 
 # ---------------------------------------------------------------------------
@@ -111,11 +131,10 @@ def _truthy(val: str | None) -> bool:
     return (val or "").strip().lower() in ("true", "1", "yes", "on", "enabled")
 
 
-def _csv(val: str | None) -> list[str]:
-    """Split a comma-separated string into a list of non-empty stripped tokens."""
-    if not val:
-        return []
-    return [s.strip() for s in val.split(",") if s.strip()]
+# `_csv` itself is defined above, in the dual-mode import block (#535
+# followups review, finding R2) — it needs a different definition per
+# branch (import the canonical wizard.model.llm_rules.parse_csv vs. an
+# inlined fallback), unlike every other helper here.
 
 
 # ---------------------------------------------------------------------------

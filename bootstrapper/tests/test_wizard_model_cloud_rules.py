@@ -29,7 +29,6 @@ def test_new_key_with_models_enables():
     )
     assert r.source == "enabled"
     assert r.api_key == "sk-test"
-    assert r.models == ["gpt-4o"]
 
 
 def test_zero_models_disables_even_with_a_valid_key():
@@ -116,7 +115,19 @@ def test_empty_secret_with_no_existing_key_disables():
 
 def test_resolution_is_frozen():
     """Callers merge these into env; accidental mutation would be a
-    cross-provider leak."""
+    cross-provider leak.
+
+    #535 followups review (finding C4): a ``@dataclass(frozen=True)``
+    with a bare ``list`` field is frozen in name only -- attribute
+    REbinding raises, but the list it points at can still be mutated
+    in place (``r.models.append(...)``) and ``hash(r)`` raises
+    ``TypeError: unhashable type: 'list'``. Checking only the rebind
+    case (as this test used to) let that regression through silently.
+    ``CloudResolution`` no longer has a list field at all (see C5 /
+    ``cloud_rules.py``'s fix-round-4 note: the field was dead output
+    and got removed rather than swapped for a tuple), so both
+    properties below now hold for a structural reason, not by luck.
+    """
     import dataclasses
 
     r = resolve_cloud_provider(
@@ -127,11 +138,20 @@ def test_resolution_is_frozen():
         existing_source="disabled",  # not-KEEP branch: existing_source is unread
     )
     assert dataclasses.is_dataclass(r)
+
+    # Property 1: rebinding a field is blocked.
     try:
         r.source = "hacked"  # type: ignore[misc]
     except dataclasses.FrozenInstanceError:
-        return
-    raise AssertionError("CloudResolution must be frozen")
+        pass
+    else:
+        raise AssertionError("CloudResolution must be frozen")
+
+    # Property 2: the instance is actually hashable. A frozen
+    # dataclass with any mutable field (e.g. the ``list`` this class
+    # used to carry) fails this even though rebinding is blocked --
+    # this is the half fix-round-1's check alone could not catch.
+    hash(r)  # must not raise
 
 
 def test_every_declared_provider_resolves():

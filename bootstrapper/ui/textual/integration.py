@@ -27,8 +27,7 @@ _THEME_PATH = Path(__file__).parent / "theme.css"
 # loop (selections.get(COMFYUI_MODELS_TITLE)) aligned with what the step
 # registers without duplicating the string literal.
 from wizard.comfyui_steps import COMFYUI_MODELS_TITLE
-from wizard.model.cloud_rules import resolve_cloud_provider
-from wizard.model.track_rules import track_force_disabled_sources
+from wizard.model.cloud_rules import SECRET_CLEAR, SECRET_KEEP, resolve_cloud_provider
 
 
 # Module-level sink for wizard-time diagnostic warnings (cloud /v1/models
@@ -302,6 +301,21 @@ def _build_steps_and_rows(
     except ValueError:
         current_base_port = DEFAULT_BASE_PORT
 
+    # What the base-port step's Enter-to-accept default should DISPLAY
+    # (independent of ``current_base_port`` above, which stays the
+    # concrete fallback int other call sites int()-coerce). "auto" is a
+    # first-class value (``--base-port auto`` / ``BASE_PORT: auto``,
+    # #751) and the maintainer-expected default — you only pin a
+    # concrete base port by deliberately choosing one. So: default to
+    # "auto" when BASE_PORT is unset/absent in .env OR already "auto";
+    # keep showing the persisted number only when the user has actually
+    # pinned one — silently defaulting an existing, working stack's
+    # explicit BASE_PORT to "auto" would move it to a different port
+    # block on a bare Enter, which is exactly the surprise this must
+    # avoid.
+    _base_port_was_pinned = bool(_raw) and _raw.lower() != "auto"
+    _base_port_default = str(current_base_port) if _base_port_was_pinned else "auto"
+
     # Current Docker Compose project name (container-family namespace). The
     # wizard's project-name step pre-fills with this so an existing PROJECT_NAME
     # (e.g. a submodule consumer's) isn't reset to the default on a bare Enter.
@@ -441,11 +455,16 @@ def _build_steps_and_rows(
     steps.append(PromptStep(
         title="Base port  ·  range", step_index=1, step_total=total,
         heading="Which base port range do you want?",
-        subtitle="Every service port is computed as base_port + offset. "
-                 "Type a port (1024–65000), type auto to pick a free block, "
-                 "or press Enter to keep the current value.",
+        subtitle=(
+            "Every service port is computed as base_port + offset. "
+            "Type a port (1024–65000), type auto to pick a free block, "
+            "or press Enter to keep the current value ("
+            + ("auto — resolves a free block at launch" if not _base_port_was_pinned
+               else f"pinned to {current_base_port}")
+            + ")."
+        ),
         options=[],
-        default_value=str(current_base_port),
+        default_value=_base_port_default,
         service_name="",
         kind="number",
         number_min=1024,
@@ -855,15 +874,37 @@ def _selections_to_args(
     selections: dict,
     services_info,
     current_base_port: int,
-    env_vars: dict | None = None,
+    env_vars: dict,
+    consumer_declared: frozenset[str] | set[str] = frozenset(),
 ):
     """Map wizard selections back to (source_args, stack_options).
 
     ``env_vars`` is the resolved .env snapshot at wizard-build time;
     used to auto-promote SECRET_KEEP+disabled+key-already-set into
     ``--cloud-X-source enabled`` so the multiselect picks aren't inert.
+
+    ``consumer_declared`` (#783, threaded through here per the #535
+    followups review, finding R1): cli-style keys (e.g. ``minio_source``)
+    whose SOURCE var a consumer manifest explicitly declares in
+    ``env.values``. Defaults to empty so every existing direct caller
+    (tests included) keeps today's behavior — force-disabling every
+    off-track service with no explicit wizard selection. The production
+    caller (``run_setup_flow``'s ``_resolve`` closure) passes the real
+    set, computed the same way ``start.py`` computes it for ``--no-tui``.
+
+    Fix-round note (#535 Pass 1 followups review, finding C1): this
+    parameter is REQUIRED, deliberately with no default. It used to
+    default to ``None`` and get normalized to ``{}`` here, which made
+    ``existing_key_set`` False for EVERY cloud provider on every call
+    that omitted it -- silently force-disabling every already-keyed
+    provider in .env via ``resolve_cloud_provider``'s SECRET_KEEP
+    branch. That is the exact class of bug ``resolve_cloud_provider``'s
+    own ``existing_source`` parameter was already made required to
+    prevent (see ``wizard/model/cloud_rules.py``'s fix-round-2 note);
+    this call site had simply re-opened the same trap one layer up.
+    Omitting it is now a ``TypeError`` at the call site instead of a
+    silent .env corruption.
     """
-    from .widgets.prompt_panel import SECRET_KEEP, SECRET_CLEAR
     from utils.cloud_providers import CLOUD_PROVIDERS
     from wizard.llm_steps import (
         OLLAMA_CUSTOM_TITLE,
@@ -875,7 +916,6 @@ def _selections_to_args(
         cloud_secret_title,
         fal_secret_title,
     )
-    env_vars = env_vars or {}
 
     source_args: dict = {}
     for svc in services_info:
@@ -884,16 +924,68 @@ def _selections_to_args(
         source_args[svc.key.replace("-", "_") + "_source"] = v
 
     # ─── Force-disable off-track services ────────────────────────────
-    # Rule lives in wizard/model/track_rules.py (#535 Pass 1); see there
-    # for why an 'all' track disables nothing and why a registry load
-    # failure degrades silently.
-    source_args.update(
-        track_force_disabled_sources(
-            track_key=selections.get(PICKER_STEP_TITLE),
-            services_info=services_info,
-            already_set=source_args,
+    # #535 followups review, finding R1: this used to call the wizard's
+    # own copy of this rule (wizard/model/track_rules.py), which had
+    # quietly drifted from tracks.synthesize_track_source_args — the
+    # implementation start.py's --no-tui path actually uses. The two
+    # disagreed on two things: synthesize_track_source_args skips
+    # `cloud_*` keys (moot here — this dict is service keys only, the
+    # cloud_* keys get added below) and honours `consumer_declared`,
+    # the #783 contract that a consumer manifest's declared SOURCE
+    # survives an out-of-track selection. track_rules.py implemented
+    # neither. Rather than maintain two rules that can silently
+    # diverge again, the wizard now calls the SAME function --no-tui
+    # calls, via a local, guarded import (mirroring every other
+    # `tracks` access in this module): a broken `tracks` import
+    # (missing/broken yaml/jsonschema, a partial venv, a syntax error
+    # in tracks.py) degrades to a no-op here, exactly like the old
+    # track_rules.py contract promised, rather than raising at wizard
+    # IMPORT time (this import is function-scoped, not module-scoped,
+    # so it can't do that regardless).
+    #
+    # synthesize_track_source_args mutates a dict IN PLACE and only
+    # ever looks at keys already present in it (mirroring the CLI's
+    # click-options dict, where every `--<svc>-source` key exists,
+    # defaulting to None when not passed). The wizard's `source_args`
+    # above is sparse -- it only has a key when the user's wizard step
+    # for that service actually rendered a selection, so an off-track
+    # service whose step was skipped by `_make_track_skip` has NO key
+    # here at all. `_track_view` below gives synthesize_track_source_args
+    # that full-dict shape without changing `source_args`'s own shape:
+    # only entries synthesize_track_source_args actually WROTE (None ->
+    # "disabled") get merged back in. A `consumer_declared` key stays
+    # None in `_track_view` (synthesize_track_source_args leaves it
+    # untouched) and therefore never gets merged into `source_args`,
+    # so nothing here clobbers the consumer manifest's own env.values
+    # write -- the same "leave it unwritten" mechanism start.py relies
+    # on.
+    _track_view: dict[str, str | None] = {
+        (svc.key.replace("-", "_") + "_source"): source_args.get(
+            svc.key.replace("-", "_") + "_source"
         )
+        for svc in services_info
+    }
+    _consumer_declared_keys = frozenset(
+        k for k in consumer_declared if k in _track_view
     )
+    try:
+        from tracks import load_tracks as _load_tracks_for_synth
+        from tracks import synthesize_track_source_args as _synth_track_args
+        _track_registry_for_synth = _load_tracks_for_synth()
+    except Exception:  # noqa: BLE001 — a broken `tracks` import/load must
+        # degrade the wizard, not crash it; see the note above.
+        _track_registry_for_synth = None
+    if _track_registry_for_synth is not None:
+        _synth_track_args(
+            _track_view,
+            track_key=selections.get(PICKER_STEP_TITLE),
+            registry=_track_registry_for_synth,
+            force_disable=True,
+            consumer_declared=_consumer_declared_keys,
+        )
+        for _cli_key, _value in _track_view.items():
+            if _value is not None and _cli_key not in source_args:
+                source_args[_cli_key] = _value
 
     # ─── Cloud-provider selections ───────────────────────────────────
     # Each provider has up to two wizard outputs:
@@ -906,8 +998,10 @@ def _selections_to_args(
     # explicitly and why ``source is None`` must be left unwritten
     # rather than coerced to "disabled". The models-CSV write stays
     # here: it persists the raw multiselect string verbatim (not a
-    # re-parsed/rejoined form of the resolution's echoed ``.models``),
-    # which is env-var-name bookkeeping, not a promotion rule.
+    # re-parsed/rejoined form of anything the resolution returns),
+    # which is env-var-name bookkeeping, not a promotion rule. (The
+    # resolution used to echo a ``.models`` field for exactly this —
+    # nothing ever read it; removed in the #535 followups review.)
     cloud_api_keys: dict = {}
     cloud_user_models: dict = {}
     for provider in CLOUD_PROVIDERS:
@@ -1199,9 +1293,29 @@ def run_setup_flow(
     # logic in _selections_to_args has the .env state to compare against.
     _env_snapshot = config_parser.parse_env_file()
 
+    # #783 / #535 followups review finding R1: SOURCE vars a consumer
+    # manifest declares in env.values, computed the same way start.py
+    # computes `consumer_declared_source_keys` for the --no-tui path (see
+    # start.py, search "Track override-set"), so the wizard's own
+    # force-disable pass (inside _selections_to_args) can exempt them the
+    # same way. A malformed consumer manifest degrades to "declares
+    # nothing" -- it surfaces separately via `doctor`, not by blocking the
+    # wizard here.
+    _consumer_declared_source_keys: frozenset = frozenset()
+    try:
+        _cc = config_parser.load_consumer_config()
+        _consumer_declared_source_keys = frozenset(
+            var.lower()
+            for var in (_cc.env_overrides or {})
+            if var.endswith("_SOURCE")
+        )
+    except Exception:  # noqa: BLE001 — malformed manifests surface via doctor
+        pass
+
     def _resolve(selections: dict) -> tuple[dict, dict]:
         return _selections_to_args(
             selections, services_info, current_base_port, _env_snapshot,
+            consumer_declared=_consumer_declared_source_keys,
         )
 
     # Single source of truth for "what port should this service show
