@@ -4,6 +4,20 @@ label: "ComfyUI (image generation)"
 category: media
 docs: services/comfyui/README.md
 
+capabilities:
+  - name: "Container and managed-MPS image generation"
+    status: supported
+    verification: tested
+    note: "Atlas configures CPU and NVIDIA containers plus an Apple-Silicon Metal host process behind the same endpoint contract."
+  - name: "Workflow and model provisioning"
+    status: partial
+    verification: tested
+    note: "Atlas stages selected catalog models and pinned custom nodes, but arbitrary workflow dependencies and readiness remain operator-managed."
+  - name: "Supabase output upload"
+    status: stubbed
+    verification: documented
+    note: "The upload flag and bucket variables are placeholders with no stock image, provisioning, or backend consumer."
+
 containers:
   - comfyui
   - comfyui-init

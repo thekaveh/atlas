@@ -57,6 +57,40 @@
         }
       }
     },
+    "capabilities": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Operator-facing capability and limitation contract. Optional during the pilot rollout; declaration order is presentation order.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "status", "verification", "note"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^(?!.*[\\r\\n])(?=.*\\S).+$",
+            "description": "Concise, single-line operator-facing capability label."
+          },
+          "status": {
+            "type": "string",
+            "enum": ["supported", "partial", "stubbed", "not-supported"],
+            "description": "Runtime support status."
+          },
+          "verification": {
+            "type": "string",
+            "enum": ["tested", "documented", "untested"],
+            "description": "How Atlas verifies the capability claim."
+          },
+          "note": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^(?!.*[\\r\\n])(?=.*\\S).+$",
+            "description": "Single-line explanation of the useful boundary or limitation."
+          }
+        }
+      }
+    },
     "docs": {
       "type": "string",
       "description": "Optional pointer to the service's docs, e.g. services/<name>/README.md."

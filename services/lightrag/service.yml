@@ -8,6 +8,20 @@ label: "LightRAG (graph-augmented RAG server)"
 category: agents
 docs: services/lightrag/README.md
 
+capabilities:
+  - name: "Graph-augmented retrieval through LiteLLM"
+    status: supported
+    verification: tested
+    note: "Atlas resolves LightRAG chat and embedding models through LiteLLM and exposes graph-aware query modes."
+  - name: "Adaptive persistent storage"
+    status: supported
+    verification: tested
+    note: "Supabase pgvector, Neo4j, and Redis are wired when enabled, with file-backed fallbacks when those services are unavailable."
+  - name: "LightRAG reranking"
+    status: partial
+    verification: tested
+    note: "Reranking requires TEI plus the opt-in backend adapter because direct LightRAG-to-TEI request payloads are incompatible."
+
 containers:
   - lightrag
   - lightrag-init

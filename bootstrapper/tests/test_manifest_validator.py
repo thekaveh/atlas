@@ -30,6 +30,35 @@ def test_empty_manifest_list_returns_no_issues():
     assert validate_manifests([]) == []
 
 
+def test_duplicate_capability_names_within_manifest_flagged(
+    services_root, write_manifest, minimal_manifest_dict
+):
+    manifest = minimal_manifest_dict("redis") | {
+        "capabilities": [
+            {
+                "name": "Primary cache operations",
+                "status": "supported",
+                "verification": "tested",
+                "note": "Atlas configures the in-stack Redis cache.",
+            },
+            {
+                "name": "Primary cache operations",
+                "status": "partial",
+                "verification": "documented",
+                "note": "A duplicate label would make the contract ambiguous.",
+            },
+        ]
+    }
+    write_manifest("redis", manifest)
+
+    issues = validate_manifests(load_manifests(services_root))
+
+    duplicates = [i for i in issues if i.kind == "duplicate_capability"]
+    assert len(duplicates) == 1
+    assert duplicates[0].manifest == "redis"
+    assert "Primary cache operations" in duplicates[0].message
+
+
 def test_full_manifest_with_sources_is_clean(
     services_root, write_manifest, full_manifest_dict, minimal_manifest_dict
 ):

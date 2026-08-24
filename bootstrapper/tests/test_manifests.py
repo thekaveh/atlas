@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import FrozenInstanceError
+
 import pytest
 
 from services.manifests import (
@@ -35,6 +37,57 @@ def test_load_minimal_manifest(services_root, write_manifest, minimal_manifest_d
     assert m.env[0].name == "REDIS_PORT"
     assert m.env[0].default == 6379
     assert m.env[0].auto_managed is False
+    assert m.capabilities == []  # optional during the pilot rollout
+
+
+def test_load_capabilities_preserves_declaration_order(
+    services_root, write_manifest, minimal_manifest_dict
+):
+    manifest = minimal_manifest_dict("redis")
+    manifest["capabilities"] = [
+        {
+            "name": "Primary cache operations",
+            "status": "supported",
+            "verification": "tested",
+            "note": "Atlas configures the in-stack Redis cache.",
+        },
+        {
+            "name": "Cross-region replication",
+            "status": "not-supported",
+            "verification": "documented",
+            "note": "Atlas does not configure Redis replication.",
+        },
+    ]
+    write_manifest("redis", manifest)
+
+    loaded = load_manifests(services_root)[0]
+
+    assert [cap.name for cap in loaded.capabilities] == [
+        "Primary cache operations",
+        "Cross-region replication",
+    ]
+    assert loaded.capabilities[0].status == "supported"
+    assert loaded.capabilities[0].verification == "tested"
+    assert loaded.capabilities[0].note == "Atlas configures the in-stack Redis cache."
+
+
+def test_capability_entries_are_immutable(
+    services_root, write_manifest, minimal_manifest_dict
+):
+    manifest = minimal_manifest_dict("redis")
+    manifest["capabilities"] = [
+        {
+            "name": "Primary cache operations",
+            "status": "supported",
+            "verification": "tested",
+            "note": "Atlas configures the in-stack Redis cache.",
+        }
+    ]
+    write_manifest("redis", manifest)
+
+    capability = load_manifests(services_root)[0].capabilities[0]
+    with pytest.raises(FrozenInstanceError):
+        capability.status = "partial"
 
 
 def test_load_full_manifest(services_root, write_manifest, full_manifest_dict):
@@ -129,6 +182,114 @@ def test_unknown_field_rejected(services_root, write_manifest, minimal_manifest_
     bad["typo_field"] = "oops"
     write_manifest("redis", bad)
     with pytest.raises(ManifestLoadError):
+        load_manifests(services_root)
+
+
+@pytest.mark.parametrize("missing", ["name", "status", "verification", "note"])
+def test_capability_missing_required_field_rejected(
+    services_root, write_manifest, minimal_manifest_dict, missing
+):
+    capability = {
+        "name": "Primary cache operations",
+        "status": "supported",
+        "verification": "tested",
+        "note": "Atlas configures the in-stack Redis cache.",
+    }
+    capability.pop(missing)
+    manifest = minimal_manifest_dict("redis") | {"capabilities": [capability]}
+    write_manifest("redis", manifest)
+
+    with pytest.raises(ManifestLoadError, match=missing):
+        load_manifests(services_root)
+
+
+def test_capability_extra_field_rejected(
+    services_root, write_manifest, minimal_manifest_dict
+):
+    manifest = minimal_manifest_dict("redis") | {
+        "capabilities": [
+            {
+                "name": "Primary cache operations",
+                "status": "supported",
+                "verification": "tested",
+                "note": "Atlas configures the in-stack Redis cache.",
+                "details": "not part of the contract",
+            }
+        ]
+    }
+    write_manifest("redis", manifest)
+
+    with pytest.raises(ManifestLoadError, match="details"):
+        load_manifests(services_root)
+
+
+@pytest.mark.parametrize("field", ["name", "note"])
+@pytest.mark.parametrize("value", ["", "first line\nsecond line", "first line\rsecond line"])
+def test_capability_labels_and_notes_must_be_nonempty_single_lines(
+    services_root, write_manifest, minimal_manifest_dict, field, value
+):
+    capability = {
+        "name": "Primary cache operations",
+        "status": "supported",
+        "verification": "tested",
+        "note": "Atlas configures the in-stack Redis cache.",
+    }
+    capability[field] = value
+    manifest = minimal_manifest_dict("redis") | {"capabilities": [capability]}
+    write_manifest("redis", manifest)
+
+    with pytest.raises(ManifestLoadError, match=field):
+        load_manifests(services_root)
+
+
+@pytest.mark.parametrize("status", ["available", "unsupported", "unknown"])
+def test_capability_invalid_runtime_status_rejected(
+    services_root, write_manifest, minimal_manifest_dict, status
+):
+    manifest = minimal_manifest_dict("redis") | {
+        "capabilities": [
+            {
+                "name": "Primary cache operations",
+                "status": status,
+                "verification": "tested",
+                "note": "Atlas configures the in-stack Redis cache.",
+            }
+        ]
+    }
+    write_manifest("redis", manifest)
+
+    with pytest.raises(ManifestLoadError, match="status"):
+        load_manifests(services_root)
+
+
+@pytest.mark.parametrize("verification", ["verified", "manual", "unknown"])
+def test_capability_invalid_verification_rejected(
+    services_root, write_manifest, minimal_manifest_dict, verification
+):
+    manifest = minimal_manifest_dict("redis") | {
+        "capabilities": [
+            {
+                "name": "Primary cache operations",
+                "status": "supported",
+                "verification": verification,
+                "note": "Atlas configures the in-stack Redis cache.",
+            }
+        ]
+    }
+    write_manifest("redis", manifest)
+
+    with pytest.raises(ManifestLoadError, match="verification"):
+        load_manifests(services_root)
+
+
+def test_capabilities_block_cannot_be_empty(
+    services_root, write_manifest, minimal_manifest_dict
+):
+    write_manifest(
+        "redis", minimal_manifest_dict("redis") | {"capabilities": []}
+    )
+
+    with pytest.raises(ManifestLoadError, match="capabilities"):
         load_manifests(services_root)
 
 
@@ -441,6 +602,58 @@ def test_airflow_manifest_loads():
     assert "spark" in a.depends_on.optional
     assert "weaviate" in a.depends_on.optional
     assert "neo4j" in a.depends_on.optional
+
+
+@pytest.mark.parametrize(
+    ("service", "expected"),
+    [
+        (
+            "blender-mcp",
+            [
+                ("Host-only Blender MCP bridge", "supported", "documented"),
+                ("Managed headless scene control", "partial", "tested"),
+                ("Loopback-guarded arbitrary Python execution", "partial", "tested"),
+                ("Viewport screenshots in managed headless mode", "not-supported", "documented"),
+            ],
+        ),
+        (
+            "speaches",
+            [
+                ("OpenAI-compatible text-to-speech", "partial", "tested"),
+                ("OpenAI-compatible speech-to-text", "partial", "untested"),
+                ("Configurable STT model selection", "stubbed", "tested"),
+            ],
+        ),
+        (
+            "comfyui",
+            [
+                ("Container and managed-MPS image generation", "supported", "tested"),
+                ("Workflow and model provisioning", "partial", "tested"),
+                ("Supabase output upload", "stubbed", "documented"),
+            ],
+        ),
+        (
+            "lightrag",
+            [
+                ("Graph-augmented retrieval through LiteLLM", "supported", "tested"),
+                ("Adaptive persistent storage", "supported", "tested"),
+                ("LightRAG reranking", "partial", "tested"),
+            ],
+        ),
+    ],
+)
+def test_pilot_manifest_capability_contracts(service, expected):
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    manifest = next(
+        m for m in load_manifests(repo_root / "services") if m.name == service
+    )
+
+    assert [
+        (cap.name, cap.status, cap.verification) for cap in manifest.capabilities
+    ] == expected
+    assert all(cap.note for cap in manifest.capabilities)
 
 
 def test_doc_only_folders_are_skipped_by_real_manifest_load():

@@ -121,6 +121,16 @@ class ExportRef:
 
 
 @dataclass(frozen=True)
+class Capability:
+    """One operator-facing entry from a manifest's `capabilities:` list."""
+
+    name: str
+    status: str
+    verification: str
+    note: str
+
+
+@dataclass(frozen=True)
 class Row:
     """One box row a manifest renders. Replaces the legacy _SERVICES tuple
     plus several scattered constants. See spec §rows."""
@@ -157,6 +167,7 @@ class Manifest:
     sources: SourcesBlock | None = None
     depends_on: DependsOn = field(default_factory=DependsOn)
     exports: list[ExportRef] = field(default_factory=list)
+    capabilities: list[Capability] = field(default_factory=list)
     rows: list[Row] = field(default_factory=list)
     # Extra *.localhost Kong hostnames beyond rows[].alias (e.g. minio's
     # s3.minio.localhost -> minio:9000). Not wizard rows; may be multi-label.
@@ -409,6 +420,16 @@ def _to_dataclass(raw: dict[str, Any], source_path: Path) -> Manifest:
         for x in raw.get("exports") or []
     ]
 
+    capabilities = [
+        Capability(
+            name=entry["name"],
+            status=entry["status"],
+            verification=entry["verification"],
+            note=entry["note"],
+        )
+        for entry in raw.get("capabilities") or []
+    ]
+
     rows = [
         Row(
             display_name=r["display_name"],
@@ -435,6 +456,7 @@ def _to_dataclass(raw: dict[str, Any], source_path: Path) -> Manifest:
         sources=sources_block,
         depends_on=depends_on,
         exports=exports,
+        capabilities=capabilities,
         rows=rows,
         extra_kong_aliases=list(raw.get("extra_kong_aliases") or []),
         runtime_sc=dict(raw.get("runtime_sc") or {}),

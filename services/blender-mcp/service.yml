@@ -6,6 +6,24 @@ docs: services/blender-mcp/README.md
 virtual: true
 containers: []
 
+capabilities:
+  - name: "Host-only Blender MCP bridge"
+    status: supported
+    verification: documented
+    note: "Atlas configures user-run GUI and managed headless host sources; it does not run Blender in a container."
+  - name: "Managed headless scene control"
+    status: partial
+    verification: tested
+    note: "Scene inspection and generated-code commands work through the managed bridge, but GUI-dependent operations are unavailable."
+  - name: "Loopback-guarded arbitrary Python execution"
+    status: partial
+    verification: tested
+    note: "The execute_code tool runs arbitrary Python inside Blender; Atlas binds to loopback unless remote access is explicitly enabled."
+  - name: "Viewport screenshots in managed headless mode"
+    status: not-supported
+    verification: documented
+    note: "Headless Blender has no VIEW_3D context, so use the user-run GUI source when viewport screenshots are required."
+
 sources:
   var: BLENDER_MCP_SOURCE
   default: disabled
