@@ -18,6 +18,35 @@ _ROW = CapabilityRow(
 )
 
 
+def test_capability_section_exception_set_is_closed_and_repository_grounded():
+    from docs.capabilities_resolver import (
+        CAPABILITY_SECTION_EXCEPTIONS,
+        capability_section_enabled,
+        is_aggregate_capability_doc,
+    )
+
+    services_dir = Path(__file__).resolve().parents[2] / "services"
+    readme_only_folders = {
+        folder.name
+        for folder in services_dir.iterdir()
+        if folder.is_dir()
+        and (folder / "README.md").is_file()
+        and not (folder / "service.yml").exists()
+    }
+
+    assert CAPABILITY_SECTION_EXCEPTIONS == frozenset({"multi2vec-clip"})
+    assert readme_only_folders == {
+        "doc-processor",
+        "stt-provider",
+        "multi2vec-clip",
+    }
+    assert capability_section_enabled("doc-processor")
+    assert capability_section_enabled("stt-provider")
+    assert not capability_section_enabled("multi2vec-clip")
+    assert capability_section_enabled("tts-provider")
+    assert is_aggregate_capability_doc("tts-provider")
+
+
 def test_section_only_help_names_all_generated_readme_sections(capsys):
     from docs.regen import main
 
