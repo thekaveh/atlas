@@ -26,7 +26,7 @@ capabilities:
     note: "Speaches exposes /v1/audio/transcriptions, but Atlas has not validated the current preload and Open WebUI model path against a live container."
   - name: "Configurable STT model selection"
     status: stubbed
-    verification: tested
+    verification: documented
     note: "SPEACHES_STT_MODEL is declared but does not alter the hard-coded PRELOAD_MODELS value or Open WebUI's STT model."
 
 containers:

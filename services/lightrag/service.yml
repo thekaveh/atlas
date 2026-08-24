@@ -13,10 +13,10 @@ capabilities:
     status: supported
     verification: tested
     note: "Atlas resolves LightRAG chat and embedding models through LiteLLM and exposes graph-aware query modes."
-  - name: "Adaptive persistent storage"
-    status: supported
+  - name: "External persistent storage"
+    status: partial
     verification: tested
-    note: "Supabase pgvector, Neo4j, and Redis are wired when enabled, with file-backed fallbacks when those services are unavailable."
+    note: "Atlas wires Supabase pgvector, Neo4j, and Redis when enabled; disabling them clears connection URIs without selecting file-backed storage implementations."
   - name: "LightRAG reranking"
     status: partial
     verification: tested

@@ -621,7 +621,7 @@ def test_airflow_manifest_loads():
             [
                 ("OpenAI-compatible text-to-speech", "partial", "tested"),
                 ("OpenAI-compatible speech-to-text", "partial", "untested"),
-                ("Configurable STT model selection", "stubbed", "tested"),
+                ("Configurable STT model selection", "stubbed", "documented"),
             ],
         ),
         (
@@ -636,7 +636,7 @@ def test_airflow_manifest_loads():
             "lightrag",
             [
                 ("Graph-augmented retrieval through LiteLLM", "supported", "tested"),
-                ("Adaptive persistent storage", "supported", "tested"),
+                ("External persistent storage", "partial", "tested"),
                 ("LightRAG reranking", "partial", "tested"),
             ],
         ),
