@@ -1,6 +1,10 @@
 from datetime import datetime, timezone
 import http.client
+import json
+import os
 from pathlib import Path
+import re
+import shutil
 import subprocess
 import urllib.error
 
@@ -443,6 +447,8 @@ def test_upstream_drift_workflow_is_bounded_and_reconciles_one_marker_issue():
     job = workflow["jobs"]["watch"]
     assert job["timeout-minutes"] == 30
     steps = job["steps"]
+    assert "<!-- atlas-upstream-drift-watch -->" in steps[0]["run"]
+    assert "uses" not in steps[0]
     actions = [step["uses"] for step in steps if "uses" in step]
     assert actions == [
         "actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0",
@@ -458,11 +464,18 @@ def test_upstream_drift_workflow_is_bounded_and_reconciles_one_marker_issue():
 
     start = steps_by_id["start_ollama"]["run"]
     assert "127.0.0.1:11434:11434" in start
-    assert "${{ steps.ollama_image.outputs.image }}" in start
+    assert "${{" not in start
+    assert steps_by_id["start_ollama"]["env"] == {
+        "OLLAMA_IMAGE": "${{ steps.ollama_image.outputs.image }}"
+    }
+    assert "image_pattern=" in start
+    assert "OLLAMA_IMAGE" in start
 
     readiness = steps_by_id["ollama_readiness"]["run"]
-    assert "seq 1 20" in readiness
-    assert "--max-time 2" in readiness
+    assert "seq 1 10" in readiness
+    assert "--max-time 1" in readiness
+    assert "sleep 1" in readiness
+    assert "within 20 seconds" in readiness
     assert "/api/tags" in readiness
 
     watch_step = steps_by_id["watch"]
@@ -483,7 +496,17 @@ def test_upstream_drift_workflow_is_bounded_and_reconciles_one_marker_issue():
     reconciliation = reconcile["run"]
     assert "<!-- atlas-upstream-drift-watch -->" in reconciliation
     assert 'title="Atlas upstream drift watch"' in reconciliation
-    assert "--state all" in reconciliation
+    assert "gh api --paginate" in reconciliation
+    assert "pull_request" in reconciliation
+    assert "--limit 1000" not in reconciliation
+    assert "uv " not in reconciliation
+    assert "docker " not in reconciliation
+    assert reconcile["env"] == {
+        "GH_TOKEN": "${{ github.token }}",
+        "GH_REPO": "${{ github.repository }}",
+        "WATCH_OUTCOME": "${{ steps.watch.outputs.outcome }}",
+        "REPORT_FILE": "${{ runner.temp }}/upstream-drift-report.md",
+    }
     for command in (
         "gh issue create",
         "gh issue edit",
@@ -495,3 +518,108 @@ def test_upstream_drift_workflow_is_bounded_and_reconciles_one_marker_issue():
 
     run_scripts = "\n".join(step.get("run", "") for step in steps).lower()
     assert "ollama pull" not in run_scripts
+
+
+def _reconciliation_filter(script: str) -> str:
+    match = re.search(r"^\s*issue_filter='(?P<filter>.*?)'\s*$", script, re.MULTILINE | re.DOTALL)
+    assert match, "reconciliation must define its jq filter as issue_filter"
+    return match.group("filter")
+
+
+@pytest.mark.skipif(shutil.which("jq") is None, reason="jq is not installed")
+def test_reconciliation_jq_filter_compiles_and_selects_the_lowest_exact_issue():
+    script = _load_github_workflow(WORKFLOW_PATH)["jobs"]["watch"]["steps"][-1]["run"]
+    result = subprocess.run(
+        [
+            "jq",
+            "-s",
+            "-r",
+            "--arg",
+            "marker",
+            "<!-- atlas-upstream-drift-watch -->",
+            "--arg",
+            "title",
+            "Atlas upstream drift watch",
+            _reconciliation_filter(script),
+        ],
+        input=(
+            '[{"number": 43, "state": "OPEN", "title": "Atlas upstream drift watch", '
+            '"body": "<!-- atlas-upstream-drift-watch -->"}]\n'
+            '[{"number": 7, "state": "CLOSED", "title": "Atlas upstream drift watch", '
+            '"body": "<!-- atlas-upstream-drift-watch -->"}, '
+            '{"number": 2, "state": "OPEN", "title": "Atlas upstream drift watch", '
+            '"body": "<!-- atlas-upstream-drift-watch -->", "pull_request": {}}]\n'
+        ),
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "7\tCLOSED\n"
+
+
+def _issue(number: int, state: str) -> dict[str, object]:
+    return {
+        "number": number,
+        "state": state,
+        "title": "Atlas upstream drift watch",
+        "body": "<!-- atlas-upstream-drift-watch -->\nreport",
+    }
+
+
+def _run_reconciliation(tmp_path: Path, pages: list[list[dict[str, object]]], outcome: str):
+    workflow = _load_github_workflow(WORKFLOW_PATH)
+    script = workflow["jobs"]["watch"]["steps"][-1]["run"]
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    gh = fake_bin / "gh"
+    gh.write_text(
+        "#!/bin/sh\n"
+        'if [ "$1" = "api" ]; then cat "$UPSTREAM_DRIFT_ISSUES"; exit 0; fi\n'
+        'printf "%s\\n" "$*" >> "$UPSTREAM_DRIFT_GH_CALLS"\n',
+        encoding="utf-8",
+    )
+    gh.chmod(0o755)
+    issue_input = tmp_path / "issues.json"
+    issue_input.write_text("\n".join(json.dumps(page) for page in pages), encoding="utf-8")
+    report = tmp_path / "report.md"
+    report.write_text("<!-- atlas-upstream-drift-watch -->\nreport\n", encoding="utf-8")
+    calls = tmp_path / "gh-calls"
+    environment = os.environ | {
+        "PATH": f"{fake_bin}:{os.environ['PATH']}",
+        "GH_REPO": "thekaveh/atlas",
+        "WATCH_OUTCOME": outcome,
+        "REPORT_FILE": str(report),
+        "UPSTREAM_DRIFT_ISSUES": str(issue_input),
+        "UPSTREAM_DRIFT_GH_CALLS": str(calls),
+    }
+    result = subprocess.run(
+        ["bash", "-c", script],
+        text=True,
+        capture_output=True,
+        env=environment,
+        check=False,
+    )
+    recorded = calls.read_text(encoding="utf-8").splitlines() if calls.exists() else []
+    return result, recorded
+
+
+@pytest.mark.skipif(shutil.which("jq") is None, reason="jq is not installed")
+@pytest.mark.parametrize(
+    "pages, outcome, expected_status, expected_calls",
+    [
+        ([[]], "1", 1, ["issue create --title Atlas upstream drift watch"]),
+        ([[ _issue(43, "OPEN") ]], "1", 1, ["issue edit 43 --body-file"]),
+        ([[ _issue(7, "CLOSED") ]], "1", 1, ["issue reopen 7", "issue edit 7 --body-file"]),
+        ([[ _issue(43, "OPEN") ]], "0", 0, ["issue comment 43", "issue close 43 --reason completed"]),
+        ([[ _issue(7, "CLOSED") ]], "0", 0, []),
+    ],
+)
+def test_reconciliation_lifecycle_executes_the_matching_transition(
+    tmp_path, pages, outcome, expected_status, expected_calls
+):
+    result, calls = _run_reconciliation(tmp_path, pages, outcome)
+    assert result.returncode == expected_status, result.stderr
+    assert len(calls) == len(expected_calls)
+    for call, expected in zip(calls, expected_calls):
+        assert call.startswith(expected)
