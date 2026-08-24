@@ -5,8 +5,22 @@ import subprocess
 import urllib.error
 
 import pytest
+import yaml
 
 from scripts import upstream_drift_watch as watch
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "upstream-drift-watch.yml"
+
+
+def _load_github_workflow(path: Path) -> dict:
+    """Load a GitHub Actions workflow without YAML 1.1 treating ``on`` as bool."""
+
+    workflow = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if True in workflow:
+        workflow["on"] = workflow.pop(True)
+    return workflow
 
 
 class _HttpResponse:
@@ -414,3 +428,70 @@ def test_main_writes_report_and_returns_aggregate_status(monkeypatch, tmp_path, 
     ])
     assert exit_code == expected_exit
     assert "<!-- atlas-upstream-drift-watch -->" in report_path.read_text(encoding="utf-8")
+
+
+def test_upstream_drift_workflow_is_bounded_and_reconciles_one_marker_issue():
+    workflow = _load_github_workflow(WORKFLOW_PATH)
+
+    assert workflow["on"]["schedule"]
+    assert workflow["on"]["workflow_dispatch"] is None
+    assert workflow["permissions"] == {"contents": "read", "issues": "write"}
+    assert workflow["concurrency"]["cancel-in-progress"] is False
+    assert workflow["concurrency"]["group"] == "upstream-drift-watch"
+    assert workflow["on"]["schedule"][0]["cron"].split()[0] != "0"
+
+    job = workflow["jobs"]["watch"]
+    assert job["timeout-minutes"] == 30
+    steps = job["steps"]
+    actions = [step["uses"] for step in steps if "uses" in step]
+    assert actions == [
+        "actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0",
+        "actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1",
+        "astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990",
+    ]
+
+    steps_by_id = {step["id"]: step for step in steps if "id" in step}
+    image = steps_by_id["ollama_image"]["run"]
+    assert "services/ollama/service.yml" in image
+    assert "LLM_PROVIDER_IMAGE" in image
+    assert "GITHUB_OUTPUT" in image
+
+    start = steps_by_id["start_ollama"]["run"]
+    assert "127.0.0.1:11434:11434" in start
+    assert "${{ steps.ollama_image.outputs.image }}" in start
+
+    readiness = steps_by_id["ollama_readiness"]["run"]
+    assert "seq 1 20" in readiness
+    assert "--max-time 2" in readiness
+    assert "/api/tags" in readiness
+
+    watch_step = steps_by_id["watch"]
+    assert watch_step["continue-on-error"] is True
+    assert "uv sync --project bootstrapper --group dev --locked" in "\n".join(
+        step.get("run", "") for step in steps
+    )
+    assert "python -m scripts.upstream_drift_watch" in watch_step["run"]
+    assert "--report-file" in watch_step["run"]
+    assert "outcome=" in watch_step["run"]
+
+    cleanup = steps_by_id["cleanup_ollama"]
+    assert cleanup["if"] == "${{ always() }}"
+    assert "docker rm -f atlas-upstream-drift-ollama" in cleanup["run"]
+
+    reconcile = steps_by_id["reconcile_issue"]
+    assert reconcile["if"] == "${{ always() }}"
+    reconciliation = reconcile["run"]
+    assert "<!-- atlas-upstream-drift-watch -->" in reconciliation
+    assert 'title="Atlas upstream drift watch"' in reconciliation
+    assert "--state all" in reconciliation
+    for command in (
+        "gh issue create",
+        "gh issue edit",
+        "gh issue reopen",
+        "gh issue comment",
+        "gh issue close",
+    ):
+        assert command in reconciliation
+
+    run_scripts = "\n".join(step.get("run", "") for step in steps).lower()
+    assert "ollama pull" not in run_scripts
