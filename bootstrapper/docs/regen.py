@@ -7,9 +7,10 @@ Usage:
 
 Each `services/<name>/` folder hosts its own `README.md`, `architecture.svg`,
 and `architecture.html`. This script regenerates the auto-generated
-"Dependencies & Integrations" block in the README plus the two diagram files,
-preserving any user-authored content in the README (including the three
-`Future — ...` subsections under "Dependencies & Integrations").
+"Dependencies & Integrations" and "Capabilities & limitations" blocks in the
+README plus the two diagram files, preserving any user-authored content in the
+README (including the three `Future — ...` subsections under "Dependencies &
+Integrations").
 
 Exit codes:
   0 — success.
@@ -25,6 +26,15 @@ import sys
 from pathlib import Path
 
 from .deps_resolver import build_doc_graph
+
+from services.manifests import load_manifests  # noqa: E402
+
+from .capabilities_resolver import (
+    capability_section_enabled,
+    is_aggregate_capability_doc,
+    resolve_capability_rows,
+)
+from .capabilities_section_writer import upsert_capabilities_section
 from .deps_section_writer import render_section
 from .diagram_renderer import render_html, render_svg
 
@@ -220,6 +230,13 @@ def _process(name: str, out_root: Path, dry_run: bool, section_only: bool, check
 
     section = _render_section_with_future(graph, existing_readme)
     new_readme = _upsert_section(existing_readme, section)
+    if capability_section_enabled(name):
+        rows = resolve_capability_rows(name, load_manifests(SERVICES_DIR))
+        new_readme = upsert_capabilities_section(
+            new_readme,
+            rows,
+            aggregate=is_aggregate_capability_doc(name),
+        )
 
     artifacts: list[tuple[Path, str]] = [(readme_path, new_readme)]
     if not section_only:
@@ -248,7 +265,11 @@ def main(argv: list[str]) -> int:
     grp.add_argument("--all", action="store_true", help="Process every doc folder under services/.")
     ap.add_argument("--out-root", type=Path, default=SERVICES_DIR)
     ap.add_argument("--dry-run", action="store_true")
-    ap.add_argument("--section-only", action="store_true", help="Only write README's deps section; skip HTML+SVG.")
+    ap.add_argument(
+        "--section-only",
+        action="store_true",
+        help="Only write generated README sections; skip HTML+SVG.",
+    )
     ap.add_argument("--check", action="store_true", help="Exit 2 if any artifact would change. Implies --dry-run.")
     args = ap.parse_args(argv)
 
