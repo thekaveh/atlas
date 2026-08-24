@@ -107,6 +107,14 @@ except ImportError:                     # defensive fallback (no active caller)
     import comfyui_library  # type: ignore[no-redef]
     from comfyui_library import ComfyUIModelFile, ComfyUILibraryEntry  # type: ignore[no-redef]
 
+# Plain (non-dual-mode) import: unlike comfyui_library above, this module
+# has no live loose-import consumer (see this module's docstring — the
+# only container that ever loose-imported it is gone), so it doesn't need
+# the try/except dance. wizard/model/llm_rules.py is the canonical home
+# for parse_csv (#535 followups review, finding R2); this was previously
+# a byte-identical inlined copy.
+from wizard.model.llm_rules import parse_csv as _csv
+
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -126,13 +134,6 @@ _DEFAULT_SIDECAR_PATH = "/custom-models.yaml"
 # ---------------------------------------------------------------------------
 # Private helpers
 # ---------------------------------------------------------------------------
-
-def _csv(val: str | None) -> list[str]:
-    """Split a comma-separated string into a list of non-empty stripped tokens."""
-    if not val:
-        return []
-    return [s.strip() for s in val.split(",") if s.strip()]
-
 
 def _path_list(val: str | None) -> list[str]:
     """Split an os.pathsep-separated path list into non-empty paths."""

@@ -3,8 +3,18 @@
 Extracted verbatim from wizard/llm_steps.py. These are Model, not
 ViewModel: they are domain rules, kept here so the `--no-tui` path can
 adopt them in a later pass without importing the wizard's step
-builders. Today they are called only from the Textual wizard path
-(``wizard/llm_steps.py``).
+builders. Most of this module is called only from the Textual wizard
+path (``wizard/llm_steps.py``).
+
+``parse_csv`` is the exception: it's the canonical definition consolidated
+from three byte-identical copies (#535 followups review, finding R2) —
+``wizard/llm_steps.py`` already imported it from here as ``_csv``;
+``utils/comfyui_resolver.py`` (host-only) now does too. A fourth,
+NON-consolidatable copy remains inlined in ``utils/model_resolver.py``'s
+loose-import (container) branch — that branch runs inside litellm-init,
+where only ``bootstrapper/utils/`` is bind-mounted (as ``/catalog``), not
+``bootstrapper/wizard/``, so it structurally cannot import this module;
+see the comment there.
 """
 
 from __future__ import annotations
