@@ -165,9 +165,14 @@ Key modules:
   of it (see `docs/superpowers/specs/2026-08-23-wizard-mvvm-vmx-design.md`).
   Once it exists, it may never import `wizard.model` directly; it reads
   ViewModel state instead. Doesn't exist yet — **today**, `ui/textual/` (the
-  real, current view) legitimately imports `wizard.model` directly at five
+  real, current view) legitimately imports `wizard.model` directly at six
   known sites, because no ViewModel layer exists yet for those imports to go
-  through. That is deliberate, tracked Pass-1 debt, not a lint gap.
+  through. That is deliberate, tracked Pass-1 debt, not a lint gap. (The
+  #535 followups review kept the count at six while changing its makeup:
+  finding R1 removed `wizard.model.track_rules`; finding R6 added
+  `screens/wizard_screen.py` reading `SECRET_KEEP`/`SECRET_CLEAR` straight
+  from `wizard.model.cloud_rules` instead of through
+  `widgets/prompt_panel.py`'s re-export.)
 - `utils/kong_config_generator.py` — dynamic Kong route generation (the `kong-dynamic.yml` it emits is regenerated at every startup; do NOT edit by hand)
 - `generate_supabase_keys.py` (and `.sh` sibling) — auto-runs at startup, generates Supabase JWT keys into `.env`
 
@@ -177,7 +182,7 @@ currently exists in a form worth linting: `wizard/model/**` is checked for
 real (`vmx`/`textual`-free) today; `wizard/viewmodel/` doesn't exist yet, so
 its check is an explicit skip (Pass 2) rather than a vacuous pass; and the
 `view -> model` direction is checked against `ui/textual/` — the view's real,
-current location — pinned against a closed five-site allowlist of the known
+current location — pinned against a closed six-site allowlist of the known
 Pass-1 debt described above, with a separate tripwire test that fails the
 moment `wizard/view/` is created so the check gets re-pointed there instead
 of silently going stale. The suite also asserts that `core/linear_startup.py`

@@ -27,7 +27,7 @@ _THEME_PATH = Path(__file__).parent / "theme.css"
 # loop (selections.get(COMFYUI_MODELS_TITLE)) aligned with what the step
 # registers without duplicating the string literal.
 from wizard.comfyui_steps import COMFYUI_MODELS_TITLE
-from wizard.model.cloud_rules import resolve_cloud_provider
+from wizard.model.cloud_rules import SECRET_CLEAR, SECRET_KEEP, resolve_cloud_provider
 
 
 # Module-level sink for wizard-time diagnostic warnings (cloud /v1/models
@@ -905,7 +905,6 @@ def _selections_to_args(
     Omitting it is now a ``TypeError`` at the call site instead of a
     silent .env corruption.
     """
-    from .widgets.prompt_panel import SECRET_KEEP, SECRET_CLEAR
     from utils.cloud_providers import CLOUD_PROVIDERS
     from wizard.llm_steps import (
         OLLAMA_CUSTOM_TITLE,
