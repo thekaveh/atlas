@@ -1729,10 +1729,11 @@ class PromptPanel(Container):
             disp_idx = max(0, min(self._selected_index, len(self._step.options) - 1))
             opt = self._step.options[disp_idx]
             vrow = None
-        # Don't toggle the temporary "⏳ Fetching…" splash row that
-        # shows on the cloud-models step OR while the detail-page
-        # worker is loading variants for a freshly-expanded parent.
-        if opt.value == "__loading__":
+        # Don't toggle the temporary "⏳ Fetching…" splash row (cloud-
+        # models step / detail-page worker in flight) or an empty-value
+        # informational placeholder row (e.g. llm_steps.py's degraded-
+        # catalog notice — mirrors the ``real = [...]`` filter below).
+        if opt.value == "__loading__" or not opt.value:
             return
         if vrow is not None and vrow.variant == "__loading__":
             return

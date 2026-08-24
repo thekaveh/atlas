@@ -364,3 +364,93 @@ def test_variant_summary_regex_accepts_m_suffix_context():
               '4.7GB · 256K context window · Text · 1 year ago</p>')
     mk = _VARIANT_SUMMARY_RE.search(html_k)
     assert mk is not None and mk.group(2) == "256K"
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# Degraded-catalog notice row (markup-drift bug: list_library_entries()
+# returning ~0 or implausibly few entries used to fall back to the
+# curated catalog completely silently — the wizard looked identical to
+# "Ollama's library only has 5 models"). See MIN_PLAUSIBLE_ENTRIES in
+# utils/ollama_library.py and _fallback_notice_option in llm_steps.py.
+# ────────────────────────────────────────────────────────────────────────────
+
+
+def _synthetic_library(n):
+    return [
+        OllamaLibraryEntry(
+            name=f"synthetic-model-{i}",
+            capabilities=frozenset({"tools"}),
+            sizes=("8b",),
+            pulls=1000 - i,
+            updated="1 month ago",
+        )
+        for i in range(n)
+    ]
+
+
+def test_container_mode_zero_entries_uses_curated_fallback_with_notice(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "wizard.llm_steps.list_library_entries", lambda timeout=5.0: [],
+    )
+    env = {"LLM_PROVIDER_SOURCE": "ollama-container-cpu"}
+    opts = _get_options_provider(env)({})
+
+    notices = [o for o in opts if o.value == ""]
+    assert len(notices) == 1, "exactly one notice row expected"
+    assert "curated fallback" in notices[0].label
+    # Everything else must be a real, selectable curated-catalog entry.
+    real = [o for o in opts if o.value]
+    assert real, "curated fallback must still offer selectable models"
+
+
+def test_container_mode_few_entries_keeps_real_rows_with_notice(
+    monkeypatch, library_qwen3_custom_chat,
+):
+    """A nonzero-but-implausibly-small scrape (e.g. a partial markup
+    break) must NOT be discarded for the static curated catalog — the
+    real (if sparse) scraped rows are kept, just flagged."""
+    monkeypatch.setattr(
+        "wizard.llm_steps.list_library_entries",
+        lambda timeout=5.0: library_qwen3_custom_chat,
+    )
+    env = {"LLM_PROVIDER_SOURCE": "ollama-container-cpu"}
+    opts = _get_options_provider(env)({})
+
+    notices = [o for o in opts if o.value == ""]
+    assert len(notices) == 1
+    assert "may be incomplete" in notices[0].label
+    real_values = {o.value for o in opts if o.value}
+    assert real_values == {"qwen3.8", "custom-chat", "custom-embed-large"}
+
+
+def test_container_mode_plausible_count_has_no_notice(monkeypatch):
+    monkeypatch.setattr(
+        "wizard.llm_steps.list_library_entries",
+        lambda timeout=5.0: _synthetic_library(50),
+    )
+    env = {"LLM_PROVIDER_SOURCE": "ollama-container-cpu"}
+    opts = _get_options_provider(env)({})
+
+    assert not [o for o in opts if o.value == ""], (
+        "a plausible live scrape must not show a degraded-catalog notice"
+    )
+    assert len(opts) == 50
+
+
+def test_localhost_mode_few_entries_gets_notice_too(
+    monkeypatch, library_qwen3_custom_chat,
+):
+    monkeypatch.setattr(
+        "wizard.llm_steps.list_pulled_models", _stub_pulled([]),
+    )
+    monkeypatch.setattr(
+        "wizard.llm_steps.list_library_entries",
+        lambda timeout=5.0: library_qwen3_custom_chat,
+    )
+    env = {"LLM_PROVIDER_SOURCE": "ollama-localhost"}
+    opts = _get_options_provider(env)(_select_localhost())
+
+    notices = [o for o in opts if o.value == ""]
+    assert len(notices) == 1

@@ -39,7 +39,11 @@ from utils.model_resolver import (
     looks_like_embedding,
 )
 from utils.ollama_discovery import list_pulled_models
-from utils.ollama_library import OllamaLibraryEntry, list_library_entries
+from utils.ollama_library import (
+    MIN_PLAUSIBLE_ENTRIES,
+    OllamaLibraryEntry,
+    list_library_entries,
+)
 from utils.cloud_providers import CLOUD_PROVIDERS
 
 from ui.textual.widgets.prompt_panel import (
@@ -240,6 +244,57 @@ def _catalog_fallback_entries() -> List[OllamaLibraryEntry]:
     return out
 
 
+# Sentinel value for the degraded-catalog notice row (see
+# ``_fallback_notice_option`` below). Empty-string so it's excluded
+# from ``real`` in ``PromptPanel.selected_option`` (never counted as a
+# selectable model) and from the multiselect's toggle handling
+# (``PromptPanel.toggle_focused`` skips empty-value rows) — the same
+# "not a real option" convention the pre-existing "(catalog
+# unreachable …)" / "(no Ollama models reachable …)" placeholder rows
+# already use.
+_FALLBACK_NOTICE_VALUE = ""
+
+
+def _fallback_notice_option(live_count: int, shown_count: int) -> PromptOption:
+    """Build the informational row prepended to the Ollama multiselect
+    when the live ``ollama.com/library`` scrape came back empty or
+    implausibly small (see ``MIN_PLAUSIBLE_ENTRIES``).
+
+    Without this, a total parser breakage (upstream markup drift) is
+    visually indistinguishable from "Ollama's library really only has
+    5 models" — the user has no signal they're seeing a fallback
+    rather than the ~200+-model live catalog. This mirrors the
+    codebase's existing degraded-multiselect placeholder-row pattern
+    (see ``tests/test_degraded_multiselect_keeps_saved_models.py``)
+    rather than inventing a new mechanism — the difference here is the
+    notice is prepended to REAL selectable options instead of being
+    the sole row, since there's still something usable to select.
+
+    ``live_count == 0`` means the caller substituted the curated
+    ``OLLAMA_DEFAULT_CATALOG`` wholesale (nothing scraped at all);
+    otherwise the caller kept the real (but suspiciously small)
+    scraped rows, which is what ``shown_count`` reflects.
+    """
+    if live_count == 0:
+        label = (
+            f"⚠ showing {shown_count} curated fallback model(s), "
+            "NOT the full ollama.com/library catalog"
+        )
+        detail = "live catalog scrape returned 0 entries"
+    else:
+        label = (
+            f"⚠ only {shown_count} model(s) loaded from ollama.com/library "
+            "— may be incomplete, not the full catalog"
+        )
+        detail = f"live catalog returned only {live_count} — below the plausibility floor"
+    return PromptOption(
+        value=_FALLBACK_NOTICE_VALUE,
+        label=label,
+        hint=f"{detail} — check network access, or ollama.com/library markup may have changed",
+        badges=[],
+    )
+
+
 def build_ollama_steps(
     env_vars: Dict[str, str],
     warn: Callable[[str], None] | None = None,
@@ -301,14 +356,37 @@ def build_ollama_steps(
         """
         src = _selected_llm_source(env_vars, selections)
 
-        # Library scrape is shared by every source.
+        # Library scrape is shared by every source. Two distinct
+        # degraded outcomes, handled differently:
+        #   * Zero entries (total parse/network failure) — nothing
+        #     usable came back, so substitute the curated catalog
+        #     (unchanged from the original behavior; also what every
+        #     test in test_wizard_ollama_options.py mocks a small-but-
+        #     REAL library via list_library_entries for — only the
+        #     true-zero case may replace their fixture).
+        #   * Nonzero but implausibly small (e.g. a truncated fetch,
+        #     or a partial markup break) — keep the real scraped rows
+        #     as-is (still more accurate than the static curated set)
+        #     but flag them, since silently showing "N models" reads
+        #     as "that's the whole library" otherwise.
+        # Either way ``used_fallback`` drives the notice row prepended
+        # below (see _fallback_notice_option) so the degraded state is
+        # visible in the wizard, not just logged to the hidden Logs tab.
         library_entries = list_library_entries(timeout=5.0)
+        live_count = len(library_entries)
+        used_fallback = live_count < MIN_PLAUSIBLE_ENTRIES
         if not library_entries:
             _warn(
-                "[warn/ollama-fetch] ollama.com/library scrape returned no entries "
-                "— falling back to curated OLLAMA_DEFAULT_CATALOG"
+                "[warn/ollama-fetch] ollama.com/library scrape returned no "
+                "entries — falling back to curated OLLAMA_DEFAULT_CATALOG"
             )
             library_entries = _catalog_fallback_entries()
+        elif used_fallback:
+            _warn(
+                f"[warn/ollama-fetch] ollama.com/library scrape returned only "
+                f"{live_count} entries (expected 200+) — showing them, but "
+                "this may be an incomplete or broken scrape"
+            )
         # Drop Ollama Cloud-exclusive models — they cannot be pulled,
         # so surfacing them in a multiselect that drives ``ollama pull``
         # would be misleading. Hybrid entries (cloud + local sizes)
@@ -338,6 +416,8 @@ def build_ollama_steps(
             # legacy (updated > 365 days ago) second. Within each
             # bucket: pulls desc, alphabetical tiebreak.
             opts.sort(key=_sort_key)
+            if used_fallback:
+                opts = [_fallback_notice_option(live_count, len(library_entries))] + opts
             return opts
 
         # Localhost/external: merge /api/tags + library.
@@ -432,6 +512,8 @@ def build_ollama_steps(
                 hint="check the upstream URL or pull a model on the host with `ollama pull <name>`",
                 badges=[],
             )]
+        if used_fallback:
+            opts = [_fallback_notice_option(live_count, len(library_entries))] + opts
         return opts
 
     return [
