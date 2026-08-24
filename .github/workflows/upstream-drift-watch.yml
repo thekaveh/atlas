@@ -141,7 +141,7 @@ jobs:
           ]
           | sort_by(.number)
           | first // {}
-          | [(.number // ""), (.state // "")]
+          | [(.number // ""), ((.state // "") | ascii_downcase)]
           | @tsv'
           issue="$(gh api --paginate --method GET "repos/${GH_REPO}/issues?state=all&per_page=100" | \
             jq -s -r --arg marker "$marker" --arg title "$title" "$issue_filter")"
@@ -150,7 +150,7 @@ jobs:
           if [[ "$outcome" != "0" ]]; then
             if [[ -z "$issue_number" ]]; then
               gh issue create --title "$title" --body-file "$report_file"
-            elif [[ "$issue_state" == "CLOSED" ]]; then
+            elif [[ "$issue_state" == "closed" ]]; then
               gh issue reopen "$issue_number"
               gh issue edit "$issue_number" --body-file "$report_file"
             else
@@ -159,7 +159,7 @@ jobs:
             exit 1
           fi
 
-          if [[ "$issue_state" == "OPEN" ]]; then
+          if [[ "$issue_state" == "open" ]]; then
             gh issue comment "$issue_number" --body "Upstream drift watch recovered; closing this issue."
             gh issue close "$issue_number" --reason completed
           fi

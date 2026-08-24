@@ -543,11 +543,11 @@ def test_reconciliation_jq_filter_compiles_and_selects_the_lowest_exact_issue():
             _reconciliation_filter(script),
         ],
         input=(
-            '[{"number": 43, "state": "OPEN", "title": "Atlas upstream drift watch", '
+            '[{"number": 43, "state": "open", "title": "Atlas upstream drift watch", '
             '"body": "<!-- atlas-upstream-drift-watch -->"}]\n'
-            '[{"number": 7, "state": "CLOSED", "title": "Atlas upstream drift watch", '
+            '[{"number": 7, "state": "closed", "title": "Atlas upstream drift watch", '
             '"body": "<!-- atlas-upstream-drift-watch -->"}, '
-            '{"number": 2, "state": "OPEN", "title": "Atlas upstream drift watch", '
+            '{"number": 2, "state": "open", "title": "Atlas upstream drift watch", '
             '"body": "<!-- atlas-upstream-drift-watch -->", "pull_request": {}}]\n'
         ),
         text=True,
@@ -555,7 +555,7 @@ def test_reconciliation_jq_filter_compiles_and_selects_the_lowest_exact_issue():
         check=False,
     )
     assert result.returncode == 0, result.stderr
-    assert result.stdout == "7\tCLOSED\n"
+    assert result.stdout == "7\tclosed\n"
 
 
 def _issue(number: int, state: str) -> dict[str, object]:
@@ -609,10 +609,10 @@ def _run_reconciliation(tmp_path: Path, pages: list[list[dict[str, object]]], ou
     "pages, outcome, expected_status, expected_calls",
     [
         ([[]], "1", 1, ["issue create --title Atlas upstream drift watch"]),
-        ([[ _issue(43, "OPEN") ]], "1", 1, ["issue edit 43 --body-file"]),
-        ([[ _issue(7, "CLOSED") ]], "1", 1, ["issue reopen 7", "issue edit 7 --body-file"]),
-        ([[ _issue(43, "OPEN") ]], "0", 0, ["issue comment 43", "issue close 43 --reason completed"]),
-        ([[ _issue(7, "CLOSED") ]], "0", 0, []),
+        ([[ _issue(43, "open") ]], "1", 1, ["issue edit 43 --body-file"]),
+        ([[ _issue(7, "closed") ]], "1", 1, ["issue reopen 7", "issue edit 7 --body-file"]),
+        ([[ _issue(43, "open") ]], "0", 0, ["issue comment 43", "issue close 43 --reason completed"]),
+        ([[ _issue(7, "closed") ]], "0", 0, []),
     ],
 )
 def test_reconciliation_lifecycle_executes_the_matching_transition(
