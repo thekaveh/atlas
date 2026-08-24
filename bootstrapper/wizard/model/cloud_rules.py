@@ -52,6 +52,21 @@ the rule across two layers and would have made every future caller
 symmetric with ``source``/``api_key`` -- keeps the whole rule in one
 place: ``None`` never overrides, only a real (possibly empty)
 sequence can.
+
+Fix-round-4 note (#535 Pass 1 followups review, finding C5/C4):
+``CloudResolution`` used to carry a third field, ``models: list[str]``,
+echoing ``selected_models`` back to the caller. Nothing ever read it --
+``integration.py`` always persists the RAW multiselect CSV string
+verbatim, never a re-parsed/rejoined form of this field, so it was
+dead output from day one. Worse, it was the reason a ``frozen=True``
+dataclass held a mutable, unhashable ``list`` -- "frozen" in name only
+(``hash()`` raised, and ``r.models.append(...)`` mutated a supposedly
+frozen instance in place). Removing the field removes the hazard at
+its source: ``CloudResolution`` now holds only ``str | None`` fields,
+which are genuinely immutable and hashable, so there is nothing left
+to freeze-and-still-get-wrong. A `tuple[str, ...]` swap was considered
+and rejected -- it would have fixed the hashability/mutability hazard
+but kept shipping a value nobody consumes.
 """
 
 from __future__ import annotations
@@ -86,17 +101,21 @@ class CloudResolution:
     secret step was never visited); ``""`` means "actively blank it"
     (CLEAR, an empty secret, or the zero-models disable override).
 
-    ``models`` echoes whatever sequence the caller passed as
-    ``selected_models`` (``[]`` when the caller passed ``None`` --
-    there is nothing to echo). It is NOT authoritative for what a
-    caller should persist as the models CSV: the original writes the
-    RAW multiselect string verbatim, not a re-parsed/rejoined form, so
-    that bookkeeping stays with the caller.
+    Fix-round-4 note (#535 Pass 1 followups review, finding C5): this
+    dataclass used to also carry ``models: list[str]``, an echo of
+    whatever sequence the caller passed as ``selected_models``. No
+    caller ever read it -- the models CSV persisted to .env is always
+    the caller's RAW multiselect string, verbatim, never a re-parsed/
+    rejoined form of this field (see ``integration.py``'s call site).
+    The field was dead output carrying a live hazard: a bare ``list``
+    on a ``frozen=True`` dataclass is unhashable and mutable in place
+    despite the "frozen" name (``r.models.append(...)`` succeeded).
+    Removing it removes the hazard at the source instead of papering
+    over it with e.g. a tuple -- there is nothing left to freeze.
     """
 
     source: str | None  # "enabled" | "disabled" | None (no verdict -- leave .env alone)
     api_key: str | None
-    models: list[str]
 
 
 def resolve_cloud_provider(
@@ -154,7 +173,7 @@ def resolve_cloud_provider(
     if provider_key not in _PROVIDER_KEYS:
         raise ValueError(f"Unknown cloud provider key: {provider_key!r}")
 
-    models, zero_models_override = _classify_selected_models(selected_models)
+    zero_models_override = _is_zero_models_override(selected_models)
     source: str | None
     api_key: str | None
 
@@ -206,7 +225,7 @@ def resolve_cloud_provider(
     # ``zero_models_override`` is true only when the multiselect was
     # genuinely visited THIS session and produced an explicit empty
     # answer (see the docstring's fix-round-3 note above and
-    # ``_classify_selected_models`` below). It is the explicit disable
+    # ``_is_zero_models_override`` below). It is the explicit disable
     # that wins over whatever the secret step decided above --
     # including a freshly entered key, a KEEP promotion, or even a
     # no-verdict None. This mirrors the original: the multiselect
@@ -217,23 +236,28 @@ def resolve_cloud_provider(
         source = "disabled"
         api_key = ""
 
-    return CloudResolution(source=source, api_key=api_key, models=models)
+    return CloudResolution(source=source, api_key=api_key)
 
 
-def _classify_selected_models(
-    selected_models: Sequence[str] | None,
-) -> tuple[list[str], bool]:
-    """Split ``selected_models`` into ``(models, zero_models_override)``.
+def _is_zero_models_override(selected_models: Sequence[str] | None) -> bool:
+    """True only when the multiselect was genuinely visited THIS session
+    and produced an explicit empty answer.
 
     Kept as its own tiny function (rather than inlined into
     ``resolve_cloud_provider``) so the "no answer this session" vs.
     "explicit empty answer" distinction is expressed as a single,
-    readable classification step instead of two separate ``is not
-    None`` checks scattered across the caller -- see the fix-round-3
-    note on ``resolve_cloud_provider``'s docstring for why the
-    distinction exists at all.
+    readable classification step instead of an ``is not None`` check
+    scattered across the caller -- see the fix-round-3 note on
+    ``resolve_cloud_provider``'s docstring for why the distinction
+    exists at all.
+
+    Fix-round-4 note (#535 Pass 1 followups review, finding C5): this
+    used to also return the classified ``models`` list for
+    ``CloudResolution.models`` to echo. That field was dead output (no
+    caller ever read it) and the sole reason a frozen dataclass held a
+    mutable, unhashable ``list`` field -- see ``CloudResolution``'s
+    docstring. Nothing needs the list itself, only the verdict.
     """
     if selected_models is None:
-        return [], False
-    models = list(selected_models)
-    return models, not models
+        return False
+    return not list(selected_models)

@@ -2,8 +2,8 @@
 
 Regression (pass-46 HIGH): ``backfill_missing_env_vars()`` runs BEFORE
 ``run_port_migration()`` in every flow. If it splices
-``BOOTSTRAPPER_PORT_LAYOUT_VERSION=3`` from ``.env.example`` into a
-legacy ``.env``, all three migrations silently skip — dropping the
+``BOOTSTRAPPER_PORT_LAYOUT_VERSION=4`` from ``.env.example`` into a
+legacy ``.env``, all four migrations silently skip — dropping the
 user's ``COMFYUI_LOCALHOST_URL`` custom port and ``COMFYUI_MODEL_SET``
 selection. Same family: seeding a ``*_LOCALHOST_PORT`` while the legacy
 ``*_LOCALHOST_URL`` is still present makes migration v2 keep the seeded
@@ -18,7 +18,7 @@ from pathlib import Path
 
 EXAMPLE = (
     "BASE_PORT=63000\n"
-    "BOOTSTRAPPER_PORT_LAYOUT_VERSION=3\n"
+    "BOOTSTRAPPER_PORT_LAYOUT_VERSION=4\n"
     "COMFYUI_LOCALHOST_PORT=8188\n"
     "COMFYUI_USER_MODELS=\n"
     "COMFYUI_CUSTOM_MODELS_FILE=/custom-models.yaml\n"
@@ -52,7 +52,7 @@ def test_backfill_leaves_blank_sentinel_blank(tmp_path):
     )
     assert starter.backfill_missing_env_vars()
     out = (tmp_path / ".env").read_text()
-    assert "BOOTSTRAPPER_PORT_LAYOUT_VERSION=3" not in out
+    assert "BOOTSTRAPPER_PORT_LAYOUT_VERSION=4" not in out
 
 
 def test_backfill_defers_port_var_to_v2_when_legacy_url_present(tmp_path):
@@ -95,7 +95,7 @@ def test_legacy_env_backfill_then_migrations_still_run(tmp_path):
     assert starter.backfill_missing_env_vars()
     starter.run_port_migration(no_port_migrate=False)
     out = (tmp_path / ".env").read_text()
-    assert "BOOTSTRAPPER_PORT_LAYOUT_VERSION=3" in out
+    assert "BOOTSTRAPPER_PORT_LAYOUT_VERSION=4" in out
     # v2 preserved the user's custom port instead of a seeded default.
     assert "COMFYUI_LOCALHOST_PORT=9999" in out
     # v3 removed the old enum (the commented v2 audit line is fine).

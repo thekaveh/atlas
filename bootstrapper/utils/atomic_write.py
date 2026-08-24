@@ -95,17 +95,17 @@ def env_lines(text: str, *, keepends: bool = False) -> list[str]:
 #:   ServiceConfigManager.update_env_file, and _set_scalar at the manifest parse
 #:   boundary.
 #:
-#: UNGUARDED (eleven writer functions, all writing internally-generated values):
+#: UNGUARDED (twelve writer functions, all writing internally-generated values):
 #:   key_generator.update_env_key, supabase_keys, port_manager,
 #:   source_validator._strip_lines_from_env, the backfill splice,
-#:   bootstrapper/scripts/reorg_user_env.py, each of the three migrations'
+#:   bootstrapper/scripts/reorg_user_env.py, each of the four migrations'
 #:   stamp_version AND its body (migration_v1's rewrite, migration_v2's append,
-#:   migration_v3's _replace_or_append), and
+#:   migration_v3's and migration_v4's _replace_or_append), and
 #:   AtlasStarter._remove_env_keys_by_prefix — which only filters and rejoins
 #:   existing lines and formats no assignment at all.
 #:
 #: Route anything externally-sourced through the guard rather than assuming an
-#: unguarded writer is safe. None of the eleven can PROMOTE an embedded separator
+#: unguarded writer is safe. None of the twelve can PROMOTE an embedded separator
 #: into a real assignment, for two different reasons checked per call site:
 #: those that split `.env` do so with `env_lines`, and the three regex rewriters
 #: (key_generator, supabase_keys, port_manager) never split at all — they

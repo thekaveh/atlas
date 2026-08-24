@@ -33,6 +33,11 @@ from services.migrations.migration_v3 import (
     needs_migration as _needs_v3,
     stamp_version as _stamp_v3,
 )
+from services.migrations.migration_v4 import (
+    apply as _apply_v4,
+    needs_migration as _needs_v4,
+    stamp_version as _stamp_v4,
+)
 
 
 def _format_today() -> str:
@@ -1861,7 +1866,8 @@ class AtlasStarter:
 
     def run_port_migration(self, no_port_migrate: bool) -> None:
         """Chained .env migrations: v0 → v1 (port-layout), v1 → v2 (URL→PORT),
-        v2 → v3 (COMFYUI_MODEL_SET → COMFYUI_USER_MODELS schema).
+        v2 → v3 (COMFYUI_MODEL_SET → COMFYUI_USER_MODELS schema), v3 → v4
+        (stale curated Ollama model reference cleanup).
 
         Idempotent. Each step is gated by its own ``_needs_*`` predicate
         so re-running is safe and stamping is independent. Reads
@@ -1882,7 +1888,12 @@ class AtlasStarter:
         the model-picker feature. Removes the old enum var and any
         preceding comment block.
 
-        When ``no_port_migrate`` is True we skip all three migrations AND skip
+        v4: rewrites LITELLM_DEFAULT_MODEL / LITELLM_VISION_MODEL /
+        OLLAMA_USER_MODELS entries that reference a curated Ollama
+        model retired from ``services/ollama/models.yaml`` (e.g.
+        ``qwen3.6`` → ``qwen3.8``) to the current catalog equivalent.
+
+        When ``no_port_migrate`` is True we skip all four migrations AND skip
         the sentinel stamps so the next run re-prompts — matches the
         user intent "skip this run, ask next time."
 
@@ -1974,6 +1985,26 @@ class AtlasStarter:
                 self.banner.show_status_message(
                     "Model-set migration complete (v3). "
                     "COMFYUI_MODEL_SET translated to COMFYUI_USER_MODELS.",
+                    "success",
+                )
+
+        # v3 → v4: stale curated Ollama model reference cleanup.
+        # Runs after v3 so the sentinel transitions cleanly: … → 3 → 4.
+        if _needs_v4(env_path):
+            if no_port_migrate:
+                self.banner.console.print(
+                    "[dim]Skipping stale-model-reference migration "
+                    "(--no-port-migrate); will re-prompt next run.[/dim]"
+                )
+            else:
+                self.banner.show_status_message(
+                    "Checking for retired curated Ollama model references (v4) ...",
+                    "info",
+                )
+                _apply_v4(env_path)
+                _stamp_v4(env_path)
+                self.banner.show_status_message(
+                    "Stale-model-reference migration complete (v4).",
                     "success",
                 )
 
