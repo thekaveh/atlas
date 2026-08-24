@@ -183,7 +183,10 @@ def test_probe_ollama_tags_accepts_model_alias_when_name_is_empty(monkeypatch):
     assert watch.probe_ollama_tags("http://ollama.invalid/api/tags", timeout=1.0).ok
 
 
-@pytest.mark.parametrize("timeout", [0, -1, float("inf"), float("nan"), 61.0, 1e300])
+@pytest.mark.parametrize(
+    "timeout",
+    [0, -1, float("inf"), float("nan"), 61.0, 1e300, pytest.param(10**10000, id="huge-integer")],
+)
 @pytest.mark.parametrize(
     "probe, args",
     [
@@ -296,7 +299,10 @@ def test_probe_manifest_images_passes_explicit_bounded_subprocess_options(monkey
     }
 
 
-@pytest.mark.parametrize("timeout", [0, -1, float("inf"), float("nan"), 61.0, 1e300])
+@pytest.mark.parametrize(
+    "timeout",
+    [0, -1, float("inf"), float("nan"), 61.0, 1e300, pytest.param(10**10000, id="huge-integer")],
+)
 def test_probe_manifest_images_rejects_invalid_or_excessive_timeouts(monkeypatch, timeout):
     monkeypatch.setattr(watch.subprocess, "run", lambda *_a, **_k: pytest.fail("subprocess started"))
     result = watch.probe_manifest_images(("example/image:1",), timeout=timeout, workers=1)

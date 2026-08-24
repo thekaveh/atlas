@@ -173,9 +173,9 @@ def _valid_timeout(timeout: object) -> bool:
     return (
         isinstance(timeout, (int, float))
         and not isinstance(timeout, bool)
-        and math.isfinite(timeout)
         and timeout > 0
         and timeout <= _MAX_TIMEOUT_SECONDS
+        and math.isfinite(timeout)
     )
 
 
