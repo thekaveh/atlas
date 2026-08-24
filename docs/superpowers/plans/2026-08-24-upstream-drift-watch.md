@@ -63,9 +63,10 @@ Expected: collection fails because `scripts.upstream_drift_watch` does not exist
 
 Implement literal manifest defaults only, sorted/deduplicated tuples, fail-closed
 validation for empty canonical model/image inventories and malformed image
-rows, stable Markdown headings, exact passed/failed/total summary counts,
-bounded detail formatting, and UTC timestamps. Do not add network or subprocess
-behavior in this task.
+rows, model discovery limited to the schema's `content`, `embeddings`, and
+`vision` top-level sections, stable Markdown headings, exact passed/failed/total
+summary counts, bounded detail formatting, and UTC timestamps. Do not add
+network or subprocess behavior in this task.
 
 - [ ] **Step 4: Run tests and verify GREEN**
 

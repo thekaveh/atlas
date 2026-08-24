@@ -82,8 +82,11 @@ does not duplicate the version in workflow YAML.
 ### 3.3. Curated Ollama models
 
 Load every `name` in the `content`, `embeddings`, and `vision` sections of
-`services/ollama/models.yaml`, deduplicate repeated multimodal entries, strip
-the optional tag for the library page path, and issue bounded HTTP requests to
+`services/ollama/models.yaml`, reject every other top-level section in line
+with `bootstrapper/schemas/models.schema.json`, validate declared canonical
+sections as lists of mappings with non-empty names, and require at least one
+model overall. Deduplicate repeated multimodal entries, strip the optional tag
+for the library page path, and issue bounded HTTP requests to
 `https://ollama.com/library/<family>`. A non-2xx response is drift. The report
 names every unreachable catalog entry.
 

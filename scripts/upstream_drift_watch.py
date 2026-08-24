@@ -32,6 +32,7 @@ _MAX_IMAGE_WORKERS = 8
 # Both HTTP and image requests use this practical ceiling; it is well above
 # the 5s/15s defaults while remaining representable by their wait APIs.
 _MAX_TIMEOUT_SECONDS = 60.0
+_OLLAMA_MODEL_SECTIONS = ("content", "embeddings", "vision")
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,14 +63,18 @@ def _sorted_unique(values: Sequence[str]) -> tuple[str, ...]:
 def load_curated_ollama_models(path: Path) -> tuple[str, ...]:
     """Return all named models in the curated Ollama catalog.
 
-    The catalog is organized into role sections (content, embeddings,
-    vision, and future additions).  Names are treated as artifact references,
-    so multimodal entries appearing in more than one section are collapsed.
+    The catalog is organized into the canonical content, embeddings, and
+    vision role sections. Names are treated as artifact references, so
+    multimodal entries appearing in more than one section are collapsed.
     """
 
     document = _read_yaml_mapping(path)
+    unknown_sections = sorted(set(document) - set(_OLLAMA_MODEL_SECTIONS))
+    if unknown_sections:
+        raise ValueError(f"{path}: unknown top-level section: {', '.join(unknown_sections)}")
     names: list[str] = []
-    for section_name, section in document.items():
+    for section_name in _OLLAMA_MODEL_SECTIONS:
+        section = document.get(section_name, [])
         if not isinstance(section, list):
             raise ValueError(f"{path}: {section_name} must be a list")
         for index, entry in enumerate(section):
