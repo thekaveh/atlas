@@ -54,7 +54,7 @@ from textual.containers import Container, VerticalScroll
 from textual.widgets import Input, Static
 
 from .. import palette as P
-from wizard.model.cloud_rules import SECRET_CLEAR, SECRET_KEEP  # noqa: F401
+from wizard.model.cloud_rules import SECRET_CLEAR, SECRET_KEEP
 from .dependency_conflict import ConflictAction, DependencyConflict
 from .multiselect_filter_chips import (
     ALL_KEY as FILTER_ALL_KEY,
