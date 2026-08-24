@@ -7,6 +7,10 @@ scope. Today the Textual wizard is their only caller.
 
 from __future__ import annotations
 
+import subprocess
+import sys
+from pathlib import Path
+
 import pytest
 
 from wizard.model.llm_rules import (
@@ -16,6 +20,76 @@ from wizard.model.llm_rules import (
     parse_csv,
     selected_llm_source,
 )
+
+_BOOTSTRAPPER_ROOT = Path(__file__).resolve().parents[1]
+
+# Driver for test_wizard_model_functions_do_not_import_textual, below.
+# Module-level (not inlined in the test function) partly for readability
+# and partly so the function itself stays a normal size — an early draft
+# embedded this as a local string literal and the function's physical
+# span (108 lines, driven almost entirely by this string) tripped
+# .maintenance.json's functions_over_60_physical_lines signal for no
+# real complexity reason (#535 followups review, finding R5 follow-up).
+#
+# Runs in a subprocess with a fresh interpreter — see the test's
+# docstring for why in-process would prove nothing. Imports every
+# wizard/model/ submodule, calls every public, locally-defined,
+# module-level function with a type-appropriate trivial argument (only
+# entering the function body matters here; business-logic errors from
+# trivial args are swallowed on purpose), then asserts textual never
+# landed in sys.modules.
+_TEXTUAL_FREE_DRIVER = """
+import sys
+
+driver_calls = {
+    ("llm_rules", "parse_csv"): lambda f: f("a,b"),
+    ("llm_rules", "is_localhost_or_external"): lambda f: f("ollama-localhost"),
+    ("llm_rules", "is_container_ollama"): lambda f: f("ollama-container-cpu"),
+    ("llm_rules", "selected_llm_source"): lambda f: f({}, {}),
+    ("cloud_rules", "resolve_cloud_provider"): lambda f: f(
+        provider_key="openai", secret_value=None, selected_models=None,
+        existing_key_set=False, existing_source="disabled",
+    ),
+    ("state_builder", "lookup_service_meta"): lambda f: f("weaviate"),
+    ("state_builder", "service_extras"): lambda f: f("weaviate"),
+    ("state_builder", "resolve_localhost_port"): lambda f: f(None, {}),
+    ("state_builder", "resolve_port"): lambda f: f("weaviate", "container", None, {}),
+    ("state_builder", "alias_for"): lambda f: f("weaviate"),
+    ("state_builder", "all_services"): lambda f: f(),
+    ("state_builder", "all_cloud_apis"): lambda f: f(),
+    ("state_builder", "cloud_api_status_text"): lambda f: f(True, True),
+    ("state_builder", "build_app_state"): lambda f: f(
+        __import__("core.config_parser", fromlist=["ConfigParser"]).ConfigParser()
+    ),
+}
+
+called = []
+for modname in ("state", "state_builder", "service_discovery", "cloud_rules", "llm_rules"):
+    mod = __import__(f"wizard.model.{modname}", fromlist=["_"])
+    import inspect
+    for name, obj in inspect.getmembers(mod, inspect.isfunction):
+        if name.startswith("_"):
+            continue
+        if obj.__module__ != mod.__name__:
+            continue  # skip re-exported names, only test locally-defined ones
+        key = (modname, name)
+        thunk = driver_calls.get(key)
+        assert thunk is not None, f"no driver entry for {modname}.{name} -- add one"
+        try:
+            thunk(obj)
+        except Exception:
+            pass  # business-logic errors from trivial args are fine; only
+                   # sys.modules pollution from entering the function body
+                   # is under test here.
+        called.append(f"{modname}.{name}")
+
+assert called, "no public functions discovered -- driver is stale"
+textual_modules = sorted(m for m in sys.modules if m == "textual" or m.startswith("textual."))
+assert not textual_modules, (
+    f"calling {called} pulled textual into sys.modules: {textual_modules}"
+)
+print("OK", len(called), "functions called, 0 textual modules")
+"""
 
 
 @pytest.mark.parametrize("raw,expected", [
@@ -141,97 +215,22 @@ def test_wizard_model_functions_do_not_import_textual():
     actual regression this finding fixed was a DEFERRED, function-scope
     import inside ``selected_llm_source`` that pulled ~139 ``textual.*``
     submodules into ``sys.modules`` the first time it was called —
-    invisible to every static check above. The only way to prove that
-    is gone is to actually import every wizard/model/ submodule, CALL
-    every public, locally-defined, cheaply-callable top-level function
-    in each (using type-appropriate trivial arguments), and check
-    ``sys.modules`` afterward.
+    invisible to every static check above.
 
-    This runs in a SUBPROCESS with a fresh interpreter. Running
-    in-process would be worthless: countless other tests in this suite
-    already import ``textual`` for unrelated reasons, so by the time
-    this test's body ran, ``'textual' in sys.modules`` would already be
-    True regardless of whether THIS fix holds (a false-negative-proof
-    test is worse than no test) — the same reason
-    ``test_litellm_init_loose_imports.py`` uses a subprocess for its
-    own sys.modules-sensitive assertion.
-
-    ``build_app_state`` is called with a real ``core.config_parser.ConfigParser()``
-    pointed at the actual repo (its ``hosts_manager`` param defaults to
-    ``None`` and is unused by the function body). ``ServiceDiscovery`` is
-    a class, not a module-level function, so ``inspect.getmembers(mod,
-    inspect.isfunction)`` never reaches its ``discover`` method here —
-    only free functions defined directly at module scope are in scope
-    for this test. ``service_discovery.py`` and ``state.py`` were
-    confirmed (by grepping every function-scope import in
-    wizard/model/*.py) to defer only to
-    ``services.manifests``/``services.topology``/
-    ``utils.source_override_manager`` — none of which import
-    ``textual`` — so their methods being out of this test's reach does
-    not weaken this proof for the thing R5 actually fixed.
+    ``_TEXTUAL_FREE_DRIVER`` (module-level, above) does the real work:
+    imports every wizard/model/ submodule, calls every public,
+    locally-defined, module-level function, and checks ``sys.modules``
+    afterward — in a SUBPROCESS, because countless other tests in this
+    suite already import ``textual`` for unrelated reasons, so
+    in-process would prove nothing (same reason
+    ``test_litellm_init_loose_imports.py`` uses a subprocess). See its
+    comment for what's deliberately out of reach (``ServiceDiscovery``
+    is a class, not a module-level function) and why that doesn't
+    weaken the proof.
     """
-    import subprocess
-    import sys
-    from pathlib import Path
-
-    bootstrapper_root = Path(__file__).resolve().parents[1]
-
-    driver = """
-import sys
-
-driver_calls = {
-    ("llm_rules", "parse_csv"): lambda f: f("a,b"),
-    ("llm_rules", "is_localhost_or_external"): lambda f: f("ollama-localhost"),
-    ("llm_rules", "is_container_ollama"): lambda f: f("ollama-container-cpu"),
-    ("llm_rules", "selected_llm_source"): lambda f: f({}, {}),
-    ("cloud_rules", "resolve_cloud_provider"): lambda f: f(
-        provider_key="openai", secret_value=None, selected_models=None,
-        existing_key_set=False, existing_source="disabled",
-    ),
-    ("state_builder", "lookup_service_meta"): lambda f: f("weaviate"),
-    ("state_builder", "service_extras"): lambda f: f("weaviate"),
-    ("state_builder", "resolve_localhost_port"): lambda f: f(None, {}),
-    ("state_builder", "resolve_port"): lambda f: f("weaviate", "container", None, {}),
-    ("state_builder", "alias_for"): lambda f: f("weaviate"),
-    ("state_builder", "all_services"): lambda f: f(),
-    ("state_builder", "all_cloud_apis"): lambda f: f(),
-    ("state_builder", "cloud_api_status_text"): lambda f: f(True, True),
-    ("state_builder", "build_app_state"): lambda f: f(
-        __import__("core.config_parser", fromlist=["ConfigParser"]).ConfigParser()
-    ),
-}
-
-called = []
-for modname in ("state", "state_builder", "service_discovery", "cloud_rules", "llm_rules"):
-    mod = __import__(f"wizard.model.{modname}", fromlist=["_"])
-    import inspect
-    for name, obj in inspect.getmembers(mod, inspect.isfunction):
-        if name.startswith("_"):
-            continue
-        if obj.__module__ != mod.__name__:
-            continue  # skip re-exported names, only test locally-defined ones
-        key = (modname, name)
-        thunk = driver_calls.get(key)
-        assert thunk is not None, f"no driver entry for {modname}.{name} -- add one"
-        try:
-            thunk(obj)
-        except Exception:
-            pass  # business-logic errors from trivial args are fine; only
-                   # sys.modules pollution from entering the function body
-                   # is under test here.
-        called.append(f"{modname}.{name}")
-
-assert called, "no public functions discovered -- driver is stale"
-textual_modules = sorted(m for m in sys.modules if m == "textual" or m.startswith("textual."))
-assert not textual_modules, (
-    f"calling {called} pulled textual into sys.modules: {textual_modules}"
-)
-print("OK", len(called), "functions called, 0 textual modules")
-"""
-
     result = subprocess.run(
-        [sys.executable, "-c", driver],
-        cwd=str(bootstrapper_root),
+        [sys.executable, "-c", _TEXTUAL_FREE_DRIVER],
+        cwd=str(_BOOTSTRAPPER_ROOT),
         capture_output=True,
         text=True,
         timeout=60,
