@@ -434,9 +434,7 @@ def test_main_writes_report_and_returns_aggregate_status(monkeypatch, tmp_path, 
     assert "<!-- atlas-upstream-drift-watch -->" in report_path.read_text(encoding="utf-8")
 
 
-def test_upstream_drift_workflow_is_bounded_and_reconciles_one_marker_issue():
-    workflow = _load_github_workflow(WORKFLOW_PATH)
-
+def _assert_workflow_trigger_contract(workflow):
     assert workflow["on"]["schedule"]
     assert workflow["on"]["workflow_dispatch"] is None
     assert workflow["permissions"] == {"contents": "read", "issues": "write"}
@@ -444,9 +442,8 @@ def test_upstream_drift_workflow_is_bounded_and_reconciles_one_marker_issue():
     assert workflow["concurrency"]["group"] == "upstream-drift-watch"
     assert workflow["on"]["schedule"][0]["cron"].split()[0] != "0"
 
-    job = workflow["jobs"]["watch"]
-    assert job["timeout-minutes"] == 30
-    steps = job["steps"]
+
+def _assert_workflow_setup_action_contract(steps):
     assert "<!-- atlas-upstream-drift-watch -->" in steps[0]["run"]
     assert "uses" not in steps[0]
     actions = [step["uses"] for step in steps if "uses" in step]
@@ -456,7 +453,8 @@ def test_upstream_drift_workflow_is_bounded_and_reconciles_one_marker_issue():
         "astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990",
     ]
 
-    steps_by_id = {step["id"]: step for step in steps if "id" in step}
+
+def _assert_workflow_image_contract(steps_by_id):
     image = steps_by_id["ollama_image"]["run"]
     assert "services/ollama/service.yml" in image
     assert "LLM_PROVIDER_IMAGE" in image
@@ -471,6 +469,8 @@ def test_upstream_drift_workflow_is_bounded_and_reconciles_one_marker_issue():
     assert "image_pattern=" in start
     assert "OLLAMA_IMAGE" in start
 
+
+def _assert_workflow_readiness_contract(steps_by_id):
     readiness = steps_by_id["ollama_readiness"]["run"]
     assert "seq 1 10" in readiness
     assert "--max-time 1" in readiness
@@ -478,6 +478,8 @@ def test_upstream_drift_workflow_is_bounded_and_reconciles_one_marker_issue():
     assert "within 20 seconds" in readiness
     assert "/api/tags" in readiness
 
+
+def _assert_workflow_watch_and_cleanup_contract(steps, steps_by_id):
     watch_step = steps_by_id["watch"]
     assert watch_step["continue-on-error"] is True
     assert "uv sync --project bootstrapper --group dev --locked" in "\n".join(
@@ -491,6 +493,8 @@ def test_upstream_drift_workflow_is_bounded_and_reconciles_one_marker_issue():
     assert cleanup["if"] == "${{ always() }}"
     assert "docker rm -f atlas-upstream-drift-ollama" in cleanup["run"]
 
+
+def _assert_workflow_reconciliation_metadata(steps_by_id):
     reconcile = steps_by_id["reconcile_issue"]
     assert reconcile["if"] == "${{ always() }}"
     reconciliation = reconcile["run"]
@@ -507,6 +511,10 @@ def test_upstream_drift_workflow_is_bounded_and_reconciles_one_marker_issue():
         "WATCH_OUTCOME": "${{ steps.watch.outputs.outcome }}",
         "REPORT_FILE": "${{ runner.temp }}/upstream-drift-report.md",
     }
+
+
+def _assert_workflow_reconciliation_commands(steps, steps_by_id):
+    reconciliation = steps_by_id["reconcile_issue"]["run"]
     for command in (
         "gh issue create",
         "gh issue edit",
@@ -518,6 +526,22 @@ def test_upstream_drift_workflow_is_bounded_and_reconciles_one_marker_issue():
 
     run_scripts = "\n".join(step.get("run", "") for step in steps).lower()
     assert "ollama pull" not in run_scripts
+
+
+def test_upstream_drift_workflow_is_bounded_and_reconciles_one_marker_issue():
+    workflow = _load_github_workflow(WORKFLOW_PATH)
+    job = workflow["jobs"]["watch"]
+    steps = job["steps"]
+    steps_by_id = {step["id"]: step for step in steps if "id" in step}
+
+    assert job["timeout-minutes"] == 30
+    _assert_workflow_trigger_contract(workflow)
+    _assert_workflow_setup_action_contract(steps)
+    _assert_workflow_image_contract(steps_by_id)
+    _assert_workflow_readiness_contract(steps_by_id)
+    _assert_workflow_watch_and_cleanup_contract(steps, steps_by_id)
+    _assert_workflow_reconciliation_metadata(steps_by_id)
+    _assert_workflow_reconciliation_commands(steps, steps_by_id)
 
 
 def _reconciliation_filter(script: str) -> str:

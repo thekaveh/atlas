@@ -218,6 +218,23 @@ def probe_ollama_library() -> ProbeResult:
     return ProbeResult("ollama library", True, f"observed {observed} entries")
 
 
+def _validate_ollama_tags_document(document: object) -> str | None:
+    """Return a contract violation for an Ollama tags document, if any."""
+
+    if not isinstance(document, dict):
+        return "response must be a JSON object"
+    models = document.get("models")
+    if not isinstance(models, list):
+        return "response.models must be a list"
+    for index, model in enumerate(models):
+        if not isinstance(model, dict):
+            return f"response.models[{index}] must be an object"
+        names = (model.get("name"), model.get("model"))
+        if not any(isinstance(name, str) and name.strip() for name in names):
+            return f"response.models[{index}] needs a non-empty name or model"
+    return None
+
+
 def probe_ollama_tags(url: str, *, timeout: float) -> ProbeResult:
     """Validate the bounded ``/api/tags`` response contract."""
 
@@ -247,21 +264,10 @@ def probe_ollama_tags(url: str, *, timeout: float) -> ProbeResult:
         document = json.loads(payload.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         return ProbeResult("ollama tags", False, f"invalid JSON: {exc}")
-    if not isinstance(document, dict):
-        return ProbeResult("ollama tags", False, "response must be a JSON object")
-    models = document.get("models")
-    if not isinstance(models, list):
-        return ProbeResult("ollama tags", False, "response.models must be a list")
-    for index, model in enumerate(models):
-        if not isinstance(model, dict):
-            return ProbeResult("ollama tags", False, f"response.models[{index}] must be an object")
-        names = (model.get("name"), model.get("model"))
-        if not any(isinstance(name, str) and name.strip() for name in names):
-            return ProbeResult(
-                "ollama tags",
-                False,
-                f"response.models[{index}] needs a non-empty name or model",
-            )
+    validation_error = _validate_ollama_tags_document(document)
+    if validation_error:
+        return ProbeResult("ollama tags", False, validation_error)
+    models = document["models"]
     return ProbeResult("ollama tags", True, f"valid response with {len(models)} model(s)")
 
 

@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.12 (`urllib`, `subprocess`, `concurrent.futures`, PyYAML), pytest, GitHub Actions YAML, GitHub CLI.
 
-## Global Constraints
+## 1. Global Constraints
 
 - Implement only issue #969.
 - Do not require a running Atlas stack or download model weights.
@@ -21,7 +21,7 @@
 
 ---
 
-### Task 1: Probe result, source discovery, and report contract
+### 1.1. Task 1: Probe result, source discovery, and report contract
 
 **Files:**
 - Create: `scripts/upstream_drift_watch.py`
@@ -76,7 +76,7 @@ git add scripts/upstream_drift_watch.py bootstrapper/tests/test_upstream_drift_w
 git commit -m "test(ci): define upstream drift report contract"
 ```
 
-### Task 2: Bounded live probes and aggregate CLI
+### 1.2. Task 2: Bounded live probes and aggregate CLI
 
 **Files:**
 - Modify: `scripts/upstream_drift_watch.py`
@@ -131,7 +131,7 @@ git add scripts/upstream_drift_watch.py bootstrapper/tests/test_upstream_drift_w
 git commit -m "feat(ci): add bounded upstream drift probes"
 ```
 
-### Task 3: Scheduled workflow and single-issue reconciliation
+### 1.3. Task 3: Scheduled workflow and single-issue reconciliation
 
 **Files:**
 - Create: `.github/workflows/upstream-drift-watch.yml`
@@ -182,7 +182,7 @@ git add .github/workflows/upstream-drift-watch.yml bootstrapper/tests/test_upstr
 git commit -m "ci: schedule upstream drift watch"
 ```
 
-### Task 4: Verification, review, and gitflow delivery
+### 1.4. Task 4: Verification, review, and gitflow delivery
 
 **Files:**
 - Verify all changed files and generated artifacts; no new production files.
@@ -230,4 +230,3 @@ Push `codex/969-upstream-drift-watch`, create a PR to `develop`, wait for all
 required checks and conversation resolution, merge, then promote `develop` to
 `main` through a second checked PR. Do not begin #967 until both merges are
 verified.
-
