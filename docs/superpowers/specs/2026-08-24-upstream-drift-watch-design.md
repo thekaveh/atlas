@@ -148,4 +148,3 @@ workflow YAML/contract tests, and the repository's required audit commands.
 | Open or update one issue | Exact-marker issue lifecycle in workflow |
 | Narrow nightly scope | Dedicated workflow calls only the watcher |
 | No live Atlas stack | Empty ephemeral Ollama plus external registry/library requests |
-
