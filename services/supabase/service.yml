@@ -28,10 +28,18 @@ capabilities:
     status: partial
     verification: documented
     note: "GoTrue issues and validates JWTs, but the stock local-development defaults auto-confirm email and point SMTP at localhost rather than a configured delivery service."
-  - name: "Authenticated pg-meta administration"
+  - name: "pg-meta administrative access control"
+    status: partial
+    verification: documented
+    note: "The Kong /pg/ route uses Basic authentication and the dashboard_user ACL, while the direct host-published SUPABASE_META_PORT has no application authentication and executes as supabase_admin; set HOST_BIND_IP=127.0.0.1:, firewall SUPABASE_META_PORT, or remove the supabase-meta ports: publish on shared networks."
+  - name: "Supabase Studio access control"
+    status: partial
+    verification: documented
+    note: "The Kong route uses Basic authentication and the dashboard_user ACL, but the host-published SUPABASE_STUDIO_PORT bypasses that gate because Studio has no application authentication; set HOST_BIND_IP=127.0.0.1:, firewall SUPABASE_STUDIO_PORT, or remove its ports: publish."
+  - name: "Authenticated remote PostgreSQL access"
     status: not-supported
     verification: documented
-    note: "The host-published pg-meta API has no authentication and executes SQL as supabase_admin; shared-network operators must firewall SUPABASE_META_PORT or remove its ports: publish."
+    note: "The host-published SUPABASE_DB_PORT uses POSTGRES_HOST_AUTH_METHOD=trust; set HOST_BIND_IP=127.0.0.1:, firewall SUPABASE_DB_PORT, or remove the supabase-db ports: publish, and configure an authenticated database policy before remote access."
 
 containers:
   - supabase-db

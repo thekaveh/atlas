@@ -13,6 +13,33 @@ from services.manifests import (
 )
 
 
+_TASK3_REVIEWED_INFRA_DATA_MANIFESTS = frozenset(
+    {
+        "backup",
+        "cloudflared",
+        "globals",
+        "grafana",
+        "iceberg-rest",
+        "kong",
+        "langfuse",
+        "loki",
+        "minio",
+        "neo4j",
+        "otel-collector",
+        "prometheus",
+        "ray",
+        "redis",
+        "redpanda",
+        "spark",
+        "supabase",
+        "supavisor",
+        "tempo",
+        "trino",
+        "weaviate",
+    }
+)
+
+
 # ────────────────────────────────────────────────────────────────────────────
 # Happy paths
 # ────────────────────────────────────────────────────────────────────────────
@@ -752,6 +779,16 @@ def test_infra_and_data_manifests_meet_structural_capability_quality_floor():
         for manifest in load_manifests(repo_root / "services")
         if manifest.category in {"infra", "data"}
     ]
+    discovered_names = {manifest.name for manifest in manifests}
+
+    # The reviewed Task 3 inventory is an independent lower-bound anchor. New
+    # infra/data manifests remain dynamically included above and must carry a
+    # contract, while moving one of these 21 services out of category is loud.
+    assert len(_TASK3_REVIEWED_INFRA_DATA_MANIFESTS) == 21
+    assert _TASK3_REVIEWED_INFRA_DATA_MANIFESTS <= discovered_names, (
+        "reviewed infra/data manifests disappeared from typed category discovery: "
+        f"{sorted(_TASK3_REVIEWED_INFRA_DATA_MANIFESTS - discovered_names)}"
+    )
 
     missing = sorted(manifest.name for manifest in manifests if not manifest.capabilities)
     assert missing == [], f"infra/data manifests missing capabilities: {missing}"
@@ -827,10 +864,37 @@ def test_supabase_app_role_capability_names_manifest_owned_variables():
     assert "SUPABASE_APP_PASSWORD" not in capability.note
 
 
-def test_supabase_contract_exposes_pg_meta_admin_boundary_and_mitigation():
+def test_supabase_pg_meta_contract_matches_compose_and_kong_boundaries():
     from pathlib import Path
 
+    import yaml
+
+    from core.config_parser import ConfigParser
+    from utils.kong_config_generator import KongConfigGenerator
+
     repo_root = Path(__file__).resolve().parent.parent.parent
+    compose = yaml.safe_load(
+        (repo_root / "services/supabase/compose.yml").read_text(encoding="utf-8")
+    )
+    meta = compose["services"]["supabase-meta"]
+    assert meta["ports"] == ["${HOST_BIND_IP:-}${SUPABASE_META_PORT}:8080"]
+    assert meta["environment"]["PG_META_DB_USER"] == "${SUPABASE_DB_USER}"
+    assert "DASHBOARD_USERNAME" not in meta["environment"]
+    assert "DASHBOARD_PASSWORD" not in meta["environment"]
+
+    kong_services = {
+        service["name"]: service
+        for service in KongConfigGenerator(ConfigParser(str(repo_root))).get_supabase_services()
+    }
+    kong_meta = kong_services["meta"]
+    assert kong_meta["routes"][0]["paths"] == ["/pg/"]
+    assert {plugin["name"] for plugin in kong_meta["plugins"]} >= {
+        "basic-auth",
+        "acl",
+    }
+    acl = next(plugin for plugin in kong_meta["plugins"] if plugin["name"] == "acl")
+    assert acl["config"]["allow"] == ["dashboard_user"]
+
     manifest = next(
         m for m in load_manifests(repo_root / "services") if m.name == "supabase"
     )
@@ -838,20 +902,259 @@ def test_supabase_contract_exposes_pg_meta_admin_boundary_and_mitigation():
         (
             cap
             for cap in manifest.capabilities
-            if cap.name == "Authenticated pg-meta administration"
+            if cap.name == "pg-meta administrative access control"
         ),
         None,
     )
 
     assert capability is not None
     assert (capability.status, capability.verification) == (
+        "partial",
+        "documented",
+    )
+    for boundary in (
+        "Kong /pg/ route uses Basic authentication and the dashboard_user ACL",
+        "direct host-published SUPABASE_META_PORT",
+        "no application authentication",
+        "supabase_admin",
+    ):
+        assert boundary in capability.note
+
+
+def test_supabase_studio_contract_matches_compose_and_kong_boundaries():
+    from pathlib import Path
+
+    import yaml
+
+    from core.config_parser import ConfigParser
+    from utils.kong_config_generator import KongConfigGenerator
+
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    compose = yaml.safe_load(
+        (repo_root / "services/supabase/compose.yml").read_text(encoding="utf-8")
+    )
+    studio = compose["services"]["supabase-studio"]
+    assert studio["ports"] == ["${HOST_BIND_IP:-}${SUPABASE_STUDIO_PORT}:3000"]
+    assert "DASHBOARD_USERNAME" not in studio["environment"]
+    assert "DASHBOARD_PASSWORD" not in studio["environment"]
+
+    kong_services = {
+        service["name"]: service
+        for service in KongConfigGenerator(ConfigParser(str(repo_root))).get_supabase_services()
+    }
+    dashboard = kong_services["dashboard"]
+    assert dashboard["routes"][0]["hosts"] == ["supabase-studio.localhost"]
+    assert {plugin["name"] for plugin in dashboard["plugins"]} >= {
+        "basic-auth",
+        "acl",
+    }
+    acl = next(plugin for plugin in dashboard["plugins"] if plugin["name"] == "acl")
+    assert acl["config"]["allow"] == ["dashboard_user"]
+
+    manifest = next(
+        m for m in load_manifests(repo_root / "services") if m.name == "supabase"
+    )
+    capability = next(
+        (cap for cap in manifest.capabilities if cap.name == "Supabase Studio access control"),
+        None,
+    )
+    assert capability is not None
+    assert (capability.status, capability.verification) == ("partial", "documented")
+    for boundary in (
+        "Kong route uses Basic authentication and the dashboard_user ACL",
+        "host-published SUPABASE_STUDIO_PORT bypasses that gate",
+        "Studio has no application authentication",
+        "HOST_BIND_IP=127.0.0.1:",
+        "firewall SUPABASE_STUDIO_PORT",
+        "remove its ports: publish",
+    ):
+        assert boundary in capability.note
+
+
+def test_supabase_postgres_host_auth_contract_matches_compose():
+    from pathlib import Path
+
+    import yaml
+
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    compose = yaml.safe_load(
+        (repo_root / "services/supabase/compose.yml").read_text(encoding="utf-8")
+    )
+    database = compose["services"]["supabase-db"]
+    assert database["ports"] == ["${HOST_BIND_IP:-}${SUPABASE_DB_PORT}:5432"]
+    assert database["environment"]["POSTGRES_HOST_AUTH_METHOD"] == "trust"
+
+    manifests = load_manifests(repo_root / "services")
+    globals_manifest = next(m for m in manifests if m.name == "globals")
+    host_bind_ip = next(env for env in globals_manifest.env if env.name == "HOST_BIND_IP")
+    assert host_bind_ip.default == ""
+
+    supabase = next(m for m in manifests if m.name == "supabase")
+    capability = next(
+        (
+            cap
+            for cap in supabase.capabilities
+            if cap.name == "Authenticated remote PostgreSQL access"
+        ),
+        None,
+    )
+    assert capability is not None
+    assert (capability.status, capability.verification) == (
         "not-supported",
         "documented",
     )
-    for boundary in ("host-published", "no authentication", "supabase_admin"):
+    for boundary in (
+        "host-published SUPABASE_DB_PORT",
+        "POSTGRES_HOST_AUTH_METHOD=trust",
+        "HOST_BIND_IP=127.0.0.1:",
+        "firewall SUPABASE_DB_PORT",
+        "remove the supabase-db ports: publish",
+        "authenticated database policy before remote access",
+    ):
         assert boundary in capability.note
-    assert "firewall SUPABASE_META_PORT" in capability.note
-    assert "remove its ports: publish" in capability.note
+
+
+def test_iceberg_rest_access_contract_matches_host_publish():
+    from pathlib import Path
+
+    import yaml
+
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    compose = yaml.safe_load(
+        (repo_root / "services/iceberg-rest/compose.yml").read_text(encoding="utf-8")
+    )
+    catalog = compose["services"]["iceberg-rest"]
+    assert catalog["ports"] == ["${HOST_BIND_IP:-}${ICEBERG_REST_PORT}:8181"]
+    assert not any(
+        "AUTH" in name or "TOKEN" in name for name in catalog["environment"]
+    )
+
+    manifest = next(
+        m for m in load_manifests(repo_root / "services") if m.name == "iceberg-rest"
+    )
+    capability = next(
+        (
+            cap
+            for cap in manifest.capabilities
+            if cap.name == "Authenticated Iceberg REST API access"
+        ),
+        None,
+    )
+    assert capability is not None
+    assert (capability.status, capability.verification) == (
+        "not-supported",
+        "documented",
+    )
+    for boundary in (
+        "Compose-network API and host-published ICEBERG_REST_PORT have no Atlas authentication",
+        "HOST_BIND_IP=127.0.0.1:",
+        "remove the iceberg-rest ports: publish",
+    ):
+        assert boundary in capability.note
+
+
+def test_redpanda_access_contract_matches_compose_and_kong_boundaries():
+    from pathlib import Path
+
+    import yaml
+
+    from core.config_parser import ConfigParser
+    from utils.kong_config_generator import KongConfigGenerator
+
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    compose = yaml.safe_load(
+        (repo_root / "services/redpanda/compose.yml").read_text(encoding="utf-8")
+    )
+    broker = compose["services"]["redpanda"]
+    console = compose["services"]["redpanda-console"]
+    assert broker["ports"] == ["${HOST_BIND_IP:-}${REDPANDA_KAFKA_PORT}:19092"]
+    assert console["ports"] == ["${HOST_BIND_IP:-}${REDPANDA_CONSOLE_PORT}:8080"]
+    assert any(
+        "external://0.0.0.0:19092" in argument for argument in broker["command"]
+    )
+    assert not any(
+        "sasl" in argument.casefold() or "tls" in argument.casefold()
+        for argument in broker["command"]
+    )
+    assert not any("AUTH" in name for name in console["environment"])
+
+    generator = KongConfigGenerator(ConfigParser(str(repo_root)))
+    generator.env_vars = {"REDPANDA_SOURCE": "container"}
+    kong_console = generator.generate_redpanda_service()
+    assert kong_console is not None
+    assert kong_console["routes"][0]["hosts"] == ["redpanda.localhost"]
+    assert {plugin["name"] for plugin in kong_console["plugins"]} >= {
+        "basic-auth",
+        "acl",
+    }
+    acl = next(
+        plugin for plugin in kong_console["plugins"] if plugin["name"] == "acl"
+    )
+    assert acl["config"]["allow"] == ["dashboard_user"]
+
+    manifest = next(
+        m for m in load_manifests(repo_root / "services") if m.name == "redpanda"
+    )
+    capability = next(
+        (
+            cap
+            for cap in manifest.capabilities
+            if cap.name == "Broker and Console access control"
+        ),
+        None,
+    )
+    assert capability is not None
+    assert (capability.status, capability.verification) == ("partial", "documented")
+    for boundary in (
+        "Kong Console route uses Basic authentication and the dashboard_user ACL",
+        "direct Console and Kafka listener are ungated",
+        "HOST_BIND_IP=127.0.0.1:",
+    ):
+        assert boundary in capability.note
+
+
+def test_backup_restore_contract_matches_non_atomic_orchestration():
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    restore_script = (
+        repo_root / "services/backup/init/scripts/restore-postgres.sh"
+    ).read_text(encoding="utf-8")
+    assert "pg_restore" in restore_script
+    assert "--list" not in restore_script
+    assert "--single-transaction" not in restore_script
+
+    manifest = next(
+        m for m in load_manifests(repo_root / "services") if m.name == "backup"
+    )
+    capability = next(
+        cap for cap in manifest.capabilities if cap.name == "Postgres restore workflow"
+    )
+    assert (capability.status, capability.verification) == ("partial", "tested")
+    assert "validates and restores" not in capability.note
+    for boundary in (
+        "orchestrates S3 retrieval and pg_restore",
+        "volume archives have no restore workflow",
+        "no preflight validation or atomicity guarantee",
+    ):
+        assert boundary in capability.note
+
+
+def test_ray_worker_count_capability_does_not_claim_a_global_upper_bound():
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    manifest = next(
+        m for m in load_manifests(repo_root / "services") if m.name == "ray"
+    )
+    capability = next(
+        cap
+        for cap in manifest.capabilities
+        if cap.name == "Containerized CPU distributed compute"
+    )
+
+    assert "bounded" not in capability.note
+    assert "operator-selected worker count" in capability.note
 
 
 def test_lightrag_manifest_header_does_not_claim_automatic_file_fallbacks():

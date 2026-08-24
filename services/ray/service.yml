@@ -7,7 +7,7 @@ capabilities:
   - name: "Containerized CPU distributed compute"
     status: supported
     verification: tested
-    note: "Atlas configures a Ray head plus a bounded operator-selected worker count and supplies the backend with the resulting cluster address."
+    note: "Atlas configures a Ray head plus an operator-selected worker count and supplies the backend with the resulting cluster address."
   - name: "NVIDIA GPU worker execution"
     status: partial
     verification: tested

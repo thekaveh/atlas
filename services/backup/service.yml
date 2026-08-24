@@ -17,7 +17,7 @@ capabilities:
   - name: "Postgres restore workflow"
     status: partial
     verification: tested
-    note: "The restore script validates and restores PostgreSQL dumps, but restoring the exported volume archives remains a manual operator procedure."
+    note: "The tested restore script orchestrates S3 retrieval and pg_restore, but volume archives have no restore workflow and PostgreSQL restore has no preflight validation or atomicity guarantee."
   - name: "Scheduled retention and backup verification"
     status: not-supported
     verification: documented

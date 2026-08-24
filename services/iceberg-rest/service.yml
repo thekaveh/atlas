@@ -17,6 +17,10 @@ capabilities:
     status: not-supported
     verification: documented
     note: "The stock manifest supports only the in-stack container and requires Atlas Supabase plus MinIO rather than selectable external catalog or object-store modes."
+  - name: "Authenticated Iceberg REST API access"
+    status: not-supported
+    verification: documented
+    note: "The Compose-network API and host-published ICEBERG_REST_PORT have no Atlas authentication; set HOST_BIND_IP=127.0.0.1: or remove the iceberg-rest ports: publish before use on shared hosts."
 
 containers:
   - iceberg-rest
