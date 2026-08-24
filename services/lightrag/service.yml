@@ -1,8 +1,9 @@
 # services/lightrag/service.yml
 # LightRAG — graph-augmented RAG server.
-# Storage backends adapt to Supabase/Neo4j/Redis when enabled, fall back to
-# in-process file backends when those sources are disabled. LLM + embedding
-# bindings inherit from LiteLLM defaults (resolved at startup by lightrag-init).
+# External storage backends use Supabase/Neo4j/Redis when enabled. Disabling one
+# clears its URI but does not switch the configured storage selectors to
+# file-backed implementations. LLM + embedding bindings inherit from LiteLLM
+# defaults (resolved at startup by lightrag-init).
 name: lightrag
 label: "LightRAG (graph-augmented RAG server)"
 category: agents

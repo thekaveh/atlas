@@ -69,7 +69,7 @@
           "name": {
             "type": "string",
             "minLength": 1,
-            "pattern": "^(?!.*[\\r\\n])(?=.*\\S).+$",
+            "pattern": "^(?!.*[\\r\\n\\u000B\\u000C\\u0085\\u2028\\u2029])(?=.*\\S).+$",
             "description": "Concise, single-line operator-facing capability label."
           },
           "status": {
@@ -85,7 +85,7 @@
           "note": {
             "type": "string",
             "minLength": 1,
-            "pattern": "^(?!.*[\\r\\n])(?=.*\\S).+$",
+            "pattern": "^(?!.*[\\r\\n\\u000B\\u000C\\u0085\\u2028\\u2029])(?=.*\\S).+$",
             "description": "Single-line explanation of the useful boundary or limitation."
           }
         }

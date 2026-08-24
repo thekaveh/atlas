@@ -15,10 +15,10 @@ capabilities:
     status: partial
     verification: tested
     note: "Scene inspection and generated-code commands work through the managed bridge, but GUI-dependent operations are unavailable."
-  - name: "Loopback-guarded arbitrary Python execution"
+  - name: "Managed-bridge loopback guard for arbitrary Python execution"
     status: partial
     verification: tested
-    note: "The execute_code tool runs arbitrary Python inside Blender; Atlas binds to loopback unless remote access is explicitly enabled."
+    note: "Atlas refuses non-loopback binds for managed-localhost without an explicit override; the user-run localhost GUI source remains operator-controlled."
   - name: "Viewport screenshots in managed headless mode"
     status: not-supported
     verification: documented

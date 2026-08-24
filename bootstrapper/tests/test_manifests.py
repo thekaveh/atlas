@@ -224,9 +224,8 @@ def test_capability_extra_field_rejected(
 
 
 @pytest.mark.parametrize("field", ["name", "note"])
-@pytest.mark.parametrize("value", ["", "first line\nsecond line", "first line\rsecond line"])
-def test_capability_labels_and_notes_must_be_nonempty_single_lines(
-    services_root, write_manifest, minimal_manifest_dict, field, value
+def test_capability_labels_and_notes_must_be_nonempty(
+    services_root, write_manifest, minimal_manifest_dict, field
 ):
     capability = {
         "name": "Primary cache operations",
@@ -234,7 +233,30 @@ def test_capability_labels_and_notes_must_be_nonempty_single_lines(
         "verification": "tested",
         "note": "Atlas configures the in-stack Redis cache.",
     }
-    capability[field] = value
+    capability[field] = ""
+    manifest = minimal_manifest_dict("redis") | {"capabilities": [capability]}
+    write_manifest("redis", manifest)
+
+    with pytest.raises(ManifestLoadError, match=field):
+        load_manifests(services_root)
+
+
+@pytest.mark.parametrize("field", ["name", "note"])
+@pytest.mark.parametrize(
+    "separator",
+    ["\n", "\r", "\v", "\f", "\u0085", "\u2028", "\u2029"],
+    ids=["lf", "cr", "vertical-tab", "form-feed", "next-line", "line", "paragraph"],
+)
+def test_capability_labels_and_notes_reject_line_separators(
+    services_root, write_manifest, minimal_manifest_dict, field, separator
+):
+    capability = {
+        "name": "Primary cache operations",
+        "status": "supported",
+        "verification": "tested",
+        "note": "Atlas configures the in-stack Redis cache.",
+    }
+    capability[field] = f"first line{separator}second line"
     manifest = minimal_manifest_dict("redis") | {"capabilities": [capability]}
     write_manifest("redis", manifest)
 
@@ -610,34 +632,99 @@ def test_airflow_manifest_loads():
         (
             "blender-mcp",
             [
-                ("Host-only Blender MCP bridge", "supported", "documented"),
-                ("Managed headless scene control", "partial", "tested"),
-                ("Loopback-guarded arbitrary Python execution", "partial", "tested"),
-                ("Viewport screenshots in managed headless mode", "not-supported", "documented"),
+                (
+                    "Host-only Blender MCP bridge",
+                    "supported",
+                    "documented",
+                    "Atlas configures user-run GUI and managed headless host sources; it does not run Blender in a container.",
+                ),
+                (
+                    "Managed headless scene control",
+                    "partial",
+                    "tested",
+                    "Scene inspection and generated-code commands work through the managed bridge, but GUI-dependent operations are unavailable.",
+                ),
+                (
+                    "Managed-bridge loopback guard for arbitrary Python execution",
+                    "partial",
+                    "tested",
+                    "Atlas refuses non-loopback binds for managed-localhost without an explicit override; the user-run localhost GUI source remains operator-controlled.",
+                ),
+                (
+                    "Viewport screenshots in managed headless mode",
+                    "not-supported",
+                    "documented",
+                    "Headless Blender has no VIEW_3D context, so use the user-run GUI source when viewport screenshots are required.",
+                ),
             ],
         ),
         (
             "speaches",
             [
-                ("OpenAI-compatible text-to-speech", "partial", "tested"),
-                ("OpenAI-compatible speech-to-text", "partial", "untested"),
-                ("Configurable STT model selection", "stubbed", "documented"),
+                (
+                    "OpenAI-compatible text-to-speech",
+                    "partial",
+                    "tested",
+                    "Speaches serves /v1/audio/speech, but Atlas does not preload Kokoro; the model must be downloaded before requests succeed.",
+                ),
+                (
+                    "OpenAI-compatible speech-to-text",
+                    "partial",
+                    "untested",
+                    "Speaches exposes /v1/audio/transcriptions, but Atlas has not validated the current preload and Open WebUI model path against a live container.",
+                ),
+                (
+                    "Configurable STT model selection",
+                    "stubbed",
+                    "documented",
+                    "SPEACHES_STT_MODEL is declared but does not alter the hard-coded PRELOAD_MODELS value or Open WebUI's STT model.",
+                ),
             ],
         ),
         (
             "comfyui",
             [
-                ("Container and managed-MPS image generation", "supported", "tested"),
-                ("Workflow and model provisioning", "partial", "tested"),
-                ("Supabase output upload", "stubbed", "documented"),
+                (
+                    "Container and managed-MPS image generation",
+                    "supported",
+                    "tested",
+                    "Atlas configures CPU and NVIDIA containers plus an Apple-Silicon Metal host process behind the same endpoint contract.",
+                ),
+                (
+                    "Workflow and model provisioning",
+                    "partial",
+                    "tested",
+                    "Atlas stages selected catalog models and pinned custom nodes, but arbitrary workflow dependencies and readiness remain operator-managed.",
+                ),
+                (
+                    "Supabase output upload",
+                    "stubbed",
+                    "documented",
+                    "The upload flag and bucket variables are placeholders with no stock image, provisioning, or backend consumer.",
+                ),
             ],
         ),
         (
             "lightrag",
             [
-                ("Graph-augmented retrieval through LiteLLM", "supported", "tested"),
-                ("External persistent storage", "partial", "tested"),
-                ("LightRAG reranking", "partial", "tested"),
+                (
+                    "Graph-augmented retrieval through LiteLLM",
+                    "supported",
+                    "tested",
+                    "Atlas resolves LightRAG chat and embedding models through LiteLLM and exposes graph-aware query modes.",
+                ),
+                (
+                    "External persistent storage",
+                    "partial",
+                    "tested",
+                    "Atlas wires Supabase pgvector, Neo4j, and Redis when enabled; disabling them clears connection URIs without selecting file-backed storage implementations.",
+                ),
+                (
+                    "LightRAG reranking",
+                    "partial",
+                    "tested",
+                    "Reranking requires TEI plus the opt-in backend adapter because direct LightRAG-to-TEI request payloads are incompatible.",
+                ),
             ],
         ),
     ],
@@ -651,9 +738,21 @@ def test_pilot_manifest_capability_contracts(service, expected):
     )
 
     assert [
-        (cap.name, cap.status, cap.verification) for cap in manifest.capabilities
+        (cap.name, cap.status, cap.verification, cap.note)
+        for cap in manifest.capabilities
     ] == expected
-    assert all(cap.note for cap in manifest.capabilities)
+
+
+def test_lightrag_manifest_header_does_not_claim_automatic_file_fallbacks():
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    manifest_path = repo_root / "services" / "lightrag" / "service.yml"
+    header = "\n".join(manifest_path.read_text(encoding="utf-8").splitlines()[:6])
+
+    assert "fall back to" not in header
+    assert "does not switch" in header
+    assert "storage selectors" in header
 
 
 def test_doc_only_folders_are_skipped_by_real_manifest_load():
