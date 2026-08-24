@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from services.manifests import Capability, Manifest
 
 
@@ -91,6 +93,45 @@ def test_resolver_returns_no_rows_for_an_empty_or_pointer_contract():
 
     assert resolve_capability_rows("redis", [_manifest("redis")]) == ()
     assert resolve_capability_rows("multi2vec-clip", [_manifest("weaviate")]) == ()
+
+
+def test_aggregate_resolver_fails_before_rendering_when_a_member_is_missing(
+    monkeypatch,
+):
+    import docs.capabilities_resolver as resolver
+
+    monkeypatch.setattr(
+        resolver,
+        "doc_folder_to_manifests",
+        lambda _doc_name: ("speaches", "missing-provider"),
+    )
+
+    with pytest.raises(
+        KeyError,
+        match="stt-provider.*missing-provider",
+    ):
+        resolver.resolve_capability_rows(
+            "stt-provider",
+            [_manifest("speaches", _capability("Speech synthesis"))],
+        )
+
+
+def test_repository_aggregate_members_all_resolve_to_loaded_manifests():
+    from pathlib import Path
+
+    from docs.deps_resolver import _AGGREGATE_DOC_FOLDERS
+    from services.manifests import load_manifests
+
+    services_dir = Path(__file__).resolve().parents[2] / "services"
+    loaded_names = {manifest.name for manifest in load_manifests(services_dir)}
+    missing_by_doc = {
+        doc_name: tuple(member for member in dict.fromkeys(members) if member not in loaded_names)
+        for doc_name, members in _AGGREGATE_DOC_FOLDERS.items()
+        if members
+        and any(member not in loaded_names for member in dict.fromkeys(members))
+    }
+
+    assert missing_by_doc == {}
 
 
 def test_singleton_table_omits_service_column_and_escapes_markdown_cells():

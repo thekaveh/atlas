@@ -12,7 +12,7 @@ from __future__ import annotations
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Iterable, Literal
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "bootstrapper"))
@@ -99,18 +99,30 @@ def _manifest_to_doc_folder(name: str) -> str:
 # ─────────────────────────────────────────────────────────────────────────
 
 
-def build_graph(focus: str, services_root: Path) -> DepGraph:
+def build_graph(
+    focus: str,
+    services_root: Path,
+    *,
+    manifests: Iterable[Manifest] | None = None,
+) -> DepGraph:
     """Build the DepGraph for a single manifest-name focus."""
-    manifests_by_name = {m.name: m for m in load_manifests(services_root)}
+    loaded = load_manifests(services_root) if manifests is None else manifests
+    manifests_by_name = {m.name: m for m in loaded}
     if focus not in manifests_by_name:
         raise KeyError(f"no manifest for service '{focus}' under {services_root}")
     return _build_for_manifests(focus, [manifests_by_name[focus]], manifests_by_name)
 
 
-def build_doc_graph(doc_folder: str, services_root: Path) -> DepGraph:
+def build_doc_graph(
+    doc_folder: str,
+    services_root: Path,
+    *,
+    manifests: Iterable[Manifest] | None = None,
+) -> DepGraph:
     """Build the DepGraph for a doc folder. Folds aggregate manifests."""
     manifest_names = doc_folder_to_manifests(doc_folder)
-    manifests_by_name = {m.name: m for m in load_manifests(services_root)}
+    loaded = load_manifests(services_root) if manifests is None else manifests
+    manifests_by_name = {m.name: m for m in loaded}
 
     if not manifest_names:
         # Pointer-only doc (e.g., multi2vec-clip)

@@ -5,39 +5,20 @@ from __future__ import annotations
 import re
 
 from .capabilities_resolver import CapabilityRow
+from .markdown_blocks import fenced_code_spans as _fenced_spans
 
 
 _CAPABILITIES_HEADER_RE = re.compile(
-    r"^##\s+(?:(\d+)\.\s+)?Capabilities\s*&\s*limitations\b",
+    r"^##[ \t]+(\d+)\.[ \t]+Capabilities[ \t]+&[ \t]+limitations"
+    r"(?:[ \t]+#+)?[ \t]*$",
     re.MULTILINE,
 )
-_NUMBERED_TOP_HEADER_RE = re.compile(r"^##\s+(\d+)\.\s+", re.MULTILINE)
-_NEXT_TOP_HEADER_RE = re.compile(r"^##\s+", re.MULTILINE)
-_FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})")
+_NUMBERED_TOP_HEADER_RE = re.compile(r"^##[ \t]+(\d+)\.[ \t]+", re.MULTILINE)
+_NEXT_TOP_HEADER_RE = re.compile(r"^##(?:[ \t]+|$)", re.MULTILINE)
 
 
-def _fenced_spans(text: str) -> list[tuple[int, int]]:
-    spans: list[tuple[int, int]] = []
-    open_offset: int | None = None
-    open_character = ""
-    open_length = 0
-    offset = 0
-    for line in text.splitlines(keepends=True):
-        match = _FENCE_RE.match(line)
-        if match:
-            marker = match.group(1)
-            if open_offset is None:
-                open_offset = offset
-                open_character = marker[0]
-                open_length = len(marker)
-            elif marker[0] == open_character and len(marker) >= open_length:
-                if line.strip()[len(marker):].strip() == "":
-                    spans.append((open_offset, offset + len(line)))
-                    open_offset = None
-        offset += len(line)
-    if open_offset is not None:
-        spans.append((open_offset, len(text)))
-    return spans
+class CapabilitySectionError(ValueError):
+    """Raised when a README has an ambiguous generated capability section."""
 
 
 def _outside_fences(position: int, spans: list[tuple[int, int]]) -> bool:
@@ -62,14 +43,18 @@ def _first_outside_fences(
 
 def _slice_capabilities_section(readme_text: str) -> tuple[int, int, int | None] | None:
     spans = _fenced_spans(readme_text)
-    match = _first_outside_fences(
-        _CAPABILITIES_HEADER_RE,
-        readme_text,
-        0,
-        spans,
-    )
-    if match is None:
+    matches = [
+        match
+        for match in _CAPABILITIES_HEADER_RE.finditer(readme_text)
+        if _outside_fences(match.start(), spans)
+    ]
+    if len(matches) > 1:
+        raise CapabilitySectionError(
+            f"multiple canonical capability sections found ({len(matches)})"
+        )
+    if not matches:
         return None
+    match = matches[0]
     next_header = _first_outside_fences(
         _NEXT_TOP_HEADER_RE,
         readme_text,
@@ -77,7 +62,7 @@ def _slice_capabilities_section(readme_text: str) -> tuple[int, int, int | None]
         spans,
     )
     end = next_header.start() if next_header is not None else len(readme_text)
-    position = int(match.group(1)) if match.group(1) else None
+    position = int(match.group(1))
     return (match.start(), end, position)
 
 

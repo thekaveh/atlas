@@ -42,12 +42,16 @@ def resolve_capability_rows(
     """Resolve rows in aggregate-member and manifest declaration order."""
     manifests_by_name = {manifest.name: manifest for manifest in manifests}
     member_names = tuple(dict.fromkeys(doc_folder_to_manifests(doc_name)))
+    missing_members = [name for name in member_names if name not in manifests_by_name]
+    if missing_members:
+        missing = ", ".join(missing_members)
+        raise KeyError(
+            f"capability contract for '{doc_name}' is missing mapped manifest(s): {missing}"
+        )
 
     rows: list[CapabilityRow] = []
     for member_name in member_names:
-        manifest = manifests_by_name.get(member_name)
-        if manifest is None:
-            continue
+        manifest = manifests_by_name[member_name]
         rows.extend(
             CapabilityRow(
                 service=manifest.name,

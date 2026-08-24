@@ -24,19 +24,24 @@ import argparse
 import re
 import sys
 from pathlib import Path
+from typing import Iterable
 
 from .deps_resolver import build_doc_graph
 
-from services.manifests import load_manifests  # noqa: E402
+from services.manifests import Manifest, load_manifests  # noqa: E402
 
 from .capabilities_resolver import (
     capability_section_enabled,
     is_aggregate_capability_doc,
     resolve_capability_rows,
 )
-from .capabilities_section_writer import upsert_capabilities_section
+from .capabilities_section_writer import (
+    CapabilitySectionError,
+    upsert_capabilities_section,
+)
 from .deps_section_writer import render_section
 from .diagram_renderer import render_html, render_svg
+from .markdown_blocks import fenced_code_spans as _fenced_spans
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 SERVICES_DIR = REPO_ROOT / "services"
@@ -49,41 +54,6 @@ FUTURE_HEADER_RE = re.compile(
     re.MULTILINE,
 )
 PLACEHOLDER_LINE = "_No high-confidence opportunities identified._"
-
-_FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})")
-
-
-def _fenced_spans(text: str) -> list[tuple[int, int]]:
-    """Char-offset spans covering fenced code blocks (``` or ~~~).
-
-    Header detection must ignore ``## ``/``### `` lines that live inside a code
-    fence — user-authored ``Future — …`` subsections routinely embed snippets
-    (a YAML ``## note``, a diff, a heading example). Without this the slicer
-    treats a fenced heading as a real section boundary and corrupts the README
-    on the next regen write (splice-inside-fence / orphaned tail / truncation).
-    """
-    spans: list[tuple[int, int]] = []
-    open_off: int | None = None
-    open_char = ""
-    open_len = 0
-    offset = 0
-    for line in text.splitlines(keepends=True):
-        m = _FENCE_RE.match(line)
-        if m:
-            marker = m.group(1)
-            if open_off is None:
-                open_off, open_char, open_len = offset, marker[0], len(marker)
-            elif marker[0] == open_char and len(marker) >= open_len:
-                # A closing fence is the same char, at least as long, with no
-                # trailing info string.
-                if line.strip()[len(marker):].strip() == "":
-                    spans.append((open_off, offset + len(line)))
-                    open_off = None
-        offset += len(line)
-    if open_off is not None:  # unterminated fence → to end of text
-        spans.append((open_off, len(text)))
-    return spans
-
 
 def _in_fence(pos: int, spans: list[tuple[int, int]]) -> bool:
     return any(a <= pos < b for a, b in spans)
@@ -222,19 +192,33 @@ def _upsert_section(readme_text: str, section: str) -> str:
     return readme_text.rstrip() + "\n\n" + section
 
 
-def _process(name: str, out_root: Path, dry_run: bool, section_only: bool, check: bool) -> int:
-    graph = build_doc_graph(name, SERVICES_DIR)
+def _process(
+    name: str,
+    out_root: Path,
+    dry_run: bool,
+    section_only: bool,
+    check: bool,
+    manifests: Iterable[Manifest] | None = None,
+) -> int:
+    manifest_snapshot = tuple(manifests) if manifests is not None else tuple(
+        load_manifests(SERVICES_DIR)
+    )
+    capability_rows = (
+        resolve_capability_rows(name, manifest_snapshot)
+        if capability_section_enabled(name)
+        else None
+    )
+    graph = build_doc_graph(name, SERVICES_DIR, manifests=manifest_snapshot)
     target_dir = out_root / name
     readme_path = target_dir / "README.md"
     existing_readme = readme_path.read_text(encoding="utf-8") if readme_path.exists() else ""
 
     section = _render_section_with_future(graph, existing_readme)
     new_readme = _upsert_section(existing_readme, section)
-    if capability_section_enabled(name):
-        rows = resolve_capability_rows(name, load_manifests(SERVICES_DIR))
+    if capability_rows is not None:
         new_readme = upsert_capabilities_section(
             new_readme,
-            rows,
+            capability_rows,
             aggregate=is_aggregate_capability_doc(name),
         )
 
@@ -274,13 +258,24 @@ def main(argv: list[str]) -> int:
     args = ap.parse_args(argv)
 
     targets = _enumerate_doc_folders() if args.all else [args.service]
+    manifest_snapshot = tuple(load_manifests(SERVICES_DIR))
 
     total_drift = 0
     for name in targets:
         try:
-            total_drift += _process(name, args.out_root, args.dry_run, args.section_only, args.check)
+            total_drift += _process(
+                name,
+                args.out_root,
+                args.dry_run,
+                args.section_only,
+                args.check,
+                manifest_snapshot,
+            )
         except KeyError as e:
             print(f"manifest error for {name}: {e}", file=sys.stderr)
+            return 1
+        except CapabilitySectionError as e:
+            print(f"capability section error for {name}: {e}", file=sys.stderr)
             return 1
 
     if args.check and total_drift:
