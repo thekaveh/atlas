@@ -38,6 +38,20 @@ def test_count_layer_on_missing_dir_is_zero(tmp_path: Path):
     assert count_layer(tmp_path / "nope")["lines"] == 0
 
 
+def test_count_layer_skips_non_utf8_file_instead_of_raising(tmp_path: Path):
+    """#535 followups review, finding R8: read_text used to sit outside
+    the try/except that catches SyntaxError, so one non-UTF-8 .py file
+    killed the whole report with an uncaught UnicodeDecodeError. The
+    unreadable file is now skipped; every OTHER file in the same
+    directory still counts normally."""
+    (tmp_path / "good.py").write_text("x = 1\n", encoding="utf-8")
+    # Not valid UTF-8 (a lone continuation byte).
+    (tmp_path / "bad.py").write_bytes(b"x = '\x80'\n")
+    result = count_layer(tmp_path)
+    assert result["files"] == 1
+    assert result["lines"] == 1
+
+
 def test_format_report_includes_every_layer():
     text = format_report(ROOT)
     for layer in ("wizard/model", "wizard/viewmodel", "wizard/view", "ui/textual"):

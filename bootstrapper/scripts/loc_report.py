@@ -12,7 +12,6 @@ line count while removing branching.
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 from radon.complexity import cc_visit
@@ -36,7 +35,17 @@ def count_layer(root: Path) -> dict[str, int]:
     for path in sorted(root.rglob("*.py")):
         if "__pycache__" in path.parts:
             continue
-        source = path.read_text(encoding="utf-8")
+        try:
+            source = path.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            # #535 followups review, finding R8: read_text used to sit
+            # outside this try, so a single non-UTF-8 .py file under a
+            # scanned layer killed the whole report with an uncaught
+            # UnicodeDecodeError. Skip the unreadable file entirely
+            # (files/lines/complexity all uncounted for it) rather than
+            # aborting — this report is a weak proxy already (see module
+            # docstring), not a correctness gate.
+            continue
         files += 1
         lines += len(source.splitlines())
         try:
@@ -56,13 +65,17 @@ def format_report(bootstrapper_root: Path) -> str:
             f"| {stats['max_complexity']} |"
         )
     rows.append(
-        "\nNote: rows overlap, they do not sum to a whole. `wizard` "
-        "includes everything under `wizard/model` (and `wizard/viewmodel` "
-        "once it exists), so summing the table double-counts those files."
+        "\nNote: rows overlap, they do not sum to a whole. Any row whose "
+        "path is an ANCESTOR directory of another row's path double-counts "
+        "that row's files — e.g. `wizard` already includes everything "
+        "under `wizard/model` (and `wizard/viewmodel` once it exists). "
+        "The same will apply to `ui/textual` once it starts moving under "
+        "`wizard/` (`wizard/view`) in a later migration pass — check "
+        "which LAYERS entries are prefixes of which others rather than "
+        "assuming only the pair called out here overlaps."
     )
     return "\n".join(rows)
 
 
 if __name__ == "__main__":
     print(format_report(Path(__file__).resolve().parents[1]))
-    sys.exit(0)
