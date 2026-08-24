@@ -44,7 +44,7 @@ def test_comma_only_csv_does_not_trigger_zero_models_override():
     strip it -- the original's own check. A real secret alongside it must
     still enable the provider, not get force-disabled."""
     source_args, stack_options = _selections_to_args(
-        _selections(","), services_info=[], current_base_port=63000,
+        _selections(","), services_info=[], current_base_port=63000, env_vars={},
     )
     assert source_args.get(_SOURCE_KEY) == "enabled", source_args
     assert stack_options["cloud_api_keys"].get(_PROVIDER.api_key_var) == "sk-real-key"
@@ -52,21 +52,21 @@ def test_comma_only_csv_does_not_trigger_zero_models_override():
 
 def test_double_comma_csv_does_not_trigger_zero_models_override():
     source_args, _ = _selections_to_args(
-        _selections(",,"), services_info=[], current_base_port=63000,
+        _selections(",,"), services_info=[], current_base_port=63000, env_vars={},
     )
     assert source_args.get(_SOURCE_KEY) == "enabled", source_args
 
 
 def test_spaced_comma_csv_does_not_trigger_zero_models_override():
     source_args, _ = _selections_to_args(
-        _selections(" , "), services_info=[], current_base_port=63000,
+        _selections(" , "), services_info=[], current_base_port=63000, env_vars={},
     )
     assert source_args.get(_SOURCE_KEY) == "enabled", source_args
 
 
 def test_spaced_double_comma_csv_does_not_trigger_zero_models_override():
     source_args, _ = _selections_to_args(
-        _selections(" , , "), services_info=[], current_base_port=63000,
+        _selections(" , , "), services_info=[], current_base_port=63000, env_vars={},
     )
     assert source_args.get(_SOURCE_KEY) == "enabled", source_args
 
@@ -75,7 +75,7 @@ def test_genuinely_empty_csv_still_triggers_the_override():
     """Contrast case: a real explicit "" commit is still the true
     zero-models override and must still disable + wipe the key."""
     source_args, stack_options = _selections_to_args(
-        _selections(""), services_info=[], current_base_port=63000,
+        _selections(""), services_info=[], current_base_port=63000, env_vars={},
     )
     assert source_args.get(_SOURCE_KEY) == "disabled", source_args
     assert stack_options["cloud_api_keys"].get(_PROVIDER.api_key_var) == ""
