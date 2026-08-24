@@ -150,17 +150,30 @@ Key modules:
   Textual `ServiceTable` and the `--no-tui` `build_pre_launch_summary_table`;
   `service_discovery.py` supplies the metadata (display name, description,
   options) `ui/textual/integration.py` uses to build the wizard prompt steps.
-- `wizard/viewmodel/` — VMx ViewModels (arrives in Pass 2 of #535). May import
-  `vmx` and `wizard.model`; may never import `textual`.
-- `wizard/view/` — Textual screens and widgets. May never import
-  `wizard.model` directly; it reads ViewModel state.
+- `wizard/viewmodel/` — VMx ViewModels (arrives in Pass 2 of #535). Will import
+  `vmx` and `wizard.model`; may never import `textual`. Doesn't exist yet.
+- `wizard/view/` — where `ui/textual/*` MOVES TO in Pass 3, not a second copy
+  of it (see `docs/superpowers/specs/2026-08-23-wizard-mvvm-vmx-design.md`).
+  Once it exists, it may never import `wizard.model` directly; it reads
+  ViewModel state instead. Doesn't exist yet — **today**, `ui/textual/` (the
+  real, current view) legitimately imports `wizard.model` directly at six
+  known sites, because no ViewModel layer exists yet for those imports to go
+  through. That is deliberate, tracked Pass-1 debt, not a lint gap.
 - `utils/kong_config_generator.py` — dynamic Kong route generation (the `kong-dynamic.yml` it emits is regenerated at every startup; do NOT edit by hand)
 - `generate_supabase_keys.py` (and `.sh` sibling) — auto-runs at startup, generates Supabase JWT keys into `.env`
 
 The layer direction (`view -> viewmodel -> model`) is enforced by
-`bootstrapper/tests/test_wizard_layer_boundaries.py`, which also asserts that
-`core/linear_startup.py` never imports `vmx` — that is what makes the
-`--no-tui` path structurally VMx-free rather than VMx-free by convention.
+`bootstrapper/tests/test_wizard_layer_boundaries.py`, to the extent each layer
+currently exists in a form worth linting: `wizard/model/**` is checked for
+real (`vmx`/`textual`-free) today; `wizard/viewmodel/` doesn't exist yet, so
+its check is an explicit skip (Pass 2) rather than a vacuous pass; and the
+`view -> model` direction is checked against `ui/textual/` — the view's real,
+current location — pinned against a closed six-site allowlist of the known
+Pass-1 debt described above, with a separate tripwire test that fails the
+moment `wizard/view/` is created so the check gets re-pointed there instead
+of silently going stale. The suite also asserts that `core/linear_startup.py`
+never imports `vmx` — that is what makes the `--no-tui` path structurally
+VMx-free rather than VMx-free by convention.
 
 `start.sh` and `stop.sh` are thin wrappers that prefer `uv run` and fall back to system Python. The bootstrapper can also be invoked directly: `python bootstrapper/start.py [flags]` or `python bootstrapper/stop.py`. `--no-tui` bypasses the Textual TUI and runs the linear stdout flow (used by CI, non-TTY shells, and very narrow terminals).
 
