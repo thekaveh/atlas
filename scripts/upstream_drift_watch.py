@@ -1,21 +1,29 @@
-"""Contracts and source discovery for Atlas's upstream drift watch.
-
-The live probes and command-line entry point are added in a later task.  This
-module deliberately contains no network or subprocess behavior.
-"""
+"""Bounded source discovery and live probes for Atlas's upstream drift watch."""
 
 from __future__ import annotations
 
+import argparse
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import json
 from pathlib import Path
+import socket
+import subprocess
 from typing import Any, Sequence
+import urllib.error
+import urllib.parse
+import urllib.request
 
 import yaml
+from utils import ollama_library
 
 
 _MAX_DETAIL_LENGTH = 500
 _REPORT_MARKER = "<!-- atlas-upstream-drift-watch -->"
+_USER_AGENT = "Atlas upstream-drift-watch/1.0"
+_DEFAULT_OLLAMA_TAGS_URL = "http://127.0.0.1:11434/api/tags"
+_DEFAULT_REPORT_FILE = Path("upstream-drift-report.md")
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,3 +139,184 @@ def render_report(results: Sequence[ProbeResult], generated_at: datetime) -> str
             ]
         )
     return "\n".join(lines).rstrip() + "\n"
+
+
+def _response_status(response: Any) -> int:
+    """Return the HTTP response status for real and test-double responses."""
+
+    status = getattr(response, "status", None)
+    if status is None:
+        status = response.getcode()
+    return int(status)
+
+
+def _http_failure_detail(exc: BaseException) -> str:
+    if isinstance(exc, urllib.error.HTTPError):
+        return f"HTTP {exc.code}: {exc.reason}"
+    return f"request failed: {exc}"
+
+
+def probe_ollama_library() -> ProbeResult:
+    """Check that the live Ollama library remains plausibly populated."""
+
+    entries = ollama_library.list_library_entries()
+    observed = len(entries)
+    required = ollama_library.MIN_PLAUSIBLE_ENTRIES
+    if observed < required:
+        return ProbeResult(
+            "ollama library",
+            False,
+            f"observed {observed} entries; require at least {required}",
+        )
+    return ProbeResult("ollama library", True, f"observed {observed} entries")
+
+
+def probe_ollama_tags(url: str, *, timeout: float) -> ProbeResult:
+    """Validate the bounded ``/api/tags`` response contract."""
+
+    request = urllib.request.Request(
+        url,
+        headers={"User-Agent": _USER_AGENT, "Accept": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            status = _response_status(response)
+            if not 200 <= status < 300:
+                return ProbeResult("ollama tags", False, f"HTTP {status}")
+            payload = response.read()
+    except (urllib.error.URLError, socket.timeout, ConnectionError, OSError) as exc:
+        return ProbeResult("ollama tags", False, _http_failure_detail(exc))
+
+    try:
+        document = json.loads(payload.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        return ProbeResult("ollama tags", False, f"invalid JSON: {exc}")
+    if not isinstance(document, dict):
+        return ProbeResult("ollama tags", False, "response must be a JSON object")
+    models = document.get("models")
+    if not isinstance(models, list):
+        return ProbeResult("ollama tags", False, "response.models must be a list")
+    for index, model in enumerate(models):
+        if not isinstance(model, dict):
+            return ProbeResult("ollama tags", False, f"response.models[{index}] must be an object")
+        names = (model.get("name"), model.get("model"))
+        if not any(isinstance(name, str) and name.strip() for name in names):
+            return ProbeResult(
+                "ollama tags",
+                False,
+                f"response.models[{index}] needs a non-empty name or model",
+            )
+    return ProbeResult("ollama tags", True, f"valid response with {len(models)} model(s)")
+
+
+def probe_curated_models(models: Sequence[str], *, timeout: float) -> ProbeResult:
+    """Check that every curated model family still has a public library page."""
+
+    failures: list[str] = []
+    for model in models:
+        family = model.split(":", 1)[0]
+        encoded_family = urllib.parse.quote(family, safe="-._")
+        request = urllib.request.Request(
+            f"https://ollama.com/library/{encoded_family}",
+            headers={"User-Agent": _USER_AGENT, "Accept": "text/html"},
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                status = _response_status(response)
+                if not 200 <= status < 300:
+                    failures.append(f"{model} (HTTP {status})")
+        except (urllib.error.URLError, socket.timeout, ConnectionError, OSError) as exc:
+            failures.append(f"{model} ({_http_failure_detail(exc)})")
+    if failures:
+        return ProbeResult("curated Ollama models", False, _bounded_detail("; ".join(failures)))
+    return ProbeResult("curated Ollama models", True, f"checked {len(models)} model(s)")
+
+
+def _inspect_image(reference: str, timeout: float) -> str | None:
+    try:
+        result = subprocess.run(
+            ["docker", "buildx", "imagetools", "inspect", reference],
+            timeout=timeout,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except subprocess.TimeoutExpired:
+        return f"{reference} (timed out after {timeout}s)"
+    except OSError as exc:
+        return f"{reference} ({exc})"
+    if result.returncode == 0:
+        return None
+    output = " ".join(part for part in (result.stdout, result.stderr) if part).strip()
+    detail = f"{reference} (exit {result.returncode})"
+    return f"{detail}: {_bounded_detail(output)}" if output else detail
+
+
+def probe_manifest_images(
+    refs: Sequence[str], *, timeout: float, workers: int
+) -> ProbeResult:
+    """Resolve manifest-owned images without downloading their layers."""
+
+    if workers < 1:
+        return ProbeResult("manifest images", False, "workers must be at least 1")
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        failures = [
+            failure
+            for failure in executor.map(lambda reference: _inspect_image(reference, timeout), refs)
+            if failure is not None
+        ]
+    if failures:
+        return ProbeResult("manifest images", False, _bounded_detail("; ".join(failures)))
+    return ProbeResult("manifest images", True, f"resolved {len(refs)} image(s)")
+
+
+def run_watch(
+    *,
+    ollama_tags_url: str,
+    services_dir: Path,
+    ollama_models: Path,
+    http_timeout: float,
+    image_timeout: float,
+    image_workers: int,
+) -> tuple[ProbeResult, ...]:
+    """Run every independent probe and retain all result details."""
+
+    models = load_curated_ollama_models(ollama_models)
+    refs = load_manifest_image_refs(services_dir)
+    return (
+        probe_ollama_library(),
+        probe_ollama_tags(ollama_tags_url, timeout=http_timeout),
+        probe_curated_models(models, timeout=http_timeout),
+        probe_manifest_images(refs, timeout=image_timeout, workers=image_workers),
+    )
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """Run the watcher, write its report, and return aggregate health."""
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--ollama-tags-url", default=_DEFAULT_OLLAMA_TAGS_URL)
+    parser.add_argument("--services-dir", type=Path, default=Path("services"))
+    parser.add_argument("--ollama-models", type=Path, default=Path("services/ollama/models.yaml"))
+    parser.add_argument("--report-file", type=Path, default=_DEFAULT_REPORT_FILE)
+    parser.add_argument("--http-timeout", type=float, default=5.0)
+    parser.add_argument("--image-timeout", type=float, default=15.0)
+    parser.add_argument("--image-workers", type=int, default=4)
+    args = parser.parse_args(argv)
+
+    results = run_watch(
+        ollama_tags_url=args.ollama_tags_url,
+        services_dir=args.services_dir,
+        ollama_models=args.ollama_models,
+        http_timeout=args.http_timeout,
+        image_timeout=args.image_timeout,
+        image_workers=args.image_workers,
+    )
+    report = render_report(results, datetime.now(timezone.utc))
+    args.report_file.write_text(report, encoding="utf-8")
+    print(report, end="")
+    return 0 if all(result.ok for result in results) else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

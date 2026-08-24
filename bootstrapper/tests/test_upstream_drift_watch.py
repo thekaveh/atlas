@@ -1,8 +1,28 @@
 from datetime import datetime, timezone
+from pathlib import Path
+import subprocess
+import urllib.error
 
 import pytest
 
 from scripts import upstream_drift_watch as watch
+
+
+class _HttpResponse:
+    """Complete stand-in for the small HTTP response surface the watcher uses."""
+
+    def __init__(self, payload: bytes, status: int = 200):
+        self._payload = payload
+        self.status = status
+
+    def read(self) -> bytes:
+        return self._payload
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
 
 
 def test_load_curated_models_deduplicates_multimodal_entries(tmp_path):
@@ -84,3 +104,173 @@ def test_discovery_allows_absent_optional_sections(tmp_path):
     (services / "empty" / "service.yml").write_text("name: empty\n")
     assert watch.load_curated_ollama_models(models) == ("qwen:latest",)
     assert watch.load_manifest_image_refs(services) == ()
+
+
+def test_probe_ollama_library_requires_the_plausible_catalog_threshold(monkeypatch):
+    monkeypatch.setattr(
+        watch.ollama_library,
+        "list_library_entries",
+        lambda: [object()] * watch.ollama_library.MIN_PLAUSIBLE_ENTRIES,
+    )
+    assert watch.probe_ollama_library().ok is True
+
+    monkeypatch.setattr(watch.ollama_library, "list_library_entries", lambda: [])
+    result = watch.probe_ollama_library()
+    assert result.ok is False
+    assert "0" in result.detail
+
+
+def test_probe_ollama_tags_uses_bounded_atlas_request_and_validates_schema(monkeypatch):
+    captured = {}
+
+    def _open(request, *, timeout):
+        captured["request"] = request
+        captured["timeout"] = timeout
+        return _HttpResponse(b'{"models": [{"name": "qwen:latest"}]}')
+
+    monkeypatch.setattr(watch.urllib.request, "urlopen", _open)
+    result = watch.probe_ollama_tags("http://127.0.0.1:11434/api/tags", timeout=2.5)
+
+    assert result.ok is True
+    assert captured["timeout"] == 2.5
+    assert "Atlas" in captured["request"].get_header("User-agent")
+
+
+@pytest.mark.parametrize(
+    "response, expected",
+    [
+        (_HttpResponse(b"not-json"), "invalid JSON"),
+        (_HttpResponse(b"[]"), "object"),
+        (_HttpResponse(b'{"models": {}}'), "models"),
+        (_HttpResponse(b'{"models": ["wrong"]}'), "models[0]"),
+        (_HttpResponse(b'{"models": [{}]}'), "models[0]"),
+        (_HttpResponse(b"{}", status=503), "HTTP 503"),
+    ],
+)
+def test_probe_ollama_tags_rejects_malformed_or_non_success_response(monkeypatch, response, expected):
+    monkeypatch.setattr(watch.urllib.request, "urlopen", lambda *_a, **_k: response)
+    result = watch.probe_ollama_tags("http://ollama.invalid/api/tags", timeout=1.0)
+    assert result.ok is False
+    assert expected in result.detail
+
+
+def test_probe_ollama_tags_converts_http_errors_to_failed_result(monkeypatch):
+    error = urllib.error.HTTPError("http://ollama.invalid/api/tags", 502, "bad gateway", {}, None)
+    monkeypatch.setattr(watch.urllib.request, "urlopen", lambda *_a, **_k: (_ for _ in ()).throw(error))
+    result = watch.probe_ollama_tags("http://ollama.invalid/api/tags", timeout=1.0)
+    assert result.ok is False
+    assert "502" in result.detail
+
+
+def test_probe_ollama_tags_accepts_model_alias_when_name_is_empty(monkeypatch):
+    monkeypatch.setattr(
+        watch.urllib.request,
+        "urlopen",
+        lambda *_a, **_k: _HttpResponse(b'{"models": [{"name": "", "model": "qwen:latest"}]}'),
+    )
+    assert watch.probe_ollama_tags("http://ollama.invalid/api/tags", timeout=1.0).ok
+
+
+def test_probe_curated_models_reports_each_non_success_catalog_entry(monkeypatch):
+    def _open(request, *, timeout):
+        assert timeout == 1.5
+        status = 404 if request.full_url.endswith("/missing") else 200
+        return _HttpResponse(b"", status=status)
+
+    monkeypatch.setattr(watch.urllib.request, "urlopen", _open)
+    result = watch.probe_curated_models(("ok:latest", "missing:latest"), timeout=1.5)
+    assert result.ok is False
+    assert "missing:latest" in result.detail
+    assert "ok:latest" not in result.detail
+
+
+def _write_fake_docker(tmp_path: Path, body: str) -> None:
+    docker = tmp_path / "docker"
+    docker.write_text(f"#!/bin/sh\n{body}\n", encoding="utf-8")
+    docker.chmod(0o755)
+
+
+def test_probe_manifest_images_uses_bounded_real_subprocess(tmp_path, monkeypatch):
+    _write_fake_docker(tmp_path, "exit 0")
+    monkeypatch.setenv("PATH", f"{tmp_path}:{__import__('os').environ['PATH']}")
+    result = watch.probe_manifest_images(("example/image:1",), timeout=1.0, workers=1)
+    assert result.ok is True
+
+
+def test_probe_manifest_images_reports_nonzero_output_with_bounded_detail(tmp_path, monkeypatch):
+    _write_fake_docker(tmp_path, "printf '%800s' '' | tr ' ' x >&2\nexit 9")
+    monkeypatch.setenv("PATH", f"{tmp_path}:{__import__('os').environ['PATH']}")
+    result = watch.probe_manifest_images(("broken/image:1",), timeout=1.0, workers=1)
+    assert result.ok is False
+    assert "broken/image:1" in result.detail
+    assert len(result.detail) < 600
+    assert "…" in result.detail
+
+
+def test_probe_manifest_images_converts_subprocess_timeout_to_failure(tmp_path, monkeypatch):
+    _write_fake_docker(tmp_path, "sleep 1")
+    monkeypatch.setenv("PATH", f"{tmp_path}:{__import__('os').environ['PATH']}")
+    result = watch.probe_manifest_images(("slow/image:1",), timeout=0.01, workers=1)
+    assert result.ok is False
+    assert "timed out" in result.detail
+
+
+def test_probe_manifest_images_passes_explicit_bounded_subprocess_options(monkeypatch):
+    captured = {}
+
+    def _run(command, **kwargs):
+        captured["command"] = command
+        captured["kwargs"] = kwargs
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(watch.subprocess, "run", _run)
+    assert watch.probe_manifest_images(("example/image:1",), timeout=3.0, workers=1).ok
+    assert captured["command"] == ["docker", "buildx", "imagetools", "inspect", "example/image:1"]
+    assert captured["kwargs"] == {
+        "timeout": 3.0,
+        "check": False,
+        "capture_output": True,
+        "text": True,
+    }
+
+
+def test_run_watch_aggregates_results_in_probe_order(monkeypatch, tmp_path):
+    monkeypatch.setattr(watch, "load_curated_ollama_models", lambda _path: ("model:latest",))
+    monkeypatch.setattr(watch, "load_manifest_image_refs", lambda _path: ("image:1",))
+    monkeypatch.setattr(watch, "probe_ollama_library", lambda: watch.ProbeResult("library", False, "small"))
+    monkeypatch.setattr(watch, "probe_ollama_tags", lambda *_a, **_k: watch.ProbeResult("tags", True, "valid"))
+    monkeypatch.setattr(watch, "probe_curated_models", lambda *_a, **_k: watch.ProbeResult("models", False, "missing"))
+    monkeypatch.setattr(watch, "probe_manifest_images", lambda *_a, **_k: watch.ProbeResult("images", True, "resolved"))
+
+    results = watch.run_watch(
+        ollama_tags_url="http://ollama.invalid/api/tags",
+        services_dir=tmp_path / "services",
+        ollama_models=tmp_path / "models.yaml",
+        http_timeout=1.0,
+        image_timeout=1.0,
+        image_workers=1,
+    )
+    assert [(result.name, result.ok) for result in results] == [
+        ("library", False), ("tags", True), ("models", False), ("images", True)
+    ]
+
+
+@pytest.mark.parametrize("ok, expected_exit", [(True, 0), (False, 1)])
+def test_main_writes_report_and_returns_aggregate_status(monkeypatch, tmp_path, ok, expected_exit):
+    report_path = tmp_path / "report.md"
+    monkeypatch.setattr(
+        watch,
+        "run_watch",
+        lambda **_kwargs: (watch.ProbeResult("library", ok, "detail"),),
+    )
+    exit_code = watch.main([
+        "--ollama-tags-url", "http://ollama.invalid/api/tags",
+        "--services-dir", str(tmp_path / "services"),
+        "--ollama-models", str(tmp_path / "models.yaml"),
+        "--report-file", str(report_path),
+        "--http-timeout", "2.0",
+        "--image-timeout", "3.0",
+        "--image-workers", "2",
+    ])
+    assert exit_code == expected_exit
+    assert "<!-- atlas-upstream-drift-watch -->" in report_path.read_text(encoding="utf-8")
