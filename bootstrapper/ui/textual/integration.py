@@ -926,8 +926,10 @@ def _selections_to_args(
     # explicitly and why ``source is None`` must be left unwritten
     # rather than coerced to "disabled". The models-CSV write stays
     # here: it persists the raw multiselect string verbatim (not a
-    # re-parsed/rejoined form of the resolution's echoed ``.models``),
-    # which is env-var-name bookkeeping, not a promotion rule.
+    # re-parsed/rejoined form of anything the resolution returns),
+    # which is env-var-name bookkeeping, not a promotion rule. (The
+    # resolution used to echo a ``.models`` field for exactly this —
+    # nothing ever read it; removed in the #535 followups review.)
     cloud_api_keys: dict = {}
     cloud_user_models: dict = {}
     for provider in CLOUD_PROVIDERS:
