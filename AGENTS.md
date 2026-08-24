@@ -146,11 +146,14 @@ Key modules:
   (finding R1) once it was shown to have already drifted from the one
   `--no-tui` uses; the wizard now calls `tracks.synthesize_track_source_args`
   directly via a local, guarded import in `_selections_to_args`. No
-  module-scope `vmx` or `textual`
-  imports (one documented exception: `llm_rules.selected_llm_source` does a
-  deferred, function-scope import of `wizard.llm_steps` to reach a
-  ViewModel-owned constant, pending a Pass 3 move — see the package
-  docstring). Consumed by BOTH the Textual wizard and the `--no-tui` linear
+  module-scope `vmx` or `textual` imports — and, as of the #535 followups
+  review (finding R5), no deferred ones either: `llm_rules.selected_llm_source`
+  used to reach a ViewModel-owned `LLM_ENGINE_TITLE` constant via a
+  function-scope import of `wizard.llm_steps`, invisible to the static
+  layer check but real at runtime (calling it pulled ~139 `textual.*`
+  submodules into `sys.modules`); the constant moved into `llm_rules.py`
+  itself, which was its natural home all along. Consumed by BOTH the
+  Textual wizard and the `--no-tui` linear
   flow. `state_builder.all_services()`
   is the single source of truth for service definitions, consumed by both the
   Textual `ServiceTable` and the `--no-tui` `build_pre_launch_summary_table`;

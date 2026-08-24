@@ -53,6 +53,7 @@ from ui.textual.widgets.prompt_panel import (
     PromptStep,
 )
 from wizard.model.llm_rules import (
+    LLM_ENGINE_TITLE,
     is_container_ollama as _is_container_ollama,
     is_localhost_or_external as _is_localhost_or_external,
     parse_csv as _csv,
@@ -60,7 +61,12 @@ from wizard.model.llm_rules import (
 )
 
 
-LLM_ENGINE_TITLE = "LLM Engine  ·  source"
+# LLM_ENGINE_TITLE is re-exported (not redefined) from wizard.model.llm_rules
+# — the canonical definition moved there in the #535 followups review
+# (finding R5) so selected_llm_source could reach it without a deferred,
+# textual-pulling import of this module. Kept importable from here too for
+# backward compatibility with any existing `from wizard.llm_steps import
+# LLM_ENGINE_TITLE` call sites.
 LLM_DEFAULT_CONTENT_TITLE = "LLM defaults  ·  chat model"
 LLM_DEFAULT_EMBED_TITLE   = "LLM defaults  ·  embedding model"
 LLM_DEFAULT_VISION_TITLE  = "LLM defaults  ·  vision model"
