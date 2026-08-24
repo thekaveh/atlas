@@ -139,8 +139,14 @@ Key modules:
 - `ui/textual/palette.py`, `ui/textual/theme.css` — colors and Textual CSS for the app
 - `ui/term_caps.py` — `is_tui_capable(no_tui_flag)` helper used by `start.py` to decide between the Textual app and the linear flow
 - `wizard/model/` — Wizard Model layer: `state.py`, `state_builder.py`,
-  `service_discovery.py`, plus the extracted domain rules (`track_rules.py`,
-  `cloud_rules.py`, `llm_rules.py`). No module-scope `vmx` or `textual`
+  `service_discovery.py`, plus the extracted domain rules (`cloud_rules.py`,
+  `llm_rules.py`). The track force-disable rule lives in `tracks.py`
+  (`synthesize_track_source_args`) — a former second copy of it,
+  `wizard/model/track_rules.py`, was deleted in the #535 followups review
+  (finding R1) once it was shown to have already drifted from the one
+  `--no-tui` uses; the wizard now calls `tracks.synthesize_track_source_args`
+  directly via a local, guarded import in `_selections_to_args`. No
+  module-scope `vmx` or `textual`
   imports (one documented exception: `llm_rules.selected_llm_source` does a
   deferred, function-scope import of `wizard.llm_steps` to reach a
   ViewModel-owned constant, pending a Pass 3 move — see the package
@@ -156,7 +162,7 @@ Key modules:
   of it (see `docs/superpowers/specs/2026-08-23-wizard-mvvm-vmx-design.md`).
   Once it exists, it may never import `wizard.model` directly; it reads
   ViewModel state instead. Doesn't exist yet — **today**, `ui/textual/` (the
-  real, current view) legitimately imports `wizard.model` directly at six
+  real, current view) legitimately imports `wizard.model` directly at five
   known sites, because no ViewModel layer exists yet for those imports to go
   through. That is deliberate, tracked Pass-1 debt, not a lint gap.
 - `utils/kong_config_generator.py` — dynamic Kong route generation (the `kong-dynamic.yml` it emits is regenerated at every startup; do NOT edit by hand)
@@ -168,7 +174,7 @@ currently exists in a form worth linting: `wizard/model/**` is checked for
 real (`vmx`/`textual`-free) today; `wizard/viewmodel/` doesn't exist yet, so
 its check is an explicit skip (Pass 2) rather than a vacuous pass; and the
 `view -> model` direction is checked against `ui/textual/` — the view's real,
-current location — pinned against a closed six-site allowlist of the known
+current location — pinned against a closed five-site allowlist of the known
 Pass-1 debt described above, with a separate tripwire test that fails the
 moment `wizard/view/` is created so the check gets re-pointed there instead
 of silently going stale. The suite also asserts that `core/linear_startup.py`

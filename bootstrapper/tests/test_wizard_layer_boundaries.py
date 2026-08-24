@@ -52,8 +52,12 @@ Two different fixes for two different situations, below:
   moment Pass 2 creates the directory.
 - ``wizard/view/``: no directory exists YET, but its real, current
   stand-in (``ui/textual/``) does, and DOES import ``wizard.model`` at
-  six known, deliberate Pass-1 sites. The test now scans
-  ``ui/textual/`` for real and pins those six sites as a closed
+  five known, deliberate Pass-1 sites (was six until the #535 followups
+  review, finding R1, deleted ``wizard/model/track_rules.py`` and
+  routed its one caller through ``tracks.synthesize_track_source_args``
+  directly -- a local, function-scoped import of ``tracks``, not
+  ``wizard.model``, so it never appears in this scan). The test now
+  scans ``ui/textual/`` for real and pins those five sites as a closed
   allowlist (see ``_KNOWN_PASS1_VIEW_MODEL_IMPORTS`` below) -- any
   violation beyond that exact set fails the test for real, and so does
   the allowlist becoming stale (over- OR under-inclusive) once Pass 3
@@ -150,7 +154,7 @@ def test_viewmodel_layer_imports_no_textual():
 # The real view today is `ui/textual/` -- `wizard/view/` is where Pass 3
 # of #535 MOVES it to, not a second copy that coexists with it (see this
 # file's module docstring, finding C3). Pass 1 deliberately left
-# `ui/textual/` importing `wizard.model` directly at these six sites —
+# `ui/textual/` importing `wizard.model` directly at these five sites —
 # every `wizard/model/*.py` module docstring says as much ("Today
 # `integration.py` (the Textual path) is its only caller") — because no
 # ViewModel layer exists yet for those imports to go through. This is a
@@ -165,7 +169,6 @@ _KNOWN_PASS1_VIEW_MODEL_IMPORTS = frozenset({
     ("integration.py", "wizard.model.cloud_rules"),
     ("integration.py", "wizard.model.service_discovery"),
     ("integration.py", "wizard.model.state_builder"),
-    ("integration.py", "wizard.model.track_rules"),
     ("widgets/info_box.py", "wizard.model.state_builder"),
     ("widgets/prompt_panel.py", "wizard.model.cloud_rules"),
 })

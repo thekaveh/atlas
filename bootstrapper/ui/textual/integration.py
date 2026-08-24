@@ -28,7 +28,6 @@ _THEME_PATH = Path(__file__).parent / "theme.css"
 # registers without duplicating the string literal.
 from wizard.comfyui_steps import COMFYUI_MODELS_TITLE
 from wizard.model.cloud_rules import resolve_cloud_provider
-from wizard.model.track_rules import track_force_disabled_sources
 
 
 # Module-level sink for wizard-time diagnostic warnings (cloud /v1/models
@@ -876,12 +875,22 @@ def _selections_to_args(
     services_info,
     current_base_port: int,
     env_vars: dict,
+    consumer_declared: frozenset[str] | set[str] = frozenset(),
 ):
     """Map wizard selections back to (source_args, stack_options).
 
     ``env_vars`` is the resolved .env snapshot at wizard-build time;
     used to auto-promote SECRET_KEEP+disabled+key-already-set into
     ``--cloud-X-source enabled`` so the multiselect picks aren't inert.
+
+    ``consumer_declared`` (#783, threaded through here per the #535
+    followups review, finding R1): cli-style keys (e.g. ``minio_source``)
+    whose SOURCE var a consumer manifest explicitly declares in
+    ``env.values``. Defaults to empty so every existing direct caller
+    (tests included) keeps today's behavior — force-disabling every
+    off-track service with no explicit wizard selection. The production
+    caller (``run_setup_flow``'s ``_resolve`` closure) passes the real
+    set, computed the same way ``start.py`` computes it for ``--no-tui``.
 
     Fix-round note (#535 Pass 1 followups review, finding C1): this
     parameter is REQUIRED, deliberately with no default. It used to
@@ -916,16 +925,68 @@ def _selections_to_args(
         source_args[svc.key.replace("-", "_") + "_source"] = v
 
     # ─── Force-disable off-track services ────────────────────────────
-    # Rule lives in wizard/model/track_rules.py (#535 Pass 1); see there
-    # for why an 'all' track disables nothing and why a registry load
-    # failure degrades silently.
-    source_args.update(
-        track_force_disabled_sources(
-            track_key=selections.get(PICKER_STEP_TITLE),
-            services_info=services_info,
-            already_set=source_args,
+    # #535 followups review, finding R1: this used to call the wizard's
+    # own copy of this rule (wizard/model/track_rules.py), which had
+    # quietly drifted from tracks.synthesize_track_source_args — the
+    # implementation start.py's --no-tui path actually uses. The two
+    # disagreed on two things: synthesize_track_source_args skips
+    # `cloud_*` keys (moot here — this dict is service keys only, the
+    # cloud_* keys get added below) and honours `consumer_declared`,
+    # the #783 contract that a consumer manifest's declared SOURCE
+    # survives an out-of-track selection. track_rules.py implemented
+    # neither. Rather than maintain two rules that can silently
+    # diverge again, the wizard now calls the SAME function --no-tui
+    # calls, via a local, guarded import (mirroring every other
+    # `tracks` access in this module): a broken `tracks` import
+    # (missing/broken yaml/jsonschema, a partial venv, a syntax error
+    # in tracks.py) degrades to a no-op here, exactly like the old
+    # track_rules.py contract promised, rather than raising at wizard
+    # IMPORT time (this import is function-scoped, not module-scoped,
+    # so it can't do that regardless).
+    #
+    # synthesize_track_source_args mutates a dict IN PLACE and only
+    # ever looks at keys already present in it (mirroring the CLI's
+    # click-options dict, where every `--<svc>-source` key exists,
+    # defaulting to None when not passed). The wizard's `source_args`
+    # above is sparse -- it only has a key when the user's wizard step
+    # for that service actually rendered a selection, so an off-track
+    # service whose step was skipped by `_make_track_skip` has NO key
+    # here at all. `_track_view` below gives synthesize_track_source_args
+    # that full-dict shape without changing `source_args`'s own shape:
+    # only entries synthesize_track_source_args actually WROTE (None ->
+    # "disabled") get merged back in. A `consumer_declared` key stays
+    # None in `_track_view` (synthesize_track_source_args leaves it
+    # untouched) and therefore never gets merged into `source_args`,
+    # so nothing here clobbers the consumer manifest's own env.values
+    # write -- the same "leave it unwritten" mechanism start.py relies
+    # on.
+    _track_view: dict[str, str | None] = {
+        (svc.key.replace("-", "_") + "_source"): source_args.get(
+            svc.key.replace("-", "_") + "_source"
         )
+        for svc in services_info
+    }
+    _consumer_declared_keys = frozenset(
+        k for k in consumer_declared if k in _track_view
     )
+    try:
+        from tracks import load_tracks as _load_tracks_for_synth
+        from tracks import synthesize_track_source_args as _synth_track_args
+        _track_registry_for_synth = _load_tracks_for_synth()
+    except Exception:  # noqa: BLE001 — a broken `tracks` import/load must
+        # degrade the wizard, not crash it; see the note above.
+        _track_registry_for_synth = None
+    if _track_registry_for_synth is not None:
+        _synth_track_args(
+            _track_view,
+            track_key=selections.get(PICKER_STEP_TITLE),
+            registry=_track_registry_for_synth,
+            force_disable=True,
+            consumer_declared=_consumer_declared_keys,
+        )
+        for _cli_key, _value in _track_view.items():
+            if _value is not None and _cli_key not in source_args:
+                source_args[_cli_key] = _value
 
     # ─── Cloud-provider selections ───────────────────────────────────
     # Each provider has up to two wizard outputs:
@@ -1233,9 +1294,29 @@ def run_setup_flow(
     # logic in _selections_to_args has the .env state to compare against.
     _env_snapshot = config_parser.parse_env_file()
 
+    # #783 / #535 followups review finding R1: SOURCE vars a consumer
+    # manifest declares in env.values, computed the same way start.py
+    # computes `consumer_declared_source_keys` for the --no-tui path (see
+    # start.py, search "Track override-set"), so the wizard's own
+    # force-disable pass (inside _selections_to_args) can exempt them the
+    # same way. A malformed consumer manifest degrades to "declares
+    # nothing" -- it surfaces separately via `doctor`, not by blocking the
+    # wizard here.
+    _consumer_declared_source_keys: frozenset = frozenset()
+    try:
+        _cc = config_parser.load_consumer_config()
+        _consumer_declared_source_keys = frozenset(
+            var.lower()
+            for var in (_cc.env_overrides or {})
+            if var.endswith("_SOURCE")
+        )
+    except Exception:  # noqa: BLE001 — malformed manifests surface via doctor
+        pass
+
     def _resolve(selections: dict) -> tuple[dict, dict]:
         return _selections_to_args(
             selections, services_info, current_base_port, _env_snapshot,
+            consumer_declared=_consumer_declared_source_keys,
         )
 
     # Single source of truth for "what port should this service show
