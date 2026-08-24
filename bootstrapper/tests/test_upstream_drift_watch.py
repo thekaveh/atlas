@@ -64,6 +64,31 @@ def test_load_curated_models_rejects_populated_unknown_top_level_section(tmp_pat
         watch.load_curated_ollama_models(path)
 
 
+@pytest.mark.parametrize(
+    "unknown_yaml, expected",
+    [
+        ("1: []\n", "unknown top-level section: int(1)"),
+        (
+            "1: []\nbogus: []\n",
+            "unknown top-level section: bogus, int(1)",
+        ),
+    ],
+)
+def test_load_curated_models_rejects_non_string_unknown_sections_deterministically(
+    tmp_path, unknown_yaml, expected
+):
+    path = tmp_path / "models.yaml"
+    path.write_text(
+        "content: []\n"
+        "embeddings: []\n"
+        "vision: []\n"
+        f"{unknown_yaml}"
+    )
+
+    with pytest.raises(ValueError, match=re.escape(expected)):
+        watch.load_curated_ollama_models(path)
+
+
 def test_repository_curated_catalog_discovers_exactly_four_unique_models():
     assert watch.load_curated_ollama_models(REPO_ROOT / "services" / "ollama" / "models.yaml") == (
         "bge-m3",
@@ -622,6 +647,55 @@ def test_run_watch_reports_unknown_model_section_and_keeps_independent_results(m
 
     assert [result.ok for result in results] == [True, True, False, True]
     assert "unknown top-level section: bogus" in report
+    assert "Summary: **3 passed, 1 failed, 4 total**" in report
+
+
+def test_main_reports_mixed_unknown_model_keys_without_traceback(monkeypatch, tmp_path):
+    models = tmp_path / "models.yaml"
+    models.write_text(
+        "content: []\n"
+        "embeddings: []\n"
+        "vision: []\n"
+        "1: []\n"
+        "bogus: []\n"
+    )
+    report_path = tmp_path / "report.md"
+    calls = []
+    monkeypatch.setattr(watch, "load_manifest_image_refs", lambda _path: ("image:1",))
+    monkeypatch.setattr(
+        watch,
+        "probe_ollama_library",
+        lambda: calls.append("library") or watch.ProbeResult("library", True, "ok"),
+    )
+    monkeypatch.setattr(
+        watch,
+        "probe_ollama_tags",
+        lambda *_a, **_k: calls.append("tags") or watch.ProbeResult("tags", True, "ok"),
+    )
+    monkeypatch.setattr(
+        watch,
+        "probe_curated_models",
+        lambda *_a, **_k: pytest.fail("unknown section reached the network probe"),
+    )
+    monkeypatch.setattr(
+        watch,
+        "probe_manifest_images",
+        lambda *_a, **_k: calls.append("images") or watch.ProbeResult("images", True, "ok"),
+    )
+
+    exit_code = watch.main(
+        [
+            "--ollama-models",
+            str(models),
+            "--report-file",
+            str(report_path),
+        ]
+    )
+    report = report_path.read_text(encoding="utf-8")
+
+    assert exit_code == 1
+    assert sorted(calls) == ["images", "library", "tags"]
+    assert "unknown top-level section: bogus, int(1)" in report
     assert "Summary: **3 passed, 1 failed, 4 total**" in report
 
 

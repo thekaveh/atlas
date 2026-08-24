@@ -44,7 +44,7 @@ class ProbeResult:
     detail: str
 
 
-def _read_yaml_mapping(path: Path) -> dict[str, Any]:
+def _read_yaml_mapping(path: Path) -> dict[Any, Any]:
     try:
         value = yaml.safe_load(path.read_text(encoding="utf-8"))
     except (OSError, yaml.YAMLError) as exc:
@@ -60,6 +60,18 @@ def _sorted_unique(values: Sequence[str]) -> tuple[str, ...]:
     return tuple(sorted(set(values)))
 
 
+def _section_key_label(key: object) -> str:
+    if isinstance(key, str):
+        return key
+    return f"{type(key).__name__}({key!r})"
+
+
+def _unknown_section_labels(document: dict[Any, Any]) -> tuple[str, ...]:
+    return tuple(
+        sorted(_section_key_label(key) for key in document if key not in _OLLAMA_MODEL_SECTIONS)
+    )
+
+
 def load_curated_ollama_models(path: Path) -> tuple[str, ...]:
     """Return all named models in the curated Ollama catalog.
 
@@ -69,7 +81,7 @@ def load_curated_ollama_models(path: Path) -> tuple[str, ...]:
     """
 
     document = _read_yaml_mapping(path)
-    unknown_sections = sorted(set(document) - set(_OLLAMA_MODEL_SECTIONS))
+    unknown_sections = _unknown_section_labels(document)
     if unknown_sections:
         raise ValueError(f"{path}: unknown top-level section: {', '.join(unknown_sections)}")
     names: list[str] = []
