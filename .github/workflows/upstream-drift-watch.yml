@@ -64,6 +64,19 @@ jobs:
           )"
           printf 'image=%s\n' "$image" >> "$GITHUB_OUTPUT"
 
+      - name: Pull manifest-pinned Ollama server image
+        id: pull_ollama
+        env:
+          OLLAMA_IMAGE: ${{ steps.ollama_image.outputs.image }}
+        run: |
+          set -euo pipefail
+          image_pattern='^[a-z0-9][a-z0-9._/@:-]*$'
+          if [[ ! "$OLLAMA_IMAGE" =~ $image_pattern ]]; then
+            echo "manifest-derived Ollama image is not a safe literal reference" >&2
+            exit 1
+          fi
+          timeout 5m docker pull "$OLLAMA_IMAGE"
+
       - name: Start empty loopback Ollama
         id: start_ollama
         continue-on-error: true
@@ -76,7 +89,7 @@ jobs:
             echo "manifest-derived Ollama image is not a safe literal reference" >&2
             exit 1
           fi
-          docker run -d --name atlas-upstream-drift-ollama \
+          timeout 30s docker run --pull=never -d --name atlas-upstream-drift-ollama \
             --publish 127.0.0.1:11434:11434 \
             "$OLLAMA_IMAGE"
 

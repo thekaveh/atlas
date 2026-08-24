@@ -11,7 +11,9 @@
 ## 1. Global Constraints
 
 - Implement only issue #969.
-- Do not require a running Atlas stack or download model weights.
+- Do not require a running Atlas stack or download model weights. Permit only
+  one bounded manifest-pinned Ollama server-image layer pull for a fresh runner;
+  all 71 image-tag probes remain `imagetools inspect` manifest lookups.
 - Read model and image references from their existing canonical YAML sources.
 - Bound every network request and subprocess.
 - Aggregate all probe failures instead of stopping after the first.
@@ -59,9 +61,11 @@ Expected: collection fails because `scripts.upstream_drift_watch` does not exist
 
 - [ ] **Step 3: Implement immutable results, YAML discovery, validation, and report rendering**
 
-Implement literal manifest defaults only, sorted/deduplicated tuples, stable
-Markdown headings, bounded detail formatting, and UTC timestamps. Do not add
-network or subprocess behavior in this task.
+Implement literal manifest defaults only, sorted/deduplicated tuples, fail-closed
+validation for empty canonical model/image inventories and malformed image
+rows, stable Markdown headings, exact passed/failed/total summary counts,
+bounded detail formatting, and UTC timestamps. Do not add network or subprocess
+behavior in this task.
 
 - [ ] **Step 4: Run tests and verify GREEN**
 
@@ -153,8 +157,10 @@ assert workflow["concurrency"]["cancel-in-progress"] is False
 ```
 
 Also assert SHA-pinned actions, a job timeout, manifest-derived Ollama image,
-bounded readiness, an `always()` cleanup, watcher report capture, exact issue
-marker/title matching, create/edit/reopen/close commands, and no model pull.
+one explicit bounded server-image pull, a separately bounded
+`docker run --pull=never`, bounded readiness, an `always()` cleanup, watcher
+report capture, exact issue marker/title matching, create/edit/reopen/close
+commands, and no model-weight pull.
 
 - [ ] **Step 2: Run workflow tests and verify RED**
 
@@ -165,9 +171,10 @@ Expected: failure because `.github/workflows/upstream-drift-watch.yml` is absent
 - [ ] **Step 3: Add the scheduled workflow**
 
 Use a non-top-of-hour daily cron, `workflow_dispatch`, a 30-minute job timeout,
-locked `uv sync`, manifest image extraction, an ephemeral loopback Ollama
-container, bounded readiness, the watcher command with captured exit code,
-unconditional cleanup, and `gh`-based exact-marker issue reconciliation.
+locked `uv sync`, manifest image extraction, one small-timeout pull of that
+server image, a separately bounded `--pull=never` ephemeral loopback Ollama
+container start, bounded readiness, the watcher command with captured exit
+code, unconditional cleanup, and `gh`-based exact-marker issue reconciliation.
 
 - [ ] **Step 4: Run workflow tests and verify GREEN**
 

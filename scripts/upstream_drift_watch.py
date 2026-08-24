@@ -21,7 +21,7 @@ import yaml
 from utils import ollama_library
 
 
-_MAX_DETAIL_LENGTH = 500
+_MAX_DETAIL_LENGTH = 450
 _REPORT_MARKER = "<!-- atlas-upstream-drift-watch -->"
 _USER_AGENT = "Atlas upstream-drift-watch/1.0"
 _DEFAULT_OLLAMA_TAGS_URL = "http://127.0.0.1:11434/api/tags"
@@ -79,39 +79,51 @@ def load_curated_ollama_models(path: Path) -> tuple[str, ...]:
             if not isinstance(name, str) or not name.strip():
                 raise ValueError(f"{path}: {section_name}[{index}].name must be a non-empty string")
             names.append(name.strip())
+    if not names:
+        raise ValueError(f"{path}: expected at least one curated Ollama model")
     return _sorted_unique(names)
+
+
+def _literal_image_default(manifest_path: Path, index: int, image: dict[str, Any]) -> str:
+    values: dict[str, str] = {}
+    for field in ("var", "container", "default"):
+        value = image.get(field)
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(
+                f"{manifest_path}: images[{index}].{field} must be a non-empty string"
+            )
+        values[field] = value.strip()
+        if "$" in values[field]:
+            raise ValueError(f"{manifest_path}: images[{index}].{field} must be a literal value")
+    return values["default"]
 
 
 def load_manifest_image_refs(services_dir: Path) -> tuple[str, ...]:
     """Return literal image defaults declared by service manifests."""
 
+    if not services_dir.is_dir():
+        raise ValueError(f"services inventory {services_dir} must be an existing directory")
     refs: list[str] = []
     try:
         manifest_paths = sorted(services_dir.glob("*/service.yml"))
     except OSError as exc:
         raise ValueError(f"could not discover service manifests in {services_dir}: {exc}") from exc
+    if not manifest_paths:
+        raise ValueError(f"services inventory {services_dir} contains no service manifests")
 
     for manifest_path in manifest_paths:
         document = _read_yaml_mapping(manifest_path)
-        images = document.get("images", [])
-        if images is None:
+        if "images" not in document:
             continue
+        images = document["images"]
         if not isinstance(images, list):
             raise ValueError(f"manifest {manifest_path} images must be a list")
         for index, image in enumerate(images):
             if not isinstance(image, dict):
                 raise ValueError(f"{manifest_path}: images[{index}] must be a mapping")
-            default = image.get("default")
-            if not isinstance(default, str) or not default.strip():
-                raise ValueError(
-                    f"{manifest_path}: images[{index}].default must be a non-empty string"
-                )
-            reference = default.strip()
-            if "$" in reference:
-                raise ValueError(
-                    f"{manifest_path}: images[{index}].default must be a literal image reference"
-                )
-            refs.append(reference)
+            refs.append(_literal_image_default(manifest_path, index, image))
+    if not refs:
+        raise ValueError(f"services inventory {services_dir} must declare at least one image reference")
     return _sorted_unique(refs)
 
 
@@ -129,6 +141,9 @@ def render_report(results: Sequence[ProbeResult], generated_at: datetime) -> str
         generated_at = generated_at.replace(tzinfo=timezone.utc)
     timestamp = generated_at.astimezone(timezone.utc).isoformat()
     failures = [result for result in results if not result.ok]
+    total = len(results)
+    failed = len(failures)
+    passed = total - failed
     lines = [
         _REPORT_MARKER,
         "# Atlas upstream drift watch",
@@ -136,6 +151,8 @@ def render_report(results: Sequence[ProbeResult], generated_at: datetime) -> str
         f"Generated at: `{timestamp}`",
         "",
         f"Status: **{'FAIL' if failures else 'OK'}**",
+        "",
+        f"Summary: **{passed} passed, {failed} failed, {total} total**",
         "",
         "## Probe results",
         "",

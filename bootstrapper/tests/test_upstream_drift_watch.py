@@ -62,15 +62,30 @@ def test_report_contains_stable_marker_and_all_failures():
     assert "too few" in report and "missing ref" in report
 
 
+def test_report_contains_exact_deterministic_summary_counts():
+    report = watch.render_report(
+        [
+            watch.ProbeResult("library", True, "healthy"),
+            watch.ProbeResult("models", False, "missing"),
+            watch.ProbeResult("images", True, "resolved"),
+        ],
+        datetime(2026, 8, 24, tzinfo=timezone.utc),
+    )
+
+    assert "Summary: **2 passed, 1 failed, 3 total**" in report
+
+
 def test_load_manifest_image_refs_reads_literal_defaults_sorted_and_unique(tmp_path):
     services = tmp_path / "services"
     (services / "zeta").mkdir(parents=True)
     (services / "alpha").mkdir()
     (services / "zeta" / "service.yml").write_text(
-        "images:\n  - var: Z_IMAGE\n    default: zeta:1\n"
+        "images:\n  - var: Z_IMAGE\n    default: zeta:1\n    container: zeta\n"
     )
     (services / "alpha" / "service.yml").write_text(
-        "images:\n  - var: A_IMAGE\n    default: zeta:1\n  - var: B_IMAGE\n    default: alpha:2\n"
+        "images:\n"
+        "  - var: A_IMAGE\n    default: zeta:1\n    container: alpha\n"
+        "  - var: B_IMAGE\n    default: alpha:2\n    container: alpha\n"
     )
     assert watch.load_manifest_image_refs(services) == ("alpha:2", "zeta:1")
 
@@ -99,11 +114,23 @@ def test_load_curated_models_rejects_malformed_declared_rows(tmp_path, contents,
         watch.load_curated_ollama_models(path)
 
 
+@pytest.mark.parametrize("contents", ["", "{}\n", "content: []\n", "content: []\nvision: []\n"])
+def test_load_curated_models_rejects_an_empty_inventory(tmp_path, contents):
+    path = tmp_path / "models.yaml"
+    path.write_text(contents)
+
+    with pytest.raises(ValueError, match="at least one curated Ollama model"):
+        watch.load_curated_ollama_models(path)
+
+
 @pytest.mark.parametrize(
     "image_yaml, expected",
     [
         ("images:\n  - bad-row\n", r"images\[0\]"),
-        ("images:\n  - var: IMAGE\n    default: 42\n", r"images\[0\]\.default"),
+        (
+            "images:\n  - var: IMAGE\n    default: 42\n    container: demo\n",
+            r"images\[0\]\.default",
+        ),
     ],
 )
 def test_load_manifest_image_refs_rejects_malformed_declared_rows(tmp_path, image_yaml, expected):
@@ -115,25 +142,115 @@ def test_load_manifest_image_refs_rejects_malformed_declared_rows(tmp_path, imag
         watch.load_manifest_image_refs(services)
 
 
-def test_load_manifest_image_refs_rejects_interpolated_defaults(tmp_path):
+@pytest.mark.parametrize(
+    "image_yaml, expected",
+    [
+        (
+            "images:\n  - default: demo:1\n    container: demo\n",
+            r"images\[0\]\.var",
+        ),
+        (
+            "images:\n  - var: ''\n    default: demo:1\n    container: demo\n",
+            r"images\[0\]\.var",
+        ),
+        (
+            "images:\n  - var: DEMO_IMAGE\n    container: demo\n",
+            r"images\[0\]\.default",
+        ),
+        (
+            "images:\n  - var: DEMO_IMAGE\n    default: ''\n    container: demo\n",
+            r"images\[0\]\.default",
+        ),
+        (
+            "images:\n  - var: DEMO_IMAGE\n    default: demo:1\n",
+            r"images\[0\]\.container",
+        ),
+        (
+            "images:\n  - var: DEMO_IMAGE\n    default: demo:1\n    container: ''\n",
+            r"images\[0\]\.container",
+        ),
+    ],
+)
+def test_load_manifest_image_refs_requires_every_schema_field(tmp_path, image_yaml, expected):
     services = tmp_path / "services"
     service = services / "demo"
     service.mkdir(parents=True)
+    (service / "service.yml").write_text(image_yaml)
+
+    with pytest.raises(ValueError, match=expected):
+        watch.load_manifest_image_refs(services)
+
+
+@pytest.mark.parametrize("field", ["var", "default", "container"])
+def test_load_manifest_image_refs_rejects_interpolated_fields(tmp_path, field):
+    services = tmp_path / "services"
+    service = services / "demo"
+    service.mkdir(parents=True)
+    values = {
+        "var": "DEMO_IMAGE",
+        "default": "demo:1",
+        "container": "demo",
+    }
+    values[field] = "${INTERPOLATED}"
     (service / "service.yml").write_text(
-        "images:\n  - var: IMAGE\n    default: '${IMAGE_REF}'\n"
+        "images:\n"
+        f"  - var: '{values['var']}'\n"
+        f"    default: '{values['default']}'\n"
+        f"    container: '{values['container']}'\n"
     )
     with pytest.raises(ValueError, match="literal"):
         watch.load_manifest_image_refs(services)
 
 
-def test_discovery_allows_absent_optional_sections(tmp_path):
+@pytest.mark.parametrize("kind", ["missing", "file", "no-manifests"])
+def test_load_manifest_image_refs_rejects_invalid_services_inventory(tmp_path, kind):
+    services = tmp_path / "services"
+    if kind == "file":
+        services.write_text("not a directory\n")
+    elif kind == "no-manifests":
+        (services / "demo").mkdir(parents=True)
+
+    with pytest.raises(ValueError, match="services inventory"):
+        watch.load_manifest_image_refs(services)
+
+
+@pytest.mark.parametrize("image_yaml", ["name: demo\n", "images: []\n"])
+def test_load_manifest_image_refs_rejects_zero_image_inventory(tmp_path, image_yaml):
+    services = tmp_path / "services"
+    service = services / "demo"
+    service.mkdir(parents=True)
+    (service / "service.yml").write_text(image_yaml)
+
+    with pytest.raises(ValueError, match="at least one image reference"):
+        watch.load_manifest_image_refs(services)
+
+
+def test_load_manifest_image_refs_rejects_declared_null_images(tmp_path):
+    services = tmp_path / "services"
+    service = services / "demo"
+    service.mkdir(parents=True)
+    (service / "service.yml").write_text("images: null\n")
+
+    with pytest.raises(ValueError, match="images must be a list"):
+        watch.load_manifest_image_refs(services)
+
+
+def test_discovery_allows_manifest_without_images_when_inventory_is_nonempty(tmp_path):
     models = tmp_path / "models.yaml"
     models.write_text("content:\n  - name: qwen:latest\n")
     services = tmp_path / "services"
     (services / "empty").mkdir(parents=True)
+    (services / "populated").mkdir()
     (services / "empty" / "service.yml").write_text("name: empty\n")
+    (services / "populated" / "service.yml").write_text(
+        "images:\n  - var: DEMO_IMAGE\n    default: demo:1\n    container: demo\n"
+    )
     assert watch.load_curated_ollama_models(models) == ("qwen:latest",)
-    assert watch.load_manifest_image_refs(services) == ()
+    assert watch.load_manifest_image_refs(services) == ("demo:1",)
+
+
+def test_repository_manifest_inventory_has_71_unique_literal_image_refs():
+    assert len(watch.load_manifest_image_refs(REPO_ROOT / "services")) == 71
 
 
 def test_probe_ollama_library_requires_the_plausible_catalog_threshold(monkeypatch):
@@ -392,6 +509,53 @@ def test_main_reports_discovery_failures_and_runs_independent_probes(monkeypatch
     assert "could not read YAML source" in report
 
 
+def test_main_reports_empty_canonical_inventories_as_aggregate_failures(monkeypatch, tmp_path):
+    models = tmp_path / "models.yaml"
+    models.write_text("{}\n", encoding="utf-8")
+    services = tmp_path / "services"
+    service = services / "demo"
+    service.mkdir(parents=True)
+    (service / "service.yml").write_text("name: demo\n", encoding="utf-8")
+    report_path = tmp_path / "report.md"
+    monkeypatch.setattr(
+        watch,
+        "probe_ollama_library",
+        lambda: watch.ProbeResult("library", True, "ok"),
+    )
+    monkeypatch.setattr(
+        watch,
+        "probe_ollama_tags",
+        lambda *_a, **_k: watch.ProbeResult("tags", True, "ok"),
+    )
+    monkeypatch.setattr(
+        watch,
+        "probe_curated_models",
+        lambda *_a, **_k: pytest.fail("curated probe ran"),
+    )
+    monkeypatch.setattr(
+        watch,
+        "probe_manifest_images",
+        lambda *_a, **_k: pytest.fail("image probe ran"),
+    )
+
+    exit_code = watch.main(
+        [
+            "--ollama-models",
+            str(models),
+            "--services-dir",
+            str(services),
+            "--report-file",
+            str(report_path),
+        ]
+    )
+    report = report_path.read_text(encoding="utf-8")
+
+    assert exit_code == 1
+    assert "at least one curated Ollama model" in report
+    assert "at least one image reference" in report
+    assert "Summary: **2 passed, 2 failed, 4 total**" in report
+
+
 def test_run_watch_aggregates_results_in_probe_order(monkeypatch, tmp_path):
     monkeypatch.setattr(watch, "load_curated_ollama_models", lambda _path: ("model:latest",))
     monkeypatch.setattr(watch, "load_manifest_image_refs", lambda _path: ("image:1",))
@@ -454,12 +618,23 @@ def _assert_workflow_setup_action_contract(steps):
     ]
 
 
-def _assert_workflow_image_contract(steps_by_id):
+def _assert_workflow_image_source_contract(steps_by_id):
     image = steps_by_id["ollama_image"]["run"]
     assert "services/ollama/service.yml" in image
     assert "LLM_PROVIDER_IMAGE" in image
     assert "GITHUB_OUTPUT" in image
 
+
+def _assert_workflow_image_pull_contract(steps_by_id):
+    pull = steps_by_id["pull_ollama"]["run"]
+    assert steps_by_id["pull_ollama"]["env"] == {
+        "OLLAMA_IMAGE": "${{ steps.ollama_image.outputs.image }}"
+    }
+    assert "image_pattern=" in pull
+    assert 'timeout 5m docker pull "$OLLAMA_IMAGE"' in pull
+
+
+def _assert_workflow_image_start_contract(steps_by_id):
     start = steps_by_id["start_ollama"]["run"]
     assert "127.0.0.1:11434:11434" in start
     assert "${{" not in start
@@ -468,6 +643,7 @@ def _assert_workflow_image_contract(steps_by_id):
     }
     assert "image_pattern=" in start
     assert "OLLAMA_IMAGE" in start
+    assert "timeout 30s docker run --pull=never" in start
 
 
 def _assert_workflow_readiness_contract(steps_by_id):
@@ -526,6 +702,7 @@ def _assert_workflow_reconciliation_commands(steps, steps_by_id):
 
     run_scripts = "\n".join(step.get("run", "") for step in steps).lower()
     assert "ollama pull" not in run_scripts
+    assert run_scripts.count("docker pull") == 1
 
 
 def test_upstream_drift_workflow_is_bounded_and_reconciles_one_marker_issue():
@@ -537,7 +714,9 @@ def test_upstream_drift_workflow_is_bounded_and_reconciles_one_marker_issue():
     assert job["timeout-minutes"] == 30
     _assert_workflow_trigger_contract(workflow)
     _assert_workflow_setup_action_contract(steps)
-    _assert_workflow_image_contract(steps_by_id)
+    _assert_workflow_image_source_contract(steps_by_id)
+    _assert_workflow_image_pull_contract(steps_by_id)
+    _assert_workflow_image_start_contract(steps_by_id)
     _assert_workflow_readiness_contract(steps_by_id)
     _assert_workflow_watch_and_cleanup_contract(steps, steps_by_id)
     _assert_workflow_reconciliation_metadata(steps_by_id)

@@ -22,12 +22,17 @@ The first release watches four contracts already owned by Atlas:
 4. every unique manifest-owned image default in
    `services/*/service.yml::images[].default` still resolves in its registry.
 
-No running Atlas stack or model download is required.
+No running Atlas stack or model-weight download is required. On a fresh runner,
+the workflow makes one intentional exception for the manifest-pinned Ollama
+server image: it pulls that image's container layers under a small explicit
+timeout before starting the empty server with `--pull=never`.
 
 ### 1.1. Non-goals
 
 - Do not rerun the full Atlas test suite nightly.
-- Do not pull container layers or Ollama model weights.
+- Do not pull container layers while resolving the 71 manifest image tags, and
+  do not pull Ollama model weights. The only layer-pull exception is the
+  manifest-pinned Ollama server image needed by a fresh runner for `/api/tags`.
 - Do not mutate image pins or model catalogs automatically.
 - Do not scan arbitrary URLs found in documentation.
 - Do not add a third-party issue-management action.
@@ -43,9 +48,11 @@ fails.
 
 `.github/workflows/upstream-drift-watch.yml` runs daily and on manual dispatch.
 It checks out the repository, installs the locked bootstrapper environment,
-starts the manifest-pinned Ollama image without pulling any model, waits for
-`/api/tags`, runs the Python watcher, and always reconciles one marker issue.
-The workflow closes that issue after a later healthy run.
+pulls the manifest-pinned Ollama server image under a small explicit timeout,
+starts it under a separate timeout with `docker run --pull=never`, without
+pulling any model weights, waits for `/api/tags`, runs the Python watcher, and
+always reconciles one marker issue. The workflow closes that issue after a
+later healthy run.
 
 The existing PR workflow remains hermetic. New unit tests mock only the actual
 network and subprocess seams; parsing, manifest discovery, aggregation, report
@@ -83,8 +90,11 @@ names every unreachable catalog entry.
 ### 3.4. Manifest image references
 
 Discover literal `images[].default` values from every service manifest,
-deduplicate them, and reject missing, empty, interpolated, or structurally
-invalid rows. Resolve each reference with
+deduplicate them, and fail closed when the services directory, service-manifest
+set, or aggregate image inventory is missing or empty. A manifest may omit the
+`images` key when other manifests supply the non-empty inventory; a declared
+`images: null` is invalid. Every declared row requires non-empty literal `var`,
+`container`, and `default` fields. Resolve each of the 71 unique references with
 `docker buildx imagetools inspect <reference>` using a bounded subprocess and
 a small fixed worker pool. This reads registry manifests only; it never pulls
 layers. Failure output is truncated to a bounded diagnostic.
@@ -92,8 +102,9 @@ layers. Failure output is truncated to a bounded diagnostic.
 ## 4. Reporting and issue lifecycle
 
 The report has a stable marker (`<!-- atlas-upstream-drift-watch -->`), a UTC
-timestamp, a summary count, and one section per probe. Successful details stay
-brief; failures contain enough context to identify the external contract.
+timestamp, deterministic passed/failed/total summary counts, and one section
+per probe. Successful details stay brief; failures contain enough context to
+identify the external contract.
 
 The workflow searches all issues for the exact marker/title pair:
 
@@ -112,6 +123,8 @@ using the runner's authenticated `gh` CLI and `${{ github.token }}`.
 - No repository or third-party secret is required.
 - Checkout and setup actions remain commit-SHA pinned.
 - Every HTTP request and subprocess has an explicit timeout.
+- The sole server-image layer pull and the subsequent `--pull=never` container
+  start have separate explicit timeouts within the 30-minute job cap.
 - The job has a workflow-level timeout and a concurrency group that prevents
   overlapping scheduled runs.
 - Diagnostic output never includes environment variables, tokens, or response
@@ -126,13 +139,15 @@ using the runner's authenticated `gh` CLI and `${{ github.token }}`.
 - successful and implausibly small Ollama library results;
 - valid, malformed, and unreachable `/api/tags` responses;
 - catalog model loading and multimodal deduplication;
-- service-manifest image discovery and invalid rows;
+- empty catalog rejection, service-inventory validation, and malformed image
+  rows including declared `images: null`;
 - image resolution success, failure, timeout, and diagnostic truncation;
-- aggregate execution and Markdown rendering;
+- aggregate execution and exact Markdown passed/failed/total summary counts;
 - CLI success/failure exit codes and report-file creation;
 - workflow schedule/manual triggers, permissions, concurrency, timeouts,
-  manifest-derived Ollama image, unconditional cleanup, and single-issue
-  reconciliation commands.
+  manifest-derived Ollama image, bounded server-image pull, bounded
+  `--pull=never` start, unconditional cleanup, and single-issue reconciliation
+  commands.
 
 The red/green cycle is run against that test file before implementation. Final
 verification includes the targeted test, the full bootstrapper suite, the
@@ -147,4 +162,4 @@ workflow YAML/contract tests, and the repository's required audit commands.
 | Catalog reachability | Curated Ollama library probe |
 | Open or update one issue | Exact-marker issue lifecycle in workflow |
 | Narrow nightly scope | Dedicated workflow calls only the watcher |
-| No live Atlas stack | Empty ephemeral Ollama plus external registry/library requests |
+| No live Atlas stack | One bounded manifest-pinned server-image pull, an empty loopback Ollama started with `--pull=never`, and external registry/library requests |
