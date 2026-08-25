@@ -9,10 +9,10 @@ capabilities:
     status: supported
     verification: tested
     note: "Atlas serves FastMCP tools for bounded Postgres reads, Neo4j schema/read Cypher, and SearXNG search through one stateless /mcp endpoint."
-  - name: "Read-only database guardrails"
+  - name: "Database query guardrails"
     status: partial
     verification: tested
-    note: "Atlas rejects common mutation forms, uses a read-only Postgres transaction and Neo4j read routing, and bounds rows and time, but tool output remains untrusted prompt-injection input."
+    note: "Regex filters, Postgres read-only transactions, Neo4j READ_ACCESS, and row/time caps block common direct mutation syntax but do not prevent privileged function or procedure side effects under administrator credentials."
   - name: "Tenant-scoped Postgres reads"
     status: not-supported
     verification: tested
@@ -20,15 +20,15 @@ capabilities:
   - name: "MCP ingress authentication"
     status: partial
     verification: tested
-    note: "The direct endpoint is loopback-bound without application auth, while mcp.localhost adds Kong Basic Auth and ACL; Host/Origin checks defend rebinding but are not authentication."
-  - name: "Write and administration tools"
-    status: not-supported
+    note: "127.0.0.1 protects only the host publish; all backend-network containers can call unauthenticated http://mcp-servers:8000/mcp using the allowed mcp-servers Host and bypass Kong Basic Auth and ACL; Host/Origin checks are not authentication."
+  - name: "Write and administration prevention"
+    status: partial
     verification: tested
-    note: "The curated package deliberately exposes no Postgres mutation, Neo4j write, credential-management, filesystem, or shell-execution tool."
+    note: "Atlas ships no dedicated write or administration tool, but accepted SELECT functions and CALL db.* procedures run with administrator credentials in a Neo4j environment with unrestricted APOC and can cause administration, filesystem, or write side effects."
   - name: "Per-consumer MCP authorization"
     status: not-supported
-    verification: documented
-    note: "All authenticated Kong users reach the same tool set and backend credentials; Atlas configures no OAuth scopes, tenant namespaces, or tool-level consumer policy."
+    verification: tested
+    note: "Unauthenticated backend-network callers bypass Kong, while all Kong dashboard consumers reach the same tool set and administrator credentials; Atlas configures no application credential, OAuth scopes, tenant namespaces, or tool policy."
 
 containers:
   - mcp-servers

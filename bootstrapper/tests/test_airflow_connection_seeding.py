@@ -1,8 +1,12 @@
 """Verify that init-airflow.sh gates connection seeding on every sibling source."""
 from pathlib import Path
 
+import yaml
+
 REPO = Path(__file__).resolve().parent.parent.parent
 SCRIPT = REPO / "services" / "airflow" / "init" / "scripts" / "init-airflow.sh"
+COMPOSE = REPO / "services" / "airflow" / "compose.yml"
+MANIFEST = REPO / "services" / "airflow" / "service.yml"
 
 
 def test_init_script_exists_and_is_executable():
@@ -47,6 +51,43 @@ def test_init_script_seeds_always_on_connections_unconditionally():
     # the conditional patterns to be sure.
     assert 'if [ "${LITELLM_SOURCE}"' not in body, "LITELLM_SOURCE gate snuck back in"
     assert 'if [ "${REDIS_SOURCE}"' not in body, "REDIS_SOURCE gate snuck back in"
+
+
+def test_airflow_contract_discloses_unsandboxed_privileged_dag_execution():
+    body = SCRIPT.read_text(encoding="utf-8")
+    scheduler = yaml.safe_load(COMPOSE.read_text())["services"]["airflow-scheduler"]
+
+    assert scheduler["environment"]["AIRFLOW__CORE__EXECUTOR"] == "LocalExecutor"
+    assert "./dags:/opt/airflow/dags" in scheduler["volumes"]
+    for credential in (
+        "${MINIO_ROOT_USER}",
+        "${MINIO_ROOT_PASSWORD}",
+        "${LITELLM_MASTER_KEY}",
+        "${SUPABASE_DB_USER}",
+        "${SUPABASE_DB_PASSWORD}",
+        "${GRAPH_DB_USER}",
+        "${GRAPH_DB_PASSWORD}",
+        "${REDIS_PASSWORD}",
+    ):
+        assert credential in body
+
+    manifest = yaml.safe_load(MANIFEST.read_text())
+    capability = next(
+        row
+        for row in manifest["capabilities"]
+        if row["name"] == "Untrusted DAG code isolation"
+    )
+    assert capability["status"] == "not-supported"
+    assert capability["verification"] == "tested"
+    for required in (
+        "operator-authored DAGs execute unsandboxed",
+        "MinIO root",
+        "LiteLLM master",
+        "Supabase and Neo4j administrator",
+        "Redis password",
+        "trusted DAG authors",
+    ):
+        assert required in capability["note"]
 
 
 def test_init_script_neo4j_uses_canonical_compose_dns_and_credentials():

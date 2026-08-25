@@ -25,6 +25,7 @@ SUPABASE_MANIFEST = REPO_ROOT / "services" / "supabase" / "service.yml"
 MEMORY_RLS_SQL = (
     REPO_ROOT / "services" / "supabase" / "db" / "scripts" / "14-backend-memory.sql"
 )
+NEO4J_COMPOSE = REPO_ROOT / "services" / "neo4j" / "compose.yml"
 
 
 def _manifest() -> dict:
@@ -241,6 +242,45 @@ def test_mcp_postgres_capability_discloses_owner_rls_bypass_and_read_scope() -> 
         "least-privilege views or role",
     ):
         assert required in note
+
+
+def test_mcp_database_guardrails_disclose_accepted_privileged_side_effects() -> None:
+    runtime = _runtime_module()
+    neo4j_env = yaml.safe_load(NEO4J_COMPOSE.read_text())["services"][
+        "neo4j-graph-db"
+    ]["environment"]
+
+    for sql in (
+        "SELECT pg_read_file('/etc/passwd')",
+        "SELECT pg_terminate_backend(1234)",
+    ):
+        assert runtime.is_safe_postgres_read(sql), sql
+    for cypher in (
+        'CALL db.createLabel("AtlasOwned")',
+        "CALL db.checkpoint()",
+    ):
+        assert runtime.is_safe_neo4j_read(cypher), cypher
+        assert runtime.bounded_neo4j_cypher(cypher) == cypher
+    assert neo4j_env["NEO4J_dbms_security_procedures_unrestricted"] == "apoc.*"
+
+    capabilities = {row["name"]: row for row in _manifest()["capabilities"]}
+    guardrail = capabilities["Database query guardrails"]
+    assert guardrail["status"] == "partial"
+    assert guardrail["verification"] == "tested"
+    assert "block common direct mutation syntax" in guardrail["note"]
+    assert "do not prevent privileged function or procedure side effects" in guardrail["note"]
+
+    prevention = capabilities["Write and administration prevention"]
+    assert prevention["status"] == "partial"
+    assert prevention["verification"] == "tested"
+    for required in (
+        "no dedicated write or administration tool",
+        "SELECT functions",
+        "CALL db.* procedures",
+        "administrator credentials",
+        "administration, filesystem, or write side effects",
+    ):
+        assert required in prevention["note"]
 
 
 def test_mcp_servers_docs_describe_consumers_guardrails_and_deferred_gateways() -> None:

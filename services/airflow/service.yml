@@ -8,6 +8,10 @@ capabilities:
     status: supported
     verification: tested
     note: "Atlas runs Airflow 3 with a separate API server, scheduler, DAG processor, and init path, using LocalExecutor for operator-authored DAGs."
+  - name: "Untrusted DAG code isolation"
+    status: not-supported
+    verification: tested
+    note: "LocalExecutor operator-authored DAGs execute unsandboxed with Airflow Connections holding MinIO root, LiteLLM master, Supabase and Neo4j administrator, and Redis password credentials; admit only trusted DAG authors."
   - name: "Seeded stack service connections"
     status: partial
     verification: tested

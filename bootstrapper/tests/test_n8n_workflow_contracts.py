@@ -379,6 +379,45 @@ def test_all_bundled_workflow_webhooks_match_disclosed_auth_boundaries() -> None
     assert "must be secured before activation" in note
 
 
+def test_n8n_contract_distinguishes_scoped_and_stack_wide_workflow_credentials() -> None:
+    compose = yaml.safe_load((ROOT / "services/n8n/compose.yml").read_text())
+    legacy = _load(
+        ROOT / "services/n8n/init/config/searxng-research-workflow.json"
+    )
+    legacy_text = json.dumps(legacy)
+
+    for service_name in ("n8n", "n8n-worker"):
+        environment = compose["services"][service_name]["environment"]
+        assert environment["BACKEND_N8N_API_TOKEN"] == "${BACKEND_N8N_API_TOKEN}"
+        assert environment["LITELLM_API_KEY"] == "${LITELLM_MASTER_KEY}"
+        for service_credential in (
+            "DOCLING_API_TOKEN",
+            "PARAKEET_API_TOKEN",
+            "HERMES_API_KEY",
+            "LIGHTRAG_API_KEY",
+            "CRAWL4AI_API_TOKEN",
+        ):
+            assert service_credential in environment
+    assert "$env.LITELLM_API_KEY" in legacy_text
+
+    manifest = yaml.safe_load((ROOT / "services/n8n/service.yml").read_text())
+    capability = next(
+        row
+        for row in manifest["capabilities"]
+        if row["name"] == "Workflow credential propagation"
+    )
+    assert capability["status"] == "partial"
+    assert capability["verification"] == "tested"
+    for required in (
+        "scoped Backend token",
+        "stack-wide LiteLLM master key",
+        "provider service credentials",
+        "workflow expressions",
+        "avoid returning them in outputs or webhooks",
+    ):
+        assert required in capability["note"]
+
+
 def test_comfyui_workflows_preserve_fal_artifact_urls() -> None:
     fal_result = {
         "success": True,

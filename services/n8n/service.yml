@@ -20,7 +20,7 @@ capabilities:
   - name: "Workflow credential propagation"
     status: partial
     verification: tested
-    note: "Both web and worker receive scoped Backend and provider secrets for server-side nodes, but workflow authors must attach the correct token and avoid returning it in outputs or webhooks."
+    note: "Both web and worker expose a scoped Backend token plus the stack-wide LiteLLM master key and provider service credentials to workflow expressions; trusted authors must avoid returning them in outputs or webhooks."
   - name: "Editor and webhook access control"
     status: partial
     verification: tested

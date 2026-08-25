@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import yaml
+
 
 def _generate(env_body: str) -> dict:
     """Render Kong config against a synthetic env override.
@@ -310,6 +312,48 @@ def test_alias_only_services_route_to_expected_containers():
         "acl",
         "cors",
     }
+
+
+def test_mcp_contract_discloses_unauthenticated_backend_network_ingress():
+    repo_root = Path(__file__).resolve().parents[2]
+    compose = yaml.safe_load(
+        (repo_root / "services/mcp-servers/compose.yml").read_text()
+    )["services"]["mcp-servers"]
+    runtime = (repo_root / "services/mcp-servers/runtime/atlas_mcp_server.py").read_text()
+    manifest = yaml.safe_load(
+        (repo_root / "services/mcp-servers/service.yml").read_text()
+    )
+    config = _generate("MCP_SERVERS_SOURCE=container\n")
+    kong = next(service for service in config["services"] if service["name"] == "mcp-servers")
+
+    assert compose["ports"] == ["127.0.0.1:${MCP_SERVERS_PORT}:8000"]
+    assert compose["networks"] == ["backend-network"]
+    assert '_ALLOWED_HOSTS = ("mcp-servers", "mcp.localhost")' in runtime
+    assert 'host="0.0.0.0"' in runtime
+    server_builder = runtime[runtime.index("def build_server"):runtime.index("def run_server")]
+    assert "FastMCP(\"Atlas Curated MCP Servers\")" in server_builder
+    assert "auth=" not in server_builder
+    assert {plugin["name"] for plugin in kong["plugins"]} >= {"basic-auth", "acl"}
+
+    capabilities = {row["name"]: row for row in manifest["capabilities"]}
+    ingress = capabilities["MCP ingress authentication"]
+    assert ingress["status"] == "partial"
+    assert ingress["verification"] == "tested"
+    for required in (
+        "127.0.0.1 protects only the host publish",
+        "all backend-network containers",
+        "unauthenticated http://mcp-servers:8000/mcp",
+        "allowed mcp-servers Host",
+        "bypass Kong Basic Auth and ACL",
+        "Host/Origin checks are not authentication",
+    ):
+        assert required in ingress["note"]
+
+    consumer = capabilities["Per-consumer MCP authorization"]
+    assert consumer["status"] == "not-supported"
+    assert consumer["verification"] == "tested"
+    assert "backend-network callers bypass Kong" in consumer["note"]
+    assert "same tool set and administrator credentials" in consumer["note"]
 
 
 def test_localhost_source_routes_via_host_docker_internal():
