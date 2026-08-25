@@ -77,6 +77,43 @@ def test_tableau_manifest_parses(tmp_path):
     assert [e.name for e in m.env] == ["TABLEAU_EXECUTION", "LITELLM_MASTER_KEY"]
 
 
+def test_timeout_fields_parse_with_explicit_values_and_omissions(tmp_path):
+    body = textwrap.dedent(
+        """
+        plugin_manifest_version: 1
+        name: timed
+        route_prefix: /timed
+        connect_timeout: 1
+        read_timeout: 2147483646
+        """
+    )
+
+    manifest = load_manifest(_write(tmp_path, body))
+
+    assert manifest.connect_timeout == 1
+    assert manifest.write_timeout is None
+    assert manifest.read_timeout == 2147483646
+
+
+@pytest.mark.parametrize("field", ["connect_timeout", "write_timeout", "read_timeout"])
+@pytest.mark.parametrize(
+    "value",
+    ["0", "-1", "2147483647", "true", "1.0", "1.5", '"60000"', "null"],
+)
+def test_timeout_fields_reject_values_outside_kong_integer_contract(
+    tmp_path, field, value
+):
+    body = (
+        "plugin_manifest_version: 1\n"
+        "name: timed\n"
+        "route_prefix: /timed\n"
+        f"{field}: {value}\n"
+    )
+
+    with pytest.raises(PluginManifestError):
+        load_manifest(_write(tmp_path, body))
+
+
 def test_rag_manifest_parses(tmp_path):
     m = load_manifest(_write(tmp_path, RAG_YML))
     assert m.name == "rag"

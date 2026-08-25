@@ -9,6 +9,7 @@ import pytest
 from core.plugin_manifest import (
     PluginManifestError,
     derive_route_auth,
+    derive_route_timeouts,
     discover_plugin_manifests,
     load_plugin_manifest,
     prefixes_overlap,
@@ -67,6 +68,53 @@ def test_valid_manifest_loads(tmp_path):
     assert m.route_prefix == "/tableau"
     assert m.auth == "key-auth"
     assert m.prefix_head == "tableau"
+
+
+def test_timeout_fields_load_and_derive_explicit_values_only(tmp_path):
+    timed = textwrap.dedent(
+        """
+        plugin_manifest_version: 1
+        name: timed
+        route_prefix: /timed
+        connect_timeout: 1
+        read_timeout: 2147483646
+        """
+    )
+    _pkg(tmp_path, "timed", timed)
+    _pkg(tmp_path, "rag", RAG_YML)
+
+    result = discover_plugin_manifests([tmp_path])
+    manifest = next(item for item in result.manifests if item.name == "timed")
+
+    assert manifest.connect_timeout == 1
+    assert manifest.write_timeout is None
+    assert manifest.read_timeout == 2147483646
+    assert derive_route_timeouts(result.manifests) == [
+        (
+            "timed",
+            "/timed",
+            {"connect_timeout": 1, "read_timeout": 2147483646},
+        )
+    ]
+
+
+@pytest.mark.parametrize("field", ["connect_timeout", "write_timeout", "read_timeout"])
+@pytest.mark.parametrize(
+    "value",
+    ["0", "-1", "2147483647", "true", "1.0", "1.5", '"60000"', "null"],
+)
+def test_timeout_fields_reject_values_outside_kong_integer_contract(
+    tmp_path, field, value
+):
+    body = (
+        "plugin_manifest_version: 1\n"
+        "name: timed\n"
+        "route_prefix: /timed\n"
+        f"{field}: {value}\n"
+    )
+
+    with pytest.raises(PluginManifestError):
+        load_plugin_manifest(_pkg(tmp_path, "timed", body))
 
 
 def test_malformed_manifest_raises(tmp_path):
@@ -156,6 +204,86 @@ def test_derive_route_auth_skips_inherit(tmp_path):
     assert ("/tableau", "key-auth") in policy
     assert ("/pub", "open") in policy
     assert all(prefix != "/rag" for prefix, _ in policy)  # inherit contributes nothing
+
+
+def test_starter_derives_auth_and_timeout_policies_from_one_discovery(
+    tmp_path, monkeypatch
+):
+    import start as start_module
+
+    timed = textwrap.dedent(
+        """
+        plugin_manifest_version: 1
+        name: tableau
+        route_prefix: /tableau
+        auth: key-auth
+        read_timeout: 900000
+        """
+    )
+    _pkg(tmp_path, "tableau", timed)
+    monkeypatch.setattr(start_module, "_resolve_plugin_dirs", lambda _starter: [tmp_path])
+    starter = start_module.AtlasStarter.__new__(start_module.AtlasStarter)
+
+    route_auth, route_timeouts = starter._derive_plugin_route_policies()
+
+    assert route_auth == [("/tableau", "key-auth")]
+    assert route_timeouts == [
+        ("tableau", "/tableau", {"read_timeout": 900000})
+    ]
+
+
+def test_generate_kong_configuration_assigns_both_plugin_policy_lists(
+    tmp_path, monkeypatch
+):
+    import start as start_module
+    from utils import kong_config_generator as kong_module
+
+    _pkg(
+        tmp_path,
+        "tableau",
+        "plugin_manifest_version: 1\nname: tableau\n"
+        "route_prefix: /tableau\nauth: key-auth\nread_timeout: 900000\n",
+    )
+    _pkg(tmp_path, "broken", "plugin_manifest_version: 2\nname: broken\nroute_prefix: /broken\n")
+    monkeypatch.setattr(start_module, "_resolve_plugin_dirs", lambda _starter: [tmp_path])
+    captured = {}
+
+    class FakeGenerator:
+        def __init__(self, config_parser):
+            self.config_parser = config_parser
+            self.plugin_route_auth = []
+            self.plugin_route_timeouts = []
+
+        def generate_kong_config(self):
+            captured["auth"] = self.plugin_route_auth
+            captured["timeouts"] = self.plugin_route_timeouts
+            return {"services": []}
+
+        def validate_config(self, _config):
+            return []
+
+        def write_config(self, _config, _path):
+            return True
+
+    monkeypatch.setattr(kong_module, "KongConfigGenerator", FakeGenerator)
+    starter = start_module.AtlasStarter.__new__(start_module.AtlasStarter)
+    starter.config_parser = object()
+    starter.root_dir = tmp_path
+    starter.banner = type(
+        "Banner",
+        (),
+        {
+            "show_status_message": lambda *_args: None,
+            "console": type("Console", (), {"print": lambda *_args: None})(),
+        },
+    )()
+    starter._ensure_volume_dir_writable = lambda _path: None
+
+    assert starter.generate_kong_configuration() is True
+    assert captured == {
+        "auth": [("/tableau", "key-auth")],
+        "timeouts": [("tableau", "/tableau", {"read_timeout": 900000})],
+    }
 
 
 def test_validate_plugin_env_flags_required_missing_and_masks_secret(tmp_path):

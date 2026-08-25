@@ -184,6 +184,7 @@ def _inventory_entry(
         "health_path": manifest.health_path if manifest else None,
         "docs_url": manifest.docs_url if manifest else None,
         "auth": manifest.auth if manifest else None,
+        "timeouts": manifest.timeout_summary() if manifest else {},
         "depends_on": list(manifest.depends_on) if manifest else [],
         "env": manifest.env_summary(dict(os.environ)) if manifest else [],
     }
