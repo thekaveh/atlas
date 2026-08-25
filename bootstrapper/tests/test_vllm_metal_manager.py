@@ -164,6 +164,49 @@ def test_preflight_warns_on_low_memory(tmp_path, monkeypatch):
     assert "below" in mem["detail"]
 
 
+def test_memory_preflight_behavior_matches_manifest_contract(tmp_path, monkeypatch):
+    from services.manifests import load_manifests
+
+    _darwin_arm64(monkeypatch, memsize_gb=8)
+    low_memory = _mgr(tmp_path, min_memory_gb=16).preflight()
+    assert low_memory.status == "warn"
+    assert low_memory.ok
+
+    unknown_memory_manager = _mgr(tmp_path, min_memory_gb=16)
+    monkeypatch.setattr(unknown_memory_manager, "_unified_memory_gb", lambda: None)
+    unknown_memory = unknown_memory_manager.preflight()
+    memory_check = next(
+        check for check in unknown_memory.checks if check["name"] == "memory"
+    )
+    assert memory_check["status"] == "skipped"
+    assert unknown_memory.ok
+
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    manifest = next(
+        manifest
+        for manifest in load_manifests(repo_root / "services")
+        if manifest.name == "vllm-metal"
+    )
+    capability = next(
+        capability
+        for capability in manifest.capabilities
+        if capability.name == "Managed Apple-Silicon model serving"
+    )
+    assert "enforces macOS arm64 and Python 3.12" in capability.note
+    assert "VLLM_METAL_MIN_MEMORY_GB" in capability.note
+    assert "does not block install or start" in capability.note
+    assert "does not certify model fit or prevent OOM" in capability.note
+    assert "sufficient unified memory" not in capability.note
+
+    memory_env = next(
+        env for env in manifest.env if env.name == "VLLM_METAL_MIN_MEMORY_GB"
+    )
+    assert "warning floor" in memory_env.description
+    assert "does not block install or start" in memory_env.description
+    assert "does not certify model fit or prevent OOM" in memory_env.description
+    assert "requires" not in memory_env.description
+
+
 def test_preflight_warns_on_unsupported_quant(tmp_path, monkeypatch):
     _darwin_arm64(monkeypatch)
     result = _mgr(tmp_path).preflight(

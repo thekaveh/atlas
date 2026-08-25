@@ -24,7 +24,7 @@ capabilities:
   - name: "Managed Apple-Silicon model serving"
     status: partial
     verification: tested
-    note: "Atlas installs and supervises a native OpenAI-compatible vLLM process only on macOS arm64 with Python 3.12 and sufficient unified memory."
+    note: "Atlas enforces macOS arm64 and Python 3.12 before installing and supervising the native OpenAI-compatible server; memory below or unreadable against VLLM_METAL_MIN_MEMORY_GB warns or skips the check, does not block install or start, and does not certify model fit or prevent OOM."
   - name: "Checksum-verified host runtime"
     status: supported
     verification: tested
@@ -79,7 +79,7 @@ env:
     description: "Optional Hugging Face cache dir (HF_HOME) for the managed process. Blank = default HF cache."
   - name: VLLM_METAL_MIN_MEMORY_GB
     default: "16"
-    description: "Minimum unified memory (GB) the preflight requires before install / start."
+    description: "Unified-memory warning floor (GB) checked before lifecycle work; memory below it warns and unreadable memory skips the check. The result does not block install or start and does not certify model fit or prevent OOM."
   - name: VLLM_METAL_SCALE
     auto_managed: true
     description: "Always 0 — vLLM Metal never runs as a container. Reserved for interface parity with container services."
