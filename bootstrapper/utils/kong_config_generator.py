@@ -46,6 +46,10 @@ class KongConfigGenerator:
         # 'key-auth'. Empty (the default and the base-Atlas case) → the backend
         # route is emitted exactly as before, so there is no drift.
         self.plugin_route_auth: list[tuple[str, str]] = []
+        # Ordered (plugin_name, route_prefix, explicit timeout mapping) entries
+        # derived from plugin.yml. Kong timeouts are service-scoped, so each
+        # entry is emitted as a dedicated backend service (#974).
+        self.plugin_route_timeouts: list[tuple[str, str, dict[str, int]]] = []
 
     def load_environment_variables(self):
         """Load current environment variables from .env file."""
@@ -1663,6 +1667,7 @@ class KongConfigGenerator:
         backend_service = self.generate_backend_service()
         if backend_service:
             services.append(backend_service)
+            services.extend(self.generate_backend_timeout_services())
 
         # Open WebUI
         openwebui_service = self.generate_openwebui_service()
@@ -1702,7 +1707,7 @@ class KongConfigGenerator:
     def generate_backend_service(self) -> Optional[Dict[str, Any]]:
         """Generate Backend API service configuration based on SOURCE.
 
-        With no per-plugin auth overrides (the base-Atlas case) this emits the
+        With no shared per-plugin auth overrides (the base-Atlas case) this emits the
         historical single ``backend-api-all`` route with a service-level plugin
         stack — byte-identical to before. When plugin.yml manifests declare
         per-prefix auth (#402), the route is split: one route per overridden
@@ -1717,10 +1722,18 @@ class KongConfigGenerator:
             return None
 
         base_mode = self._backend_kong_auth_mode()
+        timed_prefixes = {
+            prefix for _name, prefix, _timeouts in self.plugin_route_timeouts
+        }
+        shared_route_auth = [
+            (prefix, mode)
+            for prefix, mode in self.plugin_route_auth
+            if prefix not in timed_prefixes
+        ]
 
         # Backward-compatible fast path: no per-plugin overrides → the exact
         # historical shape (auth at service level, single catch-all route).
-        if not self.plugin_route_auth:
+        if not shared_route_auth:
             plugins = [{'name': 'cors'}]
             plugins.extend(self._backend_auth_plugins(base_mode))
             return {
@@ -1748,17 +1761,10 @@ class KongConfigGenerator:
         # whose prefix slugifies to it (route_prefix: /all -> 'backend-api-all')
         # is de-duplicated rather than producing two routes with the same name —
         # which Kong rejects for the WHOLE declarative config (gateway won't boot).
-        used_names: set[str] = {'backend-api-all'}
-        for prefix, mode in self.plugin_route_auth:
-            base = f'backend-api-{self._route_slug(prefix)}'
-            name = base
-            suffix = 2
-            while name in used_names:
-                name = f'{base}-{suffix}'
-                suffix += 1
-            used_names.add(name)
+        route_names = self._backend_route_names()
+        for prefix, mode in shared_route_auth:
             routes.append({
-                'name': name,
+                'name': route_names[prefix],
                 'strip_path': False,
                 'hosts': ['api.localhost'],
                 'paths': [prefix],
@@ -1776,6 +1782,63 @@ class KongConfigGenerator:
             'routes': routes,
             'plugins': [{'name': 'cors'}],
         }
+
+    def generate_backend_timeout_services(self) -> List[Dict[str, Any]]:
+        """Dedicated backend services for plugin-declared Kong timeouts.
+
+        Kong stores upstream timeouts on services rather than routes. Only
+        plugins declaring at least one timeout get a dedicated service; all
+        other traffic remains on ``backend-api``. A path-bearing route wins
+        over the shared service's host-only catch-all.
+        """
+        if self.get_env_value('BACKEND_SOURCE') == 'disabled':
+            return []
+
+        route_names = self._backend_route_names()
+        auth_by_prefix = dict(self.plugin_route_auth)
+        base_mode = self._backend_kong_auth_mode()
+        services: List[Dict[str, Any]] = []
+        for plugin_name, prefix, timeouts in self.plugin_route_timeouts:
+            service = {
+                'name': f'backend-api-plugin-{plugin_name}',
+                'url': 'http://backend:8000/',
+                'routes': [
+                    {
+                        'name': route_names[prefix],
+                        'strip_path': False,
+                        'hosts': ['api.localhost'],
+                        'paths': [prefix],
+                        'plugins': self._backend_auth_plugins(
+                            auth_by_prefix.get(prefix, base_mode)
+                        ),
+                    }
+                ],
+                'plugins': [{'name': 'cors'}],
+            }
+            service.update(timeouts)
+            services.append(service)
+        return services
+
+    def _backend_route_names(self) -> Dict[str, str]:
+        """Allocate unique Kong route names across all backend services."""
+        used_names: set[str] = {'backend-api-all'}
+        route_names: Dict[str, str] = {}
+        prefixes = [prefix for prefix, _mode in self.plugin_route_auth]
+        prefixes.extend(
+            prefix for _name, prefix, _timeouts in self.plugin_route_timeouts
+        )
+        for prefix in prefixes:
+            if prefix in route_names:
+                continue
+            base = f'backend-api-{self._route_slug(prefix)}'
+            name = base
+            suffix = 2
+            while name in used_names:
+                name = f'{base}-{suffix}'
+                suffix += 1
+            used_names.add(name)
+            route_names[prefix] = name
+        return route_names
 
     @staticmethod
     def _route_slug(prefix: str) -> str:
