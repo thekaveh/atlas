@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import FrozenInstanceError
+import json
+from pathlib import Path
 
 import pytest
 
@@ -85,6 +87,14 @@ _TASK5_REVIEWED_AGENTS_APPS_MANIFESTS = frozenset(
     }
 )
 
+_SYNTHETIC_CAPABILITY_YAML = (
+    "capabilities:\n"
+    "  - name: Synthetic service contract\n"
+    "    status: supported\n"
+    "    verification: tested\n"
+    "    note: Tests exercise this synthetic manifest contract.\n"
+)
+
 
 # ────────────────────────────────────────────────────────────────────────────
 # Happy paths
@@ -110,7 +120,9 @@ def test_load_minimal_manifest(services_root, write_manifest, minimal_manifest_d
     assert m.env[0].name == "REDIS_PORT"
     assert m.env[0].default == 6379
     assert m.env[0].auto_managed is False
-    assert m.capabilities == []  # optional during the pilot rollout
+    assert [capability.name for capability in m.capabilities] == [
+        "Synthetic service contract"
+    ]
 
 
 def test_load_capabilities_preserves_declaration_order(
@@ -222,6 +234,28 @@ def test_underscore_prefixed_folders_are_ignored(
 # ────────────────────────────────────────────────────────────────────────────
 # Schema violations
 # ────────────────────────────────────────────────────────────────────────────
+
+
+def test_capabilities_is_a_top_level_required_schema_field():
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    schema = json.loads(
+        (repo_root / "bootstrapper/schemas/service.schema.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert "capabilities" in schema["required"]
+
+
+def test_manifest_without_capabilities_is_rejected(
+    services_root, write_manifest, minimal_manifest_dict
+):
+    manifest = minimal_manifest_dict("redis")
+    manifest.pop("capabilities", None)
+    write_manifest("redis", manifest)
+
+    with pytest.raises(ManifestLoadError, match="capabilities"):
+        load_manifests(services_root)
 
 
 def test_missing_required_field_rejected(services_root, write_manifest):
@@ -446,7 +480,8 @@ def test_rows_block_accepts_valid_entries(tmp_path):
         "label: Demo\n"
         "category: data\n"
         "env: []\n"
-        "rows:\n"
+        + _SYNTHETIC_CAPABILITY_YAML
+        + "rows:\n"
         "  - display_name: Demo Row\n"
         "    source_var: DEMO_SOURCE\n"
         "    port_var: DEMO_PORT\n"
@@ -475,6 +510,7 @@ def test_category_enum_accepts_new_values(tmp_path, cat):
     (services_root / "demo").mkdir(parents=True)
     (services_root / "demo" / "service.yml").write_text(
         f"name: demo\nlabel: Demo\ncategory: {cat}\nenv: []\n"
+        + _SYNTHETIC_CAPABILITY_YAML
     )
     from services.manifests import load_manifests
     manifests = load_manifests(services_root)
@@ -508,6 +544,11 @@ name: foo
 label: Foo
 category: data
 env: []
+capabilities:
+  - name: Synthetic service contract
+    status: supported
+    verification: tested
+    note: Tests exercise this synthetic manifest contract.
 runtime_adaptive:
   foo:
     adapts_to: [other]
@@ -535,6 +576,11 @@ name: bar
 label: Bar
 category: infra
 env: []
+capabilities:
+  - name: Synthetic service contract
+    status: supported
+    verification: tested
+    note: Tests exercise this synthetic manifest contract.
 doc_extras:
   diagram:
     extra_consumers: ["openclaw", "n8n"]
@@ -559,7 +605,8 @@ def test_data_flow_calls_round_trips(tmp_path):
         "label: Foo\n"
         "category: data\n"
         "env: []\n"
-        "data_flow:\n"
+        + _SYNTHETIC_CAPABILITY_YAML
+        + "data_flow:\n"
         "  calls:\n"
         "    - bar\n"
         "    - baz\n"
@@ -582,6 +629,7 @@ def test_data_flow_calls_optional(tmp_path):
         "label: NoFlow\n"
         "category: data\n"
         "env: []\n"
+        + _SYNTHETIC_CAPABILITY_YAML
     )
 
     manifests = load_manifests(services_dir)
@@ -623,7 +671,8 @@ def test_row_carries_localhost_port_var_through_topology(tmp_path):
         "label: Minimal\n"
         "category: apps\n"
         "containers: [minimal]\n"
-        "sources:\n"
+        + _SYNTHETIC_CAPABILITY_YAML
+        + "sources:\n"
         "  var: MINIMAL_SOURCE\n"
         "  default: container\n"
         "  options:\n"
@@ -996,6 +1045,32 @@ def test_all_manifests_have_capabilities_and_agents_apps_meet_quality_floor():
         "agents/apps manifests have entries below the structural capability "
         f"quality floor: {below_quality_floor}"
     )
+
+
+def test_repository_has_exactly_57_nonempty_unique_capability_contracts():
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    manifests = load_manifests(repo_root / "services")
+
+    assert len(manifests) == 57
+    assert len({manifest.name for manifest in manifests}) == 57
+    assert all(manifest.capabilities for manifest in manifests)
+    duplicate_names = {
+        manifest.name: sorted(
+            {
+                capability.name
+                for capability in manifest.capabilities
+                if sum(
+                    other.name == capability.name
+                    for other in manifest.capabilities
+                )
+                > 1
+            }
+        )
+        for manifest in manifests
+        if len({capability.name for capability in manifest.capabilities})
+        != len(manifest.capabilities)
+    }
+    assert duplicate_names == {}
 
 
 def test_comfyui_ingress_contract_matches_compose_and_kong_boundaries():
@@ -1691,6 +1766,11 @@ def _synthetic_family(tmp_path, runtime_sc_block: str):
             label: Gamma
             category: apps
             containers: [gamma, gamma-worker]
+            capabilities:
+              - name: Synthetic service contract
+                status: supported
+                verification: tested
+                note: Tests exercise this synthetic manifest contract.
             sources:
               var: GAMMA_SOURCE
               default: container-cpu

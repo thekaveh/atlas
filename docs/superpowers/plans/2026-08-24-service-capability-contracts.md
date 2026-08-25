@@ -27,7 +27,7 @@
 
 ---
 
-### Task 1: Typed schema and four hand-authored pilot contracts
+### 1.1. Task 1: Typed schema and four hand-authored pilot contracts
 
 **Files:**
 - Modify: `bootstrapper/schemas/service.schema.json`
@@ -92,7 +92,7 @@ git add bootstrapper/schemas/service.schema.json \
 git commit -m "feat(docs): define service capability contracts"
 ```
 
-### Task 2: Deterministic capability section generation
+### 1.2. Task 2: Deterministic capability section generation
 
 **Files:**
 - Create: `bootstrapper/docs/capabilities_resolver.py`
@@ -153,7 +153,7 @@ git add bootstrapper/docs/capabilities_resolver.py \
 git commit -m "feat(docs): render service capability sections"
 ```
 
-### Task 3: Infra and data capability rollout
+### 1.3. Task 3: Infra and data capability rollout
 
 **Files:**
 - Modify: every `services/*/service.yml` whose category is `infra` or `data`
@@ -188,7 +188,7 @@ git add services/*/service.yml bootstrapper/tests
 git commit -m "docs(services): contract infra and data capabilities"
 ```
 
-### Task 4: LLM and media capability rollout
+### 1.4. Task 4: LLM and media capability rollout
 
 **Files:**
 - Modify: every `services/*/service.yml` whose category is `llm` or `media`
@@ -218,7 +218,7 @@ git add services/*/service.yml bootstrapper/tests
 git commit -m "docs(services): contract llm and media capabilities"
 ```
 
-### Task 5: Agents, apps, and virtual capability rollout
+### 1.5. Task 5: Agents, apps, and virtual capability rollout
 
 **Files:**
 - Modify: every remaining `services/*/service.yml`
@@ -248,7 +248,7 @@ git add services/*/service.yml bootstrapper/tests
 git commit -m "docs(services): contract agent and app capabilities"
 ```
 
-### Task 6: Enforce completeness and regenerate canonical READMEs
+### 1.6. Task 6: Enforce completeness and regenerate canonical READMEs
 
 **Files:**
 - Modify: `bootstrapper/schemas/service.schema.json`
@@ -294,7 +294,7 @@ git add bootstrapper/schemas/service.schema.json bootstrapper/tests \
 git commit -m "docs(services): publish capability contracts"
 ```
 
-### Task 7: Verification, review, and gitflow delivery
+### 1.7. Task 7: Verification, review, and gitflow delivery
 
 **Files:**
 - Verify all changed and generated files; no new runtime files.

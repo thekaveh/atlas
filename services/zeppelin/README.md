@@ -183,3 +183,14 @@ _No high-confidence opportunities identified._
 - **JDBC interpreter "Interpreter not properly configured"** — Zeppelin does not auto-bind the `ZEPPELIN_JDBC_POSTGRES_*` env vars to a JDBC interpreter profile. Walk through §4's one-time UI setup, then restart it (Interpreter → postgres → Restart). Supabase Postgres also must be running (it's a required dep of the stack).
 - **`%trino` is missing or cannot load the driver** — confirm both `ZEPPELIN_SOURCE=container` and `TRINO_SOURCE=container`, then check `docker logs ${PROJECT_NAME}-zeppelin-init`. The init script should report either "trino JDBC interpreter created" or "already configured". The interpreter dependency must include `io.trino:trino-jdbc:482`.
 - **"Notebook won't save"** — `/notebook` is bind-mounted from `services/zeppelin/notebooks/`. Confirm `services/zeppelin/notebooks/` exists and is writable by the host user. Zeppelin writes new .zpln files there.
+
+## 8. Capabilities & limitations
+
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Spark-first interactive notebooks | supported | tested | Atlas bundles a matching Spark runtime and seeds the standalone Spark interpreter for Scala, PySpark, and SQL paragraphs against the in-stack cluster. |
+| MinIO and Iceberg lakehouse notebooks | partial | tested | The interpreter receives scoped S3A and Iceberg REST settings and starter notebooks, while advanced operations remain an operator-run live smoke. |
+| Adaptive Trino and Postgres JDBC | partial | tested | Init seeds a Trino interpreter only when enabled, but Supabase Postgres variables still require one-time manual JDBC interpreter configuration. |
+| Notebook and log persistence | partial | documented | Notebooks bind to the repository and logs use a named volume, but concurrent edits, backup, restoration, and multi-replica writer coordination are operator-owned. |
+| Authenticated Zeppelin access | not-supported | tested | Zeppelin ships without authentication and is deliberately exposed only on a fixed loopback port with no Kong route; remote users must tunnel or configure auth before proxying it. |
+| Interpreter process isolation and HA | not-supported | documented | All interpreters run in one Zeppelin container with injected lakehouse credentials; Atlas configures neither per-user sandboxing nor a replicated notebook control plane. |

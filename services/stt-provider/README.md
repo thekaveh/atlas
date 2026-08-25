@@ -234,3 +234,16 @@ does not expose the Faster-Whisper-style `int8` compute-type control.
 
 **whisper.cpp not detected as localhost** — make sure it's serving the
 `/v1/audio/transcriptions` path (use `--inference-path`).
+
+## 11. Capabilities & limitations
+
+| Service | Capability | Status | Verification | Notes |
+|---|---|---|---|---|
+| parakeet | NVIDIA Parakeet transcription | supported | tested | The GPU source loads the configured Parakeet-TDT checkpoint and serves standard and advanced OpenAI-shaped transcription routes with truthful readiness. |
+| parakeet | Host speech-to-text variants | partial | tested | Atlas can route to operator-run Parakeet MLX or whisper.cpp endpoints, but installation, model provisioning, process supervision, and host acceleration remain operator-owned. |
+| parakeet | Timestamp-rich transcription | partial | tested | Atlas-managed Parakeet providers expose segment and word timing when the selected implementation returns alignment data; plain results honestly report timestamps unavailable. |
+| parakeet | Provider authentication and workload bounds | partial | tested | Atlas Parakeet requires a bearer token and bounds uploads, admission, and inference by default; those guarantees do not extend to selected Speaches or whisper.cpp upstreams. |
+| parakeet | Cross-architecture Parakeet container | not-supported | tested | The only Parakeet container is NVIDIA GPU; Apple Silicon uses the separately installed MLX localhost provider and no CPU container or GPU quantization knob is advertised. |
+| speaches | OpenAI-compatible text-to-speech | partial | tested | Speaches serves /v1/audio/speech, but Atlas does not preload Kokoro; the model must be downloaded before requests succeed. |
+| speaches | OpenAI-compatible speech-to-text | partial | untested | Speaches exposes /v1/audio/transcriptions, but Atlas has not validated the current preload and Open WebUI model path against a live container. |
+| speaches | Configurable STT model selection | stubbed | documented | SPEACHES_STT_MODEL is declared but does not alter the hard-coded PRELOAD_MODELS value or Open WebUI's STT model. |

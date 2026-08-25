@@ -20,7 +20,7 @@ capabilities:
   - name: "Operator-trusted credential environment"
     status: partial
     verification: documented
-    note: "The server receives powerful database and service credentials and grants sudo inside its container, so it is an engineering workspace rather than a hostile multi-tenant sandbox."
+    note: "The server receives high-privilege database and service credentials and grants sudo inside its container, so it is an engineering workspace rather than a hostile multi-tenant sandbox."
   - name: "Notebook workspace persistence"
     status: supported
     verification: tested

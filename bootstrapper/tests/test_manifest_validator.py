@@ -188,6 +188,14 @@ def test_tier_member_matching_a_real_container_is_clean(
             "category": "infra",
             "virtual": True,
             "containers": [],
+            "capabilities": [
+                {
+                    "name": "Synthetic service contract",
+                    "status": "supported",
+                    "verification": "tested",
+                    "note": "Tests exercise this synthetic manifest contract.",
+                }
+            ],
             "env": [{"name": "PROJECT_NAME", "default": "atlas"}],
             "runtime_dependency_tiers": {
                 "data_tier": ["redis"],
@@ -212,6 +220,14 @@ def test_dangling_tier_member_flagged(
             "category": "infra",
             "virtual": True,
             "containers": [],
+            "capabilities": [
+                {
+                    "name": "Synthetic service contract",
+                    "status": "supported",
+                    "verification": "tested",
+                    "note": "Tests exercise this synthetic manifest contract.",
+                }
+            ],
             "env": [{"name": "PROJECT_NAME", "default": "atlas"}],
             "runtime_dependency_tiers": {
                 "core_services": ["redis", "xtts"],
@@ -299,6 +315,14 @@ def test_virtual_manifest_with_fragment_flagged(services_root, write_manifest):
             "category": "infra",
             "virtual": True,
             "containers": [],
+            "capabilities": [
+                {
+                    "name": "Synthetic service contract",
+                    "status": "supported",
+                    "verification": "tested",
+                    "note": "Tests exercise this synthetic manifest contract.",
+                }
+            ],
             "env": [{"name": "PROJECT_NAME", "default": "atlas"}],
         },
     )
@@ -319,6 +343,14 @@ def test_virtual_manifest_without_fragment_clean(services_root, write_manifest):
             "category": "infra",
             "virtual": True,
             "containers": [],
+            "capabilities": [
+                {
+                    "name": "Synthetic service contract",
+                    "status": "supported",
+                    "verification": "tested",
+                    "note": "Tests exercise this synthetic manifest contract.",
+                }
+            ],
             "env": [{"name": "PROJECT_NAME", "default": "atlas"}],
         },
     )

@@ -5,7 +5,7 @@
   "description": "Schema for services/<name>/service.yml. Each file is the single source of truth for one service family — what previously lived split across docker-compose.yml, .env.example, and bootstrapper/service-configs.yml.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["name", "label", "category", "env"],
+  "required": ["name", "label", "category", "env", "capabilities"],
   "properties": {
     "virtual": {
       "type": "boolean",
@@ -60,7 +60,7 @@
     "capabilities": {
       "type": "array",
       "minItems": 1,
-      "description": "Operator-facing capability and limitation contract. Optional during the pilot rollout; declaration order is presentation order.",
+      "description": "Required operator-facing capability and limitation contract. Declaration order is presentation order.",
       "items": {
         "type": "object",
         "additionalProperties": false,

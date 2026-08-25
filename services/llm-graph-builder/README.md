@@ -120,3 +120,14 @@ _No high-confidence opportunities identified._
 ### 10.6. Future — Unused features in this service
 
 - Upstream token usage tracking can be revisited after Atlas has a shared token telemetry store.
+
+## 11. Capabilities & limitations
+
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Document-to-Neo4j graph workflow | partial | tested | Atlas builds the pinned upstream UI/backend and wires Neo4j plus LiteLLM, but APOC is not bundled and APOC-dependent operations require operator installation. |
+| LiteLLM extraction and graph chat | partial | tested | Atlas exposes one OpenAI-compatible model alias, while graph quality and structured extraction remain dependent on the operator-selected model. |
+| Graph Builder access control | partial | tested | Kong protects both browser and backend aliases with Basic Auth and ACL, but the host-published frontend skips app auth and the internal backend sets authentication off. |
+| Optional Google Cloud features | partial | tested | Atlas validates complete logging or GCS-cache configuration and mounts ADC read-only, but the disabled default uses a placeholder and no live cloud operation is certified. |
+| Graph namespace and rollback isolation | partial | documented | Disabling containers preserves generated Neo4j data, while upstream labels share the selected database and Atlas cannot prevent collisions or destructive cleanup in a shared database. |
+| Turn-key MinIO and Docling ingestion | not-supported | documented | MinIO endpoint-compatible S3 ingestion and a direct Docling handoff are integration points only; operators must use local, wiki, or web sources in the stock Atlas path. |

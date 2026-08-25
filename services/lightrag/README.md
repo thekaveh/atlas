@@ -17,7 +17,7 @@ In this stack, LightRAG reuses existing infrastructure:
 - **Document parsing** → the isolated Docling compatibility adapter, which authenticates to Docling without exposing its provider credential to LightRAG (when in-stack LightRAG and Docling are enabled).
 - **Reranking** defaults off. LightRAG's built-in Jina/Cohere rerank clients send a payload shape (`{query, documents}`) that TEI's `/rerank` endpoint (`{query, texts}`) does not accept, so Atlas never wires LightRAG directly to TEI. To enable reranking, route it through the backend rerank adapter (`POST /lightrag/rerank`, #415): set `LIGHTRAG_RERANK_ADAPTER_ENABLED=true` with `TEI_RERANKER_SOURCE` enabled — see the [backend README §5.1](../backend/README.md#51-lightrag--tei-rerank-adapter-post-lightragrerank-415).
 
-When any of these backends is disabled, LightRAG transparently falls back to in-process file backends (`NanoVectorDBStorage` / `NetworkXStorage` / `JsonKVStorage`). Multimodal images become text-only when docling is disabled.
+When Supabase, Neo4j, or Redis is disabled, Atlas clears that backend's connection URI but leaves the corresponding external storage selector unchanged. Atlas does not select file-backed storage automatically; operators who want a file-backed mode must set the relevant `LIGHTRAG_*_STORAGE` selector explicitly and provide suitable persistence. Multimodal images become text-only when Docling is disabled.
 
 ## 2. Source variants
 
@@ -172,12 +172,12 @@ _No high-confidence opportunities identified._
 
 ## 6. Storage backend matrix
 
-| Storage role | Default backend | In-process fallback (when source disabled) |
+| Storage role | Default selector | Behavior when the external source is disabled |
 |---|---|---|
-| KV | Redis `db=2` | JsonKVStorage (`/app/data/kv/*.json`) |
-| Vector | Supabase pgvector | NanoVectorDBStorage (`/app/data/vectors/*.json`) |
-| Graph | Neo4j | NetworkXStorage (`/app/data/graph/*.graphml`) |
-| Doc-status | Redis `db=2` | JsonDocStatusStorage |
+| KV | `RedisKVStorage` on Redis `db=2` | Redis URI is cleared; selector remains `RedisKVStorage`. |
+| Vector | `PGVectorStorage` on Supabase pgvector | Postgres URI is cleared; selector remains `PGVectorStorage`. |
+| Graph | `Neo4JStorage` on Neo4j | Neo4j URI is cleared; selector remains `Neo4JStorage`. |
+| Doc-status | `RedisDocStatusStorage` on Redis `db=2` | Redis URI is cleared; selector remains `RedisDocStatusStorage`. |
 
 ## 7. Init container
 
@@ -195,3 +195,11 @@ _No high-confidence opportunities identified._
 - **Empty KG after ingestion** — verify `LIGHTRAG_LLM_MODEL` actually points at a chat-capable model. Some embedding-only Ollama tags will silently produce empty triples.
 - **Rerank does not run even when TEI is enabled** — expected unless the rerank adapter is enabled. LightRAG's direct rerank clients and TEI's `/rerank` request body are incompatible, so Atlas emits `RERANK_BINDING=null` by default. To turn reranking on, set `LIGHTRAG_RERANK_ADAPTER_ENABLED=true` (with `TEI_RERANKER_SOURCE` enabled) so LightRAG reranks through the backend adapter (`POST /lightrag/rerank`, #415); `./start.sh doctor` warns if the flag is on but TEI/LightRAG is off.
 - **`pgvector` dim mismatch** — drop and rerun the migration when changing `LIGHTRAG_EMBEDDING_DIM`: `psql ... -c "DROP SCHEMA lightrag CASCADE"` then restart.
+
+## 9. Capabilities & limitations
+
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Graph-augmented retrieval through LiteLLM | supported | tested | Atlas resolves LightRAG chat and embedding models through LiteLLM and exposes graph-aware query modes. |
+| External persistent storage | partial | tested | Atlas wires Supabase pgvector, Neo4j, and Redis when enabled; disabling them clears connection URIs without selecting file-backed storage implementations. |
+| LightRAG reranking | partial | tested | Reranking requires TEI plus the opt-in backend adapter because direct LightRAG-to-TEI request payloads are incompatible. |

@@ -147,3 +147,11 @@ Worker scaling, query resource groups, access-control files, and additional cata
 - **Catalog missing:** confirm `ICEBERG_REST_SOURCE=container` and that `iceberg-rest` is healthy before Trino starts.
 - **S3 access denied:** confirm `minio-init` completed and populated `MINIO_ICEBERG_ACCESS_KEY` / `MINIO_ICEBERG_SECRET_KEY`.
 - **Kong alias does not load:** run `./start.sh --setup-hosts` so `trino.localhost` resolves locally.
+
+## 7. Capabilities & limitations
+
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| SQL over the Atlas Iceberg lakehouse | supported | tested | Atlas configures Trino's Iceberg REST catalog, MinIO S3 access, and required service ordering for querying the in-stack lakehouse. |
+| Coordinator access control | partial | tested | Kong applies Basic authentication to the browser route, but the directly published coordinator has no Trino authenticator and accepts operator-supplied user names. |
+| Distributed multi-catalog query cluster | not-supported | documented | The stock deployment is one coordinator with no workers and one Iceberg catalog; Atlas does not provision clustered execution or additional federation catalogs. |

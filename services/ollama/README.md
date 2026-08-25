@@ -171,3 +171,13 @@ docker exec ${PROJECT_NAME}-litellm curl -s http://ollama:11434/api/tags
 ```
 
 For general startup and routing issues, see [Troubleshooting](../../docs/quick-start/troubleshooting.md). For LiteLLM-specific debugging (model registration, virtual keys, spend logs), see [LiteLLM Gateway](../litellm/README.md).
+
+## 8. Capabilities & limitations
+
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Local Ollama source selection | supported | tested | Atlas resolves CPU and NVIDIA containers, an existing host daemon, or cloud-only mode behind the same LiteLLM upstream contract. |
+| Declared model provisioning | partial | tested | Selected and custom models are pulled for container and localhost sources, but per-model failures are non-fatal and can leave a registered model unavailable until retried. |
+| Parallelism and residency tuning | partial | tested | Atlas applies parallel slots, loaded-model limits, KV-cache quantization, flash attention, and keep-alive to containers; host daemons remain operator-owned with macOS-only advisory probes. |
+| Authenticated raw Ollama administration | not-supported | documented | The raw ollama.localhost Kong alias is CORS-only and exposes native model-management APIs without Atlas authentication; restrict network access or use an authentication proxy. |
+| Deploy-resource environment override | stubbed | documented | OLLAMA_DEPLOY_RESOURCES is projected by service configuration, but the Compose fragment does not consume it; CPU and GPU reservations come from typed source runtime data. |

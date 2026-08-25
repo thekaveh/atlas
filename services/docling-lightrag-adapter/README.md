@@ -64,3 +64,12 @@ None. Broader conversion behavior belongs in Docling, not this protocol adapter.
 - A submit returning `429` means all adapter job slots are occupied. Retrieve any completed result, wait for an active result transmission to finish or time out, or wait for an unclaimed result's TTL; failed and cancelled jobs release their slots automatically.
 - A result returning expired/not found means the TTL elapsed or the artifact was already downloaded; submit the original document again.
 - An empty adapter endpoint is expected for localhost LightRAG and whenever either LightRAG or Docling is disabled.
+
+## 7. Capabilities & limitations
+
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| LightRAG asynchronous parser compatibility | supported | tested | The logical service exposes LightRAG v1.5.4 submit, poll, and one-shot result routes while delegating one authenticated synchronous conversion to Docling. |
+| Docling credential isolation | supported | tested | LightRAG receives only the internal adapter URL; on that isolated boundary, the adapter alone receives the Docling bearer token and authenticates the upstream call, with no host-published adapter port. |
+| Bounded ephemeral adapter jobs | supported | tested | Admission, upload time, upstream retries, result size, download time, temporary capacity, cleanup, and completed-result TTL are explicitly bounded. |
+| Source-coupled adapter availability | partial | tested | The adapter runs only for container LightRAG with an enabled Docling source; localhost or disabled LightRAG and disabled Docling intentionally resolve no adapter endpoint. |

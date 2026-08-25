@@ -58,3 +58,11 @@ _No high-confidence opportunities identified._
 - If the collector refuses to start, confirm `TEMPO_SOURCE=container`.
 - If Grafana cannot query traces, confirm `TEMPO_ENDPOINT=http://tempo:3200` in the Grafana container environment.
 - Roll back by setting `TEMPO_SOURCE=disabled` and `OTEL_COLLECTOR_SOURCE=disabled`.
+
+## 7. Capabilities & limitations
+
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Local distributed trace storage | supported | tested | Atlas configures a filesystem-backed Tempo service receiving internal OTLP traces from the OpenTelemetry Collector and exposes it to Grafana. |
+| Authenticated public trace ingestion | not-supported | tested | Tempo has no host port, Kong route, or authentication layer in the stock topology; ingestion is restricted to the backend network. |
+| Highly available trace retention | not-supported | documented | The bundled single replica uses local filesystem storage and does not provide replicated object storage or production high availability. |
