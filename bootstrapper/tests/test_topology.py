@@ -7,6 +7,15 @@ from pathlib import Path
 import pytest
 
 
+_SYNTHETIC_CAPABILITY_YAML = (
+    "capabilities:\n"
+    "  - name: Synthetic topology contract\n"
+    "    status: supported\n"
+    "    verification: tested\n"
+    "    note: Tests exercise this synthetic topology manifest.\n"
+)
+
+
 def _write_manifest(services_root: Path, name: str, body: str) -> None:
     (services_root / name).mkdir(parents=True, exist_ok=True)
     (services_root / name / "service.yml").write_text(body)
@@ -167,7 +176,8 @@ def test_build_topology_end_to_end(tmp_path):
         "category: infra\n"
         "env:\n"
         "  - name: ALPHA_PORT\n"
-        "rows:\n"
+        + _SYNTHETIC_CAPABILITY_YAML
+        + "rows:\n"
         "  - display_name: Alpha\n"
         "    source_var: ALPHA_SOURCE\n"
         "    port_var: ALPHA_PORT\n"
@@ -179,7 +189,8 @@ def test_build_topology_end_to_end(tmp_path):
         "category: data\n"
         "env:\n"
         "  - name: BETA_PORT\n"
-        "depends_on:\n"
+        + _SYNTHETIC_CAPABILITY_YAML
+        + "depends_on:\n"
         "  required: [alpha-infra]\n"
         "  optional: []\n"
         "rows:\n"

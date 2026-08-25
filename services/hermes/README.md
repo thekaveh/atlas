@@ -308,3 +308,15 @@ docker compose exec hermes cat /opt/data/config.yaml
 ```
 
 For general startup and routing issues, see [Troubleshooting](../../docs/quick-start/troubleshooting.md).
+
+## 12. Capabilities & limitations
+
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| LiteLLM-backed programmable agent | supported | tested | Atlas renders one usable default chat model from LiteLLM, filters recursive aliases, and exposes Hermes back through LiteLLM as hermes-agent. |
+| Source-aware agent tools | partial | tested | Init renders enabled speech, ComfyUI, SearXNG, and LightRAG providers, while unavailable services are omitted and Airflow triggering remains a user-authored skill or curl pattern. |
+| Container and operator-host lifecycle | partial | tested | Atlas manages the container and its generated config, but localhost mode only resolves an operator-run API and dashboard and cannot guarantee its setup, tools, or process supervision. |
+| Hermes API and dashboard authentication | partial | documented | The OpenAI-compatible API uses HERMES_API_KEY, but the direct dashboard and CORS-only hermes.localhost route default to upstream insecure dashboard mode without an Atlas authentication proxy. |
+| Agent workspace persistence | partial | documented | Sessions, memories, skills, auth, and logs persist in one hermes-data volume, with no shared database, tenant isolation, replication, or cross-service artifact store. |
+| Backend and OpenClaw direct bridges | stubbed | tested | Atlas injects Hermes endpoint credentials into Backend and OpenClaw, but neither currently calls the promised direct bridge; Open WebUI and n8n use LiteLLM or manual HTTP paths instead. |
+| Untrusted autonomous tool isolation | not-supported | documented | Hermes skills can execute tools and code with the runtime's mounted workspace and network access; Atlas provides no per-user sandbox or policy engine for untrusted agent execution. |

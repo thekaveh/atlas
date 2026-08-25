@@ -195,3 +195,11 @@ _No upstream calls._
 - **`403 AccessDenied`** — confirm the consumer credential's scoped policy matches the target bucket. Use root credentials to inspect: `mc admin policy info local <consumer>-policy`.
 - **Cross-path-style failures** — MinIO requires path-style addressing. In boto3 use `Config(s3={"addressing_style": "path"})`.
 - **`minio` container restart-loops** — typically `MINIO_ROOT_PASSWORD` is empty. Confirm `.env` has it populated; if blank, delete the line and re-run `./start.sh` (the bootstrapper will regenerate).
+
+## 12. Capabilities & limitations
+
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| S3-compatible artifact storage | supported | tested | Atlas exposes the MinIO S3 API and console directly and through Kong for in-stack artifacts, lakehouse data, traces, models, and backups. |
+| Scoped consumer bucket provisioning | supported | tested | The idempotent init service creates built-in and declared extra-consumer buckets, policies, and service-account credentials with scoped access. |
+| Highly available storage lifecycle controls | not-supported | documented | The stock single-node deployment configures no replication, object versioning, lifecycle retention, or server-side encryption policy. |

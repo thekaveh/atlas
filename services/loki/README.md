@@ -57,3 +57,11 @@ _No high-confidence opportunities identified._
 - If Grafana cannot query logs, confirm `LOKI_SOURCE=container` and `LOKI_ENDPOINT=http://loki:3100`.
 - If storage grows unexpectedly, check `LOKI_RETENTION_PERIOD` and compactor logs.
 - Roll back by setting `LOKI_SOURCE=disabled`.
+
+## 7. Capabilities & limitations
+
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Local Grafana-queryable log storage | supported | tested | Atlas provisions a single local Loki store and a Grafana datasource for querying logs that an operator sends to its internal endpoint. |
+| Automatic Atlas application log collection | not-supported | documented | No Promtail, Docker logging driver, or OpenTelemetry-to-Loki exporter is wired, so stock Atlas application logs are not ingested automatically. |
+| Highly available long-term log retention | not-supported | documented | The bundled filesystem-backed single replica is intended for short local retention and has no replicated object-store deployment. |

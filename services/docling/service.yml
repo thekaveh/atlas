@@ -4,6 +4,28 @@ label: "Docling (document processor)"
 category: media
 docs: services/doc-processor/README.md  # docling is the docling-container-gpu / docling-localhost engine behind DOC_PROCESSOR_SOURCE
 
+capabilities:
+  - name: "Docling document conversion sources"
+    status: partial
+    verification: tested
+    note: "Atlas provides an NVIDIA GPU container and an existing-host endpoint, but no CPU container or Atlas-managed native Docling lifecycle."
+  - name: "Structured extraction and bounded chunking"
+    status: supported
+    verification: tested
+    note: "The provider converts documents once and renders structured markdown or JSON with validated OCR, table, formula, code, chunk-size, overlap, and total-chunk controls."
+  - name: "Authenticated bounded provider API"
+    status: partial
+    verification: tested
+    note: "Atlas-managed Docling routes require a generated bearer token and enforce upload, admission, and inference deadlines by default, but AUTH_MODE=disabled is an explicit rollback."
+  - name: "Truthful model readiness"
+    status: partial
+    verification: tested
+    note: "Health stays unavailable until converter construction succeeds, but it does not certify every lazily loaded model artifact needed by a later document."
+  - name: "LightRAG conversion bundle"
+    status: supported
+    verification: tested
+    note: "An authenticated internal route renders the JSON and Markdown bundle consumed by the isolated asynchronous LightRAG compatibility adapter."
+
 containers:
   - docling-gpu
   - docling-lightrag-adapter

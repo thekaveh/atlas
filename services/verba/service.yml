@@ -4,6 +4,32 @@ label: "Verba (archived Weaviate RAG UI)"
 category: apps
 docs: services/verba/README.md
 
+capabilities:
+  - name: "Reference Weaviate RAG workflow"
+    status: partial
+    verification: tested
+    note: "Atlas wires the archived Verba UI to Weaviate and LiteLLM for isolated sample ingest and query, but does not treat it as the primary maintained chat or RAG runtime."
+  - name: "Verba-managed data isolation"
+    status: partial
+    verification: documented
+    note: "Operators are directed to Verba-owned Weaviate classes, but Atlas cannot enforce namespace separation if users manually target shared classes or cleanup operations."
+  - name: "Verba ingress authentication"
+    status: partial
+    verification: tested
+    note: "verba.localhost is protected by Kong dashboard Basic Auth and ACL, while the host-published direct UI/API is ungated and intended only for local development."
+  - name: "Docling preprocessing integration"
+    status: not-supported
+    verification: documented
+    note: "Docling is only a manual companion workflow because Atlas does not rely on an unsupported external Verba ingestion API."
+  - name: "Maintained secure production runtime"
+    status: not-supported
+    verification: documented
+    note: "Upstream Verba is archived and receives no security fixes; Atlas keeps the digest-pinned reference UI disabled by default and does not certify it for production."
+  - name: "RAG service high availability"
+    status: not-supported
+    verification: documented
+    note: "Atlas runs one Verba replica with a local data volume and configures no application failover, backup workflow, or horizontally shared UI state."
+
 containers:
   - verba
 

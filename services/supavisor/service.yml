@@ -4,6 +4,20 @@ label: "Supavisor (Postgres transaction pooler)"
 category: data
 docs: services/supavisor/README.md
 
+capabilities:
+  - name: "Transaction pooling for selected application clients"
+    status: partial
+    verification: tested
+    note: "Atlas routes backend, Celery, and n8n through Supavisor transaction pooling when enabled, while session-sensitive Supabase services remain on direct PostgreSQL connections."
+  - name: "Zero-edit direct Postgres rollback"
+    status: supported
+    verification: tested
+    note: "Disabling Supavisor restores the selected consumers to their existing direct Supabase endpoints without changing application code or credentials."
+  - name: "Public pooler endpoint"
+    status: not-supported
+    verification: tested
+    note: "The Supavisor port is backend-network only and Atlas publishes neither a host binding nor a Kong route for external database clients."
+
 containers:
   - supavisor
 

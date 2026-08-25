@@ -60,7 +60,7 @@ All knobs live in `.env` (regenerated from `services/vllm-metal/service.yml`).
 | `VLLM_METAL_PYTHON` | `python3.12` | Interpreter used to build the managed venv (vLLM Metal requires 3.12). |
 | `VLLM_METAL_STATE_DIR` | `~/.atlas/vllm-metal` | Host dir holding the venv + pid/log/status files. |
 | `VLLM_METAL_MODELS_PATH` | _(blank)_ | Optional Hugging Face cache dir (`HF_HOME`); blank = default HF cache. |
-| `VLLM_METAL_MIN_MEMORY_GB` | `16` | Minimum unified memory the preflight requires before install/start. |
+| `VLLM_METAL_MIN_MEMORY_GB` | `16` | Unified-memory warning floor. A lower detected value warns and an unreadable value skips the check; neither blocks install/start or guarantees model fit. |
 | `VLLM_METAL_ENDPOINT` | _(auto-managed)_ | Resolved `http://host.docker.internal:<port>`; consumed by litellm-init. Blank when disabled. |
 | `VLLM_METAL_SCALE` | _(auto-managed)_ | Always `0` — never a container. |
 
@@ -89,6 +89,12 @@ shared by every Atlas consumer on the machine — so a project-scoped `./stop.sh
 leaves it running by default (with an advisory) rather than interrupting another
 consumer; pass `./stop.sh --stop-managed-hosts` to tear it down explicitly (this
 affects all consumers), or use the per-runtime `vllm-metal stop` command below.
+Preflight fails on an unsupported OS/architecture, a missing Python executable,
+or a detected interpreter version other than 3.12. By contrast, an unreadable Python version warns without blocking, low detected memory warns, and unreadable memory skips the check. Those advisory outcomes do not certify that the configured model fits in memory or prevent an eventual OOM.
+
+Startup reuses an already-running managed process without comparing its served
+model with a changed `VLLM_METAL_MODEL`. To change models, stop the existing process before restarting Atlas. Otherwise LiteLLM can advertise the new configured alias while the host process still serves the old model.
+
 For explicit control (or a CI-safe, read-only preflight) use the `vllm-metal`
 CLI group:
 
@@ -175,8 +181,7 @@ _No upstream calls._
 Apple-silicon-only. On Intel Macs, Linux, or Windows, keep
 `VLLM_METAL_SOURCE=disabled` and use a container LLM source or a cloud provider.
 
-**Preflight fails on Python version** — vLLM Metal requires Python 3.12. Point
-`VLLM_METAL_PYTHON` at a 3.12 interpreter (e.g. `brew install python@3.12`).
+**Preflight reports Python version trouble** — vLLM Metal requires Python 3.12. A detected non-3.12 interpreter fails; an unreadable version produces a non-blocking warning. Point `VLLM_METAL_PYTHON` at a readable 3.12 interpreter (e.g. `brew install python@3.12`).
 
 **Model doesn't appear in LiteLLM `/v1/models`** — confirm
 `VLLM_METAL_SOURCE=managed-localhost`, then check the host process is up
@@ -191,3 +196,13 @@ completion blocks until the model is resident. Watch progress in the log
 **Port already in use** — another process holds
 `VLLM_METAL_LOCALHOST_PORT`. Free it or pick a different port; `start` refuses
 to launch onto an occupied port.
+
+## 8. Capabilities & limitations
+
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Managed Apple-Silicon model serving | partial | tested | Atlas fails non-macOS/non-arm64 hosts, a missing Python interpreter, and a detected non-3.12 interpreter; an unreadable Python version warns and does not block install or start. Memory below or unreadable against VLLM_METAL_MIN_MEMORY_GB also warns or skips, does not block lifecycle, and does not certify model fit or prevent OOM. |
+| Checksum-verified host runtime | supported | tested | The manager verifies the paired vLLM core archive and vllm-metal wheel, rejects unverified version overrides, and reconciles stale managed environments. |
+| LiteLLM-only consumer registration | supported | tested | The selected model appears as an authenticated LiteLLM alias while the upstream stays on a loopback host port with no Kong route or stack port. |
+| Single-model host lifecycle | partial | tested | One host-global process serves the model it was started with; changing VLLM_METAL_MODEL does not restart or reconcile an already-running process, so stop it before restarting Atlas or LiteLLM may advertise the new alias against the old model. Multi-model serving, LoRA adapters, project-scoped teardown, and automatic quantized-weight support are unavailable. |
+| Direct upstream authentication | not-supported | tested | The loopback vLLM server has no API key and LiteLLM uses a no-auth placeholder upstream; do not bind or proxy the managed port beyond loopback. |

@@ -41,6 +41,7 @@ source = { editable = "." }
 dependencies = [
     { name = "click" },
     { name = "jsonschema" },
+    { name = "markdown-it-py" },
     { name = "pillow" },
     { name = "pyyaml" },
     { name = "requests" },
@@ -69,6 +70,7 @@ dev = [
 requires-dist = [
     { name = "click", specifier = ">=8.3.3" },
     { name = "jsonschema", specifier = ">=4.0.0" },
+    { name = "markdown-it-py", specifier = ">=3,<4" },
     { name = "pillow", specifier = ">=12.3.0" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "requests", specifier = ">=2.33.0" },

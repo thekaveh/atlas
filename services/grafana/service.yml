@@ -4,6 +4,20 @@ label: "Grafana (observability UI + alerting)"
 category: infra
 docs: services/grafana/README.md
 
+capabilities:
+  - name: "Provisioned observability dashboards and datasources"
+    status: supported
+    verification: tested
+    note: "Atlas provisions Prometheus, Tempo, and Loki datasources plus the bundled stack dashboards through committed Grafana configuration."
+  - name: "Unified alerting workflows"
+    status: partial
+    verification: documented
+    note: "Grafana unified alerting is enabled, but Atlas ships no alert rules, contact points, or notification policies for operators."
+  - name: "Highly available dashboard persistence"
+    status: not-supported
+    verification: documented
+    note: "The stock deployment is a single Grafana replica backed by a local SQLite volume rather than a shared highly available database."
+
 containers:
   - grafana
 

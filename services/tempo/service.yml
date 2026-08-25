@@ -4,6 +4,20 @@ label: "Tempo (distributed trace store)"
 category: infra
 docs: services/tempo/README.md
 
+capabilities:
+  - name: "Local distributed trace storage"
+    status: supported
+    verification: tested
+    note: "Atlas configures a filesystem-backed Tempo service receiving internal OTLP traces from the OpenTelemetry Collector and exposes it to Grafana."
+  - name: "Authenticated public trace ingestion"
+    status: not-supported
+    verification: tested
+    note: "Tempo has no host port, Kong route, or authentication layer in the stock topology; ingestion is restricted to the backend network."
+  - name: "Highly available trace retention"
+    status: not-supported
+    verification: documented
+    note: "The bundled single replica uses local filesystem storage and does not provide replicated object storage or production high availability."
+
 containers:
   - tempo
 

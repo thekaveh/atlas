@@ -4,6 +4,28 @@ label: "Celery + Flower (async jobs)"
 category: agents
 docs: services/celery/README.md
 
+capabilities:
+  - name: "Backend asynchronous task execution"
+    status: partial
+    verification: tested
+    note: "The worker offloads memory consolidation and phased RAG ingestion, but research, media generation, and arbitrary Backend routes are not Celery tasks in this slice."
+  - name: "Bounded worker scheduling"
+    status: supported
+    verification: tested
+    note: "Atlas validates positive concurrency, prefetch, soft and hard time limits, and a Redis visibility timeout longer than the hard task limit before Backend or worker startup."
+  - name: "Retry-safe RAG ingestion ownership"
+    status: partial
+    verification: tested
+    note: "Owner-fenced renewable leases and deterministic LightRAG identities limit duplicate phase effects, but Redis delivery is at-least-once and future side-effecting tasks still require idempotency review."
+  - name: "Flower task monitoring access"
+    status: supported
+    verification: tested
+    note: "Flower requires its own Basic authentication on the direct port and is additionally protected by Kong dashboard Basic Auth and ACL on flower.localhost."
+  - name: "Durable queue high availability"
+    status: not-supported
+    verification: documented
+    note: "Atlas runs one worker replica and one Flower process on the shared single Redis service; result and broker state survive only according to that Redis instance's persistence."
+
 containers:
   - celery-worker
   - flower

@@ -99,3 +99,13 @@ Enterprise review workflows, role-based permissions, and organization-wide SSO a
 - **Storage errors:** confirm `MINIO_SOURCE=container`; Label Studio requires MinIO for this Atlas slice.
 - **Login unavailable:** use `LABEL_STUDIO_USERNAME` and the generated `LABEL_STUDIO_PASSWORD` from `.env`.
 - **Project storage not visible:** add the provisioned MinIO bucket as a project-specific source or target storage connection in Label Studio.
+
+## 7. Capabilities & limitations
+
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Human dataset review and annotation | supported | tested | Atlas starts the Label Studio UI/API with a dedicated Postgres role and initial administrator for operator-created labeling projects. |
+| Scoped MinIO project storage | partial | tested | Atlas provisions a dedicated bucket and credentials, but each project must still configure its own import or export storage connection in Label Studio. |
+| Notebook export integration | partial | tested | JupyterHub receives the Label Studio URL and legacy API token for REST exports, while MLflow, Weaviate, and Backend review loops remain notebook-owned or future work. |
+| Label Studio access control | partial | tested | The direct port relies on Label Studio login and disabled open signup; Kong adds dashboard Basic Auth and ACL, but Atlas does not integrate Supabase SSO or enterprise roles. |
+| Annotation service high availability | not-supported | documented | Postgres and MinIO preserve metadata and assets, but Atlas runs one Label Studio replica and one local data volume without a tested backup or failover workflow. |

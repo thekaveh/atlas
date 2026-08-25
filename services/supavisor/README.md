@@ -103,3 +103,11 @@ Set `SUPAVISOR_SOURCE=disabled` and rerun `./start.sh`. The bootstrapper regener
 - `VAULT_ENC_KEY` errors: make sure `SUPAVISOR_VAULT_ENC_KEY` is exactly 32 bytes. The bootstrapper generates this when the value is blank.
 - Backend or n8n auth failures after enabling: set `SUPAVISOR_SOURCE=disabled` to roll back, then inspect Supavisor tenant bootstrap logs.
 - No Kong alias or host port is expected. v1 consumers connect over the Compose network at `supavisor:6543`.
+
+## 8. Capabilities & limitations
+
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Transaction pooling for selected application clients | partial | tested | Atlas routes backend, Celery, and n8n through Supavisor transaction pooling when enabled, while session-sensitive Supabase services remain on direct PostgreSQL connections. |
+| Zero-edit direct Postgres rollback | supported | tested | Disabling Supavisor restores the selected consumers to their existing direct Supabase endpoints without changing application code or credentials. |
+| Public pooler endpoint | not-supported | tested | The Supavisor port is backend-network only and Atlas publishes neither a host binding nor a Kong route for external database clients. |

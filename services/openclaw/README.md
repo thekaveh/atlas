@@ -344,3 +344,15 @@ No OpenClaw agent (default).
 # Or check what's using the port
 lsof -i :63076
 ```
+
+## 14. Capabilities & limitations
+
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| LiteLLM-backed messaging agent gateway | partial | tested | Atlas configures OpenClaw to use LiteLLM by default, but messaging channels and approvals require operator onboarding and are not exercised against live platforms. |
+| Container and operator-host sources | partial | tested | Atlas initializes and runs the container source, while localhost mode only resolves an existing operator-managed gateway and cannot guarantee its version, onboarding, or supervision. |
+| Direct cloud-provider overrides | partial | tested | Optional OpenClaw-specific Anthropic or OpenAI keys can bypass LiteLLM, which also bypasses Atlas gateway accounting and centralized provider routing. |
+| OpenClaw gateway authentication | partial | tested | OPENCLAW_GATEWAY_TOKEN can protect the gateway, but it defaults empty and both all-interface direct publishes plus the CORS-only Kong route otherwise add no Atlas authentication. |
+| Agent configuration and workspace persistence | partial | tested | Config and workspace data persist in local named volumes, with no MinIO sharing, backup workflow, replication, or tenant-isolated workspace topology. |
+| Hermes and n8n message bridges | stubbed | tested | Hermes endpoint variables are injected and OpenClaw webhooks are documented, but Atlas ships no live forwarding implementation between OpenClaw, Hermes, or n8n. |
+| Untrusted agent command isolation | not-supported | documented | OpenClaw can manage files and execute commands from messaging workflows, while Atlas configures no mandatory sandbox runner or per-channel authorization policy. |

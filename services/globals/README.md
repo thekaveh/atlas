@@ -77,3 +77,11 @@ _No high-confidence opportunities identified._
 ### 11.6. Future — Unused features in this service
 
 _No high-confidence opportunities identified._
+
+## 12. Capabilities & limitations
+
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Project namespace and base-port ownership | supported | tested | This virtual manifest owns the Compose project namespace, bind and gateway settings, and the base port from which service ports are derived; it launches no container of its own. |
+| Branding and launch defaults | supported | tested | Atlas assembles the brand metadata, Compose profiles, GPU reservation flags, and shared logging defaults declared here into the generated environment. |
+| Generic production resource limits | partial | documented | The PROD_ENV limit variables are reserved shared configuration, but most service compose fragments do not yet consume them as generic runtime caps. |

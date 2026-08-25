@@ -4,6 +4,28 @@ label: "Ollama (local LLM engine)"
 category: llm
 docs: services/ollama/README.md
 
+capabilities:
+  - name: "Local Ollama source selection"
+    status: supported
+    verification: tested
+    note: "Atlas resolves CPU and NVIDIA containers, an existing host daemon, or cloud-only mode behind the same LiteLLM upstream contract."
+  - name: "Declared model provisioning"
+    status: partial
+    verification: tested
+    note: "Selected and custom models are pulled for container and localhost sources, but per-model failures are non-fatal and can leave a registered model unavailable until retried."
+  - name: "Parallelism and residency tuning"
+    status: partial
+    verification: tested
+    note: "Atlas applies parallel slots, loaded-model limits, KV-cache quantization, flash attention, and keep-alive to containers; host daemons remain operator-owned with macOS-only advisory probes."
+  - name: "Authenticated raw Ollama administration"
+    status: not-supported
+    verification: documented
+    note: "The raw ollama.localhost Kong alias is CORS-only and exposes native model-management APIs without Atlas authentication; restrict network access or use an authentication proxy."
+  - name: "Deploy-resource environment override"
+    status: stubbed
+    verification: documented
+    note: "OLLAMA_DEPLOY_RESOURCES is projected by service configuration, but the Compose fragment does not consume it; CPU and GPU reservations come from typed source runtime data."
+
 containers:
   - ollama
   - ollama-pull
@@ -187,4 +209,3 @@ data_flow:
   # OLLAMA_CUSTOM_MODELS and warms the Ollama engine), which the schema
   # explicitly excludes — those belong on the ollama-pull init manifest if anywhere.
   calls: []
-

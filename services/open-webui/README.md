@@ -116,3 +116,15 @@ docker compose logs -f SERVICE
 ```
 
 For general startup and routing issues, see [Troubleshooting](../../docs/quick-start/troubleshooting.md).
+
+## 7. Capabilities & limitations
+
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Unified browser chat through LiteLLM | supported | tested | Atlas initializes an Open WebUI administrator and routes its OpenAI-compatible model traffic through the LiteLLM catalog, including Hermes when enabled. |
+| Source-aware speech and image features | partial | tested | Open WebUI receives selected speech endpoints and ComfyUI settings, while model readiness, disabled providers, and source-specific credentials can leave individual features unavailable. |
+| Backend memory and research tools | partial | tested | Bundled server-side tools use scoped Backend tokens and synchronized user identities, but extraction is bounded best-effort and research depends on Local Deep Researcher availability. |
+| Safe prompt secret redaction | partial | tested | The registered filter redacts common secret patterns only after an administrator enables its default-off valve, and it covers Open WebUI user messages rather than stack-wide traffic. |
+| Open WebUI access control | supported | tested | Direct and CORS-only chat.localhost paths rely on Open WebUI's own account and session authentication; Kong provides routing but no additional login layer. |
+| Chat data and upload persistence | partial | documented | Application state uses Postgres and a named Open WebUI data volume, but MinIO/S3 storage, replicated file state, and a tested restore workflow are not configured. |
+| Shared multi-replica WebUI availability | not-supported | documented | Redis backs websocket coordination, but Atlas runs one Open WebUI process and one init job without a certified horizontally scaled application or file-storage topology. |

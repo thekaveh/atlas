@@ -262,3 +262,19 @@ your `TTS_PROVIDER_SOURCE` is `disabled`.
 **Wrong voice playing** — the bootstrapper writes a default voice per
 engine. Override in Open WebUI admin → Audio, or set
 `OPEN_WEB_UI_TTS_VOICE` in `.env` directly.
+
+## 11. Capabilities & limitations
+
+| Service | Capability | Status | Verification | Notes |
+|---|---|---|---|---|
+| chatterbox | GPU voice-cloning text-to-speech | supported | documented | The TTS selector starts the digest-pinned NVIDIA container and exposes Chatterbox synthesis and voice cloning through the selected provider endpoint. |
+| chatterbox | Operator-run localhost Chatterbox | partial | documented | Atlas resolves a host Chatterbox endpoint selected by tts-provider, but installation, model downloads, process lifecycle, and hardware acceleration remain operator-owned. |
+| chatterbox | Persistent registered voice library | not-supported | documented | The container persists only the Hugging Face weight cache; registered voice samples have no Atlas-managed volume or object-store workflow and may disappear on replacement. |
+| chatterbox | Authenticated Chatterbox ingress | not-supported | documented | The host-published API and CORS-only tts.localhost Kong route have no Atlas authentication; use loopback or firewall controls, remove the publish, or add an authentication proxy. |
+| speaches | OpenAI-compatible text-to-speech | partial | tested | Speaches serves /v1/audio/speech, but Atlas does not preload Kokoro; the model must be downloaded before requests succeed. |
+| speaches | OpenAI-compatible speech-to-text | partial | untested | Speaches exposes /v1/audio/transcriptions, but Atlas has not validated the current preload and Open WebUI model path against a live container. |
+| speaches | Configurable STT model selection | stubbed | documented | SPEACHES_STT_MODEL is declared but does not alter the hard-coded PRELOAD_MODELS value or Open WebUI's STT model. |
+| tts-provider | Virtual text-to-speech engine selection | supported | tested | Atlas resolves Speaches CPU or NVIDIA, Chatterbox NVIDIA, or operator-run Chatterbox behind one TTS endpoint without running an aggregator container. |
+| tts-provider | Shared Speaches engine deduplication | supported | tested | When STT and TTS both select Speaches, Atlas runs one container and resolves mixed CPU/GPU selections to the GPU profile. |
+| tts-provider | Chatterbox voice cloning | partial | documented | GPU and localhost selections expose upstream voice-cloning calls, but model download, live inference, voice persistence, and host lifecycle are not certified by Atlas automation. |
+| tts-provider | Authenticated TTS provider ingress | not-supported | documented | Speaches and Chatterbox host ports plus the CORS-only tts.localhost alias have no Atlas authentication; use loopback or firewall controls, remove direct publishes, or add an authentication proxy. |

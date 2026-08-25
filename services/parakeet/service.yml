@@ -15,6 +15,28 @@ label: "Parakeet (NVIDIA STT engine)"
 category: media
 docs: services/stt-provider/README.md  # parakeet is one of the STT_PROVIDER_SOURCE engines (parakeet-container-gpu / parakeet-localhost)
 
+capabilities:
+  - name: "NVIDIA Parakeet transcription"
+    status: supported
+    verification: tested
+    note: "The GPU source loads the configured Parakeet-TDT checkpoint and serves standard and advanced OpenAI-shaped transcription routes with truthful readiness."
+  - name: "Host speech-to-text variants"
+    status: partial
+    verification: tested
+    note: "Atlas can route to operator-run Parakeet MLX or whisper.cpp endpoints, but installation, model provisioning, process supervision, and host acceleration remain operator-owned."
+  - name: "Timestamp-rich transcription"
+    status: partial
+    verification: tested
+    note: "Atlas-managed Parakeet providers expose segment and word timing when the selected implementation returns alignment data; plain results honestly report timestamps unavailable."
+  - name: "Provider authentication and workload bounds"
+    status: partial
+    verification: tested
+    note: "Atlas Parakeet requires a bearer token and bounds uploads, admission, and inference by default; those guarantees do not extend to selected Speaches or whisper.cpp upstreams."
+  - name: "Cross-architecture Parakeet container"
+    status: not-supported
+    verification: tested
+    note: "The only Parakeet container is NVIDIA GPU; Apple Silicon uses the separately installed MLX localhost provider and no CPU container or GPU quantization knob is advertised."
+
 containers:
   - parakeet-gpu
 

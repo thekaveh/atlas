@@ -2,11 +2,11 @@
 
 ## 1. Overview
 
-Apache Iceberg REST Catalog provides Atlas' internal table catalog for the data-engineering lakehouse path. It stores Iceberg catalog metadata in Supabase Postgres through Iceberg's JDBC catalog implementation and points table data at MinIO.
+Apache Iceberg REST Catalog provides Atlas' table catalog for the data-engineering lakehouse path. It stores Iceberg catalog metadata in Supabase Postgres through Iceberg's JDBC catalog implementation and points table data at MinIO.
 
 ## 2. Access
 
-The service is intentionally internal-only in this slice. In-stack clients use `http://iceberg-rest:8181`; operators can use the host port from `ICEBERG_REST_PORT` for local smoke checks.
+In-stack clients use `http://iceberg-rest:8181`. Compose also publishes `ICEBERG_REST_PORT` on the host by default. The Compose-network API is unauthenticated, and the host-published API runs without Atlas authentication. Keep the host publish loopback-bound with `HOST_BIND_IP=127.0.0.1:`, firewall it, or remove the `ports:` entry before exposing the stack on a shared network.
 
 ## 3. Configuration
 
@@ -64,3 +64,12 @@ _No high-confidence opportunities identified._
 - `curl -fsS http://iceberg-rest:8181/v1/config` should return catalog configuration once the service is healthy.
 - If metadata disappears after restart, verify `CATALOG_URI` points at `jdbc:postgresql://supabase-db:5432/iceberg` and not the fixture image's SQLite default.
 - If object writes fail, verify the `iceberg` MinIO service account exists and has access to the configured lakehouse buckets.
+
+## 7. Capabilities & limitations
+
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Persistent Iceberg REST catalog | supported | tested | Atlas layers the PostgreSQL JDBC driver into the catalog image and persists catalog metadata in Supabase with warehouse objects in MinIO. |
+| Advanced Iceberg table operations | partial | untested | Atlas provides opt-in smoke scripts for merge, time travel, branching, evolution, streaming, and maintenance, but CI does not execute those operations against a live catalog. |
+| External catalog and warehouse sources | not-supported | documented | The stock manifest supports only the in-stack container and requires Atlas Supabase plus MinIO rather than selectable external catalog or object-store modes. |
+| Authenticated Iceberg REST API access | not-supported | documented | The Compose-network API and host-published ICEBERG_REST_PORT have no Atlas authentication; set HOST_BIND_IP=127.0.0.1: or remove the iceberg-rest ports: publish before use on shared hosts. |

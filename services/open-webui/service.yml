@@ -4,6 +4,36 @@ label: "Open WebUI (chat interface)"
 category: apps
 docs: services/open-webui/README.md
 
+capabilities:
+  - name: "Unified browser chat through LiteLLM"
+    status: supported
+    verification: tested
+    note: "Atlas initializes an Open WebUI administrator and routes its OpenAI-compatible model traffic through the LiteLLM catalog, including Hermes when enabled."
+  - name: "Source-aware speech and image features"
+    status: partial
+    verification: tested
+    note: "Open WebUI receives selected speech endpoints and ComfyUI settings, while model readiness, disabled providers, and source-specific credentials can leave individual features unavailable."
+  - name: "Backend memory and research tools"
+    status: partial
+    verification: tested
+    note: "Bundled server-side tools use scoped Backend tokens and synchronized user identities, but extraction is bounded best-effort and research depends on Local Deep Researcher availability."
+  - name: "Safe prompt secret redaction"
+    status: partial
+    verification: tested
+    note: "The registered filter redacts common secret patterns only after an administrator enables its default-off valve, and it covers Open WebUI user messages rather than stack-wide traffic."
+  - name: "Open WebUI access control"
+    status: supported
+    verification: tested
+    note: "Direct and CORS-only chat.localhost paths rely on Open WebUI's own account and session authentication; Kong provides routing but no additional login layer."
+  - name: "Chat data and upload persistence"
+    status: partial
+    verification: documented
+    note: "Application state uses Postgres and a named Open WebUI data volume, but MinIO/S3 storage, replicated file state, and a tested restore workflow are not configured."
+  - name: "Shared multi-replica WebUI availability"
+    status: not-supported
+    verification: documented
+    note: "Redis backs websocket coordination, but Atlas runs one Open WebUI process and one init job without a certified horizontally scaled application or file-storage topology."
+
 containers:
   - open-web-ui
   - open-webui-init

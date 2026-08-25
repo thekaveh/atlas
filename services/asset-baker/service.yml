@@ -4,6 +4,24 @@ label: "Asset Baker (Blender HP→LP bake)"
 category: media
 docs: services/asset-baker/README.md
 
+capabilities:
+  - name: "Headless high-to-low-poly texture baking"
+    status: supported
+    verification: tested
+    note: "Atlas runs the voxel-remesh, decimate, Smart-UV, color-bake, normal-bake, and black-output QA pipeline through pinned Blender on Cycles CPU."
+  - name: "Bounded authenticated bake API"
+    status: supported
+    verification: tested
+    note: "Upload, MinIO-reference, and artifact routes require the generated bearer token and enforce input-size, concurrency, and subprocess-timeout bounds; health and metrics remain public."
+  - name: "Content-addressed bake artifacts"
+    status: supported
+    verification: tested
+    note: "Successful GLBs and textures use SHA-256 keys in the scoped MinIO bucket by default, with an explicitly selected local-artifact fallback."
+  - name: "GPU and native ARM64 baking"
+    status: not-supported
+    verification: tested
+    note: "The only source is the CPU container and its pinned Blender archive is linux/amd64-only; the dormant bake-script GPU path is not an Atlas source variant."
+
 containers:
   - asset-baker
 

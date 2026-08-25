@@ -67,7 +67,7 @@ routes — the Backend's own docs define exactly which routes it can and cannot
 reach. Do not return it in webhook payloads, execution output, or browser-side
 code.
 
-The web and worker containers also receive the Docling and Parakeet provider tokens because either process may execute an HTTP Request node. Calls to `${DOCLING_ENDPOINT}/v1/document/convert` must attach `Authorization: Bearer {{$env.DOCLING_API_TOKEN}}`; calls to a Parakeet `${STT_ENDPOINT}/v1/audio/transcriptions` route must similarly use `{{$env.PARAKEET_API_TOKEN}}`. Speaches and whisper.cpp do not use the Parakeet token. Keep both credentials in server-side expressions and never include them in execution output, webhook responses, or browser JavaScript.
+Only `BACKEND_N8N_API_TOKEN` is route-scoped. Both n8n web and worker also receive the stack-wide LiteLLM master key and provider-level credentials for cloud models, Docling, and Parakeet because trusted workflow expressions may call those services. Calls to `${DOCLING_ENDPOINT}/v1/document/convert` must attach `Authorization: Bearer {{$env.DOCLING_API_TOKEN}}`; calls to a Parakeet `${STT_ENDPOINT}/v1/audio/transcriptions` route must similarly use `{{$env.PARAKEET_API_TOKEN}}`. Speaches and whisper.cpp do not use the Parakeet token. Keep the LiteLLM master key and provider-level credentials in server-side expressions and never include them in execution output, webhook responses, or browser JavaScript.
 
 **Required runtime dep:** `weaviate` (per `runtime_deps.n8n.requires`). With `WEAVIATE_SOURCE=disabled`, n8n is force-disabled with an error message — the stack design treats Weaviate-backed vector ops as load-bearing for the seeded AI workflows.
 
@@ -95,7 +95,7 @@ The web and worker containers also receive the Docling and Parakeet provider tok
 
 **Hermes wiring.** `HERMES_ENDPOINT` is injected so workflows can call into Hermes via the HTTP Request node. Inverse path (Hermes → n8n) is webhook-driven: n8n's public REST API has no execute endpoint, so expose a Webhook-trigger workflow and have Hermes POST to its URL.
 
-**Seeded workflows.** `services/n8n/init/config/searxng-research-workflow.json` ships as a worked example of the SearXNG → LiteLLM research pattern, imported manually via the n8n UI. Additional example workflows are staged under `services/n8n/workflows-stage/workflows/` for the same manual-import path. Before activating any staged webhook workflow, create an n8n **Header Auth** credential, select it on the webhook node in place of the `Atlas Webhook Header Auth` placeholder, and configure callers with the same header and value. The examples intentionally cannot expose a production webhook until that local credential is bound. Parameter validation ranges (query count/length, loop limits, search-API choice) and node-level behavior live in the workflow JSON's own inline notes; the bootstrapper test suite validates the workflow's structure and importability.
+**Seeded workflows.** `services/n8n/init/config/searxng-research-workflow.json` ships as a worked example of the SearXNG → LiteLLM research pattern, imported manually via the n8n UI. Its legacy bundled POST `/research` fixture has no webhook authentication or credential declaration, so secure its trigger before activation. Additional example workflows are staged under `services/n8n/workflows-stage/workflows/` for the same manual-import path. Every staged webhook fixture requires the `Atlas Webhook Header Auth` placeholder: create a local n8n **Header Auth** credential, select it on the webhook node, and configure callers with the same header and value before activation. Parameter validation ranges (query count/length, loop limits, search-API choice) and node-level behavior live in the workflow JSON's own inline notes; the bootstrapper test suite validates the workflow's structure and importability.
 
 **Consumer workflow seeding.** A downstream consumer no longer has to script workflow import/activation/readiness itself: it declares an `n8n_workflows` block in `atlas.consumer.yml` (see [reusing-atlas.md §6.3.3](../../docs/deployment/reusing-atlas.md#633-seeding-n8n-workflows-with-n8n_workflows)), and the bootstrapper validates, namespaces (`atlas-consumer-<id>`), imports, and activates each workflow via a dedicated `n8n-seed` container once n8n is healthy — idempotently, and best-effort per workflow so one bad consumer workflow can't abort startup. Removed manifest entries are reconciled (deactivated + deleted) when an `N8N_API_KEY` is configured. Timeout/size bounds and the full validation, namespacing, and reconciliation spec live in the bootstrapper seeder implementation under `services/n8n/`.
 
@@ -182,3 +182,15 @@ docker compose logs n8n-init        # one-shot; useful for first-run debug
 ```
 
 For general startup and routing issues, see [Troubleshooting](../../docs/quick-start/troubleshooting.md).
+
+## 8. Capabilities & limitations
+
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Queue-mode workflow execution | supported | tested | Atlas serializes database migrations, stores workflows in Postgres, and offloads manual and triggered executions through Redis to a dedicated worker. |
+| Bounded consumer workflow seeding | partial | tested | The bootstrapper validates, namespaces, imports, activates, and reconciles declared consumer workflows with time and size bounds, but continues best-effort when one workflow fails. |
+| Bundled AI workflow examples | partial | tested | Atlas ships structurally validated research, memory, and image examples, while operators must import staged examples and bind real credentials before production webhook activation. |
+| Workflow credential propagation | partial | tested | Both web and worker expose a scoped Backend token plus the stack-wide LiteLLM master key and provider service credentials to workflow expressions; trusted authors must avoid returning them in outputs or webhooks. |
+| Editor and webhook access control | partial | tested | n8n supplies its own login while direct and CORS-only Kong routes add no Atlas auth; staged privileged examples require operator-bound Header Auth, but the legacy bundled /research fixture declares no authentication and must be secured before activation. |
+| Idempotent external side effects | not-supported | documented | Queue retries, manual re-runs, and webhook redelivery can repeat arbitrary workflow side effects; Atlas cannot make third-party nodes transactional or universally idempotent. |
+| Workflow execution high availability | partial | documented | Postgres and Redis preserve workflow and queue state across process restarts, but Atlas fixes one web and one worker replica with no multi-node failover certification. |

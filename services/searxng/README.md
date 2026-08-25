@@ -157,3 +157,12 @@ SearXNG aggregates upstream engines in parallel; aggregate latency tracks the sl
 - [SearXNG search API](https://docs.searxng.org/dev/search_api.html) — exact request/response shape for `/search`.
 - [Engine settings reference](https://docs.searxng.org/admin/settings/settings_engines.html) — every engine's tunable knobs, useful when enabling scholarly engines.
 - [Limiter](https://docs.searxng.org/admin/searx.limiter.html) — explains the Valkey-backed bot protection (not wired in this stack; see §3).
+
+## 11. Capabilities & limitations
+
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| JSON privacy metasearch | supported | documented | Atlas pins SearXNG with a thin version-matched override that enables HTML and JSON results while removing Tor-only engines. |
+| Machine-consumer search integration | partial | tested | Hermes, MCP servers, n8n, JupyterHub, and Local Deep Researcher receive the search endpoint, but Open WebUI's native web-search toggle remains unwired. |
+| Authenticated metasearch access | not-supported | documented | The host-published UI/API and rate-limited CORS-only search.localhost route have no Atlas authentication; bind loopback, remove the publish, or add an authentication proxy before remote exposure. |
+| Public-instance abuse protection | not-supported | documented | Public-instance mode, the SearXNG limiter, and its Valkey store are disabled; operators must edit live settings and restore storage wiring before internet exposure. |

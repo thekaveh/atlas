@@ -20,6 +20,28 @@ docs: services/vllm-metal/README.md
 virtual: true
 containers: []
 
+capabilities:
+  - name: "Managed Apple-Silicon model serving"
+    status: partial
+    verification: tested
+    note: "Atlas fails non-macOS/non-arm64 hosts, a missing Python interpreter, and a detected non-3.12 interpreter; an unreadable Python version warns and does not block install or start. Memory below or unreadable against VLLM_METAL_MIN_MEMORY_GB also warns or skips, does not block lifecycle, and does not certify model fit or prevent OOM."
+  - name: "Checksum-verified host runtime"
+    status: supported
+    verification: tested
+    note: "The manager verifies the paired vLLM core archive and vllm-metal wheel, rejects unverified version overrides, and reconciles stale managed environments."
+  - name: "LiteLLM-only consumer registration"
+    status: supported
+    verification: tested
+    note: "The selected model appears as an authenticated LiteLLM alias while the upstream stays on a loopback host port with no Kong route or stack port."
+  - name: "Single-model host lifecycle"
+    status: partial
+    verification: tested
+    note: "One host-global process serves the model it was started with; changing VLLM_METAL_MODEL does not restart or reconcile an already-running process, so stop it before restarting Atlas or LiteLLM may advertise the new alias against the old model. Multi-model serving, LoRA adapters, project-scoped teardown, and automatic quantized-weight support are unavailable."
+  - name: "Direct upstream authentication"
+    status: not-supported
+    verification: tested
+    note: "The loopback vLLM server has no API key and LiteLLM uses a no-auth placeholder upstream; do not bind or proxy the managed port beyond loopback."
+
 sources:
   var: VLLM_METAL_SOURCE
   default: disabled
@@ -57,7 +79,7 @@ env:
     description: "Optional Hugging Face cache dir (HF_HOME) for the managed process. Blank = default HF cache."
   - name: VLLM_METAL_MIN_MEMORY_GB
     default: "16"
-    description: "Minimum unified memory (GB) the preflight requires before install / start."
+    description: "Unified-memory warning floor (GB) checked before lifecycle work; memory below it warns and unreadable memory skips the check. The result does not block install or start and does not certify model fit or prevent OOM."
   - name: VLLM_METAL_SCALE
     auto_managed: true
     description: "Always 0 — vLLM Metal never runs as a container. Reserved for interface parity with container services."
