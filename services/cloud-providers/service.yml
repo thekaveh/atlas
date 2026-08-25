@@ -17,6 +17,28 @@ docs: services/litellm/README.md  # cloud-provider routing is documented in the 
 virtual: true
 containers: []
 
+capabilities:
+  - name: "Virtual cloud-provider selection"
+    status: supported
+    verification: tested
+    note: "Atlas independently enables OpenAI, Anthropic, and OpenRouter and exposes their selected models through the always-on LiteLLM gateway without running a provider container."
+  - name: "Key-gated model registration"
+    status: supported
+    verification: tested
+    note: "A provider contributes LiteLLM rows only when its source is enabled and its server-side API key is non-empty; disabling it removes those routes on regeneration."
+  - name: "Uncatalogued cloud model metadata"
+    status: partial
+    verification: tested
+    note: "User-selected names outside the curated catalogs are routable, but Atlas synthesizes generic capability metadata and cannot infer provider-specific limits or modalities."
+  - name: "Live cloud completion validation"
+    status: partial
+    verification: untested
+    note: "Committed tests certify selection, key isolation, and rendered routing only; successful requests still depend on external credentials, account entitlements, model availability, and provider APIs."
+  - name: "Direct cloud-provider service endpoint"
+    status: not-supported
+    verification: documented
+    note: "This virtual manifest owns configuration only; applications must use LiteLLM because Atlas creates no cloud-provider container, port, or Kong route."
+
 env:
   # OpenAI
   - name: CLOUD_OPENAI_SOURCE

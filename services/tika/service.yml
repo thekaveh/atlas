@@ -4,6 +4,28 @@ label: "Apache Tika (fallback extractor)"
 category: media
 docs: services/tika/README.md
 
+capabilities:
+  - name: "Long-tail plain-text extraction"
+    status: partial
+    verification: tested
+    note: "The backend falls back to Tika for explicit unsupported and archive-oriented formats, but results lack Docling's structure-aware tables, OCR, images, and chunks."
+  - name: "Container and existing-host Tika sources"
+    status: supported
+    verification: tested
+    note: "Atlas resolves a pinned Tika container or an operator-run localhost server and clears downstream endpoints when the fallback is disabled."
+  - name: "Bounded backend fallback calls"
+    status: partial
+    verification: tested
+    note: "Backend calls enforce configured file-size and finite timeout limits, while direct Tika and Kong requests bypass those application-layer bounds."
+  - name: "Authenticated Tika access"
+    status: partial
+    verification: documented
+    note: "Kong protects tika.localhost with dashboard Basic authentication and ACL, but the host-published container port and operator-run localhost server bypass that gate."
+  - name: "Archive malware and recursion policy"
+    status: not-supported
+    verification: documented
+    note: "Atlas provides no malware scanner, recursive archive policy, or quarantine store; keep Tika disabled or network-restricted unless long-tail extraction is required."
+
 containers:
   - tika
 

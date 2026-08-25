@@ -13,6 +13,24 @@ label: "Chatterbox (voice-cloning TTS, GPU)"
 category: media
 docs: services/tts-provider/README.md
 
+capabilities:
+  - name: "GPU voice-cloning text-to-speech"
+    status: partial
+    verification: documented
+    note: "The TTS selector can start the digest-pinned NVIDIA container and expose Chatterbox synthesis and voice cloning, but Atlas has no live model-inference certification."
+  - name: "Operator-run localhost Chatterbox"
+    status: partial
+    verification: documented
+    note: "Atlas resolves a host Chatterbox endpoint selected by tts-provider, but installation, model downloads, process lifecycle, and hardware acceleration remain operator-owned."
+  - name: "Persistent registered voice library"
+    status: not-supported
+    verification: documented
+    note: "The container persists only the Hugging Face weight cache; registered voice samples have no Atlas-managed volume or object-store workflow and may disappear on replacement."
+  - name: "Authenticated Chatterbox ingress"
+    status: not-supported
+    verification: documented
+    note: "The host-published API and CORS-only tts.localhost Kong route have no Atlas authentication; use loopback or firewall controls, remove the publish, or add an authentication proxy."
+
 containers:
   - chatterbox
 

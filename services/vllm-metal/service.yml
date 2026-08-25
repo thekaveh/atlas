@@ -20,6 +20,28 @@ docs: services/vllm-metal/README.md
 virtual: true
 containers: []
 
+capabilities:
+  - name: "Managed Apple-Silicon model serving"
+    status: partial
+    verification: tested
+    note: "Atlas installs and supervises a native OpenAI-compatible vLLM process only on macOS arm64 with Python 3.12 and sufficient unified memory."
+  - name: "Checksum-verified host runtime"
+    status: supported
+    verification: tested
+    note: "The manager verifies the paired vLLM core archive and vllm-metal wheel, rejects unverified version overrides, and reconciles stale managed environments."
+  - name: "LiteLLM-only consumer registration"
+    status: supported
+    verification: tested
+    note: "The selected model appears as an authenticated LiteLLM alias while the upstream stays on a loopback host port with no Kong route or stack port."
+  - name: "Single-model host lifecycle"
+    status: partial
+    verification: tested
+    note: "One host-global managed process serves one configured model; multi-model serving, LoRA adapters, project-scoped teardown, and automatic quantized-weight support are unavailable."
+  - name: "Direct upstream authentication"
+    status: not-supported
+    verification: tested
+    note: "The loopback vLLM server has no API key and LiteLLM uses a no-auth placeholder upstream; do not bind or proxy the managed port beyond loopback."
+
 sources:
   var: VLLM_METAL_SOURCE
   default: disabled

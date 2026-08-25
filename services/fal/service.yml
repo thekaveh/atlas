@@ -6,6 +6,28 @@ docs: services/fal/README.md
 virtual: true
 containers: []
 
+capabilities:
+  - name: "Virtual hosted media generation"
+    status: supported
+    verification: tested
+    note: "The backend uses the server-side FAL key for hosted image and curated image-to-3D operations; Atlas runs no FAL container or direct provider ingress."
+  - name: "LiteLLM text-to-image passthrough"
+    status: partial
+    verification: tested
+    note: "An enabled keyed provider registers fal-image through LiteLLM, but that route covers text-to-image only and returns provider-native outputs without Atlas storage or provenance normalization."
+  - name: "Durable media-operation accounting"
+    status: partial
+    verification: tested
+    note: "Redis operation state and the Postgres recovery ledger handle polling and ambiguous submissions, while spend-budget enforcement remains disabled unless explicitly configured."
+  - name: "Automatic 3D post-processing"
+    status: not-supported
+    verification: documented
+    note: "Image-to-3D returns a normalized GLB reference but never invokes Asset Baker or Asset Worker; callers must submit the artifact to those services explicitly."
+  - name: "Provider webhook completion"
+    status: not-supported
+    verification: documented
+    note: "Atlas uses bounded submit-and-poll operations rather than FAL queue webhooks, so no webhook ingress or signature-validation path is configured."
+
 sources:
   var: FAL_SOURCE
   default: disabled

@@ -39,6 +39,30 @@ _TASK3_REVIEWED_INFRA_DATA_MANIFESTS = frozenset(
     }
 )
 
+_TASK4_REVIEWED_LLM_MEDIA_MANIFESTS = frozenset(
+    {
+        "asset-baker",
+        "asset-worker",
+        "blender-mcp",
+        "chatterbox",
+        "cloud-providers",
+        "comfyui",
+        "crawl4ai",
+        "docling",
+        "docling-lightrag-adapter",
+        "fal",
+        "litellm",
+        "ollama",
+        "parakeet",
+        "searxng",
+        "speaches",
+        "tei-reranker",
+        "tika",
+        "tts-provider",
+        "vllm-metal",
+    }
+)
+
 
 # ────────────────────────────────────────────────────────────────────────────
 # Happy paths
@@ -819,6 +843,59 @@ def test_infra_and_data_manifests_meet_structural_capability_quality_floor():
     )
     assert below_quality_floor == {}, (
         "infra/data manifests have entries below the structural capability "
+        f"quality floor: {below_quality_floor}"
+    )
+
+
+def test_llm_and_media_manifests_meet_structural_capability_quality_floor():
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    manifests = [
+        manifest
+        for manifest in load_manifests(repo_root / "services")
+        if manifest.category in {"llm", "media"}
+    ]
+    discovered_names = {manifest.name for manifest in manifests}
+
+    # The reviewed Task 4 inventory is an independent lower-bound anchor. New
+    # LLM/media manifests remain dynamically included above and must carry a
+    # contract, while moving one of these 19 services out of category is loud.
+    assert len(_TASK4_REVIEWED_LLM_MEDIA_MANIFESTS) == 19
+    assert _TASK4_REVIEWED_LLM_MEDIA_MANIFESTS <= discovered_names, (
+        "reviewed LLM/media manifests disappeared from typed category discovery: "
+        f"{sorted(_TASK4_REVIEWED_LLM_MEDIA_MANIFESTS - discovered_names)}"
+    )
+
+    missing = sorted(manifest.name for manifest in manifests if not manifest.capabilities)
+    assert missing == [], f"LLM/media manifests missing capabilities: {missing}"
+
+    duplicate_names: dict[str, list[str]] = {}
+    below_quality_floor: dict[str, list[str]] = {}
+    for manifest in manifests:
+        names = [capability.name for capability in manifest.capabilities]
+        duplicates = sorted({name for name in names if names.count(name) > 1})
+        if duplicates:
+            duplicate_names[manifest.name] = duplicates
+
+        # This is deliberately a structural regression floor, not a claim that
+        # word counts prove semantic quality. Every row still requires manual
+        # claim-to-evidence review against its implementation and limitations.
+        structurally_weak = [
+            capability.name
+            for capability in manifest.capabilities
+            if len(capability.name.split()) < 2
+            or len(capability.note.split()) < 5
+            or capability.note.casefold() == capability.name.casefold()
+        ]
+        if structurally_weak:
+            below_quality_floor[manifest.name] = structurally_weak
+
+    assert duplicate_names == {}, (
+        f"LLM/media manifests have duplicate capability names: {duplicate_names}"
+    )
+    assert below_quality_floor == {}, (
+        "LLM/media manifests have entries below the structural capability "
         f"quality floor: {below_quality_floor}"
     )
 

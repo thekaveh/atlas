@@ -8,6 +8,32 @@ label: "LiteLLM gateway (LLM router)"
 category: llm
 docs: services/litellm/README.md
 
+capabilities:
+  - name: "Unified authenticated model gateway"
+    status: supported
+    verification: tested
+    note: "Atlas exposes chat, embeddings, image generation, and reranking through one LiteLLM endpoint protected by the generated master key, with an explicitly credentialed admin UI."
+  - name: "Catalog-driven provider routing"
+    status: supported
+    verification: tested
+    note: "Startup deterministically renders Ollama, cloud, service-passthrough, and consumer-declared model rows from typed catalogs and enabled provider configuration."
+  - name: "Gateway persistence and response caching"
+    status: supported
+    verification: tested
+    note: "LiteLLM stores its control and spend data in a dedicated Supabase database and uses the authenticated shared Redis service for namespaced bounded-TTL response caching."
+  - name: "Vision-model default consumption"
+    status: stubbed
+    verification: documented
+    note: "Atlas resolves and persists LITELLM_VISION_MODEL for selection UX, but the manifest explicitly has no current consumer route for that default."
+  - name: "Unified speech routing"
+    status: not-supported
+    verification: documented
+    note: "STT and TTS consumers call their provider endpoints directly; LiteLLM does not register the stock audio transcription or speech routes."
+  - name: "Per-service gateway credentials and budgets"
+    status: not-supported
+    verification: documented
+    note: "Stock consumers share the master key; LiteLLM virtual keys, team budgets, and independently revocable per-service credentials are not provisioned."
+
 containers:
   - litellm
   - litellm-init

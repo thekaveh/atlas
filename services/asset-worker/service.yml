@@ -4,6 +4,24 @@ label: "Asset Worker (glTF post-processing)"
 category: media
 docs: services/asset-worker/README.md
 
+capabilities:
+  - name: "Mechanical glTF conditioning"
+    status: supported
+    verification: tested
+    note: "Atlas normalizes scale and grounding, validates GLB input, and applies glTF-Transform simplification plus Draco or Meshopt and WebP or KTX2 optimization."
+  - name: "Bounded authenticated post-processing API"
+    status: supported
+    verification: tested
+    note: "Upload, MinIO-reference, and artifact routes require the generated bearer token and enforce admission, upload-size, and subprocess-timeout bounds; health and metrics remain public."
+  - name: "Content-addressed optimized artifacts"
+    status: supported
+    verification: tested
+    note: "Optimized GLBs use SHA-256 keys in the scoped MinIO bucket by default, with an explicitly selected local-artifact fallback."
+  - name: "Semantic orientation correction"
+    status: partial
+    verification: tested
+    note: "The default trusts glTF Y-up orientation; callers may request explicit-axis or bounded auto reorientation, but product-specific notions of upright remain consumer policy."
+
 containers:
   - asset-worker
 

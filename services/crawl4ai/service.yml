@@ -4,6 +4,24 @@ label: "Crawl4AI (JS-capable web extraction)"
 category: media
 docs: services/crawl4ai/README.md
 
+capabilities:
+  - name: "Browser-backed web extraction"
+    status: supported
+    verification: tested
+    note: "Atlas configures Crawl4AI's JavaScript-capable API and a Local Deep Researcher adapter that submits URLs and retains bounded markdown output."
+  - name: "Layered extraction-route authentication"
+    status: supported
+    verification: tested
+    note: "The direct and internal APIs require the generated Crawl4AI bearer token, while the Kong alias adds dashboard Basic authentication and ACL; only health is public."
+  - name: "Conservative crawl isolation"
+    status: supported
+    verification: tested
+    note: "Internal-URL access defaults off and the container is read-only with dropped capabilities, no-new-privileges, bounded processes, and ephemeral working directories."
+  - name: "Curated MCP package registration"
+    status: not-supported
+    verification: documented
+    note: "The upstream server exposes MCP transports, but Atlas does not register them in its curated MCP package or provide transport-specific discovery."
+
 containers:
   - crawl4ai
 
