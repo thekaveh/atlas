@@ -9,6 +9,7 @@ config contract the plugin seam validates before mounting:
 - ``health_path`` / ``docs_url`` metadata,
 - ``auth: inherit|open|key-auth`` (enforced by both the application seam and
   the bootstrapper's per-plugin Kong policy),
+- optional strict Kong upstream timeouts in milliseconds,
 - typed / ``default`` / ``required`` / ``secret`` ``env`` declarations,
 - ``depends_on`` dependency-endpoint hints.
 
@@ -70,6 +71,7 @@ _AUTH_MODES = ("inherit", "open", "key-auth")
 _BOOL_TRUE = {"1", "true", "yes", "on"}
 _BOOL_FALSE = {"0", "false", "no", "off"}
 _KONG_TIMEOUT_MAX_MS = 2_147_483_646
+KONG_TIMEOUT_FIELDS = ("connect_timeout", "write_timeout", "read_timeout")
 
 
 class PluginManifestError(RuntimeError):
@@ -182,6 +184,13 @@ class PluginManifest(BaseModel):
             raise ValueError(f"auth {v!r} must be one of {', '.join(_AUTH_MODES)}")
         return v
 
+    @field_validator(*KONG_TIMEOUT_FIELDS, mode="before")
+    @classmethod
+    def _timeout_is_present_integer(cls, v: object) -> object:
+        if v is None:
+            raise ValueError("timeout must be omitted rather than null")
+        return v
+
     @property
     def prefix_head(self) -> str:
         """First path segment of route_prefix (``/tableau/x`` → ``tableau``)."""
@@ -208,6 +217,14 @@ class PluginManifest(BaseModel):
                 }
             )
         return out
+
+    def timeout_summary(self) -> dict[str, int]:
+        """Explicit Kong timeout fields, without manufacturing defaults."""
+        return {
+            field_name: value
+            for field_name in KONG_TIMEOUT_FIELDS
+            if (value := getattr(self, field_name)) is not None
+        }
 
 
 def load_manifest(plugin_dir: Path) -> Optional[PluginManifest]:

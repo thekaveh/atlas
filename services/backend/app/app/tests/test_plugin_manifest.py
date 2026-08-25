@@ -98,7 +98,7 @@ def test_timeout_fields_parse_with_explicit_values_and_omissions(tmp_path):
 @pytest.mark.parametrize("field", ["connect_timeout", "write_timeout", "read_timeout"])
 @pytest.mark.parametrize(
     "value",
-    ["0", "-1", "2147483647", "true", "1.5", '"60000"'],
+    ["0", "-1", "2147483647", "true", "1.0", "1.5", '"60000"', "null"],
 )
 def test_timeout_fields_reject_values_outside_kong_integer_contract(
     tmp_path, field, value
