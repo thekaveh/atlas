@@ -277,9 +277,12 @@ def test_key_auth_plugin_protects_http_and_websocket_routes(tmp_path, monkeypatc
     plugin.mkdir()
     (plugin / "__init__.py").write_text(
         "from fastapi import APIRouter, WebSocket\n"
+        "http_calls = 0\n"
         "router = APIRouter()\n"
         "@router.get('/key-socket/http')\n"
         "def http_route():\n"
+        "    global http_calls\n"
+        "    http_calls += 1\n"
         "    return {'accepted': True}\n"
         "@router.websocket('/key-socket/ws')\n"
         "async def websocket_route(websocket: WebSocket):\n"
@@ -301,6 +304,7 @@ def test_key_auth_plugin_protects_http_and_websocket_routes(tmp_path, monkeypatc
     monkeypatch.setenv("BACKEND_KONG_API_KEY", "gateway-secret")
     monkeypatch.setenv("BACKEND_PLUGINS_DIR", str(tmp_path))
     plugin_seam.load_plugins(app)
+    plugin_module = sys.modules["key_auth_socket_plugin"]
 
     dependencies = {
         route.path: {dependency.call.__name__ for dependency in route.dependant.dependencies}
@@ -311,9 +315,13 @@ def test_key_auth_plugin_protects_http_and_websocket_routes(tmp_path, monkeypatc
     assert dependencies["/key-socket/ws"] == {"require_plugin_gateway_key"}
 
     with TestClient(app) as client:
+        assert client.get("/key-socket/http").status_code == 401
+        assert client.get("/key-socket/http", headers={"apikey": "wrong"}).status_code == 401
+        assert plugin_module.http_calls == 0
         assert client.get("/key-socket/http", headers={"apikey": "gateway-secret"}).json() == {
             "accepted": True
         }
+        assert plugin_module.http_calls == 1
         with client.websocket_connect("/key-socket/ws?apikey=gateway-secret") as websocket:
             assert websocket.receive_text() == "accepted"
         for path in ("/key-socket/ws", "/key-socket/ws?apikey=wrong"):

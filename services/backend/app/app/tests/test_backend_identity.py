@@ -222,6 +222,23 @@ def test_plugin_gateway_key_prefers_header_over_query(monkeypatch, make_connecti
 
 
 @pytest.mark.parametrize("make_connection", [_http_connection, _websocket_connection])
+def test_plugin_gateway_key_does_not_fallback_from_invalid_header_to_query(
+    monkeypatch, make_connection
+) -> None:
+    from backend_identity import require_plugin_gateway_key
+
+    monkeypatch.setenv("BACKEND_KONG_API_KEY", "gateway-secret")
+    connection = make_connection(
+        headers=[(b"apikey", b"wrong")], query_string=b"apikey=gateway-secret"
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(require_plugin_gateway_key(connection))
+
+    assert exc.value.status_code == 401
+
+
+@pytest.mark.parametrize("make_connection", [_http_connection, _websocket_connection])
 @pytest.mark.parametrize(
     ("headers", "query_string"),
     [
