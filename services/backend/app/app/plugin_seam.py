@@ -176,6 +176,13 @@ def _inventory_entry(
     error: str | None = None,
 ) -> dict:
     """Build a JSON-safe inventory row (secrets already masked)."""
+    timeouts = {}
+    if manifest is not None:
+        timeouts = {
+            field_name: value
+            for field_name in ("connect_timeout", "write_timeout", "read_timeout")
+            if (value := getattr(manifest, field_name)) is not None
+        }
     entry: dict = {
         "name": name,
         "status": status,  # loaded | skipped | error
@@ -184,6 +191,7 @@ def _inventory_entry(
         "health_path": manifest.health_path if manifest else None,
         "docs_url": manifest.docs_url if manifest else None,
         "auth": manifest.auth if manifest else None,
+        "timeouts": timeouts,
         "depends_on": list(manifest.depends_on) if manifest else [],
         "env": manifest.env_summary(dict(os.environ)) if manifest else [],
     }

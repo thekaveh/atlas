@@ -2800,10 +2800,12 @@ class AtlasStarter:
             "warning",
         )
 
-    def _derive_plugin_route_auth(self) -> list:
-        """Derive per-prefix Kong auth overrides from plugin.yml manifests (#402).
+    def _derive_plugin_route_policies(self) -> tuple[list, list]:
+        """Derive Kong auth and timeout policy from plugin.yml manifests.
 
-        Returns an ordered list of (route_prefix, mode) for non-inherit auth.
+        Returns ``(route_auth, route_timeouts)`` from one discovery snapshot.
+        Auth entries are ``(route_prefix, mode)`` for non-inherit auth; timeout
+        entries are ``(plugin_name, route_prefix, explicit_timeout_mapping)``.
         A malformed/conflicting *plugin* manifest is handled inside
         ``discover_plugin_manifests`` (collected as an error, its plugin dropped)
         and never raises — the consumer doctor surfaces those. This deliberately
@@ -2815,14 +2817,18 @@ class AtlasStarter:
         """
         from core.plugin_manifest import (
             derive_route_auth,
+            derive_route_timeouts,
             discover_plugin_manifests,
         )
 
         plugin_dirs = _resolve_plugin_dirs(self)
         if not plugin_dirs:
-            return []
+            return [], []
         discovery = discover_plugin_manifests(plugin_dirs)
-        return derive_route_auth(discovery.manifests)
+        return (
+            derive_route_auth(discovery.manifests),
+            derive_route_timeouts(discovery.manifests),
+        )
 
     def generate_kong_configuration(self) -> bool:
         """Generate dynamic Kong configuration based on SOURCE values."""
@@ -2833,11 +2839,13 @@ class AtlasStarter:
             generator.overridden_services = getattr(
                 self, "active_track_overrides", frozenset()
             )
-            # Per-plugin Kong auth (#402): read plugin.yml manifests from the
-            # resolved plugin dirs and derive the (route_prefix, mode) overrides
-            # so key-auth/open can be expressed per prefix. Empty for base Atlas
-            # (no plugins) → the backend route is emitted exactly as before.
-            generator.plugin_route_auth = self._derive_plugin_route_auth()
+            # Derive auth and service-level timeout policy from one plugin.yml
+            # discovery snapshot. Empty for base Atlas (no plugins) preserves
+            # the historical backend route shape.
+            (
+                generator.plugin_route_auth,
+                generator.plugin_route_timeouts,
+            ) = self._derive_plugin_route_policies()
             # Pre-flight: same root-owned-from-prior-container guard as
             # the litellm bind-mount uses (kong-api-gateway also writes
             # nothing into volumes/api but the bootstrapper drops the

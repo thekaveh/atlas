@@ -206,6 +206,32 @@ def test_derive_route_auth_skips_inherit(tmp_path):
     assert all(prefix != "/rag" for prefix, _ in policy)  # inherit contributes nothing
 
 
+def test_starter_derives_auth_and_timeout_policies_from_one_discovery(
+    tmp_path, monkeypatch
+):
+    import start as start_module
+
+    timed = textwrap.dedent(
+        """
+        plugin_manifest_version: 1
+        name: tableau
+        route_prefix: /tableau
+        auth: key-auth
+        read_timeout: 900000
+        """
+    )
+    _pkg(tmp_path, "tableau", timed)
+    monkeypatch.setattr(start_module, "_resolve_plugin_dirs", lambda _starter: [tmp_path])
+    starter = start_module.AtlasStarter.__new__(start_module.AtlasStarter)
+
+    route_auth, route_timeouts = starter._derive_plugin_route_policies()
+
+    assert route_auth == [("/tableau", "key-auth")]
+    assert route_timeouts == [
+        ("tableau", "/tableau", {"read_timeout": 900000})
+    ]
+
+
 def test_validate_plugin_env_flags_required_missing_and_masks_secret(tmp_path):
     m = load_plugin_manifest(_pkg(tmp_path, "tableau", TABLEAU_YML))
     warnings = validate_plugin_env(m, {"TABLEAU_EXECUTION": "comfyui"})
