@@ -1,6 +1,6 @@
 # Plugin WebSocket Key Authentication Design
 
-## Problem
+## 1. Problem
 
 Plugin routers declare authentication once in `plugin.yml`. The backend mounts
 that policy as a router-level dependency. `auth: key-auth` currently delegates
@@ -9,7 +9,7 @@ credential extraction to FastAPI's `APIKeyHeader`, which requires an HTTP
 before the plugin handler can run. Browser WebSocket clients also cannot add an
 arbitrary `apikey` header, while Kong key-auth accepts a query parameter.
 
-## Design
+## 2. Design
 
 Replace the request-only extraction method with an `APIKeyHeader` subclass
 whose callable accepts Starlette's common `HTTPConnection` base type. Read
@@ -33,7 +33,7 @@ and configure Kong's proxy access log to use `$uri` rather than `$request`.
 The gateway log keeps method, path, protocol, status, byte count, user agent,
 and Kong request ID while omitting every query string.
 
-## Test Strategy
+## 3. Test Strategy
 
 - Exercise the dependency directly with HTTP and WebSocket connection scopes.
 - Cover valid header, valid query string, header precedence, missing key,
@@ -51,7 +51,7 @@ and Kong request ID while omitting every query string.
 - Assert Kong's proxy log format uses the path-only `$uri` variable and never
   the query-bearing `$request` or `$request_uri` variables.
 
-## Non-Goals
+## 4. Non-Goals
 
 - Changing bearer authentication for non-plugin backend APIs.
 - Introducing cookies or additional key names.

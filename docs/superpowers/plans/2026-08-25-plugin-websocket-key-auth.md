@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.12, FastAPI, Starlette, pytest, FastAPI `TestClient`
 
-## Global Constraints
+## 1. Global Constraints
 
 - Preserve existing HTTP header authentication and error semantics.
 - Accept `apikey` from the query string only when the header is absent.
@@ -19,7 +19,7 @@
 
 ---
 
-### Task 1: Prove and fix connection-neutral plugin key authentication
+### 1.1. Task 1: Prove and fix connection-neutral plugin key authentication
 
 **Files:**
 - Modify: `services/backend/app/app/tests/test_backend_identity.py`
@@ -63,7 +63,7 @@ return value.
 Run the command from Step 2. Expected: all backend identity and plugin seam
 tests pass.
 
-### Task 2: Preserve metadata and prevent credential logging
+### 1.2. Task 2: Preserve metadata and prevent credential logging
 
 **Files:**
 - Create: `services/backend/app/app/access_log.py`
@@ -112,7 +112,7 @@ printing a real credential.
 
 Run both commands from Step 2. Expected: all tests pass with no warnings.
 
-### Task 3: Verify and commit #973
+### 1.3. Task 3: Verify and commit #973
 
 **Files:**
 - Verify all files changed by Tasks 1-2 and this plan/design pair.

@@ -272,8 +272,10 @@ def test_plugin_routes_enforce_declared_application_auth(tmp_path, monkeypatch):
     assert dependencies["/open-auth"] == set()
 
 
-def test_key_auth_plugin_protects_http_and_websocket_routes(tmp_path, monkeypatch):
-    plugin = tmp_path / "key_auth_socket_plugin"
+@pytest.fixture
+def key_auth_plugin(tmp_path, monkeypatch):
+    plugin_name = f"key_auth_socket_plugin_{tmp_path.name.replace('-', '_')}"
+    plugin = tmp_path / plugin_name
     plugin.mkdir()
     (plugin / "__init__.py").write_text(
         "from fastapi import APIRouter, WebSocket\n"
@@ -296,15 +298,19 @@ def test_key_auth_plugin_protects_http_and_websocket_routes(tmp_path, monkeypatc
     )
 
     from fastapi import FastAPI
-    from fastapi.routing import APIWebSocketRoute, APIRoute
-    from starlette.testclient import TestClient, WebSocketDenialResponse
     import plugin_seam
 
     app = FastAPI()
     monkeypatch.setenv("BACKEND_KONG_API_KEY", "gateway-secret")
     monkeypatch.setenv("BACKEND_PLUGINS_DIR", str(tmp_path))
     plugin_seam.load_plugins(app)
-    plugin_module = sys.modules["key_auth_socket_plugin"]
+    return app, sys.modules[plugin_name]
+
+
+def test_key_auth_plugin_mounts_dependency_and_openapi_security(key_auth_plugin):
+    from fastapi.routing import APIWebSocketRoute, APIRoute
+
+    app, _plugin_module = key_auth_plugin
 
     dependencies = {
         route.path: {dependency.call.__name__ for dependency in route.dependant.dependencies}
@@ -324,6 +330,11 @@ def test_key_auth_plugin_protects_http_and_websocket_routes(tmp_path, monkeypatc
         {"APIKeyHeader": []}
     ]
 
+
+def test_key_auth_plugin_enforces_http_authentication(key_auth_plugin):
+    from starlette.testclient import TestClient
+
+    app, plugin_module = key_auth_plugin
     with TestClient(app) as client:
         assert client.get("/key-socket/http").status_code == 401
         assert client.get("/key-socket/http", headers={"apikey": "wrong"}).status_code == 401
@@ -332,6 +343,13 @@ def test_key_auth_plugin_protects_http_and_websocket_routes(tmp_path, monkeypatc
             "accepted": True
         }
         assert plugin_module.http_calls == 1
+
+
+def test_key_auth_plugin_enforces_websocket_authentication(key_auth_plugin):
+    from starlette.testclient import TestClient, WebSocketDenialResponse
+
+    app, _plugin_module = key_auth_plugin
+    with TestClient(app) as client:
         with client.websocket_connect("/key-socket/ws?apikey=gateway-secret") as websocket:
             assert websocket.receive_text() == "accepted"
         for path in ("/key-socket/ws", "/key-socket/ws?apikey=wrong"):
