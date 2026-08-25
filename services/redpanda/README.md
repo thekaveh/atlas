@@ -112,3 +112,12 @@ This first Atlas integration intentionally does not add Kafka Connect, Debezium,
 - `redpanda.localhost` returns 404 or dashboard HTML: confirm `REDPANDA_SOURCE=container` and rerun `./start.sh --setup-hosts`.
 - Spark cannot find `kafka` format: rebuild/pull the Atlas Spark image so the Dockerfile's Kafka connector jars are present under `/opt/spark/jars`.
 - Host Kafka clients cannot connect: use `localhost:${REDPANDA_KAFKA_PORT}`, not the Kong port. Kafka is a binary protocol and is intentionally not routed through Kong.
+
+## 8. Capabilities & limitations
+
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Single-node Kafka-compatible streaming | supported | tested | Atlas runs a Redpanda broker in single-node development mode and exposes its Kafka API to in-stack and host clients. |
+| Topic bootstrap and broker console | supported | tested | An idempotent init container creates the declared Atlas topics and the bundled Console provides browser-based broker inspection. |
+| Production broker security and clustering | not-supported | documented | The stock deployment has one broker and configures no SASL, TLS, Schema Registry, Kafka Connect, or multi-broker replication. |
+| Broker and Console access control | partial | documented | The Kong Console route uses Basic authentication and the dashboard_user ACL, but the direct Console and Kafka listener are ungated; set HOST_BIND_IP=127.0.0.1: on shared hosts. |

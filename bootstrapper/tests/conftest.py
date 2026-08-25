@@ -47,6 +47,14 @@ def minimal_manifest_dict():
             "label": f"{name.capitalize()} service",
             "category": "data",
             "containers": [name],
+            "capabilities": [
+                {
+                    "name": "Synthetic service contract",
+                    "status": "supported",
+                    "verification": "tested",
+                    "note": "Tests exercise this synthetic manifest contract.",
+                }
+            ],
             "env": [
                 {"name": f"{name.upper()}_PORT", "default": 6379, "description": "Host port."},
             ],
@@ -66,6 +74,14 @@ def full_manifest_dict():
             "category": "llm",
             "docs": f"services/{name}/README.md",
             "containers": ["ollama", "ollama-pull"],
+            "capabilities": [
+                {
+                    "name": "Synthetic service contract",
+                    "status": "supported",
+                    "verification": "tested",
+                    "note": "Tests exercise this synthetic manifest contract.",
+                }
+            ],
             "images": [
                 {
                     "var": "LLM_PROVIDER_IMAGE",

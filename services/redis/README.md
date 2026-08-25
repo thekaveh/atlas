@@ -48,7 +48,7 @@ Database-index convention (consumer-built URLs):
 
 **Failure mode.** Every consumer treats Redis as fatal: a Redis outage kills n8n queue execution, drops Open WebUI live updates, breaks LiteLLM caching, and stalls LightRAG's KV layer. There is no fallback in the stack.
 
-**Eviction policy.** Currently unset — Redis runs with the default `noeviction`. For the AOF-only durable use cases (n8n queue, sessions) this is fine; for cache-style consumers (embedding cache, doc-processor cache) it is wrong. See Future — Unused features below.
+**Eviction policy.** `REDIS_MAXMEMORY_POLICY` defaults to `volatile-lru`, which evicts only TTL-bearing keys after `REDIS_MAXMEMORY` sets a nonzero cap. With the default `REDIS_MAXMEMORY=0`, Redis remains unbounded and no eviction occurs. Queue and session keys without TTL are not eviction candidates.
 
 **Observability sidecar (`redis-exporter`).** The Redis family also ships a `redis-exporter` container (`oliver006/redis_exporter:v1.86.0`) on host port `${REDIS_EXPORTER_PORT}` and in-container `9121`. It scales **1↔0 with `PROMETHEUS_SOURCE`** — the bootstrapper's `_generate_prometheus_config()` hook writes `REDIS_EXPORTER_SCALE` from this single switch, so the sidecar is dormant when Prometheus is off and self-starts when Prom is enabled. Prometheus scrapes it at `redis-exporter:9121/metrics`; the `Postgres + Redis` Grafana dashboard renders memory usage, ops/sec, and hit ratio.
 
@@ -101,7 +101,7 @@ _No upstream calls._
 - **Redis Streams (`XADD`/`XREAD`/consumer groups)** — *Why pursue:* replace ad-hoc HTTP fan-out between backend, n8n, ComfyUI, and doc-processor with a single durable event bus already present in the image. *Effort:* medium.
 - **Pub/Sub channels** — *Why pursue:* live progress streaming for ComfyUI and LDR to the Open WebUI chat surface without polling. *Effort:* small.
 - **Redis ACL users** — *Why pursue:* replace the single shared `REDIS_PASSWORD` with per-service users so a compromised n8n container cannot read the Kong rate-limit cache. *Effort:* small.
-- **`maxmemory` + eviction policy** — *Why pursue:* cache use-cases (embedding cache, doc cache) need `allkeys-lru`; currently unbounded. *Effort:* small.
+- **Workload-specific memory classes** — *Why pursue:* the shared instance defaults to `volatile-lru`, but dedicated cache and durable-queue instances could use different caps and policies without competing for one memory budget. *Effort:* medium.
 - **RDB snapshots alongside AOF** — *Why pursue:* faster cold-start restore; current `--appendonly yes` is durable but slow to replay on large datasets. *Effort:* small.
 
 ## 7. Troubleshooting
@@ -110,7 +110,7 @@ _No upstream calls._
 
 **n8n `EXECUTIONS_MODE=queue` workflows hang.** Check `docker logs <project>-redis` for connection errors from n8n. n8n's queue mode uses Redis db `/0` (`QUEUE_BULL_REDIS_DB: 0`); if the password rotated without restarting n8n, its workers retry forever.
 
-**Memory pressure.** With no `maxmemory` set, Redis grows until the container's memory limit kills it. For now, monitor with `docker exec <project>-redis redis-cli -a "$REDIS_PASSWORD" INFO memory` and bounce the container if needed. Set `maxmemory` + `maxmemory-policy allkeys-lru` if growth becomes load-bearing.
+**Memory pressure.** With `REDIS_MAXMEMORY=0`, Redis grows until the container's memory limit kills it. Monitor with `docker exec <project>-redis redis-cli -a "$REDIS_PASSWORD" INFO memory`. Set `REDIS_MAXMEMORY` to a deliberate cap; keep `volatile-lru` when only TTL-bearing cache keys may be evicted, or choose another policy only after reviewing queue and session durability.
 
 **Data loss after `./stop.sh --cold`.** Expected — `--cold` deletes the `${PROJECT_NAME}-redis-data` volume, taking the AOF log with it. Use `./stop.sh` (no `--cold`) to preserve queue/session state across restarts.
 
@@ -143,11 +143,11 @@ Stack-relevant knobs that aren't currently exposed via `.env`:
 | Knob | Default | Recommended for stack |
 |---|---|---|
 | `maxmemory` | unbounded | 75% of container memory budget |
-| `maxmemory-policy` | `noeviction` | `allkeys-lru` for cache workloads; keep `noeviction` only if AOF durability matters more than uptime |
+| `maxmemory-policy` | `volatile-lru` | Keep for the mixed stock workload; use a dedicated cache instance before selecting `allkeys-lru`. |
 | `appendfsync` | `everysec` | leave as-is; `always` is overkill, `no` loses queue state on crash |
 | `save` (RDB) | disabled | enable for faster cold-start replay |
 
-To change these today, edit the `command:` line in `services/redis/compose.yml`. Adding them to `service.yml` as proper env vars is a small future change.
+Set `REDIS_MAXMEMORY` and `REDIS_MAXMEMORY_POLICY` in `.env`. The remaining low-level knobs require a targeted Compose change.
 
 ## 10. Security
 
@@ -162,3 +162,11 @@ To change these today, edit the `command:` line in `services/redis/compose.yml`.
 - [Redis persistence](https://redis.io/docs/latest/operate/oss_and_stack/management/persistence/) — AOF vs RDB trade-offs, useful when tuning the stack's defaults.
 - [BullMQ on Redis](https://docs.bullmq.io/) — n8n's queue layer; explains the `bull:*` key shape.
 - [LiteLLM caching](https://docs.litellm.ai/docs/caching/all_caches) — Redis cache integration LiteLLM uses (already enabled in this stack).
+
+## 12. Capabilities & limitations
+
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Authenticated cache and queue substrate | supported | tested | Atlas runs password-protected Redis as the shared cache, queue, coordination, and transient-state substrate for multiple service families. |
+| AOF persistence and bounded eviction | partial | tested | Append-only persistence and volatile-LRU are configured, but the default zero maxmemory is unbounded and only expiring keys become eviction candidates after a cap is set. |
+| Per-service ACL and transport isolation | not-supported | documented | Consumers share one password and logical database convention over plaintext Redis; Atlas provisions neither per-service ACL users nor TLS. |

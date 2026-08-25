@@ -142,3 +142,13 @@ _No high-confidence opportunities identified._
 - **OOM in a worker** — the worker container is cgroup-capped at `${SPARK_WORKER_MEMORY_LIMIT:-4g}` (compose `deploy.resources.limits.memory`), but Spark's *internal* executor heap (`SPARK_WORKER_MEMORY`) is unset, so the JVM sizes itself heuristically and can exceed the cgroup → OOM-kill. For production, set `SPARK_WORKER_MEMORY` (Spark heap) below `SPARK_WORKER_MEMORY_LIMIT` (container cap) to leave headroom for off-heap/overhead.
 - **Spark Connect refused** — the gRPC server runs on the `spark-connect` sidecar (NOT spark-master); clients must use `sc://spark-connect:15002`. The port is backend-network-only — don't expose 15002 to the host.
 - **Checking Spark Connect readiness** — the sidecar publishes a Docker health signal (`starting` → `healthy`) once `15002` accepts sessions: `docker inspect --format '{{.State.Health.Status}}' ${PROJECT_NAME}-spark-connect`.
+
+## 7. Capabilities & limitations
+
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Standalone batch compute cluster | supported | tested | Atlas configures one Spark master, an operator-selected worker count, and backend-network submission surfaces for standalone jobs. |
+| Spark Connect and history services | supported | tested | A health-checked backend-only Spark Connect sidecar serves remote sessions while the history server reads event logs from a provisioned MinIO bucket. |
+| Iceberg and Kafka data paths | partial | tested | Atlas bakes and configures the Iceberg, S3A, and Kafka connectors, but lakehouse and streaming operations require optional Iceberg REST and Redpanda services and live smoke remains opt-in. |
+| Highly available Spark control plane | not-supported | documented | The stock standalone topology has one master, no recovery directory, and no YARN or Kubernetes scheduler integration. |
+| Authenticated Spark web access | not-supported | tested | The direct SPARK_MASTER_UI_PORT and SPARK_HISTORY_PORT publishes are unauthenticated, the CORS-only Kong Spark routes are unauthenticated, and the default empty HOST_BIND_IP binds direct ports on all interfaces; set HOST_BIND_IP=127.0.0.1:, firewall or remove the direct ports, and use an authentication proxy or remove both Spark Kong routes before exposure beyond a trusted host. |

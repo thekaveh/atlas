@@ -98,7 +98,7 @@ Direct notebook calls to Docling and Atlas-managed Parakeet must attach the matc
 | `12_iceberg_advanced_sql.ipynb` | Spark Connect advanced Iceberg smoke: `MERGE INTO`, `VERSION AS OF`, branch/WAP, schema evolution, nested JSON, Structured Streaming, and table maintenance. |
 | `13_chonkie_chunking.ipynb` | Compare Chonkie token, recursive, and optional semantic chunking, then call the Backend `/api/chunk` runtime endpoint. |
 | `14_ragas_evaluation.ipynb` | Evaluate RAG answers with Ragas metrics and the Backend `/api/rag/evaluate` runtime endpoint. |
-| `15_mcp_clients.ipynb` | Discover and invoke the Curated MCP Servers via FastMCP 3, handle errors, and prototype in-process tools (#600). |
+| `15_mcp_clients.ipynb` | Exercises the FastMCP 3 client shape and error handling, but `MCP_SERVERS_URL` is not injected by Compose, so the bundled notebook reports the MCP service as disabled even when its source is enabled (#600). |
 
 The repository gate keeps this inventory synchronized with the image welcome
 page and environment-check notebook, compiles every Python code cell, and
@@ -382,3 +382,15 @@ JUPYTERHUB_PORT=64094  # Use different port (offset 94 from BASE_PORT)
 Increase Docker memory:
 - Docker Desktop → Settings → Resources → Memory
 - Recommended: 8GB+ for data science workloads
+
+## 17. Capabilities & limitations
+
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Integrated data and AI notebooks | supported | tested | Atlas ships a synchronized Python and Scala notebook inventory with clients and environment seams for LLM, RAG, lakehouse, ML, and media experimentation. |
+| Spark Connect and lakehouse clients | partial | tested | Bundled notebooks configure Spark Connect, MinIO, and Iceberg clients, but service-dependent cells are static contracts until an operator runs the corresponding live smoke. |
+| Token-authenticated notebook access | partial | tested | The direct and CORS-only jupyter.localhost paths require one Jupyter token, while wildcard browser origins remain the local default and must be narrowed for shared deployments. |
+| Operator-trusted credential environment | partial | documented | The server receives high-privilege database and service credentials and grants sudo inside its container, so it is an engineering workspace rather than a hostile multi-tenant sandbox. |
+| Notebook workspace persistence | supported | tested | User work persists in jupyterhub-data and bundled notebooks mount read-only, but cold volume removal still deletes the writable workspace. |
+| Curated MCP notebook endpoint | stubbed | documented | The manifest and notebook declare MCP_SERVERS_URL, but compose does not inject it into JupyterHub, so the bundled MCP notebook reports the service disabled even when enabled. |
+| Multi-user JupyterHub isolation and HA | not-supported | documented | Despite the service name, Atlas runs one start-notebook JupyterLab process with one token, not a Hub spawner, per-user servers, replicated state, or an HA control plane. |

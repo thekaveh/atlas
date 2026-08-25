@@ -30,6 +30,35 @@ def test_empty_manifest_list_returns_no_issues():
     assert validate_manifests([]) == []
 
 
+def test_duplicate_capability_names_within_manifest_flagged(
+    services_root, write_manifest, minimal_manifest_dict
+):
+    manifest = minimal_manifest_dict("redis") | {
+        "capabilities": [
+            {
+                "name": "Primary cache operations",
+                "status": "supported",
+                "verification": "tested",
+                "note": "Atlas configures the in-stack Redis cache.",
+            },
+            {
+                "name": "Primary cache operations",
+                "status": "partial",
+                "verification": "documented",
+                "note": "A duplicate label would make the contract ambiguous.",
+            },
+        ]
+    }
+    write_manifest("redis", manifest)
+
+    issues = validate_manifests(load_manifests(services_root))
+
+    duplicates = [i for i in issues if i.kind == "duplicate_capability"]
+    assert len(duplicates) == 1
+    assert duplicates[0].manifest == "redis"
+    assert "Primary cache operations" in duplicates[0].message
+
+
 def test_full_manifest_with_sources_is_clean(
     services_root, write_manifest, full_manifest_dict, minimal_manifest_dict
 ):
@@ -159,6 +188,14 @@ def test_tier_member_matching_a_real_container_is_clean(
             "category": "infra",
             "virtual": True,
             "containers": [],
+            "capabilities": [
+                {
+                    "name": "Synthetic service contract",
+                    "status": "supported",
+                    "verification": "tested",
+                    "note": "Tests exercise this synthetic manifest contract.",
+                }
+            ],
             "env": [{"name": "PROJECT_NAME", "default": "atlas"}],
             "runtime_dependency_tiers": {
                 "data_tier": ["redis"],
@@ -183,6 +220,14 @@ def test_dangling_tier_member_flagged(
             "category": "infra",
             "virtual": True,
             "containers": [],
+            "capabilities": [
+                {
+                    "name": "Synthetic service contract",
+                    "status": "supported",
+                    "verification": "tested",
+                    "note": "Tests exercise this synthetic manifest contract.",
+                }
+            ],
             "env": [{"name": "PROJECT_NAME", "default": "atlas"}],
             "runtime_dependency_tiers": {
                 "core_services": ["redis", "xtts"],
@@ -270,6 +315,14 @@ def test_virtual_manifest_with_fragment_flagged(services_root, write_manifest):
             "category": "infra",
             "virtual": True,
             "containers": [],
+            "capabilities": [
+                {
+                    "name": "Synthetic service contract",
+                    "status": "supported",
+                    "verification": "tested",
+                    "note": "Tests exercise this synthetic manifest contract.",
+                }
+            ],
             "env": [{"name": "PROJECT_NAME", "default": "atlas"}],
         },
     )
@@ -290,6 +343,14 @@ def test_virtual_manifest_without_fragment_clean(services_root, write_manifest):
             "category": "infra",
             "virtual": True,
             "containers": [],
+            "capabilities": [
+                {
+                    "name": "Synthetic service contract",
+                    "status": "supported",
+                    "verification": "tested",
+                    "note": "Tests exercise this synthetic manifest contract.",
+                }
+            ],
             "env": [{"name": "PROJECT_NAME", "default": "atlas"}],
         },
     )

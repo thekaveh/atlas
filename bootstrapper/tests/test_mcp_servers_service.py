@@ -21,6 +21,11 @@ MANIFEST = SERVICE_DIR / "service.yml"
 COMPOSE = SERVICE_DIR / "compose.yml"
 README = SERVICE_DIR / "README.md"
 RUNTIME = SERVICE_DIR / "runtime" / "atlas_mcp_server.py"
+SUPABASE_MANIFEST = REPO_ROOT / "services" / "supabase" / "service.yml"
+MEMORY_RLS_SQL = (
+    REPO_ROOT / "services" / "supabase" / "db" / "scripts" / "14-backend-memory.sql"
+)
+NEO4J_COMPOSE = REPO_ROOT / "services" / "neo4j" / "compose.yml"
 
 
 def _manifest() -> dict:
@@ -38,6 +43,11 @@ def _runtime_module():
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
+
+
+def _assert_contains(text, fragments):
+    missing = tuple(fragment for fragment in fragments if fragment not in text)
+    assert missing == ()
 
 
 def test_mcp_servers_manifest_admission_contract() -> None:
@@ -204,6 +214,93 @@ def test_mcp_runtime_guards_reject_write_and_unbounded_inputs() -> None:
     assert runtime.clamp_limit("1000", default=5, maximum=20) == 20
     assert runtime.clamp_limit("-1", default=5, maximum=20) == 5
     assert runtime.clamp_limit("abc", default=5, maximum=20) == 5
+
+
+def test_mcp_postgres_capability_discloses_owner_rls_bypass_and_read_scope() -> None:
+    compose_env = _compose()["services"]["mcp-servers"]["environment"]
+    supabase = yaml.safe_load(SUPABASE_MANIFEST.read_text())
+    supabase_env = {entry["name"]: entry for entry in supabase["env"]}
+    runtime = _runtime_module()
+    rls_sql = MEMORY_RLS_SQL.read_text()
+
+    capability = next(
+        row
+        for row in _manifest()["capabilities"]
+        if row["name"] == "Tenant-scoped Postgres reads"
+    )
+    assert (
+        compose_env["SUPABASE_DB_USER"],
+        supabase_env["SUPABASE_DB_USER"]["default"],
+        runtime.is_safe_postgres_read(
+            "SELECT email, encrypted_password FROM auth.users"
+        ),
+        "supabase_admin connection bypasses RLS (owner)" in rls_sql,
+        (capability["status"], capability["verification"]),
+    ) == (
+        "${SUPABASE_DB_USER}",
+        "supabase_admin",
+        True,
+        True,
+        ("not-supported", "tested"),
+    )
+    note = capability["note"]
+    _assert_contains(note, (
+        "shared supabase_admin owner",
+        "bypasses RLS",
+        "SELECT/WITH/SHOW/EXPLAIN",
+        "no schema, table, or column allowlist or redaction",
+        "trusted operators",
+        "least-privilege views or role",
+    ))
+
+
+def test_mcp_database_guardrails_disclose_accepted_privileged_side_effects() -> None:
+    runtime = _runtime_module()
+    neo4j_env = yaml.safe_load(NEO4J_COMPOSE.read_text())["services"][
+        "neo4j-graph-db"
+    ]["environment"]
+
+    sql_results = tuple(runtime.is_safe_postgres_read(sql) for sql in (
+        "SELECT pg_read_file('/etc/passwd')",
+        "SELECT pg_terminate_backend(1234)",
+    ))
+    cyphers = (
+        'CALL db.createLabel("AtlasOwned")',
+        "CALL db.checkpoint()",
+    )
+    cypher_results = tuple(
+        (runtime.is_safe_neo4j_read(cypher), runtime.bounded_neo4j_cypher(cypher))
+        for cypher in cyphers
+    )
+
+    capabilities = {row["name"]: row for row in _manifest()["capabilities"]}
+    guardrail = capabilities["Database query guardrails"]
+    prevention = capabilities["Write and administration prevention"]
+    assert (
+        sql_results,
+        cypher_results,
+        neo4j_env["NEO4J_dbms_security_procedures_unrestricted"],
+        (guardrail["status"], guardrail["verification"]),
+        "block common direct mutation syntax" in guardrail["note"],
+        "do not prevent privileged function or procedure side effects"
+        in guardrail["note"],
+        (prevention["status"], prevention["verification"]),
+    ) == (
+        (True, True),
+        ((True, cyphers[0]), (True, cyphers[1])),
+        "apoc.*",
+        ("partial", "tested"),
+        True,
+        True,
+        ("partial", "tested"),
+    )
+    _assert_contains(prevention["note"], (
+        "no dedicated write or administration tool",
+        "SELECT functions",
+        "CALL db.* procedures",
+        "administrator credentials",
+        "administration, filesystem, or write side effects",
+    ))
 
 
 def test_mcp_servers_docs_describe_consumers_guardrails_and_deferred_gateways() -> None:

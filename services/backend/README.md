@@ -354,3 +354,15 @@ docker exec <project>-backend env | grep -E 'LITELLM|WEAVIATE|HERMES|NEO4J|STT|T
 ```
 
 For general startup and routing issues, see [Troubleshooting](../../docs/quick-start/troubleshooting.md).
+
+## 8. Capabilities & limitations
+
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Authenticated adaptive orchestration API | supported | tested | Protected routes enforce Supabase user identity or scoped internal caller tokens on both direct and Kong paths; public health, readiness, metrics, schema, and docs remain intentionally unauthenticated. |
+| Memory research and RAG workflows | partial | tested | Atlas provides bounded memory, Local Deep Researcher, evaluation, and ingestion APIs, but availability and quality depend on the enabled databases, models, extractors, and optional Celery tier. |
+| Media generation gateway | partial | tested | The Backend normalizes bounded ComfyUI and FAL operations with durable operation and optional spend state, while provider availability, cloud retrieval, and synchronous deadlines remain source-specific. |
+| Asynchronous backend jobs | partial | tested | Celery can offload memory consolidation and RAG ingestion with owner-fenced leases, but research and other long-running routes retain separate in-process or database lifecycles. |
+| Trusted backend plugin seam | partial | tested | Atlas validates plugin manifests and route auth modes, then installs and imports operator-supplied Python code at Backend startup without sandboxing; recreate the container to apply changes. |
+| Adaptive proxy environment placeholders | stubbed | documented | STT, TTS, document-provider, Neo4j, and Hermes variables are injected for planned paths, but no general Backend proxy or Hermes/Neo4j consumer uses all of those settings today. |
+| Backend horizontal availability | not-supported | documented | Atlas fixes the adaptive Backend to one container; PostgreSQL and Redis preserve selected state, but process-local concurrency guards and in-memory fallbacks are not replica-coordinated HA. |

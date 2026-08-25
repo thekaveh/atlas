@@ -52,6 +52,12 @@ def test_dev_group_contains_pytest() -> None:
     )
 
 
+def test_markdown_it_is_a_direct_bounded_runtime_dependency() -> None:
+    dependencies = _load()["project"]["dependencies"]
+
+    assert "markdown-it-py>=3,<4" in dependencies
+
+
 def test_ci_enforces_measured_coverage_floors() -> None:
     data = _load()
     dev = data["dependency-groups"]["dev"]

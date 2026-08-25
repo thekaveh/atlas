@@ -3,9 +3,10 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+from pathlib import Path
 
 import pytest
-from pathlib import Path
+import yaml
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -23,6 +24,11 @@ TRIGGER_TYPES = {
 
 def _load(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _assert_contains(text, fragments):
+    missing = tuple(fragment for fragment in fragments if fragment not in text)
+    assert missing == ()
 
 
 def _code_node(workflow: dict, name: str) -> str:
@@ -334,30 +340,113 @@ def test_research_batch_rejects_unbounded_or_invalid_requests() -> None:
         assert rejected.returncode != 0, payload
 
 
-def test_privileged_example_webhooks_require_header_auth() -> None:
-    filenames = (
-        "research-simple.json",
-        "research-batch.json",
-        "comfyui-image-generation.json",
-        "comfyui-simple.json",
-    )
+def test_all_bundled_workflow_webhooks_match_disclosed_auth_boundaries() -> None:
+    staged_dir = ROOT / "services/n8n/workflows-stage/workflows"
+    staged_workflows = sorted(staged_dir.glob("*.json"))
     expected = {
         "httpHeaderAuth": {
             "id": "atlas-webhook-header-auth",
             "name": "Atlas Webhook Header Auth",
         }
     }
-    for filename in filenames:
-        workflow = _load(
-            ROOT / "services/n8n/workflows-stage/workflows" / filename
-        )
-        webhook = next(
+    staged_webhook_contracts = [
+        (path, webhook["parameters"]["authentication"], webhook["credentials"])
+        for path in staged_workflows
+        for webhook in (
             node
-            for node in workflow["nodes"]
+            for node in _load(path)["nodes"]
             if node["type"] == "n8n-nodes-base.webhook"
         )
-        assert webhook["parameters"]["authentication"] == "headerAuth"
-        assert webhook["credentials"] == expected
+    ]
+
+    legacy_path = ROOT / "services/n8n/init/config/searxng-research-workflow.json"
+    legacy = _load(legacy_path)
+    legacy_webhook = next(
+        node
+        for node in legacy["nodes"]
+        if node["type"] == "n8n-nodes-base.webhook"
+    )
+    assert (
+        staged_workflows,
+        staged_webhook_contracts,
+        (
+            legacy_webhook["parameters"]["path"],
+            "authentication" in legacy_webhook["parameters"],
+            "credentials" in legacy_webhook,
+        ),
+    ) == (
+        list(WORKFLOWS[:-1]),
+        [(path, "headerAuth", expected) for path, *_ in staged_webhook_contracts],
+        ("research", False, False),
+    )
+
+    manifest = yaml.safe_load((ROOT / "services/n8n/service.yml").read_text())
+    capability = next(
+        row
+        for row in manifest["capabilities"]
+        if row["name"] == "Editor and webhook access control"
+    )
+    note = capability["note"]
+    _assert_contains(note, (
+        "staged privileged examples require operator-bound Header Auth",
+        "legacy bundled /research fixture declares no authentication",
+        "must be secured before activation",
+    ))
+
+
+def test_n8n_contract_distinguishes_scoped_and_stack_wide_workflow_credentials() -> None:
+    compose = yaml.safe_load((ROOT / "services/n8n/compose.yml").read_text())
+    legacy = _load(
+        ROOT / "services/n8n/init/config/searxng-research-workflow.json"
+    )
+    legacy_text = json.dumps(legacy)
+
+    service_credentials = (
+        "DOCLING_API_TOKEN",
+        "PARAKEET_API_TOKEN",
+        "HERMES_API_KEY",
+        "LIGHTRAG_API_KEY",
+        "CRAWL4AI_API_TOKEN",
+    )
+    environment_contracts = {
+        service_name: (
+            environment["BACKEND_N8N_API_TOKEN"],
+            environment["LITELLM_API_KEY"],
+            tuple(name for name in service_credentials if name in environment),
+        )
+        for service_name in ("n8n", "n8n-worker")
+        for environment in (compose["services"][service_name]["environment"],)
+    }
+
+    manifest = yaml.safe_load((ROOT / "services/n8n/service.yml").read_text())
+    capability = next(
+        row
+        for row in manifest["capabilities"]
+        if row["name"] == "Workflow credential propagation"
+    )
+    assert (
+        environment_contracts,
+        "$env.LITELLM_API_KEY" in legacy_text,
+        (capability["status"], capability["verification"]),
+    ) == (
+        {
+            service_name: (
+                "${BACKEND_N8N_API_TOKEN}",
+                "${LITELLM_MASTER_KEY}",
+                service_credentials,
+            )
+            for service_name in ("n8n", "n8n-worker")
+        },
+        True,
+        ("partial", "tested"),
+    )
+    _assert_contains(capability["note"], (
+        "scoped Backend token",
+        "stack-wide LiteLLM master key",
+        "provider service credentials",
+        "workflow expressions",
+        "avoid returning them in outputs or webhooks",
+    ))
 
 
 def test_comfyui_workflows_preserve_fal_artifact_urls() -> None:

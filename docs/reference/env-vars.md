@@ -794,7 +794,7 @@
 | VLLM_METAL_PYTHON | vllm-metal | python3.12 | Python interpreter used to build the managed host venv (vllm-metal requires 3.12). |
 | VLLM_METAL_STATE_DIR | vllm-metal | ~/.atlas/vllm-metal | Host directory holding the managed venv plus the pid / log / status files. |
 | VLLM_METAL_MODELS_PATH | vllm-metal |  | Optional Hugging Face cache dir (HF_HOME) for the managed process. Blank = default HF cache. |
-| VLLM_METAL_MIN_MEMORY_GB | vllm-metal | 16 | Minimum unified memory (GB) the preflight requires before install / start. |
+| VLLM_METAL_MIN_MEMORY_GB | vllm-metal | 16 | Unified-memory warning floor (GB) checked before lifecycle work; memory below it warns and unreadable memory skips the check. The result does not block install or start and does not certify model fit or prevent OOM. |
 | VLLM_METAL_SCALE | vllm-metal |  | Always 0 — vLLM Metal never runs as a container. Reserved for interface parity with container services. |
 | VLLM_METAL_ENDPOINT | vllm-metal |  | Resolved docker-internal URL of the managed host process (http://host.docker.internal:${VLLM_METAL_LOCALHOST_PORT}). Consumed by litellm-init to register the model. Blank when disabled. |
 | WEAVIATE_SOURCE | weaviate | container | - |

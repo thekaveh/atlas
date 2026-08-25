@@ -8,6 +8,24 @@ docs: services/docling-lightrag-adapter/README.md
 virtual: true
 containers: []
 
+capabilities:
+  - name: "LightRAG asynchronous parser compatibility"
+    status: supported
+    verification: tested
+    note: "The logical service exposes LightRAG v1.5.4 submit, poll, and one-shot result routes while delegating one authenticated synchronous conversion to Docling."
+  - name: "Docling credential isolation"
+    status: supported
+    verification: tested
+    note: "LightRAG receives only the internal adapter URL; on that isolated boundary, the adapter alone receives the Docling bearer token and authenticates the upstream call, with no host-published adapter port."
+  - name: "Bounded ephemeral adapter jobs"
+    status: supported
+    verification: tested
+    note: "Admission, upload time, upstream retries, result size, download time, temporary capacity, cleanup, and completed-result TTL are explicitly bounded."
+  - name: "Source-coupled adapter availability"
+    status: partial
+    verification: tested
+    note: "The adapter runs only for container LightRAG with an enabled Docling source; localhost or disabled LightRAG and disabled Docling intentionally resolve no adapter endpoint."
+
 env: []
 
 depends_on:

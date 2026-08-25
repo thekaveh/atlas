@@ -88,3 +88,13 @@ _No high-confidence opportunities identified._
 - **Login rejected** — check `JENKINS_ADMIN_USER` and `JENKINS_ADMIN_PASSWORD` in `.env`; restart Jenkins after changing them so JCasC reloads.
 - **Artifact upload fails** — verify MinIO is enabled, `minio-init` completed, and `MINIO_ICEBERG_ACCESS_KEY` / `MINIO_ICEBERG_SECRET_KEY` are populated.
 - **Do not expose publicly as-is** — the default auth posture is intended for local/dev or trusted VPN use.
+
+## 8. Capabilities & limitations
+
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Maven Spark application builds | partial | tested | Atlas builds a Jenkins controller with Maven and a pinned MinIO client, but downstream repositories, Jenkinsfiles, credentials, and all project jobs remain operator-supplied. |
+| Scoped MinIO artifact publishing | supported | tested | The controller receives the dedicated Iceberg jar-bucket credentials and supports publishing versioned artifacts for later Spark or Airflow consumption. |
+| Jenkins UI authentication | supported | tested | JCasC disables signup and creates the generated admin login; direct and Kong paths rely on that Jenkins login because the Kong route adds no separate auth layer. |
+| Controller state persistence | partial | tested | JENKINS_HOME persists in one named volume, but Atlas configures one controller without backup, restore, external database, or replicated control-plane state. |
+| Distributed and containerized build agents | not-supported | tested | Atlas ships no agents, seed jobs, Docker socket, or privileged build executor; builds run on the bounded controller unless operators add their own Jenkins infrastructure. |

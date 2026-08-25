@@ -4,6 +4,24 @@ label: "SearXNG (privacy metasearch)"
 category: media
 docs: services/searxng/README.md
 
+capabilities:
+  - name: "JSON privacy metasearch"
+    status: supported
+    verification: documented
+    note: "Atlas pins SearXNG with a thin version-matched override that enables HTML and JSON results while removing Tor-only engines."
+  - name: "Machine-consumer search integration"
+    status: partial
+    verification: tested
+    note: "Hermes, MCP servers, n8n, JupyterHub, and Local Deep Researcher receive the search endpoint, but Open WebUI's native web-search toggle remains unwired."
+  - name: "Authenticated metasearch access"
+    status: not-supported
+    verification: documented
+    note: "The host-published UI/API and rate-limited CORS-only search.localhost route have no Atlas authentication; bind loopback, remove the publish, or add an authentication proxy before remote exposure."
+  - name: "Public-instance abuse protection"
+    status: not-supported
+    verification: documented
+    note: "Public-instance mode, the SearXNG limiter, and its Valkey store are disabled; operators must edit live settings and restore storage wiring before internet exposure."
+
 containers:
   - searxng
 
@@ -85,4 +103,3 @@ runtime_sc:
 
 data_flow:
   calls: []
-

@@ -299,3 +299,11 @@ docker compose up neo4j-graph-db
 ```
 
 For more troubleshooting help, see [../quick-start/troubleshooting.md](../../docs/quick-start/troubleshooting.md).
+
+## 15. Capabilities & limitations
+
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Container and host graph storage | supported | tested | Atlas supports a persistent Neo4j container or an operator-run localhost endpoint and wires Bolt consumers through the selected source. |
+| Snapshot backup and restore | partial | documented | Atlas can create full database dumps and restore the latest snapshot, but backup stops Neo4j and automatic restore can replace live volume contents at startup. |
+| Production access isolation | partial | documented | Password authentication is configured, but direct Bolt and Browser ports are plaintext and Atlas does not provision separate least-privilege service roles. |

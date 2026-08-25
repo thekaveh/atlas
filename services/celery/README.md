@@ -111,3 +111,13 @@ Redis visibility timeout is intentionally longer than the hard task time limit. 
 ### 6.6. Future — Unused features in this service
 
 - Flower's task mutation APIs are exposed only behind auth and should not become a public automation surface.
+
+## 7. Capabilities & limitations
+
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Backend asynchronous task execution | partial | tested | The worker offloads memory consolidation and phased RAG ingestion, but research, media generation, and arbitrary Backend routes are not Celery tasks in this slice. |
+| Bounded worker scheduling | supported | tested | Atlas validates positive concurrency, prefetch, soft and hard time limits, and a Redis visibility timeout longer than the hard task limit before Backend or worker startup. |
+| Retry-safe RAG ingestion ownership | partial | tested | Owner-fenced renewable leases and deterministic LightRAG identities limit duplicate phase effects, but Redis delivery is at-least-once and future side-effecting tasks still require idempotency review. |
+| Flower task monitoring access | supported | tested | Flower requires its own Basic authentication on the direct port and is additionally protected by Kong dashboard Basic Auth and ACL on flower.localhost. |
+| Durable queue high availability | not-supported | documented | Atlas runs one worker replica and one Flower process on the shared single Redis service; result and broker state survive only according to that Redis instance's persistence. |

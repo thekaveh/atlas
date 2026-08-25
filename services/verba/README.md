@@ -92,3 +92,14 @@ For higher-quality document extraction, use Docling first and paste or upload th
 | Bootstrapper rejects the configuration | Weaviate is disabled | Enable Weaviate or keep Verba disabled. |
 | Model list is empty | LiteLLM has no usable model configured | Configure an Atlas LLM provider and optionally set `VERBA_OPENAI_MODEL`. |
 | Imported data collides with other RAG demos | Reusing Verba classes manually | Treat Verba classes as namespaced/internal and keep other Atlas RAG collections separate. |
+
+## 8. Capabilities & limitations
+
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Reference Weaviate RAG workflow | partial | tested | Atlas wires the archived Verba UI to Weaviate and LiteLLM for isolated sample ingest and query, but does not treat it as the primary maintained chat or RAG runtime. |
+| Verba-managed data isolation | partial | documented | Operators are directed to Verba-owned Weaviate classes, but Atlas cannot enforce namespace separation if users manually target shared classes or cleanup operations. |
+| Verba ingress authentication | partial | tested | verba.localhost is protected by Kong dashboard Basic Auth and ACL, while the host-published direct UI/API is ungated and intended only for local development. |
+| Docling preprocessing integration | not-supported | documented | Docling is only a manual companion workflow because Atlas does not rely on an unsupported external Verba ingestion API. |
+| Maintained secure production runtime | not-supported | documented | Upstream Verba is archived and receives no security fixes; Atlas keeps the digest-pinned reference UI disabled by default and does not certify it for production. |
+| RAG service high availability | not-supported | documented | Atlas runs one Verba replica with a local data volume and configures no application failover, backup workflow, or horizontally shared UI state. |

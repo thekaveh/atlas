@@ -5,6 +5,28 @@ label: "Apache Spark (standalone cluster)"
 category: data
 docs: services/spark/README.md
 
+capabilities:
+  - name: "Standalone batch compute cluster"
+    status: supported
+    verification: tested
+    note: "Atlas configures one Spark master, an operator-selected worker count, and backend-network submission surfaces for standalone jobs."
+  - name: "Spark Connect and history services"
+    status: supported
+    verification: tested
+    note: "A health-checked backend-only Spark Connect sidecar serves remote sessions while the history server reads event logs from a provisioned MinIO bucket."
+  - name: "Iceberg and Kafka data paths"
+    status: partial
+    verification: tested
+    note: "Atlas bakes and configures the Iceberg, S3A, and Kafka connectors, but lakehouse and streaming operations require optional Iceberg REST and Redpanda services and live smoke remains opt-in."
+  - name: "Highly available Spark control plane"
+    status: not-supported
+    verification: documented
+    note: "The stock standalone topology has one master, no recovery directory, and no YARN or Kubernetes scheduler integration."
+  - name: "Authenticated Spark web access"
+    status: not-supported
+    verification: tested
+    note: "The direct SPARK_MASTER_UI_PORT and SPARK_HISTORY_PORT publishes are unauthenticated, the CORS-only Kong Spark routes are unauthenticated, and the default empty HOST_BIND_IP binds direct ports on all interfaces; set HOST_BIND_IP=127.0.0.1:, firewall or remove the direct ports, and use an authentication proxy or remove both Spark Kong routes before exposure beyond a trusted host."
+
 containers:
   - spark-master
   - spark-worker

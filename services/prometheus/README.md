@@ -126,3 +126,12 @@ _No high-confidence opportunities identified._
 - **No metrics for postgres / redis** — the sidecar exporters scale=0 when `PROMETHEUS_SOURCE=disabled` (they're useless without a scraper). Confirm `PROMETHEUS_SOURCE=container` is set in `.env` and re-run `./start.sh`.
 - **Disk pressure** — `prometheus-data` named volume grows roughly linearly with retention × scrape rate × series count. Lower `PROMETHEUS_RETENTION_DAYS` or trim scrape jobs in `config/prometheus.yml`.
 - **cAdvisor or node-exporter unable to start on macOS** — `/proc` and host-level filesystem mounts behave differently inside Docker Desktop's VM than on bare Linux. Some node-exporter collectors degrade gracefully; cAdvisor mostly produces container-level metrics that are platform-agnostic. Host-level metrics on macOS are best-effort.
+
+## 7. Capabilities & limitations
+
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Stack metrics scraping and local TSDB | supported | tested | Atlas ships a static fifteen-target scrape inventory, exporter lifecycle wiring, and configurable local Prometheus retention. |
+| Host and container resource metrics | partial | tested | node-exporter and hardened cAdvisor provide resource series, but cAdvisor omits Docker labels and host collectors are best-effort under Docker Desktop. |
+| Alert routing and long-term metrics storage | not-supported | documented | Atlas configures neither Alertmanager nor remote-write storage, and the shipped recording-rule file remains an empty placeholder. |
+| Authenticated Prometheus and exporter access | not-supported | tested | The direct PROMETHEUS_PORT, NODE_EXPORTER_PORT, and CADVISOR_PORT publishes have no authentication, the CORS-only Kong prometheus.localhost route has no authentication, --web.enable-lifecycle is enabled, and the default empty HOST_BIND_IP binds direct ports on all interfaces; set HOST_BIND_IP=127.0.0.1:, firewall or remove the direct ports, and use an authentication proxy or remove the Prometheus Kong route before exposure beyond a trusted host. |

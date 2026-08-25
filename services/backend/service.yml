@@ -4,6 +4,36 @@ label: "Backend API (FastAPI)"
 category: apps
 docs: services/backend/README.md
 
+capabilities:
+  - name: "Authenticated adaptive orchestration API"
+    status: supported
+    verification: tested
+    note: "Protected routes enforce Supabase user identity or scoped internal caller tokens on both direct and Kong paths; public health, readiness, metrics, schema, and docs remain intentionally unauthenticated."
+  - name: "Memory research and RAG workflows"
+    status: partial
+    verification: tested
+    note: "Atlas provides bounded memory, Local Deep Researcher, evaluation, and ingestion APIs, but availability and quality depend on the enabled databases, models, extractors, and optional Celery tier."
+  - name: "Media generation gateway"
+    status: partial
+    verification: tested
+    note: "The Backend normalizes bounded ComfyUI and FAL operations with durable operation and optional spend state, while provider availability, cloud retrieval, and synchronous deadlines remain source-specific."
+  - name: "Asynchronous backend jobs"
+    status: partial
+    verification: tested
+    note: "Celery can offload memory consolidation and RAG ingestion with owner-fenced leases, but research and other long-running routes retain separate in-process or database lifecycles."
+  - name: "Trusted backend plugin seam"
+    status: partial
+    verification: tested
+    note: "Atlas validates plugin manifests and route auth modes, then installs and imports operator-supplied Python code at Backend startup without sandboxing; recreate the container to apply changes."
+  - name: "Adaptive proxy environment placeholders"
+    status: stubbed
+    verification: documented
+    note: "STT, TTS, document-provider, Neo4j, and Hermes variables are injected for planned paths, but no general Backend proxy or Hermes/Neo4j consumer uses all of those settings today."
+  - name: "Backend horizontal availability"
+    status: not-supported
+    verification: documented
+    note: "Atlas fixes the adaptive Backend to one container; PostgreSQL and Redis preserve selected state, but process-local concurrency guards and in-memory fallbacks are not replica-coordinated HA."
+
 containers:
   - backend
 

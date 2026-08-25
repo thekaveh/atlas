@@ -116,3 +116,13 @@ _No upstream calls._
 ### 5.6. Future — Unused features in this service
 
 - FAL queue webhooks are not wired in this first media-gateway pass. The backend uses submit/poll operations instead.
+
+## 6. Capabilities & limitations
+
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Virtual hosted media generation | supported | tested | The backend uses the server-side FAL key for hosted image and curated image-to-3D operations; Atlas runs no FAL container or direct provider ingress. |
+| LiteLLM text-to-image passthrough | partial | tested | An enabled keyed provider registers fal-image through LiteLLM, but that route covers text-to-image only and returns LiteLLM's OpenAI-shaped b64/URL image result without Atlas storage or provenance normalization. |
+| Durable media-operation accounting | partial | tested | Redis operation state and the Postgres recovery ledger handle polling and ambiguous submissions, while spend-budget enforcement remains disabled unless explicitly configured. |
+| Automatic 3D post-processing | not-supported | documented | Image-to-3D returns a normalized GLB reference but never invokes Asset Baker or Asset Worker; callers must submit the artifact to those services explicitly. |
+| Provider webhook completion | not-supported | documented | Atlas uses bounded submit-and-poll operations rather than FAL queue webhooks, so no webhook ingress or signature-validation path is configured. |

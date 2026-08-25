@@ -1,12 +1,27 @@
 # services/lightrag/service.yml
 # LightRAG — graph-augmented RAG server.
-# Storage backends adapt to Supabase/Neo4j/Redis when enabled, fall back to
-# in-process file backends when those sources are disabled. LLM + embedding
-# bindings inherit from LiteLLM defaults (resolved at startup by lightrag-init).
+# External storage backends use Supabase/Neo4j/Redis when enabled. Disabling one
+# clears its URI but does not switch the configured storage selectors to
+# file-backed implementations. LLM + embedding bindings inherit from LiteLLM
+# defaults (resolved at startup by lightrag-init).
 name: lightrag
 label: "LightRAG (graph-augmented RAG server)"
 category: agents
 docs: services/lightrag/README.md
+
+capabilities:
+  - name: "Graph-augmented retrieval through LiteLLM"
+    status: supported
+    verification: tested
+    note: "Atlas resolves LightRAG chat and embedding models through LiteLLM and exposes graph-aware query modes."
+  - name: "External persistent storage"
+    status: partial
+    verification: tested
+    note: "Atlas wires Supabase pgvector, Neo4j, and Redis when enabled; disabling them clears connection URIs without selecting file-backed storage implementations."
+  - name: "LightRAG reranking"
+    status: partial
+    verification: tested
+    note: "Reranking requires TEI plus the opt-in backend adapter because direct LightRAG-to-TEI request payloads are incompatible."
 
 containers:
   - lightrag

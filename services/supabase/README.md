@@ -124,7 +124,7 @@ The stack uses Supabase Auth (GoTrue) for user authentication and management wit
 2. **Client Authentication**: Implement login flow using `/auth/v1/token?grant_type=password`
 3. **Anonymous Access**: Use `SUPABASE_ANON_KEY` for public requests
 4. **Service Role Access**: Use `SUPABASE_SERVICE_KEY` for admin operations (handle securely)
-5. **User Management**: Use Supabase Studio interface at `http://localhost:${SUPABASE_STUDIO_PORT}`
+5. **User Management**: Use the Kong-protected Supabase Studio route at `http://supabase-studio.localhost:${KONG_HTTP_PORT}`. The direct host port bypasses that gate.
 
 Supabase Auth identities are synchronized into `public.users` by the
 idempotent `public.handle_auth_user_sync()` trigger in `10-users.sql`. The same
@@ -187,9 +187,10 @@ execute privilege is revoked from public API roles despite its required
 
 ### 4.6. Studio Dashboard
 
-**Access**: `http://localhost:${SUPABASE_STUDIO_PORT}` (default: 63019)
+**Protected access**: `http://supabase-studio.localhost:${KONG_HTTP_PORT}`
+**Direct access**: `http://localhost:${SUPABASE_STUDIO_PORT}` (default: 63019); this bypasses Kong and Studio has no application authentication
 **Purpose**: Web-based database management interface
-**Credentials**: `DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD` from `.env` (default user `kong_admin`; the password is auto-generated on first `./start.sh`)
+**Credentials**: `DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD` protect the Kong `supabase-studio.localhost` route (default user `kong_admin`; the password is auto-generated on first `./start.sh`). Direct `SUPABASE_STUDIO_PORT` access bypasses Kong and does not consume those credentials.
 **Features**:
 - Database schema visualization
 - Query editor and runner
@@ -345,7 +346,19 @@ _No upstream calls._
 
 **Database connection issues**: Verify SUPABASE_DB_USER is set to `supabase_admin`
 **Auth service errors**: Check JWT secret consistency across services
-**Studio access issues**: Verify dashboard credentials in .env file
+**Studio access issues**: Verify dashboard credentials for the Kong hostname. The direct host port bypasses the dashboard credential gate and should be loopback-bound, firewalled, or unpublished on shared networks.
 **Initialization failures**: Check supabase-db-init logs for SQL script errors
 
 For more troubleshooting help, see [../quick-start/troubleshooting.md](../../docs/quick-start/troubleshooting.md).
+
+## 11. Capabilities & limitations
+
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Integrated Postgres application platform | supported | tested | Atlas runs PostgreSQL with Auth, PostgREST, Storage, Realtime, Meta, Studio, database initialization, and optional metrics export as one required family. |
+| Idempotent schema and RLS initialization | supported | tested | Ordered Atlas and downstream SQL runners initialize extensions, service schemas, grants, identity synchronization, and row-level-security policies with failure gating. |
+| Least-privilege application database role | stubbed | documented | SUPABASE_DB_APP_USER and SUPABASE_DB_APP_PASSWORD are reserved variables, but Atlas does not create or grant that role and core consumers continue using administrative credentials. |
+| Production email authentication | partial | documented | GoTrue issues and validates JWTs, but the stock local-development defaults auto-confirm email and point SMTP at localhost rather than a configured delivery service. |
+| pg-meta administrative access control | partial | documented | The Kong /pg/ route uses Basic authentication and the dashboard_user ACL, while the direct host-published SUPABASE_META_PORT has no application authentication and executes as supabase_admin; set HOST_BIND_IP=127.0.0.1:, firewall SUPABASE_META_PORT, or remove the supabase-meta ports: publish on shared networks. |
+| Supabase Studio access control | partial | documented | The Kong route uses Basic authentication and the dashboard_user ACL, but the host-published SUPABASE_STUDIO_PORT bypasses that gate because Studio has no application authentication; set HOST_BIND_IP=127.0.0.1:, firewall SUPABASE_STUDIO_PORT, or remove its ports: publish. |
+| Authenticated remote PostgreSQL access | not-supported | documented | The host-published SUPABASE_DB_PORT uses POSTGRES_HOST_AUTH_METHOD=trust; set HOST_BIND_IP=127.0.0.1:, firewall SUPABASE_DB_PORT, or remove the supabase-db ports: publish, and configure an authenticated database policy before remote access. |

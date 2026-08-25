@@ -169,3 +169,15 @@ Returns `running_summary`, `sources_gathered`, `loop_count`, current node — us
 - **Cost per run.** ~5 LLM calls per loop × `LOOPS` loops = 15 calls for the default. Plus one SearXNG call per loop. Local Ollama → free + slow (~30-90s/loop); cloud APIs via LiteLLM → fast + metered.
 - **No streaming back to backend.** The `/runs/stream` SSE channel exists but the backend's `research_client.py` consumes it synchronously; fanning events out to Open WebUI via Supabase Realtime remains future work.
 - **Thread state size.** A 3-loop run produces ~30-60 KB of state (summary + sources). The in-memory checkpointer holds the last N threads in process; under load it can grow unbounded — restart cleans it.
+
+## 9. Capabilities & limitations
+
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Multi-step local research loop | supported | tested | Atlas pins the upstream LangGraph source and serving dependencies, then routes search through SearXNG and generation through LiteLLM without requiring a direct cloud key. |
+| Backend-managed research sessions | partial | tested | The authenticated Backend adds bounded concurrency, cancellation, logs, and Postgres session records around LDR, while direct LangGraph callers bypass that lifecycle. |
+| Research endpoint authentication | not-supported | tested | The host-published LangGraph API and CORS-only research.localhost route have no Atlas authentication; use the authenticated Backend research API or restrict direct ingress. |
+| Research thread persistence | partial | tested | Backend session metadata persists in Postgres, but LDR's in-memory checkpointer loses direct thread state on restart and can grow without a durable shared bound. |
+| Full-page Crawl4AI extraction | partial | tested | The opt-in crawl4ai mode is patched and source-gated, while disabled or builtin modes provide different extraction depth and no live web compatibility guarantee. |
+| Declared optional service integrations | stubbed | documented | Neo4j, n8n, Weaviate, speech, and document services appear as runtime hints, but the LDR research code consumes only LiteLLM, SearXNG, and optional Crawl4AI today. |
+| Parallel research worker control | stubbed | documented | LOCAL_DEEP_RESEARCHER_WORKERS is reserved because the entrypoint does not pass it to langgraph dev; one server process owns the in-memory research state. |

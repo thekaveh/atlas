@@ -3,6 +3,32 @@ label: "Apache Zeppelin (Spark-first notebook)"
 category: apps
 docs: services/zeppelin/README.md
 
+capabilities:
+  - name: "Spark-first interactive notebooks"
+    status: supported
+    verification: tested
+    note: "Atlas bundles a matching Spark runtime and seeds the standalone Spark interpreter for Scala, PySpark, and SQL paragraphs against the in-stack cluster."
+  - name: "MinIO and Iceberg lakehouse notebooks"
+    status: partial
+    verification: tested
+    note: "The interpreter receives scoped S3A and Iceberg REST settings and starter notebooks, while advanced operations remain an operator-run live smoke."
+  - name: "Adaptive Trino and Postgres JDBC"
+    status: partial
+    verification: tested
+    note: "Init seeds a Trino interpreter only when enabled, but Supabase Postgres variables still require one-time manual JDBC interpreter configuration."
+  - name: "Notebook and log persistence"
+    status: partial
+    verification: documented
+    note: "Notebooks bind to the repository and logs use a named volume, but concurrent edits, backup, restoration, and multi-replica writer coordination are operator-owned."
+  - name: "Authenticated Zeppelin access"
+    status: not-supported
+    verification: tested
+    note: "Zeppelin ships without authentication and is deliberately exposed only on a fixed loopback port with no Kong route; remote users must tunnel or configure auth before proxying it."
+  - name: "Interpreter process isolation and HA"
+    status: not-supported
+    verification: documented
+    note: "All interpreters run in one Zeppelin container with injected lakehouse credentials; Atlas configures neither per-user sandboxing nor a replicated notebook control plane."
+
 containers:
   - zeppelin
   - zeppelin-init

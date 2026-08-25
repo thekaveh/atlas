@@ -177,3 +177,12 @@ _No high-confidence opportunities identified._
 - `403 Input bucket is not allowed`: add the intended bucket to `ASSET_WORKER_ALLOWED_INPUT_BUCKETS`; do not broaden the list to unrelated or private buckets.
 - MinIO upload failure: confirm `MINIO_SOURCE=container`, `ASSET_WORKER_MINIO_BUCKET`, and the generated `MINIO_ASSET_WORKER_*` credentials.
 - Kong alias missing: confirm `ASSET_WORKER_SOURCE=container`, run `./start.sh --setup-hosts`, and regenerate routes through the normal startup flow.
+
+## 8. Capabilities & limitations
+
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Mechanical glTF conditioning | supported | tested | Atlas normalizes scale and grounding, validates GLB input, and applies glTF-Transform simplification plus Draco or Meshopt and WebP or KTX2 optimization. |
+| Bounded authenticated post-processing API | supported | tested | Upload, MinIO-reference, and artifact routes require the generated bearer token and enforce admission, upload-size, and subprocess-timeout bounds; health and metrics remain public. |
+| Content-addressed optimized artifacts | supported | tested | Optimized GLBs use SHA-256 keys in the scoped MinIO bucket by default, with an explicitly selected local-artifact fallback. |
+| Semantic orientation correction | partial | tested | The default trusts glTF Y-up orientation; callers may request explicit-axis or bounded auto reorientation, but product-specific notions of upright remain consumer policy. |

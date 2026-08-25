@@ -63,3 +63,11 @@ _No high-confidence opportunities identified._
 ### 2.6. Future — Unused features in this service
 
 _No high-confidence opportunities identified._
+
+## 3. Capabilities & limitations
+
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| OpenAI-compatible text-to-speech | partial | tested | Speaches serves /v1/audio/speech, but Atlas does not preload Kokoro; the model must be downloaded before requests succeed. |
+| OpenAI-compatible speech-to-text | partial | untested | Speaches exposes /v1/audio/transcriptions, but Atlas has not validated the current preload and Open WebUI model path against a live container. |
+| Configurable STT model selection | stubbed | documented | SPEACHES_STT_MODEL is declared but does not alter the hard-coded PRELOAD_MODELS value or Open WebUI's STT model. |

@@ -4,6 +4,28 @@ label: "Label Studio (dataset review + annotation)"
 category: apps
 docs: services/label-studio/README.md
 
+capabilities:
+  - name: "Human dataset review and annotation"
+    status: supported
+    verification: tested
+    note: "Atlas starts the Label Studio UI/API with a dedicated Postgres role and initial administrator for operator-created labeling projects."
+  - name: "Scoped MinIO project storage"
+    status: partial
+    verification: tested
+    note: "Atlas provisions a dedicated bucket and credentials, but each project must still configure its own import or export storage connection in Label Studio."
+  - name: "Notebook export integration"
+    status: partial
+    verification: tested
+    note: "JupyterHub receives the Label Studio URL and legacy API token for REST exports, while MLflow, Weaviate, and Backend review loops remain notebook-owned or future work."
+  - name: "Label Studio access control"
+    status: partial
+    verification: tested
+    note: "The direct port relies on Label Studio login and disabled open signup; Kong adds dashboard Basic Auth and ACL, but Atlas does not integrate Supabase SSO or enterprise roles."
+  - name: "Annotation service high availability"
+    status: not-supported
+    verification: documented
+    note: "Postgres and MinIO preserve metadata and assets, but Atlas runs one Label Studio replica and one local data volume without a tested backup or failover workflow."
+
 containers:
   - label-studio-init
   - label-studio
