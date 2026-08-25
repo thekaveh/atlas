@@ -8,6 +8,8 @@ import jwt
 import pytest
 from fastapi import HTTPException
 from fastapi.security import HTTPAuthorizationCredentials
+from starlette.requests import Request
+from starlette.websockets import WebSocket
 
 from backend_identity import (
     BackendPrincipal,
@@ -28,6 +30,53 @@ WRONG_JWT_SECRET = "atlas-test-wrong-jwt-secret-32-bytes"
 
 def _credentials(token: str) -> HTTPAuthorizationCredentials:
     return HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
+
+
+def _http_connection(
+    *, headers: list[tuple[bytes, bytes]] | None = None, query_string: bytes = b""
+) -> Request:
+    return Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "scheme": "http",
+            "path": "/",
+            "raw_path": b"/",
+            "query_string": query_string,
+            "headers": headers or [],
+        }
+    )
+
+
+async def _websocket_receive() -> dict:
+    return {"type": "websocket.connect"}
+
+
+async def _websocket_send(message: dict) -> None:
+    return None
+
+
+def _websocket_connection(
+    *, headers: list[tuple[bytes, bytes]] | None = None, query_string: bytes = b""
+) -> WebSocket:
+    return WebSocket(
+        {
+            "type": "websocket",
+            "scheme": "ws",
+            "path": "/",
+            "raw_path": b"/",
+            "query_string": query_string,
+            "headers": headers or [],
+        },
+        _websocket_receive,
+        _websocket_send,
+    )
+
+
+def _plugin_api_key(connection: Request | WebSocket) -> str | None:
+    from backend_identity import _PLUGIN_API_KEY
+
+    return asyncio.run(_PLUGIN_API_KEY(connection))
 
 
 def _user_headers(monkeypatch, subject: str) -> dict[str, str]:
@@ -152,19 +201,123 @@ def test_missing_token_is_rejected_when_identity_auth_is_required(monkeypatch) -
     assert exc.value.status_code == 401
 
 
-def test_plugin_gateway_key_is_required_and_compared(monkeypatch) -> None:
+@pytest.mark.parametrize(
+    ("connection", "expected"),
+    [
+        (_http_connection(headers=[(b"apikey", b"gateway-secret")]), "gateway-secret"),
+        (_websocket_connection(query_string=b"apikey=gateway-secret"), "gateway-secret"),
+        (_http_connection(headers=[(b"apikey", b"")]), None),
+        (_websocket_connection(query_string=b"apikey="), None),
+    ],
+)
+def test_plugin_api_key_extraction_is_independent_of_fastapi_helper(
+    monkeypatch, connection, expected
+) -> None:
+    from fastapi.security import APIKeyHeader
+    from backend_identity import _PLUGIN_API_KEY
+
+    def incompatible_helper(*args, **kwargs):
+        raise AssertionError("version-dependent FastAPI helper was called")
+
+    monkeypatch.setattr(APIKeyHeader, "check_api_key", incompatible_helper)
+
+    assert asyncio.run(_PLUGIN_API_KEY(connection)) == expected
+
+
+@pytest.mark.parametrize("make_connection", [_http_connection, _websocket_connection])
+def test_plugin_gateway_key_accepts_valid_header_or_query_key(
+    monkeypatch, make_connection
+) -> None:
+    from backend_identity import require_plugin_gateway_key
+
+    monkeypatch.setenv("BACKEND_KONG_API_KEY", "gateway-secret")
+    header_connection = make_connection(headers=[(b"apikey", b"gateway-secret")])
+    query_connection = make_connection(query_string=b"apikey=gateway-secret")
+
+    assert (
+        asyncio.run(require_plugin_gateway_key(_plugin_api_key(header_connection)))
+        == "gateway-key"
+    )
+    assert (
+        asyncio.run(require_plugin_gateway_key(_plugin_api_key(query_connection)))
+        == "gateway-key"
+    )
+
+
+@pytest.mark.parametrize("make_connection", [_http_connection, _websocket_connection])
+def test_plugin_gateway_key_prefers_header_over_query(monkeypatch, make_connection) -> None:
+    from backend_identity import require_plugin_gateway_key
+
+    monkeypatch.setenv("BACKEND_KONG_API_KEY", "gateway-secret")
+    connection = make_connection(
+        headers=[(b"apikey", b"gateway-secret")], query_string=b"apikey=wrong"
+    )
+
+    assert (
+        asyncio.run(require_plugin_gateway_key(_plugin_api_key(connection)))
+        == "gateway-key"
+    )
+
+
+@pytest.mark.parametrize("make_connection", [_http_connection, _websocket_connection])
+def test_plugin_gateway_key_does_not_fallback_from_invalid_header_to_query(
+    monkeypatch, make_connection
+) -> None:
+    from backend_identity import require_plugin_gateway_key
+
+    monkeypatch.setenv("BACKEND_KONG_API_KEY", "gateway-secret")
+    connection = make_connection(
+        headers=[(b"apikey", b"wrong")], query_string=b"apikey=gateway-secret"
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(require_plugin_gateway_key(_plugin_api_key(connection)))
+
+    assert exc.value.status_code == 401
+
+
+@pytest.mark.parametrize("make_connection", [_http_connection, _websocket_connection])
+@pytest.mark.parametrize(
+    ("headers", "query_string"),
+    [
+        ([], b""),
+        ([(b"apikey", b"wrong")], b""),
+        ([], "apikey=caf%C3%A9-key".encode()),
+    ],
+)
+def test_plugin_gateway_key_rejects_missing_invalid_and_non_ascii_keys(
+    monkeypatch, make_connection, headers, query_string
+) -> None:
     from backend_identity import require_plugin_gateway_key
 
     monkeypatch.setenv("BACKEND_KONG_API_KEY", "gateway-secret")
     with pytest.raises(HTTPException) as exc:
-        asyncio.run(require_plugin_gateway_key(None))
+        asyncio.run(
+            require_plugin_gateway_key(
+                _plugin_api_key(
+                    make_connection(headers=headers, query_string=query_string)
+                )
+            )
+        )
+
     assert exc.value.status_code == 401
 
+
+@pytest.mark.parametrize("make_connection", [_http_connection, _websocket_connection])
+def test_plugin_gateway_key_requires_server_configuration(monkeypatch, make_connection) -> None:
+    from backend_identity import require_plugin_gateway_key
+
+    monkeypatch.delenv("BACKEND_KONG_API_KEY", raising=False)
     with pytest.raises(HTTPException) as exc:
-        asyncio.run(require_plugin_gateway_key("wrong"))
-    assert exc.value.status_code == 401
+        asyncio.run(
+            require_plugin_gateway_key(
+                _plugin_api_key(
+                    make_connection(headers=[(b"apikey", b"gateway-secret")])
+                )
+            )
+        )
 
-    assert asyncio.run(require_plugin_gateway_key("gateway-secret")) == "gateway-key"
+    assert exc.value.status_code == 503
 
 
 def test_notebook_token_is_limited_to_stateless_routes(monkeypatch) -> None:
@@ -440,5 +593,11 @@ def test_plugin_gateway_key_non_ascii_is_401_not_500(monkeypatch) -> None:
 
     monkeypatch.setenv("BACKEND_KONG_API_KEY", "expected-key")
     with pytest.raises(HTTPException) as exc:
-        asyncio.run(require_plugin_gateway_key(api_key="café-key"))
+        asyncio.run(
+            require_plugin_gateway_key(
+                _plugin_api_key(
+                    _http_connection(query_string="apikey=caf%C3%A9-key".encode())
+                )
+            )
+        )
     assert exc.value.status_code == 401

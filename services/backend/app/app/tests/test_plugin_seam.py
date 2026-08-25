@@ -5,6 +5,8 @@ import sys
 import types
 from pathlib import Path
 
+import pytest
+
 
 def test_load_plugins_includes_router(tmp_path, monkeypatch):
     # Arrange: a fake plugin package exposing `router`
@@ -268,6 +270,93 @@ def test_plugin_routes_enforce_declared_application_auth(tmp_path, monkeypatch):
     assert dependencies["/inherit-auth"] == {"require_backend_principal"}
     assert dependencies["/key-auth"] == {"require_plugin_gateway_key"}
     assert dependencies["/open-auth"] == set()
+
+
+@pytest.fixture
+def key_auth_plugin(tmp_path, monkeypatch):
+    plugin_name = f"key_auth_socket_plugin_{tmp_path.name.replace('-', '_')}"
+    plugin = tmp_path / plugin_name
+    plugin.mkdir()
+    (plugin / "__init__.py").write_text(
+        "from fastapi import APIRouter, WebSocket\n"
+        "http_calls = 0\n"
+        "router = APIRouter()\n"
+        "@router.get('/key-socket/http')\n"
+        "def http_route():\n"
+        "    global http_calls\n"
+        "    http_calls += 1\n"
+        "    return {'accepted': True}\n"
+        "@router.websocket('/key-socket/ws')\n"
+        "async def websocket_route(websocket: WebSocket):\n"
+        "    await websocket.accept()\n"
+        "    await websocket.send_text('accepted')\n"
+    )
+    (plugin / "plugin.yml").write_text(
+        "plugin_manifest_version: 1\nname: key-auth-socket\n"
+        "route_prefix: /key-socket\nauth: key-auth\n",
+        encoding="utf-8",
+    )
+
+    from fastapi import FastAPI
+    import plugin_seam
+
+    app = FastAPI()
+    monkeypatch.setenv("BACKEND_KONG_API_KEY", "gateway-secret")
+    monkeypatch.setenv("BACKEND_PLUGINS_DIR", str(tmp_path))
+    plugin_seam.load_plugins(app)
+    return app, sys.modules[plugin_name]
+
+
+def test_key_auth_plugin_mounts_dependency_and_openapi_security(key_auth_plugin):
+    from fastapi.routing import APIWebSocketRoute, APIRoute
+
+    app, _plugin_module = key_auth_plugin
+
+    dependencies = {
+        route.path: {dependency.call.__name__ for dependency in route.dependant.dependencies}
+        for route in app.routes
+        if isinstance(route, (APIRoute, APIWebSocketRoute))
+    }
+    assert dependencies["/key-socket/http"] == {"require_plugin_gateway_key"}
+    assert dependencies["/key-socket/ws"] == {"require_plugin_gateway_key"}
+
+    openapi = app.openapi()
+    assert openapi["components"]["securitySchemes"]["APIKeyHeader"] == {
+        "type": "apiKey",
+        "in": "header",
+        "name": "apikey",
+    }
+    assert openapi["paths"]["/key-socket/http"]["get"]["security"] == [
+        {"APIKeyHeader": []}
+    ]
+
+
+def test_key_auth_plugin_enforces_http_authentication(key_auth_plugin):
+    from starlette.testclient import TestClient
+
+    app, plugin_module = key_auth_plugin
+    with TestClient(app) as client:
+        assert client.get("/key-socket/http").status_code == 401
+        assert client.get("/key-socket/http", headers={"apikey": "wrong"}).status_code == 401
+        assert plugin_module.http_calls == 0
+        assert client.get("/key-socket/http", headers={"apikey": "gateway-secret"}).json() == {
+            "accepted": True
+        }
+        assert plugin_module.http_calls == 1
+
+
+def test_key_auth_plugin_enforces_websocket_authentication(key_auth_plugin):
+    from starlette.testclient import TestClient, WebSocketDenialResponse
+
+    app, _plugin_module = key_auth_plugin
+    with TestClient(app) as client:
+        with client.websocket_connect("/key-socket/ws?apikey=gateway-secret") as websocket:
+            assert websocket.receive_text() == "accepted"
+        for path in ("/key-socket/ws", "/key-socket/ws?apikey=wrong"):
+            with pytest.raises(WebSocketDenialResponse) as exc:
+                with client.websocket_connect(path):
+                    pass
+            assert exc.value.status_code == 401
 
 
 def test_plugin_router_cannot_escape_declared_prefix(tmp_path, monkeypatch):

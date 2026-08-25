@@ -1533,6 +1533,7 @@ services:
       KONG_DNS_NOT_FOUND_TTL: '1'
       KONG_DNS_ORDER: LAST,A,CNAME
       KONG_DNS_STALE_TTL: '4'
+      KONG_NGINX_HTTP_LOG_FORMAT: atlas '$$request_method $$uri $$server_protocol' $$status $$body_bytes_sent '"$$http_user_agent"' $$kong_request_id
       KONG_NGINX_HTTP_UPSTREAM_KEEPALIVE: '16'
       KONG_NGINX_HTTP_UPSTREAM_KEEPALIVE_REQUESTS: '100'
       KONG_NGINX_HTTP_UPSTREAM_KEEPALIVE_TIMEOUT: 60s
@@ -1545,6 +1546,7 @@ services:
       KONG_NGINX_PROXY_TCP_NODELAY: 'on'
       KONG_NGINX_PROXY_TCP_NOPUSH: 'on'
       KONG_PLUGINS: request-transformer,cors,key-auth,acl,basic-auth,rate-limiting,pre-function,prometheus
+      KONG_PROXY_ACCESS_LOG: /dev/stdout atlas
       KONG_PROXY_READ_TIMEOUT: '300'
       KONG_PROXY_SEND_TIMEOUT: '300'
       KONG_REDIS_HOST: redis

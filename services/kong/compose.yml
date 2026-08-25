@@ -56,6 +56,13 @@ services:
       KONG_STATUS_LISTEN: 0.0.0.0:8100
       KONG_NGINX_PROXY_PROXY_BUFFER_SIZE: 160k
       KONG_NGINX_PROXY_PROXY_BUFFERS: 64 160k
+      # Browser WebSocket clients may pass plugin credentials in the query
+      # string. Use the path-only $uri in a named format so Kong never writes
+      # query credentials (or any other query parameters) to proxy access logs.
+      KONG_NGINX_HTTP_LOG_FORMAT: >-
+        atlas '$$request_method $$uri $$server_protocol' $$status
+        $$body_bytes_sent '"$$http_user_agent"' $$kong_request_id
+      KONG_PROXY_ACCESS_LOG: /dev/stdout atlas
       # SSE-compatible settings
       KONG_NGINX_PROXY_PROXY_BUFFERING: "off"
       KONG_NGINX_PROXY_PROXY_CACHE: "off"

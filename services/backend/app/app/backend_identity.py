@@ -10,11 +10,32 @@ from uuid import UUID
 
 import jwt
 from fastapi import Depends, HTTPException, status
-from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBearer
+from fastapi.security import (
+    APIKeyHeader,
+    HTTPAuthorizationCredentials,
+    HTTPBearer,
+)
+from starlette.requests import HTTPConnection
 
 
 _BEARER = HTTPBearer(auto_error=False)
-_PLUGIN_API_KEY = APIKeyHeader(name="apikey", auto_error=False)
+
+
+class _PluginAPIKeyHeader(APIKeyHeader):
+    """Extract a plugin key from either HTTP or WebSocket connections."""
+
+    async def __call__(self, connection: HTTPConnection) -> str | None:
+        api_key = connection.headers.get(self.model.name)
+        if api_key is None:
+            api_key = connection.query_params.get(self.model.name)
+        # check_api_key's signature changed across Atlas's FastAPI range;
+        # this optional extractor leaves validation to require_plugin_gateway_key.
+        return api_key or None
+
+
+_PLUGIN_API_KEY = _PluginAPIKeyHeader(
+    name="apikey", scheme_name="APIKeyHeader", auto_error=False
+)
 
 
 @dataclass(frozen=True)

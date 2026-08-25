@@ -123,9 +123,11 @@ from backend_identity import (
     research_owner_id,
 )
 from readiness import check_backend_readiness
+from access_log import configure_uvicorn_access_log_redaction
 
 
 logger = logging.getLogger(__name__)
+configure_uvicorn_access_log_redaction()
 
 
 def _unexpected_error(operation: str, exc: Exception, *, status_code: int = 500) -> HTTPException:
