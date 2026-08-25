@@ -314,6 +314,16 @@ def test_key_auth_plugin_protects_http_and_websocket_routes(tmp_path, monkeypatc
     assert dependencies["/key-socket/http"] == {"require_plugin_gateway_key"}
     assert dependencies["/key-socket/ws"] == {"require_plugin_gateway_key"}
 
+    openapi = app.openapi()
+    assert openapi["components"]["securitySchemes"]["APIKeyHeader"] == {
+        "type": "apiKey",
+        "in": "header",
+        "name": "apikey",
+    }
+    assert openapi["paths"]["/key-socket/http"]["get"]["security"] == [
+        {"APIKeyHeader": []}
+    ]
+
     with TestClient(app) as client:
         assert client.get("/key-socket/http").status_code == 401
         assert client.get("/key-socket/http", headers={"apikey": "wrong"}).status_code == 401

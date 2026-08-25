@@ -73,6 +73,12 @@ def _websocket_connection(
     )
 
 
+def _plugin_api_key(connection: Request | WebSocket) -> str | None:
+    from backend_identity import _PLUGIN_API_KEY
+
+    return asyncio.run(_PLUGIN_API_KEY(connection))
+
+
 def _user_headers(monkeypatch, subject: str) -> dict[str, str]:
     secret = TEST_JWT_SECRET
     monkeypatch.setenv("SUPABASE_JWT_SECRET", secret)
@@ -205,8 +211,14 @@ def test_plugin_gateway_key_accepts_valid_header_or_query_key(
     header_connection = make_connection(headers=[(b"apikey", b"gateway-secret")])
     query_connection = make_connection(query_string=b"apikey=gateway-secret")
 
-    assert asyncio.run(require_plugin_gateway_key(header_connection)) == "gateway-key"
-    assert asyncio.run(require_plugin_gateway_key(query_connection)) == "gateway-key"
+    assert (
+        asyncio.run(require_plugin_gateway_key(_plugin_api_key(header_connection)))
+        == "gateway-key"
+    )
+    assert (
+        asyncio.run(require_plugin_gateway_key(_plugin_api_key(query_connection)))
+        == "gateway-key"
+    )
 
 
 @pytest.mark.parametrize("make_connection", [_http_connection, _websocket_connection])
@@ -218,7 +230,10 @@ def test_plugin_gateway_key_prefers_header_over_query(monkeypatch, make_connecti
         headers=[(b"apikey", b"gateway-secret")], query_string=b"apikey=wrong"
     )
 
-    assert asyncio.run(require_plugin_gateway_key(connection)) == "gateway-key"
+    assert (
+        asyncio.run(require_plugin_gateway_key(_plugin_api_key(connection)))
+        == "gateway-key"
+    )
 
 
 @pytest.mark.parametrize("make_connection", [_http_connection, _websocket_connection])
@@ -233,7 +248,7 @@ def test_plugin_gateway_key_does_not_fallback_from_invalid_header_to_query(
     )
 
     with pytest.raises(HTTPException) as exc:
-        asyncio.run(require_plugin_gateway_key(connection))
+        asyncio.run(require_plugin_gateway_key(_plugin_api_key(connection)))
 
     assert exc.value.status_code == 401
 
@@ -256,7 +271,9 @@ def test_plugin_gateway_key_rejects_missing_invalid_and_non_ascii_keys(
     with pytest.raises(HTTPException) as exc:
         asyncio.run(
             require_plugin_gateway_key(
-                make_connection(headers=headers, query_string=query_string)
+                _plugin_api_key(
+                    make_connection(headers=headers, query_string=query_string)
+                )
             )
         )
 
@@ -271,7 +288,9 @@ def test_plugin_gateway_key_requires_server_configuration(monkeypatch, make_conn
     with pytest.raises(HTTPException) as exc:
         asyncio.run(
             require_plugin_gateway_key(
-                make_connection(headers=[(b"apikey", b"gateway-secret")])
+                _plugin_api_key(
+                    make_connection(headers=[(b"apikey", b"gateway-secret")])
+                )
             )
         )
 
@@ -553,7 +572,9 @@ def test_plugin_gateway_key_non_ascii_is_401_not_500(monkeypatch) -> None:
     with pytest.raises(HTTPException) as exc:
         asyncio.run(
             require_plugin_gateway_key(
-                _http_connection(query_string="apikey=caf%C3%A9-key".encode())
+                _plugin_api_key(
+                    _http_connection(query_string="apikey=caf%C3%A9-key".encode())
+                )
             )
         )
     assert exc.value.status_code == 401

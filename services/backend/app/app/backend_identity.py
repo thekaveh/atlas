@@ -10,11 +10,30 @@ from uuid import UUID
 
 import jwt
 from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi.security import (
+    APIKeyHeader,
+    HTTPAuthorizationCredentials,
+    HTTPBearer,
+)
 from starlette.requests import HTTPConnection
 
 
 _BEARER = HTTPBearer(auto_error=False)
+
+
+class _PluginAPIKeyHeader(APIKeyHeader):
+    """Extract a plugin key from either HTTP or WebSocket connections."""
+
+    async def __call__(self, connection: HTTPConnection) -> str | None:
+        api_key = connection.headers.get(self.model.name)
+        if api_key is None:
+            api_key = connection.query_params.get(self.model.name)
+        return self.check_api_key(api_key)
+
+
+_PLUGIN_API_KEY = _PluginAPIKeyHeader(
+    name="apikey", scheme_name="APIKeyHeader", auto_error=False
+)
 
 
 @dataclass(frozen=True)
@@ -227,7 +246,7 @@ async def require_service_principal(
 
 
 async def require_plugin_gateway_key(
-    connection: HTTPConnection,
+    api_key: str | None = Depends(_PLUGIN_API_KEY),
 ) -> str:
     """Enforce a plugin's key-auth policy at the application boundary."""
     expected = (os.getenv("BACKEND_KONG_API_KEY") or "").strip()
@@ -236,9 +255,6 @@ async def require_plugin_gateway_key(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="BACKEND_KONG_API_KEY is required by this plugin route",
         )
-    api_key = connection.headers.get("apikey")
-    if api_key is None:
-        api_key = connection.query_params.get("apikey")
     if api_key is None or not _ct_equals(api_key, expected):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
