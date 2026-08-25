@@ -845,7 +845,7 @@ Your routes are then served by the same backend — reachable at `backend:8000` 
 
 #### 6.3.1. Declaring a typed plugin contract with `plugin.yml`
 
-A plugin package MAY ship an optional **`plugin.yml`** next to its `__init__.py`. Absent → the plugin loads exactly as above (fully backward compatible). Present → it declares a **versioned, typed, validated contract** so operators can *see* what is mounted and what env it needs, a missing/typo'd var surfaces as a startup **diagnostic** instead of a runtime 500, and per-plugin Kong auth has a place to live:
+A plugin package MAY ship an optional **`plugin.yml`** next to its `__init__.py`. Absent → the plugin loads exactly as above (fully backward compatible). Present → it declares a **versioned, typed, validated contract** so operators can *see* what is mounted and what env it needs, a missing/typo'd var surfaces as a startup **diagnostic** instead of a runtime 500, and per-plugin Kong auth and upstream timeouts have a place to live:
 
 ```yaml
 # my-plugins/tableau/plugin.yml
@@ -855,6 +855,9 @@ route_prefix: /tableau             # must not overlap another plugin or a built-
 health_path: /tableau/health
 docs_url: https://example.com
 auth: key-auth                     # inherit | open | key-auth
+connect_timeout: 120000            # optional; milliseconds
+write_timeout: 120000              # optional; milliseconds
+read_timeout: 900000               # optional; milliseconds
 env:
   - name: TABLEAU_EXECUTION
     type: enum
@@ -886,10 +889,11 @@ env:
 
 **What the contract buys you:**
 
-- **Inventory.** `GET /plugins` on the backend lists every mounted plugin — name, route prefix, health/docs, auth policy, declared env (secret values masked as `***`), and load status (`loaded` / `skipped` / `error`). Secret *values* are never exposed, but env-var names/flags are; `/plugins` is served under the backend route, so it inherits `BACKEND_KONG_AUTH` (open in local-dev default, gated once you set `key-auth`).
+- **Inventory.** `GET /plugins` on the backend lists every mounted plugin — name, route prefix, health/docs, auth policy, explicitly declared timeouts, declared env (secret values masked as `***`), and load status (`loaded` / `skipped` / `error`). Secret *values* are never exposed, but env-var names/flags are; `/plugins` is served under the backend route, so it inherits `BACKEND_KONG_AUTH` (open in local-dev default, gated once you set `key-auth`).
 - **Startup + preflight validation.** The seam validates declared env at boot, and [`./start.sh doctor`](#615-consumer-doctor-for-ci-preflight) re-validates it before launch: required-but-missing and enum/type mismatches are reported by plugin + var name. Secret values are never echoed.
 - **Fail-fast, isolated.** A present-but-malformed `plugin.yml` does **not** degrade to manifest-less loading — that one plugin is **skipped** with a structured error and the others stay healthy. Duplicate plugin names, overlapping prefixes, and prefixes that shadow one of the backend's reserved built-in route names are rejected before mounting; the reserved-name list is defined in the schema linked below.
 - **Per-plugin gateway and application auth.** `auth: key-auth` puts Kong key-auth on that plugin's `route_prefix` and validates the same `BACKEND_KONG_API_KEY` inside FastAPI, preventing direct-port bypass. `auth: open` is an explicit public opt-out. `auth: inherit`, and plugins without a manifest, use the Backend application identity boundary. Atlas composes the matching Kong policy per prefix; distinct per-prefix credentials remain a future extension.
+- **Per-plugin Kong upstream timeouts.** `connect_timeout`, `write_timeout`, and `read_timeout` are optional strict integers in milliseconds from `1` through `2147483646`. Atlas copies only the fields you declare; omitted fields retain Kong's 60,000 ms service defaults. Because Kong stores timeouts on services rather than routes, Atlas emits one dedicated backend service for each timed plugin while leaving plugins without overrides on the shared `backend-api` service. Auth continues to compose per prefix on the dedicated route.
 
 For `key-auth` HTTP requests, send the credential in the `apikey` header. The
 header is preferred and takes precedence if a query parameter is also present:

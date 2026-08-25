@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://atlas/schemas/plugin.schema.json",
   "title": "Backend Plugin Manifest",
-  "description": "Schema for an optional plugin.yml next to a backend plugin package mounted at BACKEND_PLUGINS_DIR (#402). Absent → the plugin loads exactly as before (fully backward compatible). Present → it declares a typed, validated config contract: route prefix, health/docs metadata, typed/default/required/secret env, dependency endpoints, and per-plugin Kong auth. A present-but-malformed manifest does NOT degrade to manifest-less loading — the plugin is skipped and a structured error is reported, leaving other plugins healthy.",
+  "description": "Schema for an optional plugin.yml next to a backend plugin package mounted at BACKEND_PLUGINS_DIR (#402). Absent → the plugin loads exactly as before (fully backward compatible). Present → it declares a typed, validated config contract: route prefix, health/docs metadata, typed/default/required/secret env, dependency endpoints, per-plugin Kong auth, and optional Kong upstream timeouts. A present-but-malformed manifest does NOT degrade to manifest-less loading — the plugin is skipped and a structured error is reported, leaving other plugins healthy.",
   "type": "object",
   "additionalProperties": false,
   "required": ["plugin_manifest_version", "name", "route_prefix"],
@@ -35,6 +35,24 @@
       "enum": ["inherit", "open", "key-auth"],
       "default": "inherit",
       "description": "Per-plugin Kong auth policy for route_prefix. inherit = use the backend default (BACKEND_KONG_AUTH); open = no auth on this prefix even when the backend default is key-auth; key-auth = require an API key on this prefix even when the backend default is open/disabled."
+    },
+    "connect_timeout": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 2147483646,
+      "description": "Optional Kong upstream connection timeout in milliseconds. Omitted means Kong's service default applies."
+    },
+    "write_timeout": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 2147483646,
+      "description": "Optional Kong upstream write-idle timeout in milliseconds. Omitted means Kong's service default applies."
+    },
+    "read_timeout": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 2147483646,
+      "description": "Optional Kong upstream read-idle timeout in milliseconds. Omitted means Kong's service default applies."
     },
     "env": {
       "type": "array",

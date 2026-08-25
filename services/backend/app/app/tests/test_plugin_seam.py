@@ -272,6 +272,31 @@ def test_plugin_routes_enforce_declared_application_auth(tmp_path, monkeypatch):
     assert dependencies["/open-auth"] == set()
 
 
+def test_plugin_inventory_exposes_only_declared_kong_timeouts(tmp_path, monkeypatch):
+    _plugin_pkg(
+        tmp_path,
+        "timed_plugin",
+        "/timed",
+        "plugin_manifest_version: 1\nname: timed\n"
+        "route_prefix: /timed\nconnect_timeout: 120000\n"
+        "read_timeout: 900000\n",
+    )
+
+    from fastapi import FastAPI
+    import plugin_seam
+
+    app = FastAPI()
+    monkeypatch.setenv("BACKEND_PLUGINS_DIR", str(tmp_path))
+
+    inventory = plugin_seam.load_plugins(app)
+    timed = next(entry for entry in inventory if entry["name"] == "timed")
+
+    assert timed["timeouts"] == {
+        "connect_timeout": 120000,
+        "read_timeout": 900000,
+    }
+
+
 @pytest.fixture
 def key_auth_plugin(tmp_path, monkeypatch):
     plugin_name = f"key_auth_socket_plugin_{tmp_path.name.replace('-', '_')}"

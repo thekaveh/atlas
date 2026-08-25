@@ -157,9 +157,12 @@ def test_backend_kong_auth_key_auth_requires_generated_key():
 
 # ── per-plugin route-level auth composition (#402) ──────────────────────────
 
-def _generate_with_plugin_auth(env_body: str, plugin_route_auth: list) -> dict:
-    """Like _generate, but injects the per-plugin (prefix, mode) overrides the
-    bootstrapper derives from plugin.yml manifests."""
+def _generate_with_plugin_auth(
+    env_body: str,
+    plugin_route_auth: list,
+    plugin_route_timeouts: list | None = None,
+) -> dict:
+    """Like _generate, but injects plugin route policy from plugin.yml."""
     from core.config_parser import ConfigParser
     from utils.kong_config_generator import KongConfigGenerator
 
@@ -167,6 +170,7 @@ def _generate_with_plugin_auth(env_body: str, plugin_route_auth: list) -> dict:
     cp = ConfigParser(str(repo_root))
     g = KongConfigGenerator(cp)
     g.plugin_route_auth = list(plugin_route_auth)
+    g.plugin_route_timeouts = list(plugin_route_timeouts or [])
     overrides: dict[str, str] = {}
     for line in env_body.splitlines():
         line = line.strip()
@@ -282,6 +286,135 @@ def test_backend_route_auth_slug_collision_deduped():
     backend = _service(config, "backend-api")
     names = [r["name"] for r in backend["routes"]]
     assert len(names) == len(set(names)), f"duplicate route names: {names}"
+
+
+# ── per-plugin service-level timeout composition (#974) ─────────────────────
+
+def _backend_services(config: dict) -> list[dict]:
+    return [service for service in config["services"] if service["name"].startswith("backend-api")]
+
+
+def test_backend_timeout_partial_override_gets_dedicated_service():
+    config = _generate_with_plugin_auth(
+        "",
+        [],
+        [("tableau", "/tableau", {"read_timeout": 900_000})],
+    )
+
+    shared = _service(config, "backend-api")
+    timed = _service(config, "backend-api-plugin-tableau")
+
+    assert shared["routes"] == [
+        {"name": "backend-api-all", "strip_path": False, "hosts": ["api.localhost"]}
+    ]
+    assert timed["read_timeout"] == 900_000
+    assert "connect_timeout" not in timed
+    assert "write_timeout" not in timed
+    assert timed["url"] == "http://backend:8000/"
+    assert timed["plugins"] == [{"name": "cors"}]
+    assert timed["routes"] == [
+        {
+            "name": "backend-api-tableau",
+            "strip_path": False,
+            "hosts": ["api.localhost"],
+            "paths": ["/tableau"],
+            "plugins": [],
+        }
+    ]
+
+
+def test_backend_timeout_all_fields_are_copied_to_service():
+    timeouts = {
+        "connect_timeout": 120_000,
+        "write_timeout": 180_000,
+        "read_timeout": 900_000,
+    }
+
+    config = _generate_with_plugin_auth(
+        "", [], [("tableau", "/tableau", timeouts)]
+    )
+    timed = _service(config, "backend-api-plugin-tableau")
+
+    assert {field: timed[field] for field in timeouts} == timeouts
+
+
+def test_backend_timeout_multiple_plugins_get_separate_stable_services():
+    config = _generate_with_plugin_auth(
+        "",
+        [],
+        [
+            ("tableau", "/tableau", {"read_timeout": 900_000}),
+            ("renderer", "/render", {"connect_timeout": 30_000}),
+        ],
+    )
+
+    services = _backend_services(config)
+
+    assert [service["name"] for service in services] == [
+        "backend-api",
+        "backend-api-plugin-tableau",
+        "backend-api-plugin-renderer",
+    ]
+    assert _service(config, "backend-api-plugin-tableau")["read_timeout"] == 900_000
+    assert _service(config, "backend-api-plugin-renderer")["connect_timeout"] == 30_000
+
+
+def test_backend_timeout_inherit_uses_key_auth_default():
+    config = _generate_with_plugin_auth(
+        "BACKEND_KONG_AUTH=key-auth\nBACKEND_KONG_API_KEY=sk-backend-test\n",
+        [],
+        [("tableau", "/tableau", {"read_timeout": 900_000})],
+    )
+
+    timed = _service(config, "backend-api-plugin-tableau")
+
+    assert _plugin_names(timed["routes"][0]) == ["key-auth", "acl"]
+
+
+def test_backend_timeout_explicit_auth_is_applied_only_on_dedicated_route():
+    config = _generate_with_plugin_auth(
+        "BACKEND_KONG_AUTH=disabled\nBACKEND_KONG_API_KEY=sk-backend-test\n",
+        [("/tableau", "key-auth")],
+        [("tableau", "/tableau", {"read_timeout": 900_000})],
+    )
+
+    shared = _service(config, "backend-api")
+    timed = _service(config, "backend-api-plugin-tableau")
+
+    assert all(route.get("paths") != ["/tableau"] for route in shared["routes"])
+    assert _plugin_names(timed["routes"][0]) == ["key-auth", "acl"]
+    assert any(consumer["username"] == "backend_api_user" for consumer in config["consumers"])
+
+
+def test_backend_timeout_open_override_beats_key_auth_default():
+    config = _generate_with_plugin_auth(
+        "BACKEND_KONG_AUTH=key-auth\nBACKEND_KONG_API_KEY=sk-backend-test\n",
+        [("/public", "open")],
+        [("public", "/public", {"read_timeout": 120_000})],
+    )
+
+    shared = _service(config, "backend-api")
+    timed = _service(config, "backend-api-plugin-public")
+
+    assert _plugin_names(timed["routes"][0]) == []
+    assert _plugin_names(shared) == ["cors", "key-auth", "acl"]
+
+
+def test_backend_route_names_are_unique_across_shared_and_timed_services():
+    config = _generate_with_plugin_auth(
+        "",
+        [("/a-b", "open")],
+        [("nested", "/a/b", {"read_timeout": 120_000})],
+    )
+
+    route_names = [
+        route["name"]
+        for service in _backend_services(config)
+        for route in service["routes"]
+    ]
+
+    assert len(route_names) == len(set(route_names)), route_names
+    assert "backend-api-all" in route_names
 
 
 def test_alias_only_services_route_to_expected_containers():

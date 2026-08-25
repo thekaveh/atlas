@@ -11,6 +11,8 @@ bootstrapper-side counterpart used BEFORE containers start, for two jobs:
    policy from plugins whose ``auth`` is not ``inherit``, so ``key-auth`` /
    ``open`` can be expressed per prefix without weakening unrelated backend
    routes.
+3. **Kong service-level timeouts** — derive explicit upstream timeout fields
+   for plugins that need limits above Kong's defaults.
 
 Validation uses ``jsonschema`` (a bootstrapper dependency) against the canonical
 ``bootstrapper/schemas/plugin.schema.json`` — the same file that documents the
@@ -30,6 +32,7 @@ from jsonschema import Draft202012Validator
 
 PLUGIN_MANIFEST_FILENAME = "plugin.yml"
 SECRET_MASK = "***"
+KONG_TIMEOUT_FIELDS = ("connect_timeout", "write_timeout", "read_timeout")
 
 # Built-in backend route prefixes a plugin must not shadow. Kept in sync with
 # services/backend/app/app/plugin_manifest.py::RESERVED_ROUTE_PREFIXES and the
@@ -97,6 +100,9 @@ class PluginManifest:
     auth: str = "inherit"
     health_path: str | None = None
     docs_url: str | None = None
+    connect_timeout: int | None = None
+    write_timeout: int | None = None
+    read_timeout: int | None = None
     env: tuple[dict, ...] = ()
     depends_on: tuple[str, ...] = ()
     source_dir: Path | None = None
@@ -109,6 +115,15 @@ class PluginManifest:
 def _format_jsonschema_error(error) -> str:
     path = ".".join(str(p) for p in error.absolute_path) or "(root)"
     return f"{path}: {error.message}"
+
+
+def _strict_timeout_type_errors(raw: dict) -> list[str]:
+    """Fields JSON Schema calls integral numbers must still be Python ints."""
+    return [
+        field_name
+        for field_name in KONG_TIMEOUT_FIELDS
+        if field_name in raw and type(raw[field_name]) is not int
+    ]
 
 
 def load_plugin_manifest(plugin_dir: Path) -> PluginManifest | None:
@@ -127,6 +142,13 @@ def load_plugin_manifest(plugin_dir: Path) -> PluginManifest | None:
         raise PluginManifestError(hint, f"could not parse YAML ({exc})") from exc
     if not isinstance(raw, dict):
         raise PluginManifestError(hint, "manifest must be a mapping at the top level")
+    wrong_timeout_types = _strict_timeout_type_errors(raw)
+    if wrong_timeout_types:
+        details = "; ".join(
+            f"{field_name}: must be a strict integer"
+            for field_name in wrong_timeout_types
+        )
+        raise PluginManifestError(hint, f"schema violation(s): {details}")
     errors = sorted(_get_validator().iter_errors(raw), key=lambda e: list(e.absolute_path))
     if errors:
         details = "; ".join(_format_jsonschema_error(e) for e in errors)
@@ -137,6 +159,9 @@ def load_plugin_manifest(plugin_dir: Path) -> PluginManifest | None:
         auth=raw.get("auth", "inherit"),
         health_path=raw.get("health_path"),
         docs_url=raw.get("docs_url"),
+        connect_timeout=raw.get("connect_timeout"),
+        write_timeout=raw.get("write_timeout"),
+        read_timeout=raw.get("read_timeout"),
         env=tuple(raw.get("env", ())),
         depends_on=tuple(raw.get("depends_on", ())),
         source_dir=plugin_dir,
@@ -210,6 +235,26 @@ def derive_route_auth(manifests: list[PluginManifest]) -> list[tuple[str, str]]:
     Order follows discovery so the emitted route order is deterministic.
     """
     return [(m.route_prefix, m.auth) for m in manifests if m.auth in ("open", "key-auth")]
+
+
+def derive_route_timeouts(
+    manifests: list[PluginManifest],
+) -> list[tuple[str, str, dict[str, int]]]:
+    """Per-plugin Kong service timeouts for manifests that declare any.
+
+    Values have already passed the canonical JSON Schema. Omitted fields stay
+    omitted so Kong retains its own per-field defaults.
+    """
+    policies: list[tuple[str, str, dict[str, int]]] = []
+    for manifest in manifests:
+        timeouts = {
+            field_name: value
+            for field_name in KONG_TIMEOUT_FIELDS
+            if (value := getattr(manifest, field_name)) is not None
+        }
+        if timeouts:
+            policies.append((manifest.name, manifest.route_prefix, timeouts))
+    return policies
 
 
 def validate_plugin_env(manifest: PluginManifest, env: dict[str, str]) -> list[str]:
