@@ -15,6 +15,24 @@ docs: services/tts-provider/README.md
 virtual: true
 containers: []
 
+capabilities:
+  - name: "Virtual text-to-speech engine selection"
+    status: supported
+    verification: tested
+    note: "Atlas resolves Speaches CPU or NVIDIA, Chatterbox NVIDIA, or operator-run Chatterbox behind one TTS endpoint without running an aggregator container."
+  - name: "Shared Speaches engine deduplication"
+    status: supported
+    verification: tested
+    note: "When STT and TTS both select Speaches, Atlas runs one container and resolves mixed CPU/GPU selections to the GPU profile."
+  - name: "Chatterbox voice cloning"
+    status: partial
+    verification: documented
+    note: "GPU and localhost selections expose upstream voice-cloning calls, but model download, live inference, voice persistence, and host lifecycle are not certified by Atlas automation."
+  - name: "Authenticated TTS provider ingress"
+    status: not-supported
+    verification: documented
+    note: "Speaches and Chatterbox host ports plus the CORS-only tts.localhost alias have no Atlas authentication; use loopback or firewall controls, remove direct publishes, or add an authentication proxy."
+
 sources:
   var: TTS_PROVIDER_SOURCE
   default: speaches-container-cpu
@@ -119,4 +137,3 @@ runtime_sc:
 
 data_flow:
   calls: []
-

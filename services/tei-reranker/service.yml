@@ -10,6 +10,28 @@ label: "TEI Reranker (mxbai-rerank-base-v1)"
 category: llm
 docs: services/tei-reranker/README.md
 
+capabilities:
+  - name: "Cross-encoder reranking sources"
+    status: supported
+    verification: tested
+    note: "Atlas resolves architecture-specific amd64 ORT and arm64 Candle CPU images, an NVIDIA image, or an existing host TEI endpoint for the configured model."
+  - name: "LiteLLM standard rerank route"
+    status: supported
+    verification: tested
+    note: "The tei-rerank alias uses LiteLLM's Hugging Face adapter to translate Cohere-shaped documents into TEI text pairs behind gateway authentication."
+  - name: "Direct LightRAG-to-TEI reranking"
+    status: not-supported
+    verification: tested
+    note: "LightRAG sends a documents payload that native TEI rejects; it must use the opt-in backend adapter rather than the TEI endpoint directly."
+  - name: "Authenticated native reranker access"
+    status: partial
+    verification: tested
+    note: "The LiteLLM route requires its master key, but TEI's host-published port and CORS-only rerank.localhost alias expose the unauthenticated native API."
+  - name: "Arbitrary reranker model portability"
+    status: partial
+    verification: documented
+    note: "The default model is selected for ONNX amd64 and safetensors arm64 compatibility, but TEI_RERANKER_REVISION defaults to mutable main; pin a model commit for reproducible artifacts. Operator overrides and future main contents are not pre-certified for both backends or their memory limits."
+
 containers:
   - tei-reranker
 

@@ -77,3 +77,13 @@ _No high-confidence opportunities identified._
 - Backend returns unsupported-format: enable Tika and restart so `TIKA_ENDPOINT` is generated.
 - Localhost mode cannot connect: ensure the host Tika server listens on `TIKA_LOCALHOST_PORT` and that `host.docker.internal` resolves from containers.
 - Empty or low-quality text: remember Tika is the degraded fallback path. Prefer Docling for formats it supports.
+
+## 8. Capabilities & limitations
+
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Long-tail plain-text extraction | partial | tested | The backend falls back to Tika for explicit unsupported and archive-oriented formats, but results lack Docling's structure-aware tables, OCR, images, and chunks. |
+| Container and existing-host Tika sources | supported | tested | Atlas resolves a pinned Tika container or an operator-run localhost server and clears downstream endpoints when the fallback is disabled. |
+| Bounded backend fallback calls | partial | tested | Backend calls enforce configured file-size and finite timeout limits, while direct Tika and Kong requests bypass those application-layer bounds. |
+| Authenticated Tika access | partial | documented | Kong protects tika.localhost with dashboard Basic authentication and ACL, but the host-published container port and operator-run localhost server bypass that gate. |
+| Archive malware and recursion policy | not-supported | documented | Atlas provides no malware scanner, recursive archive policy, or quarantine store; keep Tika disabled or network-restricted unless long-tail extraction is required. |

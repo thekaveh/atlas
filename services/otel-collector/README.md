@@ -70,3 +70,11 @@ _No high-confidence opportunities identified._
 - If the collector is unhealthy, run the same mounted-config validation shown in the Compose health check and inspect the reported receiver, processor, or exporter error.
 - If Grafana shows no traces, check the Tempo datasource and the collector logs.
 - Roll back by setting `OTEL_COLLECTOR_SOURCE=disabled`; backend and LiteLLM tracing env collapses to no-op values.
+
+## 7. Capabilities & limitations
+
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| OTLP trace ingestion and Tempo export | supported | tested | Atlas accepts internal OTLP over gRPC and HTTP, batches traces, and exports them to the required Tempo service. |
+| Log export to Loki | stubbed | documented | The logs pipeline terminates at the debug exporter; Loki may be enabled as an optional sibling but is not an OpenTelemetry log destination. |
+| Public telemetry ingestion | not-supported | tested | Collector receivers are backend-network only with no published host port or Kong route in the stock deployment. |

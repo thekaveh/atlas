@@ -50,6 +50,8 @@ Auto-managed (resolved by the bootstrapper from `AIRFLOW_SOURCE`; do not hand-ed
 
 Connection seeding is idempotent — `airflow-init` deletes-then-adds each Connection on every run, so changes to credentials propagate on the next `./start.sh`.
 
+**Trusted DAG boundary.** LocalExecutor does not sandbox DAG code: operator-authored DAGs execute in Airflow's scheduler process pool and can read seeded Connections containing MinIO root, LiteLLM master, Supabase and Neo4j administrator, and Redis credentials. Only trusted authors may supply DAGs. Atlas does not provide tenant isolation for untrusted DAG code.
+
 **Resolving seeded Connections outside a task.** Airflow 3's Task-SDK
 connection lookup is task-context-sensitive. DAG tasks should keep using
 hooks/operators such as `S3Hook(aws_conn_id="minio_default")` and
@@ -209,3 +211,14 @@ _No high-confidence opportunities identified._
 - **`summarize_via_litellm` (OpenAIHook) fails with `auth required`** — `litellm_default` Connection has the wrong `LITELLM_MASTER_KEY`. Re-run `./start.sh` to re-sync the Connection; alternatively edit it in the Web UI under Admin → Connections.
 - **Spark `spark_smoke` task can't reach `sc://spark-connect:15002` (or `spark://spark-master:7077` from user `SparkSubmitOperator` DAGs)** — Either (a) Spark isn't running (`SPARK_SOURCE=disabled` in `.env`; enable it via `--spark-source container` or remove the Spark-dependent steps from your DAG), or (b) it's the first DAG run after stack-up and spark-connect's JVM hasn't finished binding 15002 yet (20-60s cold-start lag). Airflow's `retries: 1` + `retry_delay: 2m` in default_args usually masks (b); if it doesn't, re-trigger the DAG once spark-connect is up.
 - **`spark_smoke` raises `ModuleNotFoundError: No module named 'pyspark'`** — the airflow image hasn't been rebuilt since `pyspark` was added to `services/airflow/build/requirements.txt`. Run `docker compose build airflow-webserver` and restart with `./start.sh`.
+
+## 9. Capabilities & limitations
+
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Code-defined DAG orchestration | supported | tested | Atlas runs Airflow 3 with a separate API server, scheduler, DAG processor, and init path, using LocalExecutor for operator-authored DAGs. |
+| Untrusted DAG code isolation | not-supported | tested | LocalExecutor operator-authored DAGs execute unsandboxed with Airflow Connections holding MinIO root, LiteLLM master, Supabase and Neo4j administrator, and Redis password credentials; admit only trusted DAG authors. |
+| Seeded stack service connections | partial | tested | Init seeds LiteLLM, Redis, Supabase, and enabled container-only lakehouse or graph connections; localhost variants are deliberately not mapped to unusable Compose DNS names. |
+| Spark lakehouse job execution | partial | tested | Bundled DAGs and jars exercise SparkSubmit and lakehouse configuration, but live Spark, MinIO, Iceberg, and Redpanda execution remains an operator-run smoke path. |
+| Airflow UI and API authentication | supported | tested | Direct and CORS-only Kong surfaces rely on Airflow FAB login for the UI and JWT exchange for /api/v2; Kong adds routing but no second authentication gate. |
+| Distributed executor and control-plane HA | not-supported | documented | Atlas fixes one scheduler, API server, and DAG processor around LocalExecutor; it configures neither Celery/KubernetesExecutor nor a multi-replica Airflow control plane. |

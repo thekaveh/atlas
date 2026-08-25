@@ -4,6 +4,20 @@ label: "Trino"
 category: data
 docs: services/trino/README.md
 
+capabilities:
+  - name: "SQL over the Atlas Iceberg lakehouse"
+    status: supported
+    verification: tested
+    note: "Atlas configures Trino's Iceberg REST catalog, MinIO S3 access, and required service ordering for querying the in-stack lakehouse."
+  - name: "Coordinator access control"
+    status: partial
+    verification: tested
+    note: "Kong applies Basic authentication to the browser route, but the directly published coordinator has no Trino authenticator and accepts operator-supplied user names."
+  - name: "Distributed multi-catalog query cluster"
+    status: not-supported
+    verification: documented
+    note: "The stock deployment is one coordinator with no workers and one Iceberg catalog; Atlas does not provision clustered execution or additional federation catalogs."
+
 containers:
   - trino
 

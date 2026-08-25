@@ -61,3 +61,12 @@ Crawl4AI exposes MCP endpoints at `/mcp/sse`, `/mcp/ws`, and `/mcp/schema` on th
 - `401 Unauthorized`: include `Authorization: Bearer ${CRAWL4AI_API_TOKEN}`.
 - Kong route missing: confirm `CRAWL4AI_SOURCE=container` and rerun `./start.sh`.
 - Local Deep Researcher still using snippets: set `LOCAL_DEEP_RESEARCHER_FULL_PAGE_MODE=crawl4ai`, ensure `CRAWL4AI_SOURCE=container`, and restart the stack.
+
+## 8. Capabilities & limitations
+
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Browser-backed web extraction | supported | tested | Atlas configures Crawl4AI's JavaScript-capable API and a Local Deep Researcher adapter that submits URLs and retains bounded markdown output. |
+| Layered extraction-route authentication | supported | tested | The direct and internal APIs require the generated Crawl4AI bearer token, while the Kong alias adds dashboard Basic authentication and ACL; only health is public. |
+| Conservative crawl isolation | supported | tested | Internal-URL access defaults off and the container is read-only with dropped capabilities, no-new-privileges, bounded processes, and ephemeral working directories. |
+| Curated MCP package registration | not-supported | documented | The upstream server exposes MCP transports, but Atlas does not register them in its curated MCP package or provide transport-specific discovery. |

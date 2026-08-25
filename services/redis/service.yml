@@ -12,6 +12,20 @@ label: "Redis (cache & queue)"
 category: data
 docs: services/redis/README.md
 
+capabilities:
+  - name: "Authenticated cache and queue substrate"
+    status: supported
+    verification: tested
+    note: "Atlas runs password-protected Redis as the shared cache, queue, coordination, and transient-state substrate for multiple service families."
+  - name: "AOF persistence and bounded eviction"
+    status: partial
+    verification: tested
+    note: "Append-only persistence and volatile-LRU are configured, but the default zero maxmemory is unbounded and only expiring keys become eviction candidates after a cap is set."
+  - name: "Per-service ACL and transport isolation"
+    status: not-supported
+    verification: documented
+    note: "Consumers share one password and logical database convention over plaintext Redis; Atlas provisions neither per-service ACL users nor TLS."
+
 containers:
   - redis
   - redis-exporter
@@ -117,4 +131,3 @@ runtime_sc:
 
 data_flow:
   calls: []
-

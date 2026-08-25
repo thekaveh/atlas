@@ -118,3 +118,12 @@ Use this as a postprocess step for exported Blender assets, ComfyUI-assisted 3D 
 - If a client cannot connect, confirm the Blender add-on is installed, enabled, and listening on `${BLENDER_MCP_HOST}:${BLENDER_MCP_LOCALHOST_PORT}`.
 - If `uvx` is not found by a GUI MCP client, configure the absolute path to `uvx` or the installed Blender MCP command in that client.
 - If `scripts/gltf-transform-postprocess.sh` fails before optimization, inspect the validation output first; invalid GLB input should be fixed at the source.
+
+## 9. Capabilities & limitations
+
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Host-only Blender MCP bridge | supported | documented | Atlas configures user-run GUI and managed headless host sources; it does not run Blender in a container. |
+| Managed headless scene control | partial | tested | Scene inspection and generated-code commands work through the managed bridge, but GUI-dependent operations are unavailable. |
+| Managed-bridge loopback guard for arbitrary Python execution | partial | tested | Atlas refuses non-loopback binds for managed-localhost without an explicit override; the user-run localhost GUI source remains operator-controlled. |
+| Viewport screenshots in managed headless mode | not-supported | documented | Headless Blender has no VIEW_3D context, so use the user-run GUI source when viewport screenshots are required. |

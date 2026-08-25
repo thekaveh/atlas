@@ -9,6 +9,13 @@ from services.manifests import load_manifests
 
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+_SYNTHETIC_CAPABILITY_YAML = (
+    "capabilities:\n"
+    "  - name: Synthetic environment contract\n"
+    "    status: supported\n"
+    "    verification: tested\n"
+    "    note: Tests exercise this synthetic environment manifest.\n"
+)
 
 
 def test_emits_generated_header(services_root, write_manifest, minimal_manifest_dict):
@@ -225,6 +232,7 @@ def test_multiline_description_each_line_commented(tmp_path):
         "      Line one.\n"
         "      Line two.\n"
         "      Line three.\n"
+        + _SYNTHETIC_CAPABILITY_YAML
     )
     manifests = load_manifests(services_root)
     output = assemble_env_example(manifests, services_root=services_root)
@@ -261,6 +269,7 @@ def test_secret_var_with_manifest_default_emits_placeholder(tmp_path):
         "  - name: DEMO_TRUE_SECRET\n"
         "    default: \"\"\n"
         "    secret: true\n"
+        + _SYNTHETIC_CAPABILITY_YAML
     )
     from services.env_assembler import assemble_env_example
     from services.manifests import load_manifests

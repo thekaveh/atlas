@@ -339,3 +339,14 @@ _No high-confidence opportunities identified._
 - **Semantic caching + per-key cache controls** — *Why pursue:* basic Redis response caching is already enabled stack-wide; LiteLLM's embedding-similarity semantic cache and per-virtual-key TTL/namespace controls remain unused. *Effort:* small.
 - **`/v1/audio/transcriptions` + `/v1/audio/speech` routing** — *Why pursue:* see pair-integrations above. *Effort:* medium.
 - **Fallback model chains** — *Why pursue:* declare `fallbacks: [{"gpt-5": ["claude-opus", "ollama/qwen3.8"]}]` so a cloud outage degrades gracefully to local Ollama. *Effort:* small.
+
+## 15. Capabilities & limitations
+
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Unified authenticated model gateway | supported | tested | Atlas exposes chat, embeddings, image generation, and reranking through one LiteLLM endpoint protected by the generated master key, with an explicitly credentialed admin UI. |
+| Catalog-driven provider routing | supported | tested | Startup deterministically renders Ollama, cloud, service-passthrough, and consumer-declared model rows from typed catalogs and enabled provider configuration. |
+| Gateway persistence and response caching | supported | tested | LiteLLM stores its control and spend data in a dedicated Supabase database and uses the authenticated shared Redis service for namespaced bounded-TTL response caching. |
+| Vision-model default consumption | stubbed | documented | Atlas resolves and persists LITELLM_VISION_MODEL for selection UX, but the manifest explicitly has no current consumer route for that default. |
+| Unified speech routing | not-supported | documented | STT and TTS consumers call their provider endpoints directly; LiteLLM does not register the stock audio transcription or speech routes. |
+| Per-service gateway credentials and budgets | not-supported | documented | Stock consumers share the master key; LiteLLM virtual keys, team budgets, and independently revocable per-service credentials are not provisioned. |

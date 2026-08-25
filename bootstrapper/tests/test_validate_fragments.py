@@ -9,6 +9,17 @@ import pytest
 from tools.validate_fragments import run
 
 
+def _synthetic_capabilities() -> list[dict[str, str]]:
+    return [
+        {
+            "name": "Synthetic validation contract",
+            "status": "supported",
+            "verification": "tested",
+            "note": "Tests exercise this synthetic validation manifest.",
+        }
+    ]
+
+
 # ────────────────────────────────────────────────────────────────────────────
 # Manifest-validation mode
 # ────────────────────────────────────────────────────────────────────────────
@@ -97,6 +108,7 @@ def test_cross_manifest_issue_exits_nonzero(tmp_path: Path, capsys):
                     "label": f"{name}",
                     "category": "data",
                     "containers": [name],
+                    "capabilities": _synthetic_capabilities(),
                     "env": [{"name": "SHARED_PORT", "default": 1}],
                 }
             )
@@ -132,6 +144,7 @@ def test_check_env_example_matches_committed_file(
                 "label": "Redis",
                 "category": "data",
                 "containers": ["redis"],
+                "capabilities": _synthetic_capabilities(),
                 "env": [{"name": "REDIS_PORT", "default": 6379}],
             }
         )
@@ -165,6 +178,7 @@ def test_check_env_example_drift_exits_nonzero(tmp_path: Path, capsys):
                 "label": "Redis",
                 "category": "data",
                 "containers": ["redis"],
+                "capabilities": _synthetic_capabilities(),
                 "env": [{"name": "REDIS_PORT", "default": 6379}],
             }
         )

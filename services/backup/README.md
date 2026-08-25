@@ -123,3 +123,11 @@ docker compose run --rm --entrypoint sh backup -c "mc alias set s3 http://minio:
 ```
 
 For general startup and routing issues, see [Troubleshooting](../../docs/quick-start/troubleshooting.md).
+
+## 7. Capabilities & limitations
+
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| On-demand Postgres and volume backup export | supported | documented | The one-shot runner creates a PostgreSQL custom-format dump plus read-only Supabase Storage, Neo4j, and Weaviate archives and uploads them to the configured S3 bucket. |
+| Postgres restore workflow | partial | tested | The tested restore script orchestrates S3 retrieval and pg_restore, but volume archives have no restore workflow and PostgreSQL restore has no preflight validation or atomicity guarantee. |
+| Scheduled retention and backup verification | not-supported | documented | Atlas ships no scheduler, retention pruning, or post-upload restore verification; operators must provide those controls externally. |

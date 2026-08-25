@@ -4,6 +4,36 @@ label: "n8n (workflow automation)"
 category: agents
 docs: services/n8n/README.md
 
+capabilities:
+  - name: "Queue-mode workflow execution"
+    status: supported
+    verification: tested
+    note: "Atlas serializes database migrations, stores workflows in Postgres, and offloads manual and triggered executions through Redis to a dedicated worker."
+  - name: "Bounded consumer workflow seeding"
+    status: partial
+    verification: tested
+    note: "The bootstrapper validates, namespaces, imports, activates, and reconciles declared consumer workflows with time and size bounds, but continues best-effort when one workflow fails."
+  - name: "Bundled AI workflow examples"
+    status: partial
+    verification: tested
+    note: "Atlas ships structurally validated research, memory, and image examples, while operators must import staged examples and bind real credentials before production webhook activation."
+  - name: "Workflow credential propagation"
+    status: partial
+    verification: tested
+    note: "Both web and worker expose a scoped Backend token plus the stack-wide LiteLLM master key and provider service credentials to workflow expressions; trusted authors must avoid returning them in outputs or webhooks."
+  - name: "Editor and webhook access control"
+    status: partial
+    verification: tested
+    note: "n8n supplies its own login while direct and CORS-only Kong routes add no Atlas auth; staged privileged examples require operator-bound Header Auth, but the legacy bundled /research fixture declares no authentication and must be secured before activation."
+  - name: "Idempotent external side effects"
+    status: not-supported
+    verification: documented
+    note: "Queue retries, manual re-runs, and webhook redelivery can repeat arbitrary workflow side effects; Atlas cannot make third-party nodes transactional or universally idempotent."
+  - name: "Workflow execution high availability"
+    status: partial
+    verification: documented
+    note: "Postgres and Redis preserve workflow and queue state across process restarts, but Atlas fixes one web and one worker replica with no multi-node failover certification."
+
 containers:
   - n8n
   - n8n-worker

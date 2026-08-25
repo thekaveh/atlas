@@ -59,3 +59,13 @@ _No high-confidence opportunities identified._
 ### 2.6. Future — Unused features in this service
 
 _No high-confidence opportunities identified._
+
+## 3. Capabilities & limitations
+
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| NVIDIA Parakeet transcription | supported | tested | The GPU source loads the configured Parakeet-TDT checkpoint and serves standard and advanced OpenAI-shaped transcription routes with truthful readiness. |
+| Host speech-to-text variants | partial | tested | Atlas can route to operator-run Parakeet MLX or whisper.cpp endpoints, but installation, model provisioning, process supervision, and host acceleration remain operator-owned. |
+| Timestamp-rich transcription | partial | tested | Atlas-managed Parakeet providers expose segment and word timing when the selected implementation returns alignment data; plain results honestly report timestamps unavailable. |
+| Provider authentication and workload bounds | partial | tested | Atlas Parakeet requires a bearer token and bounds uploads, admission, and inference by default; those guarantees do not extend to selected Speaches or whisper.cpp upstreams. |
+| Cross-architecture Parakeet container | not-supported | tested | The only Parakeet container is NVIDIA GPU; Apple Silicon uses the separately installed MLX localhost provider and no CPU container or GPU quantization knob is advertised. |

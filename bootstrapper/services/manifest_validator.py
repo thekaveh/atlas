@@ -44,6 +44,7 @@ class ValidationIssue:
     # `kind` values currently in use (kept here for grep-ability):
     #   duplicate_env_var          — same env var declared by ≥2 manifests
     #   duplicate_container        — same container name in ≥2 manifests
+    #   duplicate_capability       — same capability name repeated within one manifest
     #   unknown_dependency         — depends_on.required/optional → unknown manifest
     #   undeclared_export          — exports[].name not in env[] and not produced by runtime_sc environment
     #   undeclared_source_var      — sources.var not declared in env[]
@@ -85,6 +86,7 @@ def validate_manifests(
 
     issues.extend(_check_unique_env_vars(manifests))
     issues.extend(_check_unique_containers(manifests))
+    issues.extend(_check_unique_capabilities(manifests))
     issues.extend(_check_data_flow_targets(manifests))
     issues.extend(_check_dependency_closure(manifests))
     issues.extend(_check_export_consumer_closure(manifests))
@@ -194,6 +196,27 @@ def _check_unique_containers(manifests: list[Manifest]) -> list[ValidationIssue]
                         ),
                     )
                 )
+    return issues
+
+
+def _check_unique_capabilities(manifests: list[Manifest]) -> list[ValidationIssue]:
+    """Capability names must be unique within each service contract."""
+    issues: list[ValidationIssue] = []
+    for manifest in manifests:
+        seen: set[str] = set()
+        duplicates: set[str] = set()
+        for capability in manifest.capabilities:
+            if capability.name in seen:
+                duplicates.add(capability.name)
+            seen.add(capability.name)
+        for name in sorted(duplicates):
+            issues.append(
+                ValidationIssue(
+                    kind="duplicate_capability",
+                    manifest=manifest.name,
+                    message=f"capability name '{name}' is repeated within the manifest",
+                )
+            )
     return issues
 
 

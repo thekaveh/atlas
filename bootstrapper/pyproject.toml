@@ -8,6 +8,7 @@ description = "Atlas bootstrapper - cross-platform startup and management script
 requires-python = ">=3.10"
 dependencies = [
     "pyyaml>=6.0",           # YAML parsing (replaces yq)
+    "markdown-it-py>=3,<4", # CommonMark block scanner used by docs regeneration
     "rich>=14.2.0,<16",      # Terminal colors, tables, formatting; Textual 8.x depends on
                              # rich>=14.2.0, so uv resolves this floor upward regardless (#535 Pass 0).
                              # Capped to the tested major (#535 followups review, finding R9):

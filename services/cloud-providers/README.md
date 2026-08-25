@@ -81,3 +81,13 @@ _No high-confidence opportunities identified._
 ### 11.6. Future — Unused features in this service
 
 _No high-confidence opportunities identified._
+
+## 12. Capabilities & limitations
+
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Virtual cloud-provider selection | supported | tested | Atlas independently enables OpenAI, Anthropic, and OpenRouter and exposes their selected models through the always-on LiteLLM gateway without running a provider container. |
+| Key-gated model registration | supported | tested | A provider contributes LiteLLM rows only when its source is enabled and its server-side API key is non-empty; disabling it removes those routes on regeneration. |
+| Uncatalogued cloud model metadata | partial | tested | User-selected names outside the curated catalogs are routable, but Atlas synthesizes generic capability metadata and cannot infer provider-specific limits or modalities. |
+| Live cloud completion validation | not-supported | untested | Atlas statically tests selection, key isolation, and rendered routing but performs no live credential, entitlement, model-availability, or provider certification; successful requests still depend on external accounts and APIs. |
+| Direct cloud-provider service endpoint | not-supported | documented | This virtual manifest owns configuration only; applications must use LiteLLM because Atlas creates no cloud-provider container, port, or Kong route. |

@@ -3,6 +3,28 @@ label: "Jenkins (Maven Spark app builder)"
 category: apps
 docs: services/jenkins/README.md
 
+capabilities:
+  - name: "Maven Spark application builds"
+    status: partial
+    verification: tested
+    note: "Atlas builds a Jenkins controller with Maven and a pinned MinIO client, but downstream repositories, Jenkinsfiles, credentials, and all project jobs remain operator-supplied."
+  - name: "Scoped MinIO artifact publishing"
+    status: supported
+    verification: tested
+    note: "The controller receives the dedicated Iceberg jar-bucket credentials and supports publishing versioned artifacts for later Spark or Airflow consumption."
+  - name: "Jenkins UI authentication"
+    status: supported
+    verification: tested
+    note: "JCasC disables signup and creates the generated admin login; direct and Kong paths rely on that Jenkins login because the Kong route adds no separate auth layer."
+  - name: "Controller state persistence"
+    status: partial
+    verification: tested
+    note: "JENKINS_HOME persists in one named volume, but Atlas configures one controller without backup, restore, external database, or replicated control-plane state."
+  - name: "Distributed and containerized build agents"
+    status: not-supported
+    verification: tested
+    note: "Atlas ships no agents, seed jobs, Docker socket, or privileged build executor; builds run on the bounded controller unless operators add their own Jenkins infrastructure."
+
 containers:
   - jenkins
 

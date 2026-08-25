@@ -9,6 +9,20 @@ label: "MinIO (S3-compatible object storage)"
 category: data
 docs: services/minio/README.md
 
+capabilities:
+  - name: "S3-compatible artifact storage"
+    status: supported
+    verification: tested
+    note: "Atlas exposes the MinIO S3 API and console directly and through Kong for in-stack artifacts, lakehouse data, traces, models, and backups."
+  - name: "Scoped consumer bucket provisioning"
+    status: supported
+    verification: tested
+    note: "The idempotent init service creates built-in and declared extra-consumer buckets, policies, and service-account credentials with scoped access."
+  - name: "Highly available storage lifecycle controls"
+    status: not-supported
+    verification: documented
+    note: "The stock single-node deployment configures no replication, object versioning, lifecycle retention, or server-side encryption policy."
+
 # Extra Kong hostname for the S3 API (port 9000), distinct from the console
 # row's minio.localhost (port 9001). Lets external s3-compatible tools use a
 # stable friendly host instead of the BASE_PORT-derived port. The route is

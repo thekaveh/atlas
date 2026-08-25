@@ -4,6 +4,36 @@ label: "OpenClaw (AI agent gateway)"
 category: agents
 docs: services/openclaw/README.md
 
+capabilities:
+  - name: "LiteLLM-backed messaging agent gateway"
+    status: partial
+    verification: tested
+    note: "Atlas configures OpenClaw to use LiteLLM by default, but messaging channels and approvals require operator onboarding and are not exercised against live platforms."
+  - name: "Container and operator-host sources"
+    status: partial
+    verification: tested
+    note: "Atlas initializes and runs the container source, while localhost mode only resolves an existing operator-managed gateway and cannot guarantee its version, onboarding, or supervision."
+  - name: "Direct cloud-provider overrides"
+    status: partial
+    verification: tested
+    note: "Optional OpenClaw-specific Anthropic or OpenAI keys can bypass LiteLLM, which also bypasses Atlas gateway accounting and centralized provider routing."
+  - name: "OpenClaw gateway authentication"
+    status: partial
+    verification: tested
+    note: "OPENCLAW_GATEWAY_TOKEN can protect the gateway, but it defaults empty and both all-interface direct publishes plus the CORS-only Kong route otherwise add no Atlas authentication."
+  - name: "Agent configuration and workspace persistence"
+    status: partial
+    verification: tested
+    note: "Config and workspace data persist in local named volumes, with no MinIO sharing, backup workflow, replication, or tenant-isolated workspace topology."
+  - name: "Hermes and n8n message bridges"
+    status: stubbed
+    verification: tested
+    note: "Hermes endpoint variables are injected and OpenClaw webhooks are documented, but Atlas ships no live forwarding implementation between OpenClaw, Hermes, or n8n."
+  - name: "Untrusted agent command isolation"
+    status: not-supported
+    verification: documented
+    note: "OpenClaw can manage files and execute commands from messaging workflows, while Atlas configures no mandatory sandbox runner or per-channel authorization policy."
+
 containers:
   - openclaw-gateway
   - openclaw-init

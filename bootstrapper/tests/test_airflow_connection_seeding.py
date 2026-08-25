@@ -1,8 +1,17 @@
 """Verify that init-airflow.sh gates connection seeding on every sibling source."""
 from pathlib import Path
 
+import yaml
+
 REPO = Path(__file__).resolve().parent.parent.parent
 SCRIPT = REPO / "services" / "airflow" / "init" / "scripts" / "init-airflow.sh"
+COMPOSE = REPO / "services" / "airflow" / "compose.yml"
+MANIFEST = REPO / "services" / "airflow" / "service.yml"
+
+
+def _assert_contains(text, fragments):
+    missing = tuple(fragment for fragment in fragments if fragment not in text)
+    assert missing == ()
 
 
 def test_init_script_exists_and_is_executable():
@@ -47,6 +56,42 @@ def test_init_script_seeds_always_on_connections_unconditionally():
     # the conditional patterns to be sure.
     assert 'if [ "${LITELLM_SOURCE}"' not in body, "LITELLM_SOURCE gate snuck back in"
     assert 'if [ "${REDIS_SOURCE}"' not in body, "REDIS_SOURCE gate snuck back in"
+
+
+def test_airflow_contract_discloses_unsandboxed_privileged_dag_execution():
+    body = SCRIPT.read_text(encoding="utf-8")
+    scheduler = yaml.safe_load(COMPOSE.read_text())["services"]["airflow-scheduler"]
+
+    _assert_contains(body, (
+        "${MINIO_ROOT_USER}",
+        "${MINIO_ROOT_PASSWORD}",
+        "${LITELLM_MASTER_KEY}",
+        "${SUPABASE_DB_USER}",
+        "${SUPABASE_DB_PASSWORD}",
+        "${GRAPH_DB_USER}",
+        "${GRAPH_DB_PASSWORD}",
+        "${REDIS_PASSWORD}",
+    ))
+
+    manifest = yaml.safe_load(MANIFEST.read_text())
+    capability = next(
+        row
+        for row in manifest["capabilities"]
+        if row["name"] == "Untrusted DAG code isolation"
+    )
+    assert (
+        scheduler["environment"]["AIRFLOW__CORE__EXECUTOR"],
+        "./dags:/opt/airflow/dags" in scheduler["volumes"],
+        (capability["status"], capability["verification"]),
+    ) == ("LocalExecutor", True, ("not-supported", "tested"))
+    _assert_contains(capability["note"], (
+        "operator-authored DAGs execute unsandboxed",
+        "MinIO root",
+        "LiteLLM master",
+        "Supabase and Neo4j administrator",
+        "Redis password",
+        "trusted DAG authors",
+    ))
 
 
 def test_init_script_neo4j_uses_canonical_compose_dns_and_credentials():

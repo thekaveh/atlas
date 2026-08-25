@@ -11,6 +11,36 @@ label: "Supabase (db, auth, api, storage, realtime, studio, meta)"
 category: data
 docs: services/supabase/README.md
 
+capabilities:
+  - name: "Integrated Postgres application platform"
+    status: supported
+    verification: tested
+    note: "Atlas runs PostgreSQL with Auth, PostgREST, Storage, Realtime, Meta, Studio, database initialization, and optional metrics export as one required family."
+  - name: "Idempotent schema and RLS initialization"
+    status: supported
+    verification: tested
+    note: "Ordered Atlas and downstream SQL runners initialize extensions, service schemas, grants, identity synchronization, and row-level-security policies with failure gating."
+  - name: "Least-privilege application database role"
+    status: stubbed
+    verification: documented
+    note: "SUPABASE_DB_APP_USER and SUPABASE_DB_APP_PASSWORD are reserved variables, but Atlas does not create or grant that role and core consumers continue using administrative credentials."
+  - name: "Production email authentication"
+    status: partial
+    verification: documented
+    note: "GoTrue issues and validates JWTs, but the stock local-development defaults auto-confirm email and point SMTP at localhost rather than a configured delivery service."
+  - name: "pg-meta administrative access control"
+    status: partial
+    verification: documented
+    note: "The Kong /pg/ route uses Basic authentication and the dashboard_user ACL, while the direct host-published SUPABASE_META_PORT has no application authentication and executes as supabase_admin; set HOST_BIND_IP=127.0.0.1:, firewall SUPABASE_META_PORT, or remove the supabase-meta ports: publish on shared networks."
+  - name: "Supabase Studio access control"
+    status: partial
+    verification: documented
+    note: "The Kong route uses Basic authentication and the dashboard_user ACL, but the host-published SUPABASE_STUDIO_PORT bypasses that gate because Studio has no application authentication; set HOST_BIND_IP=127.0.0.1:, firewall SUPABASE_STUDIO_PORT, or remove its ports: publish."
+  - name: "Authenticated remote PostgreSQL access"
+    status: not-supported
+    verification: documented
+    note: "The host-published SUPABASE_DB_PORT uses POSTGRES_HOST_AUTH_METHOD=trust; set HOST_BIND_IP=127.0.0.1:, firewall SUPABASE_DB_PORT, or remove the supabase-db ports: publish, and configure an authenticated database policy before remote access."
+
 containers:
   - supabase-db
   - supabase-db-init

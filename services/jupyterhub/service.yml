@@ -4,6 +4,36 @@ label: "JupyterHub (DS/ML + LLM notebooks)"
 category: apps
 docs: services/jupyterhub/README.md
 
+capabilities:
+  - name: "Integrated data and AI notebooks"
+    status: supported
+    verification: tested
+    note: "Atlas ships a synchronized Python and Scala notebook inventory with clients and environment seams for LLM, RAG, lakehouse, ML, and media experimentation."
+  - name: "Spark Connect and lakehouse clients"
+    status: partial
+    verification: tested
+    note: "Bundled notebooks configure Spark Connect, MinIO, and Iceberg clients, but service-dependent cells are static contracts until an operator runs the corresponding live smoke."
+  - name: "Token-authenticated notebook access"
+    status: partial
+    verification: tested
+    note: "The direct and CORS-only jupyter.localhost paths require one Jupyter token, while wildcard browser origins remain the local default and must be narrowed for shared deployments."
+  - name: "Operator-trusted credential environment"
+    status: partial
+    verification: documented
+    note: "The server receives high-privilege database and service credentials and grants sudo inside its container, so it is an engineering workspace rather than a hostile multi-tenant sandbox."
+  - name: "Notebook workspace persistence"
+    status: supported
+    verification: tested
+    note: "User work persists in jupyterhub-data and bundled notebooks mount read-only, but cold volume removal still deletes the writable workspace."
+  - name: "Curated MCP notebook endpoint"
+    status: stubbed
+    verification: documented
+    note: "The manifest and notebook declare MCP_SERVERS_URL, but compose does not inject it into JupyterHub, so the bundled MCP notebook reports the service disabled even when enabled."
+  - name: "Multi-user JupyterHub isolation and HA"
+    status: not-supported
+    verification: documented
+    note: "Despite the service name, Atlas runs one start-notebook JupyterLab process with one token, not a Hub spawner, per-user servers, replicated state, or an HA control plane."
+
 containers:
   - jupyterhub
 

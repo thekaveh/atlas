@@ -5,7 +5,7 @@
   "description": "Schema for services/<name>/service.yml. Each file is the single source of truth for one service family — what previously lived split across docker-compose.yml, .env.example, and bootstrapper/service-configs.yml.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["name", "label", "category", "env"],
+  "required": ["name", "label", "category", "env", "capabilities"],
   "properties": {
     "virtual": {
       "type": "boolean",
@@ -54,6 +54,40 @@
           "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
           "uniqueItems": true,
           "description": "Names of services this one calls at runtime in the request path. Init-time bootstrap calls do NOT count. Names must match either a doc-folder name under services/ or a manifest name under services/."
+        }
+      }
+    },
+    "capabilities": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Required operator-facing capability and limitation contract. Declaration order is presentation order.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "status", "verification", "note"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^(?!.*[\\r\\n\\u000B\\u000C\\u0085\\u2028\\u2029])(?=.*\\S).+$",
+            "description": "Concise, single-line operator-facing capability label."
+          },
+          "status": {
+            "type": "string",
+            "enum": ["supported", "partial", "stubbed", "not-supported"],
+            "description": "Runtime support status."
+          },
+          "verification": {
+            "type": "string",
+            "enum": ["tested", "documented", "untested"],
+            "description": "How Atlas verifies the capability claim."
+          },
+          "note": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^(?!.*[\\r\\n\\u000B\\u000C\\u0085\\u2028\\u2029])(?=.*\\S).+$",
+            "description": "Single-line explanation of the useful boundary or limitation."
+          }
         }
       }
     },

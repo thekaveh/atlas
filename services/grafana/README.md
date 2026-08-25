@@ -99,3 +99,11 @@ _No high-confidence opportunities identified._
 - **Admin login rejected** — check `GRAFANA_ADMIN_PASSWORD` in `.env`. The bootstrapper only auto-generates it on FIRST run (empty value); a wrong value persists. Wipe and re-run to regenerate, or edit `.env` directly.
 - **Dashboards missing** — Grafana's provisioner watches the directory every 30s (`updateIntervalSeconds: 30`). If a dashboard JSON has a syntax error, Grafana logs it under "Provisioning errors" and skips the file.
 - **Redirect URL contains internal `grafana` hostname instead of `grafana.localhost`** — Kong's `preserve_host: True` flag must be set on the Grafana route. The route generator handles this; verify with `curl -I http://grafana.localhost`.
+
+## 7. Capabilities & limitations
+
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Provisioned observability dashboards and datasources | supported | tested | Atlas provisions Prometheus, Tempo, and Loki datasources plus the bundled stack dashboards through committed Grafana configuration. |
+| Unified alerting workflows | partial | documented | Grafana unified alerting is enabled, but Atlas ships no alert rules, contact points, or notification policies for operators. |
+| Highly available dashboard persistence | not-supported | documented | The stock deployment is a single Grafana replica backed by a local SQLite volume rather than a shared highly available database. |
