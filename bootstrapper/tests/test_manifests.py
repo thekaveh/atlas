@@ -1115,14 +1115,35 @@ def test_redpanda_access_contract_matches_compose_and_kong_boundaries():
 
 def test_backup_restore_contract_matches_non_atomic_orchestration():
     from pathlib import Path
+    import shlex
 
     repo_root = Path(__file__).resolve().parent.parent.parent
     restore_script = (
         repo_root / "services/backup/init/scripts/restore-postgres.sh"
     ).read_text(encoding="utf-8")
-    assert "pg_restore" in restore_script
-    assert "--list" not in restore_script
-    assert "--single-transaction" not in restore_script
+    restore_tokens = next(
+        tokens
+        for line in restore_script.splitlines()
+        if not line.lstrip().startswith("#")
+        for tokens in (shlex.split(line),)
+        if "pg_restore" in tokens
+    )
+
+    def uses_option(long_name: str, short_name: str) -> bool:
+        return any(
+            token == long_name
+            or token == short_name
+            or (
+                token.startswith("-")
+                and not token.startswith("--")
+                and short_name.removeprefix("-") in token.removeprefix("-")
+            )
+            for token in restore_tokens
+        )
+
+    assert "pg_restore" in restore_tokens
+    assert not uses_option("--list", "-l")
+    assert not uses_option("--single-transaction", "-1")
 
     manifest = next(
         m for m in load_manifests(repo_root / "services") if m.name == "backup"
@@ -1155,6 +1176,129 @@ def test_ray_worker_count_capability_does_not_claim_a_global_upper_bound():
 
     assert "bounded" not in capability.note
     assert "operator-selected worker count" in capability.note
+
+
+def test_prometheus_access_contract_matches_compose_and_kong_surfaces():
+    from pathlib import Path
+
+    import yaml
+
+    from core.config_parser import ConfigParser
+    from utils.kong_config_generator import KongConfigGenerator
+
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    compose = yaml.safe_load(
+        (repo_root / "services/prometheus/compose.yml").read_text(encoding="utf-8")
+    )
+    services = compose["services"]
+    assert services["prometheus"]["ports"] == [
+        "${HOST_BIND_IP:-}${PROMETHEUS_PORT}:9090"
+    ]
+    assert services["node-exporter"]["ports"] == [
+        "${HOST_BIND_IP:-}${NODE_EXPORTER_PORT}:9100"
+    ]
+    assert services["cadvisor"]["ports"] == [
+        "${HOST_BIND_IP:-}${CADVISOR_PORT}:8080"
+    ]
+    assert "--web.enable-lifecycle" in services["prometheus"]["command"]
+
+    manifests = load_manifests(repo_root / "services")
+    globals_manifest = next(m for m in manifests if m.name == "globals")
+    host_bind_ip = next(env for env in globals_manifest.env if env.name == "HOST_BIND_IP")
+    assert host_bind_ip.default == ""
+
+    generator = KongConfigGenerator(ConfigParser(str(repo_root)))
+    generator.env_vars = {"PROMETHEUS_SOURCE": "container"}
+    kong_prometheus = generator.generate_prometheus_service()
+    assert kong_prometheus is not None
+    assert kong_prometheus["routes"][0]["hosts"] == ["prometheus.localhost"]
+    assert {plugin["name"] for plugin in kong_prometheus["plugins"]} == {"cors"}
+
+    prometheus = next(m for m in manifests if m.name == "prometheus")
+    capability = next(
+        (
+            cap
+            for cap in prometheus.capabilities
+            if cap.name == "Authenticated Prometheus and exporter access"
+        ),
+        None,
+    )
+    assert capability is not None
+    assert (capability.status, capability.verification) == (
+        "not-supported",
+        "tested",
+    )
+    for boundary in (
+        "direct PROMETHEUS_PORT, NODE_EXPORTER_PORT, and CADVISOR_PORT publishes have no authentication",
+        "CORS-only Kong prometheus.localhost route has no authentication",
+        "--web.enable-lifecycle is enabled",
+        "default empty HOST_BIND_IP binds direct ports on all interfaces",
+        "HOST_BIND_IP=127.0.0.1:",
+        "firewall or remove the direct ports",
+        "authentication proxy or remove the Prometheus Kong route",
+    ):
+        assert boundary in capability.note
+
+
+def test_spark_web_access_contract_matches_compose_and_kong_surfaces():
+    from pathlib import Path
+
+    import yaml
+
+    from core.config_parser import ConfigParser
+    from utils.kong_config_generator import KongConfigGenerator
+
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    compose = yaml.safe_load(
+        (repo_root / "services/spark/compose.yml").read_text(encoding="utf-8")
+    )
+    services = compose["services"]
+    assert services["spark-master"]["ports"] == [
+        "${HOST_BIND_IP:-}${SPARK_MASTER_UI_PORT}:8080"
+    ]
+    assert services["spark-history"]["ports"] == [
+        "${HOST_BIND_IP:-}${SPARK_HISTORY_PORT}:18080"
+    ]
+
+    manifests = load_manifests(repo_root / "services")
+    globals_manifest = next(m for m in manifests if m.name == "globals")
+    host_bind_ip = next(env for env in globals_manifest.env if env.name == "HOST_BIND_IP")
+    assert host_bind_ip.default == ""
+
+    generator = KongConfigGenerator(ConfigParser(str(repo_root)))
+    generator.env_vars = {"SPARK_SOURCE": "container"}
+    kong_master = generator.generate_spark_master_service()
+    kong_history = generator.generate_spark_history_service()
+    assert kong_master is not None
+    assert kong_history is not None
+    assert kong_master["routes"][0]["hosts"] == ["spark.localhost"]
+    assert kong_history["routes"][0]["hosts"] == ["spark-history.localhost"]
+    assert {plugin["name"] for plugin in kong_master["plugins"]} == {"cors"}
+    assert {plugin["name"] for plugin in kong_history["plugins"]} == {"cors"}
+
+    spark = next(m for m in manifests if m.name == "spark")
+    capability = next(
+        (
+            cap
+            for cap in spark.capabilities
+            if cap.name == "Authenticated Spark web access"
+        ),
+        None,
+    )
+    assert capability is not None
+    assert (capability.status, capability.verification) == (
+        "not-supported",
+        "tested",
+    )
+    for boundary in (
+        "direct SPARK_MASTER_UI_PORT and SPARK_HISTORY_PORT publishes are unauthenticated",
+        "CORS-only Kong Spark routes are unauthenticated",
+        "default empty HOST_BIND_IP binds direct ports on all interfaces",
+        "HOST_BIND_IP=127.0.0.1:",
+        "firewall or remove the direct ports",
+        "authentication proxy or remove both Spark Kong routes",
+    ):
+        assert boundary in capability.note
 
 
 def test_lightrag_manifest_header_does_not_claim_automatic_file_fallbacks():

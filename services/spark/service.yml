@@ -22,6 +22,10 @@ capabilities:
     status: not-supported
     verification: documented
     note: "The stock standalone topology has one master, no recovery directory, and no YARN or Kubernetes scheduler integration."
+  - name: "Authenticated Spark web access"
+    status: not-supported
+    verification: tested
+    note: "The direct SPARK_MASTER_UI_PORT and SPARK_HISTORY_PORT publishes are unauthenticated, the CORS-only Kong Spark routes are unauthenticated, and the default empty HOST_BIND_IP binds direct ports on all interfaces; set HOST_BIND_IP=127.0.0.1:, firewall or remove the direct ports, and use an authentication proxy or remove both Spark Kong routes before exposure beyond a trusted host."
 
 containers:
   - spark-master
