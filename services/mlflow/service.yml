@@ -4,6 +4,28 @@ label: "MLflow (experiment tracking + artifacts)"
 category: apps
 docs: services/mlflow/README.md
 
+capabilities:
+  - name: "Experiment and run tracking"
+    status: supported
+    verification: tested
+    note: "Atlas runs an MLflow tracking server with a dedicated Postgres database and injects its tracking URI plus client into JupyterHub."
+  - name: "Scoped MinIO artifact storage"
+    status: supported
+    verification: tested
+    note: "MLflow proxies artifacts to a dedicated MinIO bucket with generated service credentials and refuses Atlas enablement when MinIO is unavailable."
+  - name: "MLflow ingress authentication"
+    status: partial
+    verification: tested
+    note: "mlflow.localhost is protected by Kong dashboard Basic Auth and ACL, but the host-published direct UI/API has no MLflow application authentication."
+  - name: "Model registry deployment automation"
+    status: not-supported
+    verification: documented
+    note: "The first Atlas slice stores tracking and registry metadata only; it ships no model serving, promotion, deployment plugin, or Backend/n8n automation."
+  - name: "Tracking service high availability"
+    status: not-supported
+    verification: documented
+    note: "Postgres and MinIO persist state, but Atlas runs one MLflow server without replicas, failover routing, or a tested backup-and-restore workflow for the combined stores."
+
 containers:
   - mlflow-init
   - mlflow

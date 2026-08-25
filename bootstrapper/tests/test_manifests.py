@@ -63,6 +63,28 @@ _TASK4_REVIEWED_LLM_MEDIA_MANIFESTS = frozenset(
     }
 )
 
+_TASK5_REVIEWED_AGENTS_APPS_MANIFESTS = frozenset(
+    {
+        "airflow",
+        "backend",
+        "celery",
+        "hermes",
+        "jenkins",
+        "jupyterhub",
+        "label-studio",
+        "lightrag",
+        "llm-graph-builder",
+        "local-deep-researcher",
+        "mcp-servers",
+        "mlflow",
+        "n8n",
+        "open-webui",
+        "openclaw",
+        "verba",
+        "zeppelin",
+    }
+)
+
 
 # ────────────────────────────────────────────────────────────────────────────
 # Happy paths
@@ -902,6 +924,76 @@ def test_llm_and_media_manifests_meet_structural_capability_quality_floor():
     )
     assert below_quality_floor == {}, (
         "LLM/media manifests have entries below the structural capability "
+        f"quality floor: {below_quality_floor}"
+    )
+
+
+def test_all_manifests_have_capabilities_and_agents_apps_meet_quality_floor():
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    manifests = load_manifests(repo_root / "services")
+    discovered_names = {manifest.name for manifest in manifests}
+    agents_apps = [
+        manifest
+        for manifest in manifests
+        if manifest.category in {"agents", "apps"}
+    ]
+    discovered_agents_apps = {manifest.name for manifest in agents_apps}
+
+    # The reviewed Task 5 inventory is an independent lower-bound anchor. New
+    # agents/apps manifests remain dynamically included above, while moving a
+    # reviewed service out of either category fails loudly.
+    assert len(_TASK5_REVIEWED_AGENTS_APPS_MANIFESTS) == 17
+    assert _TASK5_REVIEWED_AGENTS_APPS_MANIFESTS <= discovered_agents_apps, (
+        "reviewed agents/apps manifests disappeared from typed category discovery: "
+        f"{sorted(_TASK5_REVIEWED_AGENTS_APPS_MANIFESTS - discovered_agents_apps)}"
+    )
+
+    # Tasks 3-5 together cover the complete reviewed repository inventory.
+    # Typed discovery still includes future manifests in the completeness gate.
+    reviewed_manifests = (
+        _TASK3_REVIEWED_INFRA_DATA_MANIFESTS
+        | _TASK4_REVIEWED_LLM_MEDIA_MANIFESTS
+        | _TASK5_REVIEWED_AGENTS_APPS_MANIFESTS
+    )
+    assert len(reviewed_manifests) == 57
+    assert reviewed_manifests <= discovered_names, (
+        "reviewed manifests disappeared from repository discovery: "
+        f"{sorted(reviewed_manifests - discovered_names)}"
+    )
+
+    missing = sorted(
+        manifest.name for manifest in manifests if not manifest.capabilities
+    )
+    assert missing == [], f"repository manifests missing capabilities: {missing}"
+
+    duplicate_names: dict[str, list[str]] = {}
+    below_quality_floor: dict[str, list[str]] = {}
+    for manifest in agents_apps:
+        names = [capability.name for capability in manifest.capabilities]
+        duplicates = sorted({name for name in names if names.count(name) > 1})
+        if duplicates:
+            duplicate_names[manifest.name] = duplicates
+
+        # This is deliberately a structural regression floor, not a claim that
+        # word counts prove semantic quality. Every row still requires manual
+        # claim-to-evidence review against its implementation and limitations.
+        structurally_weak = [
+            capability.name
+            for capability in manifest.capabilities
+            if len(capability.name.split()) < 2
+            or len(capability.note.split()) < 5
+            or capability.note.casefold() == capability.name.casefold()
+        ]
+        if structurally_weak:
+            below_quality_floor[manifest.name] = structurally_weak
+
+    assert duplicate_names == {}, (
+        f"agents/apps manifests have duplicate capability names: {duplicate_names}"
+    )
+    assert below_quality_floor == {}, (
+        "agents/apps manifests have entries below the structural capability "
         f"quality floor: {below_quality_floor}"
     )
 

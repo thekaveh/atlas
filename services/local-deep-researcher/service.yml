@@ -4,6 +4,36 @@ label: "Local Deep Researcher (LangGraph research agent)"
 category: apps
 docs: services/local-deep-researcher/README.md
 
+capabilities:
+  - name: "Multi-step local research loop"
+    status: supported
+    verification: tested
+    note: "Atlas pins the upstream LangGraph source and serving dependencies, then routes search through SearXNG and generation through LiteLLM without requiring a direct cloud key."
+  - name: "Backend-managed research sessions"
+    status: partial
+    verification: tested
+    note: "The authenticated Backend adds bounded concurrency, cancellation, logs, and Postgres session records around LDR, while direct LangGraph callers bypass that lifecycle."
+  - name: "Research endpoint authentication"
+    status: not-supported
+    verification: tested
+    note: "The host-published LangGraph API and CORS-only research.localhost route have no Atlas authentication; use the authenticated Backend research API or restrict direct ingress."
+  - name: "Research thread persistence"
+    status: partial
+    verification: tested
+    note: "Backend session metadata persists in Postgres, but LDR's in-memory checkpointer loses direct thread state on restart and can grow without a durable shared bound."
+  - name: "Full-page Crawl4AI extraction"
+    status: partial
+    verification: tested
+    note: "The opt-in crawl4ai mode is patched and source-gated, while disabled or builtin modes provide different extraction depth and no live web compatibility guarantee."
+  - name: "Declared optional service integrations"
+    status: stubbed
+    verification: documented
+    note: "Neo4j, n8n, Weaviate, speech, and document services appear as runtime hints, but the LDR research code consumes only LiteLLM, SearXNG, and optional Crawl4AI today."
+  - name: "Parallel research worker control"
+    status: stubbed
+    verification: documented
+    note: "LOCAL_DEEP_RESEARCHER_WORKERS is reserved because the entrypoint does not pass it to langgraph dev; one server process owns the in-memory research state."
+
 containers:
   - local-deep-researcher
 

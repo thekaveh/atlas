@@ -4,6 +4,28 @@ label: "Curated MCP Servers"
 category: agents
 docs: services/mcp-servers/README.md
 
+capabilities:
+  - name: "Curated Streamable HTTP tools"
+    status: supported
+    verification: tested
+    note: "Atlas serves FastMCP tools for bounded Postgres reads, Neo4j schema/read Cypher, and SearXNG search through one stateless /mcp endpoint."
+  - name: "Read-only database guardrails"
+    status: partial
+    verification: tested
+    note: "Atlas rejects common mutation forms, uses a read-only Postgres transaction and Neo4j read routing, and bounds rows and time, but tool output remains untrusted prompt-injection input."
+  - name: "MCP ingress authentication"
+    status: partial
+    verification: tested
+    note: "The direct endpoint is loopback-bound without application auth, while mcp.localhost adds Kong Basic Auth and ACL; Host/Origin checks defend rebinding but are not authentication."
+  - name: "Write and administration tools"
+    status: not-supported
+    verification: tested
+    note: "The curated package deliberately exposes no Postgres mutation, Neo4j write, credential-management, filesystem, or shell-execution tool."
+  - name: "Per-consumer MCP authorization"
+    status: not-supported
+    verification: documented
+    note: "All authenticated Kong users reach the same tool set and backend credentials; Atlas configures no OAuth scopes, tenant namespaces, or tool-level consumer policy."
+
 containers:
   - mcp-servers
 
