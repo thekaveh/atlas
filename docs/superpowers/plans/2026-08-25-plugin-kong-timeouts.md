@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.10+, Pydantic v2, JSON Schema 2020-12, PyYAML, Kong DB-less declarative YAML, pytest.
 
-## Global Constraints
+## 1. Global Constraints
 
 - Timeout values are strict integers in milliseconds from 1 through 2,147,483,646 inclusive.
 - Omitted timeout fields must remain omitted from generated Kong services.
@@ -18,7 +18,7 @@
 
 ---
 
-### Task 1: Extend and synchronize the plugin manifest contract
+### 1.1. Task 1: Extend and synchronize the plugin manifest contract
 
 **Files:**
 - Modify: `bootstrapper/schemas/plugin.schema.json`
@@ -67,7 +67,7 @@ git add bootstrapper/schemas/plugin.schema.json bootstrapper/core/plugin_manifes
 git commit -m "feat: validate plugin Kong timeouts"
 ```
 
-### Task 2: Generate dedicated Kong services for timed plugins
+### 1.2. Task 2: Generate dedicated Kong services for timed plugins
 
 **Files:**
 - Modify: `bootstrapper/utils/kong_config_generator.py`
@@ -106,7 +106,7 @@ git add bootstrapper/utils/kong_config_generator.py bootstrapper/tests/test_kong
 git commit -m "feat: generate plugin-specific Kong timeout services"
 ```
 
-### Task 3: Wire startup policy and expose inventory
+### 1.3. Task 3: Wire startup policy and expose inventory
 
 **Files:**
 - Modify: `bootstrapper/start.py`
@@ -149,7 +149,7 @@ git add bootstrapper/start.py bootstrapper/tests/test_consumer_doctor.py service
 git commit -m "feat: wire plugin timeout policy into Kong"
 ```
 
-### Task 4: Document and verify the complete contract
+### 1.4. Task 4: Document and verify the complete contract
 
 **Files:**
 - Modify: `docs/deployment/reusing-atlas.md`
@@ -194,7 +194,7 @@ git add docs/deployment/reusing-atlas.md docs/CHANGELOG.md
 git commit -m "docs: explain plugin Kong timeout overrides"
 ```
 
-### Task 5: Integrate through protected Gitflow branches
+### 1.5. Task 5: Integrate through protected Gitflow branches
 
 **Files:**
 - No source-file changes expected.

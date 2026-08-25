@@ -75,7 +75,8 @@ runs. See [reusing-atlas.md §6.5](https://github.com/thekaveh/atlas/blob/main/d
 A backend plugin package mounted under `BACKEND_PLUGINS_DIR` may ship an optional
 `plugin.yml` (`plugin_manifest_version: 1`) declaring a typed, validated
 contract: `name`, `route_prefix`, `health_path`/`docs_url`, `auth:
-inherit|open|key-auth`, and typed/`default`/`required`/`secret` `env`. Absent
+inherit|open|key-auth`, optional per-plugin Kong upstream timeouts, and
+typed/`default`/`required`/`secret` `env`. Absent
 manifests inherit the Backend application identity boundary. A present-but-malformed
 manifest skips only that plugin with a structured error and leaves others
 healthy; duplicate names, overlapping prefixes, and prefixes shadowing a built-in
@@ -85,7 +86,10 @@ masked as `***`). Internal-service-authenticated `GET /plugins` returns the
 resulting inventory. Per-plugin `auth` composes into Kong and application
 policies: `inherit` requires Backend identity, `key-auth` validates
 `BACKEND_KONG_API_KEY` at both layers, and only explicit `open` routes are
-public. See
+public. Timeout-bearing plugins receive dedicated Kong services so their
+strict millisecond `connect_timeout`, `write_timeout`, and `read_timeout`
+overrides do not affect other backend routes; omitted fields retain Kong's
+defaults. See
 [reusing-atlas.md §6.3.1](https://github.com/thekaveh/atlas/blob/main/docs/deployment/reusing-atlas.md#631-declaring-a-typed-plugin-contract-with-pluginyml).
 
 ## 7. Health And Logs
