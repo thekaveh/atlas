@@ -69,6 +69,7 @@ _ENV_TYPES = ("string", "int", "bool", "enum")
 _AUTH_MODES = ("inherit", "open", "key-auth")
 _BOOL_TRUE = {"1", "true", "yes", "on"}
 _BOOL_FALSE = {"0", "false", "no", "off"}
+_KONG_TIMEOUT_MAX_MS = 2_147_483_646
 
 
 class PluginManifestError(RuntimeError):
@@ -137,6 +138,9 @@ class PluginManifest(BaseModel):
     health_path: Optional[str] = None
     docs_url: Optional[str] = None
     auth: str = "inherit"
+    connect_timeout: Optional[int] = Field(default=None, ge=1, le=_KONG_TIMEOUT_MAX_MS)
+    write_timeout: Optional[int] = Field(default=None, ge=1, le=_KONG_TIMEOUT_MAX_MS)
+    read_timeout: Optional[int] = Field(default=None, ge=1, le=_KONG_TIMEOUT_MAX_MS)
     env: list[PluginEnvVar] = Field(default_factory=list)
     depends_on: list[str] = Field(default_factory=list)
 

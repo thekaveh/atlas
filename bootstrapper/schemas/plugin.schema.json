@@ -36,6 +36,24 @@
       "default": "inherit",
       "description": "Per-plugin Kong auth policy for route_prefix. inherit = use the backend default (BACKEND_KONG_AUTH); open = no auth on this prefix even when the backend default is key-auth; key-auth = require an API key on this prefix even when the backend default is open/disabled."
     },
+    "connect_timeout": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 2147483646,
+      "description": "Optional Kong upstream connection timeout in milliseconds. Omitted means Kong's service default applies."
+    },
+    "write_timeout": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 2147483646,
+      "description": "Optional Kong upstream write-idle timeout in milliseconds. Omitted means Kong's service default applies."
+    },
+    "read_timeout": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 2147483646,
+      "description": "Optional Kong upstream read-idle timeout in milliseconds. Omitted means Kong's service default applies."
+    },
     "env": {
       "type": "array",
       "description": "Declared environment contract. Validated at startup and by the consumer doctor: required-but-missing → warning naming plugin + var; enum/type mismatches flagged. Secret values are masked in all state/doctor/docs/log output.",

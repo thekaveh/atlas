@@ -97,6 +97,9 @@ class PluginManifest:
     auth: str = "inherit"
     health_path: str | None = None
     docs_url: str | None = None
+    connect_timeout: int | None = None
+    write_timeout: int | None = None
+    read_timeout: int | None = None
     env: tuple[dict, ...] = ()
     depends_on: tuple[str, ...] = ()
     source_dir: Path | None = None
@@ -137,6 +140,9 @@ def load_plugin_manifest(plugin_dir: Path) -> PluginManifest | None:
         auth=raw.get("auth", "inherit"),
         health_path=raw.get("health_path"),
         docs_url=raw.get("docs_url"),
+        connect_timeout=raw.get("connect_timeout"),
+        write_timeout=raw.get("write_timeout"),
+        read_timeout=raw.get("read_timeout"),
         env=tuple(raw.get("env", ())),
         depends_on=tuple(raw.get("depends_on", ())),
         source_dir=plugin_dir,
@@ -210,6 +216,26 @@ def derive_route_auth(manifests: list[PluginManifest]) -> list[tuple[str, str]]:
     Order follows discovery so the emitted route order is deterministic.
     """
     return [(m.route_prefix, m.auth) for m in manifests if m.auth in ("open", "key-auth")]
+
+
+def derive_route_timeouts(
+    manifests: list[PluginManifest],
+) -> list[tuple[str, str, dict[str, int]]]:
+    """Per-plugin Kong service timeouts for manifests that declare any.
+
+    Values have already passed the canonical JSON Schema. Omitted fields stay
+    omitted so Kong retains its own per-field defaults.
+    """
+    policies: list[tuple[str, str, dict[str, int]]] = []
+    for manifest in manifests:
+        timeouts = {
+            field_name: value
+            for field_name in ("connect_timeout", "write_timeout", "read_timeout")
+            if (value := getattr(manifest, field_name)) is not None
+        }
+        if timeouts:
+            policies.append((manifest.name, manifest.route_prefix, timeouts))
+    return policies
 
 
 def validate_plugin_env(manifest: PluginManifest, env: dict[str, str]) -> list[str]:

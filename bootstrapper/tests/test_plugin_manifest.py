@@ -9,6 +9,7 @@ import pytest
 from core.plugin_manifest import (
     PluginManifestError,
     derive_route_auth,
+    derive_route_timeouts,
     discover_plugin_manifests,
     load_plugin_manifest,
     prefixes_overlap,
@@ -67,6 +68,53 @@ def test_valid_manifest_loads(tmp_path):
     assert m.route_prefix == "/tableau"
     assert m.auth == "key-auth"
     assert m.prefix_head == "tableau"
+
+
+def test_timeout_fields_load_and_derive_explicit_values_only(tmp_path):
+    timed = textwrap.dedent(
+        """
+        plugin_manifest_version: 1
+        name: timed
+        route_prefix: /timed
+        connect_timeout: 1
+        read_timeout: 2147483646
+        """
+    )
+    _pkg(tmp_path, "timed", timed)
+    _pkg(tmp_path, "rag", RAG_YML)
+
+    result = discover_plugin_manifests([tmp_path])
+    manifest = next(item for item in result.manifests if item.name == "timed")
+
+    assert manifest.connect_timeout == 1
+    assert manifest.write_timeout is None
+    assert manifest.read_timeout == 2147483646
+    assert derive_route_timeouts(result.manifests) == [
+        (
+            "timed",
+            "/timed",
+            {"connect_timeout": 1, "read_timeout": 2147483646},
+        )
+    ]
+
+
+@pytest.mark.parametrize("field", ["connect_timeout", "write_timeout", "read_timeout"])
+@pytest.mark.parametrize(
+    "value",
+    ["0", "-1", "2147483647", "true", "1.5", '"60000"'],
+)
+def test_timeout_fields_reject_values_outside_kong_integer_contract(
+    tmp_path, field, value
+):
+    body = (
+        "plugin_manifest_version: 1\n"
+        "name: timed\n"
+        "route_prefix: /timed\n"
+        f"{field}: {value}\n"
+    )
+
+    with pytest.raises(PluginManifestError):
+        load_plugin_manifest(_pkg(tmp_path, "timed", body))
 
 
 def test_malformed_manifest_raises(tmp_path):
