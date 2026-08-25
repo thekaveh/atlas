@@ -201,6 +201,29 @@ def test_missing_token_is_rejected_when_identity_auth_is_required(monkeypatch) -
     assert exc.value.status_code == 401
 
 
+@pytest.mark.parametrize(
+    ("connection", "expected"),
+    [
+        (_http_connection(headers=[(b"apikey", b"gateway-secret")]), "gateway-secret"),
+        (_websocket_connection(query_string=b"apikey=gateway-secret"), "gateway-secret"),
+        (_http_connection(headers=[(b"apikey", b"")]), None),
+        (_websocket_connection(query_string=b"apikey="), None),
+    ],
+)
+def test_plugin_api_key_extraction_is_independent_of_fastapi_helper(
+    monkeypatch, connection, expected
+) -> None:
+    from fastapi.security import APIKeyHeader
+    from backend_identity import _PLUGIN_API_KEY
+
+    def incompatible_helper(*args, **kwargs):
+        raise AssertionError("version-dependent FastAPI helper was called")
+
+    monkeypatch.setattr(APIKeyHeader, "check_api_key", incompatible_helper)
+
+    assert asyncio.run(_PLUGIN_API_KEY(connection)) == expected
+
+
 @pytest.mark.parametrize("make_connection", [_http_connection, _websocket_connection])
 def test_plugin_gateway_key_accepts_valid_header_or_query_key(
     monkeypatch, make_connection

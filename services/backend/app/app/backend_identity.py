@@ -28,7 +28,9 @@ class _PluginAPIKeyHeader(APIKeyHeader):
         api_key = connection.headers.get(self.model.name)
         if api_key is None:
             api_key = connection.query_params.get(self.model.name)
-        return self.check_api_key(api_key)
+        # check_api_key's signature changed across Atlas's FastAPI range;
+        # this optional extractor leaves validation to require_plugin_gateway_key.
+        return api_key or None
 
 
 _PLUGIN_API_KEY = _PluginAPIKeyHeader(
