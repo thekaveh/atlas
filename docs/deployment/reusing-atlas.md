@@ -891,6 +891,21 @@ env:
 - **Fail-fast, isolated.** A present-but-malformed `plugin.yml` does **not** degrade to manifest-less loading — that one plugin is **skipped** with a structured error and the others stay healthy. Duplicate plugin names, overlapping prefixes, and prefixes that shadow one of the backend's reserved built-in route names are rejected before mounting; the reserved-name list is defined in the schema linked below.
 - **Per-plugin gateway and application auth.** `auth: key-auth` puts Kong key-auth on that plugin's `route_prefix` and validates the same `BACKEND_KONG_API_KEY` inside FastAPI, preventing direct-port bypass. `auth: open` is an explicit public opt-out. `auth: inherit`, and plugins without a manifest, use the Backend application identity boundary. Atlas composes the matching Kong policy per prefix; distinct per-prefix credentials remain a future extension.
 
+For `key-auth` HTTP requests, send the credential in the `apikey` header. The
+header is preferred and takes precedence if a query parameter is also present:
+
+```bash
+curl -H "apikey: ${BACKEND_KONG_API_KEY}" \
+  http://api.localhost/plugin-prefix/health
+```
+
+Browser WebSocket APIs cannot set arbitrary request headers, so those clients
+may use the `apikey` query parameter for the WebSocket handshake (URL-encode the
+value before interpolation). Atlas redacts that parameter's value from Uvicorn
+HTTP and WebSocket request logs, and Kong's proxy access log omits query strings
+entirely. Consumers should still avoid recording full WebSocket URLs in their
+own client logs or telemetry.
+
 The `plugin_manifest_version` is a hard-pinned contract version — a manifest built for a version this backend does not understand is skipped rather than mis-read. The canonical schema is [`bootstrapper/schemas/plugin.schema.json`](https://github.com/thekaveh/atlas/blob/main/bootstrapper/schemas/plugin.schema.json).
 
 #### 6.3.2. Exposing plugin models to LiteLLM with `litellm_models`
