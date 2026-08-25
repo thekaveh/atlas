@@ -578,6 +578,7 @@ def test_category_enum_rejects_old_values(tmp_path, cat):
     (services_root / "demo").mkdir(parents=True)
     (services_root / "demo" / "service.yml").write_text(
         f"name: demo\nlabel: Demo\ncategory: {cat}\nenv: []\n"
+        + _SYNTHETIC_CAPABILITY_YAML
     )
     from services.manifests import load_manifests
     with pytest.raises(ManifestLoadError, match="category"):
@@ -703,12 +704,14 @@ def test_data_flow_calls_rejects_unknown_subkey(tmp_path):
         "label: Bad\n"
         "category: data\n"
         "env: []\n"
-        "data_flow:\n"
+        + _SYNTHETIC_CAPABILITY_YAML
+        + "data_flow:\n"
         "  bogus: [a, b]\n"
     )
 
-    with pytest.raises(ManifestLoadError):
+    with pytest.raises(ManifestLoadError, match="bogus") as exc:
         load_manifests(services_dir)
+    assert "capabilities" not in str(exc.value)
 
 
 def test_row_carries_localhost_port_var_through_topology(tmp_path):
