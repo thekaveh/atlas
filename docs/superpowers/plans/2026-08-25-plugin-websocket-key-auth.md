@@ -17,33 +17,37 @@
 
 ---
 
-### Task 1: Prove and fix connection-neutral key extraction
+### Task 1: Prove and fix connection-neutral plugin key authentication
 
 **Files:**
 - Modify: `services/backend/app/app/tests/test_backend_identity.py`
+- Modify: `services/backend/app/app/tests/test_plugin_seam.py`
 - Modify: `services/backend/app/app/backend_identity.py`
 
 **Interfaces:**
 - Consumes: `HTTPConnection.headers`, `HTTPConnection.query_params`, `BACKEND_KONG_API_KEY`
-- Produces: `async require_plugin_gateway_key(connection: HTTPConnection) -> str`
+- Produces: `async require_plugin_gateway_key(connection: HTTPConnection) -> str` and end-to-end WebSocket regression coverage
 
 - [ ] **Step 1: Add failing direct dependency tests**
 
 Create request and WebSocket scopes and assert valid header/query keys return
 `"gateway-key"`; assert a present header takes precedence over the query;
 assert missing, incorrect, and non-ASCII keys raise 401; assert an unset server
-key raises 503.
+key raises 503. Generate a temporary key-auth plugin with one HTTP route and
+one WebSocket route; assert both route objects mount the dependency, a client
+can connect with `?apikey=gateway-secret`, and missing/incorrect credentials
+are rejected before the handler accepts the connection.
 
 - [ ] **Step 2: Run the direct tests and verify RED**
 
 Run:
 
 ```bash
-uv run --python 3.12 --with-requirements services/backend/app/app/requirements.txt --with-requirements services/backend/app/app/requirements-dev.txt pytest services/backend/app/app/tests/test_backend_identity.py -q
+uv run --python 3.12 --with-requirements services/backend/app/app/requirements.txt --with-requirements services/backend/app/app/requirements-dev.txt pytest services/backend/app/app/tests/test_backend_identity.py services/backend/app/app/tests/test_plugin_seam.py -q
 ```
 
-Expected: the new calls fail because `APIKeyHeader` cannot consume a WebSocket
-connection and the dependency does not inspect query parameters.
+Expected: the new direct calls and WebSocket handshake fail because the
+dependency does not accept a connection or inspect query parameters.
 
 - [ ] **Step 3: Implement minimal connection-neutral extraction**
 
@@ -54,40 +58,10 @@ return value.
 
 - [ ] **Step 4: Run the direct tests and verify GREEN**
 
-Run the command from Step 2. Expected: all backend identity tests pass.
+Run the command from Step 2. Expected: all backend identity and plugin seam
+tests pass.
 
-### Task 2: Protect real plugin WebSocket routes end to end
-
-**Files:**
-- Modify: `services/backend/app/app/tests/test_plugin_seam.py`
-
-**Interfaces:**
-- Consumes: `plugin_seam.load_plugins(app)` and plugin `auth: key-auth`
-- Produces: regression coverage for `APIWebSocketRoute` dependencies and a real WebSocket handshake
-
-- [ ] **Step 1: Add a failing key-auth WebSocket plugin test**
-
-Generate a temporary plugin with one HTTP route and one WebSocket route. Assert
-both route objects include `require_plugin_gateway_key`. Connect with
-`?apikey=gateway-secret` and receive a message. Assert missing and incorrect
-credentials are rejected before the handler accepts the connection.
-
-- [ ] **Step 2: Run the seam test and verify RED against the original code**
-
-Run:
-
-```bash
-uv run --python 3.12 --with-requirements services/backend/app/app/requirements.txt --with-requirements services/backend/app/app/requirements-dev.txt pytest services/backend/app/app/tests/test_plugin_seam.py -q
-```
-
-Expected on the original implementation: the valid WebSocket handshake fails
-because `APIKeyHeader` requests an HTTP `Request` object.
-
-- [ ] **Step 3: Verify GREEN with the Task 1 implementation**
-
-Run the command from Step 2. Expected: every plugin seam test passes.
-
-### Task 3: Verify and commit #973
+### Task 2: Verify and commit #973
 
 **Files:**
 - Verify all files changed by Tasks 1-2 and this plan/design pair.
