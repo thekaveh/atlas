@@ -61,7 +61,7 @@ services:
       # query credentials (or any other query parameters) to proxy access logs.
       KONG_NGINX_HTTP_LOG_FORMAT: >-
         atlas '$$request_method $$uri $$server_protocol' $$status
-        $$body_bytes_sent '"$$http_user_agent"' $$request_id
+        $$body_bytes_sent '"$$http_user_agent"' $$kong_request_id
       KONG_PROXY_ACCESS_LOG: /dev/stdout atlas
       # SSE-compatible settings
       KONG_NGINX_PROXY_PROXY_BUFFERING: "off"

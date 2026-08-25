@@ -19,16 +19,19 @@ def uvicorn_loggers():
 
 
 @pytest.mark.parametrize(
-    ("logger_name", "message", "args", "expected"),
+    ("logger_name", "message", "args", "expected", "secrets"),
     [
         (
             "uvicorn.error",
             '%s - "WebSocket %s" [accepted]',
             (
                 ("127.0.0.1", 54321),
-                "/key-socket/ws?apikey=credential-secret&trace=accepted",
+                "/key-socket/ws?%61pikey=first'secret&apikey=second-secret"
+                "&next=/other?apikey=harmless&trace=accepted",
             ),
-            'WebSocket /key-socket/ws?apikey=***&trace=accepted" [accepted]',
+            "WebSocket /key-socket/ws?%61pikey=***&apikey=***"
+            '&next=/other?apikey=harmless&trace=accepted" [accepted]',
+            ("first'secret", "second-secret"),
         ),
         (
             "uvicorn.error",
@@ -39,6 +42,7 @@ def uvicorn_loggers():
                 401,
             ),
             'WebSocket /key-socket/ws?trace=denied&apikey=***" 401',
+            ("credential-secret",),
         ),
         (
             "uvicorn.access",
@@ -46,16 +50,19 @@ def uvicorn_loggers():
             (
                 "127.0.0.1:54323",
                 "GET",
-                "/key-socket/http?apikey=credential-secret&trace=http",
+                "/key-socket/http?%61pikey=http'secret&apikey=http-second"
+                "&next=/other?apikey=harmless&trace=http",
                 "1.1",
                 200,
             ),
-            'GET /key-socket/http?apikey=***&trace=http HTTP/1.1" 200',
+            "GET /key-socket/http?%61pikey=***&apikey=***"
+            '&next=/other?apikey=harmless&trace=http HTTP/1.1" 200',
+            ("http'secret", "http-second"),
         ),
     ],
 )
 def test_uvicorn_request_logs_redact_only_apikey_query_values(
-    uvicorn_loggers, logger_name, message, args, expected
+    uvicorn_loggers, logger_name, message, args, expected, secrets
 ) -> None:
     configure_uvicorn_access_log_redaction()
     record = logging.LogRecord(
@@ -70,10 +77,14 @@ def test_uvicorn_request_logs_redact_only_apikey_query_values(
 
     for log_filter in uvicorn_loggers[logger_name].filters:
         assert log_filter.filter(record)
-    rendered = record.getMessage()
+    rendered_once = record.getMessage()
+    for log_filter in uvicorn_loggers[logger_name].filters:
+        assert log_filter.filter(record)
+    rendered_twice = record.getMessage()
 
-    assert "credential-secret" not in rendered
-    assert expected in rendered
+    assert rendered_twice == rendered_once
+    assert all(secret not in rendered_once for secret in secrets)
+    assert expected in rendered_once
 
 
 def test_uvicorn_redaction_filter_installation_is_idempotent(uvicorn_loggers) -> None:
