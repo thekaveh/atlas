@@ -10,11 +10,11 @@ from uuid import UUID
 
 import jwt
 from fastapi import Depends, HTTPException, status
-from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBearer
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from starlette.requests import HTTPConnection
 
 
 _BEARER = HTTPBearer(auto_error=False)
-_PLUGIN_API_KEY = APIKeyHeader(name="apikey", auto_error=False)
 
 
 @dataclass(frozen=True)
@@ -227,7 +227,7 @@ async def require_service_principal(
 
 
 async def require_plugin_gateway_key(
-    api_key: str | None = Depends(_PLUGIN_API_KEY),
+    connection: HTTPConnection,
 ) -> str:
     """Enforce a plugin's key-auth policy at the application boundary."""
     expected = (os.getenv("BACKEND_KONG_API_KEY") or "").strip()
@@ -236,6 +236,9 @@ async def require_plugin_gateway_key(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="BACKEND_KONG_API_KEY is required by this plugin route",
         )
+    api_key = connection.headers.get("apikey")
+    if api_key is None:
+        api_key = connection.query_params.get("apikey")
     if api_key is None or not _ct_equals(api_key, expected):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
