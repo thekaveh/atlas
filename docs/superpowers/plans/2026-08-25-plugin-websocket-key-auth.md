@@ -4,7 +4,7 @@
 
 **Goal:** Make plugin `key-auth` work for HTTP and WebSocket routes, including browser-compatible query-string credentials.
 
-**Architecture:** Replace the HTTP-only `APIKeyHeader` dependency with credential extraction from Starlette's shared `HTTPConnection` interface. Preserve the existing validation and route-level dependency contract so every plugin route type is protected uniformly.
+**Architecture:** Extend `APIKeyHeader` with credential extraction from Starlette's shared `HTTPConnection` interface, preserving OpenAPI metadata while protecting every plugin route type uniformly. Redact query credentials from Uvicorn logs and make Kong's proxy access format query-free so the browser-compatible WebSocket transport does not leak the shared key.
 
 **Tech Stack:** Python 3.12, FastAPI, Starlette, pytest, FastAPI `TestClient`
 
@@ -13,6 +13,8 @@
 - Preserve existing HTTP header authentication and error semantics.
 - Accept `apikey` from the query string only when the header is absent.
 - Keep constant-time credential comparison.
+- Preserve the existing HTTP OpenAPI API-key security scheme.
+- Never emit an `apikey` query value in backend or Kong proxy access logs.
 - Do not require a live Atlas stack.
 
 ---
@@ -61,7 +63,56 @@ return value.
 Run the command from Step 2. Expected: all backend identity and plugin seam
 tests pass.
 
-### Task 2: Verify and commit #973
+### Task 2: Preserve metadata and prevent credential logging
+
+**Files:**
+- Create: `services/backend/app/app/access_log.py`
+- Create: `services/backend/app/app/tests/test_access_log.py`
+- Modify: `services/backend/app/app/backend_identity.py`
+- Modify: `services/backend/app/app/main.py`
+- Modify: `services/backend/app/app/tests/test_backend_identity.py`
+- Modify: `services/backend/app/app/tests/test_plugin_seam.py`
+- Modify: `services/kong/compose.yml`
+- Create: `bootstrapper/tests/test_kong_access_log_security.py`
+- Modify: `docs/deployment/reusing-atlas.md`
+
+**Interfaces:**
+- Consumes: FastAPI `APIKeyHeader`, Starlette `HTTPConnection`, Python `logging.LogRecord`, Kong Nginx directive injection
+- Produces: connection-neutral `_PluginAPIKeyHeader`, `configure_uvicorn_access_log_redaction()`, and query-free Kong proxy logs
+
+- [ ] **Step 1: Add failing compatibility and log-safety tests**
+
+Assert a mounted key-auth HTTP route retains an OpenAPI `apiKey` header scheme
+and operation security requirement. Assert accepted and denied Uvicorn
+WebSocket log records replace the `apikey` value, preserve other query
+parameters, and never install duplicate filters. Assert the Kong Compose
+environment defines a named proxy log format using `$uri` and rejects
+`$request` / `$request_uri`.
+
+- [ ] **Step 2: Run the new tests and verify RED**
+
+```bash
+uv run --python 3.12 --with-requirements services/backend/app/app/requirements.txt --with-requirements services/backend/app/app/requirements-dev.txt pytest services/backend/app/app/tests/test_backend_identity.py services/backend/app/app/tests/test_plugin_seam.py services/backend/app/app/tests/test_access_log.py -q
+uv run --project bootstrapper pytest bootstrapper/tests/test_kong_access_log_security.py -q
+```
+
+Expected: OpenAPI has no plugin security requirement, the access-log module is
+absent, and Kong still uses its default query-bearing log format.
+
+- [ ] **Step 3: Implement the minimal compatibility and redaction changes**
+
+Subclass `APIKeyHeader` with `__call__(HTTPConnection)`, retain it as the
+dependency consumed by `require_plugin_gateway_key`, install an idempotent
+redaction filter on `uvicorn.access` and `uvicorn.error` during app import, and
+configure a named Kong proxy access format using method + `$uri` + protocol.
+Document header-first HTTP usage and the WebSocket query fallback without ever
+printing a real credential.
+
+- [ ] **Step 4: Run the new tests and verify GREEN**
+
+Run both commands from Step 2. Expected: all tests pass with no warnings.
+
+### Task 3: Verify and commit #973
 
 **Files:**
 - Verify all files changed by Tasks 1-2 and this plan/design pair.
@@ -87,6 +138,6 @@ uv run --python 3.12 --with-requirements services/backend/app/app/requirements.t
 ```bash
 git diff --check
 git diff --stat
-git add docs/superpowers/specs/2026-08-25-plugin-websocket-key-auth-design.md docs/superpowers/plans/2026-08-25-plugin-websocket-key-auth.md services/backend/app/app/backend_identity.py services/backend/app/app/tests/test_backend_identity.py services/backend/app/app/tests/test_plugin_seam.py
+git add docs/superpowers/specs/2026-08-25-plugin-websocket-key-auth-design.md docs/superpowers/plans/2026-08-25-plugin-websocket-key-auth.md docs/deployment/reusing-atlas.md services/backend/app/app/access_log.py services/backend/app/app/backend_identity.py services/backend/app/app/main.py services/backend/app/app/tests/test_access_log.py services/backend/app/app/tests/test_backend_identity.py services/backend/app/app/tests/test_plugin_seam.py services/kong/compose.yml bootstrapper/tests/test_kong_access_log_security.py
 git commit -m "fix(plugins): support key-auth WebSocket routes"
 ```
