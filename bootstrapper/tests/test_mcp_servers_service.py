@@ -45,6 +45,11 @@ def _runtime_module():
     return module
 
 
+def _assert_contains(text, fragments):
+    missing = tuple(fragment for fragment in fragments if fragment not in text)
+    assert missing == ()
+
+
 def test_mcp_servers_manifest_admission_contract() -> None:
     manifest = _manifest()
 
@@ -218,30 +223,35 @@ def test_mcp_postgres_capability_discloses_owner_rls_bypass_and_read_scope() -> 
     runtime = _runtime_module()
     rls_sql = MEMORY_RLS_SQL.read_text()
 
-    assert compose_env["SUPABASE_DB_USER"] == "${SUPABASE_DB_USER}"
-    assert supabase_env["SUPABASE_DB_USER"]["default"] == "supabase_admin"
-    assert runtime.is_safe_postgres_read(
-        "SELECT email, encrypted_password FROM auth.users"
-    )
-    assert "supabase_admin connection bypasses RLS (owner)" in rls_sql
-
     capability = next(
         row
         for row in _manifest()["capabilities"]
         if row["name"] == "Tenant-scoped Postgres reads"
     )
-    assert capability["status"] == "not-supported"
-    assert capability["verification"] == "tested"
+    assert (
+        compose_env["SUPABASE_DB_USER"],
+        supabase_env["SUPABASE_DB_USER"]["default"],
+        runtime.is_safe_postgres_read(
+            "SELECT email, encrypted_password FROM auth.users"
+        ),
+        "supabase_admin connection bypasses RLS (owner)" in rls_sql,
+        (capability["status"], capability["verification"]),
+    ) == (
+        "${SUPABASE_DB_USER}",
+        "supabase_admin",
+        True,
+        True,
+        ("not-supported", "tested"),
+    )
     note = capability["note"]
-    for required in (
+    _assert_contains(note, (
         "shared supabase_admin owner",
         "bypasses RLS",
         "SELECT/WITH/SHOW/EXPLAIN",
         "no schema, table, or column allowlist or redaction",
         "trusted operators",
         "least-privilege views or role",
-    ):
-        assert required in note
+    ))
 
 
 def test_mcp_database_guardrails_disclose_accepted_privileged_side_effects() -> None:
@@ -250,37 +260,47 @@ def test_mcp_database_guardrails_disclose_accepted_privileged_side_effects() -> 
         "neo4j-graph-db"
     ]["environment"]
 
-    for sql in (
+    sql_results = tuple(runtime.is_safe_postgres_read(sql) for sql in (
         "SELECT pg_read_file('/etc/passwd')",
         "SELECT pg_terminate_backend(1234)",
-    ):
-        assert runtime.is_safe_postgres_read(sql), sql
-    for cypher in (
+    ))
+    cyphers = (
         'CALL db.createLabel("AtlasOwned")',
         "CALL db.checkpoint()",
-    ):
-        assert runtime.is_safe_neo4j_read(cypher), cypher
-        assert runtime.bounded_neo4j_cypher(cypher) == cypher
-    assert neo4j_env["NEO4J_dbms_security_procedures_unrestricted"] == "apoc.*"
+    )
+    cypher_results = tuple(
+        (runtime.is_safe_neo4j_read(cypher), runtime.bounded_neo4j_cypher(cypher))
+        for cypher in cyphers
+    )
 
     capabilities = {row["name"]: row for row in _manifest()["capabilities"]}
     guardrail = capabilities["Database query guardrails"]
-    assert guardrail["status"] == "partial"
-    assert guardrail["verification"] == "tested"
-    assert "block common direct mutation syntax" in guardrail["note"]
-    assert "do not prevent privileged function or procedure side effects" in guardrail["note"]
-
     prevention = capabilities["Write and administration prevention"]
-    assert prevention["status"] == "partial"
-    assert prevention["verification"] == "tested"
-    for required in (
+    assert (
+        sql_results,
+        cypher_results,
+        neo4j_env["NEO4J_dbms_security_procedures_unrestricted"],
+        (guardrail["status"], guardrail["verification"]),
+        "block common direct mutation syntax" in guardrail["note"],
+        "do not prevent privileged function or procedure side effects"
+        in guardrail["note"],
+        (prevention["status"], prevention["verification"]),
+    ) == (
+        (True, True),
+        ((True, cyphers[0]), (True, cyphers[1])),
+        "apoc.*",
+        ("partial", "tested"),
+        True,
+        True,
+        ("partial", "tested"),
+    )
+    _assert_contains(prevention["note"], (
         "no dedicated write or administration tool",
         "SELECT functions",
         "CALL db.* procedures",
         "administrator credentials",
         "administration, filesystem, or write side effects",
-    ):
-        assert required in prevention["note"]
+    ))
 
 
 def test_mcp_servers_docs_describe_consumers_guardrails_and_deferred_gateways() -> None:

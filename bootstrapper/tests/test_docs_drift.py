@@ -18,6 +18,74 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
+def _assert_text_contract(text, *, contains=(), excludes=()):
+    missing = tuple(fragment for fragment in contains if fragment not in text)
+    unexpected = tuple(fragment for fragment in excludes if fragment in text)
+    assert (missing, unexpected) == ((), ())
+
+
+_REVIEWED_README_CONTRACTS = {
+    "lightrag": {
+        "contains": ("does not select file-backed storage automatically",),
+        "excludes": (
+            "transparently falls back to in-process file backends",
+            "In-process fallback (when source disabled)",
+        ),
+    },
+    "supabase": {
+        "contains": (
+            "DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD` protect the Kong",
+            "Direct `SUPABASE_STUDIO_PORT` access bypasses Kong",
+        )
+    },
+    "iceberg-rest": {
+        "contains": ("host-published API runs without Atlas authentication",),
+        "excludes": ("intentionally internal-only",),
+    },
+    "redis": {
+        "contains": ("defaults to `volatile-lru`",),
+        "excludes": ("Currently unset — Redis runs with the default `noeviction`",),
+    },
+    "vllm-metal": {
+        "contains": (
+            "warning floor",
+            "an unreadable Python version warns without blocking",
+            "stop the existing process before restarting Atlas",
+        ),
+        "excludes": ("Minimum unified memory the preflight requires",),
+    },
+    "n8n": {
+        "contains": (
+            "legacy bundled POST `/research` fixture has no webhook authentication",
+            "Only `BACKEND_N8N_API_TOKEN` is route-scoped",
+            "LiteLLM master key and provider-level credentials",
+        )
+    },
+    "mcp-servers": {
+        "contains": (
+            "shared `supabase_admin` owner bypasses RLS",
+            "no schema, table, or column allowlist or output redaction",
+            "privileged SQL functions and Neo4j procedures can still cause",
+            "backend-network containers can call the unauthenticated",
+        )
+    },
+    "airflow": {
+        "contains": (
+            "Only trusted authors may supply DAGs",
+            "LocalExecutor does not sandbox DAG code",
+        )
+    },
+    "jupyterhub": {
+        "contains": (
+            "MCP_SERVERS_URL` is not injected by Compose",
+            "reports the MCP service as disabled",
+            "receives high-privilege database and service credentials",
+        ),
+        "excludes": ("receives powerful database and service credentials",),
+    },
+}
+
+
 def test_capability_readme_exception_and_aggregate_sets_are_closed():
     from docs.capabilities_resolver import CAPABILITY_SECTION_EXCEPTIONS
 
@@ -76,53 +144,10 @@ def test_generated_capability_output_changes_when_a_contract_changes():
 def test_canonical_readmes_reconcile_reviewed_capability_boundaries():
     readmes = {
         name: (REPO_ROOT / f"services/{name}/README.md").read_text(encoding="utf-8")
-        for name in {
-            "airflow",
-            "iceberg-rest",
-            "jupyterhub",
-            "lightrag",
-            "mcp-servers",
-            "n8n",
-            "redis",
-            "supabase",
-            "vllm-metal",
-        }
+        for name in _REVIEWED_README_CONTRACTS
     }
-
-    assert "transparently falls back to in-process file backends" not in readmes["lightrag"]
-    assert "In-process fallback (when source disabled)" not in readmes["lightrag"]
-    assert "does not select file-backed storage automatically" in readmes["lightrag"]
-
-    assert "DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD` protect the Kong" in readmes["supabase"]
-    assert "Direct `SUPABASE_STUDIO_PORT` access bypasses Kong" in readmes["supabase"]
-
-    assert "intentionally internal-only" not in readmes["iceberg-rest"]
-    assert "host-published API runs without Atlas authentication" in readmes["iceberg-rest"]
-
-    assert "Currently unset — Redis runs with the default `noeviction`" not in readmes["redis"]
-    assert "defaults to `volatile-lru`" in readmes["redis"]
-
-    assert "Minimum unified memory the preflight requires" not in readmes["vllm-metal"]
-    assert "warning floor" in readmes["vllm-metal"]
-    assert "an unreadable Python version warns without blocking" in readmes["vllm-metal"]
-    assert "stop the existing process before restarting Atlas" in readmes["vllm-metal"]
-
-    assert "legacy bundled POST `/research` fixture has no webhook authentication" in readmes["n8n"]
-    assert "Only `BACKEND_N8N_API_TOKEN` is route-scoped" in readmes["n8n"]
-    assert "LiteLLM master key and provider-level credentials" in readmes["n8n"]
-
-    assert "shared `supabase_admin` owner bypasses RLS" in readmes["mcp-servers"]
-    assert "no schema, table, or column allowlist or output redaction" in readmes["mcp-servers"]
-    assert "privileged SQL functions and Neo4j procedures can still cause" in readmes["mcp-servers"]
-    assert "backend-network containers can call the unauthenticated" in readmes["mcp-servers"]
-
-    assert "Only trusted authors may supply DAGs" in readmes["airflow"]
-    assert "LocalExecutor does not sandbox DAG code" in readmes["airflow"]
-
-    assert "MCP_SERVERS_URL` is not injected by Compose" in readmes["jupyterhub"]
-    assert "reports the MCP service as disabled" in readmes["jupyterhub"]
-    assert "receives high-privilege database and service credentials" in readmes["jupyterhub"]
-    assert "receives powerful database and service credentials" not in readmes["jupyterhub"]
+    for name, contract in _REVIEWED_README_CONTRACTS.items():
+        _assert_text_contract(readmes[name], **contract)
 
 
 def test_task4_reviewed_contract_wording_is_published():

@@ -192,6 +192,24 @@ def _upsert_section(readme_text: str, section: str) -> str:
     return readme_text.rstrip() + "\n\n" + section
 
 
+def _apply_artifacts(
+    artifacts: Iterable[tuple[Path, str]], *, dry_run: bool, check: bool
+) -> int:
+    drift = 0
+    for path, content in artifacts:
+        existing = path.read_text(encoding="utf-8") if path.exists() else ""
+        if existing != content:
+            if check:
+                drift += 1
+                print(f"DRIFT: {path}")
+            elif dry_run:
+                print(f"would write {path}")
+            else:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(content, encoding="utf-8")
+    return drift
+
+
 def _process(
     name: str,
     out_root: Path,
@@ -227,19 +245,7 @@ def _process(
         artifacts.append((target_dir / "architecture.svg", render_svg(graph)))
         artifacts.append((target_dir / "architecture.html", render_html(graph)))
 
-    drift = 0
-    for path, content in artifacts:
-        existing = path.read_text(encoding="utf-8") if path.exists() else ""
-        if existing != content:
-            if check:
-                drift += 1
-                print(f"DRIFT: {path}")
-            elif dry_run:
-                print(f"would write {path}")
-            else:
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text(content, encoding="utf-8")
-    return drift
+    return _apply_artifacts(artifacts, dry_run=dry_run, check=check)
 
 
 def main(argv: list[str]) -> int:

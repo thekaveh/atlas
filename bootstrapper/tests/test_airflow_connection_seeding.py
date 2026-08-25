@@ -9,6 +9,11 @@ COMPOSE = REPO / "services" / "airflow" / "compose.yml"
 MANIFEST = REPO / "services" / "airflow" / "service.yml"
 
 
+def _assert_contains(text, fragments):
+    missing = tuple(fragment for fragment in fragments if fragment not in text)
+    assert missing == ()
+
+
 def test_init_script_exists_and_is_executable():
     assert SCRIPT.exists(), "init-airflow.sh missing"
     assert (SCRIPT.stat().st_mode & 0o111), "init-airflow.sh not executable"
@@ -57,9 +62,7 @@ def test_airflow_contract_discloses_unsandboxed_privileged_dag_execution():
     body = SCRIPT.read_text(encoding="utf-8")
     scheduler = yaml.safe_load(COMPOSE.read_text())["services"]["airflow-scheduler"]
 
-    assert scheduler["environment"]["AIRFLOW__CORE__EXECUTOR"] == "LocalExecutor"
-    assert "./dags:/opt/airflow/dags" in scheduler["volumes"]
-    for credential in (
+    _assert_contains(body, (
         "${MINIO_ROOT_USER}",
         "${MINIO_ROOT_PASSWORD}",
         "${LITELLM_MASTER_KEY}",
@@ -68,8 +71,7 @@ def test_airflow_contract_discloses_unsandboxed_privileged_dag_execution():
         "${GRAPH_DB_USER}",
         "${GRAPH_DB_PASSWORD}",
         "${REDIS_PASSWORD}",
-    ):
-        assert credential in body
+    ))
 
     manifest = yaml.safe_load(MANIFEST.read_text())
     capability = next(
@@ -77,17 +79,19 @@ def test_airflow_contract_discloses_unsandboxed_privileged_dag_execution():
         for row in manifest["capabilities"]
         if row["name"] == "Untrusted DAG code isolation"
     )
-    assert capability["status"] == "not-supported"
-    assert capability["verification"] == "tested"
-    for required in (
+    assert (
+        scheduler["environment"]["AIRFLOW__CORE__EXECUTOR"],
+        "./dags:/opt/airflow/dags" in scheduler["volumes"],
+        (capability["status"], capability["verification"]),
+    ) == ("LocalExecutor", True, ("not-supported", "tested"))
+    _assert_contains(capability["note"], (
         "operator-authored DAGs execute unsandboxed",
         "MinIO root",
         "LiteLLM master",
         "Supabase and Neo4j administrator",
         "Redis password",
         "trusted DAG authors",
-    ):
-        assert required in capability["note"]
+    ))
 
 
 def test_init_script_neo4j_uses_canonical_compose_dns_and_credentials():

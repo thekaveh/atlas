@@ -99,6 +99,12 @@ def _mgr(tmp_path, **kw):
     return VllmMetalManager(tmp_path / "state", **kw)
 
 
+def _assert_text_contract(text, *, contains=(), excludes=()):
+    missing = tuple(fragment for fragment in contains if fragment not in text)
+    unexpected = tuple(fragment for fragment in excludes if fragment in text)
+    assert (missing, unexpected) == ((), ())
+
+
 # ─────────────────────────── preflight ───────────────────────────
 def test_preflight_fails_on_non_macos(tmp_path, monkeypatch):
     monkeypatch.setattr(mod.platform, "system", lambda: "Linux")
@@ -184,8 +190,6 @@ def test_memory_preflight_behavior_matches_manifest_contract(tmp_path, monkeypat
 
     _darwin_arm64(monkeypatch, memsize_gb=8)
     low_memory = _mgr(tmp_path, min_memory_gb=16).preflight()
-    assert low_memory.status == "warn"
-    assert low_memory.ok
 
     unknown_memory_manager = _mgr(tmp_path, min_memory_gb=16)
     monkeypatch.setattr(unknown_memory_manager, "_unified_memory_gb", lambda: None)
@@ -193,8 +197,12 @@ def test_memory_preflight_behavior_matches_manifest_contract(tmp_path, monkeypat
     memory_check = next(
         check for check in unknown_memory.checks if check["name"] == "memory"
     )
-    assert memory_check["status"] == "skipped"
-    assert unknown_memory.ok
+    assert (
+        low_memory.status,
+        low_memory.ok,
+        memory_check["status"],
+        unknown_memory.ok,
+    ) == ("warn", True, "skipped", True)
 
     repo_root = Path(__file__).resolve().parent.parent.parent
     manifest = next(
@@ -207,23 +215,33 @@ def test_memory_preflight_behavior_matches_manifest_contract(tmp_path, monkeypat
         for capability in manifest.capabilities
         if capability.name == "Managed Apple-Silicon model serving"
     )
-    assert "fails non-macOS/non-arm64 hosts" in capability.note
-    assert "missing Python interpreter" in capability.note
-    assert "detected non-3.12 interpreter" in capability.note
-    assert "unreadable Python version" in capability.note
-    assert "warns and does not block install or start" in capability.note
-    assert "VLLM_METAL_MIN_MEMORY_GB" in capability.note
-    assert "does not block install or start" in capability.note
-    assert "does not certify model fit or prevent OOM" in capability.note
-    assert "sufficient unified memory" not in capability.note
+    _assert_text_contract(
+        capability.note,
+        contains=(
+            "fails non-macOS/non-arm64 hosts",
+            "missing Python interpreter",
+            "detected non-3.12 interpreter",
+            "unreadable Python version",
+            "warns and does not block install or start",
+            "VLLM_METAL_MIN_MEMORY_GB",
+            "does not block install or start",
+            "does not certify model fit or prevent OOM",
+        ),
+        excludes=("sufficient unified memory",),
+    )
 
     memory_env = next(
         env for env in manifest.env if env.name == "VLLM_METAL_MIN_MEMORY_GB"
     )
-    assert "warning floor" in memory_env.description
-    assert "does not block install or start" in memory_env.description
-    assert "does not certify model fit or prevent OOM" in memory_env.description
-    assert "requires" not in memory_env.description
+    _assert_text_contract(
+        memory_env.description,
+        contains=(
+            "warning floor",
+            "does not block install or start",
+            "does not certify model fit or prevent OOM",
+        ),
+        excludes=("requires",),
+    )
 
 
 def test_preflight_warns_on_unsupported_quant(tmp_path, monkeypatch):
@@ -845,10 +863,12 @@ def test_ensure_running_reuses_existing_model_without_reconciliation(
 
     status, created = manager.ensure_running_with_ownership()
 
-    assert status is existing
-    assert status.model == "old/model"
-    assert manager.model == "new/model"
-    assert created is False
+    assert (status is existing, status.model, manager.model, created) == (
+        True,
+        "old/model",
+        "new/model",
+        False,
+    )
 
     repo_root = Path(__file__).resolve().parent.parent.parent
     manifest = next(
@@ -861,13 +881,12 @@ def test_ensure_running_reuses_existing_model_without_reconciliation(
         for capability in manifest.capabilities
         if capability.name == "Single-model host lifecycle"
     )
-    for boundary in (
+    _assert_text_contract(capability.note, contains=(
         "model it was started with",
         "does not restart or reconcile an already-running process",
         "stop it before restarting Atlas",
         "LiteLLM may advertise the new alias against the old model",
-    ):
-        assert boundary in capability.note
+    ))
 
 
 def test_remove_stops_and_deletes_state(tmp_path, monkeypatch):

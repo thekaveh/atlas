@@ -420,15 +420,7 @@ def _to_dataclass(raw: dict[str, Any], source_path: Path) -> Manifest:
         for x in raw.get("exports") or []
     ]
 
-    capabilities = [
-        Capability(
-            name=entry["name"],
-            status=entry["status"],
-            verification=entry["verification"],
-            note=entry["note"],
-        )
-        for entry in raw.get("capabilities") or []
-    ]
+    capabilities = _capabilities_from_raw(raw)
 
     rows = [
         Row(
@@ -467,6 +459,18 @@ def _to_dataclass(raw: dict[str, Any], source_path: Path) -> Manifest:
         data_flow=dict(raw.get("data_flow") or {}),
         source_path=source_path,
     )
+
+
+def _capabilities_from_raw(raw: dict[str, Any]) -> list[Capability]:
+    return [
+        Capability(
+            name=entry["name"],
+            status=entry["status"],
+            verification=entry["verification"],
+            note=entry["note"],
+        )
+        for entry in raw.get("capabilities") or []
+    ]
 
 
 def _format_jsonschema_error(err: JsonSchemaError) -> str:

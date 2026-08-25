@@ -96,6 +96,61 @@ _SYNTHETIC_CAPABILITY_YAML = (
 )
 
 
+def _assert_text_contract(text, *, contains=(), excludes=()):
+    missing = tuple(fragment for fragment in contains if fragment not in text)
+    unexpected = tuple(fragment for fragment in excludes if fragment in text)
+    assert (missing, unexpected) == ((), ())
+
+
+def _capability_named(manifest, name):
+    matches = [
+        capability for capability in manifest.capabilities if capability.name == name
+    ]
+    assert len(matches) == 1, (manifest.name, name, matches)
+    return matches[0]
+
+
+def _duplicate_capability_names(manifest):
+    names = [capability.name for capability in manifest.capabilities]
+    return sorted({name for name in names if names.count(name) > 1})
+
+
+def _structurally_weak_capability_names(manifest):
+    return [
+        capability.name
+        for capability in manifest.capabilities
+        if len(capability.name.split()) < 2
+        or len(capability.note.split()) < 5
+        or capability.note.casefold() == capability.name.casefold()
+    ]
+
+
+def _assert_category_capability_quality(
+    manifests, reviewed_names, expected_count, label
+):
+    discovered_names = {manifest.name for manifest in manifests}
+    missing_contracts = sorted(
+        manifest.name for manifest in manifests if not manifest.capabilities
+    )
+    duplicate_names = {
+        manifest.name: duplicates
+        for manifest in manifests
+        if (duplicates := _duplicate_capability_names(manifest))
+    }
+    weak_names = {
+        manifest.name: weak
+        for manifest in manifests
+        if (weak := _structurally_weak_capability_names(manifest))
+    }
+    assert (
+        len(reviewed_names),
+        sorted(reviewed_names - discovered_names),
+        missing_contracts,
+        duplicate_names,
+        weak_names,
+    ) == (expected_count, [], [], {}, {}), label
+
+
 # ────────────────────────────────────────────────────────────────────────────
 # Happy paths
 # ────────────────────────────────────────────────────────────────────────────
@@ -880,47 +935,11 @@ def test_infra_and_data_manifests_meet_structural_capability_quality_floor():
         for manifest in load_manifests(repo_root / "services")
         if manifest.category in {"infra", "data"}
     ]
-    discovered_names = {manifest.name for manifest in manifests}
-
-    # The reviewed Task 3 inventory is an independent lower-bound anchor. New
-    # infra/data manifests remain dynamically included above and must carry a
-    # contract, while moving one of these 21 services out of category is loud.
-    assert len(_TASK3_REVIEWED_INFRA_DATA_MANIFESTS) == 21
-    assert _TASK3_REVIEWED_INFRA_DATA_MANIFESTS <= discovered_names, (
-        "reviewed infra/data manifests disappeared from typed category discovery: "
-        f"{sorted(_TASK3_REVIEWED_INFRA_DATA_MANIFESTS - discovered_names)}"
-    )
-
-    missing = sorted(manifest.name for manifest in manifests if not manifest.capabilities)
-    assert missing == [], f"infra/data manifests missing capabilities: {missing}"
-
-    duplicate_names: dict[str, list[str]] = {}
-    below_quality_floor: dict[str, list[str]] = {}
-    for manifest in manifests:
-        names = [capability.name for capability in manifest.capabilities]
-        duplicates = sorted({name for name in names if names.count(name) > 1})
-        if duplicates:
-            duplicate_names[manifest.name] = duplicates
-
-        # This is deliberately a structural regression floor, not a claim that
-        # word counts prove semantic quality. Every row still requires manual
-        # claim-to-evidence review against its implementation and limitations.
-        structurally_weak = [
-            capability.name
-            for capability in manifest.capabilities
-            if len(capability.name.split()) < 2
-            or len(capability.note.split()) < 5
-            or capability.note.casefold() == capability.name.casefold()
-        ]
-        if structurally_weak:
-            below_quality_floor[manifest.name] = structurally_weak
-
-    assert duplicate_names == {}, (
-        f"infra/data manifests have duplicate capability names: {duplicate_names}"
-    )
-    assert below_quality_floor == {}, (
-        "infra/data manifests have entries below the structural capability "
-        f"quality floor: {below_quality_floor}"
+    _assert_category_capability_quality(
+        manifests,
+        _TASK3_REVIEWED_INFRA_DATA_MANIFESTS,
+        21,
+        "infra/data capability quality floor",
     )
 
 
@@ -933,47 +952,11 @@ def test_llm_and_media_manifests_meet_structural_capability_quality_floor():
         for manifest in load_manifests(repo_root / "services")
         if manifest.category in {"llm", "media"}
     ]
-    discovered_names = {manifest.name for manifest in manifests}
-
-    # The reviewed Task 4 inventory is an independent lower-bound anchor. New
-    # LLM/media manifests remain dynamically included above and must carry a
-    # contract, while moving one of these 19 services out of category is loud.
-    assert len(_TASK4_REVIEWED_LLM_MEDIA_MANIFESTS) == 19
-    assert _TASK4_REVIEWED_LLM_MEDIA_MANIFESTS <= discovered_names, (
-        "reviewed LLM/media manifests disappeared from typed category discovery: "
-        f"{sorted(_TASK4_REVIEWED_LLM_MEDIA_MANIFESTS - discovered_names)}"
-    )
-
-    missing = sorted(manifest.name for manifest in manifests if not manifest.capabilities)
-    assert missing == [], f"LLM/media manifests missing capabilities: {missing}"
-
-    duplicate_names: dict[str, list[str]] = {}
-    below_quality_floor: dict[str, list[str]] = {}
-    for manifest in manifests:
-        names = [capability.name for capability in manifest.capabilities]
-        duplicates = sorted({name for name in names if names.count(name) > 1})
-        if duplicates:
-            duplicate_names[manifest.name] = duplicates
-
-        # This is deliberately a structural regression floor, not a claim that
-        # word counts prove semantic quality. Every row still requires manual
-        # claim-to-evidence review against its implementation and limitations.
-        structurally_weak = [
-            capability.name
-            for capability in manifest.capabilities
-            if len(capability.name.split()) < 2
-            or len(capability.note.split()) < 5
-            or capability.note.casefold() == capability.name.casefold()
-        ]
-        if structurally_weak:
-            below_quality_floor[manifest.name] = structurally_weak
-
-    assert duplicate_names == {}, (
-        f"LLM/media manifests have duplicate capability names: {duplicate_names}"
-    )
-    assert below_quality_floor == {}, (
-        "LLM/media manifests have entries below the structural capability "
-        f"quality floor: {below_quality_floor}"
+    _assert_category_capability_quality(
+        manifests,
+        _TASK4_REVIEWED_LLM_MEDIA_MANIFESTS,
+        19,
+        "LLM/media capability quality floor",
     )
 
 
@@ -982,68 +965,29 @@ def test_all_manifests_have_capabilities_and_agents_apps_meet_quality_floor():
 
     repo_root = Path(__file__).resolve().parent.parent.parent
     manifests = load_manifests(repo_root / "services")
-    discovered_names = {manifest.name for manifest in manifests}
     agents_apps = [
         manifest
         for manifest in manifests
         if manifest.category in {"agents", "apps"}
     ]
-    discovered_agents_apps = {manifest.name for manifest in agents_apps}
-
-    # The reviewed Task 5 inventory is an independent lower-bound anchor. New
-    # agents/apps manifests remain dynamically included above, while moving a
-    # reviewed service out of either category fails loudly.
-    assert len(_TASK5_REVIEWED_AGENTS_APPS_MANIFESTS) == 17
-    assert _TASK5_REVIEWED_AGENTS_APPS_MANIFESTS <= discovered_agents_apps, (
-        "reviewed agents/apps manifests disappeared from typed category discovery: "
-        f"{sorted(_TASK5_REVIEWED_AGENTS_APPS_MANIFESTS - discovered_agents_apps)}"
-    )
-
-    # Tasks 3-5 together cover the complete reviewed repository inventory.
-    # Typed discovery still includes future manifests in the completeness gate.
     reviewed_manifests = (
         _TASK3_REVIEWED_INFRA_DATA_MANIFESTS
         | _TASK4_REVIEWED_LLM_MEDIA_MANIFESTS
         | _TASK5_REVIEWED_AGENTS_APPS_MANIFESTS
     )
-    assert len(reviewed_manifests) == 57
-    assert reviewed_manifests <= discovered_names, (
-        "reviewed manifests disappeared from repository discovery: "
-        f"{sorted(reviewed_manifests - discovered_names)}"
-    )
-
     missing = sorted(
         manifest.name for manifest in manifests if not manifest.capabilities
     )
-    assert missing == [], f"repository manifests missing capabilities: {missing}"
-
-    duplicate_names: dict[str, list[str]] = {}
-    below_quality_floor: dict[str, list[str]] = {}
-    for manifest in agents_apps:
-        names = [capability.name for capability in manifest.capabilities]
-        duplicates = sorted({name for name in names if names.count(name) > 1})
-        if duplicates:
-            duplicate_names[manifest.name] = duplicates
-
-        # This is deliberately a structural regression floor, not a claim that
-        # word counts prove semantic quality. Every row still requires manual
-        # claim-to-evidence review against its implementation and limitations.
-        structurally_weak = [
-            capability.name
-            for capability in manifest.capabilities
-            if len(capability.name.split()) < 2
-            or len(capability.note.split()) < 5
-            or capability.note.casefold() == capability.name.casefold()
-        ]
-        if structurally_weak:
-            below_quality_floor[manifest.name] = structurally_weak
-
-    assert duplicate_names == {}, (
-        f"agents/apps manifests have duplicate capability names: {duplicate_names}"
+    assert (len(reviewed_manifests), sorted(reviewed_manifests - {m.name for m in manifests}), missing) == (
+        57,
+        [],
+        [],
     )
-    assert below_quality_floor == {}, (
-        "agents/apps manifests have entries below the structural capability "
-        f"quality floor: {below_quality_floor}"
+    _assert_category_capability_quality(
+        agents_apps,
+        _TASK5_REVIEWED_AGENTS_APPS_MANIFESTS,
+        17,
+        "agents/apps capability quality floor",
     )
 
 
@@ -1051,26 +995,17 @@ def test_repository_has_exactly_57_nonempty_unique_capability_contracts():
     repo_root = Path(__file__).resolve().parent.parent.parent
     manifests = load_manifests(repo_root / "services")
 
-    assert len(manifests) == 57
-    assert len({manifest.name for manifest in manifests}) == 57
-    assert all(manifest.capabilities for manifest in manifests)
     duplicate_names = {
-        manifest.name: sorted(
-            {
-                capability.name
-                for capability in manifest.capabilities
-                if sum(
-                    other.name == capability.name
-                    for other in manifest.capabilities
-                )
-                > 1
-            }
-        )
+        manifest.name: duplicates
         for manifest in manifests
-        if len({capability.name for capability in manifest.capabilities})
-        != len(manifest.capabilities)
+        if (duplicates := _duplicate_capability_names(manifest))
     }
-    assert duplicate_names == {}
+    assert (
+        len(manifests),
+        len({manifest.name for manifest in manifests}),
+        sorted(m.name for m in manifests if not m.capabilities),
+        duplicate_names,
+    ) == (57, 57, [], {})
 
 
 def test_comfyui_ingress_contract_matches_compose_and_kong_boundaries():
@@ -1085,43 +1020,38 @@ def test_comfyui_ingress_contract_matches_compose_and_kong_boundaries():
         (repo_root / "services/comfyui/compose.yml").read_text(encoding="utf-8")
     )
     comfyui = compose["services"]["comfyui"]
-    assert comfyui["ports"] == ["${HOST_BIND_IP:-}${COMFYUI_PORT}:18188"]
-    assert "WEB_ENABLE_AUTH=false" in comfyui["environment"]
-
     generator = KongConfigGenerator(config_parser=None)
     generator.env_vars = {"COMFYUI_SOURCE": "container-cpu"}
     kong_service = generator.generate_comfyui_service()
     assert kong_service is not None
-    assert kong_service["routes"][0]["hosts"] == ["comfyui.localhost"]
-    assert kong_service["plugins"] == [{"name": "cors"}]
 
     manifest = next(
         manifest
         for manifest in load_manifests(repo_root / "services")
         if manifest.name == "comfyui"
     )
-    capability = next(
-        (
-            capability
-            for capability in manifest.capabilities
-            if capability.name == "Authenticated ComfyUI ingress"
-        ),
-        None,
+    capability = _capability_named(manifest, "Authenticated ComfyUI ingress")
+    assert (
+        comfyui["ports"],
+        "WEB_ENABLE_AUTH=false" in comfyui["environment"],
+        kong_service["routes"][0]["hosts"],
+        kong_service["plugins"],
+        (capability.status, capability.verification),
+    ) == (
+        ["${HOST_BIND_IP:-}${COMFYUI_PORT}:18188"],
+        True,
+        ["comfyui.localhost"],
+        [{"name": "cors"}],
+        ("not-supported", "documented"),
     )
-    assert capability is not None
-    assert (capability.status, capability.verification) == (
-        "not-supported",
-        "documented",
-    )
-    for boundary in (
+    _assert_text_contract(capability.note, contains=(
         "published container UI/API",
         "CORS-only comfyui.localhost route",
         "without Atlas authentication",
         "HOST_BIND_IP=127.0.0.1:",
         "remove the publish",
         "authentication proxy",
-    ):
-        assert boundary in capability.note
+    ))
 
 
 @pytest.mark.parametrize(
@@ -1278,48 +1208,43 @@ def test_supabase_pg_meta_contract_matches_compose_and_kong_boundaries():
         (repo_root / "services/supabase/compose.yml").read_text(encoding="utf-8")
     )
     meta = compose["services"]["supabase-meta"]
-    assert meta["ports"] == ["${HOST_BIND_IP:-}${SUPABASE_META_PORT}:8080"]
-    assert meta["environment"]["PG_META_DB_USER"] == "${SUPABASE_DB_USER}"
-    assert "DASHBOARD_USERNAME" not in meta["environment"]
-    assert "DASHBOARD_PASSWORD" not in meta["environment"]
-
     kong_services = {
         service["name"]: service
         for service in KongConfigGenerator(ConfigParser(str(repo_root))).get_supabase_services()
     }
     kong_meta = kong_services["meta"]
-    assert kong_meta["routes"][0]["paths"] == ["/pg/"]
-    assert {plugin["name"] for plugin in kong_meta["plugins"]} >= {
-        "basic-auth",
-        "acl",
-    }
     acl = next(plugin for plugin in kong_meta["plugins"] if plugin["name"] == "acl")
-    assert acl["config"]["allow"] == ["dashboard_user"]
 
     manifest = next(
         m for m in load_manifests(repo_root / "services") if m.name == "supabase"
     )
-    capability = next(
-        (
-            cap
-            for cap in manifest.capabilities
-            if cap.name == "pg-meta administrative access control"
-        ),
-        None,
-    )
-
-    assert capability is not None
-    assert (capability.status, capability.verification) == (
-        "partial",
-        "documented",
-    )
-    for boundary in (
+    capability = _capability_named(manifest, "pg-meta administrative access control")
+    assert {
+        "ports": meta["ports"],
+        "db_user": meta["environment"]["PG_META_DB_USER"],
+        "dashboard_env": {
+            name for name in meta["environment"] if name.startswith("DASHBOARD_")
+        },
+        "route_paths": kong_meta["routes"][0]["paths"],
+        "required_plugins": {"basic-auth", "acl"}
+        <= {plugin["name"] for plugin in kong_meta["plugins"]},
+        "acl": acl["config"]["allow"],
+        "capability": (capability.status, capability.verification),
+    } == {
+        "ports": ["${HOST_BIND_IP:-}${SUPABASE_META_PORT}:8080"],
+        "db_user": "${SUPABASE_DB_USER}",
+        "dashboard_env": set(),
+        "route_paths": ["/pg/"],
+        "required_plugins": True,
+        "acl": ["dashboard_user"],
+        "capability": ("partial", "documented"),
+    }
+    _assert_text_contract(capability.note, contains=(
         "Kong /pg/ route uses Basic authentication and the dashboard_user ACL",
         "direct host-published SUPABASE_META_PORT",
         "no application authentication",
         "supabase_admin",
-    ):
-        assert boundary in capability.note
+    ))
 
 
 def test_supabase_studio_contract_matches_compose_and_kong_boundaries():
@@ -1335,41 +1260,43 @@ def test_supabase_studio_contract_matches_compose_and_kong_boundaries():
         (repo_root / "services/supabase/compose.yml").read_text(encoding="utf-8")
     )
     studio = compose["services"]["supabase-studio"]
-    assert studio["ports"] == ["${HOST_BIND_IP:-}${SUPABASE_STUDIO_PORT}:3000"]
-    assert "DASHBOARD_USERNAME" not in studio["environment"]
-    assert "DASHBOARD_PASSWORD" not in studio["environment"]
-
     kong_services = {
         service["name"]: service
         for service in KongConfigGenerator(ConfigParser(str(repo_root))).get_supabase_services()
     }
     dashboard = kong_services["dashboard"]
-    assert dashboard["routes"][0]["hosts"] == ["supabase-studio.localhost"]
-    assert {plugin["name"] for plugin in dashboard["plugins"]} >= {
-        "basic-auth",
-        "acl",
-    }
     acl = next(plugin for plugin in dashboard["plugins"] if plugin["name"] == "acl")
-    assert acl["config"]["allow"] == ["dashboard_user"]
 
     manifest = next(
         m for m in load_manifests(repo_root / "services") if m.name == "supabase"
     )
-    capability = next(
-        (cap for cap in manifest.capabilities if cap.name == "Supabase Studio access control"),
-        None,
-    )
-    assert capability is not None
-    assert (capability.status, capability.verification) == ("partial", "documented")
-    for boundary in (
+    capability = _capability_named(manifest, "Supabase Studio access control")
+    assert {
+        "ports": studio["ports"],
+        "dashboard_env": {
+            name for name in studio["environment"] if name.startswith("DASHBOARD_")
+        },
+        "route_hosts": dashboard["routes"][0]["hosts"],
+        "required_plugins": {"basic-auth", "acl"}
+        <= {plugin["name"] for plugin in dashboard["plugins"]},
+        "acl": acl["config"]["allow"],
+        "capability": (capability.status, capability.verification),
+    } == {
+        "ports": ["${HOST_BIND_IP:-}${SUPABASE_STUDIO_PORT}:3000"],
+        "dashboard_env": set(),
+        "route_hosts": ["supabase-studio.localhost"],
+        "required_plugins": True,
+        "acl": ["dashboard_user"],
+        "capability": ("partial", "documented"),
+    }
+    _assert_text_contract(capability.note, contains=(
         "Kong route uses Basic authentication and the dashboard_user ACL",
         "host-published SUPABASE_STUDIO_PORT bypasses that gate",
         "Studio has no application authentication",
         "HOST_BIND_IP=127.0.0.1:",
         "firewall SUPABASE_STUDIO_PORT",
         "remove its ports: publish",
-    ):
-        assert boundary in capability.note
+    ))
 
 
 def test_supabase_postgres_host_auth_contract_matches_compose():
@@ -1382,37 +1309,30 @@ def test_supabase_postgres_host_auth_contract_matches_compose():
         (repo_root / "services/supabase/compose.yml").read_text(encoding="utf-8")
     )
     database = compose["services"]["supabase-db"]
-    assert database["ports"] == ["${HOST_BIND_IP:-}${SUPABASE_DB_PORT}:5432"]
-    assert database["environment"]["POSTGRES_HOST_AUTH_METHOD"] == "trust"
-
     manifests = load_manifests(repo_root / "services")
     globals_manifest = next(m for m in manifests if m.name == "globals")
     host_bind_ip = next(env for env in globals_manifest.env if env.name == "HOST_BIND_IP")
-    assert host_bind_ip.default == ""
-
     supabase = next(m for m in manifests if m.name == "supabase")
-    capability = next(
-        (
-            cap
-            for cap in supabase.capabilities
-            if cap.name == "Authenticated remote PostgreSQL access"
-        ),
-        None,
+    capability = _capability_named(supabase, "Authenticated remote PostgreSQL access")
+    assert (
+        database["ports"],
+        database["environment"]["POSTGRES_HOST_AUTH_METHOD"],
+        host_bind_ip.default,
+        (capability.status, capability.verification),
+    ) == (
+        ["${HOST_BIND_IP:-}${SUPABASE_DB_PORT}:5432"],
+        "trust",
+        "",
+        ("not-supported", "documented"),
     )
-    assert capability is not None
-    assert (capability.status, capability.verification) == (
-        "not-supported",
-        "documented",
-    )
-    for boundary in (
+    _assert_text_contract(capability.note, contains=(
         "host-published SUPABASE_DB_PORT",
         "POSTGRES_HOST_AUTH_METHOD=trust",
         "HOST_BIND_IP=127.0.0.1:",
         "firewall SUPABASE_DB_PORT",
         "remove the supabase-db ports: publish",
         "authenticated database policy before remote access",
-    ):
-        assert boundary in capability.note
+    ))
 
 
 def test_iceberg_rest_access_contract_matches_host_publish():
@@ -1446,12 +1366,11 @@ def test_iceberg_rest_access_contract_matches_host_publish():
         "not-supported",
         "documented",
     )
-    for boundary in (
+    _assert_text_contract(capability.note, contains=(
         "Compose-network API and host-published ICEBERG_REST_PORT have no Atlas authentication",
         "HOST_BIND_IP=127.0.0.1:",
         "remove the iceberg-rest ports: publish",
-    ):
-        assert boundary in capability.note
+    ))
 
 
 def test_redpanda_access_contract_matches_compose_and_kong_boundaries():
@@ -1468,50 +1387,51 @@ def test_redpanda_access_contract_matches_compose_and_kong_boundaries():
     )
     broker = compose["services"]["redpanda"]
     console = compose["services"]["redpanda-console"]
-    assert broker["ports"] == ["${HOST_BIND_IP:-}${REDPANDA_KAFKA_PORT}:19092"]
-    assert console["ports"] == ["${HOST_BIND_IP:-}${REDPANDA_CONSOLE_PORT}:8080"]
-    assert any(
-        "external://0.0.0.0:19092" in argument for argument in broker["command"]
-    )
-    assert not any(
-        "sasl" in argument.casefold() or "tls" in argument.casefold()
-        for argument in broker["command"]
-    )
-    assert not any("AUTH" in name for name in console["environment"])
-
     generator = KongConfigGenerator(ConfigParser(str(repo_root)))
     generator.env_vars = {"REDPANDA_SOURCE": "container"}
     kong_console = generator.generate_redpanda_service()
     assert kong_console is not None
-    assert kong_console["routes"][0]["hosts"] == ["redpanda.localhost"]
-    assert {plugin["name"] for plugin in kong_console["plugins"]} >= {
-        "basic-auth",
-        "acl",
-    }
-    acl = next(
-        plugin for plugin in kong_console["plugins"] if plugin["name"] == "acl"
-    )
-    assert acl["config"]["allow"] == ["dashboard_user"]
+    acl = next(plugin for plugin in kong_console["plugins"] if plugin["name"] == "acl")
 
     manifest = next(
         m for m in load_manifests(repo_root / "services") if m.name == "redpanda"
     )
-    capability = next(
-        (
-            cap
-            for cap in manifest.capabilities
-            if cap.name == "Broker and Console access control"
+    capability = _capability_named(manifest, "Broker and Console access control")
+    assert {
+        "broker_ports": broker["ports"],
+        "console_ports": console["ports"],
+        "external_listener": any(
+            "external://0.0.0.0:19092" in argument for argument in broker["command"]
         ),
-        None,
-    )
-    assert capability is not None
-    assert (capability.status, capability.verification) == ("partial", "documented")
-    for boundary in (
+        "secure_listener_flags": tuple(
+            argument
+            for argument in broker["command"]
+            if "sasl" in argument.casefold() or "tls" in argument.casefold()
+        ),
+        "console_auth_env": tuple(
+            name for name in console["environment"] if "AUTH" in name
+        ),
+        "route_hosts": kong_console["routes"][0]["hosts"],
+        "required_plugins": {"basic-auth", "acl"}
+        <= {plugin["name"] for plugin in kong_console["plugins"]},
+        "acl": acl["config"]["allow"],
+        "capability": (capability.status, capability.verification),
+    } == {
+        "broker_ports": ["${HOST_BIND_IP:-}${REDPANDA_KAFKA_PORT}:19092"],
+        "console_ports": ["${HOST_BIND_IP:-}${REDPANDA_CONSOLE_PORT}:8080"],
+        "external_listener": True,
+        "secure_listener_flags": (),
+        "console_auth_env": (),
+        "route_hosts": ["redpanda.localhost"],
+        "required_plugins": True,
+        "acl": ["dashboard_user"],
+        "capability": ("partial", "documented"),
+    }
+    _assert_text_contract(capability.note, contains=(
         "Kong Console route uses Basic authentication and the dashboard_user ACL",
         "direct Console and Kafka listener are ungated",
         "HOST_BIND_IP=127.0.0.1:",
-    ):
-        assert boundary in capability.note
+    ))
 
 
 def test_backup_restore_contract_matches_non_atomic_orchestration():
@@ -1542,24 +1462,23 @@ def test_backup_restore_contract_matches_non_atomic_orchestration():
             for token in restore_tokens
         )
 
-    assert "pg_restore" in restore_tokens
-    assert not uses_option("--list", "-l")
-    assert not uses_option("--single-transaction", "-1")
-
     manifest = next(
         m for m in load_manifests(repo_root / "services") if m.name == "backup"
     )
     capability = next(
         cap for cap in manifest.capabilities if cap.name == "Postgres restore workflow"
     )
-    assert (capability.status, capability.verification) == ("partial", "tested")
-    assert "validates and restores" not in capability.note
-    for boundary in (
+    assert (
+        "pg_restore" in restore_tokens,
+        uses_option("--list", "-l"),
+        uses_option("--single-transaction", "-1"),
+        (capability.status, capability.verification),
+    ) == (True, False, False, ("partial", "tested"))
+    _assert_text_contract(capability.note, contains=(
         "orchestrates S3 retrieval and pg_restore",
         "volume archives have no restore workflow",
         "no preflight validation or atomicity guarantee",
-    ):
-        assert boundary in capability.note
+    ), excludes=("validates and restores",))
 
 
 def test_ray_worker_count_capability_does_not_claim_a_global_upper_bound():
@@ -1592,44 +1511,39 @@ def test_prometheus_access_contract_matches_compose_and_kong_surfaces():
         (repo_root / "services/prometheus/compose.yml").read_text(encoding="utf-8")
     )
     services = compose["services"]
-    assert services["prometheus"]["ports"] == [
-        "${HOST_BIND_IP:-}${PROMETHEUS_PORT}:9090"
-    ]
-    assert services["node-exporter"]["ports"] == [
-        "${HOST_BIND_IP:-}${NODE_EXPORTER_PORT}:9100"
-    ]
-    assert services["cadvisor"]["ports"] == [
-        "${HOST_BIND_IP:-}${CADVISOR_PORT}:8080"
-    ]
-    assert "--web.enable-lifecycle" in services["prometheus"]["command"]
-
     manifests = load_manifests(repo_root / "services")
     globals_manifest = next(m for m in manifests if m.name == "globals")
     host_bind_ip = next(env for env in globals_manifest.env if env.name == "HOST_BIND_IP")
-    assert host_bind_ip.default == ""
-
     generator = KongConfigGenerator(ConfigParser(str(repo_root)))
     generator.env_vars = {"PROMETHEUS_SOURCE": "container"}
     kong_prometheus = generator.generate_prometheus_service()
     assert kong_prometheus is not None
-    assert kong_prometheus["routes"][0]["hosts"] == ["prometheus.localhost"]
-    assert {plugin["name"] for plugin in kong_prometheus["plugins"]} == {"cors"}
 
     prometheus = next(m for m in manifests if m.name == "prometheus")
-    capability = next(
-        (
-            cap
-            for cap in prometheus.capabilities
-            if cap.name == "Authenticated Prometheus and exporter access"
-        ),
-        None,
+    capability = _capability_named(
+        prometheus, "Authenticated Prometheus and exporter access"
     )
-    assert capability is not None
-    assert (capability.status, capability.verification) == (
-        "not-supported",
-        "tested",
-    )
-    for boundary in (
+    assert {
+        "prometheus_ports": services["prometheus"]["ports"],
+        "node_exporter_ports": services["node-exporter"]["ports"],
+        "cadvisor_ports": services["cadvisor"]["ports"],
+        "lifecycle_enabled": "--web.enable-lifecycle"
+        in services["prometheus"]["command"],
+        "host_bind_ip": host_bind_ip.default,
+        "route_hosts": kong_prometheus["routes"][0]["hosts"],
+        "plugins": {plugin["name"] for plugin in kong_prometheus["plugins"]},
+        "capability": (capability.status, capability.verification),
+    } == {
+        "prometheus_ports": ["${HOST_BIND_IP:-}${PROMETHEUS_PORT}:9090"],
+        "node_exporter_ports": ["${HOST_BIND_IP:-}${NODE_EXPORTER_PORT}:9100"],
+        "cadvisor_ports": ["${HOST_BIND_IP:-}${CADVISOR_PORT}:8080"],
+        "lifecycle_enabled": True,
+        "host_bind_ip": "",
+        "route_hosts": ["prometheus.localhost"],
+        "plugins": {"cors"},
+        "capability": ("not-supported", "tested"),
+    }
+    _assert_text_contract(capability.note, contains=(
         "direct PROMETHEUS_PORT, NODE_EXPORTER_PORT, and CADVISOR_PORT publishes have no authentication",
         "CORS-only Kong prometheus.localhost route has no authentication",
         "--web.enable-lifecycle is enabled",
@@ -1637,8 +1551,7 @@ def test_prometheus_access_contract_matches_compose_and_kong_surfaces():
         "HOST_BIND_IP=127.0.0.1:",
         "firewall or remove the direct ports",
         "authentication proxy or remove the Prometheus Kong route",
-    ):
-        assert boundary in capability.note
+    ))
 
 
 def test_spark_web_access_contract_matches_compose_and_kong_surfaces():
@@ -1654,52 +1567,45 @@ def test_spark_web_access_contract_matches_compose_and_kong_surfaces():
         (repo_root / "services/spark/compose.yml").read_text(encoding="utf-8")
     )
     services = compose["services"]
-    assert services["spark-master"]["ports"] == [
-        "${HOST_BIND_IP:-}${SPARK_MASTER_UI_PORT}:8080"
-    ]
-    assert services["spark-history"]["ports"] == [
-        "${HOST_BIND_IP:-}${SPARK_HISTORY_PORT}:18080"
-    ]
-
     manifests = load_manifests(repo_root / "services")
     globals_manifest = next(m for m in manifests if m.name == "globals")
     host_bind_ip = next(env for env in globals_manifest.env if env.name == "HOST_BIND_IP")
-    assert host_bind_ip.default == ""
-
     generator = KongConfigGenerator(ConfigParser(str(repo_root)))
     generator.env_vars = {"SPARK_SOURCE": "container"}
     kong_master = generator.generate_spark_master_service()
     kong_history = generator.generate_spark_history_service()
     assert kong_master is not None
     assert kong_history is not None
-    assert kong_master["routes"][0]["hosts"] == ["spark.localhost"]
-    assert kong_history["routes"][0]["hosts"] == ["spark-history.localhost"]
-    assert {plugin["name"] for plugin in kong_master["plugins"]} == {"cors"}
-    assert {plugin["name"] for plugin in kong_history["plugins"]} == {"cors"}
 
     spark = next(m for m in manifests if m.name == "spark")
-    capability = next(
-        (
-            cap
-            for cap in spark.capabilities
-            if cap.name == "Authenticated Spark web access"
-        ),
-        None,
-    )
-    assert capability is not None
-    assert (capability.status, capability.verification) == (
-        "not-supported",
-        "tested",
-    )
-    for boundary in (
+    capability = _capability_named(spark, "Authenticated Spark web access")
+    assert {
+        "master_ports": services["spark-master"]["ports"],
+        "history_ports": services["spark-history"]["ports"],
+        "host_bind_ip": host_bind_ip.default,
+        "master_hosts": kong_master["routes"][0]["hosts"],
+        "history_hosts": kong_history["routes"][0]["hosts"],
+        "master_plugins": {plugin["name"] for plugin in kong_master["plugins"]},
+        "history_plugins": {plugin["name"] for plugin in kong_history["plugins"]},
+        "capability": (capability.status, capability.verification),
+    } == {
+        "master_ports": ["${HOST_BIND_IP:-}${SPARK_MASTER_UI_PORT}:8080"],
+        "history_ports": ["${HOST_BIND_IP:-}${SPARK_HISTORY_PORT}:18080"],
+        "host_bind_ip": "",
+        "master_hosts": ["spark.localhost"],
+        "history_hosts": ["spark-history.localhost"],
+        "master_plugins": {"cors"},
+        "history_plugins": {"cors"},
+        "capability": ("not-supported", "tested"),
+    }
+    _assert_text_contract(capability.note, contains=(
         "direct SPARK_MASTER_UI_PORT and SPARK_HISTORY_PORT publishes are unauthenticated",
         "CORS-only Kong Spark routes are unauthenticated",
         "default empty HOST_BIND_IP binds direct ports on all interfaces",
         "HOST_BIND_IP=127.0.0.1:",
         "firewall or remove the direct ports",
         "authentication proxy or remove both Spark Kong routes",
-    ):
-        assert boundary in capability.note
+    ))
 
 
 def test_lightrag_manifest_header_does_not_claim_automatic_file_fallbacks():

@@ -49,6 +49,11 @@ def _hosts_to_service(config: dict) -> dict[str, str]:
     return index
 
 
+def _assert_contains(text, fragments):
+    missing = tuple(fragment for fragment in fragments if fragment not in text)
+    assert missing == ()
+
+
 def test_supabase_studio_route_is_restricted_to_studio_alias():
     """Supabase Studio must not be a global or bare-root catch-all.
 
@@ -326,34 +331,47 @@ def test_mcp_contract_discloses_unauthenticated_backend_network_ingress():
     config = _generate("MCP_SERVERS_SOURCE=container\n")
     kong = next(service for service in config["services"] if service["name"] == "mcp-servers")
 
-    assert compose["ports"] == ["127.0.0.1:${MCP_SERVERS_PORT}:8000"]
-    assert compose["networks"] == ["backend-network"]
-    assert '_ALLOWED_HOSTS = ("mcp-servers", "mcp.localhost")' in runtime
-    assert 'host="0.0.0.0"' in runtime
     server_builder = runtime[runtime.index("def build_server"):runtime.index("def run_server")]
-    assert "FastMCP(\"Atlas Curated MCP Servers\")" in server_builder
-    assert "auth=" not in server_builder
-    assert {plugin["name"] for plugin in kong["plugins"]} >= {"basic-auth", "acl"}
 
     capabilities = {row["name"]: row for row in manifest["capabilities"]}
     ingress = capabilities["MCP ingress authentication"]
-    assert ingress["status"] == "partial"
-    assert ingress["verification"] == "tested"
-    for required in (
+    consumer = capabilities["Per-consumer MCP authorization"]
+    assert {
+        "ports": compose["ports"],
+        "networks": compose["networks"],
+        "allowed_hosts": '_ALLOWED_HOSTS = ("mcp-servers", "mcp.localhost")'
+        in runtime,
+        "all_interfaces": 'host="0.0.0.0"' in runtime,
+        "server_builder": "FastMCP(\"Atlas Curated MCP Servers\")"
+        in server_builder,
+        "auth_builder": "auth=" in server_builder,
+        "required_kong_plugins": {"basic-auth", "acl"}
+        <= {plugin["name"] for plugin in kong["plugins"]},
+        "ingress": (ingress["status"], ingress["verification"]),
+        "consumer": (consumer["status"], consumer["verification"]),
+    } == {
+        "ports": ["127.0.0.1:${MCP_SERVERS_PORT}:8000"],
+        "networks": ["backend-network"],
+        "allowed_hosts": True,
+        "all_interfaces": True,
+        "server_builder": True,
+        "auth_builder": False,
+        "required_kong_plugins": True,
+        "ingress": ("partial", "tested"),
+        "consumer": ("not-supported", "tested"),
+    }
+    _assert_contains(ingress["note"], (
         "127.0.0.1 protects only the host publish",
         "all backend-network containers",
         "unauthenticated http://mcp-servers:8000/mcp",
         "allowed mcp-servers Host",
         "bypass Kong Basic Auth and ACL",
         "Host/Origin checks are not authentication",
-    ):
-        assert required in ingress["note"]
-
-    consumer = capabilities["Per-consumer MCP authorization"]
-    assert consumer["status"] == "not-supported"
-    assert consumer["verification"] == "tested"
-    assert "backend-network callers bypass Kong" in consumer["note"]
-    assert "same tool set and administrator credentials" in consumer["note"]
+    ))
+    _assert_contains(consumer["note"], (
+        "backend-network callers bypass Kong",
+        "same tool set and administrator credentials",
+    ))
 
 
 def test_localhost_source_routes_via_host_docker_internal():
