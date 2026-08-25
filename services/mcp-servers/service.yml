@@ -13,6 +13,10 @@ capabilities:
     status: partial
     verification: tested
     note: "Atlas rejects common mutation forms, uses a read-only Postgres transaction and Neo4j read routing, and bounds rows and time, but tool output remains untrusted prompt-injection input."
+  - name: "Tenant-scoped Postgres reads"
+    status: not-supported
+    verification: tested
+    note: "MCP uses the shared supabase_admin owner, bypasses RLS, and permits bounded SELECT/WITH/SHOW/EXPLAIN with no schema, table, or column allowlist or redaction; trusted operators only until a separate least-privilege views or role design lands."
   - name: "MCP ingress authentication"
     status: partial
     verification: tested

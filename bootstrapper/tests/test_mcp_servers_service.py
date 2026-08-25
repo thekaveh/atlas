@@ -21,6 +21,10 @@ MANIFEST = SERVICE_DIR / "service.yml"
 COMPOSE = SERVICE_DIR / "compose.yml"
 README = SERVICE_DIR / "README.md"
 RUNTIME = SERVICE_DIR / "runtime" / "atlas_mcp_server.py"
+SUPABASE_MANIFEST = REPO_ROOT / "services" / "supabase" / "service.yml"
+MEMORY_RLS_SQL = (
+    REPO_ROOT / "services" / "supabase" / "db" / "scripts" / "14-backend-memory.sql"
+)
 
 
 def _manifest() -> dict:
@@ -204,6 +208,39 @@ def test_mcp_runtime_guards_reject_write_and_unbounded_inputs() -> None:
     assert runtime.clamp_limit("1000", default=5, maximum=20) == 20
     assert runtime.clamp_limit("-1", default=5, maximum=20) == 5
     assert runtime.clamp_limit("abc", default=5, maximum=20) == 5
+
+
+def test_mcp_postgres_capability_discloses_owner_rls_bypass_and_read_scope() -> None:
+    compose_env = _compose()["services"]["mcp-servers"]["environment"]
+    supabase = yaml.safe_load(SUPABASE_MANIFEST.read_text())
+    supabase_env = {entry["name"]: entry for entry in supabase["env"]}
+    runtime = _runtime_module()
+    rls_sql = MEMORY_RLS_SQL.read_text()
+
+    assert compose_env["SUPABASE_DB_USER"] == "${SUPABASE_DB_USER}"
+    assert supabase_env["SUPABASE_DB_USER"]["default"] == "supabase_admin"
+    assert runtime.is_safe_postgres_read(
+        "SELECT email, encrypted_password FROM auth.users"
+    )
+    assert "supabase_admin connection bypasses RLS (owner)" in rls_sql
+
+    capability = next(
+        row
+        for row in _manifest()["capabilities"]
+        if row["name"] == "Tenant-scoped Postgres reads"
+    )
+    assert capability["status"] == "not-supported"
+    assert capability["verification"] == "tested"
+    note = capability["note"]
+    for required in (
+        "shared supabase_admin owner",
+        "bypasses RLS",
+        "SELECT/WITH/SHOW/EXPLAIN",
+        "no schema, table, or column allowlist or redaction",
+        "trusted operators",
+        "least-privilege views or role",
+    ):
+        assert required in note
 
 
 def test_mcp_servers_docs_describe_consumers_guardrails_and_deferred_gateways() -> None:

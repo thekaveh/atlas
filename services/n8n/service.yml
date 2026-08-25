@@ -24,7 +24,7 @@ capabilities:
   - name: "Editor and webhook access control"
     status: partial
     verification: tested
-    note: "n8n supplies its own account login and credential model, while the direct and CORS-only Kong routes add no Atlas auth; privileged sample webhooks require operator-bound Header Auth."
+    note: "n8n supplies its own login while direct and CORS-only Kong routes add no Atlas auth; staged privileged examples require operator-bound Header Auth, but the legacy bundled /research fixture declares no authentication and must be secured before activation."
   - name: "Idempotent external side effects"
     status: not-supported
     verification: documented

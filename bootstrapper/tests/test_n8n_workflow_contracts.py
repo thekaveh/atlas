@@ -3,9 +3,10 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+from pathlib import Path
 
 import pytest
-from pathlib import Path
+import yaml
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -334,30 +335,48 @@ def test_research_batch_rejects_unbounded_or_invalid_requests() -> None:
         assert rejected.returncode != 0, payload
 
 
-def test_privileged_example_webhooks_require_header_auth() -> None:
-    filenames = (
-        "research-simple.json",
-        "research-batch.json",
-        "comfyui-image-generation.json",
-        "comfyui-simple.json",
-    )
+def test_all_bundled_workflow_webhooks_match_disclosed_auth_boundaries() -> None:
+    staged_dir = ROOT / "services/n8n/workflows-stage/workflows"
+    staged_workflows = sorted(staged_dir.glob("*.json"))
+    assert staged_workflows == list(WORKFLOWS[:-1])
+
     expected = {
         "httpHeaderAuth": {
             "id": "atlas-webhook-header-auth",
             "name": "Atlas Webhook Header Auth",
         }
     }
-    for filename in filenames:
-        workflow = _load(
-            ROOT / "services/n8n/workflows-stage/workflows" / filename
-        )
-        webhook = next(
+    for path in staged_workflows:
+        workflow = _load(path)
+        for webhook in (
             node
             for node in workflow["nodes"]
             if node["type"] == "n8n-nodes-base.webhook"
-        )
-        assert webhook["parameters"]["authentication"] == "headerAuth"
-        assert webhook["credentials"] == expected
+        ):
+            assert webhook["parameters"]["authentication"] == "headerAuth", path
+            assert webhook["credentials"] == expected, path
+
+    legacy_path = ROOT / "services/n8n/init/config/searxng-research-workflow.json"
+    legacy = _load(legacy_path)
+    legacy_webhook = next(
+        node
+        for node in legacy["nodes"]
+        if node["type"] == "n8n-nodes-base.webhook"
+    )
+    assert legacy_webhook["parameters"]["path"] == "research"
+    assert "authentication" not in legacy_webhook["parameters"]
+    assert "credentials" not in legacy_webhook
+
+    manifest = yaml.safe_load((ROOT / "services/n8n/service.yml").read_text())
+    capability = next(
+        row
+        for row in manifest["capabilities"]
+        if row["name"] == "Editor and webhook access control"
+    )
+    note = capability["note"]
+    assert "staged privileged examples require operator-bound Header Auth" in note
+    assert "legacy bundled /research fixture declares no authentication" in note
+    assert "must be secured before activation" in note
 
 
 def test_comfyui_workflows_preserve_fal_artifact_urls() -> None:
