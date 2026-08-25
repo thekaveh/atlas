@@ -30,7 +30,7 @@ capabilities:
   - name: "Arbitrary reranker model portability"
     status: partial
     verification: documented
-    note: "The default model is selected for ONNX amd64 and safetensors arm64 compatibility; operator overrides can lack artifacts or exceed backend memory and are not pre-certified."
+    note: "The default model is selected for ONNX amd64 and safetensors arm64 compatibility, but TEI_RERANKER_REVISION defaults to mutable main; pin a model commit for reproducible artifacts. Operator overrides and future main contents are not pre-certified for both backends or their memory limits."
 
 containers:
   - tei-reranker

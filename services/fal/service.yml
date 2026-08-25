@@ -14,7 +14,7 @@ capabilities:
   - name: "LiteLLM text-to-image passthrough"
     status: partial
     verification: tested
-    note: "An enabled keyed provider registers fal-image through LiteLLM, but that route covers text-to-image only and returns provider-native outputs without Atlas storage or provenance normalization."
+    note: "An enabled keyed provider registers fal-image through LiteLLM, but that route covers text-to-image only and returns LiteLLM's OpenAI-shaped b64/URL image result without Atlas storage or provenance normalization."
   - name: "Durable media-operation accounting"
     status: partial
     verification: tested

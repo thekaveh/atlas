@@ -16,7 +16,7 @@ capabilities:
   - name: "Docling credential isolation"
     status: supported
     verification: tested
-    note: "Only the adapter receives the Docling bearer token; LightRAG receives an internal adapter URL on a dedicated network with no host-published adapter port."
+    note: "LightRAG receives only the internal adapter URL; on that isolated boundary, the adapter alone receives the Docling bearer token and authenticates the upstream call, with no host-published adapter port."
   - name: "Bounded ephemeral adapter jobs"
     status: supported
     verification: tested

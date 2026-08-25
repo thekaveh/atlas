@@ -31,9 +31,9 @@ capabilities:
     verification: tested
     note: "User-selected names outside the curated catalogs are routable, but Atlas synthesizes generic capability metadata and cannot infer provider-specific limits or modalities."
   - name: "Live cloud completion validation"
-    status: partial
+    status: not-supported
     verification: untested
-    note: "Committed tests certify selection, key isolation, and rendered routing only; successful requests still depend on external credentials, account entitlements, model availability, and provider APIs."
+    note: "Atlas statically tests selection, key isolation, and rendered routing but performs no live credential, entitlement, model-availability, or provider certification; successful requests still depend on external accounts and APIs."
   - name: "Direct cloud-provider service endpoint"
     status: not-supported
     verification: documented

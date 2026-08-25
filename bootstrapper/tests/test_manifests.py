@@ -747,14 +747,20 @@ def test_airflow_manifest_loads():
                     "tested",
                     "Atlas stages selected catalog models and pinned custom nodes, but arbitrary workflow dependencies and readiness remain operator-managed.",
                 ),
-                (
-                    "Supabase output upload",
-                    "stubbed",
-                    "documented",
-                    "The upload flag and bucket variables are placeholders with no stock image, provisioning, or backend consumer.",
-                ),
-            ],
-        ),
+                    (
+                        "Supabase output upload",
+                        "stubbed",
+                        "documented",
+                        "The upload flag and bucket variables are placeholders with no stock image, provisioning, or backend consumer.",
+                    ),
+                    (
+                        "Authenticated ComfyUI ingress",
+                        "not-supported",
+                        "documented",
+                        "The published container UI/API and CORS-only comfyui.localhost route run without Atlas authentication; keep HOST_BIND_IP=127.0.0.1:, remove the publish, or add an authentication proxy before remote exposure.",
+                    ),
+                ],
+            ),
         (
             "lightrag",
             [
@@ -898,6 +904,157 @@ def test_llm_and_media_manifests_meet_structural_capability_quality_floor():
         "LLM/media manifests have entries below the structural capability "
         f"quality floor: {below_quality_floor}"
     )
+
+
+def test_comfyui_ingress_contract_matches_compose_and_kong_boundaries():
+    from pathlib import Path
+
+    import yaml
+
+    from utils.kong_config_generator import KongConfigGenerator
+
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    compose = yaml.safe_load(
+        (repo_root / "services/comfyui/compose.yml").read_text(encoding="utf-8")
+    )
+    comfyui = compose["services"]["comfyui"]
+    assert comfyui["ports"] == ["${HOST_BIND_IP:-}${COMFYUI_PORT}:18188"]
+    assert "WEB_ENABLE_AUTH=false" in comfyui["environment"]
+
+    generator = KongConfigGenerator(config_parser=None)
+    generator.env_vars = {"COMFYUI_SOURCE": "container-cpu"}
+    kong_service = generator.generate_comfyui_service()
+    assert kong_service is not None
+    assert kong_service["routes"][0]["hosts"] == ["comfyui.localhost"]
+    assert kong_service["plugins"] == [{"name": "cors"}]
+
+    manifest = next(
+        manifest
+        for manifest in load_manifests(repo_root / "services")
+        if manifest.name == "comfyui"
+    )
+    capability = next(
+        (
+            capability
+            for capability in manifest.capabilities
+            if capability.name == "Authenticated ComfyUI ingress"
+        ),
+        None,
+    )
+    assert capability is not None
+    assert (capability.status, capability.verification) == (
+        "not-supported",
+        "documented",
+    )
+    for boundary in (
+        "published container UI/API",
+        "CORS-only comfyui.localhost route",
+        "without Atlas authentication",
+        "HOST_BIND_IP=127.0.0.1:",
+        "remove the publish",
+        "authentication proxy",
+    ):
+        assert boundary in capability.note
+
+
+@pytest.mark.parametrize(
+    (
+        "service",
+        "capability_name",
+        "expected_status",
+        "expected_verification",
+        "required_fragments",
+        "forbidden_fragments",
+    ),
+    [
+        (
+            "chatterbox",
+            "GPU voice-cloning text-to-speech",
+            "supported",
+            "documented",
+            ("digest-pinned NVIDIA container", "synthesis and voice cloning"),
+            ("no live model-inference certification",),
+        ),
+        (
+            "cloud-providers",
+            "Live cloud completion validation",
+            "not-supported",
+            "untested",
+            (
+                "statically tests selection, key isolation, and rendered routing",
+                "performs no live credential, entitlement, model-availability, or provider certification",
+            ),
+            (),
+        ),
+        (
+            "fal",
+            "LiteLLM text-to-image passthrough",
+            "partial",
+            "tested",
+            (
+                "OpenAI-shaped b64/URL image result",
+                "without Atlas storage or provenance normalization",
+            ),
+            ("provider-native outputs",),
+        ),
+        (
+            "docling-lightrag-adapter",
+            "Docling credential isolation",
+            "supported",
+            "tested",
+            (
+                "LightRAG receives only the internal adapter URL",
+                "on that isolated boundary, the adapter alone receives the Docling bearer token",
+                "no host-published adapter port",
+            ),
+            ("Only the adapter receives",),
+        ),
+        (
+            "tei-reranker",
+            "Arbitrary reranker model portability",
+            "partial",
+            "documented",
+            (
+                "TEI_RERANKER_REVISION defaults to mutable main",
+                "pin a model commit for reproducible artifacts",
+                "future main contents",
+                "both backends",
+                "memory limits",
+            ),
+            (),
+        ),
+    ],
+)
+def test_task4_reviewed_rows_keep_status_and_verification_orthogonal(
+    service,
+    capability_name,
+    expected_status,
+    expected_verification,
+    required_fragments,
+    forbidden_fragments,
+):
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    manifest = next(
+        manifest
+        for manifest in load_manifests(repo_root / "services")
+        if manifest.name == service
+    )
+    capability = next(
+        capability
+        for capability in manifest.capabilities
+        if capability.name == capability_name
+    )
+
+    assert (capability.status, capability.verification) == (
+        expected_status,
+        expected_verification,
+    )
+    for fragment in required_fragments:
+        assert fragment in capability.note
+    for fragment in forbidden_fragments:
+        assert fragment not in capability.note
 
 
 @pytest.mark.parametrize(

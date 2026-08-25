@@ -17,6 +17,10 @@ capabilities:
     status: stubbed
     verification: documented
     note: "The upload flag and bucket variables are placeholders with no stock image, provisioning, or backend consumer."
+  - name: "Authenticated ComfyUI ingress"
+    status: not-supported
+    verification: documented
+    note: "The published container UI/API and CORS-only comfyui.localhost route run without Atlas authentication; keep HOST_BIND_IP=127.0.0.1:, remove the publish, or add an authentication proxy before remote exposure."
 
 containers:
   - comfyui

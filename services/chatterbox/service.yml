@@ -15,9 +15,9 @@ docs: services/tts-provider/README.md
 
 capabilities:
   - name: "GPU voice-cloning text-to-speech"
-    status: partial
+    status: supported
     verification: documented
-    note: "The TTS selector can start the digest-pinned NVIDIA container and expose Chatterbox synthesis and voice cloning, but Atlas has no live model-inference certification."
+    note: "The TTS selector starts the digest-pinned NVIDIA container and exposes Chatterbox synthesis and voice cloning through the selected provider endpoint."
   - name: "Operator-run localhost Chatterbox"
     status: partial
     verification: documented

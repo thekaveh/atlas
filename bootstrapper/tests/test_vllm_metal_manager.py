@@ -155,6 +155,21 @@ def test_preflight_fails_when_python_missing(tmp_path, monkeypatch):
     assert "not found" in py["detail"]
 
 
+def test_preflight_warns_when_python_version_is_unreadable(tmp_path, monkeypatch):
+    _darwin_arm64(monkeypatch)
+    manager = _mgr(tmp_path)
+    monkeypatch.setattr(manager, "_python_version", lambda _path: None)
+
+    result = manager.preflight()
+
+    python_check = next(
+        check for check in result.checks if check["name"] == "python"
+    )
+    assert python_check["status"] == "warn"
+    assert result.status == "warn"
+    assert result.ok
+
+
 def test_preflight_warns_on_low_memory(tmp_path, monkeypatch):
     _darwin_arm64(monkeypatch, memsize_gb=8)
     result = _mgr(tmp_path, min_memory_gb=16).preflight()
@@ -192,7 +207,11 @@ def test_memory_preflight_behavior_matches_manifest_contract(tmp_path, monkeypat
         for capability in manifest.capabilities
         if capability.name == "Managed Apple-Silicon model serving"
     )
-    assert "enforces macOS arm64 and Python 3.12" in capability.note
+    assert "fails non-macOS/non-arm64 hosts" in capability.note
+    assert "missing Python interpreter" in capability.note
+    assert "detected non-3.12 interpreter" in capability.note
+    assert "unreadable Python version" in capability.note
+    assert "warns and does not block install or start" in capability.note
     assert "VLLM_METAL_MIN_MEMORY_GB" in capability.note
     assert "does not block install or start" in capability.note
     assert "does not certify model fit or prevent OOM" in capability.note
@@ -797,6 +816,58 @@ def test_ensure_running_raises_on_unsupported_host(tmp_path, monkeypatch):
     monkeypatch.setattr(mod.shutil, "which", lambda name: None)
     with pytest.raises(VllmMetalError, match="unsupported host"):
         _mgr(tmp_path).ensure_running()
+
+
+def test_ensure_running_reuses_existing_model_without_reconciliation(
+    tmp_path, monkeypatch
+):
+    from services.manifests import load_manifests
+
+    _darwin_arm64(monkeypatch)
+    manager = _mgr(tmp_path, model="new/model")
+    existing = mod.ProcessStatus(
+        running=True,
+        pid=4242,
+        port=manager.port,
+        model="old/model",
+    )
+    monkeypatch.setattr(manager, "status", lambda: existing)
+    monkeypatch.setattr(
+        manager,
+        "_install_locked",
+        lambda: pytest.fail("existing process must be reused without reinstall"),
+    )
+    monkeypatch.setattr(
+        manager,
+        "_start_locked",
+        lambda: pytest.fail("existing process must be reused without restart"),
+    )
+
+    status, created = manager.ensure_running_with_ownership()
+
+    assert status is existing
+    assert status.model == "old/model"
+    assert manager.model == "new/model"
+    assert created is False
+
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    manifest = next(
+        manifest
+        for manifest in load_manifests(repo_root / "services")
+        if manifest.name == "vllm-metal"
+    )
+    capability = next(
+        capability
+        for capability in manifest.capabilities
+        if capability.name == "Single-model host lifecycle"
+    )
+    for boundary in (
+        "model it was started with",
+        "does not restart or reconcile an already-running process",
+        "stop it before restarting Atlas",
+        "LiteLLM may advertise the new alias against the old model",
+    ):
+        assert boundary in capability.note
 
 
 def test_remove_stops_and_deletes_state(tmp_path, monkeypatch):
