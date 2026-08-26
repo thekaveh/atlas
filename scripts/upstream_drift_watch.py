@@ -10,6 +10,7 @@ import http.client
 import json
 import math
 from pathlib import Path
+import re
 import socket
 import subprocess
 from typing import Any, Sequence
@@ -26,13 +27,22 @@ _REPORT_MARKER = "<!-- atlas-upstream-drift-watch -->"
 _USER_AGENT = "Atlas upstream-drift-watch/1.0"
 _DEFAULT_OLLAMA_TAGS_URL = "http://127.0.0.1:11434/api/tags"
 _DEFAULT_REPORT_FILE = Path("upstream-drift-report.md")
+_DEFAULT_REMOTE_BASE_DIGESTS = Path(".container-scan-exclusions.yml")
 # The watch only resolves registry manifests, but it still keeps this small so
 # a caller cannot turn one nightly check into an unbounded registry fan-out.
 _MAX_IMAGE_WORKERS = 8
 # Both HTTP and image requests use this practical ceiling; it is well above
 # the 5s/15s defaults while remaining representable by their wait APIs.
 _MAX_TIMEOUT_SECONDS = 60.0
+_MAX_REMOTE_DOCKERFILE_BYTES = 256 * 1024
 _OLLAMA_MODEL_SECTIONS = ("content", "embeddings", "vision")
+_REMOTE_GITHUB_CONTEXT = re.compile(
+    r"^https://github\.com/(?P<repository>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)\.git"
+    r"#\$\{(?P<variable>[A-Z][A-Z0-9_]*)\}:(?P<subdir>[^:#]+)$"
+)
+_COMMIT_SHA = re.compile(r"^[0-9a-f]{40}$")
+_IMAGE_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
+_FROM_IMAGE = re.compile(r"^FROM\s+(?:--platform=\S+\s+)?(?P<image>\S+)", re.MULTILINE | re.IGNORECASE)
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,6 +52,16 @@ class ProbeResult:
     name: str
     ok: bool
     detail: str
+
+
+@dataclass(frozen=True, slots=True)
+class RemoteBuildContext:
+    """A manifest-pinned GitHub build context and its Dockerfile path."""
+
+    repository: str
+    ref: str
+    subdir: str
+    dockerfile: str
 
 
 def _read_yaml_mapping(path: Path) -> dict[Any, Any]:
@@ -142,6 +162,104 @@ def load_manifest_image_refs(services_dir: Path) -> tuple[str, ...]:
     if not refs:
         raise ValueError(f"services inventory {services_dir} must declare at least one image reference")
     return _sorted_unique(refs)
+
+
+def load_expected_remote_base_digests(path: Path) -> dict[str, str]:
+    """Load the reviewed digest baseline for mutable remote-context bases."""
+
+    document = _read_yaml_mapping(path).get("remote_base_digests")
+    if not isinstance(document, dict) or not document:
+        raise ValueError(
+            f"{path}: remote_base_digests must be a non-empty image-to-digest mapping"
+        )
+    result: dict[str, str] = {}
+    for reference, digest in document.items():
+        if not isinstance(reference, str) or not reference or "$" in reference:
+            raise ValueError(f"{path}: image references must be non-empty literals")
+        if not isinstance(digest, str) or _IMAGE_DIGEST.fullmatch(digest) is None:
+            raise ValueError(f"{path}: {reference} must map to a sha256 digest")
+        result[reference] = digest
+    return result
+
+
+def _manifest_env_defaults(manifest_path: Path) -> dict[str, str]:
+    document = _read_yaml_mapping(manifest_path)
+    rows = document.get("env", [])
+    if not isinstance(rows, list):
+        raise ValueError(f"{manifest_path}: env must be a list")
+    defaults: dict[str, str] = {}
+    for index, row in enumerate(rows):
+        if not isinstance(row, dict):
+            raise ValueError(f"{manifest_path}: env[{index}] must be a mapping")
+        name = row.get("name")
+        default = row.get("default")
+        if isinstance(name, str) and isinstance(default, str):
+            defaults[name] = default.strip()
+    return defaults
+
+
+def _compose_build_fields(
+    compose_path: Path, service_name: object, service: object
+) -> tuple[object, object] | None:
+    if not isinstance(service, dict):
+        raise ValueError(f"{compose_path}: services.{service_name} must be a mapping")
+    build = service.get("build")
+    if isinstance(build, str):
+        return build, "Dockerfile"
+    if isinstance(build, dict):
+        return build.get("context"), build.get("dockerfile", "Dockerfile")
+    return None
+
+
+def _remote_build_context(
+    compose_path: Path, service_name: object, service: object
+) -> RemoteBuildContext | None:
+    fields = _compose_build_fields(compose_path, service_name, service)
+    if fields is None:
+        return None
+    context_value, dockerfile = fields
+    if not isinstance(context_value, str) or not context_value.startswith(("http://", "https://")):
+        return None
+    match = _REMOTE_GITHUB_CONTEXT.fullmatch(context_value)
+    if match is None:
+        raise ValueError(
+            f"{compose_path}: services.{service_name}.build.context is an unsupported "
+            "or unpinned remote build context"
+        )
+    if not isinstance(dockerfile, str) or not dockerfile or "$" in dockerfile:
+        raise ValueError(f"{compose_path}: services.{service_name}.build.dockerfile must be literal")
+    variable = match.group("variable")
+    ref = _manifest_env_defaults(compose_path.with_name("service.yml")).get(variable, "")
+    if not _COMMIT_SHA.fullmatch(ref):
+        raise ValueError(f"{compose_path}: {variable} default must be a 40-character commit SHA")
+    return RemoteBuildContext(
+        repository=match.group("repository"),
+        ref=ref,
+        subdir=match.group("subdir").strip("/"),
+        dockerfile=dockerfile.strip("/"),
+    )
+
+
+def load_remote_build_contexts(services_dir: Path) -> tuple[RemoteBuildContext, ...]:
+    """Discover GitHub build contexts whose refs are manifest-owned commit pins."""
+
+    if not services_dir.is_dir():
+        raise ValueError(f"services inventory {services_dir} must be an existing directory")
+    contexts: set[RemoteBuildContext] = set()
+    for compose_path in sorted(services_dir.glob("*/compose.yml")):
+        services = _read_yaml_mapping(compose_path).get("services", {})
+        if not isinstance(services, dict):
+            raise ValueError(f"{compose_path}: services must be a mapping")
+        for service_name, service in services.items():
+            context = _remote_build_context(compose_path, service_name, service)
+            if context is not None:
+                contexts.add(context)
+    return tuple(
+        sorted(
+            contexts,
+            key=lambda item: (item.repository, item.ref, item.subdir, item.dockerfile),
+        )
+    )
 
 
 def _bounded_detail(detail: str) -> str:
@@ -357,6 +475,29 @@ def _inspect_image(reference: str, timeout: float) -> str | None:
     return f"{detail}: {_bounded_detail(output)}" if output else detail
 
 
+def _resolve_image_digest(reference: str, timeout: float) -> tuple[str | None, str | None]:
+    try:
+        result = subprocess.run(
+            ["docker", "buildx", "imagetools", "inspect", reference],
+            timeout=timeout,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except subprocess.TimeoutExpired:
+        return None, f"{reference} (timed out after {timeout}s)"
+    except OSError as exc:
+        return None, f"{reference} ({exc})"
+    if result.returncode != 0:
+        output = " ".join(part for part in (result.stdout, result.stderr) if part).strip()
+        detail = f"{reference} (exit {result.returncode})"
+        return None, f"{detail}: {_bounded_detail(output)}" if output else detail
+    match = re.search(r"^Digest:\s+(sha256:[0-9a-f]{64})\s*$", result.stdout, re.MULTILINE)
+    if match is None:
+        return None, f"{reference} (inspect output contained no index digest)"
+    return match.group(1), None
+
+
 def probe_manifest_images(
     refs: Sequence[str], *, timeout: float, workers: int
 ) -> ProbeResult:
@@ -381,6 +522,90 @@ def probe_manifest_images(
     return ProbeResult("manifest images", True, f"resolved {len(refs)} image(s)")
 
 
+def _remote_dockerfile_url(context: RemoteBuildContext) -> str:
+    path = "/".join((context.subdir, context.dockerfile))
+    return f"https://raw.githubusercontent.com/{context.repository}/{context.ref}/{path}"
+
+
+def _load_remote_dockerfile(context: RemoteBuildContext, timeout: float) -> str:
+    request = urllib.request.Request(
+        _remote_dockerfile_url(context),
+        headers={"User-Agent": _USER_AGENT, "Accept": "text/plain"},
+    )
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        status = _response_status(response)
+        if not 200 <= status < 300:
+            raise ValueError(f"HTTP {status}")
+        payload = response.read(_MAX_REMOTE_DOCKERFILE_BYTES + 1)
+    if len(payload) > _MAX_REMOTE_DOCKERFILE_BYTES:
+        raise ValueError(f"Dockerfile exceeds {_MAX_REMOTE_DOCKERFILE_BYTES} bytes")
+    try:
+        return payload.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValueError(f"Dockerfile is not UTF-8: {exc}") from exc
+
+
+def _literal_dockerfile_bases(document: str) -> tuple[str, ...]:
+    bases = []
+    for match in _FROM_IMAGE.finditer(document):
+        image = match.group("image")
+        if "$" in image:
+            raise ValueError(f"non-literal FROM image {image!r}")
+        bases.append(image)
+    if not bases:
+        raise ValueError("Dockerfile contains no FROM instruction")
+    return _sorted_unique(bases)
+
+
+def probe_remote_build_contexts(
+    contexts: Sequence[RemoteBuildContext], *, expected_digests: dict[str, str],
+    http_timeout: float, image_timeout: float
+) -> ProbeResult:
+    """Validate pinned remote Dockerfiles and resolve every literal base image."""
+
+    if not _valid_timeout(http_timeout) or not _valid_timeout(image_timeout):
+        return ProbeResult(
+            "remote build contexts", False, "timeouts must be positive finite numbers"
+        )
+    bases: set[str] = set()
+    failures: list[str] = []
+    for context in contexts:
+        label = f"{context.repository}@{context.ref}:{context.subdir}/{context.dockerfile}"
+        try:
+            bases.update(_literal_dockerfile_bases(_load_remote_dockerfile(context, http_timeout)))
+        except (
+            urllib.error.URLError,
+            http.client.HTTPException,
+            socket.timeout,
+            ConnectionError,
+            OSError,
+            ValueError,
+        ) as exc:
+            failures.append(f"{label} ({_http_failure_detail(exc)})")
+    if bases != set(expected_digests):
+        missing = sorted(bases - set(expected_digests))
+        stale = sorted(set(expected_digests) - bases)
+        failures.append(f"digest baseline mismatch (missing={missing}, stale={stale})")
+    for reference in sorted(bases & set(expected_digests)):
+        digest, failure = _resolve_image_digest(reference, image_timeout)
+        if failure is not None:
+            failures.append(failure)
+        elif digest != expected_digests[reference]:
+            failures.append(
+                f"{reference} digest drift: expected {expected_digests[reference]}, observed {digest}"
+            )
+    if failures:
+        return ProbeResult(
+            "remote build contexts", False, _bounded_detail("; ".join(failures))
+        )
+    return ProbeResult(
+        "remote build contexts",
+        True,
+        f"validated {len(contexts)} pinned Dockerfile(s) and matched "
+        f"{len(bases)} reviewed base-image digest(s)",
+    )
+
+
 def run_watch(
     *,
     ollama_tags_url: str,
@@ -389,6 +614,7 @@ def run_watch(
     http_timeout: float,
     image_timeout: float,
     image_workers: int,
+    remote_base_digests: Path = _DEFAULT_REMOTE_BASE_DIGESTS,
 ) -> tuple[ProbeResult, ...]:
     """Run every independent probe and retain all result details."""
 
@@ -404,11 +630,33 @@ def run_watch(
         images_result = ProbeResult("manifest images", False, f"discovery failed: {exc}")
     else:
         images_result = probe_manifest_images(refs, timeout=image_timeout, workers=image_workers)
+    try:
+        remote_contexts = load_remote_build_contexts(services_dir)
+    except ValueError as exc:
+        remote_result = ProbeResult("remote build contexts", False, f"discovery failed: {exc}")
+    else:
+        if not remote_contexts:
+            remote_result = ProbeResult("remote build contexts", True, "no remote contexts")
+        else:
+            try:
+                expected_digests = load_expected_remote_base_digests(remote_base_digests)
+            except ValueError as exc:
+                remote_result = ProbeResult(
+                    "remote build contexts", False, f"digest baseline failed: {exc}"
+                )
+            else:
+                remote_result = probe_remote_build_contexts(
+                    remote_contexts,
+                    expected_digests=expected_digests,
+                    http_timeout=http_timeout,
+                    image_timeout=image_timeout,
+                )
     return (
         probe_ollama_library(),
         probe_ollama_tags(ollama_tags_url, timeout=http_timeout),
         curated_result,
         images_result,
+        remote_result,
     )
 
 
@@ -420,6 +668,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--services-dir", type=Path, default=Path("services"))
     parser.add_argument("--ollama-models", type=Path, default=Path("services/ollama/models.yaml"))
     parser.add_argument("--report-file", type=Path, default=_DEFAULT_REPORT_FILE)
+    parser.add_argument(
+        "--remote-base-digests", type=Path, default=_DEFAULT_REMOTE_BASE_DIGESTS
+    )
     parser.add_argument("--http-timeout", type=_timeout_argument, default=5.0)
     parser.add_argument("--image-timeout", type=_timeout_argument, default=15.0)
     parser.add_argument("--image-workers", type=_image_workers_argument, default=4)
@@ -432,6 +683,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         http_timeout=args.http_timeout,
         image_timeout=args.image_timeout,
         image_workers=args.image_workers,
+        remote_base_digests=args.remote_base_digests,
     )
     report = render_report(results, datetime.now(timezone.utc))
     args.report_file.write_text(report, encoding="utf-8")

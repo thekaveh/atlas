@@ -729,6 +729,13 @@ def _services_lint_steps() -> list[dict]:
     return [step for job in workflow["jobs"].values() for step in job.get("steps", [])]
 
 
+def _docs_pages_steps() -> list[dict]:
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/docs-pages.yml").read_text(encoding="utf-8")
+    )
+    return [step for job in workflow["jobs"].values() for step in job.get("steps", [])]
+
+
 def _step_index(steps: list[dict], predicate) -> int:
     matches = [i for i, step in enumerate(steps) if predicate(step)]
     assert matches, "no workflow step matched"
@@ -741,19 +748,21 @@ def _is_privacy_cache(step: dict) -> bool:
     )
 
 
-def test_the_docs_job_caches_the_mkdocs_privacy_assets():
+@pytest.mark.parametrize("steps_loader", [_services_lint_steps, _docs_pages_steps])
+def test_every_docs_job_caches_the_mkdocs_privacy_assets(steps_loader):
     """`mkdocs build --strict` + the Material privacy plugin downloads ~20
     external assets at build time, and `.cache` is gitignored. Without a CI
     cache the docs job refetches all of them every run, so one transient
     failure is a hard --strict error on a diff that touched no external URL
     (#934, #941)."""
-    steps = _services_lint_steps()
+    steps = steps_loader()
     cache_at = _step_index(steps, _is_privacy_cache)
-    build_at = _step_index(steps, lambda s: "strict build" in s.get("name", ""))
+    build_at = _step_index(steps, lambda step: step.get("run") == "make docs-check")
     assert cache_at < build_at, "the cache must be restored before the strict build"
 
 
-def test_the_privacy_cache_key_hashes_files_that_actually_exist():
+@pytest.mark.parametrize("steps_loader", [_services_lint_steps, _docs_pages_steps])
+def test_every_privacy_cache_key_hashes_files_that_actually_exist(steps_loader):
     """A `hashFiles()` pattern that matches nothing yields an EMPTY string, so
     the key silently collapses to a constant and the cache never re-primes when
     the fonts or stylesheets change. The first version of this step hashed
@@ -763,7 +772,7 @@ def test_the_privacy_cache_key_hashes_files_that_actually_exist():
     """
     import re
 
-    steps = _services_lint_steps()
+    steps = steps_loader()
     cache = steps[_step_index(steps, _is_privacy_cache)]
     key = cache["with"]["key"]
     patterns = re.findall(r"hashFiles\(([^)]*)\)", key)

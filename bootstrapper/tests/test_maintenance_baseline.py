@@ -122,15 +122,17 @@ def _current_complexity_counts() -> tuple[int, int, int, int, int, int, int]:
     for path in _baseline_python_files():
         counts = _file_complexity_counts(path.read_text(encoding="utf-8"), path)
         totals = [a + b for a, b in zip(totals, counts)]
-    tracked_files = int(
+    # Include untracked, non-ignored additions so a dirty maintenance worktree
+    # cannot appear below the ceiling only to exceed it after the next commit.
+    worktree_files = int(
         subprocess.run(
-            ["git", "ls-files", "-z"],
+            ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
             cwd=ROOT,
             check=True,
             capture_output=True,
         ).stdout.count(b"\0")
     )
-    return (*totals, tracked_files)
+    return (*totals, worktree_files)
 
 
 def _complexity_counts(paths: list[Path]) -> tuple[int, int, int, int, int, int]:

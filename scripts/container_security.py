@@ -157,8 +157,11 @@ def load_build_exclusions(path: Path, *, today: date | None = None) -> tuple[str
     review_date = today or date.today()
     document = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     rows = document.get("builds")
-    if set(document) != {"builds"} or not isinstance(rows, list):
-        raise ValueError(f"{path} must contain only a builds list")
+    allowed_keys = {"builds", "remote_base_digests"}
+    if set(document) - allowed_keys or not isinstance(rows, list):
+        raise ValueError(
+            f"{path} must contain a builds list and only reviewed scan-control keys"
+        )
     targets: list[str] = []
     for index, row in enumerate(rows):
         if not isinstance(row, dict) or set(row) != {"target", "reason", "expired_at"}:

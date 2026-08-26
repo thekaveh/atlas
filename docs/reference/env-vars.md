@@ -220,10 +220,10 @@
 | DOCLING_INFERENCE_TIMEOUT_SECONDS | docling | 900 | Finite conversion and lazy-load deadline in seconds (1-3600). A timeout returns 504 and then exits the provider process for restart. |
 | DOCLING_LOCALHOST_BIND_HOST | docling | 127.0.0.1 | Native Docling listen address. Set another interface explicitly only when remote access is intended. |
 | DOCLING_ADAPTER_MAX_JOBS | docling | 2 | Maximum outstanding LightRAG adapter jobs, reserved before multipart parsing. |
-| DOCLING_ADAPTER_RESULT_TTL_SECONDS | docling | 900 | Seconds a completed LightRAG adapter result may remain before its artifact and job slot are removed. |
+| DOCLING_ADAPTER_RESULT_TTL_SECONDS | docling | 900 | Seconds a completed LightRAG adapter result may remain before verified artifact cleanup begins; the job slot stays occupied and cleanup is retried if deletion fails. |
 | DOCLING_ADAPTER_MAX_RESULT_BYTES | docling | 104857600 | Maximum ZIP result bytes streamed from Docling to adapter storage before the job fails safely. |
 | DOCLING_ADAPTER_UPSTREAM_MAX_ATTEMPTS | docling | 3 | Total bounded Docling request attempts when the provider returns HTTP 429. |
-| DOCLING_ADAPTER_DOWNLOAD_TIMEOUT_SECONDS | docling | 300 | Positive maximum seconds for one result transmission; expiry deletes the artifact and releases its adapter slot. |
+| DOCLING_ADAPTER_DOWNLOAD_TIMEOUT_SECONDS | docling | 300 | Positive maximum seconds for one result transmission; expiry starts verified artifact cleanup, and the adapter slot is released only after deletion succeeds. |
 | DOCLING_ADAPTER_TMPFS_SIZE | docling | 512m | Bounded adapter temporary-storage mount. Size must cover MAX_JOBS times the larger of upload-plus-request-body (upload plus 1 MiB multipart overhead) or upload-plus-result limits, plus at least 64 MiB staging headroom; startup fails when actual capacity is smaller. |
 | DOCLING_ADAPTER_SCALE | docling |  | Derived adapter replica count; one only when both LightRAG and Docling are enabled. |
 | DOCLING_ADAPTER_UPSTREAM_ENDPOINT | docling |  | Authenticated internal bundle route selected for the adapter; never exposed to LightRAG. |

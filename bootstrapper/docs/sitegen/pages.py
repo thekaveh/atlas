@@ -148,6 +148,12 @@ ARCHITECTURE_SOURCE_FILES: dict[str, list[str]] = {
     "service-admission-workflow": [
         "bootstrapper/services/manifest_validator.py",
         "bootstrapper/services/source_validator.py",
+        "bootstrapper/services/topology.py",
+        "bootstrapper/services/env_assembler.py",
+        "bootstrapper/docs/regen.py",
+        "bootstrapper/docs/diagram_renderer.py",
+        "bootstrapper/tools/validate_fragments.py",
+        ".github/workflows/services-lint.yml",
     ],
 }
 

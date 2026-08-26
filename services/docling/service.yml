@@ -96,7 +96,7 @@ env:
     description: "Maximum outstanding LightRAG adapter jobs, reserved before multipart parsing."
   - name: DOCLING_ADAPTER_RESULT_TTL_SECONDS
     default: 900
-    description: "Seconds a completed LightRAG adapter result may remain before its artifact and job slot are removed."
+    description: "Seconds a completed LightRAG adapter result may remain before verified artifact cleanup begins; the job slot stays occupied and cleanup is retried if deletion fails."
   - name: DOCLING_ADAPTER_MAX_RESULT_BYTES
     default: 104857600
     description: "Maximum ZIP result bytes streamed from Docling to adapter storage before the job fails safely."
@@ -105,7 +105,7 @@ env:
     description: "Total bounded Docling request attempts when the provider returns HTTP 429."
   - name: DOCLING_ADAPTER_DOWNLOAD_TIMEOUT_SECONDS
     default: 300
-    description: "Positive maximum seconds for one result transmission; expiry deletes the artifact and releases its adapter slot."
+    description: "Positive maximum seconds for one result transmission; expiry starts verified artifact cleanup, and the adapter slot is released only after deletion succeeds."
   - name: DOCLING_ADAPTER_TMPFS_SIZE
     default: 512m
     description: "Bounded adapter temporary-storage mount. Size must cover MAX_JOBS times the larger of upload-plus-request-body (upload plus 1 MiB multipart overhead) or upload-plus-result limits, plus at least 64 MiB staging headroom; startup fails when actual capacity is smaller."

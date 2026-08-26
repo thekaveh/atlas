@@ -170,7 +170,7 @@
       {
         "path": "services/backend/app/app/main.py",
         "symbol": "submit_media_generation",
-        "cyclomatic_complexity": 59,
+        "cyclomatic_complexity": 58,
         "rationale": "Media boundary combining validation, ownership, admission, persistence, and provider submission; lifecycle tests protect the state transitions."
       },
       {
@@ -214,7 +214,7 @@
       {
         "path": "services/backend/app/app/main.py",
         "symbol": "submit_media_generation",
-        "cyclomatic_complexity": 59,
+        "cyclomatic_complexity": 58,
         "rationale": "Media state-machine boundary combines validation, ownership, admission, persistence, and provider submission; focused lifecycle and recovery tests protect each transition."
       },
       {

@@ -21,10 +21,13 @@ The service is reusable by consumers that send TEI's request body shape (`query`
 | `localhost` | 0 | `http://host.docker.internal:${TEI_RERANKER_LOCALHOST_PORT}` | Host-installed TEI |
 | `disabled` | 0 | `""` | Reranker service off |
 
-When `TEI_RERANKER_SOURCE=container` (either GPU or CPU variant), Kong also
-generates the gateway alias `rerank.localhost` → `http://tei-reranker:80/`, so
-callers can reach the reranker through the gateway in addition to the direct
-`http://tei-reranker:80` / `http://localhost:${TEI_RERANKER_PORT}` endpoints.
+For every enabled source, Kong generates the `rerank.localhost` gateway alias.
+The `container-cpu` and `container-gpu` variants route it to
+`http://tei-reranker:80/`; the `localhost` variant routes it through
+`host.docker.internal:${TEI_RERANKER_LOCALHOST_PORT}`. Container callers can
+also use `http://tei-reranker:80`, while host callers can use the published
+`http://localhost:${TEI_RERANKER_PORT}` endpoint for a container variant or the
+host-installed TEI port directly for `localhost`.
 
 ## 3. Configuration
 

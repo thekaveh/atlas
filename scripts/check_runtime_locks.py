@@ -89,6 +89,11 @@ RUNTIME_LOCKS = (
         "3.12",
         ("x86_64-manylinux_2_28", "aarch64-manylinux_2_28"),
     ),
+    RuntimeLock(
+        "services/requirements-init-locked.txt",
+        "services/requirements-init-locked.txt",
+        "3.12",
+    ),
 )
 
 UV_RUNTIME_LOCKS = (

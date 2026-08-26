@@ -67,7 +67,7 @@ PROJECT_NAME=myproject  # Change from 'atlas' to your project name
 ### 2.4. Access Services
 
 Services are accessible on ports starting from 63000 (base port):
-- **Supabase DB**: http://localhost:63012 (base + 12)
+- **Supabase PostgreSQL**: `psql -h localhost -p 63012 -U supabase_admin -d postgres` (wire-protocol port; base + 12; the default loopback-only direct port uses trust authentication)
 - **Supabase Studio**: http://localhost:63019 (base + 19)
 - **Kong API Gateway**: http://localhost:63000 (base + 0)
 - **N8N**: http://localhost:63075 (base + 75)

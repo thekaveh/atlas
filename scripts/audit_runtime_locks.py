@@ -124,6 +124,7 @@ AUDIT_SPECS = (
     AuditSpec("services/mcp-servers/runtime/requirements-test-locked.txt"),
     AuditSpec("services/asset-worker/app/requirements-test-locked.txt"),
     AuditSpec("services/local-deep-researcher/build/config/runtime-requirements.lock"),
+    AuditSpec("services/requirements-init-locked.txt"),
 )
 
 SOURCE_SPECS: tuple[SourceSpec, ...] = ()
@@ -176,6 +177,7 @@ AUDITED_RUNTIME_MANIFESTS = frozenset(
         "services/mcp-servers/runtime/requirements-locked.txt",
         "services/mcp-servers/runtime/requirements-test.txt",
         "services/mcp-servers/runtime/requirements-test-locked.txt",
+        "services/requirements-init-locked.txt",
         "services/n8n/init/config/package-lock.json",
         "services/n8n/init/config/package.json",
         "services/parakeet/provider/gpu/requirements.txt",

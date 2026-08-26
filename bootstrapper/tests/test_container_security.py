@@ -10,7 +10,7 @@ import pytest
 import yaml
 
 from scripts import container_security
-from scripts.upstream_drift_watch import load_manifest_image_refs
+from scripts.upstream_drift_watch import load_manifest_image_refs, load_remote_build_contexts
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -108,6 +108,24 @@ def test_local_final_image_inventory_is_scanned_or_explicitly_excluded() -> None
 
     assert not scanned & excluded
     assert composed == scanned | excluded
+
+
+def test_remote_build_exclusions_have_executable_drift_watch_controls() -> None:
+    excluded = set(
+        container_security.load_build_exclusions(
+            ROOT / ".container-scan-exclusions.yml", today=date.today()
+        )
+    )
+    remote_exclusions = {target for target in excluded if target.startswith("https://")}
+    controlled = {
+        (
+            f"https://github.com/{context.repository}.git#${{LLM_GRAPH_BUILDER_REF}}:"
+            f"{context.subdir}|{context.dockerfile}"
+        )
+        for context in load_remote_build_contexts(ROOT / "services")
+    }
+
+    assert remote_exclusions == controlled
 
 
 _POLICY_REJECTION_CASES = (

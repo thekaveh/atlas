@@ -16,6 +16,7 @@ import yaml
 import re
 import time
 import secrets
+import sys
 import traceback
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -1413,6 +1414,30 @@ async def _persist_media_operation(operation: Dict[str, Any]) -> None:
     raise last_error
 
 
+async def _join_owned_task(
+    task: asyncio.Task[Any], cancellation_seen: asyncio.Event
+) -> Any:
+    """Finish an accepted-work write despite repeated caller cancellation."""
+    while not task.done():
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            cancellation_seen.set()
+    return task.result()
+
+
+def _cancellation_marker(exc: BaseException | None = None) -> asyncio.Event:
+    marker = asyncio.Event()
+    if isinstance(exc, asyncio.CancelledError):
+        marker.set()
+    return marker
+
+
+def _raise_if_cancelled(cancellation_seen: asyncio.Event) -> None:
+    if cancellation_seen.is_set():
+        raise asyncio.CancelledError()
+
+
 async def _cancel_unpersisted_media_operation(
     *, api_key: str, model: str, operation_id: str, modality: str
 ) -> bool:
@@ -2216,10 +2241,11 @@ async def submit_media_generation(
             # that work, so retain it under Atlas' durable local id and expose
             # an explicit manual-reconciliation record.
             reservation_settled = True
+            deferred_cancellation = _cancellation_marker(exc)
             ledger_record_persisted = reservation is not None
             try:
-                await asyncio.shield(
-                    MEDIA_BUDGET_ENGINE.record_ambiguous(
+                await _join_owned_task(
+                    asyncio.create_task(MEDIA_BUDGET_ENGINE.record_ambiguous(
                         operation_id=reservation_id,
                         consumer=consumer,
                         project=project,
@@ -2229,7 +2255,8 @@ async def submit_media_generation(
                         estimated_cost_usd=estimated_cost,
                         pricing_source_ts=pricing_ts,
                         model_version=model_version,
-                    )
+                    )),
+                    deferred_cancellation,
                 )
                 ledger_record_persisted = True
             except Exception as ledger_exc:
@@ -2272,7 +2299,12 @@ async def submit_media_generation(
             }
             local_record_persisted = True
             try:
-                await asyncio.shield(_persist_media_operation(unknown_operation))
+                await _join_owned_task(
+                    asyncio.create_task(
+                        _persist_media_operation(unknown_operation)
+                    ),
+                    deferred_cancellation,
+                )
             except Exception as persistence_exc:
                 local_record_persisted = False
                 logger.error(
@@ -2282,6 +2314,8 @@ async def submit_media_generation(
                 )
             if isinstance(exc, asyncio.CancelledError):
                 raise
+            if deferred_cancellation.is_set():
+                raise asyncio.CancelledError()
             raise HTTPException(
                 status_code=status.HTTP_504_GATEWAY_TIMEOUT,
                 detail={
@@ -2319,7 +2353,7 @@ async def submit_media_generation(
         # persist a durable retry intent and retain the reservation instead.
         budget_tracked = reservation is not None
         ledger_attach_pending = False
-        post_accept_cancelled = False
+        post_accept_cancellation = _cancellation_marker()
         cleanup_candidate_ids: tuple[str, ...] = ()
         try:
             await MEDIA_BUDGET_ENGINE.attach_operation(
@@ -2332,13 +2366,19 @@ async def submit_media_generation(
                 modality=modality,
             )
         except asyncio.CancelledError:
-            post_accept_cancelled = True
+            post_accept_cancellation.set()
             budget_tracked = False
             cleanup_candidate_ids = (reservation_id, operation_id)
             ledger_attach_pending = reservation is not None
         except LedgerOperationCollisionError as exc:
-            await MEDIA_BUDGET_ENGINE.release(reservation_id, force=True)
+            await _join_owned_task(
+                asyncio.create_task(
+                    MEDIA_BUDGET_ENGINE.release(reservation_id, force=True)
+                ),
+                post_accept_cancellation,
+            )
             reservation_settled = True
+            _raise_if_cancelled(post_accept_cancellation)
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail="Provider returned a duplicate media operation id",
@@ -2352,7 +2392,12 @@ async def submit_media_generation(
             ledger_attach_pending = reservation is not None
             reservation_settled = True
             try:
-                await MEDIA_BUDGET_ENGINE.protect_attach_ids((reservation_id,))
+                await _join_owned_task(
+                    asyncio.create_task(
+                        MEDIA_BUDGET_ENGINE.protect_attach_ids((reservation_id,))
+                    ),
+                    post_accept_cancellation,
+                )
             except Exception as protection_exc:
                 logger.warning(
                     "Could not retention-protect pending ledger attachment %s: %s",
@@ -2371,21 +2416,24 @@ async def submit_media_generation(
             cleanup_provenance = dict(operation_payload.get("provenance") or {})
             cleanup_provenance["ledger_attach_protection_clear_pending"] = True
             operation_payload["provenance"] = cleanup_provenance
-        if post_accept_cancelled and reservation is None:
+        if post_accept_cancellation.is_set() and reservation is None:
             try:
-                await asyncio.shield(
-                    MEDIA_BUDGET_ENGINE.record_ambiguous(
-                        operation_id=operation_id,
-                        consumer=consumer,
-                        project=project,
-                        provider=provider,
-                        model=submitted_model,
-                        modality=modality,
-                        estimated_cost_usd=estimated_cost,
-                        pricing_source_ts=pricing_ts,
-                        model_version=model_version,
-                        allow_existing=False,
-                    )
+                await _join_owned_task(
+                    asyncio.create_task(
+                        MEDIA_BUDGET_ENGINE.record_ambiguous(
+                            operation_id=operation_id,
+                            consumer=consumer,
+                            project=project,
+                            provider=provider,
+                            model=submitted_model,
+                            modality=modality,
+                            estimated_cost_usd=estimated_cost,
+                            pricing_source_ts=pricing_ts,
+                            model_version=model_version,
+                            allow_existing=False,
+                        )
+                    ),
+                    post_accept_cancellation,
                 )
                 budget_tracked = True
             except Exception as exc:
@@ -2410,12 +2458,10 @@ async def submit_media_generation(
             "reconciled": False,
         }
         try:
-            persist_task = asyncio.create_task(_persist_media_operation(operation))
-            try:
-                await asyncio.shield(persist_task)
-            except asyncio.CancelledError:
-                post_accept_cancelled = True
-                await persist_task
+            await _join_owned_task(
+                asyncio.create_task(_persist_media_operation(operation)),
+                post_accept_cancellation,
+            )
         except MediaOperationCollisionError as exc:
             # Never cancel or retention-mark an id already owned by another
             # request. Release only a ledger row whose immutable attribution
@@ -2424,7 +2470,12 @@ async def submit_media_generation(
                 reservation_id,
             )
             for candidate_id in candidate_ids:
-                candidate = await MEDIA_BUDGET_ENGINE.store.get(candidate_id)
+                candidate = await _join_owned_task(
+                    asyncio.create_task(
+                        MEDIA_BUDGET_ENGINE.store.get(candidate_id)
+                    ),
+                    post_accept_cancellation,
+                )
                 if candidate is not None and (
                     candidate.consumer,
                     candidate.project,
@@ -2432,8 +2483,14 @@ async def submit_media_generation(
                     candidate.model,
                     candidate.modality,
                 ) == (consumer, project, provider, submitted_model, modality):
-                    await MEDIA_BUDGET_ENGINE.release(candidate_id, force=True)
+                    await _join_owned_task(
+                        asyncio.create_task(
+                            MEDIA_BUDGET_ENGINE.release(candidate_id, force=True)
+                        ),
+                        post_accept_cancellation,
+                    )
             reservation_settled = True
+            _raise_if_cancelled(post_accept_cancellation)
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail="Provider returned a duplicate media operation id",
@@ -2444,11 +2501,16 @@ async def submit_media_generation(
             # must not release it.
             reservation_settled = True
             if provider == "fal":
-                provider_cancellation_requested = await _cancel_unpersisted_media_operation(
-                    api_key=api_key,
-                    model=submitted_model,
-                    operation_id=operation_id,
-                    modality=modality,
+                provider_cancellation_requested = await _join_owned_task(
+                    asyncio.create_task(
+                        _cancel_unpersisted_media_operation(
+                            api_key=api_key,
+                            model=submitted_model,
+                            operation_id=operation_id,
+                            modality=modality,
+                        )
+                    ),
+                    post_accept_cancellation,
                 )
             else:
                 # Local providers (comfyui) are free (cost_usd=0); an unpersisted
@@ -2465,16 +2527,21 @@ async def submit_media_generation(
                 recovery_ledger_ids = [operation_id]
             else:
                 try:
-                    await MEDIA_BUDGET_ENGINE.record_ambiguous(
-                        operation_id=operation_id,
-                        consumer=consumer,
-                        project=project,
-                        provider=provider,
-                        model=submitted_model,
-                        modality=modality,
-                        estimated_cost_usd=estimated_cost,
-                        pricing_source_ts=pricing_ts,
-                        model_version=model_version,
+                    await _join_owned_task(
+                        asyncio.create_task(
+                            MEDIA_BUDGET_ENGINE.record_ambiguous(
+                                operation_id=operation_id,
+                                consumer=consumer,
+                                project=project,
+                                provider=provider,
+                                model=submitted_model,
+                                modality=modality,
+                                estimated_cost_usd=estimated_cost,
+                                pricing_source_ts=pricing_ts,
+                                model_version=model_version,
+                            )
+                        ),
+                        post_accept_cancellation,
                     )
                     recovery_ledger_ids = [operation_id]
                 except Exception as recovery_exc:
@@ -2486,8 +2553,13 @@ async def submit_media_generation(
                     )
             if recovery_ledger_ids:
                 try:
-                    await MEDIA_BUDGET_ENGINE.protect_recovery_ids(
-                        tuple(recovery_ledger_ids)
+                    await _join_owned_task(
+                        asyncio.create_task(
+                            MEDIA_BUDGET_ENGINE.protect_recovery_ids(
+                                tuple(recovery_ledger_ids)
+                            )
+                        ),
+                        post_accept_cancellation,
                     )
                 except Exception as protection_exc:
                     logger.error(
@@ -2505,6 +2577,7 @@ async def submit_media_generation(
                 ledger_attach_pending,
                 exc,
             )
+            _raise_if_cancelled(post_accept_cancellation)
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail={
@@ -2520,22 +2593,35 @@ async def submit_media_generation(
             ) from exc
         # Attached + persisted: the reservation is now tracked as this operation.
         reservation_settled = True
-        persisted_operation = await MEDIA_OPERATION_STORE.get(operation_id)
+        persisted_operation = await _join_owned_task(
+            asyncio.create_task(MEDIA_OPERATION_STORE.get(operation_id)),
+            post_accept_cancellation,
+        )
         if persisted_operation is not None:
             try:
-                await _maybe_recover_media_ledger_intent(
-                    operation_id, persisted_operation
+                await _join_owned_task(
+                    asyncio.create_task(
+                        _maybe_recover_media_ledger_intent(
+                            operation_id, persisted_operation
+                        )
+                    ),
+                    post_accept_cancellation,
                 )
             except HTTPException:
                 # The durable outbox retains transient clear/attach work.
                 pass
-        if post_accept_cancelled:
-            raise asyncio.CancelledError()
+        _raise_if_cancelled(post_accept_cancellation)
         return _media_response(payload)
     finally:
         if not reservation_settled and reservation is not None:
+            cleanup_cancellation = _cancellation_marker(sys.exc_info()[1])
             try:
-                await MEDIA_BUDGET_ENGINE.release(reservation_id)
+                await _join_owned_task(
+                    asyncio.create_task(
+                        MEDIA_BUDGET_ENGINE.release(reservation_id)
+                    ),
+                    cleanup_cancellation,
+                )
             except Exception as cleanup_exc:
                 cleanup_payload = {
                     "operation_id": reservation_id,
@@ -2575,7 +2661,12 @@ async def submit_media_generation(
                 }
                 local_record_persisted = True
                 try:
-                    await _persist_media_operation(cleanup_operation)
+                    await _join_owned_task(
+                        asyncio.create_task(
+                            _persist_media_operation(cleanup_operation)
+                        ),
+                        cleanup_cancellation,
+                    )
                 except Exception as persistence_exc:
                     local_record_persisted = False
                     logger.error(
@@ -2583,6 +2674,7 @@ async def submit_media_generation(
                         reservation_id,
                         persistence_exc,
                     )
+                _raise_if_cancelled(cleanup_cancellation)
                 raise HTTPException(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                     detail={
@@ -2593,6 +2685,7 @@ async def submit_media_generation(
                         "manual_reconciliation_required": True,
                     },
                 ) from cleanup_exc
+            _raise_if_cancelled(cleanup_cancellation)
 
 
 # Terminal media-operation statuses — once reached, polls return the stored

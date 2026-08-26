@@ -28,6 +28,7 @@ updates:
       - "/services/asset-worker/app"
       - "/services/asset-baker/app"
       - "/services/mcp-servers/runtime"
+      - "/services"
     schedule:
       interval: weekly
       day: monday
