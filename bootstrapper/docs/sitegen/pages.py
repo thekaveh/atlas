@@ -364,9 +364,11 @@ _NODE_KINDS = {
 ARCHITECTURE_INTERPRETATIONS: dict[str, str] = {
     "platform-overview": (
         "Direct published ports bypass Kong deliberately, for host tools that "
-        "can't use the `*.localhost` gateway. All model traffic — local and "
-        "cloud — is funneled through LiteLLM so credentials and routing live in "
-        "exactly one place (see [LLM provider flow](./llm-provider-flow.md))."
+        "can't use the `*.localhost` gateway. Atlas-managed consumers use "
+        "LiteLLM as the default path for local and cloud model traffic, "
+        "centralizing credentials and routing. Services with explicit "
+        "native-provider role overrides, such as LightRAG, can bypass LiteLLM "
+        "by design (see [LLM provider flow](./llm-provider-flow.md))."
     ),
     "bootstrapper-lifecycle": (
         "Each stage gates the next; a failure in any stage before Compose must "

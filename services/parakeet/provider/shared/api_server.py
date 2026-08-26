@@ -24,7 +24,7 @@ from provider_boundary import (
     parse_timeout_seconds,
     run_with_deadline,
 )
-from startup import ModelStartup
+from startup import ModelStartup, model_lifespan
 
 try:
     from transcribe import load_model, model_is_loaded, transcribe_audio_sync
@@ -56,9 +56,8 @@ _model_startup = ModelStartup(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    del app
-    _model_startup.start()
-    yield
+    async with model_lifespan(app, _model_startup):
+        yield
 
 
 app = FastAPI(

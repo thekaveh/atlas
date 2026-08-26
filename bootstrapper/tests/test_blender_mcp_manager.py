@@ -843,8 +843,9 @@ def test_ownership_uses_start_time_not_the_command_line(tmp_path, monkeypatch):
     whole failure mode disappears with a fixed-width `ps -o lstart=` probe.
 
     `(pid, start time)` is unique on POSIX. The locale/TZ concern that
-    replaces truncation is handled once, in `managed_host._process_start_time`
-    (it pins TZ=UTC and LC_ALL=C), and is tested there.
+    replaces truncation is handled once, in
+    `services.legacy_process_start_identity` (it pins TZ=UTC and LC_ALL=C),
+    and is tested there.
     """
     from services.managed_host import write_pid_file_with_identity
 
@@ -853,14 +854,14 @@ def test_ownership_uses_start_time_not_the_command_line(tmp_path, monkeypatch):
 
     write_pid_file_with_identity(manager.pid_file, 4242, "Mon Jan  1 00:00:00 2024")
     monkeypatch.setattr(
-        "services.managed_host.ManagedHostManager._process_start_time",
-        staticmethod(lambda pid: "Tue Feb  2 02:02:02 2027"),
+        "services.legacy_process_start_identity",
+        lambda pid: "Tue Feb  2 02:02:02 2027",
     )
     assert manager._pid_is_stranger(4242) is True, "a recycled pid would be signalled"
 
     monkeypatch.setattr(
-        "services.managed_host.ManagedHostManager._process_start_time",
-        staticmethod(lambda pid: "Mon Jan  1 00:00:00 2024"),
+        "services.legacy_process_start_identity",
+        lambda pid: "Mon Jan  1 00:00:00 2024",
     )
     assert manager._pid_is_stranger(4242) is False
 

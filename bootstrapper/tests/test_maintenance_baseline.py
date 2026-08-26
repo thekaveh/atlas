@@ -1,15 +1,28 @@
 from __future__ import annotations
 
 import ast
+from copy import deepcopy
+from datetime import date, timedelta
 import json
 import subprocess
 from pathlib import Path
 
+import pytest
 from radon.complexity import cc_rank, cc_visit
 from radon.raw import analyze
 
 
 ROOT = Path(__file__).resolve().parents[2]
+EXPECTED_BASELINE_SNAPSHOT = {
+    "radon_grade_c_or_worse": 359,
+    "radon_grade_e_or_worse": 20,
+    "functions_over_60_physical_lines": 189,
+    "functions_over_100_physical_lines": 70,
+    "functions_over_4_parameters": 138,
+    "modules_over_600_logical_lines": 16,
+    "tracked_files": 1472,
+    "v0.1.0_tracked_files": 667,
+}
 
 
 def _baseline_python_files() -> list[Path]:
@@ -125,16 +138,33 @@ def _assert_accepted_signal_grounded(item: dict) -> None:
         _assert_length_signal(item, source, path)
 
 
-def test_complexity_baseline_is_owned_and_reviewed() -> None:
-    complexity = _complexity_ledger()
-
+def _assert_complexity_baseline_owned(
+    complexity: dict, *, today: date = date.today()
+) -> None:
     assert complexity["owner"] == "Atlas maintainers"
-    assert complexity["review_by"] >= "2026-09-01"
+    assert date.fromisoformat(complexity["review_by"]) >= today
     assert "Do not increase" in complexity["regression_policy"]
-    assert complexity["baseline_snapshot"]["radon_grade_e_or_worse"] == 20
-    assert complexity["baseline_snapshot"]["radon_grade_c_or_worse"] == 359
-    assert complexity["baseline_snapshot"]["functions_over_60_physical_lines"] == 189
-    assert complexity["baseline_snapshot"]["functions_over_100_physical_lines"] == 70
+    assert complexity["baseline_snapshot"] == EXPECTED_BASELINE_SNAPSHOT
+
+
+def test_complexity_baseline_is_owned_and_reviewed() -> None:
+    _assert_complexity_baseline_owned(_complexity_ledger())
+
+
+def test_every_maintenance_ceiling_is_immutable_without_review() -> None:
+    original = _complexity_ledger()
+    for key in EXPECTED_BASELINE_SNAPSHOT:
+        mutated = deepcopy(original)
+        mutated["baseline_snapshot"][key] += 1
+        with pytest.raises(AssertionError):
+            _assert_complexity_baseline_owned(mutated)
+
+
+def test_expired_maintenance_review_deadline_fails() -> None:
+    mutated = deepcopy(_complexity_ledger())
+    mutated["review_by"] = (date.today() - timedelta(days=1)).isoformat()
+    with pytest.raises(AssertionError):
+        _assert_complexity_baseline_owned(mutated)
 
 
 def test_complexity_baseline_is_recomputed_and_regression_bounded() -> None:

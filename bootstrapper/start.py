@@ -5521,7 +5521,7 @@ class AtlasStartGroup(click.Group):
               type=click.Choice(['ollama-container-cpu', 'ollama-container-gpu', 'ollama-localhost',
                                 'none'], case_sensitive=False),
               help='Override LLM_PROVIDER_SOURCE (Ollama upstream for the LiteLLM gateway). '
-                   'Use "none" for cloud-only operation.')
+                   'Use "none" for no Ollama upstream (vLLM Metal and/or cloud may remain).')
 @click.option('--cloud-openai-source',
               type=click.Choice(['enabled', 'disabled'], case_sensitive=False),
               help='Enable/disable the OpenAI cloud provider in LiteLLM (requires OPENAI_API_KEY).')

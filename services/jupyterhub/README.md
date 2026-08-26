@@ -8,7 +8,7 @@
 
 ## 1. Overview
 
-JupyterHub provides an interactive Jupyter Lab environment pre-configured with access to all Atlas services. It's designed for data scientists and AI engineers to experiment, prototype, and develop AI applications.
+JupyterHub provides an interactive Jupyter Lab environment pre-configured for Atlas's declared notebook integrations. It's designed for data scientists and AI engineers to experiment, prototype, and develop AI applications.
 
 ## 2. Quick Start
 
@@ -39,7 +39,7 @@ JUPYTERHUB_SOURCE=disabled
 - **Financial Research Kit**: OpenBB + CCXT libraries and a guarded paper-portfolio notebook for read-only market research
 - **Sample Notebooks**: 16 ready-to-use notebooks (00-15) demonstrating service integration
 - **Persistent Storage**: All notebooks saved in Docker volumes
-- **Environment Variables**: Auto-configured connections to all services
+- **Environment Variables**: Auto-configured connections for the integrations declared in `services/jupyterhub/service.yml`; optional gaps such as the current MCP endpoint remain explicit
 - **Multi-kernel runtime**: Python 3 (default) plus **Scala 2.13** and **Scala 3** kernels via Almond. Pick one from JupyterLab's launcher or VS Code's kernel picker. See §11.
 - **VS Code-ready**: configured for remote-Jupyter access out of the box. Open local `.ipynb` files in VS Code and run them on this container as the kernel. See §10.
 

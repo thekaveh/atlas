@@ -2,7 +2,7 @@
 
 ## 1. Overview
 
-LiteLLM is the always-on OpenAI-compatible front door for every LLM provider in the stack. Every consumer service (Backend, Open WebUI, n8n, JupyterHub, Local Deep Researcher, OpenClaw, Weaviate vectorization) talks to **one URL** and **one API key** — `LITELLM_BASE_URL` / `LITELLM_API_KEY` — and LiteLLM routes each request to the right upstream based on the model name.
+LiteLLM is the always-on OpenAI-compatible front door for every LLM provider in the stack. The default Atlas-managed consumer path (Backend, Open WebUI, n8n, JupyterHub, Local Deep Researcher, OpenClaw, Weaviate vectorization) uses **one URL** and **one API key** — `LITELLM_BASE_URL` / `LITELLM_API_KEY` — and LiteLLM routes each request to the right upstream based on the model name. Services with an explicitly documented native-provider override, such as LightRAG role bindings, can bypass this default path.
 
 When [Hermes Agent](../hermes/README.md) is enabled, `services/litellm/init/scripts/init.py` appends a `hermes-agent` row to `model_list` whose `api_base` is `${HERMES_ENDPOINT}/v1`. The entry is NOT sourced from the YAML model catalogs (Hermes is a service/runtime, not a model provider type), so it lives outside the catalog taxonomy but uses the same `os.environ/HERMES_API_KEY` bearer token. Effect: Open WebUI, n8n, backend, jupyterhub, openclaw all see `hermes-agent` in the dropdown with no per-consumer wiring.
 
@@ -15,21 +15,24 @@ When [Hermes Agent](../hermes/README.md) is enabled, `services/litellm/init/scri
 ## 3. Architecture
 
 ```
-Consumers ──► litellm:4000 ──► Local engine (Ollama) and/or Cloud providers
+Consumers ──► litellm:4000 ──► Ollama / vLLM Metal / Cloud providers
                   │
                   ├─► supabase-db:5432/litellm   (DATABASE_URL)
                   └─► redis:6379                 (REDIS_HOST/PORT/PASSWORD)
 ```
 
-- **Local engine** is a single-select choice (`LLM_PROVIDER_SOURCE`):
+- **Ollama upstream** is a single-select choice (`LLM_PROVIDER_SOURCE`):
   - `ollama-container-cpu` / `ollama-container-gpu` — Docker Ollama upstream
   - `ollama-localhost` — Ollama running on the host machine
-  - `none` — no local engine (cloud only)
+  - `none` — no Ollama upstream
+- **vLLM Metal** is an independent managed-host choice:
+  - `VLLM_METAL_SOURCE=managed-localhost` — native Apple-silicon vLLM upstream
+  - `VLLM_METAL_SOURCE=disabled` — default
 - **Cloud providers** are independent toggles (each `enabled` / `disabled`):
   - `CLOUD_OPENAI_SOURCE` (requires `OPENAI_API_KEY`)
   - `CLOUD_ANTHROPIC_SOURCE` (requires `ANTHROPIC_API_KEY`)
   - `CLOUD_OPENROUTER_SOURCE` (requires `OPENROUTER_API_KEY`)
-- Bootstrapper refuses to start when `LLM_PROVIDER_SOURCE=none` AND every cloud source is `disabled`.
+- Bootstrapper refuses to start only when `LLM_PROVIDER_SOURCE=none`, vLLM Metal is disabled, AND every cloud source is disabled.
 
 ## 4. Persistence
 
@@ -265,7 +268,7 @@ psql -h localhost -p ${SUPABASE_DB_PORT} -U postgres -d litellm -c "SELECT * FRO
 
 ## 12. Backup option
 
-If LiteLLM ever stops being a fit (license shift, security incident, project drift), [Portkey AI Gateway](https://github.com/Portkey-ai/gateway) (Apache-2.0) is the documented fallback. Migration cost is bounded because every consumer reads only `LITELLM_BASE_URL` + `LITELLM_API_KEY` — swap the gateway, not the consumers.
+If LiteLLM ever stops being a fit (license shift, security incident, project drift), [Portkey AI Gateway](https://github.com/Portkey-ai/gateway) (Apache-2.0) is the documented fallback. Migration cost is bounded for the default Atlas-managed path because those consumers read `LITELLM_BASE_URL` + `LITELLM_API_KEY` — swap the gateway there, then preserve or migrate any explicitly configured native-provider overrides separately.
 
 ## 13. Built-in `lightrag` model
 

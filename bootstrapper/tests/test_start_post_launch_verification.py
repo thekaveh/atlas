@@ -457,7 +457,8 @@ def test_generated_blender_launcher_survives_unsupported_first_family(tmp_path):
     [
         ("tIPv4\nn127.0.0.1:8123\n", "127.0.0.1", True),
         ("tIPv4\nn127.0.0.2:8123\n", "127.0.0.1", False),
-        ("tIPv4\nn*:8123\n", "127.0.0.1", True),
+        ("tIPv4\nn*:8123\n", "127.0.0.1", False),
+        ("tIPv4\nn*:8123\n", "0.0.0.0", True),
         ("tIPv6\nn[::1]:8123\n", "::1", True),
         ("tIPv6\nn[::1]:8123\n", "127.0.0.1", False),
         ("tIPv6\nn[::1]:8124\n", "::1", False),
@@ -533,9 +534,12 @@ def test_linux_proc_table_filters_address_family_state_and_malformed_rows(
     monkeypatch.setattr(Path, "read_text", fake_read_text)
     assert services_module._linux_listening_socket_inodes(
         "127.0.0.1", 8123
-    ) == {"111", "113"}
+    ) == {"111"}
     assert services_module._linux_listening_socket_inodes(
         "127.0.0.3", 8123
+    ) == set()
+    assert services_module._linux_listening_socket_inodes(
+        "0.0.0.0", 8123
     ) == {"113"}
     assert services_module._linux_listening_socket_inodes("::1", 8123) == {"211"}
 

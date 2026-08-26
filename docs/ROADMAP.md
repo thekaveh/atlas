@@ -44,9 +44,9 @@ The stack orchestrates repository-defined containerized and virtual service fami
 **Unified LLM gateway (LiteLLM)**
 - Always-on OpenAI-compatible front door for every LLM provider. Pinned image: `ghcr.io/berriai/litellm:v1.83.14-stable.patch.2`. Listens on port 63040.
 - Wizard model: locked LiteLLM tile + selectable LLM Engine (single-select Ollama upstream: `ollama-container-cpu/gpu`, `ollama-localhost`, `none`) + three multi-enable Cloud tiles (OpenAI, Anthropic, OpenRouter).
-- Bootstrapper auto-generates `LITELLM_MASTER_KEY` on first start and refuses to start when no upstream is configured (engine=none + all cloud disabled).
+- Bootstrapper auto-generates `LITELLM_MASTER_KEY` on first start and refuses to start when no upstream is configured (engine=none + vLLM Metal disabled + all cloud disabled).
 - Persistence: dedicated `litellm` database on the existing Supabase Postgres (Prisma migrations run automatically). Redis used for response cache + rate-limit state.
-- Consumers (Backend, Open WebUI, n8n, JupyterHub, Local Deep Researcher, OpenClaw Gateway, Weaviate) all read `LITELLM_BASE_URL` + `LITELLM_API_KEY`. Documented backup option: Portkey AI Gateway.
+- The default Atlas-managed consumer path (Backend, Open WebUI, n8n, JupyterHub, Local Deep Researcher, OpenClaw Gateway, Weaviate) reads `LITELLM_BASE_URL` + `LITELLM_API_KEY`; documented native-provider overrides remain explicit exceptions. Documented backup option: Portkey AI Gateway.
 
 **LangMem persistent memory**
 - Automated fact extraction from conversations via Ollama LLM

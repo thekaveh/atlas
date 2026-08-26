@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
+import subprocess
 import sys
 import threading
 import types
 from pathlib import Path
+
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -113,6 +116,119 @@ def test_startup_loader_failure_is_generic_unhealthy_and_terminates():
     assert exits == [startup_module.FATAL_TIMEOUT_EXIT_CODE]
 
 
+def test_lifespan_forces_exit_when_native_model_load_blocks_shutdown():
+    startup_module = _load(STARTUP, "parakeet_startup_shutdown")
+    started = threading.Event()
+    release = threading.Event()
+    exits: list[int] = []
+
+    def loader():
+        started.set()
+        release.wait(timeout=5)
+        return object()
+
+    def terminate(code):
+        exits.append(code)
+        release.set()
+
+    async def scenario():
+        startup = startup_module.ModelStartup(
+            "PARAKEET",
+            loader,
+            timeout_seconds=2,
+            shutdown_timeout_seconds=0.01,
+            terminate=terminate,
+        )
+        async with startup_module.model_lifespan(object(), startup):
+            deadline = asyncio.get_running_loop().time() + 2
+            while not started.is_set():
+                assert asyncio.get_running_loop().time() < deadline
+                await asyncio.sleep(0.01)
+        return startup
+
+    startup = asyncio.run(scenario())
+    assert exits == [startup_module.FATAL_TIMEOUT_EXIT_CODE]
+    assert startup.state == "unhealthy"
+
+
+def test_lifespan_cancellation_terminates_and_leaves_no_wrapper_task():
+    startup_module = _load(STARTUP, "parakeet_startup_cancelled_shutdown")
+    started = threading.Event()
+    release = threading.Event()
+    exits: list[int] = []
+
+    def loader():
+        started.set()
+        release.wait(timeout=5)
+        return object()
+
+    def terminate(code):
+        exits.append(code)
+        release.set()
+
+    async def scenario():
+        startup = startup_module.ModelStartup(
+            "PARAKEET",
+            loader,
+            timeout_seconds=2,
+            shutdown_timeout_seconds=1,
+            terminate=terminate,
+        )
+        lifespan = startup_module.model_lifespan(object(), startup)
+        await lifespan.__aenter__()
+        deadline = asyncio.get_running_loop().time() + 2
+        while not started.is_set():
+            assert asyncio.get_running_loop().time() < deadline
+            await asyncio.sleep(0.01)
+        closing = asyncio.create_task(lifespan.__aexit__(None, None, None))
+        await asyncio.sleep(0)
+        closing.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await closing
+        assert startup._task is not None
+        assert startup._task.done()
+        return startup
+
+    startup = asyncio.run(scenario())
+    assert exits == [startup_module.FATAL_TIMEOUT_EXIT_CODE]
+    assert startup.state == "unhealthy"
+
+
+def test_default_shutdown_terminator_exits_process_with_code_70():
+    script = f"""
+import asyncio
+import importlib.util
+import threading
+
+spec = importlib.util.spec_from_file_location("parakeet_subprocess_startup", {str(STARTUP)!r})
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+
+async def main():
+    startup = module.ModelStartup(
+        "PARAKEET",
+        lambda: threading.Event().wait(),
+        timeout_seconds=30,
+        shutdown_timeout_seconds=0.02,
+    )
+    startup.start()
+    await asyncio.sleep(0.05)
+    await startup.shutdown()
+
+asyncio.run(main())
+"""
+
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        timeout=5,
+        check=False,
+    )
+
+    assert completed.returncode == 70, completed.stderr
+
+
 def test_gpu_module_never_loads_model_during_import(monkeypatch):
     calls = 0
 
@@ -143,7 +259,7 @@ def test_both_parakeet_apis_use_lifespan_boundary_and_deadline():
     for path in (GPU_API, MLX_API):
         source = path.read_text(encoding="utf-8")
         assert "lifespan=" in source
-        assert "_model_startup.start()" in source
+        assert "model_lifespan(app, _model_startup)" in source
         assert "load_boundary_settings(" in source
         assert '"/v1/audio/transcriptions"' in source
         assert '"/v1/audio/transcriptions/advanced"' in source

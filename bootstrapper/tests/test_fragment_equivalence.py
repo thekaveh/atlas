@@ -27,6 +27,7 @@ import shutil
 import subprocess
 import tempfile
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -212,8 +213,18 @@ def _render(compose_file: Path) -> dict:
 
 def _load_baseline() -> dict:
     if not BASELINE.is_file():
-        pytest.skip(f"baseline fixture missing at {BASELINE}")
+        raise FileNotFoundError(
+            f"required byte-equivalence baseline fixture missing at {BASELINE}"
+        )
     return _strip_volatile_defaults(yaml.safe_load(BASELINE.read_text()))
+
+
+def test_missing_baseline_is_a_hard_gate_failure(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        sys.modules[__name__], "BASELINE", tmp_path / "deleted-baseline.yml"
+    )
+    with pytest.raises(FileNotFoundError, match="required byte-equivalence"):
+        _load_baseline()
 
 
 def test_full_stack_matches_baseline():

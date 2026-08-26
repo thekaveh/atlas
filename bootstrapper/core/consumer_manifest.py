@@ -1967,7 +1967,11 @@ def _parse_host_venv(raw: Any, *, name: str, base_dir: Path, origin: str) -> Ven
         python = f"python{python}"
     return VenvSpec(
         python=python,
-        metal=bool(raw.get("metal", False)),
+        metal=_host_boolean(
+            raw.get("metal", False),
+            label=f"managed_host_services[{name!r}].venv.metal",
+            origin=origin,
+        ),
         requirements=resolved,
         packages=tuple(str(pkg) for pkg in _as_list(raw.get("packages"))),
     )
@@ -2057,6 +2061,31 @@ def _host_workdir(raw: Mapping[str, Any], *, name: str, base_dir: Path) -> Path:
     )
 
 
+def _host_environment(raw: Mapping[str, Any], *, name: str, origin: str) -> dict[str, str]:
+    if "env" not in raw:
+        return {}
+    value = raw["env"]
+    if not isinstance(value, Mapping):
+        raise ConsumerManifestError(
+            f"managed_host_services[{name!r}].env must be a mapping ({origin})"
+        )
+    return {str(key): str(item) for key, item in value.items()}
+
+
+def _host_boolean(value: Any, *, label: str, origin: str) -> bool:
+    if not isinstance(value, bool):
+        raise ConsumerManifestError(f"{label} must be a boolean ({origin})")
+    return value
+
+
+def _host_allow_remote(raw: Mapping[str, Any], *, name: str, origin: str) -> bool:
+    return _host_boolean(
+        raw.get("allow_remote", False),
+        label=f"managed_host_services[{name!r}].allow_remote",
+        origin=origin,
+    )
+
+
 def _parse_host_service(
     raw: Any, *, consumer_name: str, base_dir: Path, origin: str, seen: set[str]
 ) -> HostProcessSpec:
@@ -2084,11 +2113,11 @@ def _parse_host_service(
         port=_parse_host_port(raw.get("port"), name=name, origin=origin),
         workdir=_host_workdir(raw, name=name, base_dir=base_dir),
         bind=str(raw.get("bind") or "127.0.0.1").strip(),
-        env={str(k): str(v) for k, v in (raw.get("env") or {}).items()},
+        env=_host_environment(raw, name=name, origin=origin),
         venv=_parse_host_venv(raw.get("venv"), name=name, base_dir=base_dir, origin=origin),
         install=install,
         health=_parse_host_health(raw.get("health"), name=name, origin=origin),
-        allow_remote=bool(raw.get("allow_remote", False)),
+        allow_remote=_host_allow_remote(raw, name=name, origin=origin),
         owner=consumer_name,
     )
 

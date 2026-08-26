@@ -201,7 +201,7 @@ def _listener_address_matches(address: str, family: int, bind: str) -> bool:
     }
     wildcard = "0.0.0.0" if family == 4 else "::"
     if address in {"*", wildcard}:
-        return bool(family_candidates)
+        return wildcard in family_candidates
     try:
         normalized = ipaddress.ip_address(address.split("%", 1)[0]).compressed
     except ValueError:
@@ -209,6 +209,70 @@ def _listener_address_matches(address: str, family: int, bind: str) -> bool:
     if wildcard in family_candidates:
         return normalized == wildcard
     return normalized in family_candidates
+
+
+def managed_host_advertised_host(bind: str) -> str:
+    """Return a reachable, URL-safe host for a managed listener bind.
+
+    Concrete binds remain concrete. Wildcard binds are not destinations, so
+    advertise their same-family loopback address instead. IPv6 literals are
+    bracketed for use in both HTTP and TCP URLs.
+    """
+    host = {"0.0.0.0": "127.0.0.1", "::": "::1"}.get(bind, bind)
+    try:
+        is_ipv6 = ipaddress.ip_address(host.split("%", 1)[0]).version == 6
+    except ValueError:
+        is_ipv6 = False
+    return f"[{host}]" if is_ipv6 else host
+
+
+def resolve_host_executable(binary: str, workdir: Path | None) -> str | None:
+    discovered = shutil.which(binary)
+    if discovered:
+        return discovered
+    candidate = Path(binary).expanduser()
+    if not candidate.is_absolute() and os.sep in binary:
+        candidate = (workdir or Path.cwd()) / candidate
+    if candidate.is_file() and os.access(candidate, os.X_OK):
+        return str(candidate)
+    return None
+
+
+def _linux_process_start_identity(pid: int) -> str | None:
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+    except OSError:
+        return None
+    close = stat.rfind(")")
+    fields = stat[close + 1:].split() if close >= 0 else []
+    if len(fields) <= 19 or not fields[19].isdigit():
+        return None
+    return f"linux-proc-start-v1:{fields[19]}"
+
+
+def _ps_process_start_identity(pid: int) -> str | None:
+    try:
+        out = subprocess.run(
+            ["ps", "-o", "lstart=", "-p", str(pid)], capture_output=True,
+            text=True, timeout=5, check=False, encoding="utf-8", errors="replace",
+            env={**os.environ, "TZ": "UTC", "LC_ALL": "C", "LANG": "C"},
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    lines = [line.strip() for line in (out.stdout or "").splitlines() if line.strip()]
+    return lines[0] if out.returncode == 0 and len(lines) == 1 else None
+
+
+def legacy_process_start_identity(pid: int) -> str | None:
+    """Read the normalized ``ps lstart`` identity used before Linux v1 ticks."""
+    return _ps_process_start_identity(pid)
+
+
+def process_start_identity(pid: int) -> str | None:
+    """Return a clock-stable Linux identity or normalized POSIX start time."""
+    if sys.platform.startswith("linux"):
+        return _linux_process_start_identity(pid)
+    return _ps_process_start_identity(pid)
 
 
 def _lsof_output_has_endpoint(output: str, bind: str, port: int) -> bool:

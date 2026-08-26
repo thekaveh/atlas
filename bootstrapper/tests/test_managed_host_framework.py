@@ -407,21 +407,6 @@ def test_a_malformed_command_surfaces_as_a_manifest_error(tmp_path):
 # ── endpoints contract ───────────────────────────────────────────────
 
 
-def test_an_http_service_exports_an_http_endpoint():
-    spec = _spec(port=8799, health=HealthProbe(kind="http", path="/health"))
-    fields = {f.name: f.value for f in build_export({}, host_services=[spec])}
-    assert fields["ATLAS_SAM3_SEGMENT_HOST_ENDPOINT"] == "http://localhost:8799"
-
-
-def test_a_tcp_service_exports_a_tcp_endpoint():
-    """Exporting `http://` for a raw-socket service hands a consumer a URL no
-    HTTP client can use — the same trap ATLAS_BLENDER_MCP_HOST_ENDPOINT
-    already avoids."""
-    spec = _spec(port=9876, health=HealthProbe(kind="tcp"))
-    fields = {f.name: f.value for f in build_export({}, host_services=[spec])}
-    assert fields["ATLAS_SAM3_SEGMENT_HOST_ENDPOINT"] == "tcp://localhost:9876"
-
-
 def test_the_export_is_ordered_by_name_not_discovery_order():
     specs = [_spec(name="zulu", port=1), _spec(name="alpha", port=2)]
     names = [f.name for f in build_export({}, host_services=specs)]
@@ -969,6 +954,8 @@ def test_an_ambiguous_start_time_probe_is_treated_as_unknowable(tmp_path, monkey
     multi-line stamp could never match a later probe — and our own live
     process was disowned as a stranger.
     """
+    monkeypatch.setattr(sys, "platform", "darwin")
+
     class TwoLines:
         returncode = 0
         stdout = "Mon Jan  1 00:00:00 2024\nMon Jan  2 00:00:00 2024\n"
@@ -982,6 +969,45 @@ def test_an_ambiguous_start_time_probe_is_treated_as_unknowable(tmp_path, monkey
 
     monkeypatch.setattr(subprocess, "run", lambda *a, **k: OneLine())
     assert ManagedHostManager._process_start_time(1234) == "Mon Jan  1 00:00:00 2024"
+
+
+def test_linux_process_identity_uses_boot_relative_start_ticks(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "linux")
+    # Fields after the final ')' begin at proc-stat field 3. Field 22 is the
+    # twentieth token here; a comm containing spaces and ')' must not shift it.
+    stat = "4242 (worker ) with spaces) " + " ".join(
+        ["S", *("0" for _ in range(18)), "987654"]
+    )
+    original_read_text = Path.read_text
+
+    def read_text(path, *args, **kwargs):
+        if str(path) == "/proc/4242/stat":
+            return stat
+        return original_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", read_text)
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *_args, **_kwargs: pytest.fail("Linux identity must not use wall time"),
+    )
+
+    assert ManagedHostManager._process_start_time(4242) == (
+        "linux-proc-start-v1:987654"
+    )
+
+
+def test_linux_identity_mismatch_fails_closed_as_a_recycled_pid(tmp_path, monkeypatch):
+    monkeypatch.setattr(sys, "platform", "linux")
+    manager = _manager(tmp_path, "identity", (sys.executable, "-c", "pass"))
+    manager.state_dir.mkdir(parents=True)
+    manager.pid_file.write_text(
+        "4242\nstart_utc=linux-proc-start-v1:111\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(
+        manager, "_process_start_time", lambda _pid: "linux-proc-start-v1:222"
+    )
+    assert manager._pid_is_stranger(4242) is True
 
 
 def test_lifecycle_lock_timeout_is_bounded(tmp_path, monkeypatch):

@@ -98,7 +98,7 @@ Interactive wizard by default; CLI flags skip prompts for the values you set. Fu
 
 ![Atlas platform topology: entrypoints, Kong gateway, apps and agents, LLM core, data stores, and cloud-provider boundary](diagrams/img/atlas-platform.png)
 
-<p class="atlas-home__caption">Kong routes every *.localhost host; LiteLLM is the single path for local and cloud model traffic.</p>
+<p class="atlas-home__caption">Kong routes every declared *.localhost host; LiteLLM is the default model path for Atlas-managed consumers, with explicit native-provider overrides where supported.</p>
 
 </div>
 

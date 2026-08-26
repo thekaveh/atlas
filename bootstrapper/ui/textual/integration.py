@@ -67,7 +67,7 @@ def _badges_for_option(opt: str, *, recommended: bool = False) -> list[str]:
     elif "container-cpu" in s or s.endswith("-cpu"): badges.append("CPU")
     if "localhost" in s: badges.append("local")
     if s == "external": badges.append("external")
-    if s == "none": badges.append("cloud-only")
+    if s == "none": badges.append("no Ollama")
     if s == "disabled": badges.append("disabled")
     return badges
 

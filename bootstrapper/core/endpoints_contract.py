@@ -396,8 +396,11 @@ def _managed_host_endpoint(spec: Any) -> str:
     HTTP client can use — the mistake ``ATLAS_BLENDER_MCP_HOST_ENDPOINT``
     above exists to avoid.
     """
+    from services import managed_host_advertised_host
+
     scheme = "http" if getattr(spec.health, "kind", "tcp") == "http" else "tcp"
-    return f"{scheme}://localhost:{spec.port}"
+    host = managed_host_advertised_host(spec.bind)
+    return f"{scheme}://{host}:{spec.port}"
 
 
 def _storage_fields(

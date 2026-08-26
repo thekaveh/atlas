@@ -1235,15 +1235,15 @@ def test_pid_ownership_uses_start_time_not_argv(tmp_path, monkeypatch):
     # A recycled pid: the file's stamp does not match the live process.
     write_pid_file_with_identity(mgr.pid_file, 4242, "Mon Jan  1 00:00:00 2024")
     monkeypatch.setattr(
-        "services.managed_host.ManagedHostManager._process_start_time",
-        staticmethod(lambda pid: "Tue Feb  2 02:02:02 2027"),
+        "services.legacy_process_start_identity",
+        lambda pid: "Tue Feb  2 02:02:02 2027",
     )
     assert mgr._pid_is_stranger(4242) is True, "a recycled pid would be killed"
 
     # ...and the same pid when the stamp matches is ours.
     monkeypatch.setattr(
-        "services.managed_host.ManagedHostManager._process_start_time",
-        staticmethod(lambda pid: "Mon Jan  1 00:00:00 2024"),
+        "services.legacy_process_start_identity",
+        lambda pid: "Mon Jan  1 00:00:00 2024",
     )
     assert mgr._pid_is_stranger(4242) is False
 

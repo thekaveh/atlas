@@ -428,9 +428,12 @@ services:
       KONG_URL: http://myproject-kong-api-gateway:8000
     ports:
       - "8080:8080"
-    depends_on:
-      - myproject-supabase-db  # Ensure infra is running
 ```
+
+The Atlas services belong to a separate Compose project, so they cannot appear
+in this file's `depends_on`. Start Atlas first as shown below; if the application
+needs a stronger startup guarantee, make its own entrypoint wait on the specific
+Atlas health endpoint it consumes.
 
 **Start both stacks:**
 
@@ -442,9 +445,12 @@ cd infra && ./start.sh && cd ..
 docker compose up -d
 ```
 
-### 6.2. Pattern 2: Kong Gateway as Single Entry Point
+### 6.2. Pattern 2: Kong Gateway for Routed Services
 
-Use Kong (port 63000) to access all infrastructure services from your application:
+Use Kong (port 63000) for services whose manifests declare Kong routes. Database,
+queue, and other TCP integrations remain direct; use `./start.sh endpoints export`
+for their canonical endpoint contracts. See [Ports and Routes](./ports-and-routes.md)
+for the routed/direct inventory.
 
 ```python
 # Python example
@@ -467,7 +473,7 @@ const KONG_BASE = "http://localhost:63000";  // default BASE_PORT + 0
 
 // Supabase REST/auth are path-routed on the Kong root:
 const supabaseRest = `${KONG_BASE}/rest/v1/`;
-// Everything else is HOST-routed (requires the *.localhost hosts entries):
+// Other Kong-enabled services are HOST-routed (requires *.localhost hosts entries):
 const n8nUrl = "http://n8n.localhost:63000";
 const jupyterUrl = "http://jupyter.localhost:63000";
 ```
@@ -745,7 +751,7 @@ Optimize which services start based on your needs:
 ```bash
 # In infra/.env, choose your LLM upstreams. LiteLLM is always-on; you only
 # pick what it forwards to.
-LLM_PROVIDER_SOURCE=ollama-container-cpu  # or 'none' for cloud-only
+LLM_PROVIDER_SOURCE=ollama-container-cpu  # or 'none' for no Ollama upstream
 CLOUD_OPENAI_SOURCE=disabled
 CLOUD_ANTHROPIC_SOURCE=disabled
 CLOUD_OPENROUTER_SOURCE=disabled

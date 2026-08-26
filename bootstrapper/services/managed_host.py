@@ -61,9 +61,12 @@ from services import (
     await_spawned_process_readiness,
     compensate_failed_launch,
     lifecycle_support_error,
+    managed_host_advertised_host,
+    process_start_identity,
     process_group_owns_tcp_listener,
     refuse_occupied_port,
     refuse_untrusted_tracked_pid,
+    resolve_host_executable,
     require_lifecycle_support,
     raise_launch_recording_failure,
     remove_state_directory,
@@ -300,7 +303,18 @@ def pid_is_stranger(pid: int, pid_file: Path, probe) -> bool:
     cleanup of a legacy pid file.
     """
     recorded = read_recorded_start_time(pid_file)
-    live = probe(pid) if recorded else None
+    if recorded and recorded.startswith("linux-proc-start-v1:"):
+        live = probe(pid)
+    elif recorded:
+        # Linux releases before the versioned /proc token wrote normalized
+        # `ps lstart` values. Probe that same representation during upgrade so
+        # a still-live Atlas process remains stoppable; unknown formats still
+        # mismatch and fail closed.
+        from services import legacy_process_start_identity
+
+        live = legacy_process_start_identity(pid)
+    else:
+        live = None
     return not recorded or not live or live != recorded
 
 
@@ -340,7 +354,8 @@ class ManagedHostManager:
 
     def endpoint(self) -> str:
         scheme = "http" if self.spec.health.kind == "http" else "tcp"
-        return f"{scheme}://localhost:{self.spec.port}"
+        host = managed_host_advertised_host(self.spec.bind)
+        return f"{scheme}://{host}:{self.spec.port}"
 
     def _resolved_command(self) -> list[str]:
         """Rewrite a leading ``python`` to the venv interpreter when one exists.
@@ -412,7 +427,7 @@ class ManagedHostManager:
         binary = argv[0]
         if self.spec.venv and binary == str(self.venv_python):
             result.add("command", _OK, f"runs the venv interpreter: {' '.join(argv[:3])}…")
-        elif shutil.which(binary) or Path(binary).expanduser().exists():
+        elif resolve_host_executable(binary, self.spec.workdir):
             result.add("command", _OK, f"executable resolves: {binary}")
         else:
             result.add("command", _FAIL, f"command not found on PATH: {binary!r}")
@@ -484,9 +499,9 @@ class ManagedHostManager:
     def _child_env(self) -> dict[str, str]:
         env = dict(os.environ)
         env.update({str(k): str(v) for k, v in self.spec.env.items()})
-        env.setdefault("ATLAS_MANAGED_HOST_NAME", self.spec.name)
-        env.setdefault("ATLAS_MANAGED_HOST_PORT", str(self.spec.port))
-        env.setdefault("ATLAS_MANAGED_HOST_BIND", self.spec.bind)
+        env["ATLAS_MANAGED_HOST_NAME"] = self.spec.name
+        env["ATLAS_MANAGED_HOST_PORT"] = str(self.spec.port)
+        env["ATLAS_MANAGED_HOST_BIND"] = self.spec.bind
         return env
 
     # ── lifecycle ────────────────────────────────────────────────────
@@ -922,9 +937,15 @@ class ManagedHostManager:
 
     @staticmethod
     def _process_start_time(pid: int) -> Optional[str]:
-        """Absolute start time of ``pid`` per ``ps``, or None if unknowable.
+        """Stable process-start identity, or ``None`` if unknowable.
 
-        ``lstart`` renders through the ambient ``TZ`` and ``LC_TIME``, so the
+        Linux uses boot-relative ticks from ``/proc/<pid>/stat`` field 22.
+        Unlike ``ps lstart``, that token cannot move when NTP, a VM resume, or
+        an administrator adjusts the realtime clock. The version prefix makes
+        legacy realtime stamps fail closed instead of comparing unlike units.
+
+        On other POSIX hosts, ``lstart`` renders through ambient ``TZ`` and
+        ``LC_TIME``, so the
         SAME live process reads back differently depending on who asks — this
         machine returns four distinct strings for one pid under local time,
         ``TZ=UTC``, ``TZ=Asia/Tokyo`` and ``LC_ALL=de_DE``. That matters because
@@ -933,24 +954,7 @@ class ManagedHostManager:
         call our own process a stranger and orphan it. Pinning both makes the
         rendered value a function of the process alone.
         """
-        try:
-            out = subprocess.run(
-                ["ps", "-o", "lstart=", "-p", str(pid)],
-                capture_output=True, text=True, timeout=5, check=False,
-                encoding="utf-8", errors="replace",
-                env={**os.environ, "TZ": "UTC", "LC_ALL": "C", "LANG": "C"},
-            )
-        except (OSError, subprocess.SubprocessError):
-            return None
-        if out.returncode != 0:
-            return None
-        # Exactly ONE line, or nothing. A `ps` answering rc=0 with two lines
-        # wrote extra pid-file lines, and `_recorded_start_time` reads only the
-        # first `start_utc=` line — so the recorded value could never match a
-        # later probe and our own live process was disowned as a stranger.
-        # Ambiguity is unknowable and therefore cannot authorize signalling.
-        lines = [line.strip() for line in (out.stdout or "").splitlines() if line.strip()]
-        return lines[0] if len(lines) == 1 else None
+        return process_start_identity(pid)
 
     def _recorded_start_time(self) -> Optional[str]:
         """The start time stamped into the pid file at spawn, if present."""
@@ -978,20 +982,6 @@ class ManagedHostManager:
         Returns True (refuse signalling) when the answer is unknowable — a pid
         file written before this format, or a ``ps`` that will not answer.
 
-        KNOWN LIMITATION (Linux, unfixed): ``ps -o lstart=`` is computed there
-        as ``/proc/stat btime + starttime/Hz``, and ``btime`` derives from the
-        REALTIME clock — so ANY realtime adjustment that moves `btime`
-        across a second boundary — an NTP step, a VM suspend/resume, or
-        ordinary chrony/ntpd SLEW, which needs no step at all — shifts a live
-        process's rendered start time and this comparison
-        would call it a stranger, orphaning it. macOS is immune (``ki_start``
-        is an absolute timestamp frozen at fork). The robust Linux fix is to
-        read ``/proc/<pid>/stat`` field 22 directly, which is boot-relative and
-        clock-step immune. That is deliberately NOT done here: it needs a third
-        stamp format, and a format mismatch between stamp and probe is exactly
-        the shape that produced the earlier orphaning bugs. Under a steady
-        clock the value is stable (3000/3000 probes on procps-ng 4.0.2).
-
         On ``lstart`` granularity, since it invites the question: it resolves to
         one second, so two processes started back-to-back do share a value.
         That does not weaken this comparison. A pid is only recycled after the
@@ -1002,13 +992,7 @@ class ManagedHostManager:
         ``Popen`` (0 misses in 40 spawn-and-probe cycles), so neither drift nor
         a spawn race can silently turn our own process into a stranger.
         """
-        recorded = self._recorded_start_time()
-        if recorded is None:
-            return True  # legacy pid file — ownership is unknown
-        current = self._process_start_time(pid)
-        if current is None:
-            return True  # can't tell — refuse to signal
-        return current != recorded
+        return pid_is_stranger(pid, self.pid_file, self._process_start_time)
 
     @staticmethod
     def _pid_alive(pid: int) -> bool:

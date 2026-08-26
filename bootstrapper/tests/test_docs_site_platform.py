@@ -396,6 +396,91 @@ def test_top_level_architecture_long_routes_use_reviewed_gutters_and_endpoints()
         assert "M 450 480 L 575 500" not in master
 
 
+def test_llm_docs_and_help_treat_none_as_no_ollama_not_cloud_only() -> None:
+    source_config = (ROOT / "docs/deployment/source-configuration.md").read_text(
+        encoding="utf-8"
+    )
+    wizard = (ROOT / "docs/quick-start/interactive-setup-wizard.md").read_text(
+        encoding="utf-8"
+    )
+    litellm = (ROOT / "services/litellm/README.md").read_text(encoding="utf-8")
+    ollama_readme = (ROOT / "services/ollama/README.md").read_text(
+        encoding="utf-8"
+    )
+    ollama_manifest = (ROOT / "services/ollama/service.yml").read_text(
+        encoding="utf-8"
+    )
+    roadmap = (ROOT / "docs/ROADMAP.md").read_text(encoding="utf-8")
+    cli = (ROOT / "bootstrapper/start.py").read_text(encoding="utf-8")
+    tui = (ROOT / "bootstrapper/ui/textual/integration.py").read_text(
+        encoding="utf-8"
+    )
+
+    for text in (source_config, wizard, litellm):
+        assert "vLLM Metal" in text
+        assert "no Ollama upstream" in text
+    assert 'Use "none" for no Ollama upstream' in cli
+    assert 'badges.append("no Ollama")' in tui
+    assert "cloud-only" not in ollama_manifest
+    assert "no local engine" not in ollama_readme
+    assert "vLLM Metal and/or enabled cloud providers" in ollama_readme
+    assert "engine=none + vLLM Metal disabled + all cloud disabled" in roadmap
+
+
+def test_llm_docs_qualify_native_bypasses_and_do_not_promise_failover() -> None:
+    source_config = (ROOT / "docs/deployment/source-configuration.md").read_text(
+        encoding="utf-8"
+    )
+    litellm = (ROOT / "services/litellm/README.md").read_text(encoding="utf-8")
+
+    assert "One URL/key for every consumer" not in source_config
+    assert "Every consumer service" not in litellm
+    assert "because every consumer reads only" not in litellm
+    for text in (source_config, litellm):
+        assert "provider failover" not in text.lower()
+        assert "native-provider" in text
+
+
+def test_vllm_metal_host_guidance_is_track_aware_and_complete() -> None:
+    source_config = (ROOT / "docs/deployment/source-configuration.md").read_text(
+        encoding="utf-8"
+    )
+    wizard = (ROOT / "docs/quick-start/interactive-setup-wizard.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "VLLM_METAL_SOURCE" in source_config
+    assert "managed-localhost" in source_config
+    assert "Generative AI · Engineering" in wizard
+    assert "All / Custom" in wizard
+    assert "profiles; tracks" not in wizard
+    assert "tracks; tracks" not in wizard
+
+
+def test_submodule_compose_and_kong_examples_respect_project_boundaries() -> None:
+    guide = (ROOT / "docs/deployment/submodule-usage.md").read_text(
+        encoding="utf-8"
+    )
+    assert "depends_on:\n      - myproject-supabase-db" not in guide
+    assert "separate Compose project" in guide
+    assert "services whose manifests declare Kong routes" in guide
+    assert "endpoints export" in guide
+
+
+def test_platform_and_jupyter_docs_do_not_overstate_integration_coverage() -> None:
+    overview = (ROOT / "docs/architecture/platform-overview.md").read_text(
+        encoding="utf-8"
+    )
+    home = (ROOT / "docs/index.md").read_text(encoding="utf-8")
+    jupyter = (ROOT / "services/jupyterhub/README.md").read_text(encoding="utf-8")
+
+    assert "All model traffic" not in overview
+    assert "LiteLLM is the single path" not in home
+    assert "access to all Atlas services" not in jupyter
+    assert "Auto-configured connections to all services" not in jupyter
+    assert "current MCP endpoint" in jupyter
+
+
 def test_canonical_home_embeds_the_committed_platform_image() -> None:
     home = (ROOT / "docs" / "index.md").read_text(encoding="utf-8")
     assert re.search(

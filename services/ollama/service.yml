@@ -8,7 +8,7 @@ capabilities:
   - name: "Local Ollama source selection"
     status: supported
     verification: tested
-    note: "Atlas resolves CPU and NVIDIA containers, an existing host daemon, or cloud-only mode behind the same LiteLLM upstream contract."
+    note: "Atlas resolves CPU and NVIDIA containers, an existing host daemon, or no Ollama upstream behind the same LiteLLM contract."
   - name: "Declared model provisioning"
     status: partial
     verification: tested
@@ -59,7 +59,7 @@ sources:
       label: "Host (existing Ollama on this machine)"
       profiles: [default]
     - id: none
-      label: "Disabled (cloud-only)"
+      label: "No Ollama upstream"
 
 env:
   - name: LLM_PROVIDER_SOURCE

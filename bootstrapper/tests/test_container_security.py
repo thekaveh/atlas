@@ -4,6 +4,7 @@ from datetime import date, timedelta
 import json
 from pathlib import Path
 import re
+import subprocess
 
 import pytest
 import yaml
@@ -13,6 +14,10 @@ from scripts.upstream_drift_watch import load_manifest_image_refs
 
 
 ROOT = Path(__file__).resolve().parents[2]
+GPU_DOCKERFILE_EXCLUSIONS = {
+    "services/docling/provider/gpu/Dockerfile",
+    "services/parakeet/provider/gpu/Dockerfile",
+}
 
 
 def test_container_security_inventory_covers_every_manifest_default() -> None:
@@ -177,3 +182,31 @@ def test_scheduled_and_required_workflows_build_the_same_local_images() -> None:
     services_lint, scheduled = _workflow_sources()
     build_spec = re.compile(r'^\s+"(services/[^"|]+\|[^"|]+\|[^"]*)"', re.MULTILINE)
     assert build_spec.findall(scheduled) == build_spec.findall(services_lint)
+
+
+def _workflow_dockerfiles(source: str) -> set[str]:
+    build_spec = re.compile(
+        r'^\s+"(services/[^"|]+)\|([^"|]+)\|[^"]*"', re.MULTILINE
+    )
+    return {
+        str((Path(context) / dockerfile).resolve().relative_to(ROOT))
+        for context, dockerfile in build_spec.findall(source)
+    }
+
+
+def test_both_build_workflows_cover_every_tracked_non_gpu_dockerfile() -> None:
+    tracked = set(
+        subprocess.run(
+            ["git", "ls-files", "services/**/Dockerfile"],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.splitlines()
+    )
+    assert GPU_DOCKERFILE_EXCLUSIONS <= tracked
+    expected = tracked - GPU_DOCKERFILE_EXCLUSIONS
+    services_lint, scheduled = _workflow_sources()
+
+    assert _workflow_dockerfiles(services_lint) == expected
+    assert _workflow_dockerfiles(scheduled) == expected

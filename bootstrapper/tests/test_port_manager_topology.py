@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import os
+import socket
 
 import pytest
 
@@ -107,6 +108,48 @@ def test_validate_base_port_uses_topology_max_offset():
     pm = PortManager(str(real_root))
     assert pm.validate_base_port(65535 - max_offset) is True
     assert pm.validate_base_port(65535 - max_offset + 1) is False
+
+
+def test_bound_but_not_listening_ipv4_port_is_unavailable():
+    from core.port_manager import PortManager
+
+    pm = PortManager(str(_real_root()))
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as occupied:
+        occupied.bind(("0.0.0.0", 0))
+        port = occupied.getsockname()[1]
+        assert pm.check_port_availability(port) is False
+
+
+def test_ipv6_only_listener_makes_port_unavailable():
+    from core.port_manager import PortManager
+
+    if not socket.has_ipv6:
+        pytest.skip("IPv6 is unavailable")
+    pm = PortManager(str(_real_root()))
+    try:
+        occupied = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+        occupied.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
+        occupied.bind(("::", 0))
+    except OSError:
+        pytest.skip("IPv6 wildcard bind is unavailable")
+    with occupied:
+        port = occupied.getsockname()[1]
+        occupied.listen()
+        assert pm.check_port_availability(port) is False
+
+
+def test_port_probe_fails_closed_on_indeterminate_socket_errors(monkeypatch):
+    from core.port_manager import PortManager
+    import core.port_manager as port_manager
+
+    monkeypatch.setattr(
+        port_manager.socket,
+        "socket",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(PermissionError("denied")),
+    )
+    assert PortManager(str(_real_root())).check_port_availability(54321) is False
+
+
 def test_update_env_ports_rewrites_trailing_whitespace_lines(tmp_path, monkeypatch):
     """``VAR=63002␣`` (trailing space, no comment) must still be
     rewritten — the pre-fix regex required a `#` after the spaces and
