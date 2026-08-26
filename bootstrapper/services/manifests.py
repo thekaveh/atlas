@@ -132,6 +132,18 @@ class Capability:
 
 
 @dataclass(frozen=True)
+class SecondaryNumber:
+    """Declarative inline numeric input attached to a manifest row."""
+
+    env_var: str
+    label: str
+    default: str
+    visible_when_source: list[str] = field(default_factory=list)
+    number_min: int = 0
+    number_max: int = 1_000_000
+
+
+@dataclass(frozen=True)
 class Row:
     """One box row a manifest renders. Replaces the legacy _SERVICES tuple
     plus several scattered constants. See spec §rows."""
@@ -151,6 +163,7 @@ class Row:
     # no localhost source variant, OR legacy services not yet migrated
     # to the LOCALHOST_PORT pattern).
     localhost_port_var: str = ""
+    secondary_number: SecondaryNumber | None = None
 
 
 @dataclass(frozen=True)
@@ -382,6 +395,7 @@ def _to_dataclass(raw: dict[str, Any], source_path: Path) -> Manifest:
             default=i["default"],
             container=i["container"],
             notes=i.get("notes", ""),
+            platform=i.get("platform", ""),
         )
         for i in raw.get("images") or []
     ]
@@ -423,19 +437,7 @@ def _to_dataclass(raw: dict[str, Any], source_path: Path) -> Manifest:
 
     capabilities = _capabilities_from_raw(raw)
 
-    rows = [
-        Row(
-            display_name=r["display_name"],
-            source_var=r["source_var"],
-            port_var=r.get("port_var", ""),
-            scale_var=r.get("scale_var", ""),
-            alias=r.get("alias", ""),
-            description=r.get("description", ""),
-            localhost_endpoint_var=r.get("localhost_endpoint_var", ""),
-            localhost_port_var=r.get("localhost_port_var", ""),
-        )
-        for r in raw.get("rows") or []
-    ]
+    rows = [_row_from_raw(row) for row in raw.get("rows") or []]
 
     return Manifest(
         name=raw["name"],
@@ -459,6 +461,31 @@ def _to_dataclass(raw: dict[str, Any], source_path: Path) -> Manifest:
         doc_extras=dict(raw.get("doc_extras") or {}),
         data_flow=dict(raw.get("data_flow") or {}),
         source_path=source_path,
+    )
+
+
+def _row_from_raw(raw: dict[str, Any]) -> Row:
+    number_raw = raw.get("secondary_number")
+    secondary_number = None
+    if number_raw is not None:
+        secondary_number = SecondaryNumber(
+            env_var=number_raw["env_var"],
+            label=number_raw["label"],
+            default=number_raw["default"],
+            visible_when_source=list(number_raw.get("visible_when_source", [])),
+            number_min=number_raw.get("min", 0),
+            number_max=number_raw.get("max", 1_000_000),
+        )
+    return Row(
+        display_name=raw["display_name"],
+        source_var=raw["source_var"],
+        port_var=raw.get("port_var", ""),
+        scale_var=raw.get("scale_var", ""),
+        alias=raw.get("alias", ""),
+        description=raw.get("description", ""),
+        localhost_endpoint_var=raw.get("localhost_endpoint_var", ""),
+        localhost_port_var=raw.get("localhost_port_var", ""),
+        secondary_number=secondary_number,
     )
 
 

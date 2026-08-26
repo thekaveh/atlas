@@ -231,7 +231,26 @@ def test_capability_entries_are_immutable(
 
 
 def test_load_full_manifest(services_root, write_manifest, full_manifest_dict):
-    write_manifest("ollama", full_manifest_dict("ollama"))
+    manifest = full_manifest_dict("ollama")
+    manifest["images"][0]["platform"] = "linux/arm64"
+    manifest["env"].append(
+        {"name": "OLLAMA_RETENTION_DAYS", "default": "7"}
+    )
+    manifest["rows"] = [
+        {
+            "display_name": "Ollama",
+            "source_var": "LLM_PROVIDER_SOURCE",
+            "secondary_number": {
+                "env_var": "OLLAMA_RETENTION_DAYS",
+                "label": "Retention (days)",
+                "default": "7",
+                "visible_when_source": ["ollama-container-cpu"],
+                "min": 1,
+                "max": 365,
+            },
+        }
+    ]
+    write_manifest("ollama", manifest)
     manifests = load_manifests(services_root)
     assert len(manifests) == 1
     m = manifests[0]
@@ -239,6 +258,7 @@ def test_load_full_manifest(services_root, write_manifest, full_manifest_dict):
     assert m.docs == "services/ollama/README.md"
     assert len(m.images) == 2
     assert m.images[0].var == "LLM_PROVIDER_IMAGE"
+    assert m.images[0].platform == "linux/arm64"
     assert m.sources is not None
     assert m.sources.var == "LLM_PROVIDER_SOURCE"
     assert m.sources.default == "ollama-container-cpu"
@@ -251,6 +271,22 @@ def test_load_full_manifest(services_root, write_manifest, full_manifest_dict):
     assert m.depends_on.optional == []
     assert m.exports[0].name == "OLLAMA_ENDPOINT"
     assert m.exports[0].consumers == ["litellm", "weaviate"]
+    assert m.rows[0].secondary_number is not None
+    assert m.rows[0].secondary_number.env_var == "OLLAMA_RETENTION_DAYS"
+    assert m.rows[0].secondary_number.visible_when_source == ["ollama-container-cpu"]
+    assert m.rows[0].secondary_number.number_min == 1
+    assert m.rows[0].secondary_number.number_max == 365
+
+
+def test_real_tei_arm_image_preserves_declared_platform():
+    repo_root = Path(__file__).resolve().parents[2]
+    tei = next(
+        manifest
+        for manifest in load_manifests(repo_root / "services")
+        if manifest.name == "tei-reranker"
+    )
+    arm_image = next(image for image in tei.images if image.platform)
+    assert arm_image.platform == "linux/arm64"
 
 
 def test_load_multiple_manifests_in_deterministic_order(

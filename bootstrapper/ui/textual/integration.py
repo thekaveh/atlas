@@ -290,6 +290,12 @@ def _build_steps_and_rows(
         for mf in _manifests
         if mf.sources is not None
     }
+    _secondary_by_source_var = {
+        row.source_var: row.secondary_number
+        for manifest in _manifests
+        for row in manifest.rows
+        if row.secondary_number is not None
+    }
 
     services_info = ServiceDiscovery(config_parser).discover()
     env_vars = config_parser.parse_env_file()
@@ -537,6 +543,30 @@ def _build_steps_and_rows(
             unit_suffix="port",
         )
 
+    def _manifest_number_config(
+        source_var: str, opt_value: str
+    ) -> "SecondaryNumberInput | None":
+        """Project a row's declarative numeric input onto eligible options."""
+        config = _secondary_by_source_var.get(source_var)
+        if config is None:
+            return None
+        if config.visible_when_source and opt_value not in config.visible_when_source:
+            return None
+        raw = (env_vars.get(config.env_var) or config.default).strip()
+        try:
+            current = int(raw)
+        except ValueError:
+            current = int(config.default)
+        current = max(config.number_min, min(config.number_max, current))
+        return SecondaryNumberInput(
+            env_var=config.env_var,
+            description=config.label,
+            default_value=current,
+            number_min=config.number_min,
+            number_max=config.number_max,
+            unit_suffix=config.label,
+        )
+
     for i, svc in enumerate(services_info):
         # FAL (#517): a paid cloud media provider prompted with a masked
         # API-token step (spliced right after ComfyUI below), NOT a plain
@@ -619,7 +649,8 @@ def _build_steps_and_rows(
                            and opt in ("ray-container-cpu", "ray-container-gpu")
                         else _spark_secondary
                         if _spark_secondary is not None and opt == "container"
-                        else _localhost_port_config(_svc.display_name, opt)
+                        else _manifest_number_config(_svc.env_var_name, opt)
+                        or _localhost_port_config(_svc.display_name, opt)
                     ),
                 )
                 for opt in visible

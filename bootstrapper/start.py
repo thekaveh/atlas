@@ -2001,12 +2001,18 @@ class AtlasStarter:
                     "Checking for retired curated Ollama model references (v4) ...",
                     "info",
                 )
-                _apply_v4(env_path)
-                _stamp_v4(env_path)
-                self.banner.show_status_message(
-                    "Stale-model-reference migration complete (v4).",
-                    "success",
-                )
+                if _apply_v4(env_path):
+                    _stamp_v4(env_path)
+                    self.banner.show_status_message(
+                        "Stale-model-reference migration complete (v4).",
+                        "success",
+                    )
+                else:
+                    self.banner.show_status_message(
+                        "Could not load the curated Ollama catalog; migration v4 "
+                        "was not stamped and will retry on the next start.",
+                        "warning",
+                    )
 
     def generate_service_configuration(self) -> bool:
         """Generate and update service configuration."""

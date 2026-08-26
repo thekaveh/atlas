@@ -35,6 +35,7 @@ services:
       # gets configured with.
       weaviate-init:
         condition: service_completed_successfully
+        required: false
     extra_hosts:
       - "host.docker.internal:${HOST_GATEWAY_IP}"
     environment:

@@ -40,6 +40,7 @@ COMPOSE_FILE = ROOT / "docker-compose.yml"
 # hard compose startup prerequisite. Keep this list intentionally explicit so
 # changes are reviewed service-by-service instead of hidden in broad heuristics.
 FORBIDDEN_OPTIONAL_DEPENDS_ON = {
+    ("backend", "weaviate-init"),
     ("n8n", "weaviate"),
     ("n8n-worker", "weaviate"),
     ("jupyterhub", "weaviate"),
@@ -186,9 +187,14 @@ def load_compose() -> dict:
 
 
 def dependency_names(service_def: dict) -> set[str]:
+    """Return hard Compose dependencies, excluding explicit soft edges."""
     depends_on = service_def.get("depends_on") or {}
     if isinstance(depends_on, dict):
-        return set(depends_on)
+        return {
+            name
+            for name, config in depends_on.items()
+            if not (isinstance(config, dict) and config.get("required") is False)
+        }
     if isinstance(depends_on, list):
         return set(depends_on)
     return set()

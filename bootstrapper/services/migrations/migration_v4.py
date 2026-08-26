@@ -102,14 +102,14 @@ def _family_root(name: str) -> str:
 def _current_ollama_catalog():
     """Live curated Ollama catalog, imported lazily so a catalog-load
     failure (e.g. a malformed models.yaml mid-edit) can't prevent the
-    OTHER migrations in the chain from running — this migration simply
-    no-ops (returns nothing to change) if the catalog can't load.
+    OTHER migrations in the chain from running. ``None`` distinguishes a
+    retryable load failure from a successfully loaded (possibly empty) catalog.
     """
     try:
         from utils.llm_catalog import ollama_entries
         return ollama_entries()
     except Exception:  # noqa: BLE001 — see docstring above
-        return []
+        return None
 
 
 def _resolve_stale_litellm_value(value: str, *, role: str, catalog) -> str | None:
@@ -257,7 +257,7 @@ def _rewrite_stale_references(text: str, parsed: dict[str, str], catalog) -> tup
     return text, changes
 
 
-def apply(env_path: Path) -> None:
+def apply(env_path: Path) -> bool:
     """Rewrite .env in place. Idempotent on re-run.
 
     * Replaces LITELLM_DEFAULT_MODEL / LITELLM_VISION_MODEL when they
@@ -270,7 +270,7 @@ def apply(env_path: Path) -> None:
       stale to rewrite (still safe/idempotent to call).
     """
     if not env_path.is_file():
-        return
+        return True
 
     text = env_path.read_text(encoding="utf-8")
     parsed = _parse_env(text)
@@ -280,15 +280,15 @@ def apply(env_path: Path) -> None:
     except ValueError:
         current = 0
     if current >= 4:
-        return  # already migrated — idempotent
+        return True  # already migrated — idempotent
 
     catalog = _current_ollama_catalog()
-    if not catalog:
-        return  # can't load the curated catalog — nothing safe to compare against
+    if catalog is None:
+        return False  # retry on the next startup; caller must not stamp v4
 
     new_text, changes = _rewrite_stale_references(text, parsed, catalog)
     if not changes:
-        return
+        return True
 
     backup = create_private_backup(env_path, version="v4")
     atomic_write_text(env_path, new_text, mode=0o600)
@@ -299,6 +299,7 @@ def apply(env_path: Path) -> None:
     )
     for c in changes:
         print(f"[migration_v4]   {c}", flush=True)
+    return True
 
 
 def stamp_version(env_path: Path, version: int = 4) -> None:

@@ -59,6 +59,7 @@ class ValidationIssue:
     #   engine_orphan              — engine-only manifest (no rows, not virtual) unreferenced by any source variant id
     #   runtime_sc_missing_variant — a main runtime_sc slice lacks an entry for a declared source option
     #   no_prod_option             — every source option in the manifest is annotated profiles=[default], leaving nothing selectable under prod
+    #   fragment_include_drift     — top-level Compose include list differs from non-virtual fragments
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -98,9 +99,11 @@ def validate_manifests(
     issues.extend(_check_engine_orphans(manifests))
     issues.extend(_check_runtime_sc_source_coverage(manifests))
     issues.extend(_check_prod_option_availability(manifests))
+    issues.extend(_check_secondary_numbers(manifests))
     issues.extend(_check_auto_prefer_integrity(manifests))
     if services_root is not None:
         issues.extend(_check_fragment_containers(manifests, services_root))
+        issues.extend(_check_fragment_includes(manifests, services_root))
 
     issues.sort(key=lambda i: (i.kind, i.manifest, i.message))
     return issues
@@ -382,6 +385,100 @@ def _check_fragment_containers(
                 )
             )
     return issues
+
+
+def _normalized_include_path(value: object) -> str | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    return Path(value).as_posix()
+
+
+def _normalized_include_paths(value: object) -> tuple[list[str], str | None]:
+    if isinstance(value, str):
+        normalized = _normalized_include_path(value)
+        if normalized is None:
+            return [], "include paths must not be blank"
+        return [normalized], None
+    if not isinstance(value, list):
+        return [], "include path must be a string or list of strings"
+    if not value:
+        return [], "include path lists must not be empty"
+    normalized_paths = [_normalized_include_path(item) for item in value]
+    if any(item is None for item in normalized_paths):
+        return [], "include path list members must be nonblank strings"
+    return [item for item in normalized_paths if item is not None], None
+
+
+def _include_paths(entry: object) -> tuple[list[str], str | None]:
+    """Normalize one Compose ``include`` entry to relative POSIX paths."""
+    if isinstance(entry, str):
+        return _normalized_include_paths(entry)
+    if not isinstance(entry, dict):
+        return [], "each include entry must be a string or mapping"
+    if "path" not in entry:
+        return [], "include mappings must define path"
+    return _normalized_include_paths(entry["path"])
+
+
+def _fragment_include_issue(message: str) -> ValidationIssue:
+    return ValidationIssue(
+        kind="fragment_include_drift",
+        manifest="_compose",
+        message=message,
+    )
+
+
+def _load_compose_includes(compose_path: Path) -> tuple[list[str], str | None]:
+    try:
+        document = yaml.safe_load(compose_path.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError as error:
+        return [], str(error)
+    if not isinstance(document, dict):
+        return [], "top-level document must be a mapping"
+    entries = document.get("include", [])
+    if not isinstance(entries, list):
+        return [], "include must be a list"
+    includes: list[str] = []
+    for entry in entries:
+        paths, shape_error = _include_paths(entry)
+        if shape_error is not None:
+            return [], shape_error
+        includes.extend(paths)
+    return includes, None
+
+
+def _check_fragment_includes(
+    manifests: list[Manifest], services_root: Path
+) -> list[ValidationIssue]:
+    """Every on-disk fragment must appear in the top-level Compose exactly once."""
+    del manifests  # On-disk fragments are the authority for this invariant.
+    expected = {
+        path.relative_to(services_root.parent).as_posix()
+        for path in services_root.glob("*/compose.yml")
+    }
+    compose_path = services_root.parent / "docker-compose.yml"
+    if not compose_path.is_file():
+        if not expected:
+            return []
+        return [_fragment_include_issue("docker-compose.yml is missing")]
+    includes, shape_error = _load_compose_includes(compose_path)
+    if shape_error is not None:
+        return [
+            _fragment_include_issue(
+                f"docker-compose.yml has invalid include shape: {shape_error}"
+            )
+        ]
+    actual = set(includes)
+    drift = (
+        ("missing fragment include(s)", sorted(expected - actual)),
+        ("unknown fragment include(s)", sorted(actual - expected)),
+        ("duplicate fragment include(s)", sorted({p for p in includes if includes.count(p) > 1})),
+    )
+    return [
+        _fragment_include_issue(f"docker-compose.yml has {label}: {paths}")
+        for label, paths in drift
+        if paths
+    ]
 
 
 def _check_per_manifest_contract(manifests: list[Manifest]) -> list[ValidationIssue]:
@@ -667,6 +764,102 @@ def _check_prod_option_availability(
     return issues
 
 
+def _secondary_number_value_messages(config) -> list[str]:
+    messages: list[str] = []
+    try:
+        default = int(config.default)
+    except ValueError:
+        default = None
+        messages.append(f"default '{config.default}' must be an integer string")
+    if config.number_min > config.number_max:
+        messages.append(
+            f"minimum {config.number_min} exceeds maximum {config.number_max}"
+        )
+    elif default is not None and not config.number_min <= default <= config.number_max:
+        messages.append(
+            f"default {default} is outside the inclusive range "
+            f"{config.number_min}..{config.number_max}"
+        )
+    return messages
+
+
+def _secondary_number_source_messages(manifest: Manifest, row, config) -> list[str]:
+    messages: list[str] = []
+    owned_env = next(
+        (entry for entry in manifest.env if entry.name == config.env_var), None
+    )
+    if owned_env is None:
+        messages.append(f"env_var '{config.env_var}' is not declared in env[]")
+    elif str(owned_env.default) != config.default:
+        messages.append(
+            f"default '{config.default}' differs from env[] default "
+            f"'{owned_env.default}' for {config.env_var}"
+        )
+    if manifest.sources is None:
+        messages.append("requires a sources block so the input has a source prompt")
+    elif row.source_var != manifest.sources.var:
+        messages.append(
+            f"row source_var '{row.source_var}' must match sources.var "
+            f"'{manifest.sources.var}'"
+        )
+    return messages
+
+
+def _secondary_number_issues(manifest: Manifest, row) -> list[ValidationIssue]:
+    config = row.secondary_number
+    if config is None:
+        return []
+    messages = _secondary_number_value_messages(config)
+    messages.extend(_secondary_number_source_messages(manifest, row, config))
+    option_ids = {
+        option.id for option in manifest.sources.options
+    } if manifest.sources is not None else set()
+    unknown_options = sorted(set(config.visible_when_source) - option_ids)
+    if unknown_options:
+        messages.append(f"visible_when_source names unknown source option(s): {unknown_options}")
+    return [
+        ValidationIssue(
+            kind="invalid_secondary_number",
+            manifest=manifest.name,
+            message=f"row '{row.display_name}' secondary_number {message}",
+        )
+        for message in messages
+    ]
+
+
+def _check_secondary_numbers(manifests: list[Manifest]) -> list[ValidationIssue]:
+    """Manifest-driven numeric inputs must be safe to render and persist."""
+    return [
+        issue
+        for manifest in manifests
+        for row in manifest.rows
+        for issue in _secondary_number_issues(manifest, row)
+    ]
+
+
+def _auto_prefer_fallback_issue(manifest: Manifest) -> ValidationIssue | None:
+    preferences = manifest.sources.auto_prefer if manifest.sources is not None else []
+    if all(item.requires_capability is not None for item in preferences):
+        return ValidationIssue(
+            kind="auto_prefer_no_fallback",
+            manifest=manifest.name,
+            message=(
+                "auto_prefer has no unconditional terminal entry — every entry "
+                "requires a capability, so `auto` resolution could dead-end."
+            ),
+        )
+    if any(item.requires_capability is None for item in preferences[:-1]):
+        return ValidationIssue(
+            kind="auto_prefer_fallback_not_terminal",
+            manifest=manifest.name,
+            message=(
+                "auto_prefer's unconditional fallback must be the final entry; "
+                "an earlier fallback makes later preferences unreachable."
+            ),
+        )
+    return None
+
+
 def _check_auto_prefer_integrity(manifests: list[Manifest]) -> list[ValidationIssue]:
     """`sources.auto_prefer` (#753) must be internally coherent.
 
@@ -714,17 +907,7 @@ def _check_auto_prefer_integrity(manifests: list[Manifest]) -> list[ValidationIs
                         ),
                     )
                 )
-        if all(p.requires_capability is not None for p in m.sources.auto_prefer):
-            issues.append(
-                ValidationIssue(
-                    kind="auto_prefer_no_fallback",
-                    manifest=m.name,
-                    message=(
-                        "auto_prefer has no unconditional terminal entry — every "
-                        "entry requires a capability, so `auto` resolution could "
-                        "dead-end on a host with none of them. Add a final entry "
-                        "without requires_capability (e.g. the container-cpu id)."
-                    ),
-                )
-            )
+        fallback_issue = _auto_prefer_fallback_issue(m)
+        if fallback_issue is not None:
+            issues.append(fallback_issue)
     return issues

@@ -21,7 +21,7 @@
       "functions_over_100_physical_lines": 70,
       "functions_over_4_parameters": 138,
       "modules_over_600_logical_lines": 16,
-      "tracked_files": 1465,
+      "tracked_files": 1472,
       "v0.1.0_tracked_files": 667
     },
     "regression_policy": "Do not increase any baseline count or add a new Radon E/F symbol without a symbol-level rationale; refresh the snapshot only during a reviewed maintenance pass.",

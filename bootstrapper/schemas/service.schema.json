@@ -404,6 +404,7 @@
               },
               "default": {
                 "type": "string",
+                "pattern": "^-?[0-9]+$",
                 "description": "Default value as a string (the wizard converts to int)."
               },
               "visible_when_source": {

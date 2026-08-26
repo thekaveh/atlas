@@ -430,7 +430,7 @@ services:
         required: false
       weaviate-init:
         condition: service_completed_successfully
-        required: true
+        required: false
     deploy:
       replicas: 1
     environment:
